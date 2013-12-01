@@ -16,6 +16,7 @@
 
 package com.facebook.buck.shell;
 
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractBuildRuleBuilderParams;
 import com.facebook.buck.rules.AbstractBuildable;
 import com.facebook.buck.rules.BuildContext;
@@ -23,14 +24,14 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.FileSourcePath;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.util.BuckConstant;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
@@ -77,47 +78,57 @@ import javax.annotation.Nullable;
  * As a rule of thumb, if the "out" parameter is missing, the "name" parameter is used as the name
  * of the file to be saved.
  */
-// TODO(simons): Extend to also allow exporting a rule.
 public class ExportFile extends AbstractBuildable {
 
-  private final Path src;
-  private final Supplier<Path> out;
-
+  private final SourcePath src;
+  private final Path out;
+  private final BuildTarget target;
 
   @VisibleForTesting
-  ExportFile(final BuildRuleParams params, Optional<Path> src, Optional<Path> out) {
-    Path shortName = Paths.get(params.getBuildTarget().getShortName());
+  ExportFile(final BuildRuleParams params, Optional<SourcePath> src, Optional<Path> out) {
+    this.target = params.getBuildTarget();
 
-    this.src = src.or(shortName);
-
-    final Path outName = out.or(shortName);
-
-    this.out = Suppliers.memoize(new Supplier<Path>() {
-      @Override
-      public Path get() {
-        Path name = outName.getFileName();
-        return Paths.get(
-            BuckConstant.GEN_DIR,
-            params.getBuildTarget().getBasePathWithSlash()).resolve(name);
+    if (src.isPresent()) {
+      this.src = src.get();
+    } else {
+      if (target.getBasePath().length() == 0) {
+        this.src = new FileSourcePath(target.getShortName());
+      } else {
+        String relativeToProject = target.getBaseNameWithSlash() + target.getShortName();
+        this.src = new FileSourcePath(relativeToProject);
       }
-    });
+    }
+
+    Path shortName = Paths.get(params.getBuildTarget().getShortName());
+    Path name = out.or(shortName).getFileName();
+    this.out = Paths.get(
+        BuckConstant.GEN_DIR,
+        params.getBuildTarget().getBasePathWithSlash()).resolve(name);
   }
 
   @Override
   public Iterable<String> getInputsToCompareToOutput() {
-    return ImmutableSet.of(src.toString());
+    // Ugh. If the source is a build target, we should be invalidated if that target is invalidated
+    // and so we only care about the case when the source is, in fact, a local file.
+    if (src instanceof FileSourcePath) {
+      return ImmutableSet.of(src.asReference());
+    }
+    return ImmutableSet.of();
   }
 
   @Override
   public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext)
       throws IOException {
-    Path pathToOutputFile = out.get();
+
+    Path srcPath = src.resolve(context);
+
+    System.out.println("Copying " + srcPath + " -> " + out);
 
     // This file is copied rather than symlinked so that when it is included in an archive zip and
     // unpacked on another machine, it is an ordinary file in both scenarios.
     ImmutableList.Builder<Step> builder = ImmutableList.<Step>builder()
-        .add(new MkdirStep(pathToOutputFile.getParent()))
-        .add(new CopyStep(src, pathToOutputFile));
+        .add(new MkdirStep(out.getParent()))
+        .add(new CopyStep(srcPath, out));
 
     return builder.build();
   }
@@ -125,7 +136,7 @@ public class ExportFile extends AbstractBuildable {
   @Nullable
   @Override
   public String getPathToOutputFile() {
-    return out.get().toString();
+    return out.toString();
   }
 
   public static Builder newExportFileBuilder(AbstractBuildRuleBuilderParams params) {
@@ -133,16 +144,15 @@ public class ExportFile extends AbstractBuildable {
   }
 
   public static class Builder extends AbstractBuildable.Builder {
-    private Optional<Path> src = Optional.absent();
+    private Optional<SourcePath> src = Optional.absent();
     private Optional<Path> out = Optional.absent();
 
     private Builder(AbstractBuildRuleBuilderParams params) {
       super(params);
     }
 
-    public Builder setSrc(Optional<String> src) {
-      // TODO(simons): The plugin APIs make it easy to set Paths. Until that arrives, do this. Ugh.
-      this.src = src.isPresent() ? Optional.of(Paths.get(src.get())) : Optional.<Path>absent();
+    public Builder setSrc(Optional<SourcePath> src) {
+      this.src = src;
       return this;
     }
 

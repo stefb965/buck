@@ -20,14 +20,20 @@ import static org.junit.Assert.assertEquals;
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.graph.MutableDirectedGraph;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildRuleType;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.DependencyGraph;
+import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildRuleParams;
 import com.facebook.buck.rules.FakeBuildableContext;
+import com.facebook.buck.rules.FileSourcePath;
 import com.facebook.buck.rules.JavaPackageFinder;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepFailedException;
 import com.facebook.buck.step.StepRunner;
@@ -67,7 +73,7 @@ public class ExportFileTest {
   @Test
   public void shouldSetSrcAndOutToNameParameterIfNeitherAreSet() throws IOException {
     ExportFile exportFile = new ExportFile(
-        params, /* src */ Optional.<Path>absent(), /* out */ Optional.<Path>absent());
+        params, /* src */ Optional.<SourcePath>absent(), /* out */ Optional.<Path>absent());
 
     List<Step> steps = exportFile.getBuildSteps(context, new FakeBuildableContext());
 
@@ -84,7 +90,7 @@ public class ExportFileTest {
   @Test
   public void shouldSetOutToNameParamValueIfSrcIsSet() throws IOException {
     ExportFile exportFile = new ExportFile(
-        params, /* src */ Optional.<Path>absent(), /* out */ Optional.of(Paths.get("fish")));
+        params, /* src */ Optional.<SourcePath>absent(), /* out */ Optional.of(Paths.get("fish")));
 
     List<Step> steps = exportFile.getBuildSteps(context, new FakeBuildableContext());
 
@@ -101,7 +107,7 @@ public class ExportFileTest {
   @Test
   public void shouldSetOutAndSrcAndNameParametersSeparately() throws IOException {
     ExportFile exportFile = new ExportFile(params,
-        /* src */ Optional.of(Paths.get("chips")),
+        /* src */ Optional.<SourcePath>of(new FileSourcePath("chips")),
         /* out */ Optional.of(Paths.get("fish")));
 
     List<Step> steps = exportFile.getBuildSteps(context, new FakeBuildableContext());
@@ -116,7 +122,35 @@ public class ExportFileTest {
     assertEquals("buck-out/gen/fish", exportFile.getPathToOutputFile());
   }
 
+  @Test
+  public void canUseTheOutputOfABuildRuleAsASource() throws IOException {
+    BuildTarget target = BuildTargetFactory.newInstance("//some/example:rule");
+    FakeBuildRule rule = new FakeBuildRule(new BuildRuleType("fake"), target);
+    String expectedSource = "buck-out/gen/some/example/rule.txt";
+    rule.setOutputFile(expectedSource);
+
+    MutableDirectedGraph<BuildRule> baseGraph = new MutableDirectedGraph<>();
+    baseGraph.addNode(rule);
+    DependencyGraph graph = new DependencyGraph(baseGraph);
+    context = getBuildContext(root, graph);
+    ExportFile exportFile = new ExportFile(params,
+        /* src */ Optional.<SourcePath>of(new BuildTargetSourcePath(target)),
+        /* out */ Optional.<Path>absent());
+
+    List<Step> steps = exportFile.getBuildSteps(context, new FakeBuildableContext());
+
+    System.out.println("steps = " + steps);
+  }
+
   private BuildContext getBuildContext(File root) {
+    return getBuildContext(root, null);
+  }
+
+  private BuildContext getBuildContext(File root, DependencyGraph graph) {
+    if (graph == null) {
+      graph = new DependencyGraph(new MutableDirectedGraph<BuildRule>());
+    }
+
     return BuildContext.builder()
         .setProjectFilesystem(new ProjectFilesystem(root))
         .setArtifactCache(EasyMock.createMock(ArtifactCache.class))
@@ -133,7 +167,6 @@ public class ExportFileTest {
             return null;
           }
         })
-        .setDependencyGraph(new DependencyGraph(new MutableDirectedGraph<BuildRule>()))
         .setStepRunner(new StepRunner() {
           @Override
           public void runStep(Step step) throws StepFailedException {
@@ -157,6 +190,7 @@ public class ExportFileTest {
             return null;
           }
         })
+        .setDependencyGraph(graph)
         .build();
   }
 }
