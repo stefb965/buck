@@ -43,6 +43,8 @@ import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 
+import org.openqa.selenium.buck.mozilla.XptBuildRuleFactory;
+
 import java.util.Map;
 
 /**
@@ -54,7 +56,10 @@ public class KnownBuildRuleTypes {
   private Map<String, BuildRuleType> types = Maps.newConcurrentMap();
 
   public KnownBuildRuleTypes() {
-    // TODO(simons): Consider whether we actually want to have default rules
+    // TODO(simons): Added for selenium. Move to that project once the plugin API works.
+    register(XptBuildRuleFactory.XPT, new XptBuildRuleFactory());
+
+    // TODO(simons): Consider whether we actually want to have default rules.
     register(BuildRuleType.ANDROID_MANIFEST, new AndroidManifestBuildRuleFactory());
     register(BuildRuleType.ANDROID_BINARY, new AndroidBinaryBuildRuleFactory());
     register(BuildRuleType.ANDROID_INSTRUMENTATION_APK, new AndroidInstrumentationApkRuleFactory());

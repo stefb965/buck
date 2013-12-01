@@ -47,7 +47,7 @@ public abstract class AbstractBuildable implements Buildable {
 
   }
 
-  protected static abstract class Builder extends AbstractBuildRuleBuilder<AbstractCachingBuildRule> {
+  public static abstract class Builder extends AbstractBuildRuleBuilder<AbstractCachingBuildRule> {
 
     protected Builder(AbstractBuildRuleBuilderParams params) {
       super(params);

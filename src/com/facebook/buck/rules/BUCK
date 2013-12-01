@@ -15,6 +15,7 @@ java_library(
     '//src/com/facebook/buck/python:rules',
     '//src/com/facebook/buck/shell:rules',
     '//src/com/facebook/buck/util:exceptions',
+    '//src/org/openqa/selenium/buck/mozilla:mozilla',
   ],
   visibility = [
     '//src/com/facebook/buck/cli:cli',

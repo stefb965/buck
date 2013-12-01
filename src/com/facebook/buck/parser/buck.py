@@ -728,6 +728,25 @@ def project_config(
   }, build_env)
 
 
+##############################
+# Selenium madness goes here #
+##############################
+
+@provide_for_build
+def mozilla_xpt(name, src, fallback, visibility=[], build_env=None):
+  add_rule({
+    'type' : 'mozilla_xpt',
+    'name' : name,
+    'src' : src,
+    'fallback' : fallback,
+    'visibility' : visibility
+  }, build_env)
+
+##############################
+# Selenium madness ends here #
+##############################
+
+
 @provide_for_build
 def get_base_path(build_env=None):
   """Get the base path to the build file that was initially evaluated.
