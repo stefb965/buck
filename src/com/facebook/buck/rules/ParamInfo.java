@@ -17,8 +17,12 @@
 package com.facebook.buck.rules;
 
 import static com.facebook.buck.model.BuildTarget.BUILD_TARGET_PREFIX;
+import static com.facebook.buck.rules.BuildRuleFactoryParams.GENFILE_PREFIX;
+import static com.google.common.base.CaseFormat.LOWER_CAMEL;
+import static com.google.common.base.CaseFormat.LOWER_UNDERSCORE;
 
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.util.BuckConstant;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -32,6 +36,7 @@ import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.lang.reflect.WildcardType;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Collection;
 import java.util.List;
 import java.util.Set;
@@ -41,11 +46,19 @@ import javax.annotation.Nullable;
 
 /**
  * Parameter information derived from the object returned by
- * {@link Description#getConstructorArg()}.
+ * {@link Description#createUnpopulatedConstructorArg()}.
  */
 // DO NOT EXPOSE OUT OF PACKAGE.
 class ParamInfo implements Comparable<ParamInfo> {
+  /**
+   * Name of the parameter using Java's normalFieldCasing.
+   */
   private final String name;
+
+  /**
+   * Name of the parameter using Python's snake_casing.
+   */
+  private final String pyName;
 
   /**
    * Is the property optional (indicated by being Optional or @Hinted with a default value.
@@ -75,8 +88,10 @@ class ParamInfo implements Comparable<ParamInfo> {
     this.pathRelativeToProjectRoot = Preconditions.checkNotNull(pathRelativeToProjectRoot);
 
     this.field = Preconditions.checkNotNull(field);
+
+    this.name = field.getName();
     Hint hint = field.getAnnotation(Hint.class);
-    this.name = determineName(field.getName(), hint);
+    this.pyName = determinePyName(this.name, hint);
 
     Class<?> rawType = field.getType();
     Type genericType = field.getGenericType();
@@ -116,6 +131,10 @@ class ParamInfo implements Comparable<ParamInfo> {
     return name;
   }
 
+  String getPythonName() {
+    return pyName;
+  }
+
   boolean isOptional() {
     return isOptional;
   }
@@ -149,8 +168,11 @@ class ParamInfo implements Comparable<ParamInfo> {
     return (Class<?>) types[0];
   }
 
-  private String determineName(String name, @Nullable Hint hint) {
-    return hint == null ? name : hint.name();
+  private String determinePyName(String javaName, @Nullable Hint hint) {
+    if (hint != null) {
+      return hint.name();
+    }
+    return LOWER_CAMEL.to(LOWER_UNDERSCORE, javaName);
   }
 
   private Class<?> determineGenericType(Type genericType) {
@@ -203,7 +225,7 @@ class ParamInfo implements Comparable<ParamInfo> {
   /**
    * Sets a single property of the {@code dto}, coercing types as necessary.
    *
-   * @param resolver {@link com.facebook.buck.rules.BuildRuleResolver} used for {@link com.facebook.buck.rules.BuildRule} instances.
+   * @param resolver {@link BuildRuleResolver} used for {@link BuildRule} instances.
    * @param dto The constructor DTO on which the value should be set.
    * @param value The value, which may be coerced depending on the type on {@code dto}.
    */
@@ -287,7 +309,7 @@ class ParamInfo implements Comparable<ParamInfo> {
         return new BuildTargetSourcePath(target);
       }
       Path path = asNormalizedPath(value);
-      return new FileSourcePath(pathRelativeToProjectRoot.relativize(path).toString());
+      return new FileSourcePath(path.toString());
     }
 
     if (value instanceof Number) {
@@ -325,6 +347,11 @@ class ParamInfo implements Comparable<ParamInfo> {
         "Expected argument '%s' to be a build target", value);
 
     String param = (String) value;
+
+    if (param.startsWith(GENFILE_PREFIX)) {
+      return null;
+    }
+
     int colon = param.indexOf(':');
     if (colon == 0 && param.length() > 1) {
       return new BuildTarget(
@@ -341,7 +368,19 @@ class ParamInfo implements Comparable<ParamInfo> {
         "Expected argument '%s' to be a string in build file in %s",
         value, pathRelativeToProjectRoot);
 
-    return pathRelativeToProjectRoot.resolve((String) value).normalize();
+    // genfiles point to a path that's already relative to the buck-gen directory. Everything else
+    // is assumed to be a file relative to the pathRelativeToProjectRoot.
+    String path = (String) value;
+    if (path.startsWith(GENFILE_PREFIX)) {
+      path = path.substring(GENFILE_PREFIX.length());
+
+      return Paths.get(BuckConstant.GEN_DIR)
+          .resolve(pathRelativeToProjectRoot)
+          .resolve(path)
+          .normalize();
+    }
+
+    return pathRelativeToProjectRoot.resolve(path).normalize();
   }
 
   @SuppressWarnings("unchecked")

@@ -18,18 +18,15 @@ package com.facebook.buck.cli;
 
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventListener;
+import com.facebook.buck.event.listener.AbstractConsoleEventBusListener;
 import com.facebook.buck.event.listener.ChromeTraceBuildListener;
 import com.facebook.buck.event.listener.JavaUtilsLoggingBuildListener;
 import com.facebook.buck.event.listener.SimpleConsoleEventBusListener;
 import com.facebook.buck.event.listener.SuperConsoleEventBusListener;
 import com.facebook.buck.httpserver.WebServer;
 import com.facebook.buck.parser.Parser;
-import com.facebook.buck.rules.ArtifactCache;
-import com.facebook.buck.rules.ArtifactCacheConnectEvent;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.KnownBuildRuleTypes;
-import com.facebook.buck.rules.LoggingArtifactCacheDecorator;
-import com.facebook.buck.rules.NoopArtifactCache;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKey.Builder;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
@@ -44,6 +41,8 @@ import com.facebook.buck.util.MoreStrings;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.buck.util.ProjectFilesystemWatcher;
 import com.facebook.buck.util.Verbosity;
+import com.facebook.buck.util.WatchServiceWatcher;
+import com.facebook.buck.util.WatchmanWatcher;
 import com.facebook.buck.util.environment.DefaultExecutionEnvironment;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.facebook.buck.util.environment.Platform;
@@ -66,7 +65,6 @@ import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.FileSystems;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
@@ -96,6 +94,8 @@ public final class Main {
   private static final String BUCK_VERSION_UID = System.getProperty(BUCK_VERSION_UID_KEY, "N/A");
 
   private static final String BUCKD_COLOR_DEFAULT_ENV_VAR = "BUCKD_COLOR_DEFAULT";
+
+  private static final int ARTIFACT_CACHE_TIMEOUT_IN_SECONDS = 15;
 
   private final PrintStream stdOut;
   private final PrintStream stdErr;
@@ -130,17 +130,28 @@ public final class Main {
           console,
           config.getPythonInterpreter(),
           config.getTempFilePatterns(),
-          createRuleKeyBuilderFactory(config, hashCache));
+          createRuleKeyBuilderFactory(hashCache));
       this.fileEventBus = new EventBus("file-change-events");
-      this.filesystemWatcher = new ProjectFilesystemWatcher(
-          projectFilesystem,
-          fileEventBus,
-          config.getIgnorePaths(),
-          FileSystems.getDefault().newWatchService());
+      this.filesystemWatcher = createWatcher(projectFilesystem);
       fileEventBus.register(parser);
       fileEventBus.register(hashCache);
       webServer = createWebServer(config, console);
       JavaUtilsLoggingBuildListener.ensureLogFileIsWritten();
+    }
+
+    private ProjectFilesystemWatcher createWatcher(ProjectFilesystem projectFilesystem)
+        throws IOException {
+      if (System.getProperty("buck.buckd_watcher", "WatchService").equals("Watchman")) {
+        return new WatchmanWatcher(
+            projectFilesystem,
+            fileEventBus,
+            config.getIgnorePaths());
+      }
+      return new WatchServiceWatcher(
+          projectFilesystem,
+          fileEventBus,
+          config.getIgnorePaths(),
+          FileSystems.getDefault().newWatchService());
     }
 
     private Optional<WebServer> createWebServer(BuckConfig config, Console console) {
@@ -240,7 +251,7 @@ public final class Main {
     }
   }
 
-  @Nullable private static Daemon daemon;
+  @Nullable volatile private static Daemon daemon;
 
   /**
    * Get existing Daemon.
@@ -363,25 +374,36 @@ public final class Main {
           console,
           config.getPythonInterpreter(),
           config.getTempFilePatterns(),
-          createRuleKeyBuilderFactory(config,
-              new DefaultFileHashCache(projectFilesystem, console)));
+          createRuleKeyBuilderFactory(new DefaultFileHashCache(projectFilesystem, console)));
     }
-
-    Clock clock = new DefaultClock();
-    final BuckEventBus buildEventBus = new BuckEventBus(
-        clock,
-         /* buildId */ MoreStrings.createRandomString());
 
     // Find and execute command.
     Optional<Command> command = Command.getCommandForName(args[0], console);
-    if (command.isPresent()) {
+    if (!command.isPresent()) {
+      int exitCode = new GenericBuckOptions(stdOut, stdErr).execute(args);
+      if (exitCode == GenericBuckOptions.SHOW_MAIN_HELP_SCREEN_EXIT_CODE) {
+        return usage();
+      } else {
+        return exitCode;
+      }
+    }
+
+    Clock clock = new DefaultClock();
+
+    String buildId = MoreStrings.createRandomString();
+    ExecutionEnvironment executionEnvironment = new DefaultExecutionEnvironment();
+    try (BuckEventBus buildEventBus = new BuckEventBus(clock, buildId);
+         AbstractConsoleEventBusListener consoleListener =
+             createConsoleEventListener(clock, console, executionEnvironment))  {
+
       ImmutableList<BuckEventListener> eventListeners =
           addEventListeners(buildEventBus,
               clock,
               projectFilesystem,
-              console,
               config,
-              getWebServerIfDaemon(context));
+              getWebServerIfDaemon(context),
+              consoleListener);
+
       String[] remainingArgs = new String[args.length - 1];
       System.arraycopy(args, 1, remainingArgs, 0, remainingArgs.length);
 
@@ -392,20 +414,7 @@ public final class Main {
 
       // The ArtifactCache is constructed lazily so that we do not try to connect to Cassandra when
       // running commands such as `buck clean`.
-      ArtifactCacheFactory artifactCacheFactory = new ArtifactCacheFactory() {
-        @Override
-        public ArtifactCache newInstance(AbstractCommandOptions options) {
-          if (options.isNoCache()) {
-            return new NoopArtifactCache();
-          } else {
-            buildEventBus.post(ArtifactCacheConnectEvent.started());
-            ArtifactCache artifactCache = new LoggingArtifactCacheDecorator(buildEventBus)
-                .decorate(options.getBuckConfig().createArtifactCache(buildEventBus));
-            buildEventBus.post(ArtifactCacheConnectEvent.finished());
-            return artifactCache;
-          }
-        }
-      };
+      ArtifactCacheFactory artifactCacheFactory = new LoggingArtifactCacheFactory(buildEventBus);
 
       int exitCode = executingCommand.execute(remainingArgs, config, new CommandRunnerParams(
           console,
@@ -417,26 +426,12 @@ public final class Main {
           platform));
 
       buildEventBus.post(CommandEvent.finished(commandName, context.isPresent(), exitCode));
-
-      ExecutorService buildEventBusExecutor = buildEventBus.getExecutorService();
-      buildEventBusExecutor.shutdown();
-      try {
-        buildEventBusExecutor.awaitTermination(15, TimeUnit.SECONDS);
-      } catch (InterruptedException e) {
-        // Give the eventBus 15 seconds to finish dispatching all events, but if they should fail
-        // to finish in that amount of time just eat it, the end user doesn't care.
-      }
       for (BuckEventListener eventListener : eventListeners) {
         eventListener.outputTrace();
       }
+      artifactCacheFactory.closeCreatedArtifactCaches(ARTIFACT_CACHE_TIMEOUT_IN_SECONDS);
+
       return exitCode;
-    } else {
-      int exitCode = new GenericBuckOptions(stdOut, stdErr).execute(args);
-      if (exitCode == GenericBuckOptions.SHOW_MAIN_HELP_SCREEN_EXIT_CODE) {
-        return usage();
-      } else {
-        return exitCode;
-      }
     }
   }
 
@@ -499,33 +494,25 @@ public final class Main {
     }
   }
 
-  private ImmutableList<BuckEventListener> addEventListeners(BuckEventBus buckEvents,
-                                                             Clock clock,
-                                                             ProjectFilesystem projectFilesystem,
-                                                             Console console,
-                                                             BuckConfig config,
-                                                             Optional<WebServer> webServer) {
-    ExecutionEnvironment executionEnvironment = new DefaultExecutionEnvironment();
-
+  private ImmutableList<BuckEventListener> addEventListeners(
+      BuckEventBus buckEvents,
+      Clock clock,
+      ProjectFilesystem projectFilesystem,
+      BuckConfig config,
+      Optional<WebServer> webServer,
+      AbstractConsoleEventBusListener consoleEventBusListener) {
     ImmutableList.Builder<BuckEventListener> eventListenersBuilder =
         ImmutableList.<BuckEventListener>builder()
             .add(new JavaUtilsLoggingBuildListener())
-            .add(new ChromeTraceBuildListener(projectFilesystem, clock, config.getMaxTraces()));
+            .add(new ChromeTraceBuildListener(projectFilesystem, clock, config.getMaxTraces()))
+            .add(consoleEventBusListener);
 
     if (webServer.isPresent()) {
       eventListenersBuilder.add(webServer.get().createListener());
     }
 
-    if (console.getAnsi().isAnsiTerminal()) {
-      SuperConsoleEventBusListener superConsole =
-          new SuperConsoleEventBusListener(console, clock, executionEnvironment);
-      superConsole.startRenderScheduler(100, TimeUnit.MILLISECONDS);
-      eventListenersBuilder.add(superConsole);
-    } else {
-      eventListenersBuilder.add(new SimpleConsoleEventBusListener(console, clock));
-    }
-
     loadListenersFromBuckConfig(eventListenersBuilder, projectFilesystem, config);
+
 
 
 
@@ -536,6 +523,17 @@ public final class Main {
     }
 
     return eventListeners;
+  }
+
+  private AbstractConsoleEventBusListener createConsoleEventListener(
+      Clock clock, Console console, ExecutionEnvironment executionEnvironment) {
+    if (console.getAnsi().isAnsiTerminal()) {
+      SuperConsoleEventBusListener superConsole =
+          new SuperConsoleEventBusListener(console, clock, executionEnvironment);
+      superConsole.startRenderScheduler(100, TimeUnit.MILLISECONDS);
+      return superConsole;
+    }
+    return new SimpleConsoleEventBusListener(console, clock);
   }
 
 
@@ -560,12 +558,9 @@ public final class Main {
   }
 
   /**
-   * @param buckConfig This is currently unused, but we plan to use this in the near future so that
-   *     global user configurations can be included when computing keys.
    * @param hashCache A cache of file content hashes, used to avoid reading and hashing input files.
    */
-  @SuppressWarnings("unused")
-  private static RuleKeyBuilderFactory createRuleKeyBuilderFactory(BuckConfig buckConfig, final FileHashCache hashCache) {
+  private static RuleKeyBuilderFactory createRuleKeyBuilderFactory(final FileHashCache hashCache) {
     return new RuleKeyBuilderFactory() {
       @Override
       public Builder newInstance(BuildRule buildRule) {

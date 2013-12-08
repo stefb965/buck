@@ -27,15 +27,15 @@ import java.util.SortedSet;
  * Used to generate a function for use within buck.py for the rule described by a
  * {@link Description}.
  */
-class BuckPyFunction {
+public class BuckPyFunction {
 
-  private final ArgObjectPopulatomatic argsInspector;
+  private final ConstructorArgMarshaller argMarshaller;
 
-  public BuckPyFunction(ArgObjectPopulatomatic argsInspector) {
-    this.argsInspector = Preconditions.checkNotNull(argsInspector);
+  public BuckPyFunction(ConstructorArgMarshaller argMarshaller) {
+    this.argMarshaller = Preconditions.checkNotNull(argMarshaller);
   }
 
-  String toPythonFunction(BuildRuleType type, Object dto) {
+  public String toPythonFunction(BuildRuleType type, Object dto) {
     Preconditions.checkNotNull(type);
     Preconditions.checkNotNull(dto);
 
@@ -44,7 +44,7 @@ class BuckPyFunction {
     SortedSet<ParamInfo> mandatory = Sets.newTreeSet();
     SortedSet<ParamInfo> optional = Sets.newTreeSet();
 
-    for (ParamInfo param : argsInspector.getAllParamInfo(dto)) {
+    for (ParamInfo param : argMarshaller.getAllParamInfo(dto)) {
       if (isSkippable(param)) {
         continue;
       }
@@ -75,7 +75,7 @@ class BuckPyFunction {
       builder.append("    '")
           .append(param.getName())
           .append("' : ")
-          .append(param.getName())
+          .append(param.getPythonName())
           .append(",\n");
     }
 
@@ -86,7 +86,7 @@ class BuckPyFunction {
   }
 
   private void appendPythonParameter(StringBuilder builder, ParamInfo param) {
-    builder.append(param.getName());
+    builder.append(param.getPythonName());
     if (param.isOptional()) {
       builder.append("=").append(getPythonDefault(param));
     }

@@ -19,23 +19,22 @@ package com.facebook.buck.python;
 import static com.facebook.buck.rules.BuildableProperties.Kind.LIBRARY;
 import static org.easymock.EasyMock.createMock;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.FakeAbstractBuildRuleBuilderParams;
-import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeBuildRuleParams;
+import com.facebook.buck.rules.FakeBuildableContext;
+import com.facebook.buck.rules.FileSourcePath;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
+import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.ProjectFilesystem;
-import com.facebook.buck.testutil.MoreAsserts;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -44,8 +43,8 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
-import java.io.IOException;
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
@@ -61,29 +60,27 @@ public class PythonLibraryTest {
   public void testGetters() {
     BuildRuleParams buildRuleParams = new FakeBuildRuleParams(
         new BuildTarget("//scripts/python", "foo"));
-    ImmutableSortedSet<String> srcs = ImmutableSortedSet.of("");
+    SourcePath src = new FileSourcePath("");
+    ImmutableSortedSet<SourcePath> srcs = ImmutableSortedSet.of(src);
     PythonLibrary pythonLibrary = new PythonLibrary(
         buildRuleParams,
         srcs);
 
     assertTrue(pythonLibrary.getProperties().is(LIBRARY));
-    assertSame(srcs, pythonLibrary.getPythonSrcs());
   }
 
   @Test
   public void testFlattening() throws IOException {
-    BuildRuleResolver ruleResolver = new BuildRuleResolver();
-
     BuildTarget pyLibraryTarget = BuildTargetFactory.newInstance("//:py_library");
-    ruleResolver.buildAndAddToIndex(
-        PythonLibrary.newPythonLibraryBuilder(new FakeAbstractBuildRuleBuilderParams())
-            .addSrc("baz.py")
-            .addSrc("foo/__init__.py")
-            .addSrc("foo/bar.py")
-            .setBuildTarget(pyLibraryTarget));
+    ImmutableSortedSet.Builder<SourcePath> srcs = ImmutableSortedSet.naturalOrder();
+    srcs.add(new FileSourcePath("baz.py"));
+    srcs.add(new FileSourcePath("foo/__init__.py"));
+    srcs.add(new FileSourcePath("foo/bar.py"));
+    PythonLibrary rule = new PythonLibrary(new FakeBuildRuleParams(pyLibraryTarget),
+        srcs.build());
+
     FakeBuildableContext buildableContext = new FakeBuildableContext();
     BuildContext buildContext = createMock(BuildContext.class);
-    PythonLibrary rule = (PythonLibrary)ruleResolver.get(pyLibraryTarget).getBuildable();
     List<Step> steps = rule.getBuildSteps(buildContext, buildableContext);
 
     final String projectRoot = projectRootDir.getRoot().getAbsolutePath();
@@ -134,9 +131,9 @@ public class PythonLibraryTest {
     ImmutableSet<Path> artifacts = buildableContext.getRecordedArtifacts();
     assertEquals(
       ImmutableSet.of(
-        Paths.get(pylibpath, "baz.py"),
-        Paths.get(pylibpath, "foo/__init__.py"),
-        Paths.get(pylibpath, "foo/bar.py")
+        Paths.get("buck-out/gen/__pylib_py_library/baz.py"),
+        Paths.get("buck-out/gen/__pylib_py_library/foo/__init__.py"),
+        Paths.get("buck-out/gen/__pylib_py_library/foo/bar.py")
       ),
       artifacts);
   }

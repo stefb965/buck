@@ -333,6 +333,7 @@ def android_library(
     name,
     srcs=[],
     resources=[],
+    exported_deps=[],
     manifest=None,
     proguard_config=None,
     deps=[],
@@ -342,10 +343,11 @@ def android_library(
     'type' : 'android_library',
     'name' : name,
     'srcs' : srcs,
+    'exported_deps' : exported_deps,
     'resources' : resources,
     'manifest' : manifest,
     'proguard_config' : proguard_config,
-    'deps' : deps,
+    'deps' : deps + exported_deps,
     'visibility' : visibility,
   }, build_env)
 
@@ -503,22 +505,6 @@ def ndk_library(
 
 
 @provide_for_build
-def python_library(
-      name,
-      srcs=[],
-      deps=[],
-      visibility=[],
-      build_env=None):
-  add_rule({
-    'type' : 'python_library',
-    'name' : name,
-    'srcs' : srcs,
-    'deps' : deps,
-    'visibility' : visibility,
-  }, build_env)
-
-
-@provide_for_build
 def python_binary(
     name,
     main=None,
@@ -529,22 +515,6 @@ def python_binary(
     'type' : 'python_binary',
     'name' : name,
     'main' : main,
-    'deps' : deps,
-    'visibility' : visibility,
-  }, build_env)
-
-
-@provide_for_build
-def android_manifest(
-    name,
-    skeleton,
-    deps=[],
-    visibility=[],
-    build_env=None):
-  add_rule({
-    'type' : 'android_manifest',
-    'name' : name,
-    'skeleton' : skeleton,
     'deps' : deps,
     'visibility' : visibility,
   }, build_env)
@@ -563,18 +533,6 @@ def keystore(
     'name' : name,
     'store' : store,
     'properties' : properties,
-    'deps' : deps,
-    'visibility' : visibility,
-  }, build_env)
-
-
-@provide_for_build
-def gen_aidl(name, aidl, import_path, deps=[], visibility=[], build_env=None):
-  add_rule({
-    'type' : 'gen_aidl',
-    'name' : name,
-    'aidl' : aidl,
-    'import_path' : import_path,
     'deps' : deps,
     'visibility' : visibility,
   }, build_env)
@@ -674,16 +632,6 @@ def sh_test(name, test, labels=[], deps=[], visibility=[], build_env=None):
     'visibility' : visibility,
   }, build_env)
 
-
-@provide_for_build
-def export_file(name, src=None, out=None, visibility=[], build_env=None):
-  add_rule({
-    'type' : 'export_file',
-    'name' : name,
-    'src' : src,
-    'out' : out,
-    'visibility': visibility,
-  }, build_env)
 
 @provide_for_build
 def include_defs(name, build_env=None):
@@ -884,10 +832,3 @@ def main():
     # offer an iterator.
     for build_file in iter(sys.stdin.readline, ''):
       buildFileProcessor.process(build_file.rstrip())
-
-
-if __name__ == '__main__':
-  try:
-    main()
-  except KeyboardInterrupt:
-    print >> sys.stderr, "Killed by User"

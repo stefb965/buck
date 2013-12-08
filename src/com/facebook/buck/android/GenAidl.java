@@ -19,12 +19,8 @@ package com.facebook.buck.android;
 import static com.facebook.buck.rules.BuildableProperties.Kind.ANDROID;
 
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractBuildRuleBuilderParams;
 import com.facebook.buck.rules.AbstractBuildable;
 import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.RecordArtifactsInDirectoryStep;
@@ -32,7 +28,6 @@ import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.util.BuckConstant;
-import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -72,11 +67,9 @@ public class GenAidl extends AbstractBuildable {
   private final String aidlFilePath;
   private final String importPath;
 
-  private GenAidl(BuildTarget buildTarget,
-      String aidlFilePath,
-      String importPath) {
+  GenAidl(BuildTarget buildTarget, Path aidlFilePath, String importPath) {
     this.buildTarget = Preconditions.checkNotNull(buildTarget);
-    this.aidlFilePath = Preconditions.checkNotNull(aidlFilePath);
+    this.aidlFilePath = Preconditions.checkNotNull(aidlFilePath).toString();
     this.importPath = Preconditions.checkNotNull(importPath);
   }
 
@@ -123,63 +116,14 @@ public class GenAidl extends AbstractBuildable {
     commands.add(command);
 
     // Files must ultimately be written to GEN_DIR to be used with genfile().
-    String genDirectory = String.format("%s/%s", BuckConstant.GEN_DIR, importPath);
+    Path genDirectory = Paths.get(BuckConstant.GEN_DIR, importPath);
     commands.add(new MkdirStep(genDirectory));
 
-    Function<String, Path> artifactPathTransform = new Function<String, Path>() {
-      @Override
-      public Path apply(String input) {
-        return Paths.get(input);
-      }
-    };
     commands.add(new RecordArtifactsInDirectoryStep(
         buildableContext,
         outputDirectory,
-        genDirectory,
-        artifactPathTransform));
+        genDirectory));
 
     return commands.build();
-  }
-
-  public static Builder newGenAidlRuleBuilder(AbstractBuildRuleBuilderParams params) {
-    return new Builder(params);
-  }
-
-  public static class Builder extends AbstractBuildable.Builder {
-
-    private String aidl;
-
-    private String importPath;
-
-    private Builder(AbstractBuildRuleBuilderParams params) {
-      super(params);
-    }
-
-    @Override
-    public BuildRuleType getType() {
-      return BuildRuleType.GEN_AIDL;
-    }
-
-    @Override
-    public GenAidl newBuildable(BuildRuleParams buildRuleParams,
-        BuildRuleResolver ruleResolver) {
-      return new GenAidl(buildRuleParams.getBuildTarget(), aidl, importPath);
-    }
-
-    @Override
-    public Builder setBuildTarget(BuildTarget buildTarget) {
-      super.setBuildTarget(buildTarget);
-      return this;
-    }
-
-    public Builder setAidl(String aidl) {
-      this.aidl = aidl;
-      return this;
-    }
-
-    public Builder setImportPath(String importPath) {
-      this.importPath = importPath;
-      return this;
-    }
   }
 }

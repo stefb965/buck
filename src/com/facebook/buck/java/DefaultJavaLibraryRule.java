@@ -22,6 +22,7 @@ import static com.facebook.buck.rules.BuildableProperties.Kind.LIBRARY;
 import com.facebook.buck.android.HasAndroidResourceDeps;
 import com.facebook.buck.android.UberRDotJavaUtil;
 import com.facebook.buck.graph.TopologicalSort;
+import com.facebook.buck.graph.TraversableGraph;
 import com.facebook.buck.java.abi.AbiWriterProtocol;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetPattern;
@@ -39,6 +40,7 @@ import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.DoNotUseAbstractBuildable;
 import com.facebook.buck.rules.ExportDependencies;
+import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.JavaPackageFinder;
 import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.ResourcesAttributeBuilder;
@@ -64,9 +66,11 @@ import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSetMultimap;
+import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
+import com.google.common.hash.HashCode;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
 import com.google.common.reflect.ClassPath;
@@ -102,7 +106,8 @@ import javax.annotation.Nullable;
  * from the {@code //src/com/facebook/feed/model:model} rule.
  */
 public class DefaultJavaLibraryRule extends DoNotUseAbstractBuildable
-    implements JavaLibraryRule, AbiRule, HasJavaSrcs, HasClasspathEntries, ExportDependencies {
+    implements JavaLibraryRule, AbiRule, HasJavaSrcs, HasClasspathEntries, ExportDependencies,
+    InitializableFromDisk<JavaLibraryRule.Data> {
 
   private final static BuildableProperties OUTPUT_TYPE = new BuildableProperties(LIBRARY);
 
@@ -129,17 +134,8 @@ public class DefaultJavaLibraryRule extends DoNotUseAbstractBuildable
 
   private final JavacOptions javacOptions;
 
-  /**
-   * This returns the ABI key for this rule. This will be set <em>EITHER</em> as part of
-   * {@link #initializeFromDisk(OnDiskBuildInfo)}, or while the build steps (in particular, the
-   * javac step) for this rule are created. In the case of the latter, the {@link Supplier} is
-   * guaranteed to be able to return (a possibly null) value after the build steps have been
-   * executed.
-   * <p>
-   * This field should be set exclusively through {@link #setAbiKey(Supplier)}
-   */
   @Nullable
-  private Supplier<Sha1HashCode> abiKeySupplier;
+  private JavaLibraryRule.Data buildOutput;
 
   /**
    * Function for opening a JAR and returning all symbols that can be referenced from inside of that
@@ -293,8 +289,9 @@ public class DefaultJavaLibraryRule extends DoNotUseAbstractBuildable
    * @param javacOptions options to use when compiling code.
    * @param suggestBuildRules Function to convert from missing symbols to the suggested rules.
    * @param commands List of steps to add to.
+   * @return a {@link Supplier} that will return the ABI for this rule after javac is executed.
    */
-  private void createCommandsForJavac(
+  private Supplier<Sha1HashCode> createCommandsForJavac(
       String outputDirectory,
       ImmutableSet<String> transitiveClasspathEntries,
       ImmutableSet<String> declaredClasspathEntries,
@@ -321,16 +318,16 @@ public class DefaultJavaLibraryRule extends DoNotUseAbstractBuildable
       commands.add(javac);
 
       // Create a supplier that extracts the ABI key from javac after it executes.
-      setAbiKey(Suppliers.memoize(new Supplier<Sha1HashCode>() {
+      return Suppliers.memoize(new Supplier<Sha1HashCode>() {
         @Override
         public Sha1HashCode get() {
           return createTotalAbiKey(javac.getAbiKey());
         }
-      }));
+      });
     } else {
       // When there are no .java files to compile, the ABI key should be a constant.
-      setAbiKey(Suppliers.ofInstance(createTotalAbiKey(
-          new Sha1HashCode(AbiWriterProtocol.EMPTY_ABI_KEY))));
+      return Suppliers.ofInstance(createTotalAbiKey(
+          new Sha1HashCode(AbiWriterProtocol.EMPTY_ABI_KEY)));
     }
   }
 
@@ -571,7 +568,7 @@ public class DefaultJavaLibraryRule extends DoNotUseAbstractBuildable
             JAR_RESOLVER);
 
     // This adds the javac command, along with any supporting commands.
-    createCommandsForJavac(
+    Supplier<Sha1HashCode> abiKeySupplier = createCommandsForJavac(
         outputDirectory,
         ImmutableSet.copyOf(transitiveClasspathEntries.values()),
         ImmutableSet.copyOf(declaredClasspathEntries.values()),
@@ -597,7 +594,9 @@ public class DefaultJavaLibraryRule extends DoNotUseAbstractBuildable
         "abiKeySupplier must be set so that getAbiKey() will " +
         "return a non-null value if this rule builds successfully.");
 
-    addStepsToRecordAbiToDisk(commands, buildableContext);
+    addStepsToRecordAbiToDisk(commands, abiKeySupplier, buildableContext);
+
+    JavaLibraryRules.addAccumulateClassNamesStep(this, buildableContext, commands);
 
     return commands.build();
   }
@@ -607,6 +606,7 @@ public class DefaultJavaLibraryRule extends DoNotUseAbstractBuildable
    * be stored for subsequent builds.
    */
   private void addStepsToRecordAbiToDisk(ImmutableList.Builder<Step> commands,
+      final Supplier<Sha1HashCode> abiKeySupplier,
       final BuildableContext buildableContext) throws IOException {
     // Note that the parent directories for all of the files written by these steps should already
     // have been created by a previous step. Therefore, there is no reason to add a MkdirStep here.
@@ -681,8 +681,9 @@ public class DefaultJavaLibraryRule extends DoNotUseAbstractBuildable
         transitiveClasspathEntries.keySet(),
         Sets.union(ImmutableSet.of(this), declaredClasspathEntries.keySet()));
 
+    TraversableGraph<BuildRule> graph = context.getDependencyGraph();
     final ImmutableList<BuildRule> sortedTransitiveNotDeclaredDeps = ImmutableList.copyOf(
-        TopologicalSort.sort(context.getDependencyGraph(),
+        TopologicalSort.sort(graph,
             new Predicate<BuildRule>() {
               @Override
               public boolean apply(BuildRule input) {
@@ -724,26 +725,32 @@ public class DefaultJavaLibraryRule extends DoNotUseAbstractBuildable
    * Instructs this rule to report the ABI it has on disk as its current ABI.
    */
   @Override
-  public void initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) {
-    Optional<Sha1HashCode> abiKeyHash = onDiskBuildInfo.getHash(AbiRule.ABI_KEY_ON_DISK_METADATA);
-    if (abiKeyHash.isPresent()) {
-      setAbiKey(Suppliers.ofInstance(abiKeyHash.get()));
-    } else {
-      throw new IllegalStateException(String.format(
-          "Should not be initializing %s from disk if the ABI key is not written.", this));
-    }
+  public JavaLibraryRule.Data initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) {
+    return JavaLibraryRules.initializeFromDisk(this, onDiskBuildInfo);
+  }
+
+  @Override
+  public void setBuildOutput(JavaLibraryRule.Data buildOutput) {
+    Preconditions.checkState(this.buildOutput == null,
+        "buildOutput should not already be set for %s.",
+        this);
+    this.buildOutput = buildOutput;
+  }
+
+  @Override
+  public JavaLibraryRule.Data getBuildOutput() {
+    Preconditions.checkState(buildOutput != null, "buildOutput must already be set for %s.", this);
+    return buildOutput;
   }
 
   @Override
   public Sha1HashCode getAbiKey() {
-    Preconditions.checkState(isRuleBuilt(),
-        "%s must be built before its ABI key can be returned.", this);
-    return abiKeySupplier.get();
+    return getBuildOutput().getAbiKey();
   }
 
-  private void setAbiKey(Supplier<Sha1HashCode> abiKeySupplier) {
-    Preconditions.checkState(this.abiKeySupplier == null, "abiKeySupplier should be set only once");
-    this.abiKeySupplier = abiKeySupplier;
+  @Override
+  public ImmutableSortedMap<String, HashCode> getClassNamesToHashes() {
+    return getBuildOutput().getClassNamesToHashes();
   }
 
 

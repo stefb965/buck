@@ -17,16 +17,13 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractBuildRuleBuilderParams;
 import com.facebook.buck.rules.AbstractBuildable;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Buildable;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.DependencyGraph;
+import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.step.Step;
@@ -79,6 +76,12 @@ public class AndroidManifest extends AbstractBuildable {
     return SourcePaths.filterInputsToCompareToOutput(Collections.singleton(skeletonFile));
   }
 
+  @Override
+  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
+    return builder.
+        set("skeleton", skeletonFile.asReference());
+  }
+
   public BuildTarget getBuildTarget() {
     return buildTarget;
   }
@@ -119,34 +122,5 @@ public class AndroidManifest extends AbstractBuildable {
   private ImmutableList<HasAndroidResourceDeps> getAndroidResourceDeps(DependencyGraph graph) {
     BuildRule self = graph.findBuildRuleByTarget(buildTarget);
     return UberRDotJavaUtil.getAndroidResourceDeps(self);
-  }
-
-  public static Builder newManifestMergeRuleBuilder(AbstractBuildRuleBuilderParams params) {
-    return new Builder(params);
-  }
-
-  public static class Builder extends AbstractBuildable.Builder {
-
-    protected SourcePath skeletonFile;
-
-    private Builder(AbstractBuildRuleBuilderParams params) {
-      super(params);
-    }
-
-    @Override
-    public AndroidManifest newBuildable(BuildRuleParams buildRuleParams,
-        BuildRuleResolver ruleResolver) {
-      return new AndroidManifest(buildRuleParams.getBuildTarget(), skeletonFile);
-    }
-
-    @Override
-    public BuildRuleType getType() {
-      return BuildRuleType.ANDROID_MANIFEST;
-    }
-
-    public Builder setSkeletonFile(SourcePath skeletonFile) {
-      this.skeletonFile = skeletonFile;
-      return this;
-    }
   }
 }

@@ -40,6 +40,8 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import javax.annotation.Nullable;
+
 public abstract class AbstractGenruleStep extends ShellStep {
 
   /**
@@ -70,9 +72,12 @@ public abstract class AbstractGenruleStep extends ShellStep {
   private final CommandString commandString;
   private final ImmutableSortedSet<BuildRule> depsToSubstituteInCommandString;
 
-  public AbstractGenruleStep(BuildRule buildRule,
+  public AbstractGenruleStep(
+      BuildRule buildRule,
       CommandString commandString,
-      Set<BuildRule> depsToSubstituteInCommandString) {
+      Set<BuildRule> depsToSubstituteInCommandString,
+      @Nullable File workingDirectory) {
+    super(workingDirectory);
     this.buildRule = Preconditions.checkNotNull(buildRule);
     this.commandString = Preconditions.checkNotNull(commandString);
     this.depsToSubstituteInCommandString = ImmutableSortedSet.copyOf(

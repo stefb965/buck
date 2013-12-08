@@ -20,12 +20,14 @@ import com.facebook.buck.event.ThrowableLogEvent;
 import com.facebook.buck.java.classes.ClasspathTraversal;
 import com.facebook.buck.java.classes.DefaultClasspathTraverser;
 import com.facebook.buck.java.classes.FileLike;
+import com.facebook.buck.java.classes.FileLikes;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
+import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Splitter;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.Iterables;
@@ -38,6 +40,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Path;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 
@@ -56,14 +59,10 @@ public class AccumulateClassNamesStep extends AbstractExecutionStep
    */
   static final String CLASS_NAME_HASH_CODE_SEPARATOR = " ";
 
-  /**
-   * Entries in the {@link #pathToJarOrClassesDirectory} that end with this suffix will be written
-   * to {@link #whereClassNamesShouldBeWritten}. Since they all share the same suffix, the suffix
-   * will be stripped when written to {@link #whereClassNamesShouldBeWritten}.
-   */
-  private static final String CLASS_NAME_SUFFIX = ".class";
+  private static final Splitter CLASS_NAME_AND_HASH_SPLITTER = Splitter.on(
+      CLASS_NAME_HASH_CODE_SEPARATOR);
 
-  private final Path pathToJarOrClassesDirectory;
+  private final Optional<Path> pathToJarOrClassesDirectory;
   private final Path whereClassNamesShouldBeWritten;
 
   /**
@@ -74,7 +73,13 @@ public class AccumulateClassNamesStep extends AbstractExecutionStep
   @Nullable
   private ImmutableSortedMap<String, HashCode> classNames;
 
-  public AccumulateClassNamesStep(Path pathToJarOrClassesDirectory,
+  /**
+   * @param pathToJarOrClassesDirectory Where to look for .class files. If absent, then an empty
+   *     file will be written to {@code whereClassNamesShouldBeWritten}.
+   * @param whereClassNamesShouldBeWritten Path to a file where an alphabetically sorted list of
+   *     class files and corresponding SHA-1 hashes of their contents will be written.
+   */
+  public AccumulateClassNamesStep(Optional<Path> pathToJarOrClassesDirectory,
       Path whereClassNamesShouldBeWritten) {
     super("get_class_names " + pathToJarOrClassesDirectory + " > " + whereClassNamesShouldBeWritten);
     this.pathToJarOrClassesDirectory = Preconditions.checkNotNull(pathToJarOrClassesDirectory);
@@ -83,38 +88,20 @@ public class AccumulateClassNamesStep extends AbstractExecutionStep
 
   @Override
   public int execute(ExecutionContext context) {
-    final ImmutableSortedMap.Builder<String, HashCode> classNamesBuilder =
-        ImmutableSortedMap.naturalOrder();
-    Path path = context.getProjectFilesystem().resolve(pathToJarOrClassesDirectory);
-    ClasspathTraversal traversal = new ClasspathTraversal(Collections.singleton(path)) {
-      @Override
-      public void visit(final FileLike fileLike) throws IOException {
-        String name = fileLike.getRelativePath();
-
-        // When traversing a JAR file, it may have resources or directory entries that do not end
-        // in .class, which should be ignored.
-        if (name.endsWith(CLASS_NAME_SUFFIX)) {
-          String key = name.substring(0, name.length() - CLASS_NAME_SUFFIX.length());
-          InputSupplier<InputStream> input = new InputSupplier<InputStream>() {
-            @Override
-            public InputStream getInput() throws IOException {
-              return fileLike.getInput();
-            }
-          };
-          HashCode value = ByteStreams.hash(input, Hashing.sha1());
-          classNamesBuilder.put(key, value);
-        }
+    ImmutableSortedMap<String, HashCode> classNames;
+    if (pathToJarOrClassesDirectory.isPresent()) {
+      Optional<ImmutableSortedMap<String, HashCode>> classNamesOptional = calculateClassHashes(
+          context,
+          context.getProjectFilesystem().resolve(pathToJarOrClassesDirectory.get()));
+      if (classNamesOptional.isPresent()) {
+        classNames = classNamesOptional.get();
+      } else {
+        return 1;
       }
-    };
-
-    try {
-      new DefaultClasspathTraverser().traverse(traversal);
-    } catch (IOException e) {
-      e.printStackTrace(context.getStdErr());
-      return 1;
+    } else {
+      classNames = ImmutableSortedMap.of();
     }
 
-    ImmutableSortedMap<String, HashCode> classNames = classNamesBuilder.build();
     try {
       context.getProjectFilesystem().writeLinesToPath(
           Iterables.transform(classNames.entrySet(),
@@ -132,8 +119,45 @@ public class AccumulateClassNamesStep extends AbstractExecutionStep
       return 1;
     }
 
-    this.classNames = classNames;
     return 0;
+  }
+
+  /**
+   * @return an Optional that will be absent if there was an error.
+   */
+  private Optional<ImmutableSortedMap<String, HashCode>> calculateClassHashes(
+      ExecutionContext context, Path path) {
+    final ImmutableSortedMap.Builder<String, HashCode> classNamesBuilder =
+        ImmutableSortedMap.naturalOrder();
+    ClasspathTraversal traversal = new ClasspathTraversal(Collections.singleton(path)) {
+      @Override
+      public void visit(final FileLike fileLike) throws IOException {
+        // When traversing a JAR file, it may have resources or directory entries that do not end
+        // in .class, which should be ignored.
+        if (!FileLikes.isClassFile(fileLike)) {
+          return;
+        }
+
+        String key = FileLikes.getFileNameWithoutClassSuffix(fileLike);
+        InputSupplier<InputStream> input = new InputSupplier<InputStream>() {
+          @Override
+          public InputStream getInput() throws IOException {
+            return fileLike.getInput();
+          }
+        };
+        HashCode value = ByteStreams.hash(input, Hashing.sha1());
+        classNamesBuilder.put(key, value);
+      }
+    };
+
+    try {
+      new DefaultClasspathTraverser().traverse(traversal);
+    } catch (IOException e) {
+      context.logError(e, "Error accumulating class names for %s.", pathToJarOrClassesDirectory);
+      return Optional.absent();
+    }
+
+    return Optional.of(classNamesBuilder.build());
   }
 
   @Override
@@ -143,8 +167,22 @@ public class AccumulateClassNamesStep extends AbstractExecutionStep
     return classNames;
   }
 
-  @VisibleForTesting
-  void setClassNamesForTesting(ImmutableSortedMap<String, HashCode> classNames) {
-    this.classNames = classNames;
+  /**
+   * @param lines that were written in the same format output by {@link #execute(ExecutionContext)}.
+   */
+  public static ImmutableSortedMap<String, HashCode> parseClassHashes(List<String> lines) {
+    ImmutableSortedMap.Builder<String, HashCode> classNamesBuilder =
+        ImmutableSortedMap.naturalOrder();
+
+    for (String line : lines) {
+      List<String> parts = CLASS_NAME_AND_HASH_SPLITTER.splitToList(line);
+      Preconditions.checkState(parts.size() == 2);
+      String key = parts.get(0);
+      HashCode value = HashCode.fromString(parts.get(1));
+      classNamesBuilder.put(key, value);
+    }
+
+    return classNamesBuilder.build();
   }
+
 }

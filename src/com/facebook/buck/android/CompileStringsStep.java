@@ -34,10 +34,8 @@ import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -94,7 +92,7 @@ public class CompileStringsStep implements Step {
   static final Pattern R_DOT_TXT_STRING_RESOURCE_PATTERN = Pattern.compile(
       "^int (string|plurals|array) (\\w+) 0x([0-9a-f]+)$");
 
-  private final FilterResourcesStep filterResourcesStep;
+  private final ImmutableSet<Path> filteredStringFiles;
   private final Path rDotJavaSrcDir;
   private final Path destinationDir;
   private final Map<String, String> regionSpecificToBaseLocaleMap;
@@ -105,16 +103,17 @@ public class CompileStringsStep implements Step {
    * output json file, in the event of multiple xml files of a locale sharing the same string
    * resource name - file that appears first in the list wins.
    *
-   * @param filterResourcesStep {@link FilterResourcesStep} that filters non english string files.
+   * @param filteredStringFiles Set containing paths to non-english
+   *     string files, matching {@link FilterResourcesStep#NON_ENGLISH_STRING_PATH} regex.
    * @param rDotJavaSrcDir Path to the directory where aapt generates R.txt file along with the
    *     final R.java files per package.
    * @param destinationDir Output directory for the generated json files.
    */
   public CompileStringsStep(
-      FilterResourcesStep filterResourcesStep,
+      ImmutableSet<Path> filteredStringFiles,
       Path rDotJavaSrcDir,
       Path destinationDir) {
-    this.filterResourcesStep = Preconditions.checkNotNull(filterResourcesStep);
+    this.filteredStringFiles = Preconditions.checkNotNull(filteredStringFiles);
     this.rDotJavaSrcDir = Preconditions.checkNotNull(rDotJavaSrcDir);
     this.destinationDir = Preconditions.checkNotNull(destinationDir);
     this.regionSpecificToBaseLocaleMap = Maps.newHashMap();
@@ -131,13 +130,11 @@ public class CompileStringsStep implements Step {
       return 1;
     }
 
-    ImmutableSet<String> filteredStringFiles = filterResourcesStep.getNonEnglishStringFiles();
-    ImmutableMultimap<String, String> filesByLocale = groupFilesByLocale(filteredStringFiles);
-
+    ImmutableMultimap<String, Path> filesByLocale = groupFilesByLocale(filteredStringFiles);
     Map<String, StringResources> resourcesByLocale = Maps.newHashMap();
     for (String locale : filesByLocale.keySet()) {
       try {
-        resourcesByLocale.put(locale, compileStringFiles(filesByLocale.get(locale)));
+        resourcesByLocale.put(locale, compileStringFiles(filesystem, filesByLocale.get(locale)));
       } catch (IOException e) {
         context.logError(e, "Error parsing string file for locale: %s", locale);
         return 1;
@@ -178,27 +175,29 @@ public class CompileStringsStep implements Step {
 
   /**
    * Groups a list of file paths matching STRING_FILE_PATTERN by the locale.
+   *
    * eg. given the following list:
    *
    * ImmutableSet.of(
-   *   '/one/res/values-es/strings.xml',
-   *   '/two/res/values-es/strings.xml',
-   *   '/three/res/values-pt-rBR/strings.xml',
-   *   '/four/res/values/-pt-rPT/strings.xml');
+   *   Paths.get("one/res/values-es/strings.xml"),
+   *   Paths.get("two/res/values-es/strings.xml"),
+   *   Paths.get("three/res/values-pt-rBR/strings.xml"),
+   *   Paths.get("four/res/values/-pt-rPT/strings.xml"));
    *
    * returns:
    *
    * ImmutableMap.of(
-   *   'es', ImmutableSet.of('/one/res/values-es/strings.xml', '/two/res/values-es/strings.xml'),
-   *   'pt_BR', ImmutableSet.of('/three/res/values-pt-rBR/strings.xml'),
-   *   'pt_PT', ImmutableSet.of('/four/res/values/-pt-rPT/strings.xml'));
+   *   "es", ImmutableSet.of(Paths.get("one/res/values-es/strings.xml"),
+   *        Paths.get("two/res/values-es/strings.xml")),
+   *   "pt_BR", ImmutableSet.of(Paths.get("three/res/values-pt-rBR/strings.xml'),
+   *   "pt_PT", ImmutableSet.of(Paths.get("four/res/values/-pt-rPT/strings.xml")));
    */
   @VisibleForTesting
-  ImmutableMultimap<String, String> groupFilesByLocale(ImmutableSet<String> files) {
-    ImmutableMultimap.Builder<String, String> localeToFiles = ImmutableMultimap.builder();
+  ImmutableMultimap<String, Path> groupFilesByLocale(ImmutableSet<Path> files) {
+    ImmutableMultimap.Builder<String, Path> localeToFiles = ImmutableMultimap.builder();
 
-    for (String filepath : files) {
-      Matcher matcher = STRING_FILE_PATTERN.matcher(filepath);
+    for (Path filepath : files) {
+      Matcher matcher = STRING_FILE_PATTERN.matcher(filepath.toString());
       if (!matcher.matches()) {
         continue;
       }
@@ -234,15 +233,15 @@ public class CompileStringsStep implements Step {
     }
   }
 
-  private StringResources compileStringFiles(Collection<String> filepaths)
-      throws IOException {
+  private StringResources compileStringFiles(
+      ProjectFilesystem filesystem,
+      Collection<Path> filepaths) throws IOException {
     TreeMap<Integer, String> stringsMap = Maps.newTreeMap();
     TreeMap<Integer, ImmutableMap<String, String>> pluralsMap = Maps.newTreeMap();
     TreeMultimap<Integer, String> arraysMap = TreeMultimap.create();
 
-    for (String stringFilePath : filepaths) {
-      File stringFile = (Paths.get(stringFilePath)).toFile();
-      Document dom = XmlDomParser.parse(stringFile);
+    for (Path stringFilePath : filepaths) {
+      Document dom = XmlDomParser.parse(filesystem.getFileForRelativePath(stringFilePath));
 
       NodeList stringNodes = dom.getElementsByTagName("string");
       scrapeStringNodes(stringNodes, stringsMap);

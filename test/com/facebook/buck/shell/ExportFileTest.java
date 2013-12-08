@@ -170,13 +170,13 @@ public class ExportFileTest {
         .setStepRunner(new StepRunner() {
           @Override
           public void runStep(Step step) throws StepFailedException {
-            // Do nothing
+            // Do nothing.
           }
 
           @Override
           public void runStepForBuildTarget(Step step, BuildTarget buildTarget)
               throws StepFailedException {
-            // Do nothing
+            // Do nothing.
           }
 
           @Override
@@ -188,6 +188,11 @@ public class ExportFileTest {
           @Override
           public ListeningExecutorService getListeningExecutorService() {
             return null;
+          }
+
+          @Override
+          public void runStepsInParallelAndWait(List<Step> steps) throws StepFailedException {
+            // Do nothing.
           }
         })
         .setDependencyGraph(graph)

@@ -25,11 +25,14 @@ import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
+import com.google.common.hash.Hashing;
 import com.google.common.io.ByteStreams;
 import com.google.common.io.Files;
+import com.google.common.io.InputSupplier;
 
 import java.io.BufferedWriter;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
@@ -62,7 +65,7 @@ public class ProjectFilesystem {
   private final Function<Path, Path> pathAbsolutifier;
   private final Function<String, Path> pathRelativizer;
 
-  private final ImmutableSet<String> ignorePaths;
+  private final ImmutableSet<Path> ignorePaths;
 
   /**
    * There should only be one {@link ProjectFilesystem} created per process.
@@ -72,7 +75,7 @@ public class ProjectFilesystem {
    * a mock filesystem via EasyMock instead. Note that there are cases (such as integration tests)
    * where specifying {@code new File(".")} as the project root might be the appropriate thing.
    */
-  public ProjectFilesystem(File projectRoot, ImmutableSet<String> ignorePaths) {
+  public ProjectFilesystem(File projectRoot, ImmutableSet<Path> ignorePaths) {
     this.projectRoot = Preconditions.checkNotNull(projectRoot);
     this.pathToRoot = projectRoot.toPath();
     Preconditions.checkArgument(projectRoot.isDirectory());
@@ -88,11 +91,11 @@ public class ProjectFilesystem {
         return MorePaths.absolutify(getFileForRelativePath(relativePath).toPath());
       }
     };
-    this.ignorePaths = Preconditions.checkNotNull(ignorePaths);
+    this.ignorePaths = MorePaths.filterForSubpaths(ignorePaths, this.pathToRoot);
   }
 
   public ProjectFilesystem(File projectRoot) {
-    this(projectRoot, ImmutableSet.<String>of());
+    this(projectRoot, ImmutableSet.<Path>of());
   }
 
   public Path getRootPath() {
@@ -117,7 +120,11 @@ public class ProjectFilesystem {
     return projectRoot;
   }
 
-  public ImmutableSet<String> getIgnorePaths() {
+  /**
+   * @return A {@link ImmutableSet} of {@link Path} objects to have buck ignore.  All paths will be
+   *     relative to the {@link ProjectFilesystem#getRootPath()}.
+   */
+  public ImmutableSet<Path> getIgnorePaths() {
     return ignorePaths;
   }
 
@@ -217,6 +224,16 @@ public class ProjectFilesystem {
   }
 
   /**
+   * @param pathRelativeToProjectRoot Must identify a file, not a directory. (Unfortunately, we have
+   *     no way to assert this because the path is not expected to exist yet.)
+   */
+  public void createParentDirs(Path pathRelativeToProjectRoot) throws IOException {
+    Path file = resolve(pathRelativeToProjectRoot);
+    Path directory = file.getParent();
+    mkdirs(directory);
+  }
+
+  /**
    * Writes each line in {@code lines} with a trailing newline to a file at the specified path.
    * <p>
    * The parent path of {@code pathRelativeToProjectRoot} must exist.
@@ -240,6 +257,20 @@ public class ProjectFilesystem {
 
   public void writeBytesToPath(byte[] bytes, Path pathRelativeToProjectRoot) throws IOException {
     Files.write(bytes, getFileForRelativePath(pathRelativeToProjectRoot));
+  }
+
+  /**
+   * @param inputStream Source of the bytes. This method does not close this stream.
+   */
+  public void copyToPath(final InputStream inputStream, Path pathRelativeToProjectRoot)
+      throws IOException {
+    InputSupplier<? extends InputStream> inputSupplier = new InputSupplier<InputStream>() {
+      @Override
+      public InputStream getInput() throws IOException {
+        return inputStream;
+      }
+    };
+    Files.copy(inputSupplier, getFileForRelativePath(pathRelativeToProjectRoot));
   }
 
   public Optional<String> readFileIfItExists(Path pathRelativeToProjectRoot) {
@@ -303,6 +334,16 @@ public class ProjectFilesystem {
     return Files.readLines(file, Charsets.UTF_8);
   }
 
+  public InputSupplier<? extends InputStream> getInputSupplierForRelativePath(String path) {
+    File file = getFileForRelativePath(path);
+    return Files.newInputStreamSupplier(file);
+  }
+
+  public String computeSha1(Path pathRelativeToProjectRoot) throws IOException {
+    File fileToHash = getFileForRelativePath(pathRelativeToProjectRoot);
+    return Files.hash(fileToHash, Hashing.sha1()).toString();
+  }
+
   /**
    * @return a function that takes a path relative to the project root and resolves it to an
    *     absolute path. This is particularly useful for {@link com.facebook.buck.step.Step}s that do
@@ -324,17 +365,11 @@ public class ProjectFilesystem {
   }
 
   public void copyFolder(Path source, Path target) throws IOException {
-    MoreFiles.copyRecursively(source, target);
-  }
-
-  public void copyFile(String source, String target) throws IOException {
-    Path targetPath = pathRelativizer.apply(target);
-    Path sourcePath = pathRelativizer.apply(source);
-    java.nio.file.Files.copy(sourcePath, targetPath, StandardCopyOption.REPLACE_EXISTING);
+    MoreFiles.copyRecursively(resolve(source), resolve(target));
   }
 
   public void copyFile(Path source, Path target) throws IOException {
-    java.nio.file.Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
+    java.nio.file.Files.copy(resolve(source), resolve(target), StandardCopyOption.REPLACE_EXISTING);
   }
 
   public void createSymLink(Path sourcePath, Path targetPath, boolean force)
@@ -365,8 +400,9 @@ public class ProjectFilesystem {
       for (Path path : pathsToIncludeInZip) {
         ZipEntry entry = new ZipEntry(path.toString());
         zip.putNextEntry(entry);
-        InputStream input = Files.newInputStreamSupplier(getFileForRelativePath(path)).getInput();
-        ByteStreams.copy(input, zip);
+        try (InputStream input = new FileInputStream(getFileForRelativePath(path))) {
+          ByteStreams.copy(input, zip);
+        }
         zip.closeEntry();
       }
     }

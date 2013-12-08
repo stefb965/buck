@@ -16,7 +16,11 @@
 
 package com.facebook.buck.util;
 
+import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Predicate;
+import com.google.common.collect.FluentIterable;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.io.File;
@@ -31,6 +35,13 @@ public class MorePaths {
 
   /** Utility class: do not instantiate. */
   private MorePaths() {}
+
+  public static Function<String, Path> TO_PATH = new Function<String, Path>() {
+    @Override
+    public Path apply(String path) {
+      return Paths.get(path);
+    }
+  };
 
   public static Path newPathInstance(String path) {
     return separatorsToUnix(path);
@@ -134,5 +145,35 @@ public class MorePaths {
       builder.add(Paths.get(path));
     }
     return builder.build();
+  }
+
+  /**
+   * Filters out {@link Path} objects from {@code paths} that aren't a subpath of {@code root} and
+   * returns a set of paths relative to {@code root}.
+   */
+  public static ImmutableSet<Path> filterForSubpaths(Iterable<Path> paths, final Path root) {
+    final Path normalizedRoot = root.toAbsolutePath().normalize();
+    return FluentIterable.from(paths)
+        .filter(new Predicate<Path>() {
+          @Override
+          public boolean apply(Path input) {
+            if (input.isAbsolute()) {
+              return input.normalize().startsWith(normalizedRoot);
+            } else {
+              return true;
+            }
+          }
+        })
+        .transform(new Function<Path, Path>() {
+          @Override
+          public Path apply(Path input) {
+            if (input.isAbsolute()) {
+              return normalizedRoot.relativize(input.normalize());
+            } else {
+              return input;
+            }
+          }
+        })
+        .toSet();
   }
 }

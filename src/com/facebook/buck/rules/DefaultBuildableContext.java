@@ -35,7 +35,17 @@ public class DefaultBuildableContext implements BuildableContext {
   }
 
   @Override
+  public void addMetadata(String key, Iterable<String> values) {
+    recorder.addMetadata(key, values);
+  }
+
+  @Override
   public void recordArtifact(Path pathToArtifact) {
     recorder.recordArtifact(pathToArtifact);
+  }
+
+  @Override
+  public void recordArtifactsInDirectory(Path pathToArtifactsDirectory) {
+    recorder.recordArtifactsInDirectory(pathToArtifactsDirectory);
   }
 }

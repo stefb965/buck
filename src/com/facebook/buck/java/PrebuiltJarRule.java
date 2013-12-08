@@ -33,38 +33,34 @@ import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.DoNotUseAbstractBuildable;
 import com.facebook.buck.rules.ExportDependencies;
+import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.Sha1HashCode;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSetMultimap;
+import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
-import com.google.common.io.ByteStreams;
 import com.google.common.io.Files;
-import com.google.common.io.InputSupplier;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
 import java.util.List;
 
 import javax.annotation.Nullable;
 
-/**
- * A rule that establishes a pre-compiled JAR file as a dependency.
- */
 public class PrebuiltJarRule extends DoNotUseAbstractBuildable
-    implements JavaLibraryRule, HasClasspathEntries, ExportDependencies {
+    implements JavaLibraryRule, HasClasspathEntries, ExportDependencies,
+    InitializableFromDisk<JavaLibraryRule.Data> {
 
   private final static BuildableProperties OUTPUT_TYPE = new BuildableProperties(LIBRARY);
 
@@ -77,12 +73,8 @@ public class PrebuiltJarRule extends DoNotUseAbstractBuildable
   private final Supplier<ImmutableSetMultimap<JavaLibraryRule, String>>
       declaredClasspathEntriesSupplier;
 
-  /**
-   * This will be set either by executing the build steps, or by
-   * {@link #initializeFromDisk(OnDiskBuildInfo)}.
-   */
   @Nullable
-  private Sha1HashCode abiKey;
+  private JavaLibraryRule.Data buildOutput;
 
   PrebuiltJarRule(BuildRuleParams buildRuleParams,
       String classesJar,
@@ -146,26 +138,31 @@ public class PrebuiltJarRule extends DoNotUseAbstractBuildable
 
   @Override
   public Sha1HashCode getAbiKey() {
-    Preconditions.checkNotNull(abiKey,
-        "%s must be built before its ABI key can be returned.",
-        this);
-    return abiKey;
-  }
-
-  @VisibleForTesting
-  void setAbiKey(Sha1HashCode abiKey) {
-    this.abiKey = Preconditions.checkNotNull(abiKey);
+    return getBuildOutput().getAbiKey();
   }
 
   @Override
-  public void initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) {
-    Optional<Sha1HashCode> abiKeyHash = onDiskBuildInfo.getHash(AbiRule.ABI_KEY_ON_DISK_METADATA);
-    if (abiKeyHash.isPresent()) {
-      abiKey = abiKeyHash.get();
-    } else {
-      throw new IllegalStateException(String.format(
-          "Should not be initializing %s from disk if the ABI key is not written.", this));
-    }
+  public ImmutableSortedMap<String, HashCode> getClassNamesToHashes() {
+    return getBuildOutput().getClassNamesToHashes();
+  }
+
+  @Override
+  public JavaLibraryRule.Data initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) {
+    return JavaLibraryRules.initializeFromDisk(this, onDiskBuildInfo);
+  }
+
+  @Override
+  public void setBuildOutput(JavaLibraryRule.Data buildOutput) {
+    Preconditions.checkState(this.buildOutput == null,
+        "buildOutput should not already be set for %s.",
+        this);
+    this.buildOutput = buildOutput;
+  }
+
+  @Override
+  public JavaLibraryRule.Data getBuildOutput() {
+    Preconditions.checkState(buildOutput != null, "buildOutput must already be set for %s.", this);
+    return buildOutput;
   }
 
   @Override
@@ -199,14 +196,19 @@ public class PrebuiltJarRule extends DoNotUseAbstractBuildable
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext)
+  public List<Step> getBuildSteps(BuildContext context, final BuildableContext buildableContext)
       throws IOException {
+    ImmutableList.Builder<Step> steps = ImmutableList.builder();
+
     // Create a step to compute the ABI key.
-    Step calculateAbiStep = new CalculateAbiStep(buildableContext);
-    return ImmutableList.of(calculateAbiStep);
+    steps.add(new CalculateAbiStep(buildableContext));
+
+    JavaLibraryRules.addAccumulateClassNamesStep(this, buildableContext, steps);
+
+    return steps.build();
   }
 
-  private class CalculateAbiStep extends AbstractExecutionStep {
+  class CalculateAbiStep extends AbstractExecutionStep {
 
     private final BuildableContext buildableContext;
 
@@ -218,16 +220,15 @@ public class PrebuiltJarRule extends DoNotUseAbstractBuildable
     @Override
     public int execute(ExecutionContext context) {
       File jarFile = context.getProjectFilesystem().getFileForRelativePath(binaryJar);
-      InputSupplier<? extends InputStream> inputSupplier = Files.newInputStreamSupplier(jarFile);
       HashCode fileSha1;
       try {
-        fileSha1 = ByteStreams.hash(inputSupplier, Hashing.sha1());
+        fileSha1 = Files.hash(jarFile, Hashing.sha1());
       } catch (IOException e) {
         context.logError(e, "Failed to calculate ABI for %s.", binaryJar);
         return 1;
       }
 
-      abiKey = new Sha1HashCode(fileSha1.toString());
+      Sha1HashCode abiKey = new Sha1HashCode(fileSha1.toString());
       buildableContext.addMetadata(AbiRule.ABI_KEY_ON_DISK_METADATA, abiKey.getHash());
 
       return 0;

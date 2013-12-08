@@ -16,8 +16,6 @@
 
 package com.facebook.buck.rules;
 
-import java.io.IOException;
-
 import javax.annotation.Nullable;
 
 /**
@@ -33,19 +31,6 @@ public abstract class AbstractBuildable implements Buildable {
   @Nullable
   @Override
   public abstract String getPathToOutputFile();
-
-  @Override
-  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) throws IOException {
-    return builder;
-  }
-
-  /**
-   * @param onDiskBuildInfo Contains metadata that was read from disk.
-   * @see AbstractCachingBuildRule#initializeFromDisk
-   */
-  protected void initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) {
-
-  }
 
   public static abstract class Builder extends AbstractBuildRuleBuilder<AbstractCachingBuildRule> {
 
@@ -63,24 +48,28 @@ public abstract class AbstractBuildable implements Buildable {
       final Buildable buildable = newBuildable(params, ruleResolver);
       final BuildRuleType type = getType();
 
-      return new AbstractCachingBuildRule(buildable, params) {
-        @Override
-        public Buildable getBuildable() {
-          return buildable;
-        }
+      return new AnonymousBuildRule(type, buildable, params);
+    }
+  }
 
-        @Override
-        public BuildRuleType getType() {
-          return type;
-        }
+  public static class AnonymousBuildRule extends AbstractCachingBuildRule {
+    private final Buildable buildable;
+    private final BuildRuleType type;
 
-        @Override
-        protected void initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) {
-          if (buildable instanceof AbstractBuildable) {
-            ((AbstractBuildable) buildable).initializeFromDisk(onDiskBuildInfo);
-          }
-        }
-      };
+    public AnonymousBuildRule(BuildRuleType type, Buildable buildable, BuildRuleParams params) {
+      super(buildable, params);
+      this.buildable = buildable;
+      this.type = type;
+    }
+
+    @Override
+    public Buildable getBuildable() {
+      return buildable;
+    }
+
+    @Override
+    public BuildRuleType getType() {
+      return type;
     }
   }
 }

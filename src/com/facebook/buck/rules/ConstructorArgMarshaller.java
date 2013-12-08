@@ -33,11 +33,10 @@ import java.util.Set;
  * {@link BuildRuleFactoryParams}, which is populated by the functions added to Buck's core build
  * file parsing script. The second function of this class is to generate those functions.
  * <p>
- * The constructor arg is examined for public fields and writable properties, as defined by the
- * JavaBean specification. Reflection is used to determine the type of the field, and it's possible
- * to indicate that a field isn't mandatory by using {@link Optional} declarations. If the name of
- * the property to be exposed to a build file does not match the field/bean property name, then a
- * {@link Hint} can be used to set it.
+ * The constructor arg is examined for public fields. Reflection is used to determine the type of
+ * the field, and it's possible to indicate that a field isn't mandatory by using {@link Optional}
+ * declarations. If the name of the property to be exposed to a build file does not match the field
+ * name, then a {@link Hint} can be used to set it.
  * <p>
  * As an example, the arguments for a build target defined as:
  * <pre>
@@ -57,8 +56,7 @@ import java.util.Set;
  *     }
  * </pre>
  */
-// TODO(simons): Revisit class name when we add Descriptions
-public class ArgObjectPopulatomatic {
+public class ConstructorArgMarshaller {
 
   private final Path basePath;
 
@@ -71,7 +69,7 @@ public class ArgObjectPopulatomatic {
    * @param pathFromProjectRootToBuildFile The path from the root of the project to the directory of
    *     the build file that this function is being created from.
    */
-  public ArgObjectPopulatomatic(Path pathFromProjectRootToBuildFile) {
+  public ConstructorArgMarshaller(Path pathFromProjectRootToBuildFile) {
     Preconditions.checkNotNull(pathFromProjectRootToBuildFile);
 
     // Without this check an IndexOutOfBounds exception is thrown by normalize.

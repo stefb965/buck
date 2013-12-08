@@ -26,8 +26,6 @@ public final class BuildRuleType {
   public static BuildRuleType ANDROID_MANIFEST = new BuildRuleType("android_manifest");
   public static BuildRuleType ANDROID_RESOURCE = new BuildRuleType("android_resource");
   public static BuildRuleType APK_GENRULE = new BuildRuleType("apk_genrule");
-  public static BuildRuleType EXPORT_FILE = new BuildRuleType("export_file");
-  public static BuildRuleType GEN_AIDL = new BuildRuleType("gen_aidl");
   public static BuildRuleType GEN_PARCELABLE = new BuildRuleType("gen_parcelable");
   public static BuildRuleType GENRULE = new BuildRuleType("genrule");
   public static BuildRuleType JAVA_BINARY = new BuildRuleType("java_binary");
@@ -39,14 +37,15 @@ public final class BuildRuleType {
   public static BuildRuleType PREBUILT_NATIVE_LIBRARY = new BuildRuleType("prebuilt_native_library");
   public static BuildRuleType PROJECT_CONFIG = new BuildRuleType("project_config");
   public static BuildRuleType PYTHON_BINARY = new BuildRuleType("python_binary");
-  public static BuildRuleType PYTHON_LIBRARY = new BuildRuleType("python_library");
   public static BuildRuleType ROBOLECTRIC_TEST = new BuildRuleType("robolectric_test");
   public static BuildRuleType SH_BINARY = new BuildRuleType("sh_binary");
   public static BuildRuleType SH_TEST = new BuildRuleType("sh_test");
 
   // Internal rule types. Denoted by leading trailing underscore.
+  public static BuildRuleType _AAPT_PACKAGE = new BuildRuleType("_aapt_package");
   public static BuildRuleType _CLASS_NAMES = new BuildRuleType("_class_names");
   public static BuildRuleType _PRE_DEX = new BuildRuleType("_pre_dex");
+  public static BuildRuleType _UBER_R_DOT_JAVA = new BuildRuleType("_uber_r_dot_java");
 
   private final String name;
   private final boolean isTestRule;

@@ -17,14 +17,12 @@
 package com.facebook.buck.shell;
 
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractBuildRuleBuilderParams;
 import com.facebook.buck.rules.AbstractBuildable;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.FileSourcePath;
+import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
@@ -39,8 +37,6 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
-
-import javax.annotation.Nullable;
 
 /**
  * Export a file so that it can be easily referenced by other {@link com.facebook.buck.rules.BuildRule}s. There are several
@@ -117,12 +113,16 @@ public class ExportFile extends AbstractBuildable {
   }
 
   @Override
+  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
+    // TODO(simons): How should src and out factor into this?
+    return builder
+        .set("src", src.toString());
+  }
+
+  @Override
   public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext)
       throws IOException {
-
     Path srcPath = src.resolve(context);
-
-    System.out.println("Copying " + srcPath + " -> " + out);
 
     // This file is copied rather than symlinked so that when it is included in an archive zip and
     // unpacked on another machine, it is an ordinary file in both scenarios.
@@ -133,42 +133,8 @@ public class ExportFile extends AbstractBuildable {
     return builder.build();
   }
 
-  @Nullable
   @Override
   public String getPathToOutputFile() {
     return out.toString();
-  }
-
-  public static Builder newExportFileBuilder(AbstractBuildRuleBuilderParams params) {
-    return new Builder(params);
-  }
-
-  public static class Builder extends AbstractBuildable.Builder {
-    private Optional<SourcePath> src = Optional.absent();
-    private Optional<Path> out = Optional.absent();
-
-    private Builder(AbstractBuildRuleBuilderParams params) {
-      super(params);
-    }
-
-    public Builder setSrc(Optional<SourcePath> src) {
-      this.src = src;
-      return this;
-    }
-
-    public Builder setOut(Optional<String> out) {
-      this.out = out.isPresent() ? Optional.of(Paths.get(out.get())) : Optional.<Path>absent();
-      return this;
-    }
-
-    @Override
-    protected BuildRuleType getType() {
-      return BuildRuleType.EXPORT_FILE;
-    }
-
-    @Override
-    protected ExportFile newBuildable(BuildRuleParams params, BuildRuleResolver resolver) {
-      return new ExportFile(params, src, out);
-    }
   }
 }

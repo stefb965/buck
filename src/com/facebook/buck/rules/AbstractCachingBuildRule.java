@@ -21,11 +21,11 @@ import com.facebook.buck.event.LogEvent;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepFailedException;
 import com.facebook.buck.step.StepRunner;
-import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.MorePaths;
 import com.facebook.buck.util.concurrent.MoreFutures;
 import com.facebook.buck.zip.Unzip;
 import com.google.common.annotations.Beta;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
@@ -45,7 +45,6 @@ import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import javax.annotation.Nullable;
 
 /**
  * Abstract implementation of a {@link BuildRule} that can be cached. If its current {@link RuleKey}
@@ -53,8 +52,7 @@ import javax.annotation.Nullable;
  * an {@link ArtifactCache} to avoid doing any computation.
  */
 @Beta
-public abstract class AbstractCachingBuildRule extends AbstractBuildRule
-    implements BuildRule {
+public abstract class AbstractCachingBuildRule extends AbstractBuildRule implements BuildRule {
 
   private final Buildable buildable;
 
@@ -205,7 +203,7 @@ public abstract class AbstractCachingBuildRule extends AbstractBuildRule
               try {
                 BuildResult result = buildOnceDepsAreBuilt(
                     context, onDiskBuildInfo, buildInfoRecorder.get());
-                if (result.isSuccess()) {
+                if (result.getStatus() == BuildRuleStatus.SUCCESS) {
                   recordBuildRuleSuccess(result);
                 } else {
                   recordBuildRuleFailure(result);
@@ -218,7 +216,7 @@ public abstract class AbstractCachingBuildRule extends AbstractBuildRule
             private void recordBuildRuleSuccess(BuildResult result) {
               // Make sure that all of the local files have the same values they would as if the
               // rule had been built locally.
-              if (result.success.shouldWriteRecordedMetadataToDiskAfterBuilding()) {
+              if (result.getSuccess().shouldWriteRecordedMetadataToDiskAfterBuilding()) {
                 try {
                   buildInfoRecorder.get().writeMetadataToDisk();
                 } catch (IOException e) {
@@ -226,26 +224,17 @@ public abstract class AbstractCachingBuildRule extends AbstractBuildRule
                 }
               }
 
-              // Give the rule a chance to populate its internal data structures now that all of the
-              // files should be in a valid state.
-              if (result.success.shouldInitializeFromDiskAfterBuilding()) {
-                initializeFromDisk(onDiskBuildInfo);
-              }
-
-              // Only now that the rule should be in a completely valid state, resolve the future.
-              BuildRuleSuccess buildRuleSuccess = new BuildRuleSuccess(
-                  AbstractCachingBuildRule.this, result.success);
-              buildRuleResult.set(buildRuleSuccess);
+              doHydrationAfterBuildStepsFinish(result, onDiskBuildInfo);
 
               // Do the post to the event bus immediately after the future is set so that the
               // build time measurement is as accurate as possible.
               eventBus.post(BuildRuleEvent.finished(AbstractCachingBuildRule.this,
-                  result.status,
-                  result.cacheResult,
-                  Optional.of(result.success)));
+                  result.getStatus(),
+                  result.getCacheResult(),
+                  Optional.of(result.getSuccess())));
 
               // Finally, upload to the artifact cache.
-              if (result.success.shouldUploadResultingArtifact()) {
+              if (result.getSuccess().shouldUploadResultingArtifact()) {
                 buildInfoRecorder.get().performUploadToArtifactCache(context.getArtifactCache(),
                     eventBus);
               }
@@ -264,15 +253,15 @@ public abstract class AbstractCachingBuildRule extends AbstractBuildRule
               // never invoked.
               if (startOfBuildWasRecordedOnTheEventBus) {
                 eventBus.post(BuildRuleEvent.finished(AbstractCachingBuildRule.this,
-                    result.status,
-                    result.cacheResult,
+                    result.getStatus(),
+                    result.getCacheResult(),
                     Optional.<BuildRuleSuccess.Type>absent()));
               }
 
               // It seems possible (albeit unlikely) that something could go wrong in
               // recordBuildRuleSuccess() after buildRuleResult has been resolved such that Buck
               // would attempt to resolve the future again, which would fail.
-              buildRuleResult.setException(result.failure);
+              buildRuleResult.setException(result.getFailure());
             }
           },
           context.getExecutor());
@@ -284,6 +273,36 @@ public abstract class AbstractCachingBuildRule extends AbstractBuildRule
     }
 
     return buildRuleResult;
+  }
+
+  @VisibleForTesting
+  public void doHydrationAfterBuildStepsFinish(BuildResult result,
+      OnDiskBuildInfo onDiskBuildInfo) {
+    // Give the rule a chance to populate its internal data structures now that all of the
+    // files should be in a valid state.
+    if (this instanceof InitializableFromDisk) {
+      InitializableFromDisk<?> initializable = (InitializableFromDisk<?>) this;
+      doInitializeFromDisk(initializable, onDiskBuildInfo);
+    }
+
+    // We're moving to a world where BuildRule becomes Buildable. In many cases, that
+    // refactoring hasn't happened yet, and in that case "self" and self's Buildable are
+    // the same instance. We don't want to call initializeFromDisk more than once, so
+    // handle this case gracefully-ish.
+    if (this.getBuildable() instanceof InitializableFromDisk && this != this.getBuildable()) {
+      InitializableFromDisk<?> initializable = (InitializableFromDisk<?>) this.getBuildable();
+      doInitializeFromDisk(initializable, onDiskBuildInfo);
+    }
+
+    // Only now that the rule should be in a completely valid state, resolve the future.
+    BuildRuleSuccess buildRuleSuccess = new BuildRuleSuccess(this, result.getSuccess());
+    buildRuleResult.set(buildRuleSuccess);
+  }
+
+  private <T> void doInitializeFromDisk(InitializableFromDisk<T> initializable,
+      OnDiskBuildInfo onDiskBuildInfo) {
+    T buildOutput = initializable.initializeFromDisk(onDiskBuildInfo);
+    initializable.setBuildOutput(buildOutput);
   }
 
   /**
@@ -349,6 +368,16 @@ public abstract class AbstractCachingBuildRule extends AbstractBuildRule
           buildInfoRecorder.addMetadata(
               AbiRule.ABI_KEY_FOR_DEPS_ON_DISK_METADATA,
               cachedAbiKeyForDeps.get().getHash());
+
+          // This key must be
+          // DexProducedFromJavaLibraryThatContainsClassFiles.LINEAR_ALLOC_KEY_ON_DISK_METADATA.
+          // This is a hack for an emergency fix that is a problem because of the TODO above.
+          String linearAllocKey = "linearalloc";
+          Optional<String> linearAlloc = onDiskBuildInfo.getValue(linearAllocKey);
+          if (linearAlloc.isPresent()) {
+            buildInfoRecorder.addMetadata(linearAllocKey, linearAlloc.get());
+          }
+
           return new BuildResult(BuildRuleSuccess.Type.MATCHING_DEPS_ABI_AND_RULE_KEY_NO_DEPS,
               CacheResult.LOCAL_KEY_UNCHANGED_HIT);
         }
@@ -381,9 +410,8 @@ public abstract class AbstractCachingBuildRule extends AbstractBuildRule
     // responsible for invoking recordArtifact() itself. Once that is done, this call to
     // recordArtifact() should be deleted.
     String pathToOutputFile = buildable.getPathToOutputFile();
-    if (pathToOutputFile != null && pathToOutputFile.startsWith(BuckConstant.GEN_DIR)) {
-      String prefix = BuckConstant.GEN_DIR + '/' + getBuildTarget().getBasePathWithSlash();
-      Path pathToArtifact = Paths.get(pathToOutputFile.substring(prefix.length()));
+    if (pathToOutputFile != null) {
+      Path pathToArtifact = Paths.get(pathToOutputFile);
       buildInfoRecorder.recordArtifact(pathToArtifact);
     }
 
@@ -464,50 +492,6 @@ public abstract class AbstractCachingBuildRule extends AbstractBuildRule
     StepRunner stepRunner = context.getStepRunner();
     for (Step step : steps) {
       stepRunner.runStepForBuildTarget(step, getBuildTarget());
-    }
-  }
-
-  /**
-   * For a rule that is read from the build cache, it may have fields that would normally be
-   * populated by executing the steps returned by
-   * {@link Buildable#getBuildSteps(BuildContext, BuildableContext)}. Because
-   * {@link Buildable#getBuildSteps(BuildContext, BuildableContext)} is not invoked for cached rules, a rule
-   * may need to implement this method to populate those fields in some other way. For a cached
-   * rule, this method will be invoked just before the future returned by
-   * {@link #build(BuildContext)} is resolved.
-   * @param onDiskBuildInfo can be used to read metadata from disk to help initialize the rule.
-   */
-  protected void initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) {}
-
-  /**
-   * This is a union type that represents either a success or a failure. This exists so that
-   * {@link #buildOnceDepsAreBuilt(BuildContext, OnDiskBuildInfo, BuildInfoRecorder)} can return a
-   * strongly typed value.
-   */
-  private static class BuildResult {
-
-    private final BuildRuleStatus status;
-    private final CacheResult cacheResult;
-
-    @Nullable private final BuildRuleSuccess.Type success;
-    @Nullable private final Throwable failure;
-
-    BuildResult(BuildRuleSuccess.Type success, CacheResult cacheResult) {
-      this.status = BuildRuleStatus.SUCCESS;
-      this.cacheResult = Preconditions.checkNotNull(cacheResult);
-      this.success = Preconditions.checkNotNull(success);
-      this.failure = null;
-    }
-
-    BuildResult(Throwable failure) {
-      this.status = BuildRuleStatus.FAIL;
-      this.cacheResult = CacheResult.MISS;
-      this.success = null;
-      this.failure = Preconditions.checkNotNull(failure);
-    }
-
-    boolean isSuccess() {
-      return status == BuildRuleStatus.SUCCESS;
     }
   }
 }

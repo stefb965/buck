@@ -39,9 +39,9 @@ public class BuckPyFunctionTest {
   private BuckPyFunction buckPyFunction;
 
   @Before
-  public void setUpInspector() {
+  public void setUpMarshaller() {
     Path basePath = Paths.get("example", "path");
-    buckPyFunction = new BuckPyFunction(new ArgObjectPopulatomatic(basePath));
+    buckPyFunction = new BuckPyFunction(new ConstructorArgMarshaller(basePath));
   }
 
   @Test
@@ -138,5 +138,31 @@ public class BuckPyFunctionTest {
     }
 
     buckPyFunction.toPythonFunction(new BuildRuleType("nope"), new Visible());
+  }
+
+  @Test
+  public void shouldConvertCamelCaseFieldNameToSnakeCaseParameter() {
+    class Dto {
+      public String someField;
+
+      @Hint(name = "all_this_was_fields")
+      public String hintedField;
+    }
+
+    String definition = buckPyFunction.toPythonFunction(new BuildRuleType("case"), new Dto());
+
+    assertEquals(Joiner.on("\n").join(
+        "@provide_for_build",
+        "def case(name, all_this_was_fields, some_field, visibility=[], build_env=None):",
+        "  add_rule({",
+        "    'type' : 'case',",
+        "    'name' : name,",
+        "    'hintedField' : all_this_was_fields,",
+        "    'someField' : some_field,",
+        "    'visibility' : visibility,",
+        "  }, build_env)",
+        "",
+        ""
+    ), definition);
   }
 }

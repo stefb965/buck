@@ -16,6 +16,8 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.android.FilterResourcesStep.ResourceFilter;
+import com.facebook.buck.android.UberRDotJavaBuildable.ResourceCompressionMode;
 import com.facebook.buck.dalvik.ZipSplitter;
 import com.facebook.buck.java.Classpaths;
 import com.facebook.buck.model.BuildTarget;
@@ -29,12 +31,18 @@ import com.facebook.buck.rules.InstallableBuildRule;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.util.HumanReadableException;
+import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Sets;
 
 import java.io.IOException;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Set;
 
 
 /**
@@ -57,18 +65,19 @@ public class AndroidInstrumentationApk extends AndroidBinaryRule {
   private AndroidInstrumentationApk(BuildRuleParams buildRuleParams,
       SourcePath manifest,
       AndroidBinaryRule apkUnderTest,
-      ImmutableSortedSet<BuildRule> classpathDepsForInstrumentationApk) {
+      ImmutableSet<BuildRule> buildRulesToExcludeFromDex,
+      UberRDotJavaBuildable uberRDotJavaBuildable,
+      AaptPackageResources aaptPackageResourcesBuildable,
+      AndroidResourceDepsFinder androidResourceDepsFinder,
+      ImmutableSortedSet<BuildRule> classpathDepsForInstrumentationApk,
+      AndroidTransitiveDependencyGraph androidTransitiveDependencyGraph) {
     super(buildRuleParams,
         manifest,
         apkUnderTest.getTarget(),
         classpathDepsForInstrumentationApk,
         apkUnderTest.getKeystore(),
         PackageType.INSTRUMENTED,
-        // Do not include the classes that will already be in the classes.dex of the APK under test.
-        ImmutableSet.<BuildRule>builder()
-            .addAll(apkUnderTest.getBuildRulesToExcludeFromDex())
-            .addAll(Classpaths.getClasspathEntries(apkUnderTest.getClasspathDeps()).keySet())
-            .build(),
+        buildRulesToExcludeFromDex,
         // Do not split the test apk even if the tested apk is split
         new DexSplitMode(
             /* shouldSplitDex */ false,
@@ -81,11 +90,20 @@ public class AndroidInstrumentationApk extends AndroidBinaryRule {
         apkUnderTest.getPrimaryDexSubstrings(),
         apkUnderTest.getLinearAllocHardLimit(),
         apkUnderTest.getPrimaryDexClassesFile(),
-        apkUnderTest.getResourceFilter(),
         apkUnderTest.getCpuFilters(),
-        apkUnderTest.getPreDexDeps(),
+
+        // TODO(mbolin, t3338497): Figure out why AndroidInstrumentationApk.Builder cannot pass in
+        // graphEnhancer.createDepsForPreDexing(ruleResolver) for this value.
+        // For now, do not specify any pre-dex deps so that the traditional dexing
+        // logic is used for an android_instrumentation_apk().
+        /* preDexDeps */ ImmutableSet.<IntermediateDexRule>of(),
+
+        uberRDotJavaBuildable,
+        aaptPackageResourcesBuildable,
         apkUnderTest.getPreprocessJavaClassesDeps(),
-        apkUnderTest.getPreprocessJavaClassesBash());
+        apkUnderTest.getPreprocessJavaClassesBash(),
+        androidResourceDepsFinder,
+        androidTransitiveDependencyGraph);
     this.apkUnderTest = apkUnderTest;
     this.classpathDepsForInstrumentationApk = Preconditions.checkNotNull(
         classpathDepsForInstrumentationApk);
@@ -101,24 +119,6 @@ public class AndroidInstrumentationApk extends AndroidBinaryRule {
     return super.appendToRuleKey(builder)
         .set("apkUnderTest", apkUnderTest)
         .setRuleNames("classpathDepsForInstrumentationApk", classpathDepsForInstrumentationApk);
-  }
-
-  @Override
-  protected ImmutableList<HasAndroidResourceDeps> getAndroidResourceDepsInternal() {
-    // Filter out the AndroidResourceRules that are needed by this APK but not the APK under test.
-    ImmutableSet<HasAndroidResourceDeps> originalResources = ImmutableSet.copyOf(
-        UberRDotJavaUtil.getAndroidResourceDeps(apkUnderTest));
-    ImmutableList<HasAndroidResourceDeps> instrumentationResources =
-        UberRDotJavaUtil.getAndroidResourceDeps(this);
-
-    // Include all of the instrumentation resources first, in their original order.
-    ImmutableList.Builder<HasAndroidResourceDeps> allResources = ImmutableList.builder();
-    for (HasAndroidResourceDeps resource : instrumentationResources) {
-      if (!originalResources.contains(resource)) {
-        allResources.add(resource);
-      }
-    }
-    return allResources.build();
   }
 
   public static Builder newAndroidInstrumentationApkRuleBuilder(
@@ -151,12 +151,85 @@ public class AndroidInstrumentationApk extends AndroidBinaryRule {
             apkRule.getType().getName());
       }
 
-      AndroidBinaryRule underlyingApk = getUnderlyingApk((InstallableBuildRule)apkRule);
+      BuildRuleParams originalParams = createBuildRuleParams(ruleResolver);
+      final ImmutableSortedSet<BuildRule> originalDeps = originalParams.getDeps();
+      final AndroidBinaryRule apkUnderTest = getUnderlyingApk((InstallableBuildRule) apkRule);
 
-      return new AndroidInstrumentationApk(createBuildRuleParams(ruleResolver),
+      // Create the AndroidBinaryGraphEnhancer for this rule.
+      ImmutableSet<BuildRule> buildRulesToExcludeFromDex = ImmutableSet.<BuildRule>builder()
+          .addAll(apkUnderTest.getBuildRulesToExcludeFromDex())
+          .addAll(Classpaths.getClasspathEntries(apkUnderTest.getClasspathDeps()).keySet())
+          .build();
+      ImmutableSet<BuildTarget> buildTargetsToExcludeFromDex = FluentIterable
+          .from(buildRulesToExcludeFromDex)
+          .transform(new Function<BuildRule, BuildTarget>() {
+            @Override
+            public BuildTarget apply(BuildRule input) {
+              return input.getBuildTarget();
+            }
+          })
+          .toSet();
+      AndroidBinaryGraphEnhancer graphEnhancer = new AndroidBinaryGraphEnhancer(
+          originalParams, buildTargetsToExcludeFromDex);
+
+      ImmutableSortedSet<BuildRule> classpathDepsForInstrumentationApk =
+          getBuildTargetsAsBuildRules(ruleResolver, classpathDeps.build());
+      AndroidTransitiveDependencyGraph androidTransitiveDependencyGraph =
+          new AndroidTransitiveDependencyGraph(classpathDepsForInstrumentationApk);
+
+      // The AndroidResourceDepsFinder is the primary data that differentiates how
+      // AndroidInstrumentationApk and AndroidBinaryRule are built.
+      AndroidResourceDepsFinder androidResourceDepsFinder = new AndroidResourceDepsFinder(
+          androidTransitiveDependencyGraph,
+          buildRulesToExcludeFromDex) {
+        @Override
+        protected ImmutableList<HasAndroidResourceDeps> findMyAndroidResourceDeps() {
+          // Filter out the AndroidResourceRules that are needed by this APK but not the APK under test.
+          ImmutableSet<HasAndroidResourceDeps> originalResources = ImmutableSet.copyOf(
+              UberRDotJavaUtil.getAndroidResourceDeps(apkUnderTest));
+          ImmutableList<HasAndroidResourceDeps> instrumentationResources =
+              UberRDotJavaUtil.getAndroidResourceDeps(originalDeps);
+
+          // Include all of the instrumentation resources first, in their original order.
+          ImmutableList.Builder<HasAndroidResourceDeps> allResources = ImmutableList.builder();
+          for (HasAndroidResourceDeps resource : instrumentationResources) {
+            if (!originalResources.contains(resource)) {
+              allResources.add(resource);
+            }
+          }
+          return allResources.build();
+        }
+
+        @Override
+        protected Set<HasAndroidResourceDeps> findMyAndroidResourceDepsUnsorted() {
+          Collection<BuildRule> apk = Collections.<BuildRule>singleton(apkUnderTest);
+          Set<HasAndroidResourceDeps> originalResources =
+              UberRDotJavaUtil.getAndroidResourceDepsUnsorted(apk);
+          Set<HasAndroidResourceDeps> instrumentationResources =
+              UberRDotJavaUtil.getAndroidResourceDepsUnsorted(originalDeps);
+          return Sets.difference(instrumentationResources, originalResources);
+        }
+      };
+
+      AndroidBinaryGraphEnhancer.Result result = graphEnhancer.addBuildablesToCreateAaptResources(
+          ruleResolver,
+          /* resourceCompressionMode */ ResourceCompressionMode.DISABLED,
+          /* resourceFilter */ ResourceFilter.EMPTY_FILTER,
+          androidResourceDepsFinder,
           manifest,
-          underlyingApk,
-          getBuildTargetsAsBuildRules(ruleResolver, classpathDeps.build()));
+          /* packageType */ PackageType.INSTRUMENTED,
+          apkUnderTest.getCpuFilters(),
+          /* preDexDeps */ ImmutableSet.<IntermediateDexRule>of());
+
+      return new AndroidInstrumentationApk(result.getParams(),
+          manifest,
+          apkUnderTest,
+          buildRulesToExcludeFromDex,
+          result.getUberRDotJavaBuildable(),
+          result.getAaptPackageResources(),
+          androidResourceDepsFinder,
+          getBuildTargetsAsBuildRules(ruleResolver, classpathDeps.build()),
+          androidTransitiveDependencyGraph);
     }
 
     public Builder setManifest(SourcePath manifest) {
@@ -166,6 +239,12 @@ public class AndroidInstrumentationApk extends AndroidBinaryRule {
 
     public Builder setApk(BuildTarget apk) {
       this.apk = apk;
+      return this;
+    }
+
+    @Override
+    public Builder setBuildTarget(BuildTarget buildTarget) {
+      super.setBuildTarget(buildTarget);
       return this;
     }
 

@@ -16,24 +16,25 @@
 
 package com.facebook.buck.rules;
 
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Optional;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 
+import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.List;
 import java.util.Map;
 
 import javax.annotation.Nullable;
 
-public class FakeOnDiskBuildInfo extends OnDiskBuildInfo {
+public class FakeOnDiskBuildInfo implements OnDiskBuildInfo {
 
   @Nullable private RuleKey ruleKey;
   @Nullable private RuleKey ruleKeyWithoutDeps;
   private Map<String, String> metadata = Maps.newHashMap();
-
-  public FakeOnDiskBuildInfo(BuildTarget target, ProjectFilesystem projectFilesystem) {
-    super(target, projectFilesystem);
-  }
+  private Map<Buildable, ImmutableList<String>> outputFileContents = Maps.newHashMap();
+  private Map<Path, ImmutableList<String>> pathsToContents = Maps.newHashMap();
 
   /** @return this */
   public FakeOnDiskBuildInfo setRuleKey(@Nullable RuleKey ruleKey) {
@@ -66,5 +67,51 @@ public class FakeOnDiskBuildInfo extends OnDiskBuildInfo {
   @Override
   public Optional<String> getValue(String key) {
     return Optional.fromNullable(metadata.get(key));
+  }
+
+  @Override
+  public Optional<ImmutableList<String>> getValues(String key) {
+    // TODO(mbolin): Implement.
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public Optional<Sha1HashCode> getHash(String key) {
+    return getValue(key).transform(Sha1HashCode.TO_SHA1);
+  }
+
+  /** @return this */
+  public FakeOnDiskBuildInfo setOutputFileContentsForBuildable(Buildable buildable,
+      List<String> lines) {
+    outputFileContents.put(buildable, ImmutableList.copyOf(lines));
+    return this;
+  }
+
+  @Override
+  public List<String> getOutputFileContentsByLine(Buildable buildable) throws IOException {
+    ImmutableList<String> lines = outputFileContents.get(buildable);
+    if (lines != null) {
+      return lines;
+    } else if (buildable.getPathToOutputFile() != null) {
+      return getOutputFileContentsByLine(Paths.get(buildable.getPathToOutputFile()));
+    } else {
+      throw new RuntimeException("No lines for buildable: " + buildable);
+    }
+  }
+
+  /** @return this */
+  public FakeOnDiskBuildInfo setFileContentsForPath(Path path, List<String> lines) {
+    pathsToContents.put(path, ImmutableList.copyOf(lines));
+    return this;
+  }
+
+  @Override
+  public List<String> getOutputFileContentsByLine(Path path) throws IOException {
+    ImmutableList<String> lines = pathsToContents.get(path);
+    if (lines != null) {
+      return lines;
+    } else {
+      throw new RuntimeException("No lines for path: " + path);
+    }
   }
 }

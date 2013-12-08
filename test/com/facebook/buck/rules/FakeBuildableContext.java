@@ -20,6 +20,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
@@ -34,13 +35,15 @@ import java.util.Set;
  */
 public class FakeBuildableContext implements BuildableContext {
 
-  private final Map<String, String> metadata = Maps.newHashMap();
+  private final Map<String, Object> metadata = Maps.newHashMap();
 
   private final Set<Path> artifacts = Sets.newHashSet();
 
+  private final Set<Path> artifactDirectories = Sets.newHashSet();
+
   @Override
   public void addMetadata(String key, String value) {
-    String oldValue = metadata.put(key, value);
+    Object oldValue = metadata.put(key, value);
     if (oldValue != null) {
       throw new IllegalStateException(String.format(
           "Duplicate values for key %s: old is %s and new is %s.",
@@ -51,16 +54,30 @@ public class FakeBuildableContext implements BuildableContext {
   }
 
   @Override
+  public void addMetadata(String key, Iterable<String> values) {
+    metadata.put(key, ImmutableList.copyOf(values));
+  }
+
+  @Override
   public void recordArtifact(Path pathToArtifact) {
     artifacts.add(pathToArtifact);
   }
 
-  public ImmutableMap<String, String> getRecordedMetadata() {
+  @Override
+  public void recordArtifactsInDirectory(Path pathToArtifactsDirectory) {
+    artifactDirectories.add(pathToArtifactsDirectory);
+  }
+
+  public ImmutableMap<String, Object> getRecordedMetadata() {
     return ImmutableMap.copyOf(metadata);
   }
 
   public ImmutableSet<Path> getRecordedArtifacts() {
     return ImmutableSet.copyOf(artifacts);
+  }
+
+  public ImmutableSet<Path> getRecordedArtifactDirectories() {
+    return ImmutableSet.copyOf(artifactDirectories);
   }
 
   public void assertContainsMetadataMapping(String key, String value) {

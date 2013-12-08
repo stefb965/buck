@@ -119,7 +119,7 @@ public class AbstractCachingBuildRuleTest extends EasyMockSupport {
 
     // Replay the mocks to instantiate the AbstractCachingBuildRule.
     replayAll();
-    String pathToOutputFile = "some_file";
+    String pathToOutputFile = "buck-out/gen/src/com/facebook/orca/some_file";
     List<Step> buildSteps = Lists.newArrayList();
     AbstractCachingBuildRule cachingRule = createRule(
         ImmutableSet.of(dep),
@@ -165,8 +165,7 @@ public class AbstractCachingBuildRuleTest extends EasyMockSupport {
     expect(context.getProjectRoot()).andReturn(createMock(Path.class));
 
     // Configure the OnDiskBuildInfo.
-    ProjectFilesystem projectFilesystem = createMock(ProjectFilesystem.class);
-    OnDiskBuildInfo onDiskBuildInfo = new FakeOnDiskBuildInfo(buildTarget, projectFilesystem);
+    OnDiskBuildInfo onDiskBuildInfo = new FakeOnDiskBuildInfo();
     expect(context.createOnDiskBuildInfoFor(buildTarget)).andReturn(onDiskBuildInfo);
 
     // Configure the BuildInfoRecorder.
@@ -201,6 +200,7 @@ public class AbstractCachingBuildRuleTest extends EasyMockSupport {
     stepRunner.runStepForBuildTarget(buildStep, buildTarget);
 
     // These methods should be invoked after the rule is built locally.
+    buildInfoRecorder.recordArtifact(Paths.get(pathToOutputFile));
     buildInfoRecorder.writeMetadataToDisk();
     buildInfoRecorder.performUploadToArtifactCache(artifactCache, buckEventBus);
 
@@ -248,9 +248,8 @@ public class AbstractCachingBuildRuleTest extends EasyMockSupport {
            /* ruleKeyWithoutDeps */ capture(new Capture<RuleKey>())))
         .andReturn(buildInfoRecorder);
 
-    ProjectFilesystem projectFilesystem = createMock(ProjectFilesystem.class);
     // Populate the metadata that should be read from disk.
-    OnDiskBuildInfo onDiskBuildInfo = new FakeOnDiskBuildInfo(buildTarget, projectFilesystem)
+    OnDiskBuildInfo onDiskBuildInfo = new FakeOnDiskBuildInfo()
          // The RuleKey on disk should be different from the current RuleKey in memory, so reverse()
          // it.
          .setRuleKey(reverse(buildRule.getRuleKey()))
@@ -405,12 +404,15 @@ public class AbstractCachingBuildRuleTest extends EasyMockSupport {
         buildSteps);
   }
 
-  private static class BuildableAbstractCachingBuildRule extends DoNotUseAbstractBuildable {
+  private static class BuildableAbstractCachingBuildRule extends DoNotUseAbstractBuildable
+      implements InitializableFromDisk<Object> {
 
     private final Iterable<Path> inputs;
     private final String pathToOutputFile;
     private final List<Step> buildSteps;
 
+    @Nullable
+    private Object buildOutput;
     private boolean isInitializedFromDisk = false;
 
     private BuildableAbstractCachingBuildRule(BuildRuleParams params,
@@ -451,8 +453,25 @@ public class AbstractCachingBuildRuleTest extends EasyMockSupport {
     }
 
     @Override
-    public void initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) {
+    public Object initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) {
       isInitializedFromDisk = true;
+      return new Object();
+    }
+
+    @Override
+    public void setBuildOutput(Object buildOutput) {
+      if (this.buildOutput != null) {
+        throw new IllegalStateException("buildOutput is already set for " + this);
+      }
+      this.buildOutput = buildOutput;
+    }
+
+    @Override
+    public Object getBuildOutput() {
+      if (buildOutput == null) {
+        throw new IllegalStateException("buildOutput has not been set for " + this);
+      }
+      return buildOutput;
     }
 
     public boolean isInitializedFromDisk() {
@@ -464,13 +483,15 @@ public class AbstractCachingBuildRuleTest extends EasyMockSupport {
    * {@link AbstractCachingBuildRule} that implements {@link AbiRule}.
    */
   private static class TestAbstractCachingBuildRule extends DoNotUseAbstractBuildable
-      implements AbiRule, Buildable {
+      implements AbiRule, Buildable, InitializableFromDisk<Object> {
 
     private static final String RULE_KEY_HASH = "bfcd53a794e7c732019e04e08b30b32e26e19d50";
     private static final String RULE_KEY_WITHOUT_DEPS_HASH =
         "efd7d450d9f1c3d9e43392dec63b1f31692305b9";
     private static final String ABI_KEY_FOR_DEPS_HASH = "92d6de0a59080284055bcde5d2923f144b216a59";
 
+    @Nullable
+    private Object buildOutput;
     private boolean isAbiLoadedFromDisk = false;
 
     TestAbstractCachingBuildRule(BuildRuleParams buildRuleParams) {
@@ -504,8 +525,25 @@ public class AbstractCachingBuildRuleTest extends EasyMockSupport {
     }
 
     @Override
-    public void initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) {
+    public Object initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) {
       isAbiLoadedFromDisk = true;
+      return new Object();
+    }
+
+    @Override
+    public void setBuildOutput(Object buildOutput) {
+      if (this.buildOutput != null) {
+        throw new IllegalStateException("buildOutput is already set for " + this);
+      }
+      this.buildOutput = buildOutput;
+    }
+
+    @Override
+    public Object getBuildOutput() {
+      if (buildOutput == null) {
+        throw new IllegalStateException("buildOutput has not been set for " + this);
+      }
+      return buildOutput;
     }
 
     public boolean isAbiLoadedFromDisk() {
