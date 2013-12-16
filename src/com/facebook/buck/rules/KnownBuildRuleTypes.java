@@ -46,7 +46,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
-import org.openqa.selenium.buck.mozilla.XptBuildRuleFactory;
+import org.openqa.selenium.buck.mozilla.XptDescription;
 
 import java.util.Map;
 import java.util.Set;
@@ -60,7 +60,6 @@ public class KnownBuildRuleTypes {
   private final ImmutableMap<BuildRuleType, BuildRuleFactory<?>> factories;
   private final ImmutableMap<String, BuildRuleType> types;
   private static final KnownBuildRuleTypes DEFAULT = createDefaultBuilder().build();
-
 
   private KnownBuildRuleTypes(Set<Description<?>> descriptions,
       Map<BuildRuleType, BuildRuleFactory<?>> factories,
@@ -103,7 +102,7 @@ public class KnownBuildRuleTypes {
     Builder builder = builder();
 
     // TODO(simons): Added for selenium. Move to that project once the plugin API works.
-    builder.register(XptBuildRuleFactory.XPT, new XptBuildRuleFactory());
+    builder.register(new XptDescription());
 
     builder.register(new AndroidManifestDescription());
     builder.register(new ExportFileDescription());
