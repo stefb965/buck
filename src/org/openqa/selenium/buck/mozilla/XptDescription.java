@@ -39,7 +39,7 @@ public class XptDescription implements Description<XptDescription.Arg> {
 
   @Override
   public Xpt createBuildable(BuildRuleParams params, Arg args) {
-    return new Xpt(params, args.src, args.fallback);
+    return new Xpt(params.getBuildTarget(), args.src, args.fallback);
   }
 
   static class Arg {

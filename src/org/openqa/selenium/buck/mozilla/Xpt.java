@@ -17,6 +17,7 @@
 package org.openqa.selenium.buck.mozilla;
 
 import com.facebook.buck.event.LogEvent;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractBuildable;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -44,12 +45,12 @@ public class Xpt extends AbstractBuildable {
   private final Path src;
   private final Path out;
 
-  public Xpt(BuildRuleParams params, Path src, SourcePath fallback) {
+  public Xpt(BuildTarget target, Path src, SourcePath fallback) {
     this.fallback = Preconditions.checkNotNull(fallback);
     this.src = Preconditions.checkNotNull(src);
     String name = Files.getNameWithoutExtension(src.getFileName().toString()) + ".xpt";
 
-    this.out = Paths.get(BuckConstant.GEN_DIR, params.getBuildTarget().getBasePath(), name);
+    this.out = Paths.get(BuckConstant.GEN_DIR, target.getBasePath(), name);
   }
 
   @Override
