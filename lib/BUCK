@@ -119,6 +119,7 @@ prebuilt_jar(
     '//src/com/facebook/buck/rules:rules',
     '//src/com/facebook/buck/shell:rules',
     '//src/com/facebook/buck/shell:steps',
+    '//src/org/openqa/selenium/buck/javascript/...',
     '//test/...',
   ],
 )
