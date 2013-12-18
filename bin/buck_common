@@ -265,13 +265,10 @@ ${BUCK_DIRECTORY}/third-party/java/astyanax/libthrift-0.7.0.jar:\
 ${BUCK_DIRECTORY}/third-party/java/astyanax/log4j-1.2.16.jar:\
 ${BUCK_DIRECTORY}/third-party/java/astyanax/slf4j-api-1.7.2.jar:\
 ${BUCK_DIRECTORY}/third-party/java/astyanax/slf4j-log4j12-1.7.2.jar:\
+${BUCK_DIRECTORY}/third-party/java/closure-templates/soy-2012-12-21-no-guava.jar:\
 ${BUCK_DIRECTORY}/third-party/java/gson/gson-2.2.4.jar:\
 ${BUCK_DIRECTORY}/third-party/java/jetty/jetty-all-9.0.4.v20130625.jar:\
 ${BUCK_DIRECTORY}/third-party/java/jetty/servlet-api.jar:\
-${BUCK_DIRECTORY}/third-party/java/neo4j/geronimo-jta_1.1_spec-1.1.1.jar:\
-${BUCK_DIRECTORY}/third-party/java/neo4j/lucene-core-3.6.2.jar:\
-${BUCK_DIRECTORY}/third-party/java/neo4j/neo4j-kernel-2.0.0-M05.jar:\
-${BUCK_DIRECTORY}/third-party/java/neo4j/neo4j-lucene-index-2.0.0-M05.jar:\
 ${BUCK_DIRECTORY}/third-party/java/xz-java-1.3/xz-1.3.jar:\
 "
 
@@ -293,6 +290,7 @@ BUCK_JAVA_ARGS="\
 -Dbuck.path_to_python_interp=${PYTHON_INTERP_FALLBACK} \
 -Dbuck.path_to_buck_py=${PATH_TO_BUCK_PY} \
 -Dbuck.path_to_intellij_py=${BUCK_DIRECTORY}/src/com/facebook/buck/command/intellij.py \
+-Dbuck.path_to_static_content=${BUCK_DIRECTORY}/webserver/static \
 -Dbuck.git_commit=${BUCK_CURRENT_VERSION} \
 -Dbuck.git_commit_timestamp=${BUCK_VERSION_TIMESTAMP} \
 -Dbuck.git_dirty=${BUCK_REPOSITORY_DIRTY} \
@@ -309,4 +307,10 @@ ${BUCK_EXTRA_JAVA_ARGS}"
 if [ "$BUCK_DEBUG_MODE" ]; then
   arg="-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=8888"
   BUCK_JAVA_ARGS="$BUCK_JAVA_ARGS $arg"
+fi
+
+# To debug the Soy templates in the buckd web server,
+# set BUCK_DEBUG_SOY in your environment to anything non-empty.
+if [ "$BUCK_DEBUG_SOY" ]; then
+  BUCK_JAVA_ARGS="$BUCK_JAVA_ARGS -Dbuck.soy.debug=true"
 fi

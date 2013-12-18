@@ -35,6 +35,7 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.EnumSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -93,10 +94,11 @@ public class AuditRulesCommand extends AbstractCommandRunner<AuditRulesOptions> 
         projectFilesystem,
         options.getBuckConfig().getPythonInterpreter(),
         // TODO(simons): When we land dynamic loading, this MUST change.
-        new KnownBuildRuleTypes().getAllDescriptions());
+        KnownBuildRuleTypes.getDefault().getAllDescriptions());
     try (
-        ProjectBuildFileParser parser = factory.createParser(options.getBuckConfig().getDefaultIncludes())
-        ) {
+        ProjectBuildFileParser parser =
+            factory.createParser(options.getBuckConfig().getDefaultIncludes(),
+                EnumSet.noneOf(ProjectBuildFileParser.Option.class))) {
       PrintStream out = console.getStdOut();
       for (String pathToBuildFile : options.getArguments()) {
         // Print a comment with the path to the build file.

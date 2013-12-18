@@ -20,29 +20,22 @@ import com.facebook.buck.graph.MutableDirectedGraph;
 import com.facebook.buck.graph.TopologicalSort;
 import com.facebook.buck.java.JavacInMemoryStep;
 import com.facebook.buck.java.JavacOptions;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractDependencyVisitor;
 import com.facebook.buck.rules.BuildDependencies;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.step.Step;
-import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
-import com.facebook.buck.step.fs.WriteFileStep;
-import com.facebook.buck.util.BuckConstant;
-import com.google.common.annotations.Beta;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Iterator;
-import java.util.Map;
 import java.util.Set;
 
 /**
@@ -176,99 +169,16 @@ public class UberRDotJavaUtil {
         }
       };
 
-  /**
-   * Aggregate information about a list of {@link AndroidResourceRule}s.
-   */
-  public static class AndroidResourceDetails {
-    /**
-     * The {@code res} directories associated with the {@link AndroidResourceRule}s.
-     * <p>
-     * An {@link Iterator} over this collection will reflect the order of the original list of
-     * {@link AndroidResourceRule}s that were specified.
-     */
-    public final ImmutableSet<String> resDirectories;
-
-    public final ImmutableSet<String> rDotJavaPackages;
-
-    @Beta
-    public AndroidResourceDetails(ImmutableList<HasAndroidResourceDeps> androidResourceDeps) {
-      ImmutableSet.Builder<String> resDirectoryBuilder = ImmutableSet.builder();
-      ImmutableSet.Builder<String> rDotJavaPackageBuilder = ImmutableSet.builder();
-      for (HasAndroidResourceDeps androidResource : androidResourceDeps) {
-        String resDirectory = androidResource.getRes();
-        if (resDirectory != null) {
-          resDirectoryBuilder.add(resDirectory);
-          rDotJavaPackageBuilder.add(androidResource.getRDotJavaPackage());
-        }
-      }
-      resDirectories = resDirectoryBuilder.build();
-      rDotJavaPackages = rDotJavaPackageBuilder.build();
-    }
-  }
-
-  public static void createDummyRDotJavaFiles(
-      ImmutableList<HasAndroidResourceDeps> androidResourceDeps,
-      BuildTarget buildTarget,
-      ImmutableList.Builder<Step> commands) {
-    // Clear out the folder for the .java files.
-    String rDotJavaSrcFolder = getRDotJavaSrcFolder(buildTarget);
-    commands.add(new MakeCleanDirectoryStep(rDotJavaSrcFolder));
-
-    // Generate the .java files and record where they will be written in javaSourceFilePaths.
-    Set<String> javaSourceFilePaths = Sets.newHashSet();
-    if (androidResourceDeps.isEmpty()) {
-      // In this case, the user is likely running a Robolectric test that does not happen to
-      // depend on any resources. However, if Robolectric doesn't find an R.java file, it flips
-      // out, so we have to create one, anyway.
-
-      // TODO(mbolin): Stop hardcoding com.facebook. This should match the package in the
-      // associated TestAndroidManifest.xml file.
-      String rDotJavaPackage = "com.facebook";
-      String javaCode = MergeAndroidResourcesStep.generateJavaCodeForPackageWithoutResources(
-          rDotJavaPackage);
-      commands.add(new MakeCleanDirectoryStep(rDotJavaSrcFolder + "/com/facebook"));
-      String rDotJavaFile = rDotJavaSrcFolder + "/com/facebook/R.java";
-      commands.add(new WriteFileStep(javaCode, rDotJavaFile));
-      javaSourceFilePaths.add(rDotJavaFile);
-    } else {
-      Map<String, String> symbolsFileToRDotJavaPackage = Maps.newHashMap();
-      for (HasAndroidResourceDeps res : androidResourceDeps) {
-        String rDotJavaPackage = res.getRDotJavaPackage();
-        symbolsFileToRDotJavaPackage.put(res.getPathToTextSymbolsFile(), rDotJavaPackage);
-        String rDotJavaFilePath = MergeAndroidResourcesStep.getOutputFilePath(
-            rDotJavaSrcFolder, rDotJavaPackage);
-        javaSourceFilePaths.add(rDotJavaFilePath);
-      }
-      commands.add(new MergeAndroidResourcesStep(symbolsFileToRDotJavaPackage,
-          rDotJavaSrcFolder));
-    }
-
-    // Clear out the directory where the .class files will be generated.
-    String rDotJavaClassesDirectory = getRDotJavaBinFolder(buildTarget);
-    commands.add(new MakeCleanDirectoryStep(rDotJavaClassesDirectory));
-
-    // Compile the .java files.
-    JavacInMemoryStep javac = createJavacInMemoryCommandForRDotJavaFiles(
-        javaSourceFilePaths, rDotJavaClassesDirectory);
-    commands.add(javac);
-  }
-
-  static String getRDotJavaSrcFolder(BuildTarget buildTarget) {
-    return String.format("%s/%s__%s_rdotjava_src__",
-        BuckConstant.BIN_DIR,
-        buildTarget.getBasePathWithSlash(),
-        buildTarget.getShortName());
-  }
-
-  public static String getRDotJavaBinFolder(BuildTarget buildTarget) {
-    return String.format("%s/%s__%s_rdotjava_bin__",
-        BuckConstant.BIN_DIR,
-        buildTarget.getBasePathWithSlash(),
-        buildTarget.getShortName());
+  static JavacInMemoryStep createJavacInMemoryCommandForRDotJavaFiles(
+      Set<String> javaSourceFilePaths, String outputDirectory) {
+    return createJavacInMemoryCommandForRDotJavaFiles(
+        javaSourceFilePaths, outputDirectory, Optional.<String>absent());
   }
 
   static JavacInMemoryStep createJavacInMemoryCommandForRDotJavaFiles(
-    Set<String> javaSourceFilePaths, String outputDirectory) {
+      Set<String> javaSourceFilePaths,
+      String outputDirectory,
+      Optional<String> pathToOutputAbiFile) {
 
     ImmutableSet<String> classpathEntries = ImmutableSet.of();
     return new JavacInMemoryStep(
@@ -277,9 +187,10 @@ public class UberRDotJavaUtil {
         ImmutableSet.<String>of(),
         classpathEntries,
         JavacOptions.DEFAULTS,
-        /* pathToOutputAbiFile */ Optional.<String>absent(),
+        pathToOutputAbiFile,
         Optional.<String>absent(),
         BuildDependencies.FIRST_ORDER_ONLY,
-        Optional.<JavacInMemoryStep.SuggestBuildRules>absent());
+        Optional.<JavacInMemoryStep.SuggestBuildRules>absent(),
+        /* pathToSrcsList */ Optional.<Path>absent());
   }
 }

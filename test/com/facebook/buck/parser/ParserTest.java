@@ -19,11 +19,15 @@ package com.facebook.buck.parser;
 import static com.facebook.buck.parser.RawRulePredicates.alwaysFalse;
 import static com.facebook.buck.parser.RawRulePredicates.alwaysTrue;
 import static com.facebook.buck.testutil.WatchEvents.createPathEvent;
+import static org.easymock.EasyMock.expect;
 import static org.easymock.EasyMock.expectLastCall;
+import static org.easymock.EasyMock.replay;
+import static org.easymock.EasyMock.verify;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.fail;
 
+import com.facebook.buck.event.BuckEvent;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.event.FakeBuckEventListener;
@@ -76,6 +80,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.StandardWatchEventKinds;
 import java.nio.file.WatchEvent;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -135,7 +140,7 @@ public class ParserTest extends EasyMockSupport {
     File root = tempDir.getRoot();
     filesystem = new ProjectFilesystem(root);
 
-    buildRuleTypes = new KnownBuildRuleTypes();
+    buildRuleTypes = KnownBuildRuleTypes.getDefault();
     DefaultProjectBuildFileParserFactory testBuildFileParserFactory =
         new DefaultProjectBuildFileParserFactory(
             filesystem,
@@ -152,7 +157,9 @@ public class ParserTest extends EasyMockSupport {
 
     return new ProjectBuildFileParserFactory() {
       @Override
-      public ProjectBuildFileParser createParser(Iterable<String> commonIncludes) {
+      public ProjectBuildFileParser createParser(
+          Iterable<String> commonIncludes,
+          EnumSet<ProjectBuildFileParser.Option> parseOptions) {
         return mockBuildFileParser;
       }
     };
@@ -211,7 +218,7 @@ public class ParserTest extends EasyMockSupport {
 
     Parser parser = new Parser(
         new ProjectFilesystem(new File(".")),
-        new KnownBuildRuleTypes(),
+        KnownBuildRuleTypes.getDefault(),
         new TestConsole(),
         BuckTestConstant.PYTHON_INTERPRETER,
         tempFilePatterns,
@@ -364,7 +371,9 @@ public class ParserTest extends EasyMockSupport {
     Iterable<String> defaultIncludes = ImmutableList.of();
 
     try {
-      testParser.parseBuildFilesForTargets(buildTargets, defaultIncludes, BuckEventBusFactory.newInstance());
+      testParser.parseBuildFilesForTargets(buildTargets,
+          defaultIncludes,
+          BuckEventBusFactory.newInstance());
       fail("HumanReadableException should be thrown");
     } catch (HumanReadableException e) {
       assertEquals("No rule found when resolving target " +
@@ -436,7 +445,8 @@ public class ParserTest extends EasyMockSupport {
       throws BuildFileParseException, BuildTargetException, IOException {
     parser.parseBuildFile(buildFile,
         /* defaultIncludes */ ImmutableList.<String>of(),
-        buildFileParserFactory.createParser(/* commonIncludes */ Lists.<String>newArrayList()));
+        buildFileParserFactory.createParser(/* commonIncludes */ Lists.<String>newArrayList(),
+            EnumSet.noneOf(ProjectBuildFileParser.Option.class)));
   }
 
   @Test
@@ -977,6 +987,48 @@ public class ParserTest extends EasyMockSupport {
     assertEquals("Should have replaced build rules", 2, buildFileParserFactory.calls);
   }
 
+  @Test
+  @SuppressWarnings("unchecked") // Needed to mock generic class.
+  public void whenBuildFileTreeCacheInvalidatedTwiceDuringASingleBuildThenBuildFileTreeBuiltOnce()
+      throws IOException {
+    BuckEvent mockEvent = createMock(BuckEvent.class);
+    expect(mockEvent.getEventName()).andReturn("CommandStarted").anyTimes();
+    expect(mockEvent.getBuildId()).andReturn("BUILD1");
+    BuildFileTree mockBuildFileTree = createMock(BuildFileTree.class);
+    InputSupplier<BuildFileTree> mockSupplier = createMock(InputSupplier.class);
+    expect(mockSupplier.getInput()).andReturn(mockBuildFileTree).once();
+    replay(mockEvent, mockSupplier, mockBuildFileTree);
+    Parser.BuildFileTreeCache cache = new Parser.BuildFileTreeCache(mockSupplier);
+    cache.onCommandStartedEvent(mockEvent);
+    cache.invalidateIfStale();
+    cache.getInput();
+    cache.invalidateIfStale();
+    cache.getInput();
+    verify(mockEvent, mockSupplier);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked") // Needed to mock generic class.
+  public void whenBuildFileTreeCacheInvalidatedDuringTwoBuildsThenBuildFileTreeBuiltTwice()
+      throws IOException {
+    BuckEvent mockEvent = createMock(BuckEvent.class);
+    expect(mockEvent.getEventName()).andReturn("CommandStarted").anyTimes();
+    expect(mockEvent.getBuildId()).andReturn("BUILD1");
+    expect(mockEvent.getBuildId()).andReturn("BUILD2");
+    BuildFileTree mockBuildFileTree = createMock(BuildFileTree.class);
+    InputSupplier<BuildFileTree> mockSupplier = createMock(InputSupplier.class);
+    expect(mockSupplier.getInput()).andReturn(mockBuildFileTree).times(2);
+    replay(mockEvent, mockSupplier, mockBuildFileTree);
+    Parser.BuildFileTreeCache cache = new Parser.BuildFileTreeCache(mockSupplier);
+    cache.onCommandStartedEvent(mockEvent);
+    cache.invalidateIfStale();
+    cache.getInput();
+    cache.onCommandStartedEvent(mockEvent);
+    cache.invalidateIfStale();
+    cache.getInput();
+    verify(mockEvent, mockSupplier);
+  }
+
   private Map<BuildTarget, BuildRuleBuilder<?>> emptyBuildTargets() {
     return Maps.newHashMap();
   }
@@ -1050,7 +1102,9 @@ public class ParserTest extends EasyMockSupport {
     }
 
     @Override
-    public ProjectBuildFileParser createParser(Iterable<String> commonIncludes) {
+    public ProjectBuildFileParser createParser(
+        Iterable<String> commonIncludes,
+        EnumSet<ProjectBuildFileParser.Option> parseOptions) {
       return new TestProjectBuildFileParser();
     }
 
@@ -1060,7 +1114,8 @@ public class ParserTest extends EasyMockSupport {
             projectFilesystem,
             ImmutableList.of("//java/com/facebook/defaultIncludeFile"),
             "python",
-            buildRuleTypes.getAllDescriptions());
+            buildRuleTypes.getAllDescriptions(),
+            EnumSet.noneOf(ProjectBuildFileParser.Option.class));
       }
 
       @Override

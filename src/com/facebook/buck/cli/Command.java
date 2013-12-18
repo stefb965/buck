@@ -25,6 +25,7 @@ import com.google.common.base.Throwables;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.lang.reflect.InvocationTargetException;
+import java.util.List;
 
 public enum Command {
 
@@ -46,12 +47,12 @@ public enum Command {
   PROJECT(
       "generates project configuration files for an IDE",
       ProjectCommand.class),
-  QUERY(
-      "queries the dependency graph",
-      QueryCommand.class),
   QUICKSTART(
       "generates a default project directory",
       QuickstartCommand.class),
+  RUN(
+      "runs a target as a command",
+      RunCommand.class),
   TARGETS(
       "prints the list of buildable targets",
       TargetsCommand.class),
@@ -85,7 +86,7 @@ public enum Command {
     return shortDescription;
   }
 
-  public int execute(String[] args,
+  public int execute(List<String> args,
       BuckConfig buckConfig,
       CommandRunnerParams params) throws IOException {
       CommandRunner commandRunner;

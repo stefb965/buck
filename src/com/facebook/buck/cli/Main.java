@@ -18,6 +18,7 @@ package com.facebook.buck.cli;
 
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventListener;
+import com.facebook.buck.event.LogEvent;
 import com.facebook.buck.event.listener.AbstractConsoleEventBusListener;
 import com.facebook.buck.event.listener.ChromeTraceBuildListener;
 import com.facebook.buck.event.listener.JavaUtilsLoggingBuildListener;
@@ -43,6 +44,7 @@ import com.facebook.buck.util.ProjectFilesystemWatcher;
 import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.WatchServiceWatcher;
 import com.facebook.buck.util.WatchmanWatcher;
+import com.facebook.buck.util.concurrent.TimeSpan;
 import com.facebook.buck.util.environment.DefaultExecutionEnvironment;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.facebook.buck.util.environment.Platform;
@@ -65,6 +67,7 @@ import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.FileSystems;
+import java.util.Arrays;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
@@ -82,11 +85,6 @@ public final class Main {
    */
   public static final int BUSY_EXIT_CODE = 2;
 
-  /**
-   * Client disconnected.
-   */
-  public static final int CLIENT_DISCONNECT_EXIT_CODE = 3;
-
   private static final String DEFAULT_BUCK_CONFIG_FILE_NAME = ".buckconfig";
   private static final String DEFAULT_BUCK_CONFIG_OVERRIDE_FILE_NAME = ".buckconfig.local";
 
@@ -96,6 +94,15 @@ public final class Main {
   private static final String BUCKD_COLOR_DEFAULT_ENV_VAR = "BUCKD_COLOR_DEFAULT";
 
   private static final int ARTIFACT_CACHE_TIMEOUT_IN_SECONDS = 15;
+
+  private static final TimeSpan SUPER_CONSOLE_REFRESH_RATE =
+      new TimeSpan(100, TimeUnit.MILLISECONDS);
+
+  /**
+   * Path to a directory of static content that should be served by the {@link WebServer}.
+   */
+  private static final String STATIC_CONTENT_DIRECTORY = System.getProperty(
+      "buck.path_to_static_content", "webserver/static");
 
   private final PrintStream stdOut;
   private final PrintStream stdErr;
@@ -126,7 +133,7 @@ public final class Main {
       this.console = Preconditions.checkNotNull(console);
       this.hashCache = new DefaultFileHashCache(projectFilesystem, console);
       this.parser = new Parser(projectFilesystem,
-          new KnownBuildRuleTypes(),
+          KnownBuildRuleTypes.getDefault(),
           console,
           config.getPythonInterpreter(),
           config.getTempFilePatterns(),
@@ -135,7 +142,7 @@ public final class Main {
       this.filesystemWatcher = createWatcher(projectFilesystem);
       fileEventBus.register(parser);
       fileEventBus.register(hashCache);
-      webServer = createWebServer(config, console);
+      webServer = createWebServer(config, console, projectFilesystem);
       JavaUtilsLoggingBuildListener.ensureLogFileIsWritten();
     }
 
@@ -154,7 +161,9 @@ public final class Main {
           FileSystems.getDefault().newWatchService());
     }
 
-    private Optional<WebServer> createWebServer(BuckConfig config, Console console) {
+    private Optional<WebServer> createWebServer(BuckConfig config,
+        Console console,
+        ProjectFilesystem projectFilesystem) {
       // Enable the web httpserver if it is given by command line parameter or specified in
       // .buckconfig. The presence of a port number is sufficient.
       Optional<String> serverPort = Optional.fromNullable(System.getProperty("buck.httpserver.port"));
@@ -166,7 +175,7 @@ public final class Main {
         String rawPort = serverPort.get();
         try {
           int port = Integer.parseInt(rawPort, 10);
-          webServer = Optional.of(new WebServer(port));
+          webServer = Optional.of(new WebServer(port, projectFilesystem, STATIC_CONTENT_DIRECTORY));
         } catch (NumberFormatException e) {
           console.printErrorText(String.format("Could not parse port for httpserver: %s.", rawPort));
           webServer = Optional.absent();
@@ -188,7 +197,7 @@ public final class Main {
     private void watchClient(final NGContext context) {
       context.addClientListener(new NGClientListener() {
         @Override
-        public void clientDisconnected() {
+        public void clientDisconnected() throws InterruptedException {
 
           // Synchronize on parser object so that the main command processing thread is not
           // interrupted mid way through a Parser cache update by the Thread.interrupt() call
@@ -198,13 +207,13 @@ public final class Main {
           synchronized (parser) {
             // Client should no longer be connected, but printing helps detect false disconnections.
             context.err.println("Client disconnected.");
-            System.exit(CLIENT_DISCONNECT_EXIT_CODE);
+            throw new InterruptedException("Client disconnected.");
           }
         }
       });
     }
 
-    private void watchFileSystem(Console console) throws IOException {
+    private void watchFileSystem(Console console, CommandEvent commandEvent) throws IOException {
 
       // Synchronize on parser object so that all outstanding watch events are processed
       // as a single, atomic Parser cache update and are not interleaved with Parser cache
@@ -213,6 +222,7 @@ public final class Main {
       synchronized (parser) {
         parser.setConsole(console);
         hashCache.setConsole(console);
+        fileEventBus.post(commandEvent);
         filesystemWatcher.postEvents();
       }
     }
@@ -252,13 +262,6 @@ public final class Main {
   }
 
   @Nullable volatile private static Daemon daemon;
-
-  /**
-   * Get existing Daemon.
-   */
-  private Daemon getDaemon() {
-    return Preconditions.checkNotNull(daemon);
-  }
 
   /**
    * Get or create Daemon.
@@ -348,39 +351,20 @@ public final class Main {
     BuckConfig config = createBuckConfig(projectFilesystem, platform);
     Verbosity verbosity = VerbosityParser.parse(args);
     Optional<String> color;
-    if (context.isPresent() && (context.get().getEnv() != null)) {
+    final boolean isDaemon = context.isPresent();
+    if (isDaemon && (context.get().getEnv() != null)) {
       String colorString = context.get().getEnv().getProperty(BUCKD_COLOR_DEFAULT_ENV_VAR);
       color = Optional.fromNullable(colorString);
     } else {
       color = Optional.absent();
     }
     final Console console = new Console(verbosity, stdOut, stdErr, config.createAnsi(color));
-    KnownBuildRuleTypes knownBuildRuleTypes = new KnownBuildRuleTypes();
-
-    // Create or get and invalidate cached command parameters.
-    Parser parser;
-    if (context.isPresent()) {
-      // Wire up daemon to new client and console and get cached Parser.
-      Daemon daemon = getDaemon(projectFilesystem, config, console);
-      daemon.watchClient(context.get());
-      daemon.watchFileSystem(console);
-      daemon.initWebServer(); // TODO(user): avoid webserver initialization on each command?
-      parser = daemon.getParser();
-    } else {
-      // Initialize logging and create new Parser for new process.
-      JavaUtilsLoggingBuildListener.ensureLogFileIsWritten();
-      parser = new Parser(projectFilesystem,
-          knownBuildRuleTypes,
-          console,
-          config.getPythonInterpreter(),
-          config.getTempFilePatterns(),
-          createRuleKeyBuilderFactory(new DefaultFileHashCache(projectFilesystem, console)));
-    }
 
     // Find and execute command.
+    int exitCode;
     Optional<Command> command = Command.getCommandForName(args[0], console);
     if (!command.isPresent()) {
-      int exitCode = new GenericBuckOptions(stdOut, stdErr).execute(args);
+      exitCode = new GenericBuckOptions(stdOut, stdErr).execute(args);
       if (exitCode == GenericBuckOptions.SHOW_MAIN_HELP_SCREEN_EXIT_CODE) {
         return usage();
       } else {
@@ -388,56 +372,101 @@ public final class Main {
       }
     }
 
-    Clock clock = new DefaultClock();
-
+    // No more early outs: acquire the command semaphore and become the only executing command.
+    if (!commandSemaphore.tryAcquire()) {
+      return BUSY_EXIT_CODE;
+    }
+    ImmutableList<BuckEventListener> eventListeners;
     String buildId = MoreStrings.createRandomString();
+    Clock clock = new DefaultClock();
     ExecutionEnvironment executionEnvironment = new DefaultExecutionEnvironment();
-    try (BuckEventBus buildEventBus = new BuckEventBus(clock, buildId);
-         AbstractConsoleEventBusListener consoleListener =
-             createConsoleEventListener(clock, console, executionEnvironment))  {
+    try (AbstractConsoleEventBusListener consoleListener =
+             createConsoleEventListener(clock, console, executionEnvironment);
+         BuckEventBus buildEventBus = new BuckEventBus(clock, buildId)) {
+      Optional<WebServer> webServer = getWebServerIfDaemon(context,
+          projectFilesystem,
+          config,
+          console);
+      eventListeners = addEventListeners(buildEventBus,
+          projectFilesystem,
+          config,
+          webServer,
+          consoleListener);
 
-      ImmutableList<BuckEventListener> eventListeners =
-          addEventListeners(buildEventBus,
-              clock,
-              projectFilesystem,
-              config,
-              getWebServerIfDaemon(context),
-              consoleListener);
-
-      String[] remainingArgs = new String[args.length - 1];
-      System.arraycopy(args, 1, remainingArgs, 0, remainingArgs.length);
+      ImmutableList<String> remainingArgs = ImmutableList.copyOf(
+          Arrays.copyOfRange(args, 1, args.length));
 
       Command executingCommand = command.get();
       String commandName = executingCommand.name().toLowerCase();
 
-      buildEventBus.post(CommandEvent.started(commandName, context.isPresent()));
+      CommandEvent commandEvent = CommandEvent.started(commandName, remainingArgs, isDaemon);
+      buildEventBus.post(commandEvent);
 
       // The ArtifactCache is constructed lazily so that we do not try to connect to Cassandra when
       // running commands such as `buck clean`.
       ArtifactCacheFactory artifactCacheFactory = new LoggingArtifactCacheFactory(buildEventBus);
 
-      int exitCode = executingCommand.execute(remainingArgs, config, new CommandRunnerParams(
-          console,
-          projectFilesystem,
-          new KnownBuildRuleTypes(),
-          artifactCacheFactory,
-          buildEventBus,
-          parser,
-          platform));
-
-      buildEventBus.post(CommandEvent.finished(commandName, context.isPresent(), exitCode));
-      for (BuckEventListener eventListener : eventListeners) {
-        eventListener.outputTrace();
+      // Create or get Parser and invalidate cached command parameters.
+      Parser parser;
+      if (isDaemon) {
+        // Wire up daemon to new client and console and get cached Parser.
+        Daemon daemon = getDaemon(projectFilesystem, config, console);
+        daemon.watchClient(context.get());
+        daemon.watchFileSystem(console, commandEvent);
+        daemon.initWebServer();
+        parser = daemon.getParser();
+      } else {
+        // Initialize logging and create new Parser for new process.
+        JavaUtilsLoggingBuildListener.ensureLogFileIsWritten();
+        parser = new Parser(projectFilesystem,
+            KnownBuildRuleTypes.getDefault(),
+            console,
+            config.getPythonInterpreter(),
+            config.getTempFilePatterns(),
+            createRuleKeyBuilderFactory(new DefaultFileHashCache(projectFilesystem, console)));
       }
+
+      exitCode = executingCommand.execute(remainingArgs,
+          config,
+          new CommandRunnerParams(
+              console,
+              projectFilesystem,
+              KnownBuildRuleTypes.getDefault(),
+              artifactCacheFactory,
+              buildEventBus,
+              parser,
+              platform));
+
+      // TODO(user): allocate artifactCacheFactory in the try-with-resources block to avoid leaks.
       artifactCacheFactory.closeCreatedArtifactCaches(ARTIFACT_CACHE_TIMEOUT_IN_SECONDS);
 
-      return exitCode;
+      // If the Daemon is running and serving web traffic, print the URL to the Chrome Trace.
+      if (webServer.isPresent()) {
+        int port = webServer.get().getPort();
+        buildEventBus.post(LogEvent.info(
+            "See trace at http://localhost:%s/trace/%s", port, buildId));
+      }
+      buildEventBus.post(CommandEvent.finished(commandName, remainingArgs, isDaemon, exitCode));
+    } finally {
+      commandSemaphore.release(); // Allow another command to execute while outputting traces.
     }
+    if (isDaemon) {
+      context.get().in.close(); // Avoid client exit triggering client disconnection handling.
+      context.get().exit(exitCode); // Allow nailgun client to exit while outputting traces.
+    }
+    for (BuckEventListener eventListener : eventListeners) {
+      eventListener.outputTrace(buildId);
+    }
+    return exitCode;
   }
 
-  private Optional<WebServer> getWebServerIfDaemon(Optional<NGContext> context) {
+  private Optional<WebServer> getWebServerIfDaemon(
+      Optional<NGContext> context,
+      ProjectFilesystem projectFilesystem,
+      BuckConfig config,
+      Console console) throws IOException {
     if (context.isPresent()) {
-      return getDaemon().getWebServer();
+      return getDaemon(projectFilesystem, config, console).getWebServer();
     }
     return Optional.absent();
   }
@@ -496,7 +525,6 @@ public final class Main {
 
   private ImmutableList<BuckEventListener> addEventListeners(
       BuckEventBus buckEvents,
-      Clock clock,
       ProjectFilesystem projectFilesystem,
       BuckConfig config,
       Optional<WebServer> webServer,
@@ -504,7 +532,7 @@ public final class Main {
     ImmutableList.Builder<BuckEventListener> eventListenersBuilder =
         ImmutableList.<BuckEventListener>builder()
             .add(new JavaUtilsLoggingBuildListener())
-            .add(new ChromeTraceBuildListener(projectFilesystem, clock, config.getMaxTraces()))
+            .add(new ChromeTraceBuildListener(projectFilesystem, config.getMaxTraces()))
             .add(consoleEventBusListener);
 
     if (webServer.isPresent()) {
@@ -530,7 +558,8 @@ public final class Main {
     if (console.getAnsi().isAnsiTerminal()) {
       SuperConsoleEventBusListener superConsole =
           new SuperConsoleEventBusListener(console, clock, executionEnvironment);
-      superConsole.startRenderScheduler(100, TimeUnit.MILLISECONDS);
+      superConsole.startRenderScheduler(SUPER_CONSOLE_REFRESH_RATE.getDuration(),
+          SUPER_CONSOLE_REFRESH_RATE.getUnit());
       return superConsole;
     }
     return new SimpleConsoleEventBusListener(console, clock);
@@ -575,9 +604,6 @@ public final class Main {
   int tryRunMainWithExitCode(File projectRoot, Optional<NGContext> context, String... args)
       throws IOException {
     // TODO(user): enforce write command exclusion, but allow concurrent read only commands?
-    if (!commandSemaphore.tryAcquire()) {
-      return BUSY_EXIT_CODE;
-    }
     try {
       return runMainWithExitCode(projectRoot, context, args);
     } catch (HumanReadableException e) {
@@ -587,8 +613,6 @@ public final class Main {
           new Ansi(platform));
       console.printBuildFailure(e.getHumanReadableErrorMessage());
       return FAIL_EXIT_CODE;
-    } finally {
-      commandSemaphore.release();
     }
   }
 

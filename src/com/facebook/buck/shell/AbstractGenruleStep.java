@@ -26,6 +26,7 @@ import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -161,7 +162,7 @@ public abstract class AbstractGenruleStep extends ShellStep {
     for (Map.Entry<String, String> environmentVariable : allEnvironmentVariables.entrySet()) {
       // We check for the presence of the variable without adornment for $ or %% so it works on both
       // Windows and non-Windows environments. Eventually, we will require $ in the command string
-      // and modify the command directly rather than using envrionment variables.
+      // and modify the command directly rather than using environment variables.
       String environmentVariableName = environmentVariable.getKey();
       if (command.contains(environmentVariableName)) {
         // I hate this $DEPS variable so much...
@@ -255,7 +256,7 @@ public abstract class AbstractGenruleStep extends ShellStep {
       String cmd,
       Buildable matchingRule) {
     if (matchingRule instanceof BinaryBuildRule) {
-      return ((BinaryBuildRule) matchingRule).getExecutableCommand(filesystem);
+      return Joiner.on(' ').join(((BinaryBuildRule) matchingRule).getExecutableCommand(filesystem));
     }
 
     File output = filesystem.getFileForRelativePath(matchingRule.getPathToOutputFile());

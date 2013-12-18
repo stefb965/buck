@@ -22,8 +22,6 @@ import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.google.common.base.Optional;
 
-import java.nio.file.Path;
-
 public class ExportFileDescription implements Description<ExportFileDescription.Arg> {
 
   public static final BuildRuleType TYPE = new BuildRuleType("export_file");
@@ -40,11 +38,11 @@ public class ExportFileDescription implements Description<ExportFileDescription.
 
   @Override
   public ExportFile createBuildable(BuildRuleParams params, Arg args) {
-    return new ExportFile(params, args.src, args.out);
+    return new ExportFile(params, args);
   }
 
   public class Arg {
-    public Optional<SourcePath> src;
-    public Optional<Path> out;
+    public Optional<? extends SourcePath> src;
+    public Optional<String> out;
   }
 }

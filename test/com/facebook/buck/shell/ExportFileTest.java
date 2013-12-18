@@ -15,7 +15,10 @@
  */
 package com.facebook.buck.shell;
 
+import static com.facebook.buck.testutil.MoreAsserts.assertIterablesEquals;
+import static java.util.Collections.singleton;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.graph.MutableDirectedGraph;
@@ -25,15 +28,12 @@ import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.DependencyGraph;
-import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildRuleParams;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FileSourcePath;
 import com.facebook.buck.rules.JavaPackageFinder;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepFailedException;
 import com.facebook.buck.step.StepRunner;
@@ -43,6 +43,7 @@ import com.facebook.buck.util.AndroidPlatformTarget;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterables;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 
@@ -52,8 +53,6 @@ import org.junit.Test;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.List;
 import java.util.concurrent.Callable;
 
@@ -61,19 +60,20 @@ public class ExportFileTest {
 
   private BuildRuleParams params;
   private BuildContext context;
-  private File root;
 
   @Before
   public void createFixtures() {
     params = new FakeBuildRuleParams(new BuildTarget("//", "example.html"));
-    root = new File(".");
+    File root = new File(".");
     context = getBuildContext(root);
   }
 
   @Test
   public void shouldSetSrcAndOutToNameParameterIfNeitherAreSet() throws IOException {
-    ExportFile exportFile = new ExportFile(
-        params, /* src */ Optional.<SourcePath>absent(), /* out */ Optional.<Path>absent());
+    ExportFileDescription.Arg args = new ExportFileDescription().createUnpopulatedConstructorArg();
+    args.out = Optional.absent();
+    args.src = Optional.absent();
+    ExportFile exportFile = new ExportFile(params, args);
 
     List<Step> steps = exportFile.getBuildSteps(context, new FakeBuildableContext());
 
@@ -89,8 +89,10 @@ public class ExportFileTest {
 
   @Test
   public void shouldSetOutToNameParamValueIfSrcIsSet() throws IOException {
-    ExportFile exportFile = new ExportFile(
-        params, /* src */ Optional.<SourcePath>absent(), /* out */ Optional.of(Paths.get("fish")));
+    ExportFileDescription.Arg args = new ExportFileDescription().createUnpopulatedConstructorArg();
+    args.out = Optional.of("fish");
+    args.src = Optional.absent();
+    ExportFile exportFile = new ExportFile(params, args);
 
     List<Step> steps = exportFile.getBuildSteps(context, new FakeBuildableContext());
 
@@ -106,9 +108,10 @@ public class ExportFileTest {
 
   @Test
   public void shouldSetOutAndSrcAndNameParametersSeparately() throws IOException {
-    ExportFile exportFile = new ExportFile(params,
-        /* src */ Optional.<SourcePath>of(new FileSourcePath("chips")),
-        /* out */ Optional.of(Paths.get("fish")));
+    ExportFileDescription.Arg args = new ExportFileDescription().createUnpopulatedConstructorArg();
+    args.src = Optional.of(new FileSourcePath("chips"));
+    args.out = Optional.of("fish");
+    ExportFile exportFile = new ExportFile(params, args);
 
     List<Step> steps = exportFile.getBuildSteps(context, new FakeBuildableContext());
 
@@ -123,34 +126,25 @@ public class ExportFileTest {
   }
 
   @Test
-  public void canUseTheOutputOfABuildRuleAsASource() throws IOException {
-    BuildTarget target = BuildTargetFactory.newInstance("//some/example:rule");
-    FakeBuildRule rule = new FakeBuildRule(new BuildRuleType("fake"), target);
-    String expectedSource = "buck-out/gen/some/example/rule.txt";
-    rule.setOutputFile(expectedSource);
+  public void shouldSetInputsFromSourcePaths() {
+    ExportFileDescription.Arg args = new ExportFileDescription().createUnpopulatedConstructorArg();
+    args.src = Optional.of(new FileSourcePath("chips"));
+    args.out = Optional.of("cake");
+    ExportFile exportFile = new ExportFile(params, args);
 
-    MutableDirectedGraph<BuildRule> baseGraph = new MutableDirectedGraph<>();
-    baseGraph.addNode(rule);
-    DependencyGraph graph = new DependencyGraph(baseGraph);
-    context = getBuildContext(root, graph);
-    ExportFile exportFile = new ExportFile(params,
-        /* src */ Optional.<SourcePath>of(new BuildTargetSourcePath(target)),
-        /* out */ Optional.<Path>absent());
+    assertIterablesEquals(singleton("chips"), exportFile.getInputsToCompareToOutput());
 
-    List<Step> steps = exportFile.getBuildSteps(context, new FakeBuildableContext());
+    args.src = Optional.of(
+        new BuildTargetSourcePath(BuildTargetFactory.newInstance("//example:one")));
+    exportFile = new ExportFile(params, args);
+    assertTrue(Iterables.isEmpty(exportFile.getInputsToCompareToOutput()));
 
-    System.out.println("steps = " + steps);
+    args.src = Optional.absent();
+    exportFile = new ExportFile(params, args);
+    assertIterablesEquals(singleton("example.html"), exportFile.getInputsToCompareToOutput());
   }
 
   private BuildContext getBuildContext(File root) {
-    return getBuildContext(root, null);
-  }
-
-  private BuildContext getBuildContext(File root, DependencyGraph graph) {
-    if (graph == null) {
-      graph = new DependencyGraph(new MutableDirectedGraph<BuildRule>());
-    }
-
     return BuildContext.builder()
         .setProjectFilesystem(new ProjectFilesystem(root))
         .setArtifactCache(EasyMock.createMock(ArtifactCache.class))
@@ -167,6 +161,7 @@ public class ExportFileTest {
             return null;
           }
         })
+        .setDependencyGraph(new DependencyGraph(new MutableDirectedGraph<BuildRule>()))
         .setStepRunner(new StepRunner() {
           @Override
           public void runStep(Step step) throws StepFailedException {
@@ -195,7 +190,6 @@ public class ExportFileTest {
             // Do nothing.
           }
         })
-        .setDependencyGraph(graph)
         .build();
   }
 }

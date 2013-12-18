@@ -77,7 +77,7 @@ abstract class AbstractCommandRunner<T extends AbstractCommandOptions> implement
   }
 
   @Override
-  public final int runCommand(BuckConfig buckConfig, String... args) throws IOException {
+  public final int runCommand(BuckConfig buckConfig, List<String> args) throws IOException {
     ParserAndOptions<T> parserAndOptions = createParser(buckConfig);
     T options = parserAndOptions.options;
     CmdLineParser parser = parserAndOptions.parser;
@@ -210,7 +210,7 @@ abstract class AbstractCommandRunner<T extends AbstractCommandOptions> implement
         .setProjectFilesystem(getProjectFilesystem())
         .setConsole(console)
         .setAndroidPlatformTarget(
-            options.findAndroidPlatformTarget(dependencyGraph, getBuckEventBus()))
+            options.findAndroidPlatformTarget(getProjectFilesystem(), dependencyGraph, getBuckEventBus()))
         .setNdkRoot(options.findAndroidNdkDir(getProjectFilesystem()))
         .setEventBus(eventBus)
         .setPlatform(platform)

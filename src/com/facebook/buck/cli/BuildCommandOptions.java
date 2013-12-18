@@ -112,6 +112,10 @@ public class BuildCommandOptions extends AbstractCommandOptions {
     return false;
   }
 
+  public boolean isJacocoEnabled() {
+    return false;
+  }
+
 
   @VisibleForTesting
   int getNumThreads() {
@@ -145,7 +149,7 @@ public class BuildCommandOptions extends AbstractCommandOptions {
       console.getStdErr().printf("Creating a build with %d threads.\n", numThreads);
     }
     return new Build(graph,
-        findAndroidSdkDir(),
+        findAndroidSdkDir(projectFilesystem),
         findAndroidNdkDir(projectFilesystem),
         targetDevice,
         projectFilesystem,
@@ -155,6 +159,7 @@ public class BuildCommandOptions extends AbstractCommandOptions {
         console,
         buckConfig.getDefaultTestTimeoutMillis(),
         isCodeCoverageEnabled(),
+        isJacocoEnabled(),
         isDebugEnabled(),
         getBuildDependencies(),
         eventBus,

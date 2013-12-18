@@ -50,13 +50,10 @@
     <include name="java/astyanax/log4j-1.2.16.jar" />
     <include name="java/astyanax/slf4j-api-1.7.2.jar" />
     <include name="java/astyanax/slf4j-log4j12-1.7.2.jar" />
+    <include name="java/closure-templates/soy-2012-12-21-no-guava.jar" />
     <include name="java/gson/gson-2.2.4.jar" />
     <include name="java/jetty/jetty-all-9.0.4.v20130625.jar" />
     <include name="java/jetty/servlet-api.jar" />
-    <include name="java/neo4j/geronimo-jta_1.1_spec-1.1.1.jar"/>
-    <include name="java/neo4j/lucene-core-3.6.2.jar"/>
-    <include name="java/neo4j/neo4j-kernel-2.0.0-M05.jar"/>
-    <include name="java/neo4j/neo4j-lucene-index-2.0.0-M05.jar"/>
     <include name="java/xz-java-1.3/xz-1.3.jar" />
   </fileset>
 
@@ -75,6 +72,7 @@
 
   <target name="clean" description="remove all generated files">
     <ant inheritAll="false" antfile="third-party/java/emma-2.0.5312/build.xml" target="clean" />
+    <ant inheritAll="false" antfile="third-party/java/jacoco-0.6.4/build.xml" target="clean" />
     <delete dir="${build.dir}" />
   </target>
 
@@ -118,6 +116,7 @@
           depends="compile-testrunner, compile-abi-processor"
           description="compile Java source code">
     <ant inheritAll="false" antfile="third-party/java/emma-2.0.5312/build.xml" target="core.package" />
+    <ant inheritAll="false" antfile="third-party/java/jacoco-0.6.4/build.xml" target="build" />
     <mkdir dir="${classes.dir}" />
     <javac destdir="${classes.dir}"
            classpathref="classpath"
@@ -269,6 +268,7 @@
         <exclude name="**/*.py"/>
         <exclude name="**/*.pyc"/>
         <exclude name="**/*.sh"/>
+        <exclude name="**/*.soy"/>
       </fileset>
       <link href="http://docs.oracle.com/javase/7/docs/api/" />
       <link href="http://docs.guava-libraries.googlecode.com/git-history/v15.0/javadoc/" />

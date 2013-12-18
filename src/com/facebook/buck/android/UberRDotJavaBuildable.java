@@ -156,13 +156,15 @@ public class UberRDotJavaBuildable extends AbstractBuildable implements
       throws IOException {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
-    AndroidTransitiveDependencies transitiveDependencies = getAndroidTransitiveDependencies();
-    final Set<String> rDotJavaPackages = transitiveDependencies.rDotJavaPackages;
+    AndroidResourceDetails androidResourceDetails =
+        androidResourceDepsFinder.getAndroidResourceDetails();
+    final Set<String> rDotJavaPackages = androidResourceDetails.rDotJavaPackages;
     final ImmutableSet<String> resDirectories;
     final Supplier<ImmutableSet<String>> nonEnglishStringFiles;
     if (requiresResourceFilter()) {
       final FilterResourcesStep filterResourcesStep = createFilterResourcesStep(
-          transitiveDependencies.resDirectories);
+          androidResourceDetails.resDirectories,
+          androidResourceDetails.whitelistedStringDirs);
       steps.add(filterResourcesStep);
 
       resDirectories = filterResourcesStep.getOutputResourceDirs();
@@ -178,7 +180,7 @@ public class UberRDotJavaBuildable extends AbstractBuildable implements
         buildableContext.recordArtifactsInDirectory(Paths.get(outputResourceDir));
       }
     } else {
-      resDirectories = transitiveDependencies.resDirectories;
+      resDirectories = androidResourceDetails.resDirectories;
       nonEnglishStringFiles = Suppliers.ofInstance(ImmutableSet.<String>of());
     }
 
@@ -256,9 +258,13 @@ public class UberRDotJavaBuildable extends AbstractBuildable implements
    *
    * {@code isStoreStringsAsAssets} determines whether non-english string resources are packaged
    * separately as assets (and not bundled together into the {@code resources.arsc} file).
+   *
+   * @param whitelistedStringDirs overrides storing non-english strings as assets for resources
+   *     inside these directories.
    */
   @VisibleForTesting
-  FilterResourcesStep createFilterResourcesStep(Set<String> resourceDirectories) {
+  FilterResourcesStep createFilterResourcesStep(Set<String> resourceDirectories,
+      ImmutableSet<String> whitelistedStringDirs) {
     ImmutableBiMap.Builder<String, String> filteredResourcesDirMapBuilder = ImmutableBiMap.builder();
     String resDestinationBasePath = getResDestinationBasePath();
     int count = 0;
@@ -274,6 +280,8 @@ public class UberRDotJavaBuildable extends AbstractBuildable implements
 
     if (isStoreStringsAsAssets()) {
       filterResourcesStepBuilder.enableStringsFilter();
+      filterResourcesStepBuilder.setWhitelistedStringDirs(
+          FluentIterable.from(whitelistedStringDirs).transform(MorePaths.TO_PATH).toSet());
     }
 
     return filterResourcesStepBuilder.build();

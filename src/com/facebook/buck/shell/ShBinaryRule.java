@@ -26,6 +26,8 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.DoNotUseAbstractBuildable;
+import com.facebook.buck.rules.InitializableFromDisk;
+import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.ResourcesAttributeBuilder;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePaths;
@@ -43,13 +45,20 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 
-public class ShBinaryRule extends DoNotUseAbstractBuildable implements BinaryBuildRule {
+import javax.annotation.Nullable;
+
+public class ShBinaryRule extends DoNotUseAbstractBuildable
+    implements BinaryBuildRule, InitializableFromDisk<Object> {
 
   private final Path main;
   private final ImmutableSet<SourcePath> resources;
 
   /** The path where the output will be written. */
   private final Path output;
+
+  // Dummy value
+  @Nullable
+  private Object buildOutput;
 
   protected ShBinaryRule(BuildRuleParams buildRuleParams,
       Path main,
@@ -99,12 +108,46 @@ public class ShBinaryRule extends DoNotUseAbstractBuildable implements BinaryBui
   }
 
   @Override
-  public String getExecutableCommand(ProjectFilesystem projectFilesystem) {
-    return projectFilesystem.getFileForRelativePath(output.toString()).getAbsolutePath();
+  public List<String> getExecutableCommand(ProjectFilesystem projectFilesystem) {
+    return ImmutableList.of(projectFilesystem
+          .getFileForRelativePath(output.toString())
+          .getAbsolutePath()
+          .toString());
   }
 
   public static Builder newShBinaryBuilder(AbstractBuildRuleBuilderParams params) {
     return new Builder(params);
+  }
+
+  /*
+   * This method implements InitializableFromDisk so that it can make the output file
+   * executable when this rule is populated from cache. The buildOutput Object is meaningless:
+   * it is created only to satisfy InitializableFromDisk contract.
+   * TODO (task #3321496) Delete this entire interface implementation after we fix zipping exe's.
+   */
+  @Override
+  public Object initializeFromDisk(OnDiskBuildInfo info) {
+    try {
+      info.makeOutputFileExecutable(this);
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
+    return new Object();
+  }
+
+  @Override
+  public void setBuildOutput(Object buildOutput) throws IllegalStateException {
+    Preconditions.checkState(
+        this.buildOutput == null,
+        "buildOutput must not already be set for %s.",
+        this);
+    this.buildOutput = buildOutput;
+  }
+
+  @Override
+  public Object getBuildOutput() throws IllegalStateException {
+    Preconditions.checkState(buildOutput != null, "buildOutput must already be set for %s.", this);
+    return buildOutput;
   }
 
   public static class Builder extends AbstractBuildRuleBuilder<ShBinaryRule>

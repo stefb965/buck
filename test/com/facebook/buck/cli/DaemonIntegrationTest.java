@@ -164,6 +164,7 @@ public class DaemonIntegrationTest {
       context.in = inputStream;
       context.out = new CapturingPrintStream();
       context.err = new CapturingPrintStream();
+      context.setExitStream(new CapturingPrintStream());
 
       // NGSecurityManager is used to convert System.exit() calls in to NGExitExceptions.
       SecurityManager originalSecurityManager = System.getSecurityManager();
@@ -184,9 +185,9 @@ public class DaemonIntegrationTest {
         System.setSecurityManager(new NGSecurityManager(originalSecurityManager));
         assertNotNull("Should register client listener.", inputStream.listener);
         inputStream.listener.clientDisconnected();
-        fail("Should throw NGExitException.");
-      } catch (NGExitException e) {
-        assertEquals("Should exit with status 3", Main.CLIENT_DISCONNECT_EXIT_CODE, e.getStatus());
+        fail("Should throw InterruptedException.");
+      } catch (InterruptedException e) {
+        assertEquals("Should be client disconnection.", "Client disconnected.", e.getMessage());
       } finally {
         System.setSecurityManager(originalSecurityManager);
       }

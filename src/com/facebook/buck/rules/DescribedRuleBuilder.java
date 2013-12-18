@@ -20,11 +20,15 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.parser.ParseContext;
+import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
+import java.lang.reflect.Field;
 import java.nio.file.Paths;
+import java.util.Collection;
+import java.util.List;
 import java.util.Set;
 
 public class DescribedRuleBuilder<T> implements BuildRuleBuilder<DescribedRule> {
@@ -45,6 +49,16 @@ public class DescribedRuleBuilder<T> implements BuildRuleBuilder<DescribedRule> 
     for (String rawDep : params.getOptionalListAttribute("deps")) {
       allDeps.add(params.resolveBuildTarget(rawDep));
     }
+
+    T arg = description.createUnpopulatedConstructorArg();
+    for (Field field : arg.getClass().getFields()) {
+      ParamInfo info = new ParamInfo(Paths.get(target.getBasePath()), field);
+      if (BuildRule.class.isAssignableFrom(info.getType()) ||
+          SourcePath.class.isAssignableFrom(info.getType())) {
+        detectBuildTargetsForParameter(allDeps, info, params);
+      }
+    }
+
     this.deps = allDeps.build();
 
     ImmutableSet.Builder<BuildTargetPattern> allVisibilities = ImmutableSet.builder();
@@ -90,6 +104,59 @@ public class DescribedRuleBuilder<T> implements BuildRuleBuilder<DescribedRule> 
 
     Buildable buildable = description.createBuildable(params, arg);
 
+    // Check for graph enhancement.
+    ImmutableSortedSet<BuildRule> enhancedDeps = buildable.getEnhancedDeps(ruleResolver);
+    if (enhancedDeps != null) {
+      params = new BuildRuleParams(
+          params.getBuildTarget(),
+          enhancedDeps,
+          params.getVisibilityPatterns(),
+          params.getPathRelativizer(),
+          params.getRuleKeyBuilderFactory());
+    }
+
     return new DescribedRule(description.getBuildRuleType(), buildable, params);
+  }
+
+  /**
+   * Converts {@code value} from a constructor arg to a {@link BuildTarget} iff the value might be a
+   * {@link SourcePath} or a {@link BuildTarget}. {@code value} will be deemed to represent a
+   * SourcePath if it is:
+   * <ul>
+   *   <li>Actually a SourcePath.
+   *   <li>An {@link Optional} of SourcePath.
+   *   <li>A {@link Collection} of SourcePaths.
+   *   <li>An Optional of a Collection of SourcePaths.
+   * </ul>
+   * @param builder The current builder to use.
+   */
+  private void detectBuildTargetsForParameter(
+      ImmutableSortedSet.Builder<BuildTarget> builder,
+      ParamInfo info,
+      BuildRuleFactoryParams params) throws NoSuchBuildTargetException {
+    // We'll make no test for optionality here. Let's assume it's done elsewhere.
+
+    if (info.getContainerType() != null) {
+      List<String> allParams = params.getOptionalListAttribute(info.getName());
+      for (String param : allParams) {
+        addTargetIfPresent(builder, params, param);
+      }
+    } else {
+      Optional<String> optional = params.getOptionalStringAttribute(info.getName());
+      String param = optional.or("");
+      addTargetIfPresent(builder, params, param);
+    }
+  }
+
+  private void addTargetIfPresent(
+      ImmutableSortedSet.Builder<BuildTarget> builder,
+      BuildRuleFactoryParams params, String param) throws NoSuchBuildTargetException {
+    if (isPossiblyATarget(param)) {
+      builder.add(params.resolveBuildTarget(param));
+    }
+  }
+
+  private boolean isPossiblyATarget(String param) {
+    return param.charAt(0) == ':' || param.startsWith("//");
   }
 }

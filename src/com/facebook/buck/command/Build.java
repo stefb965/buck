@@ -86,6 +86,7 @@ public class Build {
       Console console,
       long defaultTestTimeoutMillis,
       boolean isCodeCoverageEnabled,
+      boolean isJacocoEnabled,
       boolean isDebugEnabled,
       BuildDependencies buildDependencies,
       BuckEventBus eventBus,
@@ -102,6 +103,7 @@ public class Build {
         .setTargetDevice(targetDevice)
         .setDefaultTestTimeoutMillis(defaultTestTimeoutMillis)
         .setCodeCoverageEnabled(isCodeCoverageEnabled)
+        .setJacocoEnabled(isJacocoEnabled)
         .setDebugEnabled(isDebugEnabled)
         .setEventBus(eventBus)
         .setPlatform(platform)
@@ -214,7 +216,6 @@ public class Build {
         .setAndroidBootclasspathForAndroidPlatformTarget(
             executionContext.getAndroidPlatformTargetOptional())
         .setBuildDependencies(buildDependencies)
-        .setConsole(executionContext.getConsole())
         .build();
 
     return Builder.getInstance().buildRules(rulesToBuild, buildContext);
