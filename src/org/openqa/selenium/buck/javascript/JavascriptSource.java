@@ -24,6 +24,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -63,7 +64,12 @@ public class JavascriptSource {
 
     this.provides = toProvide.build();
     this.requires = toRequire.build();
+  }
 
+  JavascriptSource(String path, Iterable<String> provides, Iterable<String> requires) {
+    this.path = Paths.get(path);
+    this.provides = ImmutableSortedSet.copyOf(provides);
+    this.requires = ImmutableSortedSet.copyOf(requires);
   }
 
   public Path getPath() {
@@ -76,5 +82,30 @@ public class JavascriptSource {
 
   public ImmutableSortedSet<String> getRequires() {
     return requires;
+  }
+
+  @Override
+  public String toString() {
+    return String.format("%s -> provide: %s  + require: %s", path, provides, requires);
+  }
+
+  @Override
+  public boolean equals(Object o) {
+    if (this == o) return true;
+    if (o == null || getClass() != o.getClass()) return false;
+
+    JavascriptSource that = (JavascriptSource) o;
+
+    return path.equals(that.path) &&
+        provides.equals(that.provides) &&
+        requires.equals(that.requires);
+  }
+
+  @Override
+  public int hashCode() {
+    int result = path.hashCode();
+    result = 31 * result + provides.hashCode();
+    result = 31 * result + requires.hashCode();
+    return result;
   }
 }

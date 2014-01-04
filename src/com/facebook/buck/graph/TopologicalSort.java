@@ -18,6 +18,7 @@ package com.facebook.buck.graph;
 
 import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSortedSet;
 
 public class TopologicalSort {
 
@@ -47,4 +48,6 @@ public class TopologicalSort {
     traversal.traverse();
     return traversal.getResult();
   }
+
+
 }

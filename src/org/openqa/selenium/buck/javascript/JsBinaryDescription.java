@@ -19,14 +19,18 @@ package org.openqa.selenium.buck.javascript;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleType;
+import com.facebook.buck.rules.Buildable;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSortedSet;
 
-public class JsLibraryDescription implements Description<JsLibraryDescription.Arg> {
+import java.nio.file.Path;
+import java.util.List;
 
-  private static final BuildRuleType TYPE = new BuildRuleType("js_library");
+public class JsBinaryDescription implements Description<JsBinaryDescription.Arg> {
+
+  private final static BuildRuleType TYPE = new BuildRuleType("js_binary");
 
   @Override
   public BuildRuleType getBuildRuleType() {
@@ -39,12 +43,22 @@ public class JsLibraryDescription implements Description<JsLibraryDescription.Ar
   }
 
   @Override
-  public JsLibrary createBuildable(BuildRuleParams params, Arg args) {
-    return new JsLibrary(params.getBuildTarget(), params.getDeps(), args.srcs);
+  public Buildable createBuildable(BuildRuleParams params, Arg args) {
+    return new JsBinary(
+        params.getBuildTarget(),
+        params.getDeps(),
+        args.srcs,
+        args.defines,
+        args.flags,
+        args.externs);
   }
 
   public static class Arg {
+    public Optional<List<String>> defines;
+    public Optional<List<Path>> externs;
+    public Optional<List<String>> flags;
     public ImmutableSortedSet<SourcePath> srcs;
+
     public Optional<ImmutableSortedSet<BuildRule>> deps;
   }
 }

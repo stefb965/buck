@@ -19,12 +19,11 @@ package org.openqa.selenium.buck.javascript;
 import static com.facebook.buck.util.BuckConstant.GEN_DIR;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
-import com.facebook.buck.graph.DefaultImmutableDirectedAcyclicGraph;
-import com.facebook.buck.graph.ImmutableDirectedAcyclicGraph;
-import com.facebook.buck.graph.MutableDirectedGraph;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractBuildable;
 import com.facebook.buck.rules.BuildContext;
+import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.Buildable;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
@@ -32,37 +31,42 @@ import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.step.Step;
-import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.WriteFileStep;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
-import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Sets;
 
 import java.io.IOException;
 import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Collection;
+import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
+import java.util.Set;
 
-public class JsLibrary extends AbstractBuildable implements InitializableFromDisk<ImmutableDirectedAcyclicGraph<String>> {
+public class JsLibrary extends AbstractBuildable implements InitializableFromDisk<JavascriptDependencies> {
 
   private final Path output;
+  private final ImmutableSortedSet<BuildRule> deps;
   private final ImmutableSortedSet<SourcePath> srcs;
-  private ImmutableDirectedAcyclicGraph<String> graph;
+  private final BuildTarget buildTarget;
+  private JavascriptDependencies joy;
 
-  public JsLibrary(BuildTarget buildTarget, ImmutableSortedSet<SourcePath> srcs) {
+  public JsLibrary(
+      BuildTarget buildTarget,
+      ImmutableSortedSet<BuildRule> deps,
+      ImmutableSortedSet<SourcePath> srcs) {
+    this.buildTarget = buildTarget;
+    this.deps = Preconditions.checkNotNull(deps);
     this.srcs = Preconditions.checkNotNull(srcs);
 
     this.output = Paths.get(
-        GEN_DIR, buildTarget.getBaseName(), buildTarget.getShortName() + "-library.graph");
+        GEN_DIR, buildTarget.getBaseName(), buildTarget.getShortName() + "-library.deps");
   }
 
   @Override
@@ -77,23 +81,49 @@ public class JsLibrary extends AbstractBuildable implements InitializableFromDis
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) throws IOException {
+  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext)
+      throws IOException {
     ImmutableList.Builder<Step> builder = ImmutableList.builder();
 
-    HashMultimap<String, String> provideToRequires = HashMultimap.create();
+    Set<String> allRequires = Sets.newHashSet();
+    Set<String> allProvides = Sets.newHashSet();
+    JavascriptDependencies smidgen = new JavascriptDependencies();
     for (SourcePath src : srcs) {
       Path path = src.resolve(context);
       JavascriptSource source = new JavascriptSource(path);
+      smidgen.add(source);
+      allRequires.addAll(source.getRequires());
+      allProvides.addAll(source.getProvides());
+    }
 
-      for (String provide : source.getProvides()) {
-        provideToRequires.putAll(provide, source.getRequires());
+    allRequires.removeAll(allProvides);
+
+    for (BuildRule dep : deps) {
+      Iterator<String> iterator = allRequires.iterator();
+
+      Buildable buildable = dep.getBuildable();
+      if (!(buildable instanceof JsLibrary)) {
+        continue;
+      }
+      JavascriptDependencies moreJoy = ((JsLibrary) buildable).getBundleOfJoy();
+
+      while (iterator.hasNext()) {
+        String require = iterator.next();
+
+        Set<JavascriptSource> sources = moreJoy.getDeps(require);
+        if (!sources.isEmpty()) {
+          smidgen.addAll(sources);
+          iterator.remove();
+        }
       }
     }
 
-    StringWriter writer = new StringWriter();
-    new ObjectMapper().writeValue(writer, provideToRequires.asMap());
+    if (!allRequires.isEmpty()) {
+      throw new RuntimeException(buildTarget + " --- Missing dependencies for: " + allRequires);
+    }
 
-    System.out.println("writer = " + writer.toString());
+    StringWriter writer = new StringWriter();
+    smidgen.writeTo(writer);
 
     builder.add(new MkdirStep(output.getParent()));
     builder.add(new WriteFileStep(writer.toString(), output));
@@ -102,55 +132,41 @@ public class JsLibrary extends AbstractBuildable implements InitializableFromDis
   }
 
   @Override
-  public ImmutableDirectedAcyclicGraph<String> initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) {
-    Preconditions.checkState(graph == null, "Attempt to reinitialize from disk");
+  public JavascriptDependencies initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) {
+    Preconditions.checkState(joy == null, "Attempt to reinitialize from disk");
 
     try {
       List<String> allLines = onDiskBuildInfo.getOutputFileContentsByLine(output);
-      return buildGraph(allLines);
+      return JavascriptDependencies.buildFrom(Joiner.on("\n").join(allLines));
     } catch (IOException e) {
       throw Throwables.propagate(e);
     }
   }
 
   @Override
-  public void setBuildOutput(ImmutableDirectedAcyclicGraph<String> graph) throws IllegalStateException {
-    Preconditions.checkState(this.graph == null, "Attempted to set build output more than once.");
-    this.graph = graph;
+  public void setBuildOutput(JavascriptDependencies joy) throws IllegalStateException {
+    Preconditions.checkState(this.joy == null, "Attempted to set build output more than once.");
+    this.joy = joy;
   }
 
   @Override
-  public ImmutableDirectedAcyclicGraph<String> getBuildOutput() throws IllegalStateException {
-    Preconditions.checkNotNull(graph, "Build output has not been set.");
+  public JavascriptDependencies getBuildOutput() throws IllegalStateException {
+    Preconditions.checkNotNull(joy, "Build output has not been set.");
 
     try {
       List<String> allLines = Files.readAllLines(output, UTF_8);
-      return buildGraph(allLines);
+      return JavascriptDependencies.buildFrom(Joiner.on("\n").join(allLines));
     } catch (IOException e) {
       throw Throwables.propagate(e);
     }
-  }
-
-  @SuppressWarnings("unchecked")
-  private ImmutableDirectedAcyclicGraph<String> buildGraph(List<String> allLines) throws IOException {
-    String rawJson = Joiner.on("\n").join(allLines);
-
-    Map<String, Collection<String>> read = new ObjectMapper().readValue(rawJson, Map.class);
-
-    MutableDirectedGraph<String> mutableGraph = new MutableDirectedGraph<>();
-    for (Map.Entry<String, Collection<String>> entry : read.entrySet()) {
-      mutableGraph.addNode(entry.getKey());
-      for (String require : entry.getValue()) {
-        mutableGraph.addNode(require);
-        mutableGraph.addEdge(entry.getKey(), require);
-      }
-    }
-
-    return new DefaultImmutableDirectedAcyclicGraph<>(mutableGraph);
   }
 
   @Override
   public String getPathToOutputFile() {
     return output.toString();
+  }
+
+  public JavascriptDependencies getBundleOfJoy() {
+    return joy;
   }
 }
