@@ -42,7 +42,7 @@ public class XptDescription implements Description<XptDescription.Arg> {
     return new Xpt(params.getBuildTarget(), args.src, args.fallback);
   }
 
-  static class Arg {
+  public static class Arg {
     public SourcePath fallback;
     public Path src;
   }
