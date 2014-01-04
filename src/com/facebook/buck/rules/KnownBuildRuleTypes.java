@@ -47,6 +47,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import org.openqa.selenium.buck.javascript.JsBinaryDescription;
+import org.openqa.selenium.buck.javascript.JsFragmentDescription;
 import org.openqa.selenium.buck.javascript.JsLibraryDescription;
 import org.openqa.selenium.buck.mozilla.XptDescription;
 
@@ -106,6 +107,7 @@ public class KnownBuildRuleTypes {
 
     // TODO(simons): Added for selenium. Move to that project once the plugin API works.
     builder.register(new JsBinaryDescription());
+    builder.register(new JsFragmentDescription());
     builder.register(new JsLibraryDescription());
     builder.register(new XptDescription());
 
