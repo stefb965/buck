@@ -47,7 +47,7 @@ public class JsFragment extends AbstractBuildable {
     this.function = function;
     this.minify = minify;
     this.output = Paths.get(
-        GEN_DIR, target.getBaseName(), target.getShortName() + "-fragment.js");
+        GEN_DIR, target.getBaseName(), target.getShortName() + ".js");
     this.temp = Paths.get(
         BIN_DIR, target.getBaseName(), target.getShortName() + "-temp.js");
   }
@@ -95,7 +95,7 @@ public class JsFragment extends AbstractBuildable {
   @Nullable
   @Override
   public String getPathToOutputFile() {
-    return null;
+    return output.toString();
   }
 
   private static class JavascriptFragmentStep extends ShellStep {
