@@ -32,6 +32,7 @@ java_library(
     '//src/com/facebook/buck/util:io',
   ],
   visibility = [
+    '//src/org/openqa/selenium/...',
     '//src/com/facebook/buck/android/...',
     '//src/com/facebook/buck/rules:rules',
     '//test/com/facebook/buck/zip:zip',

@@ -49,6 +49,7 @@ import com.google.common.collect.Sets;
 import org.openqa.selenium.buck.javascript.JsBinaryDescription;
 import org.openqa.selenium.buck.javascript.JsFragmentDescription;
 import org.openqa.selenium.buck.javascript.JsLibraryDescription;
+import org.openqa.selenium.buck.mozilla.XpiDescription;
 import org.openqa.selenium.buck.mozilla.XptDescription;
 
 import java.util.Map;
@@ -109,6 +110,7 @@ public class KnownBuildRuleTypes {
     builder.register(new JsBinaryDescription());
     builder.register(new JsFragmentDescription());
     builder.register(new JsLibraryDescription());
+    builder.register(new XpiDescription());
     builder.register(new XptDescription());
 
     builder.register(new AndroidManifestDescription());
