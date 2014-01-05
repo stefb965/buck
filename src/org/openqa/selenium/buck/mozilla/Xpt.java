@@ -25,7 +25,7 @@ import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
-import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
+import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.util.BuckConstant;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -61,7 +61,7 @@ public class Xpt extends AbstractBuildable {
   public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) throws IOException {
     return builder
         .setInputs("src", ImmutableSet.of(src).iterator())
-        .setInputs("out", ImmutableSet.of(out).iterator());
+        .setSourcePaths("fallback", ImmutableSortedSet.of(fallback));
   }
 
   @Override
@@ -72,7 +72,7 @@ public class Xpt extends AbstractBuildable {
     context.getEventBus().post(LogEvent.warning("Defaulting to fallback for " + out));
     Path from = fallback.resolve(context);
 
-    steps.add(new MakeCleanDirectoryStep(out.getParent()));
+    steps.add(new MkdirStep(out.getParent()));
     steps.add(new CopyStep(from, out));
 
     return steps.build();
