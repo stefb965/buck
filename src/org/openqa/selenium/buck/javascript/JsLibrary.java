@@ -83,8 +83,6 @@ public class JsLibrary extends AbstractBuildable implements InitializableFromDis
   @Override
   public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext)
       throws IOException {
-    ImmutableList.Builder<Step> builder = ImmutableList.builder();
-
     Set<String> allRequires = Sets.newHashSet();
     Set<String> allProvides = Sets.newHashSet();
     JavascriptDependencies smidgen = new JavascriptDependencies();
@@ -125,6 +123,7 @@ public class JsLibrary extends AbstractBuildable implements InitializableFromDis
     StringWriter writer = new StringWriter();
     smidgen.writeTo(writer);
 
+    ImmutableList.Builder<Step> builder = ImmutableList.builder();
     builder.add(new MkdirStep(output.getParent()));
     builder.add(new WriteFileStep(writer.toString(), output));
 

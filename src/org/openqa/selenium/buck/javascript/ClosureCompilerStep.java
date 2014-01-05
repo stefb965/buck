@@ -55,11 +55,9 @@ public class ClosureCompilerStep extends ShellStep {
       return;
     }
     File file = output.toFile();
-    if (file.exists()) {
-      if (!file.delete()) {
-        throw new HumanReadableException(
-            "Unable to delete output, which may lead to incorrect builds: " + output);
-      }
+    if (file.exists() && !file.delete()) {
+      throw new HumanReadableException(
+          "Unable to delete output, which may lead to incorrect builds: " + output);
     }
   }
 

@@ -45,12 +45,10 @@ public class JsFragmentDescription implements Description<JsFragmentDescription.
         params.getBuildTarget(),
         params.getDeps(),
         args.module,
-        args.function,
-        args.minify.or(false));
+        args.function);
   }
 
   public static class Arg {
-    public Optional<Boolean> minify;
     public String function;
     public String module;
 
