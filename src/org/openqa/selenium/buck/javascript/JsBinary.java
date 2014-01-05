@@ -17,6 +17,7 @@
 package org.openqa.selenium.buck.javascript;
 
 import static com.facebook.buck.util.BuckConstant.GEN_DIR;
+import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractBuildable;
@@ -24,18 +25,25 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.Buildable;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.InitializableFromDisk;
+import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
+import com.facebook.buck.step.fs.WriteFileStep;
+import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Sets;
 
 import java.io.IOException;
+import java.io.StringWriter;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
@@ -43,14 +51,17 @@ import java.util.Set;
 
 import javax.annotation.Nullable;
 
-public class JsBinary extends AbstractBuildable {
+public class JsBinary extends AbstractBuildable implements
+    InitializableFromDisk<JavascriptDependencies>, HasJavascriptDependencies {
 
+  private final Path joyPath;
   private final Path output;
   private final ImmutableSortedSet<BuildRule> deps;
   private final ImmutableSortedSet<SourcePath> srcs;
   private final Optional<List<String>> defines;
   private final Optional<List<Path>> externs;
   private final Optional<List<String>> flags;
+  private JavascriptDependencies joy;
 
   public JsBinary(
       BuildTarget buildTarget,
@@ -67,6 +78,8 @@ public class JsBinary extends AbstractBuildable {
 
     this.output = Paths.get(
         GEN_DIR, buildTarget.getBaseName(), buildTarget.getShortName() + ".js");
+    this.joyPath = Paths.get(
+        GEN_DIR, buildTarget.getBaseName(), buildTarget.getShortName() + ".deps");
   }
 
   @Override
@@ -91,7 +104,7 @@ public class JsBinary extends AbstractBuildable {
     JavascriptDependencyGraph graph = new JavascriptDependencyGraph();
 
     // Iterate over deps and build a bundle of joy
-    JavascriptDependencies joy = new JavascriptDependencies();
+    JavascriptDependencies smidgen = new JavascriptDependencies();
 
     Set<String> jsDeps = Sets.newHashSet();
     // Do the magic with the sources, as if we're a js_library
@@ -100,23 +113,23 @@ public class JsBinary extends AbstractBuildable {
       JavascriptSource jsSource = new JavascriptSource(resolved);
 
       graph.amendGraph(jsSource);
-      joy.add(jsSource);
+      smidgen.add(jsSource);
       jsDeps.addAll(jsSource.getRequires());
     }
 
     Set<String> seen = Sets.newHashSet();
     for (BuildRule dep : deps) {
       Buildable buildable = dep.getBuildable();
-      if (!(buildable instanceof JsLibrary)) {
+      if (!(buildable instanceof HasJavascriptDependencies)) {
         continue;
       }
 
-      JavascriptDependencies moreJoy = ((JsLibrary) buildable).getBundleOfJoy();
+      JavascriptDependencies moreJoy = ((HasJavascriptDependencies) buildable).getBundleOfJoy();
 
       for (String require : jsDeps) {
         Set<JavascriptSource> sources = moreJoy.getDeps(require);
         if (!seen.contains(require) && !sources.isEmpty()) {
-          joy.addAll(sources);
+          smidgen.addAll(sources);
           graph.amendGraph(sources);
           seen.add(require);
         }
@@ -125,7 +138,7 @@ public class JsBinary extends AbstractBuildable {
 
     // Now ask that mess of data for the things we need.
     for (String dep : jsDeps) {
-      joy.amendGraph(graph, dep);
+      smidgen.amendGraph(graph, dep);
     }
 
     ImmutableSortedSet<Path> requiredSources = graph.sortSources();
@@ -138,6 +151,11 @@ public class JsBinary extends AbstractBuildable {
         .output(output)
         .build();
 
+    StringWriter writer = new StringWriter();
+    smidgen.writeTo(writer);
+
+    steps.add(new MkdirStep(joyPath.getParent()));
+    steps.add(new WriteFileStep(writer.toString(), joyPath));
     steps.add(new MkdirStep(output.getParent()));
     steps.add(compiler);
 
@@ -148,5 +166,41 @@ public class JsBinary extends AbstractBuildable {
   @Override
   public String getPathToOutputFile() {
     return output.toString();
+  }
+
+  @Override
+  public JavascriptDependencies initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) {
+    Preconditions.checkState(joy == null, "Attempt to reinitialize from disk");
+
+    try {
+      List<String> allLines = onDiskBuildInfo.getOutputFileContentsByLine(joyPath);
+      return JavascriptDependencies.buildFrom(Joiner.on("\n").join(allLines));
+    } catch (IOException e) {
+      throw Throwables.propagate(e);
+    }
+  }
+
+  @Override
+  public void setBuildOutput(JavascriptDependencies joy) throws IllegalStateException {
+    Preconditions.checkState(this.joy == null, "Attempted to set build output more than once.");
+    this.joy = joy;
+  }
+
+  @Override
+  public JavascriptDependencies getBuildOutput() throws IllegalStateException {
+    Preconditions.checkNotNull(joy, "Build output has not been set.");
+
+    try {
+      List<String> allLines = Files.readAllLines(joyPath, UTF_8);
+      return JavascriptDependencies.buildFrom(Joiner.on("\n").join(allLines));
+    } catch (IOException e) {
+      throw Throwables.propagate(e);
+    }
+  }
+
+
+  @Override
+  public JavascriptDependencies getBundleOfJoy() {
+    return joy;
   }
 }

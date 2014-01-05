@@ -49,7 +49,8 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 
-public class JsLibrary extends AbstractBuildable implements InitializableFromDisk<JavascriptDependencies> {
+public class JsLibrary extends AbstractBuildable implements
+    InitializableFromDisk<JavascriptDependencies>, HasJavascriptDependencies {
 
   private final Path output;
   private final ImmutableSortedSet<BuildRule> deps;
@@ -100,10 +101,10 @@ public class JsLibrary extends AbstractBuildable implements InitializableFromDis
       Iterator<String> iterator = allRequires.iterator();
 
       Buildable buildable = dep.getBuildable();
-      if (!(buildable instanceof JsLibrary)) {
+      if (!(buildable instanceof HasJavascriptDependencies)) {
         continue;
       }
-      JavascriptDependencies moreJoy = ((JsLibrary) buildable).getBundleOfJoy();
+      JavascriptDependencies moreJoy = ((HasJavascriptDependencies) buildable).getBundleOfJoy();
 
       while (iterator.hasNext()) {
         String require = iterator.next();
