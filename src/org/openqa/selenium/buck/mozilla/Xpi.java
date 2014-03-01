@@ -16,6 +16,8 @@
 
 package org.openqa.selenium.buck.mozilla;
 
+import static com.facebook.buck.step.fs.CopyStep.DirectoryMode.DIRECTORY_AND_CONTENTS;
+
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractBuildable;
 import com.facebook.buck.rules.BuildContext;
@@ -28,15 +30,14 @@ import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.zip.ZipStep;
-import com.google.common.base.Functions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Iterables;
 
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Collection;
 import java.util.List;
 
 import javax.annotation.Nullable;
@@ -71,8 +72,8 @@ public class Xpi extends AbstractBuildable {
   }
 
   @Override
-  public Iterable<String> getInputsToCompareToOutput() {
-    return Iterables.transform(content, Functions.toStringFunction());
+  public Collection<Path> getInputsToCompareToOutput() {
+    return content;
   }
 
   @Override
@@ -81,25 +82,26 @@ public class Xpi extends AbstractBuildable {
 
     steps.add(new MakeCleanDirectoryStep(scratch));
 
-    steps.add(new CopyStep(chrome, scratch.resolve("chrome.manifest")));
-    steps.add(new CopyStep(install, scratch.resolve("install.rdf")));
+    steps.add(CopyStep.forFile(chrome, scratch.resolve("chrome.manifest")));
+    steps.add(CopyStep.forFile(install, scratch.resolve("install.rdf")));
 
     Path contentDir = scratch.resolve("content");
     steps.add(new MkdirStep(contentDir));
     for (Path item : content) {
-      steps.add(new CopyStep(item, contentDir.resolve(item.getFileName()), true));
+      Path destination = contentDir.resolve(item.getFileName());
+      steps.add(getCopyStep(item, destination));
     }
 
     Path componentDir = scratch.resolve("components");
     steps.add(new MkdirStep(componentDir));
     for (SourcePath component : components) {
       Path resolved = component.resolve(context);
-      steps.add(new CopyStep(resolved, componentDir.resolve(resolved.getFileName())));
+      steps.add(CopyStep.forFile(resolved, componentDir.resolve(resolved.getFileName())));
     }
 
     for (SourcePath resource : resources) {
       Path resolved = resource.resolve(context);
-      steps.add(new CopyStep(resolved, scratch, true));
+      steps.add(getCopyStep(resolved, scratch));
     }
 
     steps.add(new MakeCleanDirectoryStep(output.getParent()));
@@ -111,6 +113,14 @@ public class Xpi extends AbstractBuildable {
         scratch.toFile()));
 
     return steps.build();
+  }
+
+  private CopyStep getCopyStep(Path item, Path destination) {
+    if (item.toFile().isDirectory()) {
+      return CopyStep.forDirectory(item, destination, DIRECTORY_AND_CONTENTS);
+    }
+
+    return CopyStep.forFile(item, destination);
   }
 
   @Override
@@ -126,7 +136,7 @@ public class Xpi extends AbstractBuildable {
 
   @Nullable
   @Override
-  public String getPathToOutputFile() {
-    return output.toString();
+  public Path getPathToOutputFile() {
+    return output;
   }
 }

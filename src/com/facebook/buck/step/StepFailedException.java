@@ -17,7 +17,9 @@
 package com.facebook.buck.step;
 
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.util.CapturingPrintStream;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Charsets;
 import com.google.common.base.Optional;
 
 @SuppressWarnings("serial")
@@ -38,16 +40,19 @@ public class StepFailedException extends Exception {
       ExecutionContext context,
       int exitCode,
       Optional<BuildTarget> buildTarget) {
+    String nameOrDescription = context.getVerbosity().shouldPrintCommand()
+        ? step.getDescription(context)
+        : step.getShortName();
     String message;
     if (buildTarget.isPresent()) {
       message = String.format("%s failed with exit code %d:\n%s",
           buildTarget.get().getFullyQualifiedName(),
           exitCode,
-          step.getDescription(context));
+          nameOrDescription);
     } else {
       message = String.format("Failed with exit code %d:\n%s",
           exitCode,
-          step.getDescription(context));
+          nameOrDescription);
     }
     return new StepFailedException(message, step, exitCode);
   }
@@ -55,16 +60,22 @@ public class StepFailedException extends Exception {
   static StepFailedException createForFailingStepWithException(Step step,
       Throwable throwable,
       Optional<BuildTarget> buildTarget) {
+    CapturingPrintStream printStream = new CapturingPrintStream();
+    throwable.printStackTrace(printStream);
+    String stackTrace = printStream.getContentsAsString(Charsets.UTF_8);
+
     String message;
     if (buildTarget.isPresent()) {
-      message = String.format("%s failed on step %s with an exception:\n%s",
+      message = String.format("%s failed on step %s with an exception:\n%s\n%s",
           buildTarget.get().getFullyQualifiedName(),
           step.getShortName(),
-          throwable.getMessage());
+          throwable.getMessage(),
+          stackTrace);
     } else {
-      message = String.format("Failed on step %s with an exception:\n%s",
+      message = String.format("Failed on step %s with an exception:\n%s\n%s",
           step.getShortName(),
-          throwable.getMessage());
+          throwable.getMessage(),
+          stackTrace);
     }
     return new StepFailedException(message, step, 1);
   }

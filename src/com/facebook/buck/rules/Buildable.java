@@ -21,6 +21,8 @@ import com.facebook.buck.step.Step;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.io.IOException;
+import java.nio.file.Path;
+import java.util.Collection;
 import java.util.List;
 
 import javax.annotation.Nullable;
@@ -43,7 +45,7 @@ public interface Buildable {
    * cases the inputs may be ordered in any way the rule feels most appropriate.
    */
   // TODO(simons): Use the Description's constructor arg to generate these.
-  public Iterable<String> getInputsToCompareToOutput();
+  public Collection<Path> getInputsToCompareToOutput();
 
   /**
    * When this method is invoked, all of its dependencies will have been built.
@@ -55,17 +57,12 @@ public interface Buildable {
   public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) throws IOException;
 
   /**
-   * Currently, this is used by {@link AbstractCachingBuildRule} to determine which files should be
-   * be included in the {@link BuildInfoRecorder}. Ultimately, a {@link Buildable} should be
-   * responsible for updating the {@link BuildInfoRecorder} itself in its
-   * {@link #getBuildSteps(BuildContext, BuildableContext)} method. The use of this method should be
-   * restricted to things like {@code buck targets --show_output}.
-   *
    * @return the relative path to the primary output of the build rule. If non-null, this path must
-   *     identify a single file (as opposed to a directory).
+   *     identify a single file (as opposed to a directory). If the {@link Buildable} outputs
+   *     multiple files, this returns null.
    */
   @Nullable
-  public String getPathToOutputFile();
+  public Path getPathToOutputFile();
 
   /**
    * A {@link Buildable} may employ graph enhancement to alter its dependencies. If it does this, it

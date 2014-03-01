@@ -35,6 +35,7 @@ import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.testutil.MoreAsserts;
+import com.facebook.buck.util.AndroidPlatformTarget;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Function;
@@ -43,7 +44,6 @@ import com.google.common.collect.ImmutableList;
 
 import org.junit.Test;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -61,12 +61,13 @@ public class NdkLibraryTest {
     String basePath = "java/src/com/facebook/base";
     BuildRuleResolver ruleResolver = new BuildRuleResolver();
     BuildRule rule = ruleResolver.buildAndAddToIndex(
-        NdkLibrary.newNdkLibraryRuleBuilder(new FakeAbstractBuildRuleBuilderParams())
+        NdkLibrary.newNdkLibraryRuleBuilder(new FakeAbstractBuildRuleBuilderParams(),
+            Optional.of("r8b"))
         .setBuildTarget(BuildTargetFactory.newInstance(
             String.format("//%s:base", basePath)))
-        .addSrc(basePath + "/Application.mk")
-        .addSrc(basePath + "/main.cpp")
-        .addSrc(basePath + "/Android.mk")
+        .addSrc(Paths.get(basePath + "/Application.mk"))
+        .addSrc(Paths.get(basePath + "/main.cpp"))
+        .addSrc(Paths.get(basePath + "/Android.mk"))
         .addFlag("flag1")
         .addFlag("flag2")
         .setIsAsset(true)
@@ -78,34 +79,38 @@ public class NdkLibraryTest {
 
     assertTrue(ndkLibrary.getProperties().is(ANDROID));
     assertTrue(ndkLibrary.isAsset());
-    assertEquals(BuckConstant.GEN_DIR + "/" + basePath + "/__libbase", ndkLibrary.getLibraryPath());
+    assertEquals(Paths.get(BuckConstant.GEN_DIR, basePath, "__libbase"), ndkLibrary.getLibraryPath());
 
     MoreAsserts.assertListEquals(
         ImmutableList.of(
-            basePath + "/Android.mk",
-            basePath + "/Application.mk",
-            basePath + "/main.cpp"),
+            Paths.get(basePath + "/Android.mk"),
+            Paths.get(basePath + "/Application.mk"),
+            Paths.get(basePath + "/main.cpp")),
         ImmutableList.copyOf(ndkLibrary.getInputsToCompareToOutput()));
 
     List<Step> steps = ndkLibrary.getBuildSteps(context, new FakeBuildableContext());
 
     ExecutionContext executionContext = createMock(ExecutionContext.class);
     ProjectFilesystem projectFilesystem = createMock(ProjectFilesystem.class);
-    Function<String, Path> pathTransform = new Function<String, Path>() {
+    Function<Path, Path> pathTransform = new Function<Path, Path>() {
       @Override
-      public Path apply(String pathRelativeTo) {
-        return Paths.get("/foo/", pathRelativeTo);
+      public Path apply(Path pathRelativeTo) {
+        return Paths.get("/foo/", pathRelativeTo.toString());
       }
     };
     expect(executionContext.getProjectFilesystem()).andReturn(projectFilesystem);
-    expect(projectFilesystem.getPathRelativizer()).andReturn(pathTransform);
+    expect(projectFilesystem.getAbsolutifier()).andReturn(pathTransform);
     Path binDir = Paths.get(BuckConstant.BIN_DIR, "java/src/com/facebook/base/__libbase/libs");
     expect(projectFilesystem.resolve(binDir)).andReturn(Paths.get("/foo/" + binDir));
-    File ndkDir = createMock(File.class);
-    expect(executionContext.getNdkRoot()).andReturn(Optional.of(ndkDir));
-    expect(ndkDir.getAbsolutePath()).andReturn("/ndk-r8b");
+    Path ndkDir = createMock(Path.class);
+    AndroidPlatformTarget mockPlatformTarget = createMock(AndroidPlatformTarget.class);
+    expect(mockPlatformTarget.getNdkDirectory()).andReturn(Optional.of(ndkDir));
+    expect(executionContext.getAndroidPlatformTarget()).andReturn(mockPlatformTarget);
+    Path ndkBuildDir = createMock(Path.class);
+    expect(ndkDir.resolve("ndk-build")).andReturn(ndkBuildDir);
+    expect(ndkBuildDir.toAbsolutePath()).andReturn(Paths.get("/ndk-r8b/ndk-build"));
 
-    replay(executionContext, projectFilesystem, ndkDir);
+    replay(executionContext, projectFilesystem, mockPlatformTarget, ndkDir, ndkBuildDir);
     MoreAsserts.assertShellCommands(
         "ndk_library() should invoke ndk-build on the given path with some -j value",
         ImmutableList.of(

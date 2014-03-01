@@ -23,6 +23,8 @@ import com.google.common.base.Charsets;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Collections2;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.hash.Hashing;
@@ -32,11 +34,15 @@ import com.google.common.io.InputSupplier;
 
 import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileWriter;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.io.OutputStreamWriter;
+import java.io.Reader;
 import java.io.Writer;
+import java.nio.file.DirectoryStream;
 import java.nio.file.FileVisitor;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -44,6 +50,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardWatchEventKinds;
 import java.nio.file.WatchEvent;
+import java.util.Collection;
 import java.util.List;
 import java.util.Properties;
 import java.util.zip.ZipEntry;
@@ -53,17 +60,31 @@ import java.util.zip.ZipEntry;
  */
 public class ProjectFilesystem {
 
-  // TODO(mbolin): This file is heavy on the use of java.lang.String rather than java.nio.file.Path.
-  // Migrate from String to Path.
+  /**
+   * Controls the behavior of how the source should be treated when copying.
+   */
+  public enum CopySourceMode {
+      /**
+       * Copy the single source file into the destination path.
+       */
+      FILE,
 
-  private final File projectRoot;
-  private final Path pathToRoot;
+      /**
+       * Treat the source as a directory and copy each file inside it
+       * to the destination path, which must be a directory.
+       */
+      DIRECTORY_CONTENTS_ONLY,
 
-  // Over time, we hope to replace our uses of String with Path, as appropriate. When that happens,
-  // the Function<String, String> can go away, as Function<Path, Path> should be used exclusively.
+      /**
+       * Treat the source as a directory. Copy the directory and its
+       * contents to the destination path, which must be a directory.
+       */
+      DIRECTORY_AND_CONTENTS,
+  };
+
+  private final Path projectRoot;
 
   private final Function<Path, Path> pathAbsolutifier;
-  private final Function<String, Path> pathRelativizer;
 
   private final ImmutableSet<Path> ignorePaths;
 
@@ -75,38 +96,47 @@ public class ProjectFilesystem {
    * a mock filesystem via EasyMock instead. Note that there are cases (such as integration tests)
    * where specifying {@code new File(".")} as the project root might be the appropriate thing.
    */
-  public ProjectFilesystem(File projectRoot, ImmutableSet<Path> ignorePaths) {
-    this.projectRoot = Preconditions.checkNotNull(projectRoot);
-    this.pathToRoot = projectRoot.toPath();
-    Preconditions.checkArgument(projectRoot.isDirectory());
+  public ProjectFilesystem(Path projectRoot, ImmutableSet<Path> ignorePaths) {
+    Preconditions.checkArgument(java.nio.file.Files.isDirectory(projectRoot));
+    this.projectRoot = projectRoot;
     this.pathAbsolutifier = new Function<Path, Path>() {
       @Override
       public Path apply(Path path) {
         return resolve(path);
       }
     };
-    this.pathRelativizer = new Function<String, Path>() {
-      @Override
-      public Path apply(String relativePath) {
-        return MorePaths.absolutify(getFileForRelativePath(relativePath).toPath());
-      }
-    };
-    this.ignorePaths = MorePaths.filterForSubpaths(ignorePaths, this.pathToRoot);
+    this.ignorePaths = MorePaths.filterForSubpaths(ignorePaths, this.projectRoot);
   }
 
-  public ProjectFilesystem(File projectRoot) {
+  public ProjectFilesystem(Path projectRoot) {
     this(projectRoot, ImmutableSet.<Path>of());
   }
 
+  /**
+   * // @deprecated Prefer passing around {@code Path}s instead of {@code File}s or {@code String}s,
+   *  replaced by {@link #ProjectFilesystem(java.nio.file.Path, com.google.common.collect.ImmutableSet)}.
+   */
+  public ProjectFilesystem(File projectRoot, ImmutableSet<Path> ignorePaths) {
+    this(projectRoot.toPath(), ignorePaths);
+  }
+
+  /**
+   * // @deprecated Prefer passing around {@code Path}s instead of {@code File}s or {@code String}s,
+   *  replaced by {@link #ProjectFilesystem(java.nio.file.Path)}.
+   */
+  public ProjectFilesystem(File projectRoot) {
+    this(projectRoot.toPath());
+  }
+
   public Path getRootPath() {
-    return pathToRoot;
+    return projectRoot;
   }
 
   /**
    * @return the specified {@code path} resolved against {@link #getRootPath()} to an absolute path.
    */
   public Path resolve(Path path) {
-    return pathToRoot.resolve(path).toAbsolutePath();
+    return projectRoot.resolve(path).toAbsolutePath().normalize();
   }
 
   /**
@@ -116,8 +146,11 @@ public class ProjectFilesystem {
     return pathAbsolutifier;
   }
 
+  /**
+   * // @deprecated Prefer operating on {@code Path}s directly, replaced by {@link #getRootPath()}.
+   */
   public File getProjectRoot() {
-    return projectRoot;
+    return projectRoot.toFile();
   }
 
   /**
@@ -128,27 +161,46 @@ public class ProjectFilesystem {
     return ignorePaths;
   }
 
+  /**
+   * // @deprecated Prefer operating on {@code Path}s directly, replaced by
+   *    {@link #getPathForRelativePath(java.nio.file.Path)}.
+   */
   public File getFileForRelativePath(String pathRelativeToProjectRoot) {
     return pathRelativeToProjectRoot.isEmpty()
-        ? projectRoot
-        : new File(projectRoot, pathRelativeToProjectRoot);
+        ? projectRoot.toFile()
+        : getPathForRelativePath(Paths.get(pathRelativeToProjectRoot)).toFile();
   }
 
+  /**
+   * // @deprecated Prefer operating on {@code Path}s directly, replaced by
+   *    {@link #getPathForRelativePath(java.nio.file.Path)}.
+   */
   public File getFileForRelativePath(Path pathRelativeToProjectRoot) {
-    return projectRoot.toPath().resolve(pathRelativeToProjectRoot).toFile();
+    return getPathForRelativePath(pathRelativeToProjectRoot).toFile();
   }
 
+  public Path getPathForRelativePath(Path pathRelativeToProjectRoot) {
+    return projectRoot.resolve(pathRelativeToProjectRoot);
+  }
+
+  /**
+   * // @deprecated Prefer operating on {@code Path}s directly, replaced by
+   *    {@link #exists(java.nio.file.Path)}.
+   */
   public boolean exists(String pathRelativeToProjectRoot) {
-    return getFileForRelativePath(pathRelativeToProjectRoot).exists();
+    return exists(Paths.get(pathRelativeToProjectRoot));
+  }
+
+  public boolean exists(Path pathRelativeToProjectRoot) {
+    return java.nio.file.Files.exists(getPathForRelativePath(pathRelativeToProjectRoot));
   }
 
   public long getFileSize(Path pathRelativeToProjectRoot) throws IOException {
-    File file = getFileForRelativePath(pathRelativeToProjectRoot);
-    // TODO(mbolin): Decide if/how symlinks should be supported and add unit test.
-    if (!file.isFile()) {
-      throw new IOException("Cannot get size of " + file + " because it is not an ordinary file.");
+    Path path = getPathForRelativePath(pathRelativeToProjectRoot);
+    if (!java.nio.file.Files.isRegularFile(path)) {
+      throw new IOException("Cannot get size of " + path + " because it is not an ordinary file.");
     }
-    return file.length();
+    return java.nio.file.Files.size(path);
   }
 
   /**
@@ -156,23 +208,41 @@ public class ProjectFilesystem {
    * @param pathRelativeToProjectRoot path to the file
    * @return true if the file was successfully deleted, false otherwise
    */
-  public boolean deleteFileAtPath(String pathRelativeToProjectRoot) {
-    return getFileForRelativePath(pathRelativeToProjectRoot).delete();
+  public boolean deleteFileAtPath(Path pathRelativeToProjectRoot) {
+    try {
+      java.nio.file.Files.delete(getPathForRelativePath(pathRelativeToProjectRoot));
+      return true;
+    } catch (IOException e) {
+      return false;
+    }
   }
 
-  public Properties readPropertiesFile(String pathToPropertiesFileRelativeToProjectRoot)
+  public Properties readPropertiesFile(Path pathToPropertiesFileRelativeToProjectRoot)
       throws IOException {
     Properties properties = new Properties();
-    File propertiesFile = getFileForRelativePath(pathToPropertiesFileRelativeToProjectRoot);
-    properties.load(Files.newReader(propertiesFile, Charsets.UTF_8));
-    return properties;
+    Path propertiesFile = getPathForRelativePath(pathToPropertiesFileRelativeToProjectRoot);
+    if (java.nio.file.Files.exists(propertiesFile)) {
+      properties.load(java.nio.file.Files.newBufferedReader(propertiesFile, Charsets.UTF_8));
+      return properties;
+    } else {
+      throw new FileNotFoundException(propertiesFile.toString());
+    }
+  }
+
+  /**
+   * // @deprecated Prefer operating on {@code Path}s directly, replaced by
+   *    {@link #isFile(java.nio.file.Path)}.
+   */
+  public boolean isFile(String pathRelativeToProjectRoot) {
+    return isFile(Paths.get(pathRelativeToProjectRoot));
   }
 
   /**
    * Checks whether there is a normal file at the specified path.
    */
-  public boolean isFile(String pathRelativeToProjectRoot) {
-    return getFileForRelativePath(pathRelativeToProjectRoot).isFile();
+  public boolean isFile(Path pathRelativeToProjectRoot) {
+    return java.nio.file.Files.isRegularFile(
+        getPathForRelativePath(pathRelativeToProjectRoot));
   }
 
   /**
@@ -191,16 +261,31 @@ public class ProjectFilesystem {
 
   /**
    * Allows {@link java.io.File#listFiles} to be faked in tests.
+   *
+   * // @deprecated Replaced by {@link #getDirectoryContents}
    */
-  public File[] listFiles(String pathRelativeToProjectRoot) {
-    return getFileForRelativePath(pathRelativeToProjectRoot).listFiles();
+  public File[] listFiles(Path pathRelativeToProjectRoot) {
+    Collection<Path> paths = getDirectoryContents(pathRelativeToProjectRoot);
+    if (paths == null) {
+      return null;
+    }
+
+    File[] result = new File[paths.size()];
+    return Collections2.transform(paths, new Function<Path, File>() {
+      @Override
+      public File apply(Path input) {
+        return input.toFile();
+      }
+    }).toArray(result);
   }
 
-  /**
-   * Recursively delete everything under the specified path.
-   */
-  public void rmdir(String path) throws IOException {
-    MoreFiles.rmdir(pathRelativizer.apply(path));
+  public Collection<Path> getDirectoryContents(Path pathRelativeToProjectRoot) {
+    Path path = getPathForRelativePath(pathRelativeToProjectRoot);
+    try (DirectoryStream<Path> stream = java.nio.file.Files.newDirectoryStream(path)) {
+      return ImmutableList.copyOf(stream);
+    } catch (IOException e) {
+      return null;
+    }
   }
 
   /**
@@ -218,9 +303,13 @@ public class ProjectFilesystem {
     java.nio.file.Files.createDirectories(resolve(pathRelativeToProjectRoot));
   }
 
+  /**
+   * // @deprecated Prefer operating on {@code Path}s directly, replaced by
+   *  {@link #createParentDirs(java.nio.file.Path)}.
+   */
   public void createParentDirs(String pathRelativeToProjectRoot) throws IOException {
-    File file = getFileForRelativePath(pathRelativeToProjectRoot);
-    mkdirs(file.getParentFile().toPath());
+    Path file = getPathForRelativePath(Paths.get(pathRelativeToProjectRoot));
+    mkdirs(file.getParent());
   }
 
   /**
@@ -240,9 +329,8 @@ public class ProjectFilesystem {
    */
   public void writeLinesToPath(Iterable<String> lines, Path pathRelativeToProjectRoot)
       throws IOException {
-    try (Writer writer = new BufferedWriter(
-        new FileWriter(
-            getFileForRelativePath(pathRelativeToProjectRoot)))) {
+    try (Writer writer = new BufferedWriter(new OutputStreamWriter(
+        java.nio.file.Files.newOutputStream(getPathForRelativePath(pathRelativeToProjectRoot))))) {
       for (String line : lines) {
         writer.write(line);
         writer.write('\n');
@@ -252,11 +340,14 @@ public class ProjectFilesystem {
 
   public void writeContentsToPath(String contents, Path pathRelativeToProjectRoot)
       throws IOException {
-    Files.write(contents, getFileForRelativePath(pathRelativeToProjectRoot), Charsets.UTF_8);
+    writeBytesToPath(contents.getBytes(Charsets.UTF_8), pathRelativeToProjectRoot);
   }
 
   public void writeBytesToPath(byte[] bytes, Path pathRelativeToProjectRoot) throws IOException {
-    Files.write(bytes, getFileForRelativePath(pathRelativeToProjectRoot));
+    Path path = getPathForRelativePath(pathRelativeToProjectRoot);
+    try (OutputStream outputStream = java.nio.file.Files.newOutputStream(path)) {
+      outputStream.write(bytes);
+    }
   }
 
   /**
@@ -264,25 +355,19 @@ public class ProjectFilesystem {
    */
   public void copyToPath(final InputStream inputStream, Path pathRelativeToProjectRoot)
       throws IOException {
-    InputSupplier<? extends InputStream> inputSupplier = new InputSupplier<InputStream>() {
-      @Override
-      public InputStream getInput() throws IOException {
-        return inputStream;
-      }
-    };
-    Files.copy(inputSupplier, getFileForRelativePath(pathRelativeToProjectRoot));
+    java.nio.file.Files.copy(inputStream, getPathForRelativePath(pathRelativeToProjectRoot));
   }
 
   public Optional<String> readFileIfItExists(Path pathRelativeToProjectRoot) {
-    File fileToRead = getFileForRelativePath(pathRelativeToProjectRoot);
+    Path fileToRead = getPathForRelativePath(pathRelativeToProjectRoot);
     return readFileIfItExists(fileToRead, pathRelativeToProjectRoot.toString());
   }
 
-  private Optional<String> readFileIfItExists(File fileToRead, String pathRelativeToProjectRoot) {
-    if (fileToRead.isFile()) {
+  private Optional<String> readFileIfItExists(Path fileToRead, String pathRelativeToProjectRoot) {
+    if (java.nio.file.Files.isRegularFile(fileToRead)) {
       String contents;
       try {
-        contents = Files.toString(fileToRead, Charsets.UTF_8);
+        contents = new String(java.nio.file.Files.readAllBytes(fileToRead), Charsets.UTF_8);
       } catch (IOException e) {
         // Alternatively, we could return Optional.absent(), though something seems suspicious if we
         // have already verified that fileToRead is a file and then we cannot read it.
@@ -295,9 +380,29 @@ public class ProjectFilesystem {
   }
 
   /**
+   * Attempts to open the file for future read access. Returns {@link Optional#absent()} if the file
+   * does not exist.
+   */
+  public Optional<Reader> getReaderIfFileExists(Path pathRelativeToProjectRoot) {
+    Path fileToRead = getPathForRelativePath(pathRelativeToProjectRoot);
+    if (java.nio.file.Files.isRegularFile(fileToRead)) {
+      try {
+        return Optional.of((Reader) new InputStreamReader(java.nio.file.Files.newInputStream(fileToRead)));
+      } catch (Exception e) {
+        throw new RuntimeException("Error reading " + pathRelativeToProjectRoot, e);
+      }
+    } else {
+      return Optional.absent();
+    }
+  }
+
+  /**
    * Attempts to read the first line of the file specified by the relative path. If the file does
    * not exist, is empty, or encounters an error while being read, {@link Optional#absent()} is
    * returned. Otherwise, an {@link Optional} with the first line of the file will be returned.
+   *
+   * // @deprecated PRefero operation on {@code Path}s directly, replaced by
+   *  {@link #readFirstLine(java.nio.file.Path)}
    */
   public Optional<String> readFirstLine(String pathRelativeToProjectRoot) {
     return readFirstLine(Paths.get(pathRelativeToProjectRoot));
@@ -310,8 +415,16 @@ public class ProjectFilesystem {
    */
   public Optional<String> readFirstLine(Path pathRelativeToProjectRoot) {
     Preconditions.checkNotNull(pathRelativeToProjectRoot);
-    File file = getFileForRelativePath(pathRelativeToProjectRoot);
+    Path file = getPathForRelativePath(pathRelativeToProjectRoot);
     return readFirstLineFromFile(file);
+  }
+
+  /**
+   * // @deprecated Prefer operating on {@code Path}s directly, replaced by
+   *  {@link #readFirstLineFromFile(java.nio.file.Path)}.
+   */
+  public Optional<String> readFirstLineFromFile(File file) {
+    return readFirstLineFromFile(file.toPath());
   }
 
   /**
@@ -319,10 +432,10 @@ public class ProjectFilesystem {
    * or encounters an error while being read, {@link Optional#absent()} is returned. Otherwise, an
    * {@link Optional} with the first line of the file will be returned.
    */
-  public Optional<String> readFirstLineFromFile(File file) {
+  public Optional<String> readFirstLineFromFile(Path file) {
     try {
-      String firstLine = Files.readFirstLine(file, Charsets.UTF_8);
-      return Optional.fromNullable(firstLine);
+      return Optional.fromNullable(
+          java.nio.file.Files.newBufferedReader(file, Charsets.UTF_8).readLine());
     } catch (IOException e) {
       // Because the file is not even guaranteed to exist, swallow the IOException.
       return Optional.absent();
@@ -330,28 +443,22 @@ public class ProjectFilesystem {
   }
 
   public List<String> readLines(Path pathRelativeToProjectRoot) throws IOException {
-    File file = getFileForRelativePath(pathRelativeToProjectRoot);
-    return Files.readLines(file, Charsets.UTF_8);
-  }
-
-  public InputSupplier<? extends InputStream> getInputSupplierForRelativePath(String path) {
-    File file = getFileForRelativePath(path);
-    return Files.newInputStreamSupplier(file);
-  }
-
-  public String computeSha1(Path pathRelativeToProjectRoot) throws IOException {
-    File fileToHash = getFileForRelativePath(pathRelativeToProjectRoot);
-    return Files.hash(fileToHash, Hashing.sha1()).toString();
+    Path file = getPathForRelativePath(pathRelativeToProjectRoot);
+    return java.nio.file.Files.readAllLines(file, Charsets.UTF_8);
   }
 
   /**
-   * @return a function that takes a path relative to the project root and resolves it to an
-   *     absolute path. This is particularly useful for {@link com.facebook.buck.step.Step}s that do
-   *     not extend {@link com.facebook.buck.shell.ShellStep} because they are not guaranteed to be
-   *     run from the project root.
+   * // @deprecated Prefer operation on {@code Path}s directly, replaced by
+   *  {@link java.nio.file.Files#newInputStream(java.nio.file.Path, java.nio.file.OpenOption...)}.
    */
-  public Function<String, Path> getPathRelativizer() {
-    return pathRelativizer;
+  public InputSupplier<? extends InputStream> getInputSupplierForRelativePath(Path path) {
+    Path file = getPathForRelativePath(path);
+    return Files.newInputStreamSupplier(file.toFile());
+  }
+
+  public String computeSha1(Path pathRelativeToProjectRoot) throws IOException {
+    Path fileToHash = getPathForRelativePath(pathRelativeToProjectRoot);
+    return Hashing.sha1().hashBytes(java.nio.file.Files.readAllBytes(fileToHash)).toString();
   }
 
   /**
@@ -364,12 +471,29 @@ public class ProjectFilesystem {
         event.kind() == StandardWatchEventKinds.ENTRY_DELETE;
   }
 
+  public void copy(Path source, Path target, CopySourceMode sourceMode) throws IOException {
+    switch (sourceMode) {
+      case FILE:
+        java.nio.file.Files.copy(
+            resolve(source),
+            resolve(target),
+            StandardCopyOption.REPLACE_EXISTING);
+        break;
+      case DIRECTORY_CONTENTS_ONLY:
+        MoreFiles.copyRecursively(resolve(source), resolve(target));
+        break;
+      case DIRECTORY_AND_CONTENTS:
+        MoreFiles.copyRecursively(resolve(source), resolve(target.resolve(source.getFileName())));
+        break;
+    }
+  }
+
   public void copyFolder(Path source, Path target) throws IOException {
-    MoreFiles.copyRecursively(resolve(source), resolve(target));
+    copy(source, target, CopySourceMode.DIRECTORY_CONTENTS_ONLY);
   }
 
   public void copyFile(Path source, Path target) throws IOException {
-    java.nio.file.Files.copy(resolve(source), resolve(target), StandardCopyOption.REPLACE_EXISTING);
+    copy(source, target, CopySourceMode.FILE);
   }
 
   public void createSymLink(Path sourcePath, Path targetPath, boolean force)
@@ -400,7 +524,7 @@ public class ProjectFilesystem {
       for (Path path : pathsToIncludeInZip) {
         ZipEntry entry = new ZipEntry(path.toString());
         zip.putNextEntry(entry);
-        try (InputStream input = new FileInputStream(getFileForRelativePath(path))) {
+        try (InputStream input = java.nio.file.Files.newInputStream(getPathForRelativePath(path))) {
           ByteStreams.copy(input, zip);
         }
         zip.closeEntry();

@@ -21,16 +21,14 @@ import static com.facebook.buck.rules.BuildableProperties.Kind.PACKAGING;
 
 import com.android.common.SdkConstants;
 import com.facebook.buck.android.FilterResourcesStep.ResourceFilter;
-import com.facebook.buck.android.UberRDotJavaBuildable.ResourceCompressionMode;
-import com.facebook.buck.dalvik.EstimateLinearAllocStep;
-import com.facebook.buck.dalvik.ZipSplitter;
-import com.facebook.buck.java.AccumulateClassNamesStep;
+import com.facebook.buck.android.UberRDotJava.ResourceCompressionMode;
 import com.facebook.buck.java.Classpaths;
 import com.facebook.buck.java.HasClasspathEntries;
 import com.facebook.buck.java.JavaLibraryRule;
 import com.facebook.buck.java.Keystore;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetPattern;
+import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRuleBuilder;
 import com.facebook.buck.rules.AbstractBuildRuleBuilderParams;
 import com.facebook.buck.rules.BuildContext;
@@ -42,7 +40,7 @@ import com.facebook.buck.rules.Buildable;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.DoNotUseAbstractBuildable;
-import com.facebook.buck.rules.InstallableBuildRule;
+import com.facebook.buck.rules.InstallableApk;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePaths;
@@ -54,7 +52,6 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
-import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MorePaths;
 import com.facebook.buck.util.Optionals;
@@ -65,7 +62,8 @@ import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicates;
+import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -73,18 +71,16 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Multimap;
 import com.google.common.io.Files;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Collections;
+import java.util.Collection;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
-
-import javax.annotation.Nullable;
 
 /**
  * <pre>
@@ -99,7 +95,7 @@ import javax.annotation.Nullable;
  * </pre>
  */
 public class AndroidBinaryRule extends DoNotUseAbstractBuildable implements
-    HasAndroidPlatformTarget, HasClasspathEntries, InstallableBuildRule {
+    HasAndroidPlatformTarget, HasClasspathEntries, InstallableApk {
 
   private static final BuildableProperties PROPERTIES = new BuildableProperties(ANDROID, PACKAGING);
 
@@ -107,12 +103,17 @@ public class AndroidBinaryRule extends DoNotUseAbstractBuildable implements
    * This is the path from the root of the APK that should contain the metadata.txt and
    * secondary-N.dex.jar files for secondary dexes.
    */
-  private static final String SECONDARY_DEX_SUBDIR = "assets/secondary-program-dex-jars";
+  static final String SECONDARY_DEX_SUBDIR = "assets/secondary-program-dex-jars";
 
   /**
    * The largest file size Froyo will deflate.
    */
-  private final long FROYO_DEFLATE_LIMIT_BYTES = 1 << 20;
+  private static final long FROYO_DEFLATE_LIMIT_BYTES = 1 << 20;
+
+  /** Options to use with {@link DxStep} when merging pre-dexed files. */
+  static EnumSet<DxStep.Option> DX_MERGE_OPTIONS = EnumSet.of(
+      DxStep.Option.USE_CUSTOM_DX_IF_AVAILABLE,
+      DxStep.Option.NO_OPTIMIZE);
 
   /**
    * This list of package types is taken from the set of targets that the default build.xml provides
@@ -156,31 +157,15 @@ public class AndroidBinaryRule extends DoNotUseAbstractBuildable implements
   private final boolean useAndroidProguardConfigWithOptimizations;
   private final Optional<SourcePath> proguardConfig;
   private final ResourceCompressionMode resourceCompressionMode;
-  private final ImmutableSet<String> primaryDexSubstrings;
-  private final long linearAllocHardLimit;
-
-  /**
-   * File that whitelists the class files that should be in the primary dex.
-   * <p>
-   * Values in this file must match JAR entries exactly, so they should contain path separators.
-   * For example:
-   * <pre>
-   * com/google/common/collect/ImmutableSet.class
-   * </pre>
-   */
-  private final Optional<SourcePath> primaryDexClassesFile;
-
   private final ImmutableSet<TargetCpuType> cpuFilters;
-  private final ImmutableSet<IntermediateDexRule> preDexDeps;
-  private final UberRDotJavaBuildable uberRDotJavaBuildable;
+  private final Path primaryDexPath;
+  private final UberRDotJava uberRDotJava;
   private final AaptPackageResources aaptPackageResourcesBuildable;
+  private final Optional<PreDexMerge> preDexMerge;
   private final ImmutableSortedSet<BuildRule> preprocessJavaClassesDeps;
   private final Optional<String> preprocessJavaClassesBash;
   private final AndroidResourceDepsFinder androidResourceDepsFinder;
   private final AndroidTransitiveDependencyGraph transitiveDependencyGraph;
-
-  /** This path is guaranteed to end with a slash. */
-  private final String outputGenDirectory;
 
   /**
    * @param target the Android platform version to target, e.g., "Google Inc.:Google APIs:16". You
@@ -199,13 +184,11 @@ public class AndroidBinaryRule extends DoNotUseAbstractBuildable implements
       boolean useAndroidProguardConfigWithOptimizations,
       Optional<SourcePath> proguardConfig,
       ResourceCompressionMode resourceCompressionMode,
-      Set<String> primaryDexSubstrings,
-      long linearAllocHardLimit,
-      Optional<SourcePath> primaryDexClassesFile,
       Set<TargetCpuType> cpuFilters,
-      Set<IntermediateDexRule> preDexDeps,
-      UberRDotJavaBuildable uberRDotJavaBuildable,
+      Path primaryDexPath,
+      UberRDotJava uberRDotJava,
       AaptPackageResources aaptPackageResourcesBuildable,
+      Optional<PreDexMerge> preDexMerge,
       Set<BuildRule> preprocessJavaClassesDeps,
       Optional<String> preprocessJavaClassesBash,
       AndroidResourceDepsFinder androidResourceDepsFinder,
@@ -221,16 +204,11 @@ public class AndroidBinaryRule extends DoNotUseAbstractBuildable implements
     this.useAndroidProguardConfigWithOptimizations = useAndroidProguardConfigWithOptimizations;
     this.proguardConfig = Preconditions.checkNotNull(proguardConfig);
     this.resourceCompressionMode = Preconditions.checkNotNull(resourceCompressionMode);
-    this.primaryDexSubstrings = ImmutableSet.copyOf(primaryDexSubstrings);
-    this.linearAllocHardLimit = linearAllocHardLimit;
-    this.primaryDexClassesFile = Preconditions.checkNotNull(primaryDexClassesFile);
-    this.outputGenDirectory = String.format("%s/%s",
-        BuckConstant.GEN_DIR,
-        getBuildTarget().getBasePathWithSlash());
     this.cpuFilters = ImmutableSet.copyOf(cpuFilters);
-    this.preDexDeps = ImmutableSet.copyOf(preDexDeps);
-    this.uberRDotJavaBuildable = Preconditions.checkNotNull(uberRDotJavaBuildable);
+    this.primaryDexPath = Preconditions.checkNotNull(primaryDexPath);
+    this.uberRDotJava = Preconditions.checkNotNull(uberRDotJava);
     this.aaptPackageResourcesBuildable = Preconditions.checkNotNull(aaptPackageResourcesBuildable);
+    this.preDexMerge = Preconditions.checkNotNull(preDexMerge);
     this.preprocessJavaClassesDeps = ImmutableSortedSet.copyOf(preprocessJavaClassesDeps);
     this.preprocessJavaClassesBash = Preconditions.checkNotNull(preprocessJavaClassesBash);
     this.androidResourceDepsFinder = Preconditions.checkNotNull(androidResourceDepsFinder);
@@ -255,18 +233,13 @@ public class AndroidBinaryRule extends DoNotUseAbstractBuildable implements
   @Override
   public RuleKey.Builder appendToRuleKey(RuleKey.Builder builder) throws IOException {
     super.appendToRuleKey(builder)
-        .set("manifest", manifest.asReference())
         .set("target", target)
         .set("keystore", keystore.getBuildTarget().getFullyQualifiedName())
         .setRuleNames("classpathDeps", classpathDeps)
         .set("packageType", packageType.toString())
         .set("buildRulesToExcludeFromDex", buildRulesToExcludeFromDex)
         .set("useAndroidProguardConfigWithOptimizations", useAndroidProguardConfigWithOptimizations)
-        .set("proguardConfig", proguardConfig.transform(SourcePath.TO_REFERENCE))
         .set("resourceCompressionMode", resourceCompressionMode.toString())
-        .set("primaryDexSubstrings", primaryDexSubstrings)
-        .set("linearAllocHardLimit", linearAllocHardLimit)
-        .set("primaryDexClassesFile", primaryDexClassesFile.transform(SourcePath.TO_REFERENCE))
         .set("cpuFilters", ImmutableSortedSet.copyOf(cpuFilters).toString())
         .set("preprocessJavaClassesBash", preprocessJavaClassesBash)
         .set("preprocessJavaClassesDeps", preprocessJavaClassesDeps);
@@ -301,8 +274,8 @@ public class AndroidBinaryRule extends DoNotUseAbstractBuildable implements
     return this.cpuFilters;
   }
 
-  public UberRDotJavaBuildable getUberRDotJavaBuildable() {
-    return uberRDotJavaBuildable;
+  public UberRDotJava getUberRDotJava() {
+    return uberRDotJava;
   }
 
   public ImmutableSortedSet<BuildRule> getPreprocessJavaClassesDeps() {
@@ -335,25 +308,30 @@ public class AndroidBinaryRule extends DoNotUseAbstractBuildable implements
   }
 
   @VisibleForTesting
-  static void copyNativeLibrary(String sourceDir,
-      String destinationDir,
+  static void copyNativeLibrary(Path sourceDir,
+      Path destinationDir,
       ImmutableSet<TargetCpuType> cpuFilters,
       ImmutableList.Builder<Step> steps) {
-    Path sourceDirPath = Paths.get(sourceDir);
-    Path destinationDirPath = Paths.get(destinationDir);
 
     if (cpuFilters.isEmpty()) {
-      steps.add(new CopyStep(sourceDirPath, destinationDirPath, true));
+      steps.add(
+          CopyStep.forDirectory(
+              sourceDir,
+              destinationDir,
+              CopyStep.DirectoryMode.CONTENTS_ONLY));
     } else {
       for (TargetCpuType cpuType : cpuFilters) {
         Optional<String> abiDirectoryComponent = getAbiDirectoryComponent(cpuType);
         Preconditions.checkState(abiDirectoryComponent.isPresent());
 
-        final Path libSourceDir = sourceDirPath.resolve(abiDirectoryComponent.get());
-        Path libDestinationDir = destinationDirPath.resolve(abiDirectoryComponent.get());
+        final Path libSourceDir = sourceDir.resolve(abiDirectoryComponent.get());
+        Path libDestinationDir = destinationDir.resolve(abiDirectoryComponent.get());
 
         final MkdirStep mkDirStep = new MkdirStep(libDestinationDir);
-        final CopyStep copyStep = new CopyStep(libSourceDir, libDestinationDir, true);
+        final CopyStep copyStep = CopyStep.forDirectory(
+            libSourceDir,
+            libDestinationDir,
+            CopyStep.DirectoryMode.CONTENTS_ONLY);
         steps.add(new Step() {
           @Override
           public int execute(ExecutionContext context) {
@@ -386,25 +364,24 @@ public class AndroidBinaryRule extends DoNotUseAbstractBuildable implements
 
   /** The APK at this path is the final one that points to an APK that a user should install. */
   @Override
-  public String getApkPath() {
-    return getUnsignedApkPath().replaceAll("\\.unsigned\\.apk$", ".apk");
+  public Path getApkPath() {
+    return Paths.get(getUnsignedApkPath().replaceAll("\\.unsigned\\.apk$", ".apk"));
   }
 
   @Override
-  public String getPathToOutputFile() {
+  public Path getPathToOutputFile() {
     return getApkPath();
   }
 
   @Override
-  public List<String> getInputsToCompareToOutput() {
+  public Collection<Path> getInputsToCompareToOutput() {
     ImmutableList.Builder<SourcePath> sourcePaths = ImmutableList.builder();
     sourcePaths.add(manifest);
 
     Optionals.addIfPresent(proguardConfig, sourcePaths);
+    sourcePaths.addAll(dexSplitMode.getSourcePaths());
 
-    ImmutableList.Builder<String> inputs = ImmutableList.builder();
-    inputs.addAll(SourcePaths.filterInputsToCompareToOutput(sourcePaths.build()));
-    return inputs.build();
+    return SourcePaths.filterInputsToCompareToOutput(sourcePaths.build());
   }
 
   @Override
@@ -414,12 +391,12 @@ public class AndroidBinaryRule extends DoNotUseAbstractBuildable implements
     final AndroidTransitiveDependencies transitiveDependencies = findTransitiveDependencies();
 
     // Copy the transitive closure of files in native_libs to a single directory, if any.
-    ImmutableSet<String> nativeLibraryDirectories;
+    ImmutableSet<Path> nativeLibraryDirectories;
     if (!transitiveDependencies.nativeLibsDirectories.isEmpty()) {
-      String pathForNativeLibs = getPathForNativeLibs();
-      String libSubdirectory = pathForNativeLibs + "/lib";
+      Path pathForNativeLibs = getPathForNativeLibs();
+      Path libSubdirectory = pathForNativeLibs.resolve("lib");
       steps.add(new MakeCleanDirectoryStep(libSubdirectory));
-      for (String nativeLibDir : transitiveDependencies.nativeLibsDirectories) {
+      for (Path nativeLibDir : transitiveDependencies.nativeLibsDirectories) {
         copyNativeLibrary(nativeLibDir, libSubdirectory, cpuFilters, steps);
       }
       nativeLibraryDirectories = ImmutableSet.of(libSubdirectory);
@@ -430,20 +407,32 @@ public class AndroidBinaryRule extends DoNotUseAbstractBuildable implements
     // Create the .dex files and create the unsigned APK using ApkBuilder.
     AndroidDexTransitiveDependencies dexTransitiveDependencies =
         findDexTransitiveDependencies();
-    String signedApkPath = getSignedApkPath();
-    addDxAndApkBuilderSteps(context,
-        steps,
+    Path signedApkPath = getSignedApkPath();
+    DexFilesInfo dexFilesInfo = addFinalDxSteps(
+        context,
         transitiveDependencies,
         dexTransitiveDependencies,
-        uberRDotJavaBuildable.getResDirectories(),
-        nativeLibraryDirectories,
-        aaptPackageResourcesBuildable.getResourceApkPath(),
-        signedApkPath);
+        uberRDotJava.getResDirectories(),
+        steps);
 
-    String apkToAlign;
+    ApkBuilderStep apkBuilderCommand = new ApkBuilderStep(
+        aaptPackageResourcesBuildable.getResourceApkPath(),
+        getSignedApkPath(),
+        dexFilesInfo.primaryDexPath,
+        /* javaResourcesDirectories */ ImmutableSet.<String>of(),
+        nativeLibraryDirectories,
+        dexFilesInfo.secondaryDexZips,
+        dexTransitiveDependencies.pathsToThirdPartyJars,
+        keystore.getPathToStore(),
+        keystore.getPathToPropertiesFile(),
+        /* debugMode */ false);
+    steps.add(apkBuilderCommand);
+
+
+    Path apkToAlign;
     // Optionally, compress the resources file in the .apk.
     if (this.isCompressResources()) {
-      String compressedApkPath = getCompressedResourcesApkPath();
+      Path compressedApkPath = getCompressedResourcesApkPath();
       apkToAlign = compressedApkPath;
       RepackZipEntriesStep arscComp = new RepackZipEntriesStep(
           signedApkPath,
@@ -454,7 +443,7 @@ public class AndroidBinaryRule extends DoNotUseAbstractBuildable implements
       apkToAlign = signedApkPath;
     }
 
-    String apkPath = getApkPath();
+    Path apkPath = getApkPath();
     ZipalignStep zipalign = new ZipalignStep(apkToAlign, apkPath);
     steps.add(zipalign);
 
@@ -463,37 +452,38 @@ public class AndroidBinaryRule extends DoNotUseAbstractBuildable implements
         String.format("built APK for %s at %s", getFullyQualifiedName(), apkPath));
     steps.add(success);
 
+    buildableContext.recordArtifact(getApkPath());
     return steps.build();
   }
 
-  private void addDxAndApkBuilderSteps(BuildContext context,
-      ImmutableList.Builder<Step> steps,
+  /**
+   * Adds steps to do the final dexing or dex merging before building the apk.
+   */
+  private DexFilesInfo addFinalDxSteps(
+      BuildContext context,
       final AndroidTransitiveDependencies transitiveDependencies,
       final AndroidDexTransitiveDependencies dexTransitiveDependencies,
       ImmutableSet<String> resDirectories,
-      ImmutableSet<String> nativeLibraryDirectories,
-      String resourceApkPath,
-      String unsignedApkPath) {
+      ImmutableList.Builder<Step> steps) {
     // Execute preprocess_java_classes_binary, if appropriate.
-    ImmutableSet<String> classpathEntriesToDex;
+    ImmutableSet<Path> classpathEntriesToDex;
     if (preprocessJavaClassesBash.isPresent()) {
       // Symlink everything in dexTransitiveDependencies.classpathEntriesToDex to the input
       // directory. Expect parallel outputs in the output directory and update classpathEntriesToDex
       // to reflect that.
-      final String preprocessJavaClassesInDir = getBinPath("java_classes_preprocess_in_%s");
-      final String preprocessJavaClassesOutDir = getBinPath("java_classes_preprocess_out_%s");
+      final Path preprocessJavaClassesInDir = getBinPath("java_classes_preprocess_in_%s");
+      final Path preprocessJavaClassesOutDir = getBinPath("java_classes_preprocess_out_%s");
       steps.add(new MakeCleanDirectoryStep(preprocessJavaClassesInDir));
       steps.add(new MakeCleanDirectoryStep(preprocessJavaClassesOutDir));
       steps.add(new SymlinkFilesIntoDirectoryStep(
-          Paths.get("."),
-          dexTransitiveDependencies.classpathEntriesToDex,
-          Paths.get(preprocessJavaClassesInDir)
-          ));
+          context.getProjectRoot(),
+          Iterables.transform(dexTransitiveDependencies.classpathEntriesToDex, MorePaths.TO_PATH),
+          preprocessJavaClassesInDir));
       classpathEntriesToDex = FluentIterable.from(dexTransitiveDependencies.classpathEntriesToDex)
-          .transform(new Function<String, String>() {
+          .transform(new Function<String, Path>() {
             @Override
-            public String apply(String classpathEntry) {
-              return Paths.get(preprocessJavaClassesOutDir, classpathEntry).toString();
+            public Path apply(String classpathEntry) {
+              return preprocessJavaClassesOutDir.resolve(classpathEntry);
             }
           })
           .toSet();
@@ -503,24 +493,25 @@ public class AndroidBinaryRule extends DoNotUseAbstractBuildable implements
           /* bash */ preprocessJavaClassesBash,
           /* cmdExe */ Optional.<String>absent());
       steps.add(new AbstractGenruleStep(
-          this, commandString, preprocessJavaClassesDeps, new File(preprocessJavaClassesInDir)) {
+          this, commandString, preprocessJavaClassesDeps, preprocessJavaClassesInDir.toFile()) {
 
         @Override
         protected void addEnvironmentVariables(
             ExecutionContext context,
             ImmutableMap.Builder<String, String> environmentVariablesBuilder) {
-          Function<String, Path> pathRelativizer =
-              context.getProjectFilesystem().getPathRelativizer();
+          Function<Path, Path> aboslutifier = context.getProjectFilesystem().getAbsolutifier();
           environmentVariablesBuilder.put(
-              "IN_JARS_DIR", pathRelativizer.apply(preprocessJavaClassesInDir).toString());
+              "IN_JARS_DIR", aboslutifier.apply(preprocessJavaClassesInDir).toString());
           environmentVariablesBuilder.put(
-              "OUT_JARS_DIR", pathRelativizer.apply(preprocessJavaClassesOutDir).toString());
+              "OUT_JARS_DIR", aboslutifier.apply(preprocessJavaClassesOutDir).toString());
         }
 
       });
 
     } else {
-      classpathEntriesToDex = dexTransitiveDependencies.classpathEntriesToDex;
+      classpathEntriesToDex = FluentIterable.from(dexTransitiveDependencies.classpathEntriesToDex)
+          .transform(MorePaths.TO_PATH)
+          .toSet();
     }
 
     // Execute proguard if desired (transforms input classpaths).
@@ -534,11 +525,8 @@ public class AndroidBinaryRule extends DoNotUseAbstractBuildable implements
     }
 
     // Create the final DEX (or set of DEX files in the case of split dex).
-    // The APK building command needs to take a directory of raw files, so we create a directory
-    // that can only contain .dex files from this build rule.
-    String dexDir = getBinPath(".dex/%s");
-    steps.add(new MkdirStep(dexDir));
-    String dexFile = String.format("%s/classes.dex", dexDir);
+    // The APK building command needs to take a directory of raw files, so primaryDexPath
+    // can only contain .dex files from this build rule.
 
     // Create dex artifacts. If split-dex is used, the assets/ directory should contain entries
     // that look something like the following:
@@ -556,64 +544,28 @@ public class AndroidBinaryRule extends DoNotUseAbstractBuildable implements
     // The scratch directories that contain the metadata.txt and secondary-N.dex.jar files must be
     // listed in secondaryDexDirectoriesBuilder so that their contents will be compressed
     // appropriately for Froyo.
-    ImmutableSet.Builder<String> secondaryDexDirectoriesBuilder = ImmutableSet.builder();
-    if (preDexDeps.isEmpty()) {
+    ImmutableSet.Builder<Path> secondaryDexDirectoriesBuilder = ImmutableSet.builder();
+    if (!preDexMerge.isPresent()) {
+      steps.add(new MkdirStep(primaryDexPath.getParent()));
+
       addDexingSteps(
           classpathEntriesToDex,
           secondaryDexDirectoriesBuilder,
           steps,
-          dexFile,
+          primaryDexPath,
           context.getSourcePathResolver());
-    } else if (!dexSplitMode.isShouldSplitDex()) {
-      Iterable<Path> filesToDex = FluentIterable.from(preDexDeps)
-          .transform(
-              new Function<IntermediateDexRule, Path>() {
-                  @Override
-                  @Nullable
-                  public Path apply(IntermediateDexRule preDexDep) {
-                    DexProducedFromJavaLibraryThatContainsClassFiles preDex = preDexDep
-                        .getBuildable();
-                    if (preDex.hasOutput()) {
-                      return preDex.getPathToDex();
-                    } else {
-                      return null;
-                    }
-                  }
-              })
-          .filter(Predicates.notNull());
-
-      // If this APK has Android resources, then the generated R.class files also need to be dexed.
-      if (dexTransitiveDependencies.pathToCompiledRDotJavaFiles.isPresent()) {
-        Path pathToCompiledRDotJavaFilesDirectory =
-            dexTransitiveDependencies.pathToCompiledRDotJavaFiles.get();
-        filesToDex = Iterables.concat(filesToDex,
-            Collections.singleton(pathToCompiledRDotJavaFilesDirectory));
-      }
-
-      // This will combine the pre-dexed files and the R.class files into a single classes.dex file.
-      steps.add(new DxStep(dexFile, filesToDex, PreDexMergeStep.DX_MERGE_OPTIONS));
     } else {
-      // At least initially (and possibly always), the logic for merging pre-dexed artifacts will
-      // not leverage SmartDexingStep, so mergePreDexedArtifactsIntoMultipleDexFiles() and
-      // addDexingSteps() do not use a common implementation. We hope to use graph-enhancement and
-      // its natural cacheability rather than SmartDexingStep to limit the number of secondary
-      // dex files that we need to rebuild.
-      mergePreDexedArtifactsIntoMultipleDexFiles(preDexDeps,
-          dexTransitiveDependencies.pathToCompiledRDotJavaFiles,
-          secondaryDexDirectoriesBuilder,
-          steps,
-          dexFile);
+      secondaryDexDirectoriesBuilder.addAll(preDexMerge.get().getSecondaryDexDirectories());
     }
-    ImmutableSet<String> secondaryDexDirectories = secondaryDexDirectoriesBuilder.build();
+    ImmutableSet<Path> secondaryDexDirectories = secondaryDexDirectoriesBuilder.build();
 
     // Due to limitations of Froyo, we need to ensure that all secondary zip files are STORED in
     // the final APK, not DEFLATED.  The only way to ensure this with ApkBuilder is to zip up the
     // the files properly and then add the zip files to the apk.
-    ImmutableSet.Builder<String> secondaryDexZips = ImmutableSet.builder();
-    for (String secondaryDexDirectory : secondaryDexDirectories) {
-      Preconditions.checkState(secondaryDexDirectory.endsWith("/"));
+    ImmutableSet.Builder<Path> secondaryDexZips = ImmutableSet.builder();
+    for (Path secondaryDexDirectory : secondaryDexDirectories) {
       // String the trailing slash from the directory name and add the zip extension.
-      String zipFile = secondaryDexDirectory.replaceAll("/$", "") + ".zip";
+      Path zipFile = Paths.get(secondaryDexDirectory.toString().replaceAll("/$", "") + ".zip");
 
       secondaryDexZips.add(zipFile);
       steps.add(new ZipDirectoryWithMaxDeflateStep(secondaryDexDirectory,
@@ -621,122 +573,7 @@ public class AndroidBinaryRule extends DoNotUseAbstractBuildable implements
           FROYO_DEFLATE_LIMIT_BYTES));
     }
 
-    ApkBuilderStep apkBuilderCommand = new ApkBuilderStep(
-        resourceApkPath,
-        unsignedApkPath,
-        dexFile,
-        ImmutableSet.<String>of(),
-        nativeLibraryDirectories,
-        secondaryDexZips.build(),
-        dexTransitiveDependencies.pathsToThirdPartyJars,
-        keystore.getPathToStore(),
-        keystore.getPathToPropertiesFile(),
-        /* debugMode */ false);
-    steps.add(apkBuilderCommand);
-  }
-
-  /**
-   * @param preDexDeps The set of pre-dexed JAR files that should go into the final APK.
-   * @param pathToCompiledRDotJavaFiles If present, the directory where the {@code R.class} files
-   *     for the final APK.
-   * @param secondaryDexDirectoriesBuilder The contract for updating this builder must match that
-   *     of {@link #addDexingSteps}.
-   * @param steps The collection of steps to which steps needed to produce the dex files should be
-   *     added.
-   * @param primaryDexPath The path where the primary {@code classes.dex} file should be written.
-   */
-  private void mergePreDexedArtifactsIntoMultipleDexFiles(
-      ImmutableSet<IntermediateDexRule> preDexDeps,
-      Optional<Path> pathToCompiledRDotJavaFiles,
-      ImmutableSet.Builder<String> secondaryDexDirectoriesBuilder,
-      ImmutableList.Builder<Step> steps,
-      String primaryDexPath) {
-    // Run dx on the R.class files, if they exist.
-    Path rDotJavaScratchDir = Paths.get(getBinPath("__%s_r_dot_java_scratch__"));
-    Optional<DexWithClasses> dexWithClassesForRDotJava = createDexWithClassesForRDotJava(
-        pathToCompiledRDotJavaFiles, rDotJavaScratchDir, steps);
-
-    // Collect all of the DexWithClasses objects to use for merging.
-    ImmutableList<DexWithClasses> dexFilesToMerge = FluentIterable.from(preDexDeps)
-        .transform(DexWithClasses.TO_DEX_WITH_CLASSES)
-        .filter(Predicates.notNull())
-        .toList();
-
-    // Create all of the output paths needed for the PreDexMergeStep.
-    String secondaryDexScratchDir = getBinPath("__%s_secondary_dex__/");
-    String secondaryDexMetadataScratchDir = secondaryDexScratchDir + "metadata/";
-    String secondaryDexJarFilesScratchDir = secondaryDexScratchDir + "jarfiles/";
-    secondaryDexDirectoriesBuilder.add(secondaryDexMetadataScratchDir);
-    secondaryDexDirectoriesBuilder.add(secondaryDexJarFilesScratchDir);
-
-    String secondaryDexMetadataDir = secondaryDexMetadataScratchDir + SECONDARY_DEX_SUBDIR;
-    String secondaryDexJarFilesDir = secondaryDexJarFilesScratchDir + SECONDARY_DEX_SUBDIR;
-    steps.add(new MakeCleanDirectoryStep(secondaryDexMetadataDir));
-    steps.add(new MakeCleanDirectoryStep(secondaryDexJarFilesDir));
-
-    // Add a step to do the bucketing and dexing. The bucketing must be done at runtime because it
-    // is not safe to invoke dexWithClassesForRDotJava.getLinearAllocEstimate() at this point, but
-    // it will be safe by the time the PreDexMergeStep is executed. (By comparison, it is safe to
-    // invoke getLinearAllocEstimate() on every element in dexFilesToMerge at this point.)
-    Path preDexScratchDir = Paths.get(secondaryDexScratchDir, "__pre_dex_tmp__");
-    steps.add(new MakeCleanDirectoryStep(preDexScratchDir));
-    steps.add(new PreDexMergeStep(dexFilesToMerge,
-        dexWithClassesForRDotJava,
-        primaryDexPath,
-        primaryDexSubstrings,
-        Paths.get(secondaryDexMetadataDir, "metadata.txt"),
-        secondaryDexJarFilesDir,
-        dexSplitMode.getDexStore(),
-        linearAllocHardLimit,
-        preDexScratchDir));
-  }
-
-  @VisibleForTesting
-  static Optional<DexWithClasses> createDexWithClassesForRDotJava(
-      Optional<Path> pathToCompiledRDotJavaFiles,
-      Path rDotJavaScratchDir,
-      ImmutableList.Builder<Step> steps) {
-    if (!pathToCompiledRDotJavaFiles.isPresent()) {
-      return Optional.absent();
-    }
-
-    steps.add(new MakeCleanDirectoryStep(rDotJavaScratchDir));
-
-    final AccumulateClassNamesStep accumulateClassNames = new AccumulateClassNamesStep(
-        pathToCompiledRDotJavaFiles,
-        rDotJavaScratchDir.resolve("classes.txt"));
-    steps.add(accumulateClassNames);
-
-    final Path rDotJavaDex = rDotJavaScratchDir.resolve("classes.dex.jar");
-
-    steps.add(new DxStep(rDotJavaDex.toString(),
-        /* filesToDex */ Collections.singleton(pathToCompiledRDotJavaFiles.get()),
-        EnumSet.of(DxStep.Option.NO_OPTIMIZE)));
-
-    final EstimateLinearAllocStep estimateLinearAllocStep = new EstimateLinearAllocStep(
-        pathToCompiledRDotJavaFiles.get());
-    steps.add(estimateLinearAllocStep);
-
-    return Optional.<DexWithClasses>of(new DexWithClasses() {
-      @Override
-      public Path getPathToDexFile() {
-        return rDotJavaDex;
-      }
-
-      @Override
-      public ImmutableSet<String> getClassNames() {
-        // By the time accumulateClassNames.get() is invoked, it should have already been built,
-        // so it should not throw a "step was not executed yet" error.
-        return accumulateClassNames.get().keySet();
-      }
-
-      @Override
-      public int getSizeEstimate() {
-        // By the time estimateLinearAllocStep.get() is invoked, it should have already been built,
-        // so it should not throw a "step was not executed yet" error.
-        return estimateLinearAllocStep.get();
-      }
-    });
+    return new DexFilesInfo(primaryDexPath, secondaryDexZips.build());
   }
 
   public AndroidTransitiveDependencies findTransitiveDependencies() {
@@ -744,8 +581,7 @@ public class AndroidBinaryRule extends DoNotUseAbstractBuildable implements
   }
 
   public AndroidDexTransitiveDependencies findDexTransitiveDependencies() {
-    return androidResourceDepsFinder.getAndroidDexTransitiveDependencies(
-        uberRDotJavaBuildable);
+    return androidResourceDepsFinder.getAndroidDexTransitiveDependencies(uberRDotJava);
   }
 
   /**
@@ -763,17 +599,13 @@ public class AndroidBinaryRule extends DoNotUseAbstractBuildable implements
    */
   @VisibleForTesting
   Path getPathForProGuardDirectory() {
-    return MorePaths.newPathInstance(
-        String.format("%s/%s.proguard/%s",
-        BuckConstant.GEN_DIR,
-        getBuildTarget().getBasePathWithSlash(),
-        getBuildTarget().getShortName()));
+    return BuildTargets.getGenPath(getBuildTarget(), ".proguard/%s");
   }
 
   /**
    * All native libs are copied to this directory before running aapt.
    */
-  private String getPathForNativeLibs() {
+  private Path getPathForNativeLibs() {
     return getBinPath("__native_libs_%s__");
   }
 
@@ -782,42 +614,31 @@ public class AndroidBinaryRule extends DoNotUseAbstractBuildable implements
   }
 
   public String getUnsignedApkPath() {
-    return String.format("%s%s.unsigned.apk",
-        outputGenDirectory,
-        getBuildTarget().getShortName());
+    return BuildTargets.getGenPath(getBuildTarget(), "%s.unsigned.apk").toString();
   }
 
   /** The APK at this path will be signed, but not zipaligned. */
-  private String getSignedApkPath() {
-    return getUnsignedApkPath().replaceAll("\\.unsigned\\.apk$", ".signed.apk");
+  private Path getSignedApkPath() {
+    return Paths.get(getUnsignedApkPath().replaceAll("\\.unsigned\\.apk$", ".signed.apk"));
   }
 
   /** The APK at this path will have compressed resources, but will not be zipaligned. */
-  private String getCompressedResourcesApkPath() {
-    return getUnsignedApkPath().replaceAll("\\.unsigned\\.apk$", ".compressed.apk");
+  private Path getCompressedResourcesApkPath() {
+    return Paths.get(getUnsignedApkPath().replaceAll("\\.unsigned\\.apk$", ".compressed.apk"));
   }
 
-  /**
-   * Return a path to a file in the buck-out/bin/ directory. {@code format} will be prepended with
-   * the {@link BuckConstant#BIN_DIR} and the target base path, then formatted with the target
-   * short name.
-   * {@code format} should not start with a slash.
-   */
-  private String getBinPath(String format) {
-    return String.format("%s/%s" + format,
-        BuckConstant.BIN_DIR,
-        getBuildTarget().getBasePathWithSlash(),
-        getBuildTarget().getShortName());
+  private Path getBinPath(String format) {
+    return BuildTargets.getBinPath(getBuildTarget(), format);
   }
 
   @VisibleForTesting
-  Path getProguardOutputFromInputClasspath(String classpathEntry) {
+  Path getProguardOutputFromInputClasspath(Path classpathEntry) {
     // Hehe, this is so ridiculously fragile.
-    Preconditions.checkArgument(classpathEntry.charAt(0) != '/',
+    Preconditions.checkArgument(!classpathEntry.isAbsolute(),
         "Classpath entries should be relative rather than absolute paths: %s",
         classpathEntry);
-    String obfuscatedName = Files.getNameWithoutExtension(classpathEntry) + "-obfuscated.jar";
-    Path dirName = MorePaths.newPathInstance(new File(classpathEntry).getParent());
+    String obfuscatedName = Files.getNameWithoutExtension(classpathEntry.toString()) + "-obfuscated.jar";
+    Path dirName = classpathEntry.getParent();
     Path outputJar = getPathForProGuardDirectory().resolve(dirName).resolve(obfuscatedName);
     return outputJar;
   }
@@ -826,10 +647,10 @@ public class AndroidBinaryRule extends DoNotUseAbstractBuildable implements
    * @return the resulting set of ProGuarded classpath entries to dex.
    */
   @VisibleForTesting
-  ImmutableSet<String> addProguardCommands(
+  ImmutableSet<Path> addProguardCommands(
       BuildContext context,
-      Set<String> classpathEntriesToDex,
-      Set<String> depsProguardConfigs,
+      Set<Path> classpathEntriesToDex,
+      Set<Path> depsProguardConfigs,
       ImmutableList.Builder<Step> steps,
       Set<String> resDirectories) {
     final ImmutableSetMultimap<JavaLibraryRule, String> classpathEntriesMap =
@@ -848,7 +669,7 @@ public class AndroidBinaryRule extends DoNotUseAbstractBuildable implements
     steps.add(new MakeCleanDirectoryStep(proguardDirectory));
 
     // Generate a file of ProGuard config options using aapt.
-    String generatedProGuardConfig = proguardDirectory + "/proguard.txt";
+    Path generatedProGuardConfig = proguardDirectory.resolve("proguard.txt");
     GenProGuardConfigStep genProGuardConfig = new GenProGuardConfigStep(
         aaptPackageResourcesBuildable.getAndroidManifestXml(),
         resDirectories,
@@ -856,21 +677,21 @@ public class AndroidBinaryRule extends DoNotUseAbstractBuildable implements
     steps.add(genProGuardConfig);
 
     // Create list of proguard Configs for the app project and its dependencies
-    ImmutableSet.Builder<String> proguardConfigsBuilder = ImmutableSet.builder();
+    ImmutableSet.Builder<Path> proguardConfigsBuilder = ImmutableSet.builder();
     proguardConfigsBuilder.addAll(depsProguardConfigs);
     if (proguardConfig.isPresent()) {
-      proguardConfigsBuilder.add(proguardConfig.get().resolve(context).toString());
+      proguardConfigsBuilder.add(proguardConfig.get().resolve(context));
     }
 
     // Transform our input classpath to a set of output locations for each input classpath.
     // TODO(devjasta): the output path we choose is the result of a slicing function against
     // input classpath. This is fragile and should be replaced with knowledge of the BuildTarget.
-    final ImmutableMap<String, String> inputOutputEntries = FluentIterable
+    final ImmutableMap<Path, Path> inputOutputEntries = FluentIterable
         .from(classpathEntriesToDex)
-        .toMap(new Function<String, String>() {
+        .toMap(new Function<Path, Path>() {
           @Override
-          public String apply(String classpathEntry) {
-            return getProguardOutputFromInputClasspath(classpathEntry).toString();
+          public Path apply(Path classpathEntry) {
+            return getProguardOutputFromInputClasspath(classpathEntry);
           }
         });
 
@@ -882,7 +703,7 @@ public class AndroidBinaryRule extends DoNotUseAbstractBuildable implements
         useAndroidProguardConfigWithOptimizations,
         inputOutputEntries,
         additionalLibraryJarsForProguardBuilder.build(),
-        proguardDirectory.toString());
+        proguardDirectory);
     steps.add(obfuscateCommand);
 
     // Apply the transformed inputs to the classpath (this will modify deps.classpathEntriesToDex
@@ -898,25 +719,27 @@ public class AndroidBinaryRule extends DoNotUseAbstractBuildable implements
    * @param classpathEntriesToDex Full set of classpath entries that must make
    *     their way into the final APK structure (but not necessarily into the
    *     primary dex).
-   * @param secondaryDexDirectoriesBuilder The contract for updating this builder must match that
+   * @param secondaryDexDirectories The contract for updating this builder must match that
    *     of {@link #mergePreDexedArtifactsIntoMultipleDexFiles}.
    * @param steps List of steps to add to.
    * @param primaryDexPath Output path for the primary dex file.
    */
   @VisibleForTesting
   void addDexingSteps(
-      Set<String> classpathEntriesToDex,
-      ImmutableSet.Builder<String> secondaryDexDirectories,
+      Set<Path> classpathEntriesToDex,
+      ImmutableSet.Builder<Path> secondaryDexDirectories,
       ImmutableList.Builder<Step> steps,
-      String primaryDexPath,
+      Path primaryDexPath,
       Function<SourcePath, Path> sourcePathResolver) {
-    final Set<String> primaryInputsToDex;
-    final Optional<String> secondaryDexDir;
-    final Optional<String> secondaryInputsDir;
+    final Supplier<Set<Path>> primaryInputsToDex;
+    final Optional<Path> secondaryDexDir;
+    final Optional<Supplier<Multimap<Path, Path>>> secondaryOutputToInputs;
 
     if (shouldSplitDex()) {
+      Optional<Path> proguardFullConfigFile = Optional.absent();
       Optional<Path> proguardMappingFile = Optional.absent();
       if (packageType.isBuildWithObfuscation()) {
+        proguardFullConfigFile = Optional.of(getPathForProGuardDirectory().resolve("configuration.txt"));
         proguardMappingFile = Optional.of(getPathForProGuardDirectory().resolve("mapping.txt"));
       }
 
@@ -924,26 +747,26 @@ public class AndroidBinaryRule extends DoNotUseAbstractBuildable implements
       // in assets.
 
       // Intermediate directory holding the primary split-zip jar.
-      String splitZipDir = getBinPath("__%s_split_zip__");
+      Path splitZipDir = getBinPath("__%s_split_zip__");
       steps.add(new MakeCleanDirectoryStep(splitZipDir));
-      String primaryJarPath = splitZipDir + "/primary.jar";
+      Path primaryJarPath = splitZipDir.resolve("primary.jar");
 
-      String secondaryJarMetaDirParent = splitZipDir + "/secondary_meta/";
-      String secondaryJarMetaDir = secondaryJarMetaDirParent + SECONDARY_DEX_SUBDIR;
+      Path secondaryJarMetaDirParent = splitZipDir.resolve("secondary_meta");
+      Path secondaryJarMetaDir = secondaryJarMetaDirParent.resolve(SECONDARY_DEX_SUBDIR);
       steps.add(new MakeCleanDirectoryStep(secondaryJarMetaDir));
-      String secondaryJarMeta = secondaryJarMetaDir + "/metadata.txt";
+      Path secondaryJarMeta = secondaryJarMetaDir.resolve("metadata.txt");
 
       // Intermediate directory holding _ONLY_ the secondary split-zip jar files.  This is
       // important because SmartDexingCommand will try to dx every entry in this directory.  It
       // does this because it's impossible to know what outputs split-zip will generate until it
       // runs.
-      String secondaryZipDir = getBinPath("__%s_secondary_zip__");
+      final Path secondaryZipDir = getBinPath("__%s_secondary_zip__");
       steps.add(new MakeCleanDirectoryStep(secondaryZipDir));
 
       // Run the split-zip command which is responsible for dividing the large set of input
       // classpaths into a more compact set of jar files such that no one jar file when dexed will
       // yield a dex artifact too large for dexopt or the dx method limit to handle.
-      String zipSplitReportDir = getBinPath("__%s_split_zip_report__");
+      Path zipSplitReportDir = getBinPath("__%s_split_zip_report__");
       steps.add(new MakeCleanDirectoryStep(zipSplitReportDir));
       SplitZipStep splitZipCommand = new SplitZipStep(
           classpathEntriesToDex,
@@ -951,39 +774,42 @@ public class AndroidBinaryRule extends DoNotUseAbstractBuildable implements
           primaryJarPath,
           secondaryZipDir,
           "secondary-%d.jar",
+          proguardFullConfigFile,
           proguardMappingFile,
-          primaryDexSubstrings,
-          primaryDexClassesFile.transform(sourcePathResolver),
+          dexSplitMode.getPrimaryDexPatterns(),
+          dexSplitMode.getPrimaryDexClassesFile().transform(sourcePathResolver),
           dexSplitMode.getDexSplitStrategy(),
           dexSplitMode.getDexStore(),
           zipSplitReportDir,
           dexSplitMode.useLinearAllocSplitDex(),
-          linearAllocHardLimit);
+          dexSplitMode.getLinearAllocHardLimit());
       steps.add(splitZipCommand);
 
       // Add the secondary dex directory that has yet to be created, but will be by the
       // smart dexing command.  Smart dex will handle "cleaning" this directory properly.
-      String secondaryDexParentDir = getBinPath("__%s_secondary_dex__/");
-      secondaryDexDir = Optional.of(secondaryDexParentDir + SECONDARY_DEX_SUBDIR);
+      Path secondaryDexParentDir = getBinPath("__%s_secondary_dex__/");
+      secondaryDexDir = Optional.of(secondaryDexParentDir.resolve(SECONDARY_DEX_SUBDIR));
       steps.add(new MkdirStep(secondaryDexDir.get()));
 
       secondaryDexDirectories.add(secondaryJarMetaDirParent);
       secondaryDexDirectories.add(secondaryDexParentDir);
 
       // Adjust smart-dex inputs for the split-zip case.
-      primaryInputsToDex = ImmutableSet.of(primaryJarPath);
-      secondaryInputsDir = Optional.of(secondaryZipDir);
+      primaryInputsToDex = Suppliers.<Set<Path>>ofInstance(ImmutableSet.of(primaryJarPath));
+      Supplier<Multimap<Path, Path>> secondaryOutputToInputsMap =
+          splitZipCommand.getOutputToInputsMapSupplier(secondaryDexDir.get());
+      secondaryOutputToInputs = Optional.of(secondaryOutputToInputsMap);
     } else {
       // Simple case where our inputs are the natural classpath directories and we don't have
       // to worry about secondary jar/dex files.
-      primaryInputsToDex = classpathEntriesToDex;
+      primaryInputsToDex = Suppliers.ofInstance(classpathEntriesToDex);
       secondaryDexDir = Optional.absent();
-      secondaryInputsDir = Optional.absent();
+      secondaryOutputToInputs = Optional.absent();
     }
 
     // Stores checksum information from each invocation to intelligently decide when dx needs
     // to be re-run.
-    Path successDir = Paths.get(getBinPath("__%s_smart_dex__/.success"));
+    Path successDir = getBinPath("__%s_smart_dex__/.success");
     steps.add(new MkdirStep(successDir));
 
     // Add the smart dexing tool that is capable of avoiding the external dx invocation(s) if
@@ -996,15 +822,17 @@ public class AndroidBinaryRule extends DoNotUseAbstractBuildable implements
     // directly apply to the internal threading/parallelization details of various build commands
     // being executed.  For example, aapt is internally threaded by default when preprocessing
     // images.
+    EnumSet<DxStep.Option> dxOptions = PackageType.RELEASE.equals(packageType)
+        ? EnumSet.noneOf(DxStep.Option.class)
+        : EnumSet.of(DxStep.Option.NO_OPTIMIZE);
     SmartDexingStep smartDexingCommand = new SmartDexingStep(
         primaryDexPath,
         primaryInputsToDex,
         secondaryDexDir,
-        secondaryInputsDir,
+        secondaryOutputToInputs,
         successDir,
         Optional.<Integer>absent(),
-        dexSplitMode.getDexStore(),
-        /* optimize */ PackageType.RELEASE.equals(packageType));
+        dxOptions);
     steps.add(smartDexingCommand);
   }
 
@@ -1029,18 +857,6 @@ public class AndroidBinaryRule extends DoNotUseAbstractBuildable implements
     return useAndroidProguardConfigWithOptimizations;
   }
 
-  ImmutableSet<String> getPrimaryDexSubstrings() {
-    return primaryDexSubstrings;
-  }
-
-  long getLinearAllocHardLimit() {
-    return linearAllocHardLimit;
-  }
-
-  Optional<SourcePath> getPrimaryDexClassesFile() {
-    return primaryDexClassesFile;
-  }
-
   public ImmutableSortedSet<BuildRule> getClasspathDeps() {
     return classpathDeps;
   }
@@ -1053,6 +869,19 @@ public class AndroidBinaryRule extends DoNotUseAbstractBuildable implements
 
   public static Builder newAndroidBinaryRuleBuilder(AbstractBuildRuleBuilderParams params) {
     return new Builder(params);
+  }
+
+  /**
+   * Encapsulates the information about dexing output that must be passed to ApkBuilder.
+   */
+  private static class DexFilesInfo {
+    final Path primaryDexPath;
+    final ImmutableSet<Path> secondaryDexZips;
+
+    DexFilesInfo(Path primaryDexPath, ImmutableSet<Path> secondaryDexZips) {
+      this.primaryDexPath = Preconditions.checkNotNull(primaryDexPath);
+      this.secondaryDexZips = Preconditions.checkNotNull(secondaryDexZips);
+    }
   }
 
   public static class Builder extends AbstractBuildRuleBuilder<AndroidBinaryRule> {
@@ -1069,17 +898,10 @@ public class AndroidBinaryRule extends DoNotUseAbstractBuildable implements
     private ImmutableSet.Builder<BuildTarget> buildTargetsToExcludeFromDexBuilder =
         ImmutableSet.builder();
     private boolean disablePreDex = false;
-    private DexSplitMode dexSplitMode = new DexSplitMode(
-        /* shouldSplitDex */ false,
-        ZipSplitter.DexSplitStrategy.MAXIMIZE_PRIMARY_DEX_SIZE,
-        DexStore.JAR,
-        /* useLinearAllocSplitDex */ false);
+    private DexSplitMode dexSplitMode = DexSplitMode.NO_SPLIT;
     private boolean useAndroidProguardConfigWithOptimizations = false;
     private Optional<SourcePath> proguardConfig = Optional.absent();
     private ResourceCompressionMode resourceCompressionMode = ResourceCompressionMode.DISABLED;
-    private ImmutableSet.Builder<String> primaryDexSubstrings = ImmutableSet.builder();
-    private long linearAllocHardLimit = 0;
-    private Optional<SourcePath> primaryDexClassesFile = Optional.absent();
     private FilterResourcesStep.ResourceFilter resourceFilter = ResourceFilter.EMPTY_FILTER;
     private ImmutableSet.Builder<TargetCpuType> cpuFilters = ImmutableSet.builder();
     private ImmutableSet.Builder<BuildTarget> preprocessJavaClassesDeps = ImmutableSet.builder();
@@ -1109,20 +931,14 @@ public class AndroidBinaryRule extends DoNotUseAbstractBuildable implements
           new AndroidTransitiveDependencyGraph(classpathDeps);
 
       BuildRuleParams originalParams = createBuildRuleParams(ruleResolver);
+      AndroidBinaryGraphEnhancer graphEnhancer = new AndroidBinaryGraphEnhancer(originalParams);
       final ImmutableSortedSet<BuildRule> originalDeps = originalParams.getDeps();
-      ImmutableSet<IntermediateDexRule> preDexDeps;
+
       ImmutableSet<BuildTarget> buildTargetsToExcludeFromDex =
           buildTargetsToExcludeFromDexBuilder.build();
-      AndroidBinaryGraphEnhancer graphEnhancer = new AndroidBinaryGraphEnhancer(
-          originalParams, buildTargetsToExcludeFromDex);
-      if (!disablePreDex
+      boolean shouldPreDex = !disablePreDex
           && PackageType.DEBUG.equals(packageType)
-          && !preprocessJavaClassesBash.isPresent()
-          ) {
-        preDexDeps = graphEnhancer.createDepsForPreDexing(ruleResolver);
-      } else {
-        preDexDeps = ImmutableSet.of();
-      }
+          && !preprocessJavaClassesBash.isPresent();
 
       // Create the BuildRule and Buildable for UberRDotJava.
       boolean allowNonExistentRule =
@@ -1138,24 +954,37 @@ public class AndroidBinaryRule extends DoNotUseAbstractBuildable implements
         protected ImmutableList<HasAndroidResourceDeps> findMyAndroidResourceDeps() {
           return UberRDotJavaUtil.getAndroidResourceDeps(originalDeps);
         }
-
-        @Override
-        protected Set<HasAndroidResourceDeps> findMyAndroidResourceDepsUnsorted() {
-          return UberRDotJavaUtil.getAndroidResourceDepsUnsorted(originalDeps);
-        }
       };
 
-      AndroidBinaryGraphEnhancer.Result result = graphEnhancer.addBuildablesToCreateAaptResources(ruleResolver,
-          resourceCompressionMode,
-          resourceFilter,
-          androidResourceDepsFinder,
-          manifest,
-          packageType,
-          cpuFilters.build(),
-          preDexDeps);
+      AndroidBinaryGraphEnhancer.AaptEnhancementResult aaptEnhancementResult =
+          graphEnhancer.addBuildablesToCreateAaptResources(
+              ruleResolver,
+              resourceCompressionMode,
+              resourceFilter,
+              androidResourceDepsFinder,
+              manifest,
+              packageType,
+              cpuFilters.build(),
+              shouldPreDex);
+
+      Path primaryDexPath = BuildTargets.getBinPath(getBuildTarget(), ".dex/%s/classes.dex");
+      AndroidBinaryGraphEnhancer.DexEnhancementResult dexEnhancementResult;
+      if (shouldPreDex) {
+        dexEnhancementResult = graphEnhancer.createDepsForPreDexing(
+            ruleResolver,
+            primaryDexPath,
+            dexSplitMode,
+            buildTargetsToExcludeFromDex,
+            aaptEnhancementResult.getUberRDotJava());
+      } else {
+        dexEnhancementResult = new AndroidBinaryGraphEnhancer.DexEnhancementResult(
+            Optional.<PreDexMerge>absent());
+      }
+
+      BuildRuleParams newParams = originalParams.copyWithChangedDeps(graphEnhancer.getTotalDeps());
 
       return new AndroidBinaryRule(
-          result.getParams(),
+          newParams,
           manifest,
           target,
           getBuildTargetsAsBuildRules(ruleResolver, classpathDepsBuilder.build()),
@@ -1166,13 +995,11 @@ public class AndroidBinaryRule extends DoNotUseAbstractBuildable implements
           useAndroidProguardConfigWithOptimizations,
           proguardConfig,
           resourceCompressionMode,
-          primaryDexSubstrings.build(),
-          linearAllocHardLimit,
-          primaryDexClassesFile,
           cpuFilters.build(),
-          preDexDeps,
-          result.getUberRDotJavaBuildable(),
-          result.getAaptPackageResources(),
+          primaryDexPath,
+          aaptEnhancementResult.getUberRDotJava(),
+          aaptEnhancementResult.getAaptPackageResources(),
+          dexEnhancementResult.getPreDexMerge(),
           getBuildTargetsAsBuildRules(ruleResolver, preprocessJavaClassesDeps.build()),
           preprocessJavaClassesBash,
           androidResourceDepsFinder,
@@ -1251,21 +1078,6 @@ public class AndroidBinaryRule extends DoNotUseAbstractBuildable implements
 
     public Builder setProguardConfig(Optional<SourcePath> proguardConfig) {
       this.proguardConfig = Preconditions.checkNotNull(proguardConfig);
-      return this;
-    }
-
-    public Builder addPrimaryDexSubstrings(Iterable<String> primaryDexSubstrings) {
-      this.primaryDexSubstrings.addAll(primaryDexSubstrings);
-      return this;
-    }
-
-    public Builder setLinearAllocHardLimit(long linearAllocHardLimit) {
-      this.linearAllocHardLimit = linearAllocHardLimit;
-      return this;
-    }
-
-    public Builder setPrimaryDexClassesFile(Optional<SourcePath> primaryDexClassesFile) {
-      this.primaryDexClassesFile = Preconditions.checkNotNull(primaryDexClassesFile);
       return this;
     }
 

@@ -26,7 +26,7 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.parser.ParseContext;
-import com.facebook.buck.testutil.IdentityPathRelativizer;
+import com.facebook.buck.testutil.IdentityPathAbsolutifier;
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.ProjectWorkspace.ProcessResult;
@@ -38,6 +38,7 @@ import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -92,6 +93,25 @@ public class BuckConfigTest {
     assertEquals("four", fourth.getKey());
 
     assertFalse(entries.hasNext());
+  }
+
+  @Test
+  public void shouldGetBooleanValues() throws IOException {
+    assertTrue(
+        "a.b is true when 'yes'",
+        createFromText("[a]", "  b = yes").getBooleanValue("a", "b", true));
+    assertTrue(
+        "a.b is true when literally 'true'",
+        createFromText("[a]", "  b = true").getBooleanValue("a", "b", true));
+    assertTrue(
+        "a.b is true when 'YES' (capitalized)",
+        createFromText("[a]", "  b = YES").getBooleanValue("a", "b", true));
+    assertFalse(
+        "a.b is false by default",
+        createFromText("[x]", "  y = COWS").getBooleanValue("a", "b", false));
+    assertFalse(
+        "a.b is true when 'no'",
+        createFromText("[a]", "  b = no").getBooleanValue("a", "b", true));
   }
 
   /**
@@ -339,8 +359,8 @@ public class BuckConfigTest {
   @Test
   public void testIgnorePaths() throws IOException {
     ProjectFilesystem filesystem = EasyMock.createMock(ProjectFilesystem.class);
-    EasyMock.expect(filesystem.getPathRelativizer())
-        .andReturn(IdentityPathRelativizer.getIdentityRelativizer())
+    EasyMock.expect(filesystem.getAbsolutifier())
+        .andReturn(IdentityPathAbsolutifier.getIdentityAbsolutifier())
         .times(2);
     BuildTargetParser parser = EasyMock.createMock(BuildTargetParser.class);
     EasyMock.replay(filesystem, parser);
@@ -370,8 +390,8 @@ public class BuckConfigTest {
   @Test
   public void testIgnorePathsWithRelativeCacheDir() throws IOException {
     ProjectFilesystem filesystem = EasyMock.createMock(ProjectFilesystem.class);
-    EasyMock.expect(filesystem.getPathRelativizer())
-        .andReturn(IdentityPathRelativizer.getIdentityRelativizer());
+    EasyMock.expect(filesystem.getAbsolutifier())
+        .andReturn(IdentityPathAbsolutifier.getIdentityAbsolutifier());
     BuildTargetParser parser = EasyMock.createMock(BuildTargetParser.class);
     EasyMock.replay(filesystem, parser);
 
@@ -466,13 +486,64 @@ public class BuckConfigTest {
   }
 
   @Test
+  public void whenJavacIsNotSetThenAbsentIsReturned() throws IOException {
+    assertEquals(Optional.absent(), new FakeBuckConfig().getJavac());
+  }
+
+  @Test
+  public void whenJavacExistsAndIsExecutableThenCorrectPathIsReturned() throws IOException {
+    File javac = temporaryFolder.newFile();
+    javac.setExecutable(true);
+
+    Reader reader = new StringReader(Joiner.on('\n').join(
+        "[tools]",
+        "    javac = " + javac.toPath().toString()));
+    BuckConfig config = createWithDefaultFilesystem(reader, null);
+
+    assertEquals(Optional.of(javac.toPath()), config.getJavac());
+  }
+
+  @Test
+  public void whenJavacDoesNotExistThenHumanReadableExceptionIsThrown() throws IOException {
+    String invalidPath = temporaryFolder.getRoot().getAbsolutePath() + "DoesNotExist";
+    Reader reader = new StringReader(Joiner.on('\n').join(
+        "[tools]",
+        "    javac = " + invalidPath));
+    BuckConfig config = createWithDefaultFilesystem(reader, null);
+    try {
+      config.getJavac();
+      fail("Should throw exception as javac file does not exist.");
+    } catch (HumanReadableException e) {
+      assertEquals(e.getHumanReadableErrorMessage(), "Javac does not exist: " + invalidPath);
+    }
+  }
+
+  @Test
+  public void whenJavacIsNotExecutableThenHumanReadableExeceptionIsThrown() throws IOException {
+    File javac = temporaryFolder.newFile();
+    javac.setExecutable(false);
+
+    Reader reader = new StringReader(Joiner.on('\n').join(
+        "[tools]",
+        "    javac = " + javac.toPath().toString()));
+    BuckConfig config = createWithDefaultFilesystem(reader, null);
+    try {
+      config.getJavac();
+      fail("Should throw exception as javac file is not executable.");
+    } catch (HumanReadableException e) {
+      assertEquals(e.getHumanReadableErrorMessage(), "Javac is not executable: " + javac.getPath());
+    }
+  }
+
+  @Test
   public void whenToolsPythonIsExecutableFileThenItIsUsed() throws IOException {
     File configPythonFile = temporaryFolder.newFile("python");
     assertTrue("Should be able to set file executable", configPythonFile.setExecutable(true));
     FakeBuckConfig config = new FakeBuckConfig(ImmutableMap.<String, Map<String, String>>builder()
         .put("tools", ImmutableMap.of("python", configPythonFile.getAbsolutePath()))
         .build());
-    assertEquals("Should return path to temp file.",
+    assertEquals(
+        "Should return path to temp file.",
         configPythonFile.getAbsolutePath(), config.getPythonInterpreter());
   }
 
@@ -559,5 +630,83 @@ public class BuckConfigTest {
       parser = new BuildTargetParser(projectFilesystem);
     }
     return BuckConfig.createFromReader(reader, projectFilesystem, parser, Platform.detect());
+  }
+
+  private BuckConfig createFromText(String... lines) throws IOException {
+    ProjectFilesystem projectFilesystem = new ProjectFilesystem(new File("."));
+    BuildTargetParser parser = new BuildTargetParser(projectFilesystem);
+    StringReader reader = new StringReader(Joiner.on('\n').join(lines));
+    return BuckConfig.createFromReader(reader, projectFilesystem, parser, Platform.detect());
+  }
+
+  public BuckConfig createNdkBuckConfig(String minNdkVersion, String maxNdkVersion)
+      throws IOException {
+    ProjectFilesystem filesystem = EasyMock.createMock(ProjectFilesystem.class);
+    BuildTargetParser parser = EasyMock.createMock(BuildTargetParser.class);
+    EasyMock.replay(filesystem, parser);
+    ImmutableList.Builder<String> configStringBuilder = ImmutableList.builder();
+    configStringBuilder.add("[ndk]");
+    if (!Strings.isNullOrEmpty(minNdkVersion)) {
+      configStringBuilder.add("  min_version = " + minNdkVersion);
+    }
+    if (!Strings.isNullOrEmpty(maxNdkVersion)) {
+      configStringBuilder.add("  max_version = " + maxNdkVersion);
+    }
+    Reader reader = new StringReader(Joiner.on('\n').join(configStringBuilder.build()));
+    return BuckConfig.createFromReader(reader, filesystem, parser, Platform.detect());
+  }
+
+  @Test
+  public void testNdkExactVersion() throws IOException {
+    BuckConfig buckConfig = createNdkBuckConfig("r8", "r8");
+
+    buckConfig.validateNdkVersion(Paths.get("ndkDir"), "r8");
+  }
+
+  @Test
+  public void testNdkWideVersion() throws IOException {
+    BuckConfig buckConfig = createNdkBuckConfig("r8", "r8e");
+
+    buckConfig.validateNdkVersion(Paths.get("ndkDir"), "r8");
+  }
+
+  @Test
+  public void testNdkTooOldVersion() throws IOException {
+    BuckConfig buckConfig = createNdkBuckConfig("r8", "r8e");
+    Path pathToNdk = Paths.get("ndkDir");
+
+    try {
+      buckConfig.validateNdkVersion(pathToNdk, "r7");
+      fail("Should not be valid");
+    } catch (HumanReadableException e) {
+      assertEquals("Supported NDK versions are between r8 and r8e but Buck is configured to use r7 from " + pathToNdk.toAbsolutePath(), e.getMessage());
+    }
+  }
+
+  @Test
+  public void testNdkTooNewVersion() throws IOException {
+    BuckConfig buckConfig = createNdkBuckConfig("r8", "r8e");
+    Path pathToNdk = Paths.get("ndkDir");
+
+    try {
+      buckConfig.validateNdkVersion(pathToNdk, "r9");
+      fail("Should not be valid");
+    } catch (HumanReadableException e) {
+      assertEquals("Supported NDK versions are between r8 and r8e but Buck is configured to use r9 from " + pathToNdk.toAbsolutePath(), e.getMessage());
+    }
+  }
+
+  @Test
+  @SuppressWarnings("PMD.EmptyCatchBlock")
+  public void testNdkOnlyMinVersion() throws IOException {
+    BuckConfig buckConfig = createNdkBuckConfig("r8", "");
+    Path pathToNdk = Paths.get("ndkDir");
+
+    try {
+      buckConfig.validateNdkVersion(pathToNdk, "r42");
+      fail("Should not be valid");
+    } catch (HumanReadableException e) {
+      assertEquals("Either both min_version and max_version are provided or neither are", e.getMessage());
+    }
   }
 }

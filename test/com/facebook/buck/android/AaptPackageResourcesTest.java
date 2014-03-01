@@ -17,6 +17,7 @@
 package com.facebook.buck.android;
 
 import static com.facebook.buck.util.BuckConstant.BIN_DIR;
+import static com.facebook.buck.util.BuckConstant.BIN_PATH;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -31,11 +32,11 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirAndSymlinkFileStep;
 import com.facebook.buck.testutil.MoreAsserts;
-import com.facebook.buck.util.DirectoryTraversal;
 import com.facebook.buck.util.DirectoryTraverser;
-import com.facebook.buck.util.MorePaths;
+import com.facebook.buck.util.FakeDirectoryTraverser;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
 import org.easymock.EasyMock;
@@ -43,6 +44,9 @@ import org.junit.Test;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 
@@ -54,7 +58,7 @@ public class AaptPackageResourcesTest {
    */
   @Test
   public void testCreateAllAssetsDirectoryWithZeroAssetsDirectories() throws IOException {
-    UberRDotJavaBuildable uberRDotJava = EasyMock.createMock(UberRDotJavaBuildable.class);
+    UberRDotJava uberRDotJava = EasyMock.createMock(UberRDotJava.class);
     EasyMock.replay(uberRDotJava);
 
     // One android_binary rule that depends on the two android_library rules.
@@ -67,18 +71,12 @@ public class AaptPackageResourcesTest {
 
     // Build up the parameters needed to invoke createAllAssetsDirectory().
     ImmutableList.Builder<Step> commands = ImmutableList.builder();
-    DirectoryTraverser traverser = new DirectoryTraverser() {
-      @Override
-      public void traverse(DirectoryTraversal traversal) {
-        throw new RuntimeException("Unexpected: no assets directories to traverse!");
-      }
-    };
 
     // Invoke createAllAssetsDirectory(), the method under test.
-    Optional<String> allAssetsDirectory = aaptPackageResources.createAllAssetsDirectory(
-        /* assetsDirectories */ ImmutableSet.<String>of(),
+    Optional<Path> allAssetsDirectory = aaptPackageResources.createAllAssetsDirectory(
+        /* assetsDirectories */ ImmutableSet.<Path>of(),
         commands,
-        traverser);
+        new FakeDirectoryTraverser());
     EasyMock.verify(uberRDotJava);
 
     // Verify that no assets/ directory is used.
@@ -109,7 +107,7 @@ public class AaptPackageResourcesTest {
         null, /* resDirectory */
         "java/src/com/facebook/base/assets2",
         null /* nativeLibsDirectory */);
-    UberRDotJavaBuildable uberRDotJava = EasyMock.createMock(UberRDotJavaBuildable.class);
+    UberRDotJava uberRDotJava = EasyMock.createMock(UberRDotJava.class);
     EasyMock.replay(uberRDotJava);
 
     AndroidResourceRule resourceOne = (AndroidResourceRule) ruleResolver
@@ -124,29 +122,23 @@ public class AaptPackageResourcesTest {
         ImmutableSet.<TargetCpuType>of());
 
     // Build up the parameters needed to invoke createAllAssetsDirectory().
-    Set<String> assetsDirectories = ImmutableSet.of(resourceOne.getAssets());
+    Set<Path> assetsDirectories = ImmutableSet.of(resourceOne.getAssets());
     ImmutableList.Builder<Step> commands = ImmutableList.builder();
-    DirectoryTraverser traverser = new DirectoryTraverser() {
-      @Override
-      public void traverse(DirectoryTraversal traversal) throws IOException {
-        String rootPath = MorePaths.newPathInstance(traversal.getRoot()).toString();
-        if ("java/src/com/facebook/base/assets2".equals(rootPath)) {
-          traversal.visit(
-              new File("java/src/com/facebook/base/assets2",
-                  "fonts/Theinhardt-Medium.otf"),
-              "fonts/Theinhardt-Medium.otf");
-          traversal.visit(
-              new File("java/src/com/facebook/base/assets2",
-                  "fonts/Theinhardt-Regular.otf"),
-              "fonts/Theinhardt-Regular.otf");
-        } else {
-          throw new RuntimeException("Unexpected path: " + rootPath);
-        }
-      }
-    };
+    DirectoryTraverser traverser = new FakeDirectoryTraverser(
+        ImmutableMap.<String, Collection<FakeDirectoryTraverser.Entry>>of(
+            "java/src/com/facebook/base/assets2",
+            ImmutableList.of(
+                new FakeDirectoryTraverser.Entry(
+                    new File("java/src/com/facebook/base/assets2",
+                             "fonts/Theinhardt-Medium.otf"),
+                    "fonts/Theinhardt-Medium.otf"),
+                new FakeDirectoryTraverser.Entry(
+                    new File("java/src/com/facebook/base/assets2",
+                             "fonts/Theinhardt-Regular.otf"),
+                    "fonts/Theinhardt-Regular.otf"))));
 
     // Invoke createAllAssetsDirectory(), the method under test.
-    Optional<String> allAssetsDirectory = aaptPackageResources.createAllAssetsDirectory(
+    Optional<Path> allAssetsDirectory = aaptPackageResources.createAllAssetsDirectory(
         assetsDirectories, commands, traverser);
     EasyMock.verify(uberRDotJava);
 
@@ -179,7 +171,7 @@ public class AaptPackageResourcesTest {
         null, /* resDirectory */
         "facebook/base/assets2",
         null /* nativeLibsDirectory */);
-    UberRDotJavaBuildable uberRDotJava = EasyMock.createMock(UberRDotJavaBuildable.class);
+    UberRDotJava uberRDotJava = EasyMock.createMock(UberRDotJava.class);
     EasyMock.replay(uberRDotJava);
 
     // One android_binary rule that depends on the two android_library rules.
@@ -196,54 +188,49 @@ public class AaptPackageResourcesTest {
         BuildTargetFactory.newInstance("//facebook/base:libraryTwo_resources"));
 
     // Build up the parameters needed to invoke createAllAssetsDirectory().
-    Set<String> assetsDirectories = ImmutableSet.of(
+    Set<Path> assetsDirectories = ImmutableSet.of(
         resourceOne.getAssets(),
         resourceTwo.getAssets());
     ImmutableList.Builder<Step> commands = ImmutableList.builder();
-    DirectoryTraverser traverser = new DirectoryTraverser() {
-      @Override
-      public void traverse(DirectoryTraversal traversal) throws IOException {
-        String rootPath = MorePaths.newPathInstance(traversal.getRoot()).toString();
-        if ("facebook/base/assets1".equals(rootPath)) {
-          traversal.visit(
-              new File("facebook/base/assets1",
-                  "guava-10.0.1-fork.dex.1.jar"),
-              "guava-10.0.1-fork.dex.1.jar");
-        } else if ("facebook/base/assets2".equals(rootPath)) {
-          traversal.visit(
-              new File("facebook/base/assets2",
-                  "fonts/Theinhardt-Medium.otf"),
-              "fonts/Theinhardt-Medium.otf");
-          traversal.visit(
-              new File("facebook/base/assets2",
-                  "fonts/Theinhardt-Regular.otf"),
-              "fonts/Theinhardt-Regular.otf");
-        } else {
-          throw new RuntimeException("Unexpected path: " + rootPath);
-        }
-      }
-    };
+    DirectoryTraverser traverser = new FakeDirectoryTraverser(
+        ImmutableMap.<String, Collection<FakeDirectoryTraverser.Entry>>of(
+            "facebook/base/assets1",
+            ImmutableList.of(
+                new FakeDirectoryTraverser.Entry(
+                    new File("facebook/base/assets1",
+                             "guava-10.0.1-fork.dex.1.jar"),
+                    "guava-10.0.1-fork.dex.1.jar")),
+            "facebook/base/assets2",
+            ImmutableList.of(
+                new FakeDirectoryTraverser.Entry(
+                    new File("facebook/base/assets2",
+                             "fonts/Theinhardt-Medium.otf"),
+                    "fonts/Theinhardt-Medium.otf"),
+                new FakeDirectoryTraverser.Entry(
+                    new File("facebook/base/assets2",
+                             "fonts/Theinhardt-Regular.otf"),
+                    "fonts/Theinhardt-Regular.otf"))));
 
     // Invoke createAllAssetsDirectory(), the method under test.
-    Optional<String> allAssetsDirectory = aaptPackageResources.createAllAssetsDirectory(
+    Optional<Path> allAssetsDirectory = aaptPackageResources.createAllAssetsDirectory(
         assetsDirectories, commands, traverser);
     EasyMock.verify(uberRDotJava);
 
     // Verify that an assets/ directory will be created and passed to aapt.
     assertTrue(allAssetsDirectory.isPresent());
-    assertEquals(BIN_DIR + "/facebook/base/__assets_apk#aapt_package__",
+    assertEquals(BIN_PATH.resolve("facebook/base/__assets_apk#aapt_package__"),
         allAssetsDirectory.get());
     List<? extends Step> expectedCommands = ImmutableList.of(
-        new MakeCleanDirectoryStep(BIN_DIR + "/facebook/base/__assets_apk#aapt_package__"),
+        new MakeCleanDirectoryStep(BIN_PATH.resolve("facebook/base/__assets_apk#aapt_package__")),
         new MkdirAndSymlinkFileStep(
-            "facebook/base/assets1/guava-10.0.1-fork.dex.1.jar",
-            BIN_DIR + "/facebook/base/__assets_apk#aapt_package__/guava-10.0.1-fork.dex.1.jar"),
+            Paths.get("facebook/base/assets1/guava-10.0.1-fork.dex.1.jar"),
+            BIN_PATH.resolve("facebook/base/__assets_apk#aapt_package__/guava-10.0.1-fork.dex.1.jar")),
         new MkdirAndSymlinkFileStep(
-            "facebook/base/assets2/fonts/Theinhardt-Medium.otf",
-            BIN_DIR + "/facebook/base/__assets_apk#aapt_package__/fonts/Theinhardt-Medium.otf"),
+            Paths.get("facebook/base/assets2/fonts/Theinhardt-Medium.otf"),
+            BIN_PATH.resolve("facebook/base/__assets_apk#aapt_package__/fonts/Theinhardt-Medium.otf")),
         new MkdirAndSymlinkFileStep(
-            "facebook/base/assets2/fonts/Theinhardt-Regular.otf",
-            BIN_DIR + "/facebook/base/__assets_apk#aapt_package__/fonts/Theinhardt-Regular.otf"));
+            Paths.get("facebook/base/assets2/fonts/Theinhardt-Regular.otf"),
+            BIN_PATH.resolve("facebook/base/__assets_apk#aapt_package__/fonts/Theinhardt-Regular.otf")));
     MoreAsserts.assertListEquals(expectedCommands, commands.build());
   }
 

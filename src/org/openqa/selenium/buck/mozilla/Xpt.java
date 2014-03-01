@@ -36,6 +36,7 @@ import com.google.common.io.Files;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Collection;
 import java.util.List;
 
 public class Xpt extends AbstractBuildable {
@@ -53,8 +54,8 @@ public class Xpt extends AbstractBuildable {
   }
 
   @Override
-  public Iterable<String> getInputsToCompareToOutput() {
-    return ImmutableSortedSet.of(src.toString());
+  public Collection<Path> getInputsToCompareToOutput() {
+    return ImmutableSortedSet.of(src);
   }
 
   @Override
@@ -73,13 +74,13 @@ public class Xpt extends AbstractBuildable {
     Path from = fallback.resolve(context);
 
     steps.add(new MkdirStep(out.getParent()));
-    steps.add(new CopyStep(from, out));
+    steps.add(CopyStep.forFile(from, out));
 
     return steps.build();
   }
 
   @Override
-  public String getPathToOutputFile() {
-    return out.toString();
+  public Path getPathToOutputFile() {
+    return out;
   }
 }

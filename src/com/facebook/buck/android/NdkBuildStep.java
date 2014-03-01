@@ -26,8 +26,8 @@ import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
-import java.io.File;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 
 public class NdkBuildStep extends ShellStep {
 
@@ -64,7 +64,7 @@ public class NdkBuildStep extends ShellStep {
 
   @Override
   protected ImmutableList<String> getShellCommandInternal(ExecutionContext context) {
-    Optional<File> ndkRoot = context.getNdkRoot();
+    Optional<Path> ndkRoot = context.getAndroidPlatformTarget().getNdkDirectory();
     if (!ndkRoot.isPresent()) {
       throw new HumanReadableException("Must define a local.properties file"
           + " with a property named 'ndk.dir' that points to the absolute path of"
@@ -73,7 +73,7 @@ public class NdkBuildStep extends ShellStep {
 
     ImmutableList.Builder<String> builder = ImmutableList.builder();
     builder.add(
-        ndkRoot.get().getAbsolutePath() + "/ndk-build",
+        ndkRoot.get().resolve("ndk-build").toAbsolutePath().toString(),
         "-j",
         Integer.toString(this.maxJobCount),
         "-C",
@@ -82,11 +82,11 @@ public class NdkBuildStep extends ShellStep {
     builder.addAll(this.flags);
 
     ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
-    Function<String, Path> pathRelativizer = projectFilesystem.getPathRelativizer();
+    Function<Path, Path> absolutifier = projectFilesystem.getAbsolutifier();
     builder.add(
-        "APP_PROJECT_PATH=" + pathRelativizer.apply(this.buildArtifactsDirectory.toString()) + "/",
-        "APP_BUILD_SCRIPT=" + pathRelativizer.apply(this.makefilePath),
-        "NDK_OUT=" + pathRelativizer.apply(this.buildArtifactsDirectory.toString()) + "/",
+        "APP_PROJECT_PATH=" + absolutifier.apply(buildArtifactsDirectory) + "/",
+        "APP_BUILD_SCRIPT=" + absolutifier.apply(Paths.get(makefilePath)),
+        "NDK_OUT=" + absolutifier.apply(buildArtifactsDirectory) + "/",
         "NDK_LIBS_OUT=" + projectFilesystem.resolve(binDirectory));
 
     return builder.build();

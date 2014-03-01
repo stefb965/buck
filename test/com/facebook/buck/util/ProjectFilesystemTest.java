@@ -21,9 +21,11 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.testutil.WatchEvents;
+import com.facebook.buck.util.ProjectFilesystem.CopySourceMode;
 import com.google.common.base.Charsets;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
+import com.google.common.io.CharStreams;
 import com.google.common.io.Files;
 
 import org.junit.Before;
@@ -118,6 +120,21 @@ public class ProjectFilesystemTest {
   }
 
   @Test
+  public void getReaderIfFileExists() throws IOException {
+    File file = tmp.newFile("foo.txt");
+    Files.write("fooooo\nbar\nbaz\n", file, Charsets.UTF_8);
+    assertEquals(
+        "fooooo\nbar\nbaz\n",
+        CharStreams.toString(filesystem.getReaderIfFileExists(Paths.get("foo.txt")).get())
+    );
+  }
+
+  @Test
+  public void getReaderIfFileExistsNoFile() throws IOException {
+    assertEquals(Optional.absent(), filesystem.getReaderIfFileExists(Paths.get("foo.txt")));
+  }
+
+  @Test
   public void testGetFileSize() throws IOException {
     File wordsFile = tmp.newFile("words.txt");
     String content = "Here\nare\nsome\nwords.\n";
@@ -183,6 +200,29 @@ public class ProjectFilesystemTest {
   }
 
   @Test
+  public void testCopyFolderAndContents() throws IOException {
+    // Build up a directory of dummy files.
+    tmp.newFolder("src");
+    tmp.newFolder("src/com");
+    tmp.newFolder("src/com/example");
+    tmp.newFolder("src/com/example/foo");
+    tmp.newFile("src/com/example/foo/Foo.java");
+    tmp.newFile("src/com/example/foo/package.html");
+    tmp.newFolder("src/com/example/bar");
+    tmp.newFile("src/com/example/bar/Bar.java");
+    tmp.newFile("src/com/example/bar/package.html");
+
+    // Copy the contents of src/ to dest/ (including src itself).
+    tmp.newFolder("dest");
+    filesystem.copy(Paths.get("src"), Paths.get("dest"), CopySourceMode.DIRECTORY_AND_CONTENTS);
+
+    assertTrue(new File(tmp.getRoot(), "dest/src/com/example/foo/Foo.java").exists());
+    assertTrue(new File(tmp.getRoot(), "dest/src/com/example/foo/package.html").exists());
+    assertTrue(new File(tmp.getRoot(), "dest/src/com/example/bar/Bar.java").exists());
+    assertTrue(new File(tmp.getRoot(), "dest/src/com/example/bar/package.html").exists());
+  }
+
+  @Test
   public void testCopyFile() throws IOException {
     tmp.newFolder("foo");
     File file = tmp.newFile("foo/bar.txt");
@@ -195,8 +235,8 @@ public class ProjectFilesystemTest {
 
   @Test
   public void testDeleteFileAtPath() throws IOException {
-    String path = "foo.txt";
-    File file = tmp.newFile(path);
+    Path path = Paths.get("foo.txt");
+    File file = tmp.newFile(path.toString());
     assertTrue(file.exists());
     filesystem.deleteFileAtPath(path);
     assertFalse(file.exists());
@@ -205,7 +245,8 @@ public class ProjectFilesystemTest {
   @Test
   public void testCreateContextStringForModifyEvent() throws IOException {
     File file = tmp.newFile("foo.txt");
-    WatchEvent<Path> modifyEvent = WatchEvents.createPathEvent(file,
+    WatchEvent<Path> modifyEvent = WatchEvents.createPathEvent(
+        file,
         StandardWatchEventKinds.ENTRY_MODIFY);
     assertEquals(file.getAbsolutePath(), filesystem.createContextString(modifyEvent));
   }

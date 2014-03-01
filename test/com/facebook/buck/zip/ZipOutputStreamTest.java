@@ -398,7 +398,8 @@ public class ZipOutputStreamTest {
     byte[] input = "I like cheese".getBytes(UTF_8);
 
     try (
-      CustomZipOutputStream overwrite = ZipOutputStreams.newOutputStream(output, OVERWRITE_EXISTING);
+      CustomZipOutputStream overwrite = ZipOutputStreams.newOutputStream(
+          overwriteZip, OVERWRITE_EXISTING);
       CustomZipOutputStream appending = ZipOutputStreams.newOutputStream(output, APPEND_TO_ZIP)
     ) {
       CustomZipEntry entry = new CustomZipEntry("cheese.txt");
@@ -434,10 +435,7 @@ public class ZipOutputStreamTest {
     byte[] seen = Files.readAllBytes(output.toPath());
     byte[] expected = Files.readAllBytes(reference.toPath());
 
-    com.google.common.io.Files.copy(output, new File("bad.zip"));
-    com.google.common.io.Files.copy(reference, new File("good.zip"));
-
-    // Make sure the file is valid.
+    // Make sure the output is valid.
     try (ZipInputStream in = new ZipInputStream(new FileInputStream(output))) {
       ZipEntry entry = in.getNextEntry();
       assertEquals("macbeth.properties", entry.getName());

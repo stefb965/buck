@@ -19,7 +19,7 @@ package com.facebook.buck.android;
 import com.facebook.buck.android.AndroidBinaryRule.PackageType;
 import com.facebook.buck.android.AndroidBinaryRule.TargetCpuType;
 import com.facebook.buck.android.FilterResourcesStep.ResourceFilter;
-import com.facebook.buck.android.UberRDotJavaBuildable.ResourceCompressionMode;
+import com.facebook.buck.android.UberRDotJava.ResourceCompressionMode;
 import com.facebook.buck.java.Classpaths;
 import com.facebook.buck.java.JavaLibraryRule;
 import com.facebook.buck.model.BuildTarget;
@@ -30,31 +30,33 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultBuildRuleBuilderParams;
 import com.facebook.buck.rules.SourcePath;
-import com.google.common.base.Preconditions;
+import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+
+import java.nio.file.Path;
 
 public class AndroidBinaryGraphEnhancer {
 
   private static final String DEX_FLAVOR = "dex";
+  private static final String DEX_MERGE_FLAVOR = "dex_merge";
   private static final String UBER_R_DOT_JAVA_FLAVOR = "uber_r_dot_java";
   private static final String AAPT_PACKAGE_FLAVOR = "aapt_package";
 
-  private final BuildRuleParams originalParams;
   private final BuildTarget originalBuildTarget;
   private final ImmutableSortedSet<BuildRule> originalDeps;
-  private final ImmutableSet<BuildTarget> buildRulesToExcludeFromDex;
   private final AbstractBuildRuleBuilderParams buildRuleBuilderParams;
+  private final ImmutableSortedSet.Builder<BuildRule> totalDeps;
 
-  AndroidBinaryGraphEnhancer(BuildRuleParams originalParams,
-      ImmutableSet<BuildTarget> buildRulesToExcludeFromDex) {
-    this.originalParams = Preconditions.checkNotNull(originalParams);
+  AndroidBinaryGraphEnhancer(BuildRuleParams originalParams) {
     this.originalBuildTarget = originalParams.getBuildTarget();
     this.originalDeps = originalParams.getDeps();
-    this.buildRulesToExcludeFromDex = buildRulesToExcludeFromDex;
     this.buildRuleBuilderParams = new DefaultBuildRuleBuilderParams(
         originalParams.getPathRelativizer(),
         originalParams.getRuleKeyBuilderFactory());
+    this.totalDeps = ImmutableSortedSet.naturalOrder();
+
+    totalDeps.addAll(originalDeps);
   }
 
   /**
@@ -63,7 +65,12 @@ public class AndroidBinaryGraphEnhancer {
    * <p>
    * This method may modify {@code ruleResolver}, inserting new rules into its index.
    */
-  ImmutableSet<IntermediateDexRule> createDepsForPreDexing(BuildRuleResolver ruleResolver) {
+  DexEnhancementResult createDepsForPreDexing(
+      BuildRuleResolver ruleResolver,
+      Path primaryDexPath,
+      DexSplitMode dexSplitMode,
+      ImmutableSet<BuildTarget> buildRulesToExcludeFromDex,
+      UberRDotJava uberRDotJava) {
     ImmutableSet.Builder<IntermediateDexRule> preDexDeps = ImmutableSet.builder();
     ImmutableSet<JavaLibraryRule> transitiveJavaDeps = Classpaths
         .getClasspathEntries(originalDeps).keySet();
@@ -92,37 +99,51 @@ public class AndroidBinaryGraphEnhancer {
       }
 
       // Create the IntermediateDexRule and add it to both the ruleResolver and preDexDeps.
-      IntermediateDexRule.Builder preDexBuilder = IntermediateDexRule
-          .newPreDexBuilder(buildRuleBuilderParams)
-          .setBuildTarget(preDexTarget)
-          .setJavaLibraryRuleToDex(javaLibraryRule)
-          .addVisibilityPattern(BuildTargetPattern.MATCH_ALL);
-      IntermediateDexRule preDex = ruleResolver.buildAndAddToIndex(preDexBuilder);
+      IntermediateDexRule preDex = ruleResolver.buildAndAddToIndex(
+          IntermediateDexRule
+              .newPreDexBuilder(buildRuleBuilderParams)
+              .setBuildTarget(preDexTarget)
+              .setJavaLibraryRuleToDex(javaLibraryRule)
+              .addVisibilityPattern(BuildTargetPattern.MATCH_ALL));
       preDexDeps.add(preDex);
     }
-    return preDexDeps.build();
+
+    ImmutableSet<IntermediateDexRule> allPreDexDeps = preDexDeps.build();
+
+    BuildTarget buildTargetForDexMerge = createBuildTargetWithFlavor(DEX_MERGE_FLAVOR);
+    BuildRule preDexMergeBuildRule = ruleResolver.buildAndAddToIndex(
+        PreDexMerge
+            .newPreDexMergeBuilder(buildRuleBuilderParams)
+            .setBuildTarget(buildTargetForDexMerge)
+            .setPrimaryDexPath(primaryDexPath)
+            .setDexSplitMode(dexSplitMode)
+            .setPreDexDeps(allPreDexDeps)
+            .setUberRDotJava(uberRDotJava));
+    PreDexMerge preDexMerge = (PreDexMerge) preDexMergeBuildRule.getBuildable();
+
+    totalDeps.add(preDexMergeBuildRule);
+
+    return new DexEnhancementResult(Optional.of(preDexMerge));
   }
 
-  Result addBuildablesToCreateAaptResources(BuildRuleResolver ruleResolver,
+  AaptEnhancementResult addBuildablesToCreateAaptResources(BuildRuleResolver ruleResolver,
       ResourceCompressionMode resourceCompressionMode,
       ResourceFilter resourceFilter,
       AndroidResourceDepsFinder androidResourceDepsFinder,
       SourcePath manifest,
       PackageType packageType,
       ImmutableSet<TargetCpuType> cpuFilters,
-      ImmutableSet<IntermediateDexRule> preDexDeps) {
-    BuildTarget originalBuildTarget = originalParams.getBuildTarget();
+      boolean rDotJavaNeedsDexing) {
     BuildTarget buildTargetForResources = createBuildTargetWithFlavor(UBER_R_DOT_JAVA_FLAVOR);
     BuildRule uberRDotJavaBuildRule = ruleResolver.buildAndAddToIndex(
-        UberRDotJavaBuildable
-            .newUberRDotJavaBuildableBuilder(buildRuleBuilderParams)
+        UberRDotJava
+            .newUberRDotJavaBuilder(buildRuleBuilderParams)
             .setBuildTarget(buildTargetForResources)
-            .setAllParams(buildTargetForResources,
-                resourceCompressionMode,
-                resourceFilter,
-                androidResourceDepsFinder));
-    UberRDotJavaBuildable uberRDotJavaBuildable = (UberRDotJavaBuildable) uberRDotJavaBuildRule
-        .getBuildable();
+            .setResourceCompressionMode(resourceCompressionMode)
+            .setResourceFilter(resourceFilter)
+            .setAndroidResourceDepsFinder(androidResourceDepsFinder)
+            .setRDotJavaNeedsDexing(rDotJavaNeedsDexing));
+    UberRDotJava uberRDotJava = (UberRDotJava) uberRDotJavaBuildRule.getBuildable();
 
     // Create the AaptPackageResourcesBuildable.
     BuildTarget buildTargetForAapt = createBuildTargetWithFlavor(AAPT_PACKAGE_FLAVOR);
@@ -131,52 +152,61 @@ public class AndroidBinaryGraphEnhancer {
             .newAaptPackageResourcesBuildableBuilder(buildRuleBuilderParams)
             .setBuildTarget(buildTargetForAapt)
             .setAllParams(manifest,
-                uberRDotJavaBuildable,
+                uberRDotJava,
                 androidResourceDepsFinder.getAndroidTransitiveDependencies().nativeTargetsWithAssets,
                 packageType,
                 cpuFilters));
     AaptPackageResources aaptPackageResources =
         (AaptPackageResources) aaptPackageResourcesBuildRule.getBuildable();
 
-    // Must create a new BuildRuleParams to supersede the one built by
-    // createBuildRuleParams(ruleResolver).
-    ImmutableSortedSet<BuildRule> totalDeps = ImmutableSortedSet.<BuildRule>naturalOrder()
-        .addAll(originalDeps)
-        .addAll(preDexDeps)
+    totalDeps
         .add(uberRDotJavaBuildRule)
         .add(aaptPackageResourcesBuildRule)
         .build();
-    BuildRuleParams buildRuleParams = new BuildRuleParams(originalBuildTarget,
-        totalDeps,
-        originalParams.getVisibilityPatterns(),
-        originalParams.getPathRelativizer(),
-        originalParams.getRuleKeyBuilderFactory());
 
-    return new Result(buildRuleParams, uberRDotJavaBuildable, aaptPackageResources);
+    return new AaptEnhancementResult(uberRDotJava, aaptPackageResources);
   }
 
-  static class Result {
-    private final BuildRuleParams params;
-    private final UberRDotJavaBuildable uberRDotJavaBuildable;
+  /**
+   * This should be called after all "createDeps" methods to get the total set of dependencies
+   * that the final AndroidBinaryRule should have.
+   *
+   * @return All dependencies for the AndroidBinaryRule.
+   */
+  ImmutableSortedSet<BuildRule> getTotalDeps() {
+    return totalDeps.build();
+  }
+
+  static class AaptEnhancementResult {
+    private final UberRDotJava uberRDotJava;
     private final AaptPackageResources aaptPackageResources;
 
-    public Result(BuildRuleParams params, UberRDotJavaBuildable uberRDotJavaBuildable,
+    public AaptEnhancementResult(
+        UberRDotJava uberRDotJava,
         AaptPackageResources aaptPackageBuildable) {
-      this.params = params;
-      this.uberRDotJavaBuildable = uberRDotJavaBuildable;
+      this.uberRDotJava = uberRDotJava;
       this.aaptPackageResources = aaptPackageBuildable;
     }
 
-    public BuildRuleParams getParams() {
-      return params;
-    }
 
-    public UberRDotJavaBuildable getUberRDotJavaBuildable() {
-      return uberRDotJavaBuildable;
+    public UberRDotJava getUberRDotJava() {
+      return uberRDotJava;
     }
 
     public AaptPackageResources getAaptPackageResources() {
       return aaptPackageResources;
+    }
+  }
+
+  static class DexEnhancementResult {
+    private final Optional<PreDexMerge> preDexMerge;
+
+    DexEnhancementResult(Optional<PreDexMerge> preDexMerge) {
+      this.preDexMerge = preDexMerge;
+    }
+
+    public Optional<PreDexMerge> getPreDexMerge() {
+      return preDexMerge;
     }
   }
 

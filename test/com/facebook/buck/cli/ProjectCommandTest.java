@@ -44,6 +44,7 @@ import com.facebook.buck.rules.ProjectConfigRule;
 import com.facebook.buck.testutil.BuckTestConstant;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.testutil.TestConsole;
+import com.facebook.buck.util.FakeAndroidDirectoryResolver;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.buck.util.environment.Platform;
@@ -61,6 +62,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.io.StringReader;
+import java.nio.file.Paths;
 import java.util.LinkedList;
 import java.util.List;
 
@@ -77,7 +79,7 @@ public class ProjectCommandTest {
     DefaultJavaLibraryRule javaLibraryRule = ruleResolver.buildAndAddToIndex(
         DefaultJavaLibraryRule.newJavaLibraryRuleBuilder(new FakeAbstractBuildRuleBuilderParams())
         .setBuildTarget(javaLibraryTargetName)
-        .addSrc("javasrc/JavaLibrary.java"));
+        .addSrc(Paths.get("javasrc/JavaLibrary.java")));
 
     String projectConfigTargetName = "//javasrc:project-config";
     ProjectConfigRule ruleConfig = ruleResolver.buildAndAddToIndex(
@@ -169,6 +171,7 @@ public class ProjectCommandTest {
       super(new CommandRunnerParams(
           new TestConsole(),
           new ProjectFilesystem(new File(".")),
+          new FakeAndroidDirectoryResolver(),
           KnownBuildRuleTypes.getDefault(),
           new InstanceArtifactCacheFactory(artifactCache),
           BuckEventBusFactory.newInstance(),

@@ -16,13 +16,15 @@
 
 package com.facebook.buck.android;
 
-import static com.google.common.collect.Ordering.*;
+import static com.google.common.collect.Ordering.natural;
 
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
+import com.facebook.buck.util.MoreStrings;
+import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
-import com.google.common.base.Function;
+import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
@@ -38,12 +40,11 @@ import com.google.common.io.Files;
 
 import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileReader;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
-import java.util.Scanner;
 import java.util.SortedSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -52,8 +53,8 @@ public class MergeAndroidResourcesStep implements Step {
 
   private static final Pattern TEXT_SYMBOLS_LINE = Pattern.compile("(\\S+) (\\S+) (\\S+) (.+)");
 
-  private final ImmutableMap<String, String> symbolsFileToRDotJavaPackage;
-  private final String pathToGeneratedJavaFiles;
+  private final ImmutableMap<Path, String> symbolsFileToRDotJavaPackage;
+  private final Path pathToGeneratedJavaFiles;
 
   /**
    * Merges text symbols files from {@code aapt} into R.java files that can be compiled.
@@ -66,8 +67,8 @@ public class MergeAndroidResourcesStep implements Step {
    *     directory should exist and be empty before this command is run.
    */
   public MergeAndroidResourcesStep(
-      Map<String, String> symbolsFileToRDotJavaPackage,
-      String pathToGeneratedJavaFiles) {
+      Map<Path, String> symbolsFileToRDotJavaPackage,
+      Path pathToGeneratedJavaFiles) {
     this.symbolsFileToRDotJavaPackage = ImmutableMap.copyOf(symbolsFileToRDotJavaPackage);
     this.pathToGeneratedJavaFiles = Preconditions.checkNotNull(pathToGeneratedJavaFiles);
   }
@@ -75,7 +76,7 @@ public class MergeAndroidResourcesStep implements Step {
   @Override
   public int execute(ExecutionContext context) {
     try {
-      doExecute();
+      doExecute(context);
       return 0;
     } catch (IOException e) {
       e.printStackTrace(context.getStdErr());
@@ -83,7 +84,7 @@ public class MergeAndroidResourcesStep implements Step {
     }
   }
 
-  private void doExecute() throws IOException {
+  private void doExecute(ExecutionContext context) throws IOException {
     // A symbols file may look like:
     //
     //    int id placeholder 0x7f020000
@@ -114,17 +115,8 @@ public class MergeAndroidResourcesStep implements Step {
     // though Robolectric doesn't read resources.arsc, it does assert that all the R.java resource
     // ids are unique.  This forces us to re-enumerate new unique ids.
     SortedSetMultimap<String, Resource> rDotJavaPackageToResources = sortSymbols(
-        new Function<String, Readable>() {
-          @Override
-          public Readable apply(String pathToFile) {
-            try {
-              return new FileReader(pathToFile);
-            } catch (FileNotFoundException e) {
-              throw new RuntimeException(e);
-            }
-          }
-        },
         symbolsFileToRDotJavaPackage,
+        context.getProjectFilesystem(),
         true /* reenumerate */);
 
     // Create an R.java file for each package.
@@ -141,55 +133,60 @@ public class MergeAndroidResourcesStep implements Step {
 
       // Then write R.java to the output directory.
       Files.createParentDirs(rDotJava);
-      BufferedWriter writer = Files.newWriter(rDotJava, Charsets.UTF_8);
-      try {
-        writeJavaCodeForPackageAndResources(new PrintWriter(writer),
-            rDotJavaPackage, resources);
-      } finally {
-        writer.close();
+
+      try (BufferedWriter writer = Files.newWriter(rDotJava, Charsets.UTF_8)) {
+        writeJavaCodeForPackageAndResources(
+            new PrintWriter(writer),
+            rDotJavaPackage,
+            resources);
       }
     }
   }
 
   @VisibleForTesting
   static SortedSetMultimap<String, Resource> sortSymbols(
-      Function<String, Readable> filePathToReadable,
-      Map<String, String> symbolsFileToRDotJavaPackage,
+      Map<Path, String> symbolsFileToRDotJavaPackage,
+      ProjectFilesystem filesystem,
       boolean reenumerate) {
     // If we're reenumerating, start at 0x7f01001 so that the resulting file is human readable.
     // This value range (0x7f010001 - ...) is easier to spot as an actual resource id instead of
     // other values in styleable which can be enumerated integers starting at 0.
     IntEnumerator enumerator = reenumerate ? new IntEnumerator(0x7f01001) : null;
     SortedSetMultimap<String, Resource> rDotJavaPackageToSymbolsFiles = TreeMultimap.create();
-    for (Map.Entry<String, String> entry : symbolsFileToRDotJavaPackage.entrySet()) {
-      String symbolsFile = entry.getKey();
-      String packageName = entry.getValue();
+    for (Map.Entry<Path, String> entry : symbolsFileToRDotJavaPackage.entrySet()) {
+      Path symbolsFile = entry.getKey();
 
       // Read the symbols file and parse each line as a Resource.
-      Readable readable = filePathToReadable.apply(symbolsFile);
-      try (Scanner scanner = new Scanner(readable)) {
-        while (scanner.hasNext()) {
-          String line = scanner.nextLine();
-          Matcher matcher = TEXT_SYMBOLS_LINE.matcher(line);
-          boolean isMatch = matcher.matches();
-          Preconditions.checkState(isMatch, "Should be able to match '%s'.", line);
-          String idType = matcher.group(1);
-          String type = matcher.group(2);
-          String name = matcher.group(3);
-          String idValue = matcher.group(4);
+      List<String> linesInSymbolsFile;
+      try {
+        linesInSymbolsFile = FluentIterable.from(filesystem.readLines(symbolsFile))
+            .filter(MoreStrings.NON_EMPTY)
+            .toList();
+      } catch (IOException e) {
+        throw new RuntimeException(e);
+      }
 
-          // We're only doing the remapping so Roboelectric is happy and it is already ignoring the
-          // id references found in the styleable section.  So let's do that as well so we don't have
-          // to get fancier than is needed.  That is, just re-enumerate all app-level resource ids
-          // and ignore everything else, allowing the styleable references to be messed up.
-          String idValueToUse = idValue;
-          if (reenumerate && idValue.startsWith("0x7f")) {
-            idValueToUse = String.format("0x%08x", enumerator.next());
-          }
+      String packageName = entry.getValue();
+      for (String line : linesInSymbolsFile) {
+        Matcher matcher = TEXT_SYMBOLS_LINE.matcher(line);
+        boolean isMatch = matcher.matches();
+        Preconditions.checkState(isMatch, "Should be able to match '%s'.", line);
+        String idType = matcher.group(1);
+        String type = matcher.group(2);
+        String name = matcher.group(3);
+        String idValue = matcher.group(4);
 
-          Resource resource = new Resource(idType, type, name, idValue, idValueToUse);
-          rDotJavaPackageToSymbolsFiles.put(packageName, resource);
+        // We're only doing the remapping so Roboelectric is happy and it is already ignoring the
+        // id references found in the styleable section.  So let's do that as well so we don't have
+        // to get fancier than is needed.  That is, just re-enumerate all app-level resource ids
+        // and ignore everything else, allowing the styleable references to be messed up.
+        String idValueToUse = idValue;
+        if (reenumerate && idValue.startsWith("0x7f")) {
+          idValueToUse = String.format("0x%08x", enumerator.next());
         }
+
+        Resource resource = new Resource(idType, type, name, idValue, idValueToUse);
+        rDotJavaPackageToSymbolsFiles.put(packageName, resource);
       }
     }
     return rDotJavaPackageToSymbolsFiles;
@@ -267,14 +264,12 @@ public class MergeAndroidResourcesStep implements Step {
     writer.print("}\n");
   }
 
-  public static String getOutputFilePath(String pathToGeneratedJavaFiles, String rDotJavaPackage) {
-    return getOutputFile(pathToGeneratedJavaFiles, rDotJavaPackage).getPath();
+  public static Path getOutputFilePath(Path pathToGeneratedJavaFiles, String rDotJavaPackage) {
+    return getOutputFile(pathToGeneratedJavaFiles, rDotJavaPackage).toPath();
   }
 
-  private static File getOutputFile(String pathToGeneratedJavaFiles, String rDotJavaPackage) {
-    File outputDir = new File(pathToGeneratedJavaFiles, rDotJavaPackage);
-    File rDotJava = new File(outputDir, "R.java");
-    return rDotJava;
+  private static File getOutputFile(Path pathToGeneratedJavaFiles, String rDotJavaPackage) {
+    return pathToGeneratedJavaFiles.resolve(rDotJavaPackage).resolve("R.java").toFile();
   }
 
   /** Represents a row from a symbols file generated by {@code aapt}. */
@@ -342,7 +337,9 @@ public class MergeAndroidResourcesStep implements Step {
   @Override
   public String getDescription(ExecutionContext context) {
     ImmutableList<String> sortedSymbolsFiles =
-        FluentIterable.from(symbolsFileToRDotJavaPackage.keySet()).toSortedList(natural());
+        FluentIterable.from(symbolsFileToRDotJavaPackage.keySet())
+            .transform(Functions.toStringFunction())
+            .toSortedList(natural());
     return getShortName() + " " + Joiner.on(' ').join(sortedSymbolsFiles)
         + " -o " + pathToGeneratedJavaFiles;
   }

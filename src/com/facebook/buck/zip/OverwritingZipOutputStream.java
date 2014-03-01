@@ -79,6 +79,7 @@ public class OverwritingZipOutputStream extends CustomZipOutputStream {
     if (file.exists() && !file.delete()) {
       throw new ZipException("Unable to delete existing file: " + entry.getName());
     }
+    // TODO(simons): Re-enable buffering. t3494093.
     // Uncomment this and run ZipOutputStreamTest to see an interesting failure.
 //    currentOutput = new BufferedOutputStream(new FileOutputStream(file));
     currentOutput = new FileOutputStream(file);

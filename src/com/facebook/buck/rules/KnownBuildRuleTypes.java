@@ -26,6 +26,11 @@ import com.facebook.buck.android.GenAidlDescription;
 import com.facebook.buck.android.NdkLibraryBuildRuleFactory;
 import com.facebook.buck.android.PrebuiltNativeLibraryBuildRuleFactory;
 import com.facebook.buck.android.RobolectricTestBuildRuleFactory;
+import com.facebook.buck.apple.IosBinaryDescription;
+import com.facebook.buck.apple.IosLibraryDescription;
+import com.facebook.buck.apple.IosTestDescription;
+import com.facebook.buck.apple.XcodeNativeDescription;
+import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.java.JavaBinaryBuildRuleFactory;
 import com.facebook.buck.java.JavaLibraryBuildRuleFactory;
 import com.facebook.buck.java.JavaTestBuildRuleFactory;
@@ -40,6 +45,8 @@ import com.facebook.buck.shell.GenruleBuildRuleFactory;
 import com.facebook.buck.shell.ShBinaryBuildRuleFactory;
 import com.facebook.buck.shell.ShTestBuildRuleFactory;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.ProcessExecutor;
+import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -52,6 +59,8 @@ import org.openqa.selenium.buck.javascript.JsLibraryDescription;
 import org.openqa.selenium.buck.mozilla.XpiDescription;
 import org.openqa.selenium.buck.mozilla.XptDescription;
 
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.Map;
 import java.util.Set;
 
@@ -116,9 +125,13 @@ public class KnownBuildRuleTypes {
     builder.register(new AndroidManifestDescription());
     builder.register(new ExportFileDescription());
     builder.register(new GenAidlDescription());
+    builder.register(new IosBinaryDescription());
+    builder.register(new IosLibraryDescription());
+    builder.register(new IosTestDescription());
     builder.register(new PythonLibraryDescription());
+    builder.register(new XcodeNativeDescription());
 
-    // TODO(simons): Consider whether we actually want to have default rules
+    // TODO(simons): Consider once more whether we actually want to have default rules
     builder.register(BuildRuleType.ANDROID_BINARY, new AndroidBinaryBuildRuleFactory());
     builder.register(BuildRuleType.ANDROID_INSTRUMENTATION_APK,
         new AndroidInstrumentationApkRuleFactory());
@@ -126,12 +139,14 @@ public class KnownBuildRuleTypes {
     builder.register(BuildRuleType.ANDROID_RESOURCE, new AndroidResourceBuildRuleFactory());
     builder.register(BuildRuleType.APK_GENRULE, new ApkGenruleBuildRuleFactory());
     builder.register(BuildRuleType.GENRULE, new GenruleBuildRuleFactory());
-    builder.register(BuildRuleType.JAVA_LIBRARY, new JavaLibraryBuildRuleFactory());
+    builder.register(BuildRuleType.JAVA_LIBRARY,
+        new JavaLibraryBuildRuleFactory(Optional.<Path>absent(), Optional.<String>absent()));
     builder.register(BuildRuleType.JAVA_TEST, new JavaTestBuildRuleFactory());
     builder.register(BuildRuleType.JAVA_BINARY, new JavaBinaryBuildRuleFactory());
     builder.register(BuildRuleType.KEYSTORE, new KeystoreBuildRuleFactory());
     builder.register(BuildRuleType.GEN_PARCELABLE, new GenParcelableBuildRuleFactory());
-    builder.register(BuildRuleType.NDK_LIBRARY, new NdkLibraryBuildRuleFactory());
+    builder.register(BuildRuleType.NDK_LIBRARY,
+        new NdkLibraryBuildRuleFactory(Optional.<String>absent()));
     builder.register(BuildRuleType.PREBUILT_JAR, new PrebuiltJarBuildRuleFactory());
     builder.register(BuildRuleType.PREBUILT_NATIVE_LIBRARY,
         new PrebuiltNativeLibraryBuildRuleFactory());
@@ -141,6 +156,44 @@ public class KnownBuildRuleTypes {
     builder.register(BuildRuleType.SH_BINARY, new ShBinaryBuildRuleFactory());
     builder.register(BuildRuleType.SH_TEST, new ShTestBuildRuleFactory());
 
+    return builder;
+  }
+
+  public static KnownBuildRuleTypes getConfigured(
+      BuckConfig buckConfig,
+      ProcessExecutor executor,
+      Optional<String> ndkVersion) {
+    return createConfiguredBuilder(buckConfig, executor, ndkVersion).build();
+  }
+
+  public static Builder createConfiguredBuilder(
+      BuckConfig buckConfig,
+      ProcessExecutor executor,
+      Optional<String> ndkVersion) {
+    Optional<Path> javac = buckConfig.getJavac();
+
+    Optional<String> javacVersion = Optional.absent();
+    if (javac.isPresent()) {
+      try {
+        ProcessExecutor.Result versionResult = executor.execute(
+            Runtime.getRuntime().exec(javac.get() + " -version"));
+        if (versionResult.getExitCode() == 0) {
+          javacVersion = Optional.of(versionResult.getStdout());
+        } else {
+          throw new HumanReadableException(versionResult.getStderr());
+        }
+      } catch (IOException e) {
+        throw new HumanReadableException("Could not run " + javac.get() + " -version");
+      }
+    }
+
+    Builder builder = createDefaultBuilder();
+    builder.register(BuildRuleType.JAVA_LIBRARY,
+        new JavaLibraryBuildRuleFactory(javac, javacVersion));
+    builder.register(BuildRuleType.ANDROID_LIBRARY,
+        new AndroidLibraryBuildRuleFactory(javac, javacVersion));
+    builder.register(BuildRuleType.NDK_LIBRARY,
+        new NdkLibraryBuildRuleFactory(ndkVersion));
     return builder;
   }
 

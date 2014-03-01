@@ -19,6 +19,7 @@ package com.facebook.buck.android;
 import com.facebook.buck.android.AndroidBinaryRule.PackageType;
 import com.facebook.buck.android.AndroidBinaryRule.TargetCpuType;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRuleBuilderParams;
 import com.facebook.buck.rules.AbstractBuildable;
 import com.facebook.buck.rules.BuildContext;
@@ -37,7 +38,6 @@ import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirAndSymlinkFileStep;
 import com.facebook.buck.step.fs.MkdirStep;
-import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.DefaultDirectoryTraverser;
 import com.facebook.buck.util.DirectoryTraversal;
 import com.facebook.buck.util.DirectoryTraverser;
@@ -54,7 +54,7 @@ import com.google.common.collect.ImmutableSortedSet;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -69,43 +69,36 @@ public class AaptPackageResources extends AbstractBuildable {
 
   private final BuildTarget buildTarget;
   private final SourcePath manifest;
-  private final UberRDotJavaBuildable uberRDotJavaBuildable;
+  private final UberRDotJava uberRDotJava;
   private final PackageType packageType;
   private final ImmutableSet<TargetCpuType> cpuFilters;
 
-  /** This path is guaranteed to end with a slash. */
-  private final String outputGenDirectory;
-
   AaptPackageResources(BuildTarget buildTarget,
       SourcePath manifest,
-      UberRDotJavaBuildable uberRDotJavaBuildable,
+      UberRDotJava uberRDotJava,
       PackageType packageType,
       ImmutableSet<TargetCpuType> cpuFilters) {
     this.buildTarget = Preconditions.checkNotNull(buildTarget);
     this.manifest = Preconditions.checkNotNull(manifest);
-    this.uberRDotJavaBuildable = Preconditions.checkNotNull(uberRDotJavaBuildable);
+    this.uberRDotJava = Preconditions.checkNotNull(uberRDotJava);
     this.packageType = Preconditions.checkNotNull(packageType);
     this.cpuFilters = Preconditions.checkNotNull(cpuFilters);
-    this.outputGenDirectory = String.format("%s/%s",
-        BuckConstant.GEN_DIR,
-        buildTarget.getBasePathWithSlash());
   }
 
   @Override
-  public Iterable<String> getInputsToCompareToOutput() {
+  public Collection<Path> getInputsToCompareToOutput() {
     return SourcePaths.filterInputsToCompareToOutput(Collections.singleton(manifest));
   }
 
   @Override
   public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) throws IOException {
     return builder
-        .set("manifest", manifest.asReference())
         .set("packageType", packageType.toString())
         .set("cpuFilters", ImmutableSortedSet.copyOf(cpuFilters).toString());
   }
 
   @Override
-  public String getPathToOutputFile() {
+  public Path getPathToOutputFile() {
     return getResourceApkPath();
   }
 
@@ -116,21 +109,19 @@ public class AaptPackageResources extends AbstractBuildable {
 
     // Symlink the manifest to a path named AndroidManifest.xml. Do this before running any other
     // commands to ensure that it is available at the desired path.
-    steps.add(new MkdirAndSymlinkFileStep(manifest.resolve(context).toString(),
-        getAndroidManifestXml()));
-    buildableContext.recordArtifact(Paths.get(getAndroidManifestXml()));
+    steps.add(new MkdirAndSymlinkFileStep(manifest.resolve(context), getAndroidManifestXml()));
 
-    final AndroidTransitiveDependencies transitiveDependencies = uberRDotJavaBuildable
+    final AndroidTransitiveDependencies transitiveDependencies = uberRDotJava
         .getAndroidTransitiveDependencies();
 
     // If the strings should be stored as assets, then we need to create the .fbstr bundles.
-    final ImmutableSet<String> resDirectories = uberRDotJavaBuildable.getResDirectories();
+    final ImmutableSet<String> resDirectories = uberRDotJava.getResDirectories();
     if (!resDirectories.isEmpty() && isStoreStringsAsAssets()) {
       Path tmpStringsDirPath = getPathForTmpStringAssetsDirectory();
       steps.add(new MakeCleanDirectoryStep(tmpStringsDirPath));
       steps.add(new CompileStringsStep(
-          uberRDotJavaBuildable.getNonEnglishStringFiles(),
-          Paths.get(uberRDotJavaBuildable.getPathToGeneratedRDotJavaSrcFiles()),
+          uberRDotJava.getNonEnglishStringFiles(),
+          uberRDotJava.getPathToGeneratedRDotJavaSrcFiles(),
           tmpStringsDirPath));
     }
 
@@ -176,7 +167,7 @@ public class AaptPackageResources extends AbstractBuildable {
     };
     steps.add(collectAssets);
 
-    Optional<String> assetsDirectory;
+    Optional<Path> assetsDirectory;
     if (transitiveDependencies.assetsDirectories.isEmpty()
         && transitiveDependencies.nativeLibAssetsDirectories.isEmpty()
         && !isStoreStringsAsAssets()) {
@@ -186,23 +177,23 @@ public class AaptPackageResources extends AbstractBuildable {
     }
 
     if (!transitiveDependencies.nativeLibAssetsDirectories.isEmpty()) {
-      String nativeLibAssetsDir = assetsDirectory.get() + "/lib";
+      Path nativeLibAssetsDir = assetsDirectory.get().resolve("lib");
       steps.add(new MakeCleanDirectoryStep(nativeLibAssetsDir));
-      for (String nativeLibDir : transitiveDependencies.nativeLibAssetsDirectories) {
+      for (Path nativeLibDir : transitiveDependencies.nativeLibAssetsDirectories) {
         AndroidBinaryRule.copyNativeLibrary(nativeLibDir, nativeLibAssetsDir, cpuFilters, steps);
       }
     }
 
     if (isStoreStringsAsAssets()) {
-      Path stringAssetsDir = Paths.get(assetsDirectory.get()).resolve("strings");
+      Path stringAssetsDir = assetsDirectory.get().resolve("strings");
       steps.add(new MakeCleanDirectoryStep(stringAssetsDir));
-      steps.add(new CopyStep(
+      steps.add(CopyStep.forDirectory(
           getPathForTmpStringAssetsDirectory(),
           stringAssetsDir,
-          /* shouldRecurse */ true));
+          CopyStep.DirectoryMode.CONTENTS_ONLY));
     }
 
-    steps.add(new MkdirStep(outputGenDirectory));
+    steps.add(new MkdirStep(getResourceApkPath().getParent()));
 
     steps.add(new AaptStep(
         getAndroidManifestXml(),
@@ -211,24 +202,26 @@ public class AaptPackageResources extends AbstractBuildable {
         getResourceApkPath(),
         packageType.isCrunchPngFiles()));
 
+    buildableContext.recordArtifact(getAndroidManifestXml());
+    buildableContext.recordArtifact(getResourceApkPath());
     return steps.build();
   }
 
   /**
    * Buck does not require the manifest to be named AndroidManifest.xml, but commands such as aapt
-   * do. For this reason, we symlink the path to {@link #getManifest()} to the path returned by
+   * do. For this reason, we symlink the path to {@link #manifest} to the path returned by
    * this method, whose name is always "AndroidManifest.xml".
    * <p>
-   * Therefore, commands created by this method should use this method instead of
-   * {@link #getManifest()}.
+   * Therefore, commands created by this buildable should use this method instead of
+   * {@link #manifest}.
    */
-  String getAndroidManifestXml() {
-    return getBinPath("__manifest_%s__/AndroidManifest.xml");
+  Path getAndroidManifestXml() {
+    return BuildTargets.getBinPath(buildTarget, "__manifest_%s__/AndroidManifest.xml");
   }
 
   private boolean isStoreStringsAsAssets() {
-    return uberRDotJavaBuildable.isStoreStringsAsAssets();
-  };
+    return uberRDotJava.isStoreStringsAsAssets();
+  }
 
   /**
    * Given a set of assets directories to include in the APK (which may be empty), return the path
@@ -240,8 +233,8 @@ public class AaptPackageResources extends AbstractBuildable {
    * be an empty {@link Optional}.
    */
   @VisibleForTesting
-  Optional<String> createAllAssetsDirectory(
-      Set<String> assetsDirectories,
+  Optional<Path> createAllAssetsDirectory(
+      Set<Path> assetsDirectories,
       ImmutableList.Builder<Step> steps,
       DirectoryTraverser traverser) throws IOException {
     if (assetsDirectories.isEmpty()) {
@@ -250,13 +243,13 @@ public class AaptPackageResources extends AbstractBuildable {
 
     // Due to a limitation of aapt, only one assets directory can be specified, so if multiple are
     // specified in Buck, then all of the contents must be symlinked to a single directory.
-    String destination = getPathToAllAssetsDirectory();
+    Path destination = getPathToAllAssetsDirectory();
     steps.add(new MakeCleanDirectoryStep(destination));
     final ImmutableMap.Builder<String, File> allAssets = ImmutableMap.builder();
 
-    File destinationDirectory = new File(destination);
-    for (String assetsDirectory : assetsDirectories) {
-      traverser.traverse(new DirectoryTraversal(new File(assetsDirectory)) {
+    File destinationDirectory = destination.toFile();
+    for (Path assetsDirectory : assetsDirectories) {
+      traverser.traverse(new DirectoryTraversal(assetsDirectory.toFile()) {
         @Override
         public void visit(File file, String relativePath) {
           allAssets.put(relativePath, file);
@@ -266,8 +259,8 @@ public class AaptPackageResources extends AbstractBuildable {
 
     for (Map.Entry<String, File> entry : allAssets.build().entrySet()) {
       steps.add(new MkdirAndSymlinkFileStep(
-          MorePaths.newPathInstance(entry.getValue()).toString(),
-          MorePaths.newPathInstance(destinationDirectory + "/" + entry.getKey()).toString()));
+          MorePaths.newPathInstance(entry.getValue()),
+          MorePaths.newPathInstance(destinationDirectory + "/" + entry.getKey())));
     }
 
     return Optional.of(destination);
@@ -276,26 +269,17 @@ public class AaptPackageResources extends AbstractBuildable {
   /**
    * @return Path to the unsigned APK generated by this {@link Buildable}.
    */
-  public String getResourceApkPath() {
-    return String.format("%s%s.unsigned.ap_",
-        outputGenDirectory,
-        buildTarget.getShortName());
+  public Path getResourceApkPath() {
+    return BuildTargets.getGenPath(buildTarget, "%s.unsigned.ap_");
   }
 
   @VisibleForTesting
-  String getPathToAllAssetsDirectory() {
-    return getBinPath("__assets_%s__");
+  Path getPathToAllAssetsDirectory() {
+    return BuildTargets.getBinPath(buildTarget, "__assets_%s__");
   }
 
   private Path getPathForTmpStringAssetsDirectory() {
-    return Paths.get(getBinPath("__strings_%s__"));
-  }
-
-  private String getBinPath(String format) {
-    return String.format("%s/%s" + format,
-        BuckConstant.BIN_DIR,
-        buildTarget.getBasePathWithSlash(),
-        buildTarget.getShortName());
+    return BuildTargets.getBinPath(buildTarget, "__strings_%s__");
   }
 
   public static Builder newAaptPackageResourcesBuildableBuilder(
@@ -306,7 +290,7 @@ public class AaptPackageResources extends AbstractBuildable {
   static class Builder extends AbstractBuildable.Builder {
 
     @Nullable private SourcePath manifest;
-    @Nullable private UberRDotJavaBuildable uberRDotJavaBuildable;
+    @Nullable private UberRDotJava uberRDotJava;
     @Nullable private PackageType packageType;
     @Nullable private ImmutableSet<TargetCpuType> cpuFilters;
 
@@ -327,16 +311,16 @@ public class AaptPackageResources extends AbstractBuildable {
 
     public Builder setAllParams(
         SourcePath manifest,
-        UberRDotJavaBuildable uberRDotJavaBuildable,
+        UberRDotJava uberRDotJava,
         ImmutableSet<BuildTarget> nativeTargetsWithAssets,
         PackageType packageType,
         ImmutableSet<TargetCpuType> cpuFilters) {
       this.manifest = manifest;
-      this.uberRDotJavaBuildable = uberRDotJavaBuildable;
+      this.uberRDotJava = uberRDotJava;
       this.packageType = packageType;
       this.cpuFilters = cpuFilters;
 
-      addDep(uberRDotJavaBuildable.getBuildTarget());
+      addDep(uberRDotJava.getBuildTarget());
       if (manifest instanceof BuildTargetSourcePath) {
         addDep(((BuildTargetSourcePath) manifest).getTarget());
       }
@@ -351,7 +335,7 @@ public class AaptPackageResources extends AbstractBuildable {
     protected AaptPackageResources newBuildable(BuildRuleParams params, BuildRuleResolver resolver) {
       return new AaptPackageResources(getBuildTarget(),
           manifest,
-          uberRDotJavaBuildable,
+          uberRDotJava,
           packageType,
           cpuFilters);
     }

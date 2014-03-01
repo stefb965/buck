@@ -26,6 +26,7 @@ import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.KnownBuildRuleTypes;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.BuckConstant;
+import com.facebook.buck.util.FakeAndroidDirectoryResolver;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.buck.util.environment.Platform;
 
@@ -35,6 +36,7 @@ import org.junit.Test;
 import org.kohsuke.args4j.CmdLineException;
 
 import java.io.IOException;
+import java.nio.file.Path;
 
 /**
  * Unit test for {@link CleanCommand}.
@@ -50,9 +52,9 @@ public class CleanCommandTest extends EasyMockSupport {
     // Set up mocks.
     CleanCommand cleanCommand = createCommand();
     ProjectFilesystem projectFilesystem = cleanCommand.getProjectFilesystem();
-    Capture<String> binDir = new Capture<>();
+    Capture<Path> binDir = new Capture<>();
     projectFilesystem.rmdir(capture(binDir));
-    Capture<String> genDir = new Capture<>();
+    Capture<Path> genDir = new Capture<>();
     projectFilesystem.rmdir(capture(genDir));
 
     replayAll();
@@ -61,8 +63,8 @@ public class CleanCommandTest extends EasyMockSupport {
     CleanCommandOptions options = createOptionsFromArgs();
     int exitCode = cleanCommand.runCommandWithOptions(options);
     assertEquals(0, exitCode);
-    assertEquals(BuckConstant.BIN_DIR, binDir.getValue());
-    assertEquals(BuckConstant.GEN_DIR, genDir.getValue());
+    assertEquals(BuckConstant.BIN_PATH, binDir.getValue());
+    assertEquals(BuckConstant.GEN_PATH, genDir.getValue());
 
     verifyAll();
   }
@@ -72,9 +74,9 @@ public class CleanCommandTest extends EasyMockSupport {
     // Set up mocks.
     CleanCommand cleanCommand = createCommand();
     ProjectFilesystem projectFilesystem = cleanCommand.getProjectFilesystem();
-    Capture<String> androidGenDir = new Capture<>();
+    Capture<Path> androidGenDir = new Capture<>();
     projectFilesystem.rmdir(capture(androidGenDir));
-    Capture<String> annotationDir = new Capture<>();
+    Capture<Path> annotationDir = new Capture<>();
     projectFilesystem.rmdir(capture(annotationDir));
 
     replayAll();
@@ -83,8 +85,8 @@ public class CleanCommandTest extends EasyMockSupport {
     CleanCommandOptions options = createOptionsFromArgs("--project");
     int exitCode = cleanCommand.runCommandWithOptions(options);
     assertEquals(0, exitCode);
-    assertEquals(Project.ANDROID_GEN_DIR, androidGenDir.getValue());
-    assertEquals(BuckConstant.ANNOTATION_DIR, annotationDir.getValue());
+    assertEquals(Project.ANDROID_GEN_PATH, androidGenDir.getValue());
+    assertEquals(BuckConstant.ANNOTATION_PATH, annotationDir.getValue());
 
     verifyAll();
   }
@@ -100,6 +102,7 @@ public class CleanCommandTest extends EasyMockSupport {
     CommandRunnerParams params = new CommandRunnerParams(
         new TestConsole(),
         createMock(ProjectFilesystem.class),
+        new FakeAndroidDirectoryResolver(),
         createMock(KnownBuildRuleTypes.class),
         new InstanceArtifactCacheFactory(createMock(ArtifactCache.class)),
         createMock(BuckEventBus.class),

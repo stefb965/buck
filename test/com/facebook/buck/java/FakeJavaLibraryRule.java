@@ -20,13 +20,13 @@ import static com.facebook.buck.rules.BuildableProperties.Kind.LIBRARY;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetPattern;
+import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AnnotationProcessingData;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.Sha1HashCode;
-import com.facebook.buck.util.BuckConstant;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSetMultimap;
@@ -34,11 +34,13 @@ import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.hash.HashCode;
 
+import java.nio.file.Path;
+
 public class FakeJavaLibraryRule extends FakeBuildRule implements JavaLibraryRule {
 
   private final static BuildableProperties OUTPUT_TYPE = new BuildableProperties(LIBRARY);
 
-  private ImmutableSortedSet<String> srcs = ImmutableSortedSet.of();
+  private ImmutableSortedSet<Path> srcs = ImmutableSortedSet.of();
 
   public FakeJavaLibraryRule(
       BuildTarget target,
@@ -78,23 +80,22 @@ public class FakeJavaLibraryRule extends FakeBuildRule implements JavaLibraryRul
 
   @Override
   public ImmutableSetMultimap<JavaLibraryRule, String> getTransitiveClasspathEntries() {
-    return ImmutableSetMultimap.of((JavaLibraryRule) this, getPathToOutputFile());
+    return ImmutableSetMultimap.of((JavaLibraryRule) this, getPathToOutputFile().toString());
   }
 
   @Override
-  public String getPathToOutputFile() {
-    return BuckConstant.GEN_DIR + "/" +
-        getBuildTarget().getBasePathWithSlash() +
-        getBuildTarget().getShortName() + ".jar";
+  public Path getPathToOutputFile() {
+    return BuildTargets.getGenPath(getBuildTarget(), "%s.jar");
   }
 
   @Override
-  public ImmutableSortedSet<String> getJavaSrcs() {
+  public ImmutableSortedSet<Path> getJavaSrcs() {
     return srcs;
   }
 
-  public FakeJavaLibraryRule setJavaSrcs(ImmutableSortedSet<String> srcs) {
-    this.srcs = Preconditions.checkNotNull(srcs);
+  public FakeJavaLibraryRule setJavaSrcs(ImmutableSortedSet<Path> srcs) {
+    Preconditions.checkNotNull(srcs);
+    this.srcs = ImmutableSortedSet.copyOf(srcs);
     return this;
   }
 

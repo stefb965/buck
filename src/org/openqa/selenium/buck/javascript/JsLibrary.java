@@ -45,6 +45,7 @@ import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
@@ -71,7 +72,7 @@ public class JsLibrary extends AbstractBuildable implements
   }
 
   @Override
-  public Iterable<String> getInputsToCompareToOutput() {
+  public Collection<Path> getInputsToCompareToOutput() {
     return SourcePaths.filterInputsToCompareToOutput(srcs);
   }
 
@@ -162,8 +163,8 @@ public class JsLibrary extends AbstractBuildable implements
   }
 
   @Override
-  public String getPathToOutputFile() {
-    return output.toString();
+  public Path getPathToOutputFile() {
+    return output;
   }
 
   public JavascriptDependencies getBundleOfJoy() {

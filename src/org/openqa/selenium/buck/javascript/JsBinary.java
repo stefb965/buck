@@ -46,6 +46,7 @@ import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 
@@ -83,7 +84,7 @@ public class JsBinary extends AbstractBuildable implements
   }
 
   @Override
-  public Iterable<String> getInputsToCompareToOutput() {
+  public Collection<Path> getInputsToCompareToOutput() {
     return SourcePaths.filterInputsToCompareToOutput(srcs);
   }
 
@@ -164,8 +165,8 @@ public class JsBinary extends AbstractBuildable implements
 
   @Nullable
   @Override
-  public String getPathToOutputFile() {
-    return output.toString();
+  public Path getPathToOutputFile() {
+    return output;
   }
 
   @Override

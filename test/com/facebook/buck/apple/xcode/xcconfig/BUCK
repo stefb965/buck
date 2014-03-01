@@ -1,0 +1,18 @@
+java_test(
+  name = 'xcconfig',
+  srcs = glob(['*.java']),
+  source_under_test = [
+    '//src/com/facebook/buck/apple/xcode/xcconfig:xcconfig',
+  ],
+  deps = [
+    '//lib:easymock',
+    '//lib:guava',
+    '//lib:junit',
+    '//lib:hamcrest-core',
+    '//lib:hamcrest-library',
+    '//src/com/facebook/buck/util:io',
+    '//src/com/facebook/buck/util:exceptions',
+    '//test/com/facebook/buck/testutil:testutil',
+    '//src/com/facebook/buck/apple/xcode/xcconfig:xcconfig',
+  ]
+)
