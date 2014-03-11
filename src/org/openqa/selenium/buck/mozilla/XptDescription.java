@@ -18,6 +18,7 @@ package org.openqa.selenium.buck.mozilla;
 
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleType;
+import com.facebook.buck.rules.ConstructorArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 
@@ -42,7 +43,7 @@ public class XptDescription implements Description<XptDescription.Arg> {
     return new Xpt(params.getBuildTarget(), args.src, args.fallback);
   }
 
-  public static class Arg {
+  public static class Arg implements ConstructorArg {
     public SourcePath fallback;
     public Path src;
   }

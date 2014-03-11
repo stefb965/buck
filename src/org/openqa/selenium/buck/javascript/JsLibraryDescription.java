@@ -19,6 +19,7 @@ package org.openqa.selenium.buck.javascript;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleType;
+import com.facebook.buck.rules.ConstructorArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.google.common.base.Optional;
@@ -43,7 +44,7 @@ public class JsLibraryDescription implements Description<JsLibraryDescription.Ar
     return new JsLibrary(params.getBuildTarget(), params.getDeps(), args.srcs);
   }
 
-  public static class Arg {
+  public static class Arg implements ConstructorArg {
     public ImmutableSortedSet<SourcePath> srcs;
     public Optional<ImmutableSortedSet<BuildRule>> deps;
   }

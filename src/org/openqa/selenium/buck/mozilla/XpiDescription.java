@@ -19,6 +19,7 @@ package org.openqa.selenium.buck.mozilla;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Buildable;
+import com.facebook.buck.rules.ConstructorArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.google.common.base.Optional;
@@ -52,7 +53,7 @@ public class XpiDescription implements Description<XpiDescription.Arg> {
     );
   }
 
-  public static class Arg {
+  public static class Arg implements ConstructorArg {
     public Path chrome;
     public Optional<ImmutableSortedSet<SourcePath>> components;
     public Optional<ImmutableSortedSet<Path>> content;
