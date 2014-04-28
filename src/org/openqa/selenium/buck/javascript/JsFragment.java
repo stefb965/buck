@@ -35,7 +35,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collection;
@@ -73,7 +72,7 @@ public class JsFragment extends AbstractBuildable {
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) throws IOException {
+  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
     JavascriptDependencyGraph graph = new JavascriptDependencyGraph();
@@ -102,7 +101,7 @@ public class JsFragment extends AbstractBuildable {
   }
 
   @Override
-  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) throws IOException {
+  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
     return builder;
   }
 
@@ -131,7 +130,8 @@ public class JsFragment extends AbstractBuildable {
       String wrapper = "function(){%output%; return this._.apply(null,arguments);}";
       wrapper = String.format(
           "function(){return %s.apply({" +
-              "navigator:typeof window!='undefined'?window.navigator:null,document:typeof window!='undefined'?window.document:null" +
+              "navigator:typeof window!='undefined'?window.navigator:null," +
+              "document:typeof window!='undefined'?window.document:null" +
               "}, arguments);}", wrapper);
 
       cmd.add("java", "-jar", ClosureCompilerStep.COMPILER);

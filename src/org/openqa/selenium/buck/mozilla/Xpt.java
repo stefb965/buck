@@ -33,7 +33,6 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.io.Files;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collection;
@@ -59,19 +58,18 @@ public class Xpt extends AbstractBuildable {
   }
 
   @Override
-  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) throws IOException {
+  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
     return builder
         .setInputs("src", ImmutableSet.of(src).iterator())
         .setSourcePaths("fallback", ImmutableSortedSet.of(fallback));
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext)
-      throws IOException {
+  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
     context.getEventBus().post(LogEvent.warning("Defaulting to fallback for " + out));
-    Path from = fallback.resolve(context);
+    Path from = fallback.resolve();
 
     steps.add(new MkdirStep(out.getParent()));
     steps.add(CopyStep.forFile(from, out));

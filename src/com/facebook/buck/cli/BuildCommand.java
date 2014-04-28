@@ -41,9 +41,12 @@ import com.google.common.collect.Iterators;
 import java.io.IOException;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
+
+import javax.annotation.Nullable;
+
 public class BuildCommand extends AbstractCommandRunner<BuildCommandOptions> {
 
-  private Build build;
+  @Nullable private Build build;
 
   private ImmutableList<BuildTarget> buildTargets = ImmutableList.of();
 
@@ -115,6 +118,7 @@ public class BuildCommand extends AbstractCommandRunner<BuildCommandOptions> {
         dependencyGraph,
         getProjectFilesystem(),
         getAndroidDirectoryResolver(),
+        getBuildEngine(),
         artifactCache,
         console,
         getBuckEventBus(),
@@ -124,19 +128,10 @@ public class BuildCommand extends AbstractCommandRunner<BuildCommandOptions> {
     try {
       exitCode = executeBuildAndPrintAnyFailuresToConsole(build, console);
     } finally {
-      // Shutdown the Executor Service once the build completes.
-      // Note: we need to use shutdown() instead of shutdownNow() to ensure that tasks submitted to
-      // the Execution Service are completed.
-      build.getStepRunner().getListeningExecutorService().shutdown();
+      build.close(); // Can't use try-with-resources as build is returned by getBuild.
     }
-
     getBuckEventBus().post(BuildEvent.finished(buildTargets, exitCode));
-
-    if (exitCode != 0) {
-      return exitCode;
-    }
-
-    return 0;
+    return exitCode;
   }
 
   static int executeBuildAndPrintAnyFailuresToConsole(Build build, Console console) {
@@ -157,9 +152,9 @@ public class BuildCommand extends AbstractCommandRunner<BuildCommandOptions> {
       // This is likely a checked exception that was caught while building a build rule.
       Throwable cause = e.getCause();
       if (cause instanceof HumanReadableException) {
-        throw ((HumanReadableException)cause);
+        throw ((HumanReadableException) cause);
       } else if (cause instanceof ExceptionWithHumanReadableMessage) {
-        throw new HumanReadableException((ExceptionWithHumanReadableMessage)cause);
+        throw new HumanReadableException((ExceptionWithHumanReadableMessage) cause);
       } else {
         if (cause instanceof RuntimeException) {
           console.printBuildFailureWithStacktrace(e);
@@ -191,5 +186,4 @@ public class BuildCommand extends AbstractCommandRunner<BuildCommandOptions> {
   String getUsageIntro() {
     return "Specify one build rule to build.";
   }
-
 }

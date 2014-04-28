@@ -24,13 +24,11 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.step.StepRunner;
 import com.facebook.buck.util.AndroidPlatformTarget;
 import com.facebook.buck.util.ProjectFilesystem;
-import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
-import com.google.common.util.concurrent.ListeningExecutorService;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -47,7 +45,6 @@ public class BuildContext {
   private final BuckEventBus events;
   private final Supplier<String> androidBootclasspathSupplier;
   private final BuildDependencies buildDependencies;
-  private final Function<SourcePath, Path> sourcePathResolver;
 
   private BuildContext(
       DependencyGraph dependencyGraph,
@@ -66,12 +63,6 @@ public class BuildContext {
     this.events = Preconditions.checkNotNull(events);
     this.androidBootclasspathSupplier = Preconditions.checkNotNull(androidBootclasspathSupplier);
     this.buildDependencies = Preconditions.checkNotNull(buildDependencies);
-    this.sourcePathResolver = new Function<SourcePath, Path>() {
-      @Override
-      public Path apply(SourcePath sourcePath) {
-        return sourcePath.resolve(BuildContext.this);
-      }
-    };
   }
 
   public Path getProjectRoot() {
@@ -86,21 +77,17 @@ public class BuildContext {
     return dependencyGraph;
   }
 
-  public ListeningExecutorService getExecutor() {
-    return stepRunner.getListeningExecutorService();
-  }
-
   public JavaPackageFinder getJavaPackageFinder() {
     return javaPackageFinder;
   }
 
   /**
    * By design, there is no getter for {@link ProjectFilesystem}. At the point where a
-   * {@link Buildable} is using a {@link BuildContext} to generate its {@link Step}s, it should
-   * not be doing any I/O on local disk. Any reads should be mediated through
-   * {@link OnDiskBuildInfo}, and {@link BuildInfoRecorder} will take care of writes after the fact.
-   * The {@link Buildable} should be working with relative file paths so that builds can ultimately
-   * be distributed.
+   * {@link Buildable} is using a {@link BuildContext} to generate its
+   * {@link com.facebook.buck.step.Step}s, it should not be doing any I/O on local disk. Any reads
+   * should be mediated through {@link OnDiskBuildInfo}, and {@link BuildInfoRecorder} will take
+   * care of writes after the fact. The {@link Buildable} should be working with relative file paths
+   * so that builds can ultimately be distributed.
    * <p>
    * The primary reason this method exists is so that someone who blindly tries to add such a getter
    * will encounter a compilation error and will [hopefully] discover this comment.
@@ -125,14 +112,10 @@ public class BuildContext {
     return buildDependencies;
   }
 
-  public Function<SourcePath, Path> getSourcePathResolver() {
-    return sourcePathResolver;
-  }
-
   /**
    * Creates an {@link OnDiskBuildInfo}.
    * <p>
-   * This method should be visible to {@link AbstractCachingBuildRule}, but not {@link Buildable}s
+   * This method should be visible to {@link AbstractBuildRule}, but not {@link Buildable}s
    * in general.
    */
   OnDiskBuildInfo createOnDiskBuildInfoFor(BuildTarget target) {
@@ -142,7 +125,7 @@ public class BuildContext {
   /**
    * Creates an {@link BuildInfoRecorder}.
    * <p>
-   * This method should be visible to {@link AbstractCachingBuildRule}, but not {@link Buildable}s
+   * This method should be visible to {@link AbstractBuildRule}, but not {@link Buildable}s
    * in general.
    */
   BuildInfoRecorder createBuildInfoRecorder(BuildTarget buildTarget,

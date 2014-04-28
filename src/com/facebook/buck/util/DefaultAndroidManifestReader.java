@@ -19,16 +19,16 @@ package com.facebook.buck.util;
 import com.google.common.base.Charsets;
 import com.google.common.base.Throwables;
 import com.google.common.collect.Lists;
-import com.google.common.io.Files;
 
 import org.w3c.dom.Document;
 import org.w3c.dom.NodeList;
 import org.xml.sax.InputSource;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.Reader;
 import java.io.StringReader;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.List;
 
@@ -58,7 +58,16 @@ public class DefaultAndroidManifestReader implements AndroidManifestReader{
    */
   private static final String XPATH_PACKAGE = "/manifest/@package";
 
+  /**
+   * XPath expression to get the version code.
+   * For a manifest as {@code <manifest android:versionCode="1" />}, this results in
+   * {@code 1}.
+   */
+  private static final String XPATH_VERSION_CODE = "/manifest/@android:versionCode";
+
+
   private final XPathExpression packageExpression;
+  private final XPathExpression versionCodeExpression;
   private final XPathExpression launchableActivitiesExpression;
   private final Document doc;
 
@@ -72,6 +81,7 @@ public class DefaultAndroidManifestReader implements AndroidManifestReader{
       xPath.setNamespaceContext(androidNamespaceContext);
       launchableActivitiesExpression = xPath.compile(XPATH_LAUNCHER_ACTIVITIES);
       packageExpression = xPath.compile(XPATH_PACKAGE);
+      versionCodeExpression = xPath.compile(XPATH_VERSION_CODE);
     } catch (XPathExpressionException e) {
       throw Throwables.propagate(e);
     }
@@ -98,6 +108,15 @@ public class DefaultAndroidManifestReader implements AndroidManifestReader{
   public String getPackage() {
     try {
       return (String) packageExpression.evaluate(doc, XPathConstants.STRING);
+    } catch (XPathExpressionException e) {
+      throw Throwables.propagate(e);
+    }
+  }
+
+  @Override
+  public String getVersionCode() {
+    try {
+      return (String) versionCodeExpression.evaluate(doc, XPathConstants.STRING);
     } catch (XPathExpressionException e) {
       throw Throwables.propagate(e);
     }
@@ -133,9 +152,8 @@ public class DefaultAndroidManifestReader implements AndroidManifestReader{
    * @return an {@code AndroidManifestReader} for {@code path}
    * @throws IOException
    */
-  public static AndroidManifestReader forPath(String path) throws IOException {
-    File androidManifestXml = new File(path);
-    Reader reader = Files.newReader(androidManifestXml, Charsets.UTF_8);
+  public static AndroidManifestReader forPath(Path path) throws IOException {
+    Reader reader = Files.newBufferedReader(path, Charsets.UTF_8);
     return forReader(reader);
   }
 

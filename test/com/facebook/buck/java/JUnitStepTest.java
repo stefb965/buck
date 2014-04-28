@@ -19,16 +19,15 @@ package com.facebook.buck.java;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.event.BuckEventBusFactory;
+import com.facebook.buck.model.BuildId;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.test.selectors.TestSelectorList;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.testutil.TestConsole;
-import com.facebook.buck.util.AndroidPlatformTarget;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
@@ -36,6 +35,8 @@ import org.easymock.EasyMock;
 import org.junit.Test;
 
 import java.io.File;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.Set;
 
@@ -43,7 +44,9 @@ public class JUnitStepTest {
 
   @Test
   public void testGetShellCommand() {
-    Set<String> classpathEntries = ImmutableSet.of("foo", "bar/baz");
+    Set<Path> classpathEntries = ImmutableSet.of(
+        Paths.get("foo"),
+        Paths.get("bar/baz"));
 
     String testClass1 = "com.facebook.buck.shell.JUnitCommandTest";
     String testClass2 = "com.facebook.buck.shell.InstrumentCommandTest";
@@ -53,11 +56,14 @@ public class JUnitStepTest {
     String vmArg2 = "-Dname1=value2";
     List<String> vmArgs = ImmutableList.of(vmArg1, vmArg2);
 
+    BuildId pretendBuildId = new BuildId("pretend-build-id");
+    String buildIdArg = String.format("-D%s=%s", JUnitStep.BUILD_ID_PROPERTY, pretendBuildId);
+
     String directoryForTestResults = "buck-out/gen/theresults/";
     boolean isCodeCoverageEnabled = false;
     boolean isJacocoEnabled = true;
     boolean isDebugEnabled = false;
-    String testRunnerClassesDirectory = "build/classes/junit";
+    Path testRunnerClassesDirectory = Paths.get("build/classes/junit");
 
     JUnitStep junit = new JUnitStep(
         classpathEntries,
@@ -67,13 +73,12 @@ public class JUnitStepTest {
         isCodeCoverageEnabled,
         isJacocoEnabled,
         isDebugEnabled,
-        Optional.<TestSelectorList>absent(),
+        pretendBuildId,
+        TestSelectorList.empty(),
         testRunnerClassesDirectory);
 
     ExecutionContext executionContext = EasyMock.createMock(ExecutionContext.class);
     EasyMock.expect(executionContext.getVerbosity()).andReturn(Verbosity.ALL);
-    EasyMock.expect(executionContext.getAndroidPlatformTargetOptional()).andReturn(
-        Optional.<AndroidPlatformTarget>absent());
     EasyMock.expect(executionContext.getDefaultTestTimeoutMillis()).andReturn(5000L);
     EasyMock.replay(executionContext);
 
@@ -81,6 +86,7 @@ public class JUnitStepTest {
     MoreAsserts.assertListEquals(
         ImmutableList.of(
             "java",
+            buildIdArg,
             vmArg1,
             vmArg2,
             "-verbose",
@@ -99,7 +105,9 @@ public class JUnitStepTest {
 
   @Test
   public void ensureThatDebugFlagCausesJavaDebugCommandFlagToBeAdded() {
-    Set<String> classpathEntries = ImmutableSet.of("foo", "bar/baz");
+    Set<Path> classpathEntries = ImmutableSet.of(
+        Paths.get("foo"),
+        Paths.get("bar/baz"));
 
     String testClass1 = "com.facebook.buck.shell.JUnitCommandTest";
     String testClass2 = "com.facebook.buck.shell.InstrumentCommandTest";
@@ -109,11 +117,14 @@ public class JUnitStepTest {
     String vmArg2 = "-Dname1=value2";
     List<String> vmArgs = ImmutableList.of(vmArg1, vmArg2);
 
+    BuildId pretendBuildId = new BuildId("pretend-build-id");
+    String buildIdArg = String.format("-D%s=%s", JUnitStep.BUILD_ID_PROPERTY, pretendBuildId);
+
     String directoryForTestResults = "buck-out/gen/theresults/";
     boolean isCodeCoverageEnabled = false;
     boolean isJacocoEnabled = false;
     boolean isDebugEnabled = true;
-    String testRunnerClassesDirectory = "build/classes/junit";
+    Path testRunnerClassesDirectory = Paths.get("build/classes/junit");
 
     JUnitStep junit = new JUnitStep(
         classpathEntries,
@@ -123,7 +134,8 @@ public class JUnitStepTest {
         isCodeCoverageEnabled,
         isJacocoEnabled,
         isDebugEnabled,
-        Optional.<TestSelectorList>absent(),
+        pretendBuildId,
+        TestSelectorList.empty(),
         testRunnerClassesDirectory);
 
 
@@ -141,6 +153,7 @@ public class JUnitStepTest {
     MoreAsserts.assertListEquals(
         ImmutableList.of(
             "java",
+            buildIdArg,
             "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005",
             vmArg1,
             vmArg2,

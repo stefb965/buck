@@ -30,9 +30,9 @@ import java.util.regex.Pattern;
 
 public class JavascriptSource {
 
-  private static Pattern REQUIRE = Pattern.compile(
+  private static final Pattern REQUIRE = Pattern.compile(
       "^goog\\.require\\s*\\(\\s*[\\'\\\"]([^\\)]+)[\\'\\\"]\\s*\\)");
-  private static Pattern PROVIDE = Pattern.compile(
+  private static final Pattern PROVIDE = Pattern.compile(
       "^goog\\.provide\\s*\\(\\s*[\\'\\\"]([^\\)]+)[\\'\\\"]\\s*\\)");
 
 
@@ -91,8 +91,13 @@ public class JavascriptSource {
 
   @Override
   public boolean equals(Object o) {
-    if (this == o) return true;
-    if (o == null || getClass() != o.getClass()) return false;
+    if (this == o) {
+      return true;
+    }
+
+    if (o == null || getClass() != o.getClass()) {
+      return false;
+    }
 
     JavascriptSource that = (JavascriptSource) o;
 

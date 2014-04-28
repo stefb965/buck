@@ -16,8 +16,6 @@
 
 package com.facebook.buck.rules;
 
-import com.google.common.base.Function;
-
 import java.nio.file.Path;
 
 /**
@@ -25,26 +23,16 @@ import java.nio.file.Path;
  */
 public interface SourcePath extends Comparable<SourcePath>  {
 
-  public static final Function<SourcePath, String> TO_REFERENCE =
-      new Function<SourcePath, String>() {
-    @Override
-    public String apply(SourcePath sourcePath) {
-      return sourcePath.asReference();
-    }
-  };
-
   /**
    * Converts this SourcePath to the {@link Path} it represents. Note, this method should only be
    * called while a rule is executing.
    *
    * @return the Path which this instance represents.
    */
-  public Path resolve(BuildContext context);
-
-  public Path resolve(DependencyGraph graph);
+  public Path resolve();
 
   /**
    * @return a representation of path in a stable manner that does not involve calling {#resolve()}
    */
-  public String asReference();
+  public Object asReference();
 }

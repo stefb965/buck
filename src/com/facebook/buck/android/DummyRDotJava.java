@@ -16,20 +16,22 @@
 
 package com.facebook.buck.android;
 
-import com.facebook.buck.java.JavacInMemoryStep;
+import com.facebook.buck.java.HasJavaAbi;
+import com.facebook.buck.java.JavacOptions;
+import com.facebook.buck.java.JavacStep;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRuleBuilder;
-import com.facebook.buck.rules.AbstractBuildRuleBuilderParams;
+import com.facebook.buck.rules.AbiRule;
 import com.facebook.buck.rules.AbstractBuildable;
 import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.BuildOutputInitializer;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
+import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.Sha1HashCode;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -43,7 +45,6 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.List;
@@ -59,21 +60,24 @@ import javax.annotation.Nullable;
  * since these are later merged together into a single {@code R.java} file by {@link AaptStep}.
  */
 public class DummyRDotJava extends AbstractBuildable
-    implements InitializableFromDisk<DummyRDotJava.BuildOutput> {
+    implements AbiRule, HasJavaAbi, InitializableFromDisk<DummyRDotJava.BuildOutput> {
 
   private final ImmutableList<HasAndroidResourceDeps> androidResourceDeps;
   private final BuildTarget buildTarget;
+  private final JavacOptions javacOptions;
+  private final BuildOutputInitializer<BuildOutput> buildOutputInitializer;
 
   @VisibleForTesting
   static final String METADATA_KEY_FOR_ABI_KEY = "DUMMY_R_DOT_JAVA_ABI_KEY";
 
-  private BuildOutput buildOutput;
-
   public DummyRDotJava(
       ImmutableList<HasAndroidResourceDeps> androidResourceDeps,
-      BuildTarget buildTarget) {
+      BuildTarget buildTarget,
+      JavacOptions javacOptions) {
     this.androidResourceDeps = Preconditions.checkNotNull(androidResourceDeps);
     this.buildTarget = Preconditions.checkNotNull(buildTarget);
+    this.javacOptions = Preconditions.checkNotNull(javacOptions);
+    this.buildOutputInitializer = new BuildOutputInitializer<>(buildTarget, this);
   }
 
   @Override
@@ -82,14 +86,13 @@ public class DummyRDotJava extends AbstractBuildable
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, final BuildableContext buildableContext)
-      throws IOException {
+  public List<Step> getBuildSteps(BuildContext context, final BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
     final Path rDotJavaSrcFolder = getRDotJavaSrcFolder(buildTarget);
     steps.add(new MakeCleanDirectoryStep(rDotJavaSrcFolder));
 
     // Generate the .java files and record where they will be written in javaSourceFilePaths.
-    Set<Path> javaSourceFilePaths = Sets.newHashSet();
+    Set<SourcePath> javaSourceFilePaths = Sets.newHashSet();
     if (androidResourceDeps.isEmpty()) {
       // In this case, the user is likely running a Robolectric test that does not happen to
       // depend on any resources. However, if Robolectric doesn't find an R.java file, it flips
@@ -103,7 +106,7 @@ public class DummyRDotJava extends AbstractBuildable
       steps.add(new MakeCleanDirectoryStep(rDotJavaSrcFolder.resolve("com/facebook")));
       Path rDotJavaFile = rDotJavaSrcFolder.resolve("com/facebook/R.java");
       steps.add(new WriteFileStep(javaCode, rDotJavaFile));
-      javaSourceFilePaths.add(rDotJavaFile);
+      javaSourceFilePaths.add(new PathSourcePath(rDotJavaFile));
     } else {
       Map<Path, String> symbolsFileToRDotJavaPackage = Maps.newHashMap();
       for (HasAndroidResourceDeps res : androidResourceDeps) {
@@ -111,7 +114,7 @@ public class DummyRDotJava extends AbstractBuildable
         symbolsFileToRDotJavaPackage.put(res.getPathToTextSymbolsFile(), rDotJavaPackage);
         Path rDotJavaFilePath = MergeAndroidResourcesStep.getOutputFilePath(
             rDotJavaSrcFolder, rDotJavaPackage);
-        javaSourceFilePaths.add(rDotJavaFilePath);
+        javaSourceFilePaths.add(new PathSourcePath(rDotJavaFilePath));
       }
       steps.add(new MergeAndroidResourcesStep(symbolsFileToRDotJavaPackage,
           rDotJavaSrcFolder));
@@ -126,15 +129,19 @@ public class DummyRDotJava extends AbstractBuildable
     Path pathToAbiOutputFile = pathToAbiOutputDir.resolve("abi");
 
     // Compile the .java files.
-    final JavacInMemoryStep javacInMemoryStep =
-        UberRDotJavaUtil.createJavacInMemoryCommandForRDotJavaFiles(
-            javaSourceFilePaths, rDotJavaClassesFolder, Optional.of(pathToAbiOutputFile));
-    steps.add(javacInMemoryStep);
+    final JavacStep javacStep =
+        UberRDotJavaUtil.createJavacStepForDummyRDotJavaFiles(
+            javaSourceFilePaths,
+            rDotJavaClassesFolder,
+            Optional.of(pathToAbiOutputFile),
+            javacOptions,
+            buildTarget);
+    steps.add(javacStep);
 
     steps.add(new AbstractExecutionStep("record_abi_key") {
       @Override
       public int execute(ExecutionContext context) {
-        Sha1HashCode abiKey = javacInMemoryStep.getAbiKey();
+        Sha1HashCode abiKey = javacStep.getAbiKey();
         Preconditions.checkNotNull(abiKey,
             "Javac step must create a non-null ABI key for this rule.");
         buildableContext.addMetadata(METADATA_KEY_FOR_ABI_KEY, abiKey.getHash());
@@ -146,13 +153,14 @@ public class DummyRDotJava extends AbstractBuildable
     return steps.build();
   }
 
-  public Sha1HashCode getAbiKeyForDeps() throws IOException {
-    return HasAndroidResourceDeps.HASHER.apply(androidResourceDeps);
+  @Override
+  public Sha1HashCode getAbiKeyForDeps() {
+    return HasAndroidResourceDeps.ABI_HASHER.apply(androidResourceDeps);
   }
 
   @Override
-  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) throws IOException {
-    return builder;
+  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
+    return javacOptions.appendToRuleKey(builder);
   }
 
   private static Path getRDotJavaSrcFolder(BuildTarget buildTarget) {
@@ -165,10 +173,6 @@ public class DummyRDotJava extends AbstractBuildable
 
   private static Path getPathToAbiOutputDir(BuildTarget buildTarget) {
     return BuildTargets.getGenPath(buildTarget, "__%s_dummyrdotjava_abi__");
-  }
-
-  public static Builder newDummyRDotJavaBuildableBuilder(AbstractBuildRuleBuilderParams params) {
-    return new Builder(params);
   }
 
   @Nullable
@@ -185,6 +189,11 @@ public class DummyRDotJava extends AbstractBuildable
     return androidResourceDeps;
   }
 
+  @VisibleForTesting
+  JavacOptions getJavacOptions() {
+    return javacOptions;
+  }
+
   @Override
   public BuildOutput initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) {
     Optional<Sha1HashCode> abiKey = onDiskBuildInfo.getHash(METADATA_KEY_FOR_ABI_KEY);
@@ -197,20 +206,18 @@ public class DummyRDotJava extends AbstractBuildable
   }
 
   @Override
-  public void setBuildOutput(BuildOutput buildOutput) throws IllegalStateException {
-    Preconditions.checkState(this.buildOutput == null,
-        "buildOutput should not already be set for %s",
-        this);
-    this.buildOutput = buildOutput;
+  public BuildOutputInitializer<BuildOutput> getBuildOutputInitializer() {
+    return buildOutputInitializer;
   }
 
   @Override
-  public BuildOutput getBuildOutput() throws IllegalStateException {
-    return Preconditions.checkNotNull(buildOutput, "buildOutput must already be set for %s", this);
+  public Sha1HashCode getAbiKey() {
+    return buildOutputInitializer.getBuildOutput().rDotTxtSha1;
   }
 
-  public Sha1HashCode getRDotTxtSha1() {
-    return getBuildOutput().rDotTxtSha1;
+  @Override
+  public BuildTarget getBuildTarget() {
+    return buildTarget;
   }
 
   public static class BuildOutput {
@@ -219,37 +226,6 @@ public class DummyRDotJava extends AbstractBuildable
 
     public BuildOutput(Sha1HashCode rDotTxtSha1) {
       this.rDotTxtSha1 = Preconditions.checkNotNull(rDotTxtSha1);
-    }
-  }
-
-  public static class Builder extends AbstractBuildRuleBuilder<DummyRDotJavaAbiRule> {
-
-    @Nullable private ImmutableList<HasAndroidResourceDeps> androidResourceDeps;
-
-    protected Builder(AbstractBuildRuleBuilderParams params) {
-      super(params);
-    }
-
-    @Override
-    public DummyRDotJavaAbiRule build(BuildRuleResolver ruleResolver) {
-      BuildRuleParams params = createBuildRuleParams(ruleResolver);
-      DummyRDotJava dummyRDotJava = new DummyRDotJava(androidResourceDeps, buildTarget);
-      return new DummyRDotJavaAbiRule(dummyRDotJava, params);
-    }
-
-    @Override
-    public Builder setBuildTarget(BuildTarget buildTarget) {
-      super.setBuildTarget(buildTarget);
-      return this;
-    }
-
-    public Builder setAndroidResourceDeps(
-        ImmutableList<HasAndroidResourceDeps> androidResourceDeps) {
-      this.androidResourceDeps = Preconditions.checkNotNull(androidResourceDeps);
-      for (HasAndroidResourceDeps dep : androidResourceDeps) {
-        addDep(dep.getBuildTarget());
-      }
-      return this;
     }
   }
 }

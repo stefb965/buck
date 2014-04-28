@@ -32,7 +32,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collection;
@@ -87,7 +86,7 @@ public class GenAidl extends AbstractBuildable {
   }
 
   @Override
-  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) throws IOException {
+  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
     // TODO(#2493457): This rule uses the aidl binary (part of the Android SDK), so the RuleKey
     // should incorporate which version of aidl is used.
     return builder
@@ -100,8 +99,7 @@ public class GenAidl extends AbstractBuildable {
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext)
-      throws IOException {
+  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
     ImmutableList.Builder<Step> commands = ImmutableList.builder();
 
     Path outputDirectory = Paths.get(

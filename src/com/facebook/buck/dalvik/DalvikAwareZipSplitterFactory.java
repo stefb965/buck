@@ -16,6 +16,7 @@
 
 package com.facebook.buck.dalvik;
 
+import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Predicate;
 
 import java.io.File;
@@ -25,13 +26,19 @@ import java.util.Set;
 public class DalvikAwareZipSplitterFactory implements ZipSplitterFactory {
 
   private final long linearAllocLimit;
+  private final Set<String> wantedInPrimaryZip;
 
-  public DalvikAwareZipSplitterFactory(long linearAllocLimit) {
+  public DalvikAwareZipSplitterFactory(
+      long linearAllocLimit,
+      Set<String> wantedInPrimaryZip) {
     this.linearAllocLimit = linearAllocLimit;
+    this.wantedInPrimaryZip = wantedInPrimaryZip;
   }
 
   @Override
-  public ZipSplitter newInstance(Set<Path> inFiles,
+  public ZipSplitter newInstance(
+      ProjectFilesystem filesystem,
+      Set<Path> inFiles,
       File outPrimary,
       File outSecondaryDir,
       String secondaryPattern,
@@ -39,12 +46,15 @@ public class DalvikAwareZipSplitterFactory implements ZipSplitterFactory {
       ZipSplitter.DexSplitStrategy dexSplitStrategy,
       ZipSplitter.CanaryStrategy canaryStrategy,
       File reportDir) {
-    return DalvikAwareZipSplitter.splitZip(inFiles,
+    return DalvikAwareZipSplitter.splitZip(
+        filesystem,
+        inFiles,
         outPrimary,
         outSecondaryDir,
         secondaryPattern,
         linearAllocLimit,
         requiredInPrimaryZip,
+        wantedInPrimaryZip,
         dexSplitStrategy,
         canaryStrategy,
         reportDir);

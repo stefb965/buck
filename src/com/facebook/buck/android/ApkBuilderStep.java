@@ -26,6 +26,7 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.KeystoreProperties;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Function;
+import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
@@ -64,7 +65,7 @@ public class ApkBuilderStep implements Step {
   private final ImmutableSet<String> assetDirectories;
   private final ImmutableSet<Path> nativeLibraryDirectories;
   private final ImmutableSet<Path> zipFiles;
-  private final ImmutableSet<String> jarFilesThatMayContainResources;
+  private final ImmutableSet<Path> jarFilesThatMayContainResources;
   private final Path pathToKeystore;
   private final Path pathToKeystorePropertiesFile;
   private final boolean debugMode;
@@ -89,7 +90,7 @@ public class ApkBuilderStep implements Step {
       ImmutableSet<String> javaResourcesDirectories,
       ImmutableSet<Path> nativeLibraryDirectories,
       ImmutableSet<Path> zipFiles,
-      ImmutableSet<String> jarFilesThatMayContainResources,
+      ImmutableSet<Path> jarFilesThatMayContainResources,
       Path pathToKeystore,
       Path pathToKeystorePropertiesFile,
       boolean debugMode) {
@@ -132,12 +133,12 @@ public class ApkBuilderStep implements Step {
         builder.addSourceFolder(projectFilesystem.getFileForRelativePath(assetDirectory));
       }
       for (Path zipFile : zipFiles) {
-        File zipFileOnDisk = projectFilesystem.getFileForRelativePath(zipFile);
-        if (zipFileOnDisk.exists() && zipFileOnDisk.isFile()) {
-          builder.addZipFile(zipFileOnDisk);
+        // TODO(natthu): Skipping silently is bad. These should really be assertions.
+        if (projectFilesystem.exists(zipFile) && projectFilesystem.isFile(zipFile)) {
+          builder.addZipFile(projectFilesystem.getFileForRelativePath(zipFile));
         }
       }
-      for (String jarFileThatMayContainResources : jarFilesThatMayContainResources) {
+      for (Path jarFileThatMayContainResources : jarFilesThatMayContainResources) {
         File jarFile  = projectFilesystem.getFileForRelativePath(jarFileThatMayContainResources);
         builder.addResourcesFromJar(jarFile);
       }
@@ -196,7 +197,7 @@ public class ApkBuilderStep implements Step {
     return String.format(
         // TODO(mbolin): Make the directory that corresponds to $ANDROID_HOME a field that is
         // accessible via an AndroidPlatformTarget and insert that here in place of "$ANDROID_HOME".
-        "java -classpath $ANDROID_HOME/tools/lib/sdklib.jar %s %s -v -u %s -z %s %s -f %s",
+        "java -classpath $ANDROID_HOME/tools/lib/sdklib.jar %s %s -v -u %s -z %s %s %s -f %s",
         "com.android.sdklib.build.ApkBuilderMain",
         pathToOutputApkFile,
         Joiner.on(' ').join(Iterables.transform(nativeLibraryDirectories,
@@ -206,6 +207,7 @@ public class ApkBuilderStep implements Step {
                 return "-nf " + s;
               }
             })),
+        Joiner.on(' ').join(Iterables.transform(zipFiles, Functions.toStringFunction())),
         resourceApk,
         Joiner.on(' ').join(Iterables.transform(assetDirectories,
             new Function<String, String>() {

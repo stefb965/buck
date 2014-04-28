@@ -32,11 +32,13 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.event.FakeBuckEventListener;
 import com.facebook.buck.event.TestEventConfigerator;
+import com.facebook.buck.java.JavaLibraryDescription;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.json.DefaultProjectBuildFileParserFactory;
 import com.facebook.buck.json.ProjectBuildFileParser;
 import com.facebook.buck.json.ProjectBuildFileParserFactory;
 import com.facebook.buck.model.BuildFileTree;
+import com.facebook.buck.model.BuildId;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.model.BuildTargetFactory;
@@ -44,7 +46,7 @@ import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleBuilder;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
+import com.facebook.buck.rules.DefaultKnownBuildRuleTypes;
 import com.facebook.buck.rules.DependencyGraph;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeRuleKeyBuilderFactory;
@@ -141,7 +143,7 @@ public class ParserTest extends EasyMockSupport {
     File root = tempDir.getRoot();
     filesystem = new ProjectFilesystem(root);
 
-    buildRuleTypes = KnownBuildRuleTypes.getDefault();
+    buildRuleTypes = DefaultKnownBuildRuleTypes.getDefaultKnownBuildRuleTypes(filesystem);
     DefaultProjectBuildFileParserFactory testBuildFileParserFactory =
         new DefaultProjectBuildFileParserFactory(
             filesystem,
@@ -220,7 +222,7 @@ public class ParserTest extends EasyMockSupport {
 
     Parser parser = new Parser(
         new ProjectFilesystem(new File(".")),
-        KnownBuildRuleTypes.getDefault(),
+        DefaultKnownBuildRuleTypes.getDefaultKnownBuildRuleTypes(filesystem),
         new TestConsole(),
         BuckTestConstant.PYTHON_INTERPRETER,
         tempFilePatterns,
@@ -999,7 +1001,7 @@ public class ParserTest extends EasyMockSupport {
       throws IOException {
     BuckEvent mockEvent = createMock(BuckEvent.class);
     expect(mockEvent.getEventName()).andReturn("CommandStarted").anyTimes();
-    expect(mockEvent.getBuildId()).andReturn("BUILD1");
+    expect(mockEvent.getBuildId()).andReturn(new BuildId("BUILD1"));
     BuildFileTree mockBuildFileTree = createMock(BuildFileTree.class);
     InputSupplier<BuildFileTree> mockSupplier = createMock(InputSupplier.class);
     expect(mockSupplier.getInput()).andReturn(mockBuildFileTree).once();
@@ -1019,8 +1021,8 @@ public class ParserTest extends EasyMockSupport {
       throws IOException {
     BuckEvent mockEvent = createMock(BuckEvent.class);
     expect(mockEvent.getEventName()).andReturn("CommandStarted").anyTimes();
-    expect(mockEvent.getBuildId()).andReturn("BUILD1");
-    expect(mockEvent.getBuildId()).andReturn("BUILD2");
+    expect(mockEvent.getBuildId()).andReturn(new BuildId("BUILD1"));
+    expect(mockEvent.getBuildId()).andReturn(new BuildId("BUILD2"));
     BuildFileTree mockBuildFileTree = createMock(BuildFileTree.class);
     InputSupplier<BuildFileTree> mockSupplier = createMock(InputSupplier.class);
     expect(mockSupplier.getInput()).andReturn(mockBuildFileTree).times(2);
@@ -1078,7 +1080,7 @@ public class ParserTest extends EasyMockSupport {
       @Override
       public BuildRule build(final BuildRuleResolver ruleResolver) {
         return new FakeBuildRule(
-            BuildRuleType.JAVA_LIBRARY,
+            JavaLibraryDescription.TYPE,
             buildTarget,
             ImmutableSortedSet.<BuildRule>naturalOrder()
               .addAll(Iterables.transform(deps, new Function<BuildTarget, BuildRule>() {

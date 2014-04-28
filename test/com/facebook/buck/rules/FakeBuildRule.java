@@ -23,9 +23,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.util.concurrent.ListenableFuture;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collection;
@@ -52,7 +50,7 @@ public class FakeBuildRule extends AbstractBuildRule implements BuildRule, Build
   }
 
   public FakeBuildRule(BuildRuleType type, BuildRuleParams buildRuleParams) {
-    super(buildRuleParams);
+    super(buildRuleParams, null);
     this.type = Preconditions.checkNotNull(type);
   }
 
@@ -68,16 +66,6 @@ public class FakeBuildRule extends AbstractBuildRule implements BuildRule, Build
   @Override
   public BuildRuleType getType() {
     return type;
-  }
-
-  @Override
-  public ListenableFuture<BuildRuleSuccess> build(BuildContext context) {
-    throw new UnsupportedOperationException("build() not supported in fake");
-  }
-
-  @Override
-  public BuildRuleSuccess.Type getBuildResultType() {
-    throw new UnsupportedOperationException("getBuildResultType() not supported in fake");
   }
 
   @Override
@@ -105,7 +93,7 @@ public class FakeBuildRule extends AbstractBuildRule implements BuildRule, Build
   }
 
   @Override
-  public RuleKey getRuleKey() throws IOException {
+  public RuleKey getRuleKey() {
     if (ruleKey != null) {
       return ruleKey;
     } else {
@@ -119,7 +107,7 @@ public class FakeBuildRule extends AbstractBuildRule implements BuildRule, Build
   }
 
   @Override
-  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) throws IOException {
+  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
     throw new IllegalStateException("This method should not be called");
   }
 
@@ -129,8 +117,7 @@ public class FakeBuildRule extends AbstractBuildRule implements BuildRule, Build
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext)
-      throws IOException {
+  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
     throw new UnsupportedOperationException();
   }
 }

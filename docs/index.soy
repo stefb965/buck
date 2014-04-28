@@ -3,6 +3,7 @@
 /***/
 {template .soyweb}
   {call buck.page}
+    {param ishome: true /}
     {param title: 'An Android (and Java!) build tool' /}
     {param content}
 Buck is a build system for Android that encourages the creation of
@@ -23,7 +24,7 @@ Buck can help you do the following:
   <li>Introduce ad-hoc build steps for building artifacts that are not
       supported out-of-the-box using the standard Ant build scripts for Android.
   <li>Keep the logic for generating build rules in the build system instead of
-      requiring a separate system to generate build files. 
+      requiring a separate system to generate build files.
   <li>Generate code-coverage metrics for your unit tests.
   <li>Generate an IntelliJ project based on your build rules. This makes
       Buck ideal for both local development builds in an IDE as well as
@@ -58,7 +59,7 @@ Buck requires to be acyclic.
 <p>
 
 When building the output of a build rule, all of the rule's transitive dependencies
-are built first. This means that the graph is built in a "bottom-up" fashion. 
+are built first. This means that the graph is built in a "bottom-up" fashion.
 A build rule knows only who it depends on, not what depends on it, which makes the
 build graph easier to reason about. This helps Buck identify independent
 subgraphs that can be built in parallel, as well as determine the minimal set of
@@ -74,7 +75,7 @@ the process of making atomic commits.
 
 <p>
 
-If you build multiple applications, or if even if you ship one application but
+If you build multiple applications, or even if you ship one application but
 use several sample applications for development, then Buck is definitely for you.
 Give the <a href="{ROOT}setup/quick_start.html">Quick Start</a> a try and see how
 Buck can help you organize your Android project and build it faster than ever before.

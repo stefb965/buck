@@ -17,11 +17,11 @@
 package org.openqa.selenium.buck.javascript;
 
 import static com.facebook.buck.util.BuckConstant.GEN_DIR;
-import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractBuildable;
 import com.facebook.buck.rules.BuildContext;
+import com.facebook.buck.rules.BuildOutputInitializer;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.Buildable;
 import com.facebook.buck.rules.BuildableContext;
@@ -43,7 +43,6 @@ import com.google.common.collect.Sets;
 
 import java.io.IOException;
 import java.io.StringWriter;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collection;
@@ -63,6 +62,7 @@ public class JsBinary extends AbstractBuildable implements
   private final Optional<List<Path>> externs;
   private final Optional<List<String>> flags;
   private JavascriptDependencies joy;
+  private final BuildOutputInitializer<JavascriptDependencies> buildOutputInitializer;
 
   public JsBinary(
       BuildTarget buildTarget,
@@ -81,6 +81,8 @@ public class JsBinary extends AbstractBuildable implements
         GEN_DIR, buildTarget.getBaseName(), buildTarget.getShortName() + ".js");
     this.joyPath = Paths.get(
         GEN_DIR, buildTarget.getBaseName(), buildTarget.getShortName() + ".deps");
+
+    buildOutputInitializer = new BuildOutputInitializer<>(buildTarget, this);
   }
 
   @Override
@@ -89,7 +91,7 @@ public class JsBinary extends AbstractBuildable implements
   }
 
   @Override
-  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) throws IOException {
+  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
     return builder
         .set("defines", defines.or(ImmutableList.<String>of()))
         .setInputs("externs", externs.or(ImmutableList.<Path>of()).iterator())
@@ -98,8 +100,7 @@ public class JsBinary extends AbstractBuildable implements
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext)
-      throws IOException {
+  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
     JavascriptDependencyGraph graph = new JavascriptDependencyGraph();
@@ -110,7 +111,7 @@ public class JsBinary extends AbstractBuildable implements
     Set<String> jsDeps = Sets.newHashSet();
     // Do the magic with the sources, as if we're a js_library
     for (SourcePath src : srcs) {
-      Path resolved = src.resolve(context);
+      Path resolved = src.resolve();
       JavascriptSource jsSource = new JavascriptSource(resolved);
 
       graph.amendGraph(jsSource);
@@ -171,34 +172,19 @@ public class JsBinary extends AbstractBuildable implements
 
   @Override
   public JavascriptDependencies initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) {
-    Preconditions.checkState(joy == null, "Attempt to reinitialize from disk");
-
     try {
       List<String> allLines = onDiskBuildInfo.getOutputFileContentsByLine(joyPath);
-      return JavascriptDependencies.buildFrom(Joiner.on("\n").join(allLines));
+      joy = JavascriptDependencies.buildFrom(Joiner.on("\n").join(allLines));
+      return joy;
     } catch (IOException e) {
       throw Throwables.propagate(e);
     }
   }
 
   @Override
-  public void setBuildOutput(JavascriptDependencies joy) throws IllegalStateException {
-    Preconditions.checkState(this.joy == null, "Attempted to set build output more than once.");
-    this.joy = joy;
+  public BuildOutputInitializer<JavascriptDependencies> getBuildOutputInitializer() {
+    return buildOutputInitializer;
   }
-
-  @Override
-  public JavascriptDependencies getBuildOutput() throws IllegalStateException {
-    Preconditions.checkNotNull(joy, "Build output has not been set.");
-
-    try {
-      List<String> allLines = Files.readAllLines(joyPath, UTF_8);
-      return JavascriptDependencies.buildFrom(Joiner.on("\n").join(allLines));
-    } catch (IOException e) {
-      throw Throwables.propagate(e);
-    }
-  }
-
 
   @Override
   public JavascriptDependencies getBundleOfJoy() {

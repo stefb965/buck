@@ -17,6 +17,8 @@
 package com.facebook.buck.rules.coercer;
 
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.util.ProjectFilesystem;
+import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 
 import java.nio.file.Path;
@@ -48,6 +50,11 @@ public class PairTypeCoercer<FIRST, SECOND> implements TypeCoercer<Pair<FIRST, S
   }
 
   @Override
+  public Optional<Pair<FIRST, SECOND>> getOptionalValue() {
+    return Optional.absent();
+  }
+
+  @Override
   public boolean traverse(Object object, Traversal traversal) {
     if (object instanceof Collection) {
       Collection<?> collection = (Collection<?>) object;
@@ -56,15 +63,18 @@ public class PairTypeCoercer<FIRST, SECOND> implements TypeCoercer<Pair<FIRST, S
       }
 
       Iterator<?> iterator = collection.iterator();
-      return firstTypeCoercer.traverse(iterator.next(), traversal)
-          && secondTypeCoercer.traverse(iterator.next(), traversal);
+      return firstTypeCoercer.traverse(iterator.next(), traversal) &&
+          secondTypeCoercer.traverse(iterator.next(), traversal);
     }
     return false;
   }
 
   @Override
   public Pair<FIRST, SECOND> coerce(
-      BuildRuleResolver buildRuleResolver, Path pathRelativeToProjectRoot, Object object)
+      BuildRuleResolver buildRuleResolver,
+      ProjectFilesystem filesystem,
+      Path pathRelativeToProjectRoot,
+      Object object)
       throws CoerceFailedException {
     if (object instanceof Collection) {
       Collection<?> collection = (Collection<?>) object;
@@ -74,9 +84,9 @@ public class PairTypeCoercer<FIRST, SECOND> implements TypeCoercer<Pair<FIRST, S
       }
       Iterator<?> iterator = collection.iterator();
       FIRST first = firstTypeCoercer.coerce(
-          buildRuleResolver, pathRelativeToProjectRoot, iterator.next());
+          buildRuleResolver, filesystem, pathRelativeToProjectRoot, iterator.next());
       SECOND second = secondTypeCoercer.coerce(
-          buildRuleResolver, pathRelativeToProjectRoot, iterator.next());
+          buildRuleResolver, filesystem, pathRelativeToProjectRoot, iterator.next());
       return new Pair<>(first, second);
     } else {
       throw CoerceFailedException.simple(pathRelativeToProjectRoot, object, getOutputClass(),

@@ -24,8 +24,8 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.dalvik.EstimateLinearAllocStep;
-import com.facebook.buck.java.FakeJavaLibraryRule;
-import com.facebook.buck.java.JavaLibraryRule;
+import com.facebook.buck.java.FakeJavaLibrary;
+import com.facebook.buck.java.JavaLibrary;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
@@ -56,7 +56,7 @@ public class DexProducedFromJavaLibraryThatContainsClassFilesTest extends EasyMo
 
   @Test
   public void testGetBuildStepsWhenThereAreClassesToDex() throws IOException {
-    FakeJavaLibraryRule javaLibraryRule = new FakeJavaLibraryRule(new BuildTarget("//foo", "bar")) {
+    FakeJavaLibrary javaLibraryRule = new FakeJavaLibrary(new BuildTarget("//foo", "bar")) {
       @Override
       public ImmutableSortedMap<String, HashCode> getClassNamesToHashes() {
         return ImmutableSortedMap.of("com/example/Foo", HashCode.fromString("cafebabe"));
@@ -75,8 +75,8 @@ public class DexProducedFromJavaLibraryThatContainsClassFilesTest extends EasyMo
     replayAll();
 
     BuildTarget buildTarget = new BuildTarget("//foo", "bar", "dex");
-    DexProducedFromJavaLibraryThatContainsClassFiles preDex =
-        new DexProducedFromJavaLibraryThatContainsClassFiles(buildTarget, javaLibraryRule);
+    DexProducedFromJavaLibrary preDex =
+        new DexProducedFromJavaLibrary(buildTarget, javaLibraryRule);
     List<Step> steps = preDex.getBuildSteps(context, buildableContext);
 
     verifyAll();
@@ -87,11 +87,11 @@ public class DexProducedFromJavaLibraryThatContainsClassFilesTest extends EasyMo
 
     ProjectFilesystem projectFilesystem = createMock(ProjectFilesystem.class);
     expect(projectFilesystem.resolve(Paths.get("buck-out/gen/foo")))
-        .andReturn(Paths.get("/home/user/buck-out/gen/foo"));
+        .andStubReturn(Paths.get("/home/user/buck-out/gen/foo"));
     expect(projectFilesystem.resolve(Paths.get("buck-out/gen/foo/bar#dex.dex.jar")))
-        .andReturn(Paths.get("/home/user/buck-out/gen/foo/bar#dex.dex.jar"));
+        .andStubReturn(Paths.get("/home/user/buck-out/gen/foo/bar#dex.dex.jar"));
     expect(projectFilesystem.resolve(Paths.get("buck-out/gen/foo/bar.jar")))
-        .andReturn(Paths.get("/home/user/buck-out/gen/foo/bar.jar"));
+        .andStubReturn(Paths.get("/home/user/buck-out/gen/foo/bar.jar"));
     replayAll();
 
     ExecutionContext executionContext = TestExecutionContext
@@ -101,7 +101,7 @@ public class DexProducedFromJavaLibraryThatContainsClassFilesTest extends EasyMo
         .build();
 
     String expectedDxCommand = "/usr/bin/dx" +
-        " --dex --no-optimize --force-jumbo --output buck-out/gen/foo/bar#dex.dex.jar " +
+        " --dex --no-optimize --force-jumbo --output /home/user/buck-out/gen/foo/bar#dex.dex.jar " +
         "/home/user/buck-out/gen/foo/bar.jar";
     MoreAsserts.assertSteps("Generate bar.dex.jar.",
         ImmutableList.of(
@@ -127,14 +127,14 @@ public class DexProducedFromJavaLibraryThatContainsClassFilesTest extends EasyMo
         buildableContext.getRecordedArtifacts());
 
     buildableContext.assertContainsMetadataMapping(
-        DexProducedFromJavaLibraryThatContainsClassFiles.LINEAR_ALLOC_KEY_ON_DISK_METADATA, "250");
+        DexProducedFromJavaLibrary.LINEAR_ALLOC_KEY_ON_DISK_METADATA, "250");
 
     verifyAll();
   }
 
   @Test
   public void testGetBuildStepsWhenThereAreNoClassesToDex() throws IOException {
-    JavaLibraryRule javaLibrary = createMock(JavaLibraryRule.class);
+    JavaLibrary javaLibrary = createMock(JavaLibrary.class);
     expect(javaLibrary.getClassNamesToHashes()).andReturn(
         ImmutableSortedMap.<String, HashCode>of());
 
@@ -144,8 +144,8 @@ public class DexProducedFromJavaLibraryThatContainsClassFilesTest extends EasyMo
     replayAll();
 
     BuildTarget buildTarget = new BuildTarget("//foo", "bar");
-    DexProducedFromJavaLibraryThatContainsClassFiles preDex =
-        new DexProducedFromJavaLibraryThatContainsClassFiles(buildTarget, javaLibrary);
+    DexProducedFromJavaLibrary preDex =
+        new DexProducedFromJavaLibrary(buildTarget, javaLibrary);
     List<Step> steps = preDex.getBuildSteps(context, buildableContext);
 
     verifyAll();
@@ -186,7 +186,7 @@ public class DexProducedFromJavaLibraryThatContainsClassFilesTest extends EasyMo
 
   @Test
   public void testObserverMethods() {
-    JavaLibraryRule accumulateClassNames = createMock(JavaLibraryRule.class);
+    JavaLibrary accumulateClassNames = createMock(JavaLibrary.class);
     expect(accumulateClassNames.getClassNamesToHashes())
         .andReturn(ImmutableSortedMap.of("com/example/Foo", HashCode.fromString("cafebabe")))
         .anyTimes();
@@ -194,8 +194,8 @@ public class DexProducedFromJavaLibraryThatContainsClassFilesTest extends EasyMo
     replayAll();
 
     BuildTarget buildTarget = new BuildTarget("//foo", "bar");
-    DexProducedFromJavaLibraryThatContainsClassFiles preDexWithClasses =
-        new DexProducedFromJavaLibraryThatContainsClassFiles(buildTarget, accumulateClassNames);
+    DexProducedFromJavaLibrary preDexWithClasses =
+        new DexProducedFromJavaLibrary(buildTarget, accumulateClassNames);
     assertNull(preDexWithClasses.getPathToOutputFile());
     assertTrue(Iterables.isEmpty(preDexWithClasses.getInputsToCompareToOutput()));
     assertEquals(Paths.get("buck-out/gen/foo/bar.dex.jar"), preDexWithClasses.getPathToDex());
@@ -211,23 +211,23 @@ public class DexProducedFromJavaLibraryThatContainsClassFilesTest extends EasyMo
         "com/example/Bar", HashCode.fromString("087b7707a5f8e0a2adf5652e3cd2072d89a197dc"),
         "com/example/Baz", HashCode.fromString("62b1c2510840c0de55c13f66065a98a719be0f19")
     );
-    String observedSha1 = DexProducedFromJavaLibraryThatContainsClassFiles
+    String observedSha1 = DexProducedFromJavaLibrary
         .computeAbiKey(classNamesAndHashes)
         .getHash();
 
     String expectedSha1 = Hashing.sha1().newHasher()
         .putUnencodedChars("com/example/Bar")
-        .putByte((byte)0)
+        .putByte((byte) 0)
         .putUnencodedChars("087b7707a5f8e0a2adf5652e3cd2072d89a197dc")
-        .putByte((byte)0)
+        .putByte((byte) 0)
         .putUnencodedChars("com/example/Baz")
-        .putByte((byte)0)
+        .putByte((byte) 0)
         .putUnencodedChars("62b1c2510840c0de55c13f66065a98a719be0f19")
-        .putByte((byte)0)
+        .putByte((byte) 0)
         .putUnencodedChars("com/example/Foo")
-        .putByte((byte)0)
+        .putByte((byte) 0)
         .putUnencodedChars("e4fccb7520b7795e632651323c63217c9f59f72a")
-        .putByte((byte)0)
+        .putByte((byte) 0)
         .hash()
         .toString();
     assertEquals(expectedSha1, observedSha1);

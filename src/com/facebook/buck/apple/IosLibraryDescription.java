@@ -49,7 +49,7 @@ public class IosLibraryDescription implements Description<IosLibraryDescription.
     return new IosLibrary(args);
   }
 
-  public class Arg implements ConstructorArg {
+  public static class Arg implements ConstructorArg {
     /**
      * @see com.facebook.buck.apple.XcodeRuleConfiguration#fromRawJsonStructure
      */
@@ -57,7 +57,6 @@ public class IosLibraryDescription implements Description<IosLibraryDescription.
         String,
         ImmutableList<Either<Path, ImmutableMap<String, String>>>> configs;
     public ImmutableList<AppleSource> srcs;
-    public ImmutableList<AppleSource> headers;
 
     /**
      * List of system frameworks, may contain build settings in the path to denote its location.

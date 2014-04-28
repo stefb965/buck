@@ -17,6 +17,8 @@
 package com.facebook.buck.apple.xcode.xcodeproj;
 
 import com.facebook.buck.apple.xcode.XcodeprojSerializer;
+import com.google.common.base.CharMatcher;
+import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 
 import javax.annotation.Nullable;
@@ -50,9 +52,16 @@ public class PBXReference extends PBXContainerItem {
      * Relative to the directory containing the project file {@code SOURCE_ROOT}.
      */
     SOURCE_ROOT("SOURCE_ROOT"),
+
+    /**
+     * Relative to the Developer content directory inside the Xcode application
+     * (e.g. {@code /Applications/Xcode.app/Contents/Developer}).
+     */
+    DEVELOPER_DIR("DEVELOPER_DIR"),
     ;
 
     private final String rep;
+
     SourceTree(String str) {
       rep = str;
     }
@@ -60,6 +69,26 @@ public class PBXReference extends PBXContainerItem {
     @Override
     public String toString() {
       return rep;
+    }
+
+    /**
+     * Return a sourceTree given a build setting that is typically used as a source tree prefix.
+     *
+     * The build setting may be optionally prefixed by '$' which will be stripped.
+     */
+    public static Optional<SourceTree> fromBuildSetting(String buildSetting) {
+      switch (CharMatcher.is('$').trimLeadingFrom(buildSetting)) {
+        case "BUILT_PRODUCTS_DIR":
+          return Optional.of(BUILT_PRODUCTS_DIR);
+        case "SDKROOT":
+          return Optional.of(SDKROOT);
+        case "SOURCE_ROOT":
+          return Optional.of(SOURCE_ROOT);
+        case "DEVELOPER_DIR":
+          return Optional.of(DEVELOPER_DIR);
+        default:
+          return Optional.absent();
+      }
     }
   }
 
@@ -97,6 +126,11 @@ public class PBXReference extends PBXContainerItem {
   @Override
   public String isa() {
     return "PBXReference";
+  }
+
+  @Override
+  public int stableHash() {
+    return name.hashCode();
   }
 
   @Override

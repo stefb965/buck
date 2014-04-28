@@ -30,15 +30,20 @@ import com.facebook.buck.util.HumanReadableException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
+import com.google.common.base.Functions;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterables;
+import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
-import com.google.common.collect.TreeMultimap;
 
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.SortedSet;
+
+import javax.annotation.Nullable;
 
 public class AuditClasspathCommand extends AbstractCommandRunner<AuditCommandOptions> {
 
@@ -117,12 +122,12 @@ public class AuditClasspathCommand extends AbstractCommandRunner<AuditCommandOpt
   int printClasspath(PartialGraph partialGraph) {
     List<BuildTarget> targets = partialGraph.getTargets();
     DependencyGraph graph = partialGraph.getDependencyGraph();
-    SortedSet<String> classpathEntries = Sets.newTreeSet();
+    SortedSet<Path> classpathEntries = Sets.newTreeSet();
 
     for (BuildTarget target : targets) {
       BuildRule rule = graph.findBuildRuleByTarget(target);
-      if (rule instanceof HasClasspathEntries) {
-        HasClasspathEntries hasClasspathEntries = (HasClasspathEntries)rule;
+      HasClasspathEntries hasClasspathEntries = getHasClasspathEntriesFrom(rule);
+      if (hasClasspathEntries != null) {
         classpathEntries.addAll(hasClasspathEntries.getTransitiveClasspathEntries().values());
       } else {
         throw new HumanReadableException(rule.getFullyQualifiedName() + " is not a java-based" +
@@ -130,7 +135,7 @@ public class AuditClasspathCommand extends AbstractCommandRunner<AuditCommandOpt
       }
     }
 
-    for (String path : classpathEntries) {
+    for (Path path : classpathEntries) {
       getStdOut().println(path);
     }
 
@@ -141,18 +146,19 @@ public class AuditClasspathCommand extends AbstractCommandRunner<AuditCommandOpt
   int printJsonClasspath(PartialGraph partialGraph) throws IOException {
     DependencyGraph graph = partialGraph.getDependencyGraph();
     List<BuildTarget> targets = partialGraph.getTargets();
-    Multimap<String, String> targetClasspaths = TreeMultimap.create();
+    Multimap<String, String> targetClasspaths = LinkedHashMultimap.create();
 
     for (BuildTarget target : targets) {
       BuildRule rule = graph.findBuildRuleByTarget(target);
-      if (!(rule instanceof HasClasspathEntries)) {
+      HasClasspathEntries hasClasspathEntries = getHasClasspathEntriesFrom(rule);
+      if (hasClasspathEntries == null) {
         continue;
       }
-
-      HasClasspathEntries classpathEntries = (HasClasspathEntries) rule;
       targetClasspaths.putAll(
           target.getFullyQualifiedName(),
-          classpathEntries.getTransitiveClasspathEntries().values());
+          Iterables.transform(
+              hasClasspathEntries.getTransitiveClasspathEntries().values(),
+              Functions.toStringFunction()));
     }
 
     ObjectMapper mapper = new ObjectMapper();
@@ -165,6 +171,16 @@ public class AuditClasspathCommand extends AbstractCommandRunner<AuditCommandOpt
     return 0;
   }
 
+  @Nullable
+  private HasClasspathEntries getHasClasspathEntriesFrom(BuildRule rule) {
+    // TODO(natthu): Remove this once buildables and buildrules merge.
+    if (rule instanceof HasClasspathEntries) {
+      return (HasClasspathEntries) rule;
+    } else if (rule.getBuildable() instanceof HasClasspathEntries) {
+      return (HasClasspathEntries) rule.getBuildable();
+    }
+    return null;
+  }
 
   @Override
   String getUsageIntro() {

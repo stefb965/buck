@@ -16,15 +16,19 @@
 
 package com.facebook.buck.android;
 
+import static com.facebook.buck.android.AndroidResource.BuildOutput;
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.java.JavacOptions;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildContext;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.FakeAbstractBuildRuleBuilderParams;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeOnDiskBuildInfo;
 import com.facebook.buck.rules.Sha1HashCode;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.TestSourcePath;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.MoreAsserts;
@@ -55,24 +59,29 @@ public class DummyRDotJavaTest {
   @Test
   public void testBuildSteps() throws IOException {
     BuildRuleResolver ruleResolver = new BuildRuleResolver();
-    AndroidResourceRule resourceRule1 = ruleResolver.buildAndAddToIndex(
-        AndroidResourceRule.newAndroidResourceRuleBuilder(new FakeAbstractBuildRuleBuilderParams())
+    BuildRule resourceRule1 = ruleResolver.addToIndex(
+        AndroidResourceRuleBuilder.newBuilder()
             .setBuildTarget(BuildTargetFactory.newInstance("//android_res/com/example:res1"))
             .setRDotJavaPackage("com.facebook")
-            .setRes(Paths.get("android_res/com/example/res1")));
-    resourceRule1.setBuildOutput(
-        new AndroidResourceRule.BuildOutput(new Sha1HashCode(RESOURCE_RULE1_KEY)));
-    AndroidResourceRule resourceRule2 = ruleResolver.buildAndAddToIndex(
-        AndroidResourceRule.newAndroidResourceRuleBuilder(new FakeAbstractBuildRuleBuilderParams())
+            .setRes(Paths.get("android_res/com/example/res1"))
+            .build()
+    );
+    setAndroidResourceBuildOutput(resourceRule1, RESOURCE_RULE1_KEY);
+    BuildRule resourceRule2 = ruleResolver.addToIndex(
+        AndroidResourceRuleBuilder.newBuilder()
             .setBuildTarget(BuildTargetFactory.newInstance("//android_res/com/example:res2"))
             .setRDotJavaPackage("com.facebook")
-            .setRes(Paths.get("android_res/com/example/res2")));
-    resourceRule2.setBuildOutput(
-        new AndroidResourceRule.BuildOutput(new Sha1HashCode(RESOURCE_RULE2_KEY)));
+            .setRes(Paths.get("android_res/com/example/res2"))
+            .build()
+    );
+    setAndroidResourceBuildOutput(resourceRule2, RESOURCE_RULE2_KEY);
 
     DummyRDotJava dummyRDotJava = new DummyRDotJava(
-        ImmutableList.<HasAndroidResourceDeps>of(resourceRule1, resourceRule2),
-        BuildTargetFactory.newInstance("//java/base:rule"));
+        ImmutableList.of(
+            (HasAndroidResourceDeps) resourceRule1.getBuildable(),
+            (HasAndroidResourceDeps) resourceRule2.getBuildable()),
+        BuildTargetFactory.newInstance("//java/base:rule"),
+        JavacOptions.DEFAULTS);
 
     FakeBuildableContext buildableContext = new FakeBuildableContext();
     List<Step> steps = dummyRDotJava.getBuildSteps(EasyMock.createMock(BuildContext.class),
@@ -86,7 +95,10 @@ public class DummyRDotJavaTest {
     List<String> expectedStepDescriptions = Lists.newArrayList(
         makeCleanDirDescription(rDotJavaSrcFolder),
         mergeAndroidResourcesDescription(
-            ImmutableList.of(resourceRule1, resourceRule2), rDotJavaSrcFolder),
+            ImmutableList.of(
+                (AndroidResource) resourceRule1.getBuildable(),
+                (AndroidResource) resourceRule2.getBuildable()),
+            rDotJavaSrcFolder),
         makeCleanDirDescription(rDotJavaBinFolder),
         makeCleanDirDescription(rDotJavaAbiFolder),
         javacInMemoryDescription(rDotJavaBinFolder, rDotJavaAbiFolder + "/abi"),
@@ -101,15 +113,19 @@ public class DummyRDotJavaTest {
     assertEquals(ImmutableSet.of(Paths.get(rDotJavaBinFolder)),
         buildableContext.getRecordedArtifactDirectories());
 
-    Sha1HashCode expectedSha1 = AndroidResourceRule.HASHER.apply(
-        ImmutableList.<HasAndroidResourceDeps>of(resourceRule1, resourceRule2));
+    Sha1HashCode expectedSha1 = AndroidResource.ABI_HASHER.apply(
+        ImmutableList.of(
+            (HasAndroidResourceDeps) resourceRule1.getBuildable(),
+            (HasAndroidResourceDeps) resourceRule2.getBuildable()));
     assertEquals(expectedSha1, dummyRDotJava.getAbiKeyForDeps());
   }
 
   @Test
   public void testRDotJavaBinFolder() {
-    DummyRDotJava dummyRDotJava = new DummyRDotJava(ImmutableList.<HasAndroidResourceDeps>of(),
-        BuildTargetFactory.newInstance("//java/com/example:library"));
+    DummyRDotJava dummyRDotJava = new DummyRDotJava(
+        ImmutableList.<HasAndroidResourceDeps>of(),
+        BuildTargetFactory.newInstance("//java/com/example:library"),
+        JavacOptions.DEFAULTS);
     assertEquals(Paths.get("buck-out/bin/java/com/example/__library_rdotjava_bin__"),
         dummyRDotJava.getRDotJavaBinFolder());
   }
@@ -118,7 +134,8 @@ public class DummyRDotJavaTest {
   public void testInitializeFromDisk() {
     DummyRDotJava dummyRDotJava = new DummyRDotJava(
         ImmutableList.<HasAndroidResourceDeps>of(),
-        BuildTargetFactory.newInstance("//java/base:rule"));
+        BuildTargetFactory.newInstance("//java/base:rule"),
+        JavacOptions.DEFAULTS);
 
     FakeOnDiskBuildInfo onDiskBuildInfo = new FakeOnDiskBuildInfo();
     String keyHash = Strings.repeat("a", 40);
@@ -135,22 +152,24 @@ public class DummyRDotJavaTest {
 
   private static String javacInMemoryDescription(String rDotJavaClassesFolder,
                                                  String pathToAbiOutputFile) {
-    Set<Path> javaSourceFiles = ImmutableSet.of(
-        Paths.get("buck-out/bin/java/base/__rule_rdotjava_src__/com.facebook/R.java"));
-    return UberRDotJavaUtil.createJavacInMemoryCommandForRDotJavaFiles(
+    Set<SourcePath> javaSourceFiles = ImmutableSet.<SourcePath>of(
+        new TestSourcePath("buck-out/bin/java/base/__rule_rdotjava_src__/com.facebook/R.java"));
+    return UberRDotJavaUtil.createJavacStepForDummyRDotJavaFiles(
         javaSourceFiles,
         Paths.get(rDotJavaClassesFolder),
-        Optional.of(Paths.get(pathToAbiOutputFile)))
+        Optional.of(Paths.get(pathToAbiOutputFile)),
+        /* javacOptions */ JavacOptions.DEFAULTS,
+        /* buildTarget */ null)
         .getDescription(TestExecutionContext.newInstance());
   }
 
   private static String mergeAndroidResourcesDescription(
-      List<AndroidResourceRule> resourceRules,
+      List<AndroidResource> resourceRules,
       String rDotJavaSourceFolder) {
     List<String> sortedSymbolsFiles = FluentIterable.from(resourceRules)
-        .transform(new Function<AndroidResourceRule, Path>() {
+        .transform(new Function<AndroidResource, Path>() {
           @Override
-          public Path apply(AndroidResourceRule input) {
+          public Path apply(AndroidResource input) {
             return input.getPathToTextSymbolsFile();
           }
         })
@@ -158,5 +177,13 @@ public class DummyRDotJavaTest {
         .toList();
     return "android-res-merge " + Joiner.on(' ').join(sortedSymbolsFiles) +
         " -o " + rDotJavaSourceFolder;
+  }
+
+  private void setAndroidResourceBuildOutput(BuildRule resourceRule, String sha1HashCode) {
+    if (resourceRule.getBuildable() instanceof AndroidResource) {
+      ((AndroidResource) resourceRule.getBuildable())
+          .getBuildOutputInitializer()
+          .setBuildOutput(new BuildOutput(new Sha1HashCode(sha1HashCode)));
+    }
   }
 }

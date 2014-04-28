@@ -16,24 +16,15 @@
 
 package com.facebook.buck.parser;
 
-import static org.easymock.EasyMock.createMock;
-import static org.easymock.EasyMock.expect;
-import static org.easymock.EasyMock.replay;
-import static org.easymock.EasyMock.verify;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-import com.facebook.buck.java.DefaultJavaLibraryRule;
 import com.facebook.buck.model.BuildFileTree;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.AbstractBuildRuleBuilder;
 import com.facebook.buck.rules.BuildRuleFactoryParams;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.FakeRuleKeyBuilderFactory;
-import com.facebook.buck.rules.FileSourcePath;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Optional;
@@ -181,106 +172,6 @@ public class BuildRuleFactoryParamsTest {
     // File exists, is in a subdir but does not cross a buck package boundary
     Path relativePath = params.resolveFilePathRelativeToBuildFileDirectory("nobuild/C.java");
     assertEquals("src/com/facebook/nobuild/C.java", relativePath.toString());
-  }
-
-  @Test
-  public void testShouldResolveFilesAsFileSourcePaths() {
-    BuildTarget target = BuildTargetFactory.newInstance("//src/com/facebook:Main");
-
-    BuildRuleFactoryParams params = new BuildRuleFactoryParams(
-        null /* instance */,
-        filesystem,
-        tree,
-        parser,
-        target,
-        new FakeRuleKeyBuilderFactory());
-    AbstractBuildRuleBuilder<?> builder = createMock(AbstractBuildRuleBuilder.class);
-    replay(builder);
-
-    SourcePath first = params.asSourcePath("A.java", builder);
-    assertTrue(first instanceof FileSourcePath);
-    assertEquals("src/com/facebook/A.java", first.asReference());
-
-    verify(builder);
-  }
-
-  @Test
-  public void testShouldResolveAFullyQualifiedTargetAsABuildTargetSourcePath() {
-    BuildTarget target = BuildTargetFactory.newInstance("//src/com/facebook:Main");
-
-    BuildRuleFactoryParams params = new BuildRuleFactoryParams(
-        null /* instance */,
-        filesystem,
-        tree,
-        parser,
-        target,
-        new FakeRuleKeyBuilderFactory());
-    DefaultJavaLibraryRule.Builder builder = createMock(DefaultJavaLibraryRule.Builder.class);
-    expect(builder.addDep(
-        new BuildTarget(
-            "//src/com/facebook",
-            "A")
-        )).andReturn(builder);
-    replay(builder);
-
-    SourcePath first = params.asSourcePath("//src/com/facebook:A", builder);
-    assertTrue(first instanceof BuildTargetSourcePath);
-    assertEquals("//src/com/facebook:A", first.asReference());
-
-    verify(builder);
-  }
-
-  @Test
-  public void testShouldThrowAnExceptionIfTheBuildTargetIsUnknown() {
-    BuildTarget target = BuildTargetFactory.newInstance("//src/com/facebook:Main");
-
-    BuildRuleFactoryParams params = new BuildRuleFactoryParams(
-        null /* instance */,
-        filesystem,
-        tree,
-        parser,
-        target,
-        new FakeRuleKeyBuilderFactory());
-    AbstractBuildRuleBuilder<?> builder = createMock(AbstractBuildRuleBuilder.class);
-    replay(builder);
-
-    try {
-      params.asSourcePath("//does/not:exist", builder);
-      fail("Should not have succeeded");
-    } catch (HumanReadableException e) {
-      assertEquals(
-          "Unable to find build target '//does/not:exist' while parsing definition " +
-              "of //src/com/facebook:Main",
-          e.getMessage());
-    }
-
-    verify(builder);
-  }
-
-  @Test
-  public void testShouldResolveAShortTargetAsABuildTargetSourcePath() {
-    BuildTarget target = BuildTargetFactory.newInstance("//src/com/facebook:Main");
-
-    BuildRuleFactoryParams params = new BuildRuleFactoryParams(
-        null /* instance */,
-        filesystem,
-        tree,
-        parser,
-        target,
-        new FakeRuleKeyBuilderFactory());
-    DefaultJavaLibraryRule.Builder builder = createMock(DefaultJavaLibraryRule.Builder.class);
-    expect(builder.addDep(
-        new BuildTarget(
-            "//src/com/facebook",
-            "works")
-        )).andReturn(builder);
-    replay(builder);
-
-    SourcePath first = params.asSourcePath(":works", builder);
-    assertTrue(first instanceof BuildTargetSourcePath);
-    assertEquals("//src/com/facebook:works", first.asReference());
-
-    verify(builder);
   }
 
   @Test

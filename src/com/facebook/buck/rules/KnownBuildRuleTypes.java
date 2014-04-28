@@ -16,44 +16,51 @@
 
 package com.facebook.buck.rules;
 
-import com.facebook.buck.android.AndroidBinaryBuildRuleFactory;
-import com.facebook.buck.android.AndroidInstrumentationApkRuleFactory;
-import com.facebook.buck.android.AndroidLibraryBuildRuleFactory;
+import com.facebook.buck.android.AndroidBinaryDescription;
+import com.facebook.buck.android.AndroidInstrumentationApkDescription;
+import com.facebook.buck.android.AndroidLibraryDescription;
 import com.facebook.buck.android.AndroidManifestDescription;
-import com.facebook.buck.android.AndroidResourceBuildRuleFactory;
-import com.facebook.buck.android.ApkGenruleBuildRuleFactory;
+import com.facebook.buck.android.AndroidResourceDescription;
+import com.facebook.buck.android.ApkGenruleDescription;
+import com.facebook.buck.android.BuildConfigDescription;
 import com.facebook.buck.android.GenAidlDescription;
-import com.facebook.buck.android.NdkLibraryBuildRuleFactory;
-import com.facebook.buck.android.PrebuiltNativeLibraryBuildRuleFactory;
-import com.facebook.buck.android.RobolectricTestBuildRuleFactory;
+import com.facebook.buck.android.NdkLibraryDescription;
+import com.facebook.buck.android.PrebuiltNativeLibraryDescription;
+import com.facebook.buck.android.RobolectricTestDescription;
+import com.facebook.buck.apple.AppleAssetCatalogDescription;
 import com.facebook.buck.apple.IosBinaryDescription;
 import com.facebook.buck.apple.IosLibraryDescription;
+import com.facebook.buck.apple.IosResourceDescription;
 import com.facebook.buck.apple.IosTestDescription;
+import com.facebook.buck.apple.MacosxBinaryDescription;
+import com.facebook.buck.apple.MacosxFrameworkDescription;
 import com.facebook.buck.apple.XcodeNativeDescription;
 import com.facebook.buck.apple.XcodeProjectConfigDescription;
 import com.facebook.buck.cli.BuckConfig;
-import com.facebook.buck.java.JavaBinaryBuildRuleFactory;
-import com.facebook.buck.java.JavaLibraryBuildRuleFactory;
-import com.facebook.buck.java.JavaTestBuildRuleFactory;
-import com.facebook.buck.java.KeystoreBuildRuleFactory;
-import com.facebook.buck.java.PrebuiltJarBuildRuleFactory;
-import com.facebook.buck.parcelable.GenParcelableBuildRuleFactory;
-import com.facebook.buck.parser.ProjectConfigRuleFactory;
-import com.facebook.buck.python.PythonBinaryBuildRuleFactory;
+import com.facebook.buck.cpp.CppBinaryDescription;
+import com.facebook.buck.cpp.CppLibraryDescription;
+import com.facebook.buck.java.JavaBinaryDescription;
+import com.facebook.buck.java.JavaCompilerEnvironment;
+import com.facebook.buck.java.JavaLibraryDescription;
+import com.facebook.buck.java.JavaTestDescription;
+import com.facebook.buck.java.JavacOptions;
+import com.facebook.buck.java.KeystoreDescription;
+import com.facebook.buck.java.PrebuiltJarDescription;
+import com.facebook.buck.parcelable.GenParcelableDescription;
+import com.facebook.buck.python.PythonBinaryDescription;
 import com.facebook.buck.python.PythonLibraryDescription;
 import com.facebook.buck.shell.ExportFileDescription;
-import com.facebook.buck.shell.GenruleBuildRuleFactory;
-import com.facebook.buck.shell.ShBinaryBuildRuleFactory;
-import com.facebook.buck.shell.ShTestBuildRuleFactory;
+import com.facebook.buck.shell.GenruleDescription;
+import com.facebook.buck.shell.ShBinaryDescription;
+import com.facebook.buck.shell.ShTestDescription;
 import com.facebook.buck.util.AndroidDirectoryResolver;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.ProcessExecutor;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 
 import org.openqa.selenium.buck.javascript.JsBinaryDescription;
 import org.openqa.selenium.buck.javascript.JsFragmentDescription;
@@ -61,8 +68,6 @@ import org.openqa.selenium.buck.javascript.JsLibraryDescription;
 import org.openqa.selenium.buck.mozilla.XpiDescription;
 import org.openqa.selenium.buck.mozilla.XptDescription;
 
-import java.io.IOException;
-import java.nio.file.Path;
 import java.util.Map;
 import java.util.Set;
 
@@ -74,8 +79,7 @@ public class KnownBuildRuleTypes {
   private final ImmutableSet<Description<?>> descriptions;
   private final ImmutableMap<BuildRuleType, BuildRuleFactory<?>> factories;
   private final ImmutableMap<String, BuildRuleType> types;
-  private static final KnownBuildRuleTypes DEFAULT = createDefaultBuilder().build();
-
+  private static volatile KnownBuildRuleTypes defaultRules = null;
 
   private KnownBuildRuleTypes(Set<Description<?>> descriptions,
       Map<BuildRuleType, BuildRuleFactory<?>> factories,
@@ -110,12 +114,94 @@ public class KnownBuildRuleTypes {
     return new Builder();
   }
 
-  public static KnownBuildRuleTypes getDefault() {
-    return DEFAULT;
+  @VisibleForTesting
+  static void resetDefaultInstance() {
+    defaultRules = null;
   }
 
-  public static Builder createDefaultBuilder() {
+  @VisibleForTesting
+  static KnownBuildRuleTypes replaceDefaultInstance(
+      BuckConfig config,
+      AndroidDirectoryResolver androidDirectoryResolver,
+      JavaCompilerEnvironment javacEnv) {
+    resetDefaultInstance();
+    return createInstance(config, androidDirectoryResolver, javacEnv);
+  }
+
+
+  public static KnownBuildRuleTypes createInstance(
+      BuckConfig config,
+      AndroidDirectoryResolver androidDirectoryResolver,
+      JavaCompilerEnvironment javacEnv) {
+    // Fast path
+    if (defaultRules == null) {
+      // Slow path
+      synchronized (KnownBuildRuleTypes.class) {
+        if (defaultRules == null) {
+          defaultRules = createBuilder(config, androidDirectoryResolver, javacEnv).build();
+        }
+      }
+    }
+
+    return defaultRules;
+  }
+
+  @VisibleForTesting
+  static Builder createBuilder(
+      BuckConfig config,
+      AndroidDirectoryResolver androidDirectoryResolver,
+      JavaCompilerEnvironment javacEnv) {
+
+    Optional<String> ndkVersion = config.getNdkVersion();
+    // If a NDK version isn't specified, we've got to reach into the runtime environment to find
+    // out which one we will end up using.
+    if (!ndkVersion.isPresent()) {
+      ndkVersion = androidDirectoryResolver.getNdkVersion();
+    }
+
     Builder builder = builder();
+
+    JavacOptions androidBinaryOptions = JavacOptions.builder(JavacOptions.DEFAULTS)
+        .setJavaCompilerEnviornment(javacEnv)
+        .build();
+    builder.register(new AndroidBinaryDescription(
+            androidBinaryOptions,
+            config.getProguardJarOverride()));
+    builder.register(new AndroidInstrumentationApkDescription());
+    builder.register(new AndroidLibraryDescription(javacEnv));
+    builder.register(new AndroidManifestDescription());
+    builder.register(new AndroidResourceDescription());
+    builder.register(new ApkGenruleDescription());
+    builder.register(new AppleAssetCatalogDescription());
+    builder.register(new BuildConfigDescription());
+    builder.register(new CppBinaryDescription());
+    builder.register(new CppLibraryDescription());
+    builder.register(new ExportFileDescription());
+    builder.register(new GenruleDescription());
+    builder.register(new GenAidlDescription());
+    builder.register(new GenParcelableDescription());
+    builder.register(new KeystoreDescription());
+    builder.register(new JavaBinaryDescription());
+    builder.register(new JavaLibraryDescription(javacEnv));
+    builder.register(new JavaTestDescription(javacEnv));
+    builder.register(new IosBinaryDescription());
+    builder.register(new IosLibraryDescription());
+    builder.register(new IosResourceDescription());
+    builder.register(new IosTestDescription());
+    builder.register(new JavaBinaryDescription());
+    builder.register(new MacosxBinaryDescription());
+    builder.register(new MacosxFrameworkDescription());
+    builder.register(new NdkLibraryDescription(ndkVersion));
+    builder.register(new PrebuiltJarDescription());
+    builder.register(new PrebuiltNativeLibraryDescription());
+    builder.register(new ProjectConfigDescription());
+    builder.register(new PythonBinaryDescription());
+    builder.register(new PythonLibraryDescription());
+    builder.register(new RobolectricTestDescription(javacEnv));
+    builder.register(new ShBinaryDescription());
+    builder.register(new ShTestDescription());
+    builder.register(new XcodeNativeDescription());
+    builder.register(new XcodeProjectConfigDescription());
 
     // TODO(simons): Added for selenium. Move to that project once the plugin API works.
     builder.register(new JsBinaryDescription());
@@ -124,105 +210,18 @@ public class KnownBuildRuleTypes {
     builder.register(new XpiDescription());
     builder.register(new XptDescription());
 
-    builder.register(new AndroidManifestDescription());
-    builder.register(new ExportFileDescription());
-    builder.register(new GenAidlDescription());
-    builder.register(new IosBinaryDescription());
-    builder.register(new IosLibraryDescription());
-    builder.register(new IosTestDescription());
-    builder.register(new PythonLibraryDescription());
-    builder.register(new XcodeProjectConfigDescription());
-    builder.register(new XcodeNativeDescription());
-
-    // TODO(simons): Consider once more whether we actually want to have default rules
-    builder.register(BuildRuleType.ANDROID_BINARY, new AndroidBinaryBuildRuleFactory());
-    builder.register(BuildRuleType.ANDROID_INSTRUMENTATION_APK,
-        new AndroidInstrumentationApkRuleFactory());
-    builder.register(BuildRuleType.ANDROID_LIBRARY, new AndroidLibraryBuildRuleFactory());
-    builder.register(BuildRuleType.ANDROID_RESOURCE, new AndroidResourceBuildRuleFactory());
-    builder.register(BuildRuleType.APK_GENRULE, new ApkGenruleBuildRuleFactory());
-    builder.register(BuildRuleType.GENRULE, new GenruleBuildRuleFactory());
-    builder.register(BuildRuleType.JAVA_LIBRARY, new JavaLibraryBuildRuleFactory());
-    builder.register(BuildRuleType.JAVA_TEST, new JavaTestBuildRuleFactory());
-    builder.register(BuildRuleType.JAVA_BINARY, new JavaBinaryBuildRuleFactory());
-    builder.register(BuildRuleType.KEYSTORE, new KeystoreBuildRuleFactory());
-    builder.register(BuildRuleType.GEN_PARCELABLE, new GenParcelableBuildRuleFactory());
-    builder.register(BuildRuleType.NDK_LIBRARY,
-        new NdkLibraryBuildRuleFactory(Optional.<String>absent()));
-    builder.register(BuildRuleType.PREBUILT_JAR, new PrebuiltJarBuildRuleFactory());
-    builder.register(BuildRuleType.PREBUILT_NATIVE_LIBRARY,
-        new PrebuiltNativeLibraryBuildRuleFactory());
-    builder.register(BuildRuleType.PROJECT_CONFIG, new ProjectConfigRuleFactory());
-    builder.register(BuildRuleType.PYTHON_BINARY, new PythonBinaryBuildRuleFactory());
-    builder.register(BuildRuleType.ROBOLECTRIC_TEST, new RobolectricTestBuildRuleFactory());
-    builder.register(BuildRuleType.SH_BINARY, new ShBinaryBuildRuleFactory());
-    builder.register(BuildRuleType.SH_TEST, new ShTestBuildRuleFactory());
-
-    return builder;
-  }
-
-  public static KnownBuildRuleTypes getConfigured(
-      BuckConfig buckConfig,
-      ProcessExecutor executor,
-      AndroidDirectoryResolver androidDirectoryResolver) {
-    return createConfiguredBuilder(buckConfig, executor, androidDirectoryResolver).build();
-  }
-
-  public static Builder createConfiguredBuilder(
-      BuckConfig buckConfig,
-      ProcessExecutor executor,
-      AndroidDirectoryResolver androidDirectoryResolver) {
-    Optional<Path> javac = buckConfig.getJavac();
-
-    Optional<String> javacVersion = Optional.absent();
-    if (javac.isPresent()) {
-      try {
-        ProcessExecutor.Result versionResult = executor.execute(
-            Runtime.getRuntime().exec(javac.get() + " -version"));
-        if (versionResult.getExitCode() == 0) {
-          javacVersion = Optional.of(versionResult.getStdout());
-        } else {
-          throw new HumanReadableException(versionResult.getStderr());
-        }
-      } catch (IOException e) {
-        throw new HumanReadableException("Could not run " + javac.get() + " -version");
-      }
-    }
-
-    Builder builder = createDefaultBuilder();
-    builder.register(BuildRuleType.JAVA_LIBRARY,
-        new JavaLibraryBuildRuleFactory(javac, javacVersion));
-    builder.register(BuildRuleType.ANDROID_LIBRARY,
-        new AndroidLibraryBuildRuleFactory(javac, javacVersion));
-
-    Optional<String> ndkVersion = buckConfig.getNdkVersion();
-    // If a NDK version isn't specified, we've got to reach into the runtime environment to find
-    // out which one we will end up using.
-    if (!ndkVersion.isPresent()) {
-      ndkVersion = androidDirectoryResolver.getNdkVersion();
-    }
-
-    builder.register(BuildRuleType.NDK_LIBRARY, new NdkLibraryBuildRuleFactory(ndkVersion));
-
     return builder;
   }
 
   public static class Builder {
-    private final Set<Description<?>> descriptions;
+    private final Map<BuildRuleType, Description<?>> descriptions;
     private final Map<BuildRuleType, BuildRuleFactory<?>> factories;
     private final Map<String, BuildRuleType> types;
 
     protected Builder() {
-      this.descriptions = Sets.newConcurrentHashSet();
+      this.descriptions = Maps.newConcurrentMap();
       this.factories = Maps.newConcurrentMap();
       this.types = Maps.newConcurrentMap();
-    }
-
-    public void register(BuildRuleType type, BuildRuleFactory<?> factory) {
-      Preconditions.checkNotNull(type);
-      Preconditions.checkNotNull(factory);
-      types.put(type.getName(), type);
-      factories.put(type, factory);
     }
 
     public void register(Description<?> description) {
@@ -230,11 +229,11 @@ public class KnownBuildRuleTypes {
       BuildRuleType type = description.getBuildRuleType();
       types.put(type.getName(), type);
       factories.put(type, new DescribedRuleFactory<>(description));
-      descriptions.add(description);
+      descriptions.put(type, description);
     }
 
     public KnownBuildRuleTypes build() {
-      return new KnownBuildRuleTypes(descriptions, factories, types);
+      return new KnownBuildRuleTypes(ImmutableSet.copyOf(descriptions.values()), factories, types);
     }
   }
 }

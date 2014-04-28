@@ -19,23 +19,26 @@ package com.facebook.buck.cli;
 import static com.facebook.buck.util.BuckConstant.GEN_DIR;
 import static org.junit.Assert.assertEquals;
 
-import com.facebook.buck.android.AndroidBinaryRule;
+import com.facebook.buck.android.AndroidBinaryBuilder;
+import com.facebook.buck.android.AndroidLibraryBuilder;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
-import com.facebook.buck.java.DefaultJavaLibraryRule;
-import com.facebook.buck.java.JavaTestRule;
+import com.facebook.buck.java.JavaLibraryBuilder;
+import com.facebook.buck.java.JavaTestBuilder;
 import com.facebook.buck.java.Keystore;
+import com.facebook.buck.java.KeystoreBuilder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.PartialGraph;
 import com.facebook.buck.parser.PartialGraphFactory;
 import com.facebook.buck.rules.ArtifactCache;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultKnownBuildRuleTypes;
 import com.facebook.buck.rules.DependencyGraph;
-import com.facebook.buck.rules.FakeAbstractBuildRuleBuilderParams;
-import com.facebook.buck.rules.FileSourcePath;
 import com.facebook.buck.rules.KnownBuildRuleTypes;
 import com.facebook.buck.rules.NoopArtifactCache;
+import com.facebook.buck.rules.TestSourcePath;
 import com.facebook.buck.testutil.BuckTestConstant;
 import com.facebook.buck.testutil.RuleMap;
 import com.facebook.buck.testutil.TestConsole;
@@ -47,6 +50,7 @@ import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
@@ -72,7 +76,8 @@ public class AuditClasspathCommandTest {
     console = new TestConsole();
     ProjectFilesystem projectFilesystem = new ProjectFilesystem(projectRoot);
     AndroidDirectoryResolver androidDirectoryResolver = new FakeAndroidDirectoryResolver();
-    KnownBuildRuleTypes buildRuleTypes = KnownBuildRuleTypes.getDefault();
+    KnownBuildRuleTypes buildRuleTypes =
+        DefaultKnownBuildRuleTypes.getDefaultKnownBuildRuleTypes(projectFilesystem);
     ArtifactCache artifactCache = new NoopArtifactCache();
     BuckEventBus eventBus = BuckEventBusFactory.newInstance();
 
@@ -113,36 +118,37 @@ public class AuditClasspathCommandTest {
     assertEquals("", console.getTextWrittenToStdErr());
 
     // Add build rules such that all implementations of HasClasspathEntries are tested.
-    ruleResolver.buildAndAddToIndex(
-        DefaultJavaLibraryRule.newJavaLibraryRuleBuilder(new FakeAbstractBuildRuleBuilderParams())
-        .setBuildTarget(BuildTargetFactory.newInstance("//:test-java-library"))
-        .addSrc(Paths.get("src/com/facebook/TestJavaLibrary.java")));
-    ruleResolver.buildAndAddToIndex(
-        DefaultJavaLibraryRule.newJavaLibraryRuleBuilder(new FakeAbstractBuildRuleBuilderParams())
-        .setBuildTarget(BuildTargetFactory.newInstance("//:test-android-library"))
+    BuildRule javaLibrary = JavaLibraryBuilder
+        .createBuilder(BuildTargetFactory.newInstance("//:test-java-library"))
+        .addSrc(Paths.get("src/com/facebook/TestJavaLibrary.java"))
+        .build(ruleResolver);
+
+    BuildRule androidLibrary = AndroidLibraryBuilder.createBuilder(
+        BuildTargetFactory.newInstance(
+            "//:test-android-library"))
         .addSrc(Paths.get("src/com/facebook/TestAndroidLibrary.java"))
-        .addDep(BuildTargetFactory.newInstance("//:test-java-library")));
+        .addDep(javaLibrary)
+        .build(ruleResolver);
+
     BuildTarget keystoreBuildTarget = BuildTargetFactory.newInstance("//:keystore");
-    ruleResolver.buildAndAddToIndex(
-        Keystore.newKeystoreBuilder(new FakeAbstractBuildRuleBuilderParams())
-        .setBuildTarget(keystoreBuildTarget)
+    Keystore keystore = (Keystore) KeystoreBuilder.createBuilder(keystoreBuildTarget)
         .setStore(Paths.get("debug.keystore"))
-        .setProperties(Paths.get("keystore.properties")));
-    ruleResolver.buildAndAddToIndex(
-        AndroidBinaryRule.newAndroidBinaryRuleBuilder(new FakeAbstractBuildRuleBuilderParams())
+        .setProperties(Paths.get("keystore.properties"))
+        .build(ruleResolver)
+        .getBuildable();
+    AndroidBinaryBuilder.newBuilder()
         .setBuildTarget(BuildTargetFactory.newInstance("//:test-android-binary"))
-        .setManifest(new FileSourcePath("AndroidManifest.xml"))
+        .setManifest(new TestSourcePath("AndroidManifest.xml"))
         .setTarget("Google Inc.:Google APIs:16")
-        .setKeystore(keystoreBuildTarget)
-        .addClasspathDep(BuildTargetFactory.newInstance("//:test-android-library"))
-        .addClasspathDep(BuildTargetFactory.newInstance("//:test-java-library")));
-    ruleResolver.buildAndAddToIndex(
-        JavaTestRule.newJavaTestRuleBuilder(new FakeAbstractBuildRuleBuilderParams())
-            .setBuildTarget(BuildTargetFactory.newInstance("//:project-tests"))
-            .addDep(BuildTargetFactory.newInstance("//:test-java-library"))
-            .setSourceUnderTest(
-                ImmutableSet.of(BuildTargetFactory.newInstance("//:test-java-library")))
-            .addSrc(Paths.get("src/com/facebook/test/ProjectTests.java")));
+        .setKeystore(keystore)
+        .setOriginalDeps(ImmutableSortedSet.of(androidLibrary, javaLibrary))
+        .build(ruleResolver);
+    JavaTestBuilder.createBuilder(BuildTargetFactory.newInstance("//:project-tests"))
+        .addDep(javaLibrary)
+        .setSourceUnderTest(
+            ImmutableSet.of(javaLibrary.getBuildTarget()))
+        .addSrc(Paths.get("src/com/facebook/test/ProjectTests.java"))
+        .build(ruleResolver);
     PartialGraph partialGraph2 = createGraphFromBuildRules(ruleResolver, targets);
     auditClasspathCommand.printClasspath(partialGraph2);
 
@@ -162,8 +168,7 @@ public class AuditClasspathCommandTest {
         Arrays.asList(
             GEN_DIR + "/lib__test-android-library__output/test-android-library.jar",
             GEN_DIR + "/lib__test-java-library__output/test-java-library.jar"
-        )
-    );
+        ));
     String expectedClasspath = Joiner.on("\n").join(expectedPaths) + "\n";
 
     assertEquals(expectedClasspath, console.getTextWrittenToStdOut());
@@ -190,8 +195,8 @@ public class AuditClasspathCommandTest {
       "{",
       "\"//:test-android-library\":",
       "[",
-      "\"buck-out/gen/lib__test-android-library__output/test-android-library.jar\",",
-      "\"buck-out/gen/lib__test-java-library__output/test-java-library.jar\"",
+      "\"buck-out/gen/lib__test-java-library__output/test-java-library.jar\",",
+      "\"buck-out/gen/lib__test-android-library__output/test-android-library.jar\"",
       "],",
       "\"//:test-java-library\":",
       "[",
@@ -207,15 +212,14 @@ public class AuditClasspathCommandTest {
         "//:test-android-library",
         "//:test-java-library");
 
-    ruleResolver.buildAndAddToIndex(
-        DefaultJavaLibraryRule.newJavaLibraryRuleBuilder(new FakeAbstractBuildRuleBuilderParams())
-            .setBuildTarget(BuildTargetFactory.newInstance("//:test-java-library"))
-            .addSrc(Paths.get("src/com/facebook/TestJavaLibrary.java")));
-    ruleResolver.buildAndAddToIndex(
-        DefaultJavaLibraryRule.newJavaLibraryRuleBuilder(new FakeAbstractBuildRuleBuilderParams())
-            .setBuildTarget(BuildTargetFactory.newInstance("//:test-android-library"))
-            .addSrc(Paths.get("src/com/facebook/TestAndroidLibrary.java"))
-            .addDep(BuildTargetFactory.newInstance("//:test-java-library")));
+    BuildRule library = JavaLibraryBuilder
+        .createBuilder(BuildTargetFactory.newInstance("//:test-java-library"))
+        .addSrc(Paths.get("src/com/facebook/TestJavaLibrary.java"))
+        .build(ruleResolver);
+    AndroidLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:test-android-library"))
+        .addSrc(Paths.get("src/com/facebook/TestAndroidLibrary.java"))
+        .addDep(library)
+        .build(ruleResolver);
 
     PartialGraph partialGraph = createGraphFromBuildRules(ruleResolver, targets);
     auditClasspathCommand.printJsonClasspath(partialGraph);

@@ -16,20 +16,23 @@
 
 package com.facebook.buck.android;
 
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.rules.Sha1HashCode;
 import com.google.common.base.Function;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
 
 import java.nio.file.Path;
+import java.util.Collection;
+
+import javax.annotation.Nullable;
 
 /**
  * Indicates that this class may have android resources that should be packaged into an APK.
  */
-public interface HasAndroidResourceDeps {
+public interface HasAndroidResourceDeps extends HasBuildTarget {
 
-  public static final Function<Iterable<HasAndroidResourceDeps>, Sha1HashCode> HASHER =
+  public static final Function<Iterable<HasAndroidResourceDeps>, Sha1HashCode> ABI_HASHER =
       new Function<Iterable<HasAndroidResourceDeps>, Sha1HashCode>() {
         @Override
         public Sha1HashCode apply(Iterable<HasAndroidResourceDeps> deps) {
@@ -64,12 +67,26 @@ public interface HasAndroidResourceDeps {
   /**
    * @return path to a directory containing Android resources.
    */
+  @Nullable
   Path getRes();
+
+  /**
+   * @return path to a directory containing Android assets.
+   */
+  @Nullable
+  Path getAssets();
+
+  /**
+   * See {@link com.facebook.buck.rules.Buildable#getInputsToCompareToOutput()}
+   *
+   * This is used by buildables that need to be rebuilt if any of the inputs of the android
+   * resource rules that they depend on change. This allows the buildables to avoid waiting for
+   * this rule to finish.
+   */
+  Collection<Path> getInputsToCompareToOutput();
 
   /**
    * @return boolean indicating whether this resource rule has whitelisted strings.
    */
   boolean hasWhitelistedStrings();
-
-  BuildTarget getBuildTarget();
 }

@@ -18,12 +18,18 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.graph.MutableDirectedGraph;
 import com.facebook.buck.graph.TopologicalSort;
+import com.facebook.buck.java.JavaLibraryDescription;
+import com.facebook.buck.java.JavaTestDescription;
 import com.facebook.buck.java.JavacInMemoryStep;
 import com.facebook.buck.java.JavacOptions;
+import com.facebook.buck.java.JavacStep;
+import com.facebook.buck.java.JavacStepUtil;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractDependencyVisitor;
 import com.facebook.buck.rules.BuildDependencies;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleType;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.step.Step;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
@@ -48,14 +54,14 @@ import java.util.Set;
 public class UberRDotJavaUtil {
 
   private static final ImmutableSet<BuildRuleType> TRAVERSABLE_TYPES = ImmutableSet.of(
-      BuildRuleType.ANDROID_BINARY,
-      BuildRuleType.ANDROID_INSTRUMENTATION_APK,
-      BuildRuleType.ANDROID_LIBRARY,
-      BuildRuleType.ANDROID_RESOURCE,
-      BuildRuleType.APK_GENRULE,
-      BuildRuleType.JAVA_LIBRARY,
-      BuildRuleType.JAVA_TEST,
-      BuildRuleType.ROBOLECTRIC_TEST
+      AndroidBinaryDescription.TYPE,
+      AndroidInstrumentationApkDescription.TYPE,
+      AndroidLibraryDescription.TYPE,
+      AndroidResourceDescription.TYPE,
+      ApkGenruleDescription.TYPE,
+      JavaLibraryDescription.TYPE,
+      JavaTestDescription.TYPE,
+      RobolectricTestDescription.TYPE
   );
 
 
@@ -63,23 +69,29 @@ public class UberRDotJavaUtil {
   private UberRDotJavaUtil() {}
 
   /**
-   * Finds the transitive set of {@code rule}'s {@link AndroidResourceRule} dependencies with
+   * Finds the transitive set of {@code rule}'s {@link AndroidResource} dependencies with
    * non-null {@code res} directories, which can also include {@code rule} itself.
    * This set will be returned as an {@link ImmutableList} with the rules topologically sorted.
    * Rules will be ordered from least dependent to most dependent.
    */
   public static ImmutableList<HasAndroidResourceDeps> getAndroidResourceDeps(BuildRule rule) {
-    return getAndroidResourceDeps(Collections.singleton(rule));
+    return getAndroidResourceDeps(Collections.singleton(rule), /*includeAssetOnlyRules */ false);
+  }
+
+  public static ImmutableList<HasAndroidResourceDeps> getAndroidResourceDeps(
+      Collection<BuildRule> rules) {
+    return getAndroidResourceDeps(rules, /* includeAssetOnlyRules */ false);
   }
 
   /**
-   * Finds the transitive set of {@code rules}' {@link AndroidResourceRule} dependencies with
+   * Finds the transitive set of {@code rules}' {@link AndroidResource} dependencies with
    * non-null {@code res} directories, which can also include any of the {@code rules} themselves.
    * This set will be returned as an {@link ImmutableList} with the rules topologically sorted.
    * Rules will be ordered from least dependent to most dependent.
    */
   public static ImmutableList<HasAndroidResourceDeps> getAndroidResourceDeps(
-      Collection<BuildRule> rules) {
+      Collection<BuildRule> rules,
+      final boolean includeAssetOnlyRules) {
     // This visitor finds all AndroidResourceRules that are reachable from the specified rules via
     // rules with types in the TRAVERSABLE_TYPES collection. It also builds up the dependency graph
     // that was traversed to find the AndroidResourceRules.
@@ -90,11 +102,16 @@ public class UberRDotJavaUtil {
 
       @Override
       public ImmutableSet<BuildRule> visit(BuildRule rule) {
+        HasAndroidResourceDeps androidResourceRule = null;
         if (rule instanceof HasAndroidResourceDeps) {
-          HasAndroidResourceDeps androidResourceRule = (HasAndroidResourceDeps)rule;
-          if (androidResourceRule.getRes() != null) {
-            androidResources.add(androidResourceRule);
-          }
+          androidResourceRule = (HasAndroidResourceDeps) rule;
+        } else if (rule.getBuildable() instanceof HasAndroidResourceDeps) {
+          androidResourceRule = (HasAndroidResourceDeps) rule.getBuildable();
+        }
+        if (androidResourceRule != null &&
+            (androidResourceRule.getRes() != null ||
+                (includeAssetOnlyRules && androidResourceRule.getAssets() != null))) {
+          androidResources.add(androidResourceRule);
         }
 
         // Only certain types of rules should be considered as part of this traversal.
@@ -119,7 +136,8 @@ public class UberRDotJavaUtil {
     Predicate<BuildRule> inclusionPredicate = new Predicate<BuildRule>() {
       @Override
       public boolean apply(BuildRule rule) {
-        return allAndroidResourceRules.contains(rule);
+        return allAndroidResourceRules.contains(rule) ||
+            allAndroidResourceRules.contains(rule.getBuildable());
       }
     };
     ImmutableList<BuildRule> sortedAndroidResourceRules = TopologicalSort.sort(mutableGraph,
@@ -138,32 +156,46 @@ public class UberRDotJavaUtil {
       new Function<BuildRule, HasAndroidResourceDeps>() {
         @Override
         public HasAndroidResourceDeps apply(BuildRule rule) {
-          return (HasAndroidResourceDeps)rule;
+          return (rule instanceof HasAndroidResourceDeps)
+              ? (HasAndroidResourceDeps) rule
+              : (HasAndroidResourceDeps) rule.getBuildable();
         }
       };
 
-  static JavacInMemoryStep createJavacInMemoryCommandForRDotJavaFiles(
-      Set<Path> javaSourceFilePaths, Path outputDirectory) {
-    return createJavacInMemoryCommandForRDotJavaFiles(
-        javaSourceFilePaths, outputDirectory, Optional.<Path>absent());
+  static JavacStep createJavacStepForUberRDotJavaFiles(
+      Set<SourcePath> javaSourceFilePaths,
+      Path outputDirectory,
+      JavacOptions javacOptions,
+      BuildTarget buildTarget) {
+    return createJavacStepForDummyRDotJavaFiles(
+        javaSourceFilePaths,
+        outputDirectory,
+        /* pathToOutputAbiFile */ Optional.<Path>absent(),
+        javacOptions,
+        buildTarget);
   }
 
-  static JavacInMemoryStep createJavacInMemoryCommandForRDotJavaFiles(
-      Set<Path> javaSourceFilePaths,
+  static JavacStep createJavacStepForDummyRDotJavaFiles(
+      Set<? extends SourcePath> javaSourceFilePaths,
       Path outputDirectory,
-      Optional<Path> pathToOutputAbiFile) {
+      Optional<Path> pathToOutputAbiFile,
+      JavacOptions javacOptions,
+      BuildTarget buildTarget) {
 
-    ImmutableSet<String> classpathEntries = ImmutableSet.of();
-    return new JavacInMemoryStep(
+    return JavacStepUtil.createJavacStep(
         outputDirectory,
         javaSourceFilePaths,
-        ImmutableSet.<String>of(),
-        classpathEntries,
-        JavacOptions.DEFAULTS,
+        ImmutableSet.<Path>of(),
+        /* classpathEntries */ ImmutableSet.<Path>of(),
+        JavacOptions.builder(JavacOptions.DEFAULTS)
+            .setJavaCompilerEnviornment(javacOptions.getJavaCompilerEnvironment())
+            .build(),
         pathToOutputAbiFile,
         Optional.<String>absent(),
         BuildDependencies.FIRST_ORDER_ONLY,
         Optional.<JavacInMemoryStep.SuggestBuildRules>absent(),
-        /* pathToSrcsList */ Optional.<Path>absent());
+        /* pathToSrcsList */ Optional.<Path>absent(),
+        buildTarget,
+        /* workingDirectory */ Optional.<Path>absent());
   }
 }

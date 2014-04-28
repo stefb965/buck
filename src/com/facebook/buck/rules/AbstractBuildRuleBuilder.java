@@ -18,16 +18,10 @@ package com.facebook.buck.rules;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetPattern;
-import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.Beta;
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Function;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Sets;
 
-import java.nio.file.Path;
 import java.util.Collections;
 import java.util.Set;
 
@@ -37,14 +31,6 @@ public abstract class AbstractBuildRuleBuilder<T extends BuildRule> implements B
   protected BuildTarget buildTarget;
   protected Set<BuildTarget> deps = Sets.newHashSet();
   protected Set<BuildTargetPattern> visibilityPatterns = Sets.newHashSet();
-
-  private final Function<Path, Path> pathRelativizer;
-  private final RuleKeyBuilderFactory ruleKeyBuilderFactory;
-
-  protected AbstractBuildRuleBuilder(AbstractBuildRuleBuilderParams params) {
-    this.pathRelativizer = params.getPathAbsolutifier();
-    this.ruleKeyBuilderFactory = params.getRuleKeyBuilderFactory();
-  }
 
   /**
    * This method must support being able to be invoked multiple times, as this builder will be
@@ -74,40 +60,6 @@ public abstract class AbstractBuildRuleBuilder<T extends BuildRule> implements B
     return Collections.unmodifiableSet(deps);
   }
 
-  protected ImmutableSortedSet<BuildRule> getDepsAsBuildRules(
-      final BuildRuleResolver ruleResolver) {
-    return getBuildTargetsAsBuildRules(ruleResolver, getDeps(), false /* allowNonExistentRule */);
-  }
-
-  protected ImmutableSortedSet<BuildRule> getBuildTargetsAsBuildRules(
-      BuildRuleResolver ruleResolver, Iterable<BuildTarget> buildTargets) {
-    return getBuildTargetsAsBuildRules(ruleResolver,
-        buildTargets,
-        /* allowNonExistentRule */ false);
-  }
-
-  @VisibleForTesting
-  protected ImmutableSortedSet<BuildRule> getBuildTargetsAsBuildRules(
-      BuildRuleResolver ruleResolver,
-      Iterable<BuildTarget> buildTargets,
-      boolean allowNonExistentRule) {
-    BuildTarget invokingBuildTarget = Preconditions.checkNotNull(getBuildTarget());
-
-    ImmutableSortedSet.Builder<BuildRule> buildRules = ImmutableSortedSet.naturalOrder();
-
-    for (BuildTarget target : buildTargets) {
-      BuildRule buildRule = ruleResolver.get(target);
-      if (buildRule != null) {
-        buildRules.add(buildRule);
-      } else if (!allowNonExistentRule) {
-        throw new HumanReadableException("No rule for %s found when processing %s",
-            target, invokingBuildTarget.getFullyQualifiedName());
-      }
-    }
-
-    return buildRules.build();
-  }
-
   public AbstractBuildRuleBuilder<T> addVisibilityPattern(BuildTargetPattern visibilityPattern) {
     visibilityPatterns.add(visibilityPattern);
     return this;
@@ -116,13 +68,5 @@ public abstract class AbstractBuildRuleBuilder<T extends BuildRule> implements B
   @Override
   public ImmutableSet<BuildTargetPattern> getVisibilityPatterns() {
     return ImmutableSet.copyOf(visibilityPatterns);
-  }
-
-  protected BuildRuleParams createBuildRuleParams(BuildRuleResolver ruleResolver) {
-    return new BuildRuleParams(getBuildTarget(),
-        getDepsAsBuildRules(ruleResolver),
-        getVisibilityPatterns(),
-        pathRelativizer,
-        ruleKeyBuilderFactory);
   }
 }

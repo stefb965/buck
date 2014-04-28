@@ -19,13 +19,11 @@ package com.facebook.buck.rules;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
-import com.facebook.buck.java.DefaultJavaLibraryRule;
+import com.facebook.buck.java.JavaLibraryBuilder;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.util.ProjectFilesystem;
+import com.facebook.buck.model.BuildTargetFactory;
 
 import org.junit.Test;
-
-import java.io.File;
 
 public class BuildRuleResolverTest {
 
@@ -33,28 +31,16 @@ public class BuildRuleResolverTest {
   public void testBuildAndAddToIndexRejectsDuplicateBuildTarget() {
     BuildRuleResolver buildRuleResolver = new BuildRuleResolver();
 
-    ProjectFilesystem projectFilesystem = new ProjectFilesystem(new File("."));
-    RuleKeyBuilderFactory ruleKeyBuilderFactory = new FakeRuleKeyBuilderFactory();
-    AbstractBuildRuleBuilderParams params = new DefaultBuildRuleBuilderParams(projectFilesystem,
-        ruleKeyBuilderFactory);
-
-    DefaultJavaLibraryRule.Builder builder1 = DefaultJavaLibraryRule.newJavaLibraryRuleBuilder(
-        params);
-    BuildTarget buildTarget = new BuildTarget("//foo", "bar");
-    builder1.setBuildTarget(buildTarget);
-    buildRuleResolver.buildAndAddToIndex(builder1);
-
-    DefaultJavaLibraryRule.Builder builder2 = DefaultJavaLibraryRule.newJavaLibraryRuleBuilder(
-        params);
-    builder2.setBuildTarget(buildTarget);
+    BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
+    JavaLibraryBuilder.createBuilder(target).build(buildRuleResolver);
 
     // A BuildRuleResolver should allow only one entry for a BuildTarget.
     try {
-      buildRuleResolver.buildAndAddToIndex(builder2);
+      JavaLibraryBuilder.createBuilder(target).build(buildRuleResolver);
       fail("Should throw IllegalStateException.");
     } catch (IllegalStateException e) {
       assertEquals(
-          "A build rule for this target has already been created: " + buildTarget,
+          "A build rule for this target has already been created: " + target,
           e.getMessage());
     }
   }

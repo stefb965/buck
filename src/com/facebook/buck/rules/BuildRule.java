@@ -18,22 +18,25 @@ package com.facebook.buck.rules;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetPattern;
+import com.facebook.buck.model.HasBuildTarget;
 import com.fasterxml.jackson.annotation.JsonAutoDetect;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.util.concurrent.ListenableFuture;
 
-import java.io.IOException;
 import java.nio.file.Path;
 
-import javax.annotation.Nullable;
-
+// This should be Comparable<BuildRule>, but we need to also compare with PrebuiltJar (and, later,
+// the other java library rules once they've migrated to Buildable. As such, the only sane interface
+// to compare to is HasBuildTarget. Ultimately, when we collapse BuildRule and Buildable, this
+// should be Comparable<Buildable>
+// TODO(simons): Fix the horror of Comparable.
 @JsonAutoDetect(fieldVisibility = JsonAutoDetect.Visibility.NONE,
     getterVisibility = JsonAutoDetect.Visibility.NONE,
     setterVisibility = JsonAutoDetect.Visibility.NONE)
-public interface BuildRule extends Comparable<BuildRule> {
+public interface BuildRule extends Comparable<HasBuildTarget>, HasBuildTarget {
 
+  @Override
   public BuildTarget getBuildTarget();
 
   @JsonProperty("name")
@@ -44,7 +47,6 @@ public interface BuildRule extends Comparable<BuildRule> {
 
   public BuildableProperties getProperties();
 
-  @Nullable
   public Buildable getBuildable();
 
   /**
@@ -75,23 +77,10 @@ public interface BuildRule extends Comparable<BuildRule> {
   public Iterable<Path> getInputs();
 
   /**
-   * This method must be idempotent.
-   */
-  public ListenableFuture<BuildRuleSuccess> build(BuildContext context);
-
-  /**
-   * Returns the way in which this rule was built.
-   * <p>
-   * <strong>IMPORTANT:</strong> This rule must have finished building before this method is
-   * invoked.
-   */
-  public BuildRuleSuccess.Type getBuildResultType();
-
-  /**
    * @return key based on the BuildRule's state, including the transitive closure of its
    *     dependencies' keys.
    */
-  public RuleKey getRuleKey() throws IOException;
+  public RuleKey getRuleKey();
 
   /**
    * Normally, a {@link RuleKey} is a function of the {@link RuleKey} of each of its deps as well as
@@ -100,7 +89,7 @@ public interface BuildRule extends Comparable<BuildRule> {
    * changes to its [transitive] deps.
    * @return a non-null {@link RuleKey}.
    */
-  public RuleKey getRuleKeyWithoutDeps() throws IOException;
+  public RuleKey getRuleKeyWithoutDeps();
 
   /** @return the same value as {@link #getFullyQualifiedName()} */
   @Override

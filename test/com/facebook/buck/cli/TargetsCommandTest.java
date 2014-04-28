@@ -24,9 +24,11 @@ import static org.junit.Assert.fail;
 import com.facebook.buck.cli.TargetsCommand.TargetsCommandPredicate;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
-import com.facebook.buck.java.DefaultJavaLibraryRule;
-import com.facebook.buck.java.JavaTestRule;
-import com.facebook.buck.java.PrebuiltJarRule;
+import com.facebook.buck.java.JavaLibraryBuilder;
+import com.facebook.buck.java.JavaLibraryDescription;
+import com.facebook.buck.java.JavaTestBuilder;
+import com.facebook.buck.java.JavaTestDescription;
+import com.facebook.buck.java.PrebuiltJarBuilder;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
@@ -41,8 +43,8 @@ import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
+import com.facebook.buck.rules.DefaultKnownBuildRuleTypes;
 import com.facebook.buck.rules.DependencyGraph;
-import com.facebook.buck.rules.FakeAbstractBuildRuleBuilderParams;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.KnownBuildRuleTypes;
 import com.facebook.buck.rules.NoopArtifactCache;
@@ -95,7 +97,8 @@ public class TargetsCommandTest {
       String baseName) {
     SortedMap<String, BuildRule> buildRules = Maps.newTreeMap();
     BuildTarget buildTarget = new BuildTarget(baseName, name);
-    FakeBuildRule buildRule = new FakeBuildRule(BuildRuleType.JAVA_LIBRARY,
+    FakeBuildRule buildRule = new FakeBuildRule(
+        JavaLibraryDescription.TYPE,
         buildTarget,
         ImmutableSortedSet.<BuildRule>of(),
         ImmutableSet.<BuildTargetPattern>of());
@@ -114,7 +117,8 @@ public class TargetsCommandTest {
     console = new TestConsole();
     ProjectFilesystem projectFilesystem = new ProjectFilesystem(projectRoot);
     AndroidDirectoryResolver androidDirectoryResolver = new FakeAndroidDirectoryResolver();
-    KnownBuildRuleTypes buildRuleTypes = KnownBuildRuleTypes.getDefault();
+    KnownBuildRuleTypes buildRuleTypes =
+        DefaultKnownBuildRuleTypes.getDefaultKnownBuildRuleTypes(projectFilesystem);
     ArtifactCache artifactCache = new NoopArtifactCache();
     BuckEventBus eventBus = BuckEventBusFactory.newInstance();
     targetsCommand =
@@ -269,22 +273,19 @@ public class TargetsCommandTest {
   @Test
   public void testGetMachingBuildTargets() throws CmdLineException, IOException {
     BuildRuleResolver ruleResolver = new BuildRuleResolver();
-    ruleResolver.buildAndAddToIndex(
-        PrebuiltJarRule.newPrebuiltJarRuleBuilder(new FakeAbstractBuildRuleBuilderParams())
-        .setBuildTarget(BuildTargetFactory.newInstance("//empty:empty"))
+    BuildRule prebuiltJar = PrebuiltJarBuilder
+        .createBuilder(BuildTargetFactory.newInstance("//empty:empty"))
         .setBinaryJar(Paths.get("spoof"))
-        .addVisibilityPattern(BuildTargetPattern.MATCH_ALL));
-    ruleResolver.buildAndAddToIndex(
-        DefaultJavaLibraryRule.newJavaLibraryRuleBuilder(new FakeAbstractBuildRuleBuilderParams())
-        .setBuildTarget(BuildTargetFactory.newInstance("//javasrc:java-library"))
+        .build(ruleResolver);
+    BuildRule javaLibrary = JavaLibraryBuilder
+        .createBuilder(BuildTargetFactory.newInstance("//javasrc:java-library"))
         .addSrc(Paths.get("javasrc/JavaLibrary.java"))
-        .addVisibilityPattern(BuildTargetPattern.MATCH_ALL)
-        .addDep(BuildTargetFactory.newInstance("//empty:empty")));
-    ruleResolver.buildAndAddToIndex(
-        JavaTestRule.newJavaTestRuleBuilder(new FakeAbstractBuildRuleBuilderParams())
-        .setBuildTarget(BuildTargetFactory.newInstance("//javatest:test-java-library"))
+        .addDep(prebuiltJar)
+        .build(ruleResolver);
+    JavaTestBuilder.createBuilder(BuildTargetFactory.newInstance("//javatest:test-java-library"))
         .addSrc(Paths.get("javatest/TestJavaLibrary.java"))
-        .addDep(BuildTargetFactory.newInstance("//javasrc:java-library")));
+        .addDep(javaLibrary)
+        .build(ruleResolver);
 
     List<String> targets = Lists.newArrayList();
     targets.add("//empty:empty");
@@ -338,7 +339,6 @@ public class TargetsCommandTest {
         matchingBuildRules.keySet());
 
     // If no referenced file, means this filter is disabled, we can find all targets.
-    referencedFiles = null;
     matchingBuildRules =
         targetsCommand.getMatchingBuildRules(
             graph.getDependencyGraph(),
@@ -359,7 +359,7 @@ public class TargetsCommandTest {
             graph.getDependencyGraph(),
             new TargetsCommandPredicate(
                 graph,
-                ImmutableSet.of(BuildRuleType.JAVA_TEST, BuildRuleType.JAVA_LIBRARY),
+                ImmutableSet.of(JavaTestDescription.TYPE, JavaLibraryDescription.TYPE),
                 ImmutableSet.<String>of(),
                 targetBuildRules));
     assertEquals(
@@ -375,7 +375,7 @@ public class TargetsCommandTest {
             graph.getDependencyGraph(),
             new TargetsCommandPredicate(
                 graph,
-                ImmutableSet.of(BuildRuleType.JAVA_TEST, BuildRuleType.JAVA_LIBRARY),
+                ImmutableSet.of(JavaTestDescription.TYPE, JavaLibraryDescription.TYPE),
                 ImmutableSet.<String>of(),
                 ImmutableSet.of(BuildTargetFactory.newInstance("//javasrc:java-library"))));
     assertEquals(

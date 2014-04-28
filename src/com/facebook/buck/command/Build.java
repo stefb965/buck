@@ -26,15 +26,16 @@ import com.facebook.buck.graph.TraversableGraph;
 import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildDependencies;
+import com.facebook.buck.rules.BuildEngine;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleSuccess;
+import com.facebook.buck.rules.Buildable;
 import com.facebook.buck.rules.Builder;
 import com.facebook.buck.rules.DependencyGraph;
 import com.facebook.buck.rules.JavaPackageFinder;
 import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.StepFailedException;
-import com.facebook.buck.step.StepRunner;
 import com.facebook.buck.step.TargetDevice;
 import com.facebook.buck.util.AndroidDirectoryResolver;
 import com.facebook.buck.util.AndroidPlatformTarget;
@@ -44,8 +45,8 @@ import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.ListenableFuture;
-import com.google.common.util.concurrent.ListeningExecutorService;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
@@ -53,7 +54,7 @@ import java.util.Set;
 
 import javax.annotation.Nullable;
 
-public class Build {
+public class Build implements Closeable {
 
   private final DependencyGraph dependencyGraph;
 
@@ -61,7 +62,9 @@ public class Build {
 
   private final ArtifactCache artifactCache;
 
-  private final StepRunner stepRunner;
+  private final BuildEngine buildEngine;
+
+  private final DefaultStepRunner stepRunner;
 
   private final JavaPackageFinder javaPackageFinder;
 
@@ -79,8 +82,9 @@ public class Build {
       Optional<TargetDevice> targetDevice,
       ProjectFilesystem projectFilesystem,
       AndroidDirectoryResolver androidDirectoryResolver,
+      BuildEngine buildEngine,
       ArtifactCache artifactCache,
-      ListeningExecutorService listeningExecutorService,
+      int numThreads,
       JavaPackageFinder javaPackageFinder,
       Console console,
       long defaultTestTimeoutMillis,
@@ -107,7 +111,8 @@ public class Build {
         .setPlatform(platform)
         .build();
     this.artifactCache = Preconditions.checkNotNull(artifactCache);
-    this.stepRunner = new DefaultStepRunner(executionContext, listeningExecutorService);
+    this.buildEngine = Preconditions.checkNotNull(buildEngine);
+    this.stepRunner = new DefaultStepRunner(executionContext, numThreads);
     this.javaPackageFinder = Preconditions.checkNotNull(javaPackageFinder);
     this.buildDependencies = Preconditions.checkNotNull(buildDependencies);
   }
@@ -118,10 +123,6 @@ public class Build {
 
   public ExecutionContext getExecutionContext() {
     return executionContext;
-  }
-
-  public StepRunner getStepRunner() {
-    return stepRunner;
   }
 
   /** Returns null until {@link #executeBuild(Set)} is invoked. */
@@ -155,8 +156,9 @@ public class Build {
           isEncounteredAndroidRuleInTraversal = true;
         }
 
-        if (rule instanceof HasAndroidPlatformTarget) {
-          String target = ((HasAndroidPlatformTarget)rule).getAndroidPlatformTarget();
+        Buildable buildable = rule.getBuildable();
+        if (buildable != null && buildable instanceof HasAndroidPlatformTarget) {
+          String target = ((HasAndroidPlatformTarget) buildable).getAndroidPlatformTarget();
           if (androidPlatformTargetId == null) {
             androidPlatformTargetId = target;
           } else if (!target.equals(androidPlatformTargetId)) {
@@ -199,7 +201,8 @@ public class Build {
     return traversal.getResult();
   }
 
-  public ListenableFuture<List<BuildRuleSuccess>> executeBuild(Set<BuildRule> rulesToBuild)
+  public ListenableFuture<List<BuildRuleSuccess>> executeBuild(
+      Set<BuildRule> rulesToBuild)
       throws IOException, StepFailedException {
     buildContext = BuildContext.builder()
         .setDependencyGraph(dependencyGraph)
@@ -213,6 +216,11 @@ public class Build {
         .setBuildDependencies(buildDependencies)
         .build();
 
-    return Builder.getInstance().buildRules(rulesToBuild, buildContext);
+    return Builder.getInstance().buildRules(buildEngine, rulesToBuild, buildContext);
+  }
+
+  @Override
+  public void close() throws IOException {
+    stepRunner.close();
   }
 }

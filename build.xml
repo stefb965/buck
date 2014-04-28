@@ -11,6 +11,8 @@
   <property name="abi_processor.src.dir" value="${src.dir}/com/facebook/buck/java/abi/" />
   <property name="abi_processor.classes.dir" value="${build.dir}/abi_processor/classes" />
   <property name="buck.path_to_buck_py" value="${basedir}/src/com/facebook/buck/parser/buck.py" />
+  <property name="buck.path_to_compile_asset_catalogs_py" value="${basedir}/src/com/facebook/buck/apple/compile_asset_catalogs.py" />
+  <property name="buck.path_to_compile_asset_catalogs_build_phase_sh" value="${basedir}/src/com/facebook/buck/apple/compile_asset_catalogs_build_phase.sh" />
   <property name="buck.path_to_emma_jar"
             value="${basedir}/third-party/java/emma-2.0.5312/out/emma-2.0.5312.jar"
             />
@@ -21,10 +23,11 @@
   <property name="test.class" value="Test" />
   <property name="javacc.gensrc.dir" value="${build.dir}/javacc" />
   <property name="javacc.test.dir" value="${build.dir}/testjavacc" />
+  <property name="lint.outputpath" value="${build.dir}/lint.output" />
 
   <fileset dir="${lib.dir}" id="buck.jars">
     <include name="args4j-2.0.26.jar" />
-    <include name="ddmlib-r21.jar" />
+    <include name="ddmlib-22.5.3.jar" />
     <include name="guava-15.0.jar" />
     <include name="ini4j-0.5.2.jar" />
     <include name="jackson-annotations-2.0.5.jar" />
@@ -51,6 +54,14 @@
     <include name="java/astyanax/joda-time-2.2.jar" />
     <include name="java/astyanax/libthrift-0.7.0.jar" />
     <include name="java/astyanax/log4j-1.2.16.jar" />
+    <include name="java/eclipse/org.eclipse.core.contenttype_3.4.200.v20130326-1255.jar" />
+    <include name="java/eclipse/org.eclipse.core.jobs_3.5.300.v20130429-1813.jar" />
+    <include name="java/eclipse/org.eclipse.core.resources_3.8.101.v20130717-0806.jar" />
+    <include name="java/eclipse/org.eclipse.core.runtime_3.9.100.v20131218-1515.jar" />
+    <include name="java/eclipse/org.eclipse.equinox.common_3.6.200.v20130402-1505.jar" />
+    <include name="java/eclipse/org.eclipse.equinox.preferences_3.5.100.v20130422-1538.jar" />
+    <include name="java/eclipse/org.eclipse.jdt.core_3.9.2.v20140114-1555.jar" />
+    <include name="java/eclipse/org.eclipse.osgi_3.9.1.v20140110-1610.jar" />
     <include name="java/astyanax/slf4j-api-1.7.2.jar" />
     <include name="java/astyanax/slf4j-log4j12-1.7.2.jar" />
     <include name="java/closure-templates/soy-2012-12-21-no-guava.jar" />
@@ -80,14 +91,14 @@
     <delete dir="${build.dir}" />
   </target>
 
-  <!-- Default target so that a command line build can 
+  <!-- Default target so that a command line build can
        do more than one thing.  'success' must be the last dependency. -->
   <target name="default" depends="compile, dx, client, javacc-tests, success" />
 
   <target name="checkversion">
     <!-- The nio Files class was only introduced in Java 7. -->
-    <available property="jdk7" classname="java.nio.file.Files"/> 
-    <fail message="Require JDK 7 or higher" unless="jdk7"/> 
+    <available property="jdk7" classname="java.nio.file.Files"/>
+    <fail message="Require JDK 7 or higher" unless="jdk7"/>
   </target>
 
   <target name="compile-testrunner" depends="checkversion">
@@ -101,6 +112,7 @@
            >
       <compilerarg value="-Xlint:rawtypes" />
       <compilerarg value="-Xlint:unchecked" />
+      <compilerarg value="-Xlint:serial" />
     </javac>
   </target>
 
@@ -113,6 +125,7 @@
            >
       <compilerarg value="-Xlint:rawtypes" />
       <compilerarg value="-Xlint:unchecked" />
+      <compilerarg value="-Xlint:serial" />
     </javac>
   </target>
 
@@ -154,6 +167,7 @@
       <exclude name="com/facebook/buck/junit/**" />
       <compilerarg value="-Xlint:rawtypes" />
       <compilerarg value="-Xlint:unchecked" />
+      <compilerarg value="-Xlint:serial" />
       <!-- Suppress the warning from implicitly compiling files that are not
            annotation processed. Not sure which files are the culprit -->
       <compilerarg value="-implicit:class" />
@@ -219,6 +233,7 @@
       <src path="${javacc.test.dir}" />
       <compilerarg value="-Xlint:rawtypes" />
       <compilerarg value="-Xlint:unchecked" />
+      <compilerarg value="-Xlint:serial" />
     </javac>
   </target>
 
@@ -231,6 +246,8 @@
            forkmode="perBatch">
       <sysproperty key="buck.path_to_emma_jar" value="${buck.path_to_emma_jar}" />
       <sysproperty key="buck.path_to_buck_py" value="${buck.path_to_buck_py}" />
+      <sysproperty key="buck.path_to_compile_asset_catalogs_py" value="${buck.path_to_compile_asset_catalogs_py}" />
+      <sysproperty key="buck.path_to_compile_asset_catalogs_build_phase_sh" value="${buck.path_to_compile_asset_catalogs_build_phase_sh}" />
 
       <!-- See DEFS for details on why this property is needed. -->
       <sysproperty key="sun.zip.disableMemoryMapping" value="true" />
@@ -256,12 +273,34 @@
     <exec executable="python" failonerror="true">
       <arg value="src/com/facebook/buck/parser/buck_test.py" />
     </exec>
+    <exec executable="python" failonerror="true">
+      <arg value="src/com/facebook/buck/apple/compile_asset_catalogs_test.py" />
+    </exec>
   </target>
 
   <path id="pmd-classpath">
     <fileset dir="${basedir}/pmd" includes="*.jar" />
   </path>
 
+  <!--
+  Runs pmd on the file(s) specified in the property "lint.files",
+  separated by commas. Writes output to ${lint.outputpath}.
+  -->
+  <target name="pmd-files-xml" if="lint.files">
+    <taskdef name="pmd"
+             classpathref="pmd-classpath"
+             classname="net.sourceforge.pmd.ant.PMDTask"
+             />
+    <pmd failOnRuleViolation="true" rulesetfiles="pmd/rules.xml">
+      <ruleset>buck</ruleset>
+      <formatter type="xml" toFile="${lint.outputpath}" />
+      <fileset dir="${basedir}" includes="${lint.files}" />
+    </pmd>
+  </target>
+
+  <!--
+  Runs pmd on all source, test, and plugin files.
+  -->
   <target name="pmd">
     <taskdef name="pmd"
              classpathref="pmd-classpath"
@@ -286,6 +325,41 @@
     <fileset dir="${basedir}/third-party/java/checkstyle" includes="*.jar" />
   </path>
 
+  <!--
+  Runs checkstyle on the file(s) specified in the property "lint.files",
+  separated by commas.
+  -->
+  <target name="checkstyle-files-xml" if="lint.files">
+    <taskdef resource="checkstyletask.properties"
+           classpathref="checkstyle-classpath"/>
+    <checkstyle config="checkstyle.xml">
+      <formatter type="xml" toFile="${lint.outputpath}" />
+      <fileset dir="${basedir}" includes="${lint.files}" />
+    </checkstyle>
+  </target>
+
+    <!--
+  Runs checkstyle on the file(s) specified in the property "lint.files",
+  separated by commas.
+  -->
+  <target name="checkstyle-xml">
+    <taskdef resource="checkstyletask.properties"
+           classpathref="checkstyle-classpath"/>
+    <checkstyle config="checkstyle.xml">
+      <formatter type="xml" toFile="${lint.outputpath}" />
+      <fileset dir="${src.dir}">
+        <include name="**/*.java"/>
+      </fileset>
+      <fileset dir="${test.dir}">
+        <include name="**/*.java"/>
+        <exclude name="**/testdata/**"/>
+      </fileset>
+    </checkstyle>
+  </target>
+
+  <!--
+  Runs checkstyle on all source and test files.
+  -->
   <target name="checkstyle">
     <taskdef resource="checkstyletask.properties"
            classpathref="checkstyle-classpath"/>
@@ -315,14 +389,8 @@
              failonerror="true"
              >
       <fileset dir="${src.dir}">
+        <include name="**/*.java" />
         <exclude name="com/facebook/buck/cli/quickstart/**" />
-        <exclude name="**/BUCK" />
-        <exclude name="**/*.iml"/>
-        <exclude name="**/*.jj"/>
-        <exclude name="**/*.py"/>
-        <exclude name="**/*.pyc"/>
-        <exclude name="**/*.sh"/>
-        <exclude name="**/*.soy"/>
       </fileset>
       <fileset dir="${javacc.gensrc.dir}">
       </fileset>
@@ -337,7 +405,7 @@
     <mkdir dir="${build.dir}" />
     <exec dir="${basedir}" executable="gcc">
       <arg line="-Wall -pedantic -O3 -o ${build.dir}/ng ${client.dir}/nailgun-client/ng.c" />
-    </exec> 
+    </exec>
   </target>
 
   <target name="all" depends="jar, test, javadoc, client" />

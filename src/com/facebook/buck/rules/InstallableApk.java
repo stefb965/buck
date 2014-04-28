@@ -16,25 +16,35 @@
 
 package com.facebook.buck.rules;
 
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.HasBuildTarget;
+import com.google.common.base.Optional;
+import com.google.common.base.Preconditions;
 
 import java.nio.file.Path;
 
-public interface InstallableApk {
+public interface InstallableApk extends HasBuildTarget {
 
   /**
-   * @return The {@link BuildTarget} used to create this APK.
+   * @return the path to the AndroidManifest.xml. Note that this file might be a symlink,
+   *     and might not exist at all before this rule has been built.
    */
-  public BuildTarget getBuildTarget();
-
-  /**
-   * @return The manifest file for this build rule.
-   */
-  public SourcePath getManifest();
+  public Path getManifestPath();
 
   /**
    * @return The APK at this path is the final one that points to an APK that a user should
    *         install.
    */
   public Path getApkPath();
+
+  public Optional<ExopackageInfo> getExopackageInfo();
+
+  public static class ExopackageInfo {
+    public final Path metadata;
+    public final Path dexDirectory;
+
+    public ExopackageInfo(Path metadata, Path dexDirectory) {
+      this.metadata = Preconditions.checkNotNull(metadata);
+      this.dexDirectory = Preconditions.checkNotNull(dexDirectory);
+    }
+  }
 }

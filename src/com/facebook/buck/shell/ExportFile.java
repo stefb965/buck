@@ -21,7 +21,7 @@ import com.facebook.buck.rules.AbstractBuildable;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.FileSourcePath;
+import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePaths;
@@ -32,7 +32,6 @@ import com.facebook.buck.util.BuckConstant;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collection;
@@ -89,8 +88,8 @@ public class ExportFile extends AbstractBuildable {
     if (args.src.isPresent()) {
       this.src = args.src.get();
     } else {
-      this.src = new FileSourcePath(
-          String.format("%s%s", target.getBasePathWithSlash(), target.getShortName()));
+      this.src = new PathSourcePath(
+          Paths.get(String.format("%s%s", target.getBasePathWithSlash(), target.getShortName())));
     }
 
     final String outName = args.out.or(target.getShortName());
@@ -109,13 +108,12 @@ public class ExportFile extends AbstractBuildable {
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext)
-      throws IOException {
+  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
     // This file is copied rather than symlinked so that when it is included in an archive zip and
     // unpacked on another machine, it is an ordinary file in both scenarios.
     ImmutableList.Builder<Step> builder = ImmutableList.<Step>builder()
         .add(new MkdirStep(out.getParent()))
-        .add(CopyStep.forFile(src.resolve(context), out));
+        .add(CopyStep.forFile(src.resolve(), out));
 
     buildableContext.recordArtifact(out);
     return builder.build();

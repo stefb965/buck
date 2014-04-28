@@ -22,8 +22,6 @@ import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.FakeAbstractBuildRuleBuilderParams;
 import com.facebook.buck.rules.Sha1HashCode;
 import com.google.common.collect.ImmutableList;
 
@@ -33,6 +31,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Collection;
 
 public class RobolectricTestRuleTest {
 
@@ -64,6 +63,16 @@ public class RobolectricTestRuleTest {
     }
 
     @Override
+    public Path getAssets() {
+      return null;
+    }
+
+    @Override
+    public Collection<Path> getInputsToCompareToOutput() {
+      return null;
+    }
+
+    @Override
     public boolean hasWhitelistedStrings() {
       return false;
     }
@@ -76,8 +85,6 @@ public class RobolectricTestRuleTest {
 
   @Test
   public void testRobolectricContainsAllResourceDependenciesInResVmArg() throws IOException {
-    BuildRuleResolver ruleResolver = new BuildRuleResolver();
-
     ImmutableList.Builder<HasAndroidResourceDeps> resDepsBuilder =
         ImmutableList.builder();
     for (int i = 0; i < 10; i++) {
@@ -88,11 +95,11 @@ public class RobolectricTestRuleTest {
     BuildTarget robolectricBuildTarget = BuildTargetFactory.newInstance(
         "//java/src/com/facebook/base/robolectricTest:robolectricTest");
 
-    RobolectricTestRule testRule = (RobolectricTestRule)ruleResolver.buildAndAddToIndex(
-        RobolectricTestRule.newRobolectricTestRuleBuilder(new FakeAbstractBuildRuleBuilderParams())
-            .setBuildTarget(robolectricBuildTarget));
+    RobolectricTest robolectricTest = RobolectricTestBuilder
+        .createBuilder(robolectricBuildTarget)
+        .build();
 
-    String result = testRule.getRobolectricResourceDirectories(resDeps);
+    String result = robolectricTest.getRobolectricResourceDirectories(resDeps);
     for (HasAndroidResourceDeps dep : resDeps) {
       assertTrue(result.contains(dep.getRes().toString()));
     }
@@ -100,14 +107,12 @@ public class RobolectricTestRuleTest {
 
   @Test
   public void testRobolectricResourceDependenciesVmArgHasCorrectFormat() throws IOException {
-    BuildRuleResolver ruleResolver = new BuildRuleResolver();
-
     Path resDep1 = Paths.get("res1");
     Path resDep2 = Paths.get("res2");
     Path resDep3 = Paths.get("res3");
     StringBuilder expectedVmArgBuilder = new StringBuilder();
     expectedVmArgBuilder.append("-D")
-        .append(RobolectricTestRule.LIST_OF_RESOURCE_DIRECTORIES_PROPERTY_NAME)
+        .append(RobolectricTest.LIST_OF_RESOURCE_DIRECTORIES_PROPERTY_NAME)
         .append("=")
         .append(resDep1)
         .append(File.pathSeparator)
@@ -118,11 +123,11 @@ public class RobolectricTestRuleTest {
     BuildTarget robolectricBuildTarget = BuildTargetFactory.newInstance(
         "//java/src/com/facebook/base/robolectricTest:robolectricTest");
 
-    RobolectricTestRule testRule = (RobolectricTestRule)ruleResolver.buildAndAddToIndex(
-        RobolectricTestRule.newRobolectricTestRuleBuilder(new FakeAbstractBuildRuleBuilderParams())
-            .setBuildTarget(robolectricBuildTarget));
+    RobolectricTest robolectricTest = RobolectricTestBuilder
+        .createBuilder(robolectricBuildTarget)
+        .build();
 
-    String result = testRule.getRobolectricResourceDirectories(
+    String result = robolectricTest.getRobolectricResourceDirectories(
         ImmutableList.<HasAndroidResourceDeps>of(
             new ResourceRule(resDep1),
             new ResourceRule(resDep2),

@@ -31,7 +31,7 @@ import java.util.List;
 
 public class JsBinaryDescription implements Description<JsBinaryDescription.Arg> {
 
-  private final static BuildRuleType TYPE = new BuildRuleType("js_binary");
+  private static final BuildRuleType TYPE = new BuildRuleType("js_binary");
 
   @Override
   public BuildRuleType getBuildRuleType() {

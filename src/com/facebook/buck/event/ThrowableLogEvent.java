@@ -29,8 +29,15 @@ public class ThrowableLogEvent extends LogEvent {
   private final Throwable throwable;
 
   protected ThrowableLogEvent(Throwable throwable, String message) {
-    super(Level.SEVERE, message);
+    super(Level.SEVERE, combineThrowableAndMessage(throwable, message));
     this.throwable = throwable;
+  }
+
+  private static String combineThrowableAndMessage(Throwable throwable, String message) {
+    if (throwable.getMessage() == null) {
+      return message;
+    }
+    return message + "\n" + throwable.getMessage();
   }
 
   public Throwable getThrowable() {
@@ -47,7 +54,7 @@ public class ThrowableLogEvent extends LogEvent {
       return false;
     }
 
-    ThrowableLogEvent that = (ThrowableLogEvent)event;
+    ThrowableLogEvent that = (ThrowableLogEvent) event;
 
     return super.eventsArePair(that) &&
         Objects.equal(getThrowable(), that.getThrowable());

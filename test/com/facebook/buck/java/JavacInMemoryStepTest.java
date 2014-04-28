@@ -16,10 +16,12 @@
 
 package com.facebook.buck.java;
 
+import static com.facebook.buck.java.JavaCompilerEnvironment.TARGETED_JAVA_VERSION;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.rules.BuildDependencies;
+import com.facebook.buck.rules.TestSourcePath;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.testutil.IdentityPathAbsolutifier;
 import com.facebook.buck.testutil.TestConsole;
@@ -76,21 +78,27 @@ public class JavacInMemoryStepTest extends EasyMockSupport {
     JavacInMemoryStep warn = createTestStep(BuildDependencies.WARN_ON_TRANSITIVE);
     JavacInMemoryStep transitive = createTestStep(BuildDependencies.TRANSITIVE);
 
-    assertEquals("javac -target 6 -source 6 -g -d . -classpath foo.jar @" + PATH_TO_SRCS_LIST,
+    assertEquals(
+        String.format("javac -target %s -source %s -g -d . -classpath foo.jar @%s",
+            TARGETED_JAVA_VERSION, TARGETED_JAVA_VERSION, PATH_TO_SRCS_LIST),
         firstOrder.getDescription(context));
-    assertEquals("javac -target 6 -source 6 -g -d . -classpath foo.jar @" + PATH_TO_SRCS_LIST,
+    assertEquals(
+        String.format("javac -target %s -source %s -g -d . -classpath foo.jar @%s",
+            TARGETED_JAVA_VERSION, TARGETED_JAVA_VERSION, PATH_TO_SRCS_LIST),
         warn.getDescription(context));
-    assertEquals("javac -target 6 -source 6 -g -d . -classpath bar.jar" + File.pathSeparator +
-        "foo.jar @" + PATH_TO_SRCS_LIST,
+    assertEquals(
+        String.format("javac -target %s -source %s -g -d . -classpath bar.jar%sfoo.jar @%s",
+            TARGETED_JAVA_VERSION, TARGETED_JAVA_VERSION, File.pathSeparator, PATH_TO_SRCS_LIST),
         transitive.getDescription(context));
   }
 
   private JavacInMemoryStep createTestStep(BuildDependencies buildDependencies) {
     return new JavacInMemoryStep(
           /* outputDirectory */ Paths.get("."),
-          /* javaSourceFilePaths */ ImmutableSet.of(Paths.get("foobar.java")),
-          /* transitiveClasspathEntries */ ImmutableSet.of("bar.jar", "foo.jar"),
-          /* declaredClasspathEntries */ ImmutableSet.of("foo.jar"),
+          /* javaSourceFilePaths */ ImmutableSet.of(new TestSourcePath("foobar.java")),
+          /* transitiveClasspathEntries */
+            ImmutableSet.of(Paths.get("bar.jar"), Paths.get("foo.jar")),
+          /* declaredClasspathEntries */ ImmutableSet.of(Paths.get("foo.jar")),
           /* JavacOptions */ JavacOptions.DEFAULTS,
           /* pathToOutputAbiFile */ Optional.<Path>absent(),
           /* invokingRule */ Optional.<String>absent(),

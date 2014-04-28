@@ -15,11 +15,13 @@
  */
 package com.facebook.buck.android;
 
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.hash.HashCode;
 
 import java.nio.file.Path;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -29,23 +31,19 @@ import java.util.Set;
  * .class files to exclude from the DEX.
  */
 public class AndroidDexTransitiveDependencies {
-  public final ImmutableSet<String> classpathEntriesToDex;
-  public final ImmutableSet<String> noDxClasspathEntries;
-  public final ImmutableSet<String> pathsToThirdPartyJars;
+  public final ImmutableSet<Path> classpathEntriesToDex;
+  public final ImmutableSet<Path> noDxClasspathEntries;
+  public final ImmutableSet<Path> pathsToThirdPartyJars;
+  public final Supplier<Map<String, HashCode>> classNamesToHashesSupplier;
 
-  /**
-   * If present, identifies a directory that contains the .class files that were generated as a
-   * result of compiling R.java files.
-   */
-  public final Optional<Path> pathToCompiledRDotJavaFiles;
-
-  public AndroidDexTransitiveDependencies(Set<String> pathsToDex,
-                                          Set<String> pathsToThirdPartyJars,
-                                          ImmutableSet<String> noDxClasspathEntries,
-                                          Optional<Path> pathToCompiledRDotJavaFiles) {
+  public AndroidDexTransitiveDependencies(
+      Set<Path> pathsToDex,
+      Set<Path> pathsToThirdPartyJars,
+      ImmutableSet<Path> noDxClasspathEntries,
+      Supplier<Map<String, HashCode>> classNamesToHashesSupplier) {
     this.classpathEntriesToDex = ImmutableSet.copyOf(pathsToDex);
     this.pathsToThirdPartyJars = ImmutableSet.copyOf(pathsToThirdPartyJars);
     this.noDxClasspathEntries = ImmutableSet.copyOf(noDxClasspathEntries);
-    this.pathToCompiledRDotJavaFiles = Preconditions.checkNotNull(pathToCompiledRDotJavaFiles);
+    this.classNamesToHashesSupplier = Preconditions.checkNotNull(classNamesToHashesSupplier);
   }
 }

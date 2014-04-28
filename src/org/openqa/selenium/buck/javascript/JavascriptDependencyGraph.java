@@ -32,7 +32,7 @@ import java.util.Set;
 
 public class JavascriptDependencyGraph {
 
-  private final static Path BASE_JS = Paths.get("third_party/closure/goog/base.js");
+  private static final Path BASE_JS = Paths.get("third_party/closure/goog/base.js");
   private Set<JavascriptSource> sources = Sets.newHashSet();
   private Map<String, Path> depToPath = Maps.newHashMap();
 

@@ -75,7 +75,7 @@ public class ProjectIntegrationTest {
   /**
    * Verify that if we build a project by specifying a target, the resulting project only contains
    * the transitive deps of that target.  In this example, that means everything except
-   * //modules/tip.
+   * //modules/tip and //tests/tests.
    */
   @Test
   public void testBuckProjectSlice() throws IOException {
@@ -83,7 +83,7 @@ public class ProjectIntegrationTest {
         this, "project_slice", temporaryFolder);
     workspace.setUp();
 
-    ProcessResult result = workspace.runBuckCommand("project", "//modules/dep1:dep1");
+    ProcessResult result = workspace.runBuckCommand("project", "//modules/dep1:dep1", "//:root");
     result.assertSuccess("buck project should exit cleanly");
 
     workspace.verify();
@@ -98,7 +98,49 @@ public class ProjectIntegrationTest {
             ".idea/libraries/libs_junit_jar.xml",
             ".idea/modules.xml",
             ".idea/runConfigurations/Debug_Buck_test.xml",
+            "module_.iml",
             "modules/dep1/module_modules_dep1.iml"
+        ) + '\n',
+        result.getStdout());
+
+    assertThat(
+        "`buck project` should contain warning to restart IntelliJ.",
+        result.getStderr(),
+        containsString("  ::  Please close and re-open IntelliJ."));
+  }
+
+  /**
+   * Verify that if we build a project by specifying a target and '--with-tests', the resulting
+   * project only contains the transitive deps of that target as well as any tests that specify
+   * something in those transitive deps as "sources_under_test".  In this example, that means
+   * everything except //modules/tip.
+   */
+  @Test
+  public void testBuckProjectSliceWithTests() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "project_slice_with_tests", temporaryFolder);
+    workspace.setUp();
+
+    ProcessResult result = workspace.runBuckCommand(
+        "project",
+        "--with-tests",
+        "//modules/dep1:dep1");
+    result.assertSuccess("buck project should exit cleanly");
+
+    workspace.verify();
+
+    assertEquals(
+        "`buck project` should report the files it modified.",
+        Joiner.on('\n').join(
+            "MODIFIED FILES:",
+            ".idea/compiler.xml",
+            ".idea/libraries/libs_guava_jar.xml",
+            ".idea/libraries/libs_jsr305_jar.xml",
+            ".idea/libraries/libs_junit_jar.xml",
+            ".idea/modules.xml",
+            ".idea/runConfigurations/Debug_Buck_test.xml",
+            "modules/dep1/module_modules_dep1.iml",
+            "tests/module_tests.iml"
         ) + '\n',
         result.getStdout());
 
@@ -129,5 +171,26 @@ public class ProjectIntegrationTest {
     result.assertSuccess("buck project should exit cleanly");
 
     workspace.verify();
+  }
+
+  @Test
+  public void buckProjectXcodeSeparatedProjectsNoArgsGeneratesAllProjects() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this,
+        "project_xcode_two_projects",
+        temporaryFolder);
+    workspace.setUp();
+
+    ProcessResult result = workspace.runBuckCommand("project");
+    result.assertSuccess();
+
+    workspace.verify();
+
+    assertEquals(
+        Joiner.on('\n').join(
+            "foo/fooproject.xcodeproj",
+            "bar/barproject.xcodeproj"
+        ) + '\n',
+        result.getStdout());
   }
 }

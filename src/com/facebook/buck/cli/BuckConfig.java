@@ -89,9 +89,15 @@ public class BuckConfig {
   static final String BUCK_BUCKD_DIR_KEY = "buck.buckd_dir";
 
   private static final String DEFAULT_CACHE_DIR = "buck-cache";
+  private static final String DEFAULT_DIR_CACHE_MODE = CacheMode.readwrite.name();
   private static final String DEFAULT_CASSANDRA_PORT = "9160";
-  private static final String DEFAULT_CASSANDRA_MODE = CassandraMode.readwrite.name();
+  private static final String DEFAULT_CASSANDRA_MODE = CacheMode.readwrite.name();
+  private static final String DEFAULT_CASSANDRA_TIMEOUT_SECONDS = "10";
   private static final String DEFAULT_MAX_TRACES = "25";
+
+  // Prefer "python2" where available (Linux), but fall back to "python" (Mac).
+  private static final ImmutableList<String> PYTHON_INTERPRETER_NAMES =
+      ImmutableList.of("python2", "python");
 
   private final ImmutableMap<String, ImmutableMap<String, String>> sectionsToEntries;
 
@@ -108,14 +114,14 @@ public class BuckConfig {
     cassandra
   }
 
-  private enum CassandraMode {
+  private enum CacheMode {
     readonly(false),
     readwrite(true),
     ;
 
     private final boolean doStore;
 
-    private CassandraMode(boolean doStore) {
+    private CacheMode(boolean doStore) {
       this.doStore = doStore;
     }
   }
@@ -209,7 +215,7 @@ public class BuckConfig {
   }
 
   @VisibleForTesting
-  static BuckConfig createFromReader(
+  public static BuckConfig createFromReader(
       Reader reader,
       ProjectFilesystem projectFilesystem,
       BuildTargetParser buildTargetParser,
@@ -519,7 +525,9 @@ public class BuckConfig {
     }
   }
 
-  public ArtifactCache createArtifactCache(BuckEventBus buckEventBus) {
+  public ArtifactCache createArtifactCache(
+      Optional<String> currentWifiSsid,
+      BuckEventBus buckEventBus) {
     ImmutableList<String> modes = getArtifactCacheModes();
     if (modes.isEmpty()) {
       return new NoopArtifactCache();
@@ -534,7 +542,9 @@ public class BuckConfig {
           builder.add(dirArtifactCache);
           break;
         case cassandra:
-          ArtifactCache cassandraArtifactCache = createCassandraArtifactCache(buckEventBus);
+          ArtifactCache cassandraArtifactCache = createCassandraArtifactCache(
+              currentWifiSsid,
+              buckEventBus);
           if (cassandraArtifactCache != null) {
             builder.add(cassandraArtifactCache);
           }
@@ -579,57 +589,66 @@ public class BuckConfig {
   private ArtifactCache createDirArtifactCache() {
     Path cacheDir = getCacheDir();
     File dir = cacheDir.toFile();
+    boolean doStore = readCacheMode("dir_mode", DEFAULT_DIR_CACHE_MODE);
     try {
-      return new DirArtifactCache(dir, getCacheDirMaxSizeBytes());
+      return new DirArtifactCache(dir, doStore, getCacheDirMaxSizeBytes());
     } catch (IOException e) {
       throw new HumanReadableException("Failure initializing artifact cache directory: %s", dir);
     }
   }
 
   /**
-   * Clients should use {@link #createArtifactCache(BuckEventBus)} unless it is expected that the
-   * user has defined a {@code cassandra} cache, and that it should be used exclusively.
+   * Clients should use {@link #createArtifactCache(Optional, BuckEventBus)} unless it
+   * is expected that the user has defined a {@code cassandra} cache, and that it should be used
+   * exclusively.
    */
   @Nullable
-  CassandraArtifactCache createCassandraArtifactCache(BuckEventBus buckEventBus) {
-    // cache.cassandra_mode
-    String cacheCassandraMode = getValue("cache", "cassandra_mode").or(DEFAULT_CASSANDRA_MODE);
-    final boolean doStore;
-    try {
-      doStore = CassandraMode.valueOf(cacheCassandraMode).doStore;
-    } catch (IllegalArgumentException e) {
-      throw new HumanReadableException("Unusable cache.cassandra_mode: '%s'", cacheCassandraMode);
+  CassandraArtifactCache createCassandraArtifactCache(
+      Optional<String> currentWifiSsid,
+      BuckEventBus buckEventBus) {
+    // cache.blacklisted_wifi_ssids
+    ImmutableSet<String> blacklistedWifi = ImmutableSet.copyOf(
+        Splitter.on(",")
+            .trimResults()
+            .omitEmptyStrings()
+            .split(getValue("cache", "blacklisted_wifi_ssids").or("")));
+    if (currentWifiSsid.isPresent() && blacklistedWifi.contains(currentWifiSsid.get())) {
+      // We're connected to a wifi hotspot that has been explicitly blacklisted from connecting to
+      // Cassandra.
+      return null;
     }
+
+    // cache.cassandra_mode
+    final boolean doStore = readCacheMode("cassandra_mode", DEFAULT_CASSANDRA_MODE);
     // cache.hosts
     String cacheHosts = getValue("cache", "hosts").or("");
     // cache.port
     int port = Integer.parseInt(getValue("cache", "port").or(DEFAULT_CASSANDRA_PORT));
+    // cache.connection_timeout_seconds
+    int timeoutSeconds = Integer.parseInt(
+        getValue("cache", "connection_timeout_seconds").or(DEFAULT_CASSANDRA_TIMEOUT_SECONDS));
 
     try {
-      return new CassandraArtifactCache(cacheHosts, port, doStore, buckEventBus);
+      return new CassandraArtifactCache(cacheHosts, port, timeoutSeconds, doStore, buckEventBus);
     } catch (ConnectionException e) {
       buckEventBus.post(ThrowableLogEvent.create(e, "Cassandra cache connection failure."));
       return null;
     }
   }
 
-  public Optional<String> getNdkVersion() {
-    return getValue("ndk", "ndk_version");
+  private boolean readCacheMode(String fieldName, String defaultValue) {
+    String cacheMode = getValue("cache", fieldName).or(defaultValue);
+    final boolean doStore;
+    try {
+      doStore = CacheMode.valueOf(cacheMode).doStore;
+    } catch (IllegalArgumentException e) {
+      throw new HumanReadableException("Unusable cache.%s: '%s'", fieldName, cacheMode);
+    }
+    return doStore;
   }
 
-  public Optional<Path> getJavac() {
-    Optional<String> path = getValue("tools", "javac");
-    if (path.isPresent()) {
-      File javac = new File(path.get());
-      if (!javac.exists()) {
-        throw new HumanReadableException("Javac does not exist: " + javac.getPath());
-      }
-      if (!javac.canExecute()) {
-        throw new HumanReadableException("Javac is not executable: " + javac.getPath());
-      }
-      return Optional.of(javac.toPath());
-    }
-    return Optional.absent();
+  public Optional<String> getNdkVersion() {
+    return getValue("ndk", "ndk_version");
   }
 
   public Optional<String> getValue(String sectionName, String propertyName) {
@@ -710,12 +729,15 @@ public class BuckConfig {
       }
       throw new HumanReadableException("Not a python executable: " + configPath.get());
     } else {
-      // For each path in PATH, test "python" with each PATHEXT suffix to allow for file extensions.
-      for (String path : getEnv("PATH", File.pathSeparator)) {
-        for (String pathExt : getEnv("PATHEXT", File.pathSeparator)) {
-          File python = new File(path, "python" + pathExt);
-          if (isExecutableFile(python)) {
-            return python.getAbsolutePath();
+      for (String interpreterName : PYTHON_INTERPRETER_NAMES) {
+        // For each path in PATH, test "python" with each PATHEXT suffix to allow
+        // for file extensions.
+        for (String path : getEnv("PATH", File.pathSeparator)) {
+          for (String pathExt : getEnv("PATHEXT", File.pathSeparator)) {
+            File python = new File(path, interpreterName + pathExt);
+            if (isExecutableFile(python)) {
+              return python.getAbsolutePath();
+            }
           }
         }
       }
@@ -725,6 +747,25 @@ public class BuckConfig {
         return jython.getAbsolutePath();
       }
       throw new HumanReadableException("No python or jython found.");
+    }
+  }
+
+  /**
+   * Returns the path to the proguard.jar file that is overridden by the current project.  If
+   * not specified, the Android platform proguard.jar will be used.
+   */
+  public Optional<Path> getProguardJarOverride() {
+    Optional<String> pathString = getValue("tools", "proguard");
+    if (pathString.isPresent()) {
+      Path path = Paths.get(pathString.get());
+      File file = projectFilesystem.getAbsolutifier().apply(path).toFile();
+      if (!file.exists()) {
+        throw new HumanReadableException("Overridden proguard path not found: " +
+            file.getAbsolutePath());
+      }
+      return Optional.of(path);
+    } else {
+      return Optional.absent();
     }
   }
 

@@ -21,23 +21,25 @@ import static org.hamcrest.CoreMatchers.not;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.java.DefaultJavaLibraryRule;
+import com.facebook.buck.java.JavaLibraryBuilder;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.RuleKey.Builder;
-import com.facebook.buck.testutil.TestConsole;
-import com.facebook.buck.util.DefaultFileHashCache;
 import com.facebook.buck.util.FileHashCache;
-import com.facebook.buck.util.ProjectFilesystem;
+import com.google.common.base.Functions;
+import com.google.common.base.Optional;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Iterables;
+import com.google.common.collect.Lists;
+import com.google.common.hash.HashCode;
 
 import org.junit.Test;
 
-import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 
-/**
- * Unit test for {@link RuleKey}.
- */
 public class RuleKeyTest {
 
   @Test
@@ -53,42 +55,27 @@ public class RuleKeyTest {
   public void testRuleKeyDependsOnDeps() throws IOException {
     BuildRuleResolver ruleResolver1 = new BuildRuleResolver();
     BuildRuleResolver ruleResolver2 = new BuildRuleResolver();
-    ProjectFilesystem projectFilesystem = new ProjectFilesystem(new File("."));
-    final FileHashCache fileHashCache = new DefaultFileHashCache(projectFilesystem,
-        new TestConsole());
-    AbstractBuildRuleBuilderParams builderParams = new DefaultBuildRuleBuilderParams(
-        projectFilesystem,
-        new RuleKeyBuilderFactory() {
-          @Override
-          public Builder newInstance(BuildRule buildRule) {
-            return RuleKey.builder(buildRule, fileHashCache);
-          }
-        });
 
     // Create a dependent build rule, //src/com/facebook/buck/cli:common.
-    DefaultJavaLibraryRule.Builder commonJavaLibraryRuleBuilder = DefaultJavaLibraryRule
-        .newJavaLibraryRuleBuilder(builderParams)
-        .setBuildTarget(BuildTargetFactory.newInstance("//src/com/facebook/buck/cli:common"));
-    ruleResolver1.buildAndAddToIndex(commonJavaLibraryRuleBuilder);
-    ruleResolver2.buildAndAddToIndex(commonJavaLibraryRuleBuilder);
+    JavaLibraryBuilder builder = JavaLibraryBuilder
+        .createBuilder(BuildTargetFactory.newInstance("//src/com/facebook/buck/cli:common"));
+    BuildRule commonJavaLibrary = builder.build(ruleResolver1);
+    builder.build(ruleResolver2);
 
     // Create a java_library() rule with no deps.
-    DefaultJavaLibraryRule.Builder javaLibraryBuilder = DefaultJavaLibraryRule
-        .newJavaLibraryRuleBuilder(builderParams)
-        .setBuildTarget(BuildTargetFactory.newInstance("//src/com/facebook/buck/cli:cli"))
-        // The source file must be an existing file or else RuleKey.Builder.setVal(File) will throw
-        // an IOException, which is caught and then results in the rule being flagged as
-        // "not idempotent", which screws up this test.
-        // TODO(mbolin): Update RuleKey.Builder.setVal(File) to use a ProjectFilesystem so that file
-        // access can be mocked appropriately during a unit test.
+    JavaLibraryBuilder javaLibraryBuilder = JavaLibraryBuilder
+        .createBuilder(BuildTargetFactory.newInstance("//src/com/facebook/buck/cli:cli"))
+            // The source file must be an existing file or else RuleKey.Builder.setVal(File) will
+            // throw an IOException, which is caught and then results in the rule being flagged as
+            // "not idempotent", which screws up this test.
+            // TODO(mbolin): Update RuleKey.Builder.setVal(File) to use a ProjectFilesystem so that
+            // file access can be mocked appropriately during a unit test.
         .addSrc(Paths.get("src/com/facebook/buck/cli/Main.java"));
-    DefaultJavaLibraryRule libraryNoCommon = ruleResolver1.buildAndAddToIndex(
-        javaLibraryBuilder);
+    BuildRule libraryNoCommon = javaLibraryBuilder.build(ruleResolver1);
 
     // Create the same java_library() rule, but with a dep on //src/com/facebook/buck/cli:common.
-    javaLibraryBuilder.addDep(BuildTargetFactory.newInstance("//src/com/facebook/buck/cli:common"));
-    DefaultJavaLibraryRule libraryWithCommon = ruleResolver2.buildAndAddToIndex(
-        javaLibraryBuilder);
+    javaLibraryBuilder.addDep(commonJavaLibrary);
+    BuildRule libraryWithCommon = javaLibraryBuilder.build(ruleResolver2);
 
     // Assert that the RuleKeys are distinct.
     RuleKey r1 = libraryNoCommon.getRuleKey();
@@ -96,5 +83,134 @@ public class RuleKeyTest {
     assertThat("Rule keys should be distinct because the deps of the rules are different.",
         r1,
         not(equalTo(r2)));
+  }
+
+  @Test
+  public void ensureSimpleValuesCorrectRuleKeyChangesMade() {
+    RuleKey.Builder.RuleKeyPair reflective = createEmptyRuleKey()
+        .setReflectively("long", 42L)
+        .setReflectively("boolean", true)
+        .setReflectively("path", Paths.get("location", "of", "the", "rebel", "plans"))
+        .build();
+
+    RuleKey.Builder.RuleKeyPair manual = createEmptyRuleKey()
+        .set("long", 42L)
+        .set("boolean", true)
+        .setInput("path", Paths.get("location", "of", "the", "rebel", "plans"))
+        .build();
+
+    assertEquals(manual.getTotalRuleKey(), reflective.getTotalRuleKey());
+  }
+
+  @Test
+  public void ensureOptionalValuesAreSetAsStringsOrNulls() {
+    RuleKey.Builder.RuleKeyPair reflective = createEmptyRuleKey()
+        .setReflectively("food", Optional.of("cheese"))
+        .setReflectively("empty", Optional.<String>absent())
+        .build();
+
+    RuleKey.Builder.RuleKeyPair manual = createEmptyRuleKey()
+        .set("food", Optional.of("cheese"))
+        .set("empty", Optional.<String>absent())
+        .build();
+
+    assertEquals(manual.getTotalRuleKey(), reflective.getTotalRuleKey());
+  }
+
+  @Test
+  public void ensureListsAreHandledProperly() {
+    ImmutableList<SourceRoot> sourceroots = ImmutableList.of(new SourceRoot("cake"));
+    ImmutableList<String> strings = ImmutableList.of("one", "two");
+
+    RuleKey.Builder.RuleKeyPair reflective = createEmptyRuleKey()
+        .setReflectively("sourceroot", sourceroots)
+        .setReflectively("strings", strings)
+        .build();
+
+    RuleKey.Builder.RuleKeyPair manual = createEmptyRuleKey()
+        .set("sourceroot", sourceroots)
+        .set("strings", strings)
+        .build();
+
+    assertEquals(manual.getTotalRuleKey(), reflective.getTotalRuleKey());
+  }
+
+  @Test
+  public void ensureListsDefaultToSettingStringValues() {
+    ImmutableList<Label> labels = ImmutableList.of(new Label("one"), new Label("two"));
+
+    RuleKey.Builder.RuleKeyPair reflective = createEmptyRuleKey()
+        .setReflectively("labels", labels)
+        .build();
+
+    RuleKey.Builder.RuleKeyPair manual = createEmptyRuleKey()
+        .set("labels", Lists.transform(labels, Functions.toStringFunction()))
+        .build();
+
+    assertEquals(manual.getTotalRuleKey(), reflective.getTotalRuleKey());
+  }
+
+  @Test
+  public void ensureSetsAreHandledProperly() {
+    BuildTarget target = BuildTargetFactory.newInstance("//foo/bar:baz");
+    FakeBuildRule rule = new FakeBuildRule(new BuildRuleType("example"), target);
+    rule.setRuleKey(RuleKey.TO_RULE_KEY.apply("cafebabe"));
+    rule.setOutputFile("cheese.txt");
+
+    ImmutableSortedSet<SourcePath> sourcePaths = ImmutableSortedSet.<SourcePath>of(
+        new BuildRuleSourcePath(rule),
+        new TestSourcePath("alpha/beta")
+    );
+    ImmutableSet<String> strings = ImmutableSet.of("one", "two");
+
+    RuleKey.Builder.RuleKeyPair reflective = createEmptyRuleKey()
+        .setReflectively("sourcePaths", sourcePaths)
+        .setReflectively("strings", strings)
+        .build();
+
+    RuleKey.Builder.RuleKeyPair manual = createEmptyRuleKey()
+        .setSourcePaths("sourcePaths", sourcePaths)
+        .set("strings", strings)
+        .build();
+
+    assertEquals(manual.getTotalRuleKey(), reflective.getTotalRuleKey());
+  }
+
+  @Test
+  public void ensureSetsDefaultToSettingStringValues() {
+    ImmutableSortedSet<Label> labels = ImmutableSortedSet.of(new Label("one"), new Label("two"));
+    ImmutableSortedSet<String> stringLabels = ImmutableSortedSet.copyOf(
+        Iterables.transform(
+            labels,
+            Functions.toStringFunction()));
+
+    RuleKey.Builder.RuleKeyPair reflective = createEmptyRuleKey()
+        .setReflectively("labels", labels)
+        .build();
+
+    RuleKey.Builder.RuleKeyPair manual = createEmptyRuleKey()
+        .set("labels", stringLabels)
+        .build();
+
+    assertEquals(manual.getTotalRuleKey(), reflective.getTotalRuleKey());
+  }
+
+  private RuleKey.Builder createEmptyRuleKey() {
+    return RuleKey.builder(
+        BuildTargetFactory.newInstance("//some:example"),
+        new BuildRuleType("example"),
+        ImmutableSortedSet.<BuildRule>of(),
+        ImmutableSortedSet.<BuildRule>of(),
+        new FileHashCache() {
+          @Override
+          public boolean contains(Path path) {
+            return true;
+          }
+
+          @Override
+          public HashCode get(Path path) {
+            return HashCode.fromString("deadbeef");
+          }
+        });
   }
 }

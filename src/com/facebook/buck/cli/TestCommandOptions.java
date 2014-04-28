@@ -131,8 +131,8 @@ public class TestCommandOptions extends BuildCommandOptions {
     return targetDeviceOptions.getTargetDeviceOptional();
   }
 
-  public Optional<TestSelectorList> getTestSelectorListOptional() {
-    return testSelectorOptions.getTestSelectorListOptional();
+  public TestSelectorList getTestSelectorList() {
+    return testSelectorOptions.getTestSelectorList();
   }
 
   public boolean shouldExplainTestSelectorList() {
@@ -145,5 +145,9 @@ public class TestCommandOptions extends BuildCommandOptions {
 
   public boolean isMatchedByLabelOptions(Set<Label> labels) {
     return testLabelOptions.isMatchedByLabelOptions(getBuckConfig(), labels);
+  }
+
+  public boolean shouldExcludeWin() {
+    return testLabelOptions.shouldExcludeWin();
   }
 }

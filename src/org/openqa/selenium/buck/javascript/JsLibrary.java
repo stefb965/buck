@@ -17,11 +17,11 @@
 package org.openqa.selenium.buck.javascript;
 
 import static com.facebook.buck.util.BuckConstant.GEN_DIR;
-import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractBuildable;
 import com.facebook.buck.rules.BuildContext;
+import com.facebook.buck.rules.BuildOutputInitializer;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.Buildable;
 import com.facebook.buck.rules.BuildableContext;
@@ -42,7 +42,6 @@ import com.google.common.collect.Sets;
 
 import java.io.IOException;
 import java.io.StringWriter;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collection;
@@ -58,6 +57,7 @@ public class JsLibrary extends AbstractBuildable implements
   private final ImmutableSortedSet<SourcePath> srcs;
   private final BuildTarget buildTarget;
   private JavascriptDependencies joy;
+  private final BuildOutputInitializer<JavascriptDependencies> buildOutputInitializer;
 
   public JsLibrary(
       BuildTarget buildTarget,
@@ -69,6 +69,8 @@ public class JsLibrary extends AbstractBuildable implements
 
     this.output = Paths.get(
         GEN_DIR, buildTarget.getBaseName(), buildTarget.getShortName() + "-library.deps");
+
+    buildOutputInitializer = new BuildOutputInitializer<>(buildTarget, this);
   }
 
   @Override
@@ -77,19 +79,18 @@ public class JsLibrary extends AbstractBuildable implements
   }
 
   @Override
-  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) throws IOException {
+  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
     return builder
         .setSourcePaths("srcs", srcs);
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext)
-      throws IOException {
+  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
     Set<String> allRequires = Sets.newHashSet();
     Set<String> allProvides = Sets.newHashSet();
     JavascriptDependencies smidgen = new JavascriptDependencies();
     for (SourcePath src : srcs) {
-      Path path = src.resolve(context);
+      Path path = src.resolve();
       JavascriptSource source = new JavascriptSource(path);
       smidgen.add(source);
       allRequires.addAll(source.getRequires());
@@ -134,33 +135,39 @@ public class JsLibrary extends AbstractBuildable implements
 
   @Override
   public JavascriptDependencies initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) {
-    Preconditions.checkState(joy == null, "Attempt to reinitialize from disk");
-
     try {
       List<String> allLines = onDiskBuildInfo.getOutputFileContentsByLine(output);
-      return JavascriptDependencies.buildFrom(Joiner.on("\n").join(allLines));
+      joy = JavascriptDependencies.buildFrom(Joiner.on("\n").join(allLines));
+      return joy;
     } catch (IOException e) {
       throw Throwables.propagate(e);
     }
   }
 
   @Override
-  public void setBuildOutput(JavascriptDependencies joy) throws IllegalStateException {
-    Preconditions.checkState(this.joy == null, "Attempted to set build output more than once.");
-    this.joy = joy;
+  public BuildOutputInitializer<JavascriptDependencies> getBuildOutputInitializer() {
+    return buildOutputInitializer;
   }
-
-  @Override
-  public JavascriptDependencies getBuildOutput() throws IllegalStateException {
-    Preconditions.checkNotNull(joy, "Build output has not been set.");
-
-    try {
-      List<String> allLines = Files.readAllLines(output, UTF_8);
-      return JavascriptDependencies.buildFrom(Joiner.on("\n").join(allLines));
-    } catch (IOException e) {
-      throw Throwables.propagate(e);
-    }
-  }
+//
+//
+//
+//  @Override
+//  public void setBuildOutput(JavascriptDependencies joy) throws IllegalStateException {
+//    Preconditions.checkState(this.joy == null, "Attempted to set build output more than once.");
+//    this.joy = joy;
+//  }
+//
+//  @Override
+//  public JavascriptDependencies getBuildOutput() throws IllegalStateException {
+//    Preconditions.checkNotNull(joy, "Build output has not been set.");
+//
+//    try {
+//      List<String> allLines = Files.readAllLines(output, UTF_8);
+//      return JavascriptDependencies.buildFrom(Joiner.on("\n").join(allLines));
+//    } catch (IOException e) {
+//      throw Throwables.propagate(e);
+//    }
+//  }
 
   @Override
   public Path getPathToOutputFile() {

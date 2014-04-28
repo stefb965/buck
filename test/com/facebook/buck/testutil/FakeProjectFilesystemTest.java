@@ -16,17 +16,29 @@
 
 package com.facebook.buck.testutil;
 
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import com.google.common.base.Charsets;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
+import com.google.common.io.CharStreams;
 
 import org.junit.Test;
 
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.file.FileVisitResult;
+import java.nio.file.FileVisitor;
+import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.util.List;
 
 public class FakeProjectFilesystemTest {
   @Test
@@ -66,5 +78,56 @@ public class FakeProjectFilesystemTest {
     MoreAsserts.assertIterablesEquals(
         ImmutableList.of(),
         filesystem.readLines(Paths.get("D.txt")));
+  }
+
+  @Test
+  public void testTouch() throws IOException {
+    FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
+    filesystem.touch(Paths.get("A.txt"));
+    filesystem.touch(Paths.get("A/B.txt"));
+
+    assertTrue(filesystem.exists(Paths.get("A.txt")));
+    assertTrue(filesystem.exists(Paths.get("A/B.txt")));
+  }
+
+  @Test
+  public void testWalkRelativeFileTree() throws IOException {
+    FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
+    filesystem.touch(Paths.get("root/A.txt"));
+    filesystem.touch(Paths.get("root/A/B/C.txt"));
+    filesystem.touch(Paths.get("root/A/B.txt"));
+
+    final List<Path> filesVisited = Lists.newArrayList();
+
+    FileVisitor<Path> fileVisitor = new SimpleFileVisitor<Path>() {
+      @Override
+      public FileVisitResult visitFile(Path path, BasicFileAttributes attrs) {
+        filesVisited.add(path);
+        return FileVisitResult.CONTINUE;
+      }
+    };
+
+    filesystem.walkRelativeFileTree(Paths.get("root"), fileVisitor);
+    assertThat(filesVisited, containsInAnyOrder(
+            Paths.get("root/A.txt"),
+            Paths.get("root/A/B/C.txt"),
+            Paths.get("root/A/B.txt")));
+
+    filesVisited.clear();
+    filesystem.walkRelativeFileTree(Paths.get("root/A"), fileVisitor);
+    assertThat(filesVisited, containsInAnyOrder(
+            Paths.get("root/A/B/C.txt"),
+            Paths.get("root/A/B.txt")));
+  }
+
+  @Test
+  public void testNewFileInputStream() throws IOException {
+    FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
+    Path path = Paths.get("hello.txt");
+    filesystem.writeContentsToPath("hello world", path);
+    InputStreamReader reader = new InputStreamReader(
+        filesystem.newFileInputStream(path), Charsets.UTF_8);
+    String contents = CharStreams.toString(reader);
+    assertEquals("hello world", contents);
   }
 }

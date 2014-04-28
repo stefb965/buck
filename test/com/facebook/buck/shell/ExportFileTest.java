@@ -28,12 +28,13 @@ import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.BuildRuleSourcePath;
 import com.facebook.buck.rules.DependencyGraph;
+import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildRuleParams;
 import com.facebook.buck.rules.FakeBuildableContext;
-import com.facebook.buck.rules.FileSourcePath;
 import com.facebook.buck.rules.JavaPackageFinder;
+import com.facebook.buck.rules.TestSourcePath;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepFailedException;
 import com.facebook.buck.step.StepRunner;
@@ -44,8 +45,8 @@ import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
+import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.ListenableFuture;
-import com.google.common.util.concurrent.ListeningExecutorService;
 
 import org.easymock.EasyMock;
 import org.junit.Before;
@@ -110,7 +111,7 @@ public class ExportFileTest {
   @Test
   public void shouldSetOutAndSrcAndNameParametersSeparately() throws IOException {
     ExportFileDescription.Arg args = new ExportFileDescription().createUnpopulatedConstructorArg();
-    args.src = Optional.of(new FileSourcePath("chips"));
+    args.src = Optional.of(new TestSourcePath("chips"));
     args.out = Optional.of("fish");
     ExportFile exportFile = new ExportFile(params, args);
 
@@ -129,14 +130,17 @@ public class ExportFileTest {
   @Test
   public void shouldSetInputsFromSourcePaths() {
     ExportFileDescription.Arg args = new ExportFileDescription().createUnpopulatedConstructorArg();
-    args.src = Optional.of(new FileSourcePath("chips"));
+    args.src = Optional.of(new TestSourcePath("chips"));
     args.out = Optional.of("cake");
     ExportFile exportFile = new ExportFile(params, args);
 
     assertIterablesEquals(singleton(Paths.get("chips")), exportFile.getInputsToCompareToOutput());
 
+    FakeBuildRule rule = new FakeBuildRule(
+        ExportFileDescription.TYPE,
+        BuildTargetFactory.newInstance("//example:one"));
     args.src = Optional.of(
-        new BuildTargetSourcePath(BuildTargetFactory.newInstance("//example:one")));
+        new BuildRuleSourcePath(rule));
     exportFile = new ExportFile(params, args);
     assertTrue(Iterables.isEmpty(exportFile.getInputsToCompareToOutput()));
 
@@ -183,12 +187,13 @@ public class ExportFileTest {
           }
 
           @Override
-          public ListeningExecutorService getListeningExecutorService() {
-            return null;
+          public void runStepsInParallelAndWait(List<Step> steps) throws StepFailedException {
+            // Do nothing.
           }
 
           @Override
-          public void runStepsInParallelAndWait(List<Step> steps) throws StepFailedException {
+          public <T> void addCallback(
+              ListenableFuture<List<T>> allBuiltDeps, FutureCallback<List<T>> futureCallback) {
             // Do nothing.
           }
         })

@@ -21,11 +21,9 @@ import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.test.TestResults;
 import com.facebook.buck.test.selectors.TestSelectorList;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.util.concurrent.ListenableFuture;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -49,7 +47,7 @@ public class FakeTestRule extends AbstractBuildRule implements TestRule {
   public FakeTestRule(BuildRuleType type,
                       ImmutableSet<Label> labels,
                       BuildRuleParams buildRuleParams) {
-    super(buildRuleParams);
+    super(buildRuleParams, null);
     this.labels = labels;
     this.type = type;
   }
@@ -70,16 +68,6 @@ public class FakeTestRule extends AbstractBuildRule implements TestRule {
   }
 
   @Override
-  public ListenableFuture<BuildRuleSuccess> build(BuildContext context) {
-    throw new UnsupportedOperationException("build() not supported in fake");
-  }
-
-  @Override
-  public BuildRuleSuccess.Type getBuildResultType() {
-    throw new UnsupportedOperationException("getBuildResultType() not supported in fake");
-  }
-
-  @Override
   public boolean hasTestResultFiles(ExecutionContext executionContext) {
     return false;
   }
@@ -88,7 +76,7 @@ public class FakeTestRule extends AbstractBuildRule implements TestRule {
   public List<Step> runTests(
       BuildContext buildContext,
       ExecutionContext executionContext,
-      Optional<TestSelectorList> testSelectorListOptional) {
+      TestSelectorList testSelectorList) {
     throw new UnsupportedOperationException("runTests() not supported in fake");
   }
 

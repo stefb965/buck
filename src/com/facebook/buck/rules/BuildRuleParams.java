@@ -18,6 +18,7 @@ package com.facebook.buck.rules;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetPattern;
+import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.annotations.Beta;
 import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
@@ -35,18 +36,18 @@ public class BuildRuleParams {
   private final BuildTarget buildTarget;
   private final ImmutableSortedSet<BuildRule> deps;
   private final ImmutableSet<BuildTargetPattern> visibilityPatterns;
-  private final Function<Path, Path> pathRelativizer;
+  private final ProjectFilesystem projectFilesystem;
   private final RuleKeyBuilderFactory ruleKeyBuilderFactory;
 
   public BuildRuleParams(BuildTarget buildTarget,
       ImmutableSortedSet<BuildRule> deps,
       ImmutableSet<BuildTargetPattern> visibilityPatterns,
-      Function<Path, Path> pathRelativizer,
+      ProjectFilesystem projectFilesystem,
       RuleKeyBuilderFactory ruleKeyBuilderFactory) {
     this.buildTarget = Preconditions.checkNotNull(buildTarget);
     this.deps = Preconditions.checkNotNull(deps);
     this.visibilityPatterns = Preconditions.checkNotNull(visibilityPatterns);
-    this.pathRelativizer = Preconditions.checkNotNull(pathRelativizer);
+    this.projectFilesystem = Preconditions.checkNotNull(projectFilesystem);
     this.ruleKeyBuilderFactory = Preconditions.checkNotNull(ruleKeyBuilderFactory);
   }
 
@@ -55,7 +56,7 @@ public class BuildRuleParams {
         buildTarget,
         newDeps,
         visibilityPatterns,
-        pathRelativizer,
+        projectFilesystem,
         ruleKeyBuilderFactory);
   }
 
@@ -71,8 +72,12 @@ public class BuildRuleParams {
     return visibilityPatterns;
   }
 
-  public Function<Path, Path> getPathRelativizer() {
-    return pathRelativizer;
+  public Function<Path, Path> getPathAbsolutifier() {
+    return projectFilesystem.getAbsolutifier();
+  }
+
+  public ProjectFilesystem getProjectFilesystem() {
+    return projectFilesystem;
   }
 
   public RuleKeyBuilderFactory getRuleKeyBuilderFactory() {

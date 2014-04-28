@@ -26,7 +26,7 @@ import java.nio.file.Path;
 
 public class XptDescription implements Description<XptDescription.Arg> {
 
-  private final static BuildRuleType TYPE = new BuildRuleType("mozilla_xpt");
+  private static final BuildRuleType TYPE = new BuildRuleType("mozilla_xpt");
 
   @Override
   public BuildRuleType getBuildRuleType() {

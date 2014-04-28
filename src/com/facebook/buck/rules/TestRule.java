@@ -16,11 +16,11 @@
 
 package com.facebook.buck.rules;
 
+import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.test.TestResults;
 import com.facebook.buck.test.selectors.TestSelectorList;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSet;
 
 import java.nio.file.Path;
@@ -30,7 +30,7 @@ import java.util.concurrent.Callable;
 /**
  * A {@link BuildRule} that is designed to run tests.
  */
-public interface TestRule extends BuildRule {
+public interface TestRule extends HasBuildTarget {
 
   /**
    * Returns a boolean indicating whether the files that contain the test results for this rule are
@@ -45,21 +45,22 @@ public interface TestRule extends BuildRule {
   /**
    * Returns the commands required to run the tests.
    * <p>
-   * <strong>Note:</strong> This method may be run without {@link #build(BuildContext)} having been
-   * run. This happens if the user has built [and ran] the test previously and then re-runs it using
-   * the {@code --debug} flag.
+   * <strong>Note:</strong> This method may be run without
+   * {@link BuildEngine#build(BuildContext, BuildRule)} having been run. This happens if the user
+   * has built [and ran] the test previously and then re-runs it using the {@code --debug} flag.
    *
-   * @param buildContext Because this method may be run without {@link #build(BuildContext)} having
-   *     been run, this is supplied in case any non-cacheable build work needs to be done.
-   * @param executionContext Provides context for creating {@link com.facebook.buck.step.Step}s.
-   * @param testSelectorListOptional Provides a way of selecting which tests to include or exclude
+   * @param buildContext Because this method may be run without
+   *     {@link BuildEngine#build(BuildContext, BuildRule)} having been run, this is supplied in
+   *     case any non-cacheable build work needs to be done.
+   * @param executionContext Provides context for creating {@link Step}s.
+   * @param testSelectorList Provides a way of selecting which tests to include or exclude
    *     from a run.
    * @return the commands required to run the tests
    */
   public List<Step> runTests(
       BuildContext buildContext,
       ExecutionContext executionContext,
-      Optional<TestSelectorList> testSelectorListOptional);
+      TestSelectorList testSelectorList);
 
   public Callable<TestResults> interpretTestResults(
       ExecutionContext executionContext,

@@ -18,16 +18,15 @@ package com.facebook.buck.android;
 
 import static org.junit.Assert.assertEquals;
 
-import com.facebook.buck.java.FakeJavaLibraryRule;
-import com.facebook.buck.java.JavaLibraryRule;
+import com.facebook.buck.java.FakeJavaLibrary;
+import com.facebook.buck.java.JavaLibrary;
 import com.facebook.buck.java.Keystore;
+import com.facebook.buck.java.KeystoreBuilder;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
-import com.facebook.buck.rules.FakeAbstractBuildRuleBuilderParams;
-import com.facebook.buck.rules.FileSourcePath;
+import com.facebook.buck.rules.FakeBuildRuleParams;
+import com.facebook.buck.rules.TestSourcePath;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -35,6 +34,7 @@ import com.google.common.collect.Maps;
 
 import org.junit.Test;
 
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
 
@@ -42,34 +42,34 @@ public class AndroidInstrumentationApkTest {
 
   @Test
   public void testAndroidInstrumentationApkExcludesClassesFromInstrumentedApk() {
-    final JavaLibraryRule javaLibrary1 = new FakeJavaLibraryRule(
+    final FakeJavaLibrary javaLibrary1 = new FakeJavaLibrary(
         new BuildTarget("//java/com/example", "lib1"));
 
-    JavaLibraryRule javaLibrary2 = new FakeJavaLibraryRule(
+    FakeJavaLibrary javaLibrary2 = new FakeJavaLibrary(
         new BuildTarget("//java/com/example", "lib2"),
         /* deps */ ImmutableSortedSet.of((BuildRule) javaLibrary1)) {
       @Override
-      public ImmutableSetMultimap<JavaLibraryRule, String> getTransitiveClasspathEntries() {
-        ImmutableSetMultimap.Builder<JavaLibraryRule, String> builder =
+      public ImmutableSetMultimap<JavaLibrary, Path> getTransitiveClasspathEntries() {
+        ImmutableSetMultimap.Builder<JavaLibrary, Path> builder =
             ImmutableSetMultimap.builder();
-        builder.put(javaLibrary1, javaLibrary1.getPathToOutputFile().toString());
-        builder.put(this, this.getPathToOutputFile().toString());
+        builder.put(javaLibrary1, javaLibrary1.getPathToOutputFile());
+        builder.put(this, this.getPathToOutputFile());
         return builder.build();
       }
     };
 
-    final JavaLibraryRule javaLibrary3 = new FakeJavaLibraryRule(
+    final FakeJavaLibrary javaLibrary3 = new FakeJavaLibrary(
         new BuildTarget("//java/com/example", "lib3"));
 
-    JavaLibraryRule javaLibrary4 = new FakeJavaLibraryRule(
+    FakeJavaLibrary javaLibrary4 = new FakeJavaLibrary(
         new BuildTarget("//java/com/example", "lib4"),
         /* deps */ ImmutableSortedSet.of((BuildRule) javaLibrary3)) {
       @Override
-      public ImmutableSetMultimap<JavaLibraryRule, String> getTransitiveClasspathEntries() {
-        ImmutableSetMultimap.Builder<JavaLibraryRule, String> builder =
+      public ImmutableSetMultimap<JavaLibrary, Path> getTransitiveClasspathEntries() {
+        ImmutableSetMultimap.Builder<JavaLibrary, Path> builder =
             ImmutableSetMultimap.builder();
-        builder.put(javaLibrary3, javaLibrary3.getPathToOutputFile().toString());
-        builder.put(this, this.getPathToOutputFile().toString());
+        builder.put(javaLibrary3, javaLibrary3.getPathToOutputFile());
+        builder.put(this, this.getPathToOutputFile());
         return builder.build();
       }
     };
@@ -81,49 +81,48 @@ public class AndroidInstrumentationApkTest {
     buildRuleIndex.put(javaLibrary4.getBuildTarget(), javaLibrary4);
     BuildRuleResolver ruleResolver = new BuildRuleResolver(buildRuleIndex);
 
-    BuildRule keystore = ruleResolver.buildAndAddToIndex(
-        Keystore.newKeystoreBuilder(
-            new FakeAbstractBuildRuleBuilderParams())
-            .setBuildTarget(new BuildTarget("//keystores", "debug"))
-            .setProperties(Paths.get("keystores/debug.properties"))
-            .setStore(Paths.get("keystores/debug.keystore"))
-            .addVisibilityPattern(BuildTargetPattern.MATCH_ALL));
+    Keystore keystore = (Keystore) KeystoreBuilder.createBuilder(
+        new BuildTarget("//keystores", "debug"))
+        .setProperties(Paths.get("keystores/debug.properties"))
+        .setStore(Paths.get("keystores/debug.keystore"))
+        .build(ruleResolver)
+        .getBuildable();
 
     // AndroidBinaryRule transitively depends on :lib1, :lib2, and :lib3.
-    AndroidBinaryRule.Builder androidBinaryBuilder = AndroidBinaryRule.newAndroidBinaryRuleBuilder(
-        new FakeAbstractBuildRuleBuilderParams());
+    AndroidBinaryBuilder.Builder androidBinaryBuilder = AndroidBinaryBuilder.newBuilder();
     androidBinaryBuilder
         .setBuildTarget(new BuildTarget("//apps", "app"))
-        .setManifest(new FileSourcePath("apps/AndroidManifest.xml"))
+        .setManifest(new TestSourcePath("apps/AndroidManifest.xml"))
         .setTarget("Google Inc.:Google APIs:18")
-        .setKeystore(keystore.getBuildTarget())
-        .addClasspathDep(javaLibrary2.getBuildTarget())
-        .addClasspathDep(javaLibrary3.getBuildTarget());
-    AndroidBinaryRule androidBinary = ruleResolver.buildAndAddToIndex(androidBinaryBuilder);
+        .setKeystore(keystore)
+        .setOriginalDeps(ImmutableSortedSet.<BuildRule>of(
+                javaLibrary2,
+                javaLibrary3));
+    BuildRule androidBinaryRule = androidBinaryBuilder.build(ruleResolver);
+    AndroidBinary androidBinary = (AndroidBinary) androidBinaryRule.getBuildable();
+    androidBinary.getEnhancedDeps(ruleResolver);
 
     // AndroidInstrumentationApk transitively depends on :lib1, :lib2, :lib3, and :lib4.
-    AndroidInstrumentationApk.Builder androidInstrumentationApkBuilder = AndroidInstrumentationApk
-        .newAndroidInstrumentationApkRuleBuilder(new FakeAbstractBuildRuleBuilderParams());
-    androidInstrumentationApkBuilder
-        .setBuildTarget(new BuildTarget("//apps", "instrumentation"))
-        .setManifest(new FileSourcePath("apps/InstrumentationAndroidManifest.xml"))
-        .setApk(androidBinary.getBuildTarget())
-        .addClasspathDep(javaLibrary2.getBuildTarget())
-        .addClasspathDep(javaLibrary4.getBuildTarget());
-    AndroidInstrumentationApk androidInstrumentationApk = ruleResolver.buildAndAddToIndex(
-        androidInstrumentationApkBuilder);
+    AndroidInstrumentationApk androidInstrumentationApk = new AndroidInstrumentationApk(
+        new FakeBuildRuleParams(new BuildTarget("//apps", "instrumentation")),
+        new TestSourcePath("apps/InstrumentationAndroidManifest.xml"),
+        androidBinary,
+        androidBinaryRule,
+        ImmutableSortedSet.<BuildRule>of(
+            javaLibrary2,
+            javaLibrary4));
+    androidInstrumentationApk.getEnhancedDeps(ruleResolver);
 
-    assertEquals(BuildRuleType.ANDROID_INSTRUMENTATION_APK, androidInstrumentationApk.getType());
     assertEquals(
         "//apps:app should have three JAR files to dex.",
         ImmutableSet.of(
-            "buck-out/gen/java/com/example/lib1.jar",
-            "buck-out/gen/java/com/example/lib2.jar",
-            "buck-out/gen/java/com/example/lib3.jar"),
+            Paths.get("buck-out/gen/java/com/example/lib1.jar"),
+            Paths.get("buck-out/gen/java/com/example/lib2.jar"),
+            Paths.get("buck-out/gen/java/com/example/lib3.jar")),
         androidBinary.findDexTransitiveDependencies().classpathEntriesToDex);
     assertEquals(
         "//apps:instrumentation should have one JAR file to dex.",
-        ImmutableSet.of("buck-out/gen/java/com/example/lib4.jar"),
+        ImmutableSet.of(Paths.get("buck-out/gen/java/com/example/lib4.jar")),
         androidInstrumentationApk.findDexTransitiveDependencies().classpathEntriesToDex);
   }
 }

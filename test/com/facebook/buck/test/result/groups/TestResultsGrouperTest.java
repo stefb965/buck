@@ -18,10 +18,10 @@ package com.facebook.buck.test.result.groups;
 
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.java.JavaTestDescription;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.FakeTestRule;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.TestRule;
@@ -53,13 +53,13 @@ public class TestResultsGrouperTest {
      *     \ / \
      *      F   G -> (D -> F)
      */
-    TestRule f = getFakeTestRule("f");
-    TestRule d = getFakeTestRule("d", f);
-    TestRule g = getFakeTestRule("g", d);
-    TestRule e = getFakeTestRule("e", f, g);
-    TestRule c = getFakeTestRule("c", d, e);
-    TestRule b = getFakeTestRule("b", d);
-    TestRule a = getFakeTestRule("a", b, c);
+    FakeTestRule f = getFakeTestRule("f");
+    FakeTestRule d = getFakeTestRule("d", f);
+    FakeTestRule g = getFakeTestRule("g", d);
+    FakeTestRule e = getFakeTestRule("e", f, g);
+    FakeTestRule c = getFakeTestRule("c", d, e);
+    FakeTestRule b = getFakeTestRule("b", d);
+    FakeTestRule a = getFakeTestRule("a", b, c);
 
     assertDependencies(g, /* => */ g, d, f);
     assertDependencies(f, /* => */ f);
@@ -76,7 +76,8 @@ public class TestResultsGrouperTest {
 
   private FakeTestRule getFakeTestRule(String suffix, BuildRule... dependencies) {
     String name = String.format("//:%s", suffix);
-    return new FakeTestRule(BuildRuleType.JAVA_TEST,
+    return new FakeTestRule(
+        JavaTestDescription.TYPE,
         ImmutableSet.<Label>of(),
         BuildTargetFactory.newInstance(name),
         ImmutableSortedSet.copyOf(dependencies),

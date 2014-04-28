@@ -16,7 +16,6 @@
 
 package com.facebook.buck.apple.xcode.xcodeproj;
 
-import com.facebook.buck.apple.xcode.GidGenerator;
 import com.facebook.buck.apple.xcode.XcodeprojSerializer;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -29,8 +28,11 @@ import java.util.List;
 public abstract class PBXTarget extends PBXProjectItem {
   public enum ProductType {
     IOS_LIBRARY("com.apple.product-type.library.static"),
-    IOS_TEST("com.apple.product-type.bundle"),
-    IOS_BINARY("com.apple.product-type.application");
+    IOS_TEST_OCTEST("com.apple.product-type.bundle"),
+    IOS_TEST_XCTEST("com.apple.product-type.bundle.unit-test"),
+    IOS_BINARY("com.apple.product-type.application"),
+    MACOSX_FRAMEWORK("com.apple.product-type.framework"),
+    MACOSX_BINARY("com.apple.product-type.application");
 
     public final String identifier;
     private ProductType(String identifier) {
@@ -109,6 +111,11 @@ public abstract class PBXTarget extends PBXProjectItem {
   }
 
   @Override
+  public int stableHash() {
+    return name.hashCode();
+  }
+
+  @Override
   public void serializeInto(XcodeprojSerializer s) {
     super.serializeInto(s);
 
@@ -121,10 +128,5 @@ public abstract class PBXTarget extends PBXProjectItem {
     s.addField("dependencies", dependencies);
     s.addField("buildPhases", buildPhases);
     s.addField("buildConfigurationList", buildConfigurationList);
-  }
-
-  @Override
-  public String generateGid(GidGenerator generator) {
-    return generator.generateStableGid(isa(), getName().hashCode());
   }
 }

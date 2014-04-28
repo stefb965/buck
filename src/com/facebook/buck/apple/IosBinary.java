@@ -28,92 +28,59 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Iterables;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.List;
 
 import javax.annotation.Nullable;
 
-public class IosBinary extends AbstractBuildable {
+public class IosBinary extends AbstractBuildable implements AppleBuildable {
 
   private final Path infoPlist;
   private final ImmutableSet<XcodeRuleConfiguration> configurations;
-  private final ImmutableSortedSet<SourcePath> srcs;
-  private final ImmutableSortedSet<SourcePath> headers;
+  private final ImmutableList<GroupedSource> srcs;
+  private final ImmutableMap<SourcePath, String> perFileFlags;
   private final ImmutableSortedSet<String> frameworks;
-  private final ImmutableMap<SourcePath, String> perFileCompilerFlags;
-  private final ImmutableMap<SourcePath, HeaderVisibility> perHeaderVisibility;
-  private final ImmutableList<GroupedSource> groupedSrcs;
-  private final ImmutableList<GroupedSource> groupedHeaders;
 
   public IosBinary(IosBinaryDescription.Arg arg) {
     infoPlist = Preconditions.checkNotNull(arg.infoPlist);
     configurations = XcodeRuleConfiguration.fromRawJsonStructure(arg.configs);
     frameworks = Preconditions.checkNotNull(arg.frameworks);
 
-    ImmutableSortedSet.Builder<SourcePath> srcsBuilder = ImmutableSortedSet.naturalOrder();
-    ImmutableMap.Builder<SourcePath, String> perFileCompileFlagsBuilder = ImmutableMap.builder();
-    ImmutableList.Builder<GroupedSource> groupedSourcesBuilder = ImmutableList.builder();
+    ImmutableList.Builder<GroupedSource> srcsBuilder = ImmutableList.builder();
+    ImmutableMap.Builder<SourcePath, String> perFileFlagsBuilder = ImmutableMap.builder();
     RuleUtils.extractSourcePaths(
         srcsBuilder,
-        perFileCompileFlagsBuilder,
-        groupedSourcesBuilder,
+        perFileFlagsBuilder,
         arg.srcs);
     srcs = srcsBuilder.build();
-    perFileCompilerFlags = perFileCompileFlagsBuilder.build();
-    groupedSrcs = groupedSourcesBuilder.build();
-
-    ImmutableSortedSet.Builder<SourcePath> headersBuilder = ImmutableSortedSet.naturalOrder();
-    ImmutableMap.Builder<SourcePath, HeaderVisibility> perHeaderVisibilityBuilder =
-      ImmutableMap.builder();
-    ImmutableList.Builder<GroupedSource> groupedHeadersBuilder = ImmutableList.builder();
-    RuleUtils.extractHeaderPaths(
-        headersBuilder,
-        perHeaderVisibilityBuilder,
-        groupedHeadersBuilder,
-        arg.headers);
-    headers = headersBuilder.build();
-    perHeaderVisibility = perHeaderVisibilityBuilder.build();
-    groupedHeaders = groupedHeadersBuilder.build();
+    perFileFlags = perFileFlagsBuilder.build();
   }
 
+  @Override
   public Path getInfoPlist() {
     return infoPlist;
   }
 
+  @Override
   public ImmutableSet<XcodeRuleConfiguration> getConfigurations() {
     return configurations;
   }
 
-  public ImmutableSortedSet<SourcePath> getSrcs() {
+  @Override
+  public ImmutableList<GroupedSource> getSrcs() {
     return srcs;
   }
 
-  public ImmutableSortedSet<SourcePath> getHeaders() {
-    return headers;
+  @Override
+  public ImmutableMap<SourcePath, String> getPerFileFlags() {
+    return perFileFlags;
   }
 
+  @Override
   public ImmutableSortedSet<String> getFrameworks() {
     return frameworks;
-  }
-
-  public ImmutableMap<SourcePath, String> getPerFileCompilerFlags() {
-    return perFileCompilerFlags;
-  }
-
-  public ImmutableMap<SourcePath, HeaderVisibility> getPerHeaderVisibility() {
-    return perHeaderVisibility;
-  }
-
-  public ImmutableList<GroupedSource> getGroupedSrcs() {
-    return groupedSrcs;
-  }
-
-  public ImmutableList<GroupedSource> getGroupedHeaders() {
-    return groupedHeaders;
   }
 
   @Nullable
@@ -124,17 +91,16 @@ public class IosBinary extends AbstractBuildable {
 
   @Override
   public Collection<Path> getInputsToCompareToOutput() {
-    return SourcePaths.filterInputsToCompareToOutput(Iterables.concat(srcs, headers));
+    return SourcePaths.filterInputsToCompareToOutput(GroupedSources.sourcePaths(srcs));
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext)
-      throws IOException {
+  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
     return ImmutableList.of();
   }
 
   @Override
-  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) throws IOException {
+  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
     return builder;
   }
 }

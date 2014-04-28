@@ -16,7 +16,6 @@
 
 package com.facebook.buck.rules;
 
-import com.facebook.buck.util.MorePaths;
 import com.google.common.base.Function;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableSortedSet;
@@ -37,7 +36,21 @@ public class SourcePaths {
       new Function<Path, SourcePath>() {
         @Override
         public SourcePath apply(Path input) {
-          return new FileSourcePath(input.toString());
+          return new PathSourcePath(input);
+        }
+      };
+  public static final Function<PathSourcePath, Path> TO_PATH_SOURCEPATH_REFERENCES =
+      new Function<PathSourcePath, Path>() {
+        @Override
+        public Path apply(PathSourcePath input) {
+          return input.asReference();
+        }
+      };
+  public static final Function<SourcePath, Path> TO_PATH =
+      new Function<SourcePath, Path>() {
+        @Override
+        public Path apply(SourcePath input) {
+          return input.resolve();
         }
       };
 
@@ -54,32 +67,19 @@ public class SourcePaths {
     // returned by getInputsToCompareToOutput() is FileSourcePath, so it is safe to filter by that
     // and then use .asReference() to get its path.
     //
-    // BuildTargetSourcePath should not be included in the output because it refers to a generated
+    // BuildRuleSourcePath should not be included in the output because it refers to a generated
     // file, and generated files are not hashed as part of a RuleKey.
     return FluentIterable.from(sources)
-        .filter(FileSourcePath.class)
-        .transform(SourcePath.TO_REFERENCE)
-        .transform(MorePaths.TO_PATH)
+        .filter(PathSourcePath.class)
+        .transform(TO_PATH_SOURCEPATH_REFERENCES)
         .toList();
   }
 
-  public static Iterable<Path> toPaths(Iterable<SourcePath> sourcePaths,
-      final BuildContext context) {
+  public static Iterable<Path> toPaths(Iterable<SourcePath> sourcePaths) {
     Function<SourcePath, Path> transform = new Function<SourcePath, Path>() {
       @Override
       public Path apply(SourcePath sourcePath) {
-        return sourcePath.resolve(context);
-      }
-    };
-    return Iterables.transform(sourcePaths, transform);
-  }
-
-  public static Iterable<Path> toPaths(Iterable<SourcePath> sourcePaths,
-      final DependencyGraph context) {
-    Function<SourcePath, Path> transform = new Function<SourcePath, Path>() {
-      @Override
-      public Path apply(SourcePath sourcePath) {
-        return sourcePath.resolve(context);
+        return sourcePath.resolve();
       }
     };
     return Iterables.transform(sourcePaths, transform);

@@ -18,6 +18,7 @@ package com.facebook.buck.java;
 
 import com.facebook.buck.rules.BuildDependencies;
 import com.facebook.buck.rules.Sha1HashCode;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.step.ExecutionContext;
 import com.google.common.base.Charsets;
 import com.google.common.base.Function;
@@ -63,9 +64,9 @@ public class JavacInMemoryStep extends JavacStep {
 
   public JavacInMemoryStep(
       Path outputDirectory,
-      Set<Path> javaSourceFilePaths,
-      Set<String> transitiveClasspathEntries,
-      Set<String> declaredClasspathEntries,
+      Set<? extends SourcePath> javaSourceFilePaths,
+      Set<Path> transitiveClasspathEntries,
+      Set<Path> declaredClasspathEntries,
       JavacOptions javacOptions,
       Optional<Path> pathToOutputAbiFile,
       Optional<String> invokingRule,
@@ -105,7 +106,7 @@ public class JavacInMemoryStep extends JavacStep {
   }
 
   @Override
-  protected int buildWithClasspath(ExecutionContext context, Set<String> buildClasspathEntries) {
+  protected int buildWithClasspath(ExecutionContext context, Set<Path> buildClasspathEntries) {
     JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
     Preconditions.checkNotNull(compiler,
         "If using JRE instead of JDK, ToolProvider.getSystemJavaCompiler() may be null.");
@@ -189,7 +190,9 @@ public class JavacInMemoryStep extends JavacStep {
       StandardJavaFileManager fileManager,
       Function<Path, Path> absolutifier) throws IOException {
     List<JavaFileObject> compilationUnits = Lists.newArrayList();
-    for (Path path : javaSourceFilePaths) {
+    for (SourcePath srcPath : javaSourceFilePaths) {
+      Path path = srcPath.resolve();
+
       if (path.toString().endsWith(".java")) {
         // For an ordinary .java file, create a corresponding JavaFileObject.
         Iterable<? extends JavaFileObject> javaFileObjects = fileManager.getJavaFileObjects(

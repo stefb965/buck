@@ -1,4 +1,19 @@
 java_library(
+  name = 'config',
+  srcs = [
+    'JavaBuckConfig.java',
+  ],
+  deps = [
+    ':support',
+    '//lib:guava',
+    '//src/com/facebook/buck/cli:config',
+    '//src/com/facebook/buck/util:exceptions',
+    '//src/com/facebook/buck/util:io',
+  ],
+  visibility = ['PUBLIC'],
+)
+
+java_library(
   name = 'support',
   srcs = [
     'AbiWritingAnnotationProcessingDataDecorator.java',
@@ -7,9 +22,12 @@ java_library(
     'AnnotationProcessingParams.java',
     'DefaultJavaPackageFinder.java',
     'HasClasspathEntries.java',
-    'JavaAbiRule.java',
-    'JavaLibraryRule.java',
+    'HasJavaAbi.java',
+    'JavaFileParser.java',
+    'JavaLibrary.java',
+    'JavacVersion.java',
     'JavacOptions.java',
+    'JavaCompilerEnvironment.java',
   ],
   deps = [
     '//lib:guava',
@@ -21,6 +39,7 @@ java_library(
     '//src/com/facebook/buck/util:constants',
     '//src/com/facebook/buck/util:exceptions',
     '//src/com/facebook/buck/util:io',
+    '//third-party/java/eclipse:eclipse_jdt',
   ],
   visibility = ['PUBLIC'],
 )
@@ -29,19 +48,19 @@ java_library(
   name = 'rules',
   srcs = [
     'Classpaths.java',
-    'DefaultJavaLibraryRule.java',
-    'HasJavaSrcs.java',
-    'JavaBinaryRule.java',
-    'JavaBinaryBuildRuleFactory.java',
-    'JavaLibraryBuildRuleFactory.java',
+    'DefaultJavaLibrary.java',
+    'JavaBinary.java',
+    'JavaBinaryDescription.java',
+    'JavaLibraryDescription.java',
     'JavaLibraryClasspathProvider.java',
     'JavaLibraryRules.java',
-    'JavaTestRule.java',
-    'JavaTestBuildRuleFactory.java',
+    'JavaTest.java',
+    'JavaTestDescription.java',
+    'JavaTestDescription.java',
     'Keystore.java',
-    'KeystoreBuildRuleFactory.java',
-    'PrebuiltJarRule.java',
-    'PrebuiltJarBuildRuleFactory.java',
+    'KeystoreDescription.java',
+    'PrebuiltJar.java',
+    'PrebuiltJarDescription.java',
   ],
   deps = [
     ':steps',
@@ -78,6 +97,7 @@ java_library(
     'JarDirectoryStep.java',
     'JavacInMemoryStep.java',
     'JavacStep.java',
+    'JavacStepUtil.java',
     'JUnitStep.java',
     'ZipEntryJavaFileObject.java',
   ],
@@ -85,7 +105,6 @@ java_library(
     ':support',
     '//lib:guava',
     '//lib:jsr305',
-    '//src/com/facebook/buck/android:exceptions',
     '//src/com/facebook/buck/dalvik:dalvik_stats_tool',
     '//src/com/facebook/buck/java/abi:protocol',
     '//src/com/facebook/buck/java/classes:classes',
@@ -102,6 +121,7 @@ java_library(
     '//src/com/facebook/buck/util:io',
     '//src/com/facebook/buck/util:util',
     '//src/com/facebook/buck/zip:stream',
+    '//src/com/facebook/buck/zip:unzip',
   ],
   visibility = ['PUBLIC'],
 )

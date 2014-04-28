@@ -22,20 +22,23 @@ import com.facebook.buck.java.DefaultJavaPackageFinder;
 import com.facebook.buck.java.GenerateCodeCoverageReportStep;
 import com.facebook.buck.java.InstrumentStep;
 import com.facebook.buck.java.JUnitStep;
-import com.facebook.buck.java.JavaLibraryRule;
-import com.facebook.buck.java.JavaTestRule;
+import com.facebook.buck.java.JavaLibrary;
+import com.facebook.buck.java.JavaTest;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.parser.PartialGraph;
 import com.facebook.buck.parser.RawRulePredicate;
+import com.facebook.buck.parser.RawRulePredicates;
 import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.BuildContext;
+import com.facebook.buck.rules.BuildEngine;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleSuccess;
-import com.facebook.buck.rules.BuildRuleType;
+import com.facebook.buck.rules.Buildable;
 import com.facebook.buck.rules.DependencyGraph;
 import com.facebook.buck.rules.IndividualTestEvent;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TestRule;
 import com.facebook.buck.rules.TestRunEvent;
 import com.facebook.buck.step.DefaultStepRunner;
@@ -50,12 +53,14 @@ import com.facebook.buck.test.TestResults;
 import com.facebook.buck.test.result.groups.TestResultsGrouper;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.MorePaths;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.buck.util.Verbosity;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.base.Strings;
 import com.google.common.collect.FluentIterable;
@@ -78,6 +83,7 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.io.Writer;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -115,7 +121,7 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
     if (options.isRunAllTests()) {
       try {
         return runAllTests(options);
-      } catch (BuildTargetException | BuildFileParseException e) {
+      } catch (BuildTargetException | BuildFileParseException | ExecutionException e) {
         console.printBuildFailureWithoutStacktrace(e);
         return 1;
       }
@@ -145,10 +151,15 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
         setTargetDevice(options.getTargetDeviceOptional()).
         build();
 
-    return runTestsAndShutdownExecutor(results,
-        buildContext,
-        testExecutionContext,
-        options);
+    try {
+      return runTestsAndShutdownExecutor(results,
+          buildContext,
+          testExecutionContext,
+          options);
+    } catch (ExecutionException e) {
+      console.printBuildFailureWithoutStacktrace(e);
+      return 1;
+    }
   }
 
   /**
@@ -157,11 +168,11 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
    * and generate a EMMA instr shell command object, which can run in a CommandRunner.
    */
   private Step getInstrumentCommand(
-      ImmutableSet<JavaLibraryRule> rulesUnderTest, ProjectFilesystem projectFilesystem) {
+      ImmutableSet<JavaLibrary> rulesUnderTest, ProjectFilesystem projectFilesystem) {
     ImmutableSet.Builder<Path> pathsToInstrumentedClasses = ImmutableSet.builder();
 
     // Add all JAR files produced by java libraries that we are testing to -instrpath.
-    for (JavaLibraryRule path : rulesUnderTest) {
+    for (JavaLibrary path : rulesUnderTest) {
       Path pathToOutput = path.getPathToOutputFile();
       if (pathToOutput == null) {
         continue;
@@ -180,17 +191,17 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
    * files tested during the test run.
    */
   private Step getReportCommand(
-      ImmutableSet<JavaLibraryRule> rulesUnderTest,
+      ImmutableSet<JavaLibrary> rulesUnderTest,
       Optional<DefaultJavaPackageFinder> defaultJavaPackageFinderOptional,
-      ProjectFilesystem projectFilesystem,
+      ProjectFilesystem filesystem,
       Path outputDirectory) {
     ImmutableSet.Builder<String> srcDirectories = ImmutableSet.builder();
     ImmutableSet.Builder<Path> pathsToClasses = ImmutableSet.builder();
 
     // Add all source directories of java libraries that we are testing to -sourcepath.
-    for (JavaLibraryRule rule : rulesUnderTest) {
+    for (JavaLibrary rule : rulesUnderTest) {
       ImmutableSet<String> sourceFolderPath =
-          getPathToSourceFolders(rule, defaultJavaPackageFinderOptional, projectFilesystem);
+          getPathToSourceFolders(rule, defaultJavaPackageFinderOptional, filesystem);
       if (!sourceFolderPath.isEmpty()) {
         srcDirectories.addAll(sourceFolderPath);
       }
@@ -211,10 +222,10 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
    */
   @VisibleForTesting
   static ImmutableSet<String> getPathToSourceFolders(
-      JavaLibraryRule rule,
+      JavaLibrary rule,
       Optional<DefaultJavaPackageFinder> defaultJavaPackageFinderOptional,
-      ProjectFilesystem projectFilesystem) {
-    ImmutableSet<Path> javaSrcPaths = rule.getJavaSrcs();
+      ProjectFilesystem filesystem) {
+    ImmutableSet<SourcePath> javaSrcPaths = rule.getJavaSrcs();
 
     // A Java library rule with just resource files has an empty javaSrcPaths.
     if (javaSrcPaths.isEmpty()) {
@@ -234,13 +245,12 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
     // folders for the source paths.
     Set<String> srcFolders = Sets.newHashSet();
     loopThroughSourcePath:
-    for (Path javaSrcPath : javaSrcPaths) {
-      if (!JavaTestRule.isGeneratedFile(javaSrcPath)) {
-
+    for (SourcePath javaSrcPath : javaSrcPaths) {
+      if (!MorePaths.isGeneratedFile(javaSrcPath.resolve())) {
         // If the source path is already under a known source folder, then we can skip this
         // source path.
         for (String srcFolder : srcFolders) {
-          if (javaSrcPath.startsWith(srcFolder)) {
+          if (javaSrcPath.resolve().startsWith(srcFolder)) {
             continue loopThroughSourcePath;
           }
         }
@@ -249,7 +259,7 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
         // root.
         ImmutableSortedSet<String> pathsFromRoot = defaultJavaPackageFinder.getPathsFromRoot();
         for (String root : pathsFromRoot) {
-          if (javaSrcPath.startsWith(root)) {
+          if (javaSrcPath.resolve().startsWith(root)) {
             srcFolders.add(root);
             continue loopThroughSourcePath;
           }
@@ -258,7 +268,7 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
         // Traverse the file system from the parent directory of the java file until we hit the
         // parent of the src root directory.
         ImmutableSet<String> pathElements = defaultJavaPackageFinder.getPathElements();
-        File directory = projectFilesystem.getFileForRelativePath(javaSrcPath).getParentFile();
+        File directory = filesystem.getFileForRelativePath(javaSrcPath.resolve().getParent());
         while (directory != null && !pathElements.contains(directory.getName())) {
           directory = directory.getParentFile();
         }
@@ -277,20 +287,12 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
   }
 
   private int runAllTests(TestCommandOptions options) throws IOException,
-      BuildTargetException, BuildFileParseException {
+      BuildTargetException, BuildFileParseException, ExecutionException {
     Logging.setLoggingLevelForVerbosity(console.getVerbosity());
 
     // The first step is to parse all of the build files. This will populate the parser and find all
     // of the test rules.
-    RawRulePredicate predicate = new RawRulePredicate() {
-      @Override
-      public boolean isMatch(
-          Map<String, Object> rawParseData,
-          BuildRuleType buildRuleType,
-          BuildTarget buildTarget) {
-        return buildRuleType.isTestRule();
-      }
-    };
+    RawRulePredicate predicate = RawRulePredicates.isTestRule();
     PartialGraph partialGraph = PartialGraph.createPartialGraph(predicate,
         getProjectFilesystem(),
         options.getDefaultIncludes(),
@@ -302,10 +304,16 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
     // Look up all of the test rules in the dependency graph.
     Iterable<TestRule> testRules = Iterables.transform(partialGraph.getTargets(),
         new Function<BuildTarget, TestRule>() {
-      @Override public TestRule apply(BuildTarget buildTarget) {
-        return (TestRule)graph.findBuildRuleByTarget(buildTarget);
-      }
-    });
+          @Override
+          public TestRule apply(BuildTarget buildTarget) {
+            Buildable test = graph.findBuildRuleByTarget(buildTarget).getBuildable();
+            if (test instanceof TestRule) {
+              return (TestRule) test;
+            }
+            throw new RuntimeException(
+                "Unexpectedly asked to find a test rule, but could not: " + buildTarget);
+          }
+        });
 
     testRules = filterTestRules(options, testRules);
     if (options.isPrintMatchingTestRules()) {
@@ -316,26 +324,29 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
     // Create artifact cache to initialize Cassandra connection, if appropriate.
     ArtifactCache artifactCache = getArtifactCache();
 
-    // Build all of the test rules.
-    Build build = options.createBuild(options.getBuckConfig(),
+    try (Build build = options.createBuild(options.getBuckConfig(),
         graph,
         getProjectFilesystem(),
         getAndroidDirectoryResolver(),
+        getBuildEngine(),
         artifactCache,
         console,
         getBuckEventBus(),
         options.getTargetDeviceOptional(),
-        getCommandRunnerParams().getPlatform());
-    int exitCode = BuildCommand.executeBuildAndPrintAnyFailuresToConsole(build, console);
-    if (exitCode != 0) {
-      return exitCode;
-    }
+        getCommandRunnerParams().getPlatform())) {
 
-    // Once all of the rules are built, then run the tests.
-    return runTestsAndShutdownExecutor(testRules,
-        build.getBuildContext(),
-        build.getExecutionContext(),
-        options);
+      // Build all of the test rules.
+      int exitCode = BuildCommand.executeBuildAndPrintAnyFailuresToConsole(build, console);
+      if (exitCode != 0) {
+        return exitCode;
+      }
+
+      // Once all of the rules are built, then run the tests.
+      return runTestsAndShutdownExecutor(testRules,
+          build.getBuildContext(),
+          build.getExecutionContext(),
+          options);
+    }
   }
 
   private void printMatchingTestRules(Console console, Iterable<TestRule> testRules) {
@@ -363,8 +374,13 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
 
       @Override
       public void visit(BuildRule buildRule) {
+        TestRule testRule = null;
         if (buildRule instanceof TestRule) {
-          TestRule testRule = (TestRule)buildRule;
+          testRule = (TestRule) buildRule;
+        } else if (buildRule.getBuildable() instanceof TestRule) {
+          testRule = (TestRule) buildRule.getBuildable();
+        }
+        if (testRule != null) {
           results.add(testRule);
         }
       }
@@ -381,13 +397,24 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
   @VisibleForTesting
   static Iterable<TestRule> filterTestRules(final TestCommandOptions options,
       Iterable<TestRule> testRules) {
-    ImmutableSortedSet.Builder<TestRule> builder = ImmutableSortedSet.naturalOrder();
+    ImmutableSortedSet.Builder<TestRule> builder =
+        ImmutableSortedSet.orderedBy(
+            new Comparator<TestRule>() {
+              @Override
+              public int compare(TestRule o1, TestRule o2) {
+                return o1.getBuildTarget().getFullyQualifiedName().compareTo(
+                    o2.getBuildTarget().getFullyQualifiedName());
+              }
+            });
 
-    // We always want to run the rules that are given on the command line. Always.
-    List<String> allTargets = options.getArgumentsFormattedAsBuildTargets();
-    for (TestRule rule : testRules) {
-      if (allTargets.contains(rule.getFullyQualifiedName())) {
-        builder.add(rule);
+    // We always want to run the rules that are given on the command line. Always. Unless we don't
+    // want to.
+    if (!options.shouldExcludeWin()) {
+      List<String> allTargets = options.getArgumentsFormattedAsBuildTargets();
+      for (TestRule rule : testRules) {
+        if (allTargets.contains(rule.getBuildTarget().getFullyQualifiedName())) {
+          builder.add(rule);
+        }
       }
     }
 
@@ -406,15 +433,11 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
       Iterable<TestRule> tests,
       BuildContext buildContext,
       ExecutionContext executionContext,
-      TestCommandOptions options) throws IOException {
-    StepRunner stepRunner = new DefaultStepRunner(executionContext,
-        options.createListeningExecutorService());
-    try {
+      TestCommandOptions options) throws IOException, ExecutionException {
+
+    try (DefaultStepRunner stepRunner =
+            new DefaultStepRunner(executionContext, options.getNumThreads())) {
       return runTests(tests, buildContext, executionContext, stepRunner, options);
-    } finally {
-      // Note: we need to use shutdown() instead of shutdownNow() to ensure that tasks submitted to
-      // the Execution Service are completed.
-      stepRunner.getListeningExecutorService().shutdown();
     }
   }
 
@@ -423,9 +446,10 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
       BuildContext buildContext,
       ExecutionContext executionContext,
       StepRunner stepRunner,
-      final TestCommandOptions options) throws IOException {
+      final TestCommandOptions options)
+      throws IOException, ExecutionException {
 
-    ImmutableSet<JavaLibraryRule> rulesUnderTest;
+    ImmutableSet<JavaLibrary> rulesUnderTest;
     // If needed, we first run instrumentation on the class files.
     if (options.isCodeCoverageEnabled()) {
       rulesUnderTest = getRulesUnderTest(tests);
@@ -453,7 +477,7 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
 
     getBuckEventBus().post(TestRunEvent.started(
         options.isRunAllTests(),
-        options.getTestSelectorListOptional(),
+        options.getTestSelectorList(),
         options.shouldExplainTestSelectorList(),
         options.getArgumentsFormattedAsBuildTargets()));
 
@@ -474,26 +498,35 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
     }
 
     TestRuleKeyFileHelper testRuleKeyFileHelper = new TestRuleKeyFileHelper(
-        executionContext.getProjectFilesystem());
+        executionContext.getProjectFilesystem(),
+        getBuildEngine());
     for (TestRule test : tests) {
-      List<Step> steps;
-
       // Determine whether the test needs to be executed.
-      boolean isTestRunRequired =
-          isTestRunRequiredForTest(
-              test,
-              executionContext,
-              testRuleKeyFileHelper,
-              options.isResultsCacheEnabled(),
-              options.getTestSelectorListOptional().isPresent());
+      boolean isTestRunRequired;
+      try {
+        isTestRunRequired = isTestRunRequiredForTest(
+            test,
+            getBuildEngine(),
+            executionContext,
+            testRuleKeyFileHelper,
+            options.isResultsCacheEnabled(),
+            !options.getTestSelectorList().isEmpty());
+      } catch (InterruptedException e) {
+        e.printStackTrace(getStdErr());
+        return 1;
+      }
+
+      List<Step> steps;
       if (isTestRunRequired) {
         getBuckEventBus().post(IndividualTestEvent.started(
             options.getArgumentsFormattedAsBuildTargets()));
         ImmutableList.Builder<Step> stepsBuilder = ImmutableList.builder();
+        BuildEngine cachingBuildEngine = getBuildEngine();
+        Preconditions.checkState(cachingBuildEngine.isRuleBuilt(test.getBuildTarget()));
         List<Step> testSteps = test.runTests(
             buildContext,
             executionContext,
-            options.getTestSelectorListOptional());
+            options.getTestSelectorList());
         if (!testSteps.isEmpty()) {
           stepsBuilder.addAll(testSteps);
           stepsBuilder.add(testRuleKeyFileHelper.createRuleKeyInDirStep(test));
@@ -510,7 +543,7 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
               getCachingStatusTransformingCallable(
                   isTestRunRequired,
                   test.interpretTestResults(executionContext,
-                      /*isUsingTestSelectors*/ options.getTestSelectorListOptional().isPresent())),
+                      /*isUsingTestSelectors*/ !options.getTestSelectorList().isEmpty())),
               test.getBuildTarget());
       FutureCallback<TestResults> onTestFinishedCallback =
           getFutureCallback(grouper, test, options, printTestResults);
@@ -556,7 +589,9 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
         }
         stepRunner.runStep(
             getReportCommand(rulesUnderTest,
-                defaultJavaPackageFinderOptional, getProjectFilesystem(), outputDirectory));
+                defaultJavaPackageFinderOptional,
+                getProjectFilesystem(),
+                outputDirectory));
       } catch (StepFailedException e) {
         console.printBuildFailureWithoutStacktrace(e);
         return 1;
@@ -633,13 +668,14 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
   @VisibleForTesting
   static boolean isTestRunRequiredForTest(
       TestRule test,
+      BuildEngine cachingBuildEngine,
       ExecutionContext executionContext,
       TestRuleKeyFileHelper testRuleKeyFileHelper,
       boolean isResultsCacheEnabled,
       boolean isRunningWithTestSelectors)
-      throws IOException {
+      throws IOException, ExecutionException, InterruptedException {
     boolean isTestRunRequired;
-    BuildRuleSuccess.Type successType;
+    BuildRuleSuccess success;
     if (executionContext.isDebugEnabled()) {
       // If debug is enabled, then we should always run the tests as the user is expecting to
       // hook up a debugger.
@@ -649,11 +685,12 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
       // we should always run each test (and never look at the cache.)
       // TODO(user) When #3090004 and #3436849 are closed we can respect the cache again.
       isTestRunRequired = true;
-    } else if (((successType = test.getBuildResultType()) != null)
-               && successType == BuildRuleSuccess.Type.MATCHING_RULE_KEY
-               && isResultsCacheEnabled
-               && test.hasTestResultFiles(executionContext)
-               && testRuleKeyFileHelper.isRuleKeyInDir(test)) {
+    } else if (((success = cachingBuildEngine.getBuildRuleResult(
+        test.getBuildTarget())) != null) &&
+            success.getType() == BuildRuleSuccess.Type.MATCHING_RULE_KEY &&
+            isResultsCacheEnabled &&
+            test.hasTestResultFiles(executionContext) &&
+            testRuleKeyFileHelper.isRuleKeyInDir(test)) {
       // If this build rule's artifacts (which includes the rule's output and its test result
       // files) are up to date, then no commands are necessary to run the tests. The test result
       // files will be read from the XML files in interpretTestResults().
@@ -667,18 +704,18 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
   /**
    * Generates the set of Java library rules under test.
    */
-  private ImmutableSet<JavaLibraryRule> getRulesUnderTest(Iterable<TestRule> tests) {
-    ImmutableSet.Builder<JavaLibraryRule> rulesUnderTest = ImmutableSet.builder();
+  private ImmutableSet<JavaLibrary> getRulesUnderTest(Iterable<TestRule> tests) {
+    ImmutableSet.Builder<JavaLibrary> rulesUnderTest = ImmutableSet.builder();
 
     // Gathering all rules whose source will be under test.
     for (TestRule test : tests) {
-      if (test instanceof JavaTestRule) {
-        JavaTestRule javaTestRule = (JavaTestRule) test;
-        ImmutableSet<BuildRule> sourceUnderTest = javaTestRule.getSourceUnderTest();
+      if (test instanceof JavaTest) {
+        JavaTest javaTest = (JavaTest) test;
+        ImmutableSet<BuildRule> sourceUnderTest = javaTest.getSourceUnderTest();
         for (BuildRule buildRule : sourceUnderTest) {
-          if (buildRule instanceof JavaLibraryRule) {
-            JavaLibraryRule javaLibraryRule = (JavaLibraryRule) buildRule;
-            rulesUnderTest.add(javaLibraryRule);
+          if (buildRule.getBuildable() instanceof JavaLibrary) {
+            JavaLibrary javaLibrary = (JavaLibrary) buildRule.getBuildable();
+            rulesUnderTest.add(javaLibrary);
           } else {
             throw new HumanReadableException(
                 "Test '%s' is a java_test() " +

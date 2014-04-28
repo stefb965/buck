@@ -84,6 +84,8 @@ set BUCK_JAVA_ARGS=^
 -Dbuck.path_to_python_interp=%PYTHON_INTERP_FALLBACK% ^
 -Dbuck.path_to_buck_py=%PATH_TO_BUCK_PY% ^
 -Dbuck.path_to_intellij_py=%BUCK_DIRECTORY%\src\com\facebook\buck\command\intellij.py ^
+-Dbuck.path_to_compile_asset_catalogs_py=%BUCK_DIRECTORY%\src\com\facebook\buck\apple\compile_asset_catalogs.py ^
+-Dbuck.path_to_compile_asset_catalogs_build_phase_sh=%BUCK_DIRECTORY%\src\com\facebook\buck\apple\compile_asset_catalogs_build_phase_sh ^
 -Dbuck.git_commit=%BUCK_CURRENT_VERSION% ^
 -Dbuck.git_commit_timestamp=%BUCK_VERSION_TIMESTAMP% ^
 -Dbuck.git_dirty=%BUCK_REPOSITORY_DIRTY% ^
@@ -96,7 +98,7 @@ set BUCK_JAVA_CLASSPATH=^
 %BUCK_DIRECTORY%\src;^
 %BUCK_DIRECTORY%\build\classes;^
 %BUCK_DIRECTORY%\lib\args4j-2.0.26.jar;^
-%BUCK_DIRECTORY%\lib\ddmlib-r21.jar;^
+%BUCK_DIRECTORY%\lib\ddmlib-22.5.3.jar;^
 %BUCK_DIRECTORY%\lib\guava-15.0.jar;^
 %BUCK_DIRECTORY%\lib\ini4j-0.5.2.jar;^
 %BUCK_DIRECTORY%\lib\jackson-annotations-2.0.5.jar;^

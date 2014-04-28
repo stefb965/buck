@@ -34,7 +34,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collection;
@@ -65,7 +64,10 @@ public class Xpi extends AbstractBuildable {
     this.resources = resources;
 
     this.output = Paths.get(
-        BuckConstant.GEN_DIR, target.getBasePath(), target.getShortName(), target.getShortName() + ".xpi");
+        BuckConstant.GEN_DIR,
+        target.getBasePath(),
+        target.getShortName(),
+        target.getShortName() + ".xpi");
 
     this.scratch = Paths.get(
         BuckConstant.BIN_DIR, target.getBasePath(), target.getShortName() + "-xpi");
@@ -77,7 +79,7 @@ public class Xpi extends AbstractBuildable {
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) throws IOException {
+  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
     steps.add(new MakeCleanDirectoryStep(scratch));
@@ -95,22 +97,22 @@ public class Xpi extends AbstractBuildable {
     Path componentDir = scratch.resolve("components");
     steps.add(new MkdirStep(componentDir));
     for (SourcePath component : components) {
-      Path resolved = component.resolve(context);
+      Path resolved = component.resolve();
       steps.add(CopyStep.forFile(resolved, componentDir.resolve(resolved.getFileName())));
     }
 
     for (SourcePath resource : resources) {
-      Path resolved = resource.resolve(context);
+      Path resolved = resource.resolve();
       steps.add(getCopyStep(resolved, scratch));
     }
 
     steps.add(new MakeCleanDirectoryStep(output.getParent()));
     steps.add(new ZipStep(
-        output.normalize().toAbsolutePath().toString(),
-        ImmutableSet.<String>of(),
+        output.normalize().toAbsolutePath(),
+        ImmutableSet.<Path>of(),
         false,
         ZipStep.DEFAULT_COMPRESSION_LEVEL,
-        scratch.toFile()));
+        scratch));
 
     return steps.build();
   }
@@ -124,7 +126,7 @@ public class Xpi extends AbstractBuildable {
   }
 
   @Override
-  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) throws IOException {
+  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
     return builder
         .setInputs("chrome", ImmutableSet.of(chrome).iterator())
         .setSourcePaths("components", components)

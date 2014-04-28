@@ -31,6 +31,8 @@ import com.facebook.buck.rules.coercer.Either;
 import com.facebook.buck.rules.coercer.Pair;
 import com.facebook.buck.rules.coercer.TypeCoercer;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -51,6 +53,7 @@ import java.util.Map;
 public class TypeCoercerTest {
   private final TypeCoercerFactory typeCoercerFactory = new TypeCoercerFactory();
   private final BuildRuleResolver buildRuleResolver = new BuildRuleResolver();
+  private final ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
   @Test
   public void coercingStringMapOfIntListsShouldBeIdentity()
@@ -62,7 +65,7 @@ public class TypeCoercerTest {
         ImmutableMap.of(
             "foo", ImmutableList.of(4, 5),
             "bar", ImmutableList.of(6, 7));
-    Object result = coercer.coerce(buildRuleResolver, Paths.get(""), input);
+    Object result = coercer.coerce(buildRuleResolver, filesystem, Paths.get(""), input);
     assertEquals(input, result);
   }
 
@@ -76,7 +79,7 @@ public class TypeCoercerTest {
         ImmutableList.of(
             ImmutableList.of(4, 4, 5),
             ImmutableList.of(6, 7));
-    Object result = coercer.coerce(buildRuleResolver, Paths.get(""), input);
+    Object result = coercer.coerce(buildRuleResolver, filesystem, Paths.get(""), input);
     ImmutableList<ImmutableSet<Integer>> expectedResult =
         ImmutableList.of(
             ImmutableSet.of(4, 5),
@@ -91,7 +94,7 @@ public class TypeCoercerTest {
     TypeCoercer<?> coercer = typeCoercerFactory.typeCoercerForType(type);
 
     ImmutableList<String> input = ImmutableList.of("a", "c", "b", "a");
-    Object result = coercer.coerce(buildRuleResolver, Paths.get(""), input);
+    Object result = coercer.coerce(buildRuleResolver, filesystem, Paths.get(""), input);
     ImmutableSortedSet<String> expectedResult = ImmutableSortedSet.copyOf(input);
     assertEquals(expectedResult, result);
   }
@@ -103,7 +106,7 @@ public class TypeCoercerTest {
     TypeCoercer<?> coercer = typeCoercerFactory.typeCoercerForType(type);
 
     ImmutableList<String> input = ImmutableList.of("a", "b", "c");
-    Object result = coercer.coerce(buildRuleResolver, Paths.get(""), input);
+    Object result = coercer.coerce(buildRuleResolver, filesystem, Paths.get(""), input);
     assertEquals(ImmutableList.of("a", "b", "c"), result);
   }
 
@@ -114,7 +117,7 @@ public class TypeCoercerTest {
     TypeCoercer<?> coercer = typeCoercerFactory.typeCoercerForType(type);
 
     ImmutableMap<String, String> input = ImmutableMap.of("a", "b");
-    Object result = coercer.coerce(buildRuleResolver, Paths.get(""), input);
+    Object result = coercer.coerce(buildRuleResolver, filesystem, Paths.get(""), input);
     assertEquals(input, result);
   }
 
@@ -161,15 +164,15 @@ public class TypeCoercerTest {
     List<Object> objects = traversal.getObjects();
 
     assertThat(objects, Matchers.<Object>contains(ImmutableList.of(
-        sameInstance((Object)input),
-        is((Object)"foo"),
-        sameInstance((Object)input.get("foo")),
-        is((Object)"//foo:bar"),
-        is((Object)"//foo:baz"),
-        is((Object)"bar"),
-        sameInstance((Object)input.get("bar")),
-        is((Object)":bar"),
-        is((Object)"//foo:foo"))));
+        sameInstance((Object) input),
+        is((Object) "foo"),
+        sameInstance((Object) input.get("foo")),
+        is((Object) "//foo:bar"),
+        is((Object) "//foo:baz"),
+        is((Object) "bar"),
+        sameInstance((Object) input.get("bar")),
+        is((Object) ":bar"),
+        is((Object) "//foo:foo"))));
   }
 
   @Test
@@ -203,10 +206,10 @@ public class TypeCoercerTest {
 
     assertEquals(
         Either.ofLeft(inputString),
-        coercer.coerce(buildRuleResolver, Paths.get(""), inputString));
+        coercer.coerce(buildRuleResolver, filesystem, Paths.get(""), inputString));
     assertEquals(
         Either.ofRight(inputList),
-        coercer.coerce(buildRuleResolver, Paths.get(""), inputList));
+        coercer.coerce(buildRuleResolver, filesystem, Paths.get(""), inputList));
   }
 
   @Test
@@ -220,8 +223,8 @@ public class TypeCoercerTest {
     assertThat(
         traversal.getObjects(),
         Matchers.<Object>contains(ImmutableList.of(
-            sameInstance((Object)input),
-            sameInstance((Object)input.get(0)))));
+            sameInstance((Object) input),
+            sameInstance((Object) input.get(0)))));
 
     traversal = new TestTraversal();
     String input2 = "foo";
@@ -252,7 +255,7 @@ public class TypeCoercerTest {
     ImmutableList<?> input = ImmutableList.of("foo.m", "-foo -bar");
     assertEquals(
         new Pair<>(Paths.get("foo.m"), "-foo -bar"),
-        coercer.coerce(buildRuleResolver, Paths.get(""), input));
+        coercer.coerce(buildRuleResolver, filesystem, Paths.get(""), input));
   }
 
   @Test
@@ -275,9 +278,11 @@ public class TypeCoercerTest {
     coercer.traverse(input, traversal);
     assertThat(
         traversal.getObjects(),
-        Matchers.<Object>contains(ImmutableList.of(
-            sameInstance(input.get(0)),
-            sameInstance(input.get(1)))));
+        Matchers.<Object>contains(
+            ImmutableList.of(
+                sameInstance(input.get(0)),
+                sameInstance(input.get(1))))
+    );
   }
 
   @Test
@@ -286,10 +291,10 @@ public class TypeCoercerTest {
     TypeCoercer<?> coercer = typeCoercerFactory.typeCoercerForType(type);
 
     ImmutableList<String> input = ImmutableList.of("foo.m", "bar.m");
-    Object result = coercer.coerce(buildRuleResolver, Paths.get(""), input);
+    Object result = coercer.coerce(buildRuleResolver, filesystem, Paths.get(""), input);
     ImmutableList<AppleSource> expectedResult = ImmutableList.of(
-        AppleSource.ofSourcePath(new FileSourcePath("foo.m")),
-        AppleSource.ofSourcePath(new FileSourcePath("bar.m")));
+        AppleSource.ofSourcePath(new TestSourcePath("foo.m")),
+        AppleSource.ofSourcePath(new TestSourcePath("bar.m")));
     assertEquals(expectedResult, result);
   }
 
@@ -302,12 +307,12 @@ public class TypeCoercerTest {
     ImmutableList<?> input = ImmutableList.of(
         ImmutableList.of("foo.m", "-Wall"),
         ImmutableList.of("bar.m", "-fobjc-arc"));
-    Object result = coercer.coerce(buildRuleResolver, Paths.get(""), input);
+    Object result = coercer.coerce(buildRuleResolver, filesystem, Paths.get(""), input);
     ImmutableList<AppleSource> expectedResult = ImmutableList.of(
         AppleSource.ofSourcePathWithFlags(
-            new Pair<SourcePath, String>(new FileSourcePath("foo.m"), "-Wall")),
+            new Pair<SourcePath, String>(new TestSourcePath("foo.m"), "-Wall")),
         AppleSource.ofSourcePathWithFlags(
-            new Pair<SourcePath, String>(new FileSourcePath("bar.m"), "-fobjc-arc")));
+            new Pair<SourcePath, String>(new TestSourcePath("bar.m"), "-fobjc-arc")));
     assertEquals(expectedResult, result);
   }
 
@@ -328,24 +333,43 @@ public class TypeCoercerTest {
             ImmutableList.of(
                 "baz.m",
                 ImmutableList.of("blech.m", "-fobjc-arc"))));
-    Object result = coercer.coerce(buildRuleResolver, Paths.get(""), input);
+    Object result = coercer.coerce(buildRuleResolver, filesystem, Paths.get(""), input);
     ImmutableList<AppleSource> expectedResult = ImmutableList.of(
         AppleSource.ofSourceGroup(
             new Pair<>(
                 "Group1",
                 ImmutableList.of(
-                    AppleSource.ofSourcePath(new FileSourcePath("foo.m")),
+                    AppleSource.ofSourcePath(new TestSourcePath("foo.m")),
                     AppleSource.ofSourcePathWithFlags(
-                        new Pair<SourcePath, String>(new FileSourcePath("bar.m"), "-Wall"))))),
+                        new Pair<SourcePath, String>(new TestSourcePath("bar.m"), "-Wall"))
+                )
+            )
+        ),
         AppleSource.ofSourceGroup(
             new Pair<>(
                 "Group2",
                 ImmutableList.of(
-                    AppleSource.ofSourcePath(new FileSourcePath("baz.m")),
+                    AppleSource.ofSourcePath(new TestSourcePath("baz.m")),
                     AppleSource.ofSourcePathWithFlags(
-                        new Pair<SourcePath, String>(new FileSourcePath("blech.m"), "-fobjc-arc"))))
+                        new Pair<SourcePath, String>(new TestSourcePath("blech.m"), "-fobjc-arc"))
+                )
+            )
         ));
     assertEquals(expectedResult, result);
+  }
+
+  @Test
+  public void coerceToLabels() throws NoSuchFieldException, CoerceFailedException {
+    Type type = TestFields.class.getField("labels").getGenericType();
+    TypeCoercer<?> coercer = typeCoercerFactory.typeCoercerForType(type);
+
+    ImmutableList<String> input = ImmutableList.of("cheese", "cake", "tastes", "good");
+
+    Object result = coercer.coerce(buildRuleResolver, filesystem, Paths.get(""), input);
+    ImmutableSortedSet<Label> expected = ImmutableSortedSet.of(
+        new Label("cake"), new Label("cheese"), new Label("good"), new Label("tastes"));
+
+    assertEquals(expected, result);
   }
 
   @SuppressWarnings("unused")
@@ -364,5 +388,6 @@ public class TypeCoercerTest {
     public Either<String, List<String>> eitherStringOrStringList;
     public Pair<Path, String> pairOfPathsAndStrings;
     public ImmutableList<AppleSource> listOfAppleSources;
+    public ImmutableSortedSet<Label> labels;
   }
 }

@@ -17,6 +17,8 @@
 package com.facebook.buck.rules.coercer;
 
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.util.ProjectFilesystem;
+import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 
 import java.nio.file.Path;
@@ -51,33 +53,40 @@ public class EitherTypeCoercer<Left, Right> implements TypeCoercer<Either<Left, 
   }
 
   @Override
+  public Optional<Either<Left, Right>> getOptionalValue() {
+    return Optional.absent();
+  }
+
+  @Override
   public boolean traverse(Object object, Traversal traversal) {
     // This does introspection and pick the side that contains child elements to try first.
     // This is not terribly robust, but is sufficient for most use cases.
     if (leftTypeCoercer instanceof CollectionTypeCoercer ||
         leftTypeCoercer instanceof MapTypeCoercer) {
-      return leftTypeCoercer.traverse(object, traversal)
-          || rightTypeCoercer.traverse(object, traversal);
+      return leftTypeCoercer.traverse(object, traversal) ||
+          rightTypeCoercer.traverse(object, traversal);
     } else {
-      return rightTypeCoercer.traverse(object, traversal)
-          || leftTypeCoercer.traverse(object, traversal);
+      return rightTypeCoercer.traverse(object, traversal) ||
+          leftTypeCoercer.traverse(object, traversal);
     }
   }
 
   @Override
   public Either<Left, Right> coerce(
       BuildRuleResolver buildRuleResolver,
+      ProjectFilesystem filesystem,
       Path pathRelativeToProjectRoot,
       Object object) throws CoerceFailedException {
     // Try to coerce as left type.
     try {
       return Either.ofLeft(
-          leftTypeCoercer.coerce(buildRuleResolver, pathRelativeToProjectRoot, object));
+          leftTypeCoercer.coerce(buildRuleResolver, filesystem, pathRelativeToProjectRoot, object));
     } catch (CoerceFailedException e) {
       // Try to coerce as right type.
       try {
         return Either.ofRight(
-            rightTypeCoercer.coerce(buildRuleResolver, pathRelativeToProjectRoot, object));
+            rightTypeCoercer.coerce(
+                buildRuleResolver, filesystem, pathRelativeToProjectRoot, object));
       } catch (CoerceFailedException e1) {
         // Fail, but report that the current coercer failed, not the child ones.
         throw CoerceFailedException.simple(pathRelativeToProjectRoot, object, getOutputClass());

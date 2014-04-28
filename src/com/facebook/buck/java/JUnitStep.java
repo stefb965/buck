@@ -16,14 +16,13 @@
 
 package com.facebook.buck.java;
 
+import com.facebook.buck.model.BuildId;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.test.selectors.TestSelectorList;
-import com.facebook.buck.util.AndroidPlatformTarget;
 import com.facebook.buck.util.BuckConstant;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -31,6 +30,7 @@ import com.google.common.collect.Lists;
 
 import java.io.File;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.Set;
 
@@ -41,8 +41,10 @@ public class JUnitStep extends ShellStep {
   // Note that the default value is used when `buck test --all` is run on Buck itself.
   // TODO(mbolin): Change this so that pathToEmmaJar is injected. This is a non-trivial refactor
   // because a number of other classes currently reference this constant.
-  public static final String PATH_TO_EMMA_JAR = System.getProperty("buck.path_to_emma_jar",
-      "third-party/java/emma-2.0.5312/out/emma-2.0.5312.jar");
+  public static final Path PATH_TO_EMMA_JAR =
+      Paths.get(System.getProperty(
+              "buck.path_to_emma_jar",
+              "third-party/java/emma-2.0.5312/out/emma-2.0.5312.jar"));
 
   @VisibleForTesting
   static final String JUNIT_TEST_RUNNER_CLASS_NAME =
@@ -50,7 +52,10 @@ public class JUnitStep extends ShellStep {
 
   private static final String EMMA_COVERAGE_OUT_FILE = "emma.coverage.out.file";
 
-  private final Set<String> classpathEntries;
+  @VisibleForTesting
+  public static final String BUILD_ID_PROPERTY = "com.facebook.buck.buildId";
+
+  private final ImmutableSet<Path> classpathEntries;
 
   private final Set<String> testClassNames;
 
@@ -62,9 +67,11 @@ public class JUnitStep extends ShellStep {
 
   private final boolean isDebugEnabled;
 
-  private Optional<TestSelectorList> testSelectorListOptional;
+  private final BuildId buildId;
 
-  private final String testRunnerClassesDirectory;
+  private TestSelectorList testSelectorList;
+
+  private final Path testRunnerClassesDirectory;
 
   /**
    *  If EMMA is not enabled, then JaCoco is enabled for the code-coverage analysis.
@@ -91,14 +98,15 @@ public class JUnitStep extends ShellStep {
    * @param directoryForTestResults directory where test results should be written
    */
   public JUnitStep(
-      Set<String> classpathEntries,
+      Set<Path> classpathEntries,
       Set<String> testClassNames,
       List<String> vmArgs,
       String directoryForTestResults,
       boolean isCodeCoverageEnabled,
       boolean isJacocoEnabled,
       boolean isDebugEnabled,
-      Optional<TestSelectorList> testSelectorListOptional) {
+      BuildId buildId,
+      TestSelectorList testSelectorList) {
     this(classpathEntries,
         testClassNames,
         vmArgs,
@@ -106,22 +114,25 @@ public class JUnitStep extends ShellStep {
         isCodeCoverageEnabled,
         isJacocoEnabled,
         isDebugEnabled,
-        testSelectorListOptional,
-        System.getProperty("buck.testrunner_classes",
-            new File("build/testrunner/classes").getAbsolutePath()));
+        buildId,
+        testSelectorList,
+        Paths.get(System.getProperty(
+                "buck.testrunner_classes",
+                new File("build/testrunner/classes").getAbsolutePath())));
   }
 
   @VisibleForTesting
   JUnitStep(
-      Set<String> classpathEntries,
+      Set<Path> classpathEntries,
       Set<String> testClassNames,
       List<String> vmArgs,
       String directoryForTestResults,
       boolean isCodeCoverageEnabled,
       boolean isJacocoEnabled,
       boolean isDebugEnabled,
-      Optional<TestSelectorList> testSelectorListOptional,
-      String testRunnerClassesDirectory) {
+      BuildId buildId,
+      TestSelectorList testSelectorList,
+      Path testRunnerClassesDirectory) {
     this.classpathEntries = ImmutableSet.copyOf(classpathEntries);
     this.testClassNames = ImmutableSet.copyOf(testClassNames);
     this.vmArgs = ImmutableList.copyOf(vmArgs);
@@ -129,7 +140,8 @@ public class JUnitStep extends ShellStep {
     this.isCodeCoverageEnabled = isCodeCoverageEnabled;
     this.isJacocoEnabled = isJacocoEnabled;
     this.isDebugEnabled = isDebugEnabled;
-    this.testSelectorListOptional = testSelectorListOptional;
+    this.buildId = buildId;
+    this.testSelectorList = Preconditions.checkNotNull(testSelectorList);
     this.testRunnerClassesDirectory = Preconditions.checkNotNull(testRunnerClassesDirectory);
   }
 
@@ -156,6 +168,9 @@ public class JUnitStep extends ShellStep {
       }
     }
 
+    // Include the buildId
+    args.add(String.format("-D%s=%s", BUILD_ID_PROPERTY, buildId));
+
     if (isDebugEnabled) {
       // This is the default config used by IntelliJ. By doing this, all a user
       // needs to do is create a new "Remote" debug config. Note that we start
@@ -174,19 +189,11 @@ public class JUnitStep extends ShellStep {
     }
 
     // Build up the -classpath argument, starting with the classpath entries the client specified.
-    List<String> classpath = Lists.newArrayList(classpathEntries);
+    List<Path> classpath = Lists.newArrayList(classpathEntries);
 
     // Add EMMA to the classpath.
     if (isCodeCoverageEnabled && !isJacocoEnabled) {
       classpath.add(PATH_TO_EMMA_JAR);
-    }
-
-    // Next, add the bootclasspath entries specific to the Android platform being targeted.
-    if (context.getAndroidPlatformTargetOptional().isPresent()) {
-      AndroidPlatformTarget androidPlatformTarget = context.getAndroidPlatformTarget();
-      for (Path bootclasspathEntry : androidPlatformTarget.getBootclasspathEntries()) {
-        classpath.add(bootclasspathEntry.toString());
-      }
     }
 
     // Finally, include an entry for the test runner.
@@ -210,9 +217,8 @@ public class JUnitStep extends ShellStep {
 
     // Add the test selectors, one per line, in a single argument.
     StringBuilder selectorsArgBuilder = new StringBuilder();
-    if (testSelectorListOptional.isPresent()) {
-      TestSelectorList testSelectorList = testSelectorListOptional.get();
-      for (String rawSelector : testSelectorList.getRawSelectors()) {
+    if (!testSelectorList.isEmpty()) {
+      for (String rawSelector : this.testSelectorList.getRawSelectors()) {
         selectorsArgBuilder.append(rawSelector).append("\n");
       }
     }

@@ -305,7 +305,7 @@ public class MergeAndroidResourcesStep implements Step {
         return false;
       }
 
-      Resource that = (Resource)obj;
+      Resource that = (Resource) obj;
       return Objects.equal(this.type, that.type) && Objects.equal(this.name, that.name);
     }
 
@@ -337,8 +337,8 @@ public class MergeAndroidResourcesStep implements Step {
         FluentIterable.from(symbolsFileToRDotJavaPackage.keySet())
             .transform(Functions.toStringFunction())
             .toSortedList(natural());
-    return getShortName() + " " + Joiner.on(' ').join(sortedSymbolsFiles)
-        + " -o " + pathToGeneratedJavaFiles;
+    return getShortName() + " " + Joiner.on(' ').join(sortedSymbolsFiles) +
+        " -o " + pathToGeneratedJavaFiles;
   }
 
   private static class IntEnumerator {

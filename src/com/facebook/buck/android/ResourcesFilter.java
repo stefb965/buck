@@ -18,13 +18,9 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRuleBuilderParams;
 import com.facebook.buck.rules.AbstractBuildable;
 import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
-import com.facebook.buck.rules.Buildable;
+import com.facebook.buck.rules.BuildOutputInitializer;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
@@ -44,7 +40,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collection;
@@ -67,7 +62,7 @@ import javax.annotation.Nullable;
  * </ul>
  */
 public class ResourcesFilter extends AbstractBuildable
-    implements InitializableFromDisk<ResourcesFilter.BuildOutput> {
+    implements FilteredResourcesProvider, InitializableFromDisk<ResourcesFilter.BuildOutput> {
 
   private static final String RES_DIRECTORIES_KEY = "res_directories";
   private static final String NON_ENGLISH_STRING_FILES_KEY = "non_english_string_files";
@@ -101,9 +96,7 @@ public class ResourcesFilter extends AbstractBuildable
   private final AndroidResourceDepsFinder androidResourceDepsFinder;
   private final ResourceCompressionMode resourceCompressionMode;
   private final FilterResourcesStep.ResourceFilter resourceFilter;
-
-  @Nullable
-  private BuildOutput buildOutput;
+  private final BuildOutputInitializer<BuildOutput> buildOutputInitializer;
 
   public ResourcesFilter(
       BuildTarget buildTarget,
@@ -114,64 +107,59 @@ public class ResourcesFilter extends AbstractBuildable
     this.androidResourceDepsFinder = Preconditions.checkNotNull(androidResourceDepsFinder);
     this.resourceCompressionMode = Preconditions.checkNotNull(resourceCompressionMode);
     this.resourceFilter = Preconditions.checkNotNull(resourceFilter);
+    this.buildOutputInitializer = new BuildOutputInitializer<>(buildTarget, this);
   }
 
+  @Override
   public ImmutableSet<Path> getResDirectories() {
-    return getBuildOutput().resDirectories;
+    return buildOutputInitializer.getBuildOutput().resDirectories;
   }
 
+  @Override
   public ImmutableSet<Path> getNonEnglishStringFiles() {
-    return getBuildOutput().nonEnglishStringFiles;
+    return buildOutputInitializer.getBuildOutput().nonEnglishStringFiles;
   }
 
-  AndroidTransitiveDependencies getAndroidTransitiveDependencies() {
-    return androidResourceDepsFinder.getAndroidTransitiveDependencies();
-  }
-
-  BuildTarget getBuildTarget() {
+  public BuildTarget getBuildTarget() {
     return buildTarget;
   }
 
   @Override
   public Collection<Path> getInputsToCompareToOutput() {
-    return ImmutableList.of();
+    // Rule key correctness is ensured by depping on all android_resource rules in
+    // Builder.setAndroidResourceDepsFinder()
+    return ImmutableSet.of();
   }
 
   @Override
-  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) throws IOException {
+  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
     return builder
         .set("resourceCompressionMode", resourceCompressionMode.toString())
         .set("resourceFilter", resourceFilter.getDescription());
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, final BuildableContext buildableContext)
-      throws IOException {
+  public List<Step> getBuildSteps(BuildContext context, final BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
     AndroidResourceDetails androidResourceDetails =
         androidResourceDepsFinder.getAndroidResourceDetails();
-    final ImmutableSet<Path> resDirectories;
-    final Supplier<ImmutableSet<Path>> nonEnglishStringFiles;
-    if (requiresResourceFilter()) {
-      final FilterResourcesStep filterResourcesStep = createFilterResourcesStep(
-          androidResourceDetails.resDirectories,
-          androidResourceDetails.whitelistedStringDirs);
-      steps.add(filterResourcesStep);
+    final FilterResourcesStep filterResourcesStep = createFilterResourcesStep(
+        androidResourceDetails.resDirectories,
+        androidResourceDetails.whitelistedStringDirs);
+    steps.add(filterResourcesStep);
 
-      resDirectories = filterResourcesStep.getOutputResourceDirs();
-      nonEnglishStringFiles = new Supplier<ImmutableSet<Path>>() {
-        @Override
-        public ImmutableSet<Path> get() {
-          return filterResourcesStep.getNonEnglishStringFiles();
-        }
-      };
-      for (Path outputResourceDir : resDirectories) {
-        buildableContext.recordArtifactsInDirectory(outputResourceDir);
-      }
-    } else {
-      resDirectories = androidResourceDetails.resDirectories;
-      nonEnglishStringFiles = Suppliers.ofInstance(ImmutableSet.<Path>of());
+    final ImmutableSet<Path> resDirectories = filterResourcesStep.getOutputResourceDirs();
+    final Supplier<ImmutableSet<Path>> nonEnglishStringFiles = Suppliers.memoize(
+        new Supplier<ImmutableSet<Path>>() {
+          @Override
+          public ImmutableSet<Path> get() {
+            return filterResourcesStep.getNonEnglishStringFiles();
+          }
+        });
+
+    for (Path outputResourceDir : resDirectories) {
+      buildableContext.recordArtifactsInDirectory(outputResourceDir);
     }
 
     steps.add(new AbstractExecutionStep("record_build_output") {
@@ -228,11 +216,8 @@ public class ResourcesFilter extends AbstractBuildable
     return filterResourcesStepBuilder.build();
   }
 
-  private boolean requiresResourceFilter() {
-    return resourceFilter.isEnabled() || isStoreStringsAsAssets();
-  }
-
-  boolean isStoreStringsAsAssets() {
+  @Override
+  public boolean isStoreStringsAsAssets() {
     return resourceCompressionMode.isStoreStringsAsAssets();
   }
 
@@ -255,17 +240,8 @@ public class ResourcesFilter extends AbstractBuildable
   }
 
   @Override
-  public void setBuildOutput(BuildOutput buildOutput) throws IllegalStateException {
-    Preconditions.checkState(this.buildOutput == null,
-        "buildOutput should not already be set for %s.",
-        this);
-    this.buildOutput = buildOutput;
-  }
-
-  @Override
-  public BuildOutput getBuildOutput() throws IllegalStateException {
-    Preconditions.checkState(buildOutput != null, "buildOutput must already be set for %s.", this);
-    return buildOutput;
+  public BuildOutputInitializer<BuildOutput> getBuildOutputInitializer() {
+    return buildOutputInitializer;
   }
 
   public static class BuildOutput {
@@ -280,64 +256,9 @@ public class ResourcesFilter extends AbstractBuildable
     }
   }
 
-  public static Builder newResourcesFilterBuilder(AbstractBuildRuleBuilderParams params) {
-    return new Builder(params);
-  }
-
   @Nullable
   @Override
   public Path getPathToOutputFile() {
     return null;
-  }
-
-  static class Builder extends AbstractBuildable.Builder {
-
-    @Nullable private ResourceCompressionMode resourceCompressionMode;
-    @Nullable private FilterResourcesStep.ResourceFilter resourceFilter;
-    @Nullable private AndroidResourceDepsFinder androidResourceDepsFinder;
-
-    protected Builder(AbstractBuildRuleBuilderParams params) {
-      super(params);
-    }
-
-    @Override
-    protected BuildRuleType getType() {
-      return BuildRuleType.RESOURCES_FILTER;
-    }
-
-    @Override
-    public Builder setBuildTarget(BuildTarget buildTarget) {
-      super.setBuildTarget(buildTarget);
-      return this;
-    }
-
-    public Builder setResourceCompressionMode(ResourceCompressionMode mode) {
-      this.resourceCompressionMode = mode;
-      return this;
-    }
-
-    public Builder setResourceFilter(FilterResourcesStep.ResourceFilter resourceFilter) {
-      this.resourceFilter = resourceFilter;
-      return this;
-    }
-
-    public Builder setAndroidResourceDepsFinder(AndroidResourceDepsFinder resourceDepsFinder) {
-      this.androidResourceDepsFinder = resourceDepsFinder;
-      // Add the android_resource rules as deps.
-      for (HasAndroidResourceDeps dep : androidResourceDepsFinder.getAndroidResources()) {
-        addDep(dep.getBuildTarget());
-      }
-
-      return this;
-    }
-
-    @Override
-    protected Buildable newBuildable(BuildRuleParams params, BuildRuleResolver resolver) {
-      return new ResourcesFilter(
-          buildTarget,
-          androidResourceDepsFinder,
-          resourceCompressionMode,
-          resourceFilter);
-    }
   }
 }

@@ -1,7 +1,9 @@
 from __future__ import with_statement
 
 import copy
+import fnmatch
 import functools
+import glob as glob_module
 import optparse
 import os
 import os.path
@@ -109,30 +111,6 @@ def add_rule(rule, build_env):
   rule['buck.base_path'] = build_env['BASE']
   build_env['RULES'][rule_name] = rule
 
-
-def glob_pattern_to_regex_string(pattern):
-    # Replace rules for glob pattern (roughly):
-    # . => \\.
-    # **/* => (.*)
-    # * => [^/]*
-    pattern = re.sub(r'\.', '\\.', pattern)
-    pattern = pattern.replace('**/*', '(.*)')
-
-    # This handles the case when there is a character preceding the asterisk.
-    pattern = re.sub(r'([^\.])\*', '\\1[^/]*', pattern)
-
-    # This handles the case when the asterisk is the first character.
-    pattern = re.sub(r'^\*', '[^/]*', pattern)
-
-    pattern = '^' + pattern + '$'
-    return pattern
-
-
-def pattern_to_regex(pattern):
-  pattern = glob_pattern_to_regex_string(pattern)
-  return re.compile(pattern)
-
-
 def symlink_aware_walk(base):
   """ Recursive symlink aware version of `os.walk`.
 
@@ -152,43 +130,154 @@ def symlink_aware_walk(base):
     yield entry
   raise StopIteration
 
+def split_path(path):
+  """Splits /foo/bar/baz.java into ['', 'foo', 'bar', 'baz.java']."""
+  return path.split(os.path.sep);
 
-def splitpath(path, maxdepth=20):
-  '''Splits /foo/bar/baz.java into ['', 'foo', 'bar', 'baz.java'].'''
-  (head, tail) = os.path.split(path)
-  if maxdepth > 0 and head and head != path:
-    return splitpath(head, maxdepth - 1) + [tail]
-  elif head:
-    return [head]
+def well_formed_tokens(tokens):
+  """Verify that a tokenized path contains no empty token."""
+  return all(tokens)
+
+def path_join(path, element):
+  """Add a new path element to a path, assuming None encodes the empty path."""
+  if path is None:
+    return element
+  return path + os.path.sep + element
+
+def glob_walk_internal(normpath_join, iglob, isresult, visited, tokens, path, normpath):
+  """Recursive routine for glob_walk.
+
+  'visited' is initially the empty set.
+  'tokens' is the list of glob elements yet to be traversed, e.g. ['**', '*.java'].
+  'path', initially None, is the path being constructed.
+  'normpath', initially os.path.realpath(root), is the os.path.realpath()-normalization of the path being constructed.
+  'normpath_join(normpath, element)' is the os.path.realpath()-normalization of path_join(normpath, element)
+  'iglob(pattern)' should behave like glob.iglob if 'path' were relative to the current directory
+  'isresult(path)' should verify that path is valid as a result (typically calls os.path.isfile)
+  """
+  # Force halting despite symlinks.
+  key = (tuple(tokens), normpath)
+  if key in visited:
+    return
+  visited.add(key)
+
+  # Base case.
+  if not tokens:
+    if isresult(path):
+      yield path
+    return
+  token = tokens[0]
+  next_tokens = tokens[1:]
+
+  # Special glob token, equivalent to zero or more consecutive '*'
+  if token == '**':
+    for x in glob_walk_internal(normpath_join, iglob, isresult, visited, next_tokens, path, normpath):
+      yield x
+    for child in iglob(path_join(path, '*')):
+      for x in glob_walk_internal(normpath_join, iglob, isresult, visited, tokens, child, normpath_join(normpath, child)):
+        yield x
+
+  # Usual glob pattern.
   else:
-    return [tail]
+    for child in iglob(path_join(path, token)):
+      for x in glob_walk_internal(normpath_join, iglob, isresult, visited, next_tokens, child, normpath_join(normpath, child)):
+        yield x
 
-def passes_glob_filter(path, inclusions, exclusions):
-  '''Checks path against inclusion and exclusion regexes.
+def glob_walk(pattern, root, include_dotfiles=False):
+  """Walk the path hierarchy, following symlinks, and emit relative paths to plain files matching 'pattern'.
 
-  Returns False if the path contains any components which
-  start with a dot (mimicking the behavior of glob()).
+  Patterns can be any combination of chars recognized by shell globs.
+  The special path token '**' expands to zero or more consecutive '*'.
+  E.g. '**/foo.java' will match the union of 'foo.java', '*/foo.java.', '*/*/foo.java', etc.
 
-  Returns False if the path matches any compiled regex
-  in the list 'exclusions'.
+  Names starting with dots will not be matched by '?', '*' and '**' unless include_dotfiles=True
+  """
+  # os.path.realpath()-normalized version of path_join
+  def normpath_join(normpath, element):
+    newpath = normpath + os.path.sep + element
+    if os.path.islink(newpath):
+      return os.path.realpath(newpath)
+    else:
+      return newpath
 
-  Otherwise, returns True if the path matches any compiled
-  regex in the list 'inclusions', or False if it does not.'''
-  # Ignore dot-files and dot-directories (but not '.' itself).
-  for component in splitpath(path):
-    if len(component) > 1 and component.startswith('.'):
+  # Relativized version of glob.iglob
+  # Note that glob.iglob already optimizes paths with no special char.
+  root_len = len(os.path.join(root, ''))
+  special_rules_for_dots = ((r'^\*', '.*'), (r'^\?', '.'), (r'/\*', '/.*'), (r'/\?', '/.')) if include_dotfiles else []
+  def iglob(pattern):
+    for p in glob_module.iglob(os.path.join(root, pattern)):
+      yield p[root_len:]
+    # Additional pass for dots.
+    # Note that there is at most one occurrence of one problematic pattern
+    for rule in special_rules_for_dots:
+      special = re.sub(rule[0], rule[1], pattern, count=1)
+      # Using pointer equality for speed: http://docs.python.org/2.7/library/re.html#re.sub
+      if special is not pattern:
+        for p in glob_module.iglob(os.path.join(root, special)):
+          yield p[root_len:]
+        break
+
+  # Relativized version of os.path.isfile
+  def isresult(path):
+    if path is None:
       return False
-  for exclusion in exclusions:
-    if exclusion.match(path):
-      return False
-  for inclusion in inclusions:
-    if inclusion.match(path):
+    return os.path.isfile(os.path.join(root, path))
+
+  visited = set()
+  tokens = split_path(pattern)
+  assert well_formed_tokens(tokens), "Glob patterns cannot be empty, start or end with a slash, or contain consecutive slashes."
+  return glob_walk_internal(normpath_join, iglob, isresult, visited, tokens, None, os.path.realpath(root))
+
+def glob_match_internal(include_dotfiles, tokens, chunks):
+  """Recursive routine for glob_match.
+
+  Works as glob_walk_internal but on a linear path instead of some filesystem.
+  """
+  # Base case(s).
+  if not tokens:
+    return True if not chunks else False
+  token = tokens[0]
+  next_tokens = tokens[1:]
+  if not chunks:
+    return glob_match_internal(include_dotfiles, next_tokens, chunks) if token == '**' else False
+  chunk = chunks[0]
+  next_chunks = chunks[1:]
+
+  # Plain name (possibly empty)
+  if not glob_module.has_magic(token):
+    return token == chunk and glob_match_internal(include_dotfiles, next_tokens, next_chunks)
+
+  # Special glob token.
+  elif token == '**':
+    if glob_match_internal(include_dotfiles, next_tokens, chunks):
       return True
-  return False
+    # Simulate glob pattern '*'
+    if not include_dotfiles and chunk and chunk[0] == '.':
+      return False
+    return glob_match_internal(include_dotfiles, tokens, next_chunks)
 
+  # Usual glob pattern.
+  else:
+    # We use the same internal library fnmatch as the original code:
+    #    http://hg.python.org/cpython/file/2.7/Lib/glob.py#l76
+    # TODO(user): to match glob.glob, '.*' should not match '.' or '..'
+    if not include_dotfiles and token[0] != '.' and chunk and chunk[0] == '.':
+      return False
+    return fnmatch.fnmatch(chunk, token) and glob_match_internal(include_dotfiles, next_tokens, next_chunks)
+
+def glob_match(pattern, path, include_dotfiles=False):
+  """Checks if a given (non necessarily existing) path matches a 'pattern'.
+
+  Patterns can include the same special tokens as glob_walk.
+  Paths and patterns are seen as a list of path elements delimited by '/'.
+  E.g. '/' does not match '', but '*' does.
+  """
+  tokens = split_path(pattern)
+  chunks = split_path(path)
+  return glob_match_internal(include_dotfiles, tokens, chunks)
 
 @provide_for_build
-def glob(includes, excludes=[], build_env=None):
+def glob(includes, excludes=[], include_dotfiles=False, build_env=None):
   search_base = build_env['BUILD_FILE_DIRECTORY']
 
   # Ensure the user passes lists of strings rather than just a string.
@@ -197,471 +286,23 @@ def glob(includes, excludes=[], build_env=None):
   assert not isinstance(excludes, basestring), \
       "The excludes argument must be a list of strings."
 
-  inclusions = [pattern_to_regex(p) for p in includes]
-  exclusions = [pattern_to_regex(p) for p in excludes]
+  paths = set()
+  for pattern in includes:
+    for path in glob_walk(pattern, search_base, include_dotfiles=include_dotfiles):
+      paths.add(path)
 
-  # Return the filtered set of includes as an array.
-  paths = []
+  def exclusion(path):
+    exclusions = (e for e in excludes if glob_match(e, path, include_dotfiles=include_dotfiles))
+    return next(exclusions, None)
 
-  def check_path(path):
-    if passes_glob_filter(path, inclusions, exclusions):
-      paths.append(path)
-
-  for root, dirs, files in symlink_aware_walk(search_base):
-    if len(files) == 0:
-      continue
-    relative_root = relpath(root, search_base)
-    # The regexes generated by glob_pattern_to_regex_string don't
-    # expect a leading './'
-    if relative_root == '.':
-      for file_path in files:
-        check_path(file_path)
-    else:
-      relative_root += '/'
-      for file_path in files:
-        relative_path = relative_root + file_path
-        check_path(relative_path)
-
-  return paths
+  paths = [p for p in paths if not exclusion(p)]
+  paths.sort()
+  return paths;
 
 
 @provide_for_build
 def genfile(src, build_env=None):
   return 'BUCKGEN:' + src
-
-
-@provide_for_build
-def java_library(
-    name,
-    srcs=[],
-    resources=[],
-    export_deps=None,
-    exported_deps=[],
-    source='6',
-    target='6',
-    proguard_config=None,
-    deps=[],
-    visibility=[],
-    build_env=None):
-  add_rule({
-    'type' : 'java_library',
-    'name' : name,
-    'srcs' : srcs,
-    'resources' : resources,
-    # Temporary hack to let repos cut over to new style of exporting deps.
-    'exported_deps' : deps if export_deps else exported_deps,
-    'source' : source,
-    'target' : target,
-    'proguard_config' : proguard_config,
-    'deps' : deps + exported_deps,
-    'visibility' : visibility,
-  }, build_env)
-
-
-@provide_for_build
-def java_test(
-    name,
-    srcs=[],
-    labels=[],
-    resources=[],
-    source='6',
-    target='6',
-    vm_args=[],
-    source_under_test=[],
-    contacts=[],
-    deps=[],
-    visibility=[],
-    build_env=None):
-  add_rule({
-    'type' : 'java_test',
-    'name' : name,
-    'srcs' : srcs,
-    'labels': labels,
-    'resources' : resources,
-    'source' : source,
-    'target' : target,
-    'vm_args' : vm_args,
-    'source_under_test' : source_under_test,
-    'contacts' : contacts,
-    'deps' : deps,
-    'visibility' : visibility,
-  }, build_env)
-
-
-@provide_for_build
-def robolectric_test(
-    name,
-    srcs=[],
-    labels=[],
-    resources=[],
-    vm_args=[],
-    source_under_test=[],
-    contacts=[],
-    deps=[],
-    visibility=[],
-    build_env=None):
-  add_rule({
-    'type' : 'robolectric_test',
-    'name' : name,
-    'srcs' : srcs,
-    'labels': labels,
-    'resources' : resources,
-    'vm_args' : vm_args,
-    'source_under_test' : source_under_test,
-    'contacts' : contacts,
-    'deps' : deps,
-    'visibility' : visibility,
-  }, build_env)
-
-
-@provide_for_build
-def java_binary(
-  name,
-  main_class=None,
-  manifest_file=None,
-  deps=[],
-  visibility=[],
-  build_env=None):
-
-  add_rule({
-    'type' : 'java_binary',
-    'name' : name,
-    'manifest_file': manifest_file,
-    'main_class' : main_class,
-    'deps' : deps,
-    'visibility' : visibility,
-  }, build_env)
-
-
-@provide_for_build
-def prebuilt_jar(
-    name,
-    binary_jar,
-    source_jar=None,
-    javadoc_url=None,
-    deps=[],
-    visibility=[],
-    build_env=None):
-  add_rule({
-    'type': 'prebuilt_jar',
-    'name': name,
-    'binary_jar': binary_jar,
-    'source_jar': source_jar,
-    'javadoc_url': javadoc_url,
-    'deps': deps,
-    'visibility' : visibility,
-  }, build_env)
-
-
-@provide_for_build
-def android_library(
-    name,
-    srcs=[],
-    resources=[],
-    exported_deps=[],
-    manifest=None,
-    proguard_config=None,
-    deps=[],
-    visibility=[],
-    build_env=None):
-  add_rule({
-    'type' : 'android_library',
-    'name' : name,
-    'srcs' : srcs,
-    'exported_deps' : exported_deps,
-    'resources' : resources,
-    'manifest' : manifest,
-    'proguard_config' : proguard_config,
-    'deps' : deps + exported_deps,
-    'visibility' : visibility,
-  }, build_env)
-
-
-@provide_for_build
-def android_resource(
-    name,
-    res=None,
-    has_whitelisted_strings=False,
-    package=None,
-    assets=None,
-    manifest=None,
-    deps=[],
-    visibility=[],
-    build_env=None):
-  if res:
-    res_srcs = glob([res + '/**/*'], build_env=build_env)
-  else:
-    res_srcs = None
-
-  if assets:
-    assets_srcs = glob([assets + '/**/*'], build_env=build_env)
-  else:
-    assets_srcs = None
-
-  add_rule({
-    'type' : 'android_resource',
-    'name' : name,
-    'res' : res,
-    'has_whitelisted_strings' : has_whitelisted_strings,
-    'res_srcs' : res_srcs,
-    'package' : package,
-    'assets' : assets,
-    'assets_srcs' : assets_srcs,
-    'manifest' : manifest,
-    'deps' : deps,
-    'visibility' : visibility,
-  }, build_env)
-
-
-@provide_for_build
-def prebuilt_native_library(
-    name,
-    native_libs=None,
-    is_asset=False,
-    deps=[],
-    visibility=[],
-    build_env=None):
-  add_rule({
-    'type' : 'prebuilt_native_library',
-    'name' : name,
-    'native_libs' : native_libs,
-    'is_asset' : is_asset,
-    'deps' : deps,
-    'visibility' : visibility,
-  }, build_env)
-
-
-@provide_for_build
-def android_binary(
-      name,
-      manifest,
-      target,
-      keystore,
-      package_type='debug',
-      no_dx=[],
-      use_split_dex=False,
-      use_linear_alloc_split_dex=False,
-      minimize_primary_dex_size=False,
-      disable_pre_dex=False,
-      dex_compression='jar',
-      use_android_proguard_config_with_optimizations=False,
-      optimization_passes=None,
-      proguard_config=None,
-      resource_compression=None,
-      primary_dex_patterns=None,
-      primary_dex_classes_file=None,
-      # By default, assume we have 5MB of linear alloc,
-      # 1MB of which is taken up by the framework, so that leaves 4MB.
-      linear_alloc_hard_limit=4 * 1024 * 1024,
-      resource_filter=None,
-      build_string_source_map=False,
-      cpu_filters=[],
-      preprocess_java_classes_deps=[],
-      preprocess_java_classes_bash=None,
-      deps=[],
-      visibility=[],
-      build_env=None):
-  add_rule({
-    'type' : 'android_binary',
-    'name' : name,
-    'manifest' : manifest,
-    'target' : target,
-    'keystore' : keystore,
-    'package_type' : package_type,
-    'no_dx' : no_dx,
-    'use_split_dex': use_split_dex,
-    'use_linear_alloc_split_dex': use_linear_alloc_split_dex,
-    'minimize_primary_dex_size': minimize_primary_dex_size,
-    'disable_pre_dex' : disable_pre_dex,
-    'dex_compression': dex_compression,
-    'use_android_proguard_config_with_optimizations':
-        use_android_proguard_config_with_optimizations,
-    'optimization_passes': optimization_passes,
-    'proguard_config' : proguard_config,
-    'resource_compression' : resource_compression,
-    'primary_dex_patterns' : primary_dex_patterns,
-    'primary_dex_classes_file' : primary_dex_classes_file,
-    'linear_alloc_hard_limit' : linear_alloc_hard_limit,
-    'resource_filter' : resource_filter,
-    'build_string_source_map' : build_string_source_map,
-    'cpu_filters' : cpu_filters,
-    'preprocess_java_classes_deps' : preprocess_java_classes_deps,
-    'preprocess_java_classes_bash' : preprocess_java_classes_bash,
-    'classpath_deps' : deps,
-    # Always include the keystore as a dep, as it should be built before this rule.
-    'deps' : deps + [keystore] + preprocess_java_classes_deps,
-    'visibility' : visibility,
-  }, build_env)
-
-
-@provide_for_build
-def android_instrumentation_apk(
-    name,
-    manifest,
-    apk,
-    deps=[],
-    visibility=[],
-    build_env=None):
-  add_rule({
-    'type' : 'android_instrumentation_apk',
-    'name' : name,
-    'manifest' : manifest,
-    'apk' : apk,
-    'classpath_deps' : deps,
-    'deps' : deps + [ apk ],
-    'visibility' : visibility,
-  }, build_env)
-
-
-@provide_for_build
-def ndk_library(
-    name,
-    flags=None,
-    is_asset=False,
-    deps=[],
-    visibility=[],
-    build_env=None):
-
-  EXTENSIONS = ("mk", "h", "hpp", "c", "cpp", "cc", "cxx")
-  srcs = glob(["**/*.%s" % ext for ext in EXTENSIONS], build_env=build_env)
-  add_rule({
-    'type' : 'ndk_library',
-    'name' : name,
-    'srcs' : srcs,
-    'flags' : flags,
-    'is_asset' : is_asset,
-    'deps' : deps,
-    'visibility' : visibility,
-  }, build_env)
-
-
-@provide_for_build
-def python_binary(
-    name,
-    main=None,
-    deps=[],
-    visibility=[],
-    build_env=None):
-  add_rule({
-    'type' : 'python_binary',
-    'name' : name,
-    'main' : main,
-    'deps' : deps,
-    'visibility' : visibility,
-  }, build_env)
-
-
-@provide_for_build
-def keystore(
-    name,
-    store,
-    properties,
-    deps=[],
-    visibility=[],
-    build_env=None):
-  add_rule({
-    'type' : 'keystore',
-    'name' : name,
-    'store' : store,
-    'properties' : properties,
-    'deps' : deps,
-    'visibility' : visibility,
-  }, build_env)
-
-
-@provide_for_build
-def gen_parcelable(
-    name,
-    srcs,
-    deps=[],
-    visibility=[],
-    build_env=None):
-  add_rule({
-    'type' : 'gen_parcelable',
-    'name' : name,
-    'srcs' : srcs,
-    'deps' : deps,
-    'visibility' : visibility,
-  }, build_env)
-
-
-@provide_for_build
-def genrule(name,
-    out,
-    cmd=None,
-    bash=None,
-    cmd_exe=None,
-    srcs=[],
-    deps=[],
-    visibility=[],
-    build_env=None):
-  add_rule({
-    'type' : 'genrule',
-    'name' : name,
-    'srcs' : srcs,
-    'cmd' : cmd,
-    'bash' : bash,
-    'cmd_exe' : cmd_exe,
-    'out' : out,
-    'deps' : deps,
-    'visibility' : visibility,
-  }, build_env)
-
-
-@provide_for_build
-def apk_genrule(name,
-    srcs,
-    apk,
-    out,
-    cmd=None,
-    bash=None,
-    cmd_exe=None,
-    deps=[],
-    visibility=[],
-    build_env=None):
-  # Always include the apk as a dep, as it should be built before this rule.
-  deps = deps + [apk]
-  add_rule({
-    'type' : 'apk_genrule',
-    'name' : name,
-    'srcs' : srcs,
-    'apk': apk,
-    'cmd' : cmd,
-    'bash' : bash,
-    'cmd_exe' : cmd_exe,
-    'deps' : deps,
-    'visibility' : visibility,
-  }, build_env)
-
-
-@provide_for_build
-def sh_binary(
-    name,
-    main,
-    resources=[],
-    deps=[],
-    visibility=[],
-    build_env=None):
-  add_rule({
-    'type' : 'sh_binary',
-    'name' : name,
-    'main' : main,
-    'resources' : resources,
-    'deps' : deps,
-    'visibility' : visibility,
-  }, build_env)
-
-
-@provide_for_build
-def sh_test(name, test, labels=[], deps=[], visibility=[], build_env=None):
-  add_rule({
-    'type' : 'sh_test',
-    'name' : name,
-    'test' : test,
-    'labels' : labels,
-    'deps' : deps,
-    'visibility' : visibility,
-  }, build_env)
 
 
 @provide_for_build
@@ -679,32 +320,6 @@ def include_defs(name, build_env=None):
   include_file = os.path.join(build_env['PROJECT_ROOT'], relative_path)
   build_env['INCLUDES'].append(include_file)
   execfile(include_file, build_env['BUILD_FILE_SYMBOL_TABLE'])
-
-
-@provide_for_build
-def project_config(
-    src_target=None,
-    src_roots=[],
-    test_target=None,
-    test_roots=[],
-    is_intellij_plugin=False,
-    build_env=None):
-  deps = []
-  if src_target:
-    deps.append(src_target)
-  if test_target:
-    deps.append(test_target)
-  add_rule({
-    'type' : 'project_config',
-    'name' : 'project_config',
-    'src_target' : src_target,
-    'src_roots' : src_roots,
-    'test_target' : test_target,
-    'test_roots' : test_roots,
-    'is_intellij_plugin': is_intellij_plugin,
-    'deps' : deps,
-    'visibility' : [],
-  }, build_env)
 
 
 @provide_for_build

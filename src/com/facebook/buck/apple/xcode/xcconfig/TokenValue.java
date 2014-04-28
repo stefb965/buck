@@ -71,9 +71,9 @@ public class TokenValue {
     }
 
     TokenValue that = (TokenValue) other;
-    return Objects.equals(this.type, that.type)
-        && Objects.equals(this.literalValue, that.literalValue)
-        && Objects.equals(this.interpolationValue, that.interpolationValue);
+    return Objects.equals(this.type, that.type) &&
+        Objects.equals(this.literalValue, that.literalValue) &&
+        Objects.equals(this.interpolationValue, that.interpolationValue);
   }
 
   @Override
@@ -88,7 +88,7 @@ public class TokenValue {
       case INTERPOLATION: return "$(" + Joiner.on("").join(interpolationValue) + ")";
     }
     // unreachable
-    return null;
+    throw new IllegalStateException("'type' should always be of type 'LITERAL' or 'INTERPOLATION'");
   }
 
   // Interpolate this token in depth using the given interpretation function
@@ -108,7 +108,7 @@ public class TokenValue {
         return interpolation(newValue);
     }
     // unreachable
-    return null;
+    throw new IllegalStateException("'type' should always be of type 'LITERAL' or 'INTERPOLATION'");
   }
 
   // Interpolate the given list of tokens in depth using the given interpretation function

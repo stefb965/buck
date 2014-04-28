@@ -25,11 +25,9 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.model.SingletonBuildTargetPattern;
 import com.facebook.buck.model.SubdirectoryBuildTargetPattern;
-import com.facebook.buck.rules.BuildRuleSuccess.Type;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.util.concurrent.ListenableFuture;
 
 import org.junit.Test;
 
@@ -205,7 +203,7 @@ public class AbstractBuildRuleTest {
         buildTarget,
         sortedDeps,
         visibilityPatterns);
-    return new AbstractBuildRule(buildRuleParams) {
+    return new AbstractBuildRule(buildRuleParams, null) {
       @Override
       public BuildRuleType getType() {
         throw new IllegalStateException("This method should not be called");
@@ -214,17 +212,7 @@ public class AbstractBuildRuleTest {
       @Nullable
       @Override
       public Buildable getBuildable() {
-        throw new IllegalStateException("This method should not be called");
-      }
-
-      @Override
-      public ListenableFuture<BuildRuleSuccess> build(BuildContext context) {
-        throw new IllegalStateException("This method should not be called");
-      }
-
-      @Override
-      public Type getBuildResultType() {
-        throw new IllegalStateException("This method should not be called");
+        return null;
       }
 
       @Override

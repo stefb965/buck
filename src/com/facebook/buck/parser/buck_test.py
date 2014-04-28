@@ -1,9 +1,12 @@
-from buck import glob_pattern_to_regex_string
 from buck import LazyBuildEnvPartial
-from buck import passes_glob_filter
+from buck import split_path
+from buck import glob_walk_internal
+from buck import glob_match
 from buck import relpath
+from buck import path_join
 from buck import strip_none_entries
 from buck import symlink_aware_walk
+import fnmatch
 import unittest
 import re
 import os
@@ -11,54 +14,120 @@ import posixpath
 
 class TestBuck(unittest.TestCase):
 
-  def test_glob_pattern_to_regex_string_double_star(self):
-    all_src = glob_pattern_to_regex_string('src/**/*.java')
-    self.assertEqual('^src/(.*)\\.java$', all_src)
+  def test_split_path(self):
+    self.assertEqual(['', 'foo', 'bar', 'baz.java'], split_path('/foo/bar/baz.java'))
+    self.assertEqual(['foo', 'bar', 'baz.java'], split_path('foo/bar/baz.java'))
+    self.assertEqual(['', 'foo', 'bar', ''], split_path('/foo/bar/'))
 
-    all_src_re = re.compile(all_src)
-    self.assertTrue(all_src_re.match('src/Foo.java'))
-    self.assertFalse(all_src_re.match('src/Foodjava'))
-    self.assertTrue(all_src_re.match('src/com/facebook/Foo.java'))
-    self.assertFalse(all_src_re.match('src/com/facebook/Foodjava'))
+  def glob_match_using_glob_walk(self, pattern_to_test, path_to_test, include_dotfiles=False):
+    chunks = split_path(path_to_test)
+    # Simulate a "file system" with only one path, that is path_to_test
+    # Note: for the purpose of simulating glob_match, we do not treat empty names as special.
+    def iglob(pattern):
+      tokens = split_path(pattern)
+      n = len(tokens)
+      self.assertTrue(n > 0)
+      if n > len(chunks):
+        return
+      self.assertEqual(chunks[:n-1], tokens[:n-1])
+      token = tokens[n-1]
+      chunk = chunks[n-1]
+      if not include_dotfiles and (not token or token[0] != '.') and chunk and chunk[0] == '.':
+        return
+      if fnmatch.fnmatch(chunk, token):
+        yield os.path.sep.join(chunks[:n])
 
+    def isresult(path):
+      if path is None:
+        return False
+      return path_to_test == path
 
-  def test_glob_pattern_to_regex_string_single_star(self):
-    client_src = glob_pattern_to_regex_string('src/com/facebook/bookmark/client/*.java')
-    self.assertEqual('^src/com/facebook/bookmark/client/[^/]*\\.java$', client_src)
+    visited = set()
+    tokens = split_path(pattern_to_test)
+    return next(glob_walk_internal(path_join, iglob, isresult, visited, tokens, None, None), None) is not None
 
-    client_src_re = re.compile(client_src)
-    self.assertTrue(client_src_re.match('src/com/facebook/bookmark/client/BookmarkClient.java'))
-    self.assertFalse(client_src_re.match('src/com/facebook/bookmark/client/util/Util.java'))
+  def run_test_glob_match_both_ways(self, result, pattern, path, include_dotfiles=False):
+    self.assertEqual(result,
+                     glob_match(pattern, path, include_dotfiles=include_dotfiles),
+                     "glob_match('%s', '%s', include_dotfiles=%s) should be %s" % (pattern, path, include_dotfiles, result))
+    self.assertEqual(result,
+                     self.glob_match_using_glob_walk(pattern, path, include_dotfiles=include_dotfiles),
+                     "glob_match_using_glob_walk('%s', '%s', include_dotfiles=%s) should be %s" % (pattern, path, include_dotfiles, result))
 
+  def test_glob_match_simple(self):
+    patterns = ['', '/', 'src', '/src', 'foo/bar', 'foo//bar', 'foo/bar/']
+    for pattern in patterns:
+      for path in patterns:
+        self.run_test_glob_match_both_ways(pattern == path, pattern, path)
 
-  def test_glob_pattern_to_regex_string_single_star_no_directory_prefix(self):
-    star_dot_java = glob_pattern_to_regex_string('*.java')
-    self.assertEqual('^[^/]*\\.java$', star_dot_java)
+  def test_glob_match_simple_glob(self):
+    pattern = '*'
+    self.run_test_glob_match_both_ways(True, pattern, '')
+    self.run_test_glob_match_both_ways(False, pattern, '/')
+    self.run_test_glob_match_both_ways(True, pattern, 'src')
+    self.run_test_glob_match_both_ways(False, pattern, '/src')
 
-    star_dot_java_re = re.compile(star_dot_java)
-    self.assertTrue(star_dot_java_re.match('Main.java'))
-    self.assertFalse(star_dot_java_re.match('com/example/Main.java'))
+  def test_glob_match_simple_slash_glob(self):
+    pattern = '/*'
+    self.run_test_glob_match_both_ways(False, pattern, '')
+    self.run_test_glob_match_both_ways(True, pattern, '/')
+    self.run_test_glob_match_both_ways(False, pattern, 'src')
+    self.run_test_glob_match_both_ways(True, pattern, '/src')
 
+  def test_glob_match_simple_double_star(self):
+    pattern = '**'
+    self.run_test_glob_match_both_ways(True, pattern, '')
+    self.run_test_glob_match_both_ways(True, pattern, '/')
+    self.run_test_glob_match_both_ways(True, pattern, 'src')
+    self.run_test_glob_match_both_ways(True, pattern, '/src')
 
-  def test_glob_pattern_to_regex_string_double_star_no_subdir(self):
-    all_java_tests = glob_pattern_to_regex_string('**/*Test.java')
-    self.assertEqual('^(.*)Test\\.java$', all_java_tests)
+  def test_glob_match_simple_slash_double_star(self):
+    pattern = '/**'
+    self.run_test_glob_match_both_ways(True, pattern, '')
+    self.run_test_glob_match_both_ways(True, pattern, '/')
+    self.run_test_glob_match_both_ways(False, pattern, 'src')
+    self.run_test_glob_match_both_ways(True, pattern, '/src')
 
-    all_java_tests_re = re.compile(all_java_tests)
-    self.assertFalse(all_java_tests_re.match('Main.java'))
-    self.assertTrue(all_java_tests_re.match('MainTest.java'))
-    self.assertFalse(all_java_tests_re.match('com/example/Main.java'))
-    self.assertTrue(all_java_tests_re.match('com/example/MainTest.java'))
+  def test_glob_match_double_star(self):
+    pattern = 'src/**/*.java'
+    self.run_test_glob_match_both_ways(True, pattern, 'src/Foo.java')
+    self.run_test_glob_match_both_ways(False, pattern, '/src/Foo.java')
+    self.run_test_glob_match_both_ways(False, pattern, 'src/Foodjava')
+    self.run_test_glob_match_both_ways(True, pattern, 'src/com/facebook/Foo.java')
+    self.run_test_glob_match_both_ways(False, pattern, 'src/com/facebook/Foodjava')
 
+  def test_glob_match_single_star(self):
+    client_src = 'src/com/facebook/bookmark/client/*.java'
+    self.run_test_glob_match_both_ways(True, client_src, 'src/com/facebook/bookmark/client/BookmarkClient.java')
+    self.run_test_glob_match_both_ways(False, client_src, 'src/com/facebook/bookmark/client/util/Util.java')
 
-  def test_glob_pattern_to_regex_string_ignores_dot_files_and_dirs(self):
-    all_java_tests = glob_pattern_to_regex_string('**/*Test.java')
-    all_java_tests_re = re.compile(all_java_tests)
-    self.assertTrue(passes_glob_filter('path/to/MyJavaTest.java', [all_java_tests_re], []))
-    self.assertFalse(passes_glob_filter('path/to/.MyJavaTest.java', [all_java_tests_re], []))
-    self.assertFalse(passes_glob_filter('path/.to/MyJavaTest.java', [all_java_tests_re], []))
-    self.assertTrue(passes_glob_filter('./path/to/MyJavaTest.java', [all_java_tests_re], []))
+  def test_glob_match_single_star_no_directory_prefix(self):
+    star_dot_java = '*.java'
+    self.run_test_glob_match_both_ways(True, star_dot_java, 'Main.java')
+    self.run_test_glob_match_both_ways(False, star_dot_java, 'com/example/Main.java')
 
+  def test_glob_match_double_star_no_subdir(self):
+    all_java_tests = '**/*Test.java'
+    self.run_test_glob_match_both_ways(False, all_java_tests, 'Main.java')
+    self.run_test_glob_match_both_ways(True, all_java_tests, 'MainTest.java')
+    self.run_test_glob_match_both_ways(False, all_java_tests, 'com/example/Main.java')
+    self.run_test_glob_match_both_ways(True, all_java_tests, 'com/example/MainTest.java')
+
+  def test_glob_match_ignores_dot_files_and_dirs_by_default(self):
+    all_java_tests = '**/*Test.java'
+    self.run_test_glob_match_both_ways(True, all_java_tests, 'path/to/MyJavaTest.java')
+    self.run_test_glob_match_both_ways(False, all_java_tests, 'path/to/.MyJavaTest.java')
+    self.run_test_glob_match_both_ways(False, all_java_tests, 'path/.to/MyJavaTest.java')
+    # The following case does not match any more.
+    # For simplicity of the semantics, normalization should be done outside the matching function.
+    self.run_test_glob_match_both_ways(False, all_java_tests, './path/to/MyJavaTest.java')
+
+  def test_glob_match_can_include_dot_files_and_dirs(self):
+    all_java_tests = '**/*Test.java'
+    self.run_test_glob_match_both_ways(True, all_java_tests, 'path/to/MyJavaTest.java', include_dotfiles=True)
+    self.run_test_glob_match_both_ways(True, all_java_tests, 'path/to/.MyJavaTest.java', include_dotfiles=True)
+    self.run_test_glob_match_both_ways(True, all_java_tests, 'path/.to/MyJavaTest.java', include_dotfiles=True)
+    self.run_test_glob_match_both_ways(True, all_java_tests, './path/to/MyJavaTest.java', include_dotfiles=True)
 
   def test_lazy_build_env_partial(self):
     def cobol_binary(name,
@@ -91,7 +160,6 @@ class TestBuck(unittest.TestCase):
       self.assertEqual("../../a", relpath("a", "b/c"))
     finally:
       os.getcwd = real_getcwd
-
 
   def test_strip_none_entries(self):
     rule_with_none = {

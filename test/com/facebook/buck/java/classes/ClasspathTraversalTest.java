@@ -19,13 +19,13 @@ package com.facebook.buck.java.classes;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Charsets;
 import com.google.common.base.Function;
+import com.google.common.base.Throwables;
 import com.google.common.collect.FluentIterable;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Iterables;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
-import com.google.common.hash.HashCode;
 import com.google.common.io.CharStreams;
 import com.google.common.io.Files;
 
@@ -37,12 +37,10 @@ import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.nio.charset.Charset;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Collection;
-import java.util.Collections;
-import java.util.zip.CRC32;
-import java.util.zip.Checksum;
+import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -50,7 +48,7 @@ public class ClasspathTraversalTest {
   @Rule
   public TemporaryFolder tempDir = new TemporaryFolder();
 
-  private static Collection<FileLike> traverse(Collection<File> files) throws IOException {
+  private static Map<FileLike, String> traverse(Collection<File> files) throws IOException {
     Collection<Path> paths = FluentIterable.from(files)
         .transform(new Function<File, Path>() {
       @Override
@@ -58,12 +56,21 @@ public class ClasspathTraversalTest {
         return file.toPath();
       }
     }).toList();
-    final ImmutableList.Builder<FileLike> completeList = ImmutableList.builder();
+    final ImmutableMap.Builder<FileLike, String> completeList = ImmutableMap.builder();
     ClasspathTraverser traverser = new DefaultClasspathTraverser();
-    traverser.traverse(new ClasspathTraversal(paths) {
+    traverser.traverse(new ClasspathTraversal(paths, new ProjectFilesystem(Paths.get("."))) {
       @Override
       public void visit(FileLike fileLike) {
-        completeList.add(fileLike);
+        String contents;
+        try {
+          contents = CharStreams.toString(
+              CharStreams.newReaderSupplier(
+                  new FileLikeInputSupplier(fileLike),
+                  Charsets.UTF_8));
+        } catch (IOException e) {
+          throw Throwables.propagate(e);
+        }
+        completeList.put(fileLike, contents);
       }
     });
     return completeList.build();
@@ -71,11 +78,11 @@ public class ClasspathTraversalTest {
 
   private static void verifyFileLike(int expectedFiles, File... paths) throws IOException {
     int fileLikeCount = 0;
-    for (FileLike fileLike : traverse(Lists.newArrayList(paths))) {
-      String contents = CharStreams.toString(
-          CharStreams.newReaderSupplier(new FileLikeInputSupplier(fileLike),
-              Charsets.UTF_8));
-      assertEquals("Relative file-like path mismatch", contents, fileLike.getRelativePath());
+    for (Map.Entry<FileLike, String> entry : traverse(Lists.newArrayList(paths)).entrySet()) {
+      assertEquals(
+          "Relative file-like path mismatch",
+          entry.getValue(),
+          entry.getKey().getRelativePath());
       fileLikeCount++;
     }
     assertEquals(expectedFiles, fileLikeCount);
@@ -111,33 +118,5 @@ public class ClasspathTraversalTest {
       zipOut.close();
     }
     verifyFileLike(3, file);
-  }
-
-  private static long getChecksum(Checksum algorithm, String data, Charset charset) {
-    byte[] dataBytes = data.getBytes(charset);
-    algorithm.update(dataBytes, 0, dataBytes.length);
-    return algorithm.getValue();
-  }
-
-  @Test
-  public void testZipHashing() throws IOException {
-    String contents = "test crc32";
-    final long contentsCrc32 = getChecksum(new CRC32(), contents, Charsets.UTF_8);
-    File file = tempDir.newFile("test.zip");
-    ZipOutputStream zipOut = new ZipOutputStream(
-        new BufferedOutputStream(new FileOutputStream(file)));
-    try {
-      ZipEntry entry = new ZipEntry("foo.txt");
-      zipOut.putNextEntry(entry);
-      zipOut.write(contents.getBytes(Charsets.UTF_8));
-    } finally {
-      zipOut.close();
-    }
-
-    Collection<FileLike> entries = traverse(Collections.singleton(file));
-    assertEquals(1, entries.size());
-    FileLike entry = Iterables.getFirst(entries, null);
-    assertEquals("CRC of input text should equal FileLike#fastHash",
-        HashCode.fromLong(contentsCrc32), entry.fastHash());
   }
 }

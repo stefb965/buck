@@ -47,6 +47,10 @@ public class LogEvent extends AbstractBuckEvent {
     return new LogEvent(level, String.format(message, args));
   }
 
+  public static LogEvent finer(String message, Object... args) {
+    return LogEvent.create(Level.FINER, message, args);
+  }
+
   public static LogEvent fine(String message, Object... args) {
     return LogEvent.create(Level.FINE, message, args);
   }
@@ -84,7 +88,7 @@ public class LogEvent extends AbstractBuckEvent {
       return false;
     }
 
-    LogEvent that = (LogEvent)event;
+    LogEvent that = (LogEvent) event;
 
     return Objects.equal(getLevel(), that.getLevel()) &&
         Objects.equal(getMessage(), that.getMessage());

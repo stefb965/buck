@@ -25,13 +25,13 @@ import com.facebook.buck.graph.MutableDirectedGraph;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargetPattern;
+import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.rules.ArtifactCache;
-import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleSuccess;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Buildable;
 import com.facebook.buck.rules.BuildableProperties;
+import com.facebook.buck.rules.DefaultKnownBuildRuleTypes;
 import com.facebook.buck.rules.DependencyGraph;
 import com.facebook.buck.rules.KnownBuildRuleTypes;
 import com.facebook.buck.rules.NoopArtifactCache;
@@ -45,7 +45,6 @@ import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.util.concurrent.ListenableFuture;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -120,16 +119,6 @@ public class AuditOwnerCommandTest {
     }
 
     @Override
-    public ListenableFuture<BuildRuleSuccess> build(BuildContext context) {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public BuildRuleSuccess.Type getBuildResultType() {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
     public final RuleKey getRuleKey() {
       throw new UnsupportedOperationException();
     }
@@ -140,8 +129,8 @@ public class AuditOwnerCommandTest {
     }
 
     @Override
-    public int compareTo(BuildRule buildRule) {
-      return this.getFullyQualifiedName().compareTo(buildRule.getFullyQualifiedName());
+    public int compareTo(HasBuildTarget other) {
+      return this.getBuildTarget().compareTo(other.getBuildTarget());
     }
   }
 
@@ -232,7 +221,8 @@ public class AuditOwnerCommandTest {
 
   private AuditOwnerCommand createAuditOwnerCommand(ProjectFilesystem filesystem) {
     Console console = new TestConsole();
-    KnownBuildRuleTypes buildRuleTypes = KnownBuildRuleTypes.getDefault();
+    KnownBuildRuleTypes buildRuleTypes =
+        DefaultKnownBuildRuleTypes.getDefaultKnownBuildRuleTypes(filesystem);
     ArtifactCache artifactCache = new NoopArtifactCache();
     BuckEventBus eventBus = BuckEventBusFactory.newInstance();
     AndroidDirectoryResolver androidDirectoryResolver = new FakeAndroidDirectoryResolver();

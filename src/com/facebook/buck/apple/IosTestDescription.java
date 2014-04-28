@@ -49,7 +49,7 @@ public class IosTestDescription implements Description<IosTestDescription.Arg> {
     return new IosTest(args);
   }
 
-  public class Arg implements ConstructorArg {
+  public static class Arg implements ConstructorArg {
     /**
      * @see com.facebook.buck.apple.XcodeRuleConfiguration#fromRawJsonStructure
      */
@@ -58,9 +58,9 @@ public class IosTestDescription implements Description<IosTestDescription.Arg> {
         ImmutableList<Either<Path, ImmutableMap<String, String>>>> configs;
     public Path infoPlist;
     public ImmutableList<AppleSource> srcs;
-    public ImmutableList<AppleSource> headers;
     public ImmutableSortedSet<String> frameworks;
     public ImmutableSortedSet<BuildRule> sourceUnderTest;
     public Optional<ImmutableSortedSet<BuildRule>> deps;
+    public Optional<String> testType;
   }
 }

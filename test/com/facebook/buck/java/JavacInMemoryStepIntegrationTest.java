@@ -23,6 +23,8 @@ import static org.junit.Assert.fail;
 import com.facebook.buck.java.abi.AbiWriterProtocol;
 import com.facebook.buck.rules.BuildDependencies;
 import com.facebook.buck.rules.Sha1HashCode;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.TestSourcePath;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.util.ProjectFilesystem;
@@ -60,13 +62,15 @@ public class JavacInMemoryStepIntegrationTest {
     String pathToOutputDir = new File(tmp.getRoot(), "out").getAbsolutePath();
     String pathToAbiFile = new File(tmp.getRoot(), "abi").getAbsolutePath();
     assertEquals(
-        String.format("javac -target 6 -source 6 -g " +
+        String.format("javac -target %s -source %s -g " +
             "-processorpath %s " +
             "-processor %s " +
             "-A%s=%s " +
             "-d %s " +
             "-classpath '' " +
             "@" + pathToSrcsList.toString(),
+            JavaCompilerEnvironment.TARGETED_JAVA_VERSION,
+            JavaCompilerEnvironment.TARGETED_JAVA_VERSION,
             AbiWritingAnnotationProcessingDataDecorator.ABI_PROCESSOR_CLASSPATH,
             AbiWriterProtocol.ABI_ANNOTATION_PROCESSOR_CLASS_NAME,
             AbiWriterProtocol.PARAM_ABI_OUTPUT_FILE,
@@ -139,9 +143,9 @@ public class JavacInMemoryStepIntegrationTest {
     Path pathToOutputAbiFile = Paths.get("abi");
     return new JavacInMemoryStep(
         pathToOutputDirectory,
-        /* javaSourceFilePaths */ ImmutableSet.of(Paths.get("Example.java")),
-        /* transitive classpathEntries */ ImmutableSet.<String>of(),
-        /* declated classpathEntries */ ImmutableSet.<String>of(),
+        /* javaSourceFilePaths */ ImmutableSet.<SourcePath>of(new TestSourcePath("Example.java")),
+        /* transitive classpathEntries */ ImmutableSet.<Path>of(),
+        /* declated classpathEntries */ ImmutableSet.<Path>of(),
         JavacOptions.builder().build(),
         Optional.of(pathToOutputAbiFile),
         Optional.<String>absent(),

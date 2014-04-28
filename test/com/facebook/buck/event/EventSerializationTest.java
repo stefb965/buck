@@ -18,6 +18,8 @@ package com.facebook.buck.event;
 
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.java.JavaLibraryDescription;
+import com.facebook.buck.model.BuildId;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargetPattern;
@@ -27,7 +29,6 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleEvent;
 import com.facebook.buck.rules.BuildRuleStatus;
 import com.facebook.buck.rules.BuildRuleSuccess;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.CacheResult;
 import com.facebook.buck.rules.DependencyGraph;
 import com.facebook.buck.rules.FakeBuildRule;
@@ -60,7 +61,7 @@ public class EventSerializationTest {
   private long timestamp;
   private long nanoTime;
   private long threadId;
-  private String buildId;
+  private BuildId buildId;
 
   @Before
   public void setUp() {
@@ -68,7 +69,7 @@ public class EventSerializationTest {
     timestamp = clock.currentTimeMillis();
     nanoTime = clock.nanoTime();
     threadId = 0;
-    buildId = "Test";
+    buildId = new BuildId("Test");
   }
 
   @Test
@@ -141,11 +142,11 @@ public class EventSerializationTest {
   @Test
   public void testTestRunEventStarted() throws IOException {
     TestRunEvent.Started event = TestRunEvent.started(
-        true, Optional.<TestSelectorList>absent(), false, ImmutableList.<String>of());
+        true, TestSelectorList.empty(), false, ImmutableList.<String>of());
     event.configure(timestamp, nanoTime, threadId, buildId);
     String message = new ObjectMapper().writeValueAsString(event);
     assertJsonEquals("{\"timestamp\":%d,\"nanoTime\":%d,\"threadId\":%d,\"buildId\":\"%s\"," +
-        "\"runAllTests\":true,\"testSelectorListOptional\":{\"present\":false}," +
+        "\"runAllTests\":true," +
         "\"targetNames\":[],\"type\":\"RunStarted\"}", message);
   }
 
@@ -190,7 +191,8 @@ public class EventSerializationTest {
 
   private BuildRule generateFakeBuildRule() {
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//fake:rule");
-    FakeBuildRule result = new FakeBuildRule(BuildRuleType.JAVA_LIBRARY,
+    FakeBuildRule result = new FakeBuildRule(
+        JavaLibraryDescription.TYPE,
         buildTarget,
         ImmutableSortedSet.<BuildRule>of(),
         ImmutableSet.<BuildTargetPattern>of());

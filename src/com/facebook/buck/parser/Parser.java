@@ -26,6 +26,7 @@ import com.facebook.buck.json.DefaultProjectBuildFileParserFactory;
 import com.facebook.buck.json.ProjectBuildFileParser;
 import com.facebook.buck.json.ProjectBuildFileParserFactory;
 import com.facebook.buck.model.BuildFileTree;
+import com.facebook.buck.model.BuildId;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.rules.AbstractDependencyVisitor;
@@ -41,7 +42,6 @@ import com.facebook.buck.rules.RuleKeyBuilderFactory;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.MoreStrings;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.buck.util.Verbosity;
 import com.google.common.annotations.VisibleForTesting;
@@ -61,6 +61,7 @@ import com.google.common.io.InputSupplier;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.StandardWatchEventKinds;
 import java.nio.file.WatchEvent;
 import java.util.EnumSet;
@@ -87,6 +88,7 @@ public class Parser {
    * The build files that have been parsed and whose build rules are in {@link #knownBuildTargets}.
    */
   private final ListMultimap<Path, Map<String, Object>> parsedBuildFiles;
+  private final Map<BuildTarget, Path> targetsToFile;
   private final ImmutableSet<Pattern> tempFilePatterns;
 
   /**
@@ -152,8 +154,8 @@ public class Parser {
   static class BuildFileTreeCache implements InputSupplier<BuildFileTree> {
     private final InputSupplier<BuildFileTree> supplier;
     @Nullable private BuildFileTree buildFileTree;
-    private String currentBuildId = MoreStrings.createRandomString();
-    private String buildTreeBuildId = MoreStrings.createRandomString();
+    private BuildId currentBuildId = new BuildId();
+    private BuildId buildTreeBuildId = new BuildId();
 
     /**
      * @param buildFileTreeSupplier each call to get() must reconstruct the tree from disk.
@@ -249,6 +251,7 @@ public class Parser {
     this.buildFileParserFactory = Preconditions.checkNotNull(buildFileParserFactory);
     this.ruleKeyBuilderFactory = Preconditions.checkNotNull(ruleKeyBuilderFactory);
     this.parsedBuildFiles = ArrayListMultimap.create();
+    this.targetsToFile = Maps.newHashMap();
     this.buildFileDependents = ArrayListMultimap.create();
     this.tempFilePatterns = tempFilePatterns;
   }
@@ -547,6 +550,7 @@ public class Parser {
     Preconditions.checkNotNull(buildFile);
     Preconditions.checkNotNull(defaultIncludes);
     Preconditions.checkNotNull(buildFileParser);
+
     if (!isCached(buildFile, defaultIncludes)) {
       if (console.getVerbosity().shouldPrintCommand()) {
         console.getStdErr().printf("Parsing %s file: %s\n",
@@ -574,6 +578,10 @@ public class Parser {
 
       BuildRuleType buildRuleType = parseBuildRuleTypeFromRawRule(map);
       BuildTarget target = parseBuildTargetFromRawRule(map);
+      targetsToFile.put(
+          target,
+          normalize(Paths.get((String) map.get("buck.base_path")))
+              .resolve("BUCK").toAbsolutePath());
 
       BuildRuleFactory<?> factory = buildRuleTypes.getFactory(buildRuleType);
       if (factory == null) {
@@ -629,6 +637,10 @@ public class Parser {
   }
 
   /**
+   * This method has been deprecated because it is not idempotent and returns different results
+   * based upon what has been already parsed.
+   * Prefer {@link #filterGraphTargets(RawRulePredicate, DependencyGraph)}
+   *
    * @param filter the test to apply to all targets that have been read from build files, or null.
    * @return the build targets that pass the test, or null if the filter was null.
    */
@@ -653,11 +665,39 @@ public class Parser {
   }
 
   /**
+   * @param filter the test to apply to all targets that have been read from build files, or null.
+   * @return the build targets that pass the test, or null if the filter was null.
+   */
+  @VisibleForTesting
+  @Nullable
+  Iterable<BuildTarget> filterGraphTargets(
+      @Nullable RawRulePredicate filter,
+      DependencyGraph dependencyGraph) throws NoSuchBuildTargetException {
+    if (filter == null) {
+      return null;
+    }
+
+    ImmutableSet.Builder<BuildTarget> matchingTargets = ImmutableSet.builder();
+    for (BuildRule buildRule : dependencyGraph.getNodes()) {
+      for (Map<String, Object> map :
+           parsedBuildFiles.get(targetsToFile.get(buildRule.getBuildTarget()))) {
+        BuildRuleType buildRuleType = parseBuildRuleTypeFromRawRule(map);
+        BuildTarget target = parseBuildTargetFromRawRule(map);
+        if (filter.isMatch(map, buildRuleType, target)) {
+          matchingTargets.add(target);
+        }
+      }
+    }
+
+    return matchingTargets.build();
+  }
+
+  /**
    * @param map the map of values that define the rule.
    * @return the type of rule defined by the map.
    */
   private BuildRuleType parseBuildRuleTypeFromRawRule(Map<String, Object> map) {
-    String type = (String)map.get("type");
+    String type = (String) map.get("type");
     return buildRuleTypes.getBuildRuleType(type);
   }
 
@@ -666,8 +706,8 @@ public class Parser {
    * @return the build target defined by the rule.
    */
   private BuildTarget parseBuildTargetFromRawRule(Map<String, Object> map) {
-    String basePath = (String)map.get("buck.base_path");
-    String name = (String)map.get("name");
+    String basePath = (String) map.get("buck.base_path");
+    String name = (String) map.get("name");
     return new BuildTarget("//" + basePath, name);
   }
 
@@ -717,18 +757,18 @@ public class Parser {
    * {@code android_binary}, but are defined in the same build files as the transitive
    * dependencies of an {@code android_binary}, this method is helpful in finding all of the
    * {@code project_config} rules needed to produce an IDE configuration to build said
-   * {@code android_binary}. See {@link com.facebook.buck.cli.ProjectCommand#predicate} for an
+   * {@code android_binary}. See {@link RawRulePredicates#matchBuildRuleType(BuildRuleType)} for an
    * example of such a {@link RawRulePredicate}.
    */
-  public synchronized List<BuildTarget> filterTargetsInProjectFromRoots(
+  public synchronized Iterable<BuildTarget> filterTargetsInProjectFromRoots(
       Iterable<BuildTarget> roots,
       Iterable<String> defaultIncludes,
       BuckEventBus eventBus,
       RawRulePredicate filter)
       throws BuildFileParseException, BuildTargetException, IOException {
-    parseBuildFilesForTargets(roots, defaultIncludes, eventBus);
+    DependencyGraph dependencyGraph = parseBuildFilesForTargets(roots, defaultIncludes, eventBus);
 
-    return filterTargets(filter);
+    return filterGraphTargets(filter, dependencyGraph);
   }
 
   /**

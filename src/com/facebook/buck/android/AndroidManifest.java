@@ -21,7 +21,7 @@ import com.facebook.buck.rules.AbstractBuildable;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.BuildRuleSourcePath;
 import com.facebook.buck.rules.Buildable;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.RuleKey;
@@ -35,7 +35,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collection;
@@ -100,7 +99,7 @@ public class AndroidManifest extends AbstractBuildable {
   }
 
   @Override
-  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) throws IOException {
+  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
     return builder;
   }
 
@@ -113,8 +112,7 @@ public class AndroidManifest extends AbstractBuildable {
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext)
-      throws IOException {
+  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
     ImmutableList.Builder<Step> commands = ImmutableList.builder();
 
     // Clear out the old file, if it exists.
@@ -126,7 +124,7 @@ public class AndroidManifest extends AbstractBuildable {
     commands.add(new MkdirStep(pathToOutputFile.getParent()));
 
     commands.add(new GenerateManifestStep(
-        skeletonFile.resolve(context),
+        skeletonFile.resolve(),
         manifestFiles,
         getPathToOutputFile()));
 
@@ -143,12 +141,11 @@ public class AndroidManifest extends AbstractBuildable {
   @Override
   public ImmutableSortedSet<BuildRule> getEnhancedDeps(BuildRuleResolver ruleResolver) {
     SourcePath skeletonFile = getSkeletonFile();
-    if (skeletonFile instanceof BuildTargetSourcePath) {
-      BuildTarget skeletonTarget = ((BuildTargetSourcePath) skeletonFile).getTarget();
-      BuildRule skeletonRule = ruleResolver.get(skeletonTarget);
-      return ImmutableSortedSet.<BuildRule>of(skeletonRule);
+    if (skeletonFile instanceof BuildRuleSourcePath) {
+      BuildRule skeletonRule = ((BuildRuleSourcePath) skeletonFile).getRule();
+      return ImmutableSortedSet.of(skeletonRule);
     } else {
-      return ImmutableSortedSet.<BuildRule>of();
+      return ImmutableSortedSet.of();
     }
   }
 

@@ -31,10 +31,11 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleEvent;
 import com.facebook.buck.rules.BuildRuleStatus;
 import com.facebook.buck.rules.BuildRuleSuccess;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.CacheResult;
 import com.facebook.buck.rules.DependencyGraph;
 import com.facebook.buck.rules.FakeBuildRule;
+import com.facebook.buck.rules.FakeProcessExecutor;
+import com.facebook.buck.shell.GenruleDescription;
 import com.facebook.buck.step.FakeStep;
 import com.facebook.buck.step.StepEvent;
 import com.facebook.buck.testutil.TestConsole;
@@ -83,17 +84,22 @@ public class SuperConsoleEventBusListenerTest {
     BuildTarget fakeTarget = BuildTargetFactory.newInstance("//banana:stand");
     BuildTarget cachedTarget = BuildTargetFactory.newInstance("//chicken:dance");
     ImmutableList<BuildTarget> buildTargets = ImmutableList.of(fakeTarget, cachedTarget);
-    FakeBuildRule fakeRule = new FakeBuildRule(BuildRuleType.GENRULE,
+    FakeBuildRule fakeRule = new FakeBuildRule(
+        GenruleDescription.TYPE,
         fakeTarget,
         ImmutableSortedSet.<BuildRule>of(),
         ImmutableSet.<BuildTargetPattern>of());
-    FakeBuildRule cachedRule = new FakeBuildRule(BuildRuleType.GENRULE,
+    FakeBuildRule cachedRule = new FakeBuildRule(
+        GenruleDescription.TYPE,
         cachedTarget,
         ImmutableSortedSet.<BuildRule>of(),
         ImmutableSet.<BuildTargetPattern>of());
 
     SuperConsoleEventBusListener listener =
-        new SuperConsoleEventBusListener(console, fakeClock, new DefaultExecutionEnvironment());
+        new SuperConsoleEventBusListener(
+            console,
+            fakeClock,
+            new DefaultExecutionEnvironment(new FakeProcessExecutor()));
     eventBus.register(listener);
 
     rawEventBus.post(configureTestEventAtTime(

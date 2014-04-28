@@ -41,7 +41,8 @@ public class BuildRuleResolver {
 
   @VisibleForTesting
   public BuildRuleResolver(Map<BuildTarget, BuildRule> buildRuleIndex) {
-    this.buildRuleIndex = Preconditions.checkNotNull(buildRuleIndex);
+    Preconditions.checkNotNull(buildRuleIndex);
+    this.buildRuleIndex = Maps.newHashMap(buildRuleIndex);
   }
 
   @VisibleForTesting
@@ -78,6 +79,16 @@ public class BuildRuleResolver {
       throw new IllegalStateException("A build rule for this target has already been created: " +
           target);
     }
+  }
+
+  /**
+   * Adds to the index a mapping from {@code buildRule}'s target to itself and returns
+   * {@code buildRule}.
+   */
+  @VisibleForTesting
+  public <T extends BuildRule> T addToIndex(T buildRule) {
+    addToIndex(buildRule.getBuildTarget(), buildRule);
+    return buildRule;
   }
 
   public <T extends BuildRule> T buildAndAddToIndex(BuildRuleBuilder<T> builder) {

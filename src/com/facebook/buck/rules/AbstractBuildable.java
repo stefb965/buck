@@ -42,35 +42,19 @@ public abstract class AbstractBuildable implements Buildable {
     return null;
   }
 
-  protected abstract static class Builder
-      extends AbstractBuildRuleBuilder<AbstractCachingBuildRule> {
-
-    protected Builder(AbstractBuildRuleBuilderParams params) {
-      super(params);
-    }
-
-    protected abstract BuildRuleType getType();
-    protected abstract Buildable newBuildable(BuildRuleParams params, BuildRuleResolver resolver);
-
-    @Override
-    public final AbstractCachingBuildRule build(BuildRuleResolver ruleResolver) {
-      BuildRuleParams params = createBuildRuleParams(ruleResolver);
-
-      final Buildable buildable = newBuildable(params, ruleResolver);
-      final BuildRuleType type = getType();
-
-      return new AnonymousBuildRule(type, buildable, params);
-    }
-  }
-
-  public static class AnonymousBuildRule extends AbstractCachingBuildRule {
+  public static class AnonymousBuildRule extends AbstractBuildRule implements BuildRule {
     private final Buildable buildable;
     private final BuildRuleType type;
 
     public AnonymousBuildRule(BuildRuleType type, Buildable buildable, BuildRuleParams params) {
-      super(buildable, params);
+      super(params, buildable);
       this.buildable = buildable;
       this.type = type;
+    }
+
+    @Override
+    public BuildableProperties getProperties() {
+      return buildable.getProperties();
     }
 
     @Override

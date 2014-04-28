@@ -18,28 +18,38 @@ package com.facebook.buck.rules;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetPattern;
-import com.facebook.buck.util.BuckConstant;
+import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.util.HumanReadableException;
+import com.google.common.annotations.Beta;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
-import java.io.IOException;
 import java.nio.file.Path;
 
 import javax.annotation.Nullable;
 
-abstract class AbstractBuildRule implements BuildRule {
+/**
+ * Abstract implementation of a {@link BuildRule} that can be cached. If its current {@link RuleKey}
+ * matches the one on disk, then it has no work to do. It should also try to fetch its output from
+ * an {@link ArtifactCache} to avoid doing any computation.
+ */
+@Beta
+public abstract class AbstractBuildRule implements BuildRule {
 
   private final BuildTarget buildTarget;
+  private final Buildable buildable;
   private final ImmutableSortedSet<BuildRule> deps;
   private final ImmutableSet<BuildTargetPattern> visibilityPatterns;
   private final RuleKeyBuilderFactory ruleKeyBuilderFactory;
+  /** @see Buildable#getInputsToCompareToOutput()  */
+  private Iterable<Path> inputsToCompareToOutputs;
   @Nullable private volatile RuleKey.Builder.RuleKeyPair ruleKeyPair;
 
-  protected AbstractBuildRule(BuildRuleParams buildRuleParams) {
+  protected AbstractBuildRule(BuildRuleParams buildRuleParams, Buildable buildable) {
     Preconditions.checkNotNull(buildRuleParams);
     this.buildTarget = buildRuleParams.getBuildTarget();
+    this.buildable = buildable;
     this.deps = buildRuleParams.getDeps();
     this.visibilityPatterns = buildRuleParams.getVisibilityPatterns();
     this.ruleKeyBuilderFactory = buildRuleParams.getRuleKeyBuilderFactory();
@@ -101,8 +111,16 @@ abstract class AbstractBuildRule implements BuildRule {
   }
 
   @Override
-  public final int compareTo(BuildRule that) {
-    return this.getFullyQualifiedName().compareTo(that.getFullyQualifiedName());
+  public Iterable<Path> getInputs() {
+    if (inputsToCompareToOutputs == null) {
+      inputsToCompareToOutputs = buildable.getInputsToCompareToOutput();
+    }
+    return inputsToCompareToOutputs;
+  }
+
+  @Override
+  public final int compareTo(HasBuildTarget that) {
+    return this.getBuildTarget().compareTo(that.getBuildTarget());
   }
 
   @Override
@@ -125,12 +143,11 @@ abstract class AbstractBuildRule implements BuildRule {
   }
 
   /**
-   * {@link #getRuleKey()} and {@link #getRuleKeyWithoutDeps()} uses this when constructing
-   * {@link RuleKey}s for this class. Every subclass that extends the rule state in a way that
-   * matters to idempotency must override
-   * {@link #appendToRuleKey(com.facebook.buck.rules.RuleKey.Builder)} and append its state to the
-   * {@link RuleKey.Builder} returned by its superclass's
-   * {@link #appendToRuleKey(com.facebook.buck.rules.RuleKey.Builder)} implementation. Example:
+   * {@link BuildRule#getRuleKey()} and {@link BuildRule#getRuleKeyWithoutDeps()} uses this when
+   * constructing {@link RuleKey}s for this class. Every subclass that extends the rule state in a
+   * way that matters to idempotency must override {@link #appendToRuleKey(RuleKey.Builder)} and
+   * append its state to the {@link RuleKey.Builder} returned by its superclass's
+   * {@link #appendToRuleKey(RuleKey.Builder)} implementation. Example:
    * <pre>
    * &#x40;Override
    * protected RuleKey.Builder appendToRuleKey(RuleKey.Builder builder) {
@@ -140,15 +157,26 @@ abstract class AbstractBuildRule implements BuildRule {
    * }
    * </pre>
    */
-  public RuleKey.Builder appendToRuleKey(RuleKey.Builder builder) throws IOException {
-    return builder;
+  public RuleKey.Builder appendToRuleKey(RuleKey.Builder builder) {
+    // For a rule that lists its inputs via a "srcs" argument, this may seem redundant, but it is
+    // not. Here, the inputs are specified as InputRules, which means that the _contents_ of the
+    // files will be hashed. In the case of .set("srcs", srcs), the list of strings itself will be
+    // hashed. It turns out that we need both of these in order to construct a RuleKey correctly.
+    // Note: appendToRuleKey() should not set("srcs", srcs) if the inputs are order-independent.
+    Iterable<Path> inputs = getInputs();
+    builder = builder
+        .setInputs("buck.inputs", inputs.iterator())
+        .setSourcePaths("buck.sourcepaths", SourcePaths.toSourcePathsSortedByNaturalOrder(inputs));
+    // TODO(simons): Rename this when no Buildables extend this class.
+    return buildable.appendDetailsToRuleKey(builder);
   }
+
 
   /**
    * This method should be overridden only for unit testing.
    */
   @Override
-  public RuleKey getRuleKey() throws IOException {
+  public RuleKey getRuleKey() {
     return getRuleKeyPair().getTotalRuleKey();
   }
 
@@ -157,11 +185,11 @@ abstract class AbstractBuildRule implements BuildRule {
    * into account.
    */
   @Override
-  public RuleKey getRuleKeyWithoutDeps() throws IOException {
+  public RuleKey getRuleKeyWithoutDeps() {
     return getRuleKeyPair().getRuleKeyWithoutDeps();
   }
 
-  private RuleKey.Builder.RuleKeyPair getRuleKeyPair() throws IOException {
+  private RuleKey.Builder.RuleKeyPair getRuleKeyPair() {
     // This uses the "double-checked locking using volatile" pattern:
     // http://www.cs.umd.edu/~pugh/java/memoryModel/DoubleCheckedLocking.html.
     if (ruleKeyPair == null) {
@@ -174,12 +202,5 @@ abstract class AbstractBuildRule implements BuildRule {
       }
     }
     return ruleKeyPair;
-  }
-
-  /**
-   * @return Whether the input path directs to a file in the buck generated files folder.
-   */
-  public static boolean isGeneratedFile(Path pathRelativeToProjectRoot) {
-    return pathRelativeToProjectRoot.startsWith(BuckConstant.GEN_PATH);
   }
 }

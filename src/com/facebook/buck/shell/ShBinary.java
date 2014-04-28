@@ -1,0 +1,136 @@
+/*
+ * Copyright 2013-present Facebook, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may
+ * not use this file except in compliance with the License. You may obtain
+ * a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+ * License for the specific language governing permissions and limitations
+ * under the License.
+ */
+
+package com.facebook.buck.shell;
+
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.AbstractBuildable;
+import com.facebook.buck.rules.BinaryBuildRule;
+import com.facebook.buck.rules.BuildContext;
+import com.facebook.buck.rules.BuildOutputInitializer;
+import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.InitializableFromDisk;
+import com.facebook.buck.rules.OnDiskBuildInfo;
+import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.step.Step;
+import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
+import com.facebook.buck.util.BuckConstant;
+import com.facebook.buck.util.ProjectFilesystem;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
+
+import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Collection;
+import java.util.List;
+
+public class ShBinary extends AbstractBuildable
+    implements BinaryBuildRule, InitializableFromDisk<Object> {
+
+  private final SourcePath main;
+  private final ImmutableSet<SourcePath> resources;
+  private final BuildTarget target;
+
+  /** The path where the output will be written. */
+  private final Path output;
+
+  private final BuildOutputInitializer<Object> buildOutputInitializer;
+
+  protected ShBinary(BuildTarget buildTarget,
+      SourcePath main,
+      ImmutableSet<SourcePath> resources) {
+    this.main = Preconditions.checkNotNull(main);
+    this.resources = Preconditions.checkNotNull(resources);
+
+    this.target = Preconditions.checkNotNull(buildTarget);
+    this.output = Paths.get(
+        BuckConstant.GEN_DIR,
+        target.getBasePath(),
+        "__" + target.getShortName() + "__",
+        target.getShortName() + ".sh");
+    this.buildOutputInitializer = new BuildOutputInitializer<>(buildTarget, this);
+  }
+
+  @Override
+  public Collection<Path> getInputsToCompareToOutput() {
+    ImmutableSortedSet<SourcePath> allPaths = ImmutableSortedSet.<SourcePath>naturalOrder()
+        .add(main)
+        .addAll(resources)
+        .build();
+
+    return SourcePaths.filterInputsToCompareToOutput(allPaths);
+  }
+
+  @Override
+  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
+    MakeCleanDirectoryStep mkdir = new MakeCleanDirectoryStep(output.getParent());
+
+    // Generate an .sh file that builds up an environment and invokes the user's script.
+    // This generated .sh file will be returned by getExecutableCommand().
+    GenerateShellScriptStep generateShellScript = new GenerateShellScriptStep(
+        Paths.get(target.getBasePath()),
+        main.resolve(),
+        SourcePaths.toPaths(resources),
+        output);
+
+    buildableContext.recordArtifact(output);
+    return ImmutableList.of(mkdir, generateShellScript);
+  }
+
+  @Override
+  public Path getPathToOutputFile() {
+    return output;
+  }
+
+  @Override
+  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
+    return builder;
+  }
+
+  @Override
+  public List<String> getExecutableCommand(ProjectFilesystem projectFilesystem) {
+    return ImmutableList.of(projectFilesystem
+          .getFileForRelativePath(output.toString())
+          .getAbsolutePath()
+          .toString());
+  }
+
+  /*
+   * This method implements InitializableFromDisk so that it can make the output file
+   * executable when this rule is populated from cache. The buildOutput Object is meaningless:
+   * it is created only to satisfy InitializableFromDisk contract.
+   * TODO(task #3321496): Delete this entire interface implementation after we fix zipping exe's.
+   */
+  @Override
+  public Object initializeFromDisk(OnDiskBuildInfo info) {
+    try {
+      info.makeOutputFileExecutable(this);
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
+    return new Object();
+  }
+
+  @Override
+  public BuildOutputInitializer<Object> getBuildOutputInitializer() {
+    return buildOutputInitializer;
+  }
+}

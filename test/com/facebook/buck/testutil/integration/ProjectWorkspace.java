@@ -22,6 +22,7 @@ import static org.junit.Assert.fail;
 
 import com.facebook.buck.cli.Main;
 import com.facebook.buck.cli.TestCommand;
+import com.facebook.buck.rules.DefaultKnownBuildRuleTypes;
 import com.facebook.buck.util.CapturingPrintStream;
 import com.facebook.buck.util.MoreFiles;
 import com.facebook.buck.util.MoreStrings;
@@ -106,6 +107,8 @@ public class ProjectWorkspace {
    * in the process. Files whose names end in {@code .expected} will not be copied.
    */
   public void setUp() throws IOException {
+    DefaultKnownBuildRuleTypes.resetInstance();
+
     MoreFiles.copyRecursively(templatePath, destPath, BUILD_FILE_RENAME);
 
     if (Platform.detect() == Platform.WINDOWS) {
@@ -137,6 +140,13 @@ public class ProjectWorkspace {
       java.nio.file.Files.walkFileTree(destPath, copyDirVisitor);
     }
     isSetUp = true;
+  }
+
+  public ProcessResult runBuckBuild(String... args) throws IOException {
+    String[] totalArgs = new String[args.length + 1];
+    totalArgs[0] = "build";
+    System.arraycopy(args, 0, totalArgs, 1, args.length);
+    return runBuckCommand(totalArgs);
   }
 
   /**
@@ -184,6 +194,14 @@ public class ProjectWorkspace {
 
   public String getFileContents(String pathRelativeToProjectRoot) throws IOException {
     return Files.toString(getFile(pathRelativeToProjectRoot), Charsets.UTF_8);
+  }
+
+  public void enableDirCache() throws IOException {
+    writeContentsToPath("[cache]\n  mode = dir", ".buckconfig.local");
+  }
+
+  public void copyFile(String source, String dest) throws IOException {
+    Files.copy(getFile(source), getFile(dest));
   }
 
   public void replaceFileContents(String pathRelativeToProjectRoot,

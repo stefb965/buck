@@ -29,6 +29,7 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Buildable;
 import com.facebook.buck.rules.DependencyGraph;
+import com.facebook.buck.rules.ProjectConfigDescription;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MorePaths;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -209,11 +210,10 @@ public class TargetsCommand extends AbstractCommandRunner<TargetsCommandOptions>
     getStdOut().println("[");
 
     ObjectMapper mapper = new ObjectMapper();
-    Iterator<String> keySetIterator = buildIndex.keySet().iterator();
+    Iterator<BuildRule> valueIterator = buildIndex.values().iterator();
 
-    while (keySetIterator.hasNext()) {
-      String key = keySetIterator.next();
-      BuildRule buildRule = buildIndex.get(key);
+    while (valueIterator.hasNext()) {
+      BuildRule buildRule = valueIterator.next();
       BuildTarget buildTarget = buildRule.getBuildTarget();
 
       List<Map<String, Object>> rules;
@@ -230,7 +230,7 @@ public class TargetsCommand extends AbstractCommandRunner<TargetsCommandOptions>
       // Find the build rule information that corresponds to this build buildTarget.
       Map<String, Object> targetRule = null;
       for (Map<String, Object> rule : rules) {
-        String name = (String)rule.get("name");
+        String name = (String) rule.get("name");
         if (name.equals(buildTarget.getShortName())) {
           targetRule = rule;
           break;
@@ -247,7 +247,7 @@ public class TargetsCommand extends AbstractCommandRunner<TargetsCommandOptions>
       Buildable buildable = buildRule.getBuildable();
       if (buildable != null) {
         outputPath = buildable.getPathToOutputFile();
-      } else if (BuildRuleType.PROJECT_CONFIG.equals(buildRule.getType())) {
+      } else if (ProjectConfigDescription.TYPE.equals(buildRule.getType())) {
         // We know that project_config() rules are special.
         outputPath = null;
       } else {
@@ -272,7 +272,7 @@ public class TargetsCommand extends AbstractCommandRunner<TargetsCommandOptions>
         throw Throwables.propagate(e);
       }
       String output = stringWriter.getBuffer().toString();
-      if (keySetIterator.hasNext()) {
+      if (valueIterator.hasNext()) {
         output += ",";
       }
       getStdOut().println(output);
@@ -341,7 +341,7 @@ public class TargetsCommand extends AbstractCommandRunner<TargetsCommandOptions>
 
     // Check that the given target is a valid target.
     for (Map<String, Object> rule : ruleObjects) {
-      String name = (String)rule.get("name");
+      String name = (String) rule.get("name");
       if (name.equals(buildTarget.getShortName())) {
         return buildTarget.getFullyQualifiedName();
       }

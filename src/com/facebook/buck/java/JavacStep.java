@@ -18,10 +18,10 @@ package com.facebook.buck.java;
 
 import com.facebook.buck.rules.BuildDependencies;
 import com.facebook.buck.rules.Sha1HashCode;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.util.CapturingPrintStream;
-import com.facebook.buck.util.MorePaths;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
@@ -61,7 +61,7 @@ public abstract class JavacStep implements Step {
   // TODO(user) s/protected/get...()/g
   protected final Path outputDirectory;
 
-  protected final Set<Path> javaSourceFilePaths;
+  protected final Set<SourcePath> javaSourceFilePaths;
 
   protected final JavacOptions javacOptions;
 
@@ -73,9 +73,9 @@ public abstract class JavacStep implements Step {
   @Nullable
   protected Sha1HashCode abiKey;
 
-  protected final ImmutableSet<String> transitiveClasspathEntries;
+  protected final ImmutableSet<Path> transitiveClasspathEntries;
 
-  protected final ImmutableSet<String> declaredClasspathEntries;
+  protected final ImmutableSet<Path> declaredClasspathEntries;
 
   protected final Optional<String> invokingRule;
 
@@ -121,9 +121,9 @@ public abstract class JavacStep implements Step {
 
   public JavacStep(
       Path outputDirectory,
-      Set<Path> javaSourceFilePaths,
-      Set<String> transitiveClasspathEntries,
-      Set<String> declaredClasspathEntries,
+      Set<? extends SourcePath> javaSourceFilePaths,
+      Set<Path> transitiveClasspathEntries,
+      Set<Path> declaredClasspathEntries,
       JavacOptions javacOptions,
       Optional<Path> pathToOutputAbiFile,
       Optional<String> invokingRule,
@@ -207,7 +207,7 @@ public abstract class JavacStep implements Step {
 
   protected abstract int buildWithClasspath(
       ExecutionContext context,
-      Set<String> buildClasspathEntries);
+      Set<Path> buildClasspathEntries);
 
   @VisibleForTesting
   static ImmutableSet<String> findFailedImports(String output) {
@@ -234,7 +234,7 @@ public abstract class JavacStep implements Step {
    */
   @VisibleForTesting
   protected ImmutableList<String> getOptions(ExecutionContext context,
-                                             Set<String> buildClasspathEntries) {
+                                             Set<Path> buildClasspathEntries) {
     ImmutableList.Builder<String> builder = ImmutableList.builder();
 
     ProjectFilesystem filesystem = context.getProjectFilesystem();
@@ -262,8 +262,7 @@ public abstract class JavacStep implements Step {
     if (!buildClasspathEntries.isEmpty()) {
       String classpath = Joiner.on(File.pathSeparator).join(
           FluentIterable.from(buildClasspathEntries)
-          .transform(MorePaths.TO_PATH)
-          .transform(pathRelativizer));
+              .transform(pathRelativizer));
       builder.add("-classpath", classpath);
     } else {
       builder.add("-classpath", "''");
@@ -275,7 +274,7 @@ public abstract class JavacStep implements Step {
   /**
    * @return The classpath entries used to invoke javac.
    */
-  protected ImmutableSet<String> getClasspathEntries() {
+  protected ImmutableSet<Path> getClasspathEntries() {
     if (buildDependencies == BuildDependencies.TRANSITIVE) {
       return transitiveClasspathEntries;
     } else {
@@ -284,7 +283,7 @@ public abstract class JavacStep implements Step {
   }
 
   @VisibleForTesting
-  Set<Path> getSrcs() {
+  Set<SourcePath> getSrcs() {
     return javaSourceFilePaths;
   }
 

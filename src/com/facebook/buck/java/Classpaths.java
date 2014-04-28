@@ -19,6 +19,7 @@ package com.facebook.buck.java;
 import com.facebook.buck.rules.BuildRule;
 import com.google.common.collect.ImmutableSetMultimap;
 
+import java.nio.file.Path;
 import java.util.Set;
 
 public class Classpaths {
@@ -42,14 +43,20 @@ public class Classpaths {
    * that depend on B. However, if C depended on E as well as F and G, then E would be included in
    * A's classpath.
    */
-  public static ImmutableSetMultimap<JavaLibraryRule, String> getClasspathEntries(
+  public static ImmutableSetMultimap<JavaLibrary, Path> getClasspathEntries(
       Set<BuildRule> deps) {
-    final ImmutableSetMultimap.Builder<JavaLibraryRule, String> classpathEntries =
+    final ImmutableSetMultimap.Builder<JavaLibrary, Path> classpathEntries =
         ImmutableSetMultimap.builder();
     for (BuildRule dep : deps) {
-      if (dep instanceof JavaLibraryRule) {
-        JavaLibraryRule libraryRule = (JavaLibraryRule)dep;
-        classpathEntries.putAll(libraryRule.getTransitiveClasspathEntries());
+      JavaLibrary library = null;
+      if (dep.getBuildable() instanceof JavaLibrary) {
+        library = (JavaLibrary) dep.getBuildable();
+      } else if (dep instanceof JavaLibrary) {
+        library = (JavaLibrary) dep;
+      }
+
+      if (library != null) {
+        classpathEntries.putAll(library.getTransitiveClasspathEntries());
       }
     }
     return classpathEntries.build();

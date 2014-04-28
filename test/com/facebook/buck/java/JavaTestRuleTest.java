@@ -19,8 +19,8 @@ package com.facebook.buck.java;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.FakeAbstractBuildRuleBuilderParams;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.TestSourcePath;
 import com.facebook.buck.step.TargetDevice;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.google.common.base.Optional;
@@ -39,41 +39,44 @@ public class JavaTestRuleTest {
   @Test
   public void testGetClassNamesForSources() {
     Path classesFolder = Paths.get("testdata/javatestrule/default.jar");
-    Set<Path> sources = ImmutableSet.of(Paths.get("src/com/facebook/DummyTest.java"));
+    Set<SourcePath> sources = ImmutableSet.<SourcePath>of(
+        new TestSourcePath("src/com/facebook/DummyTest.java"));
     Set<String> classNames =
-        JavaTestRule.CompiledClassFileFinder.getClassNamesForSources(sources, classesFolder);
+        JavaTest.CompiledClassFileFinder.getClassNamesForSources(sources, classesFolder);
     assertEquals(ImmutableSet.of("com.facebook.DummyTest"), classNames);
   }
 
   @Test
   public void testGetClassNamesForSourcesWithInnerClasses() {
     Path classesFolder = Paths.get("testdata/javatestrule/case1.jar");
-    Set<Path> sources = ImmutableSet.of(Paths.get("src/com/facebook/DummyTest.java"));
+    Set<SourcePath> sources = ImmutableSet.<SourcePath>of(
+        new TestSourcePath("src/com/facebook/DummyTest.java"));
     Set<String> classNames =
-        JavaTestRule.CompiledClassFileFinder.getClassNamesForSources(sources, classesFolder);
+        JavaTest.CompiledClassFileFinder.getClassNamesForSources(sources, classesFolder);
     assertEquals(ImmutableSet.of("com.facebook.DummyTest"), classNames);
   }
 
   @Test
   public void testGetClassNamesForSourcesWithMultipleTopLevelClasses() {
     Path classesFolder = Paths.get("testdata/javatestrule/case2.jar");
-    Set<Path> sources = ImmutableSet.of(Paths.get("src/com/facebook/DummyTest.java"));
+    Set<SourcePath> sources = ImmutableSet.<SourcePath>of(
+        new TestSourcePath("src/com/facebook/DummyTest.java"));
     Set<String> classNames =
-        JavaTestRule.CompiledClassFileFinder.getClassNamesForSources(sources, classesFolder);
+        JavaTest.CompiledClassFileFinder.getClassNamesForSources(sources, classesFolder);
     assertEquals(ImmutableSet.of("com.facebook.DummyTest"), classNames);
   }
 
   @Test
   public void testGetClassNamesForSourcesWithImperfectHeuristic() {
     Path classesFolder = Paths.get("testdata/javatestrule/case2fail.jar");
-    Set<Path> sources = ImmutableSet.of(
-        Paths.get("src/com/facebook/feed/DummyTest.java"),
-        Paths.get("src/com/facebook/nav/OtherDummyTest.java"));
+    Set<SourcePath> sources = ImmutableSet.<SourcePath>of(
+        new TestSourcePath("src/com/facebook/feed/DummyTest.java"),
+        new TestSourcePath("src/com/facebook/nav/OtherDummyTest.java"));
     Set<String> classNames =
-        JavaTestRule.CompiledClassFileFinder.getClassNamesForSources(sources, classesFolder);
-    assertEquals("Ideally, if the implementation of getClassNamesForSources() were tightened up,"
-        + " the set would not include com.facebook.feed.OtherDummyTest because"
-        + " it was not specified in sources.",
+        JavaTest.CompiledClassFileFinder.getClassNamesForSources(sources, classesFolder);
+    assertEquals("Ideally, if the implementation of getClassNamesForSources() were tightened up," +
+        " the set would not include com.facebook.feed.OtherDummyTest because" +
+        " it was not specified in sources.",
         ImmutableSet.of(
             "com.facebook.feed.DummyTest",
             "com.facebook.feed.OtherDummyTest",
@@ -85,7 +88,7 @@ public class JavaTestRuleTest {
   @Test
   public void shouldNotAmendVmArgsIfTargetDeviceIsNotPresent() {
     List<String> vmArgs = ImmutableList.of("--one", "--two", "--three");
-    JavaTestRule rule = newRule(vmArgs);
+    JavaTest rule = newRule(vmArgs);
 
     List<String> amended = rule.amendVmArgs(vmArgs, Optional.<TargetDevice>absent());
 
@@ -95,7 +98,7 @@ public class JavaTestRuleTest {
   @Test
   public void shouldAddEmulatorTargetDeviceToVmArgsIfPresent() {
     List<String> vmArgs = ImmutableList.of("--one");
-    JavaTestRule rule = newRule(vmArgs);
+    JavaTest rule = newRule(vmArgs);
 
     TargetDevice device = new TargetDevice(TargetDevice.Type.EMULATOR, null);
     List<String> amended = rule.amendVmArgs(vmArgs, Optional.of(device));
@@ -107,7 +110,7 @@ public class JavaTestRuleTest {
   @Test
   public void shouldAddRealTargetDeviceToVmArgsIfPresent() {
     List<String> vmArgs = ImmutableList.of("--one");
-    JavaTestRule rule = newRule(vmArgs);
+    JavaTest rule = newRule(vmArgs);
 
     TargetDevice device = new TargetDevice(TargetDevice.Type.REAL_DEVICE, null);
     List<String> amended = rule.amendVmArgs(vmArgs, Optional.of(device));
@@ -119,7 +122,7 @@ public class JavaTestRuleTest {
   @Test
   public void shouldAddDeviceSerialIdToVmArgsIfPresent() {
     List<String> vmArgs = ImmutableList.of("--one");
-    JavaTestRule rule = newRule(vmArgs);
+    JavaTest rule = newRule(vmArgs);
 
     TargetDevice device = new TargetDevice(TargetDevice.Type.EMULATOR, "123");
     List<String> amended = rule.amendVmArgs(vmArgs, Optional.of(device));
@@ -129,12 +132,11 @@ public class JavaTestRuleTest {
     assertEquals(expected, amended);
   }
 
-  private JavaTestRule newRule(List<String> vmArgs) {
-    return JavaTestRule.newJavaTestRuleBuilder(new FakeAbstractBuildRuleBuilderParams())
-        .setBuildTarget(BuildTargetFactory.newInstance("//example:test"))
+  private JavaTest newRule(List<String> vmArgs) {
+    return JavaTestBuilder.createBuilder(BuildTargetFactory.newInstance("//example:test"))
         .setVmArgs(vmArgs)
         .addSrc(Paths.get("ExampleTest.java"))
-        .build(new BuildRuleResolver());
+        .build();
   }
 
 }

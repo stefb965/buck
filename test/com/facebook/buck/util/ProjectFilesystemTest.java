@@ -26,10 +26,12 @@ import com.facebook.buck.testutil.WatchEvents;
 import com.facebook.buck.util.ProjectFilesystem.CopySourceMode;
 import com.google.common.base.Charsets;
 import com.google.common.base.Optional;
+import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
 import com.google.common.io.CharStreams;
 import com.google.common.io.Files;
 
+import org.hamcrest.Matchers;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -39,6 +41,7 @@ import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.FileVisitOption;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -46,6 +49,7 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardWatchEventKinds;
 import java.nio.file.WatchEvent;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.EnumSet;
 
 /** Unit test for {@link ProjectFilesystem}. */
 public class ProjectFilesystemTest {
@@ -328,6 +332,69 @@ public class ProjectFilesystemTest {
             "b_file",
             "b_c_file",
             "b_d_file"));
+  }
+
+  @Test
+  public void testWalkFileTreeFollowsSymlinks() throws IOException {
+    tmp.newFolder("dir");
+    tmp.newFile("dir/file.txt");
+    java.nio.file.Files.createSymbolicLink(
+        tmp.getRoot().toPath().resolve("linkdir"),
+        tmp.getRoot().toPath().resolve("dir"));
+
+    final ImmutableList.Builder<Path> filePaths = ImmutableList.builder();
+
+    filesystem.walkRelativeFileTree(
+        Paths.get(""), new SimpleFileVisitor<Path>() {
+          @Override
+          public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+            filePaths.add(file);
+            return FileVisitResult.CONTINUE;
+          }
+        });
+
+    assertThat(
+        filePaths.build(),
+        containsInAnyOrder(Paths.get("dir/file.txt"), Paths.get("linkdir/file.txt")));
+  }
+
+  @Test
+  public void whenContextNullThenCreateContextStringReturnsValidString() {
+    ProjectFilesystem projectFilesystem = new ProjectFilesystem(Paths.get("."));
+    assertThat(
+        "Context string should contain null.",
+        projectFilesystem.createContextString(WatchEvents.createOverflowEvent()),
+        Matchers.containsString("null"));
+  }
+
+  @Test
+  public void testGetFilesUnderPath() throws IOException {
+    tmp.newFile("file1");
+    tmp.newFolder("dir1");
+    tmp.newFile("dir1/file2");
+    tmp.newFolder("dir1/dir2");
+    tmp.newFile("dir1/dir2/file3");
+
+    assertThat(filesystem.getFilesUnderPath(
+            Paths.get("dir1"),
+            Predicates.<Path>alwaysTrue(),
+            EnumSet.noneOf(FileVisitOption.class)),
+        containsInAnyOrder(Paths.get("dir1/file2"), Paths.get("dir1/dir2/file3")));
+
+    assertThat(filesystem.getFilesUnderPath(
+            Paths.get("dir1"),
+            Predicates.equalTo(Paths.get("dir1/dir2/file3")),
+            EnumSet.noneOf(FileVisitOption.class)),
+        containsInAnyOrder(Paths.get("dir1/dir2/file3")));
+
+    assertThat(
+        filesystem.getFilesUnderPath(Paths.get("dir1")),
+        containsInAnyOrder(Paths.get("dir1/file2"), Paths.get("dir1/dir2/file3")));
+
+    assertThat(filesystem.getFilesUnderPath(
+            Paths.get("dir1"),
+            Predicates.equalTo(Paths.get("dir1/file2"))),
+        containsInAnyOrder(Paths.get("dir1/file2")));
   }
 }
 

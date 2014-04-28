@@ -20,27 +20,21 @@ import static com.facebook.buck.rules.BuildableProperties.Kind.ANDROID;
 import static com.facebook.buck.rules.BuildableProperties.Kind.LIBRARY;
 
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.BuildTargetPattern;
-import com.facebook.buck.rules.AbstractBuildRuleBuilderParams;
 import com.facebook.buck.rules.AbstractBuildable;
 import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.RecordArtifactsInDirectoryStep;
 import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SrcsAttributeBuilder;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.util.BuckConstant;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Sets;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collection;
@@ -74,13 +68,13 @@ public class NdkLibrary extends AbstractBuildable implements NativeLibraryBuilda
   private final Path buildArtifactsDirectory;
   private final Path genDirectory;
 
-  private final ImmutableSortedSet<Path> sources;
+  private final ImmutableSortedSet<SourcePath> sources;
   private final ImmutableList<String> flags;
   private final Optional<String> ndkVersion;
 
   protected NdkLibrary(
       BuildTarget buildTarget,
-      Set<Path> sources,
+      Set<SourcePath> sources,
       List<String> flags,
       boolean isAsset,
       Optional<String> ndkVersion) {
@@ -117,8 +111,7 @@ public class NdkLibrary extends AbstractBuildable implements NativeLibraryBuilda
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext)
-      throws IOException {
+  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
     // .so files are written to the libs/ subdirectory of the output directory.
     // All of them should be recorded via the BuildableContext.
     Path binDirectory = buildArtifactsDirectory.resolve("libs");
@@ -153,7 +146,7 @@ public class NdkLibrary extends AbstractBuildable implements NativeLibraryBuilda
   }
 
   @Override
-  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) throws IOException {
+  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
     return builder
         .set("ndk_version", ndkVersion.or("NONE"))
         .set("flags", flags)
@@ -162,65 +155,6 @@ public class NdkLibrary extends AbstractBuildable implements NativeLibraryBuilda
 
   @Override
   public Collection<Path> getInputsToCompareToOutput() {
-    return this.sources;
-  }
-
-  public static Builder newNdkLibraryRuleBuilder(
-      AbstractBuildRuleBuilderParams params,
-      Optional<String> ndkVersion) {
-    return new Builder(params, ndkVersion);
-  }
-
-  public static class Builder extends AbstractBuildable.Builder implements SrcsAttributeBuilder {
-
-    private final Optional<String> ndkVersion;
-    private boolean isAsset = false;
-    private Set<Path> sources = Sets.newHashSet();
-    private ImmutableList.Builder<String> flags = ImmutableList.builder();
-
-    private Builder(AbstractBuildRuleBuilderParams params, Optional<String> ndkVersion) {
-      super(params);
-
-      this.ndkVersion = Preconditions.checkNotNull(ndkVersion);
-    }
-
-    @Override
-    public BuildRuleType getType() {
-      return BuildRuleType.NDK_LIBRARY;
-    }
-
-    @Override
-    protected NdkLibrary newBuildable(BuildRuleParams params, BuildRuleResolver resolver) {
-      return new NdkLibrary(params.getBuildTarget(), sources, flags.build(), isAsset, ndkVersion);
-    }
-
-    public Builder setIsAsset(boolean isAsset) {
-      this.isAsset = isAsset;
-      return this;
-    }
-
-    @Override
-    public Builder setBuildTarget(BuildTarget buildTarget) {
-      super.setBuildTarget(buildTarget);
-      return this;
-    }
-
-    @Override
-    public Builder addVisibilityPattern(BuildTargetPattern visibilityPattern) {
-      super.addVisibilityPattern(visibilityPattern);
-      return this;
-    }
-
-    @Override
-    public Builder addSrc(Path source) {
-      this.sources.add(source);
-      return this;
-    }
-
-    public Builder addFlag(String flag) {
-      this.flags.add(flag);
-      return this;
-    }
-
+    return SourcePaths.filterInputsToCompareToOutput(sources);
   }
 }

@@ -31,15 +31,16 @@ import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.graph.MutableDirectedGraph;
 import com.facebook.buck.java.DefaultJavaPackageFinder;
-import com.facebook.buck.java.FakeJavaLibraryRule;
-import com.facebook.buck.java.JavaLibraryRule;
-import com.facebook.buck.java.JavaTestRule;
+import com.facebook.buck.java.FakeJavaLibrary;
+import com.facebook.buck.java.JavaLibrary;
+import com.facebook.buck.java.JavaTestDescription;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleSuccess;
 import com.facebook.buck.rules.BuildRuleType;
+import com.facebook.buck.rules.CachingBuildEngine;
 import com.facebook.buck.rules.DependencyGraph;
 import com.facebook.buck.rules.FakeTestRule;
 import com.facebook.buck.rules.Label;
@@ -49,7 +50,8 @@ import com.facebook.buck.test.TestCaseSummary;
 import com.facebook.buck.test.TestResultSummary;
 import com.facebook.buck.test.TestResults;
 import com.facebook.buck.test.result.type.ResultType;
-import com.facebook.buck.util.ProjectFilesystem;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.util.MorePaths;
 import com.google.common.base.Optional;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -68,13 +70,13 @@ import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 
 import java.io.ByteArrayInputStream;
-import java.io.File;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
 
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -97,22 +99,20 @@ public class TestCommandTest {
   @Test
   public void testGeneratedSourceFile() {
     Path pathToGenFile = GEN_PATH.resolve("GeneratedFile.java");
-    assertTrue(JavaTestRule.isGeneratedFile(pathToGenFile));
+    assertTrue(MorePaths.isGeneratedFile(pathToGenFile));
 
     ImmutableSortedSet<Path> javaSrcs = ImmutableSortedSet.of(pathToGenFile);
-    JavaLibraryRule javaLibraryRule = new FakeJavaLibraryRule(new BuildTarget("//foo", "bar"))
+    JavaLibrary javaLibrary = new FakeJavaLibrary(new BuildTarget("//foo", "bar"))
         .setJavaSrcs(javaSrcs);
 
     DefaultJavaPackageFinder defaultJavaPackageFinder =
         createMock(DefaultJavaPackageFinder.class);
 
-    ProjectFilesystem projectFilesystem = createMock(ProjectFilesystem.class);
-
-    Object[] mocks = new Object[] {projectFilesystem, defaultJavaPackageFinder};
+    Object[] mocks = new Object[] {defaultJavaPackageFinder};
     replay(mocks);
 
     ImmutableSet<String> result = TestCommand.getPathToSourceFolders(
-        javaLibraryRule, Optional.of(defaultJavaPackageFinder), projectFilesystem);
+        javaLibrary, Optional.of(defaultJavaPackageFinder), new FakeProjectFilesystem());
 
     assertTrue("No path should be returned if the library contains only generated files.",
         result.isEmpty());
@@ -127,42 +127,26 @@ public class TestCommandTest {
   @Test
   public void testNonGeneratedSourceFile() {
     Path pathToNonGenFile = Paths.get("package/src/SourceFile1.java");
-    assertFalse(JavaTestRule.isGeneratedFile(pathToNonGenFile));
+    assertFalse(MorePaths.isGeneratedFile(pathToNonGenFile));
 
     ImmutableSortedSet<Path> javaSrcs = ImmutableSortedSet.of(pathToNonGenFile);
-    JavaLibraryRule javaLibraryRule = new FakeJavaLibraryRule(new BuildTarget("//foo", "bar"))
+    JavaLibrary javaLibrary = new FakeJavaLibrary(new BuildTarget("//foo", "bar"))
         .setJavaSrcs(javaSrcs);
-
-    File parentFile = createMock(File.class);
-    expect(parentFile.getName()).andReturn("src");
-    expect(parentFile.getPath()).andReturn("package/src");
-
-    File sourceFile = createMock(File.class);
-    expect(sourceFile.getParentFile()).andReturn(parentFile);
 
     DefaultJavaPackageFinder defaultJavaPackageFinder =
         createMock(DefaultJavaPackageFinder.class);
     expect(defaultJavaPackageFinder.getPathsFromRoot()).andReturn(pathsFromRoot);
     expect(defaultJavaPackageFinder.getPathElements()).andReturn(pathElements);
 
-    ProjectFilesystem projectFilesystem = createMock(ProjectFilesystem.class);
-    expect(projectFilesystem.getFileForRelativePath(pathToNonGenFile))
-        .andReturn(sourceFile);
-
-    Object[] mocks = new Object[] {
-        parentFile,
-        sourceFile,
-        defaultJavaPackageFinder,
-        projectFilesystem};
-    replay(mocks);
+    replay(defaultJavaPackageFinder);
 
     ImmutableSet<String> result = TestCommand.getPathToSourceFolders(
-        javaLibraryRule, Optional.of(defaultJavaPackageFinder), projectFilesystem);
+        javaLibrary, Optional.of(defaultJavaPackageFinder), new FakeProjectFilesystem());
 
     assertEquals("All non-generated source files are under one source tmp.",
-        ImmutableSet.of("package/src/"), result);
+        ImmutableSet.of("./package/src/"), result);
 
-    verify(mocks);
+    verify(defaultJavaPackageFinder);
   }
 
   /**
@@ -172,23 +156,21 @@ public class TestCommandTest {
   @Test
   public void testUnifiedSourceFile() {
     Path pathToNonGenFile = Paths.get("java/package/SourceFile1.java");
-    assertFalse(JavaTestRule.isGeneratedFile(pathToNonGenFile));
+    assertFalse(MorePaths.isGeneratedFile(pathToNonGenFile));
 
     ImmutableSortedSet<Path> javaSrcs = ImmutableSortedSet.of(pathToNonGenFile);
-    JavaLibraryRule javaLibraryRule = new FakeJavaLibraryRule(new BuildTarget("//foo", "bar"))
+    JavaLibrary javaLibrary = new FakeJavaLibrary(new BuildTarget("//foo", "bar"))
         .setJavaSrcs(javaSrcs);
 
     DefaultJavaPackageFinder defaultJavaPackageFinder =
         createMock(DefaultJavaPackageFinder.class);
     expect(defaultJavaPackageFinder.getPathsFromRoot()).andReturn(pathsFromRoot);
 
-    ProjectFilesystem projectFilesystem = createMock(ProjectFilesystem.class);
-
-    Object[] mocks = new Object[] {defaultJavaPackageFinder, projectFilesystem};
+    Object[] mocks = new Object[] {defaultJavaPackageFinder};
     replay(mocks);
 
     ImmutableSet<String> result = TestCommand.getPathToSourceFolders(
-        javaLibraryRule, Optional.of(defaultJavaPackageFinder), projectFilesystem);
+        javaLibrary, Optional.of(defaultJavaPackageFinder), new FakeProjectFilesystem());
 
     assertEquals("All non-generated source files are under one source tmp.",
         ImmutableSet.of("java/"), result);
@@ -210,50 +192,23 @@ public class TestCommandTest {
     ImmutableSortedSet<Path> javaSrcs = ImmutableSortedSet.of(
         pathToGenFile, pathToNonGenFile1, pathToNonGenFile2);
 
-    File parentFile1 = createMock(File.class);
-    expect(parentFile1.getName()).andReturn("src");
-    expect(parentFile1.getPath()).andReturn("package/src");
-
-    File sourceFile1 = createMock(File.class);
-    expect(sourceFile1.getParentFile()).andReturn(parentFile1);
-
-    File parentFile2 = createMock(File.class);
-    expect(parentFile2.getName()).andReturn("src");
-    expect(parentFile2.getPath()).andReturn("package/src-gen");
-
-    File sourceFile2 = createMock(File.class);
-    expect(sourceFile2.getParentFile()).andReturn(parentFile2);
-
     DefaultJavaPackageFinder defaultJavaPackageFinder =
         createMock(DefaultJavaPackageFinder.class);
     expect(defaultJavaPackageFinder.getPathsFromRoot()).andReturn(pathsFromRoot).times(2);
     expect(defaultJavaPackageFinder.getPathElements()).andReturn(pathElements).times(2);
 
-    ProjectFilesystem projectFilesystem = createMock(ProjectFilesystem.class);
-    expect(projectFilesystem.getFileForRelativePath(pathToNonGenFile1))
-        .andReturn(sourceFile1);
-    expect(projectFilesystem.getFileForRelativePath(pathToNonGenFile2))
-        .andReturn(sourceFile2);
-
-    JavaLibraryRule javaLibraryRule = new FakeJavaLibraryRule(new BuildTarget("//foo", "bar"))
+    JavaLibrary javaLibrary = new FakeJavaLibrary(new BuildTarget("//foo", "bar"))
         .setJavaSrcs(javaSrcs);
 
-    Object[] mocks = new Object[] {
-        parentFile1,
-        sourceFile1,
-        parentFile2,
-        sourceFile2,
-        defaultJavaPackageFinder,
-        projectFilesystem};
-    replay(mocks);
+    replay(defaultJavaPackageFinder);
 
     ImmutableSet<String> result = TestCommand.getPathToSourceFolders(
-        javaLibraryRule, Optional.of(defaultJavaPackageFinder), projectFilesystem);
+        javaLibrary, Optional.of(defaultJavaPackageFinder), new FakeProjectFilesystem());
 
     assertEquals("The non-generated source files are under two different source folders.",
-        ImmutableSet.of("package/src-gen/", "package/src/"), result);
+        ImmutableSet.of("./package/src-gen/", "./package/src/"), result);
 
-    verify(mocks);
+    verify(defaultJavaPackageFinder);
   }
 
   private TestCommandOptions getOptions(String...args) throws CmdLineException {
@@ -263,7 +218,7 @@ public class TestCommandTest {
   }
 
   private DependencyGraph createDependencyGraphFromBuildRules(Iterable<? extends BuildRule> rules) {
-    MutableDirectedGraph<BuildRule> graph = new MutableDirectedGraph<BuildRule>();
+    MutableDirectedGraph<BuildRule> graph = new MutableDirectedGraph<>();
     for (BuildRule rule : rules) {
       for (BuildRule dep : rule.getDeps()) {
         graph.addEdge(rule, dep);
@@ -390,50 +345,56 @@ public class TestCommandTest {
 
   @Test
   public void testGetCandidateRulesByIncludedLabels() throws CmdLineException {
-    TestRule rule1 = new FakeTestRule(BuildRuleType.JAVA_TEST,
+    FakeTestRule rule1 = new FakeTestRule(
+        JavaTestDescription.TYPE,
         ImmutableSet.of(new Label("windows"), new Label("linux")),
         BuildTargetFactory.newInstance("//:for"),
         ImmutableSortedSet.<BuildRule>of(),
         ImmutableSet.<BuildTargetPattern>of());
 
-    TestRule rule2 = new FakeTestRule(BuildRuleType.JAVA_TEST,
+    FakeTestRule rule2 = new FakeTestRule(
+        JavaTestDescription.TYPE,
         ImmutableSet.of(new Label("android")),
         BuildTargetFactory.newInstance("//:teh"),
         ImmutableSortedSet.<BuildRule>of(rule1),
         ImmutableSet.<BuildTargetPattern>of());
 
-    TestRule rule3 = new FakeTestRule(BuildRuleType.JAVA_TEST,
+    FakeTestRule rule3 = new FakeTestRule(
+        JavaTestDescription.TYPE,
         ImmutableSet.of(new Label("windows")),
         BuildTargetFactory.newInstance("//:lulz"),
         ImmutableSortedSet.<BuildRule>of(rule2),
         ImmutableSet.<BuildTargetPattern>of());
 
-    Iterable<TestRule> rules = Lists.newArrayList(rule1, rule2, rule3);
+    Iterable<FakeTestRule> rules = Lists.newArrayList(rule1, rule2, rule3);
     DependencyGraph graph = createDependencyGraphFromBuildRules(rules);
     TestCommandOptions options = getOptions("--include", "linux", "windows");
 
     Iterable<TestRule> result = TestCommand.filterTestRules(options,
         TestCommand.getCandidateRules(graph));
-    assertThat(result, containsInAnyOrder(rule1, rule3));
+    assertThat(result, containsInAnyOrder((TestRule) rule1, (TestRule) rule3));
   }
 
   @Test
   public void testFilterBuilds() throws CmdLineException {
     TestCommandOptions options = getOptions("--exclude", "linux", "windows");
 
-    TestRule rule1 = new FakeTestRule(BuildRuleType.JAVA_TEST,
+    TestRule rule1 = new FakeTestRule(
+        JavaTestDescription.TYPE,
         ImmutableSet.of(new Label("windows"), new Label("linux")),
         BuildTargetFactory.newInstance("//:for"),
         ImmutableSortedSet.<BuildRule>of(),
         ImmutableSet.<BuildTargetPattern>of());
 
-    TestRule rule2 = new FakeTestRule(BuildRuleType.JAVA_TEST,
+    TestRule rule2 = new FakeTestRule(
+        JavaTestDescription.TYPE,
         ImmutableSet.of(new Label("android")),
         BuildTargetFactory.newInstance("//:teh"),
         ImmutableSortedSet.<BuildRule>of(),
         ImmutableSet.<BuildTargetPattern>of());
 
-    TestRule rule3 = new FakeTestRule(BuildRuleType.JAVA_TEST,
+    TestRule rule3 = new FakeTestRule(
+        JavaTestDescription.TYPE,
         ImmutableSet.of(new Label("windows")),
         BuildTargetFactory.newInstance("//:lulz"),
         ImmutableSortedSet.<BuildRule>of(),
@@ -449,13 +410,15 @@ public class TestCommandTest {
   public void testLabelConjunctionsWithInclude() throws CmdLineException {
     TestCommandOptions options = getOptions("--include", "windows+linux");
 
-    TestRule rule1 = new FakeTestRule(BuildRuleType.JAVA_TEST,
+    TestRule rule1 = new FakeTestRule(
+        JavaTestDescription.TYPE,
         ImmutableSet.of(new Label("windows"), new Label("linux")),
         BuildTargetFactory.newInstance("//:for"),
         ImmutableSortedSet.<BuildRule>of(),
         ImmutableSet.<BuildTargetPattern>of());
 
-    TestRule rule2 = new FakeTestRule(BuildRuleType.JAVA_TEST,
+    TestRule rule2 = new FakeTestRule(
+        JavaTestDescription.TYPE,
         ImmutableSet.of(new Label("windows")),
         BuildTargetFactory.newInstance("//:lulz"),
         ImmutableSortedSet.<BuildRule>of(),
@@ -471,13 +434,15 @@ public class TestCommandTest {
   public void testLabelConjunctionsWithExclude() throws CmdLineException {
     TestCommandOptions options = getOptions("--exclude", "windows+linux");
 
-    TestRule rule1 = new FakeTestRule(BuildRuleType.JAVA_TEST,
+    TestRule rule1 = new FakeTestRule(
+        JavaTestDescription.TYPE,
         ImmutableSet.of(new Label("windows"), new Label("linux")),
         BuildTargetFactory.newInstance("//:for"),
         ImmutableSortedSet.<BuildRule>of(),
         ImmutableSet.<BuildTargetPattern>of());
 
-    TestRule rule2 = new FakeTestRule(BuildRuleType.JAVA_TEST,
+    TestRule rule2 = new FakeTestRule(
+        JavaTestDescription.TYPE,
         ImmutableSet.of(new Label("windows")),
         BuildTargetFactory.newInstance("//:lulz"),
         ImmutableSortedSet.<BuildRule>of(),
@@ -493,7 +458,8 @@ public class TestCommandTest {
   public void testLabelPriority() throws CmdLineException {
     TestCommandOptions options = getOptions("--exclude", "c", "--include", "a+b");
 
-    TestRule rule = new FakeTestRule(BuildRuleType.JAVA_TEST,
+    TestRule rule = new FakeTestRule(
+        JavaTestDescription.TYPE,
         ImmutableSet.of(new Label("a"), new Label("b"), new Label("c")),
         BuildTargetFactory.newInstance("//:for"),
         ImmutableSortedSet.<BuildRule>of(),
@@ -509,7 +475,8 @@ public class TestCommandTest {
   public void testLabelPlingSyntax() throws CmdLineException {
     TestCommandOptions options = getOptions("--labels", "!c", "a+b");
 
-    TestRule rule = new FakeTestRule(BuildRuleType.JAVA_TEST,
+    TestRule rule = new FakeTestRule(
+        JavaTestDescription.TYPE,
         ImmutableSet.of(new Label("a"), new Label("b"), new Label("c")),
         BuildTargetFactory.newInstance("//:for"),
         ImmutableSortedSet.<BuildRule>of(),
@@ -522,7 +489,8 @@ public class TestCommandTest {
   }
 
   @Test
-  public void testIsTestRunRequiredForTestInDebugMode() throws IOException {
+  public void testIsTestRunRequiredForTestInDebugMode()
+      throws IOException, ExecutionException, InterruptedException {
     ExecutionContext executionContext = createMock(ExecutionContext.class);
     expect(executionContext.isDebugEnabled()).andReturn(true);
 
@@ -533,85 +501,117 @@ public class TestCommandTest {
             "the user is expecting to hook up a debugger.",
         TestCommand.isTestRunRequiredForTest(
             createMock(TestRule.class),
+            createMock(CachingBuildEngine.class),
             executionContext,
             createMock(TestRuleKeyFileHelper.class),
             true,
-            false)
-    );
+            false));
 
     verify(executionContext);
   }
 
   @Test
-  public void testIsTestRunRequiredForTestBuiltFromCacheIfHasTestResultFiles() throws IOException {
+  public void testIsTestRunRequiredForTestBuiltFromCacheIfHasTestResultFiles()
+      throws IOException, ExecutionException, InterruptedException {
     ExecutionContext executionContext = createMock(ExecutionContext.class);
     expect(executionContext.isDebugEnabled()).andReturn(false);
 
-    TestRule testRule = createMock(TestRule.class);
-    expect(testRule.getBuildResultType()).andReturn(BuildRuleSuccess.Type.FETCHED_FROM_CACHE);
+    FakeTestRule testRule = new FakeTestRule(
+        JavaTestDescription.TYPE,
+        ImmutableSet.of(new Label("windows")),
+        BuildTargetFactory.newInstance("//:lulz"),
+        ImmutableSortedSet.<BuildRule>of(),
+        ImmutableSet.<BuildTargetPattern>of());
 
-    replay(executionContext, testRule);
+    CachingBuildEngine cachingBuildEngine = createMock(CachingBuildEngine.class);
+    expect(cachingBuildEngine.getBuildRuleResult(BuildTargetFactory.newInstance("//:lulz")))
+        .andReturn(new BuildRuleSuccess(testRule, BuildRuleSuccess.Type.FETCHED_FROM_CACHE));
+    replay(executionContext, cachingBuildEngine);
 
     assertTrue(
         "A cache hit updates the build artifact but not the test results. " +
             "Therefore, the test should be re-run to ensure the test results are up to date.",
         TestCommand.isTestRunRequiredForTest(
             testRule,
+            cachingBuildEngine,
             executionContext,
             createMock(TestRuleKeyFileHelper.class),
             /* results cache enabled */ true,
             /* running with test selectors */ false));
 
-    verify(executionContext, testRule);
+    verify(executionContext, cachingBuildEngine);
   }
 
   @Test
-  public void testIsTestRunRequiredForTestBuiltLocally() throws IOException {
+  public void testIsTestRunRequiredForTestBuiltLocally()
+      throws IOException, ExecutionException, InterruptedException {
     ExecutionContext executionContext = createMock(ExecutionContext.class);
     expect(executionContext.isDebugEnabled()).andReturn(false);
 
-    TestRule testRule = createMock(TestRule.class);
-    expect(testRule.getBuildResultType()).andReturn(BuildRuleSuccess.Type.BUILT_LOCALLY);
+    FakeTestRule testRule = new FakeTestRule(
+        JavaTestDescription.TYPE,
+        ImmutableSet.of(new Label("windows")),
+        BuildTargetFactory.newInstance("//:lulz"),
+        ImmutableSortedSet.<BuildRule>of(),
+        ImmutableSet.<BuildTargetPattern>of());
 
-    replay(executionContext, testRule);
+    CachingBuildEngine cachingBuildEngine = createMock(CachingBuildEngine.class);
+    expect(cachingBuildEngine.getBuildRuleResult(BuildTargetFactory.newInstance("//:lulz")))
+        .andReturn(new BuildRuleSuccess(testRule, BuildRuleSuccess.Type.BUILT_LOCALLY));
+    replay(executionContext, cachingBuildEngine);
 
     assertTrue(
         "A test built locally should always run regardless of any cached result. ",
         TestCommand.isTestRunRequiredForTest(
             testRule,
+            cachingBuildEngine,
             executionContext,
             createMock(TestRuleKeyFileHelper.class),
             /* results cache enabled */ true,
             /* running with test selectors */ false));
 
-    verify(executionContext, testRule);
+    verify(executionContext, cachingBuildEngine);
   }
 
   @Test
-  public void testIsTestRunRequiredIfRuleKeyNotPresent() throws IOException {
+  public void testIsTestRunRequiredIfRuleKeyNotPresent()
+      throws IOException, ExecutionException, InterruptedException {
     ExecutionContext executionContext = createMock(ExecutionContext.class);
     expect(executionContext.isDebugEnabled()).andReturn(false);
 
-    TestRule testRule = createNiceMock(TestRule.class);
-    expect(testRule.getBuildResultType()).andReturn(BuildRuleSuccess.Type.MATCHING_RULE_KEY);
-    expect(testRule.hasTestResultFiles(executionContext)).andReturn(true);
+    FakeTestRule testRule = new FakeTestRule(
+        JavaTestDescription.TYPE,
+        ImmutableSet.of(new Label("windows")),
+        BuildTargetFactory.newInstance("//:lulz"),
+        ImmutableSortedSet.<BuildRule>of(),
+        ImmutableSet.<BuildTargetPattern>of()) {
+
+      @Override
+      public boolean hasTestResultFiles(ExecutionContext context) {
+        return true;
+      }
+    };
 
     TestRuleKeyFileHelper testRuleKeyFileHelper = createNiceMock(TestRuleKeyFileHelper.class);
     expect(testRuleKeyFileHelper.isRuleKeyInDir(testRule)).andReturn(false);
 
-    replay(executionContext, testRule, testRuleKeyFileHelper);
+    CachingBuildEngine cachingBuildEngine = createMock(CachingBuildEngine.class);
+    expect(cachingBuildEngine.getBuildRuleResult(BuildTargetFactory.newInstance("//:lulz")))
+        .andReturn(new BuildRuleSuccess(testRule, BuildRuleSuccess.Type.MATCHING_RULE_KEY));
+    replay(executionContext, cachingBuildEngine, testRuleKeyFileHelper);
 
     assertTrue(
         "A cached build should run the tests if the test output directory\'s rule key is not " +
             "present or does not matche the rule key for the test.",
         TestCommand.isTestRunRequiredForTest(
             testRule,
+            cachingBuildEngine,
             executionContext,
             testRuleKeyFileHelper,
             /* results cache enabled */ true,
             /* running with test selectors */ false));
 
-    verify(executionContext, testRule, testRuleKeyFileHelper);
+    verify(executionContext, cachingBuildEngine, testRuleKeyFileHelper);
   }
 
   @Test

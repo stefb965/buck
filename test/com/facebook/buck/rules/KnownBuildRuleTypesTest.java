@@ -16,20 +16,27 @@
 
 package com.facebook.buck.rules;
 
+import static com.facebook.buck.java.JavaCompilerEnvironment.TARGETED_JAVA_VERSION;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.android.AndroidLibraryRule;
+import com.facebook.buck.android.AndroidLibrary;
+import com.facebook.buck.android.AndroidLibraryDescription;
 import com.facebook.buck.cli.FakeBuckConfig;
-import com.facebook.buck.java.DefaultJavaLibraryRule;
+import com.facebook.buck.java.DefaultJavaLibrary;
+import com.facebook.buck.java.JavaBuckConfig;
+import com.facebook.buck.java.JavaCompilerEnvironment;
+import com.facebook.buck.java.JavaLibraryDescription;
+import com.facebook.buck.java.JavacVersion;
 import com.facebook.buck.model.BuildFileTree;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
 import com.facebook.buck.util.FakeAndroidDirectoryResolver;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableMap;
@@ -43,6 +50,7 @@ import org.junit.rules.TemporaryFolder;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.Map;
 
 
@@ -52,6 +60,37 @@ public class KnownBuildRuleTypesTest {
   @Rule public DebuggableTemporaryFolder temporaryFolder = new DebuggableTemporaryFolder();
 
   private static BuildRuleFactoryParams params;
+
+  private static class TestDescription implements Description<ConstructorArg> {
+
+    public static final BuildRuleType TYPE = new BuildRuleType("known_rule_test");
+
+    private final String value;
+
+    private TestDescription(String value) {
+      this.value = value;
+    }
+
+    public String getValue() {
+      return value;
+    }
+
+    @Override
+    public BuildRuleType getBuildRuleType() {
+      return TYPE;
+    }
+
+    @Override
+    public ConstructorArg createUnpopulatedConstructorArg() {
+      return new ConstructorArg() {};
+    }
+
+    @Override
+    public Buildable createBuildable(
+        BuildRuleParams params, ConstructorArg args) {
+      return null;
+    }
+  }
 
   @BeforeClass
   public static void setupBuildParams() throws IOException {
@@ -63,8 +102,7 @@ public class KnownBuildRuleTypesTest {
         new BuildTargetParser(filesystem),
         BuildTargetFactory.newInstance("//:foo"),
         new FakeRuleKeyBuilderFactory(),
-        true
-    );
+        true);
   }
 
   @Test
@@ -72,16 +110,16 @@ public class KnownBuildRuleTypesTest {
       throws IOException, NoSuchBuildTargetException {
     FakeBuckConfig buckConfig = new FakeBuckConfig();
 
-    KnownBuildRuleTypes buildRuleTypes = KnownBuildRuleTypes.createConfiguredBuilder(
+    KnownBuildRuleTypes buildRuleTypes = KnownBuildRuleTypes.createBuilder(
         buckConfig,
-        new FakeProcessExecutor(),
-        new FakeAndroidDirectoryResolver()).build();
-    BuildRuleFactory<?> factory = buildRuleTypes.getFactory(BuildRuleType.JAVA_LIBRARY);
+        new FakeAndroidDirectoryResolver(),
+        JavaCompilerEnvironment.DEFAULT).build();
+    BuildRuleFactory<?> factory = buildRuleTypes.getFactory(JavaLibraryDescription.TYPE);
     BuildRule rule = factory.newInstance(params).build(new BuildRuleResolver());
 
-    assertTrue("Rule is DefaultJavaLibraryRule", rule instanceof DefaultJavaLibraryRule);
-    DefaultJavaLibraryRule libraryRule = (DefaultJavaLibraryRule) rule;
-    assertEquals(Optional.absent(), libraryRule.getJavac());
+    assertTrue("Rule is DefaultJavaLibraryRule", rule.getBuildable() instanceof DefaultJavaLibrary);
+    DefaultJavaLibrary libraryRule = (DefaultJavaLibrary) rule.getBuildable();
+    assertEquals(Optional.<String> absent(), libraryRule.getJavac());
   }
 
   @Test
@@ -93,17 +131,51 @@ public class KnownBuildRuleTypesTest {
     Map<String, Map<String, String>> sections = ImmutableMap.of(
         "tools", (Map<String, String>) ImmutableMap.of("javac", javac.toString()));
     FakeBuckConfig buckConfig = new FakeBuckConfig(sections);
+    JavaBuckConfig javaConfig = new JavaBuckConfig(buckConfig);
 
-    KnownBuildRuleTypes buildRuleTypes = KnownBuildRuleTypes.createConfiguredBuilder(
+    KnownBuildRuleTypes buildRuleTypes = KnownBuildRuleTypes.createBuilder(
         buckConfig,
-        new FakeProcessExecutor(),
-        new FakeAndroidDirectoryResolver()).build();
-    BuildRuleFactory<?> factory = buildRuleTypes.getFactory(BuildRuleType.JAVA_LIBRARY);
+        new FakeAndroidDirectoryResolver(),
+        new JavaCompilerEnvironment(
+            javaConfig.getJavac(),
+            Optional.<JavacVersion>absent(),
+            TARGETED_JAVA_VERSION,
+            TARGETED_JAVA_VERSION))
+        .build();
+    BuildRuleFactory<?> factory = buildRuleTypes.getFactory(JavaLibraryDescription.TYPE);
     BuildRule rule = factory.newInstance(params).build(new BuildRuleResolver());
 
-    assertTrue("Rule is DefaultJavaLibraryRule", rule instanceof DefaultJavaLibraryRule);
-    DefaultJavaLibraryRule libraryRule = (DefaultJavaLibraryRule) rule;
+    assertTrue("Rule is DefaultJavaLibraryRule", rule.getBuildable() instanceof DefaultJavaLibrary);
+    DefaultJavaLibrary libraryRule = (DefaultJavaLibrary) rule.getBuildable();
     assertEquals(javac.toPath(), libraryRule.getJavac().get());
+  }
+
+  @Test
+  public void whenJavacIsSetInBuckConfigConfiguredRulesCreateJavaLibraryRuleWithJavacVersionSet()
+      throws IOException, NoSuchBuildTargetException {
+    final File javac = temporaryFolder.newFile();
+    javac.setExecutable(true);
+
+    JavacVersion javacVersion = new JavacVersion("fakeVersion 0.1");
+
+    Map<String, Map<String, String>> sections = ImmutableMap.of(
+        "tools", (Map<String, String>) ImmutableMap.of("javac", javac.toString()));
+    FakeBuckConfig buckConfig = new FakeBuckConfig(sections);
+
+    KnownBuildRuleTypes buildRuleTypes = KnownBuildRuleTypes.createBuilder(
+        buckConfig,
+        new FakeAndroidDirectoryResolver(),
+        new JavaCompilerEnvironment(
+            Optional.<Path>absent(),
+            Optional.of(javacVersion),
+            TARGETED_JAVA_VERSION,
+            TARGETED_JAVA_VERSION))
+        .build();
+    BuildRuleFactory<?> factory = buildRuleTypes.getFactory(JavaLibraryDescription.TYPE);
+    BuildRule rule = factory.newInstance(params).build(new BuildRuleResolver());
+
+    DefaultJavaLibrary libraryRule = (DefaultJavaLibrary) rule.getBuildable();
+    assertEquals(javacVersion, libraryRule.getJavacVersion().get());
   }
 
   @Test
@@ -116,23 +188,29 @@ public class KnownBuildRuleTypesTest {
         "tools", (Map<String, String>) ImmutableMap.of("javac", javac.toString()));
     FakeBuckConfig buckConfig = new FakeBuckConfig(sections);
 
-    KnownBuildRuleTypes buildRuleTypes = KnownBuildRuleTypes.getDefault();
-    BuildRuleFactory<?> factory = buildRuleTypes.getFactory(BuildRuleType.JAVA_LIBRARY);
+    KnownBuildRuleTypes buildRuleTypes =
+        DefaultKnownBuildRuleTypes.getDefaultKnownBuildRuleTypes(new FakeProjectFilesystem());
+    BuildRuleFactory<?> factory = buildRuleTypes.getFactory(JavaLibraryDescription.TYPE);
     BuildRule rule = factory.newInstance(params).build(new BuildRuleResolver());
 
-    KnownBuildRuleTypes configuredBuildRuleTypes = KnownBuildRuleTypes.createConfiguredBuilder(
+    KnownBuildRuleTypes configuredBuildRuleTypes = KnownBuildRuleTypes.createBuilder(
         buckConfig,
-        new FakeProcessExecutor(0, "fakeVersion 0.1", ""),
-        new FakeAndroidDirectoryResolver()).build();
+        new FakeAndroidDirectoryResolver(),
+        new JavaCompilerEnvironment(
+            Optional.<Path>absent(),
+            Optional.of(new JavacVersion("fakeVersion 0.1")),
+            TARGETED_JAVA_VERSION,
+            TARGETED_JAVA_VERSION))
+        .build();
     BuildRuleFactory<?> configuredFactory =
-        configuredBuildRuleTypes.getFactory(BuildRuleType.JAVA_LIBRARY);
+        configuredBuildRuleTypes.getFactory(JavaLibraryDescription.TYPE);
     BuildRule configuredRule = configuredFactory.newInstance(params).build(new BuildRuleResolver());
 
     assertNotEquals(rule.getRuleKey(), configuredRule.getRuleKey());
   }
 
-  @Test(expected = HumanReadableException.class)
-  public void whenJavacWithoutVersionSupportIsSetInBuckCreateConfiguredBuildRulesThrowsException()
+  @Test
+  public void differentExternalJavacCreateJavaLibraryRulesWithDifferentRuleKey()
       throws IOException, NoSuchBuildTargetException {
     final File javac = temporaryFolder.newFile();
     javac.setExecutable(true);
@@ -140,14 +218,37 @@ public class KnownBuildRuleTypesTest {
     Map<String, Map<String, String>> sections = ImmutableMap.of(
         "tools", (Map<String, String>) ImmutableMap.of("javac", javac.toString()));
     FakeBuckConfig buckConfig = new FakeBuckConfig(sections);
+    JavaBuckConfig javaConfig = new JavaBuckConfig(buckConfig);
 
-    KnownBuildRuleTypes configuredBuildRuleTypes = KnownBuildRuleTypes.createConfiguredBuilder(
+    KnownBuildRuleTypes configuredBuildRuleTypes1 = KnownBuildRuleTypes.createBuilder(
         buckConfig,
-        new FakeProcessExecutor(1, "", "error"),
-        new FakeAndroidDirectoryResolver()).build();
-    BuildRuleFactory<?> configuredFactory =
-        configuredBuildRuleTypes.getFactory(BuildRuleType.JAVA_LIBRARY);
-    configuredFactory.newInstance(params).build(new BuildRuleResolver());
+        new FakeAndroidDirectoryResolver(),
+        new JavaCompilerEnvironment(
+            javaConfig.getJavac(),
+            Optional.of(new JavacVersion("fakeVersion 0.1")),
+            TARGETED_JAVA_VERSION,
+            TARGETED_JAVA_VERSION))
+        .build();
+    BuildRuleFactory<?> configuredFactory1 =
+        configuredBuildRuleTypes1.getFactory(JavaLibraryDescription.TYPE);
+    BuildRule configuredRule1 = configuredFactory1.newInstance(params)
+        .build(new BuildRuleResolver());
+
+    KnownBuildRuleTypes configuredBuildRuleTypes2 = KnownBuildRuleTypes.createBuilder(
+        buckConfig,
+        new FakeAndroidDirectoryResolver(),
+        new JavaCompilerEnvironment(
+            javaConfig.getJavac(),
+            Optional.of(new JavacVersion("fakeVersion 0.2")),
+            TARGETED_JAVA_VERSION,
+            TARGETED_JAVA_VERSION))
+        .build();
+    BuildRuleFactory<?> configuredFactory2 =
+        configuredBuildRuleTypes2.getFactory(JavaLibraryDescription.TYPE);
+    BuildRule configuredRule2 = configuredFactory2.newInstance(params)
+        .build(new BuildRuleResolver());
+
+    assertNotEquals(configuredRule1.getRuleKey(), configuredRule2.getRuleKey());
   }
 
   @Test
@@ -155,15 +256,15 @@ public class KnownBuildRuleTypesTest {
       throws IOException, NoSuchBuildTargetException {
     FakeBuckConfig buckConfig = new FakeBuckConfig();
 
-    KnownBuildRuleTypes buildRuleTypes = KnownBuildRuleTypes.createConfiguredBuilder(
+    KnownBuildRuleTypes buildRuleTypes = KnownBuildRuleTypes.createBuilder(
         buckConfig,
-        new FakeProcessExecutor(),
-        new FakeAndroidDirectoryResolver()).build();
-    BuildRuleFactory<?> factory = buildRuleTypes.getFactory(BuildRuleType.ANDROID_LIBRARY);
+        new FakeAndroidDirectoryResolver(),
+        JavaCompilerEnvironment.DEFAULT).build();
+    BuildRuleFactory<?> factory = buildRuleTypes.getFactory(AndroidLibraryDescription.TYPE);
     BuildRule rule = factory.newInstance(params).build(new BuildRuleResolver());
 
-    assertTrue("Rule is AndroidLibraryRule", rule instanceof AndroidLibraryRule);
-    AndroidLibraryRule libraryRule = (AndroidLibraryRule) rule;
+    assertTrue("Rule is AndroidLibraryRule", rule.getBuildable() instanceof AndroidLibrary);
+    AndroidLibrary libraryRule = (AndroidLibrary) rule.getBuildable();
     assertEquals(Optional.absent(), libraryRule.getJavac());
   }
 
@@ -176,16 +277,51 @@ public class KnownBuildRuleTypesTest {
     Map<String, Map<String, String>> sections = ImmutableMap.of(
         "tools", (Map<String, String>) ImmutableMap.of("javac", javac.toString()));
     FakeBuckConfig buckConfig = new FakeBuckConfig(sections);
+    JavaBuckConfig javaConfig = new JavaBuckConfig(buckConfig);
 
-    KnownBuildRuleTypes buildRuleTypes = KnownBuildRuleTypes.createConfiguredBuilder(
+    KnownBuildRuleTypes buildRuleTypes = KnownBuildRuleTypes.createBuilder(
         buckConfig,
-        new FakeProcessExecutor(),
-        new FakeAndroidDirectoryResolver()).build();
-    BuildRuleFactory<?> factory = buildRuleTypes.getFactory(BuildRuleType.ANDROID_LIBRARY);
+        new FakeAndroidDirectoryResolver(),
+        new JavaCompilerEnvironment(
+            javaConfig.getJavac(),
+            Optional.<JavacVersion>absent(),
+            TARGETED_JAVA_VERSION,
+            TARGETED_JAVA_VERSION))
+        .build();
+    BuildRuleFactory<?> factory = buildRuleTypes.getFactory(AndroidLibraryDescription.TYPE);
     BuildRule rule = factory.newInstance(params).build(new BuildRuleResolver());
 
-    assertTrue("Rule is AndroidLibraryRule", rule instanceof AndroidLibraryRule);
-    AndroidLibraryRule libraryRule = (AndroidLibraryRule) rule;
+    assertTrue("Rule is AndroidLibraryRule", rule.getBuildable() instanceof AndroidLibrary);
+    AndroidLibrary libraryRule = (AndroidLibrary) rule.getBuildable();
     assertEquals(javac.toPath(), libraryRule.getJavac().get());
+  }
+
+  @Test
+  public void whenRegisteringDescriptionsLastOneWins()
+      throws IOException, NoSuchBuildTargetException {
+
+    KnownBuildRuleTypes.Builder buildRuleTypesBuilder = KnownBuildRuleTypes.builder();
+    buildRuleTypesBuilder.register(new TestDescription("Foo"));
+    buildRuleTypesBuilder.register(new TestDescription("Bar"));
+    buildRuleTypesBuilder.register(new TestDescription("Raz"));
+
+    KnownBuildRuleTypes buildRuleTypes = buildRuleTypesBuilder.build();
+
+    assertEquals(
+        "Only one description should have wound up in the final KnownBuildRuleTypes",
+        KnownBuildRuleTypes.builder().build().getAllDescriptions().size() + 1,
+        buildRuleTypes.getAllDescriptions().size());
+
+    boolean foundTestDescription = false;
+    for (Description<?> description : buildRuleTypes.getAllDescriptions()) {
+      if (description.getBuildRuleType().equals(TestDescription.TYPE)) {
+        assertFalse("Should only find one test description", foundTestDescription);
+        foundTestDescription = true;
+        assertEquals(
+            "Last description should have won",
+            "Raz",
+            ((TestDescription) description).getValue());
+      }
+    }
   }
 }

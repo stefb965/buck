@@ -21,37 +21,96 @@ import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Predicate;
 import com.google.common.base.Splitter;
+import com.google.common.collect.Collections2;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
 import com.google.common.hash.Hashing;
 import com.google.common.io.ByteStreams;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.Reader;
 import java.io.StringReader;
 import java.nio.file.FileVisitor;
 import java.nio.file.LinkOption;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.WatchEvent;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.FileTime;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 
-// TODO(user): Implement methods that throw UnsupportedOperationException.
+// TODO(natthu): Implement methods that throw UnsupportedOperationException.
 public class FakeProjectFilesystem extends ProjectFilesystem {
+
+  private static final BasicFileAttributes DEFAULT_FILE_ATTRIBUTES =
+      new BasicFileAttributes() {
+        @Override
+        public FileTime lastModifiedTime() {
+          return null;
+        }
+
+        @Override
+        public FileTime lastAccessTime() {
+          return null;
+        }
+
+        @Override
+        public FileTime creationTime() {
+          return null;
+        }
+
+        @Override
+        public boolean isRegularFile() {
+          return true;
+        }
+
+        @Override
+        public boolean isDirectory() {
+          return false;
+        }
+
+        @Override
+        public boolean isSymbolicLink() {
+          return false;
+        }
+
+        @Override
+        public boolean isOther() {
+          return false;
+        }
+
+        @Override
+        public long size() {
+          return 0;
+        }
+
+        @Override
+        public Object fileKey() {
+          return null;
+        }
+      };
 
   private final Map<Path, byte[]> fileContents;
 
   public FakeProjectFilesystem() {
     super(Paths.get("."));
     fileContents = Maps.newHashMap();
+
+    // Generally, tests don't care whether files exist.
+    ignoreValidityOfPaths = true;
   }
 
   private byte[] getFileBytes(Path path) {
@@ -119,7 +178,6 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
 
   @Override
   public void createParentDirs(Path path) {
-    throw new UnsupportedOperationException();
   }
 
   @Override
@@ -140,6 +198,24 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   @Override
   public void writeBytesToPath(byte[] bytes, Path path) {
     fileContents.put(path.normalize(), Preconditions.checkNotNull(bytes));
+  }
+
+  @Override
+  public OutputStream newFileOutputStream(Path pathRelativeToProjectRoot)
+    throws IOException {
+    // This is a hard API to make testable. We need a hook for when
+    // the OutputStream is closed in order to update fileContents.  Do
+    // we have to subclass ByteArrayOutputStream to override close()?
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public InputStream newFileInputStream(Path pathRelativeToProjectRoot)
+    throws IOException {
+    if (!exists(pathRelativeToProjectRoot)) {
+      throw new NoSuchFileException(pathRelativeToProjectRoot.toString());
+    }
+    return new ByteArrayInputStream(fileContents.get(pathRelativeToProjectRoot.normalize()));
   }
 
   @Override
@@ -195,6 +271,32 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
     return Hashing.sha1().hashBytes(getFileBytes(path)).toString();
   }
 
+  /**
+   * TODO(natthu): (1) Also traverse the directories. (2) Do not ignore return value of
+   * {@code fileVisitor}.
+   */
+  @Override
+  public void walkRelativeFileTree(Path path, FileVisitor<Path> fileVisitor) throws IOException {
+    Preconditions.checkArgument(!fileContents.containsKey(path),
+        "FakeProjectFilesystem only supports walkRelativeFileTree over directories.");
+    for (Path file : getFilesUnderDir(path)) {
+      fileVisitor.visitFile(file, DEFAULT_FILE_ATTRIBUTES);
+    }
+  }
+
+  public void touch(Path path) {
+    writeContentsToPath("", path);
+  }
+
+  private Collection<Path> getFilesUnderDir(final Path dirPath) {
+    return Collections2.filter(fileContents.keySet(), new Predicate<Path>() {
+          @Override
+          public boolean apply(Path input) {
+            return input.startsWith(dirPath);
+          }
+        });
+  }
+
   @Override
   public boolean isPathChangeEvent(WatchEvent<?> event) {
     throw new UnsupportedOperationException();
@@ -207,7 +309,7 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
 
   @Override
   public void copyFile(Path source, Path target) {
-    throw new UnsupportedOperationException();
+    writeContentsToPath(readFileIfItExists(source).get(), target);
   }
 
   @Override

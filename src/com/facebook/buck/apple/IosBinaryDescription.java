@@ -49,7 +49,7 @@ public class IosBinaryDescription implements Description<IosBinaryDescription.Ar
     return TYPE;
   }
 
-  public class Arg implements ConstructorArg {
+  public static class Arg implements ConstructorArg {
     /**
      * @see com.facebook.buck.apple.XcodeRuleConfiguration#fromRawJsonStructure
      */
@@ -58,7 +58,6 @@ public class IosBinaryDescription implements Description<IosBinaryDescription.Ar
         ImmutableList<Either<Path, ImmutableMap<String, String>>>> configs;
     public Path infoPlist;
     public ImmutableList<AppleSource> srcs;
-    public ImmutableList<AppleSource> headers;
     public ImmutableSortedSet<String> frameworks;
     public Optional<ImmutableSortedSet<BuildRule>> deps;
   }

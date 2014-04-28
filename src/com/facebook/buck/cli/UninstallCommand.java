@@ -23,6 +23,7 @@ import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.ParseContext;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.Buildable;
 import com.facebook.buck.rules.DependencyGraph;
 import com.facebook.buck.rules.InstallableApk;
 import com.facebook.buck.step.ExecutionContext;
@@ -31,7 +32,8 @@ import com.google.common.collect.ImmutableList;
 
 import java.io.IOException;
 
-public class UninstallCommand extends UninstallSupportCommandRunner<UninstallCommandOptions> {
+public class UninstallCommand extends AbstractCommandRunner<UninstallCommandOptions> {
+
   public UninstallCommand(CommandRunnerParams params) {
     super(params);
   }
@@ -73,27 +75,33 @@ public class UninstallCommand extends UninstallSupportCommandRunner<UninstallCom
 
     // Find the android_binary() rule from the parse.
     BuildRule buildRule = dependencyGraph.findBuildRuleByTarget(buildTarget);
-    if (!(buildRule instanceof InstallableApk)) {
+    Buildable buildable = buildRule.getBuildable();
+    if (buildable == null || !(buildable instanceof InstallableApk)) {
       console.printBuildFailure(String.format(
           "Specified rule %s must be of type android_binary() or apk_genrule() but was %s().\n",
           buildRule.getFullyQualifiedName(),
           buildRule.getType().getName()));
       return 1;
     }
-    InstallableApk installableApk = (InstallableApk)buildRule;
+    InstallableApk installableApk = (InstallableApk) buildable;
 
     // We need this in case adb isn't already running.
     ExecutionContext context = createExecutionContext(options, dependencyGraph);
 
-    // Find application package name from manifest and uninstall from matching devices.
-    String appId = tryToExtractPackageNameFromManifest(installableApk,
-        dependencyGraph);
-    return uninstallApk(appId,
+    final AdbHelper adbHelper = new AdbHelper(
         options.adbOptions(),
         options.targetDeviceOptions(),
-        options.uninstallOptions(),
         context,
-        options.getBuckConfig()) ? 0 : 1;
+        console,
+        getBuckEventBus(),
+        options.getBuckConfig());
+
+    // Find application package name from manifest and uninstall from matching devices.
+    String appId = AdbHelper.tryToExtractPackageNameFromManifest(installableApk);
+    return adbHelper.uninstallApk(
+        appId,
+        options.uninstallOptions()
+    ) ? 0 : 1;
   }
 
   @Override

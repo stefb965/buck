@@ -20,7 +20,9 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -39,6 +41,7 @@ import java.nio.file.Path;
  * types.
  */
 public class TypeCoercerFactory {
+  private final TypeCoercer<Label> labelTypeCoercer = new LabelTypeCoercer();
   private final TypeCoercer<Path> pathTypeCoercer = new PathTypeCoercer();
   private final TypeCoercer<BuildTarget> buildTargetTypeCoercer = new BuildTargetTypeCoercer();
   private final TypeCoercer<SourcePath> sourcePathTypeCoercer =
@@ -52,7 +55,10 @@ public class TypeCoercerFactory {
       new IdentityTypeCoercer<BuildTargetPattern>(BuildTargetPattern.class) {
         @Override
         public BuildTargetPattern coerce(
-            BuildRuleResolver buildRuleResolver, Path pathRelativeToProjectRoot, Object object)
+            BuildRuleResolver buildRuleResolver,
+            ProjectFilesystem filesystem,
+            Path pathRelativeToProjectRoot,
+            Object object)
             throws CoerceFailedException {
           throw new UnsupportedOperationException();
         }
@@ -68,6 +74,7 @@ public class TypeCoercerFactory {
 
   private final TypeCoercer<?>[] nonContainerTypeCoercers = {
       // special classes
+      labelTypeCoercer,
       pathTypeCoercer,
       sourcePathTypeCoercer,
       buildTargetTypeCoercer,

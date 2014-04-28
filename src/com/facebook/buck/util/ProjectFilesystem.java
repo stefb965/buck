@@ -19,10 +19,13 @@ package com.facebook.buck.util;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.zip.CustomZipOutputStream;
 import com.facebook.buck.zip.ZipOutputStreams;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Predicate;
+import com.google.common.base.Predicates;
 import com.google.common.collect.Collections2;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -32,6 +35,9 @@ import com.google.common.io.ByteStreams;
 import com.google.common.io.Files;
 import com.google.common.io.InputSupplier;
 
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -42,19 +48,25 @@ import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.Reader;
 import java.io.Writer;
+import java.nio.file.CopyOption;
 import java.nio.file.DirectoryStream;
+import java.nio.file.FileVisitOption;
 import java.nio.file.FileVisitResult;
 import java.nio.file.FileVisitor;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardWatchEventKinds;
 import java.nio.file.WatchEvent;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Collection;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Properties;
+import java.util.Set;
 import java.util.zip.ZipEntry;
 
 /**
@@ -82,13 +94,17 @@ public class ProjectFilesystem {
        * contents to the destination path, which must be a directory.
        */
       DIRECTORY_AND_CONTENTS,
-  };
+  }
 
   private final Path projectRoot;
 
   private final Function<Path, Path> pathAbsolutifier;
 
   private final ImmutableSet<Path> ignorePaths;
+
+  // Defaults to false, and so paths should be valid.
+  @VisibleForTesting
+  protected boolean ignoreValidityOfPaths;
 
   /**
    * There should only be one {@link ProjectFilesystem} created per process.
@@ -108,6 +124,7 @@ public class ProjectFilesystem {
       }
     };
     this.ignorePaths = MorePaths.filterForSubpaths(ignorePaths, this.projectRoot);
+    this.ignoreValidityOfPaths = false;
   }
 
   public ProjectFilesystem(Path projectRoot) {
@@ -178,6 +195,30 @@ public class ProjectFilesystem {
   }
 
   /**
+   * As {@link #getFileForRelativePath(java.nio.file.Path)}, but with the added twist that the
+   * existence of the path is checked before returning.
+   */
+  public Path getPathForRelativeExistingPath(Path pathRelativeToProjectRoot) {
+    Path file = getPathForRelativePath(pathRelativeToProjectRoot);
+
+    if (ignoreValidityOfPaths) {
+      return file;
+    }
+
+    // TODO(mbolin): Eliminate this temporary exemption for symbolic links.
+    if (java.nio.file.Files.isSymbolicLink(file)) {
+      return file;
+    }
+
+    if (!java.nio.file.Files.exists(file)) {
+      throw new RuntimeException(
+          String.format("Not an ordinary file: '%s'.", pathRelativeToProjectRoot));
+    }
+
+    return file;
+  }
+
+  /**
    * // @deprecated Prefer operating on {@code Path}s directly, replaced by
    *    {@link #exists(java.nio.file.Path)}.
    */
@@ -238,8 +279,21 @@ public class ProjectFilesystem {
   public void walkRelativeFileTree(
       Path pathRelativeToProjectRoot,
       final FileVisitor<Path> fileVisitor) throws IOException {
+    walkRelativeFileTree(pathRelativeToProjectRoot,
+        EnumSet.of(FileVisitOption.FOLLOW_LINKS),
+        fileVisitor);
+  }
+
+  private void walkRelativeFileTree(
+      Path pathRelativeToProjectRoot,
+      EnumSet<FileVisitOption> visitOptions,
+      final FileVisitor<Path> fileVisitor) throws IOException {
     Path rootPath = getPathForRelativePath(pathRelativeToProjectRoot);
-    java.nio.file.Files.walkFileTree(rootPath, new FileVisitor<Path>() {
+    java.nio.file.Files.walkFileTree(
+        rootPath,
+        visitOptions,
+        Integer.MAX_VALUE,
+        new FileVisitor<Path>() {
           @Override
           public FileVisitResult preVisitDirectory(
               Path dir, BasicFileAttributes attrs) throws IOException {
@@ -269,6 +323,39 @@ public class ProjectFilesystem {
    */
   public void walkFileTree(Path root, FileVisitor<Path> fileVisitor) throws IOException {
     java.nio.file.Files.walkFileTree(root, fileVisitor);
+  }
+
+  public Set<Path> getFilesUnderPath(Path pathRelativeToProjectRoot) throws IOException {
+    return getFilesUnderPath(pathRelativeToProjectRoot, Predicates.<Path>alwaysTrue());
+  }
+
+  public Set<Path> getFilesUnderPath(
+      Path pathRelativeToProjectRoot,
+      Predicate<Path> predicate) throws IOException {
+    return getFilesUnderPath(
+        pathRelativeToProjectRoot,
+        predicate,
+        EnumSet.of(FileVisitOption.FOLLOW_LINKS));
+  }
+
+  public Set<Path> getFilesUnderPath(
+      Path pathRelativeToProjectRoot,
+      final Predicate<Path> predicate,
+      EnumSet<FileVisitOption> visitOptions) throws IOException {
+    final ImmutableSet.Builder<Path> paths = ImmutableSet.builder();
+    walkRelativeFileTree(
+        getPathForRelativePath(pathRelativeToProjectRoot),
+        visitOptions,
+        new SimpleFileVisitor<Path>() {
+          @Override
+          public FileVisitResult visitFile(Path path, BasicFileAttributes attributes) {
+            if (predicate.apply(path)) {
+              paths.add(path);
+            }
+            return FileVisitResult.CONTINUE;
+          }
+        });
+    return paths.build();
   }
 
   /**
@@ -377,7 +464,14 @@ public class ProjectFilesystem {
 
   public OutputStream newFileOutputStream(Path pathRelativeToProjectRoot)
     throws IOException {
-    return java.nio.file.Files.newOutputStream(getPathForRelativePath(pathRelativeToProjectRoot));
+    return new BufferedOutputStream(
+        java.nio.file.Files.newOutputStream(getPathForRelativePath(pathRelativeToProjectRoot)));
+  }
+
+  public InputStream newFileInputStream(Path pathRelativeToProjectRoot)
+    throws IOException {
+    return new BufferedInputStream(
+        java.nio.file.Files.newInputStream(getPathForRelativePath(pathRelativeToProjectRoot)));
   }
 
   /**
@@ -418,7 +512,8 @@ public class ProjectFilesystem {
     if (java.nio.file.Files.isRegularFile(fileToRead)) {
       try {
         return Optional.of(
-            (Reader) new InputStreamReader(java.nio.file.Files.newInputStream(fileToRead)));
+            (Reader) new BufferedReader(
+                new InputStreamReader(newFileInputStream(pathRelativeToProjectRoot))));
       } catch (Exception e) {
         throw new RuntimeException("Error reading " + pathRelativeToProjectRoot, e);
       }
@@ -511,6 +606,11 @@ public class ProjectFilesystem {
     }
   }
 
+  public void move(Path source, Path target, CopyOption... options) throws IOException {
+    java.nio.file.Files.move(resolve(source), resolve(target), options);
+
+  }
+
   public void copyFolder(Path source, Path target) throws IOException {
     copy(source, target, CopySourceMode.DIRECTORY_CONTENTS_ONLY);
   }
@@ -565,6 +665,29 @@ public class ProjectFilesystem {
       Path path = (Path) event.context();
       return path.toAbsolutePath().normalize().toString();
     }
-    return event.context().toString();
+    return String.valueOf(event.context());
   }
+
+
+  @Override
+  public boolean equals(Object other) {
+    if (this == other) {
+      return true;
+    }
+
+    if (!(other instanceof ProjectFilesystem)) {
+      return false;
+    }
+
+    ProjectFilesystem that = (ProjectFilesystem) other;
+
+    return Objects.equals(projectRoot, that.projectRoot) &&
+        Objects.equals(ignorePaths, that.ignorePaths);
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(projectRoot, ignorePaths);
+  }
+
 }

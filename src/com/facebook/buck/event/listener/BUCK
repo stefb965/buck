@@ -20,11 +20,13 @@ java_library(
     '//src/com/facebook/buck/test:test',
     '//src/com/facebook/buck/timing:timing',
     '//src/com/facebook/buck/util/environment:environment',
+    '//src/com/facebook/buck/util/environment:platform',
     '//src/com/facebook/buck/util:constants',
     '//src/com/facebook/buck/util:exceptions',
     '//src/com/facebook/buck/util:io',
     '//src/com/facebook/buck/util:network',
     '//src/com/facebook/buck/util:util',
+    '//src/com/facebook/buck/java:support',
   ],
   visibility = [
     'PUBLIC',

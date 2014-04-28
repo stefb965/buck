@@ -1,7 +1,8 @@
 java_test(
   name = 'xcode',
   srcs = [
-    'XcodeprojSerializerTest.java'
+    'XcodeprojSerializerTest.java',
+    'GidGeneratorTest.java'
   ],
   source_under_test = [
     '//src/com/facebook/buck/apple/xcode:xcode',
@@ -22,6 +23,7 @@ java_test(
     'ProjectGeneratorTest.java',
     'ProjectGeneratorTestUtils.java',
     'SeparatedProjectsGeneratorTest.java',
+    'ProjectParserTest.java',
   ],
   source_under_test = ['//src/com/facebook/buck/apple/xcode:project_generator'],
   deps = [
@@ -29,6 +31,7 @@ java_test(
     '//lib:guava',
     '//lib:hamcrest-core',
     '//lib:hamcrest-library',
+    '//lib:jsr305',
     '//lib:junit',
     '//src/com/facebook/buck/apple:rules',
     '//src/com/facebook/buck/apple/xcode/plist:plist',
@@ -48,6 +51,7 @@ java_test(
     '//test/com/facebook/buck/model:BuildTargetFactory',
     '//test/com/facebook/buck/parser:PartialGraphFactory',
     '//test/com/facebook/buck/rules:testutil',
+    '//test/com/facebook/buck/shell:testutil',
     '//test/com/facebook/buck/step:testutil',
     '//test/com/facebook/buck/testutil:testutil',
     '//third-party/java/dd-plist:dd-plist',

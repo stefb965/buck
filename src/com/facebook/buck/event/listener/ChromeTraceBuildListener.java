@@ -23,6 +23,8 @@ import com.facebook.buck.cli.UninstallEvent;
 import com.facebook.buck.event.BuckEvent;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.event.ChromeTraceEvent;
+import com.facebook.buck.event.TraceEvent;
+import com.facebook.buck.model.BuildId;
 import com.facebook.buck.parser.ParseEvent;
 import com.facebook.buck.rules.ArtifactCacheConnectEvent;
 import com.facebook.buck.rules.ArtifactCacheEvent;
@@ -100,7 +102,7 @@ public class ChromeTraceBuildListener implements BuckEventListener {
   }
 
   @Override
-  public void outputTrace(String buildId) {
+  public void outputTrace(BuildId buildId) {
     Preconditions.checkNotNull(buildId);
     try {
       String tracePath = String.format("%s/build.%s.trace",
@@ -340,6 +342,15 @@ public class ChromeTraceBuildListener implements BuckEventListener {
         ChromeTraceEvent.Phase.END,
         ImmutableMap.<String, String>of(),
         finished);
+  }
+
+  @Subscribe
+  public void traceEvent(TraceEvent event) {
+    writeChromeTraceEvent("buck",
+        event.getEventName(),
+        event.getPhase(),
+        event.getProperties(),
+        event);
   }
 
   private void writeChromeTraceEvent(String category,

@@ -16,22 +16,16 @@
 
 package com.facebook.buck.util;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.base.Strings;
 
-import java.util.Random;
+import java.util.Arrays;
 
 import javax.annotation.Nullable;
 
 public final class MoreStrings {
-
-  private static final String RANDOM_STRING_CHARSET =
-      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890";
-
-  private static final int LENGTH_OF_RANDOM_STRING = 8;
-
-  private static final Random INSECURE_RANDOM = new Random();
 
   public static final Predicate<String> NON_EMPTY =
       new Predicate<String>() {
@@ -93,12 +87,11 @@ public final class MoreStrings {
       return levenshteinDist[arr1.length][arr2.length];
     }
 
-  public static String createRandomString() {
-    char[] chars = new char[LENGTH_OF_RANDOM_STRING];
-    int maxIndex = RANDOM_STRING_CHARSET.length();
-    for (int i = 0; i < LENGTH_OF_RANDOM_STRING; i++) {
-      chars[i] = RANDOM_STRING_CHARSET.charAt(INSECURE_RANDOM.nextInt(maxIndex));
-    }
-    return new String(chars);
+  public static String regexPatternForAny(String... values) {
+    return regexPatternForAny(Arrays.asList(values));
+  }
+
+  public static String regexPatternForAny(Iterable<String> values) {
+    return "((?:" + Joiner.on(")|(?:").join(values) + "))";
   }
 }

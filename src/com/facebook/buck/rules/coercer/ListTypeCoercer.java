@@ -17,6 +17,8 @@
 package com.facebook.buck.rules.coercer;
 
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.util.ProjectFilesystem;
+import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 
 import java.nio.file.Path;
@@ -33,12 +35,18 @@ public class ListTypeCoercer<T> extends CollectionTypeCoercer<ImmutableList<T>, 
   }
 
   @Override
+  public Optional<ImmutableList<T>> getOptionalValue() {
+    return Optional.of(ImmutableList.<T>of());
+  }
+
+  @Override
   public ImmutableList<T> coerce(
       BuildRuleResolver buildRuleResolver,
+      ProjectFilesystem filesystem,
       Path pathRelativeToProjectRoot,
       Object object) throws CoerceFailedException {
     ImmutableList.Builder<T> builder = ImmutableList.builder();
-    fill(buildRuleResolver, pathRelativeToProjectRoot, builder, object);
+    fill(buildRuleResolver, filesystem, pathRelativeToProjectRoot, builder, object);
     return builder.build();
   }
 }

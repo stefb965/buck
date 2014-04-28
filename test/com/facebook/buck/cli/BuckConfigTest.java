@@ -36,6 +36,7 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MorePaths;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.buck.util.environment.Platform;
+import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
@@ -487,56 +488,6 @@ public class BuckConfigTest {
   }
 
   @Test
-  public void whenJavacIsNotSetThenAbsentIsReturned() throws IOException {
-    assertEquals(Optional.absent(), new FakeBuckConfig().getJavac());
-  }
-
-  @Test
-  public void whenJavacExistsAndIsExecutableThenCorrectPathIsReturned() throws IOException {
-    File javac = temporaryFolder.newFile();
-    javac.setExecutable(true);
-
-    Reader reader = new StringReader(Joiner.on('\n').join(
-        "[tools]",
-        "    javac = " + javac.toPath().toString()));
-    BuckConfig config = createWithDefaultFilesystem(reader, null);
-
-    assertEquals(Optional.of(javac.toPath()), config.getJavac());
-  }
-
-  @Test
-  public void whenJavacDoesNotExistThenHumanReadableExceptionIsThrown() throws IOException {
-    String invalidPath = temporaryFolder.getRoot().getAbsolutePath() + "DoesNotExist";
-    Reader reader = new StringReader(Joiner.on('\n').join(
-        "[tools]",
-        "    javac = " + invalidPath));
-    BuckConfig config = createWithDefaultFilesystem(reader, null);
-    try {
-      config.getJavac();
-      fail("Should throw exception as javac file does not exist.");
-    } catch (HumanReadableException e) {
-      assertEquals(e.getHumanReadableErrorMessage(), "Javac does not exist: " + invalidPath);
-    }
-  }
-
-  @Test
-  public void whenJavacIsNotExecutableThenHumanReadableExeceptionIsThrown() throws IOException {
-    File javac = temporaryFolder.newFile();
-    javac.setExecutable(false);
-
-    Reader reader = new StringReader(Joiner.on('\n').join(
-        "[tools]",
-        "    javac = " + javac.toPath().toString()));
-    BuckConfig config = createWithDefaultFilesystem(reader, null);
-    try {
-      config.getJavac();
-      fail("Should throw exception as javac file is not executable.");
-    } catch (HumanReadableException e) {
-      assertEquals(e.getHumanReadableErrorMessage(), "Javac is not executable: " + javac.getPath());
-    }
-  }
-
-  @Test
   public void whenToolsPythonIsExecutableFileThenItIsUsed() throws IOException {
     File configPythonFile = temporaryFolder.newFile("python");
     assertTrue("Should be able to set file executable", configPythonFile.setExecutable(true));
@@ -609,6 +560,25 @@ public class BuckConfigTest {
   }
 
   @Test
+  public void whenPython2OnPathThenItIsUsed() throws IOException {
+    File python = temporaryFolder.newFile("python");
+    assertTrue("Should be able to set file executable", python.setExecutable(true));
+    File python2 = temporaryFolder.newFile("python2");
+    assertTrue("Should be able to set file executable", python2.setExecutable(true));
+    FakeBuckConfig config = new FakeBuckEnvironment(ImmutableMap.<String, Map<String, String>>of(),
+        ImmutableMap.<String, String>builder()
+            .put("PATH", temporaryFolder.getRoot().getAbsolutePath())
+            .put("PATHEXT", "")
+            .build(),
+        ImmutableMap.<String, String>of()
+    );
+    assertEquals(
+        "Should return path to python2.",
+        python2.getAbsolutePath(),
+        config.getPythonInterpreter());
+  }
+
+  @Test
   public void whenPythonOnPathNotFoundThenJythonUsed() throws IOException {
     File jython = temporaryFolder.newFile("jython");
     assertTrue("Should be able to set file executable", jython.setExecutable(true));
@@ -624,9 +594,33 @@ public class BuckConfigTest {
         config.getPythonInterpreter());
   }
 
+  @Test
+  public void whenRelativeProguardJarOverrideUsed() throws IOException {
+    String proguardJarName = "proguard.jar";
+    temporaryFolder.newFile(proguardJarName);
+    Reader reader = new StringReader(Joiner.on('\n').join(
+        "[tools]",
+        "    proguard = " + proguardJarName));
+    BuckConfig config = createWithDefaultFilesystem(reader, null);
+    assertEquals(
+        "Should resolve to the fully qualified path",
+        proguardJarName,
+        config.getProguardJarOverride().transform(Functions.toStringFunction()).orNull());
+  }
+
+  @Test(expected = HumanReadableException.class)
+  public void whenProguardJarNotFound() throws IOException {
+    String proguardJarName = "proguard.jar";
+    Reader reader = new StringReader(Joiner.on('\n').join(
+        "[tools]",
+        "    proguard = " + proguardJarName));
+    BuckConfig config = createWithDefaultFilesystem(reader, null);
+    config.getProguardJarOverride();
+  }
+
   private BuckConfig createWithDefaultFilesystem(Reader reader, @Nullable BuildTargetParser parser)
       throws IOException {
-    ProjectFilesystem projectFilesystem = new ProjectFilesystem(new File("."));
+    ProjectFilesystem projectFilesystem = new ProjectFilesystem(temporaryFolder.getRoot());
     if (parser == null) {
       parser = new BuildTargetParser(projectFilesystem);
     }

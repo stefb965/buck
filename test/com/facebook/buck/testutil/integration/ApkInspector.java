@@ -19,6 +19,7 @@ package com.facebook.buck.testutil.integration;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 
 import java.io.File;
@@ -29,13 +30,18 @@ import java.util.zip.ZipFile;
 
 public class ApkInspector {
 
+  private final File apkFile;
   private final ImmutableSet<String> apkFileEntries;
 
   public ApkInspector(File apkFile) throws IOException {
+    this.apkFile = Preconditions.checkNotNull(apkFile);
+
     final ImmutableSet.Builder<String> builder = ImmutableSet.builder();
-    Enumeration<? extends ZipEntry> entries = new ZipFile(apkFile).entries();
-    while (entries.hasMoreElements()) {
-      builder.add(entries.nextElement().getName());
+    try (ZipFile zipFile = new ZipFile(apkFile)) {
+      Enumeration<? extends ZipEntry> entries = zipFile.entries();
+      while (entries.hasMoreElements()) {
+        builder.add(entries.nextElement().getName());
+      }
     }
     this.apkFileEntries = builder.build();
   }
@@ -46,5 +52,16 @@ public class ApkInspector {
 
   public void assertFileDoesNotExist(String pathRelativeToRoot) {
     assertFalse(apkFileEntries.contains(pathRelativeToRoot));
+  }
+
+  public long getCrc(String pathRelativeToRoot) throws IOException {
+    try (ZipFile zipFile = new ZipFile(apkFile)) {
+      ZipEntry entry = zipFile.getEntry(pathRelativeToRoot);
+      long crc = entry.getCrc();
+      Preconditions.checkState(crc != -1,
+          "Error accessing crc for entry: %s",
+          pathRelativeToRoot);
+      return crc;
+    }
   }
 }

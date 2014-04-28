@@ -31,7 +31,12 @@ public class SourceTreePath {
 
   public SourceTreePath(PBXReference.SourceTree sourceTree, Path path) {
     this.sourceTree = Preconditions.checkNotNull(sourceTree);
-    this.path = Preconditions.checkNotNull(path);
+    Preconditions.checkState(
+        path != null && path.toString().length() > 0,
+        "A path to a file cannot be null or empty");
+    path = path.normalize();
+    Preconditions.checkState(path.toString().length() > 0, "A path to a file cannot be empty");
+    this.path = path;
   }
 
   public PBXReference.SourceTree getSourceTree() {
@@ -54,7 +59,7 @@ public class SourceTreePath {
     }
 
     SourceTreePath that = (SourceTreePath) other;
-    return Objects.equals(this.sourceTree, that.sourceTree)
-        || Objects.equals(this.path, that.path);
+    return Objects.equals(this.sourceTree, that.sourceTree) ||
+        Objects.equals(this.path, that.path);
   }
 }

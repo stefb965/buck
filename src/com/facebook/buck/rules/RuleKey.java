@@ -16,6 +16,7 @@
 
 package com.facebook.buck.rules;
 
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.util.FileHashCache;
 import com.facebook.buck.util.hash.AppendingHasher;
 import com.google.common.annotations.VisibleForTesting;
@@ -24,7 +25,6 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Objects;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -33,10 +33,10 @@ import com.google.common.hash.HashCode;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -101,7 +101,7 @@ public class RuleKey {
     if (!(obj instanceof RuleKey)) {
       return false;
     }
-    RuleKey that = (RuleKey)obj;
+    RuleKey that = (RuleKey) obj;
     return Objects.equal(this.getHashCode(), that.getHashCode());
   }
 
@@ -114,13 +114,28 @@ public class RuleKey {
    * Builder for a {@link RuleKey} that is a function of all of a {@link BuildRule}'s inputs.
    */
   public static Builder builder(BuildRule rule, FileHashCache hashCache) {
-    Builder builder = new Builder(rule, hashCache)
-        .set("name", rule.getFullyQualifiedName())
+    ImmutableSortedSet<BuildRule> exportedDeps;
+    if (rule.getBuildable() instanceof ExportDependencies) {
+      exportedDeps = ((ExportDependencies) rule.getBuildable()).getExportedDeps();
+    } else {
+      exportedDeps = ImmutableSortedSet.of();
+    }
+    return builder(rule.getBuildTarget(), rule.getType(), rule.getDeps(), exportedDeps, hashCache);
+  }
 
+  /**
+   * Builder for a {@link RuleKey} that is a function of all of a {@link BuildRule}'s inputs.
+   */
+  public static Builder builder(
+      BuildTarget name,
+      BuildRuleType type,
+      ImmutableSortedSet<BuildRule> deps,
+      ImmutableSortedSet<BuildRule> exportedDeps,
+      FileHashCache hashCache) {
+    return new Builder(deps, exportedDeps, hashCache)
+        .set("name", name.getFullyQualifiedName())
         // Keyed as "buck.type" rather than "type" in case a build rule has its own "type" argument.
-        .set("buck.type", rule.getType().getName());
-
-    return builder;
+        .set("buck.type", type.getName());
   }
 
   public static class Builder {
@@ -130,14 +145,19 @@ public class RuleKey {
 
     private static final Logger logger = Logger.getLogger(Builder.class.getName());
 
-    private final BuildRule rule;
+    private final ImmutableSortedSet<BuildRule> deps;
+    private final ImmutableSortedSet<BuildRule> exportedDeps;
     private final Hasher hasher;
     private final FileHashCache hashCache;
 
     @Nullable private List<String> logElms;
 
-    private Builder(BuildRule rule, FileHashCache hashCache) {
-      this.rule = Preconditions.checkNotNull(rule);
+    private Builder(
+        ImmutableSortedSet<BuildRule> deps,
+        ImmutableSortedSet<BuildRule> exportedDeps,
+        FileHashCache hashCache) {
+      this.deps = Preconditions.checkNotNull(deps);
+      this.exportedDeps = Preconditions.checkNotNull(exportedDeps);
       this.hasher = new AppendingHasher(Hashing.sha1(), /* numHashers */ 2);
       this.hashCache = Preconditions.checkNotNull(hashCache);
       if (logger.isLoggable(Level.INFO)) {
@@ -218,7 +238,7 @@ public class RuleKey {
       return setKey(key).setVal(val);
     }
 
-    public Builder set(String key, @Nullable BuildRule val) throws IOException {
+    public Builder set(String key, @Nullable BuildRule val) {
       return setKey(key).setVal(val != null ? val.getRuleKey() : null);
     }
 
@@ -247,7 +267,7 @@ public class RuleKey {
      *     implements {@link Iterable} and we want to protect against passing a single {@link Path}
      *     instead of multiple {@link Path}s.
      */
-    public Builder setInputs(String key, Iterator<Path> inputs) throws IOException {
+    public Builder setInputs(String key, Iterator<Path> inputs) {
       Preconditions.checkNotNull(key);
       Preconditions.checkNotNull(inputs);
       setKey(key);
@@ -278,30 +298,19 @@ public class RuleKey {
       setKey(key);
       if (val != null) {
         for (SourcePath path : val) {
-          setVal(path.asReference());
+          setVal(path.toString());
+          Object ref = path.asReference();
+          if (ref instanceof BuildRule) {
+            setVal(((BuildRule) ref).getRuleKey());
+          } else {
+            setVal(String.valueOf(ref));
+          }
         }
       }
       return separate();
     }
 
-    /**
-     * @param val The fully qualified name (not the {@link RuleKey}) of each rule in this collection
-     *     will contribute to the {@link RuleKey} being built by this builder.
-     */
-    public Builder setRuleNames(String key, ImmutableSortedSet<? extends BuildRule> val) {
-      return set(key, FluentIterable
-            .from(val)
-            .transform(new Function<BuildRule, String>() {
-              @Override
-              public String apply(BuildRule buildRule) {
-                return buildRule.getFullyQualifiedName();
-              }
-            })
-            .toList());
-    }
-
-    public Builder set(String key, @Nullable ImmutableSortedSet<? extends BuildRule> val)
-        throws IOException {
+    public Builder set(String key, @Nullable ImmutableSortedSet<? extends BuildRule> val) {
       setKey(key);
       if (val != null) {
         for (BuildRule buildRule : val) {
@@ -322,6 +331,83 @@ public class RuleKey {
       return separate();
     }
 
+    @SuppressWarnings("unchecked")
+    public Builder setReflectively(String key, @Nullable Object val) {
+      if (val == null) {
+        // Doesn't matter what we call. Fast path out.
+        set(key, (String) null);
+        return this;
+      }
+
+      // Let it be stated here for the record that double dispatch is an ugly way to handle this. If
+      // java did proper message passing, we could avoid this mess. Oh well.
+
+      // Handle simple types first.
+      if (val instanceof Boolean) {
+        return set(key, (boolean) val);
+      } else if (val instanceof BuildRule) {
+        return set(key, (BuildRule) val);
+      } else if (val instanceof Long) {
+        return set(key, (long) val);
+      } else if (val instanceof Path) {
+        return setInput(key, (Path) val);
+      } else if (val instanceof RuleKey) {
+        return set(key, (RuleKey) val);
+      }
+
+      // Optionals should be handled reflectively.
+      if (val instanceof Optional) {
+        // It's actually safe to assume that this is a String, since that's the only Optional type
+        // accepted on a set method, but this seems a little more flexible.
+        Object o = ((Optional<?>) val).orNull();
+        return setReflectively(key, o);
+      }
+
+      // Collections. The general strategy is to check the first element to determine the method to
+      // call. If the collection is empty, default to pretending we're dealing with an empty
+      // collection of strings.
+      if (val instanceof List) {
+        Object determinant = ((List<?>) val).isEmpty() ? null : ((List<?>) val).get(0);
+
+        if (determinant instanceof SourceRoot) {
+          return set(key, ImmutableList.copyOf((List<SourceRoot>) val));
+        } else if (determinant instanceof String) {
+          return set(key, (List<String>) val);
+        } else {
+          // Coerce the elements of the collection to strings.
+          setKey(key);
+          for (Object item : (List<?>) val) {
+            setVal(item == null ? null : String.valueOf(item));
+          }
+          return separate();
+        }
+      } else if (val instanceof Set) {
+        Object determinant = ((Set<?>) val).isEmpty() ? null : ((Set<?>) val).iterator().next();
+
+        if (determinant instanceof BuildRule) {
+          return set(key, ImmutableSortedSet.copyOf((Set<BuildRule>) val));
+        } else if (determinant instanceof SourcePath) {
+          return setSourcePaths(key, ImmutableSortedSet.copyOf((Set<SourcePath>) val));
+        } else {
+          // Once again, coerce to strings.
+          setKey(key);
+          for (Object item : (Set<?>) val) {
+            setVal(item == null ? null : String.valueOf(item));
+          }
+          return separate();
+        }
+      }
+
+      // Collection-like.
+      if (val instanceof Iterator) {
+        // The only iterator type we accept is a Path. Easy.
+        return setInputs(key, (Iterator<Path>) val);
+      }
+
+      // Fall through to setting values as strings.
+      return set(key, String.valueOf(val));
+    }
+
     public static class RuleKeyPair {
       private final RuleKey totalRuleKey;
       private final RuleKey ruleKeyWithoutDeps;
@@ -340,20 +426,20 @@ public class RuleKey {
       }
     }
 
-    public RuleKeyPair build() throws IOException {
+    public RuleKeyPair build() {
       RuleKey ruleKeyWithoutDeps = new RuleKey(hasher.hash());
 
       // Now introduce the deps into the RuleKey.
       setKey("deps");
       // Note that getDeps() returns an ImmutableSortedSet, so the order will be stable.
-      for (BuildRule buildRule : rule.getDeps()) {
+      for (BuildRule buildRule : deps) {
         setVal(buildRule.getRuleKey());
       }
       separate();
 
-      if (rule instanceof ExportDependencies) {
+      if (!exportedDeps.isEmpty()) {
         setKey("exported_deps");
-        for (BuildRule buildRule : ((ExportDependencies) rule).getExportedDeps()) {
+        for (BuildRule buildRule : exportedDeps) {
           setVal(buildRule.getRuleKey());
         }
         separate();

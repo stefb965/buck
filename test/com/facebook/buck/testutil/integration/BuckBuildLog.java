@@ -44,6 +44,7 @@ public class BuckBuildLog {
   static class BuildLogEntry {
     private final BuildRuleStatus status;
     private final Optional<BuildRuleSuccess.Type> successType;
+    @SuppressWarnings("unused")
     private final Optional<CacheResult> cacheResult;
     private final Sha1HashCode ruleKey;
 
@@ -85,6 +86,11 @@ public class BuckBuildLog {
   public void assertTargetFailed(String buildTargetRaw) {
     BuildLogEntry logEntry = getLogEntryOrFail(buildTargetRaw);
     assertEquals(BuildRuleStatus.FAIL, logEntry.status);
+  }
+
+  public Sha1HashCode getRuleKey(String buildTargetRaw) {
+    BuildLogEntry logEntry = getLogEntryOrFail(buildTargetRaw);
+    return logEntry.ruleKey;
   }
 
   public static BuckBuildLog fromLogContents(List<String> logContents) {
