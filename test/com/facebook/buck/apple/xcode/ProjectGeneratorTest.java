@@ -276,8 +276,8 @@ public class ProjectGeneratorTest {
                 ImmutableList.of(
                     AppleSource.ofSourcePath(new TestSourcePath("baz.m")),
                     AppleSource.ofSourcePathWithFlags(
-                        new Pair<SourcePath, String>(new TestSourcePath("blech.m"), "-fobjc-arc"))))
-        ));
+                        new Pair<SourcePath, String>(
+                            new TestSourcePath("blech.m"), "-fobjc-arc"))))));
     arg.frameworks = ImmutableSortedSet.of();
     BuildRule rule = new DescribedRule(
         IosLibraryDescription.TYPE,
@@ -334,8 +334,7 @@ public class ProjectGeneratorTest {
                 ImmutableList.of(
                     AppleSource.ofSourcePath(new TestSourcePath("baz.h")),
                     AppleSource.ofSourcePathWithFlags(
-                        new Pair<SourcePath, String>(new TestSourcePath("blech.h"), "private"))))
-        ));
+                        new Pair<SourcePath, String>(new TestSourcePath("blech.h"), "private"))))));
     arg.frameworks = ImmutableSortedSet.of();
     BuildRule rule = new DescribedRule(
         IosLibraryDescription.TYPE,
@@ -834,6 +833,7 @@ public class ProjectGeneratorTest {
     BuildRuleResolver buildRuleResolver = new BuildRuleResolver();
 
     BuildRule genrule = GenruleBuilder.createGenrule(new BuildTarget("//foo", "script"))
+        .addSrc(new TestSourcePath("script/input.png").resolve())
         .setBash("echo \"hello world!\"")
         .setOut("helloworld.txt")
         .build();
@@ -872,6 +872,10 @@ public class ProjectGeneratorTest {
         ProjectGeneratorTestUtils.getSingletonPhaseByType(
             target,
             PBXShellScriptBuildPhase.class);
+
+    assertThat(
+        Iterables.getOnlyElement(shellScriptBuildPhase.getInputPaths()),
+        equalTo(".././script/input.png"));
 
     assertThat(
         shellScriptBuildPhase.getShellScript(),
@@ -1199,8 +1203,7 @@ public class ProjectGeneratorTest {
         ImmutableList.of(
             "$BUILT_PRODUCTS_DIR/libfoo.a",
             "$SDKROOT/libfoo.a",
-            "$SOURCE_ROOT/libfoo.a")
-    );
+            "$SOURCE_ROOT/libfoo.a"));
   }
 
   @Test(expected = HumanReadableException.class)
@@ -1379,8 +1382,7 @@ public class ProjectGeneratorTest {
     assertEquals(
         "file path should be relative to project directory",
         PBXReference.SourceTree.SOURCE_ROOT,
-        fileRef.getSourceTree()
-    );
+        fileRef.getSourceTree());
     return projectFilesystem.resolve(OUTPUT_DIRECTORY).resolve(fileRef.getPath())
         .normalize().toString();
   }

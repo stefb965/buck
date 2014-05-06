@@ -170,8 +170,7 @@ public class CompileStringsStepTest extends EasyMockSupport {
             3, "Value with \"quotes\"",
             4, "",
             5, "Value with %1$s"),
-        stringsMap
-    );
+        stringsMap);
   }
 
   @Test
@@ -209,8 +208,7 @@ public class CompileStringsStepTest extends EasyMockSupport {
             2, ImmutableMap.of(
                 "zero", "%d people ate this",
                 "many", "%d people ate this"),
-            3, ImmutableMap.of()
-        ),
+            3, ImmutableMap.of()),
         pluralsMap
     );
   }
@@ -248,8 +246,7 @@ public class CompileStringsStepTest extends EasyMockSupport {
             .put(1, "Value12")
             .put(2, "Value21")
             .build(),
-        arraysMap
-    );
+        arraysMap);
   }
 
   private CompileStringsStep createNonExecutingStep() {
@@ -297,8 +294,7 @@ public class CompileStringsStepTest extends EasyMockSupport {
   private byte[] createBinaryStream(File expectedFile) throws IOException {
     try (
       ByteArrayOutputStream bos = new ByteArrayOutputStream();
-      DataOutputStream stream = new DataOutputStream(bos)
-    ) {
+      DataOutputStream stream = new DataOutputStream(bos)) {
       for (String line : Files.readLines(expectedFile, Charset.defaultCharset())) {
         for (String token : Splitter.on('|').split(line)) {
           char dataType = token.charAt(0);

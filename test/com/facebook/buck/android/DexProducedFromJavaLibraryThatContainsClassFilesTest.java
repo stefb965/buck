@@ -47,7 +47,6 @@ import com.google.common.hash.Hashing;
 import org.easymock.EasyMockSupport;
 import org.junit.Test;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Paths;
 import java.util.List;
@@ -83,7 +82,7 @@ public class DexProducedFromJavaLibraryThatContainsClassFilesTest extends EasyMo
     resetAll();
 
     AndroidPlatformTarget androidPlatformTarget = createMock(AndroidPlatformTarget.class);
-    expect(androidPlatformTarget.getDxExecutable()).andReturn(new File("/usr/bin/dx"));
+    expect(androidPlatformTarget.getDxExecutable()).andReturn(Paths.get("/usr/bin/dx"));
 
     ProjectFilesystem projectFilesystem = createMock(ProjectFilesystem.class);
     expect(projectFilesystem.resolve(Paths.get("buck-out/gen/foo")))
@@ -209,8 +208,7 @@ public class DexProducedFromJavaLibraryThatContainsClassFilesTest extends EasyMo
     ImmutableSortedMap<String, HashCode> classNamesAndHashes = ImmutableSortedMap.of(
         "com/example/Foo", HashCode.fromString("e4fccb7520b7795e632651323c63217c9f59f72a"),
         "com/example/Bar", HashCode.fromString("087b7707a5f8e0a2adf5652e3cd2072d89a197dc"),
-        "com/example/Baz", HashCode.fromString("62b1c2510840c0de55c13f66065a98a719be0f19")
-    );
+        "com/example/Baz", HashCode.fromString("62b1c2510840c0de55c13f66065a98a719be0f19"));
     String observedSha1 = DexProducedFromJavaLibrary
         .computeAbiKey(classNamesAndHashes)
         .getHash();

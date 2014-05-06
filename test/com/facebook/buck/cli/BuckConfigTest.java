@@ -183,7 +183,7 @@ public class BuckConfigTest {
         "[alias]",
         "katana = //java/com/example:fb4a"));
     ProjectFilesystem projectFilesystem = EasyMock.createMock(ProjectFilesystem.class);
-    EasyMock.expect(projectFilesystem.exists("java/com/example")).andReturn(false);
+    EasyMock.expect(projectFilesystem.exists(Paths.get("java/com/example"))).andReturn(false);
     EasyMock.replay(projectFilesystem);
 
     try {
@@ -383,8 +383,7 @@ public class BuckConfigTest {
           "foo",
           "bar",
           "baz",
-          "a/b/c")
-    ));
+          "a/b/c")));
 
     EasyMock.verify(filesystem, parser);
   }
@@ -540,8 +539,7 @@ public class BuckConfigTest {
             .put("PATH", temporaryFolder.getRoot().getAbsolutePath())
             .put("PATHEXT", "")
             .build(),
-        ImmutableMap.<String, String>of()
-    );
+        ImmutableMap.<String, String>of());
     config.getPythonInterpreter();
   }
 
@@ -554,8 +552,7 @@ public class BuckConfigTest {
             .put("PATH", temporaryFolder.getRoot().getAbsolutePath())
             .put("PATHEXT", ".exe")
             .build(),
-        ImmutableMap.<String, String>of()
-    );
+        ImmutableMap.<String, String>of());
     config.getPythonInterpreter();
   }
 
@@ -570,8 +567,7 @@ public class BuckConfigTest {
             .put("PATH", temporaryFolder.getRoot().getAbsolutePath())
             .put("PATHEXT", "")
             .build(),
-        ImmutableMap.<String, String>of()
-    );
+        ImmutableMap.<String, String>of());
     assertEquals(
         "Should return path to python2.",
         python2.getAbsolutePath(),
@@ -587,8 +583,7 @@ public class BuckConfigTest {
             .put("PATH", temporaryFolder.getRoot().getAbsolutePath())
             .put("PATHEXT", "")
             .build(),
-        ImmutableMap.of("buck.path_to_python_interp", jython.getAbsolutePath())
-    );
+        ImmutableMap.of("buck.path_to_python_interp", jython.getAbsolutePath()));
     assertEquals("Should fallback to Jython.",
         jython.getAbsolutePath(),
         config.getPythonInterpreter());

@@ -68,7 +68,6 @@ import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepRunner;
-import com.facebook.buck.step.fs.MkdirAndSymlinkFileStep;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.testutil.RuleMap;
@@ -127,115 +126,6 @@ public class DefaultJavaLibraryTest {
     StepRunner stepRunner = createNiceMock(StepRunner.class);
     JavaPackageFinder packageFinder = createNiceMock(JavaPackageFinder.class);
     replay(packageFinder, stepRunner);
-  }
-
-  @Test
-  public void testAddResourceCommandsWithBuildFileParentOfSrcDirectory() {
-    // Files:
-    // android/java/BUILD
-    // android/java/src/com/facebook/base/data.json
-    // android/java/src/com/facebook/common/util/data.json
-    BuildTarget buildTarget = new BuildTarget("//android/java", "resources");
-    DefaultJavaLibrary javaRule = new DefaultJavaLibrary(
-        new FakeBuildRuleParams(buildTarget),
-        /* srcs */ ImmutableSet.<SourcePath>of(),
-        ImmutableSet.of(
-            new TestSourcePath("android/java/src/com/facebook/base/data.json"),
-            new TestSourcePath("android/java/src/com/facebook/common/util/data.json")
-        ),
-        /* proguardConfig */ Optional.<Path>absent(),
-        /* postprocessClassesCommands */ ImmutableList.<String>of(),
-        /* exportedDeps */ ImmutableSortedSet.<BuildRule>of(),
-        JavacOptions.DEFAULTS);
-
-    ImmutableList.Builder<Step> commands = ImmutableList.builder();
-    JavaPackageFinder javaPackageFinder = createJavaPackageFinder();
-    javaRule.addResourceCommands(
-        commands, BIN_PATH.resolve("android/java/lib__resources__classes"), javaPackageFinder);
-    List<? extends Step> expected = ImmutableList.of(
-        new MkdirAndSymlinkFileStep(
-            Paths.get("android/java/src/com/facebook/base/data.json"),
-            BIN_PATH.resolve("android/java/lib__resources__classes/com/facebook/base/data.json")),
-        new MkdirAndSymlinkFileStep(
-            Paths.get("android/java/src/com/facebook/common/util/data.json"),
-            BIN_PATH.resolve(
-                "android/java/lib__resources__classes/com/facebook/common/util/data.json")));
-    MoreAsserts.assertListEquals(expected, commands.build());
-  }
-
-  @Test
-  public void testAddResourceCommandsWithBuildFileParentOfJavaPackage() {
-    // Files:
-    // android/java/src/BUILD
-    // android/java/src/com/facebook/base/data.json
-    // android/java/src/com/facebook/common/util/data.json
-    BuildTarget buildTarget = new BuildTarget("//android/java/src", "resources");
-    DefaultJavaLibrary javaRule = new DefaultJavaLibrary(
-        new FakeBuildRuleParams(buildTarget),
-        /* srcs */ ImmutableSet.<SourcePath>of(),
-        ImmutableSet.<SourcePath>of(
-            new TestSourcePath("android/java/src/com/facebook/base/data.json"),
-            new TestSourcePath("android/java/src/com/facebook/common/util/data.json")
-        ),
-        /* proguargConfig */ Optional.<Path>absent(),
-        /* postprocessClassesCommands */ ImmutableList.<String>of(),
-        /* exportedDeps */ ImmutableSortedSet.<BuildRule>of(),
-        JavacOptions.DEFAULTS);
-
-    ImmutableList.Builder<Step> commands = ImmutableList.builder();
-    JavaPackageFinder javaPackageFinder = createJavaPackageFinder();
-    javaRule.addResourceCommands(
-        commands, BIN_PATH.resolve("android/java/src/lib__resources__classes"), javaPackageFinder);
-    List<? extends Step> expected = ImmutableList.of(
-        new MkdirAndSymlinkFileStep(
-            Paths.get("android/java/src/com/facebook/base/data.json"),
-            BIN_PATH.resolve(
-                "android/java/src/lib__resources__classes/com/facebook/base/data.json")),
-        new MkdirAndSymlinkFileStep(
-            Paths.get("android/java/src/com/facebook/common/util/data.json"),
-            BIN_PATH.resolve(
-                "android/java/src/lib__resources__classes/com/facebook/common/util/data.json")));
-    assertEquals(expected, commands.build());
-    MoreAsserts.assertListEquals(expected, commands.build());
-  }
-
-  @Test
-  public void testAddResourceCommandsWithBuildFileInJavaPackage() {
-    // Files:
-    // android/java/src/com/facebook/BUILD
-    // android/java/src/com/facebook/base/data.json
-    // android/java/src/com/facebook/common/util/data.json
-    BuildTarget buildTarget = new BuildTarget("//android/java/src/com/facebook", "resources");
-    DefaultJavaLibrary javaRule = new DefaultJavaLibrary(
-        new FakeBuildRuleParams(buildTarget),
-        /* srcs */ ImmutableSet.<SourcePath>of(),
-        ImmutableSet.of(
-            new TestSourcePath("android/java/src/com/facebook/base/data.json"),
-            new TestSourcePath("android/java/src/com/facebook/common/util/data.json")
-        ),
-        /* proguargConfig */ Optional.<Path>absent(),
-        /* postprocessClassesCommands */ ImmutableList.<String>of(),
-        /* exportedDeps */ ImmutableSortedSet.<BuildRule>of(),
-        JavacOptions.DEFAULTS);
-
-    ImmutableList.Builder<Step> commands = ImmutableList.builder();
-    JavaPackageFinder javaPackageFinder = createJavaPackageFinder();
-    javaRule.addResourceCommands(
-        commands,
-        BIN_PATH.resolve("android/java/src/com/facebook/lib__resources__classes"),
-        javaPackageFinder);
-    List<? extends Step> expected = ImmutableList.of(
-        new MkdirAndSymlinkFileStep(
-            Paths.get("android/java/src/com/facebook/base/data.json"),
-            BIN_PATH.resolve(
-                "android/java/src/com/facebook/lib__resources__classes/" +
-                    "com/facebook/base/data.json")),
-        new MkdirAndSymlinkFileStep(
-            Paths.get("android/java/src/com/facebook/common/util/data.json"),
-            BIN_PATH.resolve(
-                "android/java/src/com/facebook/lib__resources__classes/" +
-                    "com/facebook/common/util/data.json")));
-    MoreAsserts.assertListEquals(expected, commands.build());
   }
 
   /** Make sure that when isAndroidLibrary is true, that the Android bootclasspath is used. */
@@ -429,8 +319,7 @@ public class DefaultJavaLibraryTest {
             Paths.get("buck-out/gen/lib__libtwo__output/libtwo.jar"),
             getJavaLibrary(parent),
             Paths.get("buck-out/gen/lib__parent__output/parent.jar")),
-        ((HasClasspathEntries) parent.getBuildable()).getTransitiveClasspathEntries()
-    );
+        ((HasClasspathEntries) parent.getBuildable()).getTransitiveClasspathEntries());
   }
 
   @Test
@@ -1000,6 +889,7 @@ public class DefaultJavaLibraryTest {
         /* proguardConfig */ Optional.<Path>absent(),
         /* postprocessClassesCommands */ ImmutableList.<String>of(),
         exportedDeps,
+        /* providedDeps */ ImmutableSortedSet.<BuildRule>of(),
         JavacOptions.DEFAULTS) {
       @Override
       public Sha1HashCode getAbiKey() {
@@ -1282,11 +1172,6 @@ public class DefaultJavaLibraryTest {
     };
   }
 
-  private JavaPackageFinder createJavaPackageFinder() {
-    return DefaultJavaPackageFinder.createDefaultJavaPackageFinder(
-        ImmutableSet.<String>of("/android/java/src"));
-  }
-
   private BuildContext createSuggestContext(BuildRuleResolver ruleResolver,
                                             BuildDependencies buildDependencies) {
     DependencyGraph graph = RuleMap.createGraphFromBuildRules(ruleResolver);
@@ -1358,6 +1243,7 @@ public class DefaultJavaLibraryTest {
             Optional.of(Paths.get("MyProguardConfig")),
             /* postprocessClassesCommands */ ImmutableList.<String>of(),
             /* exportedDeps */ ImmutableSet.<BuildRule>of(),
+            /* providedDeps */ ImmutableSet.<BuildRule>of(),
             JavacOptions.DEFAULTS);
         return new AbstractBuildable.AnonymousBuildRule(
             JavaLibraryDescription.TYPE,
@@ -1451,7 +1337,8 @@ public class DefaultJavaLibraryTest {
           /* resources */ ImmutableSet.<SourcePath>of(),
           /* proguardConfig */ Optional.<Path>absent(),
           /* postprocessClassesCommands */ ImmutableList.<String>of(),
-          /* exortDeps */ ImmutableSet.<BuildRule>of(),
+          /* exportedDeps */ ImmutableSet.<BuildRule>of(),
+          /* providedDeps */ ImmutableSet.<BuildRule>of(),
           options.build(),
           /* manifestFile */ Optional.<Path>absent());
       return new AbstractBuildable.AnonymousBuildRule(

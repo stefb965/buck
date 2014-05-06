@@ -100,8 +100,8 @@ public class AppleSourceTypeCoercer implements TypeCoercer<AppleSource> {
     // If we get this far, we're dealing with a Pair. We can differentiate the kinds by looking at
     // the second item.
 
-    if (object instanceof List) {
-      List<?> list = (List) object;
+    if (object instanceof List<?>) {
+      List<?> list = (List<?>) object;
       Object second = list.size() == 2 ? list.get(1) : null;
 
       if (second instanceof String) {
@@ -111,8 +111,7 @@ public class AppleSourceTypeCoercer implements TypeCoercer<AppleSource> {
                   buildRuleResolver,
                   filesystem,
                   pathRelativeToProjectRoot,
-                  object)
-          );
+                  object));
         } catch (CoerceFailedException e) {
           // Ignore, because we return a better exception at the end of the method.
         }
@@ -123,8 +122,7 @@ public class AppleSourceTypeCoercer implements TypeCoercer<AppleSource> {
                   buildRuleResolver,
                   filesystem,
                   pathRelativeToProjectRoot,
-                  object)
-          );
+                  object));
         } catch (CoerceFailedException e) {
           // Ignore, because we return a better exception at the end of the method.
         }

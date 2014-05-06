@@ -616,8 +616,7 @@ public class ProjectGenerator {
         .getOrCreateFileReferenceBySourceTreePath(new SourceTreePath(
             PBXReference.SourceTree.SOURCE_ROOT,
             this.outputDirectory.normalize().toAbsolutePath()
-                .relativize(referencedProjectPath.toAbsolutePath()))
-        );
+                .relativize(referencedProjectPath.toAbsolutePath())));
     PBXContainerItemProxy proxy = new PBXContainerItemProxy(
         referencedProject,
         buildable.getTargetGid(),
@@ -720,8 +719,7 @@ public class ProjectGenerator {
             configurationsGroup.getOrCreateFileReferenceBySourceTreePath(
                 new SourceTreePath(
                     PBXReference.SourceTree.SOURCE_ROOT,
-                    this.repoRootRelativeToOutputDirectory.resolve(configurationFilePath)
-                ));
+                    this.repoRootRelativeToOutputDirectory.resolve(configurationFilePath)));
         XCBuildConfiguration outputConfiguration =
             target.getBuildConfigurationList().getBuildConfigurationsByName()
                 .getUnchecked(configuration.getName());
@@ -736,7 +734,8 @@ public class ProjectGenerator {
     PBXShellScriptBuildPhase shellScriptBuildPhase = new PBXShellScriptBuildPhase();
     target.getBuildPhases().add(shellScriptBuildPhase);
     for (Path path : rule.getSrcs()) {
-      shellScriptBuildPhase.getInputPaths().add(path.toString());
+      shellScriptBuildPhase.getInputPaths().add(
+          repoRootRelativeToOutputDirectory.resolve(path).toString());
     }
 
     StringBuilder bashCommandBuilder = new StringBuilder();
@@ -849,8 +848,7 @@ public class ProjectGenerator {
     PBXFileReference fileReference = sourcesGroup.getOrCreateFileReferenceBySourceTreePath(
         new SourceTreePath(
             PBXReference.SourceTree.SOURCE_ROOT,
-            this.repoRootRelativeToOutputDirectory.resolve(path)
-        ));
+            this.repoRootRelativeToOutputDirectory.resolve(path)));
     PBXBuildFile buildFile = new PBXBuildFile(fileReference);
     sourcesBuildPhase.getFiles().add(buildFile);
     String customFlags = sourceFlags.get(sourcePath);
@@ -870,8 +868,7 @@ public class ProjectGenerator {
     PBXFileReference fileReference = headersGroup.getOrCreateFileReferenceBySourceTreePath(
         new SourceTreePath(
             PBXReference.SourceTree.SOURCE_ROOT,
-            this.repoRootRelativeToOutputDirectory.resolve(path)
-        ));
+            this.repoRootRelativeToOutputDirectory.resolve(path)));
     PBXBuildFile buildFile = new PBXBuildFile(fileReference);
     NSDictionary settings = new NSDictionary();
     String headerFlags = sourceFlags.get(headerPath);
@@ -896,8 +893,7 @@ public class ProjectGenerator {
       PBXFileReference fileReference = resourcesGroup.getOrCreateFileReferenceBySourceTreePath(
           new SourceTreePath(
               PBXReference.SourceTree.SOURCE_ROOT,
-              this.repoRootRelativeToOutputDirectory.resolve(resource)
-          ));
+              this.repoRootRelativeToOutputDirectory.resolve(resource)));
       PBXBuildFile buildFile = new PBXBuildFile(fileReference);
       phase.getFiles().add(buildFile);
     }
@@ -1083,8 +1079,7 @@ public class ProjectGenerator {
     generatedSignedSourceScriptPhase.setShellScript(
         "# Do not change or remove this. This is a generated script phase\n" +
             "# used solely to include a signature in the generated Xcode project.\n" +
-            "# " + SourceSigner.SIGNED_SOURCE_PLACEHOLDER
-    );
+            "# " + SourceSigner.SIGNED_SOURCE_PLACEHOLDER);
     target.getBuildPhases().add(generatedSignedSourceScriptPhase);
     project.getTargets().add(target);
   }
@@ -1240,8 +1235,7 @@ public class ProjectGenerator {
               public PBXFileReference apply(BuildRule input) {
                 return getLibraryFileReferenceForRule(input);
               }
-            }
-        ).toSet();
+            }).toSet();
   }
 
   private PBXFileReference getLibraryFileReferenceForRule(BuildRule rule) {

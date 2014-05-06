@@ -179,8 +179,7 @@ public class BuildRuleFactoryParamsTest {
     BuildTarget target = BuildTargetFactory.newInstance("//src/com/facebook:Main");
 
     Map<String, Object> instance = ImmutableMap.<String, Object>of(
-        "some_value", 42
-    );
+        "some_value", 42);
 
     BuildRuleFactoryParams params = new BuildRuleFactoryParams(
         instance /* instance */,
@@ -198,8 +197,7 @@ public class BuildRuleFactoryParamsTest {
     BuildTarget target = BuildTargetFactory.newInstance("//src/com/facebook:Main");
 
     Map<String, Object> instance = ImmutableMap.<String, Object>of(
-        "another_value", "yolo"
-    );
+        "another_value", "yolo");
 
     BuildRuleFactoryParams params = new BuildRuleFactoryParams(
         instance /* instance */,
@@ -217,8 +215,7 @@ public class BuildRuleFactoryParamsTest {
     BuildTarget target = BuildTargetFactory.newInstance("//src/com/facebook:Main");
 
     Map<String, Object> instance = ImmutableMap.<String, Object>of(
-        "some_value", "yolo"
-    );
+        "some_value", "yolo");
 
     BuildRuleFactoryParams params = new BuildRuleFactoryParams(
         instance /* instance */,
@@ -242,8 +239,7 @@ public class BuildRuleFactoryParamsTest {
     BuildTarget target = BuildTargetFactory.newInstance("//src/com/facebook:Main");
 
     Map<String, Object> instance = ImmutableMap.<String, Object>of(
-        "some_value", 3.33
-    );
+        "some_value", 3.33);
 
     BuildRuleFactoryParams params = new BuildRuleFactoryParams(
         instance /* instance */,

@@ -52,7 +52,7 @@ public class GenProGuardConfigStep extends ShellStep {
     ImmutableList.Builder<String> args = ImmutableList.builder();
     AndroidPlatformTarget androidPlatformTarget = context.getAndroidPlatformTarget();
 
-    args.add(androidPlatformTarget.getAaptExecutable().getAbsolutePath()).add("package");
+    args.add(androidPlatformTarget.getAaptExecutable().toString()).add("package");
 
     // Specify where the ProGuard config should be written.
     args.add("-G").add(proguardConfigurationPath.toString());
@@ -65,7 +65,7 @@ public class GenProGuardConfigStep extends ShellStep {
     // Add the remaining flags.
     args.add("-M").add(androidManifestPath.toString());
     args.add("--auto-add-overlay");
-    args.add("-I").add(androidPlatformTarget.getAndroidJar().getAbsolutePath());
+    args.add("-I").add(androidPlatformTarget.getAndroidJar().toString());
 
     return args.build();
   }

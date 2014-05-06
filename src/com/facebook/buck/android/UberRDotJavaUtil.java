@@ -61,8 +61,7 @@ public class UberRDotJavaUtil {
       ApkGenruleDescription.TYPE,
       JavaLibraryDescription.TYPE,
       JavaTestDescription.TYPE,
-      RobolectricTestDescription.TYPE
-  );
+      RobolectricTestDescription.TYPE);
 
 
   /** Utility class: do not instantiate. */
@@ -148,8 +147,7 @@ public class UberRDotJavaUtil {
     return ImmutableList.copyOf(
         Iterables.transform(
             sortedAndroidResourceRules.reverse(),
-            CAST_TO_ANDROID_RESOURCE_RULE)
-        );
+            CAST_TO_ANDROID_RESOURCE_RULE));
   }
 
   private static final Function<BuildRule, HasAndroidResourceDeps> CAST_TO_ANDROID_RESOURCE_RULE =

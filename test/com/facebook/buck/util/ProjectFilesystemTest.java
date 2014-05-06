@@ -136,8 +136,7 @@ public class ProjectFilesystemTest {
     Files.write("fooooo\nbar\nbaz\n", file, Charsets.UTF_8);
     assertEquals(
         "fooooo\nbar\nbaz\n",
-        CharStreams.toString(filesystem.getReaderIfFileExists(Paths.get("foo.txt")).get())
-    );
+        CharStreams.toString(filesystem.getReaderIfFileExists(Paths.get("foo.txt")).get()));
   }
 
   @Test
@@ -323,8 +322,7 @@ public class ProjectFilesystemTest {
             fileNames.add(file.getFileName().toString());
             return FileVisitResult.CONTINUE;
           }
-        }
-    );
+        });
 
     assertThat(fileNames.build(), containsInAnyOrder(
             "file",

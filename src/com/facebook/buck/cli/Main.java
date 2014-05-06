@@ -166,8 +166,7 @@ public final class Main {
       if (System.getProperty("buck.buckd_watcher", "WatchService").equals("Watchman")) {
         return new WatchmanWatcher(
             projectFilesystem,
-            fileEventBus
-        );
+            fileEventBus);
       }
       return new WatchServiceWatcher(
           projectFilesystem,
@@ -187,7 +186,7 @@ public final class Main {
         serverPort = config.getValue("httpserver", "port");
       }
       Optional<WebServer> webServer;
-      if (serverPort.isPresent()) {
+      if (serverPort.isPresent() && !serverPort.get().isEmpty()) {
         String rawPort = serverPort.get();
         try {
           int port = Integer.parseInt(rawPort, 10);
@@ -566,7 +565,7 @@ public final class Main {
     } finally {
       commandSemaphore.release(); // Allow another command to execute while outputting traces.
     }
-    if (isDaemon) {
+    if (isDaemon && !config.getFlushEventsBeforeExit()) {
       context.get().in.close(); // Avoid client exit triggering client disconnection handling.
       context.get().exit(exitCode); // Allow nailgun client to exit while outputting traces.
     }

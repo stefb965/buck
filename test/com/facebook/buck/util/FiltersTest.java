@@ -186,8 +186,7 @@ public class FiltersTest {
         paths("mth11_flth.png", MDPI, HDPI_11, LDPI_FR, TVDPI_FR),
         paths("fm3x.png", MDPI_FR),
         paths("lx.png", LDPI, XHDPI),
-        paths("nine.9.png", LDPI, XHDPI)
-    );
+        paths("nine.9.png", LDPI, XHDPI));
     MoreAsserts.assertSetEquals(pathsToRemove(candidates, Lists.newArrayList(keepPaths)), lmdpi);
   }
 
@@ -216,8 +215,7 @@ public class FiltersTest {
         paths("mth11_flth.png", MDPI, HDPI_11, LDPI_FR, HDPI_FR),
         paths("fm3x.png", MDPI_FR),
         paths("lx.png", LDPI, XHDPI),
-        paths("nine.9.png", LDPI, XHDPI) // No downscale.
-    );
+        paths("nine.9.png", LDPI, XHDPI) /* No downscale */);
     MoreAsserts.assertSetEquals(pathsToRemove(candidates, Lists.newArrayList(keepPaths)), lmdpi);
   }
 
@@ -245,8 +243,7 @@ public class FiltersTest {
         paths("mth11_flth.png", TVDPI, HDPI_11, HDPI_FR),
         paths("fm3x.png", XXXHDPI_FR),
         paths("lx.png", XHDPI),
-        paths("nine.9.png", XHDPI)
-    );
+        paths("nine.9.png", XHDPI));
     MoreAsserts.assertSetEquals(pathsToRemove(candidates, Lists.newArrayList(keepPaths)), hdpi);
   }
 
@@ -274,8 +271,7 @@ public class FiltersTest {
         paths("mth11_flth.png", TVDPI, HDPI_11, HDPI_FR),
         paths("fm3x.png", XXXHDPI_FR),
         paths("lx.png", XHDPI),
-        paths("nine.9.png", XHDPI)
-    );
+        paths("nine.9.png", XHDPI));
     MoreAsserts.assertSetEquals(pathsToRemove(candidates, Lists.newArrayList(keepPaths)), xhdpi);
   }
 
@@ -303,8 +299,7 @@ public class FiltersTest {
         paths("mth11_flth.png", TVDPI, HDPI_11, HDPI_FR),
         paths("fm3x.png", XXXHDPI_FR),
         paths("lx.png", XHDPI),
-        paths("nine.9.png", XXHDPI)
-    );
+        paths("nine.9.png", XXHDPI));
     MoreAsserts.assertSetEquals(pathsToRemove(candidates, Lists.newArrayList(keepPaths)), xxhdpi);
   }
 

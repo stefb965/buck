@@ -54,8 +54,7 @@ public class ExopackageInstallerTest {
         ImmutableSet.of(
             "0fa1f9cfb3c0effa8000d2d86d267985b158df9f",
             "2add18058985241f7999eb026868cebb9ef63379"),
-        foundHashesBuilder.build()
-    );
+        foundHashesBuilder.build());
 
     assertEquals(
         ImmutableSet.of(
@@ -93,22 +92,17 @@ public class ExopackageInstallerTest {
   public void testChunkArgs() {
     assertEquals(
         ImmutableList.of(),
-        ExopackageInstaller.chunkArgs(ImmutableList.<String>of(), 8)
-    );
+        ExopackageInstaller.chunkArgs(ImmutableList.<String>of(), 8));
 
     assertEquals(
         ImmutableList.of(
-            ImmutableList.of("abcd", "efg")
-        ),
-        ExopackageInstaller.chunkArgs(ImmutableList.of("abcd", "efg"), 8)
-    );
+            ImmutableList.of("abcd", "efg")),
+        ExopackageInstaller.chunkArgs(ImmutableList.of("abcd", "efg"), 8));
 
     assertEquals(
         ImmutableList.of(
             ImmutableList.of("abcd", "efg"),
-            ImmutableList.of("hijkl")
-        ),
-        ExopackageInstaller.chunkArgs(ImmutableList.of("abcd", "efg", "hijkl"), 8)
-    );
+            ImmutableList.of("hijkl")),
+        ExopackageInstaller.chunkArgs(ImmutableList.of("abcd", "efg", "hijkl"), 8));
   }
 }

@@ -64,8 +64,7 @@ public class DescribedRuleTest {
         ImmutableSortedSet.<BuildRule>of(),
         ImmutableSet.<BuildTargetPattern>of(),
         new FakeProjectFilesystem(),
-        new FakeRuleKeyBuilderFactory()
-    );
+        new FakeRuleKeyBuilderFactory());
 
     ExampleBuildable expected = new ExampleBuildable("nada");
     DescribedRule rule = new DescribedRule(new BuildRuleType("example"),
@@ -110,8 +109,7 @@ public class DescribedRuleTest {
         new BuildTargetParser(filesystem),
         BuildTargetFactory.newInstance("//one/two:example"),
         new FakeRuleKeyBuilderFactory(),
-        /* ignore file existence checks */ true
-    );
+        /* ignore file existence checks */ true);
 
     BuildContext fakeBuildContext = EasyMock.createNiceMock(BuildContext.class);
     ExecutionContext fakeExecutionContext = EasyMock.createNiceMock(ExecutionContext.class);
@@ -195,8 +193,7 @@ public class DescribedRuleTest {
         new BuildTargetParser(filesystem),
         BuildTargetFactory.newInstance("//one/two:example"),
         new FakeRuleKeyBuilderFactory(),
-        /* ignore file existence checks */ true
-    );
+        /* ignore file existence checks */ true);
 
     DescribedRuleFactory<Dto> factory = new DescribedRuleFactory<>(description);
     DescribedRuleBuilder<Dto> builder = factory.newInstance(factoryParams);
@@ -247,8 +244,7 @@ public class DescribedRuleTest {
         new BuildTargetParser(filesystem),
         BuildTargetFactory.newInstance("//one/two:example"),
         new FakeRuleKeyBuilderFactory(),
-        /* ignore file existence checks */ true
-    );
+        /* ignore file existence checks */ true);
 
     DescribedRuleFactory<Dto> factory = new DescribedRuleFactory<>(description);
     DescribedRuleBuilder<Dto> builder = factory.newInstance(factoryParams);
@@ -261,7 +257,7 @@ public class DescribedRuleTest {
   private ProjectFilesystem createForgivingProjectFilesystem() {
     return new ProjectFilesystem(new File(".")) {
       @Override
-      public boolean exists(String pathRelativeToProjectRoot) {
+      public boolean exists(Path pathRelativeToProjectRoot) {
         return true;
       }
     };

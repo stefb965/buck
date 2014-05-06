@@ -24,6 +24,7 @@ import com.facebook.buck.graph.TraversableGraph;
 import com.facebook.buck.java.abi.AbiWriterProtocol;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
+import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.rules.AbiRule;
 import com.facebook.buck.rules.AbstractBuildable;
 import com.facebook.buck.rules.AnnotationProcessingData;
@@ -37,7 +38,6 @@ import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.ExportDependencies;
 import com.facebook.buck.rules.InitializableFromDisk;
-import com.facebook.buck.rules.JavaPackageFinder;
 import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.Sha1HashCode;
@@ -48,16 +48,16 @@ import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
-import com.facebook.buck.step.fs.MkdirAndSymlinkFileStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.util.BuckConstant;
-import com.facebook.buck.util.MorePaths;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
+import com.google.common.base.Predicates;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
@@ -65,13 +65,13 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
 import com.google.common.reflect.ClassPath;
 
-import java.io.File;
 import java.io.IOException;
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -116,6 +116,7 @@ public class DefaultJavaLibrary extends AbstractBuildable
   private final Optional<Path> proguardConfig;
   private final ImmutableList<String> postprocessClassesCommands;
   private final ImmutableSortedSet<BuildRule> exportedDeps;
+  private final ImmutableSortedSet<BuildRule> providedDeps;
   // Some classes need to override this when enhancing deps (see AndroidLibrary).
   protected ImmutableSet<Path> additionalClasspathEntries;
   private final Supplier<ImmutableSetMultimap<JavaLibrary, Path>>
@@ -173,6 +174,7 @@ public class DefaultJavaLibrary extends AbstractBuildable
       Optional<Path> proguardConfig,
       ImmutableList<String> postprocessClassesCommands,
       Set<BuildRule> exportedDeps,
+      Set<BuildRule> providedDeps,
       JavacOptions javacOptions) {
     this.target = buildRuleParams.getBuildTarget();
     this.deps = ImmutableSortedSet.<BuildRule>naturalOrder()
@@ -184,6 +186,7 @@ public class DefaultJavaLibrary extends AbstractBuildable
     this.proguardConfig = Preconditions.checkNotNull(proguardConfig);
     this.postprocessClassesCommands = Preconditions.checkNotNull(postprocessClassesCommands);
     this.exportedDeps = ImmutableSortedSet.copyOf(exportedDeps);
+    this.providedDeps = ImmutableSortedSet.copyOf(providedDeps);
     this.additionalClasspathEntries = ImmutableSet.of();
     this.javacOptions = Preconditions.checkNotNull(javacOptions);
 
@@ -323,7 +326,7 @@ public class DefaultJavaLibrary extends AbstractBuildable
       return abiKey;
     }
 
-    SortedSet<HasJavaAbi> depsForAbiKey = getDepsForAbiKey();
+    SortedSet<HasBuildTarget> depsForAbiKey = getDepsForAbiKey();
 
     // Hash the ABI keys of all dependencies together with ABI key for the current rule.
     Hasher hasher = createHasherWithAbiKeyForDeps(depsForAbiKey);
@@ -348,8 +351,7 @@ public class DefaultJavaLibrary extends AbstractBuildable
         String.format(
             "%s/%s.jar",
             getOutputJarDirPath(target),
-            target.getShortName())
-    );
+            target.getShortName()));
   }
 
   /**
@@ -372,9 +374,9 @@ public class DefaultJavaLibrary extends AbstractBuildable
    * Returns a sorted set containing the dependencies which will be hashed in the final ABI key.
    * @return the dependencies to be hashed in the final ABI key.
    */
-  private SortedSet<HasJavaAbi> getDepsForAbiKey() {
-    SortedSet<HasJavaAbi> rulesWithAbiToConsider = Sets.newTreeSet(BUILD_TARGET_COMPARATOR);
-    for (BuildRule dep : deps) {
+  private SortedSet<HasBuildTarget> getDepsForAbiKey() {
+    SortedSet<HasBuildTarget> rulesWithAbiToConsider = Sets.newTreeSet(BUILD_TARGET_COMPARATOR);
+    for (BuildRule dep : Iterables.concat(deps, providedDeps)) {
       // This looks odd. DummyJavaAbiRule contains a Buildable that isn't a JavaAbiRule.
       if (dep.getBuildable() instanceof HasJavaAbi) {
         if (dep.getBuildable() instanceof JavaLibrary) {
@@ -385,6 +387,13 @@ public class DefaultJavaLibrary extends AbstractBuildable
         }
       }
     }
+
+    // We also need to iterate over inputs that are SourcePaths, since they're only listed as
+    // compile-time deps and not in the "deps" field. If any of these change, we should recompile
+    // the library, since we will (at least) need to repack it.
+    rulesWithAbiToConsider.addAll(
+        SourcePaths.filterBuildRuleInputs(Iterables.concat(srcs, resources)));
+
     return rulesWithAbiToConsider;
   }
 
@@ -394,15 +403,21 @@ public class DefaultJavaLibrary extends AbstractBuildable
    *     added to the hasher.
    * @return a Hasher containing the ABI keys of the dependencies.
    */
-  private Hasher createHasherWithAbiKeyForDeps(SortedSet<HasJavaAbi> rulesWithAbiToConsider) {
+  private Hasher createHasherWithAbiKeyForDeps(SortedSet<HasBuildTarget> rulesWithAbiToConsider) {
     Hasher hasher = Hashing.sha1().newHasher();
-    for (HasJavaAbi ruleWithAbiToConsider : rulesWithAbiToConsider) {
-      if (ruleWithAbiToConsider == this) {
+
+    for (HasBuildTarget candidate : rulesWithAbiToConsider) {
+      if (candidate == this) {
         continue;
       }
 
-      Sha1HashCode abiKey = ruleWithAbiToConsider.getAbiKey();
-      hasher.putUnencodedChars(abiKey.getHash());
+      if (candidate instanceof HasJavaAbi) {
+        Sha1HashCode abiKey = ((HasJavaAbi) candidate).getAbiKey();
+        hasher.putUnencodedChars(abiKey.getHash());
+      } else if (candidate instanceof BuildRule) {
+        HashCode hashCode = ((BuildRule) candidate).getRuleKey().getHashCode();
+        hasher.putBytes(hashCode.asBytes());
+      }
     }
 
     return hasher;
@@ -516,11 +531,34 @@ public class DefaultJavaLibrary extends AbstractBuildable
             declaredClasspathEntries,
             JAR_RESOLVER);
 
+    // We don't want to add these to the declared or transitive deps, since they're only used at
+    // compile time.
+    Collection<Path> provided = JavaLibraryClasspathProvider.getJavaLibraryDeps(providedDeps)
+        .transformAndConcat(
+            new Function<JavaLibrary, Collection<Path>>() {
+              @Override
+              public Collection<Path> apply(JavaLibrary input) {
+                return input.getOutputClasspathEntries().values();
+              }
+            })
+        .filter(Predicates.notNull())
+        .toSet();
+
+    ImmutableSet<Path> transitive = ImmutableSet.<Path>builder()
+        .addAll(transitiveClasspathEntries.values())
+        .addAll(provided)
+        .build();
+
+    ImmutableSet<Path> declared = ImmutableSet.<Path>builder()
+        .addAll(declaredClasspathEntries.values())
+        .addAll(provided)
+        .build();
+
     // This adds the javac command, along with any supporting commands.
     Supplier<Sha1HashCode> abiKeySupplier = createCommandsForJavac(
         outputDirectory,
-        ImmutableSet.copyOf(transitiveClasspathEntries.values()),
-        ImmutableSet.copyOf(declaredClasspathEntries.values()),
+        transitive,
+        declared,
         javacOptions,
         context.getBuildDependencies(),
         suggestBuildRule,
@@ -530,7 +568,12 @@ public class DefaultJavaLibrary extends AbstractBuildable
     addPostprocessClassesCommands(steps, postprocessClassesCommands, outputDirectory);
 
     // If there are resources, then link them to the appropriate place in the classes directory.
-    addResourceCommands(steps, outputDirectory, context.getJavaPackageFinder());
+    steps.add(
+        new CopyResourcesStep(
+            getBuildTarget(),
+            resources,
+            outputDirectory,
+            context.getJavaPackageFinder()));
 
     if (outputJar.isPresent()) {
       steps.add(new MakeCleanDirectoryStep(getOutputJarDirPath(getBuildTarget())));
@@ -728,68 +771,6 @@ public class DefaultJavaLibrary extends AbstractBuildable
   @VisibleForTesting
   public Optional<JavacVersion> getJavacVersion() {
     return javacOptions.getJavaCompilerEnvironment().getJavacVersion();
-  }
-
-  @VisibleForTesting
-  void addResourceCommands(
-      ImmutableList.Builder<Step> commands,
-      Path outputDirectory,
-      JavaPackageFinder javaPackageFinder) {
-    if (!resources.isEmpty()) {
-      String targetPackageDir = javaPackageFinder.findJavaPackageForPath(
-          getBuildTarget().getBasePathWithSlash())
-          .replace('.', File.separatorChar);
-
-      for (SourcePath rawResource : resources) {
-        // If the path to the file defining this rule were:
-        // "first-party/orca/lib-http/tests/com/facebook/orca/BUILD"
-        //
-        // And the value of resource were:
-        // "first-party/orca/lib-http/tests/com/facebook/orca/protocol/base/batch_exception1.txt"
-        //
-        // Then javaPackageAsPath would be:
-        // "com/facebook/orca/protocol/base/"
-        //
-        // And the path that we would want to copy to the classes directory would be:
-        // "com/facebook/orca/protocol/base/batch_exception1.txt"
-        //
-        // Therefore, some path-wrangling is required to produce the correct string.
-
-        Path resource = MorePaths.separatorsToUnix(rawResource.resolve());
-        String javaPackageAsPath =
-            javaPackageFinder.findJavaPackageFolderForPath(resource.toString());
-        Path relativeSymlinkPath;
-
-        if (resource.startsWith(BuckConstant.BUCK_OUTPUT_PATH) ||
-            resource.startsWith(BuckConstant.GEN_PATH) ||
-            resource.startsWith(BuckConstant.BIN_PATH) ||
-            resource.startsWith(BuckConstant.ANNOTATION_PATH)) {
-          // Handle the case where we depend on the output of another BuildRule. In that case, just
-          // grab the output and put in the same package as this target would be in.
-          relativeSymlinkPath = Paths.get(
-              String.format(
-                  "%s%s%s",
-                  targetPackageDir,
-                  targetPackageDir.isEmpty() ? "" : "/",
-                  rawResource.resolve().getFileName()));
-        } else if ("".equals(javaPackageAsPath)) {
-          // In this case, the project root is acting as the default package, so the resource path
-          // works fine.
-          relativeSymlinkPath = resource.getFileName();
-        } else {
-          int lastIndex = resource.toString().lastIndexOf(javaPackageAsPath);
-          Preconditions.checkState(lastIndex >= 0,
-              "Resource path %s must contain %s",
-              resource,
-              javaPackageAsPath);
-
-          relativeSymlinkPath = Paths.get(resource.toString().substring(lastIndex));
-        }
-        Path target = outputDirectory.resolve(relativeSymlinkPath);
-        MkdirAndSymlinkFileStep link = new MkdirAndSymlinkFileStep(resource, target);
-        commands.add(link);
-      }
-    }
   }
 
   @Override

@@ -8,6 +8,7 @@
     {param content}
 
 {call buck.rule}
+{param status: 'FROZEN' /}
 {param overview}
 A <code>java_library()</code> rule is used to define a set of Java
 files that can be compiled together. The main output of a
@@ -94,6 +95,19 @@ of the compiled class files and resources.
   {sp}<code>deps</code> of this rule, so they don't need to be repeated there.
   {/param}
 {/call}
+
+{call buck.arg}
+  {param name: 'provided_deps' /}
+  {param default : '[]' /}
+  {param desc}
+  These represent dependencies that are known to be provided at run
+  time, but are required in order for the code to compile. Examples of
+  <code>provided_deps</code> include the JEE servlet APIs. When this
+  rule is included in a <code>java_binary</code>, the
+  <code>provided_deps</code> will not be packaged into the output.
+  {/param}
+{/call}
+
 
 {call buck.visibility_arg /}
 
