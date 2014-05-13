@@ -33,6 +33,9 @@ import javax.annotation.Nullable;
 
 public class MorePaths {
 
+  private static final boolean SYSTEM_PATH_SEPARATOR_IS_UNIX_PATH_SEPARATOR =
+      File.separator.equals("/");
+
   /** Utility class: do not instantiate. */
   private MorePaths() {}
 
@@ -43,33 +46,12 @@ public class MorePaths {
     }
   };
 
-  public static Path newPathInstance(String path) {
-    return separatorsToUnix(path);
-  }
-
-  public static Path newPathInstance(File file) {
-    return separatorsToUnix(file.getPath());
-  }
-
-  /**
-   * @return The path using UNIX path separators.
-   */
-  public static Path separatorsToUnix(String path) {
-    if (!File.separator.equals("/")) {
-      path = path.replace(File.separator, "/");
-    }
-    return Paths.get(path).normalize();
-  }
-
-  /**
-   * @return The path using UNIX path separators.
-   */
-  public static Path separatorsToUnix(Path path) {
-    return separatorsToUnix(path.toString());
+  public static String pathWithUnixSeparators(String path) {
+    return pathWithUnixSeparators(Paths.get(path));
   }
 
   public static String pathWithUnixSeparators(Path path) {
-    if (File.separator.equals("/")) {
+    if (SYSTEM_PATH_SEPARATOR_IS_UNIX_PATH_SEPARATOR) {
       return path.toString();
     } else {
       return path.toString().replace(File.separator, "/");

@@ -26,6 +26,7 @@ import static org.easymock.EasyMock.verify;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.fail;
+import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.event.BuckEvent;
 import com.facebook.buck.event.BuckEventBus;
@@ -43,6 +44,7 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargetPattern;
+import com.facebook.buck.model.FilesystemBackedBuildFileTree;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleBuilder;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -58,6 +60,7 @@ import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProjectFilesystem;
+import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Charsets;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
@@ -172,7 +175,7 @@ public class ParserTest extends EasyMockSupport {
   private Parser createParser(Map<BuildTarget, BuildRuleBuilder<?>> knownBuildTargets)
       throws IOException {
     return createParser(
-        ofInstance(BuildFileTree.constructBuildFileTree(filesystem)),
+        ofInstance(new FilesystemBackedBuildFileTree(filesystem)),
         knownBuildTargets,
         new TestProjectBuildFileParserFactory(filesystem, buildRuleTypes),
         new BuildTargetParser(filesystem));
@@ -182,7 +185,7 @@ public class ParserTest extends EasyMockSupport {
       BuildRuleBuilder<?>> knownBuildTargets,
       ProjectBuildFileParserFactory buildFileParserFactory) throws IOException {
     return createParser(
-        ofInstance(BuildFileTree.constructBuildFileTree(filesystem)),
+        ofInstance(new FilesystemBackedBuildFileTree(filesystem)),
         knownBuildTargets,
         buildFileParserFactory,
         new BuildTargetParser(filesystem));
@@ -447,11 +450,16 @@ public class ParserTest extends EasyMockSupport {
   private void parseBuildFile(File buildFile, Parser parser,
                               ProjectBuildFileParserFactory buildFileParserFactory)
       throws BuildFileParseException, BuildTargetException, IOException {
-    parser.parseBuildFile(buildFile,
-        /* defaultIncludes */ ImmutableList.<String>of(),
-        buildFileParserFactory.createParser(/* commonIncludes */ Lists.<String>newArrayList(),
-            EnumSet.noneOf(ProjectBuildFileParser.Option.class),
-            new TestConsole()));
+    try (ProjectBuildFileParser projectBuildFileParser = buildFileParserFactory.createParser(
+        /* commonIncludes */ Lists.<String>newArrayList(),
+        EnumSet.noneOf(ProjectBuildFileParser.Option.class),
+        new TestConsole())) {
+      parser.parseBuildFile(
+          buildFile,
+          /* defaultIncludes */ ImmutableList.<String>of(),
+          projectBuildFileParser
+      );
+    }
   }
 
   @Test
@@ -1037,6 +1045,36 @@ public class ParserTest extends EasyMockSupport {
     verify(mockEvent, mockSupplier);
   }
 
+  @Test(expected = BuildFileParseException.class)
+  public void whenSubprocessReturnsFailureThenProjectBuildFileParserThrowsOnClose()
+      throws IOException, BuildFileParseException {
+    // This test depends on unix utilities that don't exist on Windows.
+    assumeTrue(Platform.detect() != Platform.WINDOWS);
+
+    TestProjectBuildFileParserFactory buildFileParserFactory =
+        new TestProjectBuildFileParserFactory(filesystem, buildRuleTypes);
+    try (ProjectBuildFileParser buildFileParser =
+        buildFileParserFactory.createNoopParserThatAlwaysReturnsError()) {
+      buildFileParser.initIfNeeded();
+      // close() is called implicitly at the end of this block. It must throw.
+    }
+  }
+
+  @Test
+  public void whenSubprocessReturnsSuccessThenProjectBuildFileParserClosesCleanly()
+      throws IOException, BuildFileParseException {
+    // This test depends on unix utilities that don't exist on Windows.
+    assumeTrue(Platform.detect() != Platform.WINDOWS);
+
+    TestProjectBuildFileParserFactory buildFileParserFactory =
+        new TestProjectBuildFileParserFactory(filesystem, buildRuleTypes);
+    try (ProjectBuildFileParser buildFileParser =
+        buildFileParserFactory.createNoopParserThatAlwaysReturnsSuccess()) {
+      buildFileParser.initIfNeeded();
+      // close() is called implicitly at the end of this block. It must not throw.
+    }
+  }
+
   private Map<BuildTarget, BuildRuleBuilder<?>> emptyBuildTargets() {
     return Maps.newHashMap();
   }
@@ -1116,15 +1154,25 @@ public class ParserTest extends EasyMockSupport {
         Iterable<String> commonIncludes,
         EnumSet<ProjectBuildFileParser.Option> parseOptions,
         Console console) {
-      return new TestProjectBuildFileParser();
+      return new TestProjectBuildFileParser("python" /* pythonInterpreter */);
+    }
+
+    public ProjectBuildFileParser createNoopParserThatAlwaysReturnsError() {
+      // "false" is a unix utility that always returns error code 1 (failure).
+      return new TestProjectBuildFileParser("false" /* pythonInterpreter */);
+    }
+
+    public ProjectBuildFileParser createNoopParserThatAlwaysReturnsSuccess() {
+      // "true" is a unix utility that always returns error code 0 (success).
+      return new TestProjectBuildFileParser("true" /* pythonInterpreter */);
     }
 
     private class TestProjectBuildFileParser extends ProjectBuildFileParser {
-      public TestProjectBuildFileParser() {
+      public TestProjectBuildFileParser(String pythonInterpreter) {
         super(
             projectFilesystem,
             ImmutableList.of("//java/com/facebook/defaultIncludeFile"),
-            "python",
+            pythonInterpreter,
             buildRuleTypes.getAllDescriptions(),
             EnumSet.noneOf(ProjectBuildFileParser.Option.class),
             new TestConsole());

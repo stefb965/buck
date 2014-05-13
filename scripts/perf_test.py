@@ -21,6 +21,8 @@ import argparse
 import re
 import subprocess
 import os
+import tempfile
+import sys
 
 from collections import defaultdict
 from datetime import datetime
@@ -71,9 +73,11 @@ def createArgParser():
     help='The new buck revision')
   return parser
 
+DEVNULL = open('/dev/null', 'w')
 
 def log(message):
   print '%s\t%s' % (str(datetime.now()), message)
+  sys.stdout.flush()
 
 class BuildResult():
   def __init__(self, time_delta, cache_results, rule_key_map):
@@ -84,24 +88,27 @@ class BuildResult():
 
 def git_clean(cwd):
   log('Running git clean.')
-  subprocess.check_output(
+  subprocess.check_call(
     ['git', 'clean', '-xfd'],
-    stderr=subprocess.STDOUT,
+    stdout=DEVNULL,
+    stderr=DEVNULL,
     cwd=cwd)
 
 
 def git_reset(cwd, revision):
-  subprocess.check_output(
+  subprocess.check_call(
     ['git', 'reset', '--hard', revision],
-    stderr=subprocess.STDOUT,
+    stdout=DEVNULL,
+    stderr=DEVNULL,
     cwd=cwd)
 
 
 def buck_clean(args, cwd):
   log('Running buck clean.')
-  subprocess.check_output(
+  subprocess.check_call(
     [args.path_to_buck, 'clean'],
-    stderr=subprocess.STDOUT,
+    stdout=DEVNULL,
+    stderr=DEVNULL,
     cwd=cwd)
 
 
@@ -109,15 +116,17 @@ def git_get_revisions(args):
   return list(reversed(subprocess.check_output(
     ['git', 'log', '--pretty=format:%H', 'HEAD', '-n',
      str(args.revisions_to_go_back + 1)],
+    stderr=DEVNULL,
     cwd=args.repo_under_test).splitlines()))
 
 
 def git_checkout(revision, cwd):
   log('Checking out %s.' % revision)
   git_reset(cwd, 'HEAD')
-  subprocess.check_output(
+  subprocess.check_call(
     ['git', 'checkout', revision],
-    stderr=subprocess.STDOUT,
+    stdout=DEVNULL,
+    stderr=DEVNULL,
     cwd=cwd)
 
 
@@ -148,11 +157,15 @@ def buck_build_target(args, cwd, target, perftest_side, log_as_perftest=True):
           args.perftest_id, perftest_side)
     })
   start = datetime.now();
-  build_output = subprocess.check_output(
-    [args.path_to_buck, 'build', target, '-v', '5'],
-    stderr=subprocess.STDOUT,
-    cwd=cwd,
-    env=env)
+  with tempfile.TemporaryFile() as tmpFile:
+    subprocess.check_call(
+      [args.path_to_buck, 'build', target, '-v', '5'],
+      stdout=tmpFile,
+      stderr=tmpFile,
+      cwd=cwd,
+      env=env)
+    tmpFile.seek(0)
+    build_output = tmpFile.read()
   finish = datetime.now()
   rule_debug_map = {}
   for line in build_output.splitlines():
@@ -202,10 +215,6 @@ def set_perftest_side(
   %s
   dir = buck-cache-%s
   dir_mode = %s
-[httpserver]
-  port =
-[daemon]
-  flush_events_before_exit = true
 ''' % ('mode = dir' if dir_cache_only else '', perftest_side, cache_mode))
     buckconfig.truncate()
   buckversion_path = os.path.join(cwd, '.buckversion')

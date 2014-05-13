@@ -24,14 +24,15 @@ import static org.junit.Assert.assertTrue;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.event.LogEvent;
-import com.facebook.buck.model.BuildFileTree;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargetPattern;
+import com.facebook.buck.model.InMemoryBuildFileTree;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.shell.EchoStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
+import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Optional;
@@ -42,7 +43,6 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.eventbus.Subscribe;
 
-import org.easymock.EasyMock;
 import org.junit.Test;
 
 import java.io.File;
@@ -105,25 +105,13 @@ public class DescribedRuleTest {
         // "name" maps to the DTO, which is returned in the EchoStep
         ImmutableMap.of("name", "cheese"),
         filesystem,
-        new BuildFileTree(ImmutableSet.<String>of()),
+        new InMemoryBuildFileTree(ImmutableSet.<Path>of()),
         new BuildTargetParser(filesystem),
         BuildTargetFactory.newInstance("//one/two:example"),
         new FakeRuleKeyBuilderFactory(),
         /* ignore file existence checks */ true);
 
-    BuildContext fakeBuildContext = EasyMock.createNiceMock(BuildContext.class);
-    ExecutionContext fakeExecutionContext = EasyMock.createNiceMock(ExecutionContext.class);
-    BuckEventBus bus = BuckEventBusFactory.newInstance();
-    final AtomicBoolean ok = new AtomicBoolean(false);
-    bus.register(new Object() {
-      @Subscribe
-      public void echo(LogEvent event) {
-        ok.set("cheese".equals(event.getMessage()));
-      }
-    });
-    EasyMock.expect(fakeExecutionContext.getBuckEventBus()).andStubReturn(bus);
-
-    EasyMock.replay(fakeBuildContext, fakeExecutionContext);
+    BuildContext fakeBuildContext = FakeBuildContext.NOOP_CONTEXT;
 
     DescribedRuleFactory<Dto> factory = new DescribedRuleFactory<>(description);
     DescribedRuleBuilder<Dto> builder = factory.newInstance(factoryParams);
@@ -134,10 +122,19 @@ public class DescribedRuleTest {
     assertEquals(1, steps.size());
     EchoStep step = (EchoStep) Iterables.getOnlyElement(steps);
 
-    step.execute(fakeExecutionContext);
+    ExecutionContext.Builder executionContextBuilder = TestExecutionContext.newBuilder();
+    BuckEventBus bus = BuckEventBusFactory.newInstance();
+    final AtomicBoolean ok = new AtomicBoolean(false);
+    bus.register(new Object() {
+      @Subscribe
+      public void echo(LogEvent event) {
+        ok.set("cheese".equals(event.getMessage()));
+      }
+    });
+    executionContextBuilder.setEventBus(bus);
+    step.execute(executionContextBuilder.build());
 
     assertTrue(ok.get());
-    // No need to verify the mocks as they're not being used as mocks
   }
 
   @Test
@@ -189,7 +186,7 @@ public class DescribedRuleTest {
             "paths", ImmutableList.of("//example:dep3"),
             "optionalPaths", ImmutableList.of("//example:dep4")),
         filesystem,
-        new BuildFileTree(ImmutableSet.<String>of()),
+        new InMemoryBuildFileTree(ImmutableSet.<Path>of()),
         new BuildTargetParser(filesystem),
         BuildTargetFactory.newInstance("//one/two:example"),
         new FakeRuleKeyBuilderFactory(),
@@ -240,7 +237,7 @@ public class DescribedRuleTest {
     BuildRuleFactoryParams factoryParams = new BuildRuleFactoryParams(
         ImmutableMap.of("paths", ImmutableList.of("//example:dep1")),
         filesystem,
-        new BuildFileTree(ImmutableSet.<String>of()),
+        new InMemoryBuildFileTree(ImmutableSet.<Path>of()),
         new BuildTargetParser(filesystem),
         BuildTargetFactory.newInstance("//one/two:example"),
         new FakeRuleKeyBuilderFactory(),
@@ -252,6 +249,58 @@ public class DescribedRuleTest {
 
     ImmutableSortedSet<BuildRule> deps = rule.getDeps();
     assertSetEquals(ImmutableSet.of(depRule1), deps);
+  }
+
+  /**
+   * This models a real-world use-case where the GWT compiler has an {@code -optimize} flag whose
+   * default value is 9, but 0 is a valid input. See http://bit.ly/1nZtmMv.
+   */
+  @Test
+  public void ensureThatSpecifyingZeroIsNotConsideredAbsent() throws NoSuchBuildTargetException {
+    class Dto implements ConstructorArg {
+      static final int DEFAULT_OPTIMIZE = 9;
+      public Optional<Integer> optimize;
+    }
+
+    Description<Dto> description = new Description<Dto>() {
+      @Override
+      public BuildRuleType getBuildRuleType() {
+        return new BuildRuleType("example");
+      }
+
+      @Override
+      public Dto createUnpopulatedConstructorArg() {
+        return new Dto();
+      }
+
+      @Override
+      public Buildable createBuildable(BuildRuleParams params, Dto args) {
+        // Here is the key line of code being verified by this test!
+        int optimizationLevel = args.optimize.or(Integer.valueOf(Dto.DEFAULT_OPTIMIZE));
+        return new ExampleBuildable(String.valueOf(optimizationLevel));
+      }
+    };
+
+    ProjectFilesystem filesystem = createForgivingProjectFilesystem();
+    BuildRuleFactoryParams factoryParams = new BuildRuleFactoryParams(
+        ImmutableMap.of("optimize", 0),
+        filesystem,
+        new InMemoryBuildFileTree(ImmutableSet.<Path>of()),
+        new BuildTargetParser(filesystem),
+        BuildTargetFactory.newInstance("//one/two:example"),
+        new FakeRuleKeyBuilderFactory(),
+        /* ignore file existence checks */ true);
+
+    DescribedRuleFactory<Dto> factory = new DescribedRuleFactory<>(description);
+    DescribedRuleBuilder<Dto> builder = factory.newInstance(factoryParams);
+    BuildRuleResolver ruleResolver = new BuildRuleResolver();
+    DescribedRule rule = builder.build(ruleResolver);
+    ExampleBuildable buildable = (ExampleBuildable) rule.getBuildable();
+    assertEquals(
+        "If the user explicitly specifies a value of 0 for the optimize argument, " +
+            "then args.optimize should be Optional.of(0).",
+        "0",
+        buildable.message);
   }
 
   private ProjectFilesystem createForgivingProjectFilesystem() {

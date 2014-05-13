@@ -53,6 +53,7 @@ import com.facebook.buck.util.ShutdownException;
 import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.WatchServiceWatcher;
 import com.facebook.buck.util.WatchmanWatcher;
+import com.facebook.buck.util.WatchmanWatcherException;
 import com.facebook.buck.util.concurrent.TimeSpan;
 import com.facebook.buck.util.environment.DefaultExecutionEnvironment;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
@@ -332,7 +333,15 @@ public final class Main {
   }
 
   @VisibleForTesting
+  @SuppressWarnings("PMD.EmptyCatchBlock")
   static void resetDaemon() {
+    if (daemon != null) {
+      try {
+        daemon.close();
+      } catch (IOException e) {
+        // Swallow exceptions while closing daemon.
+      }
+    }
     daemon = null;
   }
 
@@ -484,9 +493,15 @@ public final class Main {
     // The order of resources in the try-with-resources block is important: the BuckEventBus must
     // be the last resource, so that it is closed first and can deliver its queued events to the
     // other resources before they are closed.
+    @Nullable ArtifactCacheFactory artifactCacheFactory = null;
     try (AbstractConsoleEventBusListener consoleListener =
              createConsoleEventListener(clock, console, verbosity, executionEnvironment);
          BuckEventBus buildEventBus = new BuckEventBus(clock, buildId)) {
+
+      // The ArtifactCache is constructed lazily so that we do not try to connect to Cassandra when
+      // running commands such as `buck clean`.
+      artifactCacheFactory = new LoggingArtifactCacheFactory(executionEnvironment, buildEventBus);
+
       Optional<WebServer> webServer = getWebServerIfDaemon(context,
           projectFilesystem,
           config,
@@ -508,27 +523,29 @@ public final class Main {
       CommandEvent commandEvent = CommandEvent.started(commandName, remainingArgs, isDaemon);
       buildEventBus.post(commandEvent);
 
-      // The ArtifactCache is constructed lazily so that we do not try to connect to Cassandra when
-      // running commands such as `buck clean`.
-      ArtifactCacheFactory artifactCacheFactory =
-          new LoggingArtifactCacheFactory(executionEnvironment, buildEventBus);
-
       // Create or get Parser and invalidate cached command parameters.
-      Parser parser;
+      Parser parser = null;
 
       if (isDaemon) {
-        parser = getParserFromDaemon(
-            context,
-            projectFilesystem,
-            config,
-            buildRuleTypes,
-            androidDirectoryResolver,
-            console,
-            commandEvent,
-            buildEventBus);
-      } else {
-        // Initialize logging and create new Parser for new process.
-        JavaUtilsLoggingBuildListener.ensureLogFileIsWritten(projectFilesystem);
+        try {
+          parser = getParserFromDaemon(
+              context,
+              projectFilesystem,
+              config,
+              buildRuleTypes,
+              androidDirectoryResolver,
+              console,
+              commandEvent,
+              buildEventBus);
+        } catch (WatchmanWatcherException e) {
+          buildEventBus.post(LogEvent.warning(
+                  "Watchman threw an exception while parsing file changes, resetting daemon.\n%s",
+                  e.getMessage()));
+          resetDaemon();
+        }
+      }
+
+      if (parser == null) {
         parser = new Parser(projectFilesystem,
             buildRuleTypes,
             console,
@@ -536,6 +553,7 @@ public final class Main {
             config.getTempFilePatterns(),
             createRuleKeyBuilderFactory(new DefaultFileHashCache(projectFilesystem, console)));
       }
+      JavaUtilsLoggingBuildListener.ensureLogFileIsWritten(projectFilesystem);
 
       CachingBuildEngine buildEngine = new CachingBuildEngine();
       exitCode = executingCommand.execute(remainingArgs,
@@ -551,9 +569,6 @@ public final class Main {
               parser,
               platform));
 
-      // TODO(user): allocate artifactCacheFactory in the try-with-resources block to avoid leaks.
-      artifactCacheFactory.closeCreatedArtifactCaches(ARTIFACT_CACHE_TIMEOUT_IN_SECONDS);
-
       // If the Daemon is running and serving web traffic, print the URL to the Chrome Trace.
       if (webServer.isPresent()) {
         int port = webServer.get().getPort();
@@ -562,6 +577,9 @@ public final class Main {
       }
 
       buildEventBus.post(CommandEvent.finished(commandName, remainingArgs, isDaemon, exitCode));
+    } catch (Exception e) {
+      closeCreatedArtifactCaches(artifactCacheFactory); // Close cache before exit on exception.
+      throw e;
     } finally {
       commandSemaphore.release(); // Allow another command to execute while outputting traces.
     }
@@ -569,6 +587,7 @@ public final class Main {
       context.get().in.close(); // Avoid client exit triggering client disconnection handling.
       context.get().exit(exitCode); // Allow nailgun client to exit while outputting traces.
     }
+    closeCreatedArtifactCaches(artifactCacheFactory); // Wait for cache close after client exit.
     for (BuckEventListener eventListener : eventListeners) {
       try {
         eventListener.outputTrace(buildId);
@@ -578,6 +597,12 @@ public final class Main {
       }
     }
     return exitCode;
+  }
+
+  private static void closeCreatedArtifactCaches(ArtifactCacheFactory artifactCacheFactory) {
+    if (null != artifactCacheFactory) {
+      artifactCacheFactory.closeCreatedArtifactCaches(ARTIFACT_CACHE_TIMEOUT_IN_SECONDS);
+    }
   }
 
   private Parser getParserFromDaemon(

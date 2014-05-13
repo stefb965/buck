@@ -37,12 +37,13 @@ public class TracesHandlerDelegate extends AbstractTemplateHandlerDelegate {
    * The file that was modified most recently will be listed first. Ties are broken by
    * lexicographical sorting by normalized file path.
    */
-  private static final Comparator<File> SORT_BY_LAST_MODIFIED = new Comparator<File>() {
+  @VisibleForTesting
+  static final Comparator<File> SORT_BY_LAST_MODIFIED = new Comparator<File>() {
     @Override
     public int compare(File file1, File file2) {
       long lastModifiedTimeDifference = file2.lastModified() - file1.lastModified();
       if (lastModifiedTimeDifference != 0) {
-        return (int) lastModifiedTimeDifference;
+        return Long.signum(lastModifiedTimeDifference);
       }
 
       return file1.toPath().normalize().compareTo(file2.toPath().normalize());
@@ -50,7 +51,7 @@ public class TracesHandlerDelegate extends AbstractTemplateHandlerDelegate {
   };
 
   private static final Pattern TRACE_FILE_NAME_PATTERN = Pattern.compile(
-      "build\\.([0-9a-zA-Z]+)\\.trace");
+      "build\\.([0-9a-zA-Z-]+)\\.trace");
   private static final String TRACE_TO_IGNORE = "build.trace";
 
   private final TracesHelper tracesHelper;

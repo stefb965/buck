@@ -29,6 +29,7 @@ import com.facebook.buck.model.BuildFileTree;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
+import com.facebook.buck.model.FilesystemBackedBuildFileTree;
 import com.facebook.buck.rules.AbstractDependencyVisitor;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleBuilder;
@@ -214,7 +215,7 @@ public class Parser {
         new InputSupplier<BuildFileTree>() {
           @Override
           public BuildFileTree getInput() throws IOException {
-            return BuildFileTree.constructBuildFileTree(projectFilesystem);
+            return new FilesystemBackedBuildFileTree(projectFilesystem);
           }
         },
         new BuildTargetParser(projectFilesystem),
@@ -356,12 +357,13 @@ public class Parser {
   @VisibleForTesting
   DependencyGraph onlyUseThisWhenTestingToFindAllTransitiveDependencies(
       Iterable<BuildTarget> toExplore,
-      final Iterable<String> defaultIncludes) throws IOException {
-    ProjectBuildFileParser parser = buildFileParserFactory.createParser(
+      Iterable<String> defaultIncludes) throws IOException, BuildFileParseException {
+    try (ProjectBuildFileParser parser = buildFileParserFactory.createParser(
         defaultIncludes,
         EnumSet.noneOf(ProjectBuildFileParser.Option.class),
-        console);
-    return findAllTransitiveDependencies(toExplore, defaultIncludes, parser);
+        console)) {
+      return findAllTransitiveDependencies(toExplore, defaultIncludes, parser);
+    }
   }
 
 
@@ -850,7 +852,7 @@ public class Parser {
    */
   private void invalidateContainingBuildFile(Path path) throws IOException {
     String packageBuildFilePath =
-        buildFileTreeCache.getInput().getBasePathOfAncestorTarget(path.toString());
+        buildFileTreeCache.getInput().getBasePathOfAncestorTarget(path).toString();
     invalidateDependents(
         projectFilesystem.getFileForRelativePath(
             packageBuildFilePath + '/' + BuckConstant.BUILD_RULES_FILE_NAME).toPath());

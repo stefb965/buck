@@ -34,12 +34,15 @@ import com.facebook.buck.apple.IosResourceDescription;
 import com.facebook.buck.apple.IosTestDescription;
 import com.facebook.buck.apple.MacosxBinaryDescription;
 import com.facebook.buck.apple.MacosxFrameworkDescription;
+import com.facebook.buck.apple.OsxResourceDescription;
 import com.facebook.buck.apple.XcodeNativeDescription;
 import com.facebook.buck.apple.XcodeProjectConfigDescription;
+import com.facebook.buck.apple.XcodeWorkspaceConfigDescription;
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.cpp.CppBinaryDescription;
 import com.facebook.buck.cpp.CppLibraryDescription;
 import com.facebook.buck.extension.BuckExtensionDescription;
+import com.facebook.buck.gwt.GwtBinaryDescription;
 import com.facebook.buck.java.JavaBinaryDescription;
 import com.facebook.buck.java.JavaCompilerEnvironment;
 import com.facebook.buck.java.JavaLibraryDescription;
@@ -167,11 +170,12 @@ public class KnownBuildRuleTypes {
         .build();
     builder.register(new AndroidBinaryDescription(
             androidBinaryOptions,
-            config.getProguardJarOverride()));
+            config.getProguardJarOverride(),
+            config.getAaptOverride()));
     builder.register(new AndroidInstrumentationApkDescription());
     builder.register(new AndroidLibraryDescription(javacEnv));
     builder.register(new AndroidManifestDescription());
-    builder.register(new AndroidResourceDescription());
+    builder.register(new AndroidResourceDescription(config.getAaptOverride()));
     builder.register(new ApkGenruleDescription());
     builder.register(new AppleAssetCatalogDescription());
     builder.register(new BuckExtensionDescription());
@@ -182,6 +186,7 @@ public class KnownBuildRuleTypes {
     builder.register(new GenruleDescription());
     builder.register(new GenAidlDescription());
     builder.register(new GenParcelableDescription());
+    builder.register(new GwtBinaryDescription());
     builder.register(new KeystoreDescription());
     builder.register(new JavaBinaryDescription());
     builder.register(new JavaLibraryDescription(javacEnv));
@@ -194,6 +199,7 @@ public class KnownBuildRuleTypes {
     builder.register(new MacosxBinaryDescription());
     builder.register(new MacosxFrameworkDescription());
     builder.register(new NdkLibraryDescription(ndkVersion));
+    builder.register(new OsxResourceDescription());
     builder.register(new PrebuiltJarDescription());
     builder.register(new PrebuiltNativeLibraryDescription());
     builder.register(new ProjectConfigDescription());
@@ -204,6 +210,7 @@ public class KnownBuildRuleTypes {
     builder.register(new ShTestDescription());
     builder.register(new XcodeNativeDescription());
     builder.register(new XcodeProjectConfigDescription());
+    builder.register(new XcodeWorkspaceConfigDescription());
 
     // TODO(simons): Added for selenium. Move to that project once the plugin API works.
     builder.register(new JsBinaryDescription());

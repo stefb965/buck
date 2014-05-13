@@ -21,12 +21,7 @@ import static com.facebook.buck.apple.xcode.ProjectGeneratorTestUtils.assertTarg
 import static com.facebook.buck.apple.xcode.ProjectGeneratorTestUtils.createBuildRuleWithDefaults;
 import static com.facebook.buck.apple.xcode.ProjectGeneratorTestUtils.createPartialGraphFromBuildRuleResolver;
 import static com.facebook.buck.apple.xcode.ProjectGeneratorTestUtils.createPartialGraphFromBuildRules;
-import static org.hamcrest.CoreMatchers.either;
-import static org.hamcrest.CoreMatchers.endsWith;
 import static org.hamcrest.CoreMatchers.equalTo;
-import static org.hamcrest.CoreMatchers.hasItem;
-import static org.hamcrest.CoreMatchers.sameInstance;
-import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasKey;
 import static org.hamcrest.collection.IsCollectionWithSize.hasSize;
 import static org.hamcrest.xml.HasXPath.hasXPath;
@@ -48,10 +43,8 @@ import com.facebook.buck.apple.IosResourceDescription;
 import com.facebook.buck.apple.IosTestDescription;
 import com.facebook.buck.apple.MacosxBinaryDescription;
 import com.facebook.buck.apple.MacosxFrameworkDescription;
-import com.facebook.buck.apple.XcodeNativeDescription;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXBuildFile;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXBuildPhase;
-import com.facebook.buck.apple.xcode.xcodeproj.PBXContainerItemProxy;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXCopyFilesBuildPhase;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXFileReference;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXGroup;
@@ -62,7 +55,6 @@ import com.facebook.buck.apple.xcode.xcodeproj.PBXResourcesBuildPhase;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXShellScriptBuildPhase;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXSourcesBuildPhase;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXTarget;
-import com.facebook.buck.apple.xcode.xcodeproj.PBXTargetDependency;
 import com.facebook.buck.apple.xcode.xcodeproj.XCBuildConfiguration;
 import com.facebook.buck.codegen.SourceSigner;
 import com.facebook.buck.model.BuildTarget;
@@ -85,15 +77,12 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
-import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -102,7 +91,6 @@ import org.w3c.dom.Document;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -120,7 +108,6 @@ public class ProjectGeneratorTest {
 
   private ProjectFilesystem projectFilesystem;
   private ExecutionContext executionContext;
-  private XcodeNativeDescription xcodeNativeDescription;
   private IosLibraryDescription iosLibraryDescription;
   private IosTestDescription iosTestDescription;
   private IosBinaryDescription iosBinaryDescription;
@@ -132,7 +119,6 @@ public class ProjectGeneratorTest {
   public void setUp() throws IOException {
     projectFilesystem = new FakeProjectFilesystem();
     executionContext = TestExecutionContext.newInstance();
-    xcodeNativeDescription = new XcodeNativeDescription();
     iosLibraryDescription = new IosLibraryDescription();
     iosTestDescription = new IosTestDescription();
     iosBinaryDescription = new IosBinaryDescription();
@@ -157,10 +143,6 @@ public class ProjectGeneratorTest {
     Path outputWorkspaceBundlePath = OUTPUT_DIRECTORY.resolve(PROJECT_NAME + ".xcworkspace");
     Path outputWorkspaceFilePath = outputWorkspaceBundlePath.resolve("contents.xcworkspacedata");
 
-    Path outputSchemeFolderPath = OUTPUT_PROJECT_BUNDLE_PATH.resolve(
-        Paths.get("xcshareddata", "xcschemes"));
-    Path outputSchemePath = outputSchemeFolderPath.resolve("Scheme.xcscheme");
-
     projectGenerator.createXcodeProjects();
 
     Optional<String> pbxproj = projectFilesystem.readFileIfItExists(OUTPUT_PROJECT_FILE_PATH);
@@ -169,62 +151,6 @@ public class ProjectGeneratorTest {
     Optional<String> xcworkspacedata =
         projectFilesystem.readFileIfItExists(outputWorkspaceFilePath);
     assertTrue(xcworkspacedata.isPresent());
-
-    Optional<String> xcscheme = projectFilesystem.readFileIfItExists(outputSchemePath);
-    assertTrue(xcscheme.isPresent());
-  }
-
-  @Test
-  public void testSchemeGeneration() throws IOException {
-    BuildRule rootRule = createBuildRuleWithDefaults(
-        new BuildTarget("//foo", "root"),
-        ImmutableSortedSet.<BuildRule>of(),
-        iosLibraryDescription);
-    BuildRule leftRule = createBuildRuleWithDefaults(
-        new BuildTarget("//foo", "left"),
-        ImmutableSortedSet.of(rootRule),
-        iosLibraryDescription);
-    BuildRule rightRule = createBuildRuleWithDefaults(
-        new BuildTarget("//foo", "right"),
-        ImmutableSortedSet.of(rootRule),
-        iosLibraryDescription);
-    BuildRule childRule = createBuildRuleWithDefaults(
-        new BuildTarget("//foo", "child"),
-        ImmutableSortedSet.of(leftRule, rightRule),
-        iosLibraryDescription);
-
-    ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
-        ImmutableSet.of(rootRule, leftRule, rightRule, childRule),
-        ImmutableSet.of(childRule.getBuildTarget()));
-
-    // Generate the project.
-    projectGenerator.createXcodeProjects();
-
-    // Verify the scheme.
-    PBXProject project = projectGenerator.getGeneratedProject();
-    Map<String, String> targetNameToGid = Maps.newHashMap();
-    for (PBXTarget target : project.getTargets()) {
-      targetNameToGid.put(target.getName(), target.getGlobalID());
-    }
-
-    XCScheme scheme = Preconditions.checkNotNull(projectGenerator.getGeneratedScheme());
-    List<String> actualOrdering = Lists.newArrayList();
-    for (XCScheme.BuildActionEntry entry : scheme.getBuildAction()) {
-      actualOrdering.add(entry.getBlueprintIdentifier());
-      assertEquals(PROJECT_CONTAINER, entry.getContainerRelativePath());
-    }
-
-    List<String> expectedOrdering1 = ImmutableList.of(
-        targetNameToGid.get("//foo:root"),
-        targetNameToGid.get("//foo:left"),
-        targetNameToGid.get("//foo:right"),
-        targetNameToGid.get("//foo:child"));
-    List<String> expectedOrdering2 = ImmutableList.of(
-        targetNameToGid.get("//foo:root"),
-        targetNameToGid.get("//foo:right"),
-        targetNameToGid.get("//foo:left"),
-        targetNameToGid.get("//foo:child"));
-    assertThat(actualOrdering, either(equalTo(expectedOrdering1)).or(equalTo(expectedOrdering2)));
   }
 
   @Test
@@ -402,48 +328,6 @@ public class ProjectGeneratorTest {
     NSDictionary blechBuildFileSettings = blechHeaderBuildFile.getSettings().get();
     NSArray blechAttributes = (NSArray) blechBuildFileSettings.get("ATTRIBUTES");
     assertArrayEquals(new NSString[]{new NSString("Private")}, blechAttributes.getArray());
-  }
-
-  @Test
-  public void testXcodeNativeRule() throws IOException {
-    BuildRule rule = createBuildRuleWithDefaults(
-        new BuildTarget("//foo", "rule"),
-        ImmutableSortedSet.<BuildRule>of(),
-        xcodeNativeDescription,
-        new Function<XcodeNativeDescription.Arg, XcodeNativeDescription.Arg>() {
-          @Override
-          public XcodeNativeDescription.Arg apply(XcodeNativeDescription.Arg input) {
-            input.product = "libfoo.a";
-            input.targetGid = "00DEADBEEF";
-            input.projectContainerPath = new TestSourcePath("foo.xcodeproj");
-            return input;
-          }
-        });
-    ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
-        ImmutableSet.of(rule),
-        ImmutableSet.of(rule.getBuildTarget()));
-
-    projectGenerator.createXcodeProjects();
-
-    PBXProject project = projectGenerator.getGeneratedProject();
-    assertThat(project.getTargets(), hasSize(2));
-    PBXTarget target = project.getTargets().get(0);
-    assertThat(target.getName(), equalTo("//foo:rule"));
-    assertThat(target.isa(), equalTo("PBXAggregateTarget"));
-    assertThat(target.getDependencies(), hasSize(1));
-    PBXTargetDependency dependency = target.getDependencies().get(0);
-    PBXContainerItemProxy proxy = dependency.getTargetProxy();
-    String containerPath = assertFileRefIsRelativeAndResolvePath(proxy.getContainerPortal());
-    assertThat(containerPath, endsWith("foo.xcodeproj"));
-    assertThat(proxy.getRemoteGlobalIDString(), equalTo("00DEADBEEF"));
-
-    verifyGeneratedSignedSourceTarget(project.getTargets().get(1));
-
-    PBXGroup projectReferenceGroup =
-        project.getMainGroup().getOrCreateChildGroupByName("Project References");
-    assertThat(projectReferenceGroup.getChildren(), hasSize(1));
-    assertThat(
-        projectReferenceGroup.getChildren(), hasItem(sameInstance(proxy.getContainerPortal())));
   }
 
   @Test
@@ -883,6 +767,40 @@ public class ProjectGeneratorTest {
   }
 
   @Test
+  public void ruleToTargetMapContainsPBXTarget() throws IOException {
+    BuildRuleParams params = new FakeBuildRuleParams(
+        new BuildTarget("//foo", "lib"), ImmutableSortedSet.<BuildRule>of());
+    IosLibraryDescription.Arg arg = iosLibraryDescription.createUnpopulatedConstructorArg();
+    arg.configs = ImmutableMap.of(
+        "Debug", ImmutableList.<Either<Path, ImmutableMap<String, String>>>of());
+    arg.srcs = ImmutableList.of(
+        AppleSource.ofSourcePathWithFlags(
+            new Pair<SourcePath, String>(new TestSourcePath("foo.m"), "-foo")),
+        AppleSource.ofSourcePath(new TestSourcePath("foo.h")),
+        AppleSource.ofSourcePath(new TestSourcePath("bar.m")));
+    arg.frameworks = ImmutableSortedSet.of();
+    BuildRule rule = new DescribedRule(
+        IosLibraryDescription.TYPE,
+        iosLibraryDescription.createBuildable(params, arg), params);
+
+    ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
+        ImmutableSet.of(rule),
+        ImmutableSet.of(rule.getBuildTarget()));
+
+    projectGenerator.createXcodeProjects();
+
+    assertEquals(rule, Iterables.getOnlyElement(
+            projectGenerator.getBuildRuleToGeneratedTargetMap().keySet()));
+
+    PBXTarget target = Iterables.getOnlyElement(
+        projectGenerator.getBuildRuleToGeneratedTargetMap().values());
+    assertHasSingletonSourcesPhaseWithSourcesAndFlags(
+        target, ImmutableMap.of(
+        "foo.m", Optional.of("-foo"),
+        "bar.m", Optional.<String>absent()));
+  }
+
+  @Test
   public void shouldDiscoverDependenciesAndTests() throws IOException {
     // Create the following dep tree:
     // FooBin -has-test-> FooBinTest
@@ -955,7 +873,7 @@ public class ProjectGeneratorTest {
     BuildRule fooLib = createBuildRuleWithDefaults(
         new BuildTarget("//foo", "foo"),
         ImmutableSortedSet.<BuildRule>of(),
-        xcodeNativeDescription);
+        iosLibraryDescription);
 
     ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
         ImmutableSet.of(fooLib),
@@ -969,7 +887,7 @@ public class ProjectGeneratorTest {
         "%08X%08X%08X", target.isa().hashCode(), target.getName().hashCode(), 0);
     assertEquals(
         "expected GID has correct value (value from which it's derived have not changed)",
-        "93C1B2AA2245423200000000", expectedGID);
+        "E66DC04E2245423200000000", expectedGID);
     assertEquals("generated GID is same as expected", expectedGID, target.getGlobalID());
   }
 
@@ -1559,15 +1477,5 @@ public class ProjectGeneratorTest {
     }
 
     return foundCommonAssetCatalogCompileCommand && foundSplitAssetCatalogCompileCommand;
-  }
-
-  private void verifyGeneratedSignedSourceTarget(PBXTarget target) {
-    Iterable<PBXShellScriptBuildPhase> shellSteps = Iterables.filter(
-        target.getBuildPhases(), PBXShellScriptBuildPhase.class);
-    assertEquals(1, Iterables.size(shellSteps));
-    PBXShellScriptBuildPhase generatedScriptPhase = Iterables.get(shellSteps, 0);
-    assertThat(
-        generatedScriptPhase.getShellScript(),
-        containsString(SourceSigner.SIGNED_SOURCE_PLACEHOLDER));
   }
 }
