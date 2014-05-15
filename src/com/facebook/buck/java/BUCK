@@ -95,6 +95,7 @@ java_library(
     'GenerateCodeCoverageReportStep.java',
     'InstrumentStep.java',
     'JarDirectoryStep.java',
+    'JavacErrorParser.java',
     'JavacInMemoryStep.java',
     'JavacStep.java',
     'JavacStepUtil.java',
