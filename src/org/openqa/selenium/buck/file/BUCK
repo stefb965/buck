@@ -1,0 +1,9 @@
+
+java_library(
+  name = 'file',
+  srcs = glob(['*.java']),
+  deps = [
+  ],
+  visibility = [
+  ],
+)

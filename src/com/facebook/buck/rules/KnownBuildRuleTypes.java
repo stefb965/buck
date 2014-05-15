@@ -66,6 +66,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 
+import org.openqa.selenium.buck.file.ZipDescription;
 import org.openqa.selenium.buck.javascript.JsBinaryDescription;
 import org.openqa.selenium.buck.javascript.JsFragmentDescription;
 import org.openqa.selenium.buck.javascript.JsLibraryDescription;
@@ -218,6 +219,7 @@ public class KnownBuildRuleTypes {
     builder.register(new JsLibraryDescription());
     builder.register(new XpiDescription());
     builder.register(new XptDescription());
+    builder.register(new ZipDescription());
 
     return builder;
   }
