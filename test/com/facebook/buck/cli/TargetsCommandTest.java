@@ -62,6 +62,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Charsets;
 import com.google.common.base.Function;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Lists;
@@ -130,7 +131,8 @@ public class TargetsCommandTest {
             new InstanceArtifactCacheFactory(artifactCache),
             eventBus,
             BuckTestConstant.PYTHON_INTERPRETER,
-            Platform.detect()));
+            Platform.detect(),
+            ImmutableMap.copyOf(System.getenv())));
   }
 
   @Test
@@ -234,7 +236,11 @@ public class TargetsCommandTest {
     EasyMock.replay(parser);
     Reader reader = new StringReader("");
     BuckConfig config = BuckConfig.createFromReader(
-        reader, new ProjectFilesystem(new File(".")), parser, Platform.detect());
+        reader,
+        new ProjectFilesystem(new File(".")),
+        parser,
+        Platform.detect(),
+        ImmutableMap.copyOf(System.getenv()));
     TargetsCommandOptions options = new TargetsCommandOptions(config);
 
     // Test a valid target.

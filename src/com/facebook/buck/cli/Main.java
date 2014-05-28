@@ -63,9 +63,12 @@ import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.eventbus.EventBus;
 import com.google.common.reflect.ClassPath;
+import com.google.common.util.concurrent.AbstractScheduledService;
+import com.google.common.util.concurrent.ServiceManager;
 import com.martiansoftware.nailgun.NGClientListener;
 import com.martiansoftware.nailgun.NGContext;
 
@@ -79,6 +82,7 @@ import java.net.URLClassLoader;
 import java.nio.file.FileSystems;
 import java.nio.file.Paths;
 import java.util.Arrays;
+import java.util.Map;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
@@ -105,6 +109,8 @@ public final class Main {
   private static final String BUCKD_COLOR_DEFAULT_ENV_VAR = "BUCKD_COLOR_DEFAULT";
 
   private static final int ARTIFACT_CACHE_TIMEOUT_IN_SECONDS = 15;
+
+  private static final TimeSpan DAEMON_SLAYER_TIMEOUT = new TimeSpan(45, TimeUnit.MINUTES);
 
   private static final TimeSpan SUPER_CONSOLE_REFRESH_RATE =
       new TimeSpan(100, TimeUnit.MILLISECONDS);
@@ -427,12 +433,15 @@ public final class Main {
    * @param args command line arguments
    * @return an exit code or {@code null} if this is a process that should not exit
    */
-  @SuppressWarnings("PMD.EmptyCatchBlock")
+  @SuppressWarnings({"PMD.EmptyCatchBlock", "PMD.PrematureDeclaration"})
   public int executeCommand(
       File projectRoot,
       Command.ParseResult commandParseResult,
       Optional<NGContext> context,
       String... args) throws IOException {
+
+    // Get the client environment, either from this process or from the Nailgun context.
+    ImmutableMap<String, String> clientEnvironment = getClientEnvironment(context);
 
 
     // Create common command parameters. projectFilesystem initialization looks odd because it needs
@@ -440,8 +449,9 @@ public final class Main {
     // solves a bootstrapping issue).
     ProjectFilesystem projectFilesystem = new ProjectFilesystem(
         Paths.get(projectRoot.getPath()),
-        createBuckConfig(new ProjectFilesystem(projectRoot), platform).getIgnorePaths());
-    BuckConfig config = createBuckConfig(projectFilesystem, platform);
+        createBuckConfig(new ProjectFilesystem(projectRoot), platform, clientEnvironment)
+            .getIgnorePaths());
+    BuckConfig config = createBuckConfig(projectFilesystem, platform, clientEnvironment);
     Verbosity verbosity = VerbosityParser.parse(args);
     Optional<String> color;
     final boolean isDaemon = context.isPresent();
@@ -457,11 +467,6 @@ public final class Main {
       console.getStdErr().println(commandParseResult.getErrorText().get());
     }
 
-    // No more early outs: acquire the command semaphore and become the only executing command.
-    if (!commandSemaphore.tryAcquire()) {
-      return BUSY_EXIT_CODE;
-    }
-
     ProcessExecutor processExecutor = new ProcessExecutor(console);
 
     int exitCode;
@@ -471,7 +476,9 @@ public final class Main {
     ExecutionEnvironment executionEnvironment = new DefaultExecutionEnvironment(processExecutor);
 
     // Configure the AndroidDirectoryResolver.
-    PropertyFinder propertyFinder = new DefaultPropertyFinder(projectFilesystem);
+    PropertyFinder propertyFinder = new DefaultPropertyFinder(
+        projectFilesystem,
+        clientEnvironment);
     AndroidDirectoryResolver androidDirectoryResolver =
         new DefaultAndroidDirectoryResolver(
             projectFilesystem,
@@ -490,10 +497,17 @@ public final class Main {
             androidDirectoryResolver,
             javacEnv);
 
+    // No more early outs: acquire the command semaphore and become the only executing command.
+    // This must happen immediately before the try block to ensure that the semaphore is released.
+    if (!commandSemaphore.tryAcquire()) {
+      return BUSY_EXIT_CODE;
+    }
+
+    @Nullable ArtifactCacheFactory artifactCacheFactory = null;
+
     // The order of resources in the try-with-resources block is important: the BuckEventBus must
     // be the last resource, so that it is closed first and can deliver its queued events to the
     // other resources before they are closed.
-    @Nullable ArtifactCacheFactory artifactCacheFactory = null;
     try (AbstractConsoleEventBusListener consoleListener =
              createConsoleEventListener(clock, console, verbosity, executionEnvironment);
          BuckEventBus buildEventBus = new BuckEventBus(clock, buildId)) {
@@ -567,7 +581,8 @@ public final class Main {
               artifactCacheFactory,
               buildEventBus,
               parser,
-              platform));
+              platform,
+              clientEnvironment));
 
       // If the Daemon is running and serving web traffic, print the URL to the Chrome Trace.
       if (webServer.isPresent()) {
@@ -597,6 +612,20 @@ public final class Main {
       }
     }
     return exitCode;
+  }
+
+  /**
+   * @return the client environment, which is either the process environment or the
+   * environment sent to the daemon by the Nailgun client. This method should always be used
+   * in preference to System.getenv() and should be the only call to System.getenv() within the
+   * Buck codebase to ensure that the use of the Buck daemon is transparent.
+   */
+  @SuppressWarnings("unchecked") // Safe as Property is a Map<String, String>.
+  private ImmutableMap<String, String> getClientEnvironment(Optional<NGContext> context) {
+    if (context.isPresent()) {
+      return ImmutableMap.<String, String>copyOf((Map) context.get().getEnv());
+    }
+    return ImmutableMap.copyOf(System.getenv());
   }
 
   private static void closeCreatedArtifactCaches(ArtifactCacheFactory artifactCacheFactory) {
@@ -748,7 +777,10 @@ public final class Main {
   /**
    * @param projectFilesystem The directory that is the root of the project being built.
    */
-  private static BuckConfig createBuckConfig(ProjectFilesystem projectFilesystem, Platform platform)
+  private static BuckConfig createBuckConfig(
+      ProjectFilesystem projectFilesystem,
+      Platform platform,
+      ImmutableMap<String, String> environment)
       throws IOException {
     ImmutableList.Builder<File> configFileBuilder = ImmutableList.builder();
     File configFile = projectFilesystem.getFileForRelativePath(DEFAULT_BUCK_CONFIG_FILE_NAME);
@@ -762,7 +794,11 @@ public final class Main {
     }
 
     ImmutableList<File> configFiles = configFileBuilder.build();
-    return BuckConfig.createFromFiles(projectFilesystem, configFiles, platform);
+    return BuckConfig.createFromFiles(
+        projectFilesystem,
+        configFiles,
+        platform,
+        environment);
   }
 
   /**
@@ -823,6 +859,91 @@ public final class Main {
    * disconnections and interrupt command processing when they occur.
    */
   public static void nailMain(final NGContext context) throws InterruptedException {
-    new Main(context.out, context.err).runMainThenExit(context.getArgs(), Optional.of(context));
+    try (DaemonSlayer.ExecuteCommandHandle handle =
+            DaemonSlayer.getSlayer(context).executeCommand()) {
+      new Main(context.out, context.err).runMainThenExit(context.getArgs(), Optional.of(context));
+    }
+  }
+
+
+  private static final class DaemonSlayer extends AbstractScheduledService {
+    private final NGContext context;
+    private final TimeSpan slayerTimeout;
+    private int runCount;
+    private int lastRunCount;
+    private boolean executingCommand;
+
+    private static final class DaemonSlayerInstance {
+      final DaemonSlayer daemonSlayer;
+      final ServiceManager manager;
+
+      private DaemonSlayerInstance(
+          DaemonSlayer daemonSlayer,
+          ServiceManager manager) {
+        this.daemonSlayer = daemonSlayer;
+        this.manager = manager;
+      }
+    }
+
+    @Nullable private static volatile DaemonSlayerInstance daemonSlayerInstance;
+
+    public static DaemonSlayer getSlayer(NGContext context) {
+      if (daemonSlayerInstance == null) {
+        synchronized (DaemonSlayer.class) {
+          if (daemonSlayerInstance == null) {
+            DaemonSlayer slayer = new DaemonSlayer(context);
+            ServiceManager manager = new ServiceManager(ImmutableList.of(slayer));
+            manager.startAsync();
+            daemonSlayerInstance = new DaemonSlayerInstance(slayer, manager);
+          }
+        }
+      }
+      return daemonSlayerInstance.daemonSlayer;
+    }
+
+    private DaemonSlayer(NGContext context) {
+      this.context = Preconditions.checkNotNull(context);
+      this.runCount = 0;
+      this.lastRunCount = 0;
+      this.executingCommand = false;
+      this.slayerTimeout = DAEMON_SLAYER_TIMEOUT;
+    }
+
+    public class ExecuteCommandHandle implements AutoCloseable {
+      private ExecuteCommandHandle() {
+        synchronized (DaemonSlayer.this) {
+          executingCommand = true;
+        }
+      }
+
+      @Override
+      public void close() {
+        synchronized (DaemonSlayer.this) {
+          runCount++;
+          executingCommand = false;
+        }
+      }
+    }
+
+    public ExecuteCommandHandle executeCommand() {
+      return new ExecuteCommandHandle();
+    }
+
+    @Override
+    protected synchronized void runOneIteration() throws Exception {
+      if (!executingCommand && runCount == lastRunCount) {
+        context.getNGServer().shutdown(/* exitVM */ true);
+      } else {
+        lastRunCount = runCount;
+      }
+    }
+
+    @Override
+    protected Scheduler scheduler() {
+      return Scheduler.newFixedRateSchedule(
+          slayerTimeout.getDuration(),
+          slayerTimeout.getDuration(),
+          slayerTimeout.getUnit());
+    }
   }
 }

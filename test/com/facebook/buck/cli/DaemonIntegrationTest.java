@@ -44,6 +44,7 @@ import com.martiansoftware.nailgun.NGSecurityManager;
 
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 
@@ -59,12 +60,14 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.WatchEvent;
 import java.util.Arrays;
+import java.util.Properties;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+@Ignore("Exhausts inotify limit on CI server.")
 public class DaemonIntegrationTest {
 
   private static final int SUCCESS_EXIT_CODE = 0;
@@ -169,7 +172,12 @@ public class DaemonIntegrationTest {
     // Build an NGContext connected to an NGInputStream reading from a stream of heartbeats.
     Thread.currentThread().setName("Test");
     CapturingPrintStream serverLog = new CapturingPrintStream();
-    NGContext context = new NGContext();
+    NGContext context = new NGContext() {
+      @Override
+      public Properties getEnv() {
+        return new Properties();
+      }
+    };
     try (TestNGInputStream inputStream = new TestNGInputStream(
             new DataInputStream(createHeartbeatStream(100)),
             new DataOutputStream(new ByteArrayOutputStream(0)),

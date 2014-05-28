@@ -17,6 +17,8 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.event.BuckEventBus;
+import com.facebook.buck.event.BuckEventListener;
+import com.facebook.buck.event.listener.FileSerializationEventBusListener;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
@@ -31,14 +33,17 @@ import com.facebook.buck.util.AndroidDirectoryResolver;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.buck.util.environment.Platform;
+import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 
 import org.kohsuke.args4j.CmdLineException;
 import org.kohsuke.args4j.CmdLineParser;
 
 import java.io.IOException;
 import java.io.PrintStream;
+import java.nio.file.Path;
 import java.util.List;
 
 import javax.annotation.Nullable;
@@ -55,6 +60,7 @@ abstract class AbstractCommandRunner<T extends AbstractCommandOptions> implement
   private final BuckEventBus eventBus;
   private final Platform platform;
   private final AndroidDirectoryResolver androidDirectoryResolver;
+  private final ImmutableMap<String, String> environment;
 
   /** This is constructed lazily. */
   @Nullable private T options;
@@ -74,6 +80,7 @@ abstract class AbstractCommandRunner<T extends AbstractCommandOptions> implement
     this.platform = Preconditions.checkNotNull(params.getPlatform());
     this.androidDirectoryResolver =
         Preconditions.checkNotNull(params.getAndroidDirectoryResolver());
+    this.environment = Preconditions.checkNotNull(params.getEnvironment());
   }
 
   abstract T createOptions(BuckConfig buckConfig);
@@ -118,6 +125,13 @@ abstract class AbstractCommandRunner<T extends AbstractCommandOptions> implement
    */
   public final synchronized int runCommandWithOptions(T options) throws IOException {
     this.options = options;
+    // At this point, we have parsed options but haven't started running the command yet.  This is
+    // a good opportunity to augment the event bus with our serialize-to-file event-listener.
+    Optional<Path> eventsOutputPath = options.getEventsOutputPath();
+    if (eventsOutputPath.isPresent()) {
+      BuckEventListener listener = new FileSerializationEventBusListener(eventsOutputPath.get());
+      eventBus.register(listener);
+    }
     return runCommandWithOptionsInternal(options);
   }
 
@@ -230,6 +244,7 @@ abstract class AbstractCommandRunner<T extends AbstractCommandOptions> implement
                 getBuckEventBus()))
         .setEventBus(eventBus)
         .setPlatform(platform)
+        .setEnvironment(environment)
         .build();
   }
 

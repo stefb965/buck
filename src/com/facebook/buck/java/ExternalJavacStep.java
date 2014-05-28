@@ -133,8 +133,10 @@ public class ExternalJavacStep extends JavacStep {
 
     ProcessBuilder processBuilder = new ProcessBuilder(command.build());
 
-    // Add additional information to the environment
+    // Set environment to client environment and add additional information.
     Map<String, String> env = processBuilder.environment();
+    env.clear();
+    env.putAll(context.getEnvironment());
     env.put("BUCK_INVOKING_RULE", invokingRule.or(""));
     env.put("BUCK_TARGET", target.toString());
     env.put("BUCK_DIRECTORY_ROOT", context.getProjectDirectoryRoot().toString());
@@ -182,7 +184,7 @@ public class ExternalJavacStep extends JavacStep {
 
       if (path.toString().endsWith(".java")) {
         sources.add(path);
-      } else if (path.toString().endsWith(".src.zip")) {
+      } else if (path.toString().endsWith(SRC_ZIP)) {
         if (!workingDirectory.isPresent()) {
           throw new HumanReadableException(
               "Attempting to compile target %s which specified a .src.zip input %s but no " +

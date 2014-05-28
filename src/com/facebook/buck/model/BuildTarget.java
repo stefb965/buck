@@ -39,22 +39,27 @@ public final class BuildTarget implements Comparable<BuildTarget>, HasBuildTarge
 
   public static final String BUILD_TARGET_PREFIX = "//";
 
-  private static final Pattern VALID_FLAVOR_PATTERN = Pattern.compile("[a-zA-Z_]+");
+  private static final Pattern VALID_FLAVOR_PATTERN = Pattern.compile("[-a-zA-Z_]+");
 
   private final String baseName;
   private final String shortName;
-  private final Optional<String> flavor;
+  private final Optional<Flavor> flavor;
   private final String fullyQualifiedName;
 
   public BuildTarget(String baseName, String shortName) {
-    this(baseName, shortName, /* flavor */ Optional.<String>absent());
+    this(baseName, shortName, Optional.<Flavor>absent());
   }
 
+  @VisibleForTesting
   public BuildTarget(String baseName, String shortName, String flavor) {
+    this(baseName, shortName, new Flavor(flavor));
+  }
+
+  public BuildTarget(String baseName, String shortName, Flavor flavor) {
     this(baseName, shortName, Optional.of(flavor));
   }
 
-  private BuildTarget(String baseName, String shortName, Optional<String> flavor) {
+  private BuildTarget(String baseName, String shortName, Optional<Flavor> flavor) {
     Preconditions.checkNotNull(baseName);
     // shortName may be the empty string when parsing visibility patterns.
     Preconditions.checkNotNull(shortName);
@@ -64,22 +69,30 @@ public final class BuildTarget implements Comparable<BuildTarget>, HasBuildTarge
         "baseName must start with // but was %s",
         baseName);
 
+    // There's a chance that the (String, String) constructor was called, but a flavour was
+    // specified as part of the short name. Handle that case.
+    int hashIndex = shortName.lastIndexOf("#");
+    if (hashIndex != -1 && !flavor.isPresent()) {
+      flavor = Optional.of(new Flavor(shortName.substring(hashIndex + 1)));
+      shortName = shortName.substring(0, hashIndex);
+    }
+
     Preconditions.checkArgument(!shortName.contains("#"),
         "Build target name cannot contain '#' but was: %s.",
         shortName);
     if (flavor.isPresent()) {
-      String flavorName = flavor.get();
-      if (!VALID_FLAVOR_PATTERN.matcher(flavorName).matches()) {
+      Flavor flavorName = flavor.get();
+      if (!VALID_FLAVOR_PATTERN.matcher(flavorName.toString()).matches()) {
         throw new IllegalArgumentException("Invalid flavor: " + flavorName);
       }
-      shortName += "#" + flavorName;
     }
 
     // On Windows, baseName may contain backslashes, which are not permitted by BuildTarget.
     this.baseName = baseName.replace("\\", "/");
     this.shortName = shortName;
     this.flavor = flavor;
-    this.fullyQualifiedName = baseName + ":" + shortName;
+    this.fullyQualifiedName =
+        baseName + ":" + shortName + (flavor.isPresent() ? "#" + flavor.get() : "");
   }
 
   /**
@@ -117,20 +130,20 @@ public final class BuildTarget implements Comparable<BuildTarget>, HasBuildTarge
 
   /**
    * If this build target were //third_party/java/guava:guava-latest, then this would return
-   * "guava-latest".
+   * "guava-latest". Note that the flavor of the target is included here.
    */
-  @JsonProperty("shortName")
   public String getShortName() {
+    return shortName + (flavor.isPresent() ? "#" + flavor.get() : "");
+  }
+
+  @JsonProperty("shortName")
+  public String getShortNameOnly() {
     return shortName;
   }
 
-  @VisibleForTesting
-  String getShortNameWithoutFlavor() {
-    if (!isFlavored()) {
-      return shortName;
-    } else {
-      return shortName.substring(0, shortName.length() - flavor.get().length() - 1);
-    }
+  @JsonProperty("flavor")
+  public Flavor getFlavor() {
+    return flavor.or(Flavor.DEFAULT);
   }
 
   /**

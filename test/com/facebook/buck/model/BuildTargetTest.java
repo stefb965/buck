@@ -21,16 +21,11 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
 
-import java.io.File;
 import java.io.IOException;
 
 public class BuildTargetTest {
-  @Rule
-  public TemporaryFolder folder = new TemporaryFolder();
 
   @Test
   public void testRootBuildTarget() {
@@ -58,9 +53,6 @@ public class BuildTargetTest {
 
   @Test
   public void testBuildTargetWithBackslash() throws IOException {
-    folder.create();
-    File buildFile = new File(folder.newFolder("com", "microsoft", "windows"), "buck");
-    assertTrue(buildFile.createNewFile());
     BuildTarget rootTargetWithBackslash = new BuildTarget(
         "//com\\microsoft\\windows",
         "something");
@@ -92,8 +84,8 @@ public class BuildTargetTest {
   @Test
   public void testBuildTargetWithFlavor() {
     BuildTarget target = new BuildTarget("//foo/bar", "baz", "dex");
-    assertEquals(target.getShortName(), "baz#dex");
-    assertEquals(target.getShortNameWithoutFlavor(), "baz");
+    assertEquals("baz#dex", target.getShortName());
+    assertEquals(new Flavor("dex"), target.getFlavor());
     assertTrue(target.isFlavored());
   }
 
@@ -101,7 +93,7 @@ public class BuildTargetTest {
   public void testBuildTargetWithoutFlavor() {
     BuildTarget target = new BuildTarget("//foo/bar", "baz");
     assertEquals(target.getShortName(), "baz");
-    assertEquals(target.getShortNameWithoutFlavor(), "baz");
+    assertEquals(Flavor.DEFAULT, target.getFlavor());
     assertFalse(target.isFlavored());
   }
 
@@ -116,12 +108,33 @@ public class BuildTargetTest {
   }
 
   @Test
-  public void testShortNameCannotContainHash() {
+  public void testShortNameCannotContainHashWhenFlavorSet() {
     try {
-      new BuildTarget("//foo/bar", "baz#dex");
+      new BuildTarget("//foo/bar", "baz#dex", "src-jar");
       fail("Should have thrown IllegalArgumentException.");
     } catch (IllegalArgumentException e) {
       assertEquals("Build target name cannot contain '#' but was: baz#dex.", e.getMessage());
+    }
+  }
+
+  @Test
+  public void testFlavorDerivedFromShortNameIfAbsent() {
+    assertEquals(new Flavor("dex"), new BuildTarget("//foo/bar", "baz#dex").getFlavor());
+  }
+
+  @Test
+  public void testFlavorDefaultsToTheEmptyStringIfNotSet() {
+    assertEquals(Flavor.DEFAULT, new BuildTarget("//foo/bar", "baz").getFlavor());
+  }
+
+  @Test
+  public void testNotSettingTheFlavorInTheShortStringButLookingLikeYouMightIsTeasingAndWrong() {
+    try {
+      // Hilarious case that might result in an IndexOutOfBoundsException
+      new BuildTarget("//foo/bar", "baz#");
+      fail("Should have thrown IllegalArgumentException.");
+    } catch (IllegalArgumentException e) {
+      assertEquals("Invalid flavor: ", e.getMessage());
     }
   }
 }
