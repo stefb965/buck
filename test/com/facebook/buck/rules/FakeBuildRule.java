@@ -20,14 +20,13 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.step.Step;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Collection;
-import java.util.List;
 
 import javax.annotation.Nullable;
 
@@ -45,8 +44,12 @@ public class FakeBuildRule extends AbstractBuildRule implements BuildRule, Build
       BuildTarget target,
       ImmutableSortedSet<BuildRule> deps,
       ImmutableSet<BuildTargetPattern> visibilityPatterns) {
-    this(type,
-        new FakeBuildRuleParams(target, deps, visibilityPatterns));
+    this(
+        type,
+        new FakeBuildRuleParamsBuilder(target)
+            .setDeps(deps)
+            .setVisibility(visibilityPatterns)
+            .build());
   }
 
   public FakeBuildRule(BuildRuleType type, BuildRuleParams buildRuleParams) {
@@ -55,7 +58,7 @@ public class FakeBuildRule extends AbstractBuildRule implements BuildRule, Build
   }
 
   public FakeBuildRule(BuildRuleType type, BuildTarget buildTarget) {
-    this(type, new FakeBuildRuleParams(buildTarget));
+    this(type, new FakeBuildRuleParamsBuilder(buildTarget).build());
   }
 
   @Override
@@ -82,12 +85,6 @@ public class FakeBuildRule extends AbstractBuildRule implements BuildRule, Build
     this.outputFile = Paths.get(outputFile);
   }
 
-  @Override
-  @Nullable
-  public ImmutableSortedSet<BuildRule> getEnhancedDeps(BuildRuleResolver ruleResolver) {
-    return null;
-  }
-
   public void setRuleKey(RuleKey ruleKey) {
     this.ruleKey = ruleKey;
   }
@@ -112,12 +109,14 @@ public class FakeBuildRule extends AbstractBuildRule implements BuildRule, Build
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
+  public ImmutableList<Step> getBuildSteps(
+      BuildContext context,
+      BuildableContext buildableContext) {
     throw new UnsupportedOperationException();
   }
 }

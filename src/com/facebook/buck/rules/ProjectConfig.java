@@ -20,12 +20,12 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.step.Step;
 import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 
 import java.nio.file.Path;
-import java.util.Collection;
 import java.util.List;
 
 import javax.annotation.Nullable;
@@ -48,8 +48,6 @@ public class ProjectConfig extends AbstractBuildable {
 
   private final boolean isIntelliJPlugin;
 
-  private final BuildTarget buildTarget;
-
   protected ProjectConfig(
       BuildTarget buildTarget,
       @Nullable BuildRule srcRule,
@@ -57,6 +55,7 @@ public class ProjectConfig extends AbstractBuildable {
       @Nullable BuildRule testRule,
       @Nullable List<String> testRoots,
       boolean isIntelliJPlugin) {
+    super(buildTarget);
     Preconditions.checkArgument(srcRule != null || testRule != null,
         "At least one of src_target or test_target must be specified in %s.",
         buildTarget.getFullyQualifiedName());
@@ -65,7 +64,6 @@ public class ProjectConfig extends AbstractBuildable {
         "but was %s.",
         testRule);
 
-    this.buildTarget = Preconditions.checkNotNull(buildTarget);
     this.srcRule = srcRule;
     if (srcRoots != null) {
       this.srcSourceRoots = ImmutableList.copyOf(Iterables.transform(srcRoots,
@@ -93,10 +91,6 @@ public class ProjectConfig extends AbstractBuildable {
     }
 
     this.isIntelliJPlugin = isIntelliJPlugin;
-  }
-
-  public BuildTarget getBuildTarget() {
-    return buildTarget;
   }
 
   /**
@@ -136,12 +130,12 @@ public class ProjectConfig extends AbstractBuildable {
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     return ImmutableSet.of();
   }
 
   @Override
-  public List<Step> getBuildSteps(
+  public ImmutableList<Step> getBuildSteps(
       BuildContext context, BuildableContext buildableContext) {
     return ImmutableList.of();
   }

@@ -1,7 +1,7 @@
 [
 {
   "annotationProcessorDeps" : [ ],
-  "annotationProcessorOnly" : false,
+  "annotationProcessorOnly" : null,
   "annotationProcessorParams" : [ ],
   "annotationProcessors" : [ ],
   "buck.base_path" : "testdata/com/facebook/buck/cli",
@@ -14,6 +14,7 @@
   "proguardConfig" : null,
   "providedDeps": [],
   "resources" : [ ],
+  "resourcesRoot" : null,
   "source" : "6",
   "srcs" : [ ],
   "target" : "6",

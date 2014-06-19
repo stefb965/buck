@@ -418,6 +418,23 @@ public class ConstructorArgMarshallerTest {
   }
 
   @Test
+  public void specifyingZeroIsNotConsideredOptional() {
+    class Dto implements ConstructorArg {
+      public Optional<Integer> number;
+    }
+
+    Dto dto = new Dto();
+    marshaller.populate(
+        ruleResolver,
+        filesystem,
+        buildRuleFactoryParams(ImmutableMap.<String, Object>of("number", 0)),
+        dto);
+
+    assertTrue(dto.number.isPresent());
+    assertEquals(Optional.of(0), dto.number);
+  }
+
+  @Test
   public void canPopulateSimpleConstructorArgFromBuildFactoryParams() {
     class Dto implements ConstructorArg {
       public String required;
@@ -428,8 +445,7 @@ public class ConstructorArgMarshallerTest {
       //public Optional<Long> optionalLong;
 
       public boolean needed;
-      // Turns out there are no optional boolean params
-      //public Optional<Boolean> notNeeded;
+      public Optional<Boolean> notNeeded;
 
       public SourcePath aSrcPath;
       public Optional<SourcePath> notASrcPath;
@@ -462,6 +478,7 @@ public class ConstructorArgMarshallerTest {
     assertEquals("cake", dto.notRequired.get());
     assertEquals(42, dto.num);
     assertTrue(dto.needed);
+    assertEquals(Optional.<Boolean>absent(), dto.notNeeded);
     BuildRuleSourcePath expected = new BuildRuleSourcePath(expectedRule);
     assertEquals(expected, dto.aSrcPath);
     assertEquals(Paths.get("example/path/NotFile.java"), dto.notAPath.get());

@@ -30,13 +30,14 @@ import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.parser.PartialGraph;
 import com.facebook.buck.parser.RawRulePredicate;
 import com.facebook.buck.parser.RawRulePredicates;
+import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildEngine;
+import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleSuccess;
 import com.facebook.buck.rules.Buildable;
-import com.facebook.buck.rules.DependencyGraph;
 import com.facebook.buck.rules.IndividualTestEvent;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TestRule;
@@ -51,6 +52,7 @@ import com.facebook.buck.test.TestCaseSummary;
 import com.facebook.buck.test.TestResultSummary;
 import com.facebook.buck.test.TestResults;
 import com.facebook.buck.test.result.groups.TestResultsGrouper;
+import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MorePaths;
@@ -87,6 +89,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 
@@ -116,7 +119,7 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
   @Override
   int runCommandWithOptionsInternal(final TestCommandOptions options) throws IOException {
     // If the user asked to run all of the tests, use a special method for that that is optimized to
-    // parse all of the build files and traverse the dependency graph to find all of the tests to
+    // parse all of the build files and traverse the action graph to find all of the tests to
     // run.
     if (options.isRunAllTests()) {
       try {
@@ -136,12 +139,11 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
 
     Build build = buildCommand.getBuild();
 
-    Iterable<TestRule> results = getCandidateRules(build.getDependencyGraph());
+    Iterable<TestRule> results = getCandidateRules(build.getActionGraph());
 
     results = filterTestRules(options, results);
-    if (options.isPrintMatchingTestRules()) {
+    if (options.isDryRun()) {
       printMatchingTestRules(console, results);
-      return 0;
     }
 
     BuildContext buildContext = build.getBuildContext();
@@ -290,19 +292,34 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
       BuildTargetException, BuildFileParseException, ExecutionException {
     Logging.setLoggingLevelForVerbosity(console.getVerbosity());
 
+    // We won't have a list of targets until the build is already started, so BuildEvents will get
+    // an empty list.
+    ImmutableList<BuildTarget> emptyTargetsList = ImmutableList.of();
+
+    // Post the build started event, setting it to the Parser recorded start time if appropriate.
+    if (getParser().getParseStartTime().isPresent()) {
+      getBuckEventBus().post(
+          BuildEvent.started(emptyTargetsList),
+          getParser().getParseStartTime().get());
+    } else {
+      getBuckEventBus().post(BuildEvent.started(emptyTargetsList));
+    }
+
     // The first step is to parse all of the build files. This will populate the parser and find all
     // of the test rules.
     RawRulePredicate predicate = RawRulePredicates.isTestRule();
-    PartialGraph partialGraph = PartialGraph.createPartialGraph(predicate,
+    PartialGraph partialGraph = PartialGraph.createPartialGraph(
+        predicate,
         getProjectFilesystem(),
         options.getDefaultIncludes(),
         getParser(),
         getBuckEventBus());
 
-    final DependencyGraph graph = partialGraph.getDependencyGraph();
+    final ActionGraph graph = partialGraph.getActionGraph();
 
-    // Look up all of the test rules in the dependency graph.
-    Iterable<TestRule> testRules = Iterables.transform(partialGraph.getTargets(),
+    // Look up all of the test rules in the action graph.
+    Iterable<TestRule> testRules = Iterables.transform(
+        partialGraph.getTargets(),
         new Function<BuildTarget, TestRule>() {
           @Override
           public TestRule apply(BuildTarget buildTarget) {
@@ -316,9 +333,8 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
         });
 
     testRules = filterTestRules(options, testRules);
-    if (options.isPrintMatchingTestRules()) {
+    if (options.isDryRun()) {
       printMatchingTestRules(console, testRules);
-      return 0;
     }
 
     // Create artifact cache to initialize Cassandra connection, if appropriate.
@@ -339,6 +355,7 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
       // Build all of the test rules.
       int exitCode = BuildCommand.executeBuildAndPrintAnyFailuresToConsole(
           testRules, build, console);
+      getBuckEventBus().post(BuildEvent.finished(emptyTargetsList, exitCode));
       if (exitCode != 0) {
         return exitCode;
       }
@@ -368,7 +385,7 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
 
   @VisibleForTesting
   static Iterable<TestRule> getCandidateRules(
-      DependencyGraph graph) {
+      ActionGraph graph) {
     AbstractBottomUpTraversal<BuildRule, List<TestRule>> traversal =
         new AbstractBottomUpTraversal<BuildRule, List<TestRule>>(graph) {
 
@@ -451,6 +468,10 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
       final TestCommandOptions options)
       throws IOException, ExecutionException {
 
+    if (options.isUsingOneTimeOutputDirectories()) {
+      BuckConstant.setOneTimeTestSubdirectory(UUID.randomUUID().toString());
+    }
+
     ImmutableSet<JavaLibrary> rulesUnderTest;
     // If needed, we first run instrumentation on the class files.
     if (options.isCodeCoverageEnabled()) {
@@ -528,6 +549,7 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
         List<Step> testSteps = test.runTests(
             buildContext,
             executionContext,
+            options.isDryRun(),
             options.getTestSelectorList());
         if (!testSteps.isEmpty()) {
           stepsBuilder.addAll(testSteps);
@@ -545,7 +567,8 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
               getCachingStatusTransformingCallable(
                   isTestRunRequired,
                   test.interpretTestResults(executionContext,
-                      /*isUsingTestSelectors*/ !options.getTestSelectorList().isEmpty())),
+                      /*isUsingTestSelectors*/ !options.getTestSelectorList().isEmpty(),
+                      /*isDryRun*/ options.isDryRun())),
               test.getBuildTarget());
       FutureCallback<TestResults> onTestFinishedCallback =
           getFutureCallback(grouper, test, options, printTestResults);

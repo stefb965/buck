@@ -17,9 +17,9 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractBuildable;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.FakeBuildRuleParams;
+import com.facebook.buck.rules.DescribedRule;
+import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
@@ -55,14 +55,18 @@ public class PrebuiltNativeLibraryBuilder {
     }
 
     public PrebuiltNativeLibrary buildAsBuildable() {
-      return new PrebuiltNativeLibrary(nativeLibs, isAsset, ImmutableSortedSet.<Path>of());
+      return new PrebuiltNativeLibrary(
+          buildTarget,
+          nativeLibs,
+          isAsset,
+          ImmutableSortedSet.<Path>of());
     }
 
     public BuildRule build() {
-      return new AbstractBuildable.AnonymousBuildRule(
+      return new DescribedRule(
           PrebuiltNativeLibraryDescription.TYPE,
           buildAsBuildable(),
-          new FakeBuildRuleParams(buildTarget));
+          new FakeBuildRuleParamsBuilder(buildTarget).build());
     }
   }
 }

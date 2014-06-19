@@ -16,6 +16,7 @@
 
 package com.facebook.buck.apple;
 
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractBuildable;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
@@ -23,12 +24,11 @@ import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.step.Step;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.nio.file.Path;
-import java.util.Collection;
-import java.util.List;
 
 import javax.annotation.Nullable;
 
@@ -36,7 +36,8 @@ public class XcodeProjectConfig extends AbstractBuildable {
   private final String projectName;
   private final ImmutableSet<BuildRule> rules;
 
-  public XcodeProjectConfig(XcodeProjectConfigDescription.Arg arg) {
+  public XcodeProjectConfig(BuildTarget target, XcodeProjectConfigDescription.Arg arg) {
+    super(target);
     projectName = Preconditions.checkNotNull(arg.projectName);
     rules = Preconditions.checkNotNull(arg.rules);
   }
@@ -56,12 +57,12 @@ public class XcodeProjectConfig extends AbstractBuildable {
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     return ImmutableList.of();
   }
 
   @Override
-  public List<Step> getBuildSteps(
+  public ImmutableList<Step> getBuildSteps(
       BuildContext context, BuildableContext buildableContext) {
     return ImmutableList.of();
   }

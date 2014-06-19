@@ -37,6 +37,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -44,7 +45,6 @@ import com.google.common.collect.Iterables;
 
 import java.io.File;
 import java.nio.file.Path;
-import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 
@@ -81,8 +81,9 @@ public class RobolectricTest extends JavaTest {
       Optional<Path> proguardConfig,
       JavacOptions javacOptions,
       List<String> vmArgs,
-      ImmutableSet<BuildTarget> sourceTargetsUnderTest) {
-    super(buildRuleParams,
+      ImmutableSet<BuildTarget> sourceTargetsUnderTest,
+      Optional<Path> resourcesRoot) {
+    super(buildRuleParams.getBuildTarget(),
         srcs,
         resources,
         labels,
@@ -90,7 +91,9 @@ public class RobolectricTest extends JavaTest {
         proguardConfig,
         javacOptions,
         vmArgs,
-        sourceTargetsUnderTest);
+        buildRuleParams.getDeps(),
+        sourceTargetsUnderTest,
+        resourcesRoot);
     this.buildRuleParams = Preconditions.checkNotNull(buildRuleParams);
     this.javacOptions = Preconditions.checkNotNull(javacOptions);
   }
@@ -101,13 +104,16 @@ public class RobolectricTest extends JavaTest {
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     return super.getInputsToCompareToOutput();
   }
 
   @Override
-  public ImmutableSortedSet<BuildRule> getEnhancedDeps(BuildRuleResolver ruleResolver) {
-    super.getEnhancedDeps(ruleResolver);
+  public ImmutableSortedSet<BuildRule> getEnhancedDeps(
+      BuildRuleResolver ruleResolver,
+      Iterable<BuildRule> declaredDeps,
+      Iterable<BuildRule> inferredDeps) {
+    super.getEnhancedDeps(ruleResolver, declaredDeps, inferredDeps);
     AndroidLibraryGraphEnhancer.Result result = new AndroidLibraryGraphEnhancer(
         buildRuleParams.getBuildTarget(),
         buildRuleParams,
@@ -122,9 +128,11 @@ public class RobolectricTest extends JavaTest {
         : ImmutableSet.<Path>of();
 
     this.deps = result.getBuildRuleParams().getDeps();
-    return deps;
+    return ImmutableSortedSet.<BuildRule>naturalOrder()
+        .addAll(deps)
+        .addAll(inferredDeps)
+        .build();
   }
-
 
   @Override
   protected Set<Path> getBootClasspathEntries(ExecutionContext context) {

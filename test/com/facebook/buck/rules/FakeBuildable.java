@@ -16,28 +16,34 @@
 
 package com.facebook.buck.rules;
 
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.step.Step;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Collection;
-import java.util.List;
 
 import javax.annotation.Nullable;
 
 public class FakeBuildable extends AbstractBuildable {
 
+  public FakeBuildable(BuildTarget target) {
+    super(target);
+  }
+
   @Nullable
   private Path pathToOutputFile;
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     return ImmutableList.of();
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
+  public ImmutableList<Step> getBuildSteps(
+      BuildContext context,
+      BuildableContext buildableContext) {
     return ImmutableList.of();
   }
 

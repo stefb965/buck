@@ -42,6 +42,7 @@ import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -52,9 +53,7 @@ import java.nio.file.FileVisitResult;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.util.Collection;
 import java.util.Collections;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -66,35 +65,31 @@ public class AaptPackageResources extends AbstractBuildable
 
   public static final String RESOURCE_PACKAGE_HASH_KEY = "resource_package_hash";
 
-  private final BuildTarget buildTarget;
   private final SourcePath manifest;
   private final FilteredResourcesProvider filteredResourcesProvider;
-  private final AndroidTransitiveDependencies androidTransitiveDependencies;
+  private final ImmutableSet<Path> assetsDirectories;
   private final PackageType packageType;
   private final ImmutableSet<TargetCpuType> cpuFilters;
   private final BuildOutputInitializer<BuildOutput> buildOutputInitializer;
-  private final Optional<Path> aaptOverride;
 
   AaptPackageResources(
       BuildTarget buildTarget,
       SourcePath manifest,
       FilteredResourcesProvider filteredResourcesProvider,
-      AndroidTransitiveDependencies androidTransitiveDependencies,
+      ImmutableSet<Path> assetsDirectories,
       PackageType packageType,
-      ImmutableSet<TargetCpuType> cpuFilters,
-      Optional<Path> aaptOverride) {
-    this.buildTarget = Preconditions.checkNotNull(buildTarget);
+      ImmutableSet<TargetCpuType> cpuFilters) {
+    super(buildTarget);
     this.manifest = Preconditions.checkNotNull(manifest);
     this.filteredResourcesProvider = Preconditions.checkNotNull(filteredResourcesProvider);
-    this.androidTransitiveDependencies = Preconditions.checkNotNull(androidTransitiveDependencies);
+    this.assetsDirectories = Preconditions.checkNotNull(assetsDirectories);
     this.packageType = Preconditions.checkNotNull(packageType);
     this.cpuFilters = Preconditions.checkNotNull(cpuFilters);
-    this.aaptOverride = Preconditions.checkNotNull(aaptOverride);
     this.buildOutputInitializer = new BuildOutputInitializer<>(buildTarget, this);
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     return SourcePaths.filterInputsToCompareToOutput(Collections.singleton(manifest));
   }
 
@@ -111,7 +106,10 @@ public class AaptPackageResources extends AbstractBuildable
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
+  public ImmutableList<Step> getBuildSteps(
+      BuildContext context,
+      BuildableContext buildableContext) {
+
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
     // Symlink the manifest to a path named AndroidManifest.xml. Do this before running any other
@@ -130,11 +128,11 @@ public class AaptPackageResources extends AbstractBuildable
         ImmutableList.Builder<Step> commands = ImmutableList.builder();
         try {
           createAllAssetsDirectory(
-              androidTransitiveDependencies.assetsDirectories,
+              assetsDirectories,
               commands,
               context.getProjectFilesystem());
         } catch (IOException e) {
-          context.logError(e, "Error creating all assets directory in %s.", buildTarget);
+          context.logError(e, "Error creating all assets directory in %s.", target);
           return 1;
         }
 
@@ -161,19 +159,10 @@ public class AaptPackageResources extends AbstractBuildable
     steps.add(collectAssets);
 
     Optional<Path> assetsDirectory;
-    if (androidTransitiveDependencies.assetsDirectories.isEmpty() &&
-        androidTransitiveDependencies.nativeLibAssetsDirectories.isEmpty()) {
+    if (assetsDirectories.isEmpty()) {
       assetsDirectory = Optional.absent();
     } else {
       assetsDirectory = Optional.of(getPathToAllAssetsDirectory());
-    }
-
-    if (!androidTransitiveDependencies.nativeLibAssetsDirectories.isEmpty()) {
-      Path nativeLibAssetsDir = assetsDirectory.get().resolve("lib");
-      steps.add(new MakeCleanDirectoryStep(nativeLibAssetsDir));
-      for (Path nativeLibDir : androidTransitiveDependencies.nativeLibAssetsDirectories) {
-        AndroidBinary.copyNativeLibrary(nativeLibDir, nativeLibAssetsDir, cpuFilters, steps);
-      }
     }
 
     steps.add(new MkdirStep(getResourceApkPath().getParent()));
@@ -183,8 +172,7 @@ public class AaptPackageResources extends AbstractBuildable
         filteredResourcesProvider.getResDirectories(),
         assetsDirectory,
         getResourceApkPath(),
-        packageType.isCrunchPngFiles(),
-        aaptOverride));
+        packageType.isCrunchPngFiles()));
 
     buildableContext.recordArtifact(getAndroidManifestXml());
     buildableContext.recordArtifact(getResourceApkPath());
@@ -206,7 +194,7 @@ public class AaptPackageResources extends AbstractBuildable
    * {@link #manifest}.
    */
   Path getAndroidManifestXml() {
-    return BuildTargets.getBinPath(buildTarget, "__manifest_%s__/AndroidManifest.xml");
+    return BuildTargets.getBinPath(target, "__manifest_%s__/AndroidManifest.xml");
   }
 
   /**
@@ -257,12 +245,12 @@ public class AaptPackageResources extends AbstractBuildable
    * @return Path to the unsigned APK generated by this {@link com.facebook.buck.rules.Buildable}.
    */
   public Path getResourceApkPath() {
-    return BuildTargets.getGenPath(buildTarget, "%s.unsigned.ap_");
+    return BuildTargets.getGenPath(target, "%s.unsigned.ap_");
   }
 
   @VisibleForTesting
   Path getPathToAllAssetsDirectory() {
-    return BuildTargets.getBinPath(buildTarget, "__assets_%s__");
+    return BuildTargets.getBinPath(target, "__assets_%s__");
   }
 
   public Sha1HashCode getResourcePackageHash() {
@@ -283,7 +271,7 @@ public class AaptPackageResources extends AbstractBuildable
     Preconditions.checkState(
         resourcePackageHash.isPresent(),
         "Should not be initializing %s from disk if the resource hash is not written.",
-        buildTarget);
+        target);
     return new BuildOutput(resourcePackageHash.get());
   }
 

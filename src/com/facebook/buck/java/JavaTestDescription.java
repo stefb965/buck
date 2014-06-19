@@ -54,15 +54,17 @@ public class JavaTestDescription implements Description<JavaTestDescription.Arg>
     javacOptions.setAnnotationProcessingData(annotationParams);
 
     return new JavaTest(
-        params,
+        params.getBuildTarget(),
         args.srcs.get(),
-        args.resources.get(),
+        JavaLibraryDescription.validateResources(args, params.getProjectFilesystem()),
         args.labels.get(),
         args.contacts.get(),
         args.proguardConfig,
         javacOptions.build(),
         args.vmArgs.get(),
-        args.sourceUnderTest.get());
+        params.getDeps(),
+        args.sourceUnderTest.get(),
+        args.resourcesRoot);
   }
 
   public static class Arg extends JavaLibraryDescription.Arg {

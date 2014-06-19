@@ -36,6 +36,7 @@ import com.facebook.buck.step.fs.WriteFileStep;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Sets;
@@ -44,7 +45,6 @@ import java.io.IOException;
 import java.io.StringWriter;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
@@ -55,26 +55,25 @@ public class JsLibrary extends AbstractBuildable implements
   private final Path output;
   private final ImmutableSortedSet<BuildRule> deps;
   private final ImmutableSortedSet<SourcePath> srcs;
-  private final BuildTarget buildTarget;
   private JavascriptDependencies joy;
   private final BuildOutputInitializer<JavascriptDependencies> buildOutputInitializer;
 
   public JsLibrary(
-      BuildTarget buildTarget,
+      BuildTarget target,
       ImmutableSortedSet<BuildRule> deps,
       ImmutableSortedSet<SourcePath> srcs) {
-    this.buildTarget = buildTarget;
+    super(target);
     this.deps = Preconditions.checkNotNull(deps);
     this.srcs = Preconditions.checkNotNull(srcs);
 
     this.output = Paths.get(
-        GEN_DIR, buildTarget.getBaseName(), buildTarget.getShortName() + "-library.deps");
+        GEN_DIR, target.getBaseName(), target.getShortName() + "-library.deps");
 
-    buildOutputInitializer = new BuildOutputInitializer<>(buildTarget, this);
+    buildOutputInitializer = new BuildOutputInitializer<>(target, this);
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     return SourcePaths.filterInputsToCompareToOutput(srcs);
   }
 
@@ -85,7 +84,9 @@ public class JsLibrary extends AbstractBuildable implements
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
+  public ImmutableList<Step> getBuildSteps(
+      BuildContext context,
+      BuildableContext buildableContext) {
     Set<String> allRequires = Sets.newHashSet();
     Set<String> allProvides = Sets.newHashSet();
     JavascriptDependencies smidgen = new JavascriptDependencies();
@@ -120,7 +121,7 @@ public class JsLibrary extends AbstractBuildable implements
     }
 
     if (!allRequires.isEmpty()) {
-      throw new RuntimeException(buildTarget + " --- Missing dependencies for: " + allRequires);
+      throw new RuntimeException(target + " --- Missing dependencies for: " + allRequires);
     }
 
     StringWriter writer = new StringWriter();

@@ -72,6 +72,16 @@ public class JarDirectoryStep implements Step {
   /** If specified, the Manifest file to use for the generated JAR file.  */
   @Nullable
   private final Path manifestFile;
+  /** Indicates that manifest merging should occur. Defaults to true. */
+  private final boolean mergeManifests;
+
+  public JarDirectoryStep(
+      Path pathToOutputFile,
+      Set<Path> entriesToJar,
+      @Nullable String mainClass,
+      @Nullable Path manifestFile) {
+    this(pathToOutputFile, entriesToJar, mainClass, manifestFile, true);
+  }
 
   /**
    * Creates a JAR from the specified entries (most often, classpath entries).
@@ -90,11 +100,13 @@ public class JarDirectoryStep implements Step {
   public JarDirectoryStep(Path pathToOutputFile,
                           Set<Path> entriesToJar,
                           @Nullable String mainClass,
-                          @Nullable Path manifestFile) {
+                          @Nullable Path manifestFile,
+                          boolean mergeManifests) {
     this.pathToOutputFile = Preconditions.checkNotNull(pathToOutputFile);
     this.entriesToJar = ImmutableSet.copyOf(entriesToJar);
     this.mainClass = mainClass;
     this.manifestFile = manifestFile;
+    this.mergeManifests = mergeManifests;
   }
 
   private String getJarArgs() {
@@ -168,7 +180,14 @@ public class JarDirectoryStep implements Step {
         try (FileInputStream manifestStream = new FileInputStream(
             filesystem.getFileForRelativePath(manifestFile))) {
           Manifest userSupplied = new Manifest(manifestStream);
-          merge(manifest, userSupplied);
+
+          // In the common case, we want to use the merged manifests. In the uncommon case, we just
+          // want to use the one the user gave us.
+          if (mergeManifests) {
+            merge(manifest, userSupplied);
+          } else {
+            manifest = userSupplied;
+          }
         }
       }
 
@@ -220,10 +239,21 @@ public class JarDirectoryStep implements Step {
           continue;
         }
 
-        // Reinitialize the compressed field to -1 as the ZipEntry(String) constructor would.
-        // See https://github.com/spearce/buck/commit/8338c1c3d4a546f577eed0c9941d9f1c2ba0a1b7.
         ZipEntry newEntry = new ZipEntry(entry);
-        newEntry.setCompressedSize(-1);
+
+        // For deflated entries, the act of re-"putting" this entry means we're re-compressing
+        // the data that we've just uncompressed.  Due to various environmental issues (e.g. a
+        // newer version of zlib, changed compression settings), we may end up with a different
+        // compressed size.  This causes an issue in java's `java.util.zip.ZipOutputStream`
+        // implementation, as it only updates the compressed size field if one of `crc`,
+        // `compressedSize`, or `size` is -1.  When we copy the entry as-is, none of these are
+        // -1, and we may end up with an incorrect compressed size, in which case, we'll get an
+        // exception.  So, for deflated entries, reset the compressed size to -1 (as the
+        // ZipEntry(String) would).
+        // See https://github.com/spearce/buck/commit/8338c1c3d4a546f577eed0c9941d9f1c2ba0a1b7.
+        if (entry.getMethod() == ZipEntry.DEFLATED) {
+          newEntry.setCompressedSize(-1);
+        }
 
         jar.putNextEntry(newEntry);
         InputStream inputStream = zip.getInputStream(entry);

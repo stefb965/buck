@@ -45,8 +45,8 @@ public class IosResourceDescription implements Description<AppleResourceDescript
   @Override
   public AppleResource createBuildable(BuildRuleParams params, AppleResourceDescriptionArg args) {
     return new AppleResource(
+        params.getBuildTarget(),
         new DefaultDirectoryTraverser(),
-        params,
         args,
         Optional.<Path>absent());
   }

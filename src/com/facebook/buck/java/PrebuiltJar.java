@@ -42,6 +42,7 @@ import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.ImmutableSortedMap;
@@ -50,8 +51,6 @@ import com.google.common.hash.HashCode;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.Collection;
-import java.util.List;
 
 public class PrebuiltJar extends AbstractBuildable
     implements JavaLibrary, HasClasspathEntries, ExportDependencies,
@@ -70,7 +69,6 @@ public class PrebuiltJar extends AbstractBuildable
       declaredClasspathEntriesSupplier;
 
   private final BuildOutputInitializer<Data> buildOutputInitializer;
-  private final BuildTarget target;
   private final ImmutableSortedSet<BuildRule> deps;
 
   PrebuiltJar(
@@ -79,7 +77,7 @@ public class PrebuiltJar extends AbstractBuildable
       Optional<SourcePath> sourceJar,
       Optional<SourcePath> gwtJar,
       Optional<String> javadocUrl) {
-    this.target = buildableParams.getBuildTarget();
+    super(buildableParams.getBuildTarget());
     this.deps = buildableParams.getDeps();
     this.binaryJar = Preconditions.checkNotNull(binaryJar);
     this.sourceJar = Preconditions.checkNotNull(sourceJar);
@@ -140,7 +138,7 @@ public class PrebuiltJar extends AbstractBuildable
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     ImmutableList.Builder<SourcePath> inputsToCompareToOutput = ImmutableList.builder();
     inputsToCompareToOutput.add(binaryJar);
     Optionals.addIfPresent(sourceJar, inputsToCompareToOutput);
@@ -199,7 +197,9 @@ public class PrebuiltJar extends AbstractBuildable
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, final BuildableContext buildableContext) {
+  public ImmutableList<Step> getBuildSteps(
+      BuildContext context,
+      final BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
     // Create a step to compute the ABI key.

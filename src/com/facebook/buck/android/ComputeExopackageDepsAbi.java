@@ -33,6 +33,7 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.hash.Hasher;
@@ -40,8 +41,6 @@ import com.google.common.hash.Hashing;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.Collection;
-import java.util.List;
 import java.util.Map;
 
 import javax.annotation.Nullable;
@@ -71,6 +70,7 @@ public class ComputeExopackageDepsAbi
       Optional<PackageStringAssets> packageStringAssets,
       Optional<PreDexMerge> preDexMerge,
       Keystore keystore) {
+    super(buildTarget);
     this.androidResourceDepsFinder = Preconditions.checkNotNull(androidResourceDepsFinder);
     this.uberRDotJava = Preconditions.checkNotNull(uberRDotJava);
     this.aaptPackageResources = Preconditions.checkNotNull(aaptPackageResources);
@@ -81,12 +81,12 @@ public class ComputeExopackageDepsAbi
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     return ImmutableList.of();
   }
 
   @Override
-  public List<Step> getBuildSteps(
+  public ImmutableList<Step> getBuildSteps(
       BuildContext context, final BuildableContext buildableContext) {
     return ImmutableList.<Step>of(
         new AbstractExecutionStep("compute_android_binary_deps_abi") {
@@ -134,6 +134,13 @@ public class ComputeExopackageDepsAbi
                 }
               }
 
+              // Same deal for native libs as assets.
+              for (final Path libDir : transitiveDependencies.nativeLibAssetsDirectories) {
+                for (Path nativeFile : filesystem.getFilesUnderPath(libDir)) {
+                  filesToHash.put(nativeFile, "native_lib_as_asset");
+                }
+              }
+
               // Resources get copied from third-party JARs, so hash them.
               for (Path jar : dexTransitiveDependencies.pathsToThirdPartyJars) {
                 filesToHash.put(jar, "third-party jar");
@@ -148,6 +155,8 @@ public class ComputeExopackageDepsAbi
                 hasher.putUnencodedChars(path.toString());
                 hasher.putByte((byte) 0);
                 hasher.putUnencodedChars(filesystem.computeSha1(path));
+                hasher.putByte((byte) 0);
+                hasher.putUnencodedChars(entry.getValue());
                 hasher.putByte((byte) 0);
               }
 

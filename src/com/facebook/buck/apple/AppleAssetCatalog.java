@@ -16,6 +16,7 @@
 
 package com.facebook.buck.apple;
 
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractBuildable;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildableContext;
@@ -24,13 +25,12 @@ import com.facebook.buck.step.Step;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.base.Supplier;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 
 import java.nio.file.Path;
-import java.util.Collection;
-import java.util.List;
 
 import javax.annotation.Nullable;
 
@@ -48,13 +48,15 @@ import javax.annotation.Nullable;
  */
 public class AppleAssetCatalog extends AbstractBuildable {
 
-  private final Supplier<Collection<Path>> inputPathsSupplier;
+  private final Supplier<ImmutableCollection<Path>> inputPathsSupplier;
   private final ImmutableSet<Path> dirs;
   private final boolean copyToBundles;
 
   AppleAssetCatalog(
-      Supplier<Collection<Path>> inputPathsSupplier,
+      BuildTarget target,
+      Supplier<ImmutableCollection<Path>> inputPathsSupplier,
       AppleAssetCatalogDescription.Arg args) {
+    super(target);
     Preconditions.checkArgument(Iterables.all(args.dirs, new Predicate<Path>() {
               @Override
               public boolean apply(@Nullable Path input) {
@@ -82,12 +84,12 @@ public class AppleAssetCatalog extends AbstractBuildable {
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     return inputPathsSupplier.get();
   }
 
   @Override
-  public List<Step> getBuildSteps(
+  public ImmutableList<Step> getBuildSteps(
       BuildContext context,
       BuildableContext buildableContext) {
     // This rule does not perform any build steps. Rather, the top-level binary target will

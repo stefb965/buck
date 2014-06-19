@@ -30,14 +30,13 @@ import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.zip.ZipStep;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Collection;
-import java.util.List;
 
 import javax.annotation.Nullable;
 
@@ -57,6 +56,8 @@ public class Xpi extends AbstractBuildable {
       ImmutableSortedSet<SourcePath> components,
       ImmutableSortedSet<Path> content,
       Path install, ImmutableSortedSet<SourcePath> resources) {
+    super(target);
+
     this.chrome = chrome;
     this.components = components;
     this.content = content;
@@ -74,12 +75,14 @@ public class Xpi extends AbstractBuildable {
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     return content;
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
+  public ImmutableList<Step> getBuildSteps(
+      BuildContext context,
+      BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
     steps.add(new MakeCleanDirectoryStep(scratch));

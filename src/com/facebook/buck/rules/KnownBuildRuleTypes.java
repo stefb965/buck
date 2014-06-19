@@ -74,22 +74,22 @@ import org.openqa.selenium.buck.mozilla.XpiDescription;
 import org.openqa.selenium.buck.mozilla.XptDescription;
 
 import java.util.Map;
-import java.util.Set;
 
 /**
  * A registry of all the build rules types understood by Buck.
  */
 public class KnownBuildRuleTypes {
 
-  private final ImmutableSet<Description<?>> descriptions;
+  private final ImmutableMap<BuildRuleType, Description<?>> descriptions;
   private final ImmutableMap<BuildRuleType, BuildRuleFactory<?>> factories;
   private final ImmutableMap<String, BuildRuleType> types;
   private static volatile KnownBuildRuleTypes defaultRules = null;
 
-  private KnownBuildRuleTypes(Set<Description<?>> descriptions,
+  private KnownBuildRuleTypes(
+      Map<BuildRuleType, Description<?>> descriptions,
       Map<BuildRuleType, BuildRuleFactory<?>> factories,
       Map<String, BuildRuleType> types) {
-    this.descriptions = ImmutableSet.copyOf(descriptions);
+    this.descriptions = ImmutableMap.copyOf(descriptions);
     this.factories = ImmutableMap.copyOf(factories);
     this.types = ImmutableMap.copyOf(types);
   }
@@ -111,8 +111,17 @@ public class KnownBuildRuleTypes {
     return factory;
   }
 
+  public Description<? extends ConstructorArg> getDescription(BuildRuleType buildRuleType) {
+    Description<?> description = descriptions.get(buildRuleType);
+    if (description == null) {
+      throw new HumanReadableException(
+          "Unable to find description for build rule type: " + buildRuleType);
+    }
+    return description;
+  }
+
   public ImmutableSet<Description<?>> getAllDescriptions() {
-    return ImmutableSet.copyOf(descriptions);
+    return ImmutableSet.copyOf(descriptions.values());
   }
 
   public static Builder builder() {
@@ -171,12 +180,11 @@ public class KnownBuildRuleTypes {
         .build();
     builder.register(new AndroidBinaryDescription(
             androidBinaryOptions,
-            config.getProguardJarOverride(),
-            config.getAaptOverride()));
+            config.getProguardJarOverride()));
     builder.register(new AndroidInstrumentationApkDescription());
     builder.register(new AndroidLibraryDescription(javacEnv));
     builder.register(new AndroidManifestDescription());
-    builder.register(new AndroidResourceDescription(config.getAaptOverride()));
+    builder.register(new AndroidResourceDescription());
     builder.register(new ApkGenruleDescription());
     builder.register(new AppleAssetCatalogDescription());
     builder.register(new BuckExtensionDescription());
@@ -244,7 +252,7 @@ public class KnownBuildRuleTypes {
     }
 
     public KnownBuildRuleTypes build() {
-      return new KnownBuildRuleTypes(ImmutableSet.copyOf(descriptions.values()), factories, types);
+      return new KnownBuildRuleTypes(descriptions, factories, types);
     }
   }
 }

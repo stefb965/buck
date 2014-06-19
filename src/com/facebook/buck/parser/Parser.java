@@ -20,7 +20,10 @@ import com.facebook.buck.event.AbstractBuckEvent;
 import com.facebook.buck.event.BuckEvent;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.graph.AbstractAcyclicDepthFirstPostOrderTraversal;
+import com.facebook.buck.graph.AbstractBottomUpTraversal;
+import com.facebook.buck.graph.DefaultImmutableDirectedAcyclicGraph;
 import com.facebook.buck.graph.MutableDirectedGraph;
+import com.facebook.buck.graph.TraversableGraph;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.json.DefaultProjectBuildFileParserFactory;
 import com.facebook.buck.json.ProjectBuildFileParser;
@@ -30,16 +33,17 @@ import com.facebook.buck.model.BuildId;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.model.FilesystemBackedBuildFileTree;
+import com.facebook.buck.rules.Repository;
 import com.facebook.buck.rules.AbstractDependencyVisitor;
+import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleBuilder;
-import com.facebook.buck.rules.BuildRuleFactory;
 import com.facebook.buck.rules.BuildRuleFactoryParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
-import com.facebook.buck.rules.DependencyGraph;
-import com.facebook.buck.rules.KnownBuildRuleTypes;
+import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
+import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.rules.TargetNodeToBuildRuleTransformer;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.HumanReadableException;
@@ -50,6 +54,7 @@ import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.ListMultimap;
@@ -76,7 +81,7 @@ import javax.annotation.Nullable;
 
 /**
  * High-level build file parsing machinery.  Primarily responsible for producing a
- * {@link DependencyGraph} based on a set of targets.  Also exposes some low-level facilities to
+ * {@link ActionGraph} based on a set of targets.  Also exposes some low-level facilities to
  * parse individual build files. Caches build rules to minimise the number of calls to python and
  * processes filesystem WatchEvents to invalidate the cache as files change. Expected to be used
  * from a single thread, so methods are not synchronized or thread safe.
@@ -111,13 +116,13 @@ public class Parser {
    * other rules that were also parsed from it.
    */
   // TODO(user): Stop caching these in addition to parsedBuildFiles?
-  private final Map<BuildTarget, BuildRuleBuilder<?>> knownBuildTargets;
+  private final Map<BuildTarget, TargetNode<?>> knownBuildTargets;
 
-  private final ProjectFilesystem projectFilesystem;
-  private final KnownBuildRuleTypes buildRuleTypes;
+  private final Repository repository;
   private final ProjectBuildFileParserFactory buildFileParserFactory;
   private final RuleKeyBuilderFactory ruleKeyBuilderFactory;
   private Console console;
+  private ImmutableMap<String, String> environment;
 
   /**
    * Key of the meta-rule that lists the build files executed while reading rules.
@@ -140,11 +145,21 @@ public class Parser {
   private Optional<BuckEvent> parseStartEvent = Optional.absent();
 
   /**
-   * Parsers may be reused on different consoles, so need to allow the console to be set.
+   * Parsers may be reused with different consoles, so need to allow the console to be set.
    * @param console The new console that the Parser should use.
    */
   public synchronized void setConsole(Console console) {
-    this.console = console;
+    this.console = Preconditions.checkNotNull(console);
+  }
+
+  /**
+   * @param environment The new environment that the Parser should use.
+   */
+  public synchronized void setEnvironment(ImmutableMap<String, String> environment) {
+    if (!this.environment.equals(Preconditions.checkNotNull(environment))) {
+      invalidateCache(); // TODO(user): Track python env access and only purge affected entries.
+    }
+    this.environment = environment;
   }
 
   /**
@@ -202,49 +217,50 @@ public class Parser {
   }
   private final BuildFileTreeCache buildFileTreeCache;
 
-  public Parser(final ProjectFilesystem projectFilesystem,
-      KnownBuildRuleTypes buildRuleTypes,
+  public Parser(
+      final Repository repository,
       Console console,
+      ImmutableMap<String, String> environment,
       String pythonInterpreter,
       ImmutableSet<Pattern> tempFilePatterns,
       RuleKeyBuilderFactory ruleKeyBuilderFactory) {
-    this(projectFilesystem,
-        buildRuleTypes,
+    this(repository,
         console,
+        environment,
         /* Calls to get() will reconstruct the build file tree by calling constructBuildFileTree. */
         new InputSupplier<BuildFileTree>() {
           @Override
           public BuildFileTree getInput() throws IOException {
-            return new FilesystemBackedBuildFileTree(projectFilesystem);
+            return new FilesystemBackedBuildFileTree(repository.getFilesystem());
           }
         },
-        new BuildTargetParser(projectFilesystem),
-         /* knownBuildTargets */ Maps.<BuildTarget, BuildRuleBuilder<?>>newHashMap(),
+        new BuildTargetParser(repository.getFilesystem()),
+         /* knownBuildTargets */ Maps.<BuildTarget, TargetNode<?>>newHashMap(),
         new DefaultProjectBuildFileParserFactory(
-            projectFilesystem,
+            repository.getFilesystem(),
             pythonInterpreter,
-            buildRuleTypes.getAllDescriptions()),
+            repository.getAllDescriptions()),
         tempFilePatterns,
         ruleKeyBuilderFactory);
   }
 
   /**
    * @param buildFileTreeSupplier each call to getInput() must reconstruct the build file tree from
-   *     disk.
    */
   @VisibleForTesting
-  Parser(ProjectFilesystem projectFilesystem,
-         KnownBuildRuleTypes buildRuleTypes,
-         Console console,
-         InputSupplier<BuildFileTree> buildFileTreeSupplier,
-         BuildTargetParser buildTargetParser,
-         Map<BuildTarget, BuildRuleBuilder<?>> knownBuildTargets,
-         ProjectBuildFileParserFactory buildFileParserFactory,
-         ImmutableSet<Pattern> tempFilePatterns,
-         RuleKeyBuilderFactory ruleKeyBuilderFactory) {
-    this.projectFilesystem = Preconditions.checkNotNull(projectFilesystem);
-    this.buildRuleTypes = Preconditions.checkNotNull(buildRuleTypes);
+  Parser(
+      Repository repository,
+      Console console,
+      ImmutableMap<String, String> environment,
+      InputSupplier<BuildFileTree> buildFileTreeSupplier,
+      BuildTargetParser buildTargetParser,
+      Map<BuildTarget, TargetNode<?>> knownBuildTargets,
+      ProjectBuildFileParserFactory buildFileParserFactory,
+      ImmutableSet<Pattern> tempFilePatterns,
+      RuleKeyBuilderFactory ruleKeyBuilderFactory) {
+    this.repository = Preconditions.checkNotNull(repository);
     this.console = Preconditions.checkNotNull(console);
+    this.environment = Preconditions.checkNotNull(environment);
     this.buildFileTreeCache = new BuildFileTreeCache(
         Preconditions.checkNotNull(buildFileTreeSupplier));
     this.knownBuildTargets = Maps.newHashMap(Preconditions.checkNotNull(knownBuildTargets));
@@ -262,7 +278,7 @@ public class Parser {
   }
 
   public File getProjectRoot() {
-    return projectFilesystem.getProjectRoot();
+    return repository.getFilesystem().getProjectRoot();
   }
 
   /**
@@ -317,12 +333,12 @@ public class Parser {
   }
 
   /**
-   * @param buildTargets the build targets to generate a dependency graph for.
+   * @param buildTargets the build targets to generate an action graph for.
    * @param defaultIncludes the files to include before executing build files.
    * @param eventBus used to log events while parsing.
-   * @return the dependency graph containing the build targets and their related targets.
+   * @return the action graph containing the build targets and their related targets.
    */
-  public DependencyGraph parseBuildFilesForTargets(
+  public ActionGraph parseBuildFilesForTargets(
       Iterable<BuildTarget> buildTargets,
       Iterable<String> defaultIncludes,
       BuckEventBus eventBus)
@@ -330,16 +346,17 @@ public class Parser {
     // Make sure that knownBuildTargets is initially populated with the BuildRuleBuilders for the
     // seed BuildTargets for the traversal.
     postParseStartEvent(buildTargets, eventBus);
-    DependencyGraph graph = null;
+    ActionGraph graph = null;
     try (ProjectBuildFileParser buildFileParser =
              buildFileParserFactory.createParser(
                  defaultIncludes,
                  EnumSet.of(ProjectBuildFileParser.Option.STRIP_NULL),
-                 console)) {
+                 console,
+                 environment)) {
       if (!isCacheComplete(defaultIncludes)) {
         Set<File> buildTargetFiles = Sets.newHashSet();
         for (BuildTarget buildTarget : buildTargets) {
-          File buildFile = buildTarget.getBuildFile(projectFilesystem);
+          File buildFile = buildTarget.getBuildFile(repository.getFilesystem());
           boolean isNewElement = buildTargetFiles.add(buildFile);
           if (isNewElement) {
             parseBuildFile(buildFile, defaultIncludes, buildFileParser);
@@ -355,13 +372,14 @@ public class Parser {
   }
 
   @VisibleForTesting
-  DependencyGraph onlyUseThisWhenTestingToFindAllTransitiveDependencies(
+  ActionGraph onlyUseThisWhenTestingToFindAllTransitiveDependencies(
       Iterable<BuildTarget> toExplore,
       Iterable<String> defaultIncludes) throws IOException, BuildFileParseException {
     try (ProjectBuildFileParser parser = buildFileParserFactory.createParser(
         defaultIncludes,
         EnumSet.noneOf(ProjectBuildFileParser.Option.class),
-        console)) {
+        console,
+        environment)) {
       return findAllTransitiveDependencies(toExplore, defaultIncludes, parser);
     }
   }
@@ -371,12 +389,22 @@ public class Parser {
    * @param toExplore BuildTargets whose dependencies need to be explored.
    */
   @VisibleForTesting
-  private DependencyGraph findAllTransitiveDependencies(
+  private ActionGraph findAllTransitiveDependencies(
       Iterable<BuildTarget> toExplore,
       final Iterable<String> defaultIncludes,
       final ProjectBuildFileParser buildFileParser) throws IOException {
-    final BuildRuleResolver ruleResolver = new BuildRuleResolver();
-    final MutableDirectedGraph<BuildRule> graph = new MutableDirectedGraph<>();
+
+    final TraversableGraph<TargetNode<?>> graph =
+        buildTargetGraph(toExplore, defaultIncludes, buildFileParser);
+
+    return buildActionGraphFromTargetGraph(graph);
+  }
+
+  private TraversableGraph<TargetNode<?>> buildTargetGraph(
+      Iterable<BuildTarget> toExplore,
+      final Iterable<String> defaultIncludes,
+      final ProjectBuildFileParser buildFileParser) throws IOException {
+    final MutableDirectedGraph<TargetNode<?>> graph = new MutableDirectedGraph<>();
 
     AbstractAcyclicDepthFirstPostOrderTraversal<BuildTarget> traversal =
         new AbstractAcyclicDepthFirstPostOrderTraversal<BuildTarget>() {
@@ -391,10 +419,10 @@ public class Parser {
                   NoSuchBuildTargetException.createForMissingBuildRule(buildTarget, parseContext));
             }
 
-            BuildRuleBuilder<?> buildRuleBuilder = knownBuildTargets.get(buildTarget);
+            TargetNode<?> targetNode = knownBuildTargets.get(buildTarget);
 
             Set<BuildTarget> deps = Sets.newHashSet();
-            for (BuildTarget buildTargetForDep : buildRuleBuilder.getDeps()) {
+            for (BuildTarget buildTargetForDep : targetNode.getDeps()) {
               try {
                 if (!knownBuildTargets.containsKey(buildTargetForDep)) {
                   parseBuildFileContainingTarget(
@@ -414,51 +442,79 @@ public class Parser {
 
           @Override
           protected void onNodeExplored(BuildTarget buildTarget) {
-            BuildRuleBuilder<?> builderForTarget = knownBuildTargets.get(buildTarget);
-            BuildRule buildRule = ruleResolver.buildAndAddToIndex(builderForTarget);
-
-            // If the rule has any flavored deps, then add the appropriate edges to the graph.
-            for (BuildRule dep : buildRule.getDeps()) {
-              if (dep.getBuildTarget().isFlavored()) {
-                addGraphEnhancedDeps(buildRule);
-                break;
-              }
-            }
-
-            // Update the graph.
-            if (buildRule.getDeps().isEmpty()) {
-              // If a build rule with no deps is specified as the build target to build, then make
-              // sure it is in the graph.
-              graph.addNode(buildRule);
-            } else {
-              for (BuildRule dep : buildRule.getDeps()) {
-                graph.addEdge(buildRule, dep);
-              }
+            TargetNode<?> targetNode = knownBuildTargets.get(buildTarget);
+            Preconditions.checkNotNull(targetNode, "No target node found for %s", buildTarget);
+            graph.addNode(targetNode);
+            for (BuildTarget target : targetNode.getDeps()) {
+              graph.addEdge(targetNode, knownBuildTargets.get(target));
             }
           }
 
-          private void addGraphEnhancedDeps(BuildRule buildRule) {
-            // If the builder for the build rule used graph enhancement to insert additional
-            // dependencies, then new rules should have been added to the ruleResolver by the build
-            // rule. Use a visitor to find such rules and make sure they are added to the
-            // MutableDirectedGraph.
-            new AbstractDependencyVisitor(buildRule) {
+          @Override
+          protected void onTraversalComplete(Iterable<BuildTarget> nodesInExplorationOrder) {
+          }
+        };
 
+    try {
+      traversal.traverse(toExplore);
+    } catch (AbstractAcyclicDepthFirstPostOrderTraversal.CycleException e) {
+      throw new HumanReadableException(e.getMessage());
+    }
+
+    return new DefaultImmutableDirectedAcyclicGraph<>(graph);
+  }
+
+  private ActionGraph buildActionGraphFromTargetGraph(
+      final TraversableGraph<TargetNode<?>> graph) {
+    final BuildRuleResolver ruleResolver = new BuildRuleResolver();
+    final MutableDirectedGraph<BuildRule> actionGraph = new MutableDirectedGraph<>();
+
+    AbstractBottomUpTraversal<TargetNode<?>, ActionGraph> bottomUpTraversal =
+        new AbstractBottomUpTraversal<TargetNode<?>, ActionGraph>(graph) {
+
+          @Override
+          public void visit(TargetNode<?> node) {
+            TargetNodeToBuildRuleTransformer<?> transformer =
+                new TargetNodeToBuildRuleTransformer<>(node);
+            BuildRule rule;
+            try {
+              rule = transformer.transform(ruleResolver);
+            } catch (NoSuchBuildTargetException e) {
+              throw new HumanReadableException(e);
+            }
+            ruleResolver.addToIndex(node.getBuildTarget(), rule);
+            actionGraph.addNode(rule);
+
+            for (BuildRule buildRule : rule.getDeps()) {
+              if (buildRule.getBuildTarget().isFlavored()) {
+                addGraphEnhancedDeps(rule);
+              }
+            }
+
+            for (BuildRule dep : rule.getDeps()) {
+              actionGraph.addEdge(rule, dep);
+            }
+
+          }
+
+          @Override
+          public ActionGraph getResult() {
+            return new ActionGraph(actionGraph);
+          }
+
+          private void addGraphEnhancedDeps(BuildRule rule) {
+            new AbstractDependencyVisitor(rule) {
               @Override
               public ImmutableSet<BuildRule> visit(BuildRule rule) {
-                // Most of the time, this will not be used in the call to visit(), so set it to
-                // null by default.
                 ImmutableSet.Builder<BuildRule> depsToVisit = null;
                 boolean isRuleFlavored = rule.getBuildTarget().isFlavored();
 
                 for (BuildRule dep : rule.getDeps()) {
-                  // If either the rule or the dep is flavored, then add an edge for it.
                   boolean isDepFlavored = dep.getBuildTarget().isFlavored();
                   if (isRuleFlavored || isDepFlavored) {
-                    graph.addEdge(rule, dep);
+                    actionGraph.addEdge(rule, dep);
                   }
 
-                  // If the dep is flavored, then visit it.
                   if (isDepFlavored) {
                     if (depsToVisit == null) {
                       depsToVisit = ImmutableSet.builder();
@@ -469,23 +525,12 @@ public class Parser {
 
                 return depsToVisit == null ? ImmutableSet.<BuildRule>of() : depsToVisit.build();
               }
-
             }.start();
           }
+        };
 
-          @Override
-          protected void onTraversalComplete(
-              Iterable<BuildTarget> nodesInExplorationOrder) {
-          }
-    };
-
-    try {
-      traversal.traverse(toExplore);
-    } catch (AbstractAcyclicDepthFirstPostOrderTraversal.CycleException e) {
-      throw new HumanReadableException(e.getMessage());
-    }
-
-    return new DependencyGraph(graph);
+    bottomUpTraversal.traverse();
+    return bottomUpTraversal.getResult();
   }
 
   /**
@@ -510,7 +555,7 @@ public class Parser {
           "Unable to locate dependency \"%s\" for target \"%s\"", buildTarget, sourceTarget);
     }
 
-    File buildFile = buildTarget.getBuildFile(projectFilesystem);
+    File buildFile = buildTarget.getBuildFile(repository.getFilesystem());
     if (isCached(buildFile, defaultIncludes)) {
       throw new HumanReadableException(
           "The build file that should contain %s has already been parsed (%s), " +
@@ -528,13 +573,15 @@ public class Parser {
   public List<Map<String, Object>> parseBuildFile(
       File buildFile,
       Iterable<String> defaultIncludes,
-      EnumSet<ProjectBuildFileParser.Option> parseOptions)
+      EnumSet<ProjectBuildFileParser.Option> parseOptions,
+      ImmutableMap<String, String> environment)
       throws BuildFileParseException, BuildTargetException, IOException {
     try (ProjectBuildFileParser projectBuildFileParser =
         buildFileParserFactory.createParser(
             defaultIncludes,
             parseOptions,
-            console)) {
+            console,
+            environment)) {
       return parseBuildFile(buildFile, defaultIncludes, projectBuildFileParser);
     }
   }
@@ -585,30 +632,28 @@ public class Parser {
           normalize(Paths.get((String) map.get("buck.base_path")))
               .resolve("BUCK").toAbsolutePath());
 
-      BuildRuleFactory<?> factory = buildRuleTypes.getFactory(buildRuleType);
-      if (factory == null) {
+      Description<?> description = repository.getDescription(buildRuleType);
+      if (description == null) {
         throw new HumanReadableException("Unrecognized rule %s while parsing %s.",
             buildRuleType,
-            target.getBuildFile(projectFilesystem));
+            target.getBuildFile(repository.getFilesystem()));
       }
 
-      BuildFileTree buildFileTree;
-      buildFileTree = buildFileTreeCache.getInput();
-
-      BuildRuleBuilder<?> buildRuleBuilder;
       BuildRuleFactoryParams factoryParams = new BuildRuleFactoryParams(
           map,
-          projectFilesystem,
-          buildFileTree,
+          repository.getFilesystem(),
           buildTargetParser,
           target,
           ruleKeyBuilderFactory);
-      buildRuleBuilder = factory.newInstance(factoryParams);
-      Object existingRule = knownBuildTargets.put(target, buildRuleBuilder);
-      if (existingRule != null) {
-        throw new RuntimeException("Duplicate definition for " + target.getFullyQualifiedName());
+      TargetNode<?> targetNode = new TargetNode<>(description, factoryParams);
+
+      TargetNode<?> existingTargetNode = knownBuildTargets.put(target, targetNode);
+      if (existingTargetNode != null) {
+        throw new HumanReadableException("Duplicate definition for " + target);
       }
-      parsedBuildFiles.put(normalize(target.getBuildFile(projectFilesystem).toPath()), map);
+      parsedBuildFiles.put(
+          normalize(target.getBuildFile(repository.getFilesystem()).toPath()),
+          map);
     }
   }
 
@@ -641,7 +686,7 @@ public class Parser {
   /**
    * This method has been deprecated because it is not idempotent and returns different results
    * based upon what has been already parsed.
-   * Prefer {@link #filterGraphTargets(RawRulePredicate, DependencyGraph)}
+   * Prefer {@link #filterGraphTargets(RawRulePredicate, com.facebook.buck.rules.ActionGraph)}
    *
    * @param filter the test to apply to all targets that have been read from build files, or null.
    * @return the build targets that pass the test, or null if the filter was null.
@@ -674,13 +719,13 @@ public class Parser {
   @Nullable
   Iterable<BuildTarget> filterGraphTargets(
       @Nullable RawRulePredicate filter,
-      DependencyGraph dependencyGraph) throws NoSuchBuildTargetException {
+      ActionGraph actionGraph) throws NoSuchBuildTargetException {
     if (filter == null) {
       return null;
     }
 
     ImmutableSet.Builder<BuildTarget> matchingTargets = ImmutableSet.builder();
-    for (BuildRule buildRule : dependencyGraph.getNodes()) {
+    for (BuildRule buildRule : actionGraph.getNodes()) {
       for (Map<String, Object> map :
            parsedBuildFiles.get(targetsToFile.get(buildRule.getBuildTarget()))) {
         BuildRuleType buildRuleType = parseBuildRuleTypeFromRawRule(map);
@@ -700,7 +745,7 @@ public class Parser {
    */
   private BuildRuleType parseBuildRuleTypeFromRawRule(Map<String, Object> map) {
     String type = (String) map.get("type");
-    return buildRuleTypes.getBuildRuleType(type);
+    return repository.getBuildRuleType(type);
   }
 
   /**
@@ -714,8 +759,8 @@ public class Parser {
   }
 
   /**
-   * Populates the collection of known build targets that this Parser will use to construct a
-   * dependency graph using all build files inside the given project root and returns an optionally
+   * Populates the collection of known build targets that this Parser will use to construct an
+   * action graph using all build files inside the given project root and returns an optionally
    * filtered set of build targets.
    *
    * @param filesystem The project filesystem.
@@ -724,12 +769,14 @@ public class Parser {
    *     in the List returned by this method. If filter is null, then this method returns null.
    * @return The build targets in the project filtered by the given filter.
    */
+  @Nullable
   public synchronized List<BuildTarget> filterAllTargetsInProject(ProjectFilesystem filesystem,
                                                      Iterable<String> includes,
                                                      @Nullable RawRulePredicate filter)
       throws BuildFileParseException, BuildTargetException, IOException {
     Preconditions.checkNotNull(filesystem);
     Preconditions.checkNotNull(includes);
+    ProjectFilesystem projectFilesystem = repository.getFilesystem();
     if (!projectFilesystem.getProjectRoot().equals(filesystem.getProjectRoot())) {
       throw new HumanReadableException(String.format("Unsupported root path change from %s to %s",
           projectFilesystem.getProjectRoot(), filesystem.getProjectRoot()));
@@ -741,7 +788,8 @@ public class Parser {
           ProjectBuildFileParser.getAllRulesInProject(
               buildFileParserFactory,
               includes,
-              console));
+              console,
+              environment));
       allBuildFilesParsed = true;
     }
     return filterTargets(filter);
@@ -768,9 +816,9 @@ public class Parser {
       BuckEventBus eventBus,
       RawRulePredicate filter)
       throws BuildFileParseException, BuildTargetException, IOException {
-    DependencyGraph dependencyGraph = parseBuildFilesForTargets(roots, defaultIncludes, eventBus);
+    ActionGraph actionGraph = parseBuildFilesForTargets(roots, defaultIncludes, eventBus);
 
-    return filterGraphTargets(filter, dependencyGraph);
+    return filterGraphTargets(filter, actionGraph);
   }
 
   /**
@@ -797,10 +845,10 @@ public class Parser {
   public synchronized void onFileSystemChange(WatchEvent<?> event) throws IOException {
     if (console.getVerbosity() == Verbosity.ALL) {
       console.getStdErr().printf("Parser watched event %s %s\n", event.kind(),
-          projectFilesystem.createContextString(event));
+          repository.getFilesystem().createContextString(event));
     }
 
-    if (projectFilesystem.isPathChangeEvent(event)) {
+    if (repository.getFilesystem().isPathChangeEvent(event)) {
       Path path = (Path) event.context();
 
       if (isPathCreateOrDeleteEvent(event)) {
@@ -854,7 +902,7 @@ public class Parser {
     String packageBuildFilePath =
         buildFileTreeCache.getInput().getBasePathOfAncestorTarget(path).toString();
     invalidateDependents(
-        projectFilesystem.getFileForRelativePath(
+        repository.getFilesystem().getFileForRelativePath(
             packageBuildFilePath + '/' + BuckConstant.BUILD_RULES_FILE_NAME).toPath());
   }
 
@@ -910,7 +958,7 @@ public class Parser {
    * @return An equivalent file constructed from a normalized, absolute path to the given File.
    */
   private Path normalize(Path path) {
-    return projectFilesystem.resolve(path);
+    return repository.getFilesystem().resolve(path);
   }
 
   /**

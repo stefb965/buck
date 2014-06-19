@@ -27,6 +27,8 @@ import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.Buildables;
 import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirAndSymlinkFileStep;
@@ -35,6 +37,7 @@ import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.DirectoryTraverser;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSetMultimap;
@@ -42,8 +45,7 @@ import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Collection;
-import java.util.List;
+import java.util.Collections;
 
 import javax.annotation.Nullable;
 
@@ -52,14 +54,14 @@ public class JavaBinary extends AbstractBuildable implements BinaryBuildRule,
 
   private static final BuildableProperties OUTPUT_TYPE = new BuildableProperties(PACKAGING);
 
-  private final BuildTarget buildTarget;
   private final ImmutableSortedSet<BuildRule> deps;
 
   @Nullable
   private final String mainClass;
 
   @Nullable
-  private final Path manifestFile;
+  private final SourcePath manifestFile;
+  private final boolean mergeManifests;
 
   @Nullable
   private final Path metaInfDirectory;
@@ -70,13 +72,15 @@ public class JavaBinary extends AbstractBuildable implements BinaryBuildRule,
       BuildTarget buildTarget,
       ImmutableSortedSet<BuildRule> deps,
       @Nullable String mainClass,
-      @Nullable Path manifestFile,
+      @Nullable SourcePath manifestFile,
+      boolean mergeManifests,
       @Nullable Path metaInfDirectory,
       DirectoryTraverser directoryTraverser) {
-    this.buildTarget = Preconditions.checkNotNull(buildTarget);
+    super(buildTarget);
     this.deps = Preconditions.checkNotNull(deps);
     this.mainClass = mainClass;
     this.manifestFile = manifestFile;
+    this.mergeManifests = mergeManifests;
     this.metaInfDirectory = metaInfDirectory;
 
     this.directoryTraverser = Preconditions.checkNotNull(directoryTraverser);
@@ -93,12 +97,13 @@ public class JavaBinary extends AbstractBuildable implements BinaryBuildRule,
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     // Build a sorted set so that metaInfDirectory contents are listed in a canonical order.
     ImmutableSortedSet.Builder<Path> builder = ImmutableSortedSet.naturalOrder();
 
     if (manifestFile != null) {
-      builder.add(manifestFile);
+      builder.addAll(
+          SourcePaths.filterInputsToCompareToOutput(Collections.singleton(manifestFile)));
     }
 
     Buildables.addInputsToSortedSet(metaInfDirectory, builder, directoryTraverser);
@@ -107,7 +112,10 @@ public class JavaBinary extends AbstractBuildable implements BinaryBuildRule,
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
+  public ImmutableList<Step> getBuildSteps(
+      BuildContext context,
+      BuildableContext buildableContext) {
+
     ImmutableList.Builder<Step> commands = ImmutableList.builder();
 
     Path outputDirectory = getOutputDirectory();
@@ -134,8 +142,14 @@ public class JavaBinary extends AbstractBuildable implements BinaryBuildRule,
       includePaths = ImmutableSet.copyOf(getTransitiveClasspathEntries().values());
     }
 
-    Path outputFile = getOutputFile();
-    Step jar = new JarDirectoryStep(outputFile, includePaths, mainClass, manifestFile);
+    Path outputFile = getPathToOutputFile();
+    Path manifestPath = manifestFile == null ? null : manifestFile.resolve();
+    Step jar = new JarDirectoryStep(
+        outputFile,
+        includePaths,
+        mainClass,
+        manifestPath,
+        mergeManifests);
     commands.add(jar);
 
     buildableContext.recordArtifact(outputFile);
@@ -148,27 +162,23 @@ public class JavaBinary extends AbstractBuildable implements BinaryBuildRule,
   }
 
   private Path getOutputDirectory() {
-    return Paths.get(String.format("%s/%s", BuckConstant.GEN_DIR, buildTarget.getBasePath()));
+    return Paths.get(String.format("%s/%s", BuckConstant.GEN_DIR, target.getBasePath()));
   }
 
   @Override
   public Path getPathToOutputFile() {
-    return getOutputFile();
-  }
-
-  Path getOutputFile() {
     return Paths.get(
-        String.format("%s/%s.jar", getOutputDirectory(), buildTarget.getShortName()));
+        String.format("%s/%s.jar", getOutputDirectory(), target.getShortName()));
   }
 
   @Override
-  public List<String> getExecutableCommand(ProjectFilesystem projectFilesystem) {
+  public ImmutableList<String> getExecutableCommand(ProjectFilesystem projectFilesystem) {
     Preconditions.checkState(
         mainClass != null,
         "Must specify a main class for %s in order to to run it.",
-        buildTarget.getFullyQualifiedName());
+        target.getFullyQualifiedName());
 
     return ImmutableList.of("java", "-jar",
-        projectFilesystem.getAbsolutifier().apply(getOutputFile()).toString());
+        projectFilesystem.getAbsolutifier().apply(getPathToOutputFile()).toString());
   }
 }

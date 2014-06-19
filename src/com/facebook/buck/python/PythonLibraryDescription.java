@@ -31,8 +31,9 @@ public class PythonLibraryDescription implements Description<Arg> {
   public static final BuildRuleType TYPE = new BuildRuleType("python_library");
 
   public static class Arg implements ConstructorArg {
-    public ImmutableSortedSet<SourcePath> srcs;
+    public Optional<ImmutableSortedSet<SourcePath>> srcs;
     public Optional<ImmutableSortedSet<BuildRule>> deps;
+    public Optional<ImmutableSortedSet<SourcePath>> resources;
   }
 
   @Override
@@ -47,6 +48,9 @@ public class PythonLibraryDescription implements Description<Arg> {
 
   @Override
   public PythonLibrary createBuildable(BuildRuleParams params, Arg args) {
-    return new PythonLibrary(params, args.srcs);
+    return new PythonLibrary(
+        params.getBuildTarget(),
+        args.srcs.or(ImmutableSortedSet.<SourcePath>of()),
+        args.resources.or(ImmutableSortedSet.<SourcePath>of()));
   }
 }

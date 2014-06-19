@@ -24,6 +24,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleSourcePath;
 import com.facebook.buck.rules.Buildable;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.DependencyEnhancer;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePaths;
@@ -32,14 +33,13 @@ import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.util.BuckConstant;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Collection;
 import java.util.Collections;
-import java.util.List;
 import java.util.Set;
 
 /**
@@ -56,21 +56,18 @@ import java.util.Set;
  *   ],
  * )
  * </pre>
- * This will produce a genfile that will be parameterized by the name of the
+ * This will produce a file under buck-out/gen that will be parameterized by the name of the
  * {@code android_manifest} rule. This can be used as follows:
  * <pre>
  * android_binary(
  *   name = 'my_app',
- *   manifest = genfile('AndroidManifest__my_manifest__.xml'),
- *   deps = [
- *     ':my_manifest',
- *   ],
+ *   manifest = ':my_manifest',
+ *   ...
  * )
  * </pre>
  */
-public class AndroidManifest extends AbstractBuildable {
+public class AndroidManifest extends AbstractBuildable implements DependencyEnhancer {
 
-  private final BuildTarget buildTarget;
   private final SourcePath skeletonFile;
 
   /** These must be sorted so {@link #getInputsToCompareToOutput} returns a consistent value. */
@@ -81,7 +78,7 @@ public class AndroidManifest extends AbstractBuildable {
   protected AndroidManifest(BuildTarget buildTarget,
       SourcePath skeletonFile,
       Set<Path> manifestFiles) {
-    this.buildTarget = Preconditions.checkNotNull(buildTarget);
+    super(buildTarget);
     this.skeletonFile = Preconditions.checkNotNull(skeletonFile);
     this.manifestFiles = ImmutableSortedSet.copyOf(manifestFiles);
     this.pathToOutputFile = Paths.get(
@@ -91,7 +88,7 @@ public class AndroidManifest extends AbstractBuildable {
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     return ImmutableList.<Path>builder()
         .addAll(SourcePaths.filterInputsToCompareToOutput(Collections.singleton(skeletonFile)))
         .addAll(manifestFiles)
@@ -103,16 +100,15 @@ public class AndroidManifest extends AbstractBuildable {
     return builder;
   }
 
-  public BuildTarget getBuildTarget() {
-    return buildTarget;
-  }
-
   public SourcePath getSkeletonFile() {
     return skeletonFile;
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
+  public ImmutableList<Step> getBuildSteps(
+      BuildContext context,
+      BuildableContext buildableContext) {
+
     ImmutableList.Builder<Step> commands = ImmutableList.builder();
 
     // Clear out the old file, if it exists.
@@ -137,16 +133,21 @@ public class AndroidManifest extends AbstractBuildable {
     return pathToOutputFile;
   }
 
-
   @Override
-  public ImmutableSortedSet<BuildRule> getEnhancedDeps(BuildRuleResolver ruleResolver) {
+  public ImmutableSortedSet<BuildRule> getEnhancedDeps(
+      BuildRuleResolver ruleResolver,
+      Iterable<BuildRule> declaredDeps,
+      Iterable<BuildRule> inferredDeps) {
+    ImmutableSortedSet.Builder<BuildRule> deps = ImmutableSortedSet.naturalOrder();
+    deps.addAll(inferredDeps);
+
     SourcePath skeletonFile = getSkeletonFile();
     if (skeletonFile instanceof BuildRuleSourcePath) {
       BuildRule skeletonRule = ((BuildRuleSourcePath) skeletonFile).getRule();
-      return ImmutableSortedSet.of(skeletonRule);
-    } else {
-      return ImmutableSortedSet.of();
+      deps.add(skeletonRule);
     }
+
+    return deps.build();
   }
 
 }

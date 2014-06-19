@@ -11,8 +11,6 @@ import com.facebook.buck.rules.SourcePath;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSortedSet;
 
-import java.nio.file.Path;
-
 public class ZipDescription implements Description<ZipDescription.Arg> {
 
   public static final BuildRuleType TYPE = new BuildRuleType("zip");

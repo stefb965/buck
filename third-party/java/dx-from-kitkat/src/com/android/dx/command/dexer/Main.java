@@ -33,6 +33,7 @@ import com.android.dx.dex.DexOptions;
 import com.android.dx.dex.cf.CfOptions;
 import com.android.dx.dex.cf.CfTranslator;
 import com.android.dx.dex.cf.CodeStatistics;
+import com.android.dx.dex.cf.OptimizerOptions;
 import com.android.dx.dex.code.PositionList;
 import com.android.dx.dex.file.AnnotationUtils;
 import com.android.dx.dex.file.ClassDefItem;
@@ -56,6 +57,7 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
+import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -150,57 +152,65 @@ public class Main {
     };
 
     /** number of errors during processing */
-    private static int errors = 0;
+    private int errors = 0;
 
     /** {@code non-null;} parsed command-line arguments */
-    private static Arguments args;
+    private Arguments args;
+
+    /** {@code non-null;} console for reporting messages */
+    private DxConsole dxConsole;
 
     /** {@code non-null;} output file in-progress */
-    private static DexFile outputDex;
+    private DexFile outputDex;
 
     /**
      * {@code null-ok;} map of resources to include in the output, or
      * {@code null} if resources are being ignored
      */
-    private static TreeMap<String, byte[]> outputResources;
+    private TreeMap<String, byte[]> outputResources;
 
     /** Library .dex files to merge into the output .dex. */
-    private static final List<byte[]> libraryDexBuffers = new ArrayList<byte[]>();
+    private final List<byte[]> libraryDexBuffers = new ArrayList<byte[]>();
 
     /** thread pool object used for multi-threaded file processing */
-    private static ExecutorService threadPool;
+    private ExecutorService threadPool;
 
     /** true if any files are successfully processed */
-    private static boolean anyFilesProcessed;
+    private boolean anyFilesProcessed;
 
     /** class files older than this must be defined in the target dex file. */
-    private static long minimumFileAge = 0;
+    private long minimumFileAge = 0;
 
-    private static Set<String> classesInMainDex = null;
+    private Set<String> classesInMainDex = null;
 
-    private static List<byte[]> dexOutputArrays = new ArrayList<byte[]>();
+    private List<byte[]> dexOutputArrays = new ArrayList<byte[]>();
 
-    private static OutputStreamWriter humanOutWriter = null;
-
-    /**
-     * This class is uninstantiable.
-     */
-    private Main() {
-        // This space intentionally left blank.
-    }
+    private OutputStreamWriter humanOutWriter = null;
 
     /**
      * Run and exit if something unexpected happened.
      * @param argArray the command line arguments
      */
     public static void main(String[] argArray) throws IOException {
-        Arguments arguments = new Arguments();
-        arguments.parse(argArray);
-
-        int result = run(arguments);
+        int result = new Main().run(argArray, null, null);
         if (result != 0) {
             System.exit(result);
         }
+    }
+
+    public int run(String[] args, PrintStream out, PrintStream err) throws IOException {
+        DxConsole console = new DxConsole();
+        if (out != null) {
+            console.out = out;
+        }
+        if (err != null) {
+            console.err = err;
+        }
+
+        Arguments arguments = new Arguments();
+        arguments.parse(args);
+
+        return run(arguments, console);
     }
 
     /**
@@ -208,14 +218,16 @@ public class Main {
      * @param arguments the data + parameters for the conversion
      * @return 0 if success > 0 otherwise.
      */
-    public static int run(Arguments arguments) throws IOException {
+    private int run(Arguments arguments, DxConsole console) throws IOException {
         // Reset the error count to start fresh.
         errors = 0;
         // empty the list, so that  tools that load dx and keep it around
         // for multiple runs don't reuse older buffers.
         libraryDexBuffers.clear();
 
+        dxConsole = console;
         args = arguments;
+        args.dxConsole = dxConsole;
         args.makeOptionsObjects();
 
         OutputStream humanOutRaw = null;
@@ -231,6 +243,13 @@ public class Main {
                 return runMonoDex();
             }
         } finally {
+            if (threadPool != null) {
+                // Uh, oh.  We failed to shut down our thread pool.
+                // Let's do so now to avoid leaking threads in long-running processes.
+                // Worker threads shouldn't have any side effects,
+                // so we shouldn't have to shutdownNow or awaitTermination.
+                threadPool.shutdown();
+            }
             closeOutput(humanOutRaw);
         }
     }
@@ -238,7 +257,7 @@ public class Main {
     /**
      * {@code non-null;} Error message for too many method/field/type ids.
      */
-    public static String getTooManyIdsErrorMessage() {
+    public String getTooManyIdsErrorMessage() {
         if (args.multiDex) {
             return "The list of classes given in " + Arguments.MAIN_DEX_LIST_OPTION +
                    " is too big and does not fit in the main dex.";
@@ -247,7 +266,7 @@ public class Main {
         }
     }
 
-    private static int runMonoDex() throws IOException {
+    private int runMonoDex() throws IOException {
 
         File incrementalOutFile = null;
         if (args.incremental) {
@@ -306,7 +325,7 @@ public class Main {
         return 0;
     }
 
-    private static int runMultiDex() throws IOException {
+    private int runMultiDex() throws IOException {
 
         assert !args.incremental;
         assert args.numThreads == 1;
@@ -428,7 +447,7 @@ public class Main {
      * Merges the dex files in library jars. If multiple dex files define the
      * same type, this fails with an exception.
      */
-    private static byte[] mergeLibraryDexBuffers(byte[] outArray) throws IOException {
+    private byte[] mergeLibraryDexBuffers(byte[] outArray) throws IOException {
         if (libraryDexBuffers.isEmpty()) {
             return outArray;
         }
@@ -449,7 +468,7 @@ public class Main {
      *
      * @return whether processing was successful
      */
-    private static boolean processAllFiles() {
+    private boolean processAllFiles() {
         createDexFile();
 
         if (args.jarOutput) {
@@ -510,14 +529,21 @@ public class Main {
         if (args.numThreads > 1) {
             try {
                 threadPool.shutdown();
-                threadPool.awaitTermination(600L, TimeUnit.SECONDS);
+                boolean terminated = threadPool.awaitTermination(600L, TimeUnit.SECONDS);
+                threadPool = null;
+                if (!terminated) {
+                    throw new RuntimeException("Timed out waiting for threads.");
+                }
             } catch (InterruptedException ex) {
-                throw new RuntimeException("Timed out waiting for threads.");
+                // Forward the interrupt to our worker threads.
+                threadPool.shutdownNow();
+                // We don't really tolerate interruption.
+                throw new RuntimeException("Dexing interrupted.");
             }
         }
 
         if (errors != 0) {
-            DxConsole.err.println(errors + " error" +
+            dxConsole.err.println(errors + " error" +
                     ((errors == 1) ? "" : "s") + "; aborting");
             return false;
         }
@@ -527,18 +553,18 @@ public class Main {
         }
 
         if (!(anyFilesProcessed || args.emptyOk)) {
-            DxConsole.err.println("no classfiles specified");
+            dxConsole.err.println("no classfiles specified");
             return false;
         }
 
         if (args.optimize && args.statistics) {
-            CodeStatistics.dumpStatistics(DxConsole.out);
+            args.cfOptions.codeStatistics.dumpStatistics(dxConsole.out);
         }
 
         return true;
     }
 
-    private static void createDexFile() {
+    private void createDexFile() {
         if (outputDex != null) {
             dexOutputArrays.add(writeDex());
         }
@@ -559,7 +585,7 @@ public class Main {
      * @param filter {@code non-null;} A filter for excluding files.
      * @return whether any processing actually happened
      */
-    private static boolean processOne(String pathname, FileNameFilter filter) {
+    private boolean processOne(String pathname, FileNameFilter filter) {
         ClassPathOpener opener;
 
         opener = new ClassPathOpener(pathname, false, filter,
@@ -569,25 +595,25 @@ public class Main {
                     threadPool.execute(new ParallelProcessor(name, lastModified, bytes));
                     return false;
                 } else {
-                    return Main.processFileBytes(name, lastModified, bytes);
+                    return Main.this.processFileBytes(name, lastModified, bytes);
                 }
             }
             public void onException(Exception ex) {
                 if (ex instanceof StopProcessing) {
                     throw (StopProcessing) ex;
                 } else if (ex instanceof SimException) {
-                    DxConsole.err.println("\nEXCEPTION FROM SIMULATION:");
-                    DxConsole.err.println(ex.getMessage() + "\n");
-                    DxConsole.err.println(((SimException) ex).getContext());
+                    dxConsole.err.println("\nEXCEPTION FROM SIMULATION:");
+                    dxConsole.err.println(ex.getMessage() + "\n");
+                    dxConsole.err.println(((SimException) ex).getContext());
                 } else {
-                    DxConsole.err.println("\nUNEXPECTED TOP-LEVEL EXCEPTION:");
-                    ex.printStackTrace(DxConsole.err);
+                    dxConsole.err.println("\nUNEXPECTED TOP-LEVEL EXCEPTION:");
+                    ex.printStackTrace(dxConsole.err);
                 }
                 errors++;
             }
             public void onProcessArchiveStart(File file) {
                 if (args.verbose) {
-                    DxConsole.out.println("processing archive " + file +
+                    dxConsole.out.println("processing archive " + file +
                             "...");
                 }
             }
@@ -603,20 +629,20 @@ public class Main {
      * @param bytes {@code non-null;} contents of the file
      * @return whether processing was successful
      */
-    private static boolean processFileBytes(String name, long lastModified, byte[] bytes) {
+    private boolean processFileBytes(String name, long lastModified, byte[] bytes) {
         boolean isClass = name.endsWith(".class");
         boolean isClassesDex = name.equals(DexFormat.DEX_IN_JAR_NAME);
         boolean keepResources = (outputResources != null);
 
         if (!isClass && !isClassesDex && !keepResources) {
             if (args.verbose) {
-                DxConsole.out.println("ignored resource " + name);
+                dxConsole.out.println("ignored resource " + name);
             }
             return false;
         }
 
         if (args.verbose) {
-            DxConsole.out.println("processing " + name + "...");
+            dxConsole.out.println("processing " + name + "...");
         }
 
         String fixedName = fixPath(name);
@@ -653,7 +679,7 @@ public class Main {
      * @param bytes {@code non-null;} contents of the file
      * @return whether processing was successful
      */
-    private static boolean processClass(String name, byte[] bytes) {
+    private boolean processClass(String name, byte[] bytes) {
         if (! args.coreLibrary) {
             checkClassName(name);
         }
@@ -680,18 +706,18 @@ public class Main {
 
         try {
             ClassDefItem clazz =
-                CfTranslator.translate(cf, bytes, args.cfOptions, args.dexOptions, outputDex);
+                CfTranslator.translate(cf, bytes, args.cfOptions, args.dexOptions, args.optimizerOptions, outputDex);
             synchronized (outputDex) {
                 outputDex.add(clazz);
             }
             return true;
 
         } catch (ParseException ex) {
-            DxConsole.err.println("\ntrouble processing:");
+            dxConsole.err.println("\ntrouble processing:");
             if (args.debug) {
-                ex.printStackTrace(DxConsole.err);
+                ex.printStackTrace(dxConsole.err);
             } else {
-                ex.printContext(DxConsole.err);
+                ex.printContext(dxConsole.err);
             }
         }
         errors++;
@@ -706,7 +732,7 @@ public class Main {
      * @param name {@code non-null;} the fully-qualified internal-form
      * class name
      */
-    private static void checkClassName(String name) {
+    private void checkClassName(String name) {
         boolean bogus = false;
 
         if (name.startsWith("java/")) {
@@ -732,7 +758,7 @@ public class Main {
          * working. Try to help them understand what's happening.
          */
 
-        DxConsole.err.println("\ntrouble processing \"" + name + "\":\n\n" +
+        dxConsole.err.println("\ntrouble processing \"" + name + "\":\n\n" +
                 IN_RE_CORE_CLASSES);
         errors++;
         throw new StopProcessing();
@@ -745,7 +771,7 @@ public class Main {
      * @return {@code null-ok;} the converted {@code byte[]} or {@code null}
      * if there was a problem
      */
-    private static byte[] writeDex() {
+    private byte[] writeDex() {
         byte[] outArray = null;
 
         try {
@@ -767,7 +793,7 @@ public class Main {
                 }
 
                 if (args.statistics) {
-                    DxConsole.out.println(outputDex.getStatistics().toHuman());
+                    dxConsole.out.println(outputDex.getStatistics().toHuman());
                 }
             } finally {
                 if (humanOutWriter != null) {
@@ -776,10 +802,10 @@ public class Main {
             }
         } catch (Exception ex) {
             if (args.debug) {
-                DxConsole.err.println("\ntrouble writing output:");
-                ex.printStackTrace(DxConsole.err);
+                dxConsole.err.println("\ntrouble writing output:");
+                ex.printStackTrace(dxConsole.err);
             } else {
-                DxConsole.err.println("\ntrouble writing output: " +
+                dxConsole.err.println("\ntrouble writing output: " +
                                    ex.getMessage());
             }
             return null;
@@ -794,7 +820,7 @@ public class Main {
      * @param fileName {@code non-null;} name of the file
      * @return whether the creation was successful
      */
-    private static boolean createJar(String fileName) {
+    private boolean createJar(String fileName) {
         /*
          * Make or modify the manifest (as appropriate), put the dex
          * array into the resources map, and then process the entire
@@ -804,9 +830,9 @@ public class Main {
         try {
             Manifest manifest = makeManifest();
             OutputStream out = openOutput(fileName);
-            JarOutputStream jarOut = new JarOutputStream(out, manifest);
 
             try {
+                JarOutputStream jarOut = new JarOutputStream(out, manifest);
                 for (Map.Entry<String, byte[]> e :
                          outputResources.entrySet()) {
                     String name = e.getKey();
@@ -815,7 +841,7 @@ public class Main {
                     int length = contents.length;
 
                     if (args.verbose) {
-                        DxConsole.out.println("writing " + name + "; size " + length + "...");
+                        dxConsole.out.println("writing " + name + "; size " + length + "...");
                     }
 
                     entry.setSize(length);
@@ -823,17 +849,17 @@ public class Main {
                     jarOut.write(contents);
                     jarOut.closeEntry();
                 }
-            } finally {
                 jarOut.finish();
                 jarOut.flush();
+            } finally {
                 closeOutput(out);
             }
         } catch (Exception ex) {
             if (args.debug) {
-                DxConsole.err.println("\ntrouble writing output:");
-                ex.printStackTrace(DxConsole.err);
+                dxConsole.err.println("\ntrouble writing output:");
+                ex.printStackTrace(dxConsole.err);
             } else {
-                DxConsole.err.println("\ntrouble writing output: " +
+                dxConsole.err.println("\ntrouble writing output: " +
                                    ex.getMessage());
             }
             return false;
@@ -848,7 +874,7 @@ public class Main {
      *
      * @return {@code non-null;} the manifest
      */
-    private static Manifest makeManifest() throws IOException {
+    private Manifest makeManifest() throws IOException {
         byte[] manifestBytes = outputResources.get(MANIFEST_NAME);
         Manifest manifest;
         Attributes attribs;
@@ -958,13 +984,13 @@ public class Main {
      * method(s)
      * @param out {@code non-null;} where to dump to
      */
-    private static void dumpMethod(DexFile dex, String fqName,
+    private void dumpMethod(DexFile dex, String fqName,
             OutputStreamWriter out) {
         boolean wildcard = fqName.endsWith("*");
         int lastDot = fqName.lastIndexOf('.');
 
         if ((lastDot <= 0) || (lastDot == (fqName.length() - 1))) {
-            DxConsole.err.println("bogus fully-qualified method name: " +
+            dxConsole.err.println("bogus fully-qualified method name: " +
                                fqName);
             return;
         }
@@ -974,7 +1000,7 @@ public class Main {
         ClassDefItem clazz = dex.getClassOrNull(className);
 
         if (clazz == null) {
-            DxConsole.err.println("no such class: " + className);
+            dxConsole.err.println("no such class: " + className);
             return;
         }
 
@@ -1000,7 +1026,7 @@ public class Main {
         }
 
         if (meths.size() == 0) {
-            DxConsole.err.println("no such method: " + fqName);
+            dxConsole.err.println("no such method: " + fqName);
             return;
         }
 
@@ -1047,7 +1073,7 @@ public class Main {
         pw.flush();
     }
 
-    private static class NotFilter implements FileNameFilter {
+    private class NotFilter implements FileNameFilter {
         private final FileNameFilter filter;
 
         private NotFilter(FileNameFilter filter) {
@@ -1063,7 +1089,7 @@ public class Main {
     /**
      * A quick and accurate filter for when file path can be trusted.
      */
-    private static class MainDexListFilter implements FileNameFilter {
+    private class MainDexListFilter implements FileNameFilter {
 
         @Override
         public boolean accept(String fullPath) {
@@ -1079,7 +1105,7 @@ public class Main {
     /**
      * A best effort conservative filter for when file path can <b>not</b> be trusted.
      */
-    private static class BestEffortMainDexListFilter implements FileNameFilter {
+    private class BestEffortMainDexListFilter implements FileNameFilter {
 
        Map<String, List<String>> map = new HashMap<String, List<String>>();
 
@@ -1115,7 +1141,7 @@ public class Main {
             }
         }
 
-        private static String getSimpleName(String path) {
+        private String getSimpleName(String path) {
             int index = path.lastIndexOf('/');
             if (index >= 0) {
                 return path.substring(index + 1);
@@ -1217,6 +1243,8 @@ public class Main {
         /** Filename containing list of methods to NOT optimize */
         public String dontOptimizeListFile = null;
 
+        public OptimizerOptions optimizerOptions = new OptimizerOptions();
+
         /** Whether to print statistics to stdout at end of compile cycle */
         public boolean statistics;
 
@@ -1225,6 +1253,9 @@ public class Main {
 
         /** Options for dex file output */
         public DexOptions dexOptions;
+
+        /** Console for reporting messages */
+        public DxConsole dxConsole;
 
         /** number of threads to run with */
         public int numThreads = 1;
@@ -1494,8 +1525,6 @@ public class Main {
             if (outputIsDirectory && !multiDex) {
                 outName = new File(outName, DexFormat.DEX_IN_JAR_NAME).getPath();
             }
-
-            makeOptionsObjects();
         }
 
         /**
@@ -1511,7 +1540,8 @@ public class Main {
             cfOptions.optimizeListFile = optimizeListFile;
             cfOptions.dontOptimizeListFile = dontOptimizeListFile;
             cfOptions.statistics = statistics;
-            cfOptions.warn = DxConsole.err;
+            cfOptions.warn = dxConsole.err;
+            cfOptions.codeStatistics = new CodeStatistics();
 
             dexOptions = new DexOptions();
             dexOptions.forceJumbo = forceJumbo;
@@ -1519,7 +1549,7 @@ public class Main {
     }
 
     /** Runnable helper class to process files in multiple threads */
-    private static class ParallelProcessor implements Runnable {
+    private class ParallelProcessor implements Runnable {
 
         String path;
         long lastModified;
@@ -1543,7 +1573,7 @@ public class Main {
          * with the given path and bytes.
          */
         public void run() {
-            if (Main.processFileBytes(path, lastModified, bytes)) {
+            if (Main.this.processFileBytes(path, lastModified, bytes)) {
                 anyFilesProcessed = true;
             }
         }

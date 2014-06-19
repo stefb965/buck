@@ -36,15 +36,13 @@ import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableBiMap;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Collection;
-import java.util.List;
-import java.util.Set;
 
 import javax.annotation.Nullable;
 
@@ -92,7 +90,6 @@ public class ResourcesFilter extends AbstractBuildable
     }
   }
 
-  private final BuildTarget buildTarget;
   private final AndroidResourceDepsFinder androidResourceDepsFinder;
   private final ResourceCompressionMode resourceCompressionMode;
   private final FilterResourcesStep.ResourceFilter resourceFilter;
@@ -103,7 +100,7 @@ public class ResourcesFilter extends AbstractBuildable
       AndroidResourceDepsFinder androidResourceDepsFinder,
       ResourceCompressionMode resourceCompressionMode,
       FilterResourcesStep.ResourceFilter resourceFilter) {
-    this.buildTarget = Preconditions.checkNotNull(buildTarget);
+    super(buildTarget);
     this.androidResourceDepsFinder = Preconditions.checkNotNull(androidResourceDepsFinder);
     this.resourceCompressionMode = Preconditions.checkNotNull(resourceCompressionMode);
     this.resourceFilter = Preconditions.checkNotNull(resourceFilter);
@@ -111,7 +108,7 @@ public class ResourcesFilter extends AbstractBuildable
   }
 
   @Override
-  public ImmutableSet<Path> getResDirectories() {
+  public ImmutableList<Path> getResDirectories() {
     return buildOutputInitializer.getBuildOutput().resDirectories;
   }
 
@@ -120,12 +117,8 @@ public class ResourcesFilter extends AbstractBuildable
     return buildOutputInitializer.getBuildOutput().nonEnglishStringFiles;
   }
 
-  public BuildTarget getBuildTarget() {
-    return buildTarget;
-  }
-
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     // Rule key correctness is ensured by depping on all android_resource rules in
     // Builder.setAndroidResourceDepsFinder()
     return ImmutableSet.of();
@@ -139,17 +132,21 @@ public class ResourcesFilter extends AbstractBuildable
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, final BuildableContext buildableContext) {
+  public ImmutableList<Step> getBuildSteps(
+      BuildContext context,
+      final BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
     AndroidResourceDetails androidResourceDetails =
         androidResourceDepsFinder.getAndroidResourceDetails();
+    final ImmutableList.Builder<Path> filteredResDirectories = ImmutableList.builder();
     final FilterResourcesStep filterResourcesStep = createFilterResourcesStep(
         androidResourceDetails.resDirectories,
-        androidResourceDetails.whitelistedStringDirs);
+        androidResourceDetails.whitelistedStringDirs,
+        filteredResDirectories);
     steps.add(filterResourcesStep);
 
-    final ImmutableSet<Path> resDirectories = filterResourcesStep.getOutputResourceDirs();
+    final ImmutableList<Path> resDirectories = filteredResDirectories.build();
     final Supplier<ImmutableSet<Path>> nonEnglishStringFiles = Suppliers.memoize(
         new Supplier<ImmutableSet<Path>>() {
           @Override
@@ -193,14 +190,17 @@ public class ResourcesFilter extends AbstractBuildable
    *     inside these directories.
    */
   @VisibleForTesting
-  FilterResourcesStep createFilterResourcesStep(Set<Path> resourceDirectories,
-      ImmutableSet<Path> whitelistedStringDirs) {
+  FilterResourcesStep createFilterResourcesStep(
+      ImmutableList<Path> resourceDirectories,
+      ImmutableSet<Path> whitelistedStringDirs,
+      ImmutableList.Builder<Path> filteredResDirectories) {
     ImmutableBiMap.Builder<Path, Path> filteredResourcesDirMapBuilder = ImmutableBiMap.builder();
     String resDestinationBasePath = getResDestinationBasePath();
     int count = 0;
     for (Path resDir : resourceDirectories) {
-      filteredResourcesDirMapBuilder.put(resDir,
-          Paths.get(resDestinationBasePath, String.valueOf(count++)));
+      Path filteredResourceDir = Paths.get(resDestinationBasePath, String.valueOf(count++));
+      filteredResourcesDirMapBuilder.put(resDir, filteredResourceDir);
+      filteredResDirectories.add(filteredResourceDir);
     }
 
     ImmutableBiMap<Path, Path> resSourceToDestDirMap = filteredResourcesDirMapBuilder.build();
@@ -222,15 +222,15 @@ public class ResourcesFilter extends AbstractBuildable
   }
 
   private String getResDestinationBasePath() {
-    return BuildTargets.getBinPath(buildTarget, "__filtered__%s__").toString();
+    return BuildTargets.getBinPath(target, "__filtered__%s__").toString();
   }
 
   @Override
   public BuildOutput initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) {
-    ImmutableSet<Path> resDirectories =
+    ImmutableList<Path> resDirectories =
         FluentIterable.from(onDiskBuildInfo.getValues(RES_DIRECTORIES_KEY).get())
             .transform(MorePaths.TO_PATH)
-            .toSet();
+            .toList();
     ImmutableSet<Path> nonEnglishStringFiles =
         FluentIterable.from(onDiskBuildInfo.getValues(NON_ENGLISH_STRING_FILES_KEY).get())
             .transform(MorePaths.TO_PATH)
@@ -245,11 +245,11 @@ public class ResourcesFilter extends AbstractBuildable
   }
 
   public static class BuildOutput {
-    private final ImmutableSet<Path> resDirectories;
+    private final ImmutableList<Path> resDirectories;
     private final ImmutableSet<Path> nonEnglishStringFiles;
 
     public BuildOutput(
-        ImmutableSet<Path> resDirectories,
+        ImmutableList<Path> resDirectories,
         ImmutableSet<Path> nonEnglishStringFiles) {
       this.resDirectories = Preconditions.checkNotNull(resDirectories);
       this.nonEnglishStringFiles = Preconditions.checkNotNull(nonEnglishStringFiles);

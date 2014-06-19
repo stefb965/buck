@@ -28,6 +28,7 @@ import com.facebook.buck.httpserver.WebServer;
 import com.facebook.buck.java.JavaBuckConfig;
 import com.facebook.buck.java.JavaCompilerEnvironment;
 import com.facebook.buck.model.BuildId;
+import com.facebook.buck.rules.Repository;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.CachingBuildEngine;
@@ -110,7 +111,7 @@ public final class Main {
 
   private static final int ARTIFACT_CACHE_TIMEOUT_IN_SECONDS = 15;
 
-  private static final TimeSpan DAEMON_SLAYER_TIMEOUT = new TimeSpan(45, TimeUnit.MINUTES);
+  private static final TimeSpan DAEMON_SLAYER_TIMEOUT = new TimeSpan(2, TimeUnit.HOURS);
 
   private static final TimeSpan SUPER_CONSOLE_REFRESH_RATE =
       new TimeSpan(100, TimeUnit.MILLISECONDS);
@@ -144,17 +145,25 @@ public final class Main {
     private final Optional<WebServer> webServer;
     private final Console console;
 
-    public Daemon(ProjectFilesystem projectFilesystem,
-                  KnownBuildRuleTypes knownBuildRuleTypes,
-                  AndroidDirectoryResolver androidDirectoryResolver,
-                  BuckConfig config,
-                  Console console) throws IOException {
+    public Daemon(
+        ProjectFilesystem projectFilesystem,
+        KnownBuildRuleTypes knownBuildRuleTypes,
+        AndroidDirectoryResolver androidDirectoryResolver,
+        BuckConfig config,
+        Console console,
+        ImmutableMap<String, String> environment) throws IOException {
       this.config = Preconditions.checkNotNull(config);
       this.console = Preconditions.checkNotNull(console);
       this.hashCache = new DefaultFileHashCache(projectFilesystem, console);
-      this.parser = new Parser(projectFilesystem,
+      Repository repository = new Repository(
+          "default",
+          projectFilesystem,
           knownBuildRuleTypes,
+          config);
+      this.parser = new Parser(
+          repository,
           console,
+          environment,
           config.getPythonInterpreter(),
           config.getTempFilePatterns(),
           createRuleKeyBuilderFactory(hashCache));
@@ -242,6 +251,7 @@ public final class Main {
 
     private void watchFileSystem(
         Console console,
+        ImmutableMap<String, String> environment,
         CommandEvent commandEvent,
         BuckEventBus eventBus) throws IOException {
 
@@ -251,6 +261,7 @@ public final class Main {
       // disconnections.
       synchronized (parser) {
         parser.setConsole(console);
+        parser.setEnvironment(environment);
         hashCache.setConsole(console);
         parser.recordParseStartTime(eventBus);
         fileEventBus.post(commandEvent);
@@ -302,14 +313,16 @@ public final class Main {
       BuckConfig config,
       KnownBuildRuleTypes knownBuildRuleTypes,
       AndroidDirectoryResolver androidDirectoryResolver,
-      Console console) throws IOException {
+      Console console,
+      ImmutableMap<String, String> environment) throws IOException {
     if (daemon == null) {
       daemon = new Daemon(
           filesystem,
           knownBuildRuleTypes,
           androidDirectoryResolver,
           config,
-          console);
+          console,
+          environment);
     } else {
       // Buck daemons cache build files within a single project root, changing to a different
       // project root is not supported and will likely result in incorrect builds. The buck and
@@ -332,7 +345,8 @@ public final class Main {
             knownBuildRuleTypes,
             androidDirectoryResolver,
             config,
-            console);
+            console,
+            environment);
       }
     }
     return daemon;
@@ -443,7 +457,6 @@ public final class Main {
     // Get the client environment, either from this process or from the Nailgun context.
     ImmutableMap<String, String> clientEnvironment = getClientEnvironment(context);
 
-
     // Create common command parameters. projectFilesystem initialization looks odd because it needs
     // ignorePaths from a BuckConfig instance, which in turn needs a ProjectFilesystem (i.e. this
     // solves a bootstrapping issue).
@@ -473,7 +486,9 @@ public final class Main {
     ImmutableList<BuckEventListener> eventListeners;
     BuildId buildId = new BuildId();
     Clock clock = new DefaultClock();
-    ExecutionEnvironment executionEnvironment = new DefaultExecutionEnvironment(processExecutor);
+    ExecutionEnvironment executionEnvironment = new DefaultExecutionEnvironment(
+        processExecutor,
+        clientEnvironment);
 
     // Configure the AndroidDirectoryResolver.
     PropertyFinder propertyFinder = new DefaultPropertyFinder(
@@ -521,12 +536,16 @@ public final class Main {
           config,
           buildRuleTypes,
           androidDirectoryResolver,
-          console);
+          console,
+          clientEnvironment);
       eventListeners = addEventListeners(buildEventBus,
           projectFilesystem,
           config,
           webServer,
-          consoleListener);
+          console,
+          consoleListener,
+          buildRuleTypes,
+          clientEnvironment);
 
       ImmutableList<String> remainingArgs = ImmutableList.copyOf(
           Arrays.copyOfRange(args, 1, args.length));
@@ -549,6 +568,7 @@ public final class Main {
               buildRuleTypes,
               androidDirectoryResolver,
               console,
+              clientEnvironment,
               commandEvent,
               buildEventBus);
         } catch (WatchmanWatcherException e) {
@@ -559,10 +579,13 @@ public final class Main {
         }
       }
 
+      Repository repository = new Repository("default", projectFilesystem, buildRuleTypes, config);
+
       if (parser == null) {
-        parser = new Parser(projectFilesystem,
-            buildRuleTypes,
+        parser = new Parser(
+            repository,
             console,
+            clientEnvironment,
             config.getPythonInterpreter(),
             config.getTempFilePatterns(),
             createRuleKeyBuilderFactory(new DefaultFileHashCache(projectFilesystem, console)));
@@ -574,9 +597,8 @@ public final class Main {
           config,
           new CommandRunnerParams(
               console,
-              projectFilesystem,
+              repository,
               androidDirectoryResolver,
-              buildRuleTypes,
               buildEngine,
               artifactCacheFactory,
               buildEventBus,
@@ -641,6 +663,7 @@ public final class Main {
       KnownBuildRuleTypes knownBuildRuleTypes,
       AndroidDirectoryResolver androidDirectoryResolver,
       Console console,
+      ImmutableMap<String, String> environment,
       CommandEvent commandEvent,
       BuckEventBus eventBus) throws IOException {
     // Wire up daemon to new client and console and get cached Parser.
@@ -649,9 +672,10 @@ public final class Main {
         config,
         knownBuildRuleTypes,
         androidDirectoryResolver,
-        console);
+        console,
+        environment);
     daemon.watchClient(context.get());
-    daemon.watchFileSystem(console, commandEvent, eventBus);
+    daemon.watchFileSystem(console, environment, commandEvent, eventBus);
     daemon.initWebServer();
     return daemon.getParser();
   }
@@ -662,14 +686,16 @@ public final class Main {
       BuckConfig config,
       KnownBuildRuleTypes knownBuildRuleTypes,
       AndroidDirectoryResolver androidDirectoryResolver,
-      Console console) throws IOException {
+      Console console,
+      ImmutableMap<String, String> environment) throws IOException {
     if (context.isPresent()) {
       Daemon daemon = getDaemon(
           projectFilesystem,
           config,
           knownBuildRuleTypes,
           androidDirectoryResolver,
-          console);
+          console,
+          environment);
       return daemon.getWebServer();
     }
     return Optional.absent();
@@ -732,7 +758,10 @@ public final class Main {
       ProjectFilesystem projectFilesystem,
       BuckConfig config,
       Optional<WebServer> webServer,
-      AbstractConsoleEventBusListener consoleEventBusListener) {
+      Console console,
+      AbstractConsoleEventBusListener consoleEventBusListener,
+      KnownBuildRuleTypes knownBuildRuleTypes,
+      ImmutableMap<String, String> environment) {
     ImmutableList.Builder<BuckEventListener> eventListenersBuilder =
         ImmutableList.<BuckEventListener>builder()
             .add(new JavaUtilsLoggingBuildListener())
@@ -746,6 +775,14 @@ public final class Main {
     loadListenersFromBuckConfig(eventListenersBuilder, projectFilesystem, config);
 
 
+
+    eventListenersBuilder.add(MissingSymbolsHandler.createListener(
+            projectFilesystem,
+            knownBuildRuleTypes.getAllDescriptions(),
+            config,
+            buckEvents,
+            console,
+            environment));
 
     ImmutableList<BuckEventListener> eventListeners = eventListenersBuilder.build();
 

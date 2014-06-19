@@ -20,9 +20,11 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractBuildable;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Buildable;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.DependencyEnhancer;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.shell.AbstractGenruleStep.CommandString;
 import com.facebook.buck.step.ExecutionContext;
@@ -40,6 +42,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -48,7 +51,6 @@ import com.google.common.collect.Sets;
 import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -71,9 +73,8 @@ import java.util.Set;
  * <pre>
  * android_binary(
  *   name = 'katana',
- *   manifest = genfile('AndroidManifest.xml'),
+ *   manifest = ':katana_manifest',
  *   deps = [
- *     ':katana_manifest',
  *     # Additional dependent android_library rules would be listed here, as well.
  *   ],
  * )
@@ -101,7 +102,7 @@ import java.util.Set;
  * <p>
  * Note that the <code>SRCDIR</code> is populated by symlinking the sources.
  */
-public class Genrule extends AbstractBuildable {
+public class Genrule extends AbstractBuildable implements DependencyEnhancer {
 
   /**
    * The order in which elements are specified in the {@code srcs} attribute of a genrule matters.
@@ -114,8 +115,6 @@ public class Genrule extends AbstractBuildable {
 
   protected final Map<Path, Path> srcsToAbsolutePaths;
 
-  protected final BuildTarget target;
-  private final ImmutableSortedSet<BuildRule> deps;
   protected final Path pathToOutDirectory;
   protected final Path pathToOutFile;
   private final Path pathToTmpDirectory;
@@ -124,16 +123,16 @@ public class Genrule extends AbstractBuildable {
   private final Path absolutePathToSrcDirectory;
   protected final Function<Path, Path> relativeToAbsolutePathFunction;
 
+  private ImmutableSortedSet<BuildRule> deps;
+
   protected Genrule(BuildTarget target,
-      ImmutableSortedSet<BuildRule> deps,
       List<Path> srcs,
       Optional<String> cmd,
       Optional<String> bash,
       Optional<String> cmdExe,
       String out,
       final Function<Path, Path> relativeToAbsolutePathFunction) {
-    this.deps = deps;
-    this.target = Preconditions.checkNotNull(target);
+    super(target);
     this.srcs = ImmutableList.copyOf(srcs);
     this.cmd = Preconditions.checkNotNull(cmd);
     this.bash = Preconditions.checkNotNull(bash);
@@ -166,6 +165,12 @@ public class Genrule extends AbstractBuildable {
     this.absolutePathToSrcDirectory = relativeToAbsolutePathFunction.apply(pathToSrcDirectory);
 
     this.relativeToAbsolutePathFunction = relativeToAbsolutePathFunction;
+    this.deps = ImmutableSortedSet.of();
+  }
+
+  @VisibleForTesting
+  void setDeps(ImmutableSortedSet<BuildRule> deps) {
+    this.deps = deps;
   }
 
   /** @return the absolute path to the output file */
@@ -174,7 +179,7 @@ public class Genrule extends AbstractBuildable {
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     return ImmutableSortedSet.copyOf(srcs);
   }
 
@@ -280,7 +285,10 @@ public class Genrule extends AbstractBuildable {
 
   @Override
   @VisibleForTesting
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
+  public ImmutableList<Step> getBuildSteps(
+      BuildContext context,
+      BuildableContext buildableContext) {
+
     ImmutableList.Builder<Step> commands = ImmutableList.builder();
 
     // Delete the old output for this rule, if it exists.
@@ -330,5 +338,19 @@ public class Genrule extends AbstractBuildable {
       Path destination = pathToSrcDirectory.resolve(localPath);
       commands.add(new MkdirAndSymlinkFileStep(entry.getKey(), destination));
     }
+  }
+
+  // TODO(natthu): This is misuing graph enhancement to stash the complete deps of the rule.
+  // Remove this once buildables and build rules are merged.
+  @Override
+  public ImmutableSortedSet<BuildRule> getEnhancedDeps(
+      BuildRuleResolver ruleResolver,
+      Iterable<BuildRule> declaredDeps,
+      Iterable<BuildRule> inferredDeps) {
+    this.deps = ImmutableSortedSet.<BuildRule>naturalOrder()
+        .addAll(declaredDeps)
+        .addAll(inferredDeps)
+        .build();
+    return this.deps;
   }
 }

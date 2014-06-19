@@ -25,21 +25,20 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableProperties;
+import com.facebook.buck.rules.DependencyEnhancer;
 import com.facebook.buck.rules.SourcePath;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
-import java.util.Collection;
 import java.util.Set;
 
-import javax.annotation.Nullable;
-
-public class AndroidLibrary extends DefaultJavaLibrary {
+public class AndroidLibrary extends DefaultJavaLibrary implements DependencyEnhancer {
 
   private static final BuildableProperties PROPERTIES = new BuildableProperties(ANDROID, LIBRARY);
 
@@ -59,18 +58,21 @@ public class AndroidLibrary extends DefaultJavaLibrary {
       Set<? extends SourcePath> resources,
       Optional<Path> proguardConfig,
       ImmutableList<String> postprocessClassesCommands,
-      Set<BuildRule> exportedDeps,
-      Set<BuildRule> providedDeps,
+      ImmutableSortedSet<BuildRule> exportedDeps,
+      ImmutableSortedSet<BuildRule> providedDeps,
       JavacOptions javacOptions,
+      Optional<Path> resourcesRoot,
       Optional<Path> manifestFile) {
-    super(buildRuleParams,
+    super(buildRuleParams.getBuildTarget(),
         srcs,
         resources,
         proguardConfig,
         postprocessClassesCommands,
+        buildRuleParams.getDeps(),
         exportedDeps,
         providedDeps,
-        javacOptions);
+        javacOptions,
+        resourcesRoot);
     this.buildRuleParams = Preconditions.checkNotNull(buildRuleParams);
     this.javacOptions = Preconditions.checkNotNull(javacOptions);
     this.manifestFile = Preconditions.checkNotNull(manifestFile);
@@ -85,9 +87,11 @@ public class AndroidLibrary extends DefaultJavaLibrary {
     return manifestFile;
   }
 
-  @Nullable
   @Override
-  public ImmutableSortedSet<BuildRule> getEnhancedDeps(BuildRuleResolver ruleResolver) {
+  public ImmutableSortedSet<BuildRule> getEnhancedDeps(
+      BuildRuleResolver ruleResolver,
+      Iterable<BuildRule> declaredDeps,
+      Iterable<BuildRule> inferredDeps) {
     // The enhanced deps should be based on the combined deps and exported deps. When we stored the
     // reference to the buildruleparams, we hadn't added the exported deps. This was done in our
     // superclass's constructor.
@@ -107,11 +111,11 @@ public class AndroidLibrary extends DefaultJavaLibrary {
         : ImmutableSet.<Path>of();
 
     deps = result.getBuildRuleParams().getDeps();
-    return deps;
+    return ImmutableSortedSet.<BuildRule>naturalOrder().addAll(deps).addAll(inferredDeps).build();
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     if (manifestFile.isPresent()) {
       return ImmutableList.<Path>builder()
           .addAll(super.getInputsToCompareToOutput())

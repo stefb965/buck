@@ -30,15 +30,17 @@ import com.facebook.buck.java.JavaLibraryDescription;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.rules.Repository;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.parser.PartialGraph;
 import com.facebook.buck.parser.PartialGraphFactory;
 import com.facebook.buck.parser.RawRulePredicate;
+import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DependencyGraph;
+import com.facebook.buck.rules.KnownBuildRuleTypes;
 import com.facebook.buck.rules.NoopArtifactCache;
 import com.facebook.buck.rules.ProjectConfigBuilder;
 import com.facebook.buck.testutil.BuckTestConstant;
@@ -91,7 +93,7 @@ public class ProjectCommandTest {
             "[project]",
             "initial_targets = " + javaLibraryTargetName));
 
-    ProjectCommandForTest command = new ProjectCommandForTest();
+    ProjectCommandForTest command = new ProjectCommandForTest(buckConfig);
     command.createPartialGraphCallReturnValues.push(
         createGraphFromBuildRules(ImmutableList.of(ruleConfig)));
 
@@ -140,7 +142,7 @@ public class ProjectCommandTest {
         .setSrcRule(ruleWith)
         .build(ruleResolver);
 
-    ProjectCommandForTest command = new ProjectCommandForTest();
+    ProjectCommandForTest command = new ProjectCommandForTest(buckConfig);
     command.createPartialGraphCallReturnValues.addLast(
         createGraphFromBuildRules(ImmutableList.<BuildRule>of(ruleConfig)));
     command.createPartialGraphCallReturnValues.addLast(
@@ -209,8 +211,8 @@ public class ProjectCommandTest {
       }
     });
 
-    DependencyGraph dependencyGraph = new DependencyGraph(graph);
-    return PartialGraphFactory.newInstance(dependencyGraph, buildTargets);
+    ActionGraph actionGraph = new ActionGraph(graph);
+    return PartialGraphFactory.newInstance(actionGraph, buildTargets);
   }
 
   /**
@@ -221,21 +223,22 @@ public class ProjectCommandTest {
    * appears to be a bug in EasyMock.
    */
   private static class ProjectCommandForTest extends ProjectCommand {
+
     private List<RawRulePredicate> createPartialGraphCallPredicates = Lists.newArrayList();
     private LinkedList<PartialGraph> createPartialGraphCallReturnValues = Lists.newLinkedList();
     private BuildCommandOptions buildCommandOptions;
 
-    ProjectCommandForTest() {
-      super(new CommandRunnerParams(
-          new TestConsole(),
-              new ProjectFilesystem(new File(".")),
-          new FakeAndroidDirectoryResolver(),
-          getDefaultKnownBuildRuleTypes(new ProjectFilesystem(new File("."))),
-          new InstanceArtifactCacheFactory(artifactCache),
-          BuckEventBusFactory.newInstance(),
-          BuckTestConstant.PYTHON_INTERPRETER,
-          Platform.detect(),
-          ImmutableMap.copyOf(System.getenv())));
+    ProjectCommandForTest(BuckConfig buckConfig) {
+      super(
+          new CommandRunnerParams(
+              new TestConsole(),
+              getTestRepository(buckConfig),
+              new FakeAndroidDirectoryResolver(),
+              new InstanceArtifactCacheFactory(artifactCache),
+              BuckEventBusFactory.newInstance(),
+              BuckTestConstant.PYTHON_INTERPRETER,
+              Platform.detect(),
+              ImmutableMap.copyOf(System.getenv())));
     }
 
     @Override
@@ -271,6 +274,12 @@ public class ProjectCommandTest {
 
       buildCommandOptions = options;
       return 0;
+    }
+
+    private static Repository getTestRepository(BuckConfig buckConfig) {
+      ProjectFilesystem filesystem = new ProjectFilesystem(new File(".").toPath());
+      KnownBuildRuleTypes buildRuleTypes = getDefaultKnownBuildRuleTypes(filesystem);
+      return new Repository("test", filesystem, buildRuleTypes, buckConfig);
     }
   }
 }

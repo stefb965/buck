@@ -26,11 +26,10 @@ import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 
 import java.nio.file.Path;
-import java.util.Collection;
-import java.util.List;
 
 /**
  * {@link BuildConfig} is a {@link Buildable} that can generate a BuildConfig.java file.
@@ -65,6 +64,7 @@ public class BuildConfig extends AbstractBuildable {
       BuildTarget buildTarget,
       String appPackage,
       boolean debug) {
+    super(buildTarget);
     this.appPackage = Preconditions.checkNotNull(appPackage);
     this.debug = debug;
     this.pathToOutputFile = BuildTargets.getGenPath(buildTarget, "__%s__")
@@ -72,7 +72,7 @@ public class BuildConfig extends AbstractBuildable {
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     return ImmutableList.of();
   }
 
@@ -84,7 +84,10 @@ public class BuildConfig extends AbstractBuildable {
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
+  public ImmutableList<Step> getBuildSteps(
+      BuildContext context,
+      BuildableContext buildableContext) {
+
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
     steps.add(new MakeCleanDirectoryStep(pathToOutputFile.getParent()));

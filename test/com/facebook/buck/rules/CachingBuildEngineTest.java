@@ -57,6 +57,7 @@ import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.concurrent.MoreFutures;
 import com.google.common.base.Optional;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -78,7 +79,6 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -303,7 +303,7 @@ public class CachingBuildEngineTest extends EasyMockSupport {
     FakeBuckEventListener listener = new FakeBuckEventListener();
     eventBus.register(listener);
     BuildContext buildContext = FakeBuildContext.newBuilder(new FakeProjectFilesystem())
-        .setDependencyGraph(new DependencyGraph(new MutableDirectedGraph<BuildRule>()))
+        .setActionGraph(new ActionGraph(new MutableDirectedGraph<BuildRule>()))
         .setJavaPackageFinder(new JavaPackageFinder() {
           @Override
           public String findJavaPackageFolderForPath(String pathRelativeToProjectRoot) {
@@ -341,7 +341,7 @@ public class CachingBuildEngineTest extends EasyMockSupport {
   @Test
   public void testAbiRuleCanAvoidRebuild()
       throws InterruptedException, ExecutionException, IOException {
-    BuildRuleParams buildRuleParams = new FakeBuildRuleParams(buildTarget);
+    BuildRuleParams buildRuleParams = new FakeBuildRuleParamsBuilder(buildTarget).build();
     TestAbstractCachingBuildRule buildRule = new TestAbstractCachingBuildRule(buildRuleParams);
 
     // The EventBus should be updated with events indicating how the rule was built.
@@ -421,7 +421,7 @@ public class CachingBuildEngineTest extends EasyMockSupport {
   @Test
   public void testAbiKeyAutomaticallyPopulated()
       throws IOException, ExecutionException, InterruptedException {
-    BuildRuleParams buildRuleParams = new FakeBuildRuleParams(buildTarget);
+    BuildRuleParams buildRuleParams = new FakeBuildRuleParamsBuilder(buildTarget).build();
     TestAbstractCachingBuildRule buildRule =
         new LocallyBuiltTestAbstractCachingBuildRule(buildRuleParams);
 
@@ -527,7 +527,7 @@ public class CachingBuildEngineTest extends EasyMockSupport {
 
     BuckEventBus buckEventBus = BuckEventBusFactory.newInstance();
     BuildContext buildContext = BuildContext.builder()
-        .setDependencyGraph(RuleMap.createGraphFromSingleRule(buildRule))
+        .setActionGraph(RuleMap.createGraphFromSingleRule(buildRule))
         .setStepRunner(stepRunner)
         .setProjectFilesystem(projectFilesystem)
         .setArtifactCache(artifactCache)
@@ -576,18 +576,10 @@ public class CachingBuildEngineTest extends EasyMockSupport {
 
     final FileHashCache fileHashCache = FakeFileHashCache.createFromStrings(ImmutableMap.of(
           "/dev/null", "ae8c0f860a0ecad94ecede79b69460434eddbfbc"));
-    final RuleKeyBuilderFactory ruleKeyBuilderFactory = new RuleKeyBuilderFactory() {
-      @Override
-      public RuleKey.Builder newInstance(BuildRule buildRule) {
-        return RuleKey.builder(buildRule, fileHashCache);
-      }
-    };
-    BuildRuleParams buildRuleParams = new FakeBuildRuleParams(buildTarget, sortedDeps) {
-      @Override
-      public RuleKeyBuilderFactory getRuleKeyBuilderFactory() {
-        return ruleKeyBuilderFactory;
-      }
-    };
+    BuildRuleParams buildRuleParams = new FakeBuildRuleParamsBuilder(buildTarget)
+        .setDeps(sortedDeps)
+        .setFileHashCache(fileHashCache)
+        .build();
 
     BuildableAbstractCachingBuildRule buildRule = new BuildableAbstractCachingBuildRule(
         buildRuleParams,
@@ -595,7 +587,7 @@ public class CachingBuildEngineTest extends EasyMockSupport {
         pathToOutputFile,
         buildSteps);
 
-    return new AbstractBuildable.AnonymousBuildRule(
+    return new DescribedRule(
         JavaLibraryDescription.TYPE,
         buildRule,
         buildRuleParams);
@@ -615,6 +607,7 @@ public class CachingBuildEngineTest extends EasyMockSupport {
         Iterable<Path> inputs,
         @Nullable String pathToOutputFile,
         List<Step> buildSteps) {
+      super(params.getBuildTarget());
       this.inputs = inputs;
       this.pathToOutputFile = pathToOutputFile == null ? null : Paths.get(pathToOutputFile);
       this.buildSteps = buildSteps;
@@ -629,9 +622,11 @@ public class CachingBuildEngineTest extends EasyMockSupport {
     }
 
     @Override
-    public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
+    public ImmutableList<Step> getBuildSteps(
+        BuildContext context,
+        BuildableContext buildableContext) {
       buildableContext.recordArtifact(pathToOutputFile);
-      return buildSteps;
+      return ImmutableList.copyOf(buildSteps);
     }
 
     @Override
@@ -640,7 +635,7 @@ public class CachingBuildEngineTest extends EasyMockSupport {
     }
 
     @Override
-    public Collection<Path> getInputsToCompareToOutput() {
+    public ImmutableCollection<Path> getInputsToCompareToOutput() {
       return ImmutableList.copyOf(inputs);
     }
 
@@ -670,24 +665,25 @@ public class CachingBuildEngineTest extends EasyMockSupport {
     private static final String RULE_KEY_WITHOUT_DEPS_HASH =
         "efd7d450d9f1c3d9e43392dec63b1f31692305b9";
     private static final String ABI_KEY_FOR_DEPS_HASH = "92d6de0a59080284055bcde5d2923f144b216a59";
-    private final BuildTarget buildTarget;
 
     private boolean isAbiLoadedFromDisk = false;
     private final BuildOutputInitializer<Object> buildOutputInitializer;
 
     TestAbstractCachingBuildRule(BuildRuleParams buildRuleParams) {
-      this.buildTarget = buildRuleParams.getBuildTarget();
+      super(buildRuleParams.getBuildTarget());
       this.buildOutputInitializer =
           new BuildOutputInitializer<>(buildRuleParams.getBuildTarget(), this);
     }
 
     @Override
-    public Collection<Path> getInputsToCompareToOutput() {
+    public ImmutableCollection<Path> getInputsToCompareToOutput() {
       throw new UnsupportedOperationException("method should not be called");
     }
 
     @Override
-    public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
+    public ImmutableList<Step> getBuildSteps(
+        BuildContext context,
+        BuildableContext buildableContext) {
       throw new UnsupportedOperationException("method should not be called");
     }
 
@@ -699,13 +695,6 @@ public class CachingBuildEngineTest extends EasyMockSupport {
     @Nullable
     @Override
     public Path getPathToOutputFile() {
-      return null;
-    }
-
-    @Nullable
-    @Override
-    public ImmutableSortedSet<BuildRule> getEnhancedDeps(
-        BuildRuleResolver ruleResolver) {
       return null;
     }
 
@@ -792,7 +781,9 @@ public class CachingBuildEngineTest extends EasyMockSupport {
     }
 
     @Override
-    public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
+    public ImmutableList<Step> getBuildSteps(
+        BuildContext context,
+        BuildableContext buildableContext) {
       return ImmutableList.of();
     }
   }

@@ -32,6 +32,7 @@ import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -39,38 +40,35 @@ import com.google.common.collect.ImmutableSortedSet;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Collection;
-import java.util.List;
 
 public class ShBinary extends AbstractBuildable
     implements BinaryBuildRule, InitializableFromDisk<Object> {
 
   private final SourcePath main;
   private final ImmutableSet<SourcePath> resources;
-  private final BuildTarget target;
 
   /** The path where the output will be written. */
   private final Path output;
 
   private final BuildOutputInitializer<Object> buildOutputInitializer;
 
-  protected ShBinary(BuildTarget buildTarget,
+  protected ShBinary(BuildTarget target,
       SourcePath main,
       ImmutableSet<SourcePath> resources) {
+    super(target);
     this.main = Preconditions.checkNotNull(main);
     this.resources = Preconditions.checkNotNull(resources);
 
-    this.target = Preconditions.checkNotNull(buildTarget);
     this.output = Paths.get(
         BuckConstant.GEN_DIR,
         target.getBasePath(),
         "__" + target.getShortName() + "__",
         target.getShortName() + ".sh");
-    this.buildOutputInitializer = new BuildOutputInitializer<>(buildTarget, this);
+    this.buildOutputInitializer = new BuildOutputInitializer<>(target, this);
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     ImmutableSortedSet<SourcePath> allPaths = ImmutableSortedSet.<SourcePath>naturalOrder()
         .add(main)
         .addAll(resources)
@@ -80,7 +78,10 @@ public class ShBinary extends AbstractBuildable
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
+  public ImmutableList<Step> getBuildSteps(
+      BuildContext context,
+      BuildableContext buildableContext) {
+
     MakeCleanDirectoryStep mkdir = new MakeCleanDirectoryStep(output.getParent());
 
     // Generate an .sh file that builds up an environment and invokes the user's script.
@@ -106,7 +107,7 @@ public class ShBinary extends AbstractBuildable
   }
 
   @Override
-  public List<String> getExecutableCommand(ProjectFilesystem projectFilesystem) {
+  public ImmutableList<String> getExecutableCommand(ProjectFilesystem projectFilesystem) {
     return ImmutableList.of(projectFilesystem
           .getFileForRelativePath(output.toString())
           .getAbsolutePath()

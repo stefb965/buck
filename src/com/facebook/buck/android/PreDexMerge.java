@@ -43,6 +43,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
@@ -50,8 +51,8 @@ import com.google.common.collect.Lists;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.Collection;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 
@@ -77,10 +78,15 @@ import javax.annotation.Nullable;
  */
 public class PreDexMerge extends AbstractBuildable implements InitializableFromDisk<BuildOutput> {
 
+  /** Options to use with {@link DxStep} when merging pre-dexed files. */
+  private static final EnumSet<DxStep.Option> DX_MERGE_OPTIONS = EnumSet.of(
+      DxStep.Option.USE_CUSTOM_DX_IF_AVAILABLE,
+      DxStep.Option.RUN_IN_PROCESS,
+      DxStep.Option.NO_OPTIMIZE);
+
   private static final String PRIMARY_DEX_HASH_KEY = "primary_dex_hash";
   private static final String SECONDARY_DEX_DIRECTORIES_KEY = "secondary_dex_directories";
 
-  private final BuildTarget buildTarget;
   private final Path primaryDexPath;
   private final DexSplitMode dexSplitMode;
   private final ImmutableSet<DexProducedFromJavaLibrary> preDexDeps;
@@ -93,7 +99,7 @@ public class PreDexMerge extends AbstractBuildable implements InitializableFromD
       DexSplitMode dexSplitMode,
       ImmutableSet<DexProducedFromJavaLibrary> preDexDeps,
       UberRDotJava uberRDotJava) {
-    this.buildTarget = Preconditions.checkNotNull(buildTarget);
+    super(buildTarget);
     this.primaryDexPath = Preconditions.checkNotNull(primaryDexPath);
     this.dexSplitMode = Preconditions.checkNotNull(dexSplitMode);
     this.preDexDeps = Preconditions.checkNotNull(preDexDeps);
@@ -102,12 +108,15 @@ public class PreDexMerge extends AbstractBuildable implements InitializableFromD
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     return SourcePaths.filterInputsToCompareToOutput(dexSplitMode.getSourcePaths());
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
+  public ImmutableList<Step> getBuildSteps(
+      BuildContext context,
+      BuildableContext buildableContext) {
+
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
     steps.add(new MkdirStep(primaryDexPath.getParent()));
 
@@ -132,7 +141,7 @@ public class PreDexMerge extends AbstractBuildable implements InitializableFromD
     private final Path metadataFile;
 
     private SplitDexPaths() {
-      Path workDir = BuildTargets.getBinPath(buildTarget, "_%s_output");
+      Path workDir = BuildTargets.getBinPath(target, "_%s_output");
 
       metadataDir = workDir.resolve("metadata");
       jarfilesDir = workDir.resolve("jarfiles");
@@ -199,7 +208,7 @@ public class PreDexMerge extends AbstractBuildable implements InitializableFromD
         sortResult.dexInputHashesProvider,
         paths.successDir,
         /* numThreads */ Optional.<Integer>absent(),
-        AndroidBinary.DX_MERGE_OPTIONS));
+        DX_MERGE_OPTIONS));
 
     // Record the primary dex SHA1 so exopackage apks can use it to compute their ABI keys.
     // Single dex apks cannot be exopackages, so they will never need ABI keys.
@@ -263,7 +272,7 @@ public class PreDexMerge extends AbstractBuildable implements InitializableFromD
     buildableContext.recordArtifact(primaryDexPath);
 
     // This will combine the pre-dexed files and the R.class files into a single classes.dex file.
-    steps.add(new DxStep(primaryDexPath, filesToDex, AndroidBinary.DX_MERGE_OPTIONS));
+    steps.add(new DxStep(primaryDexPath, filesToDex, DX_MERGE_OPTIONS));
 
     buildableContext.addMetadata(
         SECONDARY_DEX_DIRECTORIES_KEY,

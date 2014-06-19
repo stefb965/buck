@@ -17,11 +17,12 @@
 package com.facebook.buck.shell;
 
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractBuildable;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.Buildable;
-import com.facebook.buck.rules.FakeBuildRuleParams;
+import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.DescribedRule;
+import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.testutil.IdentityPathAbsolutifier;
+import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -30,6 +31,7 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Sets;
 
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Set;
 
 public class GenruleBuilder {
@@ -66,17 +68,20 @@ public class GenruleBuilder {
       args.deps = Optional.of(depRules);
       args.srcs = Optional.of(srcs.build());
 
-      FakeBuildRuleParams params = new FakeBuildRuleParams(target, depRules) {
-        @Override
-        public Function<Path, Path> getPathAbsolutifier() {
-          if (absolutifier != null) {
-            return absolutifier;
-          }
-          return IdentityPathAbsolutifier.getIdentityAbsolutifier();
-        }
-      };
-      Buildable buildable = description.createBuildable(params, args);
-      return new AbstractBuildable.AnonymousBuildRule(
+      BuildRuleParams params = new FakeBuildRuleParamsBuilder(target)
+          .setDeps(depRules)
+          .setProjectFilesystem(
+              new ProjectFilesystem(Paths.get(".")) {
+                @Override
+                public Function<Path, Path> getAbsolutifier() {
+                  return Optional.fromNullable(absolutifier)
+                      .or(IdentityPathAbsolutifier.getIdentityAbsolutifier());
+                }
+              })
+          .build();
+      Genrule buildable = description.createBuildable(params, args);
+      buildable.setDeps(depRules);
+      return new DescribedRule(
           description.getBuildRuleType(),
           buildable,
           params);

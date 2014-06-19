@@ -16,7 +16,9 @@
 
 package com.facebook.buck.rules;
 
-import com.google.common.collect.ImmutableSortedSet;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.HasBuildTarget;
+import com.google.common.base.Preconditions;
 
 import java.nio.file.Path;
 
@@ -25,7 +27,13 @@ import javax.annotation.Nullable;
 /**
  * No-op implementations of all methods from {@link Buildable}.
  */
-public abstract class AbstractBuildable implements Buildable {
+public abstract class AbstractBuildable implements Buildable, HasBuildTarget {
+
+  protected final BuildTarget target;
+
+  protected AbstractBuildable(BuildTarget target) {
+    this.target = Preconditions.checkNotNull(target);
+  }
 
   @Override
   public BuildableProperties getProperties() {
@@ -37,34 +45,7 @@ public abstract class AbstractBuildable implements Buildable {
   public abstract Path getPathToOutputFile();
 
   @Override
-  @Nullable
-  public ImmutableSortedSet<BuildRule> getEnhancedDeps(BuildRuleResolver ruleResolver) {
-    return null;
-  }
-
-  public static class AnonymousBuildRule extends AbstractBuildRule implements BuildRule {
-    private final Buildable buildable;
-    private final BuildRuleType type;
-
-    public AnonymousBuildRule(BuildRuleType type, Buildable buildable, BuildRuleParams params) {
-      super(params, buildable);
-      this.buildable = buildable;
-      this.type = type;
-    }
-
-    @Override
-    public BuildableProperties getProperties() {
-      return buildable.getProperties();
-    }
-
-    @Override
-    public Buildable getBuildable() {
-      return buildable;
-    }
-
-    @Override
-    public BuildRuleType getType() {
-      return type;
-    }
+  public BuildTarget getBuildTarget() {
+    return target;
   }
 }

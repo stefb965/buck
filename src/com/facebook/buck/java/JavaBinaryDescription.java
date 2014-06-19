@@ -22,6 +22,7 @@ import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Buildable;
 import com.facebook.buck.rules.ConstructorArg;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.util.DefaultDirectoryTraverser;
 import com.google.common.annotations.Beta;
 import com.google.common.base.Optional;
@@ -51,6 +52,7 @@ public class JavaBinaryDescription implements Description<JavaBinaryDescription.
         args.deps.get(),
         args.mainClass.orNull(),
         args.manifestFile.orNull(),
+        args.mergeManifests.or(true),
         args.metaInfDirectory.orNull(),
         new DefaultDirectoryTraverser());
   }
@@ -58,7 +60,8 @@ public class JavaBinaryDescription implements Description<JavaBinaryDescription.
   public static class Args implements ConstructorArg {
     public Optional<ImmutableSortedSet<BuildRule>> deps;
     public Optional<String> mainClass;
-    public Optional<Path> manifestFile;
+    public Optional<SourcePath> manifestFile;
+    public Optional<Boolean> mergeManifests;
     @Beta
     public Optional<Path> metaInfDirectory;
   }

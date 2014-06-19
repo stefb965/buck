@@ -38,10 +38,10 @@ public class BuildRuleSourcePathTest {
 
   @Test
   public void shouldThrowAnExceptionIfRuleDoesNotHaveAnOutput() {
-    AbstractBuildable.AnonymousBuildRule rule = new AbstractBuildable.AnonymousBuildRule(
+    DescribedRule rule = new DescribedRule(
         new BuildRuleType("example"),
-        new FakeBuildable().setPathToOutputFile((Path) null),
-        new FakeBuildRuleParams(target));
+        new FakeBuildable(target).setPathToOutputFile((Path) null),
+        new FakeBuildRuleParamsBuilder(target).build());
     BuildRuleSourcePath path = new BuildRuleSourcePath(rule);
 
     try {
@@ -54,10 +54,10 @@ public class BuildRuleSourcePathTest {
 
   @Test
   public void mustUseProjectFilesystemToResolvePathToFile() {
-    AbstractBuildable.AnonymousBuildRule rule = new AbstractBuildable.AnonymousBuildRule(
+    DescribedRule rule = new DescribedRule(
         new BuildRuleType("example"),
-        new FakeBuildable().setPathToOutputFile(Paths.get("cheese")),
-        new FakeBuildRuleParams(target));
+        new FakeBuildable(target).setPathToOutputFile(Paths.get("cheese")),
+        new FakeBuildRuleParamsBuilder(target).build());
 
     BuildRuleSourcePath path = new BuildRuleSourcePath(rule);
 

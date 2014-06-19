@@ -16,12 +16,11 @@
 
 package com.facebook.buck.apple;
 
-import com.facebook.buck.rules.AbstractBuildable;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.cpp.AbstractNativeBuildable;
+import com.facebook.buck.cpp.CompilerStep;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.step.Step;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -30,12 +29,9 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
-import java.util.Collection;
 import java.util.List;
 
-import javax.annotation.Nullable;
-
-public class MacosxBinary extends AbstractBuildable implements AppleBuildable {
+public class MacosxBinary extends AbstractNativeBuildable implements AppleBuildable {
 
   private final Path infoPlist;
   private final ImmutableSet<XcodeRuleConfiguration> configurations;
@@ -43,19 +39,21 @@ public class MacosxBinary extends AbstractBuildable implements AppleBuildable {
   private final ImmutableMap<SourcePath, String> perFileFlags;
   private final ImmutableSortedSet<String> frameworks;
 
-  public MacosxBinary(MacosxBinaryDescription.Arg arg) {
+  public MacosxBinary(
+      BuildTarget target,
+      MacosxBinaryDescription.Arg arg,
+      TargetSources targetSources) {
+    super(
+        target,
+        arg.deps.or(ImmutableSortedSet.<BuildRule>of()),
+        targetSources.srcPaths,
+        targetSources.headerPaths,
+        targetSources.perFileFlags);
     infoPlist = Preconditions.checkNotNull(arg.infoPlist);
     configurations = XcodeRuleConfiguration.fromRawJsonStructure(arg.configs);
     frameworks = Preconditions.checkNotNull(arg.frameworks);
-
-    ImmutableList.Builder<GroupedSource> srcsBuilder = ImmutableList.builder();
-    ImmutableMap.Builder<SourcePath, String> perFileFlagsBuilder = ImmutableMap.builder();
-    RuleUtils.extractSourcePaths(
-        srcsBuilder,
-        perFileFlagsBuilder,
-        arg.srcs);
-    srcs = srcsBuilder.build();
-    perFileFlags = perFileFlagsBuilder.build();
+    srcs = Preconditions.checkNotNull(targetSources.srcs);
+    perFileFlags = Preconditions.checkNotNull(targetSources.perFileFlags);
   }
 
   @Override
@@ -83,24 +81,31 @@ public class MacosxBinary extends AbstractBuildable implements AppleBuildable {
     return frameworks;
   }
 
-  @Nullable
   @Override
-  public Path getPathToOutputFile() {
-    return null;
+  protected String getCompiler() {
+    return "clang";
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
-    return SourcePaths.filterInputsToCompareToOutput(GroupedSources.sourcePaths(srcs));
+  protected List<Step> getFinalBuildSteps(ImmutableSortedSet<Path> files, Path outputFile) {
+    if (files.isEmpty()) {
+      return ImmutableList.of();
+    } else {
+      return ImmutableList.<Step>of(
+          new CompilerStep(
+              /* compiler */ getCompiler(),
+              /* shouldLink */ true,
+              /* srcs */ files,
+              /* outputFile */ outputFile,
+              /* shouldAddProjectRootToIncludePaths */ false,
+              /* includePaths */ ImmutableSortedSet.<Path>of(),
+              /* commandLineArgs */ ImmutableList.<String>of()));
+
+    }
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
-    return ImmutableList.of();
-  }
-
-  @Override
-  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
-    return builder;
+  protected String getOutputFileNameFormat() {
+    return "%s";
   }
 }

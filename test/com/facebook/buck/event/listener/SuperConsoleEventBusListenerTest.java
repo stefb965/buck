@@ -26,13 +26,13 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.parser.ParseEvent;
+import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleEvent;
 import com.facebook.buck.rules.BuildRuleStatus;
 import com.facebook.buck.rules.BuildRuleSuccess;
 import com.facebook.buck.rules.CacheResult;
-import com.facebook.buck.rules.DependencyGraph;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeProcessExecutor;
 import com.facebook.buck.shell.GenruleDescription;
@@ -46,6 +46,7 @@ import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.eventbus.EventBus;
@@ -99,7 +100,9 @@ public class SuperConsoleEventBusListenerTest {
         new SuperConsoleEventBusListener(
             console,
             fakeClock,
-            new DefaultExecutionEnvironment(new FakeProcessExecutor()));
+            new DefaultExecutionEnvironment(
+                new FakeProcessExecutor(),
+                ImmutableMap.copyOf(System.getenv())));
     eventBus.register(listener);
 
     rawEventBus.post(configureTestEventAtTime(
@@ -114,7 +117,7 @@ public class SuperConsoleEventBusListenerTest {
 
     rawEventBus.post(
         configureTestEventAtTime(ParseEvent.finished(buildTargets,
-                                                     Optional.<DependencyGraph>absent()),
+                                                     Optional.<ActionGraph>absent()),
         400L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
 
     final String parsingLine = formatConsoleTimes("[-] PARSING BUILD FILES...FINISHED %s", 0.4);

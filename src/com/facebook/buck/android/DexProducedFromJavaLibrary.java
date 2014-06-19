@@ -41,6 +41,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.hash.HashCode;
@@ -48,10 +49,8 @@ import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
 
 import java.nio.file.Path;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.EnumSet;
-import java.util.List;
 import java.util.Map;
 
 import javax.annotation.Nullable;
@@ -73,7 +72,6 @@ public class DexProducedFromJavaLibrary extends AbstractBuildable
   @VisibleForTesting
   static final String LINEAR_ALLOC_KEY_ON_DISK_METADATA = "linearalloc";
 
-  private final BuildTarget buildTarget;
   private final JavaLibrary javaLibrary;
   private final BuildOutputInitializer<BuildOutput> buildOutputInitializer;
 
@@ -81,13 +79,13 @@ public class DexProducedFromJavaLibrary extends AbstractBuildable
   DexProducedFromJavaLibrary(
       BuildTarget buildTarget,
       JavaLibrary javaLibrary) {
-    this.buildTarget = Preconditions.checkNotNull(buildTarget);
+    super(buildTarget);
     this.javaLibrary = Preconditions.checkNotNull(javaLibrary);
     this.buildOutputInitializer = new BuildOutputInitializer<>(buildTarget, this);
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     // The deps of this rule already capture all of the inputs that should affect the cache key.
     return ImmutableList.of();
   }
@@ -98,7 +96,9 @@ public class DexProducedFromJavaLibrary extends AbstractBuildable
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, final BuildableContext buildableContext) {
+  public ImmutableList<Step> getBuildSteps(
+      BuildContext context,
+      final BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
     steps.add(new RmStep(getPathToDex(), /* shouldForceDeletion */ true));
@@ -119,7 +119,11 @@ public class DexProducedFromJavaLibrary extends AbstractBuildable
       // merged into a final classes.dex that uses jumbo instructions.
       DxStep dx = new DxStep(getPathToDex(),
           Collections.singleton(pathToOutputFile),
-          EnumSet.of(DxStep.Option.NO_OPTIMIZE, DxStep.Option.FORCE_JUMBO));
+          EnumSet.of(
+              DxStep.Option.USE_CUSTOM_DX_IF_AVAILABLE,
+              DxStep.Option.RUN_IN_PROCESS,
+              DxStep.Option.NO_OPTIMIZE,
+              DxStep.Option.FORCE_JUMBO));
       steps.add(dx);
     } else {
       linearAllocEstimate = Suppliers.ofInstance(0);
@@ -157,11 +161,6 @@ public class DexProducedFromJavaLibrary extends AbstractBuildable
     return buildOutputInitializer;
   }
 
-  @Override
-  public BuildTarget getBuildTarget() {
-    return buildTarget;
-  }
-
   static class BuildOutput {
     private final int linearAllocEstimate;
     private BuildOutput(int linearAllocEstimate) {
@@ -177,7 +176,7 @@ public class DexProducedFromJavaLibrary extends AbstractBuildable
   }
 
   public Path getPathToDex() {
-    return BuildTargets.getGenPath(buildTarget, "%s.dex.jar");
+    return BuildTargets.getGenPath(target, "%s.dex.jar");
   }
 
   public boolean hasOutput() {

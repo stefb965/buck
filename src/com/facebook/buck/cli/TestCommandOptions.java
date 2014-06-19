@@ -32,7 +32,10 @@ public class TestCommandOptions extends BuildCommandOptions {
 
   public static final String USE_RESULTS_CACHE = "use_results_cache";
 
-  @Option(name = "--all", usage = "Whether all of the tests should be run.")
+  @Option(name = "--all",
+          usage =
+              "Whether all of the tests should be run. " +
+              "If no targets are given, --all is implied")
   private boolean all = false;
 
   @Option(name = "--code-coverage", usage = "Whether code coverage information will be generated.")
@@ -67,7 +70,16 @@ public class TestCommandOptions extends BuildCommandOptions {
   @Option(
       name = "--dry-run",
       usage = "Print tests that match the given command line options, but don't run them.")
-  private boolean printMatchingTestRules;
+  private boolean isDryRun;
+
+  @Option(
+      name = "--one-time-output",
+      usage =
+          "Put test-results in a unique, one-time output directory.  " +
+          "This allows multiple tests to be run in parallel without interfering with each other, " +
+          "but at the expense of being unable to use cached results.  " +
+          "WARNING: this is experimental, and only works for Java tests!")
+  private boolean isUsingOneTimeOutput;
 
   @AdditionalOptions
   private TargetDeviceOptions targetDeviceOptions;
@@ -85,7 +97,7 @@ public class TestCommandOptions extends BuildCommandOptions {
   }
 
   public boolean isRunAllTests() {
-    return all;
+    return all || getArguments().isEmpty();
   }
 
   @Nullable
@@ -123,6 +135,10 @@ public class TestCommandOptions extends BuildCommandOptions {
     return isDebugEnabled;
   }
 
+  public boolean isUsingOneTimeOutputDirectories() {
+    return isUsingOneTimeOutput;
+  }
+
   public boolean isIgnoreFailingDependencies() {
     return isIgnoreFailingDependencies;
   }
@@ -139,8 +155,8 @@ public class TestCommandOptions extends BuildCommandOptions {
     return testSelectorOptions.shouldExplain();
   }
 
-  public boolean isPrintMatchingTestRules() {
-    return printMatchingTestRules;
+  public boolean isDryRun() {
+    return isDryRun;
   }
 
   public boolean isMatchedByLabelOptions(Set<Label> labels) {

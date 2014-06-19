@@ -29,7 +29,9 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.util.BuckConstant;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
@@ -50,20 +52,22 @@ public abstract class AbstractNativeBuildable extends AbstractBuildable {
   protected static final String DEFAULT_CPP_COMPILER = "g++";
   protected static final String DEFAULT_C_COMPILER = "gcc";
 
-  private final BuildTarget buildTarget;
   private final ImmutableSortedSet<BuildRule> deps;
   private final ImmutableSortedSet<SourcePath> srcs;
   private final ImmutableSortedSet<SourcePath> headers;
+  private final ImmutableMap<SourcePath, String> perSrcFileFlags;
 
   public AbstractNativeBuildable(
       BuildTarget buildTarget,
       ImmutableSortedSet<BuildRule> deps,
       ImmutableSortedSet<SourcePath> srcs,
-      ImmutableSortedSet<SourcePath> headers) {
-    this.buildTarget = Preconditions.checkNotNull(buildTarget);
+      ImmutableSortedSet<SourcePath> headers,
+      ImmutableMap<SourcePath, String> perSrcFileFlags) {
+    super(buildTarget);
     this.deps = Preconditions.checkNotNull(deps);
     this.headers = Preconditions.checkNotNull(headers);
     this.srcs = Preconditions.checkNotNull(srcs);
+    this.perSrcFileFlags = Preconditions.checkNotNull(perSrcFileFlags);
   }
 
   /** name of the C compiler to use */
@@ -76,7 +80,7 @@ public abstract class AbstractNativeBuildable extends AbstractBuildable {
   protected abstract String getOutputFileNameFormat();
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     return SourcePaths.filterInputsToCompareToOutput(Iterables.concat(srcs, headers));
   }
 
@@ -89,8 +93,20 @@ public abstract class AbstractNativeBuildable extends AbstractBuildable {
     }
   }
 
+  private static Collection<String> commandLineArgsForFile(
+      SourcePath file,
+      ImmutableMap<SourcePath, String> perSrcFileFlags) {
+    String srcFileFlags = perSrcFileFlags.get(file);
+    if (srcFileFlags == null) {
+      return ImmutableList.of();
+    }
+    // TODO(user): Ugh, this is terrible. We need to pass in an array everywhere, then
+    // join it on space for Xcode (which takes a single string of course).
+    return ImmutableList.copyOf(srcFileFlags.split(" "));
+  }
+
   @Override
-  public List<Step> getBuildSteps(
+  public ImmutableList<Step> getBuildSteps(
       BuildContext context,
       BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
@@ -120,7 +136,8 @@ public abstract class AbstractNativeBuildable extends AbstractBuildable {
             /* srcs */ ImmutableSortedSet.of(src.resolve()),
             /* outputFile */ objectFile,
             /* shouldAddProjectRootToIncludePaths */ true,
-            /* includePaths */ ImmutableSortedSet.<Path>of()));
+            /* includePaths */ ImmutableSortedSet.<Path>of(),
+            /* commandLineArgs */ commandLineArgsForFile(src, perSrcFileFlags)));
       objectFiles.add(objectFile);
     }
 
@@ -145,6 +162,6 @@ public abstract class AbstractNativeBuildable extends AbstractBuildable {
 
   @Override
   public Path getPathToOutputFile() {
-    return BuildTargets.getBinPath(buildTarget, getOutputFileNameFormat());
+    return BuildTargets.getBinPath(target, getOutputFileNameFormat());
   }
 }

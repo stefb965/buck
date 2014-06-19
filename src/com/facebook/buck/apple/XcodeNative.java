@@ -16,6 +16,7 @@
 
 package com.facebook.buck.apple;
 
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractBuildable;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildableContext;
@@ -24,12 +25,11 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.step.Step;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 
 import java.nio.file.Path;
-import java.util.Collection;
 import java.util.Collections;
-import java.util.List;
 
 import javax.annotation.Nullable;
 
@@ -49,7 +49,8 @@ import javax.annotation.Nullable;
 public class XcodeNative extends AbstractBuildable {
   private final SourcePath projectContainerPath;
 
-  public XcodeNative(XcodeNativeDescription.Arg arg) {
+  public XcodeNative(BuildTarget target, XcodeNativeDescription.Arg arg) {
+    super(target);
     this.projectContainerPath = Preconditions.checkNotNull(arg.projectContainerPath);
   }
 
@@ -65,13 +66,15 @@ public class XcodeNative extends AbstractBuildable {
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     // TODO(user): Somehow enumerate all files referenced by the xcode project.
     return SourcePaths.filterInputsToCompareToOutput(Collections.singleton(projectContainerPath));
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
+  public ImmutableList<Step> getBuildSteps(
+      BuildContext context,
+      BuildableContext buildableContext) {
     // TODO(user): The buck native implementation will likely call product to xcodebuild with
     // some set of xcode build settings, collect the build products (a bundle or archive) and copy
     // them to the generated files directory.

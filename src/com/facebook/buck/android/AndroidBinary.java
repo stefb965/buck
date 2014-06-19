@@ -22,7 +22,6 @@ import static com.facebook.buck.rules.BuildableProperties.Kind.PACKAGING;
 import com.android.common.SdkConstants;
 import com.facebook.buck.android.FilterResourcesStep.ResourceFilter;
 import com.facebook.buck.android.ResourcesFilter.ResourceCompressionMode;
-import com.facebook.buck.event.LogEvent;
 import com.facebook.buck.java.Classpaths;
 import com.facebook.buck.java.HasClasspathEntries;
 import com.facebook.buck.java.JavaLibrary;
@@ -40,6 +39,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableProperties;
+import com.facebook.buck.rules.DependencyEnhancer;
 import com.facebook.buck.rules.InstallableApk;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.Sha1HashCode;
@@ -68,6 +68,7 @@ import com.google.common.base.Predicate;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -84,9 +85,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.util.Collection;
 import java.util.EnumSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -103,7 +102,7 @@ import java.util.Set;
  * </pre>
  */
 public class AndroidBinary extends AbstractBuildable implements
-    HasAndroidPlatformTarget, HasClasspathEntries, InstallableApk, AbiRule {
+    AbiRule, DependencyEnhancer, HasAndroidPlatformTarget, HasClasspathEntries, InstallableApk {
 
   private static final BuildableProperties PROPERTIES = new BuildableProperties(ANDROID, PACKAGING);
 
@@ -118,12 +117,7 @@ public class AndroidBinary extends AbstractBuildable implements
    */
   private static final long FROYO_DEFLATE_LIMIT_BYTES = 1 << 20;
 
-  /** Options to use with {@link DxStep} when merging pre-dexed files. */
-  static final EnumSet<DxStep.Option> DX_MERGE_OPTIONS = EnumSet.of(
-      DxStep.Option.USE_CUSTOM_DX_IF_AVAILABLE,
-      DxStep.Option.NO_OPTIMIZE);
   private final Optional<Path> proguardJarOverride;
-  private final Optional<Path> aaptOverride;
 
   /**
    * This list of package types is taken from the set of targets that the default build.xml provides
@@ -161,7 +155,6 @@ public class AndroidBinary extends AbstractBuildable implements
   private final JavacOptions javacOptions;
   private final SourcePath manifest;
   private final String target;
-  private final ImmutableSortedSet<BuildRule> originalDeps;
   private final ImmutableSortedSet<BuildRule> classpathDeps;
   private final Keystore keystore;
   private final PackageType packageType;
@@ -191,7 +184,6 @@ public class AndroidBinary extends AbstractBuildable implements
   private Optional<ComputeExopackageDepsAbi> computeExopackageDepsAbi;
 
   /**
-   * @param aaptOverride
    * @param target the Android platform version to target, e.g., "Google Inc.:Google APIs:16". You
    *     can find the list of valid values on your system by running
    *     {@code android list targets --compact}.
@@ -200,7 +192,6 @@ public class AndroidBinary extends AbstractBuildable implements
       BuildRuleParams params,
       JavacOptions javacOptions,
       Optional<Path> proguardJarOverride,
-      Optional<Path> aaptOverride,
       SourcePath manifest,
       String target,
       ImmutableSortedSet<BuildRule> originalDeps,
@@ -219,13 +210,12 @@ public class AndroidBinary extends AbstractBuildable implements
       boolean exopackage,
       Set<BuildRule> preprocessJavaClassesDeps,
       Optional<String> preprocessJavaClassesBash) {
-    this.originalBuildRuleParams = Preconditions.checkNotNull(params);
+    super(params.getBuildTarget());
+    this.originalBuildRuleParams = params;
     this.javacOptions = Preconditions.checkNotNull(javacOptions);
     this.proguardJarOverride = Preconditions.checkNotNull(proguardJarOverride);
-    this.aaptOverride = Preconditions.checkNotNull(aaptOverride);
     this.manifest = Preconditions.checkNotNull(manifest);
     this.target = Preconditions.checkNotNull(target);
-    this.originalDeps = Preconditions.checkNotNull(originalDeps);
     this.classpathDeps = originalDeps;
     this.keystore = Preconditions.checkNotNull(keystore);
     this.packageType = Preconditions.checkNotNull(packageType);
@@ -247,12 +237,16 @@ public class AndroidBinary extends AbstractBuildable implements
   }
 
   @Override
-  public ImmutableSortedSet<BuildRule> getEnhancedDeps(BuildRuleResolver resolver) {
+  public ImmutableSortedSet<BuildRule> getEnhancedDeps(
+      BuildRuleResolver ruleResolver,
+      Iterable<BuildRule> declaredDeps,
+      Iterable<BuildRule> inferredDeps) {
     final ImmutableSortedSet<BuildRule> enhancedDeps =
         ImmutableSortedSet.<BuildRule>naturalOrder()
-            .addAll(originalDeps)
+            .addAll(declaredDeps)
+            .addAll(inferredDeps)
             .addAll(preprocessJavaClassesDeps)
-            .add(resolver.get(keystore.getBuildTarget()))
+            .add(ruleResolver.get(keystore.getBuildTarget()))
             .build();
 
     AndroidTransitiveDependencyGraph androidTransitiveDependencyGraph =
@@ -262,7 +256,7 @@ public class AndroidBinary extends AbstractBuildable implements
           false;
     ImmutableSortedSet<BuildRule> buildRulesToExcludeFromDex = BuildRules.toBuildRulesFor(
         getBuildTarget(),
-        resolver,
+        ruleResolver,
         buildTargetsToExcludeFromDex,
         allowNonExistentRule);
     rulesToExcludeFromDex = FluentIterable.from(buildRulesToExcludeFromDex)
@@ -296,7 +290,7 @@ public class AndroidBinary extends AbstractBuildable implements
 
     AndroidBinaryGraphEnhancer graphEnhancer = new AndroidBinaryGraphEnhancer(
         originalBuildRuleParams.copyWithChangedDeps(enhancedDeps),
-        resolver,
+        ruleResolver,
         resourceCompressionMode,
         resourceFilter,
         androidResourceDepsFinder,
@@ -310,8 +304,7 @@ public class AndroidBinary extends AbstractBuildable implements
         buildTargetsToExcludeFromDex,
         javacOptions,
         exopackage,
-        keystore,
-        aaptOverride);
+        keystore);
     AndroidBinaryGraphEnhancer.EnhancementResult result =
         graphEnhancer.createAdditionalBuildables();
     setGraphEnhancementResult(result);
@@ -561,7 +554,7 @@ public class AndroidBinary extends AbstractBuildable implements
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     ImmutableList.Builder<SourcePath> sourcePaths = ImmutableList.builder();
     sourcePaths.add(manifest);
 
@@ -572,7 +565,10 @@ public class AndroidBinary extends AbstractBuildable implements
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
+  public ImmutableList<Step> getBuildSteps(
+      BuildContext context,
+      BuildableContext buildableContext) {
+
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
     final AndroidTransitiveDependencies transitiveDependencies = findTransitiveDependencies();
@@ -608,34 +604,33 @@ public class AndroidBinary extends AbstractBuildable implements
       nativeLibraryDirectories = ImmutableSet.of();
     }
 
+    // Copy the transitive closure of native-libs-as-assets to a single directory, if any.
+    ImmutableSet<Path> nativeLibraryAsAssetDirectories;
+    if (!transitiveDependencies.nativeLibAssetsDirectories.isEmpty()) {
+      Path pathForNativeLibsAsAssets = getPathForNativeLibsAsAssets();
+      Path libSubdirectory = pathForNativeLibsAsAssets.resolve("assets").resolve("lib");
+      steps.add(new MakeCleanDirectoryStep(libSubdirectory));
+      for (Path nativeLibDir : transitiveDependencies.nativeLibAssetsDirectories) {
+        AndroidBinary.copyNativeLibrary(nativeLibDir, libSubdirectory, cpuFilters, steps);
+      }
+      nativeLibraryAsAssetDirectories = ImmutableSet.of(pathForNativeLibsAsAssets);
+    } else {
+      nativeLibraryAsAssetDirectories = ImmutableSet.of();
+    }
+
     // If non-english strings are to be stored as assets, pass them to ApkBuilder.
     ImmutableSet.Builder<Path> zipFiles = ImmutableSet.builder();
     zipFiles.addAll(dexFilesInfo.secondaryDexZips);
     if (packageStringAssets.isPresent()) {
       final Path pathToStringAssetsZip = packageStringAssets.get().getPathToStringAssetsZip();
       zipFiles.add(pathToStringAssetsZip);
-      // TODO(natthu): Remove this check once we figure out what's exactly causing APKs missing
-      // string assets zip sometimes.
-      steps.add(
-          new AbstractExecutionStep("check_string_assets_zip_exists") {
-            @Override
-            public int execute(ExecutionContext context) {
-              if (!context.getProjectFilesystem().exists(pathToStringAssetsZip)) {
-                context.postEvent(LogEvent.severe(
-                        "Zip file containing non-english strings was not created: %s",
-                        pathToStringAssetsZip));
-                return 1;
-              }
-              return 0;
-            }
-          });
     }
 
     ApkBuilderStep apkBuilderCommand = new ApkBuilderStep(
         aaptPackageResources.getResourceApkPath(),
         getSignedApkPath(),
         dexFilesInfo.primaryDexPath,
-        /* javaResourcesDirectories */ ImmutableSet.<String>of(),
+        nativeLibraryAsAssetDirectories,
         nativeLibraryDirectories,
         zipFiles.build(),
         dexTransitiveDependencies.pathsToThirdPartyJars,
@@ -696,7 +691,7 @@ public class AndroidBinary extends AbstractBuildable implements
       BuildContext context,
       final AndroidTransitiveDependencies transitiveDependencies,
       final AndroidDexTransitiveDependencies dexTransitiveDependencies,
-      ImmutableSet<Path> resDirectories,
+      ImmutableList<Path> resDirectories,
       BuildableContext buildableContext,
       ImmutableList.Builder<Step> steps) {
     // Execute preprocess_java_classes_binary, if appropriate.
@@ -852,10 +847,17 @@ public class AndroidBinary extends AbstractBuildable implements
   }
 
   /**
-   * All native libs are copied to this directory before running aapt.
+   * All native libs are copied to this directory before running apkbuilder.
    */
   private Path getPathForNativeLibs() {
     return getBinPath("__native_libs_%s__");
+  }
+
+  /**
+   * All native-libs-as-assets are copied to this directory before running apkbuilder.
+   */
+  private Path getPathForNativeLibsAsAssets() {
+    return getBinPath("__native_libs_as_assets_%s__");
   }
 
   public Keystore getKeystore() {
@@ -901,7 +903,7 @@ public class AndroidBinary extends AbstractBuildable implements
       Set<Path> classpathEntriesToDex,
       Set<Path> depsProguardConfigs,
       ImmutableList.Builder<Step> steps,
-      Set<Path> resDirectories,
+      ImmutableList<Path> resDirectories,
       BuildableContext buildableContext) {
     final ImmutableSetMultimap<JavaLibrary, Path> classpathEntriesMap =
         getTransitiveClasspathEntries();
@@ -920,8 +922,7 @@ public class AndroidBinary extends AbstractBuildable implements
     GenProGuardConfigStep genProGuardConfig = new GenProGuardConfigStep(
         aaptPackageResources.getAndroidManifestXml(),
         resDirectories,
-        generatedProGuardConfig,
-        aaptOverride);
+        generatedProGuardConfig);
     steps.add(genProGuardConfig);
 
     // Create list of proguard Configs for the app project and its dependencies

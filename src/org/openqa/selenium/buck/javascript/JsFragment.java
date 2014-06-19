@@ -31,14 +31,13 @@ import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.WriteFileStep;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Collection;
-import java.util.List;
 import java.util.Set;
 
 import javax.annotation.Nullable;
@@ -56,6 +55,8 @@ public class JsFragment extends AbstractBuildable {
       ImmutableSortedSet<BuildRule> deps,
       String module,
       String function) {
+    super(target);
+
     this.deps = deps;
     this.module = module;
     this.function = function;
@@ -66,13 +67,15 @@ public class JsFragment extends AbstractBuildable {
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     // All the inputs are defined by our dependencies.
     return ImmutableSet.of();
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
+  public ImmutableList<Step> getBuildSteps(
+      BuildContext context,
+      BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
     JavascriptDependencyGraph graph = new JavascriptDependencyGraph();

@@ -19,10 +19,12 @@ package com.facebook.buck.command;
 import static com.facebook.buck.rules.BuildableProperties.Kind.ANDROID;
 
 import com.facebook.buck.android.HasAndroidPlatformTarget;
+import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.LogEvent;
 import com.facebook.buck.graph.AbstractBottomUpTraversal;
 import com.facebook.buck.graph.TraversableGraph;
+import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildDependencies;
@@ -31,7 +33,6 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleSuccess;
 import com.facebook.buck.rules.Buildable;
 import com.facebook.buck.rules.Builder;
-import com.facebook.buck.rules.DependencyGraph;
 import com.facebook.buck.rules.JavaPackageFinder;
 import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.step.ExecutionContext;
@@ -57,7 +58,7 @@ import javax.annotation.Nullable;
 
 public class Build implements Closeable {
 
-  private final DependencyGraph dependencyGraph;
+  private final ActionGraph actionGraph;
 
   private final ExecutionContext executionContext;
 
@@ -80,7 +81,7 @@ public class Build implements Closeable {
    * @param environment
    */
   public Build(
-      DependencyGraph dependencyGraph,
+      ActionGraph actionGraph,
       Optional<TargetDevice> targetDevice,
       ProjectFilesystem projectFilesystem,
       AndroidDirectoryResolver androidDirectoryResolver,
@@ -96,11 +97,15 @@ public class Build implements Closeable {
       BuildDependencies buildDependencies,
       BuckEventBus eventBus,
       Platform platform,
-      ImmutableMap<String, String> environment) {
-    this.dependencyGraph = Preconditions.checkNotNull(dependencyGraph);
+      ImmutableMap<String, String> environment,
+      BuckConfig buckConfig) {
+    this.actionGraph = Preconditions.checkNotNull(actionGraph);
 
     Optional<AndroidPlatformTarget> androidPlatformTarget = findAndroidPlatformTarget(
-        dependencyGraph, androidDirectoryResolver, eventBus);
+        actionGraph,
+        androidDirectoryResolver,
+        eventBus,
+        buckConfig);
     this.executionContext = ExecutionContext.builder()
         .setProjectFilesystem(projectFilesystem)
         .setConsole(console)
@@ -121,8 +126,8 @@ public class Build implements Closeable {
     this.buildDependencies = Preconditions.checkNotNull(buildDependencies);
   }
 
-  public DependencyGraph getDependencyGraph() {
-    return dependencyGraph;
+  public ActionGraph getActionGraph() {
+    return actionGraph;
   }
 
   public ExecutionContext getExecutionContext() {
@@ -136,17 +141,18 @@ public class Build implements Closeable {
   }
 
   public static Optional<AndroidPlatformTarget> findAndroidPlatformTarget(
-      final DependencyGraph dependencyGraph,
+      final ActionGraph actionGraph,
       final AndroidDirectoryResolver androidDirectoryResolver,
-      final BuckEventBus eventBus) {
+      final BuckEventBus eventBus,
+      final BuckConfig buckConfig) {
     Optional<Path> androidSdkDirOption =
         androidDirectoryResolver.findAndroidSdkDirSafe();
     if (!androidSdkDirOption.isPresent()) {
       return Optional.absent();
     }
 
-    // Traverse the dependency graph to determine androidPlatformTarget.
-    TraversableGraph<BuildRule> graph = dependencyGraph;
+    // Traverse the action graph to determine androidPlatformTarget.
+    TraversableGraph<BuildRule> graph = actionGraph;
     AbstractBottomUpTraversal<BuildRule, Optional<AndroidPlatformTarget>> traversal =
         new AbstractBottomUpTraversal<BuildRule, Optional<AndroidPlatformTarget>>(graph) {
 
@@ -183,7 +189,9 @@ public class Build implements Closeable {
         Optional<AndroidPlatformTarget> result;
         if (androidPlatformTargetId != null) {
           Optional<AndroidPlatformTarget> target = AndroidPlatformTarget.getTargetForId(
-              androidPlatformTargetId, androidDirectoryResolver);
+              androidPlatformTargetId,
+              androidDirectoryResolver,
+              buckConfig.getAaptOverride());
           if (target.isPresent()) {
             result = target;
           } else {
@@ -191,7 +199,7 @@ public class Build implements Closeable {
           }
         } else if (isEncounteredAndroidRuleInTraversal) {
           AndroidPlatformTarget androidPlatformTarget = AndroidPlatformTarget
-              .getDefaultPlatformTarget(androidDirectoryResolver);
+              .getDefaultPlatformTarget(androidDirectoryResolver, buckConfig.getAaptOverride());
           eventBus.post(LogEvent.warning("No Android platform target specified. Using default: %s",
               androidPlatformTarget.getName()));
           result = Optional.of(androidPlatformTarget);
@@ -209,7 +217,7 @@ public class Build implements Closeable {
       Set<BuildRule> rulesToBuild)
       throws IOException, StepFailedException {
     buildContext = BuildContext.builder()
-        .setDependencyGraph(dependencyGraph)
+        .setActionGraph(actionGraph)
         .setStepRunner(stepRunner)
         .setProjectFilesystem(executionContext.getProjectFilesystem())
         .setArtifactCache(artifactCache)

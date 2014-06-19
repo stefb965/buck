@@ -23,10 +23,8 @@ import com.facebook.buck.util.AndroidPlatformTarget;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 
 import java.nio.file.Path;
-import java.util.Set;
 
 /**
  * Runs the Android Asset Packaging Tool ({@code aapt}), which creates an {@code .apk} file.
@@ -36,27 +34,24 @@ import java.util.Set;
 public class AaptStep extends ShellStep {
 
   private final Path androidManifest;
-  private final ImmutableSet<Path> resDirectories;
+  private final ImmutableList<Path> resDirectories;
   private final Optional<Path> assetsDirectory;
   private final Path pathToOutputApkFile;
 
   @SuppressWarnings("unused")
   private final boolean isCrunchPngFiles;
-  private final Optional<Path> aaptOverride;
 
   public AaptStep(
       Path androidManifest,
-      Set<Path> resDirectories,
+      ImmutableList<Path> resDirectories,
       Optional<Path> assetsDirectory,
       Path pathToOutputApkFile,
-      boolean isCrunchPngFiles,
-      Optional<Path> aaptOverride) {
+      boolean isCrunchPngFiles) {
     this.androidManifest = Preconditions.checkNotNull(androidManifest);
-    this.resDirectories = ImmutableSet.copyOf(resDirectories);
+    this.resDirectories = Preconditions.checkNotNull(resDirectories);
     this.assetsDirectory = Preconditions.checkNotNull(assetsDirectory);
     this.pathToOutputApkFile = Preconditions.checkNotNull(pathToOutputApkFile);
     this.isCrunchPngFiles = isCrunchPngFiles;
-    this.aaptOverride = Preconditions.checkNotNull(aaptOverride);
   }
 
   @Override
@@ -64,11 +59,7 @@ public class AaptStep extends ShellStep {
     ImmutableList.Builder<String> builder = ImmutableList.builder();
     AndroidPlatformTarget androidPlatformTarget = context.getAndroidPlatformTarget();
 
-    if (aaptOverride.isPresent()) {
-      builder.add(aaptOverride.get().toString());
-    } else {
-      builder.add(androidPlatformTarget.getAaptExecutable().toString());
-    }
+    builder.add(androidPlatformTarget.getAaptExecutable().toString());
     builder.add("package");
 
     // verbose flag, if appropriate.

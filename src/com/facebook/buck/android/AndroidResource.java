@@ -42,15 +42,14 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
+import com.google.common.collect.FluentIterable;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 
 import java.nio.file.Path;
-import java.util.Collection;
-import java.util.List;
-import java.util.Set;
 
 import javax.annotation.Nullable;
 
@@ -87,8 +86,6 @@ public class AndroidResource extends AbstractBuildable
     }
   };
 
-  private final BuildTarget buildTarget;
-
   @Nullable
   private final Path res;
 
@@ -115,7 +112,6 @@ public class AndroidResource extends AbstractBuildable
 
   private final Supplier<ImmutableList<HasAndroidResourceDeps>> transitiveAndroidResourceDeps;
 
-  private final Optional<Path> aaptOverride;
   private final BuildOutputInitializer<BuildOutput> buildOutputInitializer;
 
   protected AndroidResource(
@@ -127,9 +123,8 @@ public class AndroidResource extends AbstractBuildable
       @Nullable Path assets,
       ImmutableSortedSet<Path> assetsSrcs,
       @Nullable Path manifestFile,
-      boolean hasWhitelistedStrings,
-      Optional<Path> aaptOverride) {
-    this.buildTarget = Preconditions.checkNotNull(buildTarget);
+      boolean hasWhitelistedStrings) {
+    super(buildTarget);
     this.res = res;
     this.resSrcs = Preconditions.checkNotNull(resSrcs);
     this.rDotJavaPackage = rDotJavaPackage;
@@ -159,12 +154,11 @@ public class AndroidResource extends AbstractBuildable
           }
         });
 
-    this.aaptOverride = Preconditions.checkNotNull(aaptOverride);
     this.buildOutputInitializer = new BuildOutputInitializer<>(buildTarget, this);
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     ImmutableSortedSet.Builder<Path> inputs = ImmutableSortedSet.naturalOrder();
 
     // This should include the res/ and assets/ folders.
@@ -191,11 +185,6 @@ public class AndroidResource extends AbstractBuildable
   }
 
   @Override
-  public BuildTarget getBuildTarget() {
-    return buildTarget;
-  }
-
-  @Override
   @Nullable
   public Path getAssets() {
     return assets;
@@ -207,7 +196,9 @@ public class AndroidResource extends AbstractBuildable
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, final BuildableContext buildableContext) {
+  public ImmutableList<Step> getBuildSteps(
+      BuildContext context,
+      final BuildableContext buildableContext) {
     // If there is no res directory, then there is no R.java to generate.
     // TODO(mbolin): Change android_resources() so that 'res' is required.
     if (getRes() == null) {
@@ -222,16 +213,16 @@ public class AndroidResource extends AbstractBuildable
     MakeCleanDirectoryStep mkdir = new MakeCleanDirectoryStep(pathToTextSymbolsDir);
 
     // Searching through the deps, find any additional res directories to pass to aapt.
-    Set<Path> resDirectories = ImmutableSet.copyOf(
-        Iterables.transform(transitiveAndroidResourceDeps.get(), GET_RES_FOR_RULE));
+    ImmutableList<Path> resDirectories = FluentIterable.from(transitiveAndroidResourceDeps.get())
+        .transform(GET_RES_FOR_RULE)
+        .toList();
 
     GenRDotJavaStep genRDotJava = new GenRDotJavaStep(
         resDirectories,
         pathToTextSymbolsDir,
         rDotJavaPackage,
         /* isTempRDotJava */ true,
-        /* extraLibraryPackages */ ImmutableSet.<String>of(),
-        aaptOverride);
+        /* extraLibraryPackages */ ImmutableSet.<String>of());
 
     buildableContext.recordArtifact(pathToTextSymbolsFile);
 
@@ -270,7 +261,7 @@ public class AndroidResource extends AbstractBuildable
   @Override
   public String getRDotJavaPackage() {
     if (rDotJavaPackage == null) {
-      throw new RuntimeException("No package for " + buildTarget.getFullyQualifiedName());
+      throw new RuntimeException("No package for " + target.getFullyQualifiedName());
     }
     return rDotJavaPackage;
   }

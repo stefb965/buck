@@ -30,15 +30,16 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.parser.ParseContext;
-import com.facebook.buck.rules.AbstractBuildable;
+import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.Buildable;
-import com.facebook.buck.rules.DependencyGraph;
+import com.facebook.buck.rules.DescribedRule;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.FakeBuildRuleParams;
+import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildable;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.InstallableApk;
@@ -130,9 +131,8 @@ public class ApkGenruleTest {
       public Buildable getBuildable() {
         class Dummy extends FakeBuildable implements InstallableApk {
 
-          @Override
-          public BuildTarget getBuildTarget() {
-            return apkTarget;
+          public Dummy() {
+            super(apkTarget);
           }
 
           @Override
@@ -157,18 +157,19 @@ public class ApkGenruleTest {
     arg.bash = Optional.of("");
     arg.cmd = Optional.of("python signer.py $APK key.properties > $OUT");
     arg.cmdExe = Optional.of("");
-    arg.deps = Optional.of(ImmutableSortedSet.<BuildRule>of());
     arg.out = "signed_fb4a.apk";
     arg.srcs = Optional.of(ImmutableList.of(
             Paths.get("src/com/facebook/signer.py"), Paths.get("src/com/facebook/key.properties")));
-    FakeBuildRuleParams params = new FakeBuildRuleParams(buildTarget) {
-      @Override
-      public Function<Path, Path> getPathAbsolutifier() {
-        return relativeToAbsolutePathFunction;
-      }
-    };
+    BuildRuleParams params = new FakeBuildRuleParamsBuilder(buildTarget)
+        .setProjectFilesystem(
+            new ProjectFilesystem(Paths.get(".")) {
+              @Override
+              public Function<Path, Path> getAbsolutifier() {
+                return relativeToAbsolutePathFunction;
+              }
+            }).build();
     ApkGenrule apkGenrule = description.createBuildable(params, arg);
-    BuildRule rule = new AbstractBuildable.AnonymousBuildRule(
+    BuildRule rule = new DescribedRule(
         ApkGenruleDescription.TYPE,
         apkGenrule,
         params);
@@ -180,7 +181,7 @@ public class ApkGenruleTest {
     assertEquals(expectedApkOutput,
         apkGenrule.getAbsoluteOutputFilePath());
     BuildContext buildContext = BuildContext.builder()
-        .setDependencyGraph(EasyMock.createMock(DependencyGraph.class))
+        .setActionGraph(EasyMock.createMock(ActionGraph.class))
         .setStepRunner(EasyMock.createNiceMock(StepRunner.class))
         .setProjectFilesystem(EasyMock.createNiceMock(ProjectFilesystem.class))
         .setArtifactCache(EasyMock.createMock(ArtifactCache.class))

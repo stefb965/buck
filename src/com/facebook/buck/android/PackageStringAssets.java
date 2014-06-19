@@ -31,13 +31,12 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.zip.ZipStep;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.Hashing;
 
 import java.nio.file.Path;
-import java.util.Collection;
-import java.util.List;
 
 import javax.annotation.Nullable;
 
@@ -52,7 +51,6 @@ public class PackageStringAssets extends AbstractBuildable
 
   private static final String STRING_ASSETS_ZIP_HASH = "STRING_ASSETS_ZIP_HASH";
 
-  private final BuildTarget buildTarget;
   private final FilteredResourcesProvider filteredResourcesProvider;
   private final UberRDotJava uberRDotJava;
   private final BuildOutputInitializer<BuildOutput> buildOutputInitializer;
@@ -61,19 +59,19 @@ public class PackageStringAssets extends AbstractBuildable
       BuildTarget buildTarget,
       FilteredResourcesProvider filteredResourcesProvider,
       UberRDotJava uberRDotJava) {
-    this.buildTarget = Preconditions.checkNotNull(buildTarget);
+    super(buildTarget);
     this.filteredResourcesProvider = Preconditions.checkNotNull(filteredResourcesProvider);
     this.uberRDotJava = Preconditions.checkNotNull(uberRDotJava);
     this.buildOutputInitializer = new BuildOutputInitializer<>(buildTarget, this);
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     return ImmutableSet.of();
   }
 
   @Override
-  public List<Step> getBuildSteps(
+  public ImmutableList<Step> getBuildSteps(
       BuildContext context,
       BuildableContext buildableContext) {
     if (filteredResourcesProvider.getResDirectories().isEmpty()) {
@@ -148,6 +146,6 @@ public class PackageStringAssets extends AbstractBuildable
   }
 
   private Path getPathToStringAssetsDir() {
-    return BuildTargets.getBinPath(buildTarget, "__strings_%s__");
+    return BuildTargets.getBinPath(target, "__strings_%s__");
   }
 }

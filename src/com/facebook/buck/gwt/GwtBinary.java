@@ -25,7 +25,7 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.HasDepsOverride;
+import com.facebook.buck.rules.DependencyEnhancer;
 import com.facebook.buck.rules.RuleKey.Builder;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
@@ -36,6 +36,7 @@ import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -43,14 +44,13 @@ import com.google.common.collect.Iterables;
 
 import java.io.File;
 import java.nio.file.Path;
-import java.util.Collection;
 import java.util.List;
 
 /**
  * Buildable that produces a GWT application as a WAR file, which is a zip of the outputs produced
  * by the GWT compiler.
  */
-public class GwtBinary extends AbstractBuildable implements HasDepsOverride {
+public class GwtBinary extends AbstractBuildable implements DependencyEnhancer {
 
   /**
    * Valid values for the GWT Compiler's {@code -style} flag.
@@ -83,8 +83,7 @@ public class GwtBinary extends AbstractBuildable implements HasDepsOverride {
    * compiler.
    * <p>
    * Currently, this will be instantiated as a side-effect of
-   * {@link #iKnowWhatIAmDoingAndIWillSpecifyAllTheDepsMyself()}. See the TODO(simons) in that
-   * method.
+   * {@link #getEnhancedDeps(BuildRuleResolver, Iterable, Iterable)} ()}.
    */
   private ImmutableSortedSet<Path> gwtModuleJars;
 
@@ -106,6 +105,7 @@ public class GwtBinary extends AbstractBuildable implements HasDepsOverride {
       List<String> experimentalArgs,
       ImmutableSortedSet<BuildRule> originalDeps,
       ImmutableSortedSet<BuildRule> moduleDeps) {
+    super(buildTarget);
     this.outputFile = BuildTargets.getGenPath(
         buildTarget,
         "__gwt_binary_%s__/" + buildTarget.getShortName() + ".zip");
@@ -133,7 +133,7 @@ public class GwtBinary extends AbstractBuildable implements HasDepsOverride {
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     return ImmutableList.of();
   }
 
@@ -147,13 +147,14 @@ public class GwtBinary extends AbstractBuildable implements HasDepsOverride {
    * {@link GwtBinaryDescription.Arg#moduleDeps}. Doing so avoids many calls to {@code javac}.
    */
   @Override
-  public ImmutableSortedSet<BuildRule> iKnowWhatIAmDoingAndIWillSpecifyAllTheDepsMyself(
-      final BuildRuleResolver ruleResolver) {
-    // TODO(simons): Make the BuildRuleResolver available in a Description so that this work can be
-    // done in GwtBinaryDescription.
+  public ImmutableSortedSet<BuildRule> getEnhancedDeps(
+      final BuildRuleResolver ruleResolver,
+      Iterable<BuildRule> declaredDeps,
+      Iterable<BuildRule> inferredDeps) {
+
     final ImmutableSortedSet.Builder<BuildRule> totalDeps =
         ImmutableSortedSet.<BuildRule>naturalOrder()
-        .addAll(originalDeps);
+        .addAll(declaredDeps);
 
     // Find all of the reachable JavaLibrary rules and grab their associated GwtModules.
     final ImmutableSortedSet.Builder<Path> gwtModuleJarsBuilder =
@@ -188,10 +189,13 @@ public class GwtBinary extends AbstractBuildable implements HasDepsOverride {
     this.gwtModuleJars = gwtModuleJarsBuilder.build();
 
     return totalDeps.build();
-  };
+  }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
+  public ImmutableList<Step> getBuildSteps(
+      BuildContext context,
+      BuildableContext buildableContext) {
+
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
     // Create a clean directory where the .zip file will be written.

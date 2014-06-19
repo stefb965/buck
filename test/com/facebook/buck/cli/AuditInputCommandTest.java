@@ -23,13 +23,14 @@ import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.java.JavaLibraryBuilder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.rules.Repository;
 import com.facebook.buck.parser.PartialGraph;
 import com.facebook.buck.parser.PartialGraphFactory;
+import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultKnownBuildRuleTypes;
-import com.facebook.buck.rules.DependencyGraph;
 import com.facebook.buck.rules.KnownBuildRuleTypes;
 import com.facebook.buck.rules.NoopArtifactCache;
 import com.facebook.buck.testutil.BuckTestConstant;
@@ -65,14 +66,18 @@ public class AuditInputCommandTest {
     ProjectFilesystem projectFilesystem = new ProjectFilesystem(projectRoot);
     KnownBuildRuleTypes buildRuleTypes =
         DefaultKnownBuildRuleTypes.getDefaultKnownBuildRuleTypes(projectFilesystem);
+    Repository repository = new Repository(
+        "test",
+        projectFilesystem,
+        buildRuleTypes,
+        new FakeBuckConfig());
     ArtifactCache artifactCache = new NoopArtifactCache();
     BuckEventBus eventBus = BuckEventBusFactory.newInstance();
 
     auditInputCommand = new AuditInputCommand(new CommandRunnerParams(
         console,
-        projectFilesystem,
+        repository,
         new FakeAndroidDirectoryResolver(),
-        buildRuleTypes,
         new InstanceArtifactCacheFactory(artifactCache),
         eventBus,
         BuckTestConstant.PYTHON_INTERPRETER,
@@ -118,8 +123,8 @@ public class AuditInputCommandTest {
         return BuildTargetFactory.newInstance(target);
       }
     });
-    DependencyGraph dependencyGraph = RuleMap.createGraphFromBuildRules(ruleResolver);
-    PartialGraph partialGraph = PartialGraphFactory.newInstance(dependencyGraph, buildTargets);
+    ActionGraph actionGraph = RuleMap.createGraphFromBuildRules(ruleResolver);
+    PartialGraph partialGraph = PartialGraphFactory.newInstance(actionGraph, buildTargets);
 
     auditInputCommand.printJsonInputs(partialGraph);
     assertEquals(EXPECTED_JSON, console.getTextWrittenToStdOut());

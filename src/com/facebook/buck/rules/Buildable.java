@@ -16,13 +16,11 @@
 
 package com.facebook.buck.rules;
 
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.step.Step;
-import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.ImmutableCollection;
+import com.google.common.collect.ImmutableList;
 
 import java.nio.file.Path;
-import java.util.Collection;
-import java.util.List;
 
 import javax.annotation.Nullable;
 
@@ -44,12 +42,14 @@ public interface Buildable {
    * cases the inputs may be ordered in any way the rule feels most appropriate.
    */
   // TODO(simons): Use the Description's constructor arg to generate these.
-  public Collection<Path> getInputsToCompareToOutput();
+  public ImmutableCollection<Path> getInputsToCompareToOutput();
 
   /**
    * When this method is invoked, all of its dependencies will have been built.
    */
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext);
+  public ImmutableList<Step> getBuildSteps(
+      BuildContext context,
+      BuildableContext buildableContext);
 
   // TODO(simons): Base this on the Description constructor arg, but allow optional updates.
   public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder);
@@ -61,18 +61,4 @@ public interface Buildable {
    */
   @Nullable
   public Path getPathToOutputFile();
-
-  /**
-   * A {@link Buildable} may employ graph enhancement to alter its dependencies. If it does this, it
-   * must return the new dependencies via this method.
-   *
-   * @param ruleResolver that can be used to get the {@link BuildRule} that corresponds to a
-   *     {@link BuildTarget} if the rule for the target has already been constructed.
-   * @return The {@code deps} for the {@link BuildRule} that contains this {@link Buildable}. These
-   *     may differ from the {@code deps} specified in the original build file due to graph
-   *     enhancement. If the {@code deps} are unchanged, then this method should return
-   *     {@code null}.
-   */
-  @Nullable
-  public ImmutableSortedSet<BuildRule> getEnhancedDeps(BuildRuleResolver ruleResolver);
 }

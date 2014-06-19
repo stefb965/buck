@@ -19,11 +19,11 @@ package com.facebook.buck.android;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractBuildable;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.Buildable;
-import com.facebook.buck.rules.FakeBuildRuleParams;
+import com.facebook.buck.rules.DescribedRule;
+import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.util.BuckConstant;
@@ -86,10 +86,10 @@ public class BuildConfigTest {
         buildTarget,
         /* appPackage */ "com.example",
         /* debug */ true);
-    return new AbstractBuildable.AnonymousBuildRule(
+    return new DescribedRule(
         BuildConfigDescription.TYPE,
         buildConfig,
-        new FakeBuildRuleParams(buildTarget));
+        new FakeBuildRuleParamsBuilder(buildTarget).build());
   }
 
   // TODO(nickpalmer): Add another unit test that passes in a non-trivial DependencyGraph and verify

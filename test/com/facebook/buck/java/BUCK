@@ -1,7 +1,6 @@
 java_library(
   name = 'testutil',
   srcs = [
-    'FakeDefaultJavaLibrary.java',
     'FakeJavaLibrary.java',
     'JavaBinaryRuleBuilder.java',
     'JavaLibraryBuilder.java',
@@ -13,6 +12,7 @@ java_library(
   deps = [
     '//lib:guava',
     '//lib:jsr305',
+    '//src/com/facebook/buck/java:classhash',
     '//src/com/facebook/buck/java:rules',
     '//src/com/facebook/buck/java:support',
     '//src/com/facebook/buck/java:steps',
@@ -47,10 +47,12 @@ java_test(
     '//lib:jsr305',
     '//lib:junit',
     '//src/com/facebook/buck/android:rules',
+    '//src/com/facebook/buck/cli:cli',
     '//src/com/facebook/buck/cli:config',
     '//src/com/facebook/buck/event:event',
     '//src/com/facebook/buck/graph:graph',
     '//src/com/facebook/buck/java:autodeps',
+    '//src/com/facebook/buck/java:classhash',
     '//src/com/facebook/buck/java:config',
     '//src/com/facebook/buck/java:rules',
     '//src/com/facebook/buck/java:steps',

@@ -21,6 +21,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.fail;
 
+import com.facebook.buck.android.AndroidBinary;
 import com.facebook.buck.android.AndroidBinaryBuilder;
 import com.facebook.buck.android.AndroidLibraryBuilder;
 import com.facebook.buck.android.AndroidResourceRuleBuilder;
@@ -37,9 +38,9 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.PartialGraph;
 import com.facebook.buck.parser.PartialGraphFactory;
+import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DependencyGraph;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeJavaPackageFinder;
 import com.facebook.buck.rules.JavaPackageFinder;
@@ -169,24 +170,27 @@ public class ProjectTest {
 
     // keystore //keystore:debug
     BuildTarget keystoreTarget = BuildTargetFactory.newInstance("//keystore:debug");
-    Keystore keystore = (Keystore) KeystoreBuilder.createBuilder(keystoreTarget)
+    BuildRule keystore = KeystoreBuilder.createBuilder(keystoreTarget)
         .setStore(Paths.get("keystore/debug.keystore"))
         .setProperties(Paths.get("keystore/debug.keystore.properties"))
-        .build(ruleResolver)
-        .getBuildable();
+        .build(ruleResolver);
 
     // android_binary //foo:app
+    ImmutableSortedSet<BuildRule> androidBinaryRuleDeps = ImmutableSortedSet.of(baseRule);
     BuildRule androidBinaryRule = AndroidBinaryBuilder.newBuilder()
             .setBuildTarget(BuildTargetFactory.newInstance("//foo:app"))
-            .setOriginalDeps(ImmutableSortedSet.of(baseRule))
+            .setOriginalDeps(androidBinaryRuleDeps)
             .setManifest(new TestSourcePath("foo/AndroidManifest.xml"))
             .setTarget("Google Inc.:Google APIs:16")
-            .setKeystore(keystore)
+            .setKeystore((Keystore) keystore.getBuildable())
             .setBuildTargetsToExcludeFromDex(
                 ImmutableSet.of(
                     BuildTargetFactory.newInstance("//third_party/guava:guava")))
             .build(ruleResolver);
-    androidBinaryRule.getBuildable().getEnhancedDeps(ruleResolver);
+    ((AndroidBinary) androidBinaryRule.getBuildable()).getEnhancedDeps(
+        ruleResolver,
+        androidBinaryRuleDeps,
+        ImmutableSortedSet.of(keystore));
 
     // project_config //foo:project_config
     BuildRule projectConfigUsingNoDx = ProjectConfigBuilder
@@ -195,14 +199,18 @@ public class ProjectTest {
         .build(ruleResolver);
 
     // android_binary //bar:app
+    ImmutableSortedSet<BuildRule> barAppBuildRuleDeps = ImmutableSortedSet.of(baseRule);
     BuildRule barAppBuildRule = AndroidBinaryBuilder.newBuilder()
             .setBuildTarget(BuildTargetFactory.newInstance("//bar:app"))
-            .setOriginalDeps(ImmutableSortedSet.of(baseRule))
+            .setOriginalDeps(barAppBuildRuleDeps)
             .setManifest(new TestSourcePath("foo/AndroidManifest.xml"))
             .setTarget("Google Inc.:Google APIs:16")
-            .setKeystore(keystore)
+            .setKeystore((Keystore) keystore.getBuildable())
             .build(ruleResolver);
-    barAppBuildRule.getBuildable().getEnhancedDeps(ruleResolver);
+    ((AndroidBinary) barAppBuildRule.getBuildable()).getEnhancedDeps(
+        ruleResolver,
+        barAppBuildRuleDeps,
+        ImmutableSortedSet.of(keystore));
 
     // project_config //bar:project_config
     BuildRule projectConfig = ProjectConfigBuilder
@@ -700,7 +708,7 @@ public class ProjectTest {
       javaPackageFinder = new FakeJavaPackageFinder();
     }
 
-    DependencyGraph graph = RuleMap.createGraphFromBuildRules(ruleResolver);
+    ActionGraph graph = RuleMap.createGraphFromBuildRules(ruleResolver);
     List<BuildTarget> targets = ImmutableList.copyOf(Iterables.transform(projectConfigs,
         new Function<BuildRule, BuildTarget>() {
 
@@ -744,7 +752,7 @@ public class ProjectTest {
 
   private static BuildRule getRuleById(String id, PartialGraph graph) {
     String[] parts = id.split(":");
-    BuildRule rule = graph.getDependencyGraph().findBuildRuleByTarget(
+    BuildRule rule = graph.getActionGraph().findBuildRuleByTarget(
         new BuildTarget(parts[0], parts[1]));
     Preconditions.checkNotNull(rule, "No rule for %s", id);
     return rule;

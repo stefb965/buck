@@ -47,6 +47,10 @@ public class AndroidPlatformTarget {
   public static final String DEFAULT_ANDROID_PLATFORM_TARGET = "Google Inc.:Google APIs:19";
   public static final String ANDROID_VERSION_PREFIX = "android-";
 
+  @VisibleForTesting
+  static final Pattern PLATFORM_TARGET_PATTERN = Pattern.compile(
+      "(?:Google Inc\\.:Google APIs:|android-)(\\d+)");
+
   private final String name;
   private final Path androidJar;
   private final List<Path> bootclasspathEntries;
@@ -156,17 +160,23 @@ public class AndroidPlatformTarget {
    */
   public static Optional<AndroidPlatformTarget> getTargetForId(
       String platformId,
-      AndroidDirectoryResolver androidDirectoryResolver) {
+      AndroidDirectoryResolver androidDirectoryResolver,
+      Optional<Path> aaptOverride) {
     Preconditions.checkNotNull(platformId);
     Preconditions.checkNotNull(androidDirectoryResolver);
 
-    Pattern platformPattern = Pattern.compile("Google Inc\\.:Google APIs:(\\d+)");
-    Matcher platformMatcher = platformPattern.matcher(platformId);
+    Matcher platformMatcher = PLATFORM_TARGET_PATTERN.matcher(platformId);
     if (platformMatcher.matches()) {
       try {
         int apiLevel = Integer.parseInt(platformMatcher.group(1));
+        Factory platformTargetFactory;
+        if (platformId.contains("Google APIs")) {
+          platformTargetFactory = new AndroidWithGoogleApisFactory();
+        } else {
+          platformTargetFactory = new AndroidWithoutGoogleApisFactory();
+        }
         return Optional.of(
-            new AndroidWithGoogleApisFactory().newInstance(androidDirectoryResolver, apiLevel));
+            platformTargetFactory.newInstance(androidDirectoryResolver, apiLevel, aaptOverride));
       } catch (NumberFormatException e) {
         return Optional.absent();
       }
@@ -176,14 +186,17 @@ public class AndroidPlatformTarget {
   }
 
   public static AndroidPlatformTarget getDefaultPlatformTarget(
-      AndroidDirectoryResolver androidDirectoryResolver) {
-    return getTargetForId(DEFAULT_ANDROID_PLATFORM_TARGET, androidDirectoryResolver).get();
+      AndroidDirectoryResolver androidDirectoryResolver,
+      Optional<Path> aaptOverride) {
+    return getTargetForId(DEFAULT_ANDROID_PLATFORM_TARGET, androidDirectoryResolver, aaptOverride)
+        .get();
   }
 
   private static interface Factory {
     public AndroidPlatformTarget newInstance(
         AndroidDirectoryResolver androidDirectoryResolver,
-        int apiLevel);
+        int apiLevel,
+        Optional<Path> aaptOverride);
   }
 
   /**
@@ -196,7 +209,8 @@ public class AndroidPlatformTarget {
       String name,
       AndroidDirectoryResolver androidDirectoryResolver,
       String platformDirectoryPath,
-      Set<Path> additionalJarPaths) {
+      Set<Path> additionalJarPaths,
+      Optional<Path> aaptOverride) {
     Path androidSdkDir = androidDirectoryResolver.findAndroidSdkDir();
     if (!androidSdkDir.isAbsolute()) {
       throw new HumanReadableException(
@@ -254,7 +268,7 @@ public class AndroidPlatformTarget {
         name,
         androidJar.toAbsolutePath(),
         bootclasspathEntries,
-        androidSdkDir.resolve(buildToolsPath).resolve("aapt").toAbsolutePath(),
+        aaptOverride.or(androidSdkDir.resolve(buildToolsPath).resolve("aapt").toAbsolutePath()),
         androidSdkDir.resolve("platform-tools/adb").toAbsolutePath(),
         androidSdkDir.resolve(buildToolsPath).resolve("aidl").toAbsolutePath(),
         androidSdkDir.resolve("tools/zipalign").toAbsolutePath(),
@@ -321,7 +335,8 @@ public class AndroidPlatformTarget {
     @Override
     public AndroidPlatformTarget newInstance(
         final AndroidDirectoryResolver androidDirectoryResolver,
-        final int apiLevel) {
+        final int apiLevel,
+        Optional<Path> aaptOverride) {
       // TODO(natthu): Use Paths instead of Strings everywhere in this file.
       Path androidSdkDir = androidDirectoryResolver.findAndroidSdkDir();
       File addonsParentDir = androidSdkDir.resolve("add-ons").toFile();
@@ -369,7 +384,8 @@ public class AndroidPlatformTarget {
                 String.format("Google Inc.:Google APIs:%d", apiLevel),
                 androidDirectoryResolver,
                 String.format("platforms/android-%d", apiLevel),
-                additionalJarPaths.build());
+                additionalJarPaths.build(),
+                aaptOverride);
           }
         }
       }
@@ -381,6 +397,21 @@ public class AndroidPlatformTarget {
           new File(addonsParentDir, apiDirPrefix + "/libs").getAbsolutePath(),
           androidSdkDir,
           apiLevel);
+    }
+  }
+
+  private static class AndroidWithoutGoogleApisFactory implements Factory {
+    @Override
+    public AndroidPlatformTarget newInstance(
+        final AndroidDirectoryResolver androidDirectoryResolver,
+        final int apiLevel,
+        Optional<Path> aaptOverride) {
+      return createFromDefaultDirectoryStructure(
+          String.format("android-%d", apiLevel),
+          androidDirectoryResolver,
+          String.format("platforms/android-%d", apiLevel),
+          /* additionalJarPaths */ ImmutableSet.<Path>of(),
+          aaptOverride);
     }
   }
 

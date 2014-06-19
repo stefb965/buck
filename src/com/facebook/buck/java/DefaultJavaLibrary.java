@@ -34,10 +34,10 @@ import com.facebook.buck.rules.BuildOutputInitializer;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.Buildable;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.BuildableParams;
 import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.ExportDependencies;
 import com.facebook.buck.rules.InitializableFromDisk;
+import com.facebook.buck.rules.JavaPackageFinder;
 import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.Sha1HashCode;
@@ -50,6 +50,7 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.util.BuckConstant;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.annotations.VisibleForTesting;
@@ -60,6 +61,7 @@ import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSetMultimap;
@@ -108,7 +110,6 @@ public class DefaultJavaLibrary extends AbstractBuildable
 
   private static final BuildableProperties OUTPUT_TYPE = new BuildableProperties(LIBRARY);
 
-  private final BuildTarget target;
   protected ImmutableSortedSet<BuildRule> deps;
   private final ImmutableSortedSet<SourcePath> srcs;
   private final ImmutableSortedSet<SourcePath> resources;
@@ -126,6 +127,7 @@ public class DefaultJavaLibrary extends AbstractBuildable
   private final Supplier<ImmutableSetMultimap<JavaLibrary, Path>>
       declaredClasspathEntriesSupplier;
   private final BuildOutputInitializer<Data> buildOutputInitializer;
+  private final Optional<Path> resourcesRoot;
 
   // TODO(jacko): This really should be final, but we need to refactor how we get the
   // AndroidPlatformTarget first before it can be.
@@ -168,27 +170,42 @@ public class DefaultJavaLibrary extends AbstractBuildable
   };
 
   protected DefaultJavaLibrary(
-      BuildableParams buildableParams,
+      BuildTarget target,
       Set<? extends SourcePath> srcs,
       Set<? extends SourcePath> resources,
       Optional<Path> proguardConfig,
       ImmutableList<String> postprocessClassesCommands,
-      Set<BuildRule> exportedDeps,
-      Set<BuildRule> providedDeps,
-      JavacOptions javacOptions) {
-    this.target = buildableParams.getBuildTarget();
+      ImmutableSortedSet<BuildRule> deps,
+      ImmutableSortedSet<BuildRule> exportedDeps,
+      ImmutableSortedSet<BuildRule> providedDeps,
+      JavacOptions javacOptions,
+      Optional<Path> resourcesRoot) {
+    super(target);
+
+    // Exported deps are meant to be forwarded onto the CLASSPATH for dependents,
+    // and so only make sense for java library types.
+    for (BuildRule dep : exportedDeps) {
+      if (!(dep.getBuildable() instanceof JavaLibrary)) {
+        throw new HumanReadableException(
+            target.getBuildTarget() + ": exported dep " +
+            dep.getBuildTarget() + " (" + dep.getType() + ") " +
+            "must be a type of java library.");
+      }
+    }
+
     this.deps = ImmutableSortedSet.<BuildRule>naturalOrder()
-        .addAll(buildableParams.getDeps())
+        .addAll(deps)
         .addAll(exportedDeps)
         .build();
     this.srcs = ImmutableSortedSet.copyOf(srcs);
     this.resources = ImmutableSortedSet.copyOf(resources);
     this.proguardConfig = Preconditions.checkNotNull(proguardConfig);
     this.postprocessClassesCommands = Preconditions.checkNotNull(postprocessClassesCommands);
-    this.exportedDeps = ImmutableSortedSet.copyOf(exportedDeps);
-    this.providedDeps = ImmutableSortedSet.copyOf(providedDeps);
+    this.exportedDeps = exportedDeps;
+    this.providedDeps = providedDeps;
     this.additionalClasspathEntries = ImmutableSet.of();
     this.javacOptions = Preconditions.checkNotNull(javacOptions);
+    this.resourcesRoot = Preconditions.checkNotNull(resourcesRoot);
 
     if (!srcs.isEmpty() || !resources.isEmpty()) {
       this.outputJar = Optional.of(getOutputJarPath(getBuildTarget()));
@@ -225,13 +242,7 @@ public class DefaultJavaLibrary extends AbstractBuildable
           }
         });
 
-    this.buildOutputInitializer =
-        new BuildOutputInitializer<>(buildableParams.getBuildTarget(), this);
-  }
-
-  @Override
-  public BuildTarget getBuildTarget() {
-    return target;
+    this.buildOutputInitializer = new BuildOutputInitializer<>(target, this);
   }
 
   public ImmutableSortedSet<BuildRule> getDeps() {
@@ -279,7 +290,7 @@ public class DefaultJavaLibrary extends AbstractBuildable
             declaredClasspathEntries,
             javacOptions,
             Optional.of(getPathToAbiOutputFile()),
-            Optional.of(target.getFullyQualifiedName()),
+            Optional.of(target),
             buildDependencies,
             suggestBuildRules,
             Optional.of(pathToSrcsList),
@@ -293,7 +304,7 @@ public class DefaultJavaLibrary extends AbstractBuildable
             declaredClasspathEntries,
             javacOptions,
             Optional.of(getPathToAbiOutputFile()),
-            Optional.of(target.getFullyQualifiedName()),
+            Optional.of(target),
             buildDependencies,
             suggestBuildRules,
             Optional.of(pathToSrcsList));
@@ -427,7 +438,11 @@ public class DefaultJavaLibrary extends AbstractBuildable
   public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
     builder
         .setReflectively("postprocessClassesCommands", postprocessClassesCommands)
-        .setReflectively("resources", resources);
+        .setReflectively("resources", resources)
+        // provided_deps are already included in the rule key, but we need to explicitly call them
+        // out as "provided" because changing a dep from provided to transtitive should result in a
+        // re-build (otherwise, we'd get a rule key match).
+        .setReflectively("provided_deps", providedDeps);
     return javacOptions.appendToRuleKey(builder);
   }
 
@@ -466,7 +481,7 @@ public class DefaultJavaLibrary extends AbstractBuildable
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     ImmutableList.Builder<Path> builder = ImmutableList.builder();
     builder.addAll(SourcePaths.filterInputsToCompareToOutput(this.srcs));
     builder.addAll(SourcePaths.filterInputsToCompareToOutput(this.resources));
@@ -488,7 +503,9 @@ public class DefaultJavaLibrary extends AbstractBuildable
    * attribute. They are compiled into a directory under {@link BuckConstant#BIN_DIR}.
    */
   @Override
-  public final List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
+  public final ImmutableList<Step> getBuildSteps(
+      BuildContext context,
+      BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
     // Only override the bootclasspath if this rule is supposed to compile Android code.
@@ -568,12 +585,16 @@ public class DefaultJavaLibrary extends AbstractBuildable
     addPostprocessClassesCommands(steps, postprocessClassesCommands, outputDirectory);
 
     // If there are resources, then link them to the appropriate place in the classes directory.
+    JavaPackageFinder finder = context.getJavaPackageFinder();
+    if (resourcesRoot.isPresent()) {
+      finder = new ResourcesRootPackageFinder(resourcesRoot.get(), finder);
+    }
     steps.add(
         new CopyResourcesStep(
             getBuildTarget(),
             resources,
             outputDirectory,
-            context.getJavaPackageFinder()));
+            finder));
 
     if (outputJar.isPresent()) {
       steps.add(new MakeCleanDirectoryStep(getOutputJarDirPath(getBuildTarget())));
@@ -674,7 +695,7 @@ public class DefaultJavaLibrary extends AbstractBuildable
         transitiveClasspathEntries.keySet(),
         Sets.union(ImmutableSet.of(this), declaredClasspathEntries.keySet()));
 
-    TraversableGraph<BuildRule> graph = context.getDependencyGraph();
+    TraversableGraph<BuildRule> graph = context.getActionGraph();
     final ImmutableList<BuildRule> sortedTransitiveNotDeclaredDeps = ImmutableList.copyOf(
         TopologicalSort.sort(graph,
             new Predicate<BuildRule>() {

@@ -33,18 +33,19 @@ import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargetPattern;
+import com.facebook.buck.rules.Repository;
 import com.facebook.buck.parser.BuildTargetParseException;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.parser.ParseContext;
 import com.facebook.buck.parser.PartialGraph;
 import com.facebook.buck.parser.PartialGraphFactory;
+import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.DefaultKnownBuildRuleTypes;
-import com.facebook.buck.rules.DependencyGraph;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.KnownBuildRuleTypes;
 import com.facebook.buck.rules.NoopArtifactCache;
@@ -117,17 +118,22 @@ public class TargetsCommandTest {
   public void setUp() {
     console = new TestConsole();
     ProjectFilesystem projectFilesystem = new ProjectFilesystem(projectRoot);
-    AndroidDirectoryResolver androidDirectoryResolver = new FakeAndroidDirectoryResolver();
     KnownBuildRuleTypes buildRuleTypes =
         DefaultKnownBuildRuleTypes.getDefaultKnownBuildRuleTypes(projectFilesystem);
+    Repository repository = new Repository(
+        "test",
+        projectFilesystem,
+        buildRuleTypes,
+        new FakeBuckConfig());
+    AndroidDirectoryResolver androidDirectoryResolver = new FakeAndroidDirectoryResolver();
     ArtifactCache artifactCache = new NoopArtifactCache();
     BuckEventBus eventBus = BuckEventBusFactory.newInstance();
+
     targetsCommand =
         new TargetsCommand(new CommandRunnerParams(
             console,
-            projectFilesystem,
+            repository,
             androidDirectoryResolver,
-            buildRuleTypes,
             new InstanceArtifactCacheFactory(artifactCache),
             eventBus,
             BuckTestConstant.PYTHON_INTERPRETER,
@@ -272,8 +278,8 @@ public class TargetsCommandTest {
       }
     });
 
-    DependencyGraph dependencyGraph = RuleMap.createGraphFromBuildRules(ruleResolver);
-    return PartialGraphFactory.newInstance(dependencyGraph, buildTargets);
+    ActionGraph actionGraph = RuleMap.createGraphFromBuildRules(ruleResolver);
+    return PartialGraphFactory.newInstance(actionGraph, buildTargets);
   }
 
   @Test
@@ -308,7 +314,7 @@ public class TargetsCommandTest {
     referencedFiles = ImmutableSet.of("excludesrc/CannotFind.java");
     SortedMap<String, BuildRule> matchingBuildRules =
         targetsCommand.getMatchingBuildRules(
-            graph.getDependencyGraph(),
+            graph.getActionGraph(),
             new TargetsCommandPredicate(graph, buildRuleTypes, referencedFiles, targetBuildRules));
     assertTrue(matchingBuildRules.isEmpty());
 
@@ -316,7 +322,7 @@ public class TargetsCommandTest {
     referencedFiles = ImmutableSet.of("javatest/TestJavaLibrary.java");
     matchingBuildRules =
         targetsCommand.getMatchingBuildRules(
-            graph.getDependencyGraph(),
+            graph.getActionGraph(),
             new TargetsCommandPredicate(graph, buildRuleTypes, referencedFiles, targetBuildRules));
     assertEquals(
         ImmutableSet.of("//javatest:test-java-library"),
@@ -327,7 +333,7 @@ public class TargetsCommandTest {
     referencedFiles = ImmutableSet.of("javasrc/JavaLibrary.java");
     matchingBuildRules =
         targetsCommand.getMatchingBuildRules(
-            graph.getDependencyGraph(),
+            graph.getActionGraph(),
             new TargetsCommandPredicate(graph, buildRuleTypes, referencedFiles, targetBuildRules));
     assertEquals(
         ImmutableSet.of("//javatest:test-java-library", "//javasrc:java-library"),
@@ -338,7 +344,7 @@ public class TargetsCommandTest {
         "javatest/TestJavaLibrary.java", "othersrc/CannotFind.java");
     matchingBuildRules =
         targetsCommand.getMatchingBuildRules(
-            graph.getDependencyGraph(),
+            graph.getActionGraph(),
             new TargetsCommandPredicate(graph, buildRuleTypes, referencedFiles, targetBuildRules));
     assertEquals(
         ImmutableSet.of("//javatest:test-java-library"),
@@ -347,7 +353,7 @@ public class TargetsCommandTest {
     // If no referenced file, means this filter is disabled, we can find all targets.
     matchingBuildRules =
         targetsCommand.getMatchingBuildRules(
-            graph.getDependencyGraph(),
+            graph.getActionGraph(),
             new TargetsCommandPredicate(graph,
                 buildRuleTypes,
                 ImmutableSet.<String>of(),
@@ -362,7 +368,7 @@ public class TargetsCommandTest {
     // Specify java_test, java_library as type filters.
     matchingBuildRules =
         targetsCommand.getMatchingBuildRules(
-            graph.getDependencyGraph(),
+            graph.getActionGraph(),
             new TargetsCommandPredicate(
                 graph,
                 ImmutableSet.of(JavaTestDescription.TYPE, JavaLibraryDescription.TYPE),
@@ -378,7 +384,7 @@ public class TargetsCommandTest {
     // Specify java_test, java_library, and a rule name as type filters.
     matchingBuildRules =
         targetsCommand.getMatchingBuildRules(
-            graph.getDependencyGraph(),
+            graph.getActionGraph(),
             new TargetsCommandPredicate(
                 graph,
                 ImmutableSet.of(JavaTestDescription.TYPE, JavaLibraryDescription.TYPE),
@@ -390,7 +396,7 @@ public class TargetsCommandTest {
     // Only filter by BuildTarget
     matchingBuildRules =
         targetsCommand.getMatchingBuildRules(
-            graph.getDependencyGraph(),
+            graph.getActionGraph(),
             new TargetsCommandPredicate(
                 graph,
                 ImmutableSet.<BuildRuleType>of(),
@@ -403,7 +409,7 @@ public class TargetsCommandTest {
     // Filter by BuildTarget and Referenced Files
     matchingBuildRules =
         targetsCommand.getMatchingBuildRules(
-            graph.getDependencyGraph(),
+            graph.getActionGraph(),
             new TargetsCommandPredicate(
                 graph,
                 ImmutableSet.<BuildRuleType>of(),

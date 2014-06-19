@@ -16,6 +16,7 @@
 
 package com.facebook.buck.junit;
 
+import com.facebook.buck.test.result.type.ResultType;
 import com.facebook.buck.test.selectors.TestDescription;
 import com.facebook.buck.test.selectors.TestSelectorList;
 
@@ -42,7 +43,9 @@ import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -68,44 +71,50 @@ public final class JUnitRunner {
   private final File outputDirectory;
   private final List<String> testClassNames;
   private final long defaultTestTimeoutMillis;
-  /* @Nullable */ private final TestSelectorList testSelectorList;
+  private final TestSelectorList testSelectorList;
+  private final boolean isDryRun;
+  private final Set<TestDescription> seenDescriptions = new HashSet<>();
 
   public JUnitRunner(
       File outputDirectory,
       List<String> testClassNames,
       long defaultTestTimeoutMillis,
-      /* @Nullable */ TestSelectorList testSelectorList) {
+      TestSelectorList testSelectorList,
+      boolean isDryRun) {
     this.outputDirectory = outputDirectory;
     this.testClassNames = testClassNames;
     this.defaultTestTimeoutMillis = defaultTestTimeoutMillis;
     this.testSelectorList = testSelectorList;
+    this.isDryRun = isDryRun;
   }
 
   public void run() throws Throwable {
-    Filter filter = null;
-    if (testSelectorList != null) {
-      filter = new Filter() {
-        @Override
-        public boolean shouldRun(Description description) {
-          String methodName = description.getMethodName();
-          if (methodName == null) {
-            // JUnit will give us an org.junit.runner.Description like this for the test class
-            // itself.  It's easier for our filtering to make decisions just at the method level,
-            // however, so just always return true here.
-            return true;
+    Filter filter = new Filter() {
+      @Override
+      public boolean shouldRun(Description description) {
+        String methodName = description.getMethodName();
+        if (methodName == null) {
+          // JUnit will give us an org.junit.runner.Description like this for the test class
+          // itself.  It's easier for our filtering to make decisions just at the method level,
+          // however, so just always return true here.
+          return true;
+        } else {
+          String className = description.getClassName();
+          TestDescription testDescription = new TestDescription(className, methodName);
+          if (testSelectorList.isIncluded(testDescription)) {
+            seenDescriptions.add(testDescription);
+            return !isDryRun;
           } else {
-            String className = description.getClassName();
-            TestDescription testDescription = new TestDescription(className, methodName);
-            return testSelectorList.isIncluded(testDescription);
+            return false;
           }
         }
+      }
 
-        @Override
-        public String describe() {
-          return FILTER_DESCRIPTION;
-        }
-      };
-    }
+      @Override
+      public String describe() {
+        return FILTER_DESCRIPTION;
+      }
+    };
 
     for (String className : testClassNames) {
       final Class<?> testClass = Class.forName(className);
@@ -122,47 +131,75 @@ public final class JUnitRunner {
 
         Runner suite = new Computer().getSuite(createRunnerBuilder(), new Class<?>[]{testClass});
         Request request = Request.runner(suite);
-        if (filter != null) {
-          // NB: Another way to do this would be to always include a Filter, and make the Filter's
-          // shouldRun() always return true if we don't have any selectors.  JUnit's behavior is
-          // different* if a Filter is included however, so only include a filter if we have
-          // selectors.
-          //
-          // (*Some people write classes without tests in them.  When using a filter these are
-          // considered error-worthy and NoTestsRemainException is thrown.  When not using a filter
-          // no error is thrown.)
-          request = request.filterWith(filter);
-        }
+        request = request.filterWith(filter);
 
         jUnitCore.addListener(TestResult.createSingleTestResultRunListener(results));
         jUnitCore.run(request);
       }
 
-      if (isSignificantEnoughToWriteResultsToFile(filter, results)) {
+      results = interpretResults(className, results);
+      if (results != null) {
         writeResult(className, results);
       }
     }
   }
 
-  private boolean isSignificantEnoughToWriteResultsToFile(Filter filter, List<TestResult> results) {
-    // When not using a filter, all results should be recorded.
-    if (filter == null) {
-      return true;
+  /**
+   * This method filters a list of test results prior to writing results to a file.  null is
+   * returned to indicate "don't write anything", which is different to writing a file containing
+   * 0 results.
+   *
+   * <p>
+   *
+   * JUnit handles classes-without-tests in different ways.  If you are not using the
+   * org.junit.runner.Request.filterWith facility then JUnit ignores classes-without-tests.
+   * However, if you are using a filter then a class-without-tests will cause a
+   * NoTestsRemainException to be thrown, which is propagated back as an error.
+   */
+  /* @Nullable */
+  private List<TestResult> interpretResults(String className, List<TestResult> results) {
+    // For dry runs, write fake results for every method seen in the given class.
+    if (isDryRun) {
+      List<TestResult> fakeResults = new ArrayList<>();
+      for (TestDescription seenDescription : seenDescriptions) {
+        if (seenDescription.getClassName().equals(className)) {
+          TestResult fakeResult = new TestResult(
+            seenDescription.getClassName(),
+              seenDescription.getMethodName(),
+              0L,
+              ResultType.DRY_RUN,
+              null,
+              "",
+              "");
+          fakeResults.add(fakeResult);
+        }
+      }
+      results = fakeResults;
+    }
+
+    // When not using any command line filtering options, all results should be recorded.
+    if (testSelectorList.isEmpty()) {
+      if (isSingleResultCausedByNoTestsRemainException(results)) {
+        // ...except for testless-classes, where we pretend nothing ran.
+        return new ArrayList<>();
+      } else {
+        return results;
+      }
     }
 
     // If the results size is 0 (which can happen at least with JUnit 4.11), results are not
     // significant and shouldn't be recorded.
     if (results.size() == 0) {
-      return false;
+      return null;
     }
 
-    // In JUnit 4.8, we have an odd scenario where we have one result telling us we have no results.
-    // More information below.
-    if (isSingularResultClaimingAllTestsWereFilteredOut(results)) {
-      return false;
+    // In (at least) JUnit 4.8, we have an odd scenario where we have one result telling us we
+    // have no results.
+    if (isSingleResultCausedByNoTestsRemainException(results)) {
+      return null;
     }
 
-    return true;
+    return results;
   }
 
   /**
@@ -178,13 +215,17 @@ public final class JUnitRunner {
    * run the test class and all its test methods and handle the erroneous exception JUnit throws if
    * no test-methods were actually run.)
    */
-  private boolean isSingularResultClaimingAllTestsWereFilteredOut(List<TestResult> results) {
+  private boolean isSingleResultCausedByNoTestsRemainException(List<TestResult> results) {
     if (results.size() != 1) {
       return false;
     }
 
     TestResult testResult = results.get(0);
     if (testResult.isSuccess()) {
+      return false;
+    }
+
+    if (testResult.failure == null) {
       return false;
     }
 
@@ -228,7 +269,7 @@ public final class JUnitRunner {
         // Additionally, if we are using test selectors then we should use the original behavior
         // to use our BuckBlockJUnit4ClassRunner, which provides the Descriptions needed to do
         // test selecting properly.
-        if (defaultTestTimeoutMillis <= 0 || testSelectorList != null) {
+        if (defaultTestTimeoutMillis <= 0 || !testSelectorList.isEmpty()) {
           return super.annotatedBuilder();
         }
 
@@ -313,7 +354,13 @@ public final class JUnitRunner {
     trans.setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "2");
 
     // Write the result to a file.
-    String testSelectorSuffix = testSelectorList != null ? ".test_selectors" : "";
+    String testSelectorSuffix = "";
+    if (!testSelectorList.isEmpty()) {
+      testSelectorSuffix += ".test_selectors";
+    }
+    if (isDryRun) {
+      testSelectorSuffix += ".dry_run";
+    }
     File outputFile = new File(outputDirectory, testClassName + testSelectorSuffix + ".xml");
     OutputStream output = new BufferedOutputStream(new FileOutputStream(outputFile));
     StreamResult streamResult = new StreamResult(output);
@@ -356,7 +403,7 @@ public final class JUnitRunner {
 
     long defaultTestTimeoutMillis = Long.parseLong(args[1]);
 
-    TestSelectorList testSelectorList = null;
+    TestSelectorList testSelectorList = TestSelectorList.empty();
     if (!args[2].isEmpty()) {
       List<String> rawSelectors = Arrays.asList(args[2].split("\n"));
       testSelectorList = TestSelectorList.builder()
@@ -364,14 +411,17 @@ public final class JUnitRunner {
           .build();
     }
 
-    // Each argument other than the first one should be a class name to run.
-    List<String> testClassNames = Arrays.asList(args).subList(3, args.length);
+    boolean isDryRun = !args[3].isEmpty();
+
+    // Each subsequent argument should be a class name to run.
+    List<String> testClassNames = Arrays.asList(args).subList(4, args.length);
 
     // Run the tests.
     new JUnitRunner(outputDirectory,
         testClassNames,
         defaultTestTimeoutMillis,
-        testSelectorList)
+        testSelectorList,
+        isDryRun)
     .run();
 
     // Explicitly exit to force the test runner to complete even if tests have sloppily left behind

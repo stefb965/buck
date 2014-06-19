@@ -19,7 +19,6 @@ package com.facebook.buck.java;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildable;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -33,6 +32,7 @@ import com.facebook.buck.rules.FlavorableDescription;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
@@ -73,14 +73,33 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
     javacOptions.setAnnotationProcessingData(annotationParams);
 
     return new DefaultJavaLibrary(
-        params,
+        params.getBuildTarget(),
         args.srcs.get(),
-        args.resources.get(),
+        validateResources(args, params.getProjectFilesystem()),
         args.proguardConfig,
         args.postprocessClassesCommands.get(),
+        params.getDeps(),
         args.exportedDeps.get(),
         args.providedDeps.get(),
-        javacOptions.build());
+        javacOptions.build(),
+        args.resourcesRoot);
+  }
+
+  // TODO(natthu): Consider adding a validateArg() method on Description which gets called before
+  // createBuildable().
+  public static ImmutableSortedSet<SourcePath> validateResources(
+      Arg arg,
+      ProjectFilesystem filesystem) {
+    for (Path path : SourcePaths.filterInputsToCompareToOutput(arg.resources.get())) {
+      if (!filesystem.exists(path)) {
+        throw new HumanReadableException("Error: `resources` argument '%s' does not exist.", path);
+      } else if (filesystem.isDirectory(path)) {
+        throw new HumanReadableException(
+            "Error: a directory is not a valid input to the `resources` argument: %s",
+            path);
+      }
+    }
+    return arg.resources.get();
   }
 
   public static JavacOptions.Builder getJavacOptions(Arg args, JavaCompilerEnvironment javacEnv) {
@@ -111,6 +130,7 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
     public Optional<ImmutableSet<String>> annotationProcessors;
     public Optional<Boolean> annotationProcessorOnly;
     public Optional<ImmutableList<String>> postprocessClassesCommands;
+    public Optional<Path> resourcesRoot;
 
     public Optional<ImmutableSortedSet<BuildRule>> providedDeps;
     public Optional<ImmutableSortedSet<BuildRule>> exportedDeps;
@@ -158,7 +178,7 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
     }
 
     GwtModule gwtModule = gwtModuleOptional.get();
-    BuildRule rule = new AbstractBuildable.AnonymousBuildRule(
+    BuildRule rule = new DescribedRule(
         BuildRuleType.GWT_MODULE,
         gwtModule,
         new BuildRuleParams(

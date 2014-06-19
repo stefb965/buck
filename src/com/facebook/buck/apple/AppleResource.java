@@ -19,7 +19,6 @@ package com.facebook.buck.apple;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractBuildable;
 import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.Buildables;
 import com.facebook.buck.rules.RuleKey;
@@ -31,14 +30,13 @@ import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.DirectoryTraverser;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Collection;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -69,10 +67,11 @@ public class AppleResource extends AbstractBuildable {
   private final Path outputDirectory;
 
   AppleResource(
+      BuildTarget target,
       DirectoryTraverser directoryTraverser,
-      BuildRuleParams params,
       AppleResourceDescriptionArg args,
       Optional<Path> outputPathSubdirectory) {
+    super(target);
     this.directoryTraverser = Preconditions.checkNotNull(directoryTraverser);
     this.dirs = ImmutableSortedSet.copyOf(args.dirs);
     this.files = ImmutableSortedSet.copyOf(args.files);
@@ -90,7 +89,6 @@ public class AppleResource extends AbstractBuildable {
     }
 
     Preconditions.checkNotNull(outputPathSubdirectory);
-    BuildTarget target = params.getBuildTarget();
     Path baseOutputDirectory = Paths.get(
         BuckConstant.BIN_DIR,
         target.getBasePath(),
@@ -124,7 +122,7 @@ public class AppleResource extends AbstractBuildable {
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     ImmutableSortedSet.Builder<Path> inputsToConsiderForCachingPurposes = ImmutableSortedSet
         .naturalOrder();
 
@@ -156,7 +154,10 @@ public class AppleResource extends AbstractBuildable {
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
+  public ImmutableList<Step> getBuildSteps(
+      BuildContext context,
+      BuildableContext buildableContext) {
+
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
     for (Path dir : dirs) {

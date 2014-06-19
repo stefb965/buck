@@ -37,6 +37,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Sets;
@@ -45,7 +46,6 @@ import java.io.IOException;
 import java.io.StringWriter;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 
@@ -65,12 +65,13 @@ public class JsBinary extends AbstractBuildable implements
   private final BuildOutputInitializer<JavascriptDependencies> buildOutputInitializer;
 
   public JsBinary(
-      BuildTarget buildTarget,
+      BuildTarget target,
       ImmutableSortedSet<BuildRule> deps,
       ImmutableSortedSet<SourcePath> srcs,
       Optional<List<String>> defines,
       Optional<List<String>> flags,
       Optional<List<Path>> externs) {
+    super(target);
     this.deps = Preconditions.checkNotNull(deps);
     this.srcs = Preconditions.checkNotNull(srcs);
     this.defines = Preconditions.checkNotNull(defines);
@@ -78,15 +79,15 @@ public class JsBinary extends AbstractBuildable implements
     this.flags = Preconditions.checkNotNull(flags);
 
     this.output = Paths.get(
-        GEN_DIR, buildTarget.getBaseName(), buildTarget.getShortName() + ".js");
+        GEN_DIR, target.getBaseName(), target.getShortName() + ".js");
     this.joyPath = Paths.get(
-        GEN_DIR, buildTarget.getBaseName(), buildTarget.getShortName() + ".deps");
+        GEN_DIR, target.getBaseName(), target.getShortName() + ".deps");
 
-    buildOutputInitializer = new BuildOutputInitializer<>(buildTarget, this);
+    buildOutputInitializer = new BuildOutputInitializer<>(target, this);
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     return SourcePaths.filterInputsToCompareToOutput(srcs);
   }
 
@@ -100,7 +101,9 @@ public class JsBinary extends AbstractBuildable implements
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
+  public ImmutableList<Step> getBuildSteps(
+      BuildContext context,
+      BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
     JavascriptDependencyGraph graph = new JavascriptDependencyGraph();

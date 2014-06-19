@@ -5,6 +5,10 @@ java_library(
   name = 'constants',
   srcs = CONSTANT_SRCS,
   visibility = [ 'PUBLIC' ],
+  deps = [
+    '//lib:guava',
+    '//lib:jsr305',
+  ],
 )
 
 
@@ -36,6 +40,7 @@ IO_SRCS = [
   'InputStreamConsumer.java',
   'MoreFiles.java',
   'MorePaths.java',
+  'MorePosixFilePermissions.java',
   'ProcessExecutor.java',
   'ProjectFilesystem.java',
   'Threads.java',

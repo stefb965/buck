@@ -52,19 +52,16 @@ public class WorkspaceAndProjectGenerator {
   static final String DEPENDENCIES_GROUP = "Dependencies";
 
   private final ProjectFilesystem projectFilesystem;
-  private final Path outputDirectory;
   private final PartialGraph partialGraph;
   private final ExecutionContext executionContext;
   private final BuildTarget workspaceConfigTarget;
 
   public WorkspaceAndProjectGenerator(
       ProjectFilesystem projectFilesystem,
-      Path outputDirectory,
       PartialGraph partialGraph,
       ExecutionContext executionContext,
       BuildTarget workspaceConfigTarget) {
     this.projectFilesystem = Preconditions.checkNotNull(projectFilesystem);
-    this.outputDirectory = Preconditions.checkNotNull(outputDirectory);
     this.partialGraph = Preconditions.checkNotNull(partialGraph);
     this.executionContext = Preconditions.checkNotNull(executionContext);
     this.workspaceConfigTarget = Preconditions.checkNotNull(workspaceConfigTarget);
@@ -72,7 +69,7 @@ public class WorkspaceAndProjectGenerator {
 
   public Path generateWorkspaceAndDependentProjects() throws IOException {
     BuildRule workspaceTargetRule =
-        partialGraph.getDependencyGraph().findBuildRuleByTarget(workspaceConfigTarget);
+        partialGraph.getActionGraph().findBuildRuleByTarget(workspaceConfigTarget);
 
     if (!(workspaceTargetRule.getBuildable() instanceof XcodeWorkspaceConfig)) {
       throw new HumanReadableException("%s must be a xcode_workspace_config",
@@ -84,6 +81,8 @@ public class WorkspaceAndProjectGenerator {
     BuildRule actualTargetRule = workspaceBuildable.getSrcTarget();
 
     String workspaceName = workspaceBuildable.getSrcTarget().getBuildTarget().getShortName();
+
+    Path outputDirectory = Paths.get(workspaceBuildable.getBuildTarget().getBasePath());
 
     WorkspaceGenerator workspaceGenerator = new WorkspaceGenerator(
         projectFilesystem,
@@ -110,7 +109,7 @@ public class WorkspaceAndProjectGenerator {
     for (String basePath : buildRulesByTargetBasePath.keySet()) {
       // From each target we find that package's xcode_project_config rule and generate it.
       Optional<BuildRule> xcodeProjectConfigRule = Optional.fromNullable(Iterables.getOnlyElement(
-          partialGraph.getDependencyGraph().getBuildRulesOfBuildableTypeInBasePath(
+          partialGraph.getActionGraph().getBuildRulesOfBuildableTypeInBasePath(
               XcodeProjectConfig.class, basePath), null));
 
       Set<BuildRule> xcodeNativeProjectRules = Sets.newHashSet(Collections2.filter(

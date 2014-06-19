@@ -19,7 +19,6 @@ package com.facebook.buck.shell;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractBuildable;
 import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKey;
@@ -30,13 +29,12 @@ import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.util.BuckConstant;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Collection;
 import java.util.Collections;
-import java.util.List;
 
 /**
  * Export a file so that it can be easily referenced by other
@@ -83,13 +81,12 @@ public class ExportFile extends AbstractBuildable {
   private final Path out;
 
   @VisibleForTesting
-  ExportFile(final BuildRuleParams params, ExportFileDescription.Arg args) {
-    final BuildTarget target = params.getBuildTarget();
+  ExportFile(BuildTarget target, ExportFileDescription.Arg args) {
+    super(target);
     if (args.src.isPresent()) {
       this.src = args.src.get();
     } else {
-      this.src = new PathSourcePath(
-          Paths.get(String.format("%s%s", target.getBasePathWithSlash(), target.getShortName())));
+      this.src = new PathSourcePath(Paths.get(target.getBasePath(), target.getShortName()));
     }
 
     final String outName = args.out.or(target.getShortName());
@@ -97,7 +94,7 @@ public class ExportFile extends AbstractBuildable {
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     return SourcePaths.filterInputsToCompareToOutput(Collections.singleton(src));
   }
 
@@ -108,7 +105,10 @@ public class ExportFile extends AbstractBuildable {
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
+  public ImmutableList<Step> getBuildSteps(
+      BuildContext context,
+      BuildableContext buildableContext) {
+
     // This file is copied rather than symlinked so that when it is included in an archive zip and
     // unpacked on another machine, it is an ordinary file in both scenarios.
     ImmutableList.Builder<Step> builder = ImmutableList.<Step>builder()

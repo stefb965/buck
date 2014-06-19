@@ -20,9 +20,11 @@ import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.FakeBuildRuleParams;
+import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.TestSourcePath;
 import com.facebook.buck.rules.coercer.AppleSource;
+import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -43,9 +45,11 @@ public class IosLibraryTest {
         AppleSource.ofSourcePath(new TestSourcePath("some_header.h")));
     arg.configs = ImmutableMap.of();
     arg.frameworks = ImmutableSortedSet.of();
+    arg.deps = Optional.absent();
 
-    FakeBuildRuleParams buildRuleParams = new FakeBuildRuleParams(new BuildTarget("//foo", "foo"));
-    IosLibrary buildable = (IosLibrary) description.createBuildable(buildRuleParams, arg);
+    BuildRuleParams params =
+        new FakeBuildRuleParamsBuilder(new BuildTarget("//foo", "foo")).build();
+    IosLibrary buildable = (IosLibrary) description.createBuildable(params, arg);
 
     assertThat(buildable.getInputsToCompareToOutput(), containsInAnyOrder(
         Paths.get("some_header.h"),

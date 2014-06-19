@@ -18,10 +18,10 @@ package com.facebook.buck.cli;
 
 import com.facebook.buck.command.Build;
 import com.facebook.buck.event.BuckEventBus;
+import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.BuildDependencies;
 import com.facebook.buck.rules.BuildEngine;
-import com.facebook.buck.rules.DependencyGraph;
 import com.facebook.buck.step.TargetDevice;
 import com.facebook.buck.util.AndroidDirectoryResolver;
 import com.facebook.buck.util.Console;
@@ -121,7 +121,7 @@ public class BuildCommandOptions extends AbstractCommandOptions {
   }
 
   Build createBuild(BuckConfig buckConfig,
-      DependencyGraph graph,
+      ActionGraph graph,
       ProjectFilesystem projectFilesystem,
       AndroidDirectoryResolver androidDirectoryResolver,
       BuildEngine buildEngine,
@@ -150,6 +150,7 @@ public class BuildCommandOptions extends AbstractCommandOptions {
         getBuildDependencies(),
         eventBus,
         platform,
-        environment);
+        environment,
+        buckConfig);
   }
 }

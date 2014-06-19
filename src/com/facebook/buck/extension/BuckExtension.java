@@ -51,7 +51,6 @@ import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Path;
 import java.util.Collection;
-import java.util.List;
 
 /**
  * Builds an extension for buck. This is similar to a {@code java_library}, but will automatically
@@ -64,7 +63,6 @@ public class BuckExtension extends AbstractBuildable {
       /* source level */ "7",
       /* target level */ "7");
 
-  private final BuildTarget target;
   private final ImmutableSortedSet<? extends SourcePath> srcs;
   private final ImmutableSortedSet<? extends SourcePath> resources;
   private final ImmutableSortedSet<BuildRule> deps;
@@ -77,7 +75,7 @@ public class BuckExtension extends AbstractBuildable {
       ImmutableSortedSet<? extends SourcePath> srcs,
       ImmutableSortedSet<? extends SourcePath> resources,
       ImmutableSortedSet<BuildRule> deps) {
-    this.target = Preconditions.checkNotNull(target);
+    super(target);
     this.srcs = Preconditions.checkNotNull(srcs);
     this.resources = Preconditions.checkNotNull(resources);
     this.deps = Preconditions.checkNotNull(deps);
@@ -88,12 +86,15 @@ public class BuckExtension extends AbstractBuildable {
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     return SourcePaths.filterInputsToCompareToOutput(Iterables.concat(srcs, resources));
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
+  public ImmutableList<Step> getBuildSteps(
+      BuildContext context,
+      BuildableContext buildableContext) {
+
     JavacOptions javacOptions = JavacOptions.builder()
         .setJavaCompilerEnviornment(BUCK_ENV)
         .build();
@@ -114,7 +115,7 @@ public class BuckExtension extends AbstractBuildable {
             declaredClasspath,
             javacOptions,
             Optional.of(abi),
-            Optional.of(target.toString()),
+            Optional.of(target),
             BuildDependencies.FIRST_ORDER_ONLY,
             Optional.<JavacStep.SuggestBuildRules>absent(),
             /* path to sources list */ Optional.<Path>absent()));

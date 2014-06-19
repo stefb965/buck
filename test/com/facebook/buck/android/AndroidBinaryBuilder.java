@@ -22,10 +22,10 @@ import static com.facebook.buck.android.ResourcesFilter.ResourceCompressionMode;
 import com.facebook.buck.java.JavacOptions;
 import com.facebook.buck.java.Keystore;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractBuildable;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.FakeBuildRuleParams;
+import com.facebook.buck.rules.DescribedRule;
+import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.SourcePath;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSet;
@@ -68,10 +68,9 @@ public class AndroidBinaryBuilder {
 
     public AndroidBinary build() {
       return new AndroidBinary(
-          new FakeBuildRuleParams(buildTarget, originalDeps),
+          new FakeBuildRuleParamsBuilder(buildTarget).setDeps(originalDeps).build(),
           JavacOptions.DEFAULTS,
           /* proguardJarOverride */ Optional.<Path>absent(),
-          /* aaptOverride */ Optional.<Path>absent(),
           manifest,
           target,
           originalDeps,
@@ -94,10 +93,10 @@ public class AndroidBinaryBuilder {
 
     public BuildRule build(BuildRuleResolver ruleResolver) {
       return ruleResolver.addToIndex(
-          new AbstractBuildable.AnonymousBuildRule(
+          new DescribedRule(
               AndroidBinaryDescription.TYPE,
               build(),
-              new FakeBuildRuleParams(buildTarget, originalDeps)));
+              new FakeBuildRuleParamsBuilder(buildTarget).setDeps(originalDeps).build()));
     }
 
     public Builder setBuildTarget(BuildTarget buildTarget) {

@@ -32,28 +32,25 @@ import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.util.BuckConstant;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Collection;
-import java.util.List;
 
 /**
  * Buildable for generating a .java file from an .aidl file. Example:
  * <pre>
- * # This will generate IOrcaService.java in the genfiles directory.
+ * # This will generate IOrcaService.java in the buck-out/gen directory.
  * gen_aidl(
  *   name = 'orcaservice',
  *   aidl = 'IOrcaService.aidl',
  * )
  *
- * # The genfile() function flags the input as a file that can be found in the buck-out/gen
- * # directory.
  * android_library(
  *   name = 'server',
- *   srcs = glob(['*.java']) + [genfile('IOrcaService.java')],
+ *   srcs = glob(['*.java']) + [':orcaservice'],
  *   deps = [
  *     '//first-party/orca/lib-base:lib-base',
  *   ],
@@ -64,14 +61,13 @@ public class GenAidl extends AbstractBuildable {
 
   private static final BuildableProperties PROPERTIES = new BuildableProperties(ANDROID);
 
-  private final BuildTarget buildTarget;
   private final Path aidlFilePath;
   private final String importPath;
   private final Path output;
   private final Path genPath;
 
   GenAidl(BuildTarget buildTarget, Path aidlFilePath, String importPath) {
-    this.buildTarget = Preconditions.checkNotNull(buildTarget);
+    super(buildTarget);
     this.aidlFilePath = Preconditions.checkNotNull(aidlFilePath);
     this.importPath = Preconditions.checkNotNull(importPath);
     this.genPath = BuildTargets.getGenPath(buildTarget, "%s");
@@ -97,34 +93,37 @@ public class GenAidl extends AbstractBuildable {
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     return ImmutableList.of(aidlFilePath);
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
+  public ImmutableList<Step> getBuildSteps(
+      BuildContext context,
+      BuildableContext buildableContext) {
+
     ImmutableList.Builder<Step> commands = ImmutableList.builder();
 
     commands.add(new MakeCleanDirectoryStep(genPath));
 
-    Path outputDirectory = BuildTargets.getBinPath(buildTarget, "__%s.aidl");
+    Path outputDirectory = BuildTargets.getBinPath(target, "__%s.aidl");
     commands.add(new MakeCleanDirectoryStep(outputDirectory));
 
     AidlStep command = new AidlStep(
-        buildTarget,
+        target,
         aidlFilePath,
         ImmutableSet.of(importPath),
         outputDirectory);
     commands.add(command);
 
-    // Files must ultimately be written to GEN_DIR to be used with genfile().
+    // Files must ultimately be written to GEN_DIR to be used as source paths.
     Path genDirectory = Paths.get(BuckConstant.GEN_DIR, importPath);
 
     // Warn the user if the genDirectory is not under the output directory.
-    if (!importPath.startsWith(buildTarget.getBasePath())) {
+    if (!importPath.startsWith(target.getBasePath())) {
       // TODO(simons): Make this fatal. Give people some time to clean up their rules.
       context.logError("%s, gen_aidl import path (%s) should be a child of %s",
-          buildTarget, importPath, buildTarget.getBasePath());
+          target, importPath, target.getBasePath());
     }
 
     commands.add(new MkdirStep(genDirectory));

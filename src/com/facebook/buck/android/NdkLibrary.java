@@ -24,20 +24,21 @@ import com.facebook.buck.rules.AbstractBuildable;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableProperties;
-import com.facebook.buck.rules.RecordArtifactsInDirectoryStep;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.step.Step;
+import com.facebook.buck.step.fs.CopyStep;
+import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.util.BuckConstant;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 
@@ -78,6 +79,7 @@ public class NdkLibrary extends AbstractBuildable implements NativeLibraryBuilda
       List<String> flags,
       boolean isAsset,
       Optional<String> ndkVersion) {
+    super(buildTarget);
     this.isAsset = isAsset;
 
     this.makefileDirectory = buildTarget.getBasePathWithSlash();
@@ -111,7 +113,10 @@ public class NdkLibrary extends AbstractBuildable implements NativeLibraryBuilda
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
+  public ImmutableList<Step> getBuildSteps(
+      BuildContext context,
+      BuildableContext buildableContext) {
+
     // .so files are written to the libs/ subdirectory of the output directory.
     // All of them should be recorded via the BuildableContext.
     Path binDirectory = buildArtifactsDirectory.resolve("libs");
@@ -120,11 +125,13 @@ public class NdkLibrary extends AbstractBuildable implements NativeLibraryBuilda
         binDirectory,
         flags);
 
-    Step recordStep = new RecordArtifactsInDirectoryStep(
-        buildableContext,
+    Step mkDirStep = new MakeCleanDirectoryStep(genDirectory);
+    Step copyStep = CopyStep.forDirectory(
         binDirectory,
-        genDirectory);
-    return ImmutableList.of(nkdBuildStep, recordStep);
+        genDirectory,
+        CopyStep.DirectoryMode.CONTENTS_ONLY);
+    buildableContext.recordArtifactsInDirectory(genDirectory);
+    return ImmutableList.of(nkdBuildStep, mkDirStep, copyStep);
   }
 
   /**
@@ -154,7 +161,7 @@ public class NdkLibrary extends AbstractBuildable implements NativeLibraryBuilda
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     return SourcePaths.filterInputsToCompareToOutput(sources);
   }
 }

@@ -24,9 +24,9 @@ import static org.junit.Assert.assertTrue;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.event.LogEvent;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargetPattern;
-import com.facebook.buck.model.InMemoryBuildFileTree;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.shell.EchoStep;
@@ -36,6 +36,7 @@ import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Optional;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -48,7 +49,6 @@ import org.junit.Test;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -66,7 +66,7 @@ public class DescribedRuleTest {
         new FakeProjectFilesystem(),
         new FakeRuleKeyBuilderFactory());
 
-    ExampleBuildable expected = new ExampleBuildable("nada");
+    ExampleBuildable expected = new ExampleBuildable(params.getBuildTarget(), "nada");
     DescribedRule rule = new DescribedRule(new BuildRuleType("example"),
         expected,
         params);
@@ -95,7 +95,7 @@ public class DescribedRuleTest {
 
       @Override
       public Buildable createBuildable(BuildRuleParams params, Dto args) {
-        return new ExampleBuildable(args.name);
+        return new ExampleBuildable(params.getBuildTarget(), args.name);
       }
     };
 
@@ -105,11 +105,9 @@ public class DescribedRuleTest {
         // "name" maps to the DTO, which is returned in the EchoStep
         ImmutableMap.of("name", "cheese"),
         filesystem,
-        new InMemoryBuildFileTree(ImmutableSet.<Path>of()),
         new BuildTargetParser(filesystem),
         BuildTargetFactory.newInstance("//one/two:example"),
-        new FakeRuleKeyBuilderFactory(),
-        /* ignore file existence checks */ true);
+        new FakeRuleKeyBuilderFactory());
 
     BuildContext fakeBuildContext = FakeBuildContext.NOOP_CONTEXT;
 
@@ -161,7 +159,7 @@ public class DescribedRuleTest {
 
       @Override
       public Buildable createBuildable(BuildRuleParams params, Dto args) {
-        return new ExampleBuildable("hello world");
+        return new ExampleBuildable(params.getBuildTarget(), "hello world");
       }
     };
 
@@ -186,11 +184,9 @@ public class DescribedRuleTest {
             "paths", ImmutableList.of("//example:dep3"),
             "optionalPaths", ImmutableList.of("//example:dep4")),
         filesystem,
-        new InMemoryBuildFileTree(ImmutableSet.<Path>of()),
         new BuildTargetParser(filesystem),
         BuildTargetFactory.newInstance("//one/two:example"),
-        new FakeRuleKeyBuilderFactory(),
-        /* ignore file existence checks */ true);
+        new FakeRuleKeyBuilderFactory());
 
     DescribedRuleFactory<Dto> factory = new DescribedRuleFactory<>(description);
     DescribedRuleBuilder<Dto> builder = factory.newInstance(factoryParams);
@@ -223,7 +219,7 @@ public class DescribedRuleTest {
 
       @Override
       public Buildable createBuildable(BuildRuleParams params, Dto args) {
-        return new ExampleBuildable("hello world");
+        return new ExampleBuildable(params.getBuildTarget(), "hello world");
       }
     };
 
@@ -237,11 +233,9 @@ public class DescribedRuleTest {
     BuildRuleFactoryParams factoryParams = new BuildRuleFactoryParams(
         ImmutableMap.of("paths", ImmutableList.of("//example:dep1")),
         filesystem,
-        new InMemoryBuildFileTree(ImmutableSet.<Path>of()),
         new BuildTargetParser(filesystem),
         BuildTargetFactory.newInstance("//one/two:example"),
-        new FakeRuleKeyBuilderFactory(),
-        /* ignore file existence checks */ true);
+        new FakeRuleKeyBuilderFactory());
 
     DescribedRuleFactory<Dto> factory = new DescribedRuleFactory<>(description);
     DescribedRuleBuilder<Dto> builder = factory.newInstance(factoryParams);
@@ -249,58 +243,6 @@ public class DescribedRuleTest {
 
     ImmutableSortedSet<BuildRule> deps = rule.getDeps();
     assertSetEquals(ImmutableSet.of(depRule1), deps);
-  }
-
-  /**
-   * This models a real-world use-case where the GWT compiler has an {@code -optimize} flag whose
-   * default value is 9, but 0 is a valid input. See http://bit.ly/1nZtmMv.
-   */
-  @Test
-  public void ensureThatSpecifyingZeroIsNotConsideredAbsent() throws NoSuchBuildTargetException {
-    class Dto implements ConstructorArg {
-      static final int DEFAULT_OPTIMIZE = 9;
-      public Optional<Integer> optimize;
-    }
-
-    Description<Dto> description = new Description<Dto>() {
-      @Override
-      public BuildRuleType getBuildRuleType() {
-        return new BuildRuleType("example");
-      }
-
-      @Override
-      public Dto createUnpopulatedConstructorArg() {
-        return new Dto();
-      }
-
-      @Override
-      public Buildable createBuildable(BuildRuleParams params, Dto args) {
-        // Here is the key line of code being verified by this test!
-        int optimizationLevel = args.optimize.or(Integer.valueOf(Dto.DEFAULT_OPTIMIZE));
-        return new ExampleBuildable(String.valueOf(optimizationLevel));
-      }
-    };
-
-    ProjectFilesystem filesystem = createForgivingProjectFilesystem();
-    BuildRuleFactoryParams factoryParams = new BuildRuleFactoryParams(
-        ImmutableMap.of("optimize", 0),
-        filesystem,
-        new InMemoryBuildFileTree(ImmutableSet.<Path>of()),
-        new BuildTargetParser(filesystem),
-        BuildTargetFactory.newInstance("//one/two:example"),
-        new FakeRuleKeyBuilderFactory(),
-        /* ignore file existence checks */ true);
-
-    DescribedRuleFactory<Dto> factory = new DescribedRuleFactory<>(description);
-    DescribedRuleBuilder<Dto> builder = factory.newInstance(factoryParams);
-    BuildRuleResolver ruleResolver = new BuildRuleResolver();
-    DescribedRule rule = builder.build(ruleResolver);
-    ExampleBuildable buildable = (ExampleBuildable) rule.getBuildable();
-    assertEquals(
-        "If the user explicitly specifies a value of 0 for the optimize argument, " +
-            "then args.optimize should be Optional.of(0).",
-        "0",
-        buildable.message);
   }
 
   private ProjectFilesystem createForgivingProjectFilesystem() {
@@ -316,12 +258,13 @@ public class DescribedRuleTest {
 
     private final String message;
 
-    public ExampleBuildable(String message) {
+    public ExampleBuildable(BuildTarget target, String message) {
+      super(target);
       this.message = message;
     }
 
     @Override
-    public Collection<Path> getInputsToCompareToOutput() {
+    public ImmutableCollection<Path> getInputsToCompareToOutput() {
       return ImmutableSet.of();
     }
 
@@ -331,7 +274,9 @@ public class DescribedRuleTest {
     }
 
     @Override
-    public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
+    public ImmutableList<Step> getBuildSteps(
+        BuildContext context,
+        BuildableContext buildableContext) {
       return ImmutableList.<Step>of(new EchoStep(message));
     }
 

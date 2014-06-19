@@ -39,11 +39,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.nio.file.Path;
-import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -57,7 +57,6 @@ import javax.annotation.Nullable;
 @SuppressWarnings("PMD.TestClassWithoutTestCases")
 public class ShTest extends AbstractBuildable implements TestRule {
 
-  private final BuildTarget buildTarget;
   private final SourcePath test;
   private final ImmutableSet<Label> labels;
 
@@ -65,13 +64,13 @@ public class ShTest extends AbstractBuildable implements TestRule {
       BuildTarget buildTarget,
       SourcePath test,
       Set<Label> labels) {
-    this.buildTarget = Preconditions.checkNotNull(buildTarget);
+    super(buildTarget);
     this.test = Preconditions.checkNotNull(test);
     this.labels = ImmutableSet.copyOf(labels);
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     return SourcePaths.filterInputsToCompareToOutput(ImmutableList.of(test));
   }
 
@@ -91,14 +90,11 @@ public class ShTest extends AbstractBuildable implements TestRule {
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
+  public ImmutableList<Step> getBuildSteps(
+      BuildContext context,
+      BuildableContext buildableContext) {
     // Nothing to build: test is run directly.
     return ImmutableList.of();
-  }
-
-  @Override
-  public BuildTarget getBuildTarget() {
-    return buildTarget;
   }
 
   @Nullable
@@ -118,7 +114,13 @@ public class ShTest extends AbstractBuildable implements TestRule {
   public List<Step> runTests(
       BuildContext buildContext,
       ExecutionContext executionContext,
+      boolean isDryRun,
       TestSelectorList testSelectorList) {
+    if (isDryRun) {
+      // Stop now if we are a dry-run: sh-tests have no concept of dry-run inside the test itself.
+      return ImmutableList.of();
+    }
+
     Step mkdirClean = new MakeCleanDirectoryStep(getPathToTestOutputDirectory());
 
     // Return a single command that runs an .sh file with no arguments.
@@ -144,25 +146,37 @@ public class ShTest extends AbstractBuildable implements TestRule {
   @Override
   public Callable<TestResults> interpretTestResults(
       ExecutionContext context,
-      boolean isUsingTestSelectors) {
+      boolean isUsingTestSelectors,
+      boolean isDryRun) {
     final ImmutableSet<String> contacts = getContacts();
     final ProjectFilesystem filesystem = context.getProjectFilesystem();
-    return new Callable<TestResults>() {
 
-      @Override
-      public TestResults call() throws Exception {
-        Optional<String> resultsFileContents =
-            filesystem.readFileIfItExists(getPathToTestOutputResult());
-        ObjectMapper mapper = new ObjectMapper();
-        TestResultSummary testResultSummary = mapper.readValue(resultsFileContents.get(),
-            TestResultSummary.class);
-        TestCaseSummary testCaseSummary = new TestCaseSummary(
-            buildTarget.getFullyQualifiedName(),
-            ImmutableList.of(testResultSummary));
-        return new TestResults(getBuildTarget(), ImmutableList.of(testCaseSummary), contacts);
-      }
+    if (isDryRun) {
+      // Again, shortcut to returning no results, because sh-tests have no concept of a dry-run.
+      return new Callable<TestResults>() {
+        @Override
+        public TestResults call() throws Exception {
+          return new TestResults(getBuildTarget(), ImmutableList.<TestCaseSummary>of(), contacts);
+        }
+      };
+    } else {
+      return new Callable<TestResults>() {
 
-    };
+        @Override
+        public TestResults call() throws Exception {
+          Optional<String> resultsFileContents =
+              filesystem.readFileIfItExists(getPathToTestOutputResult());
+          ObjectMapper mapper = new ObjectMapper();
+          TestResultSummary testResultSummary = mapper.readValue(resultsFileContents.get(),
+              TestResultSummary.class);
+          TestCaseSummary testCaseSummary = new TestCaseSummary(
+              target.getFullyQualifiedName(),
+              ImmutableList.of(testResultSummary));
+          return new TestResults(getBuildTarget(), ImmutableList.of(testCaseSummary), contacts);
+        }
+
+      };
+    }
   }
 
   @Override

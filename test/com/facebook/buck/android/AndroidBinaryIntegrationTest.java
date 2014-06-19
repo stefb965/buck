@@ -16,7 +16,7 @@
 
 package com.facebook.buck.android;
 
-import com.facebook.buck.testutil.integration.ApkInspector;
+import com.facebook.buck.testutil.integration.ZipInspector;
 import com.facebook.buck.testutil.integration.BuckBuildLog;
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
@@ -70,35 +70,35 @@ public class AndroidBinaryIntegrationTest {
 
   @Test
   public void testNonExopackageHasSecondary() throws IOException {
-    ApkInspector apkInspector = new ApkInspector(
+    ZipInspector zipInspector = new ZipInspector(
         workspace.getFile(
             "buck-out/gen/apps/multidex/app.apk"));
-    apkInspector.assertFileExists("assets/secondary-program-dex-jars/metadata.txt");
-    apkInspector.assertFileExists("assets/secondary-program-dex-jars/secondary-1.dex.jar");
+    zipInspector.assertFileExists("assets/secondary-program-dex-jars/metadata.txt");
+    zipInspector.assertFileExists("assets/secondary-program-dex-jars/secondary-1.dex.jar");
 
-    apkInspector.assertFileExists("classes.dex");
-    apkInspector.assertFileExists("lib/armeabi/libfakenative.so");
+    zipInspector.assertFileExists("classes.dex");
+    zipInspector.assertFileExists("lib/armeabi/libfakenative.so");
   }
 
   @Test
   public void testExopackageHasNoSecondary() throws IOException {
-    ApkInspector apkInspector = new ApkInspector(
+    ZipInspector zipInspector = new ZipInspector(
         workspace.getFile(
             "buck-out/gen/apps/multidex/app-exo.apk"));
-    apkInspector.assertFileDoesNotExist("assets/secondary-program-dex-jars/metadata.txt");
-    apkInspector.assertFileDoesNotExist("assets/secondary-program-dex-jars/secondary-1.dex.jar");
+    zipInspector.assertFileDoesNotExist("assets/secondary-program-dex-jars/metadata.txt");
+    zipInspector.assertFileDoesNotExist("assets/secondary-program-dex-jars/secondary-1.dex.jar");
 
-    apkInspector.assertFileExists("classes.dex");
-    apkInspector.assertFileExists("lib/armeabi/libfakenative.so");
+    zipInspector.assertFileExists("classes.dex");
+    zipInspector.assertFileExists("lib/armeabi/libfakenative.so");
   }
 
   @Test
   public void testDisguisedExecutableIsRenamed() throws IOException {
-    ApkInspector apkInspector = new ApkInspector(
+    ZipInspector zipInspector = new ZipInspector(
         workspace.getFile(
             "buck-out/gen/apps/multidex/app.apk"));
 
-    apkInspector.assertFileExists("lib/armeabi/libmybinary.so");
+    zipInspector.assertFileExists("lib/armeabi/libmybinary.so");
   }
 
   @Test
@@ -184,16 +184,56 @@ public class AndroidBinaryIntegrationTest {
     // (with very high probability).
     Thread.sleep(1500);
 
+    ZipInspector zipInspector;
+
+
+    // Change the binary and ensure that we re-run apkbuilder.
     workspace.replaceFileContents(
         "native/fakenative/jni/fakesystem.c", "exit(status)", "exit(1+status)");
 
     workspace.resetBuildLogFile();
-    ProjectWorkspace.ProcessResult result = workspace.runBuckCommand("build", EXOPACKAGE_TARGET);
-    result.assertSuccess();
+    workspace.runBuckCommand("build", EXOPACKAGE_TARGET).assertSuccess();
 
-    BuckBuildLog buildLog = workspace.getBuildLog();
+    workspace.getBuildLog().assertTargetBuiltLocally(EXOPACKAGE_TARGET);
+    zipInspector = new ZipInspector(
+        workspace.getFile(
+            "buck-out/gen/apps/multidex/app-exo.apk"));
+    zipInspector.assertFileExists("lib/armeabi/libfakenative.so");
+    zipInspector.assertFileDoesNotExist("assets/lib/armeabi/libfakenative.so");
 
-    buildLog.assertTargetBuiltLocally(EXOPACKAGE_TARGET);
+
+    // Now convert it into an asset native library and ensure that we re-run apkbuilder.
+    workspace.replaceFileContents(
+        "native/fakenative/jni/BUCK",
+        "name = 'fakenative',",
+        "name = 'fakenative',\nis_asset=True,");
+
+    workspace.resetBuildLogFile();
+    workspace.runBuckCommand("build", EXOPACKAGE_TARGET).assertSuccess();
+
+    workspace.getBuildLog().assertTargetBuiltLocally(EXOPACKAGE_TARGET);
+    zipInspector = new ZipInspector(
+        workspace.getFile(
+            "buck-out/gen/apps/multidex/app-exo.apk"));
+    zipInspector.assertFileDoesNotExist("lib/armeabi/libfakenative.so");
+    zipInspector.assertFileExists("assets/lib/armeabi/libfakenative.so");
+
+
+    // Now edit it again and make sure we re-run apkbuilder.
+    Thread.sleep(1500);
+
+    workspace.replaceFileContents(
+        "native/fakenative/jni/fakesystem.c", "exit(1+status)", "exit(2+status)");
+
+    workspace.resetBuildLogFile();
+    workspace.runBuckCommand("build", EXOPACKAGE_TARGET).assertSuccess();
+
+    workspace.getBuildLog().assertTargetBuiltLocally(EXOPACKAGE_TARGET);
+    zipInspector = new ZipInspector(
+        workspace.getFile(
+            "buck-out/gen/apps/multidex/app-exo.apk"));
+    zipInspector.assertFileDoesNotExist("lib/armeabi/libfakenative.so");
+    zipInspector.assertFileExists("assets/lib/armeabi/libfakenative.so");
   }
 
   @Test

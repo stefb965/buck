@@ -21,45 +21,38 @@ import static com.facebook.buck.rules.BuildableProperties.Kind.LIBRARY;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractBuildable;
 import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.step.Step;
-import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
-import com.facebook.buck.step.fs.MkdirStep;
-import com.facebook.buck.step.fs.SymlinkFileStep;
-import com.facebook.buck.util.BuckConstant;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Iterables;
 
 import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.Collection;
-import java.util.List;
 
 import javax.annotation.Nullable;
 
-public class PythonLibrary extends AbstractBuildable {
+public class PythonLibrary extends AbstractBuildable implements PythonPackagable {
 
   private static final BuildableProperties OUTPUT_TYPE = new BuildableProperties(LIBRARY);
 
-  private final BuildTarget buildTarget;
   private final ImmutableSortedSet<SourcePath> srcs;
-  private final Path pythonPathDirectory;
+  private final ImmutableSortedSet<SourcePath> resources;
 
-  protected PythonLibrary(BuildRuleParams buildRuleParams,
-      ImmutableSortedSet<SourcePath> srcs) {
-    this.buildTarget = buildRuleParams.getBuildTarget();
-    Preconditions.checkNotNull(srcs);
-    Preconditions.checkArgument(!srcs.isEmpty(),
-        "Must specify srcs for %s.",
-        buildRuleParams.getBuildTarget());
-    this.srcs = srcs;
-    this.pythonPathDirectory = getPathToPythonPathDirectory();
+  protected PythonLibrary(
+      BuildTarget target,
+      ImmutableSortedSet<SourcePath> srcs,
+      ImmutableSortedSet<SourcePath> resources) {
+    super(target);
+    this.srcs = Preconditions.checkNotNull(srcs);
+    this.resources = Preconditions.checkNotNull(resources);
   }
 
   @Nullable
@@ -73,64 +66,53 @@ public class PythonLibrary extends AbstractBuildable {
     return builder;
   }
 
-  private Path getPathToPythonPathDirectory() {
-    return Paths.get(
-        BuckConstant.GEN_DIR,
-        buildTarget.getBasePath(),
-        getPathUnderGenDirectory());
-  }
-
-  private String getPathUnderGenDirectory() {
-    return "__pylib_" + buildTarget.getShortName();
-  }
-
-  @Override
-  public Collection<Path> getInputsToCompareToOutput() {
-    return SourcePaths.filterInputsToCompareToOutput(srcs);
+  /**
+   * Convert a set of SourcePaths to a map of Paths mapped to themselves,
+   * appropriate for being put into a PythonPackageComponents instance.
+   * <p>
+   * TODO(#4446762): Currently, the location of sources in the top-level binary
+   * matches the repo-relative path exactly as we form this from the SourcePath
+   * objects we get for the sources list.  In the future, we should have a way
+   * to customize how these files get laid out, as this approach doesn't lend
+   * itself well to generated sources and cases where we don't want the repo layout
+   * to match the binary location.
+   */
+  private ImmutableMap<Path, Path> getPathMapFromSourcePaths(
+      ImmutableSet<SourcePath> sourcePaths) {
+    ImmutableMap.Builder<Path, Path> paths = ImmutableMap.builder();
+    for (SourcePath src : sourcePaths) {
+      Path path = src.resolve();
+      paths.put(path, path);
+    }
+    return paths.build();
   }
 
   /**
-   * @return The directory that must be added to the {@code PYTHONPATH} to include the sources from
-   *     this rule when running Python.
+   * Return the components to contribute to the top-level python package.
    */
-  public Path getPythonPathDirectory() {
-    return pythonPathDirectory;
+  public PythonPackageComponents getPythonPackageComponents() {
+    return new PythonPackageComponents(
+        getPathMapFromSourcePaths(srcs),
+        getPathMapFromSourcePaths(resources),
+        ImmutableMap.<Path, Path>of());
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
-    ImmutableList.Builder<Step> commands = ImmutableList.builder();
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
+    return SourcePaths.filterInputsToCompareToOutput(
+        Iterables.concat(srcs, resources));
+  }
 
-    // Copy all of the sources to a generated directory so that the generated directory can be
-    // included as a $PYTHONPATH element. TODO(mbolin): Symlinks would be more efficient, but we
-    // need to include this structure in the artifact, which is not guaranteed to be zip-friendly.
-    commands.add(new MakeCleanDirectoryStep(pythonPathDirectory));
-
-    ImmutableSortedSet.Builder<Path> directories = ImmutableSortedSet.naturalOrder();
-    ImmutableList.Builder<Step> symlinkSteps = ImmutableList.builder();
-
-    for (SourcePath src : srcs) {
-      Path srcPath = src.resolve();
-      Path targetPath = pythonPathDirectory.resolve(srcPath);
-
-      directories.add(targetPath.getParent());
-      symlinkSteps.add(
-          new SymlinkFileStep(srcPath, targetPath, /* useAbsolutePaths */ false));
-
-      buildableContext.recordArtifact(targetPath);
-    }
-
-    for (Path path : directories.build()) {
-      commands.add(new MkdirStep(path));
-    }
-
-    commands.addAll(symlinkSteps.build());
-
-    return commands.build();
+  @Override
+  public ImmutableList<Step> getBuildSteps(
+      BuildContext context,
+      BuildableContext buildableContext) {
+    return ImmutableList.of();
   }
 
   @Override
   public BuildableProperties getProperties() {
     return OUTPUT_TYPE;
   }
+
 }

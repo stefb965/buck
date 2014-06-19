@@ -26,13 +26,14 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.model.HasBuildTarget;
+import com.facebook.buck.rules.Repository;
+import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Buildable;
 import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.DefaultKnownBuildRuleTypes;
-import com.facebook.buck.rules.DependencyGraph;
 import com.facebook.buck.rules.KnownBuildRuleTypes;
 import com.facebook.buck.rules.NoopArtifactCache;
 import com.facebook.buck.rules.RuleKey;
@@ -229,11 +230,11 @@ public class AuditOwnerCommandTest {
     ArtifactCache artifactCache = new NoopArtifactCache();
     BuckEventBus eventBus = BuckEventBusFactory.newInstance();
     AndroidDirectoryResolver androidDirectoryResolver = new FakeAndroidDirectoryResolver();
+    Repository repository = new Repository("test", filesystem, buildRuleTypes, buckConfig);
     return new AuditOwnerCommand(new CommandRunnerParams(
         console,
-        filesystem,
+        repository,
         androidDirectoryResolver,
-        buildRuleTypes,
         new InstanceArtifactCacheFactory(artifactCache),
         eventBus,
         buckConfig.getPythonInterpreter(),
@@ -253,7 +254,7 @@ public class AuditOwnerCommandTest {
 
     // Empty graph
     MutableDirectedGraph<BuildRule> mutableGraph = new MutableDirectedGraph<BuildRule>();
-    DependencyGraph graph = new DependencyGraph(mutableGraph);
+    ActionGraph graph = new ActionGraph(mutableGraph);
 
     // Inputs that should be treated as "non-files", i.e. as directories
     String[] args = new String[] {
@@ -289,7 +290,7 @@ public class AuditOwnerCommandTest {
 
     // Empty graph
     MutableDirectedGraph<BuildRule> mutableGraph = new MutableDirectedGraph<BuildRule>();
-    DependencyGraph graph = new DependencyGraph(mutableGraph);
+    ActionGraph graph = new ActionGraph(mutableGraph);
 
     // Inputs that should be treated as missing files
     String[] args = new String[] {
@@ -325,7 +326,7 @@ public class AuditOwnerCommandTest {
 
     // Empty graph
     MutableDirectedGraph<BuildRule> mutableGraph = new MutableDirectedGraph<BuildRule>();
-    DependencyGraph graph = new DependencyGraph(mutableGraph);
+    ActionGraph graph = new ActionGraph(mutableGraph);
 
     // Inputs that should be treated as existing files
     String[] args = new String[] {
@@ -379,7 +380,7 @@ public class AuditOwnerCommandTest {
     MutableDirectedGraph<BuildRule> mutableGraph = new MutableDirectedGraph<BuildRule>();
     mutableGraph.addNode(ownerRule);
 
-    DependencyGraph graph = new DependencyGraph(mutableGraph);
+    ActionGraph graph = new ActionGraph(mutableGraph);
 
     // Create options
     AuditOwnerOptions options = getOptions(args);
@@ -429,7 +430,7 @@ public class AuditOwnerCommandTest {
     MutableDirectedGraph<BuildRule> mutableGraph = new MutableDirectedGraph<BuildRule>();
     mutableGraph.addNode(ownerRule);
 
-    DependencyGraph graph = new DependencyGraph(mutableGraph);
+    ActionGraph graph = new ActionGraph(mutableGraph);
 
     // Create options
     AuditOwnerOptions options = getOptions(args);
@@ -486,7 +487,7 @@ public class AuditOwnerCommandTest {
     mutableGraph.addNode(owner1Rule);
     mutableGraph.addNode(owner2Rule);
 
-    DependencyGraph graph = new DependencyGraph(mutableGraph);
+    ActionGraph graph = new ActionGraph(mutableGraph);
 
     // Create options
     AuditOwnerOptions options = getOptions(args);

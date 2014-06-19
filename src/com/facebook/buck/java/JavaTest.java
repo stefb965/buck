@@ -20,8 +20,8 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DependencyEnhancer;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
@@ -61,7 +61,7 @@ import java.util.zip.ZipFile;
 import javax.annotation.Nullable;
 
 @SuppressWarnings("PMD.TestClassWithoutTestCases")
-public class JavaTest extends DefaultJavaLibrary implements TestRule {
+public class JavaTest extends DefaultJavaLibrary implements DependencyEnhancer, TestRule {
 
   private final ImmutableList<String> vmArgs;
 
@@ -79,7 +79,7 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule {
   private ImmutableSet<BuildRule> sourceUnderTest;
 
   protected JavaTest(
-      BuildRuleParams buildRuleParams,
+      BuildTarget target,
       Set<SourcePath> srcs,
       Set<SourcePath> resources,
       Set<Label> labels,
@@ -87,25 +87,32 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule {
       Optional<Path> proguardConfig,
       JavacOptions javacOptions,
       List<String> vmArgs,
-      ImmutableSet<BuildTarget> sourceUnderTest) {
-    super(buildRuleParams,
+      ImmutableSortedSet<BuildRule> deps,
+      ImmutableSet<BuildTarget> sourceUnderTest,
+      Optional<Path> resourcesRoot) {
+    super(target,
         srcs,
         resources,
         proguardConfig,
         ImmutableList.<String>of(),
+        deps,
         /* exportDeps */ ImmutableSortedSet.<BuildRule>of(),
         /* providedDeps */ ImmutableSortedSet.<BuildRule>of(),
-        javacOptions);
+        javacOptions,
+        resourcesRoot);
     this.vmArgs = ImmutableList.copyOf(vmArgs);
     this.sourceTargetsUnderTest = Preconditions.checkNotNull(sourceUnderTest);
     this.labels = ImmutableSet.copyOf(labels);
     this.contacts = ImmutableSet.copyOf(contacts);
   }
 
-
   @Override
-  public ImmutableSortedSet<BuildRule> getEnhancedDeps(BuildRuleResolver ruleResolver) {
-    ImmutableSet.Builder<BuildRule> builder = ImmutableSet.builder();
+  public ImmutableSortedSet<BuildRule> getEnhancedDeps(
+      BuildRuleResolver ruleResolver,
+      Iterable<BuildRule> declaredDeps,
+      Iterable<BuildRule> inferredDeps) {
+
+    ImmutableSet.Builder<BuildRule> sourcesUnderTestBuilder = ImmutableSet.builder();
     for (BuildTarget target : sourceTargetsUnderTest) {
       BuildRule rule = ruleResolver.get(target);
       if (rule == null) {
@@ -115,7 +122,7 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule {
             target);
       }
       if (rule.getBuildable() instanceof JavaLibrary) {
-        builder.add(rule);
+        sourcesUnderTestBuilder.add(rule);
       } else {
         // In this case, the source under test specified in the build file was not a Java library
         // rule. Since EMMA requires the sources to be in Java, we will throw this exception and
@@ -127,8 +134,12 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule {
             rule.getType().getName());
       }
     }
-    sourceUnderTest = builder.build();
-    return deps;
+    sourceUnderTest = sourcesUnderTestBuilder.build();
+
+    return ImmutableSortedSet.<BuildRule>naturalOrder()
+        .addAll(deps)  // These contain the declaredDeps already.
+        .addAll(inferredDeps)
+        .build();
   }
 
 
@@ -179,6 +190,7 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule {
   public List<Step> runTests(
       BuildContext buildContext,
       ExecutionContext executionContext,
+      boolean isDryRun,
       TestSelectorList testSelectorList) {
     // If no classes were generated, then this is probably a java_test() that declares a number of
     // other java_test() rules as deps, functioning as a test suite. In this case, simply return an
@@ -211,7 +223,8 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule {
         executionContext.isJacocoEnabled(),
         executionContext.isDebugEnabled(),
         executionContext.getBuckEventBus().getBuildId(),
-        testSelectorList);
+        testSelectorList,
+        isDryRun);
     steps.add(junit);
 
     return steps.build();
@@ -271,10 +284,19 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule {
 
   @Override
   public Path getPathToTestOutputDirectory() {
-    return Paths.get(
-        BuckConstant.GEN_DIR,
-        getBuildTarget().getBaseNameWithSlash(),
-        String.format("__java_test_%s_output__", getBuildTarget().getShortName()));
+    List<String> pathsList = Lists.newArrayList();
+    pathsList.add(getBuildTarget().getBaseNameWithSlash());
+    pathsList.add(String.format("__java_test_%s_output__", getBuildTarget().getShortName()));
+
+    // Putting the one-time test-sub-directory below the usual directory has the nice property that
+    // doing a test run without "--one-time-output" will tidy up all the old one-time directories!
+    String subdir = BuckConstant.oneTimeTestSubdirectory;
+    if (subdir != null && !subdir.isEmpty()) {
+      pathsList.add(subdir);
+    }
+
+    String[] pathsArray = pathsList.toArray(new String[pathsList.size()]);
+    return Paths.get(BuckConstant.GEN_DIR, pathsArray);
   }
 
   private Path getPathToTmpDirectory() {
@@ -284,7 +306,8 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule {
   @Override
   public Callable<TestResults> interpretTestResults(
       final ExecutionContext context,
-      final boolean isUsingTestSelectors) {
+      final boolean isUsingTestSelectors,
+      final boolean isDryRun) {
     final ImmutableSet<String> contacts = getContacts();
     return new Callable<TestResults>() {
 
@@ -300,7 +323,13 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule {
         List<TestCaseSummary> summaries = Lists.newArrayListWithCapacity(testClassNames.size());
         ProjectFilesystem filesystem = context.getProjectFilesystem();
         for (String testClass : testClassNames) {
-          String testSelectorSuffix = isUsingTestSelectors ? ".test_selectors" : "";
+          String testSelectorSuffix = "";
+          if (isUsingTestSelectors) {
+            testSelectorSuffix += ".test_selectors";
+          }
+          if (isDryRun) {
+            testSelectorSuffix += ".dry_run";
+          }
           String path = String.format("%s%s.xml", testClass, testSelectorSuffix);
           File testResultFile = filesystem.getFileForRelativePath(
               getPathToTestOutputDirectory().resolve(path));

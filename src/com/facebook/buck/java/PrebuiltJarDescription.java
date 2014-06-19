@@ -39,13 +39,12 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
-import java.util.Collection;
 import java.util.Collections;
-import java.util.List;
 
 public class PrebuiltJarDescription implements Description<PrebuiltJarDescription.Arg>,
     FlavorableDescription<PrebuiltJarDescription.Arg>{
@@ -83,24 +82,25 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
       ProjectFilesystem projectFilesystem,
       RuleKeyBuilderFactory ruleKeyBuilderFactory,
       BuildRuleResolver ruleResolver) {
-    Buildable gwtModule = createGwtModule(arg);
     BuildTarget prebuiltJarBuildTarget = describedRule.getBuildTarget();
     BuildTarget flavoredBuildTarget = BuildTargets.createFlavoredBuildTarget(
         prebuiltJarBuildTarget, JavaLibrary.GWT_MODULE_FLAVOR);
-    BuildRule rule = new AbstractBuildable.AnonymousBuildRule(
+    BuildRuleParams params = new BuildRuleParams(
+        flavoredBuildTarget,
+            /* deps */ ImmutableSortedSet.<BuildRule>of(describedRule),
+        BuildTargetPattern.PUBLIC,
+        projectFilesystem,
+        ruleKeyBuilderFactory);
+    Buildable gwtModule = createGwtModule(params.getBuildTarget(), arg);
+    BuildRule rule = new DescribedRule(
         BuildRuleType.GWT_MODULE,
         gwtModule,
-        new BuildRuleParams(
-            flavoredBuildTarget,
-            /* deps */ ImmutableSortedSet.<BuildRule>of(describedRule),
-            BuildTargetPattern.PUBLIC,
-            projectFilesystem,
-            ruleKeyBuilderFactory));
+        params);
     ruleResolver.addToIndex(rule.getBuildTarget(), rule);
   }
 
   @VisibleForTesting
-  static Buildable createGwtModule(Arg arg) {
+  static Buildable createGwtModule(BuildTarget target, Arg arg) {
     // Because a PrebuiltJar rarely requires any building whatsoever (it could if the source_jar
     // is a BuildRuleSourcePath), we make the PrebuiltJar a dependency of the GWT module. If this
     // becomes a performance issue in practice, then we will explore reducing the dependencies of
@@ -113,18 +113,20 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
     } else {
       inputToCompareToOutput = arg.binaryJar;
     }
-    final Collection<Path> inputsToCompareToOutput = SourcePaths.filterInputsToCompareToOutput(
-        Collections.singleton(inputToCompareToOutput));
+    final ImmutableCollection<Path> inputsToCompareToOutput =
+        SourcePaths.filterInputsToCompareToOutput(Collections.singleton(inputToCompareToOutput));
     final Path pathToExistingJarFile = inputToCompareToOutput.resolve();
 
-    Buildable buildable = new AbstractBuildable() {
+    Buildable buildable = new AbstractBuildable(target) {
       @Override
-      public Collection<Path> getInputsToCompareToOutput() {
+      public ImmutableCollection<Path> getInputsToCompareToOutput() {
         return inputsToCompareToOutput;
       }
 
       @Override
-      public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
+      public ImmutableList<Step> getBuildSteps(
+          BuildContext context,
+          BuildableContext buildableContext) {
         buildableContext.recordArtifact(getPathToOutputFile());
         return ImmutableList.of();
       }

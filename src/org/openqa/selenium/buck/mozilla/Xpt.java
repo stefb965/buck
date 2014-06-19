@@ -28,6 +28,7 @@ import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.util.BuckConstant;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -35,8 +36,6 @@ import com.google.common.io.Files;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Collection;
-import java.util.List;
 
 public class Xpt extends AbstractBuildable {
 
@@ -45,6 +44,8 @@ public class Xpt extends AbstractBuildable {
   private final Path out;
 
   public Xpt(BuildTarget target, Path src, SourcePath fallback) {
+    super(target);
+
     this.fallback = Preconditions.checkNotNull(fallback);
     this.src = Preconditions.checkNotNull(src);
     String name = Files.getNameWithoutExtension(src.getFileName().toString()) + ".xpt";
@@ -53,7 +54,7 @@ public class Xpt extends AbstractBuildable {
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     return ImmutableSortedSet.of(src);
   }
 
@@ -65,7 +66,9 @@ public class Xpt extends AbstractBuildable {
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
+  public ImmutableList<Step> getBuildSteps(
+      BuildContext context,
+      BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
     context.getEventBus().post(LogEvent.warning("Defaulting to fallback for " + out));

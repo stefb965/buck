@@ -18,6 +18,7 @@ package com.facebook.buck.rules;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.BuildTargetParser;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -49,41 +50,51 @@ public abstract class AbstractBuilder<B extends Buildable, A extends Constructor
     populateWithDefaultValues(this.arg, this.target);
   }
 
-  @SuppressWarnings("unchecked")
   public final B build() {
-    BuildRuleParams params = createBuildRuleParams();
+    return build(new FakeProjectFilesystem());
+  }
+
+  @SuppressWarnings("unchecked")
+  public final B build(ProjectFilesystem filesystem) {
+    BuildRuleParams params = createBuildRuleParams(filesystem);
 
     return (B) description.createBuildable(params, arg);
   }
 
   public final BuildRule build(BuildRuleResolver resolver) {
-    // The BuildRule determines its deps by extracting them from the rule parameters.
-    BuildRuleParams params = createBuildRuleParams();
+    return build(resolver, new FakeProjectFilesystem());
+  }
 
-    AbstractBuildable.AnonymousBuildRule rule = new AbstractBuildable.AnonymousBuildRule(
-        description.getBuildRuleType(), build(), params);
+  public final BuildRule build(BuildRuleResolver resolver, ProjectFilesystem filesystem) {
+    // The BuildRule determines its deps by extracting them from the rule parameters.
+    BuildRuleParams params = createBuildRuleParams(filesystem);
+
+    DescribedRule rule = new DescribedRule(
+        description.getBuildRuleType(), build(filesystem), params);
     resolver.addToIndex(target, rule);
     return rule;
   }
 
   @SuppressWarnings("unchecked")
-  private BuildRuleParams createBuildRuleParams() {
+  private BuildRuleParams createBuildRuleParams(ProjectFilesystem filesystem) {
     // Not all rules have deps, but all rules call them deps. When they do, they're always optional.
     // Grab them in the unsafest way I know.
+    FakeBuildRuleParamsBuilder builder = new FakeBuildRuleParamsBuilder(target)
+        .setProjectFilesystem(filesystem);
     try {
       Field depsField = arg.getClass().getField("deps");
       Object optional = depsField.get(arg);
 
       if (optional == null) {
-        return new FakeBuildRuleParams(target);
+        return builder.build();
       }
       // Here's a whole series of assumptions in one lump of a Bad Idea.
       ImmutableSortedSet<BuildRule> deps =
           (ImmutableSortedSet<BuildRule>) ((Optional<?>) optional).get();
-      return new FakeBuildRuleParams(target, deps);
+      return builder.setDeps(deps).build();
     } catch (ReflectiveOperationException ignored) {
       // Field doesn't exist: no deps.
-      return new FakeBuildRuleParams(target);
+      return builder.build();
     }
   }
 

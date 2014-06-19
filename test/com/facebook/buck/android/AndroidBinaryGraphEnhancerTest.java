@@ -35,25 +35,23 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildable;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
+import com.facebook.buck.rules.DescribedRule;
 import com.facebook.buck.rules.FakeRuleKeyBuilderFactory;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
 import com.facebook.buck.rules.TestSourcePath;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import org.junit.Test;
 
-import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Iterator;
 
@@ -112,15 +110,14 @@ public class AndroidBinaryGraphEnhancerTest {
         buildRulesToExcludeFromDex,
         JavacOptions.DEFAULTS,
         /* exopackage */ false,
-        createStrictMock(Keystore.class),
-        /* aaptOverride */ Optional.<Path>absent());
+        createStrictMock(Keystore.class));
 
     UberRDotJava uberRDotJava = createMock(UberRDotJava.class);
     BuildTarget uberRDotJavaTarget =
         new BuildTarget("//java/com/example", "apk", "uber_r_dot_java");
     expect(uberRDotJava.getBuildTarget()).andStubReturn(uberRDotJavaTarget);
     replay(uberRDotJava);
-    BuildRule uberRDotJavaRule = new AbstractBuildable.AnonymousBuildRule(
+    BuildRule uberRDotJavaRule = new DescribedRule(
         BuildRuleType.UBER_R_DOT_JAVA,
         uberRDotJava,
         new BuildRuleParams(
@@ -193,8 +190,7 @@ public class AndroidBinaryGraphEnhancerTest {
         ImmutableSet.<BuildTarget>of(),
         JavacOptions.DEFAULTS,
         /* exopackage */ true,
-        keystore,
-        /* aaptOverride */ Optional.<Path>absent());
+        keystore);
     replay(depsFinder, keystore);
     EnhancementResult result = graphEnhancer.createAdditionalBuildables();
 

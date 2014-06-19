@@ -25,12 +25,12 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.KeystoreProperties;
 import com.facebook.buck.util.ProjectFilesystem;
-import com.google.common.base.Function;
-import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Iterables;
+import com.google.common.collect.Multimap;
 
 import java.io.File;
 import java.io.IOException;
@@ -46,6 +46,8 @@ import java.security.UnrecoverableKeyException;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
+import java.util.Collection;
+import java.util.Map;
 
 /**
  * Merges resources into a final APK.  This code is based off of the now deprecated apkbuilder tool:
@@ -62,7 +64,7 @@ public class ApkBuilderStep implements Step {
   private final Path resourceApk;
   private final Path dexFile;
   private final Path pathToOutputApkFile;
-  private final ImmutableSet<String> assetDirectories;
+  private final ImmutableSet<Path> assetDirectories;
   private final ImmutableSet<Path> nativeLibraryDirectories;
   private final ImmutableSet<Path> zipFiles;
   private final ImmutableSet<Path> jarFilesThatMayContainResources;
@@ -75,7 +77,7 @@ public class ApkBuilderStep implements Step {
    * @param resourceApk Path to the Apk which only contains resources, no dex files.
    * @param pathToOutputApkFile Path to output our APK to.
    * @param dexFile Path to the classes.dex file.
-   * @param javaResourcesDirectories List of paths to resources to be included in the apk.
+   * @param assetDirectories List of paths to assets to be included in the apk.
    * @param nativeLibraryDirectories List of paths to native directories.
    * @param zipFiles List of paths to zipfiles to be included into the apk.
    * @param debugMode Whether or not to run ApkBuilder with debug mode turned on.
@@ -87,7 +89,7 @@ public class ApkBuilderStep implements Step {
       Path resourceApk,
       Path pathToOutputApkFile,
       Path dexFile,
-      ImmutableSet<String> javaResourcesDirectories,
+      ImmutableSet<Path> assetDirectories,
       ImmutableSet<Path> nativeLibraryDirectories,
       ImmutableSet<Path> zipFiles,
       ImmutableSet<Path> jarFilesThatMayContainResources,
@@ -97,7 +99,7 @@ public class ApkBuilderStep implements Step {
     this.resourceApk = Preconditions.checkNotNull(resourceApk);
     this.pathToOutputApkFile = Preconditions.checkNotNull(pathToOutputApkFile);
     this.dexFile = Preconditions.checkNotNull(dexFile);
-    this.assetDirectories = Preconditions.checkNotNull(javaResourcesDirectories);
+    this.assetDirectories = Preconditions.checkNotNull(assetDirectories);
     this.nativeLibraryDirectories = Preconditions.checkNotNull(nativeLibraryDirectories);
     this.jarFilesThatMayContainResources =
         Preconditions.checkNotNull(jarFilesThatMayContainResources);
@@ -129,7 +131,7 @@ public class ApkBuilderStep implements Step {
         builder.addNativeLibraries(
             projectFilesystem.getFileForRelativePath(nativeLibraryDirectory));
       }
-      for (String assetDirectory : assetDirectories) {
+      for (Path assetDirectory : assetDirectories) {
         builder.addSourceFolder(projectFilesystem.getFileForRelativePath(assetDirectory));
       }
       for (Path zipFile : zipFiles) {
@@ -194,29 +196,42 @@ public class ApkBuilderStep implements Step {
 
   @Override
   public String getDescription(ExecutionContext context) {
-    return String.format(
+    ImmutableList.Builder<String> args = ImmutableList.builder();
+    args.add(
+        "java",
+        "-classpath",
         // TODO(mbolin): Make the directory that corresponds to $ANDROID_HOME a field that is
         // accessible via an AndroidPlatformTarget and insert that here in place of "$ANDROID_HOME".
-        "java -classpath $ANDROID_HOME/tools/lib/sdklib.jar %s %s -v -u %s -z %s %s %s -f %s",
-        "com.android.sdklib.build.ApkBuilderMain",
-        pathToOutputApkFile,
-        Joiner.on(' ').join(Iterables.transform(nativeLibraryDirectories,
-            new Function<Path, String>() {
-              @Override
-              public String apply(Path s) {
-                return "-nf " + s;
-              }
-            })),
-        Joiner.on(' ').join(Iterables.transform(zipFiles, Functions.toStringFunction())),
-        resourceApk,
-        Joiner.on(' ').join(Iterables.transform(assetDirectories,
-            new Function<String, String>() {
-              @Override
-              public String apply(String s) {
-                return "-rf " + s;
-              }
-            })),
-        dexFile);
+        "$ANDROID_HOME/tools/lib/sdklib.jar",
+        "com.android.sdklib.build.ApkBuilderMain");
+    args.add(String.valueOf(pathToOutputApkFile));
+    args.add("-v" /* verbose */);
+    if (debugMode) {
+      args.add("-d");
+    }
+
+    // Unfortunately, ApkBuilderMain does not have CLI args to set the keystore,
+    // so these member variables are left out of the command:
+    // pathToKeystore, pathToKeystorePropertiesFile
+
+    Multimap<String, Collection<Path>> groups =
+        ImmutableMultimap.<String, Collection<Path>>builder()
+            .put("-z", ImmutableList.of(resourceApk))
+            .put("-f", ImmutableList.of(dexFile))
+            .put("-rf", assetDirectories)
+            .put("-nf", nativeLibraryDirectories)
+            .put("-z", zipFiles)
+            .put("-rj", jarFilesThatMayContainResources)
+            .build();
+
+    for (Map.Entry<String, Collection<Path>> group : groups.entries()) {
+      String prefix = group.getKey();
+      for (Path path : group.getValue()) {
+        args.add(prefix, String.valueOf(path));
+      }
+    }
+
+    return Joiner.on(' ').join(args.build());
   }
 
   private static class PrivateKeyAndCertificate {

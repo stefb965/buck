@@ -2,6 +2,7 @@ java_library(
   name = 'types',
   srcs = [
     'KnownBuildRuleTypes.java',
+    'Repository.java',
   ],
   deps = [
     ':build_rule',
@@ -39,6 +40,7 @@ java_library(
 java_library(
   name = 'build_rule',
   srcs = [
+    'ActionGraph.java',
     'BuildRuleBuilderParams.java',
     'AbstractSourcePath.java',
     'AnnotationProcessingData.java',
@@ -70,10 +72,10 @@ java_library(
     'BuildRuleBuilderParams.java',
     'DefaultBuildableParams.java',
     'DefaultOnDiskBuildInfo.java',
-    'DependencyGraph.java',
     'Description.java',
     'ExportDependencies.java',
     'Hint.java',
+    'ImplicitDepsInferringDescription.java',
     'Label.java',
     'JavaPackageFinder.java',
     'OnDiskBuildInfo.java',
@@ -87,6 +89,7 @@ java_library(
     'SourcePaths.java',
     'SourceRoot.java',
     'TargetName.java',
+    'TargetNode.java',
   ] + glob(["coercer/*.java"]),
   deps = [
     '//lib:guava',
@@ -133,12 +136,12 @@ java_library(
     'CassandraArtifactCache.java',
     'DefaultBuildableContext.java',
     'BuildRuleBuilderParams.java',
+    'DependencyEnhancer.java',
     'DescribedRule.java',
     'DescribedRuleBuilder.java',
     'DescribedRuleFactory.java',
     'DirArtifactCache.java',
     'FlavorableDescription.java',
-    'HasDepsOverride.java',
     'IndividualTestEvent.java',
     'InitializableFromDisk.java',
     'InstallableApk.java',
@@ -147,7 +150,7 @@ java_library(
     'NoopArtifactCache.java',
     'ProjectConfig.java',
     'ProjectConfigDescription.java',
-    'RecordArtifactsInDirectoryStep.java',
+    'TargetNodeToBuildRuleTransformer.java',
     'TestRule.java',
     'TestRunEvent.java',
   ],

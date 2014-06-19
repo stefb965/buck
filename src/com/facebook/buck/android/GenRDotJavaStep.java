@@ -22,7 +22,6 @@ import com.facebook.buck.util.AndroidPlatformTarget;
 import com.facebook.buck.util.Verbosity;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
@@ -36,12 +35,11 @@ import java.util.Set;
 
 public class GenRDotJavaStep extends ShellStep {
 
-  private final Set<Path> resDirectories;
+  private final ImmutableList<Path> resDirectories;
   private final File androidManifest;
   private final Path genDirectoryPath;
   private final boolean isTempRDotJava;
   private final ImmutableSet<String> extraLibraryPackages;
-  private final Optional<Path> aaptOverride;
 
   /**
    * Creates a command that will run {@code aapt} for the purpose of generating {@code R.java}.
@@ -61,16 +59,14 @@ public class GenRDotJavaStep extends ShellStep {
 *     If false, this command will produce an {@code R.java} file with resource values designed to
 *     match those in an .apk that includes the resources.
    * @param extraLibraryPackages
-   * @param aaptOverride
    */
   public GenRDotJavaStep(
-      Set<Path> resDirectories,
+      ImmutableList<Path> resDirectories,
       Path genDirectoryPath,
       String libraryPackage,
       boolean isTempRDotJava,
-      Set<String> extraLibraryPackages,
-      Optional<Path> aaptOverride) {
-    this.resDirectories = ImmutableSet.copyOf(resDirectories);
+      Set<String> extraLibraryPackages) {
+    this.resDirectories = Preconditions.checkNotNull(resDirectories);
 
     File tmpDir = Files.createTempDir();
     tmpDir.deleteOnExit();
@@ -99,7 +95,6 @@ public class GenRDotJavaStep extends ShellStep {
     this.genDirectoryPath = Preconditions.checkNotNull(genDirectoryPath);
     this.isTempRDotJava = isTempRDotJava;
     this.extraLibraryPackages = ImmutableSet.copyOf(extraLibraryPackages);
-    this.aaptOverride = Preconditions.checkNotNull(aaptOverride);
   }
 
   @Override
@@ -107,11 +102,7 @@ public class GenRDotJavaStep extends ShellStep {
     ImmutableList.Builder<String> builder = ImmutableList.builder();
     AndroidPlatformTarget androidPlatformTarget = context.getAndroidPlatformTarget();
 
-    if (aaptOverride.isPresent()) {
-      builder.add(aaptOverride.get().toString());
-    } else {
-      builder.add(androidPlatformTarget.getAaptExecutable().toString());
-    }
+    builder.add(androidPlatformTarget.getAaptExecutable().toString());
     builder.add("package");
 
     // verbose flag, if appropriate.

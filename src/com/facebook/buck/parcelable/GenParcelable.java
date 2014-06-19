@@ -18,10 +18,10 @@ package com.facebook.buck.parcelable;
 
 import static com.facebook.buck.rules.BuildableProperties.Kind.ANDROID;
 
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildable;
 import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.RuleKey;
@@ -31,6 +31,7 @@ import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.io.Files;
@@ -38,8 +39,6 @@ import com.google.common.io.Files;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.Collection;
-import java.util.List;
 import java.util.Set;
 
 import javax.annotation.Nullable;
@@ -51,9 +50,10 @@ public class GenParcelable extends AbstractBuildable {
   private final ImmutableSortedSet<SourcePath> srcs;
   private final Path outputDirectory;
 
-  GenParcelable(BuildRuleParams buildRuleParams, Set<SourcePath> srcs) {
+  GenParcelable(BuildTarget target, Set<SourcePath> srcs) {
+    super(target);
     this.srcs = ImmutableSortedSet.copyOf(srcs);
-    this.outputDirectory = BuildTargets.getGenPath(buildRuleParams.getBuildTarget(), "__%s__");
+    this.outputDirectory = BuildTargets.getGenPath(target, "__%s__");
   }
 
   @Nullable
@@ -63,12 +63,12 @@ public class GenParcelable extends AbstractBuildable {
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     return SourcePaths.filterInputsToCompareToOutput(srcs);
   }
 
   @Override
-  public List<Step> getBuildSteps(
+  public ImmutableList<Step> getBuildSteps(
       final BuildContext buildContext,
       BuildableContext buildableContext) {
     Step step = new Step() {

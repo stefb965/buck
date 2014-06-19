@@ -23,22 +23,20 @@ import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.step.Step;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 
 import java.nio.file.Path;
-import java.util.Collection;
-import java.util.List;
 
 import javax.annotation.Nullable;
 
 public class Keystore extends AbstractBuildable {
 
-  private final BuildTarget buildTarget;
   private final Path pathToStore;
   private final Path pathToProperties;
 
   Keystore(BuildTarget buildTarget, Path store, Path properties) {
-    this.buildTarget = Preconditions.checkNotNull(buildTarget);
+    super(buildTarget);
     this.pathToStore = Preconditions.checkNotNull(store);
     this.pathToProperties = Preconditions.checkNotNull(properties);
   }
@@ -50,17 +48,13 @@ public class Keystore extends AbstractBuildable {
   }
 
   @Override
-  public Collection<Path> getInputsToCompareToOutput() {
+  public ImmutableCollection<Path> getInputsToCompareToOutput() {
     return ImmutableList.of(pathToStore, pathToProperties);
   }
 
   @Override
   public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
     return builder;
-  }
-
-  public BuildTarget getBuildTarget() {
-    return buildTarget;
   }
 
   public Path getPathToStore() {
@@ -72,7 +66,9 @@ public class Keystore extends AbstractBuildable {
   }
 
   @Override
-  public List<Step> getBuildSteps(BuildContext context, BuildableContext buildableContext) {
+  public ImmutableList<Step> getBuildSteps(
+      BuildContext context,
+      BuildableContext buildableContext) {
     // Nothing to build: this is like a glorified exported_deps() rule.
     return ImmutableList.of();
   }

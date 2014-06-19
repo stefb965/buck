@@ -29,13 +29,14 @@ import com.facebook.buck.java.Keystore;
 import com.facebook.buck.java.KeystoreBuilder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.rules.Repository;
 import com.facebook.buck.parser.PartialGraph;
 import com.facebook.buck.parser.PartialGraphFactory;
+import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultKnownBuildRuleTypes;
-import com.facebook.buck.rules.DependencyGraph;
 import com.facebook.buck.rules.KnownBuildRuleTypes;
 import com.facebook.buck.rules.NoopArtifactCache;
 import com.facebook.buck.rules.TestSourcePath;
@@ -73,7 +74,7 @@ public class AuditClasspathCommandTest {
   private AuditClasspathCommand auditClasspathCommand;
 
   @Before
-  public void setUp() {
+  public void setUp() throws IOException {
     console = new TestConsole();
     ProjectFilesystem projectFilesystem = new ProjectFilesystem(projectRoot);
     AndroidDirectoryResolver androidDirectoryResolver = new FakeAndroidDirectoryResolver();
@@ -81,12 +82,14 @@ public class AuditClasspathCommandTest {
         DefaultKnownBuildRuleTypes.getDefaultKnownBuildRuleTypes(projectFilesystem);
     ArtifactCache artifactCache = new NoopArtifactCache();
     BuckEventBus eventBus = BuckEventBusFactory.newInstance();
+    BuckConfig buckConfig = new FakeBuckConfig();
+
+    Repository repository = new Repository("test", projectFilesystem, buildRuleTypes, buckConfig);
 
     auditClasspathCommand = new AuditClasspathCommand(new CommandRunnerParams(
         console,
-        projectFilesystem,
+        repository,
         androidDirectoryResolver,
-        buildRuleTypes,
         new InstanceArtifactCacheFactory(artifactCache),
         eventBus,
         BuckTestConstant.PYTHON_INTERPRETER,
@@ -103,12 +106,12 @@ public class AuditClasspathCommandTest {
       }
     });
 
-    DependencyGraph dependencyGraph = RuleMap.createGraphFromBuildRules(ruleResolver);
-    return PartialGraphFactory.newInstance(dependencyGraph, buildTargets);
+    ActionGraph actionGraph = RuleMap.createGraphFromBuildRules(ruleResolver);
+    return PartialGraphFactory.newInstance(actionGraph, buildTargets);
   }
 
   @Test
-  public void testClassPathOutput() {
+  public void testClassPathOutput() throws IOException {
     // Build a DependencyGraph of build rules manually.
     BuildRuleResolver ruleResolver = new BuildRuleResolver();
     List<String> targets = Lists.newArrayList();

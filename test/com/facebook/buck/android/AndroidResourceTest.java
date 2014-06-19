@@ -17,6 +17,7 @@
 package com.facebook.buck.android;
 
 import static com.facebook.buck.android.AndroidResource.BuildOutput;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 
@@ -24,13 +25,12 @@ import com.facebook.buck.java.Keystore;
 import com.facebook.buck.java.KeystoreBuilder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.BuildTargetPattern;
-import com.facebook.buck.rules.AbstractBuildable;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.Buildable;
-import com.facebook.buck.rules.FakeBuildRuleParams;
+import com.facebook.buck.rules.DescribedRule;
+import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.Sha1HashCode;
@@ -39,19 +39,16 @@ import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.util.FileHashCache;
 import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Strings;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import org.easymock.EasyMock;
 import org.junit.Test;
 
 import java.io.IOException;
-import java.nio.file.Path;
 import java.nio.file.Paths;
 
 
@@ -77,8 +74,7 @@ public class AndroidResourceTest {
             Paths.get("java/src/com/facebook/base/assets/drawable/B.xml"),
             Paths.get("java/src/com/facebook/base/assets/drawable/D.xml")),
         Paths.get("java/src/com/facebook/base/AndroidManifest.xml"),
-        /* hasWhitelisted */ false,
-        /* aaptOverride */ Optional.<Path>absent());
+        /* hasWhitelisted */ false);
 
     // Test getInputsToCompareToOutput().
     MoreAsserts.assertIterablesEquals(
@@ -143,13 +139,10 @@ public class AndroidResourceTest {
       BuildTarget buildTarget,
       AndroidResource resource,
       FileHashCache fileHashCache) throws IOException {
-    BuildRule rule = new AbstractBuildable.AnonymousBuildRule(
+    BuildRule rule = new DescribedRule(
         AndroidResourceDescription.TYPE,
         resource,
-        new FakeBuildRuleParams(buildTarget,
-            ImmutableSortedSet.<BuildRule>of(),
-            ImmutableSet.of(BuildTargetPattern.MATCH_ALL),
-            fileHashCache));
+        new FakeBuildRuleParamsBuilder(buildTarget).setFileHashCache(fileHashCache).build());
     return rule.getRuleKeyWithoutDeps();
   }
   /**
@@ -166,7 +159,10 @@ public class AndroidResourceTest {
    * to be sure that we perform a topological sort, the resulting traversal of which is either
    * {@code A B D C} or {@code A D B C}.
    * <p>
-   * We choose these letters in particular.
+   * The reason for the correct result being reversed is because we want the resources with the most
+   * dependencies listed first on the path, so that they're used in preference to the ones that they
+   * depend on (presumably, the reason for extending the initial set of resources was to override
+   * values).
    */
   @Test
   public void testGetAndroidResourceDeps() {
@@ -210,44 +206,42 @@ public class AndroidResourceTest {
         return input.getBuildable();
       }
     };
-    // Note that a topological sort for a DAG is not guaranteed to be unique. In this particular
-    // case, there are two possible valid outcomes.
-    ImmutableList<Buildable> validResult1 = FluentIterable.from(ImmutableList.of(a, b, d, c))
-        .transform(ruleToBuildable)
-        .toList();
-    ImmutableList<Buildable> validResult2 = FluentIterable.from(ImmutableList.of(a, d, b, c))
+    // Note that a topological sort for a DAG is not guaranteed to be unique, but we order nodes
+    // within the same depth of the search.
+    ImmutableList<Buildable> result = FluentIterable.from(ImmutableList.of(a, d, b, c))
         .transform(ruleToBuildable)
         .toList();
 
-    assertTrue(
-        String.format(
-            "Topological sort %s should be either %s or %s", deps, validResult1, validResult2),
-        deps.equals(validResult1) || deps.equals(validResult2));
+    assertEquals(
+        String.format("Topological sort %s should be %s", deps, result),
+        deps, result);
 
     // Introduce an AndroidBinaryRule that depends on A and C and verify that the same topological
     // sort results. This verifies that both AndroidResourceRule.getAndroidResourceDeps does the
     // right thing when it gets a non-AndroidResourceRule as well as an AndroidResourceRule.
     BuildTarget keystoreTarget = BuildTargetFactory.newInstance("//keystore:debug");
-    Keystore keystore = (Keystore) KeystoreBuilder.createBuilder(keystoreTarget)
+    BuildRule keystore = KeystoreBuilder.createBuilder(keystoreTarget)
         .setStore(Paths.get("keystore/debug.keystore"))
         .setProperties(Paths.get("keystore/debug.keystore.properties"))
-        .build(ruleResolver)
-        .getBuildable();
+        .build(ruleResolver);
 
+    ImmutableSortedSet<BuildRule> declaredDeps = ImmutableSortedSet.of(a, c);
     BuildRule e = AndroidBinaryBuilder.newBuilder()
             .setBuildTarget(BuildTargetFactory.newInstance("//:e"))
             .setManifest(new TestSourcePath("AndroidManfiest.xml"))
             .setTarget("Google Inc.:Google APIs:16")
-            .setKeystore(keystore)
-            .setOriginalDeps(ImmutableSortedSet.of(a, c))
+            .setKeystore((Keystore) keystore.getBuildable())
+            .setOriginalDeps(declaredDeps)
             .build(ruleResolver);
-    e.getBuildable().getEnhancedDeps(ruleResolver);
+    ((AndroidBinary) e.getBuildable()).getEnhancedDeps(
+        ruleResolver,
+        declaredDeps,
+        ImmutableSortedSet.of(keystore));
 
     ImmutableList<HasAndroidResourceDeps> deps2 = UberRDotJavaUtil.getAndroidResourceDeps(a);
-    assertTrue(
-        String.format(
-            "Topological sort %s should be either %s or %s", deps, validResult1, validResult2),
-            deps2.equals(validResult1) || deps2.equals(validResult2));
+    assertEquals(
+        String.format("Topological sort %s should be %s", deps, result),
+        deps2, result);
   }
 
   @Test
@@ -282,10 +276,13 @@ public class AndroidResourceTest {
                 buildableContext)
             .isEmpty());
 
+    // The resources come from UberRDotJavaUtil.getAndroidResourceDeps returns the resources in the
+    // reverse alphabetical order (because there's no complex dependency graph) See
+    // testGetAndroidResourceDeps in this class for why this is the expected ordering.
     Sha1HashCode expectedSha1 = HasAndroidResourceDeps.ABI_HASHER.apply(
         ImmutableList.of(
-            (HasAndroidResourceDeps) resourceRule1.getBuildable(),
-            (HasAndroidResourceDeps) resourceRule2.getBuildable()));
+            (HasAndroidResourceDeps) resourceRule2.getBuildable(),
+            (HasAndroidResourceDeps) resourceRule1.getBuildable()));
     buildableContext.assertContainsMetadataMapping(
         AndroidResource.METADATA_KEY_FOR_ABI,
         expectedSha1.getHash());

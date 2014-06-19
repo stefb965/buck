@@ -20,11 +20,12 @@ import static org.easymock.EasyMock.capture;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.command.Project;
-import com.facebook.buck.event.BuckEventBus;
+import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.CachingBuildEngine;
-import com.facebook.buck.rules.KnownBuildRuleTypes;
+import com.facebook.buck.rules.DefaultKnownBuildRuleTypes;
+import com.facebook.buck.rules.Repository;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.FakeAndroidDirectoryResolver;
@@ -45,6 +46,8 @@ import java.nio.file.Path;
  */
 public class CleanCommandTest extends EasyMockSupport {
 
+  private ProjectFilesystem projectFilesystem;
+
   // TODO(mbolin): When it is possible to inject a mock object for stderr,
   // create a test that runs `buck clean unexpectedarg` and verify that the
   // exit code is 1 and that the appropriate error message is printed.
@@ -53,7 +56,6 @@ public class CleanCommandTest extends EasyMockSupport {
   public void testCleanCommandNoArguments() throws CmdLineException, IOException {
     // Set up mocks.
     CleanCommand cleanCommand = createCommand();
-    ProjectFilesystem projectFilesystem = cleanCommand.getProjectFilesystem();
     Capture<Path> binDir = new Capture<>();
     projectFilesystem.rmdir(capture(binDir));
     Capture<Path> genDir = new Capture<>();
@@ -75,7 +77,6 @@ public class CleanCommandTest extends EasyMockSupport {
   public void testCleanCommandWithProjectArgument() throws CmdLineException, IOException {
     // Set up mocks.
     CleanCommand cleanCommand = createCommand();
-    ProjectFilesystem projectFilesystem = cleanCommand.getProjectFilesystem();
     Capture<Path> androidGenDir = new Capture<>();
     projectFilesystem.rmdir(capture(androidGenDir));
     Capture<Path> annotationDir = new Capture<>();
@@ -101,14 +102,20 @@ public class CleanCommandTest extends EasyMockSupport {
   }
 
   private CleanCommand createCommand() {
+    projectFilesystem = createMock(ProjectFilesystem.class);
+    Repository repository = new Repository(
+        "mocked",
+        projectFilesystem,
+        DefaultKnownBuildRuleTypes.getDefaultKnownBuildRuleTypes(projectFilesystem),
+        new FakeBuckConfig());
+
     CommandRunnerParams params = new CommandRunnerParams(
         new TestConsole(),
-        createMock(ProjectFilesystem.class),
+        repository,
         new FakeAndroidDirectoryResolver(),
-        createMock(KnownBuildRuleTypes.class),
         new CachingBuildEngine(),
         new InstanceArtifactCacheFactory(createMock(ArtifactCache.class)),
-        createMock(BuckEventBus.class),
+        BuckEventBusFactory.newInstance(),
         createMock(Parser.class),
         Platform.detect(),
         ImmutableMap.copyOf(System.getenv()));
