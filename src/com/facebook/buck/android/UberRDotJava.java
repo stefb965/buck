@@ -22,12 +22,12 @@ import com.facebook.buck.java.AccumulateClassNamesStep;
 import com.facebook.buck.java.HasJavaClassHashes;
 import com.facebook.buck.java.JavacOptions;
 import com.facebook.buck.java.JavacStep;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbiRule;
-import com.facebook.buck.rules.AbstractBuildable;
+import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildOutputInitializer;
+import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
@@ -41,6 +41,8 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -68,7 +70,7 @@ import java.util.Set;
  * <p>
  * Clients of this Buildable may need to know the path to the {@code R.java} file.
  */
-public class UberRDotJava extends AbstractBuildable implements
+public class UberRDotJava extends AbstractBuildRule implements
     AbiRule, InitializableFromDisk<BuildOutput>, HasJavaClassHashes {
 
   public static final String R_DOT_JAVA_LINEAR_ALLOC_SIZE = "r_dot_java_linear_alloc_size";
@@ -80,26 +82,29 @@ public class UberRDotJava extends AbstractBuildable implements
       DxStep.Option.NO_OPTIMIZE);
 
   private final FilteredResourcesProvider filteredResourcesProvider;
+  private final ImmutableList<HasAndroidResourceDeps> resourceDeps;
+  private final Supplier<ImmutableSet<String>> rDotJavaPackages;
   private final JavacOptions javacOptions;
-  private final AndroidResourceDepsFinder androidResourceDepsFinder;
   private final boolean rDotJavaNeedsDexing;
   private final boolean shouldBuildStringSourceMap;
   private final BuildOutputInitializer<BuildOutput> buildOutputInitializer;
 
   UberRDotJava(
-      BuildTarget buildTarget,
+      BuildRuleParams params,
       FilteredResourcesProvider filteredResourcesProvider,
+      ImmutableList<HasAndroidResourceDeps> resourceDeps,
+      Supplier<ImmutableSet<String>> rDotJavaPackages,
       JavacOptions javacOptions,
-      AndroidResourceDepsFinder androidResourceDepsFinder,
       boolean rDotJavaNeedsDexing,
       boolean shouldBuildStringSourceMap) {
-    super(buildTarget);
+    super(params);
     this.filteredResourcesProvider = Preconditions.checkNotNull(filteredResourcesProvider);
+    this.resourceDeps = Preconditions.checkNotNull(resourceDeps);
+    this.rDotJavaPackages = Preconditions.checkNotNull(rDotJavaPackages);
     this.javacOptions = Preconditions.checkNotNull(javacOptions);
-    this.androidResourceDepsFinder = Preconditions.checkNotNull(androidResourceDepsFinder);
     this.rDotJavaNeedsDexing = rDotJavaNeedsDexing;
     this.shouldBuildStringSourceMap = shouldBuildStringSourceMap;
-    this.buildOutputInitializer = new BuildOutputInitializer<>(buildTarget, this);
+    this.buildOutputInitializer = new BuildOutputInitializer<>(params.getBuildTarget(), this);
   }
 
   @Override
@@ -156,6 +161,7 @@ public class UberRDotJava extends AbstractBuildable implements
         });
   }
 
+  @Override
   public ImmutableSortedMap<String, HashCode> getClassNamesToHashes() {
     return buildOutputInitializer.getBuildOutput().rDotJavaClassesHash;
   }
@@ -167,13 +173,14 @@ public class UberRDotJava extends AbstractBuildable implements
   ) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
-    AndroidResourceDetails androidResourceDetails =
-        androidResourceDepsFinder.getAndroidResourceDetails();
-    ImmutableSet<String> rDotJavaPackages = androidResourceDetails.rDotJavaPackages;
     ImmutableList<Path> resDirectories = filteredResourcesProvider.getResDirectories();
 
     if (!resDirectories.isEmpty()) {
-      generateAndCompileRDotJavaFiles(resDirectories, rDotJavaPackages, steps, buildableContext);
+      generateAndCompileRDotJavaFiles(
+          resDirectories,
+          rDotJavaPackages.get(),
+          steps,
+          buildableContext);
     }
 
     if (rDotJavaNeedsDexing && !resDirectories.isEmpty()) {
@@ -232,7 +239,7 @@ public class UberRDotJava extends AbstractBuildable implements
 
   @Override
   public Sha1HashCode getAbiKeyForDeps() {
-    return HasAndroidResourceDeps.ABI_HASHER.apply(androidResourceDepsFinder.getAndroidResources());
+    return HasAndroidResourceDeps.ABI_HASHER.apply(resourceDeps);
   }
 
   public static class BuildOutput {
@@ -262,12 +269,15 @@ public class UberRDotJava extends AbstractBuildable implements
     steps.add(new MakeCleanDirectoryStep(rDotJavaSrc));
 
     // Generate the R.java files.
+    Path dummyManifestFile = BuildTargets.getGenPath(
+        getBuildTarget(), "__%s_dummy_manifest/AndroidManifest.xml");
     GenRDotJavaStep genRDotJava = new GenRDotJavaStep(
         resDirectories,
         rDotJavaSrc,
-        Iterables.get(rDotJavaPackages, 0),
+        Suppliers.ofInstance(Iterables.get(rDotJavaPackages, 0)),
         /* isTempRDotJava */ false,
-        FluentIterable.from(rDotJavaPackages).skip(1).toSet());
+        FluentIterable.from(rDotJavaPackages).skip(1).toSet(),
+        dummyManifestFile);
     steps.add(genRDotJava);
 
     if (shouldBuildStringSourceMap) {
@@ -302,7 +312,7 @@ public class UberRDotJava extends AbstractBuildable implements
         javaSourceFilePaths,
         rDotJavaBin,
         javacOptions,
-        target);
+        getBuildTarget());
     steps.add(javac);
 
     Path rDotJavaClassesTxt = getPathToRDotJavaClassesTxt();
@@ -316,7 +326,7 @@ public class UberRDotJava extends AbstractBuildable implements
   }
 
   private Path getPathForNativeStringInfoDirectory() {
-    return BuildTargets.getBinPath(target, "__%s_string_source_map__");
+    return BuildTargets.getBinPath(getBuildTarget(), "__%s_string_source_map__");
   }
 
   /**
@@ -324,7 +334,7 @@ public class UberRDotJava extends AbstractBuildable implements
    *     built.
    */
   public Path getPathToCompiledRDotJavaFiles() {
-    return BuildTargets.getBinPath(target, "__%s_uber_rdotjava_bin__");
+    return BuildTargets.getBinPath(getBuildTarget(), "__%s_uber_rdotjava_bin__");
   }
 
   /**
@@ -333,11 +343,11 @@ public class UberRDotJava extends AbstractBuildable implements
    * will be under a directory path that matches the corresponding package structure.
    */
   Path getPathToGeneratedRDotJavaSrcFiles() {
-    return BuildTargets.getBinPath(target, "__%s_uber_rdotjava_src__");
+    return BuildTargets.getBinPath(getBuildTarget(), "__%s_uber_rdotjava_src__");
   }
 
   Path getPathToRDotJavaDexFiles() {
-    return BuildTargets.getBinPath(target, "__%s_uber_rdotjava_dex__");
+    return BuildTargets.getBinPath(getBuildTarget(), "__%s_uber_rdotjava_dex__");
   }
 
   Path getPathToRDotJavaDex() {
@@ -345,7 +355,7 @@ public class UberRDotJava extends AbstractBuildable implements
   }
 
   Path getPathToRDotJavaClassesTxt() {
-    return BuildTargets.getBinPath(target, "__%s_uber_rdotjava_classes__")
+    return BuildTargets.getBinPath(getBuildTarget(), "__%s_uber_rdotjava_classes__")
         .resolve("classes.txt");
   }
 }

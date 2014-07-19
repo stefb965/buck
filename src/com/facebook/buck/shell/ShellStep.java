@@ -16,7 +16,7 @@
 
 package com.facebook.buck.shell;
 
-import com.facebook.buck.event.LogEvent;
+import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.util.Escaper;
@@ -84,7 +84,7 @@ public abstract class ShellStep implements Step {
   }
 
   @Override
-  public int execute(ExecutionContext context) {
+  public int execute(ExecutionContext context) throws InterruptedException {
     // Kick off a Process in which this ShellCommand will be run.
     ProcessBuilder processBuilder = new ProcessBuilder(getShellCommand(context));
 
@@ -114,7 +114,6 @@ public abstract class ShellStep implements Step {
 
     endTime = System.currentTimeMillis();
 
-    onProcessFinished(exitCode);
     return exitCode;
   }
 
@@ -132,7 +131,7 @@ public abstract class ShellStep implements Step {
   }
 
   @VisibleForTesting
-  int interactWithProcess(ExecutionContext context, Process process) {
+  int interactWithProcess(ExecutionContext context, Process process) throws InterruptedException {
     ProcessExecutor executor = context.getProcessExecutor();
     ProcessExecutor.Result result = executor.execute(process,
         /* shouldPrintStdOut */ false,
@@ -144,10 +143,10 @@ public abstract class ShellStep implements Step {
 
     Verbosity verbosity = context.getVerbosity();
     if (!stderr.isEmpty() && shouldPrintStderr(verbosity)) {
-      context.postEvent(LogEvent.severe("%s", stderr));
+      context.postEvent(ConsoleEvent.severe("%s", stderr));
     }
     if (!stdout.isEmpty() && shouldPrintStdout(verbosity)) {
-      context.postEvent(LogEvent.info("%s", stdout));
+      context.postEvent(ConsoleEvent.info("%s", stdout));
     }
 
     return result.getExitCode();
@@ -179,14 +178,6 @@ public abstract class ShellStep implements Step {
    */
   @VisibleForTesting
   protected abstract ImmutableList<String> getShellCommandInternal(ExecutionContext context);
-
-  /**
-   * Callback function to be run after invoking the shell command.
-   * @param exitCode exit code from invoking the shell script.
-   */
-  protected void onProcessFinished(int exitCode) {
-    // Do nothing by default.
-  }
 
   @Override
   public final String getDescription(ExecutionContext context) {

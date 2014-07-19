@@ -18,6 +18,7 @@ package com.facebook.buck.rules;
 
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.graph.MutableDirectedGraph;
+import com.facebook.buck.java.FakeJavaPackageFinder;
 import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
@@ -44,8 +45,8 @@ public class FakeBuildContext {
 
   /**
    * User still needs to invoke {@link BuildContext.Builder#setActionGraph(ActionGraph)} and
-   * {@link BuildContext.Builder#setJavaPackageFinder(JavaPackageFinder)} before the
-   * {@link BuildContext.Builder#build()} method of the builder can be invoked.
+   * {@link BuildContext.Builder#setJavaPackageFinder(com.facebook.buck.java.JavaPackageFinder)}
+   * before the {@link BuildContext.Builder#build()} method of the builder can be invoked.
    * @param projectFilesystem for the {@link BuildContext} and for the {@link ExecutionContext} that
    *     is passed to the {@link DefaultStepRunner} for the {@link BuildContext}.
    */

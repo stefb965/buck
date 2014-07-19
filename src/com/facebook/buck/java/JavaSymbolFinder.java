@@ -19,7 +19,7 @@ package com.facebook.buck.java;
 import com.facebook.buck.android.AndroidLibraryDescription;
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.event.ThrowableLogEvent;
+import com.facebook.buck.event.ThrowableConsoleEvent;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.json.ProjectBuildFileParser;
 import com.facebook.buck.json.ProjectBuildFileParserFactory;
@@ -95,7 +95,8 @@ public class JavaSymbolFinder {
    * @return A multimap of symbols to the targets that define them, of the form:
    *         {"com.example.a.A": set("//com/example/a:a", "//com/another/a:a")}
    */
-  public ImmutableSetMultimap<String, BuildTarget> findTargetsForSymbols(Set<String> symbols) {
+  public ImmutableSetMultimap<String, BuildTarget> findTargetsForSymbols(Set<String> symbols)
+      throws InterruptedException {
     // TODO(jacko): Handle files that aren't included in any rule.
 
     // First find all the source roots in the current project.
@@ -103,7 +104,7 @@ public class JavaSymbolFinder {
     try {
       srcRoots = srcRootsFinder.getAllSrcRootPaths(config.getSrcRoots());
     } catch (IOException e) {
-      buckEventBus.post(ThrowableLogEvent.create(e, "Error while searching for source roots."));
+      buckEventBus.post(ThrowableConsoleEvent.create(e, "Error while searching for source roots."));
       return ImmutableSetMultimap.of();
     }
 
@@ -137,7 +138,7 @@ public class JavaSymbolFinder {
    * the BUCK file parser is expensive. (It spawns a Python subprocess.)
    */
   private ImmutableMultimap<Path, BuildTarget> getTargetsForSourceFiles(
-      Collection<Path> sourceFilePaths) {
+      Collection<Path> sourceFilePaths) throws InterruptedException {
     Map<Path, List<Map<String, Object>>> parsedBuildFiles = Maps.newHashMap();
     ImmutableSetMultimap.Builder<Path, BuildTarget> sourceFileTargetsMultimap =
         ImmutableSetMultimap.builder();
@@ -167,14 +168,16 @@ public class JavaSymbolFinder {
                 Path buckFileDir = buckFile.getParent();
                 String baseName = "//" + (buckFileDir != null ? buckFileDir : "");
                 String shortName = (String) ruleMap.get("name");
-                sourceFileTargetsMultimap.put(sourceFile, new BuildTarget(baseName, shortName));
+                sourceFileTargetsMultimap.put(
+                    sourceFile,
+                    BuildTarget.builder(baseName, shortName).build());
               }
             }
           }
         }
       }
     } catch (BuildFileParseException e) {
-      buckEventBus.post(ThrowableLogEvent.create(e, "Error while searching for targets."));
+      buckEventBus.post(ThrowableConsoleEvent.create(e, "Error while searching for targets."));
     }
     return sourceFileTargetsMultimap.build();
   }
@@ -244,7 +247,8 @@ public class JavaSymbolFinder {
           definingPaths.add(candidatePath);
         }
       } catch (IOException e) {
-        buckEventBus.post(ThrowableLogEvent.create(e, "Error while searching for source files."));
+        buckEventBus.post(
+            ThrowableConsoleEvent.create(e, "Error while searching for source files."));
       }
     }
     return definingPaths.build();

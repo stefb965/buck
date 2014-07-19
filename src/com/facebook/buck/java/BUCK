@@ -20,6 +20,7 @@ java_library(
   ],
   deps = [
     '//lib:guava',
+    '//src/com/facebook/buck/model:model',
   ],
   visibility = ['PUBLIC'],
 )
@@ -31,14 +32,12 @@ java_library(
     'AnnotationProcessingDataDecorator.java',
     'AnnotationProcessingDataDecorators.java',
     'AnnotationProcessingParams.java',
-    'DefaultJavaPackageFinder.java',
     'HasClasspathEntries.java',
     'HasJavaAbi.java',
     'JavaLibrary.java',
     'JavacVersion.java',
     'JavacOptions.java',
     'JavaCompilerEnvironment.java',
-    'ResourcesRootPackageFinder.java',
   ],
   deps = [
     ':classhash',
@@ -56,6 +55,20 @@ java_library(
 )
 
 java_library(
+  name = 'packagefinder',
+  srcs = [
+    'DefaultJavaPackageFinder.java',
+    'JavaPackageFinder.java',
+    'ResourcesRootPackageFinder.java',
+  ],
+  deps = [
+    '//lib:guava',
+    '//src/com/facebook/buck/util:exceptions',
+  ],
+  visibility = ['PUBLIC'],
+)
+
+java_library(
   name = 'rules',
   srcs = [
     'Classpaths.java',
@@ -68,7 +81,6 @@ java_library(
     'JavaLibraryRules.java',
     'JavaTest.java',
     'JavaTestDescription.java',
-    'JavaTestDescription.java',
     'Keystore.java',
     'KeystoreDescription.java',
     'PrebuiltJar.java',
@@ -76,10 +88,12 @@ java_library(
   ],
   deps = [
     ':classhash',
+    ':packagefinder',
     ':steps',
     ':support',
     '//lib:guava',
     '//lib:jsr305',
+    '//src/com/facebook/buck/android:packageable',
     '//src/com/facebook/buck/event:event',
     '//src/com/facebook/buck/graph:graph',
     '//src/com/facebook/buck/java/abi:protocol',
@@ -117,6 +131,7 @@ java_library(
     'ZipEntryJavaFileObject.java',
   ],
   deps = [
+    ':packagefinder',
     ':support',
     '//lib:guava',
     '//lib:jsr305',
@@ -149,6 +164,7 @@ java_library(
     'JavaSymbolFinder.java',
   ],
   deps = [
+    ':packagefinder',
     ':rules',
     ':support',
     '//lib:guava',

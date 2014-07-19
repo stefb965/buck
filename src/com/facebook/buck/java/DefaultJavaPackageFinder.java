@@ -16,7 +16,6 @@
 
 package com.facebook.buck.java;
 
-import com.facebook.buck.rules.JavaPackageFinder;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -120,12 +119,10 @@ public class DefaultJavaPackageFinder implements JavaPackageFinder {
   @Override
   public String findJavaPackageForPath(String pathRelativeToProjectRoot) {
     String folder = findJavaPackageFolderForPath(pathRelativeToProjectRoot);
-    return findJavaPackageWithPackageFolder(pathRelativeToProjectRoot, folder);
+    return findJavaPackageWithPackageFolder(folder);
   }
 
-  public static String findJavaPackageWithPackageFolder(
-      String pathRelativeToProjectRoot,
-      String packageFolder) {
+  public static String findJavaPackageWithPackageFolder(String packageFolder) {
     if (!packageFolder.isEmpty()) {
       // Strip the trailing slash and replace the remaining slashes with dots.
       return packageFolder.substring(0, packageFolder.length() - 1).replace('/', '.');

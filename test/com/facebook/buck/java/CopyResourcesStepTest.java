@@ -19,7 +19,6 @@ import static com.facebook.buck.util.BuckConstant.BIN_PATH;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.JavaPackageFinder;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TestSourcePath;
 import com.facebook.buck.step.Step;
@@ -39,7 +38,7 @@ public class CopyResourcesStepTest {
     // android/java/BUILD
     // android/java/src/com/facebook/base/data.json
     // android/java/src/com/facebook/common/util/data.json
-    BuildTarget buildTarget = new BuildTarget("//android/java", "resources");
+    BuildTarget buildTarget = BuildTarget.builder("//android/java", "resources").build();
     JavaPackageFinder javaPackageFinder = createJavaPackageFinder();
 
     CopyResourcesStep step = new CopyResourcesStep(
@@ -67,7 +66,7 @@ public class CopyResourcesStepTest {
     // android/java/src/BUILD
     // android/java/src/com/facebook/base/data.json
     // android/java/src/com/facebook/common/util/data.json
-    BuildTarget buildTarget = new BuildTarget("//android/java/src", "resources");
+    BuildTarget buildTarget = BuildTarget.builder("//android/java/src", "resources").build();
     JavaPackageFinder javaPackageFinder = createJavaPackageFinder();
 
     CopyResourcesStep step = new CopyResourcesStep(
@@ -96,7 +95,8 @@ public class CopyResourcesStepTest {
     // android/java/src/com/facebook/BUILD
     // android/java/src/com/facebook/base/data.json
     // android/java/src/com/facebook/common/util/data.json
-    BuildTarget buildTarget = new BuildTarget("//android/java/src/com/facebook", "resources");
+    BuildTarget buildTarget =
+        BuildTarget.builder("//android/java/src/com/facebook", "resources").build();
     JavaPackageFinder javaPackageFinder = createJavaPackageFinder();
 
     CopyResourcesStep step = new CopyResourcesStep(

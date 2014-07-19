@@ -9,9 +9,13 @@ java_library(
     'PopularAndroidJavaCompilerEnvironment.java',
     'PrebuiltJarBuilder.java',
   ],
+  exported_deps = [
+    ':fakepackagefinder',
+  ],
   deps = [
     '//lib:guava',
     '//lib:jsr305',
+    '//src/com/facebook/buck/android:packageable',
     '//src/com/facebook/buck/java:classhash',
     '//src/com/facebook/buck/java:rules',
     '//src/com/facebook/buck/java:support',
@@ -23,6 +27,19 @@ java_library(
     '//src/com/facebook/buck/util:io',
     '//src/com/facebook/buck/rules:rules',
     '//test/com/facebook/buck/rules:testutil',
+  ],
+  visibility = [
+    '//test/...',
+  ],
+)
+
+java_library(
+  name = 'fakepackagefinder',
+  srcs = [
+    'FakeJavaPackageFinder.java',
+  ],
+  exported_deps = [
+    '//src/com/facebook/buck/java:packagefinder',
   ],
   visibility = [
     '//test/...',
@@ -46,6 +63,7 @@ java_test(
     '//lib:hamcrest-library',
     '//lib:jsr305',
     '//lib:junit',
+    '//src/com/facebook/buck/android:packageable',
     '//src/com/facebook/buck/android:rules',
     '//src/com/facebook/buck/cli:cli',
     '//src/com/facebook/buck/cli:config',
@@ -54,6 +72,7 @@ java_test(
     '//src/com/facebook/buck/java:autodeps',
     '//src/com/facebook/buck/java:classhash',
     '//src/com/facebook/buck/java:config',
+    '//src/com/facebook/buck/java:packagefinder',
     '//src/com/facebook/buck/java:rules',
     '//src/com/facebook/buck/java:steps',
     '//src/com/facebook/buck/java:support',

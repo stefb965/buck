@@ -23,6 +23,7 @@ import com.facebook.buck.android.AndroidBinaryBuilder;
 import com.facebook.buck.android.AndroidLibraryBuilder;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
+import com.facebook.buck.java.FakeJavaPackageFinder;
 import com.facebook.buck.java.JavaLibraryBuilder;
 import com.facebook.buck.java.JavaTestBuilder;
 import com.facebook.buck.java.Keystore;
@@ -94,7 +95,8 @@ public class AuditClasspathCommandTest {
         eventBus,
         BuckTestConstant.PYTHON_INTERPRETER,
         Platform.detect(),
-        ImmutableMap.copyOf(System.getenv())));
+        ImmutableMap.copyOf(System.getenv()),
+        new FakeJavaPackageFinder()));
   }
 
   private PartialGraph createGraphFromBuildRules(BuildRuleResolver ruleResolver,
@@ -139,10 +141,8 @@ public class AuditClasspathCommandTest {
     Keystore keystore = (Keystore) KeystoreBuilder.createBuilder(keystoreBuildTarget)
         .setStore(Paths.get("debug.keystore"))
         .setProperties(Paths.get("keystore.properties"))
-        .build(ruleResolver)
-        .getBuildable();
-    AndroidBinaryBuilder.newBuilder()
-        .setBuildTarget(BuildTargetFactory.newInstance("//:test-android-binary"))
+        .build(ruleResolver);
+    AndroidBinaryBuilder.createBuilder(BuildTargetFactory.newInstance("//:test-android-binary"))
         .setManifest(new TestSourcePath("AndroidManifest.xml"))
         .setTarget("Google Inc.:Google APIs:16")
         .setKeystore(keystore)
@@ -150,8 +150,7 @@ public class AuditClasspathCommandTest {
         .build(ruleResolver);
     JavaTestBuilder.createBuilder(BuildTargetFactory.newInstance("//:project-tests"))
         .addDep(javaLibrary)
-        .setSourceUnderTest(
-            ImmutableSet.of(javaLibrary.getBuildTarget()))
+        .setSourceUnderTest(ImmutableSet.of(javaLibrary))
         .addSrc(Paths.get("src/com/facebook/test/ProjectTests.java"))
         .build(ruleResolver);
     PartialGraph partialGraph2 = createGraphFromBuildRules(ruleResolver, targets);

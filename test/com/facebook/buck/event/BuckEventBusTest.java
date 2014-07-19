@@ -23,13 +23,12 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.fail;
 
 import com.facebook.buck.timing.DefaultClock;
-import com.facebook.buck.util.ShutdownException;
 import com.facebook.buck.util.concurrent.MoreExecutors;
-import com.google.common.base.Throwables;
 import com.google.common.eventbus.Subscribe;
 
 import org.junit.Test;
 
+import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 
 public class BuckEventBusTest {
@@ -46,11 +45,7 @@ public class BuckEventBusTest {
     eb.register(new SleepSubscriber());
     eb.post(new SleepEvent(1));
     long start = System.nanoTime();
-    try {
-      eb.close();
-    } catch (ShutdownException e) {
-      fail("Bus should shut down successfully.");
-    }
+    eb.close();
     long durationNanos = System.nanoTime() - start;
     long durationMillis = TimeUnit.MILLISECONDS.convert(durationNanos, TimeUnit.NANOSECONDS);
     assertThat("Shutdown should not take a long time.",
@@ -58,7 +53,7 @@ public class BuckEventBusTest {
   }
 
   @Test
-  public void testShutdownFailure() throws Exception {
+  public void testShutdownFailure() throws IOException {
     BuckEventBus eb = new BuckEventBus(
         new DefaultClock(),
         MoreExecutors.newSingleThreadExecutor(BuckEventBus.class.getSimpleName()),
@@ -67,14 +62,8 @@ public class BuckEventBusTest {
     eb.register(new SleepSubscriber());
     eb.post(new SleepEvent(timeoutMillis * 3));
     long start = System.nanoTime();
-    try {
-      eb.close();
-      fail("Bus should not shut down successfully.");
-    } catch (ShutdownException e) {
-      assertThat("Exception should be due to shutdown.",
-          e.getMessage(),
-          containsString("failed to shut down"));
-    }
+    eb.close();
+    // We'd like to test the Logger output here, but there's not a clean way to do that.
     long durationNanos = System.nanoTime() - start;
     long durationMillis = TimeUnit.MILLISECONDS.convert(durationNanos, TimeUnit.NANOSECONDS);
     assertThat("Shutdown should not take a long time.",
@@ -82,7 +71,7 @@ public class BuckEventBusTest {
   }
 
   @Test
-  public void whenEventTimestampedThenEventCannotBePosted() {
+  public void whenEventTimestampedThenEventCannotBePosted() throws IOException {
     BuckEventBus eb = new BuckEventBus(
         new DefaultClock(),
         MoreExecutors.newSingleThreadExecutor(BuckEventBus.class.getSimpleName()),
@@ -98,11 +87,13 @@ public class BuckEventBusTest {
           "Exception should be due to double configuration.",
           e.getMessage(),
           containsString("Events can only be configured once."));
+    } finally {
+      eb.close();
     }
   }
 
   @Test
-  public void whenEventPostedWithAnotherThenTimestampCopiedToPostedEvent() {
+  public void whenEventPostedWithAnotherThenTimestampCopiedToPostedEvent() throws IOException {
     BuckEventBus eb = new BuckEventBus(
         new DefaultClock(),
         MoreExecutors.newSingleThreadExecutor(BuckEventBus.class.getSimpleName()),
@@ -112,6 +103,7 @@ public class BuckEventBusTest {
     TestEvent event = new TestEvent();
     eb.timestamp(timestamp);
     eb.post(event, timestamp);
+    eb.close();
     assertEquals(timestamp.getTimestamp(), event.getTimestamp());
     assertEquals(timestamp.getNanoTime(), event.getNanoTime());
   }
@@ -141,12 +133,8 @@ public class BuckEventBusTest {
 
   private static class SleepSubscriber {
     @Subscribe
-    public void sleep(SleepEvent event) {
-      try {
-        Thread.sleep(event.milliseconds);
-      } catch (InterruptedException e) {
-        throw Throwables.propagate(e);
-      }
+    public void sleep(SleepEvent event) throws InterruptedException {
+      Thread.sleep(event.milliseconds);
     }
   }
 

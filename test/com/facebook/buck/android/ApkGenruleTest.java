@@ -23,6 +23,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.java.JavaLibraryBuilder;
+import com.facebook.buck.java.JavaPackageFinder;
 import com.facebook.buck.java.Keystore;
 import com.facebook.buck.java.KeystoreBuilder;
 import com.facebook.buck.model.BuildTarget;
@@ -36,25 +37,21 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.Buildable;
-import com.facebook.buck.rules.DescribedRule;
+import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
-import com.facebook.buck.rules.FakeBuildable;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.InstallableApk;
-import com.facebook.buck.rules.JavaPackageFinder;
 import com.facebook.buck.rules.TestSourcePath;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepRunner;
+import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirAndSymlinkFileStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
-import com.facebook.buck.testutil.IdentityPathAbsolutifier;
-import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Function;
@@ -66,7 +63,6 @@ import com.google.common.collect.ImmutableSortedSet;
 import org.easymock.EasyMock;
 import org.junit.Test;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -97,15 +93,13 @@ public class ApkGenruleTest {
     Keystore keystore = (Keystore) KeystoreBuilder.createBuilder(keystoreTarget)
         .setStore(Paths.get("keystore/debug.keystore"))
         .setProperties(Paths.get("keystore/debug.keystore.properties"))
-        .build(ruleResolver)
-        .getBuildable();
+        .build(ruleResolver);
 
-    AndroidBinaryBuilder.newBuilder()
-        .setBuildTarget(BuildTargetFactory.newInstance("//:fb4a"))
+    AndroidBinaryBuilder.createBuilder(BuildTargetFactory.newInstance("//:fb4a"))
         .setManifest(new TestSourcePath("AndroidManifest.xml"))
         .setTarget("Google Inc.:Google APIs:16")
-        .setKeystore(keystore)
         .setOriginalDeps(ImmutableSortedSet.of(androidLibRule))
+        .setKeystore(keystore)
         .build(ruleResolver);
   }
 
@@ -123,37 +117,10 @@ public class ApkGenruleTest {
         .andStubReturn(apkTarget);
     EasyMock.replay(parser);
 
-    BuildTarget buildTarget = new BuildTarget("//src/com/facebook", "sign_fb4a");
+    BuildTarget buildTarget = BuildTarget.builder("//src/com/facebook", "sign_fb4a").build();
     ApkGenruleDescription description = new ApkGenruleDescription();
     ApkGenruleDescription.Arg arg = description.createUnpopulatedConstructorArg();
-    arg.apk = new FakeBuildRule(AndroidBinaryDescription.TYPE, apkTarget) {
-      @Override
-      public Buildable getBuildable() {
-        class Dummy extends FakeBuildable implements InstallableApk {
-
-          public Dummy() {
-            super(apkTarget);
-          }
-
-          @Override
-          public Path getManifestPath() {
-            return Paths.get("spoof");
-          }
-
-          @Override
-          public Path getApkPath() {
-            return Paths.get("buck-out/gen/fb4a.apk");
-          }
-
-          @Override
-          public Optional<ExopackageInfo> getExopackageInfo() {
-            return Optional.absent();
-          }
-        }
-
-        return new Dummy();
-      }
-    };
+    arg.apk = new FakeInstallable(AndroidBinaryDescription.TYPE, apkTarget);
     arg.bash = Optional.of("");
     arg.cmd = Optional.of("python signer.py $APK key.properties > $OUT");
     arg.cmdExe = Optional.of("");
@@ -168,12 +135,8 @@ public class ApkGenruleTest {
                 return relativeToAbsolutePathFunction;
               }
             }).build();
-    ApkGenrule apkGenrule = description.createBuildable(params, arg);
-    BuildRule rule = new DescribedRule(
-        ApkGenruleDescription.TYPE,
-        apkGenrule,
-        params);
-    ruleResolver.addToIndex(buildTarget, rule);
+    ApkGenrule apkGenrule = description.createBuildRule(params, ruleResolver, arg);
+    ruleResolver.addToIndex(buildTarget, apkGenrule);
 
     // Verify all of the observers of the Genrule.
     String expectedApkOutput =
@@ -262,22 +225,30 @@ public class ApkGenruleTest {
   }
 
   private ExecutionContext newEmptyExecutionContext() {
-    return ExecutionContext.builder()
-        .setConsole(new TestConsole())
-        .setProjectFilesystem(new ProjectFilesystem(new File(".")) {
-          @Override
-          public Function<Path, Path> getAbsolutifier() {
-            return IdentityPathAbsolutifier.getIdentityAbsolutifier();
-          }
-
-          @Override
-          public Path resolve(Path path) {
-            return path;
-          }
-        })
-        .setEventBus(BuckEventBusFactory.newInstance())
+    return TestExecutionContext.newBuilder()
         .setPlatform(Platform.LINUX) // Fix platform to Linux to use bash in genrule.
-        .setEnvironment(ImmutableMap.copyOf(System.getenv()))
         .build();
+  }
+
+  private static class FakeInstallable extends FakeBuildRule implements InstallableApk {
+
+    public FakeInstallable(BuildRuleType type, BuildTarget buildTarget) {
+      super(type, buildTarget);
+    }
+
+    @Override
+    public Path getManifestPath() {
+      return Paths.get("spoof");
+    }
+
+    @Override
+    public Path getApkPath() {
+      return Paths.get("buck-out/gen/fb4a.apk");
+    }
+
+    @Override
+    public Optional<ExopackageInfo> getExopackageInfo() {
+      return Optional.absent();
+    }
   }
 }

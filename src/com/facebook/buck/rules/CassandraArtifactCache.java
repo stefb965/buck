@@ -17,8 +17,8 @@
 package com.facebook.buck.rules;
 
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.event.LogEvent;
-import com.facebook.buck.event.ThrowableLogEvent;
+import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.event.ThrowableConsoleEvent;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
@@ -201,7 +201,8 @@ public class CassandraArtifactCache implements ArtifactCache {
    * @return The resulting keyspace and ttl of connecting to Cassandra if the connection succeeded,
    *    otherwise Optional.absent().  This method will block until connection finishes.
    */
-  private Optional<KeyspaceAndTtl> getKeyspaceAndTtl() {
+  private Optional<KeyspaceAndTtl> getKeyspaceAndTtl()
+      throws InterruptedException {
     if (isKilled.get()) {
       return Optional.absent();
     }
@@ -210,10 +211,10 @@ public class CassandraArtifactCache implements ArtifactCache {
     } catch (TimeoutException e) {
       keyspaceAndTtlFuture.cancel(true);
       isKilled.set(true);
-    } catch (ExecutionException | InterruptedException e) {
-      if (!(e instanceof ExecutionException) || !(e.getCause() instanceof ConnectionException)) {
+    } catch (ExecutionException e) {
+      if (!(e.getCause() instanceof ConnectionException)) {
         buckEventBus.post(
-            ThrowableLogEvent.create(
+            ThrowableConsoleEvent.create(
                 e,
                 "Unexpected error when fetching keyspace and ttl: %s.",
                 e.getMessage()));
@@ -241,7 +242,8 @@ public class CassandraArtifactCache implements ArtifactCache {
   }
 
   @Override
-  public CacheResult fetch(RuleKey ruleKey, File output) {
+  public CacheResult fetch(RuleKey ruleKey, File output)
+      throws InterruptedException {
     Optional<KeyspaceAndTtl> keyspaceAndTtl = getKeyspaceAndTtl();
     if (!keyspaceAndTtl.isPresent()) {
       // Connecting to Cassandra failed, return false
@@ -279,13 +281,13 @@ public class CassandraArtifactCache implements ArtifactCache {
         success = CacheResult.CASSANDRA_HIT;
       }
     } catch (IOException e) {
-      buckEventBus.post(ThrowableLogEvent.create(e,
+      buckEventBus.post(ThrowableConsoleEvent.create(e,
           "Artifact was fetched but could not be written: %s at %s.",
           ruleKey,
           output.getPath()));
     }
 
-    buckEventBus.post(LogEvent.fine("Artifact fetch(%s, %s) cache %s",
+    buckEventBus.post(ConsoleEvent.fine("Artifact fetch(%s, %s) cache %s",
         ruleKey,
         output.getPath(),
         (success.isSuccess() ? "hit" : "miss")));
@@ -293,7 +295,7 @@ public class CassandraArtifactCache implements ArtifactCache {
   }
 
   @Override
-  public void store(RuleKey ruleKey, File output) {
+  public void store(RuleKey ruleKey, File output) throws InterruptedException {
     if (!isStoreSupported()) {
       return;
     }
@@ -315,7 +317,7 @@ public class CassandraArtifactCache implements ArtifactCache {
     } catch (ConnectionException e) {
       reportConnectionFailure("Attempting to store " + ruleKey + ".", e);
     } catch (IOException | OutOfMemoryError e) {
-      buckEventBus.post(ThrowableLogEvent.create(e,
+      buckEventBus.post(ThrowableConsoleEvent.create(e,
           "Artifact store(%s, %s) error: %s",
           ruleKey,
           output.getPath()));
@@ -350,8 +352,12 @@ public class CassandraArtifactCache implements ArtifactCache {
     ListenableFuture<List<OperationResult<Void>>> future = Futures.allAsList(futures);
     try {
       future.get();
-    } catch (InterruptedException | ExecutionException e) {
+    } catch (ExecutionException e) {
       // Swallow exception and move on.
+    } catch (InterruptedException e) {
+      e.printStackTrace();
+      Thread.currentThread().interrupt();
+      return;
     } finally {
       context.shutdown();
     }
@@ -373,7 +379,7 @@ public class CassandraArtifactCache implements ArtifactCache {
     }
   }
 
-  public static class CassandraConnectionExceptionEvent extends ThrowableLogEvent {
+  public static class CassandraConnectionExceptionEvent extends ThrowableConsoleEvent {
 
     public CassandraConnectionExceptionEvent(Throwable throwable, String message) {
       super(throwable, message);

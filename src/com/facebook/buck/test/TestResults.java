@@ -31,7 +31,8 @@ import java.util.List;
  */
 public class TestResults {
 
-  private static final BuildTarget DUMMY_TARGET_FOR_TESTING = new BuildTarget("//foo/bar", "baz");
+  private static final BuildTarget DUMMY_TARGET_FOR_TESTING =
+      BuildTarget.builder("//foo/bar", "baz").build();
 
   private final BuildTarget source;
   private final ImmutableList<TestCaseSummary> testCases;
@@ -87,7 +88,6 @@ public class TestResults {
     return testCases;
   }
 
-  @JsonIgnore
   public ImmutableSet<String> getContacts() {
     return contacts;
   }

@@ -24,6 +24,7 @@ import static org.junit.Assert.fail;
 import com.facebook.buck.cli.TargetsCommand.TargetsCommandPredicate;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
+import com.facebook.buck.java.FakeJavaPackageFinder;
 import com.facebook.buck.java.JavaLibraryBuilder;
 import com.facebook.buck.java.JavaLibraryDescription;
 import com.facebook.buck.java.JavaTestBuilder;
@@ -98,7 +99,7 @@ public class TargetsCommandTest {
       String name,
       String baseName) {
     SortedMap<String, BuildRule> buildRules = Maps.newTreeMap();
-    BuildTarget buildTarget = new BuildTarget(baseName, name);
+    BuildTarget buildTarget = BuildTarget.builder(baseName, name).build();
     FakeBuildRule buildRule = new FakeBuildRule(
         JavaLibraryDescription.TYPE,
         buildTarget,
@@ -138,11 +139,13 @@ public class TargetsCommandTest {
             eventBus,
             BuckTestConstant.PYTHON_INTERPRETER,
             Platform.detect(),
-            ImmutableMap.copyOf(System.getenv())));
+            ImmutableMap.copyOf(System.getenv()),
+            new FakeJavaPackageFinder()));
   }
 
   @Test
-  public void testJsonOutputForBuildTarget() throws IOException, BuildFileParseException {
+  public void testJsonOutputForBuildTarget()
+      throws IOException, BuildFileParseException, InterruptedException {
     final String testBuckFileJson1 = testDataPath("TargetsCommandTestBuckJson1.js");
     final String outputFile = "buck-out/gen/test/outputFile";
     JsonFactory jsonFactory = new JsonFactory();
@@ -207,7 +210,8 @@ public class TargetsCommandTest {
   }
 
   @Test
-  public void testJsonOutputForMissingBuildTarget() throws BuildFileParseException, IOException {
+  public void testJsonOutputForMissingBuildTarget()
+      throws BuildFileParseException, IOException, InterruptedException {
     // nonexistent target should not exist.
     final String outputFile = "buck-out/gen/test/outputFile";
     SortedMap<String, BuildRule> buildRules = buildBuildTargets(outputFile, "nonexistent");
@@ -221,12 +225,12 @@ public class TargetsCommandTest {
 
   @Test
   public void testValidateBuildTargetForNonAliasTarget()
-      throws IOException, NoSuchBuildTargetException {
+      throws IOException, NoSuchBuildTargetException, InterruptedException {
     // Set up the test buck file, parser, config, options.
     BuildTargetParser parser = EasyMock.createMock(BuildTargetParser.class);
     EasyMock.expect(parser.parse("//:test-library", ParseContext.fullyQualified()))
-        .andReturn(new BuildTarget(
-            "//testdata/com/facebook/buck/cli", "test-library"))
+        .andReturn(BuildTarget.builder(
+            "//testdata/com/facebook/buck/cli", "test-library").build())
         .anyTimes();
     EasyMock.expect(parser.parse("//:", ParseContext.fullyQualified()))
         .andThrow(new BuildTargetParseException(
@@ -236,8 +240,8 @@ public class TargetsCommandTest {
         .andThrow(EasyMock.createMock(NoSuchBuildTargetException.class))
         .anyTimes();
     EasyMock.expect(parser.parse("//:test-libarry", ParseContext.fullyQualified()))
-        .andReturn(new BuildTarget(
-            "//testdata/com/facebook/buck/cli", "test-libarry"))
+        .andReturn(BuildTarget.builder(
+            "//testdata/com/facebook/buck/cli", "test-libarry").build())
         .anyTimes();
     EasyMock.replay(parser);
     Reader reader = new StringReader("");

@@ -18,21 +18,24 @@ package com.facebook.buck.cli;
 
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventListener;
-import com.facebook.buck.event.LogEvent;
+import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.listener.AbstractConsoleEventBusListener;
 import com.facebook.buck.event.listener.ChromeTraceBuildListener;
 import com.facebook.buck.event.listener.JavaUtilsLoggingBuildListener;
+import com.facebook.buck.event.listener.LoggingBuildListener;
 import com.facebook.buck.event.listener.SimpleConsoleEventBusListener;
 import com.facebook.buck.event.listener.SuperConsoleEventBusListener;
 import com.facebook.buck.httpserver.WebServer;
 import com.facebook.buck.java.JavaBuckConfig;
 import com.facebook.buck.java.JavaCompilerEnvironment;
+import com.facebook.buck.log.LogConfig;
+import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildId;
-import com.facebook.buck.rules.Repository;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.CachingBuildEngine;
 import com.facebook.buck.rules.KnownBuildRuleTypes;
+import com.facebook.buck.rules.Repository;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKey.Builder;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
@@ -50,7 +53,6 @@ import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.buck.util.ProjectFilesystemWatcher;
 import com.facebook.buck.util.PropertyFinder;
-import com.facebook.buck.util.ShutdownException;
 import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.WatchServiceWatcher;
 import com.facebook.buck.util.WatchmanWatcher;
@@ -129,6 +131,8 @@ public final class Main {
 
   private final Platform platform;
 
+  private static final Logger LOG = Logger.get(Main.class);
+
   /**
    * Daemon used to monitor the file system and cache build rules between Main() method
    * invocations is static so that it can outlive Main() objects and survive for the lifetime
@@ -180,10 +184,12 @@ public final class Main {
     private ProjectFilesystemWatcher createWatcher(ProjectFilesystem projectFilesystem)
         throws IOException {
       if (System.getProperty("buck.buckd_watcher", "WatchService").equals("Watchman")) {
+        LOG.debug("Using watchman to watch for file changes.");
         return new WatchmanWatcher(
             projectFilesystem,
             fileEventBus);
       }
+      LOG.debug("Using java.nio.file.WatchService to watch for file changes.");
       return new WatchServiceWatcher(
           projectFilesystem,
           fileEventBus,
@@ -206,6 +212,7 @@ public final class Main {
         String rawPort = serverPort.get();
         try {
           int port = Integer.parseInt(rawPort, 10);
+          LOG.debug("Starting up web server on port %d.", port);
           webServer = Optional.of(new WebServer(port, projectFilesystem, STATIC_CONTENT_DIRECTORY));
         } catch (NumberFormatException e) {
           console.printErrorText(
@@ -241,6 +248,7 @@ public final class Main {
           // so needs to be left in a consistent state even if the current command is interrupted
           // due to a client disconnection.
           synchronized (parser) {
+            LOG.info("Client disconnected.");
             // Client should no longer be connected, but printing helps detect false disconnections.
             context.err.println("Client disconnected.");
             throw new InterruptedException("Client disconnected.");
@@ -253,7 +261,7 @@ public final class Main {
         Console console,
         ImmutableMap<String, String> environment,
         CommandEvent commandEvent,
-        BuckEventBus eventBus) throws IOException {
+        BuckEventBus eventBus) throws IOException, InterruptedException {
 
       // Synchronize on parser object so that all outstanding watch events are processed
       // as a single, atomic Parser cache update and are not interleaved with Parser cache
@@ -316,6 +324,7 @@ public final class Main {
       Console console,
       ImmutableMap<String, String> environment) throws IOException {
     if (daemon == null) {
+      LOG.info("Starting up daemon for project root [%s]", filesystem.getProjectRoot());
       daemon = new Daemon(
           filesystem,
           knownBuildRuleTypes,
@@ -339,6 +348,7 @@ public final class Main {
       // create a new daemon.
       if (!daemon.getConfig().equals(config) ||
           !daemon.getAndroidDirectoryResolver().equals(androidDirectoryResolver)) {
+        LOG.info("Shutting down and restarting daemon on config or directory resolver change.");
         daemon.close();
         daemon = new Daemon(
             filesystem,
@@ -357,6 +367,7 @@ public final class Main {
   static void resetDaemon() {
     if (daemon != null) {
       try {
+        LOG.info("Closing daemon on reset request.");
         daemon.close();
       } catch (IOException e) {
         // Swallow exceptions while closing daemon.
@@ -372,7 +383,7 @@ public final class Main {
   }
 
   @VisibleForTesting
-  static void watchFilesystem() throws IOException {
+  static void watchFilesystem() throws IOException, InterruptedException {
     Preconditions.checkNotNull(daemon);
     daemon.filesystemWatcher.postEvents();
   }
@@ -422,7 +433,7 @@ public final class Main {
    * @return an exit code or {@code null} if this is a process that should not exit
    */
   public int runMainWithExitCode(File projectRoot, Optional<NGContext> context, String... args)
-      throws IOException {
+      throws IOException, InterruptedException {
     if (args.length == 0) {
       return usage();
     }
@@ -452,7 +463,7 @@ public final class Main {
       File projectRoot,
       Command.ParseResult commandParseResult,
       Optional<NGContext> context,
-      String... args) throws IOException {
+      String... args) throws IOException, InterruptedException {
 
     // Get the client environment, either from this process or from the Nailgun context.
     ImmutableMap<String, String> clientEnvironment = getClientEnvironment(context);
@@ -523,7 +534,9 @@ public final class Main {
     // The order of resources in the try-with-resources block is important: the BuckEventBus must
     // be the last resource, so that it is closed first and can deliver its queued events to the
     // other resources before they are closed.
-    try (AbstractConsoleEventBusListener consoleListener =
+    try (ConsoleLogLevelOverrider consoleLogLevelOverrider =
+             new ConsoleLogLevelOverrider(verbosity);
+         AbstractConsoleEventBusListener consoleListener =
              createConsoleEventListener(clock, console, verbosity, executionEnvironment);
          BuckEventBus buildEventBus = new BuckEventBus(clock, buildId)) {
 
@@ -571,11 +584,10 @@ public final class Main {
               clientEnvironment,
               commandEvent,
               buildEventBus);
-        } catch (WatchmanWatcherException e) {
-          buildEventBus.post(LogEvent.warning(
-                  "Watchman threw an exception while parsing file changes, resetting daemon.\n%s",
+        } catch (WatchmanWatcherException | IOException e) {
+          buildEventBus.post(ConsoleEvent.warning(
+                  "Watchman threw an exception while parsing file changes.\n%s",
                   e.getMessage()));
-          resetDaemon();
         }
       }
 
@@ -604,19 +616,22 @@ public final class Main {
               buildEventBus,
               parser,
               platform,
-              clientEnvironment));
+              clientEnvironment,
+              config.createDefaultJavaPackageFinder()));
 
       // If the Daemon is running and serving web traffic, print the URL to the Chrome Trace.
       if (webServer.isPresent()) {
         int port = webServer.get().getPort();
-        buildEventBus.post(LogEvent.info(
+        buildEventBus.post(ConsoleEvent.info(
             "See trace at http://localhost:%s/trace/%s", port, buildId));
       }
 
       buildEventBus.post(CommandEvent.finished(commandName, remainingArgs, isDaemon, exitCode));
-    } catch (Exception e) {
+    } catch (InterruptedException e) {
+      LOG.debug(e, "Failing build on interruption exception.");
       closeCreatedArtifactCaches(artifactCacheFactory); // Close cache before exit on exception.
-      throw e;
+      Thread.currentThread().interrupt();
+      return FAIL_EXIT_CODE;
     } finally {
       commandSemaphore.release(); // Allow another command to execute while outputting traces.
     }
@@ -642,7 +657,7 @@ public final class Main {
    * in preference to System.getenv() and should be the only call to System.getenv() within the
    * Buck codebase to ensure that the use of the Buck daemon is transparent.
    */
-  @SuppressWarnings("unchecked") // Safe as Property is a Map<String, String>.
+  @SuppressWarnings({"unchecked", "rawtypes"}) // Safe as Property is a Map<String, String>.
   private ImmutableMap<String, String> getClientEnvironment(Optional<NGContext> context) {
     if (context.isPresent()) {
       return ImmutableMap.<String, String>copyOf((Map) context.get().getEnv());
@@ -650,7 +665,9 @@ public final class Main {
     return ImmutableMap.copyOf(System.getenv());
   }
 
-  private static void closeCreatedArtifactCaches(ArtifactCacheFactory artifactCacheFactory) {
+  private static void closeCreatedArtifactCaches(
+      @Nullable ArtifactCacheFactory artifactCacheFactory)
+      throws InterruptedException {
     if (null != artifactCacheFactory) {
       artifactCacheFactory.closeCreatedArtifactCaches(ARTIFACT_CACHE_TIMEOUT_IN_SECONDS);
     }
@@ -665,7 +682,7 @@ public final class Main {
       Console console,
       ImmutableMap<String, String> environment,
       CommandEvent commandEvent,
-      BuckEventBus eventBus) throws IOException {
+      BuckEventBus eventBus) throws IOException, InterruptedException {
     // Wire up daemon to new client and console and get cached Parser.
     Daemon daemon = getDaemon(
         projectFilesystem,
@@ -766,7 +783,8 @@ public final class Main {
         ImmutableList.<BuckEventListener>builder()
             .add(new JavaUtilsLoggingBuildListener())
             .add(new ChromeTraceBuildListener(projectFilesystem, config.getMaxTraces()))
-            .add(consoleEventBusListener);
+            .add(consoleEventBusListener)
+            .add(new LoggingBuildListener());
 
     if (webServer.isPresent()) {
       eventListenersBuilder.add(webServer.get().createListener());
@@ -854,9 +872,16 @@ public final class Main {
 
   @VisibleForTesting
   int tryRunMainWithExitCode(File projectRoot, Optional<NGContext> context, String... args)
-      throws IOException {
+      throws IOException, InterruptedException {
     // TODO(user): enforce write command exclusion, but allow concurrent read only commands?
     try {
+      if (daemon != null) {
+        // Reset logging each time we run a command while daemonized.
+        LOG.debug("Rotating log.");
+        LogConfig.flushLogs();
+        LogConfig.setupLogging();
+      }
+      LOG.debug("Starting up with args: %s", Arrays.toString(args));
       return runMainWithExitCode(projectRoot, context, args);
     } catch (HumanReadableException e) {
       Console console = new Console(Verbosity.STANDARD_INFORMATION,
@@ -865,10 +890,8 @@ public final class Main {
           new Ansi(platform));
       console.printBuildFailure(e.getHumanReadableErrorMessage());
       return FAIL_EXIT_CODE;
-    } catch (ShutdownException e) {
-      stdErr.println(e);
-      e.printStackTrace(stdErr);
-      return 0;
+    } finally {
+      LOG.debug("Done.");
     }
   }
 
@@ -878,7 +901,7 @@ public final class Main {
     try {
       exitCode = tryRunMainWithExitCode(projectRoot, context, args);
     } catch (Throwable t) {
-      t.printStackTrace();
+      LOG.error(t, "Uncaught exception at top level");
     } finally {
       // Exit explicitly so that non-daemon threads (of which we use many) don't
       // keep the VM alive.
@@ -912,13 +935,9 @@ public final class Main {
 
     private static final class DaemonSlayerInstance {
       final DaemonSlayer daemonSlayer;
-      final ServiceManager manager;
 
-      private DaemonSlayerInstance(
-          DaemonSlayer daemonSlayer,
-          ServiceManager manager) {
+      private DaemonSlayerInstance(DaemonSlayer daemonSlayer) {
         this.daemonSlayer = daemonSlayer;
-        this.manager = manager;
       }
     }
 
@@ -931,7 +950,7 @@ public final class Main {
             DaemonSlayer slayer = new DaemonSlayer(context);
             ServiceManager manager = new ServiceManager(ImmutableList.of(slayer));
             manager.startAsync();
-            daemonSlayerInstance = new DaemonSlayerInstance(slayer, manager);
+            daemonSlayerInstance = new DaemonSlayerInstance(slayer);
           }
         }
       }

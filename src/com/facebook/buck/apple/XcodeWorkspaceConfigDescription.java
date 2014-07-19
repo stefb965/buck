@@ -18,10 +18,13 @@ package com.facebook.buck.apple;
 
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.ConstructorArg;
 import com.facebook.buck.rules.Description;
 import com.google.common.annotations.Beta;
+import com.google.common.base.Optional;
+import com.google.common.collect.ImmutableMap;
 
 @Beta
 public class XcodeWorkspaceConfigDescription
@@ -39,11 +42,15 @@ public class XcodeWorkspaceConfigDescription
   }
 
   @Override
-  public XcodeWorkspaceConfig createBuildable(BuildRuleParams params, Arg args) {
-    return new XcodeWorkspaceConfig(params.getBuildTarget(), args);
+  public <A extends Arg> XcodeWorkspaceConfig createBuildRule(
+      BuildRuleParams params,
+      BuildRuleResolver resolver,
+      A args) {
+    return new XcodeWorkspaceConfig(params, args);
   }
 
   public static class Arg implements ConstructorArg {
     public BuildRule srcTarget;
+    public Optional<ImmutableMap<SchemeActionType, String>> actionConfigNames;
   }
 }

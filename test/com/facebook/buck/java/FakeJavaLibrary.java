@@ -18,6 +18,8 @@ package com.facebook.buck.java;
 
 import static com.facebook.buck.rules.BuildableProperties.Kind.LIBRARY;
 
+import com.facebook.buck.android.AndroidPackageable;
+import com.facebook.buck.android.AndroidPackageableCollector;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.model.BuildTargets;
@@ -40,11 +42,12 @@ import com.google.common.hash.HashCode;
 
 import java.nio.file.Path;
 
-public class FakeJavaLibrary extends FakeBuildRule implements JavaLibrary {
+public class FakeJavaLibrary extends FakeBuildRule implements JavaLibrary, AndroidPackageable {
 
   private static final BuildableProperties OUTPUT_TYPE = new BuildableProperties(LIBRARY);
 
   private ImmutableSortedSet<SourcePath> srcs = ImmutableSortedSet.of();
+  private ImmutableSet<BuildTargetPattern> visibilityPatterns;
 
   public FakeJavaLibrary(
       BuildTarget target,
@@ -61,6 +64,7 @@ public class FakeJavaLibrary extends FakeBuildRule implements JavaLibrary {
       ImmutableSortedSet<BuildRule> deps,
       ImmutableSet<BuildTargetPattern> visibilityPatterns) {
     super(type, target, deps, visibilityPatterns);
+    this.visibilityPatterns = visibilityPatterns;
   }
 
   public FakeJavaLibrary(BuildTarget target) {
@@ -80,6 +84,11 @@ public class FakeJavaLibrary extends FakeBuildRule implements JavaLibrary {
   @Override
   public ImmutableSetMultimap<JavaLibrary, Path> getOutputClasspathEntries() {
     return ImmutableSetMultimap.of();
+  }
+
+  @Override
+  public ImmutableSortedSet<BuildRule> getDepsForTransitiveClasspathEntries() {
+    return getDeps();
   }
 
   @Override
@@ -119,4 +128,23 @@ public class FakeJavaLibrary extends FakeBuildRule implements JavaLibrary {
   public ImmutableSortedMap<String, HashCode> getClassNamesToHashes() {
     throw new UnsupportedOperationException();
   }
+
+  @Override
+  public Iterable<AndroidPackageable> getRequiredPackageables() {
+    return AndroidPackageableCollector.getPackageableRules(getDeps());
+  }
+
+  @Override
+  public void addToCollector(AndroidPackageableCollector collector) {
+    collector.addClasspathEntry(this, getPathToOutputFile());
+  }
+
+  @Override
+  public boolean isVisibleTo(JavaLibrary other) {
+    return BuildTargets.isVisibleTo(
+        getBuildTarget(),
+        visibilityPatterns,
+        other.getBuildTarget());
+  }
+
 }

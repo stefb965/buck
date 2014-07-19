@@ -21,9 +21,10 @@ import static com.facebook.buck.rules.BuildableProperties.Kind.ANDROID;
 import com.facebook.buck.android.HasAndroidPlatformTarget;
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.event.LogEvent;
+import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.graph.AbstractBottomUpTraversal;
 import com.facebook.buck.graph.TraversableGraph;
+import com.facebook.buck.java.JavaPackageFinder;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.BuildContext;
@@ -31,9 +32,7 @@ import com.facebook.buck.rules.BuildDependencies;
 import com.facebook.buck.rules.BuildEngine;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleSuccess;
-import com.facebook.buck.rules.Buildable;
 import com.facebook.buck.rules.Builder;
-import com.facebook.buck.rules.JavaPackageFinder;
 import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.StepFailedException;
@@ -118,6 +117,7 @@ public class Build implements Closeable {
         .setEventBus(eventBus)
         .setPlatform(platform)
         .setEnvironment(environment)
+        .setJavaPackageFinder(javaPackageFinder)
         .build();
     this.artifactCache = Preconditions.checkNotNull(artifactCache);
     this.buildEngine = Preconditions.checkNotNull(buildEngine);
@@ -166,9 +166,8 @@ public class Build implements Closeable {
           isEncounteredAndroidRuleInTraversal = true;
         }
 
-        Buildable buildable = rule.getBuildable();
-        if (buildable != null && buildable instanceof HasAndroidPlatformTarget) {
-          String target = ((HasAndroidPlatformTarget) buildable).getAndroidPlatformTarget();
+        if (rule instanceof HasAndroidPlatformTarget) {
+          String target = ((HasAndroidPlatformTarget) rule).getAndroidPlatformTarget();
           if (androidPlatformTargetId == null) {
             androidPlatformTargetId = target;
           } else if (!target.equals(androidPlatformTargetId)) {
@@ -200,8 +199,9 @@ public class Build implements Closeable {
         } else if (isEncounteredAndroidRuleInTraversal) {
           AndroidPlatformTarget androidPlatformTarget = AndroidPlatformTarget
               .getDefaultPlatformTarget(androidDirectoryResolver, buckConfig.getAaptOverride());
-          eventBus.post(LogEvent.warning("No Android platform target specified. Using default: %s",
-              androidPlatformTarget.getName()));
+          eventBus.post(
+              ConsoleEvent.warning("No Android platform target specified. Using default: %s",
+                  androidPlatformTarget.getName()));
           result = Optional.of(androidPlatformTarget);
         } else {
           result = Optional.absent();

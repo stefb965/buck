@@ -16,6 +16,7 @@
 
 package com.facebook.buck.util;
 
+import com.facebook.buck.log.Logger;
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonToken;
@@ -33,12 +34,14 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.StandardWatchEventKinds;
 import java.nio.file.WatchEvent;
+import java.util.UUID;
 
 /**
  * A ProjectFilesystemWatcher implementation that uses a local watchman service.
  */
 public class WatchmanWatcher implements ProjectFilesystemWatcher {
 
+  private static final Logger LOG = Logger.get(WatchmanWatcher.class);
   private static final int DEFAULT_OVERFLOW_THRESHOLD = 200;
 
   private final Supplier<Process> watchmanProcessSupplier;
@@ -79,7 +82,9 @@ public class WatchmanWatcher implements ProjectFilesystemWatcher {
   private static String createQuery(ProjectFilesystem filesystem) {
     return "[\"query\", \"" +
         MorePaths.absolutify(filesystem.getRootPath()).toString() +
-        "\", {\"since\": \"n:buckd\", \"fields\": [\"name\", \"exists\", \"new\"]}]";
+        "\", {\"since\": \"n:buckd" +
+        UUID.randomUUID() +
+        "\", \"empty_on_fresh_instance\": true, \"fields\": [\"name\", \"exists\", \"new\"]}]";
   }
 
   private static Supplier<Process> createProcessSupplier() {
@@ -93,6 +98,7 @@ public class WatchmanWatcher implements ProjectFilesystemWatcher {
       @Override
       public Process get() {
         try {
+          LOG.debug("Starting watchman command: %s", processBuilder.command());
           return processBuilder.start();
         } catch (IOException e) {
           throw Throwables.propagate(e);
@@ -101,83 +107,111 @@ public class WatchmanWatcher implements ProjectFilesystemWatcher {
     };
   }
 
+  /**
+   * Query Watchman for file change events. If too many events are pending or an error occurs
+   * an overflow event is posted to the EventBus signalling that events may have been lost
+   * (and so typically caches must be cleared to avoid inconsistency). Interruptions and
+   * IOExceptions are propagated to callers, but typically if overflow events are handled
+   * conservatively by subscribers then no other remedial action is required.
+   */
   @Override
-  public void postEvents() throws IOException {
+  public void postEvents() throws IOException, InterruptedException {
     Process watchmanProcess = watchmanProcessSupplier.get();
-    watchmanProcess.getOutputStream().write(query.getBytes(Charsets.US_ASCII));
-    watchmanProcess.getOutputStream().close();
-    JsonParser jsonParser = jsonFactory.createJsonParser(watchmanProcess.getInputStream());
-    PathEventBuilder builder = new PathEventBuilder();
-    JsonToken token = jsonParser.nextToken();
-    /*
-     * Watchman returns changes as an array of JSON objects with potentially unstable key ordering:
-     * {
-     *     "files": [
-     *     {
-     *         "new": false,
-     *         "exists": true,
-     *         "name": "bin/buckd",
-     *     },
-     *     ]
-     * }
-     * A simple way to parse these changes is to collect the relevant values from each object
-     * in a builder and then build an event when the end of a JSON object is reached. When the end
-     * of the enclosing JSON object is processed the builder will not contain a complete event, so
-     * the object end token will be ignored.
-     */
-    int eventCount = 0;
-    while (token != null) {
-      if (eventCount > overflow) {
-        watchmanProcess.destroy();
-        eventBus.post(createOverflowEvent());
-        return;
-      }
-      switch (token) {
-        case FIELD_NAME:
-          String fieldName = jsonParser.getCurrentName();
-          switch (fieldName) {
-            case "name":
-              File file = new File(jsonParser.nextTextValue());
-              if (!file.isDirectory()) {
-                builder.setPath(file.toPath());
-              }
-              break;
-            case "new":
-              if (jsonParser.nextBooleanValue()) {
-                builder.setCreationEvent();
-              }
-              break;
-            case "exists":
-              if (!jsonParser.nextBooleanValue()) {
-                builder.setDeletionEvent();
-              }
-              break;
-          }
-          break;
-        case END_OBJECT:
-          if (builder.canBuild()) {
-            eventBus.post(builder.build());
-            ++eventCount;
-          }
-          builder = new PathEventBuilder();
-          break;
-        // $CASES-OMITTED$
-        default:
-          break;
-      }
-      token = jsonParser.nextToken();
-    }
-    int watchmanExitCode;
     try {
+      LOG.debug("Writing query to Watchman: %s", query);
+      watchmanProcess.getOutputStream().write(query.getBytes(Charsets.US_ASCII));
+      watchmanProcess.getOutputStream().close();
+      LOG.debug("Parsing JSON output from Watchman");
+      JsonParser jsonParser = jsonFactory.createJsonParser(watchmanProcess.getInputStream());
+      PathEventBuilder builder = new PathEventBuilder();
+      JsonToken token = jsonParser.nextToken();
+      /*
+       * Watchman returns changes as an array of JSON objects with potentially unstable key
+       * ordering:
+       * {
+       *     "files": [
+       *     {
+       *         "new": false,
+       *         "exists": true,
+       *         "name": "bin/buckd",
+       *     },
+       *     ]
+       * }
+       * A simple way to parse these changes is to collect the relevant values from each object
+       * in a builder and then build an event when the end of a JSON object is reached. When the end
+       * of the enclosing JSON object is processed the builder will not contain a complete event, so
+       * the object end token will be ignored.
+       */
+      int eventCount = 0;
+      while (token != null) {
+        if (eventCount > overflow) {
+          eventBus.post(createOverflowEvent());
+          watchmanProcess.destroy();
+          return;
+        }
+        switch (token) {
+          case FIELD_NAME:
+            String fieldName = jsonParser.getCurrentName();
+            switch (fieldName) {
+              case "name":
+                File file = new File(jsonParser.nextTextValue());
+                if (!file.isDirectory()) {
+                  builder.setPath(file.toPath());
+                }
+                break;
+              case "new":
+                if (jsonParser.nextBooleanValue()) {
+                  builder.setCreationEvent();
+                }
+                break;
+              case "exists":
+                if (!jsonParser.nextBooleanValue()) {
+                  builder.setDeletionEvent();
+                }
+                break;
+              case "error":
+                WatchmanWatcherException e = new WatchmanWatcherException(
+                    jsonParser.nextTextValue());
+                LOG.error(e, "Error in Watchman output");
+                throw e;
+            }
+            break;
+          case END_OBJECT:
+            if (builder.canBuild()) {
+              eventBus.post(builder.build());
+              ++eventCount;
+            }
+            builder = new PathEventBuilder();
+            break;
+          // $CASES-OMITTED$
+          default:
+            break;
+        }
+        token = jsonParser.nextToken();
+      }
+      int watchmanExitCode;
+      LOG.debug("Posted %d Watchman events. Waiting for subprocess to exit...", eventCount);
       watchmanExitCode = watchmanProcess.waitFor();
+      if (watchmanExitCode != 0) {
+        LOG.error("Watchman exited with error code %d", watchmanExitCode);
+        eventBus.post(createOverflowEvent()); // Events may have been lost, signal overflow.
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        ByteStreams.copy(watchmanProcess.getErrorStream(), buffer);
+        throw new WatchmanWatcherException(
+            "Watchman failed with exit code " + watchmanExitCode + ": " + buffer.toString());
+      } else {
+        LOG.debug("Watchman exited cleanly.");
+      }
     } catch (InterruptedException e) {
-      throw Throwables.propagate(e);
-    }
-    if (watchmanExitCode != 0) {
-      ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-      ByteStreams.copy(watchmanProcess.getErrorStream(), buffer);
-      throw new WatchmanWatcherException(
-          "Watchman failed with exit code " + watchmanExitCode + ": " + buffer.toString());
+      LOG.warn(e, "Killing Watchman process on interrupted exception");
+      eventBus.post(createOverflowEvent()); // Events may have been lost, signal overflow.
+      watchmanProcess.destroy();
+      Thread.currentThread().interrupt();
+    } catch (IOException e) {
+      LOG.error(e, "Killing Watchman process on I/O exception");
+      eventBus.post(createOverflowEvent()); // Events may have been lost, signal overflow.
+      watchmanProcess.destroy();
+      throw e;
     }
   }
 
@@ -250,6 +284,21 @@ public class WatchmanWatcher implements ProjectFilesystemWatcher {
 
     public boolean canBuild() {
       return path != null;
+    }
+  }
+
+  /**
+   * @return true if "watchman --version" can be executed successfully
+   */
+  public static boolean isWatchmanAvailable() throws InterruptedException {
+    try {
+      LOG.debug("Checking if Watchman is available..");
+      boolean available = new ProcessBuilder("watchman", "--version").start().waitFor() == 0;
+      LOG.debug("Watchman available: %d", available);
+      return available;
+    } catch (IOException e) {
+      LOG.error(e, "Could not check if Watchman is available");
+      return false; // Could not execute watchman.
     }
   }
 }

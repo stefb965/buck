@@ -27,7 +27,6 @@ import com.facebook.buck.model.BuildId;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Preconditions;
@@ -115,7 +114,7 @@ public class MissingSymbolsHandler {
       }
 
       @Subscribe
-      public void onBuildFinished(BuildEvent.Finished event) {
+      public void onBuildFinished(BuildEvent.Finished event) throws InterruptedException {
         // Shortcircuit if there aren't any failures.
         if (missingSymbolEvents.get(event.getBuildId()).isEmpty()) {
           return;
@@ -133,7 +132,7 @@ public class MissingSymbolsHandler {
    * missing dependencies for each broken target.
    */
   public ImmutableSetMultimap<BuildTarget, BuildTarget> getNeededDependencies(
-      Collection<MissingSymbolEvent> missingSymbolEvents) {
+      Collection<MissingSymbolEvent> missingSymbolEvents) throws InterruptedException {
     ImmutableSetMultimap.Builder<BuildTarget, String> targetsMissingSymbolsBuilder =
         ImmutableSetMultimap.builder();
     for (MissingSymbolEvent event : missingSymbolEvents) {
@@ -165,16 +164,29 @@ public class MissingSymbolsHandler {
    * Get a list of missing dependencies from {@link #getNeededDependencies} and print it to the
    * console in a list-of-Python-strings way that's easy to copy and paste.
    */
-  private void printNeededDependencies(Collection<MissingSymbolEvent> missingSymbolEvents) {
+  private void printNeededDependencies(Collection<MissingSymbolEvent> missingSymbolEvents)
+      throws InterruptedException {
     ImmutableSetMultimap<BuildTarget, BuildTarget> neededDependencies =
         getNeededDependencies(missingSymbolEvents);
-    Set<BuildTarget> sortedTargets = ImmutableSortedSet.copyOf(neededDependencies.keySet());
-    for (BuildTarget target : sortedTargets) {
+    ImmutableSortedSet.Builder<String> samePackageDeps = ImmutableSortedSet.naturalOrder();
+    ImmutableSortedSet.Builder<String> otherPackageDeps = ImmutableSortedSet.naturalOrder();
+    for (BuildTarget target : neededDependencies.keySet()) {
       print(formatTarget(target) + " is missing deps:");
       Set<BuildTarget> sortedDeps = ImmutableSortedSet.copyOf(neededDependencies.get(target));
       for (BuildTarget neededDep : sortedDeps) {
-        print("    '" + neededDep + "',");
+        if (neededDep.getBaseName().equals(target.getBaseName())) {
+          samePackageDeps.add(":" + neededDep.getShortNameOnly());
+        } else {
+          otherPackageDeps.add(neededDep.toString());
+        }
       }
+    }
+    String format = "    '%s',";
+    for (String dep : samePackageDeps.build()) {
+      print(String.format(format, dep));
+    }
+    for (String dep : otherPackageDeps.build()) {
+      print(String.format(format, dep));
     }
   }
 
@@ -182,13 +194,9 @@ public class MissingSymbolsHandler {
    * Format a target string so that the path to the BUCK file its in is easily copyable.
    */
   private String formatTarget(BuildTarget buildTarget) {
-    String targetString = buildTarget.toString();
-    int colonIndex = targetString.indexOf(":");
-    return String.format(
-        "%s/%s (%s)",
-        targetString.substring(2, colonIndex),
-        BuckConstant.BUILD_RULES_FILE_NAME,
-        targetString.substring(colonIndex));
+    return String.format("%s (:%s)",
+        buildTarget.getBuildFilePath(),
+        buildTarget.getShortNameOnly());
   }
 
   private void print(String line) {

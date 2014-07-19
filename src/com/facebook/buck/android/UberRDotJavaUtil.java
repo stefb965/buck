@@ -36,7 +36,6 @@ import com.google.common.collect.Iterables;
 
 import java.nio.file.Path;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.Set;
 
 /**
@@ -51,16 +50,6 @@ public class UberRDotJavaUtil {
 
   /** Utility class: do not instantiate. */
   private UberRDotJavaUtil() {}
-
-  /**
-   * Finds the transitive set of {@code rule}'s {@link AndroidResource} dependencies with
-   * non-null {@code res} directories, which can also include {@code rule} itself.
-   * This set will be returned as an {@link ImmutableList} with the rules topologically sorted.
-   * Rules will be ordered from least dependent to most dependent.
-   */
-  public static ImmutableList<HasAndroidResourceDeps> getAndroidResourceDeps(BuildRule rule) {
-    return getAndroidResourceDeps(Collections.singleton(rule));
-  }
 
   /**
    * Finds the transitive set of {@code rules}' {@link AndroidResource} dependencies with
@@ -92,7 +81,7 @@ public class UberRDotJavaUtil {
     Predicate<BuildRule> inclusionPredicate = new Predicate<BuildRule>() {
       @Override
       public boolean apply(BuildRule rule) {
-        return androidResourceDeps.contains(rule.getBuildable());
+        return androidResourceDeps.contains(rule);
       }
     };
     ImmutableList<BuildRule> sortedAndroidResourceRules = TopologicalSort.sort(mutableGraph,
@@ -110,7 +99,7 @@ public class UberRDotJavaUtil {
       new Function<BuildRule, HasAndroidResourceDeps>() {
         @Override
         public HasAndroidResourceDeps apply(BuildRule rule) {
-          return (HasAndroidResourceDeps) rule.getBuildable();
+          return (HasAndroidResourceDeps) rule;
         }
       };
 

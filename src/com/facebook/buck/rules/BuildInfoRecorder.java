@@ -17,7 +17,7 @@
 package com.facebook.buck.rules;
 
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.event.LogEvent;
+import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.util.DefaultDirectoryTraverser;
 import com.facebook.buck.util.DirectoryTraversal;
@@ -132,7 +132,8 @@ public class BuildInfoRecorder {
   /**
    * Creates a zip file of the metadata and recorded artifacts and stores it in the artifact cache.
    */
-  public void performUploadToArtifactCache(ArtifactCache artifactCache, BuckEventBus eventBus) {
+  public void performUploadToArtifactCache(ArtifactCache artifactCache, BuckEventBus eventBus)
+      throws InterruptedException {
     // Skip all of this if caching is disabled. Although artifactCache.store() will be a noop,
     // building up the zip is wasted I/O.
     if (!artifactCache.isStoreSupported()) {
@@ -163,7 +164,7 @@ public class BuildInfoRecorder {
       zip = File.createTempFile(buildTarget.getFullyQualifiedName().replace('/', '_'), ".zip");
       projectFilesystem.createZip(pathsToIncludeInZip, zip);
     } catch (IOException e) {
-      eventBus.post(LogEvent.info("Failed to create zip for %s containing:\n%s",
+      eventBus.post(ConsoleEvent.info("Failed to create zip for %s containing:\n%s",
           buildTarget,
           Joiner.on('\n').join(ImmutableSortedSet.copyOf(pathsToIncludeInZip))));
       e.printStackTrace();
@@ -190,7 +191,8 @@ public class BuildInfoRecorder {
    * Fetches the artifact associated with the {@link #buildTarget} for this class and writes it to
    * the specified {@code outputFile}.
    */
-  public CacheResult fetchArtifactForBuildable(File outputFile, ArtifactCache artifactCache) {
+  public CacheResult fetchArtifactForBuildable(File outputFile, ArtifactCache artifactCache)
+      throws InterruptedException {
     Preconditions.checkNotNull(outputFile);
     return artifactCache.fetch(ruleKey, outputFile);
   }

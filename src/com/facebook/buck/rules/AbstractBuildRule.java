@@ -17,12 +17,9 @@
 package com.facebook.buck.rules;
 
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.model.HasBuildTarget;
-import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.Beta;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
@@ -38,36 +35,22 @@ import javax.annotation.Nullable;
 public abstract class AbstractBuildRule implements BuildRule {
 
   private final BuildTarget buildTarget;
-  private final Buildable buildable;
+  private final ImmutableSortedSet<BuildRule> declaredDeps;
   private final ImmutableSortedSet<BuildRule> deps;
-  private final ImmutableSet<BuildTargetPattern> visibilityPatterns;
   private final RuleKeyBuilderFactory ruleKeyBuilderFactory;
+  private final BuildRuleType buildRuleType;
   /** @see Buildable#getInputsToCompareToOutput()  */
-  private Iterable<Path> inputsToCompareToOutputs;
+  @Nullable private Iterable<Path> inputsToCompareToOutputs;
   @Nullable private volatile RuleKey.Builder.RuleKeyPair ruleKeyPair;
 
-  protected AbstractBuildRule(BuildRuleParams buildRuleParams, Buildable buildable) {
+  protected AbstractBuildRule(BuildRuleParams buildRuleParams) {
     Preconditions.checkNotNull(buildRuleParams);
     this.buildTarget = buildRuleParams.getBuildTarget();
-    this.buildable = buildable;
+    this.declaredDeps = buildRuleParams.getDeclaredDeps();
     this.deps = buildRuleParams.getDeps();
-    this.visibilityPatterns = buildRuleParams.getVisibilityPatterns();
     this.ruleKeyBuilderFactory = buildRuleParams.getRuleKeyBuilderFactory();
-
-    // Nodes added via graph enhancement are exempt from visibility checks.
-    if (!buildTarget.isFlavored()) {
-      for (BuildRule dep : this.deps) {
-        if (!dep.isVisibleTo(buildTarget)) {
-          throw new HumanReadableException("%s depends on %s, which is not visible",
-              buildTarget,
-              dep);
-        }
-      }
-    }
+    this.buildRuleType = buildRuleParams.getBuildRuleType();
   }
-
-  @Override
-  public abstract BuildRuleType getType();
 
   @Override
   public BuildableProperties getProperties() {
@@ -89,34 +72,24 @@ public abstract class AbstractBuildRule implements BuildRule {
     return deps;
   }
 
-  @Override
-  public final ImmutableSet<BuildTargetPattern> getVisibilityPatterns() {
-    return visibilityPatterns;
+  public final ImmutableSortedSet<BuildRule> getDeclaredDeps() {
+    return declaredDeps;
   }
 
   @Override
-  public final boolean isVisibleTo(BuildTarget target) {
-    // Targets in the same build file are always visible to each other.
-    if (target.getBaseName().equals(getBuildTarget().getBaseName())) {
-      return true;
-    }
-
-    for (BuildTargetPattern pattern : getVisibilityPatterns()) {
-      if (pattern.apply(target)) {
-        return true;
-      }
-    }
-
-    return false;
+  public final BuildRuleType getType() {
+    return buildRuleType;
   }
 
   @Override
   public Iterable<Path> getInputs() {
     if (inputsToCompareToOutputs == null) {
-      inputsToCompareToOutputs = buildable.getInputsToCompareToOutput();
+      inputsToCompareToOutputs = getInputsToCompareToOutput();
     }
     return inputsToCompareToOutputs;
   }
+
+  protected abstract Iterable<Path> getInputsToCompareToOutput();
 
   @Override
   public final int compareTo(HasBuildTarget that) {
@@ -168,9 +141,10 @@ public abstract class AbstractBuildRule implements BuildRule {
         .setInputs("buck.inputs", inputs.iterator())
         .setSourcePaths("buck.sourcepaths", SourcePaths.toSourcePathsSortedByNaturalOrder(inputs));
     // TODO(simons): Rename this when no Buildables extend this class.
-    return buildable.appendDetailsToRuleKey(builder);
+    return appendDetailsToRuleKey(builder);
   }
 
+  protected abstract RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder);
 
   /**
    * This method should be overridden only for unit testing.

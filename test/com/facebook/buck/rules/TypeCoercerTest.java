@@ -23,6 +23,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.coercer.AppleSource;
@@ -32,7 +33,6 @@ import com.facebook.buck.rules.coercer.Pair;
 import com.facebook.buck.rules.coercer.TypeCoercer;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -54,7 +54,7 @@ import java.util.Map;
 public class TypeCoercerTest {
   private final TypeCoercerFactory typeCoercerFactory = new TypeCoercerFactory();
   private final BuildRuleResolver buildRuleResolver = new BuildRuleResolver();
-  private final ProjectFilesystem filesystem = new FakeProjectFilesystem();
+  private final FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
 
   @Test
   public void coercingStringMapOfIntListsShouldBeIdentity()
@@ -89,12 +89,27 @@ public class TypeCoercerTest {
   }
 
   @Test
+  public void coercingSortedSetsShouldThrowOnDuplicates()
+      throws CoerceFailedException, NoSuchFieldException {
+    Type type = TestFields.class.getField("sortedSetOfStrings").getGenericType();
+    TypeCoercer<?> coercer = typeCoercerFactory.typeCoercerForType(type);
+
+    ImmutableList<String> input = ImmutableList.of("a", "a");
+    try {
+      coercer.coerce(buildRuleResolver, filesystem, Paths.get(""), input);
+      fail();
+    } catch (CoerceFailedException e) {
+      assertEquals("duplicate element \"a\"", e.getMessage());
+    }
+  }
+
+  @Test
   public void coercingSortedSetsShouldActuallyCreateSortedSets()
       throws CoerceFailedException, NoSuchFieldException {
     Type type = TestFields.class.getField("sortedSetOfStrings").getGenericType();
     TypeCoercer<?> coercer = typeCoercerFactory.typeCoercerForType(type);
 
-    ImmutableList<String> input = ImmutableList.of("a", "c", "b", "a");
+    ImmutableList<String> input = ImmutableList.of("c", "a", "d", "b");
     Object result = coercer.coerce(buildRuleResolver, filesystem, Paths.get(""), input);
     ImmutableSortedSet<String> expectedResult = ImmutableSortedSet.copyOf(input);
     assertEquals(expectedResult, result);
@@ -418,6 +433,40 @@ public class TypeCoercerTest {
 
     Object result = coercer.coerce(buildRuleResolver, filesystem, Paths.get(""), input);
     assertEquals(expected, result);
+  }
+
+
+  @Test
+  public void invalidSourcePathShouldGiveSpecificErrorMsg() throws NoSuchFieldException {
+    Type type = TestFields.class.getField("setOfSourcePaths").getGenericType();
+    TypeCoercer<?> coercer = typeCoercerFactory.typeCoercerForType(type);
+
+    Path baratheon = Paths.get("Baratheon.java");
+    Path lannister = Paths.get("Lannister.java");
+    Path stark = Paths.get("Stark.java");
+    Path targaryen = Paths.get("Targaryen.java");
+
+    ImmutableList<Path> input =
+        ImmutableList.of(baratheon, lannister, stark, targaryen);
+
+    for (Path p : input) {
+      if (!p.equals(baratheon)) {
+        filesystem.touch(p);
+      }
+    }
+
+    try {
+      coercer.coerce(buildRuleResolver, filesystem, Paths.get(""), input);
+    } catch (CoerceFailedException e) {
+      String result = e.getMessage();
+      String expected = "cannot coerce 'Baratheon.java'";
+      for (Path p : input) {
+        if (!p.equals(baratheon)) {
+          assertFalse(result.contains(p.toString()));
+        }
+      }
+      assertTrue(result.contains(expected));
+    }
   }
 
   @SuppressWarnings("unused")

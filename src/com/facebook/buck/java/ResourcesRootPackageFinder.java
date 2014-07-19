@@ -16,7 +16,6 @@
 
 package com.facebook.buck.java;
 
-import com.facebook.buck.rules.JavaPackageFinder;
 import com.google.common.base.Preconditions;
 
 import java.nio.file.Path;
@@ -45,8 +44,6 @@ public class ResourcesRootPackageFinder implements JavaPackageFinder {
   @Override
   public String findJavaPackageForPath(String pathRelativeToProjectRoot) {
     String folder = findJavaPackageFolderForPath(pathRelativeToProjectRoot);
-    return DefaultJavaPackageFinder.findJavaPackageWithPackageFolder(
-        pathRelativeToProjectRoot,
-        folder);
+    return DefaultJavaPackageFinder.findJavaPackageWithPackageFolder(folder);
   }
 }

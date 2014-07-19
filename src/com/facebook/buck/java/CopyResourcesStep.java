@@ -17,7 +17,6 @@ package com.facebook.buck.java;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleSourcePath;
-import com.facebook.buck.rules.JavaPackageFinder;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -67,7 +66,7 @@ public class CopyResourcesStep implements Step {
   }
 
   @Override
-  public int execute(ExecutionContext context) {
+  public int execute(ExecutionContext context) throws InterruptedException {
     for (Step step : buildSteps()) {
       int result = step.execute(context);
       if (result != 0) {

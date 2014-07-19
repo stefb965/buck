@@ -342,7 +342,7 @@ public class Parser {
       Iterable<BuildTarget> buildTargets,
       Iterable<String> defaultIncludes,
       BuckEventBus eventBus)
-      throws BuildFileParseException, BuildTargetException, IOException {
+      throws BuildFileParseException, BuildTargetException, IOException, InterruptedException {
     // Make sure that knownBuildTargets is initially populated with the BuildRuleBuilders for the
     // seed BuildTargets for the traversal.
     postParseStartEvent(buildTargets, eventBus);
@@ -374,7 +374,8 @@ public class Parser {
   @VisibleForTesting
   ActionGraph onlyUseThisWhenTestingToFindAllTransitiveDependencies(
       Iterable<BuildTarget> toExplore,
-      Iterable<String> defaultIncludes) throws IOException, BuildFileParseException {
+      Iterable<String> defaultIncludes)
+      throws IOException, BuildFileParseException, InterruptedException {
     try (ProjectBuildFileParser parser = buildFileParserFactory.createParser(
         defaultIncludes,
         EnumSet.noneOf(ProjectBuildFileParser.Option.class),
@@ -424,13 +425,22 @@ public class Parser {
             Set<BuildTarget> deps = Sets.newHashSet();
             for (BuildTarget buildTargetForDep : targetNode.getDeps()) {
               try {
-                if (!knownBuildTargets.containsKey(buildTargetForDep)) {
+                TargetNode<?> depTargetNode = knownBuildTargets.get(buildTargetForDep);
+                if (depTargetNode == null) {
                   parseBuildFileContainingTarget(
                       buildTarget,
                       buildTargetForDep,
                       defaultIncludes,
                       buildFileParser);
+                  depTargetNode = knownBuildTargets.get(buildTargetForDep);
+                  if (depTargetNode == null) {
+                    throw new HumanReadableException(
+                        NoSuchBuildTargetException.createForMissingBuildRule(
+                            buildTargetForDep,
+                            ParseContext.forBaseName(buildTargetForDep.getBaseName())));
+                  }
                 }
+                depTargetNode.checkVisibility(buildTarget);
                 deps.add(buildTargetForDep);
               } catch (BuildTargetException | BuildFileParseException e) {
                 throw new HumanReadableException(e);
@@ -575,7 +585,7 @@ public class Parser {
       Iterable<String> defaultIncludes,
       EnumSet<ProjectBuildFileParser.Option> parseOptions,
       ImmutableMap<String, String> environment)
-      throws BuildFileParseException, BuildTargetException, IOException {
+      throws BuildFileParseException, BuildTargetException, IOException, InterruptedException {
     try (ProjectBuildFileParser projectBuildFileParser =
         buildFileParserFactory.createParser(
             defaultIncludes,
@@ -755,7 +765,7 @@ public class Parser {
   private BuildTarget parseBuildTargetFromRawRule(Map<String, Object> map) {
     String basePath = (String) map.get("buck.base_path");
     String name = (String) map.get("name");
-    return new BuildTarget("//" + basePath, name);
+    return BuildTarget.builder(BuildTarget.BUILD_TARGET_PREFIX + basePath, name).build();
   }
 
   /**
@@ -773,7 +783,7 @@ public class Parser {
   public synchronized List<BuildTarget> filterAllTargetsInProject(ProjectFilesystem filesystem,
                                                      Iterable<String> includes,
                                                      @Nullable RawRulePredicate filter)
-      throws BuildFileParseException, BuildTargetException, IOException {
+      throws BuildFileParseException, BuildTargetException, IOException, InterruptedException {
     Preconditions.checkNotNull(filesystem);
     Preconditions.checkNotNull(includes);
     ProjectFilesystem projectFilesystem = repository.getFilesystem();
@@ -815,7 +825,7 @@ public class Parser {
       Iterable<String> defaultIncludes,
       BuckEventBus eventBus,
       RawRulePredicate filter)
-      throws BuildFileParseException, BuildTargetException, IOException {
+      throws BuildFileParseException, BuildTargetException, IOException, InterruptedException {
     ActionGraph actionGraph = parseBuildFilesForTargets(roots, defaultIncludes, eventBus);
 
     return filterGraphTargets(filter, actionGraph);

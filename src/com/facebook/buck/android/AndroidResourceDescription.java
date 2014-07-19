@@ -18,8 +18,8 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
-import com.facebook.buck.rules.Buildable;
 import com.facebook.buck.rules.ConstructorArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.Hint;
@@ -27,8 +27,11 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
+import com.google.common.base.Predicates;
+import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Iterables;
 
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
@@ -54,13 +57,41 @@ public class AndroidResourceDescription implements Description<AndroidResourceDe
     return new Arg();
   }
 
-  @Override
-  public Buildable createBuildable(
-      BuildRuleParams params, Arg args) {
-    ProjectFilesystem filesystem = params.getProjectFilesystem();
+  private ImmutableSortedSet<BuildRule> androidResOnly(ImmutableSortedSet<BuildRule> deps) {
+    return FluentIterable
+        .from(deps)
+        .filter(Predicates.instanceOf(AndroidResource.class))
+        .toSortedSet(deps.comparator());
+  }
 
+  @Override
+  public <A extends Arg> BuildRule createBuildRule(
+      BuildRuleParams params,
+      BuildRuleResolver resolver,
+      A args) {
+
+    // Only allow android resource and library rules as dependencies.
+    Optional<BuildRule> invalidDep = FluentIterable
+        .from(Iterables.concat(params.getDeclaredDeps(), params.getExtraDeps()))
+        .filter(Predicates.not(Predicates.or(
+            Predicates.instanceOf(AndroidResource.class),
+            Predicates.instanceOf(AndroidLibrary.class))))
+        .first();
+    if (invalidDep.isPresent()) {
+      throw new HumanReadableException(
+          params.getBuildTarget() + " (android_resource): dependency " +
+              invalidDep.get().getBuildTarget() + " (" + invalidDep.get().getType() +
+              ") is not of type android_resource or android_library.");
+    }
+
+    ProjectFilesystem filesystem = params.getProjectFilesystem();
     return new AndroidResource(
-        params.getBuildTarget(),
+        // We only propagate other AndroidResource rule dependencies, as these are
+        // the only deps which should control whether we need to re-run the aapt_package
+        // step.
+        params.copyWithDeps(
+            androidResOnly(params.getDeclaredDeps()),
+            androidResOnly(params.getExtraDeps())),
         args.deps.get(),
         args.res.orNull(),
         collectInputFiles(filesystem, args.res),

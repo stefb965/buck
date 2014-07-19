@@ -44,21 +44,13 @@ public class UnsortedAndroidResourceDeps {
   }
 
   private final ImmutableSet<HasAndroidResourceDeps> resourceDeps;
-  private final ImmutableSet<HasAndroidResourceDeps> assetOnlyDeps;
 
-  public UnsortedAndroidResourceDeps(
-      ImmutableSet<HasAndroidResourceDeps> resourceDeps,
-      ImmutableSet<HasAndroidResourceDeps> assetOnlyDeps) {
+  public UnsortedAndroidResourceDeps(ImmutableSet<HasAndroidResourceDeps> resourceDeps) {
     this.resourceDeps = Preconditions.checkNotNull(resourceDeps);
-    this.assetOnlyDeps = Preconditions.checkNotNull(assetOnlyDeps);
   }
 
   public ImmutableSet<HasAndroidResourceDeps> getResourceDeps() {
     return resourceDeps;
-  }
-
-  public ImmutableSet<HasAndroidResourceDeps> getAssetOnlyDeps() {
-    return assetOnlyDeps;
   }
 
   /**
@@ -72,7 +64,6 @@ public class UnsortedAndroidResourceDeps {
       final Optional<Callback> callback) {
 
     final ImmutableSet.Builder<HasAndroidResourceDeps> androidResources = ImmutableSet.builder();
-    final ImmutableSet.Builder<HasAndroidResourceDeps> assetOnlyResources = ImmutableSet.builder();
 
     // This visitor finds all AndroidResourceRules that are reachable from the specified rules via
     // rules with types in the TRAVERSABLE_TYPES collection.
@@ -81,15 +72,11 @@ public class UnsortedAndroidResourceDeps {
       @Override
       public ImmutableSet<BuildRule> visit(BuildRule rule) {
         HasAndroidResourceDeps androidResourceRule = null;
-        if (rule.getBuildable() instanceof HasAndroidResourceDeps) {
-          androidResourceRule = (HasAndroidResourceDeps) rule.getBuildable();
+        if (rule instanceof HasAndroidResourceDeps) {
+          androidResourceRule = (HasAndroidResourceDeps) rule;
         }
-        if (androidResourceRule != null) {
-          if (androidResourceRule.getRes() != null) {
-            androidResources.add(androidResourceRule);
-          } else if (androidResourceRule.getAssets() != null) {
-            assetOnlyResources.add(androidResourceRule);
-          }
+        if (androidResourceRule != null && androidResourceRule.getRes() != null) {
+          androidResources.add(androidResourceRule);
         }
 
         // Only certain types of rules should be considered as part of this traversal.
@@ -105,6 +92,6 @@ public class UnsortedAndroidResourceDeps {
     };
     visitor.start();
 
-    return new UnsortedAndroidResourceDeps(androidResources.build(), assetOnlyResources.build());
+    return new UnsortedAndroidResourceDeps(androidResources.build());
   }
 }

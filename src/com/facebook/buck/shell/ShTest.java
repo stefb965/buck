@@ -16,11 +16,11 @@
 
 package com.facebook.buck.shell;
 
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildable;
+import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.RuleKey;
@@ -44,7 +44,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.nio.file.Path;
-import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Callable;
 
@@ -55,16 +54,16 @@ import javax.annotation.Nullable;
  * script returns a non-zero error code, the test is considered a failure.
  */
 @SuppressWarnings("PMD.TestClassWithoutTestCases")
-public class ShTest extends AbstractBuildable implements TestRule {
+public class ShTest extends AbstractBuildRule implements TestRule {
 
   private final SourcePath test;
   private final ImmutableSet<Label> labels;
 
   protected ShTest(
-      BuildTarget buildTarget,
+      BuildRuleParams params,
       SourcePath test,
       Set<Label> labels) {
-    super(buildTarget);
+    super(params);
     this.test = Preconditions.checkNotNull(test);
     this.labels = ImmutableSet.copyOf(labels);
   }
@@ -111,7 +110,7 @@ public class ShTest extends AbstractBuildable implements TestRule {
   }
 
   @Override
-  public List<Step> runTests(
+  public ImmutableList<Step> runTests(
       BuildContext buildContext,
       ExecutionContext executionContext,
       boolean isDryRun,
@@ -170,7 +169,7 @@ public class ShTest extends AbstractBuildable implements TestRule {
           TestResultSummary testResultSummary = mapper.readValue(resultsFileContents.get(),
               TestResultSummary.class);
           TestCaseSummary testCaseSummary = new TestCaseSummary(
-              target.getFullyQualifiedName(),
+              getBuildTarget().getFullyQualifiedName(),
               ImmutableList.of(testResultSummary));
           return new TestResults(getBuildTarget(), ImmutableList.of(testCaseSummary), contacts);
         }
