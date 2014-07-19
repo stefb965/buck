@@ -18,12 +18,11 @@ package org.openqa.selenium.buck.javascript;
 
 import static com.facebook.buck.util.BuckConstant.GEN_DIR;
 
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractBuildable;
+import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildOutputInitializer;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.Buildable;
+import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
@@ -51,7 +50,7 @@ import java.util.Set;
 
 import javax.annotation.Nullable;
 
-public class JsBinary extends AbstractBuildable implements
+public class JsBinary extends AbstractBuildRule implements
     InitializableFromDisk<JavascriptDependencies>, HasJavascriptDependencies {
 
   private final Path joyPath;
@@ -65,13 +64,13 @@ public class JsBinary extends AbstractBuildable implements
   private final BuildOutputInitializer<JavascriptDependencies> buildOutputInitializer;
 
   public JsBinary(
-      BuildTarget target,
+      BuildRuleParams params,
       ImmutableSortedSet<BuildRule> deps,
       ImmutableSortedSet<SourcePath> srcs,
       Optional<List<String>> defines,
       Optional<List<String>> flags,
       Optional<List<Path>> externs) {
-    super(target);
+    super(params);
     this.deps = Preconditions.checkNotNull(deps);
     this.srcs = Preconditions.checkNotNull(srcs);
     this.defines = Preconditions.checkNotNull(defines);
@@ -79,11 +78,11 @@ public class JsBinary extends AbstractBuildable implements
     this.flags = Preconditions.checkNotNull(flags);
 
     this.output = Paths.get(
-        GEN_DIR, target.getBaseName(), target.getShortName() + ".js");
+        GEN_DIR, getBuildTarget().getBaseName(), getBuildTarget().getShortName() + ".js");
     this.joyPath = Paths.get(
-        GEN_DIR, target.getBaseName(), target.getShortName() + ".deps");
+        GEN_DIR, getBuildTarget().getBaseName(), getBuildTarget().getShortName() + ".deps");
 
-    buildOutputInitializer = new BuildOutputInitializer<>(target, this);
+    buildOutputInitializer = new BuildOutputInitializer<>(getBuildTarget(), this);
   }
 
   @Override
@@ -124,12 +123,11 @@ public class JsBinary extends AbstractBuildable implements
 
     Set<String> seen = Sets.newHashSet();
     for (BuildRule dep : deps) {
-      Buildable buildable = dep.getBuildable();
-      if (!(buildable instanceof HasJavascriptDependencies)) {
+      if (!(dep instanceof HasJavascriptDependencies)) {
         continue;
       }
 
-      JavascriptDependencies moreJoy = ((HasJavascriptDependencies) buildable).getBundleOfJoy();
+      JavascriptDependencies moreJoy = ((HasJavascriptDependencies) dep).getBundleOfJoy();
 
       for (String require : jsDeps) {
         Set<JavascriptSource> sources = moreJoy.getDeps(require);

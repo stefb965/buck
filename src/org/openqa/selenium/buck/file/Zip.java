@@ -1,9 +1,9 @@
 package org.openqa.selenium.buck.file;
 
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildable;
+import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildContext;
+import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
@@ -24,21 +24,20 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Set;
 
-public class Zip extends AbstractBuildable {
+public class Zip extends AbstractBuildRule {
 
   private final Path output;
   private final ImmutableSortedSet<SourcePath> sources;
   private final Path localPath;
   private final Path scratchDir;
 
-  public Zip(BuildTarget target, ImmutableSortedSet<SourcePath> sources) {
-    super(target);
+  public Zip(BuildRuleParams params, ImmutableSortedSet<SourcePath> sources) {
+    super(params);
     this.sources = Preconditions.checkNotNull(sources);
 
-    Preconditions.checkNotNull(target);
-    this.output = BuildTargets.getGenPath(target, "%s.zip");
-    this.scratchDir = BuildTargets.getBinPath(target, "%s.zip.scratch");
-    this.localPath = Paths.get(target.getBasePath());
+    this.output = BuildTargets.getGenPath(getBuildTarget(), "%s.zip");
+    this.scratchDir = BuildTargets.getBinPath(getBuildTarget(), "%s.zip.scratch");
+    this.localPath = Paths.get(getBuildTarget().getBasePath());
   }
 
   @Override

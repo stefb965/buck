@@ -16,14 +16,12 @@
 
 package org.openqa.selenium.buck.javascript;
 
-import static com.facebook.buck.util.BuckConstant.GEN_DIR;
-
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractBuildable;
+import com.facebook.buck.model.BuildTargets;
+import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildOutputInitializer;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.Buildable;
+import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
@@ -44,12 +42,11 @@ import com.google.common.collect.Sets;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 
-public class JsLibrary extends AbstractBuildable implements
+public class JsLibrary extends AbstractBuildRule implements
     InitializableFromDisk<JavascriptDependencies>, HasJavascriptDependencies {
 
   private final Path output;
@@ -59,17 +56,16 @@ public class JsLibrary extends AbstractBuildable implements
   private final BuildOutputInitializer<JavascriptDependencies> buildOutputInitializer;
 
   public JsLibrary(
-      BuildTarget target,
+      BuildRuleParams params,
       ImmutableSortedSet<BuildRule> deps,
       ImmutableSortedSet<SourcePath> srcs) {
-    super(target);
+    super(params);
     this.deps = Preconditions.checkNotNull(deps);
     this.srcs = Preconditions.checkNotNull(srcs);
 
-    this.output = Paths.get(
-        GEN_DIR, target.getBaseName(), target.getShortName() + "-library.deps");
+    this.output = BuildTargets.getGenPath(getBuildTarget(), "/library.deps");
 
-    buildOutputInitializer = new BuildOutputInitializer<>(target, this);
+    buildOutputInitializer = new BuildOutputInitializer<>(getBuildTarget(), this);
   }
 
   @Override
@@ -103,11 +99,10 @@ public class JsLibrary extends AbstractBuildable implements
     for (BuildRule dep : deps) {
       Iterator<String> iterator = allRequires.iterator();
 
-      Buildable buildable = dep.getBuildable();
-      if (!(buildable instanceof HasJavascriptDependencies)) {
+      if (!(dep instanceof HasJavascriptDependencies)) {
         continue;
       }
-      JavascriptDependencies moreJoy = ((HasJavascriptDependencies) buildable).getBundleOfJoy();
+      JavascriptDependencies moreJoy = ((HasJavascriptDependencies) dep).getBundleOfJoy();
 
       while (iterator.hasNext()) {
         String require = iterator.next();
@@ -121,7 +116,8 @@ public class JsLibrary extends AbstractBuildable implements
     }
 
     if (!allRequires.isEmpty()) {
-      throw new RuntimeException(target + " --- Missing dependencies for: " + allRequires);
+      throw new RuntimeException(
+          getBuildTarget() + " --- Missing dependencies for: " + allRequires);
     }
 
     StringWriter writer = new StringWriter();

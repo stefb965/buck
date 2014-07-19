@@ -50,15 +50,18 @@ public class ClosureCompilerStep extends ShellStep {
   }
 
   @Override
-  protected void onProcessFinished(int exitCode) {
+  public int execute(ExecutionContext context) throws InterruptedException {
+    int exitCode = super.execute(context);
+
     if (exitCode == 0) {
-      return;
+      return exitCode;
     }
     File file = output.toFile();
     if (file.exists() && !file.delete()) {
       throw new HumanReadableException(
           "Unable to delete output, which may lead to incorrect builds: " + output);
     }
+    return exitCode;
   }
 
   public static Builder builder() {

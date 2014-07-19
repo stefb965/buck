@@ -18,6 +18,7 @@ package org.openqa.selenium.buck.javascript;
 
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.ConstructorArg;
 import com.facebook.buck.rules.Description;
@@ -40,8 +41,9 @@ public class JsLibraryDescription implements Description<JsLibraryDescription.Ar
   }
 
   @Override
-  public JsLibrary createBuildable(BuildRuleParams params, Arg args) {
-    return new JsLibrary(params.getBuildTarget(), params.getDeps(), args.srcs);
+  public <A extends Arg> JsLibrary createBuildRule(
+      BuildRuleParams params, BuildRuleResolver resolver, A args) {
+    return new JsLibrary(params, params.getDeclaredDeps(), args.srcs);
   }
 
   public static class Arg implements ConstructorArg {

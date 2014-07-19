@@ -17,6 +17,7 @@
 package org.openqa.selenium.buck.mozilla;
 
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.ConstructorArg;
 import com.facebook.buck.rules.Description;
@@ -39,8 +40,9 @@ public class XptDescription implements Description<XptDescription.Arg> {
   }
 
   @Override
-  public Xpt createBuildable(BuildRuleParams params, Arg args) {
-    return new Xpt(params.getBuildTarget(), args.src, args.fallback);
+  public <A extends Arg> Xpt createBuildRule(
+      BuildRuleParams params, BuildRuleResolver resolver, A args) {
+    return new Xpt(params, args.src, args.fallback);
   }
 
   public static class Arg implements ConstructorArg {

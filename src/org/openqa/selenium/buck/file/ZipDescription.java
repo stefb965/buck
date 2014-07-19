@@ -3,8 +3,8 @@ package org.openqa.selenium.buck.file;
 
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
-import com.facebook.buck.rules.Buildable;
 import com.facebook.buck.rules.ConstructorArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
@@ -26,9 +26,9 @@ public class ZipDescription implements Description<ZipDescription.Arg> {
   }
 
   @Override
-  public <A extends Arg> Buildable createBuildable(
-      BuildRuleParams params, A args) {
-    return new Zip(params.getBuildTarget(), args.srcs);
+  public <A extends Arg> Zip createBuildRule(
+      BuildRuleParams params, BuildRuleResolver resolver, A args) {
+    return new Zip(params, args.srcs);
   }
 
   public class Arg implements ConstructorArg {

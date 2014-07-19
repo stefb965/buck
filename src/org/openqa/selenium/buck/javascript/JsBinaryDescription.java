@@ -18,8 +18,8 @@ package org.openqa.selenium.buck.javascript;
 
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
-import com.facebook.buck.rules.Buildable;
 import com.facebook.buck.rules.ConstructorArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
@@ -44,10 +44,11 @@ public class JsBinaryDescription implements Description<JsBinaryDescription.Arg>
   }
 
   @Override
-  public Buildable createBuildable(BuildRuleParams params, Arg args) {
+  public <A extends Arg> JsBinary createBuildRule(
+      BuildRuleParams params, BuildRuleResolver resolver, A args) {
     return new JsBinary(
-        params.getBuildTarget(),
-        params.getDeps(),
+        params,
+        params.getDeclaredDeps(),
         args.srcs,
         args.defines,
         args.flags,

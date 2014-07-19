@@ -19,8 +19,8 @@ package org.openqa.selenium.buck.javascript;
 
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
-import com.facebook.buck.rules.Buildable;
 import com.facebook.buck.rules.ConstructorArg;
 import com.facebook.buck.rules.Description;
 import com.google.common.base.Optional;
@@ -41,9 +41,10 @@ public class JsFragmentDescription implements Description<JsFragmentDescription.
   }
 
   @Override
-  public Buildable createBuildable(BuildRuleParams params, Arg args) {
+  public <A extends Arg> JsFragment createBuildRule(
+      BuildRuleParams params, BuildRuleResolver resolver, A args) {
     return new JsFragment(
-        params.getBuildTarget(),
+        params,
         params.getDeps(),
         args.module,
         args.function);

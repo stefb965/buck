@@ -18,9 +18,9 @@ package org.openqa.selenium.buck.mozilla;
 
 import static com.facebook.buck.step.fs.CopyStep.DirectoryMode.DIRECTORY_AND_CONTENTS;
 
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractBuildable;
+import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildContext;
+import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
@@ -40,7 +40,7 @@ import java.nio.file.Paths;
 
 import javax.annotation.Nullable;
 
-public class Xpi extends AbstractBuildable {
+public class Xpi extends AbstractBuildRule {
 
   private final Path scratch;
   private final Path output;
@@ -51,12 +51,12 @@ public class Xpi extends AbstractBuildable {
   private final ImmutableSortedSet<SourcePath> resources;
 
   public Xpi(
-      BuildTarget target,
+      BuildRuleParams params,
       Path chrome,
       ImmutableSortedSet<SourcePath> components,
       ImmutableSortedSet<Path> content,
       Path install, ImmutableSortedSet<SourcePath> resources) {
-    super(target);
+    super(params);
 
     this.chrome = chrome;
     this.components = components;
@@ -66,12 +66,14 @@ public class Xpi extends AbstractBuildable {
 
     this.output = Paths.get(
         BuckConstant.GEN_DIR,
-        target.getBasePath(),
-        target.getShortName(),
-        target.getShortName() + ".xpi");
+        getBuildTarget().getBasePath(),
+        getBuildTarget().getShortName(),
+        getBuildTarget().getShortName() + ".xpi");
 
     this.scratch = Paths.get(
-        BuckConstant.BIN_DIR, target.getBasePath(), target.getShortName() + "-xpi");
+        BuckConstant.BIN_DIR,
+        getBuildTarget().getBasePath(),
+        getBuildTarget().getShortName() + "-xpi");
   }
 
   @Override

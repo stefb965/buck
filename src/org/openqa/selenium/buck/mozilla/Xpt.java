@@ -16,10 +16,10 @@
 
 package org.openqa.selenium.buck.mozilla;
 
-import com.facebook.buck.event.LogEvent;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractBuildable;
+import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildContext;
+import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
@@ -37,20 +37,20 @@ import com.google.common.io.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
-public class Xpt extends AbstractBuildable {
+public class Xpt extends AbstractBuildRule {
 
   private final SourcePath fallback;
   private final Path src;
   private final Path out;
 
-  public Xpt(BuildTarget target, Path src, SourcePath fallback) {
-    super(target);
+  public Xpt(BuildRuleParams params, Path src, SourcePath fallback) {
+    super(params);
 
     this.fallback = Preconditions.checkNotNull(fallback);
     this.src = Preconditions.checkNotNull(src);
     String name = Files.getNameWithoutExtension(src.getFileName().toString()) + ".xpt";
 
-    this.out = Paths.get(BuckConstant.GEN_DIR, target.getBasePath(), name);
+    this.out = Paths.get(BuckConstant.GEN_DIR, getBuildTarget().getBasePath(), name);
   }
 
   @Override
@@ -71,7 +71,7 @@ public class Xpt extends AbstractBuildable {
       BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
-    context.getEventBus().post(LogEvent.warning("Defaulting to fallback for " + out));
+    context.getEventBus().post(ConsoleEvent.warning("Defaulting to fallback for " + out));
     Path from = fallback.resolve();
 
     steps.add(new MkdirStep(out.getParent()));

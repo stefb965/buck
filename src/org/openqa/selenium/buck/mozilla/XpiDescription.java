@@ -17,8 +17,8 @@
 package org.openqa.selenium.buck.mozilla;
 
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
-import com.facebook.buck.rules.Buildable;
 import com.facebook.buck.rules.ConstructorArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
@@ -42,9 +42,10 @@ public class XpiDescription implements Description<XpiDescription.Arg> {
   }
 
   @Override
-  public Buildable createBuildable(BuildRuleParams params, Arg args) {
+  public <A extends Arg> Xpi createBuildRule(
+      BuildRuleParams params, BuildRuleResolver resolver, A args) {
     return new Xpi(
-        params.getBuildTarget(),
+        params,
         args.chrome,
         args.components.get(),
         args.content.get(),

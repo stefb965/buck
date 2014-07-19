@@ -19,11 +19,10 @@ package org.openqa.selenium.buck.javascript;
 import static com.facebook.buck.util.BuckConstant.BIN_DIR;
 import static com.facebook.buck.util.BuckConstant.GEN_DIR;
 
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractBuildable;
+import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.Buildable;
+import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.shell.ShellStep;
@@ -42,7 +41,7 @@ import java.util.Set;
 
 import javax.annotation.Nullable;
 
-public class JsFragment extends AbstractBuildable {
+public class JsFragment extends AbstractBuildRule {
 
   private final Path output;
   private final Path temp;
@@ -51,19 +50,19 @@ public class JsFragment extends AbstractBuildable {
   private final String function;
 
   public JsFragment(
-      BuildTarget target,
+      BuildRuleParams params,
       ImmutableSortedSet<BuildRule> deps,
       String module,
       String function) {
-    super(target);
+    super(params);
 
     this.deps = deps;
     this.module = module;
     this.function = function;
     this.output = Paths.get(
-        GEN_DIR, target.getBaseName(), target.getShortName() + ".js");
+        GEN_DIR, getBuildTarget().getBaseName(), getBuildTarget().getShortName() + ".js");
     this.temp = Paths.get(
-        BIN_DIR, target.getBaseName(), target.getShortName() + "-temp.js");
+        BIN_DIR, getBuildTarget().getBaseName(), getBuildTarget().getShortName() + "-temp.js");
   }
 
   @Override
@@ -81,12 +80,11 @@ public class JsFragment extends AbstractBuildable {
     JavascriptDependencyGraph graph = new JavascriptDependencyGraph();
 
     for (BuildRule dep : deps) {
-      Buildable buildable = dep.getBuildable();
-      if (!(buildable instanceof JsLibrary)) {
+      if (!(dep instanceof JsLibrary)) {
         continue;
       }
 
-      Set<JavascriptSource> allDeps = ((JsLibrary) buildable).getBundleOfJoy().getDeps(module);
+      Set<JavascriptSource> allDeps = ((JsLibrary) dep).getBundleOfJoy().getDeps(module);
       if (!allDeps.isEmpty()) {
         graph.amendGraph(allDeps);
         break;
