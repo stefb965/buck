@@ -81,6 +81,8 @@ public class Zip extends AbstractBuildRule {
             ZipStep.DEFAULT_COMPRESSION_LEVEL,
             scratchDir));
 
+    buildableContext.recordArtifact(output);
+
     return commands.build();
   }
 

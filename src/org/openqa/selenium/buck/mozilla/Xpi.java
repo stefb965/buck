@@ -119,6 +119,8 @@ public class Xpi extends AbstractBuildRule {
         ZipStep.DEFAULT_COMPRESSION_LEVEL,
         scratch));
 
+    buildableContext.recordArtifact(output);
+
     return steps.build();
   }
 

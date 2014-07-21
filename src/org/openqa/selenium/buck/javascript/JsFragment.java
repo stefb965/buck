@@ -16,9 +16,7 @@
 
 package org.openqa.selenium.buck.javascript;
 
-import static com.facebook.buck.util.BuckConstant.BIN_DIR;
-import static com.facebook.buck.util.BuckConstant.GEN_DIR;
-
+import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
@@ -36,7 +34,6 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Set;
 
 import javax.annotation.Nullable;
@@ -59,10 +56,8 @@ public class JsFragment extends AbstractBuildRule {
     this.deps = deps;
     this.module = module;
     this.function = function;
-    this.output = Paths.get(
-        GEN_DIR, getBuildTarget().getBaseName(), getBuildTarget().getShortName() + ".js");
-    this.temp = Paths.get(
-        BIN_DIR, getBuildTarget().getBaseName(), getBuildTarget().getShortName() + "-temp.js");
+    this.output = BuildTargets.getGenPath(getBuildTarget(), "%s.js");
+    this.temp = BuildTargets.getBinPath(getBuildTarget(), "%s-temp.js");
   }
 
   @Override
@@ -97,6 +92,8 @@ public class JsFragment extends AbstractBuildRule {
         temp));
     steps.add(new MkdirStep(output.getParent()));
     steps.add(new JavascriptFragmentStep(temp, output, graph.sortSources()));
+
+    buildableContext.recordArtifact(output);
 
     return steps.build();
   }

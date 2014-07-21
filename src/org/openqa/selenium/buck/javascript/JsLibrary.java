@@ -63,7 +63,7 @@ public class JsLibrary extends AbstractBuildRule implements
     this.deps = Preconditions.checkNotNull(deps);
     this.srcs = Preconditions.checkNotNull(srcs);
 
-    this.output = BuildTargets.getGenPath(getBuildTarget(), "/library.deps");
+    this.output = BuildTargets.getGenPath(getBuildTarget(), "/%s-library.deps");
 
     buildOutputInitializer = new BuildOutputInitializer<>(getBuildTarget(), this);
   }
@@ -127,6 +127,8 @@ public class JsLibrary extends AbstractBuildRule implements
     builder.add(new MkdirStep(output.getParent()));
     builder.add(new WriteFileStep(writer.toString(), output));
 
+    buildableContext.recordArtifact(output);
+
     return builder.build();
   }
 
@@ -145,26 +147,6 @@ public class JsLibrary extends AbstractBuildRule implements
   public BuildOutputInitializer<JavascriptDependencies> getBuildOutputInitializer() {
     return buildOutputInitializer;
   }
-//
-//
-//
-//  @Override
-//  public void setBuildOutput(JavascriptDependencies joy) throws IllegalStateException {
-//    Preconditions.checkState(this.joy == null, "Attempted to set build output more than once.");
-//    this.joy = joy;
-//  }
-//
-//  @Override
-//  public JavascriptDependencies getBuildOutput() throws IllegalStateException {
-//    Preconditions.checkNotNull(joy, "Build output has not been set.");
-//
-//    try {
-//      List<String> allLines = Files.readAllLines(output, UTF_8);
-//      return JavascriptDependencies.buildFrom(Joiner.on("\n").join(allLines));
-//    } catch (IOException e) {
-//      throw Throwables.propagate(e);
-//    }
-//  }
 
   @Override
   public Path getPathToOutputFile() {

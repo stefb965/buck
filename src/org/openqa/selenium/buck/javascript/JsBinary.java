@@ -18,6 +18,7 @@ package org.openqa.selenium.buck.javascript;
 
 import static com.facebook.buck.util.BuckConstant.GEN_DIR;
 
+import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildOutputInitializer;
@@ -77,10 +78,8 @@ public class JsBinary extends AbstractBuildRule implements
     this.externs = Preconditions.checkNotNull(externs);
     this.flags = Preconditions.checkNotNull(flags);
 
-    this.output = Paths.get(
-        GEN_DIR, getBuildTarget().getBaseName(), getBuildTarget().getShortName() + ".js");
-    this.joyPath = Paths.get(
-        GEN_DIR, getBuildTarget().getBaseName(), getBuildTarget().getShortName() + ".deps");
+    this.output = BuildTargets.getGenPath(getBuildTarget(), "%s.js");
+    this.joyPath = BuildTargets.getGenPath(getBuildTarget(), "%s.deps");
 
     buildOutputInitializer = new BuildOutputInitializer<>(getBuildTarget(), this);
   }
@@ -95,8 +94,7 @@ public class JsBinary extends AbstractBuildRule implements
     return builder
         .set("defines", defines.or(ImmutableList.<String>of()))
         .setInputs("externs", externs.or(ImmutableList.<Path>of()).iterator())
-        .setSourcePaths("srcs", srcs)
-        ;
+        .setSourcePaths("srcs", srcs);
   }
 
   @Override
@@ -161,6 +159,8 @@ public class JsBinary extends AbstractBuildRule implements
     steps.add(new WriteFileStep(writer.toString(), joyPath));
     steps.add(new MkdirStep(output.getParent()));
     steps.add(compiler);
+
+    buildableContext.recordArtifact(output);
 
     return steps.build();
   }

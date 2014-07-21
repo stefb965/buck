@@ -77,6 +77,8 @@ public class Xpt extends AbstractBuildRule {
     steps.add(new MkdirStep(out.getParent()));
     steps.add(CopyStep.forFile(from, out));
 
+    buildableContext.recordArtifact(out);
+
     return steps.build();
   }
 
