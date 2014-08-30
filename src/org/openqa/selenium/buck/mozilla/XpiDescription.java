@@ -57,7 +57,7 @@ public class XpiDescription implements Description<XpiDescription.Arg> {
   public static class Arg implements ConstructorArg {
     public Path chrome;
     public Optional<ImmutableSortedSet<SourcePath>> components;
-    public Optional<ImmutableSortedSet<Path>> content;
+    public Optional<ImmutableSortedSet<SourcePath>> content;
     public Path install;
     public Optional<ImmutableSortedSet<SourcePath>> platforms;
     public Optional<ImmutableSortedSet<SourcePath>> resources;
