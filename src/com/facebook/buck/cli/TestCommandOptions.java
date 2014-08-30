@@ -81,6 +81,13 @@ public class TestCommandOptions extends BuildCommandOptions {
           "WARNING: this is experimental, and only works for Java tests!")
   private boolean isUsingOneTimeOutput;
 
+  @Option(
+      name = "--no-run-transitive",
+      usage =
+          "When true, only the tests listed on the command line are run. When false, all tests " +
+          "that are found in the transitive build graph are run.")
+  private boolean noRunTransitive;
+
   @AdditionalOptions
   private TargetDeviceOptions targetDeviceOptions;
 
@@ -94,7 +101,9 @@ public class TestCommandOptions extends BuildCommandOptions {
     super(buckConfig);
 
     setUseResultsCacheFromConfig(buckConfig);
+    setRunTransitiveTestsFromConfig(buckConfig);
   }
+
 
   public boolean isRunAllTests() {
     return all || getArguments().isEmpty();
@@ -122,6 +131,10 @@ public class TestCommandOptions extends BuildCommandOptions {
     // The command line option is a negative one, hence the slightly confusing logic.
     boolean isUseResultsCache = buckConfig.getBooleanValue("test", USE_RESULTS_CACHE, true);
     isResultsCacheDisabled = !isUseResultsCache;
+  }
+
+  private void setRunTransitiveTestsFromConfig(BuckConfig buckConfig) {
+    noRunTransitive = !buckConfig.getBooleanValue("test", "run_transitive", true);
   }
 
   public boolean isResultsCacheEnabled() {
@@ -160,6 +173,10 @@ public class TestCommandOptions extends BuildCommandOptions {
 
   public boolean isMatchedByLabelOptions(Set<Label> labels) {
     return testLabelOptions.isMatchedByLabelOptions(getBuckConfig(), labels);
+  }
+
+  public boolean isRunningTransitive() {
+    return isRunAllTests() || !noRunTransitive;
   }
 
   public boolean shouldExcludeWin() {

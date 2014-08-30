@@ -139,7 +139,8 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
 
     Build build = buildCommand.getBuild();
 
-    Iterable<TestRule> results = getCandidateRules(build.getActionGraph());
+    Iterable<TestRule> results;
+    results = getCandidateRules(build.getActionGraph());
 
     results = filterTestRules(options, results);
     if (options.isDryRun()) {
@@ -402,13 +403,17 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
 
     // We always want to run the rules that are given on the command line. Always. Unless we don't
     // want to.
+    ImmutableSet<String> allTargets = options.getArgumentsFormattedAsBuildTargets();
     if (!options.shouldExcludeWin()) {
-      ImmutableSet<String> allTargets = options.getArgumentsFormattedAsBuildTargets();
       for (TestRule rule : testRules) {
         if (allTargets.contains(rule.getBuildTarget().getFullyQualifiedName())) {
           builder.add(rule);
         }
       }
+    }
+
+    if (!options.isRunningTransitive()) {
+      return builder.build();
     }
 
     // Filter out all test rules that contain labels we've excluded.

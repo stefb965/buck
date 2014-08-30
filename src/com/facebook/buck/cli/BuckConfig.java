@@ -746,7 +746,8 @@ public class BuckConfig {
         throw new HumanReadableException(
             "Unknown value for %s in [%s]: %s; should be yes/no true/false!",
             propertyName,
-            sectionName);
+            sectionName,
+            answer);
     }
   }
 
