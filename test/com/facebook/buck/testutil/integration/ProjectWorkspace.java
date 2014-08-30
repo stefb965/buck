@@ -22,6 +22,9 @@ import static org.junit.Assert.fail;
 
 import com.facebook.buck.cli.Main;
 import com.facebook.buck.cli.TestCommand;
+import com.facebook.buck.event.BuckEvent;
+import com.facebook.buck.event.BuckEventListener;
+import com.facebook.buck.model.BuildId;
 import com.facebook.buck.rules.DefaultKnownBuildRuleTypes;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.CapturingPrintStream;
@@ -35,22 +38,21 @@ import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.eventbus.Subscribe;
 import com.google.common.io.Files;
-import com.martiansoftware.nailgun.NGClientListener;
 import com.martiansoftware.nailgun.NGContext;
 
 import org.junit.rules.TemporaryFolder;
 
-import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.FileSystems;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.List;
-import java.util.Properties;
 
 import javax.annotation.Nullable;
 
@@ -116,6 +118,14 @@ public class ProjectWorkspace {
     DefaultKnownBuildRuleTypes.resetInstance();
 
     MoreFiles.copyRecursively(templatePath, destPath, BUILD_FILE_RENAME);
+
+    // If there's a local.properties in the host project but not in the destination, make a copy.
+    Path localProperties = FileSystems.getDefault().getPath("local.properties");
+    Path destLocalProperties = destPath.resolve(localProperties.getFileName());
+
+    if (localProperties.toFile().exists() && !destLocalProperties.toFile().exists()) {
+      java.nio.file.Files.copy(localProperties, destLocalProperties);
+    }
 
     if (Platform.detect() == Platform.WINDOWS) {
       // Hack for symlinks on Windows.
@@ -193,52 +203,65 @@ public class ProjectWorkspace {
    */
   public ProcessResult runBuckCommand(String... args)
       throws IOException {
-    assertTrue("setUp() must be run before this method is invoked", isSetUp);
-    CapturingPrintStream stdout = new CapturingPrintStream();
-    CapturingPrintStream stderr = new CapturingPrintStream();
-
-    Main main = new Main(stdout, stderr);
-    int exitCode = 0;
-    try {
-      exitCode = main.runMainWithExitCode(destDir, Optional.<NGContext>absent(), args);
-    } catch (InterruptedException e) {
-      e.printStackTrace();
-      Thread.currentThread().interrupt();
-      exitCode = Main.FAIL_EXIT_CODE;
-    }
-
-    return new ProcessResult(exitCode,
-        stdout.getContentsAsString(Charsets.UTF_8),
-        stderr.getContentsAsString(Charsets.UTF_8));
+    return runBuckCommandWithEnvironmentAndContext(
+        Optional.<NGContext>absent(),
+        args);
   }
 
   public ProcessResult runBuckdCommand(String... args) throws IOException {
-    return runBuckdCommand(ImmutableMap.copyOf(System.getenv()), args);
+    try (TestContext context = new TestContext()) {
+      return runBuckdCommand(context, args);
+    }
   }
 
   public ProcessResult runBuckdCommand(ImmutableMap<String, String> environment, String... args)
       throws IOException {
+    try (TestContext context = new TestContext(environment)) {
+      return runBuckdCommand(context, args);
+    }
+  }
 
+  public ProcessResult runBuckdCommand(NGContext context, String... args)
+      throws IOException {
+    return runBuckCommandWithEnvironmentAndContext(Optional.of(context), args);
+  }
+
+  private ProcessResult runBuckCommandWithEnvironmentAndContext(
+        Optional<NGContext> context,
+        String... args)
+    throws IOException {
     assertTrue("setUp() must be run before this method is invoked", isSetUp);
     CapturingPrintStream stdout = new CapturingPrintStream();
     CapturingPrintStream stderr = new CapturingPrintStream();
 
-    NGContext context = new TestContext(environment);
+    final ImmutableList.Builder<BuckEvent> capturedEventsListBuilder =
+        new ImmutableList.Builder<>();
+    BuckEventListener capturingEventListener = new BuckEventListener() {
+      @Subscribe
+      public void captureEvent(BuckEvent event) {
+        capturedEventsListBuilder.add(event);
+      }
 
-    Main main = new Main(stdout, stderr);
+      @Override
+      public void outputTrace(BuildId buildId) throws InterruptedException {
+        // empty
+      }
+    };
+
+    Main main = new Main(stdout, stderr, Optional.of(capturingEventListener));
     int exitCode = 0;
     try {
-      exitCode = main.runMainWithExitCode(destDir, Optional.<NGContext>of(context), args);
+      exitCode = main.runMainWithExitCode(new BuildId(), destDir, context, args);
     } catch (InterruptedException e) {
-      e.printStackTrace();
-      Thread.currentThread().interrupt();
+      e.printStackTrace(stderr);
       exitCode = Main.FAIL_EXIT_CODE;
+      Thread.currentThread().interrupt();
     }
 
     return new ProcessResult(exitCode,
         stdout.getContentsAsString(Charsets.UTF_8),
-        stderr.getContentsAsString(Charsets.UTF_8));
-
+        stderr.getContentsAsString(Charsets.UTF_8),
+        capturedEventsListBuilder.build());
   }
 
   /**
@@ -292,13 +315,19 @@ public class ProjectWorkspace {
   /** The result of running {@code buck} from the command line. */
   public static class ProcessResult {
     private final int exitCode;
+    private final List<BuckEvent> capturedEvents;
     private final String stdout;
     private final String stderr;
 
-    private ProcessResult(int exitCode, String stdout, String stderr) {
+    private ProcessResult(
+        int exitCode,
+        String stdout,
+        String stderr,
+        List<BuckEvent> capturedEvents) {
       this.exitCode = exitCode;
       this.stdout = Preconditions.checkNotNull(stdout);
       this.stderr = Preconditions.checkNotNull(stderr);
+      this.capturedEvents = capturedEvents;
     }
 
     /**
@@ -319,6 +348,10 @@ public class ProjectWorkspace {
 
     public String getStderr() {
       return stderr;
+    }
+
+    public List<BuckEvent> getCapturedEvents() {
+      return capturedEvents;
     }
 
     public void assertSuccess() {
@@ -405,31 +438,5 @@ public class ProjectWorkspace {
       }
     };
     java.nio.file.Files.walkFileTree(templatePath, copyDirVisitor);
-  }
-
-  /**
-   * NGContext test double.
-   */
-  private class TestContext extends NGContext {
-
-    Properties properties;
-
-    public TestContext(ImmutableMap<String, String> environment) {
-      in = new ByteArrayInputStream(new byte[0]);
-      setExitStream(new CapturingPrintStream());
-      properties = new Properties();
-      for (String key : environment.keySet()) {
-        properties.setProperty(key, environment.get(key));
-      }
-    }
-
-    @Override
-    public void addClientListener(NGClientListener listener) {
-    }
-
-    @Override
-    public Properties getEnv() {
-      return properties;
-    }
   }
 }

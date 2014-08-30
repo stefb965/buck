@@ -7,7 +7,7 @@ import textwrap
 import shutil
 import sys
 
-from buck_repo import which
+from buck_repo import check_output, which
 
 
 def get_file_contents_if_exists(path, default=None):
@@ -30,9 +30,9 @@ class BuckProject:
         buck_out_tmp = os.path.join(self._buck_out, "tmp")
         if not os.path.exists(buck_out_tmp):
             os.makedirs(buck_out_tmp)
-        buck_out_log = os.path.join(self._buck_out, "log")
-        if not os.path.exists(buck_out_log):
-            os.makedirs(buck_out_log)
+        self._buck_out_log = os.path.join(self._buck_out, "log")
+        if not os.path.exists(self._buck_out_log):
+            os.makedirs(self._buck_out_log)
         self.tmp_dir = tempfile.mkdtemp(prefix="buck_run.", dir=buck_out_tmp)
 
         # Only created if buckd is used.
@@ -40,6 +40,7 @@ class BuckProject:
 
         self.buckd_dir = os.path.join(root, ".buckd")
         self.buckd_pid_file = os.path.join(self.buckd_dir, "buckd.pid")
+        self.autobuild_pid_file = os.path.join(self.buckd_dir, "autobuild.pid")
         self.buckd_port_file = os.path.join(self.buckd_dir, "buckd.port")
         self.buckd_run_count_file = (os.path.join(
             self.buckd_dir, "buckd.runcount"))
@@ -70,8 +71,14 @@ class BuckProject:
     def get_buckd_pid(self):
         return get_file_contents_if_exists(self.buckd_pid_file)
 
+    def get_autobuild_pid(self):
+        return get_file_contents_if_exists(self.autobuild_pid_file)
+
     def get_buckd_port(self):
         return get_file_contents_if_exists(self.buckd_port_file)
+
+    def get_buck_out_log_dir(self):
+        return self._buck_out_log
 
     def update_buckd_run_count(self, new_run_count):
         write_contents_to_file(self.buckd_run_count_file, new_run_count)
@@ -80,7 +87,7 @@ class BuckProject:
         if os.path.exists(self.buckd_dir):
             shutil.rmtree(self.buckd_dir)
         if which('watchman'):
-            trigger_list_output = subprocess.check_output(
+            trigger_list_output = check_output(
                 ['watchman', 'trigger-list', self.root])
             trigger_list = json.loads(trigger_list_output)
             if not trigger_list.get('triggers'):
@@ -111,8 +118,7 @@ class BuckProject:
             return BuckProject(current_dir)
         while current_dir != os.sep:
             if os.path.exists(os.path.join(current_dir, ".buckconfig")):
-                project = BuckProject(current_dir)
-                return project
+                return BuckProject(current_dir)
             current_dir = os.path.dirname(current_dir)
         raise NoBuckConfigFoundException()
 

@@ -16,7 +16,7 @@
 
 package com.facebook.buck.apple;
 
-import com.facebook.buck.cpp.AbstractNativeBuildRule;
+import com.facebook.buck.cxx.AbstractNativeBuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.SourcePath;
 import com.google.common.base.Optional;
@@ -26,36 +26,31 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
-import java.nio.file.Path;
-
 /**
  * A build rule that has configuration ready for Xcode-like build systems.
  */
 public abstract class AbstractAppleNativeTargetBuildRule extends AbstractNativeBuildRule {
 
-  private final Optional<Path> infoPlist;
   private final ImmutableSet<XcodeRuleConfiguration> configurations;
   private final ImmutableList<GroupedSource> srcs;
   private final ImmutableMap<SourcePath, String> perFileFlags;
   private final ImmutableSortedSet<String> frameworks;
+  private final Optional<String> gid;
+  private final Optional<String> headerPathPrefix;
+  private final boolean useBuckHeaderMaps;
 
   public AbstractAppleNativeTargetBuildRule(
       BuildRuleParams params,
       AppleNativeTargetDescriptionArg arg,
       TargetSources targetSources) {
     super(params, targetSources.srcPaths, targetSources.headerPaths, targetSources.perFileFlags);
-    infoPlist = arg.infoPlist;
     configurations = XcodeRuleConfiguration.fromRawJsonStructure(arg.configs);
     frameworks = Preconditions.checkNotNull(arg.frameworks);
     srcs = Preconditions.checkNotNull(targetSources.srcs);
     perFileFlags = Preconditions.checkNotNull(targetSources.perFileFlags);
-  }
-
-  /**
-   * Returns a path to the info.plist to be bundled with a binary or framework.
-   */
-  public Optional<Path> getInfoPlist() {
-    return infoPlist;
+    gid = Preconditions.checkNotNull(arg.gid);
+    headerPathPrefix = Preconditions.checkNotNull(arg.headerPathPrefix);
+    useBuckHeaderMaps = Preconditions.checkNotNull(arg.useBuckHeaderMaps).or(false);
   }
 
   /**
@@ -85,6 +80,23 @@ public abstract class AbstractAppleNativeTargetBuildRule extends AbstractNativeB
   public ImmutableSortedSet<String> getFrameworks() {
     return frameworks;
   }
+
+  /**
+   * Returns an optional GID to be used for the target, if present.
+   */
+  public Optional<String> getGid() {
+    return gid;
+  }
+
+  /**
+   * @return An optional prefix to be used instead of the target name when exposing library headers.
+   */
+  public Optional<String> getHeaderPathPrefix() { return headerPathPrefix; }
+
+  /**
+   * @return A boolean whether Buck should generate header maps for this project.
+   */
+  public boolean getUseBuckHeaderMaps() { return useBuckHeaderMaps; }
 
   @Override
   protected String getCompiler() {

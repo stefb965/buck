@@ -17,7 +17,6 @@
 package com.facebook.buck.model;
 
 import com.facebook.buck.util.BuckConstant;
-import com.facebook.buck.util.ProjectFilesystem;
 import com.fasterxml.jackson.annotation.JsonAutoDetect;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -25,7 +24,6 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 
-import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.regex.Pattern;
@@ -39,7 +37,7 @@ public final class BuildTarget implements Comparable<BuildTarget>, HasBuildTarge
 
   public static final String BUILD_TARGET_PREFIX = "//";
 
-  private static final Pattern VALID_FLAVOR_PATTERN = Pattern.compile("[-a-zA-Z_]+");
+  private static final Pattern VALID_FLAVOR_PATTERN = Pattern.compile("[-a-zA-Z0-9_]+");
 
   private final Optional<String> repository;
   private final String baseName;
@@ -76,7 +74,8 @@ public final class BuildTarget implements Comparable<BuildTarget>, HasBuildTarge
         shortName);
     if (flavor.isPresent()) {
       Flavor flavorName = flavor.get();
-      if (!VALID_FLAVOR_PATTERN.matcher(flavorName.toString()).matches()) {
+      if (!Flavor.DEFAULT.equals(flavorName) &&
+          !VALID_FLAVOR_PATTERN.matcher(flavorName.toString()).matches()) {
         throw new IllegalArgumentException("Invalid flavor: " + flavorName);
       }
     }
@@ -88,37 +87,7 @@ public final class BuildTarget implements Comparable<BuildTarget>, HasBuildTarge
     this.flavor = flavor;
     this.fullyQualifiedName =
         (repository.isPresent() ? "@" + repository.get() : "") +
-        baseName + ":" + shortName +
-        (flavor.isPresent() ? "#" + flavor.get() : "");
-  }
-
-  /**
-   * The build file in which this rule was defined.
-   * @throws MissingBuildFileException if the build file for the target does not exist.
-   */
-  public File getBuildFile(ProjectFilesystem projectFilesystem) throws MissingBuildFileException {
-    String pathToBuildFile = getBasePathWithSlash() + BuckConstant.BUILD_RULES_FILE_NAME;
-    File buildFile = projectFilesystem.getFileForRelativePath(pathToBuildFile);
-    if (buildFile.isFile()) {
-      return buildFile;
-    } else {
-      throw new MissingBuildFileException(this);
-    }
-  }
-
-  @SuppressWarnings("serial")
-  public static class MissingBuildFileException extends BuildTargetException {
-
-    private MissingBuildFileException(BuildTarget buildTarget) {
-      super(String.format("No build file at %s when resolving target %s.",
-          buildTarget.getBasePathWithSlash() + BuckConstant.BUILD_RULES_FILE_NAME,
-          buildTarget.getFullyQualifiedName()));
-    }
-
-    @Override
-    public String getHumanReadableErrorMessage() {
-      return getMessage();
-    }
+        baseName + ":" + shortName + getFlavorPostfix();
   }
 
   public Path getBuildFilePath() {
@@ -135,7 +104,11 @@ public final class BuildTarget implements Comparable<BuildTarget>, HasBuildTarge
    * "guava-latest". Note that the flavor of the target is included here.
    */
   public String getShortName() {
-    return shortName + (flavor.isPresent() ? "#" + flavor.get() : "");
+    return shortName + getFlavorPostfix();
+  }
+
+  public String getFlavorPostfix() {
+    return (flavor.isPresent() && !flavor.get().equals(Flavor.DEFAULT) ? "#" + flavor.get() : "");
   }
 
   @JsonProperty("shortName")
@@ -181,8 +154,8 @@ public final class BuildTarget implements Comparable<BuildTarget>, HasBuildTarge
    * "third_party/java/guava". This does not contain the "//" prefix so that it can be appended to
    * a file path.
    */
-  public String getBasePath() {
-    return baseName.substring(BUILD_TARGET_PREFIX.length());
+  public Path getBasePath() {
+    return Paths.get(baseName.substring(BUILD_TARGET_PREFIX.length()));
   }
 
   /**
@@ -191,7 +164,7 @@ public final class BuildTarget implements Comparable<BuildTarget>, HasBuildTarge
    *     string
    */
   public String getBasePathWithSlash() {
-    String basePath = getBasePath();
+    String basePath = getBasePath().toString();
     return basePath.isEmpty() ? "" : basePath + "/";
   }
 
@@ -206,6 +179,23 @@ public final class BuildTarget implements Comparable<BuildTarget>, HasBuildTarge
   @JsonIgnore
   public boolean isFlavored() {
     return flavor.isPresent();
+  }
+
+  @JsonIgnore
+  public boolean isInProjectRoot() {
+    return BUILD_TARGET_PREFIX.equals(baseName);
+  }
+
+  /**
+   * @return a {@link BuildTarget} that is equal to the current one, but without the flavor. If
+   *     this build target does not have a flavor, then this object will be returned.
+   */
+  public BuildTarget getUnflavoredTarget() {
+    if (!isFlavored()) {
+      return this;
+    } else {
+      return new BuildTarget(repository, baseName, shortName, Optional.<Flavor>absent());
+    }
   }
 
   @Override
@@ -265,6 +255,15 @@ public final class BuildTarget implements Comparable<BuildTarget>, HasBuildTarge
       this.flavor = buildTarget.flavor;
     }
 
+    /**
+     * Build targets are hashable and equality-comparable, so targets referring to the same
+     * repository <strong>must</strong> use the same name. But build target syntax in BUCK files
+     * does <strong>not</strong> have this property -- repository names are configured in the local
+     * .buckconfig, and one project could use different naming from another. (And of course, targets
+     * within an external project will need a @repo name prepended to them, to distinguish them from
+     * targets in the root project.) It's the caller's responsibility to guarantee that repository
+     * names are disambiguated before BuildTargets are created.
+     */
     public Builder setRepository(String repo) {
       this.repository = Optional.of(repo);
       return this;

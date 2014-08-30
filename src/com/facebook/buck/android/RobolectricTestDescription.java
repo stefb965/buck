@@ -26,6 +26,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
+import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -58,8 +59,9 @@ public class RobolectricTestDescription implements Description<RobolectricTestDe
       A args) {
     JavacOptions.Builder javacOptions = JavaLibraryDescription.getJavacOptions(args, javacEnv);
 
-    AnnotationProcessingParams annotationParams =
-        args.buildAnnotationProcessingParams(params.getBuildTarget());
+    AnnotationProcessingParams annotationParams = args.buildAnnotationProcessingParams(
+        params.getBuildTarget(),
+        params.getProjectFilesystem());
     javacOptions.setAnnotationProcessingData(annotationParams);
 
     AndroidLibraryGraphEnhancer graphEnhancer = new AndroidLibraryGraphEnhancer(
@@ -100,6 +102,7 @@ public class RobolectricTestDescription implements Description<RobolectricTestDe
         dummyRDotJava);
   }
 
+  @SuppressFieldNotInitialized
   public class Arg extends JavaTestDescription.Arg {
   }
 }

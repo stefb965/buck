@@ -16,50 +16,57 @@
 
 package com.facebook.buck.cli;
 
+import static com.facebook.buck.testutil.integration.ProjectWorkspace.ProcessResult;
+
+import static java.util.concurrent.Executors.callable;
+
 import static org.hamcrest.Matchers.containsString;
-import static org.hamcrest.Matchers.not;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import static org.junit.Assume.assumeTrue;
 
+import com.facebook.buck.model.BuildId;
+import com.facebook.buck.rules.TestRepositoryBuilder;
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
+import com.facebook.buck.testutil.integration.TestContext;
 import com.facebook.buck.testutil.integration.TestDataHelper;
+import com.facebook.buck.timing.FakeClock;
 import com.facebook.buck.util.CapturingPrintStream;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.ProjectFilesystem;
+import com.facebook.buck.util.environment.Platform;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Charsets;
-import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Throwables;
+
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableList;
+
 import com.google.common.eventbus.Subscribe;
 import com.google.common.io.Files;
 import com.martiansoftware.nailgun.NGClientListener;
-import com.martiansoftware.nailgun.NGConstants;
 import com.martiansoftware.nailgun.NGContext;
-import com.martiansoftware.nailgun.NGExitException;
-import com.martiansoftware.nailgun.NGInputStream;
-import com.martiansoftware.nailgun.NGSecurityManager;
 
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.PrintStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardWatchEventKinds;
 import java.nio.file.WatchEvent;
-import java.util.Arrays;
-import java.util.Properties;
+import java.util.Map;
+
+import java.util.concurrent.Callable;
+
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -76,149 +83,247 @@ public class DaemonIntegrationTest {
 
   @Before
   public void setUp() {
-    executorService = Executors.newScheduledThreadPool(2);
+    executorService = Executors.newScheduledThreadPool(5);
   }
 
   @After
   public void tearDown() {
+    Thread.interrupted(); // Clear interrupted flag, if set.
     executorService.shutdown();
     Main.resetDaemon();
   }
 
   /**
-   * This verifies that when the user tries to run the Buck Main method, while it is already
+   * This verifies that when the user tries to run a read/write command, while another is already
    * running, the second call will fail. Serializing command execution in this way avoids
-   * multiple threads accessing and corrupting the static state used by the Buck daemon.
+   * multiple threads accessing and corrupting the static state used by the Buck daemon and
+   * trampling over each others output.
    */
   @Test
-  public void testExclusiveExecution()
+  public void whenConcurrentCommandExecutedThenSecondCommandFails()
       throws IOException, InterruptedException, ExecutionException {
-    final CapturingPrintStream stdOut = new CapturingPrintStream();
-    final CapturingPrintStream firstThreadStdErr = new CapturingPrintStream();
-    final CapturingPrintStream secondThreadStdErr = new CapturingPrintStream();
 
     final ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "exclusive_execution", tmp);
     workspace.setUp();
-
-    Future<?> firstThread = executorService.schedule(new Runnable() {
-      @Override
-      public void run() {
-        try {
-          Main main = new Main(stdOut, firstThreadStdErr);
-          int exitCode = main.tryRunMainWithExitCode(tmp.getRoot(),
-              Optional.<NGContext>absent(),
-              "build",
-              "//:sleep");
-          assertEquals("Should return 0 when no command running.", SUCCESS_EXIT_CODE, exitCode);
-        } catch (IOException e) {
-          fail("Should not throw exception.");
-          throw Throwables.propagate(e);
-        } catch (InterruptedException e) {
-          fail("Should not throw exception.");
-          Thread.currentThread().interrupt();
-        }
-      }
-    }, 0, TimeUnit.MILLISECONDS);
-    Future<?> secondThread = executorService.schedule(new Runnable() {
-      @Override
-      public void run() {
-        try {
-          Main main = new Main(stdOut, secondThreadStdErr);
-          int exitCode = main.tryRunMainWithExitCode(tmp.getRoot(),
-              Optional.<NGContext>absent(),
-              "targets");
-          assertEquals("Should return 2 when command running.", Main.BUSY_EXIT_CODE, exitCode);
-        } catch (IOException e) {
-          fail("Should not throw exception.");
-          throw Throwables.propagate(e);
-        } catch (InterruptedException e) {
-          fail("Should not throw exception.");
-          Thread.currentThread().interrupt();
-        }
-      }
-    }, 500L, TimeUnit.MILLISECONDS);
+    Future<?> firstThread = executorService.schedule(
+        createRunnableCommand(SUCCESS_EXIT_CODE, "build", "//:sleep"),
+        0,
+        TimeUnit.MILLISECONDS);
+    Future<?> secondThread = executorService.schedule(
+        createRunnableCommand(Main.BUSY_EXIT_CODE, "build", "//:sleep"),
+        500L,
+        TimeUnit.MILLISECONDS);
     firstThread.get();
     secondThread.get();
   }
 
-  private InputStream createHeartbeatStream(int count) {
-    final int bytesPerHeartbeat = 5;
-    byte[] bytes = new byte[bytesPerHeartbeat * count];
-    Arrays.fill(bytes, NGConstants.CHUNKTYPE_HEARTBEAT);
-    return new ByteArrayInputStream(bytes);
+  /**
+   * Verifies that a client timeout will be detected by a Nailgun
+   * NGInputStream reading from a blocking heartbeat stream.
+   */
+  @Test(expected = InterruptedException.class)
+  public void whenClientTimeoutDetectedThenMainThreadIsInterrupted()
+      throws InterruptedException, IOException {
+    final long timeoutMillis = 100;
+    final long intervalMillis = timeoutMillis * 2; // Interval > timeout to trigger disconnection.
+    final ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "exclusive_execution", tmp);
+    workspace.setUp();
+
+    // Build an NGContext connected to an NGInputStream reading from a stream that will timeout.
+    Thread.currentThread().setName("Test");
+    try (TestContext context = new TestContext(
+        ImmutableMap.copyOf(System.getenv()),
+        TestContext.createHeartBeatStream(intervalMillis),
+        timeoutMillis)) {
+      final Thread commandThread = Thread.currentThread();
+      context.addClientListener(
+          new NGClientListener() {
+            @Override
+            public void clientDisconnected() throws InterruptedException {
+              commandThread.interrupt();
+            }
+          });
+      Thread.sleep(1000);
+      fail("Should have been interrupted.");
+    }
+  }
+
+  /**
+   * This verifies that a client timeout will be detected by a Nailgun
+   * NGInputStream reading from an empty heartbeat stream and that the generated
+   * InterruptedException will cause command execution to fail after timeout.
+   */
+  @Test
+  public void whenClientTimeoutDetectedThenBuildIsInterrupted()
+      throws InterruptedException, IOException {
+
+    // Sub process interruption not supported on Windows.
+    assumeTrue(Platform.detect() != Platform.WINDOWS);
+
+    final long timeoutMillis = 100;
+    final long intervalMillis = timeoutMillis * 2; // Interval > timeout to trigger disconnection.
+    final ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "exclusive_execution", tmp);
+    workspace.setUp();
+
+    // Build an NGContext connected to an NGInputStream reading from stream that will timeout.
+    try (TestContext context = new TestContext(
+        ImmutableMap.copyOf(System.getenv()),
+        TestContext.createHeartBeatStream(intervalMillis),
+        timeoutMillis)) {
+      ProcessResult result = workspace.runBuckdCommand(context, "build", "//:sleep");
+      result.assertFailure();
+      assertThat(result.getStderr(), containsString("InterruptedException"));
+    }
+  }
+
+  @Test
+  public void whenConcurrentReadOnlyCommandExecutedThenReadOnlyCommandSucceeds()
+      throws IOException, InterruptedException, ExecutionException {
+    final ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "exclusive_execution", tmp);
+    workspace.setUp();
+    Future<?> firstThread = executorService.schedule(
+        createRunnableCommand(SUCCESS_EXIT_CODE, "build", "//:sleep"), 0, TimeUnit.MILLISECONDS);
+    Future<?> secondThread = executorService.schedule(
+        createRunnableCommand(SUCCESS_EXIT_CODE, "targets"), 500L, TimeUnit.MILLISECONDS);
+    firstThread.get();
+    secondThread.get();
+  }
+
+  /**
+   * This verifies that multiple read only commands can be executed concurrently successfully.
+   */
+  @Test
+  public void whenReadOnlyCommandsExecutedConcurrentlyThenAllSucceed()
+      throws IOException, InterruptedException, ExecutionException {
+
+    final ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "exclusive_execution", tmp);
+    workspace.setUp();
+    executorService.invokeAll(
+        ImmutableList.of(
+            createCallableCommand(SUCCESS_EXIT_CODE, "audit", "input", "//:sleep"),
+            createCallableCommand(SUCCESS_EXIT_CODE, "audit", "input", "//:sleep"),
+            createCallableCommand(SUCCESS_EXIT_CODE, "audit", "input", "//:sleep"),
+            createCallableCommand(SUCCESS_EXIT_CODE, "audit", "input", "//:sleep"),
+            createCallableCommand(SUCCESS_EXIT_CODE, "audit", "input", "//:sleep"))
+    );
+  }
+
+  private Runnable createRunnableCommand(final int expectedExitCode, final String ... args) {
+    return new Runnable() {
+      @Override
+      public void run() {
+        try {
+          Main main = new Main(new CapturingPrintStream(), new CapturingPrintStream());
+          int exitCode = main.tryRunMainWithExitCode(
+              new BuildId(),
+              tmp.getRoot(),
+              Optional.<NGContext>of(new TestContext()),
+              args);
+          assertEquals("Unexpected exit code.", expectedExitCode, exitCode);
+        } catch (IOException e) {
+          fail("Should not throw exception.");
+          throw Throwables.propagate(e);
+        } catch (InterruptedException e) {
+          fail("Should not throw exception.");
+          Thread.currentThread().interrupt();
+        }
+      }
+    };
+  }
+
+  private Callable<Object> createCallableCommand(int expectedExitCode, String ... args) {
+    return callable(createRunnableCommand(expectedExitCode, args));
   }
 
   /**
    * This verifies that a client disconnection will be detected by a Nailgun
-   * NGInputStream which then calls a clientDisconnected handler which interrupts Buck command
-   * processing.
+   * NGInputStream reading from an empty heartbeat stream and that the generated
+   * InterruptedException will interrupt command execution causing it to fail.
    */
   @Test
-  public void whenClientDisconnectsThenCommandIsInterrupted()
+  public void whenClientTimeoutDetectedThenTestIsInterrupted()
       throws InterruptedException, IOException {
 
-    // NGInputStream test double which provides access to registered client listener.
-    class TestNGInputStream extends NGInputStream {
+    // Sub process interruption not supported on Windows.
+    assumeTrue(Platform.detect() != Platform.WINDOWS);
 
-      public NGClientListener listener = null;
+    final long timeoutMillis = 100;
+    final long intervalMillis = timeoutMillis * 2; // Interval > timeout to trigger disconnection.
+    final ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "exclusive_execution", tmp);
+    workspace.setUp();
 
-      public TestNGInputStream(InputStream in, DataOutputStream out, PrintStream serverLog) {
-        super(in, out, serverLog, 10000 /* client timeout millis */);
-      }
-
-      @Override
-      public synchronized void addClientListener(NGClientListener listener) {
-        this.listener = listener;
-      }
+    // Build an NGContext connected to an NGInputStream reading from stream that will timeout.
+    try (TestContext context = new TestContext(
+        ImmutableMap.copyOf(System.getenv()),
+        TestContext.createHeartBeatStream(intervalMillis),
+        timeoutMillis)) {
+      ProcessResult result = workspace.runBuckdCommand(context, "test", "//:test");
+      result.assertFailure();
+      assertThat(result.getStderr(), containsString("InterruptedException"));
     }
+  }
 
-    // Build an NGContext connected to an NGInputStream reading from a stream of heartbeats.
-    Thread.currentThread().setName("Test");
-    CapturingPrintStream serverLog = new CapturingPrintStream();
-    NGContext context = new NGContext() {
-      @Override
-      public Properties getEnv() {
-        Properties properties = new Properties();
-        properties.setProperty("PATH", System.getenv("PATH"));
-        return properties;
-      }
-    };
-    try (TestNGInputStream inputStream = new TestNGInputStream(
-            new DataInputStream(createHeartbeatStream(100)),
-            new DataOutputStream(new ByteArrayOutputStream(0)),
-            serverLog)) {
-      context.setArgs(new String[] {"targets"});
-      context.in = inputStream;
-      context.out = new CapturingPrintStream();
-      context.err = new CapturingPrintStream();
-      context.setExitStream(new CapturingPrintStream());
+  /**
+   * This verifies that a client timeout will be detected by a Nailgun
+   * NGInputStream reading from an empty heartbeat stream and that the generated
+   * InterruptedException will cause command execution to fail after timeout.
+   */
+  @Test
+  public void whenClientDisconnectionDetectedThenBuildIsInterrupted()
+      throws InterruptedException, IOException {
 
-      // NGSecurityManager is used to convert System.exit() calls in to NGExitExceptions.
-      SecurityManager originalSecurityManager = System.getSecurityManager();
+    // Sub process interruption not supported on Windows.
+    assumeTrue(Platform.detect() != Platform.WINDOWS);
 
-      // Run command to register client listener.
-      try {
-        System.setSecurityManager(new NGSecurityManager(originalSecurityManager));
-        Main.nailMain(context);
-        fail("Should throw NGExitException.");
-      } catch (NGExitException e) {
-        assertEquals("Should exit with status 0.", SUCCESS_EXIT_CODE, e.getStatus());
-      } finally {
-        System.setSecurityManager(originalSecurityManager);
-      }
+    final long timeoutMillis = 2000; // Stream timeout > test timeout.
+    final long disconnectMillis = 100; // Disconnect before test timeout.
+    final ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "exclusive_execution", tmp);
+    workspace.setUp();
 
-      // Check listener was registered calls System.exit() with client disconnect exit code.
-      try {
-        System.setSecurityManager(new NGSecurityManager(originalSecurityManager));
-        assertNotNull("Should register client listener.", inputStream.listener);
-        inputStream.listener.clientDisconnected();
-        fail("Should throw InterruptedException.");
-      } catch (InterruptedException e) {
-        assertEquals("Should be client disconnection.", "Client disconnected.", e.getMessage());
-      } finally {
-        System.setSecurityManager(originalSecurityManager);
-      }
+    // Build an NGContext connected to an NGInputStream reading from stream that will timeout.
+    try (TestContext context = new TestContext(
+        ImmutableMap.copyOf(System.getenv()),
+        TestContext.createDisconnectionStream(disconnectMillis),
+        timeoutMillis)) {
+      ProcessResult result = workspace.runBuckdCommand(context, "build", "//:sleep");
+      result.assertFailure();
+      assertThat(result.getStderr(), containsString("InterruptedException"));
+    }
+  }
+
+  /**
+   * This verifies that a client disconnection will be detected by a Nailgun
+   * NGInputStream reading from an empty heartbeat stream and that the generated
+   * InterruptedException will interrupt command execution causing it to fail.
+   */
+  @Test
+  public void whenClientDisconnectionDetectedThenTestIsInterrupted()
+      throws InterruptedException, IOException {
+
+    // Sub process interruption not supported on Windows.
+    assumeTrue(Platform.detect() != Platform.WINDOWS);
+
+    final long timeoutMillis = 2000; // Stream timeout > test timeout.
+    final long disconnectMillis = 100; // Disconnect before test timeout.
+    final ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "exclusive_execution", tmp);
+    workspace.setUp();
+
+    // Build an NGContext connected to an NGInputStream reading from stream that will timeout.
+    try (TestContext context = new TestContext(
+        ImmutableMap.copyOf(System.getenv()),
+        TestContext.createDisconnectionStream(disconnectMillis),
+        timeoutMillis)) {
+      ProcessResult result = workspace.runBuckdCommand(context, "test", "//:test");
+      result.assertFailure();
+      assertThat(result.getStderr(), containsString("InterruptedException"));
     }
   }
 
@@ -229,7 +334,7 @@ public class DaemonIntegrationTest {
         this, "file_watching", tmp);
     workspace.setUp();
 
-    ProjectWorkspace.ProcessResult result = workspace.runBuckdCommand("build", "app");
+    ProcessResult result = workspace.runBuckdCommand("build", "app");
     result.assertSuccess();
 
     String fileName = "apps/myapp/BUCK";
@@ -312,7 +417,7 @@ public class DaemonIntegrationTest {
     Files.write("Some Illegal Python".getBytes(Charsets.US_ASCII), workspace.getFile(fileName));
     waitForChange(Paths.get(fileName));
 
-    ProjectWorkspace.ProcessResult result = workspace.runBuckdCommand("build", "app");
+    ProcessResult result = workspace.runBuckdCommand("build", "app");
     assertThat(
         "Failure should be due to syntax error.",
         result.getStderr(),
@@ -323,35 +428,42 @@ public class DaemonIntegrationTest {
   @Test
   public void whenBuckConfigChangesParserInvalidated()
       throws IOException, InterruptedException {
-    final ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "file_watching", tmp);
-    workspace.setUp();
+    ProjectFilesystem filesystem = new ProjectFilesystem(tmp.getRoot().toPath());
+    ObjectMapper objectMapper = new ObjectMapper();
 
-    workspace.runBuckdCommand("build", "//java/com/example/activity:activity").assertSuccess();
+    Object daemon = Main.getDaemon(new TestRepositoryBuilder().setBuckConfig(
+        new FakeBuckConfig(
+            ImmutableMap.<String, Map<String, String>>builder()
+                .put("somesection", ImmutableMap.of("somename", "somevalue"))
+                .build()))
+        .setFilesystem(filesystem)
+        .build(),
+        new FakeClock(0),
+        objectMapper);
 
-    ProjectWorkspace.ProcessResult rebuild =
-        workspace.runBuckdCommand("build", "//java/com/example/activity:activity", "-v", "10");
-    rebuild.assertSuccess();
+    assertEquals(
+        "Daemon should not be replaced when config equal.", daemon,
+        Main.getDaemon(new TestRepositoryBuilder().setBuckConfig(
+            new FakeBuckConfig(
+                ImmutableMap.<String, Map<String, String>>builder()
+                    .put("somesection", ImmutableMap.of("somename", "somevalue"))
+                    .build()))
+            .setFilesystem(filesystem)
+            .build(),
+            new FakeClock(0),
+            objectMapper));
 
-    assertThat("Noop build should not have reparsed.",
-        rebuild.getStderr(),
-        not(containsString("Parsing")));
-
-    String buckConfigFilename = ".buckconfig";
-    String extraConfigOptions = Joiner.on("\n").join(
-        "[ndk]",
-        "    ndk_version = r9b",
-        "");
-
-    Files.append(extraConfigOptions, workspace.getFile(buckConfigFilename), Charsets.UTF_8);
-
-    rebuild =
-        workspace.runBuckdCommand("build", "//java/com/example/activity:activity", "-v", "10");
-    rebuild.assertSuccess();
-
-    assertThat("Changing .buckconfing should have forced a reparse.",
-        rebuild.getStderr(),
-        containsString("Parsing"));
+    assertNotEquals(
+        "Daemon should be replaced when config not equal.", daemon,
+        Main.getDaemon(new TestRepositoryBuilder().setBuckConfig(
+            new FakeBuckConfig(
+                ImmutableMap.<String, Map<String, String>>builder()
+                    .put("somesection", ImmutableMap.of("somename", "someothervalue"))
+                    .build()))
+            .setFilesystem(filesystem)
+            .build(),
+            new FakeClock(0),
+            objectMapper));
   }
 
   @Test
@@ -368,7 +480,7 @@ public class DaemonIntegrationTest {
     assertTrue(buildLogFile.isFile());
     assertTrue(buildLogFile.delete());
 
-    ProjectWorkspace.ProcessResult rebuild =
+    ProcessResult rebuild =
         workspace.runBuckdCommand("build", "//java/com/example/activity:activity");
     rebuild.assertSuccess();
 
@@ -393,7 +505,7 @@ public class DaemonIntegrationTest {
 
       @Subscribe
       public synchronized void onEvent(WatchEvent<?> event) throws IOException {
-        if (path.equals(event.context())) {
+        if (path.equals(event.context()) || event.kind() == StandardWatchEventKinds.OVERFLOW) {
           watchedChange = true;
         }
       }

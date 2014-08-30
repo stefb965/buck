@@ -19,7 +19,11 @@ package com.facebook.buck.step;
 import static com.facebook.buck.util.concurrent.MoreExecutors.newMultiThreadExecutor;
 import static com.google.common.util.concurrent.MoreExecutors.listeningDecorator;
 
+import com.facebook.buck.log.CommandThreadFactory;
+import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.util.InterruptionFailedException;
+import com.facebook.buck.util.concurrent.MoreExecutors;
 import com.facebook.buck.util.concurrent.MoreFutures;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
@@ -41,13 +45,22 @@ import java.util.concurrent.TimeUnit;
 
 public final class DefaultStepRunner implements StepRunner, Closeable {
 
-  private static final long SHUTDOWN_TIMEOUT_SECONDS = 15;
+  private static final Logger LOG = Logger.get(DefaultStepRunner.class);
+
+  // Shutdown timeout should be longer than the maximum runtime of a single step as some
+  // steps ignore interruption. The longest ever recorded step execution time as of
+  // 2014-07-08 was ~6 minutes, so a timeout of 10 minutes should be sufficient.
+  private static final long SHUTDOWN_TIMEOUT_MINUTES = 10;
   private final ExecutionContext context;
   private final ListeningExecutorService listeningExecutorService;
 
   public DefaultStepRunner(ExecutionContext context,
                            int numThreads) {
-    this(context, listeningDecorator(newMultiThreadExecutor("DefaultStepRunner", numThreads)));
+    this(context,
+        listeningDecorator(
+            newMultiThreadExecutor(
+                new CommandThreadFactory("DefaultStepRunner"),
+                numThreads)));
   }
 
   @VisibleForTesting
@@ -78,14 +91,16 @@ public final class DefaultStepRunner implements StepRunner, Closeable {
       context.getStdErr().println(step.getDescription(context));
     }
 
-    context.postEvent(StepEvent.started(step, step.getDescription(context)));
+    context.getBuckEventBus().logDebugAndPost(
+        LOG, StepEvent.started(step, step.getDescription(context)));
     int exitCode = 1;
     try {
       exitCode = step.execute(context);
     } catch (RuntimeException e) {
       throw StepFailedException.createForFailingStepWithException(step, e, buildTarget);
     } finally {
-      context.postEvent(StepEvent.finished(step, step.getDescription(context), exitCode));
+      context.getBuckEventBus().logDebugAndPost(
+          LOG, StepEvent.finished(step, step.getDescription(context), exitCode));
     }
     if (exitCode != 0) {
       throw StepFailedException.createForFailingStepWithExitCode(step,
@@ -159,17 +174,16 @@ public final class DefaultStepRunner implements StepRunner, Closeable {
   }
 
   @Override
-  public void shutdownNow() {
-    listeningExecutorService.shutdownNow();
+  public void close() throws IOException {
+    close(SHUTDOWN_TIMEOUT_MINUTES, TimeUnit.MINUTES);
   }
 
-  @Override
-  public void close() throws IOException {
-    listeningExecutorService.shutdown();
-    try {
-      listeningExecutorService.awaitTermination(SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-    }
+  @VisibleForTesting
+  void close(long timeout, TimeUnit unit) {
+    MoreExecutors.shutdownOrThrow(
+        listeningExecutorService,
+        timeout,
+        unit,
+        new InterruptionFailedException("Failed to shutdown ExecutorService."));
   }
 }

@@ -21,7 +21,6 @@ import com.google.common.collect.Sets;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Set;
 
 public class Zip extends AbstractBuildRule {
@@ -37,7 +36,7 @@ public class Zip extends AbstractBuildRule {
 
     this.output = BuildTargets.getGenPath(getBuildTarget(), "%s.zip");
     this.scratchDir = BuildTargets.getBinPath(getBuildTarget(), "%s.zip.scratch");
-    this.localPath = Paths.get(getBuildTarget().getBasePath());
+    this.localPath = getBuildTarget().getBasePath();
   }
 
   @Override

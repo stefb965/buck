@@ -16,15 +16,21 @@
 
 package com.facebook.buck.rules;
 
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Function;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Ordering;
 import com.google.common.io.Files;
 
 import java.nio.file.Path;
 import java.util.Collection;
+import java.util.Map;
 import java.util.Set;
 
 import javax.annotation.Nullable;
@@ -39,6 +45,13 @@ public class SourcePaths {
         @Override
         public SourcePath apply(Path input) {
           return new PathSourcePath(input);
+        }
+      };
+  public static final Function<BuildRule, SourcePath> TO_BUILD_RULE_SOURCE_PATH =
+      new Function<BuildRule, SourcePath>() {
+        @Override
+        public SourcePath apply(BuildRule input) {
+          return new BuildRuleSourcePath(input);
         }
       };
   public static final Function<PathSourcePath, Path> TO_PATH_SOURCEPATH_REFERENCES =
@@ -92,7 +105,7 @@ public class SourcePaths {
         .toList();
   }
 
-  public static Collection<Path> toPaths(Iterable<? extends SourcePath> sourcePaths) {
+  public static ImmutableList<Path> toPaths(Iterable<? extends SourcePath> sourcePaths) {
     // Maintain ordering and duplication if necessary.
     return FluentIterable.from(sourcePaths).transform(TO_PATH).toList();
   }
@@ -111,4 +124,31 @@ public class SourcePaths {
   public static boolean isSourcePathExtensionInSet(SourcePath sourcePath, Set<String> extensions) {
     return extensions.contains(Files.getFileExtension(sourcePath.resolve().toString()));
   }
+
+  /**
+   * Resolved the logical names for a group of SourcePath objects into a map, throwing an
+   * error on duplicates.
+   */
+  public static ImmutableMap<String, SourcePath> getSourcePathNames(
+      BuildTarget target,
+      String parameter,
+      Iterable<SourcePath> sourcePaths) {
+
+    Map<String, SourcePath> resolved = Maps.newHashMap();
+
+    for (SourcePath path : sourcePaths) {
+      String name = path.getName();
+      SourcePath old = resolved.put(name, path);
+      if (old != null) {
+        throw new HumanReadableException(String.format(
+            "%s: parameter '%s': duplicate entries for '%s'",
+            target,
+            parameter,
+            name));
+      }
+    }
+
+    return ImmutableMap.copyOf(resolved);
+  }
+
 }

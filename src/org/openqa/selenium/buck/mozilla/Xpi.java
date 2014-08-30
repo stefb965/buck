@@ -18,6 +18,7 @@ package org.openqa.selenium.buck.mozilla;
 
 import static com.facebook.buck.step.fs.CopyStep.DirectoryMode.DIRECTORY_AND_CONTENTS;
 
+import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -28,7 +29,6 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
-import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.zip.ZipStep;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -36,7 +36,6 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
-import java.nio.file.Paths;
 
 import javax.annotation.Nullable;
 
@@ -64,16 +63,11 @@ public class Xpi extends AbstractBuildRule {
     this.install = install;
     this.resources = resources;
 
-    this.output = Paths.get(
-        BuckConstant.GEN_DIR,
-        getBuildTarget().getBasePath(),
-        getBuildTarget().getShortName(),
-        getBuildTarget().getShortName() + ".xpi");
+    this.output = BuildTargets.getGenPath(
+        getBuildTarget(),
+        String.format("%%s/%s.xpi", getBuildTarget().getShortName()));
 
-    this.scratch = Paths.get(
-        BuckConstant.BIN_DIR,
-        getBuildTarget().getBasePath(),
-        getBuildTarget().getShortName() + "-xpi");
+    this.scratch = BuildTargets.getBinPath(getBuildTarget(), "%s-xpi");
   }
 
   @Override

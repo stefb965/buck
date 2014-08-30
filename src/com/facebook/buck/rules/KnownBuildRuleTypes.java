@@ -21,6 +21,7 @@ import com.facebook.buck.android.AndroidBuildConfigDescription;
 import com.facebook.buck.android.AndroidInstrumentationApkDescription;
 import com.facebook.buck.android.AndroidLibraryDescription;
 import com.facebook.buck.android.AndroidManifestDescription;
+import com.facebook.buck.android.AndroidPrebuiltAarDescription;
 import com.facebook.buck.android.AndroidResourceDescription;
 import com.facebook.buck.android.ApkGenruleDescription;
 import com.facebook.buck.android.GenAidlDescription;
@@ -28,24 +29,25 @@ import com.facebook.buck.android.NdkLibraryDescription;
 import com.facebook.buck.android.PrebuiltNativeLibraryDescription;
 import com.facebook.buck.android.RobolectricTestDescription;
 import com.facebook.buck.apple.AppleAssetCatalogDescription;
+import com.facebook.buck.apple.AppleBinaryDescription;
+import com.facebook.buck.apple.AppleBundleDescription;
+import com.facebook.buck.apple.AppleLibraryDescription;
+import com.facebook.buck.apple.AppleResourceDescription;
+import com.facebook.buck.apple.AppleTestDescription;
 import com.facebook.buck.apple.CoreDataModelDescription;
-import com.facebook.buck.apple.IosBinaryDescription;
-import com.facebook.buck.apple.IosLibraryDescription;
 import com.facebook.buck.apple.IosPostprocessResourcesDescription;
-import com.facebook.buck.apple.IosResourceDescription;
-import com.facebook.buck.apple.IosTestDescription;
-import com.facebook.buck.apple.MacosxBinaryDescription;
-import com.facebook.buck.apple.MacosxFrameworkDescription;
-import com.facebook.buck.apple.OsxResourceDescription;
 import com.facebook.buck.apple.XcodeNativeDescription;
 import com.facebook.buck.apple.XcodeProjectConfigDescription;
 import com.facebook.buck.apple.XcodeWorkspaceConfigDescription;
 import com.facebook.buck.cli.BuckConfig;
-import com.facebook.buck.cpp.CppBinaryDescription;
-import com.facebook.buck.cpp.CppLibraryDescription;
+import com.facebook.buck.cxx.Archives;
+import com.facebook.buck.cxx.CxxBinaryDescription;
+import com.facebook.buck.cxx.CxxBuckConfig;
+import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.extension.BuckExtensionDescription;
 import com.facebook.buck.gwt.GwtBinaryDescription;
 import com.facebook.buck.java.JavaBinaryDescription;
+import com.facebook.buck.java.JavaBuckConfig;
 import com.facebook.buck.java.JavaCompilerEnvironment;
 import com.facebook.buck.java.JavaLibraryDescription;
 import com.facebook.buck.java.JavaTestDescription;
@@ -55,10 +57,12 @@ import com.facebook.buck.java.PrebuiltJarDescription;
 import com.facebook.buck.parcelable.GenParcelableDescription;
 import com.facebook.buck.python.PythonBinaryDescription;
 import com.facebook.buck.python.PythonLibraryDescription;
+import com.facebook.buck.python.PythonTestDescription;
 import com.facebook.buck.shell.ExportFileDescription;
 import com.facebook.buck.shell.GenruleDescription;
 import com.facebook.buck.shell.ShBinaryDescription;
 import com.facebook.buck.shell.ShTestDescription;
+import com.facebook.buck.thrift.JavaThriftLibraryDescription;
 import com.facebook.buck.util.AndroidDirectoryResolver;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.VisibleForTesting;
@@ -75,6 +79,7 @@ import org.openqa.selenium.buck.javascript.JsLibraryDescription;
 import org.openqa.selenium.buck.mozilla.XpiDescription;
 import org.openqa.selenium.buck.mozilla.XptDescription;
 
+import java.nio.file.Path;
 import java.util.Map;
 
 /**
@@ -163,10 +168,24 @@ public class KnownBuildRuleTypes {
       ndkVersion = androidDirectoryResolver.getNdkVersion();
     }
 
+    // Construct the C/C++ config wrapping the buck config.
+    CxxBuckConfig cxxBuckConfig = new CxxBuckConfig(config);
+
+    // Look up the path to the "ar" tool in the buck config, falling back to the default
+    // if not found.
+    Path archiver = config.getPath("tools", "ar").or(Archives.DEFAULT_ARCHIVE_PATH);
+
+    // Look up the path to the PEX builder script.
+    Optional<Path> pythonPathToPex = config.getPath("python", "path_to_pex");
+
+    // Look up the path to the main module we use for python tests.
+    Optional<Path> pythonPathToPythonTestMain =
+        config.getPath("python", "path_to_python_test_main");
+
     Builder builder = builder();
 
     JavacOptions androidBinaryOptions = JavacOptions.builder(JavacOptions.DEFAULTS)
-        .setJavaCompilerEnviornment(javacEnv)
+        .setJavaCompilerEnvironment(javacEnv)
         .build();
     builder.register(new AndroidBinaryDescription(
             androidBinaryOptions,
@@ -175,13 +194,16 @@ public class KnownBuildRuleTypes {
     builder.register(new AndroidInstrumentationApkDescription());
     builder.register(new AndroidLibraryDescription(javacEnv));
     builder.register(new AndroidManifestDescription());
+    builder.register(new AndroidPrebuiltAarDescription());
     builder.register(new AndroidResourceDescription());
     builder.register(new ApkGenruleDescription());
     builder.register(new AppleAssetCatalogDescription());
+    builder.register(new AppleBundleDescription());
+    builder.register(new AppleTestDescription());
     builder.register(new BuckExtensionDescription());
     builder.register(new CoreDataModelDescription());
-    builder.register(new CppBinaryDescription());
-    builder.register(new CppLibraryDescription());
+    builder.register(new CxxBinaryDescription(cxxBuckConfig));
+    builder.register(new CxxLibraryDescription(cxxBuckConfig));
     builder.register(new ExportFileDescription());
     builder.register(new GenruleDescription());
     builder.register(new GenAidlDescription());
@@ -191,20 +213,21 @@ public class KnownBuildRuleTypes {
     builder.register(new JavaBinaryDescription());
     builder.register(new JavaLibraryDescription(javacEnv));
     builder.register(new JavaTestDescription(javacEnv));
-    builder.register(new IosBinaryDescription());
-    builder.register(new IosLibraryDescription());
+    builder.register(new AppleLibraryDescription(archiver));
+    builder.register(new AppleBinaryDescription());
     builder.register(new IosPostprocessResourcesDescription());
-    builder.register(new IosResourceDescription());
-    builder.register(new IosTestDescription());
+    builder.register(new AppleResourceDescription());
     builder.register(new JavaBinaryDescription());
-    builder.register(new MacosxBinaryDescription());
-    builder.register(new MacosxFrameworkDescription());
+    builder.register(new JavaThriftLibraryDescription(javacEnv, new JavaBuckConfig(config)));
     builder.register(new NdkLibraryDescription(ndkVersion));
-    builder.register(new OsxResourceDescription());
     builder.register(new PrebuiltJarDescription());
     builder.register(new PrebuiltNativeLibraryDescription());
     builder.register(new ProjectConfigDescription());
-    builder.register(new PythonBinaryDescription());
+    builder.register(new PythonTestDescription(
+        pythonPathToPex.or(PythonBinaryDescription.DEFAULT_PATH_TO_PEX),
+        pythonPathToPythonTestMain.or(PythonTestDescription.PYTHON_PATH_TO_PYTHON_TEST_MAIN)));
+    builder.register(new PythonBinaryDescription(
+        pythonPathToPex.or(PythonBinaryDescription.DEFAULT_PATH_TO_PEX)));
     builder.register(new PythonLibraryDescription());
     builder.register(new RobolectricTestDescription(javacEnv));
     builder.register(new ShBinaryDescription());

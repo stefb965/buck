@@ -26,6 +26,7 @@ import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleSuccess;
 import com.facebook.buck.step.StepFailedException;
 import com.facebook.buck.step.TargetDevice;
 import com.facebook.buck.util.Console;
@@ -38,10 +39,15 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterators;
+import com.google.common.collect.Sets;
+import com.google.common.util.concurrent.ListenableFuture;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 
 import javax.annotation.Nullable;
@@ -50,7 +56,7 @@ public class BuildCommand extends AbstractCommandRunner<BuildCommandOptions> {
 
   @Nullable private Build build;
 
-  private ImmutableList<BuildTarget> buildTargets = ImmutableList.of();
+  private ImmutableSet<BuildTarget> buildTargets = ImmutableSet.of();
 
   public BuildCommand(CommandRunnerParams params) {
     super(params);
@@ -104,11 +110,17 @@ public class BuildCommand extends AbstractCommandRunner<BuildCommandOptions> {
     try {
       actionGraph = getParser().parseBuildFilesForTargets(buildTargets,
           options.getDefaultIncludes(),
-          getBuckEventBus());
+          getBuckEventBus(),
+          console,
+          environment);
     } catch (BuildTargetException | BuildFileParseException e) {
       console.printBuildFailureWithoutStacktrace(e);
       return 1;
     }
+
+    // Calculate and post the number of rules that need to built.
+    int numRules = getNumRulesToBuild(buildTargets, actionGraph);
+    getBuckEventBus().post(BuildEvent.ruleCountCalculated(buildTargets, numRules));
 
     // Create and execute the build.
     build = options.createBuild(
@@ -122,7 +134,8 @@ public class BuildCommand extends AbstractCommandRunner<BuildCommandOptions> {
         getBuckEventBus(),
         Optional.<TargetDevice>absent(),
         getCommandRunnerParams().getPlatform(),
-        getCommandRunnerParams().getEnvironment());
+        getCommandRunnerParams().getEnvironment(),
+        getCommandRunnerParams().getObjectMapper());
     int exitCode = 0;
     try {
       exitCode = executeBuildAndPrintAnyFailuresToConsole(buildTargets, build, console);
@@ -134,6 +147,43 @@ public class BuildCommand extends AbstractCommandRunner<BuildCommandOptions> {
     return exitCode;
   }
 
+  private static int getNumRulesToBuild(
+      ImmutableSet<BuildTarget> buildTargets,
+      final ActionGraph actionGraph) {
+    Set<BuildRule> baseBuildRules = FluentIterable
+        .from(buildTargets)
+        .transform(new Function<HasBuildTarget, BuildRule>() {
+                     @Override
+                     public BuildRule apply(HasBuildTarget hasBuildTarget) {
+                       return actionGraph.findBuildRuleByTarget(hasBuildTarget.getBuildTarget());
+                     }
+                   })
+        .toSet();
+
+    Set<BuildRule> allBuildRules = Sets.newHashSet();
+    for (BuildRule rule : baseBuildRules) {
+      addTransitiveDepsForRule(rule, allBuildRules);
+    }
+    allBuildRules.addAll(baseBuildRules);
+    return allBuildRules.size();
+  }
+
+  private static void addTransitiveDepsForRule(
+      BuildRule buildRule,
+      Set<BuildRule> transitiveDeps) {
+    ImmutableSortedSet<BuildRule> deps = buildRule.getDeps();
+    if (deps.isEmpty()) {
+      return;
+    }
+    for (BuildRule dep : deps) {
+      if (!transitiveDeps.contains(dep)) {
+        transitiveDeps.add(dep);
+        addTransitiveDepsForRule(dep, transitiveDeps);
+      }
+    }
+  }
+
+  @SuppressWarnings("PMD.EmptyCatchBlock")
   static int executeBuildAndPrintAnyFailuresToConsole(
       Iterable<? extends HasBuildTarget> buildTargetsToBuild,
       Build build,
@@ -155,7 +205,18 @@ public class BuildCommand extends AbstractCommandRunner<BuildCommandOptions> {
     int exitCode;
     try {
       // Get the Future representing the build and then block until everything is built.
-      build.executeBuild(rulesToBuild).get();
+      ListenableFuture<List<BuildRuleSuccess>> buildFuture = build.executeBuild(rulesToBuild);
+      try {
+        buildFuture.get();
+      } catch (InterruptedException e) {
+        try {
+          buildFuture.cancel(true);
+        } catch (CancellationException ignored) {
+          // Rethrow original InterruptedException instead.
+        }
+        Thread.currentThread().interrupt();
+        throw e;
+      }
       exitCode = 0;
     } catch (IOException e) {
       console.printBuildFailureWithoutStacktrace(e);

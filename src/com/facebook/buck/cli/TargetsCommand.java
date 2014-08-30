@@ -18,7 +18,6 @@ package com.facebook.buck.cli;
 
 import com.facebook.buck.graph.AbstractBottomUpTraversal;
 import com.facebook.buck.json.BuildFileParseException;
-import com.facebook.buck.json.ProjectBuildFileParser;
 import com.facebook.buck.model.BuildFileTree;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
@@ -42,13 +41,10 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Collections;
-import java.util.EnumSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -103,16 +99,21 @@ public class TargetsCommand extends AbstractCommandRunner<TargetsCommandOptions>
     PartialGraph graph;
     try {
       if (matchingBuildTargets.isEmpty()) {
-        graph = PartialGraph.createFullGraph(getProjectFilesystem(),
+        graph = PartialGraph.createFullGraph(
+            getProjectFilesystem(),
             options.getDefaultIncludes(),
             getParser(),
-            getBuckEventBus());
+            getBuckEventBus(),
+            console,
+            environment);
       } else {
         graph = PartialGraph.createPartialGraphIncludingRoots(
             matchingBuildTargets,
             options.getDefaultIncludes(),
             getParser(),
-            getBuckEventBus());
+            getBuckEventBus(),
+            console,
+            environment);
       }
     } catch (BuildTargetException | BuildFileParseException e) {
       console.printBuildFailureWithoutStacktrace(e);
@@ -124,7 +125,7 @@ public class TargetsCommand extends AbstractCommandRunner<TargetsCommandOptions>
         new TargetsCommandPredicate(
             graph,
             buildRuleTypesBuilder.build(),
-            options.getReferencedFiles(getProjectFilesystem().getProjectRoot()),
+            options.getReferencedFiles(getProjectFilesystem().getRootPath()),
             matchingBuildTargets));
 
     // Print out matching targets in alphabetical order.
@@ -209,7 +210,7 @@ public class TargetsCommand extends AbstractCommandRunner<TargetsCommandOptions>
     // Print the JSON representation of the build rule for the specified target(s).
     getStdOut().println("[");
 
-    ObjectMapper mapper = new ObjectMapper();
+    ObjectMapper mapper = getObjectMapper();
     Iterator<BuildRule> valueIterator = buildIndex.values().iterator();
 
     while (valueIterator.hasNext()) {
@@ -218,12 +219,12 @@ public class TargetsCommand extends AbstractCommandRunner<TargetsCommandOptions>
 
       List<Map<String, Object>> rules;
       try {
-        File buildFile = buildTarget.getBuildFile(getProjectFilesystem());
+        Path buildFile = getRepository().getAbsolutePathToBuildFile(buildTarget);
         rules = getParser().parseBuildFile(
             buildFile,
             defaultIncludes,
-            EnumSet.noneOf(ProjectBuildFileParser.Option.class),
-            environment);
+            environment,
+            console);
       } catch (BuildTargetException e) {
         console.printErrorText(
             "unable to find rule for target " + buildTarget.getFullyQualifiedName());
@@ -326,10 +327,10 @@ public class TargetsCommand extends AbstractCommandRunner<TargetsCommandOptions>
     Parser parser = getParser();
     try {
       ruleObjects = parser.parseBuildFile(
-          buildTarget.getBuildFile(getProjectFilesystem()),
+          getRepository().getAbsolutePathToBuildFile(buildTarget),
           options.getDefaultIncludes(),
-          EnumSet.noneOf(ProjectBuildFileParser.Option.class),
-          environment);
+          environment,
+          console);
     } catch (BuildTargetException | BuildFileParseException e) {
       // TODO(devjasta): this doesn't smell right!
       return null;
@@ -391,12 +392,15 @@ public class TargetsCommand extends AbstractCommandRunner<TargetsCommandOptions>
         // Any referenced file, only those with the nearest BuildTarget can
         // directly depend on that file.
         if (!isDependent &&
-            basePathOfTargets.contains(Paths.get(rule.getBuildTarget().getBasePath()))) {
+            basePathOfTargets.contains(rule.getBuildTarget().getBasePath())) {
           for (Path input : rule.getInputs()) {
             if (referencedInputs.contains(input)) {
               isDependent = true;
               break;
             }
+          }
+          if (referencedInputs.contains(rule.getBuildTarget().getBuildFilePath())) {
+            isDependent = true;
           }
         }
 

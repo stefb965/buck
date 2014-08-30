@@ -27,6 +27,7 @@ import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.BuildDependencies;
 import com.facebook.buck.rules.CassandraArtifactCache;
 import com.facebook.buck.rules.DirArtifactCache;
+import com.facebook.buck.rules.HttpArtifactCache;
 import com.facebook.buck.rules.MultiArtifactCache;
 import com.facebook.buck.rules.NoopArtifactCache;
 import com.facebook.buck.util.Ansi;
@@ -78,6 +79,10 @@ import javax.annotation.concurrent.Immutable;
 @Beta
 @Immutable
 public class BuckConfig {
+
+  private static final String DEFAULT_BUCK_CONFIG_FILE_NAME = ".buckconfig";
+  private static final String DEFAULT_BUCK_CONFIG_OVERRIDE_FILE_NAME = ".buckconfig.local";
+
   private static final String ALIAS_SECTION_HEADER = "alias";
 
   /**
@@ -94,6 +99,9 @@ public class BuckConfig {
   private static final String DEFAULT_CASSANDRA_PORT = "9160";
   private static final String DEFAULT_CASSANDRA_MODE = CacheMode.readwrite.name();
   private static final String DEFAULT_CASSANDRA_TIMEOUT_SECONDS = "10";
+  private static final String DEFAULT_HTTP_CACHE_MODE = CacheMode.readwrite.name();
+  private static final String DEFAULT_HTTP_CACHE_PORT = "8080";
+  private static final String DEFAULT_HTTP_CACHE_TIMEOUT_SECONDS = "10";
   private static final String DEFAULT_MAX_TRACES = "25";
 
   // Prefer "python2" where available (Linux), but fall back to "python" (Mac).
@@ -103,6 +111,8 @@ public class BuckConfig {
   private final ImmutableMap<String, ImmutableMap<String, String>> sectionsToEntries;
 
   private final ImmutableMap<String, BuildTarget> aliasToBuildTargetMap;
+
+  private final ImmutableMap<String, Path> repoNamesToPaths;
 
   private final ProjectFilesystem projectFilesystem;
 
@@ -114,7 +124,8 @@ public class BuckConfig {
 
   private enum ArtifactCacheNames {
     dir,
-    cassandra
+    cassandra,
+    http
   }
 
   private enum CacheMode {
@@ -130,11 +141,13 @@ public class BuckConfig {
   }
 
   @VisibleForTesting
-  BuckConfig(Map<String, Map<String, String>> sectionsToEntries,
+  BuckConfig(
+      Map<String, Map<String, String>> sectionsToEntries,
       ProjectFilesystem projectFilesystem,
       BuildTargetParser buildTargetParser,
       Platform platform,
-      ImmutableMap<String, String> environment) {
+      ImmutableMap<String, String> environment,
+      ImmutableMap<String, Path> repoNamesToPaths) {
     this.projectFilesystem = Preconditions.checkNotNull(projectFilesystem);
     this.buildTargetParser = Preconditions.checkNotNull(buildTargetParser);
 
@@ -151,6 +164,8 @@ public class BuckConfig {
     this.aliasToBuildTargetMap = createAliasToBuildTargetMap(
         this.getEntriesForSection(ALIAS_SECTION_HEADER),
         buildTargetParser);
+
+    this.repoNamesToPaths = Preconditions.checkNotNull(repoNamesToPaths);
 
     this.platform = Preconditions.checkNotNull(platform);
     this.environment = Preconditions.checkNotNull(environment);
@@ -178,7 +193,8 @@ public class BuckConfig {
           projectFilesystem,
           buildTargetParser,
           platform,
-          environment);
+          environment,
+          ImmutableMap.<String, Path>of());
     }
 
     // Convert the Files to Readers.
@@ -299,12 +315,15 @@ public class BuckConfig {
       ImmutableMap<String, String> environment)
       throws IOException {
     Map<String, Map<String, String>> sectionsToEntries = createFromReaders(readers);
+    ImmutableMap<String, Path> repoNamesToPaths =
+        createRepoNamesToPaths(projectFilesystem, sectionsToEntries);
     return new BuckConfig(
         sectionsToEntries,
         projectFilesystem,
         buildTargetParser,
         platform,
-        environment);
+        environment,
+        repoNamesToPaths);
   }
 
   public ImmutableMap<String, String> getEntriesForSection(String section) {
@@ -431,7 +450,7 @@ public class BuckConfig {
    * Create a map of {@link BuildTarget} base paths to aliases. Note that there may be more than
    * one alias to a base path, so the first one listed in the .buckconfig will be chosen.
    */
-  public ImmutableMap<String, String> getBasePathToAliasMap() {
+  public ImmutableMap<Path, String> getBasePathToAliasMap() {
     ImmutableMap<String, String> aliases = sectionsToEntries.get(ALIAS_SECTION_HEADER);
     if (aliases == null) {
       return ImmutableMap.of();
@@ -439,12 +458,12 @@ public class BuckConfig {
 
     // Build up the Map with an ordinary HashMap because we need to be able to check whether the Map
     // already contains the key before inserting.
-    Map<String, String> basePathToAlias = Maps.newHashMap();
+    Map<Path, String> basePathToAlias = Maps.newHashMap();
     for (Map.Entry<String, BuildTarget> entry : aliasToBuildTargetMap.entrySet()) {
       String alias = entry.getKey();
       BuildTarget buildTarget = entry.getValue();
 
-      String basePath = buildTarget.getBasePath();
+      Path basePath = buildTarget.getBasePath();
       if (!basePathToAlias.containsKey(basePath)) {
         basePathToAlias.put(basePath, alias);
       }
@@ -458,6 +477,10 @@ public class BuckConfig {
 
   public long getDefaultTestTimeoutMillis() {
     return Long.parseLong(getValue("test", "timeout").or("0"));
+  }
+
+  public boolean isTreatingAssumptionsAsErrors() {
+    return getBooleanValue("test", "assumptions-are-errors", false);
   }
 
   public int getMaxTraces() {
@@ -550,7 +573,7 @@ public class BuckConfig {
         return Ansi.forceTty();
       case "auto":
       default:
-        return new Ansi(platform);
+        return new Ansi(platform, Optional.fromNullable(environment.get("TERM")));
     }
   }
 
@@ -577,6 +600,10 @@ public class BuckConfig {
           if (cassandraArtifactCache != null) {
             builder.add(cassandraArtifactCache);
           }
+          break;
+        case http:
+          ArtifactCache httpArtifactCache = createHttpArtifactCache(buckEventBus);
+          builder.add(httpArtifactCache);
           break;
         }
       }
@@ -661,6 +688,21 @@ public class BuckConfig {
       buckEventBus.post(ThrowableConsoleEvent.create(e, "Cassandra cache connection failure."));
       return null;
     }
+  }
+
+  private ArtifactCache createHttpArtifactCache(BuckEventBus buckEventBus) {
+    String host = getValue("cache", "http_host").or("localhost");
+    int port = Integer.parseInt(getValue("cache", "http_port").or(DEFAULT_HTTP_CACHE_PORT));
+    int timeoutSeconds = Integer.parseInt(
+        getValue("cache", "http_timeout_seconds").or(DEFAULT_HTTP_CACHE_TIMEOUT_SECONDS));
+    boolean doStore = readCacheMode("http_mode", DEFAULT_HTTP_CACHE_MODE);
+    return new HttpArtifactCache(
+        host,
+        port,
+        timeoutSeconds,
+        doStore,
+        projectFilesystem,
+        buckEventBus);
   }
 
   private boolean readCacheMode(String fieldName, String defaultValue) {
@@ -814,6 +856,18 @@ public class BuckConfig {
     return checkPathExists(pathToAapt.toString(), "Overridden aapt path not found: ");
   }
 
+  /**
+   * @return the path for the given section and property.
+   */
+  public Optional<Path> getPath(String sectionName, String name) {
+    Optional<String> pathString = getValue(sectionName, name);
+    return pathString.isPresent() ?
+        checkPathExists(
+            pathString.get(),
+            String.format("Overridden %s:%s path not found: ", sectionName, name)) :
+        Optional.<Path>absent();
+  }
+
   public Optional<Path> checkPathExists(String pathString, String errorMsg) {
     Path path = Paths.get(pathString);
     if (projectFilesystem.exists(path)) {
@@ -822,8 +876,56 @@ public class BuckConfig {
     throw new HumanReadableException(errorMsg + path);
   }
 
+  private static ImmutableMap<String, Path> createRepoNamesToPaths(
+      ProjectFilesystem filesystem,
+      Map<String, Map<String, String>> sectionsToEntries)
+      throws IOException {
+    @Nullable Map<String, String> repositoryConfigs = sectionsToEntries.get("repositories");
+    if (repositoryConfigs == null) {
+      return ImmutableMap.of();
+    }
+    ImmutableMap.Builder<String, Path> repositoryPaths = ImmutableMap.builder();
+    for (String name : repositoryConfigs.keySet()) {
+      String pathString = repositoryConfigs.get(name);
+      Path canonicalPath = filesystem.resolve(Paths.get(pathString)).toRealPath();
+      repositoryPaths.put(name, canonicalPath);
+    }
+    return repositoryPaths.build();
+  }
+
+  public ImmutableMap<String, Path> getRepositoryPaths() {
+    return repoNamesToPaths;
+  }
+
   @VisibleForTesting
   String getProperty(String key, String def) {
     return System.getProperty(key, def);
+  }
+
+  /**
+   * @param projectFilesystem The directory that is the root of the project being built.
+   */
+  public static BuckConfig createDefaultBuckConfig(
+      ProjectFilesystem projectFilesystem,
+      Platform platform,
+      ImmutableMap<String, String> environment)
+      throws IOException {
+    ImmutableList.Builder<File> configFileBuilder = ImmutableList.builder();
+    File configFile = projectFilesystem.getFileForRelativePath(DEFAULT_BUCK_CONFIG_FILE_NAME);
+    if (configFile.isFile()) {
+      configFileBuilder.add(configFile);
+    }
+    File overrideConfigFile = projectFilesystem.getFileForRelativePath(
+        DEFAULT_BUCK_CONFIG_OVERRIDE_FILE_NAME);
+    if (overrideConfigFile.isFile()) {
+      configFileBuilder.add(overrideConfigFile);
+    }
+
+    ImmutableList<File> configFiles = configFileBuilder.build();
+    return BuckConfig.createFromFiles(
+        projectFilesystem,
+        configFiles,
+        platform,
+        environment);
   }
 }

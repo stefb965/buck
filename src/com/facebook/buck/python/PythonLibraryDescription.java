@@ -24,6 +24,7 @@ import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.ConstructorArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSortedSet;
 
@@ -31,10 +32,11 @@ public class PythonLibraryDescription implements Description<Arg> {
 
   public static final BuildRuleType TYPE = new BuildRuleType("python_library");
 
+  @SuppressFieldNotInitialized
   public static class Arg implements ConstructorArg {
     public Optional<ImmutableSortedSet<SourcePath>> srcs;
-    public Optional<ImmutableSortedSet<BuildRule>> deps;
     public Optional<ImmutableSortedSet<SourcePath>> resources;
+    public Optional<ImmutableSortedSet<BuildRule>> deps;
   }
 
   @Override
@@ -54,7 +56,16 @@ public class PythonLibraryDescription implements Description<Arg> {
       A args) {
     return new PythonLibrary(
         params,
-        args.srcs.or(ImmutableSortedSet.<SourcePath>of()),
-        args.resources.or(ImmutableSortedSet.<SourcePath>of()));
+        PythonUtil.toModuleMap(
+            params.getBuildTarget(),
+            "srcs",
+            params.getBuildTarget().getBasePath(),
+            args.srcs.or(ImmutableSortedSet.<SourcePath>of())),
+        PythonUtil.toModuleMap(
+            params.getBuildTarget(),
+            "resources",
+            params.getBuildTarget().getBasePath(),
+            args.resources.or(ImmutableSortedSet.<SourcePath>of())));
   }
+
 }

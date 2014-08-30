@@ -84,7 +84,7 @@ public class SuperConsoleEventBusListenerTest {
 
     BuildTarget fakeTarget = BuildTargetFactory.newInstance("//banana:stand");
     BuildTarget cachedTarget = BuildTargetFactory.newInstance("//chicken:dance");
-    ImmutableList<BuildTarget> buildTargets = ImmutableList.of(fakeTarget, cachedTarget);
+    ImmutableSet<BuildTarget> buildTargets = ImmutableSet.of(fakeTarget, cachedTarget);
     FakeBuildRule fakeRule = new FakeBuildRule(
         GenruleDescription.TYPE,
         fakeTarget,
@@ -102,7 +102,9 @@ public class SuperConsoleEventBusListenerTest {
             fakeClock,
             new DefaultExecutionEnvironment(
                 new FakeProcessExecutor(),
-                ImmutableMap.copyOf(System.getenv())));
+                ImmutableMap.copyOf(System.getenv()),
+                System.getProperties()),
+            /* isTreatingAssumptionsAsErrors */ false);
     eventBus.register(listener);
 
     rawEventBus.post(configureTestEventAtTime(

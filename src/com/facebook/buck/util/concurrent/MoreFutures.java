@@ -43,6 +43,7 @@ public class MoreFutures {
    *     in an ExecutionException and thrown.  Access via
    *     {@link java.util.concurrent.ExecutionException#getCause()}}.
    */
+  @SuppressWarnings("PMD.EmptyCatchBlock")
   public static <V> List<V> getAll(
       ListeningExecutorService executorService,
       Iterable<Callable<V>> callables) throws ExecutionException, InterruptedException {
@@ -54,7 +55,18 @@ public class MoreFutures {
     }
 
     // Wait for completion or interruption.
-    return Futures.allAsList(futures.build()).get();
+    ListenableFuture<List<V>> future = Futures.allAsList(futures.build());
+    try {
+      return future.get();
+    } catch (InterruptedException e) {
+      try {
+        future.cancel(true);
+      } catch (CancellationException ignored) {
+        // Rethrow original InterruptedException instead.
+      }
+      Thread.currentThread().interrupt();
+      throw e;
+    }
   }
 
   /**

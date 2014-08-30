@@ -24,6 +24,7 @@ import com.facebook.buck.rules.ConstructorArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.Hint;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSortedSet;
 
@@ -49,9 +50,12 @@ public class XcodeNativeDescription implements Description<XcodeNativeDescriptio
     return new XcodeNative(params, args);
   }
 
+  @SuppressFieldNotInitialized
   public static class Arg implements ConstructorArg {
     @Hint(name = "xcodeproj")
     public SourcePath projectContainerPath;
     public Optional<ImmutableSortedSet<BuildRule>> deps;
+    public Optional<String> targetName;
+    public Optional<String> buildableName;
   }
 }

@@ -27,12 +27,16 @@ import java.util.List;
  */
 public abstract class PBXTarget extends PBXProjectItem {
   public enum ProductType {
-    IOS_LIBRARY("com.apple.product-type.library.static"),
-    IOS_TEST_OCTEST("com.apple.product-type.bundle"),
-    IOS_TEST_XCTEST("com.apple.product-type.bundle.unit-test"),
-    IOS_BINARY("com.apple.product-type.application"),
-    MACOSX_FRAMEWORK("com.apple.product-type.framework"),
-    MACOSX_BINARY("com.apple.product-type.application");
+    STATIC_LIBRARY("com.apple.product-type.library.static"),
+    DYNAMIC_LIBRARY("com.apple.product-type.library.dynamic"),
+    TOOL("com.apple.product-type.tool"),
+    BUNDLE("com.apple.product-type.bundle"),
+    FRAMEWORK("com.apple.product-type.framework"),
+    STATIC_FRAMEWORK("com.apple.product-type.framework.static"),
+    APPLICATION("com.apple.product-type.application"),
+    UNIT_TEST("com.apple.product-type.bundle.unit-test"),
+    IN_APP_PURCHASE_CONTENT("com.apple.product-type.in-app-purchase-content"),
+    APP_EXTENSION("com.apple.product-type.app-extension");
 
     public final String identifier;
     private ProductType(String identifier) {

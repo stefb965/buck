@@ -17,6 +17,7 @@
 package org.openqa.selenium.buck.mozilla;
 
 import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -26,7 +27,6 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MkdirStep;
-import com.facebook.buck.util.BuckConstant;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -35,7 +35,6 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.io.Files;
 
 import java.nio.file.Path;
-import java.nio.file.Paths;
 
 public class Xpt extends AbstractBuildRule {
 
@@ -50,7 +49,7 @@ public class Xpt extends AbstractBuildRule {
     this.src = Preconditions.checkNotNull(src);
     String name = Files.getNameWithoutExtension(src.getFileName().toString()) + ".xpt";
 
-    this.out = Paths.get(BuckConstant.GEN_DIR, getBuildTarget().getBasePath(), name);
+    this.out = BuildTargets.getGenPath(getBuildTarget(), "%s");
   }
 
   @Override

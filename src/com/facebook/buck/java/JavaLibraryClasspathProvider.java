@@ -17,15 +17,13 @@
 package com.facebook.buck.java;
 
 import com.facebook.buck.rules.BuildRule;
-import com.google.common.base.Function;
+import com.facebook.buck.rules.ExportDependencies;
 import com.google.common.base.Optional;
-import com.google.common.base.Predicates;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableSetMultimap;
+import com.google.common.collect.Sets;
 
 import java.nio.file.Path;
-
-import javax.annotation.Nullable;
 
 public class JavaLibraryClasspathProvider {
 
@@ -33,12 +31,17 @@ public class JavaLibraryClasspathProvider {
   }
 
   public static ImmutableSetMultimap<JavaLibrary, Path> getOutputClasspathEntries(
-      DefaultJavaLibrary javaLibraryRule,
+      JavaLibrary javaLibraryRule,
       Optional<Path> outputJar) {
     ImmutableSetMultimap.Builder<JavaLibrary, Path> outputClasspathBuilder =
         ImmutableSetMultimap.builder();
-    Iterable<JavaLibrary> javaExportedLibraryDeps =
-        getJavaLibraryDeps(javaLibraryRule.getExportedDeps());
+    Iterable<JavaLibrary> javaExportedLibraryDeps;
+    if (javaLibraryRule instanceof ExportDependencies) {
+      javaExportedLibraryDeps =
+          getJavaLibraryDeps(((ExportDependencies) javaLibraryRule).getExportedDeps());
+    } else {
+      javaExportedLibraryDeps = Sets.newHashSet();
+    }
 
     for (JavaLibrary rule : javaExportedLibraryDeps) {
       outputClasspathBuilder.putAll(rule, rule.getOutputClasspathEntries().values());
@@ -58,15 +61,20 @@ public class JavaLibraryClasspathProvider {
   }
 
   public static ImmutableSetMultimap<JavaLibrary, Path> getTransitiveClasspathEntries(
-      DefaultJavaLibrary javaLibraryRule,
+      JavaLibrary javaLibraryRule,
       Optional<Path> outputJar) {
     final ImmutableSetMultimap.Builder<JavaLibrary, Path> classpathEntries =
         ImmutableSetMultimap.builder();
     ImmutableSetMultimap<JavaLibrary, Path> classpathEntriesForDeps =
         Classpaths.getClasspathEntries(javaLibraryRule.getDepsForTransitiveClasspathEntries());
 
-    ImmutableSetMultimap<JavaLibrary, Path> classpathEntriesForExportedsDeps =
-        Classpaths.getClasspathEntries(javaLibraryRule.getExportedDeps());
+    ImmutableSetMultimap<JavaLibrary, Path> classpathEntriesForExportedsDeps;
+    if (javaLibraryRule instanceof ExportDependencies) {
+      classpathEntriesForExportedsDeps =
+          Classpaths.getClasspathEntries(((ExportDependencies) javaLibraryRule).getExportedDeps());
+    } else {
+      classpathEntriesForExportedsDeps = ImmutableSetMultimap.of();
+    }
 
     classpathEntries.putAll(classpathEntriesForDeps);
 
@@ -88,7 +96,7 @@ public class JavaLibraryClasspathProvider {
   }
 
   public static ImmutableSetMultimap<JavaLibrary, Path> getDeclaredClasspathEntries(
-      DefaultJavaLibrary javaLibraryRule) {
+      JavaLibrary javaLibraryRule) {
     final ImmutableSetMultimap.Builder<JavaLibrary, Path> classpathEntries =
         ImmutableSetMultimap.builder();
 
@@ -102,19 +110,6 @@ public class JavaLibraryClasspathProvider {
   }
 
   static FluentIterable<JavaLibrary> getJavaLibraryDeps(Iterable<BuildRule> deps) {
-    return FluentIterable
-        .from(deps)
-        .transform(
-            new Function<BuildRule, JavaLibrary>() {
-              @Nullable
-              @Override
-              public JavaLibrary apply(BuildRule input) {
-                if (input instanceof JavaLibrary) {
-                  return (JavaLibrary) input;
-                }
-                return null;
-              }
-            })
-        .filter(Predicates.notNull());
+    return FluentIterable.from(deps).filter(JavaLibrary.class);
   }
 }

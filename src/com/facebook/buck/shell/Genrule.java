@@ -17,12 +17,15 @@
 package com.facebook.buck.shell;
 
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.HasOutputName;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.shell.AbstractGenruleStep.CommandString;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -42,7 +45,6 @@ import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Sets;
 
 import java.io.File;
@@ -99,12 +101,12 @@ import java.util.Set;
  * <p>
  * Note that the <code>SRCDIR</code> is populated by symlinking the sources.
  */
-public class Genrule extends AbstractBuildRule {
+public class Genrule extends AbstractBuildRule implements HasOutputName {
 
   /**
    * The order in which elements are specified in the {@code srcs} attribute of a genrule matters.
    */
-  protected final ImmutableList<Path> srcs;
+  protected final ImmutableList<SourcePath> srcs;
 
   protected final Optional<String> cmd;
   protected final Optional<String> bash;
@@ -112,6 +114,7 @@ public class Genrule extends AbstractBuildRule {
 
   protected final Map<Path, Path> srcsToAbsolutePaths;
 
+  private final String out;
   protected final Path pathToOutDirectory;
   protected final Path pathToOutFile;
   private final Path pathToTmpDirectory;
@@ -122,7 +125,7 @@ public class Genrule extends AbstractBuildRule {
 
   protected Genrule(
       BuildRuleParams params,
-      List<Path> srcs,
+      List<SourcePath> srcs,
       Optional<String> cmd,
       Optional<String> bash,
       Optional<String> cmdExe,
@@ -133,14 +136,17 @@ public class Genrule extends AbstractBuildRule {
     this.cmd = Preconditions.checkNotNull(cmd);
     this.bash = Preconditions.checkNotNull(bash);
     this.cmdExe = Preconditions.checkNotNull(cmdExe);
-    this.srcsToAbsolutePaths = FluentIterable.from(srcs).toMap(new Function<Path, Path>() {
-      @Override
-      public Path apply(Path src) {
-        return relativeToAbsolutePathFunction.apply(src);
-      }
-    });
+    this.srcsToAbsolutePaths = FluentIterable
+        .from(srcs)
+        .transform(SourcePaths.TO_PATH)
+        .toMap(new Function<Path, Path>() {
+          @Override
+          public Path apply(Path src) {
+            return relativeToAbsolutePathFunction.apply(src);
+          }
+        });
 
-    Preconditions.checkNotNull(out);
+    this.out = Preconditions.checkNotNull(out);
     BuildTarget target = params.getBuildTarget();
     this.pathToOutDirectory = Paths.get(
         BuckConstant.GEN_DIR,
@@ -171,7 +177,7 @@ public class Genrule extends AbstractBuildRule {
 
   @Override
   public ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return ImmutableSortedSet.copyOf(srcs);
+    return SourcePaths.filterInputsToCompareToOutput(srcs);
   }
 
   @Override
@@ -188,7 +194,7 @@ public class Genrule extends AbstractBuildRule {
   }
 
   public ImmutableList<Path> getSrcs() {
-    return srcs;
+    return SourcePaths.toPaths(srcs);
   }
 
   protected void addEnvironmentVariables(ExecutionContext context,
@@ -213,6 +219,7 @@ public class Genrule extends AbstractBuildRule {
       AndroidPlatformTarget android = optionalAndroid.get();
 
       environmentVariablesBuilder.put("DX", android.getDxExecutable().toString());
+      environmentVariablesBuilder.put("ZIPALIGN", android.getZipalignExecutable().toString());
     }
   }
 
@@ -324,4 +331,13 @@ public class Genrule extends AbstractBuildRule {
       commands.add(new MkdirAndSymlinkFileStep(entry.getKey(), destination));
     }
   }
+
+  /**
+   * Get the output name of the generated file, as listed in the BUCK file.
+   */
+  @Override
+  public String getOutputName() {
+    return out;
+  }
+
 }

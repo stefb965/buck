@@ -22,6 +22,8 @@ import static org.easymock.EasyMock.verify;
 import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
+import com.facebook.buck.timing.FakeClock;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
 import com.google.common.eventbus.EventBus;
 
@@ -32,6 +34,7 @@ import org.junit.Test;
 import java.io.Closeable;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayList;
 
 public class WatchmanIntegrationTest {
 
@@ -83,7 +86,12 @@ public class WatchmanIntegrationTest {
     replay(eventBus);
     try (WatchmanWatch watch = new WatchmanWatch(tmp.getRoot().toPath())) {
       WatchmanWatcher watcher = new WatchmanWatcher(
-          new ProjectFilesystem(tmp.getRoot().toPath()), eventBus);
+          new ProjectFilesystem(tmp.getRoot().toPath()),
+          eventBus,
+          new FakeClock(0),
+          new ObjectMapper(),
+          new ArrayList<Path>(),
+          new ArrayList<String>());
       watcher.postEvents();
     }
     verify(eventBus);

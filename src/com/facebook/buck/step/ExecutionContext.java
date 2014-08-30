@@ -28,12 +28,13 @@ import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.environment.Platform;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 
-import java.io.File;
 import java.io.PrintStream;
+import java.nio.file.Path;
 
 import javax.annotation.Nullable;
 
@@ -46,13 +47,13 @@ public class ExecutionContext {
   private final Optional<TargetDevice> targetDevice;
   private final long defaultTestTimeoutMillis;
   private final boolean isCodeCoverageEnabled;
-  private final boolean isJacocoEnabled;
   private final boolean isDebugEnabled;
   private final ProcessExecutor processExecutor;
   private final BuckEventBus eventBus;
   private final Platform platform;
   private final ImmutableMap<String, String> environment;
   private final JavaPackageFinder javaPackageFinder;
+  private final ObjectMapper objectMapper;
 
   private ExecutionContext(
       ProjectFilesystem projectFilesystem,
@@ -61,12 +62,12 @@ public class ExecutionContext {
       Optional<TargetDevice> targetDevice,
       long defaultTestTimeoutMillis,
       boolean isCodeCoverageEnabled,
-      boolean isJacocoEnabled,
       boolean isDebugEnabled,
       BuckEventBus eventBus,
       Platform platform,
       ImmutableMap<String, String> environment,
-      JavaPackageFinder javaPackageFinder) {
+      JavaPackageFinder javaPackageFinder,
+      ObjectMapper objectMapper) {
     this.verbosity = Preconditions.checkNotNull(console).getVerbosity();
     this.projectFilesystem = Preconditions.checkNotNull(projectFilesystem);
     this.console = Preconditions.checkNotNull(console);
@@ -74,13 +75,13 @@ public class ExecutionContext {
     this.targetDevice = Preconditions.checkNotNull(targetDevice);
     this.defaultTestTimeoutMillis = defaultTestTimeoutMillis;
     this.isCodeCoverageEnabled = isCodeCoverageEnabled;
-    this.isJacocoEnabled = isJacocoEnabled;
     this.isDebugEnabled = isDebugEnabled;
     this.processExecutor = new ProcessExecutor(console);
     this.eventBus = Preconditions.checkNotNull(eventBus);
     this.platform = Preconditions.checkNotNull(platform);
     this.environment = Preconditions.checkNotNull(environment);
     this.javaPackageFinder = Preconditions.checkNotNull(javaPackageFinder);
+    this.objectMapper = Preconditions.checkNotNull(objectMapper);
   }
 
   /**
@@ -95,12 +96,12 @@ public class ExecutionContext {
         getTargetDeviceOptional(),
         getDefaultTestTimeoutMillis(),
         isCodeCoverageEnabled(),
-        isJacocoEnabled(),
         isDebugEnabled,
         eventBus,
         platform,
         this.environment,
-        this.javaPackageFinder);
+        this.javaPackageFinder,
+        this.objectMapper);
   }
 
   public void logError(Throwable error, String msg, Object... formatArgs) {
@@ -119,8 +120,8 @@ public class ExecutionContext {
     return projectFilesystem;
   }
 
-  public File getProjectDirectoryRoot() {
-    return projectFilesystem.getProjectRoot();
+  public Path getProjectDirectoryRoot() {
+    return projectFilesystem.getRootPath();
   }
 
   public Console getConsole() {
@@ -149,6 +150,10 @@ public class ExecutionContext {
 
   public JavaPackageFinder getJavaPackageFinder() {
     return javaPackageFinder;
+  }
+
+  public ObjectMapper getObjectMapper() {
+    return objectMapper;
   }
 
   /**
@@ -190,10 +195,6 @@ public class ExecutionContext {
     return isCodeCoverageEnabled;
   }
 
-  public boolean isJacocoEnabled() {
-    return isJacocoEnabled;
-  }
-
   public boolean isDebugEnabled() {
     return isDebugEnabled;
   }
@@ -222,12 +223,12 @@ public class ExecutionContext {
     private Optional<TargetDevice> targetDevice = Optional.absent();
     private long defaultTestTimeoutMillis = 0L;
     private boolean isCodeCoverageEnabled = false;
-    private boolean isJacocoEnabled = false;
     private boolean isDebugEnabled = false;
     @Nullable private BuckEventBus eventBus = null;
     @Nullable private Platform platform = null;
     @Nullable private ImmutableMap<String, String> environment = null;
     @Nullable private JavaPackageFinder javaPackageFinder = null;
+    @Nullable private ObjectMapper objectMapper = null;
 
     private Builder() {}
 
@@ -239,12 +240,12 @@ public class ExecutionContext {
           targetDevice,
           defaultTestTimeoutMillis,
           isCodeCoverageEnabled,
-          isJacocoEnabled,
           isDebugEnabled,
           eventBus,
           platform,
           environment,
-          javaPackageFinder);
+          javaPackageFinder,
+          objectMapper);
     }
 
     public Builder setExecutionContext(ExecutionContext executionContext) {
@@ -254,12 +255,12 @@ public class ExecutionContext {
       setTargetDevice(executionContext.getTargetDeviceOptional());
       setDefaultTestTimeoutMillis(executionContext.getDefaultTestTimeoutMillis());
       setCodeCoverageEnabled(executionContext.isCodeCoverageEnabled());
-      setJacocoEnabled(executionContext.isJacocoEnabled());
       setDebugEnabled(executionContext.isDebugEnabled());
       setEventBus(executionContext.getBuckEventBus());
       setPlatform(executionContext.getPlatform());
       setEnvironment(executionContext.getEnvironment());
       setJavaPackageFinder(executionContext.getJavaPackageFinder());
+      setObjectMapper(executionContext.getObjectMapper());
       return this;
     }
 
@@ -296,11 +297,6 @@ public class ExecutionContext {
       return this;
     }
 
-    public Builder setJacocoEnabled(boolean isJacocoEnabled) {
-      this.isJacocoEnabled = isJacocoEnabled;
-      return this;
-    }
-
     public Builder setDebugEnabled(boolean isDebugEnabled) {
       this.isDebugEnabled = isDebugEnabled;
       return this;
@@ -325,5 +321,11 @@ public class ExecutionContext {
       this.javaPackageFinder = javaPackageFinder;
       return this;
     }
+
+    public Builder setObjectMapper(ObjectMapper objectMapper) {
+      this.objectMapper = Preconditions.checkNotNull(objectMapper);
+      return this;
+    }
+
   }
 }

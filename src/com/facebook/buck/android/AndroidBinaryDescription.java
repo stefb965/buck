@@ -16,12 +16,11 @@
 
 package com.facebook.buck.android;
 
-import static com.facebook.buck.android.AndroidBinary.PackageType;
-import static com.facebook.buck.android.AndroidBinary.TargetCpuType;
-import static com.facebook.buck.android.FilterResourcesStep.ResourceFilter;
-import static com.facebook.buck.android.ResourcesFilter.ResourceCompressionMode;
-import static com.facebook.buck.dalvik.ZipSplitter.DexSplitStrategy;
-
+import com.facebook.buck.android.AndroidBinary.PackageType;
+import com.facebook.buck.android.AndroidBinary.TargetCpuType;
+import com.facebook.buck.android.FilterResourcesStep.ResourceFilter;
+import com.facebook.buck.android.ResourcesFilter.ResourceCompressionMode;
+import com.facebook.buck.dalvik.ZipSplitter.DexSplitStrategy;
 import com.facebook.buck.java.JavaLibrary;
 import com.facebook.buck.java.JavacOptions;
 import com.facebook.buck.java.Keystore;
@@ -35,8 +34,8 @@ import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.ConstructorArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.coercer.BuildConfigFields;
 import com.facebook.buck.util.HumanReadableException;
-import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
@@ -47,6 +46,8 @@ import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
+
+import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 
 public class AndroidBinaryDescription implements Description<AndroidBinaryDescription.Arg> {
 
@@ -119,13 +120,6 @@ public class AndroidBinaryDescription implements Description<AndroidBinaryDescri
     ImmutableSortedSet<JavaLibrary> rulesToExcludeFromDex =
         FluentIterable.from(buildRulesToExcludeFromDex)
             .filter(JavaLibrary.class)
-            .transform(
-                new Function<BuildRule, JavaLibrary>() {
-                  @Override
-                  public JavaLibrary apply(BuildRule input) {
-                    return (JavaLibrary) input;
-                  }
-                })
             .toSortedSet(HasBuildTarget.BUILD_TARGET_COMPARATOR);
 
     PackageType packageType = getPackageType(args);
@@ -134,7 +128,6 @@ public class AndroidBinaryDescription implements Description<AndroidBinaryDescri
         !args.preprocessJavaClassesBash.isPresent();
 
     ResourceCompressionMode compressionMode = getCompressionMode(args);
-    ImmutableSet<TargetCpuType> cpuFilters = getCpuFilters(args);
     ResourceFilter resourceFilter =
         new ResourceFilter(args.resourceFilter.or(ImmutableList.<String>of()));
 
@@ -145,7 +138,7 @@ public class AndroidBinaryDescription implements Description<AndroidBinaryDescri
         resourceFilter,
         args.manifest,
         packageType,
-        cpuFilters,
+        ImmutableSet.copyOf(args.cpuFilters.get()),
         args.buildStringSourceMap.or(false),
         shouldPreDex,
         AndroidBinary.getPrimaryDexPath(params.getBuildTarget()),
@@ -154,7 +147,9 @@ public class AndroidBinaryDescription implements Description<AndroidBinaryDescri
         /* resourcesToExclude */ ImmutableSet.<BuildTarget>of(),
         javacOptions,
         args.exopackage.or(false),
-        keystore);
+        keystore,
+        args.buildConfigValues.get(),
+        args.buildConfigValuesFile);
     AndroidBinaryGraphEnhancer.EnhancementResult result =
         graphEnhancer.createAdditionalBuildables();
 
@@ -171,7 +166,7 @@ public class AndroidBinaryDescription implements Description<AndroidBinaryDescri
         args.optimizationPasses,
         args.proguardConfig,
         compressionMode,
-        cpuFilters,
+        args.cpuFilters.get(),
         resourceFilter,
         args.exopackage.or(false),
         args.preprocessJavaClassesDeps.or(ImmutableSet.<BuildRule>of()),
@@ -181,16 +176,17 @@ public class AndroidBinaryDescription implements Description<AndroidBinaryDescri
   }
 
   private DexSplitMode createDexSplitMode(Arg args) {
-    DexStore dexStore = "xz".equals(args.dexCompression.or("jar"))
-        ? DexStore.XZ
-        : DexStore.JAR;
+    // Exopackage builds default to JAR, otherwise, default to RAW.
+    DexStore defaultDexStore = args.exopackage.or(false)
+        ? DexStore.JAR
+        : DexStore.RAW;
     DexSplitStrategy dexSplitStrategy = args.minimizePrimaryDexSize.or(false)
         ? DexSplitStrategy.MINIMIZE_PRIMARY_DEX_SIZE
         : DexSplitStrategy.MAXIMIZE_PRIMARY_DEX_SIZE;
     return new DexSplitMode(
         args.useSplitDex.or(false),
         dexSplitStrategy,
-        dexStore,
+        args.dexCompression.or(defaultDexStore),
         args.useLinearAllocSplitDex.or(false),
         args.linearAllocHardLimit.or(DEFAULT_LINEAR_ALLOC_HARD_LIMIT),
         args.primaryDexPatterns.or(ImmutableList.<String>of()),
@@ -213,16 +209,7 @@ public class AndroidBinaryDescription implements Description<AndroidBinaryDescri
     return ResourceCompressionMode.valueOf(args.resourceCompression.get().toUpperCase());
   }
 
-  private ImmutableSet<TargetCpuType> getCpuFilters(Arg args) {
-    ImmutableSet.Builder<TargetCpuType> cpuFilters = ImmutableSet.builder();
-    if (args.cpuFilters.isPresent()) {
-      for (String cpuFilter : args.cpuFilters.get()) {
-        cpuFilters.add(TargetCpuType.valueOf(cpuFilter.toUpperCase()));
-      }
-    }
-    return cpuFilters.build();
-  }
-
+  @SuppressFieldNotInitialized
   public static class Arg implements ConstructorArg {
     public SourcePath manifest;
     public String target;
@@ -234,7 +221,7 @@ public class AndroidBinaryDescription implements Description<AndroidBinaryDescri
     public Optional<Boolean> minimizePrimaryDexSize;
     public Optional<Boolean> disablePreDex;
     public Optional<Boolean> exopackage;
-    public Optional<String> dexCompression;
+    public Optional<DexStore> dexCompression;
     public Optional<ProGuardObfuscateStep.SdkProguardType> androidSdkProguardConfig;
     public Optional<Boolean> useAndroidProguardConfigWithOptimizations;
     public Optional<Integer> optimizationPasses;
@@ -247,9 +234,14 @@ public class AndroidBinaryDescription implements Description<AndroidBinaryDescri
     public Optional<Long> linearAllocHardLimit;
     public Optional<List<String>> resourceFilter;
     public Optional<Boolean> buildStringSourceMap;
-    public Optional<List<String>> cpuFilters;
+    public Optional<Set<TargetCpuType>> cpuFilters;
     public Optional<Set<BuildRule>> preprocessJavaClassesDeps;
     public Optional<String> preprocessJavaClassesBash;
+
+    /** This will never be absent after this Arg is populated. */
+    public Optional<BuildConfigFields> buildConfigValues;
+
+    public Optional<SourcePath> buildConfigValuesFile;
 
     public Optional<ImmutableSortedSet<BuildRule>> deps;
   }

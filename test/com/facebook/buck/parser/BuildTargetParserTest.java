@@ -27,6 +27,8 @@ import static org.junit.Assert.fail;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.testutil.AllExistingProjectFilesystem;
 import com.facebook.buck.util.ProjectFilesystem;
+import com.google.common.base.Optional;
+import com.google.common.collect.ImmutableMap;
 
 import org.junit.Test;
 
@@ -46,7 +48,7 @@ public class BuildTargetParserTest {
     BuildTarget buildTarget = parser.parse("//:fb4a", ParseContext.fullyQualified());
     assertEquals("fb4a", buildTarget.getShortName());
     assertEquals("//", buildTarget.getBaseName());
-    assertEquals("", buildTarget.getBasePath());
+    assertEquals(Paths.get(""), buildTarget.getBasePath());
     assertEquals("", buildTarget.getBasePathWithSlash());
     assertEquals("//:fb4a", buildTarget.getFullyQualifiedName());
 
@@ -230,12 +232,15 @@ public class BuildTargetParserTest {
   @Test
   public void testParseWithRepoName() throws NoSuchBuildTargetException {
     ProjectFilesystem filesystem = new AllExistingProjectFilesystem();
-    BuildTargetParser parser = new BuildTargetParser(filesystem);
+    ImmutableMap<Optional<String>, Optional<String>> canonicalRepoNamesMap =
+        ImmutableMap.of(Optional.of("localreponame"), Optional.of("canonicalname"));
+    BuildTargetParser parser = new BuildTargetParser(filesystem, canonicalRepoNamesMap);
     ParseContext context = ParseContext.fullyQualified();
-    String targetStr = "@myrepo//foo/bar:baz";
+    String targetStr = "@localreponame//foo/bar:baz";
+    String canonicalStr = "@canonicalname//foo/bar:baz";
     BuildTarget buildTarget = parser.parse(targetStr, context);
-    assertEquals(targetStr, buildTarget.getFullyQualifiedName());
-    assertEquals("myrepo", buildTarget.getRepository().get());
+    assertEquals(canonicalStr, buildTarget.getFullyQualifiedName());
+    assertEquals("canonicalname", buildTarget.getRepository().get());
   }
 
   @Test(expected = BuildTargetParseException.class)

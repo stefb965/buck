@@ -24,6 +24,7 @@ import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -58,8 +59,9 @@ public class JavaTestDescription implements Description<JavaTestDescription.Arg>
       A args) {
     JavacOptions.Builder javacOptions = JavaLibraryDescription.getJavacOptions(args, javacEnv);
 
-    AnnotationProcessingParams annotationParams =
-        args.buildAnnotationProcessingParams(params.getBuildTarget());
+    AnnotationProcessingParams annotationParams = args.buildAnnotationProcessingParams(
+        params.getBuildTarget(),
+        params.getProjectFilesystem());
     javacOptions.setAnnotationProcessingData(annotationParams);
 
     return new JavaTest(
@@ -109,6 +111,7 @@ public class JavaTestDescription implements Description<JavaTestDescription.Arg>
     return sourceUnderTest.build();
   }
 
+  @SuppressFieldNotInitialized
   public static class Arg extends JavaLibraryDescription.Arg {
     public Optional<ImmutableSortedSet<String>> contacts;
     public Optional<ImmutableSortedSet<Label>> labels;

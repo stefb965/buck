@@ -51,7 +51,6 @@ import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
-import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.ProjectFilesystem;
@@ -171,7 +170,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
     }
   };
 
-  protected DefaultJavaLibrary(
+  public DefaultJavaLibrary(
       BuildRuleParams params,
       Set<? extends SourcePath> srcs,
       Set<? extends SourcePath> resources,
@@ -269,9 +268,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
 
     // Only run javac if there are .java files to compile.
     if (!getJavaSrcs().isEmpty()) {
-      Path pathToSrcsList = Paths.get(BuckConstant.GEN_DIR,
-          getBuildTarget().getBasePath(),
-          "__" + getBuildTarget().getShortName() + "__srcs");
+      Path pathToSrcsList = BuildTargets.getGenPath(getBuildTarget(), "__%s__srcs");
       commands.add(new MkdirStep(pathToSrcsList.getParent()));
 
       final JavacStep javacStep;
@@ -501,7 +498,8 @@ public class DefaultJavaLibrary extends AbstractBuildRule
 
   /**
    * Building a java_library() rule entails compiling the .java files specified in the srcs
-   * attribute. They are compiled into a directory under {@link BuckConstant#BIN_DIR}.
+   * attribute. They are compiled into a directory under
+   * {@link com.facebook.buck.util.BuckConstant#BIN_DIR}.
    */
   @Override
   public final ImmutableList<Step> getBuildSteps(

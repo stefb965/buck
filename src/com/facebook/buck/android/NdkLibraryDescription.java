@@ -24,6 +24,7 @@ import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.util.MoreStrings;
+import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -34,7 +35,6 @@ import java.nio.file.FileVisitOption;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.EnumSet;
@@ -71,7 +71,7 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescription.
     final ImmutableSortedSet.Builder<SourcePath> srcs = ImmutableSortedSet.naturalOrder();
 
     try {
-      final Path buildRulePath = Paths.get(params.getBuildTarget().getBasePath());
+      final Path buildRulePath = params.getBuildTarget().getBasePath();
       final Path rootDirectory = params.getPathAbsolutifier().apply(buildRulePath);
       Files.walkFileTree(
           rootDirectory,
@@ -102,6 +102,7 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescription.
         ndkVersion);
   }
 
+  @SuppressFieldNotInitialized
   public static class Arg implements ConstructorArg {
     public Optional<ImmutableList<String>> flags;
     public Optional<Boolean> isAsset;

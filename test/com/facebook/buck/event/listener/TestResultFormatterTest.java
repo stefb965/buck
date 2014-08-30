@@ -26,6 +26,7 @@ import com.facebook.buck.test.result.type.ResultType;
 import com.facebook.buck.test.selectors.TestSelectorList;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.environment.Platform;
+import com.google.common.base.Optional;
 import com.google.common.base.Joiner;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
@@ -43,7 +44,9 @@ public class TestResultFormatterTest {
 
   @Before
   public void createFormatter() {
-    formatter = new TestResultFormatter(new Ansi(Platform.LINUX));
+    formatter = new TestResultFormatter(
+        new Ansi(Platform.LINUX, Optional.of("xterm")),
+        /* isAnAssumptionViolationAnError) */ false);
   }
 
   @Before
@@ -80,7 +83,7 @@ public class TestResultFormatterTest {
         false,
         TestSelectorList.empty(),
         false,
-        ImmutableList.of("//:example", "//foo:bar"));
+        ImmutableSet.of("//:example", "//foo:bar"));
 
     assertEquals("TESTING //:example //foo:bar", toString(builder));
   }
@@ -93,7 +96,7 @@ public class TestResultFormatterTest {
         .addRawSelectors("com.example.clown.Car")
         .build();
 
-    ImmutableList<String> targetNames = ImmutableList.of("//:example", "//foo:bar");
+    ImmutableSet<String> targetNames = ImmutableSet.of("//:example", "//foo:bar");
 
     formatter.runStarted(builder, false, testSelectorList, false, targetNames);
 
@@ -108,13 +111,13 @@ public class TestResultFormatterTest {
         .addRawSelectors("com.example.clown.Car")
         .build();
 
-    ImmutableList<String> targetNames = ImmutableList.of("//:example", "//foo:bar");
+    ImmutableSet<String> targetNames = ImmutableSet.of("//:example", "//foo:bar");
     boolean shouldExplain = true;
 
     formatter.runStarted(builder, false, testSelectorList, shouldExplain, targetNames);
 
     String expected = "TESTING SELECTED TESTS\n" +
-        "include class:com.example.clown.Car method:<any>\n" +
+        "include class:com.example.clown.Car$ method:<any>\n" +
         "exclude everything else";
 
     assertEquals(
@@ -125,7 +128,7 @@ public class TestResultFormatterTest {
   @Test
   public void shouldShowThatAllTestAreBeingRunWhenRunIsStarted() {
     ImmutableList.Builder<String> builder = ImmutableList.builder();
-    ImmutableList<String> targetNames = ImmutableList.of("//:example", "//foo:bar");
+    ImmutableSet<String> targetNames = ImmutableSet.of("//:example", "//foo:bar");
 
     formatter.runStarted(builder, true, TestSelectorList.empty(), false, targetNames);
 
@@ -204,7 +207,7 @@ public class TestResultFormatterTest {
         "%s"),
         failingTest.getTestName(),
         failingTest.getMessage(),
-        stackTrace.toString(),
+        stackTrace,
         failingTest.getStdOut(),
         failingTest.getStdErr());
 

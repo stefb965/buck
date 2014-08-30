@@ -43,7 +43,6 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collection;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -145,7 +144,6 @@ public class JavaSymbolFinder {
     try (ProjectBuildFileParser parser = projectBuildFileParserFactory.createParser(
         // TODO(jacko): Get this from the right place when plugins are working.
         config.getDefaultIncludes(),
-        EnumSet.noneOf(ProjectBuildFileParser.Option.class),
         console,
         environment)) {
       for (Path sourceFile : sourceFilePaths) {
@@ -214,7 +212,7 @@ public class JavaSymbolFinder {
     // For a source file like foo/bar/example.java, add paths like foo/bar/BUCK and foo/BUCK.
     while (dir != null) {
       Path buckFile = dir.resolve(BuckConstant.BUILD_RULES_FILE_NAME);
-      if (projectFilesystem.exists(buckFile)) {
+      if (projectFilesystem.isFile(buckFile)) {
         possibleBuckFiles.add(buckFile);
       }
       dir = dir.getParent();

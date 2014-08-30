@@ -24,6 +24,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
+import com.google.gson.JsonParseException;
 import com.google.gson.JsonStreamParser;
 
 import java.io.File;
@@ -74,23 +75,39 @@ public class DefaultOnDiskBuildInfo implements OnDiskBuildInfo {
 
   @Override
   public Optional<ImmutableList<String>> getValues(String key) {
-    return getValue(key).transform(TO_STRINGS);
+    try {
+      return getValue(key).transform(TO_STRINGS);
+    } catch (JsonParseException | IllegalStateException ignored) {
+      return Optional.absent();
+    }
   }
 
   @Override
   public Optional<Sha1HashCode> getHash(String key) {
-    return getValue(key).transform(Sha1HashCode.TO_SHA1);
+    try {
+      return getValue(key).transform(Sha1HashCode.TO_SHA1);
+    } catch (IllegalArgumentException ignored) {
+      return Optional.absent();
+    }
   }
 
   @Override
   public Optional<RuleKey> getRuleKey() {
-    return getValue(BuildInfo.METADATA_KEY_FOR_RULE_KEY).transform(RuleKey.TO_RULE_KEY);
+    try {
+      return getValue(BuildInfo.METADATA_KEY_FOR_RULE_KEY).transform(RuleKey.TO_RULE_KEY);
+    } catch (IllegalArgumentException ignored) {
+      return Optional.absent();
+    }
   }
 
   @Override
   public Optional<RuleKey> getRuleKeyWithoutDeps() {
-    return getValue(BuildInfo.METADATA_KEY_FOR_RULE_KEY_WITHOUT_DEPS)
-        .transform(RuleKey.TO_RULE_KEY);
+    try {
+      return getValue(BuildInfo.METADATA_KEY_FOR_RULE_KEY_WITHOUT_DEPS)
+          .transform(RuleKey.TO_RULE_KEY);
+    } catch (IllegalArgumentException ignored) {
+      return Optional.absent();
+    }
   }
 
   @Override

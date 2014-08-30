@@ -18,12 +18,15 @@ package com.facebook.buck.model;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import org.junit.Test;
 
 import java.io.IOException;
+import java.nio.file.Paths;
 
 public class BuildTargetTest {
 
@@ -33,7 +36,7 @@ public class BuildTargetTest {
     assertEquals("fb4a", rootTarget.getShortName());
     assertEquals("//", rootTarget.getBaseName());
     assertEquals("//", rootTarget.getBaseNameWithSlash());
-    assertEquals("", rootTarget.getBasePath());
+    assertEquals(Paths.get(""), rootTarget.getBasePath());
     assertEquals("", rootTarget.getBasePathWithSlash());
     assertEquals("//:fb4a", rootTarget.getFullyQualifiedName());
     assertEquals("//:fb4a", rootTarget.toString());
@@ -45,7 +48,7 @@ public class BuildTargetTest {
     assertEquals("fb4a", rootTarget.getShortName());
     assertEquals("//java/com/facebook", rootTarget.getBaseName());
     assertEquals("//java/com/facebook/", rootTarget.getBaseNameWithSlash());
-    assertEquals("java/com/facebook", rootTarget.getBasePath());
+    assertEquals(Paths.get("java/com/facebook"), rootTarget.getBasePath());
     assertEquals("java/com/facebook/", rootTarget.getBasePathWithSlash());
     assertEquals("//java/com/facebook:fb4a", rootTarget.getFullyQualifiedName());
     assertEquals("//java/com/facebook:fb4a", rootTarget.toString());
@@ -62,7 +65,7 @@ public class BuildTargetTest {
   @Test
   public void testEqualsNullReturnsFalse() {
     BuildTarget utilTarget = BuildTarget.builder("//src/com/facebook/buck/util", "util").build();
-    assertFalse(utilTarget.equals(null));
+    assertNotNull(utilTarget);
   }
 
   @Test
@@ -100,10 +103,10 @@ public class BuildTargetTest {
   @Test
   public void testFlavorIsValid() {
     try {
-      BuildTarget.builder("//foo/bar", "baz").setFlavor("d3x").build();
+      BuildTarget.builder("//foo/bar", "baz").setFlavor("d.x").build();
       fail("Should have thrown IllegalArgumentException.");
     } catch (IllegalArgumentException e) {
-      assertEquals("Invalid flavor: d3x", e.getMessage());
+      assertEquals("Invalid flavor: d.x", e.getMessage());
     }
   }
 
@@ -131,12 +134,38 @@ public class BuildTargetTest {
 
   @Test
   public void testNotSettingTheFlavorInTheShortStringButLookingLikeYouMightIsTeasingAndWrong() {
-    try {
-      // Hilarious case that might result in an IndexOutOfBoundsException
-      BuildTarget.builder("//foo/bar", "baz#").build();
-      fail("Should have thrown IllegalArgumentException.");
-    } catch (IllegalArgumentException e) {
-      assertEquals("Invalid flavor: ", e.getMessage());
-    }
+    // Hilarious case that might result in an IndexOutOfBoundsException
+    BuildTarget target = BuildTarget.builder("//foo/bar", "baz#").build();
+
+    assertEquals(Flavor.DEFAULT, target.getFlavor());
   }
+
+  @Test
+  public void testGetUnflavoredTarget() {
+    BuildTarget unflavoredTarget = BuildTarget.builder("//foo/bar", "baz").build();
+    assertSame(unflavoredTarget, unflavoredTarget.getUnflavoredTarget());
+
+    BuildTarget flavoredTarget = BuildTarget.builder("//foo/bar", "baz").setFlavor("biz").build();
+    assertEquals(unflavoredTarget, flavoredTarget.getUnflavoredTarget());
+  }
+
+  @Test
+  public void testCanUnflavorATarget() {
+    BuildTarget flavored = BuildTarget.builder("//foo", "bar")
+        .setFlavor(new Flavor("cake"))
+        .build();
+
+    // This might throw an exception if it fails to parse
+    BuildTarget unflavored = BuildTarget.builder(flavored).setFlavor(Flavor.DEFAULT).build();
+
+    assertEquals(Flavor.DEFAULT, unflavored.getFlavor());
+  }
+
+  @Test
+  public void testNumbersAreValidFalvors() {
+    BuildTarget.builder("//foo", "bar")
+        .setFlavor(new Flavor("1234"))
+        .build();
+  }
+
 }

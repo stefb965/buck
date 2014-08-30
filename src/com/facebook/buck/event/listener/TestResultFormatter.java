@@ -19,6 +19,7 @@ package com.facebook.buck.event.listener;
 import com.facebook.buck.test.TestCaseSummary;
 import com.facebook.buck.test.TestResultSummary;
 import com.facebook.buck.test.TestResults;
+import com.facebook.buck.test.result.type.ResultType;
 import com.facebook.buck.test.selectors.TestSelectorList;
 import com.facebook.buck.util.Ansi;
 import com.google.common.base.Joiner;
@@ -26,6 +27,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ListMultimap;
 
 import java.util.List;
@@ -33,8 +35,10 @@ import java.util.List;
 public class TestResultFormatter {
 
   private final Ansi ansi;
+  private final boolean isTreatingAssumptionsAsErrors;
 
-  public TestResultFormatter(Ansi ansi) {
+  public TestResultFormatter(Ansi ansi, boolean isTreatingAssumptionsAsErrors) {
+    this.isTreatingAssumptionsAsErrors = isTreatingAssumptionsAsErrors;
     this.ansi = Preconditions.checkNotNull(ansi);
   }
 
@@ -43,7 +47,7 @@ public class TestResultFormatter {
       boolean isRunAllTests,
       TestSelectorList testSelectorList,
       boolean shouldExplainTestSelectorList,
-      ImmutableList<String> targetNames) {
+      ImmutableSet<String> targetNames) {
     if (!testSelectorList.isEmpty()) {
       addTo.add("TESTING SELECTED TESTS");
       if (shouldExplainTestSelectorList) {
@@ -61,12 +65,23 @@ public class TestResultFormatter {
     for (TestCaseSummary testCase : results.getTestCases()) {
       addTo.add(testCase.getOneLineSummary(results.getDependenciesPassTheirTests(), ansi));
 
-      if (testCase.isSuccess()) {
+      // Don't print the full error if success and either (a) we aren't treating assumptions as
+      // errors, or (b) we *are*, and there were no assumption-violations...
+      if (testCase.isSuccess() &&
+          (!isTreatingAssumptionsAsErrors || !testCase.hasAssumptionViolations())) {
         continue;
       }
 
       for (TestResultSummary testResult : testCase.getTestResults()) {
-        if (results.getDependenciesPassTheirTests() && !testResult.isSuccess()) {
+        if (!results.getDependenciesPassTheirTests()) {
+          continue;
+        }
+
+        // Report on either (a) explicit failure or (b) assumption-violation, if we are treating
+        // assumptions as errors.
+        if (!testResult.isSuccess() || (
+            isTreatingAssumptionsAsErrors &&
+            testResult.getType().equals(ResultType.ASSUMPTION_VIOLATION))) {
           reportResultSummary(addTo, testResult);
         }
       }
@@ -75,7 +90,8 @@ public class TestResultFormatter {
 
   public void reportResultSummary(ImmutableList.Builder<String> addTo,
                                   TestResultSummary testResult) {
-    addTo.add(String.format("FAILURE %s: %s",
+    addTo.add(String.format("%s %s: %s",
+        testResult.getType().toString(),
         testResult.getTestName(),
         testResult.getMessage()));
 

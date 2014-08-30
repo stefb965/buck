@@ -25,13 +25,14 @@ import com.facebook.buck.java.FakeJavaPackageFinder;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.CachingBuildEngine;
-import com.facebook.buck.rules.DefaultKnownBuildRuleTypes;
 import com.facebook.buck.rules.Repository;
+import com.facebook.buck.rules.TestRepositoryBuilder;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.FakeAndroidDirectoryResolver;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.buck.util.environment.Platform;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableMap;
 
 import org.easymock.Capture;
@@ -104,11 +105,7 @@ public class CleanCommandTest extends EasyMockSupport {
 
   private CleanCommand createCommand() {
     projectFilesystem = createMock(ProjectFilesystem.class);
-    Repository repository = new Repository(
-        "mocked",
-        projectFilesystem,
-        DefaultKnownBuildRuleTypes.getDefaultKnownBuildRuleTypes(projectFilesystem),
-        new FakeBuckConfig());
+    Repository repository = new TestRepositoryBuilder().setFilesystem(projectFilesystem).build();
 
     CommandRunnerParams params = new CommandRunnerParams(
         new TestConsole(),
@@ -120,7 +117,8 @@ public class CleanCommandTest extends EasyMockSupport {
         createMock(Parser.class),
         Platform.detect(),
         ImmutableMap.copyOf(System.getenv()),
-        new FakeJavaPackageFinder());
+        new FakeJavaPackageFinder(),
+        new ObjectMapper());
     return new CleanCommand(params);
   }
 

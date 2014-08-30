@@ -24,6 +24,7 @@ import com.facebook.buck.rules.TestRunEvent;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.util.Console;
 import com.google.common.base.Joiner;
+import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.eventbus.Subscribe;
 
@@ -36,11 +37,14 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
   private final AtomicLong parseTime;
   private final TestResultFormatter testFormatter;
 
-  public SimpleConsoleEventBusListener(Console console, Clock clock) {
+  public SimpleConsoleEventBusListener(
+      Console console,
+      Clock clock,
+      boolean isTreatingAssumptionsAsErrors) {
     super(console, clock);
 
     this.parseTime = new AtomicLong(0);
-    this.testFormatter = new TestResultFormatter(console.getAnsi());
+    this.testFormatter = new TestResultFormatter(console.getAnsi(), isTreatingAssumptionsAsErrors);
   }
 
   @Override
@@ -49,6 +53,7 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
     super.parseFinished(finished);
     ImmutableList.Builder<String> lines = ImmutableList.builder();
     this.parseTime.set(logEventPair("PARSING BUILD FILES",
+        /* suffix */ Optional.<String>absent(),
         clock.currentTimeMillis(),
         0L,
         parseStarted,
@@ -63,6 +68,7 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
     super.buildFinished(finished);
     ImmutableList.Builder<String> lines = ImmutableList.builder();
     logEventPair("BUILDING",
+        /* suffix */ Optional.<String>absent(),
         clock.currentTimeMillis(),
         parseTime.get(),
         buildStarted,
@@ -77,6 +83,7 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
     super.installFinished(finished);
     ImmutableList.Builder<String> lines = ImmutableList.builder();
     logEventPair("INSTALLING",
+        /* suffix */ Optional.<String>absent(),
         clock.currentTimeMillis(),
         0L,
         installStarted,

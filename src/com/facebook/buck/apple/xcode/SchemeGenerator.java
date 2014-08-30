@@ -16,33 +16,32 @@
 
 package com.facebook.buck.apple.xcode;
 
-import com.facebook.buck.apple.AppleBuildRules;
 import com.facebook.buck.apple.SchemeActionType;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXTarget;
-import com.facebook.buck.graph.TopologicalSort;
-import com.facebook.buck.parser.PartialGraph;
+import com.facebook.buck.log.Logger;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.MorePaths;
 import com.facebook.buck.util.ProjectFilesystem;
+import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
+import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Sets;
 import com.google.common.collect.Maps;
 
 import org.w3c.dom.DOMImplementation;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Path;
-import java.util.List;
-import java.util.Map;
 import java.util.EnumSet;
-import java.util.Set;
+import java.util.Map;
 
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -63,125 +62,131 @@ import javax.xml.transform.stream.StreamResult;
  * <li>associations between Xcode targets and the projects that contain them</li>
  * </ul>
  * <p>
- * Both of these values can be pulled out of {@class ProjectGenerator}.
+ * Both of these values can be pulled out of {@link ProjectGenerator}.
  */
 class SchemeGenerator {
+  private static final Logger LOG = Logger.get(SchemeGenerator.class);
+
   private final ProjectFilesystem projectFilesystem;
-  private final PartialGraph partialGraph;
   private final BuildRule primaryRule;
-  private final ImmutableSet<BuildRule> includedRules;
+  private final ImmutableSet<BuildRule> orderedBuildRules;
+  private final ImmutableSet<BuildRule> orderedTestBuildRules;
+  private final ImmutableSet<BuildRule> orderedTestBundleRules;
   private final String schemeName;
   private final Path outputDirectory;
   private final ImmutableMap<SchemeActionType, String> actionConfigNames;
-  private final ImmutableMap.Builder<BuildRule, PBXTarget> buildRuleToTargetMapBuilder;
-  private final ImmutableMap.Builder<PBXTarget, Path> targetToProjectPathMapBuilder;
+  private final ImmutableMap<BuildRule, PBXTarget> buildRuleToTargetMap;
+  private final ImmutableMap<PBXTarget, Path> targetToProjectPathMap;
 
   public SchemeGenerator(
       ProjectFilesystem projectFilesystem,
-      PartialGraph partialGraph,
       BuildRule primaryRule,
-      ImmutableSet<BuildRule> includedRules,
+      Iterable<BuildRule> orderedBuildRules,
+      Iterable<BuildRule> orderedTestBuildRules,
+      Iterable<BuildRule> orderedTestBundleRules,
       String schemeName,
       Path outputDirectory,
-      Map<SchemeActionType, String> actionConfigNames) {
+      Map<SchemeActionType, String> actionConfigNames,
+      Map<BuildRule, PBXTarget> buildRuleToTargetMap,
+      Map<PBXTarget, Path> targetToProjectPathMap) {
     this.projectFilesystem = Preconditions.checkNotNull(projectFilesystem);
-    this.partialGraph = Preconditions.checkNotNull(partialGraph);
     this.primaryRule = Preconditions.checkNotNull(primaryRule);
-    this.includedRules = Preconditions.checkNotNull(includedRules);
+    this.orderedBuildRules = ImmutableSet.copyOf(orderedBuildRules);
+    this.orderedTestBuildRules = ImmutableSet.copyOf(orderedTestBuildRules);
+    this.orderedTestBundleRules = ImmutableSet.copyOf(orderedTestBundleRules);
     this.schemeName = Preconditions.checkNotNull(schemeName);
     this.outputDirectory = Preconditions.checkNotNull(outputDirectory);
     this.actionConfigNames = ImmutableMap.copyOf(actionConfigNames);
-    buildRuleToTargetMapBuilder = ImmutableMap.builder();
-    targetToProjectPathMapBuilder = ImmutableMap.builder();
+    this.buildRuleToTargetMap = ImmutableMap.copyOf(buildRuleToTargetMap);
+    this.targetToProjectPathMap = ImmutableMap.copyOf(targetToProjectPathMap);
+
+    LOG.debug(
+        "Generating scheme with build rules %s, test build rules %s, test bundle rules %s",
+        orderedBuildRules,
+        orderedTestBuildRules,
+        orderedTestBundleRules);
+
+    for (BuildRule rule : orderedBuildRules) {
+      expectTargetMapContainsRule(rule);
+    }
+
+    for (BuildRule rule : orderedTestBuildRules) {
+      expectTargetMapContainsRule(rule);
+    }
+
+    for (BuildRule rule : orderedTestBundleRules) {
+      expectTargetMapContainsRule(rule);
+    }
   }
 
-  public void addRuleToTargetMap(Map<BuildRule, PBXTarget> ruleToTargetMap) {
-    buildRuleToTargetMapBuilder.putAll(ruleToTargetMap);
-  }
-
-  public void addRuleToTargetMap(BuildRule rule, PBXTarget target) {
-    buildRuleToTargetMapBuilder.put(rule, target);
-  }
-
-  public void addTargetToProjectPathMap(Map<PBXTarget, Path> targetToProjectPathMap) {
-    targetToProjectPathMapBuilder.putAll(targetToProjectPathMap);
-  }
-
-  public void addTargetToProjectPathMap(PBXTarget target, Path projectPath) {
-    targetToProjectPathMapBuilder.put(target, projectPath);
+  private void expectTargetMapContainsRule(BuildRule rule) {
+    if (!buildRuleToTargetMap.containsKey(rule)) {
+      throw new HumanReadableException(
+          "Scheme generation failed: No project containing required target %s was found.",
+          rule.getFullyQualifiedName());
+    }
   }
 
   public Path writeScheme() throws IOException {
-    final ImmutableMap<BuildRule, PBXTarget> buildRuleToTargetMap =
-        buildRuleToTargetMapBuilder.build();
-    ImmutableMap<PBXTarget, Path> targetToProjectPathMap =
-        targetToProjectPathMapBuilder.build();
-
-    List<BuildRule> orderedBuildRules = TopologicalSort.sort(
-        partialGraph.getActionGraph(),
-        new Predicate<BuildRule>() {
-          @Override
-          public boolean apply(BuildRule input) {
-            return buildRuleToTargetMap.containsKey(input) && includedRules.contains(input);
-          }
-        });
-
-    Set<BuildRule> nonTestRules = Sets.newLinkedHashSet();
-    Set<BuildRule> testRules = Sets.newLinkedHashSet();
     Map<BuildRule, XCScheme.BuildableReference>
         buildRuleToBuildableReferenceMap = Maps.newHashMap();
 
-    for (BuildRule rule : orderedBuildRules) {
-      if (AppleBuildRules.isXcodeTargetTestBuildRuleType(rule.getType())) {
-        testRules.add(rule);
-      } else {
-        nonTestRules.add(rule);
-      }
+    for (BuildRule rule : Iterables.concat(orderedBuildRules, orderedTestBuildRules)) {
+      PBXTarget target = buildRuleToTargetMap.get(rule);
 
+      String blueprintName = target.getProductName();
+      if (blueprintName == null) {
+        blueprintName = target.getName();
+      }
       XCScheme.BuildableReference buildableReference = new XCScheme.BuildableReference(
           outputDirectory.getParent().relativize(
-              targetToProjectPathMap.get(
-                  buildRuleToTargetMap.get(rule))
+              targetToProjectPathMap.get(target)
           ).toString(),
-          buildRuleToTargetMap.get(rule).getGlobalID());
+          target.getGlobalID(),
+          target.getProductReference().getName(),
+          blueprintName);
       buildRuleToBuildableReferenceMap.put(rule, buildableReference);
     }
 
     XCScheme.BuildAction buildAction = new XCScheme.BuildAction();
 
     // For aesthetic reasons put all non-test build actions before all test build actions.
-    for (BuildRule rule : Iterables.concat(nonTestRules, testRules)) {
-      EnumSet<XCScheme.BuildActionEntry.BuildFor> buildFor;
-      if (AppleBuildRules.isXcodeTargetTestBuildRuleType(rule.getType())) {
-        buildFor = XCScheme.BuildActionEntry.BuildFor.TEST_ONLY;
-      } else {
-        buildFor = XCScheme.BuildActionEntry.BuildFor.DEFAULT;
-      }
+    for (BuildRule rule : orderedBuildRules) {
+      addBuildActionForRule(
+          buildRuleToBuildableReferenceMap.get(rule),
+          XCScheme.BuildActionEntry.BuildFor.DEFAULT,
+          buildAction);
+    }
 
-      XCScheme.BuildableReference buildableReference = buildRuleToBuildableReferenceMap.get(rule);
-      XCScheme.BuildActionEntry entry = new XCScheme.BuildActionEntry(
-          buildableReference,
-          buildFor);
-      buildAction.addBuildAction(entry);
+    for (BuildRule rule : orderedTestBuildRules) {
+      addBuildActionForRule(
+          buildRuleToBuildableReferenceMap.get(rule),
+          XCScheme.BuildActionEntry.BuildFor.TEST_ONLY,
+          buildAction);
     }
 
     XCScheme.TestAction testAction = new XCScheme.TestAction(
         actionConfigNames.get(SchemeActionType.TEST));
-    for (BuildRule rule : testRules) {
+    for (BuildRule rule : orderedTestBundleRules) {
       XCScheme.BuildableReference buildableReference = buildRuleToBuildableReferenceMap.get(rule);
       XCScheme.TestableReference testableReference =
           new XCScheme.TestableReference(buildableReference);
       testAction.addTestableReference(testableReference);
     }
 
+    Optional<XCScheme.LaunchAction> launchAction = Optional.absent();
+    Optional<XCScheme.ProfileAction> profileAction = Optional.absent();
+
     XCScheme.BuildableReference primaryBuildableReference =
         buildRuleToBuildableReferenceMap.get(primaryRule);
-    XCScheme.LaunchAction launchAction = new XCScheme.LaunchAction(
-        primaryBuildableReference,
-        actionConfigNames.get(SchemeActionType.LAUNCH));
-    XCScheme.ProfileAction profileAction = new XCScheme.ProfileAction(
-        primaryBuildableReference,
-        actionConfigNames.get(SchemeActionType.PROFILE));
+    if (primaryBuildableReference != null) {
+      launchAction = Optional.of(new XCScheme.LaunchAction(
+          primaryBuildableReference,
+          actionConfigNames.get(SchemeActionType.LAUNCH)));
+      profileAction = Optional.of(new XCScheme.ProfileAction(
+          primaryBuildableReference,
+          actionConfigNames.get(SchemeActionType.PROFILE)));
+    }
     XCScheme.AnalyzeAction analyzeAction = new XCScheme.AnalyzeAction(
         actionConfigNames.get(SchemeActionType.ANALYZE));
     XCScheme.ArchiveAction archiveAction = new XCScheme.ArchiveAction(
@@ -189,22 +194,39 @@ class SchemeGenerator {
 
     XCScheme scheme = new XCScheme(
         schemeName,
-        buildAction,
-        testAction,
+        Optional.of(buildAction),
+        Optional.of(testAction),
         launchAction,
         profileAction,
-        analyzeAction,
-        archiveAction);
+        Optional.of(analyzeAction),
+        Optional.of(archiveAction));
 
     Path schemeDirectory = outputDirectory.resolve("xcshareddata/xcschemes");
     projectFilesystem.mkdirs(schemeDirectory);
     Path schemePath = schemeDirectory.resolve(schemeName + ".xcscheme");
     try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
       serializeScheme(scheme, outputStream);
-      projectFilesystem.writeContentsToPath(outputStream.toString(), schemePath);
+      String contentsToWrite = outputStream.toString();
+      if (MorePaths.fileContentsDiffer(
+          new ByteArrayInputStream(contentsToWrite.getBytes(Charsets.UTF_8)),
+          schemePath,
+          projectFilesystem)) {
+        projectFilesystem.writeContentsToPath(outputStream.toString(), schemePath);
+      }
     }
     return schemePath;
   }
+
+  private static void addBuildActionForRule(
+      XCScheme.BuildableReference buildableReference,
+      EnumSet<XCScheme.BuildActionEntry.BuildFor> buildFor,
+      XCScheme.BuildAction buildAction) {
+      XCScheme.BuildActionEntry entry = new XCScheme.BuildActionEntry(
+          buildableReference,
+          buildFor);
+      buildAction.addBuildAction(entry);
+    }
+
 
   public static Element serializeBuildableReference(
       Document doc,
@@ -212,6 +234,8 @@ class SchemeGenerator {
     Element refElem = doc.createElement("BuildableReference");
     refElem.setAttribute("BuildableIdentifier", "primary");
     refElem.setAttribute("BlueprintIdentifier", buildableReference.getBlueprintIdentifier());
+    refElem.setAttribute("BuildableName", buildableReference.getBuildableName());
+    refElem.setAttribute("BlueprintName", buildableReference.getBlueprintName());
     String referencedContainer = "container:" + buildableReference.getContainerRelativePath();
     refElem.setAttribute("ReferencedContainer", referencedContainer);
     return refElem;
@@ -309,34 +333,52 @@ class SchemeGenerator {
     rootElem.setAttribute("LastUpgradeVersion", "0500");
     rootElem.setAttribute("version", "1.7");
 
-    Element buildActionElem = serializeBuildAction(doc, scheme.getBuildAction());
-    rootElem.appendChild(buildActionElem);
+    Optional<XCScheme.BuildAction> buildAction = scheme.getBuildAction();
+    if (buildAction.isPresent()) {
+      Element buildActionElem = serializeBuildAction(doc, buildAction.get());
+      rootElem.appendChild(buildActionElem);
+    }
 
-    Element testActionElem = serializeTestAction(doc, scheme.getTestAction());
-    testActionElem.setAttribute(
-        "buildConfiguration", scheme.getTestAction().getBuildConfiguration());
-    rootElem.appendChild(testActionElem);
+    Optional<XCScheme.TestAction> testAction = scheme.getTestAction();
+    if (testAction.isPresent()) {
+      Element testActionElem = serializeTestAction(doc, testAction.get());
+      testActionElem.setAttribute(
+          "buildConfiguration", scheme.getTestAction().get().getBuildConfiguration());
+      rootElem.appendChild(testActionElem);
+    }
 
-    Element launchActionElem = serializeLaunchAction(doc, scheme.getLaunchAction());
-    launchActionElem.setAttribute(
-        "buildConfiguration", scheme.getLaunchAction().getBuildConfiguration());
-    rootElem.appendChild(launchActionElem);
+    Optional<XCScheme.LaunchAction> launchAction = scheme.getLaunchAction();
+    if (launchAction.isPresent()) {
+      Element launchActionElem = serializeLaunchAction(doc, launchAction.get());
+      launchActionElem.setAttribute(
+          "buildConfiguration", launchAction.get().getBuildConfiguration());
+      rootElem.appendChild(launchActionElem);
+    }
 
-    Element profileActionElem = serializeProfileAction(doc, scheme.getProfileAction());
-    profileActionElem.setAttribute(
-        "buildConfiguration", scheme.getProfileAction().getBuildConfiguration());
-    rootElem.appendChild(profileActionElem);
+    Optional<XCScheme.ProfileAction> profileAction = scheme.getProfileAction();
+    if (profileAction.isPresent()) {
+      Element profileActionElem = serializeProfileAction(doc, profileAction.get());
+      profileActionElem.setAttribute(
+          "buildConfiguration", profileAction.get().getBuildConfiguration());
+      rootElem.appendChild(profileActionElem);
+    }
 
-    Element analyzeActionElem = doc.createElement("AnalyzeAction");
-    analyzeActionElem.setAttribute(
-        "buildConfiguration", scheme.getAnalyzeAction().getBuildConfiguration());
-    rootElem.appendChild(analyzeActionElem);
+    Optional<XCScheme.AnalyzeAction> analyzeAction = scheme.getAnalyzeAction();
+    if (analyzeAction.isPresent()) {
+      Element analyzeActionElem = doc.createElement("AnalyzeAction");
+      analyzeActionElem.setAttribute(
+          "buildConfiguration", analyzeAction.get().getBuildConfiguration());
+      rootElem.appendChild(analyzeActionElem);
+    }
 
-    Element archiveActionElem = doc.createElement("ArchiveAction");
-    archiveActionElem.setAttribute(
-        "buildConfiguration", scheme.getArchiveAction().getBuildConfiguration());
-    archiveActionElem.setAttribute("revealArchiveInOrganizer", "YES");
-    rootElem.appendChild(archiveActionElem);
+    Optional<XCScheme.ArchiveAction> archiveAction = scheme.getArchiveAction();
+    if (archiveAction.isPresent()) {
+      Element archiveActionElem = doc.createElement("ArchiveAction");
+      archiveActionElem.setAttribute(
+          "buildConfiguration", archiveAction.get().getBuildConfiguration());
+      archiveActionElem.setAttribute("revealArchiveInOrganizer", "YES");
+      rootElem.appendChild(archiveActionElem);
+    }
 
     // write out
 

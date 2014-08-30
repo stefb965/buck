@@ -55,6 +55,7 @@ public class ProjectIntegrationTest {
         Joiner.on('\n').join(
           "MODIFIED FILES:",
           ".idea/compiler.xml",
+          ".idea/libraries/__libs:generated_jar.xml",
           ".idea/libraries/libs_guava_jar.xml",
           ".idea/libraries/libs_jsr305_jar.xml",
           ".idea/libraries/libs_junit_jar.xml",
@@ -110,6 +111,39 @@ public class ProjectIntegrationTest {
   }
 
   /**
+   * Verify we can build a project by specifying a target, even if it depends on a target whose
+   * project is not in the same buck file as the targets it's for.
+   */
+  @Test
+  public void testBuckProjectSliceWithProjectInDifferentBuckFile() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "project_slice_with_project_in_different_buck_file", temporaryFolder);
+    workspace.setUp();
+
+    ProcessResult result = workspace.runBuckCommand("project", "//:root");
+    result.assertSuccess("buck project should exit cleanly");
+
+    workspace.verify();
+
+    assertEquals(
+        "`buck project` should report the files it modified.",
+        Joiner.on('\n').join(
+            "MODIFIED FILES:",
+            ".idea/compiler.xml",
+            ".idea/modules.xml",
+            ".idea/runConfigurations/Debug_Buck_test.xml",
+            "module_.iml",
+            "modules/module_modules_dep1.iml"
+        ) + '\n',
+        result.getStdout());
+
+    assertThat(
+        "`buck project` should contain warning to restart IntelliJ.",
+        result.getStderr(),
+        containsString("  ::  Please close and re-open IntelliJ."));
+  }
+
+  /**
    * Verify that if we build a project by specifying a target and '--with-tests', the resulting
    * project only contains the transitive deps of that target as well as any tests that specify
    * something in those transitive deps as "sources_under_test".  In this example, that means
@@ -141,6 +175,80 @@ public class ProjectIntegrationTest {
             ".idea/runConfigurations/Debug_Buck_test.xml",
             "modules/dep1/module_modules_dep1.iml",
             "tests/module_tests.iml"
+        ) + '\n',
+        result.getStdout());
+
+    assertThat(
+        "`buck project` should contain warning to restart IntelliJ.",
+        result.getStderr(),
+        containsString("  ::  Please close and re-open IntelliJ."));
+  }
+
+  /**
+   * Verify that if we build a project by specifying a target and '--with-tests', the tests'
+   * dependencies are referenced even if they are defined in a buck file that would not have been
+   * parsed otherwise.
+   */
+  @Test
+  public void testBuckProjectSliceWithTestsDependenciesInDifferentBuckFile() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "project_slice_with_tests_dependencies_in_different_buck_file", temporaryFolder);
+    workspace.setUp();
+
+    ProcessResult result = workspace.runBuckCommand(
+        "project",
+        "--with-tests",
+        "//modules/dep1:dep1");
+    result.assertSuccess("buck project should exit cleanly");
+
+    workspace.verify();
+
+    assertEquals(
+        "`buck project` should report the files it modified.",
+        Joiner.on('\n').join(
+            "MODIFIED FILES:",
+            ".idea/compiler.xml",
+            ".idea/modules.xml",
+            ".idea/runConfigurations/Debug_Buck_test.xml",
+            "modules/dep1/module_modules_dep1.iml",
+            "modules/dep2/module_modules_dep2.iml",
+            "tests/module_tests.iml"
+        ) + '\n',
+        result.getStdout());
+
+    assertThat(
+        "`buck project` should contain warning to restart IntelliJ.",
+        result.getStderr(),
+        containsString("  ::  Please close and re-open IntelliJ."));
+  }
+
+  /**
+   * Verify that if we build a project by specifying a target and '--with-tests', the tests'
+   * projects rules are referenced even if they are defined in a different buck file from the tests.
+   */
+  @Test
+  public void testBuckProjectSliceWithTestsProjectInDifferentBuckFile() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "project_slice_with_tests_project_in_different_buck_file", temporaryFolder);
+    workspace.setUp();
+
+    ProcessResult result = workspace.runBuckCommand(
+        "project",
+        "--with-tests",
+        "//modules/dep1:dep1");
+    result.assertSuccess("buck project should exit cleanly");
+
+    workspace.verify();
+
+    assertEquals(
+        "`buck project` should report the files it modified.",
+        Joiner.on('\n').join(
+            "MODIFIED FILES:",
+            ".idea/compiler.xml",
+            ".idea/modules.xml",
+            ".idea/runConfigurations/Debug_Buck_test.xml",
+            "modules/dep1/module_modules_dep1.iml",
+            "tests/module_tests_test1.iml"
         ) + '\n',
         result.getStdout());
 
@@ -185,12 +293,59 @@ public class ProjectIntegrationTest {
     result.assertSuccess();
 
     workspace.verify();
+  }
 
-    assertEquals(
-        Joiner.on('\n').join(
-            "foo/fooproject.xcodeproj",
-            "bar/barproject.xcodeproj",
-            ""),
-        result.getStdout());
+  @Test
+  public void testBuckProjectGeneratedSchemeOnlyIncludesDependencies() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this,
+        "project_generated_scheme_only_includes_dependencies",
+        temporaryFolder);
+    workspace.setUp();
+
+    ProcessResult result = workspace.runBuckCommand(
+        "project",
+        "--workspace-and-projects",
+        "//Apps:workspace");
+    result.assertSuccess();
+
+    workspace.verify();
+  }
+
+  @Test
+  public void testBuckProjectGeneratedSchemeIncludesTestsAndDependencies() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this,
+        "project_generated_scheme_includes_tests_and_dependencies",
+        temporaryFolder);
+    workspace.setUp();
+
+    ProcessResult result = workspace.runBuckCommand(
+        "project",
+        "--workspace-and-projects",
+        "--with-tests",
+        "//Apps:workspace");
+    result.assertSuccess();
+
+    workspace.verify();
+  }
+
+  @Test
+  public void testBuckProjectGeneratedSchemeIncludesTestsAndDependenciesInADifferentBuckFile()
+      throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this,
+        "project_generated_scheme_includes_tests_and_dependencies_in_a_different_buck_file",
+        temporaryFolder);
+    workspace.setUp();
+
+    ProcessResult result = workspace.runBuckCommand(
+        "project",
+        "--workspace-and-projects",
+        "--with-tests",
+        "//Apps:workspace");
+    result.assertSuccess();
+
+    workspace.verify();
   }
 }

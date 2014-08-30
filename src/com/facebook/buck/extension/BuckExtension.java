@@ -94,7 +94,7 @@ public class BuckExtension extends AbstractBuildRule {
       BuildableContext buildableContext) {
 
     JavacOptions javacOptions = JavacOptions.builder()
-        .setJavaCompilerEnviornment(BUCK_ENV)
+        .setJavaCompilerEnvironment(BUCK_ENV)
         .build();
     ImmutableSortedSet.Builder<Path> classpath = ImmutableSortedSet.naturalOrder();
     ImmutableCollection<Path> depPaths = Classpaths.getClasspathEntries(getDeclaredDeps()).values();
@@ -136,6 +136,10 @@ public class BuckExtension extends AbstractBuildRule {
     ClassLoader classLoader = BuckExtension.class.getClassLoader();
     Preconditions.checkState(classLoader instanceof URLClassLoader);
 
+    @SuppressWarnings("resource")
+    // Because this ClassLoader comes from BuckExtension.class, it is not obvious that it would
+    // be safe to close it. See
+    // http://docs.oracle.com/javase/7/docs/technotes/guides/net/ClassLoader.html.
     URLClassLoader urlLoader = (URLClassLoader) classLoader;
     for (URL url : urlLoader.getURLs()) {
       try {

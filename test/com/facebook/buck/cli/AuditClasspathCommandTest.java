@@ -30,37 +30,36 @@ import com.facebook.buck.java.Keystore;
 import com.facebook.buck.java.KeystoreBuilder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.Repository;
 import com.facebook.buck.parser.PartialGraph;
 import com.facebook.buck.parser.PartialGraphFactory;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultKnownBuildRuleTypes;
-import com.facebook.buck.rules.KnownBuildRuleTypes;
 import com.facebook.buck.rules.NoopArtifactCache;
+import com.facebook.buck.rules.Repository;
+import com.facebook.buck.rules.TestRepositoryBuilder;
 import com.facebook.buck.rules.TestSourcePath;
 import com.facebook.buck.testutil.BuckTestConstant;
 import com.facebook.buck.testutil.RuleMap;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.AndroidDirectoryResolver;
 import com.facebook.buck.util.FakeAndroidDirectoryResolver;
-import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.buck.util.environment.Platform;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import org.junit.Before;
 import org.junit.Test;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Paths;
 import java.util.Arrays;
@@ -69,23 +68,17 @@ import java.util.SortedSet;
 
 public class AuditClasspathCommandTest {
 
-  private final String projectRootPath = ".";
-  private final File projectRoot = new File(projectRootPath);
   private TestConsole console;
   private AuditClasspathCommand auditClasspathCommand;
 
   @Before
   public void setUp() throws IOException {
     console = new TestConsole();
-    ProjectFilesystem projectFilesystem = new ProjectFilesystem(projectRoot);
     AndroidDirectoryResolver androidDirectoryResolver = new FakeAndroidDirectoryResolver();
-    KnownBuildRuleTypes buildRuleTypes =
-        DefaultKnownBuildRuleTypes.getDefaultKnownBuildRuleTypes(projectFilesystem);
     ArtifactCache artifactCache = new NoopArtifactCache();
     BuckEventBus eventBus = BuckEventBusFactory.newInstance();
-    BuckConfig buckConfig = new FakeBuckConfig();
 
-    Repository repository = new Repository("test", projectFilesystem, buildRuleTypes, buckConfig);
+    Repository repository = new TestRepositoryBuilder().build();
 
     auditClasspathCommand = new AuditClasspathCommand(new CommandRunnerParams(
         console,
@@ -96,17 +89,21 @@ public class AuditClasspathCommandTest {
         BuckTestConstant.PYTHON_INTERPRETER,
         Platform.detect(),
         ImmutableMap.copyOf(System.getenv()),
-        new FakeJavaPackageFinder()));
+        new FakeJavaPackageFinder(),
+        new ObjectMapper()));
   }
 
   private PartialGraph createGraphFromBuildRules(BuildRuleResolver ruleResolver,
       List<String> targets) {
-    List<BuildTarget> buildTargets = Lists.transform(targets, new Function<String, BuildTarget>() {
-      @Override
-      public BuildTarget apply(String target) {
-        return BuildTargetFactory.newInstance(target);
-      }
-    });
+    ImmutableSet<BuildTarget> buildTargets = ImmutableSet.copyOf(
+        Iterables.transform(
+            targets,
+            new Function<String, BuildTarget>() {
+              @Override
+              public BuildTarget apply(String target) {
+                return BuildTargetFactory.newInstance(target);
+              }
+            }));
 
     ActionGraph actionGraph = RuleMap.createGraphFromBuildRules(ruleResolver);
     return PartialGraphFactory.newInstance(actionGraph, buildTargets);

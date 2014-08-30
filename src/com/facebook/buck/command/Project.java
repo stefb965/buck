@@ -54,11 +54,11 @@ import com.facebook.buck.util.Verbosity;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonInclude.Include;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectWriter;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
+import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Objects;
 import com.google.common.base.Optional;
@@ -133,7 +133,7 @@ public class Project {
 
   private final PartialGraph partialGraph;
   private final BuildFileTree buildFileTree;
-  private final ImmutableMap<String, String> basePathToAliasMap;
+  private final ImmutableMap<Path, String> basePathToAliasMap;
   private final JavaPackageFinder javaPackageFinder;
   private final ExecutionContext executionContext;
   private final ProjectFilesystem projectFilesystem;
@@ -141,17 +141,28 @@ public class Project {
   private final Optional<String> pathToPostProcessScript;
   private final Set<BuildRule> libraryJars;
   private final String pythonInterpreter;
+  private final ObjectMapper objectMapper;
 
   public Project(PartialGraph partialGraph,
-      Map<String, String> basePathToAliasMap,
+      Map<Path, String> basePathToAliasMap,
       JavaPackageFinder javaPackageFinder,
       ExecutionContext executionContext,
       ProjectFilesystem projectFilesystem,
       Optional<String> pathToDefaultAndroidManifest,
       Optional<String> pathToPostProcessScript,
-      String pythonInterpreter) {
+      String pythonInterpreter,
+      ObjectMapper objectMapper) {
     this.partialGraph = Preconditions.checkNotNull(partialGraph);
-    this.buildFileTree = new InMemoryBuildFileTree(partialGraph.getTargets());
+    this.buildFileTree = new InMemoryBuildFileTree(
+        Iterables.transform(
+            partialGraph.getActionGraph().getNodes(),
+            new Function<BuildRule, BuildTarget>() {
+              @Override
+              public BuildTarget apply(BuildRule input) {
+                return input.getBuildTarget();
+              }
+            }
+        ));
     this.basePathToAliasMap = ImmutableMap.copyOf(basePathToAliasMap);
     this.javaPackageFinder = Preconditions.checkNotNull(javaPackageFinder);
     this.executionContext = Preconditions.checkNotNull(executionContext);
@@ -160,6 +171,7 @@ public class Project {
     this.pathToPostProcessScript = Preconditions.checkNotNull(pathToPostProcessScript);
     this.libraryJars = Sets.newHashSet();
     this.pythonInterpreter = Preconditions.checkNotNull(pythonInterpreter);
+    this.objectMapper = Preconditions.checkNotNull(objectMapper);
   }
 
   public int createIntellijProject(
@@ -254,7 +266,7 @@ public class Project {
    /**
    * @param module must be an android module
    * @param nameToModuleIndex
-   * @returns the File that was written, or {@code null} if no file was written.
+   * @return the File that was written, or {@code null} if no file was written.
    * @throws IOException
    */
   @VisibleForTesting
@@ -353,6 +365,9 @@ public class Project {
     ImmutableSet.Builder<Path> noDxJarsBuilder = ImmutableSet.builder();
     for (BuildTarget target : partialGraph.getTargets()) {
       BuildRule buildRule = actionGraph.findBuildRuleByTarget(target);
+      if (!(buildRule instanceof ProjectConfig)) {
+        continue;
+      }
       ProjectConfig projectConfig = (ProjectConfig) buildRule;
 
       BuildRule srcRule = projectConfig.getSrcRule();
@@ -376,7 +391,7 @@ public class Project {
 
   private Module createModuleForProjectConfig(ProjectConfig projectConfig) throws IOException {
     BuildRule projectRule = projectConfig.getProjectRule();
-    Preconditions.checkState(projectRule instanceof JavaLibrary ||
+    Preconditions.checkState(
         projectRule instanceof JavaLibrary ||
         projectRule instanceof JavaBinary ||
         projectRule instanceof AndroidLibrary ||
@@ -765,7 +780,7 @@ public class Project {
   /**
    * Walks the dependencies of a build rule and adds the appropriate DependentModules to the
    * specified dependencies collection. All library dependencies will be added before any module
-   * dependencies. See {@link ProjectTest#testThatJarsAreListedBeforeModules()} for details on why
+   * dependencies. See {@code ProjectTest#testThatJarsAreListedBeforeModules()} for details on why
    * this behavior is important.
    */
   private void walkRuleAndAdd(
@@ -774,7 +789,7 @@ public class Project {
       final LinkedHashSet<DependentModule> dependencies,
       @Nullable final BuildRule srcTarget) {
 
-    final String basePathForRule = rule.getBuildTarget().getBasePath();
+    final Path basePathForRule = rule.getBuildTarget().getBasePath();
     new AbstractDependencyVisitor(rule, true /* excludeRoot */) {
 
       private final LinkedHashSet<DependentModule> librariesToAdd = Sets.newLinkedHashSet();
@@ -893,7 +908,7 @@ public class Project {
    * @param basePathToAliasMap may be null if rule is a {@link PrebuiltJar}
    */
   private static String getIntellijNameForRule(BuildRule rule,
-      @Nullable Map<String, String> basePathToAliasMap) {
+      @Nullable Map<Path, String> basePathToAliasMap) {
     // Get basis for the library/module name.
     String name;
     if (rule instanceof PrebuiltJar) {
@@ -901,11 +916,11 @@ public class Project {
       String binaryJar = prebuiltJar.getBinaryJar().toString();
       return getIntellijNameForBinaryJar(binaryJar);
     } else {
-      String basePath = rule.getBuildTarget().getBasePath();
-      if (basePathToAliasMap.containsKey(basePath)) {
+      Path basePath = rule.getBuildTarget().getBasePath();
+      if (basePathToAliasMap != null && basePathToAliasMap.containsKey(basePath)) {
         name = basePathToAliasMap.get(basePath);
       } else {
-        name = rule.getBuildTarget().getBasePath();
+        name = rule.getBuildTarget().getBasePath().toString();
         name = name.replace('/', '_');
         // Must add a prefix to ensure that name is non-empty.
         name = "module_" + name;
@@ -930,16 +945,19 @@ public class Project {
 
   /**
    * @param pathRelativeToProjectRoot if {@code null}, then this method returns {@code null}
-   * @param target
    */
+  @Nullable
   private static String createRelativePath(@Nullable Path pathRelativeToProjectRoot,
       BuildTarget target) {
     if (pathRelativeToProjectRoot == null) {
       return null;
     }
-    String directoryPath = target.getBasePath();
-    Preconditions.checkArgument(pathRelativeToProjectRoot.toString().startsWith(directoryPath));
-    return pathRelativeToProjectRoot.toString().substring(directoryPath.length());
+    Path directoryPath = target.getBasePath();
+    Preconditions.checkArgument(pathRelativeToProjectRoot.startsWith(directoryPath));
+    // TODO(simons): Hey, this is crazy, here's a toString(), fix it maybe?
+    // Path.relativize doesn't cut the mustard, since we need a leading slash. Not sure if that's
+    // always the case, though.
+    return pathRelativeToProjectRoot.toString().substring(directoryPath.toString().length());
   }
 
   private void writeJsonConfig(File jsonTempFile, List<Module> modules) throws IOException {
@@ -955,8 +973,6 @@ public class Project {
 
     // Write out the JSON config to be consumed by the Python.
     try (Writer writer = new FileWriter(jsonTempFile)) {
-      JsonFactory jsonFactory = new JsonFactory();
-      ObjectMapper objectMapper = new ObjectMapper(jsonFactory);
       if (executionContext.getVerbosity().shouldPrintOutput()) {
         ObjectWriter objectWriter = objectMapper.writerWithDefaultPrettyPrinter();
         objectWriter.writeValue(writer, config);
@@ -1089,7 +1105,7 @@ public class Project {
 
       PrebuiltJar prebuiltJar = (PrebuiltJar) rule;
 
-      this.binaryJar = prebuiltJar.getBinaryJar().toString();
+      this.binaryJar = prebuiltJar.getBinaryJar().resolve().toString();
       if (prebuiltJar.getSourceJar().isPresent()) {
         this.sourceJar = prebuiltJar.getSourceJar().get().toString();
       } else {

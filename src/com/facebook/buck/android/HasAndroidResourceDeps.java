@@ -42,8 +42,18 @@ public interface HasAndroidResourceDeps extends HasBuildTarget {
             // Avoid collisions by marking end of path explicitly.
             hasher.putChar('\0');
             hasher.putUnencodedChars(dep.getTextSymbolsAbiKey().getHash());
+            hasher.putUnencodedChars(dep.getRDotJavaPackage());
+            hasher.putChar('\0');
           }
           return new Sha1HashCode(hasher.hash().toString());
+        }
+      };
+
+  public static final Function<HasAndroidResourceDeps, String> TO_R_DOT_JAVA_PACKAGE =
+      new Function<HasAndroidResourceDeps, String>() {
+        @Override
+        public String apply(HasAndroidResourceDeps input) {
+          return input.getRDotJavaPackage();
         }
       };
 

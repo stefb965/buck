@@ -22,12 +22,11 @@ import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.parser.PartialGraph;
-import com.facebook.buck.parser.RawRulePredicate;
+import com.facebook.buck.parser.RuleJsonPredicate;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.util.HumanReadableException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Functions;
@@ -39,7 +38,6 @@ import com.google.common.collect.Sets;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.List;
 import java.util.Map;
 import java.util.SortedSet;
 
@@ -69,7 +67,7 @@ public class AuditClasspathCommand extends AbstractCommandRunner<AuditCommandOpt
       return 1;
     }
 
-    RawRulePredicate predicate = new RawRulePredicate() {
+    RuleJsonPredicate predicate = new RuleJsonPredicate() {
       @Override
       public boolean isMatch(
           Map<String, Object> rawParseData,
@@ -84,7 +82,9 @@ public class AuditClasspathCommand extends AbstractCommandRunner<AuditCommandOpt
           getProjectFilesystem(),
           options.getDefaultIncludes(),
           getParser(),
-          getBuckEventBus());
+          getBuckEventBus(),
+          console,
+          environment);
     } catch (BuildTargetException | BuildFileParseException e) {
       console.printBuildFailureWithoutStacktrace(e);
       return 1;
@@ -121,7 +121,7 @@ public class AuditClasspathCommand extends AbstractCommandRunner<AuditCommandOpt
 
   @VisibleForTesting
   int printClasspath(PartialGraph partialGraph) {
-    List<BuildTarget> targets = partialGraph.getTargets();
+    ImmutableSet<BuildTarget> targets = partialGraph.getTargets();
     ActionGraph graph = partialGraph.getActionGraph();
     SortedSet<Path> classpathEntries = Sets.newTreeSet();
 
@@ -146,7 +146,7 @@ public class AuditClasspathCommand extends AbstractCommandRunner<AuditCommandOpt
   @VisibleForTesting
   int printJsonClasspath(PartialGraph partialGraph) throws IOException {
     ActionGraph graph = partialGraph.getActionGraph();
-    List<BuildTarget> targets = partialGraph.getTargets();
+    ImmutableSet<BuildTarget> targets = partialGraph.getTargets();
     Multimap<String, String> targetClasspaths = LinkedHashMultimap.create();
 
     for (BuildTarget target : targets) {
@@ -162,10 +162,8 @@ public class AuditClasspathCommand extends AbstractCommandRunner<AuditCommandOpt
               Functions.toStringFunction()));
     }
 
-    ObjectMapper mapper = new ObjectMapper();
-
     // Note: using `asMap` here ensures that the keys are sorted
-    mapper.writeValue(
+    getObjectMapper().writeValue(
         console.getStdOut(),
         targetClasspaths.asMap());
 

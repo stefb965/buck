@@ -26,8 +26,7 @@ import com.facebook.buck.event.listener.LoggingBuildListener;
 import com.facebook.buck.event.listener.SimpleConsoleEventBusListener;
 import com.facebook.buck.event.listener.SuperConsoleEventBusListener;
 import com.facebook.buck.httpserver.WebServer;
-import com.facebook.buck.java.JavaBuckConfig;
-import com.facebook.buck.java.JavaCompilerEnvironment;
+import com.facebook.buck.log.CommandThreadAssociation;
 import com.facebook.buck.log.LogConfig;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildId;
@@ -36,23 +35,21 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.CachingBuildEngine;
 import com.facebook.buck.rules.KnownBuildRuleTypes;
 import com.facebook.buck.rules.Repository;
+import com.facebook.buck.rules.RepositoryFactory;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKey.Builder;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.timing.DefaultClock;
-import com.facebook.buck.util.AndroidDirectoryResolver;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.Console;
-import com.facebook.buck.util.DefaultAndroidDirectoryResolver;
 import com.facebook.buck.util.DefaultFileHashCache;
-import com.facebook.buck.util.DefaultPropertyFinder;
 import com.facebook.buck.util.FileHashCache;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.InterruptionFailedException;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.buck.util.ProjectFilesystemWatcher;
-import com.facebook.buck.util.PropertyFinder;
 import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.WatchServiceWatcher;
 import com.facebook.buck.util.WatchmanWatcher;
@@ -61,6 +58,7 @@ import com.facebook.buck.util.concurrent.TimeSpan;
 import com.facebook.buck.util.environment.DefaultExecutionEnvironment;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.facebook.buck.util.environment.Platform;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -78,11 +76,13 @@ import com.martiansoftware.nailgun.NGContext;
 import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.io.PrintStream;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.FileSystems;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Map;
@@ -102,9 +102,6 @@ public final class Main {
    * Trying again later might work.
    */
   public static final int BUSY_EXIT_CODE = 2;
-
-  private static final String DEFAULT_BUCK_CONFIG_FILE_NAME = ".buckconfig";
-  private static final String DEFAULT_BUCK_CONFIG_OVERRIDE_FILE_NAME = ".buckconfig.local";
 
   private static final String BUCK_VERSION_UID_KEY = "buck.version_uid";
   private static final String BUCK_VERSION_UID = System.getProperty(BUCK_VERSION_UID_KEY, "N/A");
@@ -126,10 +123,20 @@ public final class Main {
 
   private final PrintStream stdOut;
   private final PrintStream stdErr;
+  private final Optional<BuckEventListener> externalEventsListener;
 
   private static final Semaphore commandSemaphore = new Semaphore(1);
 
   private final Platform platform;
+
+  // It's important to re-use this object for perf:
+  // http://wiki.fasterxml.com/JacksonBestPracticesPerformance
+  private final ObjectMapper objectMapper;
+
+  // This is a hack to work around a perf issue where generated Xcode IDE files
+  // trip WatchmanWatcher, causing buck project to take a long time to run.
+  private static final ImmutableSet<String> DEFAULT_IGNORE_GLOBS =
+      ImmutableSet.of("*.pbxproj", "*.xcscheme", "*.xcworkspacedata");
 
   private static final Logger LOG = Logger.get(Main.class);
 
@@ -140,45 +147,35 @@ public final class Main {
    */
   private static final class Daemon implements Closeable {
 
+    private final Repository repository;
     private final Parser parser;
-    private final AndroidDirectoryResolver androidDirectoryResolver;
     private final DefaultFileHashCache hashCache;
     private final EventBus fileEventBus;
     private final ProjectFilesystemWatcher filesystemWatcher;
-    private final BuckConfig config;
     private final Optional<WebServer> webServer;
-    private final Console console;
+    private final Clock clock;
+    private final ObjectMapper objectMapper;
 
     public Daemon(
-        ProjectFilesystem projectFilesystem,
-        KnownBuildRuleTypes knownBuildRuleTypes,
-        AndroidDirectoryResolver androidDirectoryResolver,
-        BuckConfig config,
-        Console console,
-        ImmutableMap<String, String> environment) throws IOException {
-      this.config = Preconditions.checkNotNull(config);
-      this.console = Preconditions.checkNotNull(console);
-      this.hashCache = new DefaultFileHashCache(projectFilesystem, console);
-      Repository repository = new Repository(
-          "default",
-          projectFilesystem,
-          knownBuildRuleTypes,
-          config);
+        Repository repository,
+        Clock clock,
+        ObjectMapper objectMapper) throws IOException {
+      this.repository = repository;
+      this.clock = Preconditions.checkNotNull(clock);
+      this.objectMapper = Preconditions.checkNotNull(objectMapper);
+      this.hashCache = new DefaultFileHashCache(repository.getFilesystem());
       this.parser = new Parser(
           repository,
-          console,
-          environment,
-          config.getPythonInterpreter(),
-          config.getTempFilePatterns(),
+          repository.getBuckConfig().getPythonInterpreter(),
+          repository.getBuckConfig().getTempFilePatterns(),
           createRuleKeyBuilderFactory(hashCache));
-      this.androidDirectoryResolver = Preconditions.checkNotNull(androidDirectoryResolver);
 
       this.fileEventBus = new EventBus("file-change-events");
-      this.filesystemWatcher = createWatcher(projectFilesystem);
+      this.filesystemWatcher = createWatcher(repository.getFilesystem());
       fileEventBus.register(parser);
       fileEventBus.register(hashCache);
-      webServer = createWebServer(config, console, projectFilesystem);
-      JavaUtilsLoggingBuildListener.ensureLogFileIsWritten(projectFilesystem);
+      webServer = createWebServer(repository.getBuckConfig(), repository.getFilesystem());
+      JavaUtilsLoggingBuildListener.ensureLogFileIsWritten(repository.getFilesystem());
     }
 
     private ProjectFilesystemWatcher createWatcher(ProjectFilesystem projectFilesystem)
@@ -187,18 +184,22 @@ public final class Main {
         LOG.debug("Using watchman to watch for file changes.");
         return new WatchmanWatcher(
             projectFilesystem,
-            fileEventBus);
+            fileEventBus,
+            clock,
+            objectMapper,
+            repository.getBuckConfig().getIgnorePaths(),
+            DEFAULT_IGNORE_GLOBS
+        );
       }
       LOG.debug("Using java.nio.file.WatchService to watch for file changes.");
       return new WatchServiceWatcher(
           projectFilesystem,
           fileEventBus,
-          config.getIgnorePaths(),
           FileSystems.getDefault().newWatchService());
     }
 
-    private Optional<WebServer> createWebServer(BuckConfig config,
-        Console console,
+    private Optional<WebServer> createWebServer(
+        BuckConfig config,
         ProjectFilesystem projectFilesystem) {
       // Enable the web httpserver if it is given by command line parameter or specified in
       // .buckconfig. The presence of a port number is sufficient.
@@ -215,8 +216,7 @@ public final class Main {
           LOG.debug("Starting up web server on port %d.", port);
           webServer = Optional.of(new WebServer(port, projectFilesystem, STATIC_CONTENT_DIRECTORY));
         } catch (NumberFormatException e) {
-          console.printErrorText(
-              String.format("Could not parse port for httpserver: %s.", rawPort));
+          LOG.error("Could not parse port for httpserver: %s.", rawPort);
           webServer = Optional.absent();
         }
       } else {
@@ -231,10 +231,6 @@ public final class Main {
 
     private Parser getParser() {
       return parser;
-    }
-
-    private AndroidDirectoryResolver getAndroidDirectoryResolver() {
-      return androidDirectoryResolver;
     }
 
     private void watchClient(final NGContext context) {
@@ -258,8 +254,6 @@ public final class Main {
     }
 
     private void watchFileSystem(
-        Console console,
-        ImmutableMap<String, String> environment,
         CommandEvent commandEvent,
         BuckEventBus eventBus) throws IOException, InterruptedException {
 
@@ -268,9 +262,6 @@ public final class Main {
       // invalidations triggered by requests to parse build files or interrupted by client
       // disconnections.
       synchronized (parser) {
-        parser.setConsole(console);
-        parser.setEnvironment(environment);
-        hashCache.setConsole(console);
         parser.recordParseStartTime(eventBus);
         fileEventBus.post(commandEvent);
         filesystemWatcher.postEvents();
@@ -284,14 +275,10 @@ public final class Main {
           webServer.get().start();
           return true;
         } catch (WebServer.WebServerException e) {
-          e.printStackTrace(console.getStdErr());
+          LOG.error(e);
         }
       }
       return false;
-    }
-
-    public BuckConfig getConfig() {
-      return config;
     }
 
     @Override
@@ -305,7 +292,7 @@ public final class Main {
         try {
           webServer.get().stop();
         } catch (WebServer.WebServerException e) {
-          e.printStackTrace(console.getStdErr());
+          LOG.error(e);
         }
       }
     }
@@ -316,47 +303,33 @@ public final class Main {
   /**
    * Get or create Daemon.
    */
-  private Daemon getDaemon(
-      ProjectFilesystem filesystem,
-      BuckConfig config,
-      KnownBuildRuleTypes knownBuildRuleTypes,
-      AndroidDirectoryResolver androidDirectoryResolver,
-      Console console,
-      ImmutableMap<String, String> environment) throws IOException {
+  @VisibleForTesting
+  static Daemon getDaemon(
+      Repository repository,
+      Clock clock,
+      ObjectMapper objectMapper) throws IOException {
     if (daemon == null) {
-      LOG.info("Starting up daemon for project root [%s]", filesystem.getProjectRoot());
-      daemon = new Daemon(
-          filesystem,
-          knownBuildRuleTypes,
-          androidDirectoryResolver,
-          config,
-          console,
-          environment);
+      LOG.debug("Starting up daemon for project root [%s]",
+          repository.getFilesystem().getRootPath());
+      daemon = new Daemon(repository, clock, objectMapper);
     } else {
       // Buck daemons cache build files within a single project root, changing to a different
       // project root is not supported and will likely result in incorrect builds. The buck and
       // buckd scripts attempt to enforce this, so a change in project root is an error that
       // should be reported rather than silently worked around by invalidating the cache and
       // creating a new daemon object.
-      File parserRoot = daemon.getParser().getProjectRoot();
-      if (!filesystem.getProjectRoot().equals(parserRoot)) {
+      Path parserRoot = daemon.getParser().getProjectRoot();
+      if (!repository.getFilesystem().getRootPath().equals(parserRoot)) {
         throw new HumanReadableException(String.format("Unsupported root path change from %s to %s",
-            filesystem.getProjectRoot(), parserRoot));
+            repository.getFilesystem().getRootPath(), parserRoot));
       }
 
       // If Buck config or the AndroidDirectoryResolver has changed, invalidate the cache and
       // create a new daemon.
-      if (!daemon.getConfig().equals(config) ||
-          !daemon.getAndroidDirectoryResolver().equals(androidDirectoryResolver)) {
+      if (!daemon.repository.equals(repository)) {
         LOG.info("Shutting down and restarting daemon on config or directory resolver change.");
         daemon.close();
-        daemon = new Daemon(
-            filesystem,
-            knownBuildRuleTypes,
-            androidDirectoryResolver,
-            config,
-            console,
-            environment);
+        daemon = new Daemon(repository, clock, objectMapper);
       }
     }
     return daemon;
@@ -390,9 +363,19 @@ public final class Main {
 
   @VisibleForTesting
   public Main(PrintStream stdOut, PrintStream stdErr) {
+    this(stdOut, stdErr, Optional.<BuckEventListener>absent());
+  }
+
+  @VisibleForTesting
+  public Main(
+      PrintStream stdOut,
+      PrintStream stdErr,
+      Optional<BuckEventListener> externalEventsListener) {
     this.stdOut = Preconditions.checkNotNull(stdOut);
     this.stdErr = Preconditions.checkNotNull(stdErr);
     this.platform = Platform.detect();
+    this.objectMapper = new ObjectMapper();
+    this.externalEventsListener = externalEventsListener;
   }
 
   /** Prints the usage message to standard error. */
@@ -428,21 +411,24 @@ public final class Main {
   }
 
   /**
+   *
+   * @param buildId an identifier for this command execution.
    * @param context an optional NGContext that is present if running inside a Nailgun server.
    * @param args command line arguments
    * @return an exit code or {@code null} if this is a process that should not exit
    */
-  public int runMainWithExitCode(File projectRoot, Optional<NGContext> context, String... args)
+  public int runMainWithExitCode(
+      BuildId buildId,
+      File projectRoot,
+      Optional<NGContext> context,
+      String... args)
       throws IOException, InterruptedException {
-    if (args.length == 0) {
-      return usage();
-    }
 
     // Find and execute command.
     int exitCode;
-    Command.ParseResult command = Command.parseCommandName(args[0]);
+    Command.ParseResult command = parseCommandIfPresent(args);
     if (command.getCommand().isPresent()) {
-      return executeCommand(projectRoot, command, context, args);
+      return executeCommand(buildId, projectRoot, command, context, args);
     } else {
       exitCode = new GenericBuckOptions(stdOut, stdErr).execute(args);
       if (exitCode == GenericBuckOptions.SHOW_MAIN_HELP_SCREEN_EXIT_CODE) {
@@ -453,6 +439,13 @@ public final class Main {
     }
   }
 
+  private Command.ParseResult parseCommandIfPresent(String... args) {
+    if (args.length == 0) {
+      return new Command.ParseResult(Optional.<Command>absent(), Optional.<String>absent());
+    }
+    return Command.parseCommandName(args[0]);
+  }
+
   /**
    * @param context an optional NGContext that is present if running inside a Nailgun server.
    * @param args command line arguments
@@ -460,6 +453,7 @@ public final class Main {
    */
   @SuppressWarnings({"PMD.EmptyCatchBlock", "PMD.PrematureDeclaration"})
   public int executeCommand(
+      BuildId buildId,
       File projectRoot,
       Command.ParseResult commandParseResult,
       Optional<NGContext> context,
@@ -468,14 +462,6 @@ public final class Main {
     // Get the client environment, either from this process or from the Nailgun context.
     ImmutableMap<String, String> clientEnvironment = getClientEnvironment(context);
 
-    // Create common command parameters. projectFilesystem initialization looks odd because it needs
-    // ignorePaths from a BuckConfig instance, which in turn needs a ProjectFilesystem (i.e. this
-    // solves a bootstrapping issue).
-    ProjectFilesystem projectFilesystem = new ProjectFilesystem(
-        Paths.get(projectRoot.getPath()),
-        createBuckConfig(new ProjectFilesystem(projectRoot), platform, clientEnvironment)
-            .getIgnorePaths());
-    BuckConfig config = createBuckConfig(projectFilesystem, platform, clientEnvironment);
     Verbosity verbosity = VerbosityParser.parse(args);
     Optional<String> color;
     final boolean isDaemon = context.isPresent();
@@ -485,48 +471,49 @@ public final class Main {
     } else {
       color = Optional.absent();
     }
-    final Console console = new Console(verbosity, stdOut, stdErr, config.createAnsi(color));
+    // We need a BuckConfig to create a Console, but we get BuckConfig from Repository, and we need
+    // a Console to create a Repository. To break this bootstrapping loop, create a temporary
+    // BuckConfig.
+    // TODO(jacko): We probably shouldn't rely on BuckConfig to instantiate Console.
+    BuckConfig bootstrapConfig = BuckConfig.createDefaultBuckConfig(
+        new ProjectFilesystem(projectRoot),
+        platform,
+        clientEnvironment);
+    final Console console = new Console(
+        verbosity,
+        stdOut,
+        stdErr,
+        bootstrapConfig.createAnsi(color));
+
+    Path canonicalRootPath = projectRoot.toPath().toRealPath();
+    RepositoryFactory repositoryFactory =
+        new RepositoryFactory(clientEnvironment, platform, console, canonicalRootPath);
+
+    Repository rootRepository = repositoryFactory.getRepositoryByAbsolutePath(canonicalRootPath);
 
     if (commandParseResult.getErrorText().isPresent()) {
       console.getStdErr().println(commandParseResult.getErrorText().get());
     }
 
-    ProcessExecutor processExecutor = new ProcessExecutor(console);
-
     int exitCode;
     ImmutableList<BuckEventListener> eventListeners;
-    BuildId buildId = new BuildId();
     Clock clock = new DefaultClock();
+    ProcessExecutor processExecutor = new ProcessExecutor(console);
     ExecutionEnvironment executionEnvironment = new DefaultExecutionEnvironment(
         processExecutor,
-        clientEnvironment);
+        clientEnvironment,
+        // TODO(user): Thread through properties from client environment.
+        System.getProperties());
 
-    // Configure the AndroidDirectoryResolver.
-    PropertyFinder propertyFinder = new DefaultPropertyFinder(
-        projectFilesystem,
-        clientEnvironment);
-    AndroidDirectoryResolver androidDirectoryResolver =
-        new DefaultAndroidDirectoryResolver(
-            projectFilesystem,
-            config.getNdkVersion(),
-            propertyFinder);
-    // Look up the javac version.
-    JavaBuckConfig javaConfig = new JavaBuckConfig(config);
-    JavaCompilerEnvironment javacEnv = javaConfig.getJavaCompilerEnvironment(processExecutor);
-
-    // NOTE:  If any other variable is used when configuring buildRuleTypes, it MUST be passed down
-    // to the Daemon and implement equals/hashCode so we can invalidate the Parser if values used
-    // for configuring buildRuleTypes have changed between builds.
-    KnownBuildRuleTypes buildRuleTypes =
-        KnownBuildRuleTypes.createInstance(
-            config,
-            androidDirectoryResolver,
-            javacEnv);
-
-    // No more early outs: acquire the command semaphore and become the only executing command.
+    // No more early outs: if this command is not read only, acquire the command semaphore to
+    // become the only executing read/write command.
     // This must happen immediately before the try block to ensure that the semaphore is released.
-    if (!commandSemaphore.tryAcquire()) {
-      return BUSY_EXIT_CODE;
+    boolean commandSemaphoreAcquired = false;
+    if (!commandParseResult.getCommand().get().isReadOnly()) {
+      commandSemaphoreAcquired = commandSemaphore.tryAcquire();
+      if (!commandSemaphoreAcquired) {
+        return BUSY_EXIT_CODE;
+      }
     }
 
     @Nullable ArtifactCacheFactory artifactCacheFactory = null;
@@ -535,29 +522,33 @@ public final class Main {
     // be the last resource, so that it is closed first and can deliver its queued events to the
     // other resources before they are closed.
     try (ConsoleLogLevelOverrider consoleLogLevelOverrider =
-             new ConsoleLogLevelOverrider(verbosity);
+             new ConsoleLogLevelOverrider(buildId.toString(), verbosity);
+         ConsoleHandlerRedirector consoleHandlerRedirector =
+             new ConsoleHandlerRedirector(
+                 buildId.toString(),
+                 console.getStdErr(),
+                 Optional.<OutputStream>of(stdErr));
          AbstractConsoleEventBusListener consoleListener =
-             createConsoleEventListener(clock, console, verbosity, executionEnvironment);
+             createConsoleEventListener(
+                 clock,
+                 console,
+                 verbosity,
+                 executionEnvironment,
+                 rootRepository.getBuckConfig());
          BuckEventBus buildEventBus = new BuckEventBus(clock, buildId)) {
 
       // The ArtifactCache is constructed lazily so that we do not try to connect to Cassandra when
       // running commands such as `buck clean`.
       artifactCacheFactory = new LoggingArtifactCacheFactory(executionEnvironment, buildEventBus);
 
-      Optional<WebServer> webServer = getWebServerIfDaemon(context,
-          projectFilesystem,
-          config,
-          buildRuleTypes,
-          androidDirectoryResolver,
-          console,
-          clientEnvironment);
+      Optional<WebServer> webServer = getWebServerIfDaemon(context, rootRepository, clock);
       eventListeners = addEventListeners(buildEventBus,
-          projectFilesystem,
-          config,
+          rootRepository.getFilesystem(),
+          rootRepository.getBuckConfig(),
           webServer,
           console,
           consoleListener,
-          buildRuleTypes,
+          rootRepository.getKnownBuildRuleTypes(),
           clientEnvironment);
 
       ImmutableList<String> remainingArgs = ImmutableList.copyOf(
@@ -576,14 +567,10 @@ public final class Main {
         try {
           parser = getParserFromDaemon(
               context,
-              projectFilesystem,
-              config,
-              buildRuleTypes,
-              androidDirectoryResolver,
-              console,
-              clientEnvironment,
+              rootRepository,
               commandEvent,
-              buildEventBus);
+              buildEventBus,
+              clock);
         } catch (WatchmanWatcherException | IOException e) {
           buildEventBus.post(ConsoleEvent.warning(
                   "Watchman threw an exception while parsing file changes.\n%s",
@@ -591,33 +578,30 @@ public final class Main {
         }
       }
 
-      Repository repository = new Repository("default", projectFilesystem, buildRuleTypes, config);
-
       if (parser == null) {
         parser = new Parser(
-            repository,
-            console,
-            clientEnvironment,
-            config.getPythonInterpreter(),
-            config.getTempFilePatterns(),
-            createRuleKeyBuilderFactory(new DefaultFileHashCache(projectFilesystem, console)));
+            rootRepository,
+            rootRepository.getBuckConfig().getPythonInterpreter(),
+            rootRepository.getBuckConfig().getTempFilePatterns(),
+            createRuleKeyBuilderFactory(new DefaultFileHashCache(rootRepository.getFilesystem())));
       }
-      JavaUtilsLoggingBuildListener.ensureLogFileIsWritten(projectFilesystem);
+      JavaUtilsLoggingBuildListener.ensureLogFileIsWritten(rootRepository.getFilesystem());
 
       CachingBuildEngine buildEngine = new CachingBuildEngine();
       exitCode = executingCommand.execute(remainingArgs,
-          config,
+          rootRepository.getBuckConfig(),
           new CommandRunnerParams(
               console,
-              repository,
-              androidDirectoryResolver,
+              rootRepository,
+              rootRepository.androidDirectoryResolver,
               buildEngine,
               artifactCacheFactory,
               buildEventBus,
               parser,
               platform,
               clientEnvironment,
-              config.createDefaultJavaPackageFinder()));
+              rootRepository.getBuckConfig().createDefaultJavaPackageFinder(),
+              objectMapper));
 
       // If the Daemon is running and serving web traffic, print the URL to the Chrome Trace.
       if (webServer.isPresent()) {
@@ -627,15 +611,16 @@ public final class Main {
       }
 
       buildEventBus.post(CommandEvent.finished(commandName, remainingArgs, isDaemon, exitCode));
-    } catch (InterruptedException e) {
-      LOG.debug(e, "Failing build on interruption exception.");
+    } catch (Throwable t) {
+      LOG.debug(t, "Failing build on exception.");
       closeCreatedArtifactCaches(artifactCacheFactory); // Close cache before exit on exception.
-      Thread.currentThread().interrupt();
-      return FAIL_EXIT_CODE;
+      throw t;
     } finally {
-      commandSemaphore.release(); // Allow another command to execute while outputting traces.
+      if (commandSemaphoreAcquired) {
+        commandSemaphore.release(); // Allow another command to execute while outputting traces.
+      }
     }
-    if (isDaemon && !config.getFlushEventsBeforeExit()) {
+    if (isDaemon && !rootRepository.getBuckConfig().getFlushEventsBeforeExit()) {
       context.get().in.close(); // Avoid client exit triggering client disconnection handling.
       context.get().exit(exitCode); // Allow nailgun client to exit while outputting traces.
     }
@@ -659,10 +644,13 @@ public final class Main {
    */
   @SuppressWarnings({"unchecked", "rawtypes"}) // Safe as Property is a Map<String, String>.
   private ImmutableMap<String, String> getClientEnvironment(Optional<NGContext> context) {
+    ImmutableMap<String, String> env;
     if (context.isPresent()) {
-      return ImmutableMap.<String, String>copyOf((Map) context.get().getEnv());
+      env = ImmutableMap.<String, String>copyOf((Map) context.get().getEnv());
+    } else {
+      env = ImmutableMap.copyOf(System.getenv());
     }
-    return ImmutableMap.copyOf(System.getenv());
+    return EnvironmentFilter.filteredEnvironment(env);
   }
 
   private static void closeCreatedArtifactCaches(
@@ -675,44 +663,24 @@ public final class Main {
 
   private Parser getParserFromDaemon(
       Optional<NGContext> context,
-      ProjectFilesystem projectFilesystem,
-      BuckConfig config,
-      KnownBuildRuleTypes knownBuildRuleTypes,
-      AndroidDirectoryResolver androidDirectoryResolver,
-      Console console,
-      ImmutableMap<String, String> environment,
+      Repository repository,
       CommandEvent commandEvent,
-      BuckEventBus eventBus) throws IOException, InterruptedException {
-    // Wire up daemon to new client and console and get cached Parser.
-    Daemon daemon = getDaemon(
-        projectFilesystem,
-        config,
-        knownBuildRuleTypes,
-        androidDirectoryResolver,
-        console,
-        environment);
+      BuckEventBus eventBus,
+      Clock clock) throws IOException, InterruptedException {
+    // Wire up daemon to new client and get cached Parser.
+    Daemon daemon = getDaemon(repository, clock, objectMapper);
     daemon.watchClient(context.get());
-    daemon.watchFileSystem(console, environment, commandEvent, eventBus);
+    daemon.watchFileSystem(commandEvent, eventBus);
     daemon.initWebServer();
     return daemon.getParser();
   }
 
   private Optional<WebServer> getWebServerIfDaemon(
       Optional<NGContext> context,
-      ProjectFilesystem projectFilesystem,
-      BuckConfig config,
-      KnownBuildRuleTypes knownBuildRuleTypes,
-      AndroidDirectoryResolver androidDirectoryResolver,
-      Console console,
-      ImmutableMap<String, String> environment) throws IOException {
+      Repository repository,
+      Clock clock) throws IOException {
     if (context.isPresent()) {
-      Daemon daemon = getDaemon(
-          projectFilesystem,
-          config,
-          knownBuildRuleTypes,
-          androidDirectoryResolver,
-          console,
-          environment);
+      Daemon daemon = getDaemon(repository, clock, objectMapper);
       return daemon.getWebServer();
     }
     return Optional.absent();
@@ -808,6 +776,10 @@ public final class Main {
       buckEvents.register(eventListener);
     }
 
+    if (externalEventsListener.isPresent()) {
+      buckEvents.register(externalEventsListener.get());
+    }
+
     return eventListeners;
   }
 
@@ -815,45 +787,24 @@ public final class Main {
       Clock clock,
       Console console,
       Verbosity verbosity,
-      ExecutionEnvironment executionEnvironment) {
+      ExecutionEnvironment executionEnvironment,
+      BuckConfig config) {
     if (console.getAnsi().isAnsiTerminal() &&
         !verbosity.shouldPrintCommand() &&
         verbosity.shouldPrintStandardInformation()) {
-      SuperConsoleEventBusListener superConsole =
-          new SuperConsoleEventBusListener(console, clock, executionEnvironment);
+      SuperConsoleEventBusListener superConsole = new SuperConsoleEventBusListener(
+          console,
+          clock,
+          executionEnvironment,
+          config.isTreatingAssumptionsAsErrors());
       superConsole.startRenderScheduler(SUPER_CONSOLE_REFRESH_RATE.getDuration(),
           SUPER_CONSOLE_REFRESH_RATE.getUnit());
       return superConsole;
     }
-    return new SimpleConsoleEventBusListener(console, clock);
-  }
-
-
-  /**
-   * @param projectFilesystem The directory that is the root of the project being built.
-   */
-  private static BuckConfig createBuckConfig(
-      ProjectFilesystem projectFilesystem,
-      Platform platform,
-      ImmutableMap<String, String> environment)
-      throws IOException {
-    ImmutableList.Builder<File> configFileBuilder = ImmutableList.builder();
-    File configFile = projectFilesystem.getFileForRelativePath(DEFAULT_BUCK_CONFIG_FILE_NAME);
-    if (configFile.isFile()) {
-      configFileBuilder.add(configFile);
-    }
-    File overrideConfigFile = projectFilesystem.getFileForRelativePath(
-        DEFAULT_BUCK_CONFIG_OVERRIDE_FILE_NAME);
-    if (overrideConfigFile.isFile()) {
-      configFileBuilder.add(overrideConfigFile);
-    }
-
-    ImmutableList<File> configFiles = configFileBuilder.build();
-    return BuckConfig.createFromFiles(
-        projectFilesystem,
-        configFiles,
-        platform,
-        environment);
+    return new SimpleConsoleEventBusListener(
+        console,
+        clock,
+        config.isTreatingAssumptionsAsErrors());
   }
 
   /**
@@ -871,9 +822,12 @@ public final class Main {
   }
 
   @VisibleForTesting
-  int tryRunMainWithExitCode(File projectRoot, Optional<NGContext> context, String... args)
+  int tryRunMainWithExitCode(
+      BuildId buildId,
+      File projectRoot,
+      Optional<NGContext> context,
+      String... args)
       throws IOException, InterruptedException {
-    // TODO(user): enforce write command exclusion, but allow concurrent read only commands?
     try {
       if (daemon != null) {
         // Reset logging each time we run a command while daemonized.
@@ -882,13 +836,18 @@ public final class Main {
         LogConfig.setupLogging();
       }
       LOG.debug("Starting up with args: %s", Arrays.toString(args));
-      return runMainWithExitCode(projectRoot, context, args);
+      return runMainWithExitCode(buildId, projectRoot, context, args);
     } catch (HumanReadableException e) {
       Console console = new Console(Verbosity.STANDARD_INFORMATION,
           stdOut,
           stdErr,
-          new Ansi(platform));
+          new Ansi(platform, Optional.<String>absent()));
       console.printBuildFailure(e.getHumanReadableErrorMessage());
+      return FAIL_EXIT_CODE;
+    } catch (InterruptionFailedException e) { // Command could not be interrupted.
+      if (context.isPresent()) {
+        context.get().getNGServer().shutdown(true); // Exit process to halt command execution.
+      }
       return FAIL_EXIT_CODE;
     } finally {
       LOG.debug("Done.");
@@ -898,11 +857,35 @@ public final class Main {
   private void runMainThenExit(String[] args, Optional<NGContext> context) {
     File projectRoot = new File(".");
     int exitCode = FAIL_EXIT_CODE;
+    BuildId buildId = new BuildId();
+
+    // Note that try-with-resources blocks close their resources *before*
+    // executing catch or finally blocks. That means we can't use one here,
+    // since those blocks may need to log.
+    CommandThreadAssociation commandThreadAssociation = null;
+    ConsoleHandlerRedirector consoleHandlerRedirector = null;
+
     try {
-      exitCode = tryRunMainWithExitCode(projectRoot, context, args);
+      commandThreadAssociation =
+        new CommandThreadAssociation(buildId.toString());
+      // Redirect console logs to the (possibly remote) stderr stream.
+      // We do this for both the daemon and non-daemon case so we can
+      // unregister the stream when finished.
+      consoleHandlerRedirector = new ConsoleHandlerRedirector(
+          buildId.toString(),
+          stdErr,
+          Optional.<OutputStream>absent() /* originalOutputStream */);
+      exitCode = tryRunMainWithExitCode(buildId, projectRoot, context, args);
     } catch (Throwable t) {
       LOG.error(t, "Uncaught exception at top level");
     } finally {
+      LogConfig.flushLogs();
+      if (commandThreadAssociation != null) {
+        commandThreadAssociation.stop();
+      }
+      if (consoleHandlerRedirector != null) {
+        consoleHandlerRedirector.close();
+      }
       // Exit explicitly so that non-daemon threads (of which we use many) don't
       // keep the VM alive.
       System.exit(exitCode);

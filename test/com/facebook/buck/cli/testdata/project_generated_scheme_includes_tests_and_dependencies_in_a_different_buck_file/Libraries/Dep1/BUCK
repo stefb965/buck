@@ -1,0 +1,58 @@
+EMPTY_CONFIGS = {
+  'Debug': (
+    '',
+    {},
+    '',
+    {},
+  ),
+  'Release': (
+    '',
+    {},
+    '',
+    {},
+  ),
+}
+
+apple_library(
+  name = 'Dep1',
+  configs = EMPTY_CONFIGS,
+  srcs = [],
+  frameworks = [],
+  deps = [],
+  visibility = ['PUBLIC'],
+)
+
+apple_library(
+  name = 'Dep1TestsLibrary',
+  configs = EMPTY_CONFIGS,
+  srcs = [],
+  frameworks = [],
+  deps = [
+    ':Dep1',
+  ],
+)
+
+apple_bundle(
+  name = 'Dep1Tests',
+  extension = 'octest',
+  deps = [':Dep1TestsLibrary#dynamic'],
+  binary = ':Dep1TestsLibrary#dynamic',
+)
+
+apple_test(
+  name = 'Dep1TestsTest',
+  source_under_test = [
+    ':Dep1',
+  ],
+  deps = [':Dep1Tests'],
+  test_bundle = ':Dep1Tests',
+)
+
+xcode_project_config(
+  name = 'project',
+  project_name = 'Libraries',
+  rules = [
+    ':Dep1',
+    ':Dep1Tests',
+  ],
+)

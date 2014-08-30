@@ -34,7 +34,6 @@ import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargetPattern;
-import com.facebook.buck.rules.Repository;
 import com.facebook.buck.parser.BuildTargetParseException;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
@@ -46,18 +45,18 @@ import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
-import com.facebook.buck.rules.DefaultKnownBuildRuleTypes;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.KnownBuildRuleTypes;
 import com.facebook.buck.rules.NoopArtifactCache;
+import com.facebook.buck.rules.Repository;
+import com.facebook.buck.rules.TestRepositoryBuilder;
 import com.facebook.buck.testutil.BuckTestConstant;
 import com.facebook.buck.testutil.RuleMap;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.AndroidDirectoryResolver;
+import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.FakeAndroidDirectoryResolver;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.buck.util.environment.Platform;
-import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonParser.Feature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -67,6 +66,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.io.Files;
@@ -86,10 +86,9 @@ import java.util.SortedMap;
 
 public class TargetsCommandTest {
 
-  private final String projectRootPath = ".";
-  private final File projectRoot = new File(projectRootPath);
   private TestConsole console;
   private TargetsCommand targetsCommand;
+  private ObjectMapper objectMapper;
 
   private SortedMap<String, BuildRule> buildBuildTargets(String outputFile, String name) {
     return buildBuildTargets(outputFile, name, "//");
@@ -118,17 +117,13 @@ public class TargetsCommandTest {
   @Before
   public void setUp() {
     console = new TestConsole();
-    ProjectFilesystem projectFilesystem = new ProjectFilesystem(projectRoot);
-    KnownBuildRuleTypes buildRuleTypes =
-        DefaultKnownBuildRuleTypes.getDefaultKnownBuildRuleTypes(projectFilesystem);
-    Repository repository = new Repository(
-        "test",
-        projectFilesystem,
-        buildRuleTypes,
-        new FakeBuckConfig());
+    Repository repository = new TestRepositoryBuilder()
+        .setFilesystem(new ProjectFilesystem(Paths.get(".")))
+        .build();
     AndroidDirectoryResolver androidDirectoryResolver = new FakeAndroidDirectoryResolver();
     ArtifactCache artifactCache = new NoopArtifactCache();
     BuckEventBus eventBus = BuckEventBusFactory.newInstance();
+    objectMapper = new ObjectMapper();
 
     targetsCommand =
         new TargetsCommand(new CommandRunnerParams(
@@ -140,7 +135,8 @@ public class TargetsCommandTest {
             BuckTestConstant.PYTHON_INTERPRETER,
             Platform.detect(),
             ImmutableMap.copyOf(System.getenv()),
-            new FakeJavaPackageFinder()));
+            new FakeJavaPackageFinder(),
+            objectMapper));
   }
 
   @Test
@@ -148,8 +144,6 @@ public class TargetsCommandTest {
       throws IOException, BuildFileParseException, InterruptedException {
     final String testBuckFileJson1 = testDataPath("TargetsCommandTestBuckJson1.js");
     final String outputFile = "buck-out/gen/test/outputFile";
-    JsonFactory jsonFactory = new JsonFactory();
-    ObjectMapper mapper = new ObjectMapper();
 
     // run `buck targets` on the build file and parse the observed JSON.
     SortedMap<String, BuildRule> buildRules = buildBuildTargets(
@@ -157,12 +151,14 @@ public class TargetsCommandTest {
 
     targetsCommand.printJsonForTargets(buildRules, /* includes */ ImmutableList.<String>of());
     String observedOutput = console.getTextWrittenToStdOut();
-    JsonNode observed = mapper.readTree(jsonFactory.createJsonParser(observedOutput));
+    JsonNode observed = objectMapper.readTree(
+        objectMapper.getJsonFactory().createJsonParser(observedOutput));
 
     // parse the expected JSON.
     String expectedJson = Files.toString(new File(testBuckFileJson1), Charsets.UTF_8)
         .replace("{$OUTPUT_FILE}", outputFile);
-    JsonNode expected = mapper.readTree(jsonFactory.createJsonParser(expectedJson)
+    JsonNode expected = objectMapper.readTree(
+        objectMapper.getJsonFactory().createJsonParser(expectedJson)
         .enable(Feature.ALLOW_COMMENTS));
 
     assertEquals("Output from targets command should match expected JSON.", expected, observed);
@@ -275,12 +271,15 @@ public class TargetsCommandTest {
 
   private PartialGraph createGraphFromBuildRules(BuildRuleResolver ruleResolver,
       List<String> targets) {
-    List<BuildTarget> buildTargets = Lists.transform(targets, new Function<String, BuildTarget>() {
-      @Override
-      public BuildTarget apply(String target) {
-        return BuildTargetFactory.newInstance(target);
-      }
-    });
+    ImmutableSet<BuildTarget> buildTargets = ImmutableSet.copyOf(
+        Iterables.transform(
+            targets,
+            new Function<String, BuildTarget>() {
+              @Override
+              public BuildTarget apply(String target) {
+                return BuildTargetFactory.newInstance(target);
+              }
+            }));
 
     ActionGraph actionGraph = RuleMap.createGraphFromBuildRules(ruleResolver);
     return PartialGraphFactory.newInstance(actionGraph, buildTargets);
@@ -335,6 +334,16 @@ public class TargetsCommandTest {
     // The test-android-library target indirectly depends on the referenced file,
     // while test-java-library target directly depends on the referenced file.
     referencedFiles = ImmutableSet.of("javasrc/JavaLibrary.java");
+    matchingBuildRules =
+        targetsCommand.getMatchingBuildRules(
+            graph.getActionGraph(),
+            new TargetsCommandPredicate(graph, buildRuleTypes, referencedFiles, targetBuildRules));
+    assertEquals(
+        ImmutableSet.of("//javatest:test-java-library", "//javasrc:java-library"),
+        matchingBuildRules.keySet());
+
+    // Verify that BUCK files show up as referenced_files.
+    referencedFiles = ImmutableSet.of("javasrc/" + BuckConstant.BUILD_RULES_FILE_NAME);
     matchingBuildRules =
         targetsCommand.getMatchingBuildRules(
             graph.getActionGraph(),

@@ -16,7 +16,9 @@
 
 package com.facebook.buck.rules;
 
+import com.facebook.buck.model.HasOutputName;
 import com.facebook.buck.util.HumanReadableException;
+import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 
 import java.nio.file.Path;
@@ -26,14 +28,48 @@ import java.nio.file.Path;
  * represents.
  */
 public class BuildRuleSourcePath extends AbstractSourcePath {
+
   private final BuildRule rule;
+  private final String name;
+  private final Optional<Path> resolvedPath;
 
   public BuildRuleSourcePath(BuildRule rule) {
+    this(rule, getNameForRule(rule), Optional.<Path>absent());
+  }
+
+  public BuildRuleSourcePath(BuildRule rule, String name) {
+    this(rule, name, Optional.<Path>absent());
+  }
+
+  public BuildRuleSourcePath(BuildRule rule, Path path) {
+    this(rule, getNameForRule(rule), Optional.of(path));
+  }
+
+  private BuildRuleSourcePath(BuildRule rule, String name, Optional<Path> path) {
     this.rule = Preconditions.checkNotNull(rule);
+    this.name = Preconditions.checkNotNull(name);
+    this.resolvedPath = Preconditions.checkNotNull(path);
+  }
+
+  private static String getNameForRule(BuildRule rule) {
+
+    // If this build rule implements `HasOutputName`, then return the output name
+    // it provides.
+    if (rule instanceof HasOutputName) {
+      HasOutputName hasOutputName = (HasOutputName) rule;
+      return hasOutputName.getOutputName();
+    }
+
+    // Otherwise, fall back to using the short name of rule's build target.
+    return rule.getBuildTarget().getShortNameOnly();
   }
 
   @Override
   public Path resolve() {
+    if (resolvedPath.isPresent()) {
+      return resolvedPath.get();
+    }
+
     Path path = rule.getPathToOutputFile();
     if (path == null) {
       throw new HumanReadableException("No known output for: %s", rule);
@@ -47,7 +83,13 @@ public class BuildRuleSourcePath extends AbstractSourcePath {
     return rule;
   }
 
+  @Override
+  public String getName() {
+    return name;
+  }
+
   public BuildRule getRule() {
     return rule;
   }
+
 }

@@ -35,8 +35,8 @@ prebuilt_jar(
 
 prebuilt_jar(
   name = 'guava',
-  binary_jar = 'guava-15.0.jar',
-  source_jar = 'guava-15.0-sources.jar',
+  binary_jar = 'guava-17.0.jar',
+  source_jar = 'guava-17.0-sources.jar',
   visibility = [
     'PUBLIC',
   ],
@@ -82,6 +82,8 @@ java_library(
     visibility = [
       '//src/com/facebook/buck/event:event',
       '//src/com/facebook/buck/python:rules',
+      '//src/com/facebook/buck/step:step',
+      '//test/com/facebook/buck/step:testutil',
     ],
 )
 
@@ -120,6 +122,7 @@ prebuilt_jar(
     '//src/com/facebook/buck/httpserver:httpserver',
     '//src/com/facebook/buck/model:model',
     '//src/com/facebook/buck/rules:rules',
+    '//src/com/facebook/buck/util:util',
     '//src/com/facebook/buck/shell:rules',
     '//src/com/facebook/buck/shell:steps',
     '//src/org/openqa/selenium/buck/javascript/...',
@@ -171,6 +174,7 @@ prebuilt_jar(
   visibility = [
     '//src/com/facebook/buck/cli:cli',
     '//test/com/facebook/buck/cli:cli',
+    '//test/com/facebook/buck/java:java',
     '//test/com/facebook/buck/testutil/integration:integration',
   ]
 )

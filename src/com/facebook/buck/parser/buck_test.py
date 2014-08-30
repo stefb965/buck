@@ -5,7 +5,6 @@ from buck import glob_walk
 from buck import glob_match
 from buck import relpath
 from buck import path_join
-from buck import strip_none_entries
 from buck import symlink_aware_walk
 from buck import glob_module
 import fnmatch
@@ -242,12 +241,18 @@ class TestBuck(unittest.TestCase):
             os.path.islink = mock_islink
             os.path.isfile = mock_isfile
             os.path.realpath = mock_realpath
-            result = [p for p in glob_walk('**', 'a')]
 
             # Symlinked directories do not cause loop or duplicated results.
-            # Symlinked files do not cause duplicated results.
+            # Symlinked files are allowed to duplicate results.
             # By default, dot files are ignored.
-            self.assertEqual(['b/c/file'], result)
+            result = [p for p in glob_walk('**', 'a')]
+            self.assertEqual(['b/c/file', 'b/c/file2'], result)
+
+            result = [p for p in glob_walk('**/*', 'a')]
+            self.assertEqual(['b/c/file', 'b/c/file2'], result)
+
+            result = [p for p in glob_walk('*/*/*', 'a')]
+            self.assertEqual(['b/c/file', 'b/c/file2'], result)
 
         finally:
             glob_module.iglob = real_iglob
@@ -289,27 +294,6 @@ class TestBuck(unittest.TestCase):
         finally:
             os.getcwd = real_getcwd
 
-    def test_strip_none_entries(self):
-        rule_with_none = {
-            'name': 'foo',
-            'type': 'prebuilt_jar',
-            'javadoc_url': None
-        }
-        rule_without_none = {
-            'name': 'foo',
-            'type': 'prebuilt_jar',
-            'javadoc_url': 'http://foo.bar.com'
-        }
-        actual_result = strip_none_entries([rule_with_none, rule_without_none])
-
-        expected_result = [
-            {
-                'name': 'foo',
-                'type': 'prebuilt_jar',
-            },
-            rule_without_none
-        ]
-        self.assertEqual(expected_result, actual_result)
 
     def test_symlink_aware_walk(self):
         real_walk = os.walk

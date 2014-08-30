@@ -35,7 +35,7 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Path;
-import java.util.Collection;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -76,8 +76,9 @@ public class DalvikAwareZipSplitter implements ZipSplitter {
   private DalvikAwareOutputStreamHelper primaryOut;
 
   /**
-   * @see ZipSplitterFactory#newInstance(Set, File, File, String, Predicate,
-   *                                     DexSplitStrategy, CanaryStrategy, File)
+   * @see ZipSplitterFactory#newInstance(ProjectFilesystem, Set, File, File, String, Predicate,
+   *     com.facebook.buck.dalvik.ZipSplitter.DexSplitStrategy,
+   *     com.facebook.buck.dalvik.ZipSplitter.CanaryStrategy, File)
    */
   private DalvikAwareZipSplitter(
       ProjectFilesystem filesystem,
@@ -134,7 +135,7 @@ public class DalvikAwareZipSplitter implements ZipSplitter {
   }
 
   @Override
-  public Collection<File> execute() throws IOException {
+  public List<File> execute() throws IOException {
     ClasspathTraverser classpathTraverser = new DefaultClasspathTraverser();
 
     // Start out by writing the primary zip and recording which entries were added to it.

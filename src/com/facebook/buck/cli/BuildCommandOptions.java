@@ -29,10 +29,12 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.environment.Platform;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Optional;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
 import org.kohsuke.args4j.Argument;
@@ -95,8 +97,8 @@ public class BuildCommandOptions extends AbstractCommandOptions {
     this.arguments = arguments;
   }
 
-  public List<String> getArgumentsFormattedAsBuildTargets() {
-    return getCommandLineBuildTargetNormalizer().normalizeAll(getArguments());
+  public ImmutableSet<String> getArgumentsFormattedAsBuildTargets() {
+    return ImmutableSet.copyOf(getCommandLineBuildTargetNormalizer().normalizeAll(getArguments()));
   }
 
   public boolean isCodeCoverageEnabled() {
@@ -104,10 +106,6 @@ public class BuildCommandOptions extends AbstractCommandOptions {
   }
 
   public boolean isDebugEnabled() {
-    return false;
-  }
-
-  public boolean isJacocoEnabled() {
     return false;
   }
 
@@ -130,11 +128,13 @@ public class BuildCommandOptions extends AbstractCommandOptions {
       BuckEventBus eventBus,
       Optional<TargetDevice> targetDevice,
       Platform platform,
-      ImmutableMap<String, String> environment) {
+      ImmutableMap<String, String> environment,
+      ObjectMapper objectMapper) {
     if (console.getVerbosity() == Verbosity.ALL) {
       console.getStdErr().printf("Creating a build with %d threads.\n", numThreads);
     }
-    return new Build(graph,
+    return new Build(
+        graph,
         targetDevice,
         projectFilesystem,
         androidDirectoryResolver,
@@ -145,12 +145,12 @@ public class BuildCommandOptions extends AbstractCommandOptions {
         console,
         buckConfig.getDefaultTestTimeoutMillis(),
         isCodeCoverageEnabled(),
-        isJacocoEnabled(),
         isDebugEnabled(),
         getBuildDependencies(),
         eventBus,
         platform,
         environment,
-        buckConfig);
+        buckConfig,
+        objectMapper);
   }
 }

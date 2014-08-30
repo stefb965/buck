@@ -4,7 +4,6 @@ java_library(
     'ProjectGenerator.java',
     'ProjectParser.java',
     'SeparatedProjectsGenerator.java',
-    'RuleDependencyFinder.java',
     'SchemeGenerator.java',
     'WorkspaceAndProjectGenerator.java',
     'WorkspaceGenerator.java',
@@ -17,8 +16,7 @@ java_library(
     '//src/com/facebook/buck/apple/xcode/plist:plist',
     '//src/com/facebook/buck/apple/xcode/xcconfig:xcconfig',
     '//src/com/facebook/buck/apple/clang:headermap',
-    '//src/com/facebook/buck/cpp:rules',
-    '//src/com/facebook/buck/codegen:codegen',
+    '//src/com/facebook/buck/cxx:rules',
     '//src/com/facebook/buck/graph:graph',
     '//src/com/facebook/buck/log:log',
     '//src/com/facebook/buck/model:model',
@@ -52,6 +50,7 @@ java_library(
     '//third-party/java/dd-plist:dd-plist',
     '//src/com/facebook/buck/apple:rules',
     '//src/com/facebook/buck/apple/xcode/plist:plist',
+    '//src/com/facebook/buck/log:log',
   ],
   visibility = [
     'PUBLIC'

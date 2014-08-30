@@ -49,6 +49,7 @@ import java.nio.file.FileVisitResult;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardWatchEventKinds;
 import java.nio.file.WatchEvent;
 import java.nio.file.attribute.BasicFileAttributes;
@@ -195,6 +196,23 @@ public class ProjectFilesystemTest {
   }
 
   @Test
+  public void testCopyToPathWithOptions() throws IOException {
+    InputStream inputStream = new ByteArrayInputStream("hello!".getBytes());
+    filesystem.copyToPath(inputStream, Paths.get("replace_me.txt"));
+
+    inputStream = new ByteArrayInputStream("hello again!".getBytes());
+    filesystem.copyToPath(
+        inputStream,
+        Paths.get("replace_me.txt"),
+        StandardCopyOption.REPLACE_EXISTING);
+
+    assertEquals(
+        "The bytes on disk should match those from the second InputStream.",
+        "hello again!",
+        Files.toString(new File(tmp.getRoot(), "replace_me.txt"), Charsets.UTF_8));
+  }
+
+  @Test
   public void testCopyFolder() throws IOException {
     // Build up a directory of dummy files.
     tmp.newFolder("src");
@@ -262,11 +280,11 @@ public class ProjectFilesystemTest {
 
   @Test
   public void testCreateContextStringForModifyEvent() throws IOException {
-    File file = tmp.newFile("foo.txt");
+    Path file = tmp.newFile("foo.txt").toPath();
     WatchEvent<Path> modifyEvent = WatchEvents.createPathEvent(
         file,
         StandardWatchEventKinds.ENTRY_MODIFY);
-    assertEquals(file.getAbsolutePath(), filesystem.createContextString(modifyEvent));
+    assertEquals(file.toAbsolutePath().toString(), filesystem.createContextString(modifyEvent));
   }
 
   @Test

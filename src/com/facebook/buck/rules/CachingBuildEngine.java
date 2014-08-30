@@ -19,6 +19,7 @@ package com.facebook.buck.rules;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.ThrowableConsoleEvent;
+import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepRunner;
@@ -51,6 +52,8 @@ import javax.annotation.Nullable;
  * tries to fetch its output from an {@link ArtifactCache} to avoid doing any computation.
  */
 public class CachingBuildEngine implements BuildEngine {
+
+  private static final Logger LOG = Logger.get(CachingBuildEngine.class);
 
   /**
    * Key for {@link OnDiskBuildInfo} to identify the ABI key for the deps of a build rule.
@@ -169,33 +172,31 @@ public class CachingBuildEngine implements BuildEngine {
             @Override
             public void onSuccess(List<BuildRuleSuccess> deps) {
               // Record the start of the build.
-              eventBus.post(BuildRuleEvent.started(rule));
+              eventBus.logVerboseAndPost(LOG, BuildRuleEvent.started(rule));
               startOfBuildWasRecordedOnTheEventBus = true;
 
               ruleKeys.putIfAbsent(rule.getBuildTarget(), rule.getRuleKey());
               BuildResult result = null;
-              try {
-                result = buildOnceDepsAreBuilt(
-                    rule,
-                    context,
-                    onDiskBuildInfo,
-                    buildInfoRecorder.get(),
-                    shouldTryToFetchFromCache(deps));
-              } catch (InterruptedException e) {
-                e.printStackTrace();
-                Thread.currentThread().interrupt();
-                return;
-              }
+              result = buildOnceDepsAreBuilt(
+                  rule,
+                  context,
+                  onDiskBuildInfo,
+                  buildInfoRecorder.get(),
+                  shouldTryToFetchFromCache(deps));
               if (result.getStatus() == BuildRuleStatus.SUCCESS) {
                 try {
                   recordBuildRuleSuccess(result);
                 } catch (InterruptedException e) {
-                  e.printStackTrace();
-                  Thread.currentThread().interrupt();
-                  return;
+                  result = new BuildResult(e);
                 }
-              } else {
+              }
+              if (result.getStatus() == BuildRuleStatus.FAIL) {
                 recordBuildRuleFailure(result);
+
+                // Reset interrupted flag once failure has been recorded.
+                if (result.getFailure() instanceof InterruptedException) {
+                  Thread.currentThread().interrupt();
+                }
               }
             }
 
@@ -260,10 +261,13 @@ public class CachingBuildEngine implements BuildEngine {
             }
 
             private void logBuildRuleFinished(BuildResult result) {
-              eventBus.post(BuildRuleEvent.finished(rule,
-                  result.getStatus(),
-                  result.getCacheResult(),
-                  Optional.fromNullable(result.getSuccess())));
+              eventBus.logVerboseAndPost(
+                  LOG,
+                  BuildRuleEvent.finished(
+                      rule,
+                      result.getStatus(),
+                      result.getCacheResult(),
+                      Optional.fromNullable(result.getSuccess())));
             }
           });
     } catch (Throwable failure) {
@@ -294,14 +298,13 @@ public class CachingBuildEngine implements BuildEngine {
         final BuildContext context,
         OnDiskBuildInfo onDiskBuildInfo,
         BuildInfoRecorder buildInfoRecorder,
-        boolean shouldTryToFetchFromCache) throws InterruptedException {
+        boolean shouldTryToFetchFromCache) {
     // Compute the current RuleKey and compare it to the one stored on disk.
     RuleKey ruleKey = rule.getRuleKey();
     Optional<RuleKey> cachedRuleKey = onDiskBuildInfo.getRuleKey();
 
     // If the RuleKeys match, then there is nothing to build.
     if (ruleKey.equals(cachedRuleKey.orNull())) {
-      context.logBuildInfo("[UNCHANGED %s]", rule.getFullyQualifiedName());
       return new BuildResult(BuildRuleSuccess.Type.MATCHING_RULE_KEY,
           CacheResult.LOCAL_KEY_UNCHANGED_HIT);
     }
@@ -346,12 +349,16 @@ public class CachingBuildEngine implements BuildEngine {
     if (shouldTryToFetchFromCache) {
       // Before deciding to build, check the ArtifactCache.
       // The fetched file is now a ZIP file, so it needs to be unzipped.
-      cacheResult = tryToFetchArtifactFromBuildCacheAndOverlayOnTopOfProjectFilesystem(
-          rule,
-          buildInfoRecorder,
-          context.getArtifactCache(),
-          context.getProjectRoot(),
-          context);
+      try {
+        cacheResult = tryToFetchArtifactFromBuildCacheAndOverlayOnTopOfProjectFilesystem(
+            rule,
+            buildInfoRecorder,
+            context.getArtifactCache(),
+            context.getProjectRoot(),
+            context);
+      } catch (InterruptedException e) {
+        return new BuildResult(e);
+      }
     } else {
       cacheResult = CacheResult.SKIP;
     }
@@ -420,8 +427,8 @@ public class CachingBuildEngine implements BuildEngine {
     // to resolve a Path for a zip entry against a file Path on disk.
 
     try {
-      Unzip.extractZipFile(zipFile.getAbsolutePath(),
-          projectRoot.toAbsolutePath().toString(),
+      Unzip.extractZipFile(zipFile.toPath().toAbsolutePath(),
+          projectRoot.toAbsolutePath(),
           /* overwriteExistingFiles */ true);
     } catch (IOException e) {
       // In the wild, we have seen some inexplicable failures during this step. For now, we try to
@@ -453,7 +460,7 @@ public class CachingBuildEngine implements BuildEngine {
       OnDiskBuildInfo onDiskBuildInfo,
       BuildInfoRecorder buildInfoRecorder)
       throws Exception {
-    context.logBuildInfo("[BUILDING %s]", rule.getFullyQualifiedName());
+    LOG.debug("Building locally: %s", rule);
 
     // Get and run all of the commands.
     BuildableContext buildableContext = new DefaultBuildableContext(onDiskBuildInfo,
@@ -470,7 +477,15 @@ public class CachingBuildEngine implements BuildEngine {
     StepRunner stepRunner = context.getStepRunner();
     for (Step step : steps) {
       stepRunner.runStepForBuildTarget(step, rule.getBuildTarget());
+
+      // Check for interruptions that may have been ignored by step.
+      if (Thread.interrupted()) {
+        Thread.currentThread().interrupt();
+        throw new InterruptedException();
+      }
     }
+
+    LOG.debug("Build completed: %s", rule);
   }
 
   @VisibleForTesting

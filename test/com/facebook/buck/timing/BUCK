@@ -1,6 +1,7 @@
 UTIL_SRCS = [
   'FakeClock.java',
   'IncrementingFakeClock.java',
+  'SettableFakeClock.java',
 ]
 
 java_library(
@@ -12,4 +13,19 @@ java_library(
   visibility = [
     '//test/...',
   ],
+)
+
+java_test(
+  name = 'timing',
+  srcs = glob(['*Test.java']),
+  source_under_test = [
+    ':testutil'
+  ],
+  deps = [
+    ':testutil',
+    '//lib:hamcrest-core',
+    '//lib:hamcrest-library',
+    '//lib:junit',
+    '//src/com/facebook/buck/timing:timing'
+  ]
 )

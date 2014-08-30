@@ -16,12 +16,15 @@
 
 package com.facebook.buck.java;
 
+import static com.facebook.buck.java.GenerateCodeCoverageReportStep.PATH_TO_ASM_JAR;
+import static com.facebook.buck.java.JUnitStep.PATH_TO_JACOCO_JARS;
 import static org.easymock.EasyMock.createMock;
 import static org.easymock.EasyMock.expect;
 import static org.easymock.EasyMock.replay;
 import static org.easymock.EasyMock.verify;
 
 import com.facebook.buck.step.ExecutionContext;
+import com.facebook.buck.test.CoverageReportFormat;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.collect.ImmutableList;
@@ -39,61 +42,20 @@ public class GenerateCodeCoverageReportStepTest {
 
   @Test
   public void testGetShellCommandInternal() {
-    Set<String> sourceDirectories = ImmutableSet.of(
-        "parentDirectory1/src", "root/parentDirectory/src");
     String outputDirectory = "buck-out/gen/output";
     Set<Path> classesDirectories = ImmutableSet.of(
         Paths.get("parentDirectory1/classes"), Paths.get("root/parentDirectory/classes"));
 
-    testJacocoReportGeneratorCommand(sourceDirectories, classesDirectories, outputDirectory);
-    testEmmaCommand(sourceDirectories, classesDirectories, outputDirectory);
+    testJacocoReportGeneratorCommand(classesDirectories, outputDirectory);
   }
 
-  private void testEmmaCommand(Set<String> sourceDirectories,
+  private void testJacocoReportGeneratorCommand(
       Set<Path> classesDirectories,
       String outputDirectory) {
     GenerateCodeCoverageReportStep step = new GenerateCodeCoverageReportStep(
-        sourceDirectories, classesDirectories, Paths.get(outputDirectory));
+        classesDirectories, Paths.get(outputDirectory), CoverageReportFormat.HTML);
 
     ExecutionContext context = createMock(ExecutionContext.class);
-    expect(context.isJacocoEnabled()).andReturn(false).times(1);
-    replay(context);
-
-    ImmutableList.Builder<String> shellCommandBuilder = ImmutableList.builder();
-    shellCommandBuilder.add(
-        "java",
-        "-Xmx1024M",
-        "-classpath", JUnitStep.PATH_TO_EMMA_JAR.toString(),
-        "emma", "report",
-        String.format("-D%s=%s",
-            GenerateCodeCoverageReportStep.REPORT_OUTPUT_DIR, outputDirectory));
-
-    for (String reportFormat : GenerateCodeCoverageReportStep.CODE_COVERAGE_OUTPUT_FORMAT) {
-      shellCommandBuilder.add(
-          "-report", reportFormat);
-    }
-
-    shellCommandBuilder.add(
-        "-input",
-        String.format(
-            "%s/coverage.ec,%s/coverage.em",
-            JUnitStep.EMMA_OUTPUT_DIR, JUnitStep.EMMA_OUTPUT_DIR),
-        "-sourcepath",
-        "parentDirectory1/src,root/parentDirectory/src");
-
-    List<String> expectedShellCommand = shellCommandBuilder.build();
-    MoreAsserts.assertListEquals(expectedShellCommand, step.getShellCommand(context));
-    verify(context);
-  }
-
-  private void testJacocoReportGeneratorCommand(Set<String> sourceDirectories,
-      Set<Path> classesDirectories,
-      String outputDirectory) {
-    GenerateCodeCoverageReportStep step = new GenerateCodeCoverageReportStep(
-        sourceDirectories, classesDirectories, Paths.get(outputDirectory));
-
-    ExecutionContext context = createMock(ExecutionContext.class);
-    expect(context.isJacocoEnabled()).andReturn(true).times(1);
     expect(
         context.getProjectFilesystem()).andReturn(new ProjectFilesystem(new File("."))).anyTimes();
     replay(context);
@@ -102,10 +64,11 @@ public class GenerateCodeCoverageReportStepTest {
 
     shellCommandBuilder.add(
         "java",
-        "-classpath", String.format("%s/*:%s/../report-generator-build/",
-        JUnitStep.PATH_TO_JACOCO_JARS, JUnitStep.PATH_TO_JACOCO_JARS),
+        "-classpath", String.format("%s:%s/*:%s/../report-generator-build/",
+        PATH_TO_ASM_JAR, PATH_TO_JACOCO_JARS, PATH_TO_JACOCO_JARS),
         String.format("-Djacoco.output.dir=%s", outputDirectory),
         String.format("-Djacoco.exec.data.file=%s", JUnitStep.JACOCO_EXEC_COVERAGE_FILE),
+        "-Djacoco.format=html",
         String.format("-Dclasses.dir=%s",
             String.format("%s/%s:%s/%s",
                 new File(".").getAbsoluteFile().toPath().normalize(),

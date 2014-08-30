@@ -22,6 +22,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.timing.SettableFakeClock;
+
 import com.google.common.base.Charsets;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
@@ -33,8 +35,10 @@ import org.junit.Test;
 
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.nio.file.FileVisitResult;
 import java.nio.file.FileVisitor;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
@@ -167,5 +171,104 @@ public class FakeProjectFilesystemTest {
         Paths.get("hello.txt"),
         attribute);
     assertEquals(ImmutableSet.of(attribute), filesystem.getFileAttributesAtPath(path));
+  }
+
+  @Test
+  public void testFileOutputStream() throws IOException {
+    FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
+    Path filePath = Paths.get("somefile.txt");
+
+    try (OutputStream stream = filesystem.newFileOutputStream(filePath)) {
+      stream.write("hello world".getBytes());
+    }
+    assertEquals("hello world", filesystem.readFileIfItExists(filePath).get());
+  }
+
+  @Test
+  public void testFlushThenCloseFileOutputStream() throws IOException {
+    FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
+    Path filePath = Paths.get("somefile.txt");
+    OutputStream stream = filesystem.newFileOutputStream(filePath);
+    stream.write("hello world".getBytes());
+    stream.flush();
+    stream.close();
+    assertEquals("hello world", filesystem.readFileIfItExists(filePath).get());
+  }
+
+  @Test
+  public void testSingleElementMkdirsExists() throws IOException {
+    FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
+    filesystem.mkdirs(Paths.get("foo"));
+    assertTrue(filesystem.isDirectory(Paths.get("foo")));
+    assertFalse(filesystem.isDirectory(Paths.get("foo/bar")));
+  }
+
+  @Test
+  public void testEachElementOfMkdirsExists() throws IOException {
+    FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
+    filesystem.mkdirs(Paths.get("foo/bar/baz"));
+    assertTrue(filesystem.isDirectory(Paths.get("foo")));
+    assertTrue(filesystem.isDirectory(Paths.get("foo/bar")));
+    assertTrue(filesystem.isDirectory(Paths.get("foo/bar/baz")));
+    assertFalse(filesystem.isDirectory(Paths.get("foo/bar/baz/blech")));
+  }
+
+  @Test
+  public void testDirectoryDoesNotExistAfterRmdir() throws IOException {
+    FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
+    filesystem.mkdirs(Paths.get("foo"));
+    filesystem.rmdir(Paths.get("foo"));
+    assertFalse(filesystem.isDirectory(Paths.get("foo")));
+  }
+
+  @Test
+  public void testDirectoryExistsIfIsDirectory() throws IOException {
+    FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
+    filesystem.mkdirs(Paths.get("foo"));
+    assertTrue(filesystem.isDirectory(Paths.get("foo")));
+    assertTrue(filesystem.exists(Paths.get("foo")));
+  }
+
+  @Test
+  public void testIsFileAfterTouch() throws IOException {
+    FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
+    filesystem.touch(Paths.get("foo"));
+    assertFalse(filesystem.isDirectory(Paths.get("foo")));
+    assertTrue(filesystem.isFile(Paths.get("foo")));
+    assertTrue(filesystem.exists(Paths.get("foo")));
+  }
+
+  @Test(expected = NoSuchFileException.class)
+  public void fileModifiedTimeThrowsIfDoesNotExist() throws IOException {
+    FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
+    filesystem.getLastModifiedTime(Paths.get("foo"));
+  }
+
+  @Test
+  public void fileModifiedTimeIsSetOnInitialWrite() throws IOException {
+    SettableFakeClock clock = new SettableFakeClock(49152, 0);
+    FakeProjectFilesystem filesystem = new FakeProjectFilesystem(clock);
+    filesystem.touch(Paths.get("foo"));
+    assertEquals(filesystem.getLastModifiedTime(Paths.get("foo")), 49152);
+  }
+
+  @Test
+  public void fileModifiedTimeIsUpdatedOnSubsequentWrite() throws IOException {
+    SettableFakeClock clock = new SettableFakeClock(49152, 0);
+    FakeProjectFilesystem filesystem = new FakeProjectFilesystem(clock);
+    filesystem.touch(Paths.get("foo"));
+    clock.setCurrentTimeMillis(64738);
+    filesystem.touch(Paths.get("foo"));
+    assertEquals(filesystem.getLastModifiedTime(Paths.get("foo")), 64738);
+  }
+
+  @Test
+  public void fileModifiedTimeIsSetOnMkdirs() throws IOException {
+    SettableFakeClock clock = new SettableFakeClock(49152, 0);
+    FakeProjectFilesystem filesystem = new FakeProjectFilesystem(clock);
+    filesystem.mkdirs(Paths.get("foo/bar/baz"));
+    assertEquals(filesystem.getLastModifiedTime(Paths.get("foo")), 49152);
+    assertEquals(filesystem.getLastModifiedTime(Paths.get("foo/bar")), 49152);
+    assertEquals(filesystem.getLastModifiedTime(Paths.get("foo/bar/baz")), 49152);
   }
 }

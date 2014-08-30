@@ -16,6 +16,8 @@
 
 package com.facebook.buck.testutil;
 
+import com.facebook.buck.timing.Clock;
+import com.facebook.buck.timing.FakeClock;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
@@ -28,10 +30,12 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.google.common.hash.Hashing;
 import com.google.common.io.ByteStreams;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -39,6 +43,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.Reader;
 import java.io.StringReader;
+import java.nio.file.CopyOption;
 import java.nio.file.FileVisitor;
 import java.nio.file.LinkOption;
 import java.nio.file.NoSuchFileException;
@@ -53,6 +58,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 
 // TODO(natthu): Implement methods that throw UnsupportedOperationException.
 public class FakeProjectFilesystem extends ProjectFilesystem {
@@ -107,11 +113,21 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
 
   private final Map<Path, byte[]> fileContents;
   private final Map<Path, ImmutableSet<FileAttribute<?>>> fileAttributes;
+  private final Map<Path, FileTime> fileLastModifiedTimes;
+  private final Set<Path> directories;
+  private final Clock clock;
 
   public FakeProjectFilesystem() {
+    this(new FakeClock(0));
+  }
+
+  public FakeProjectFilesystem(Clock clock) {
     super(Paths.get("."));
     fileContents = Maps.newHashMap();
     fileAttributes = Maps.newHashMap();
+    fileLastModifiedTimes = Maps.newHashMap();
+    directories = Sets.newHashSet();
+    this.clock = Preconditions.checkNotNull(clock);
 
     // Generally, tests don't care whether files exist.
     ignoreValidityOfPaths = true;
@@ -124,6 +140,7 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   private void rmFile(Path path) {
     fileContents.remove(path.normalize());
     fileAttributes.remove(path.normalize());
+    fileLastModifiedTimes.remove(path.normalize());
   }
 
   public ImmutableSet<FileAttribute<?>> getFileAttributesAtPath(Path path) {
@@ -142,7 +159,7 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
 
   @Override
   public boolean exists(Path path) {
-    return fileContents.containsKey(path.normalize());
+    return isFile(path) || isDirectory(path);
   }
 
   @Override
@@ -168,17 +185,26 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
 
   @Override
   public boolean isFile(Path path) {
-    throw new UnsupportedOperationException();
+    return fileContents.containsKey(path.normalize());
   }
 
   @Override
   public boolean isDirectory(Path path, LinkOption... linkOptions) {
-    throw new UnsupportedOperationException();
+    return directories.contains(path.normalize());
   }
 
   @Override
   public void walkFileTree(Path root, FileVisitor<Path> fileVisitor) {
     throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public long getLastModifiedTime(Path path) throws IOException {
+    Path normalizedPath = path.normalize();
+    if (!exists(normalizedPath)) {
+      throw new NoSuchFileException(path.toString());
+    }
+    return fileLastModifiedTimes.get(normalizedPath).toMillis();
   }
 
   @Override
@@ -188,17 +214,21 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
       Path subPath = iterator.next();
       if (subPath.startsWith(normalizedPath)) {
         fileAttributes.remove(subPath.normalize());
+        fileLastModifiedTimes.remove(subPath.normalize());
         iterator.remove();
       }
     }
+    fileLastModifiedTimes.remove(path);
+    directories.remove(path);
   }
 
   @Override
   public void mkdirs(Path path) {
-  }
-
-  @Override
-  public void createParentDirs(Path path) {
+    for (int i = 0; i < path.getNameCount(); i++) {
+      Path subpath = path.subpath(0, i + 1);
+      directories.add(subpath);
+      fileLastModifiedTimes.put(subpath, FileTime.fromMillis(clock.currentTimeMillis()));
+    }
   }
 
   @Override
@@ -229,17 +259,30 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
       FileAttribute<?>... attrs) {
     fileContents.put(path.normalize(), Preconditions.checkNotNull(bytes));
     fileAttributes.put(path.normalize(), ImmutableSet.copyOf(attrs));
+    fileLastModifiedTimes.put(path.normalize(), FileTime.fromMillis(clock.currentTimeMillis()));
   }
 
   @Override
   public OutputStream newFileOutputStream(
-      Path pathRelativeToProjectRoot,
-      FileAttribute<?>... attrs)
-    throws IOException {
-    // This is a hard API to make testable. We need a hook for when
-    // the OutputStream is closed in order to update fileContents.  Do
-    // we have to subclass ByteArrayOutputStream to override close()?
-    throw new UnsupportedOperationException();
+      final Path pathRelativeToProjectRoot,
+      final FileAttribute<?>... attrs) throws IOException {
+    return new ByteArrayOutputStream() {
+      @Override
+      public void close() throws IOException {
+        super.close();
+        writeToMap();
+      }
+
+      @Override
+      public void flush() throws IOException {
+        super.flush();
+        writeToMap();
+      }
+
+      private void writeToMap() {
+        writeBytesToPath(toByteArray(), pathRelativeToProjectRoot, attrs);
+      }
+    };
   }
 
   @Override
@@ -252,7 +295,8 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   }
 
   @Override
-  public void copyToPath(final InputStream inputStream, Path path) throws IOException {
+  public void copyToPath(final InputStream inputStream, Path path, CopyOption... options)
+      throws IOException {
     writeBytesToPath(ByteStreams.toByteArray(inputStream), path);
   }
 

@@ -19,15 +19,22 @@ package com.facebook.buck.util;
 import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
+import com.google.common.base.Throwables;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.DigestInputStream;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.Arrays;
 
 import javax.annotation.Nullable;
 
@@ -84,7 +91,36 @@ public class MorePaths {
         "Path must be relative: %s.", path);
     Preconditions.checkArgument(!baseDir.isAbsolute(),
         "Path must be relative: %s.", baseDir);
-    return baseDir.relativize(path);
+    return relativize(baseDir, path);
+  }
+
+  /**
+   * Get a relative path from path1 to path2, first normalizing each path.
+   *
+   * This method is a workaround for JDK-6925169 (Path.relativize
+   * returns incorrect result if path contains "." or "..").
+   */
+  public static Path relativize(Path path1, Path path2) {
+    Preconditions.checkNotNull(path1);
+    Preconditions.checkNotNull(path2);
+    Path emptyPath = Paths.get("");
+
+    Preconditions.checkArgument(
+        path1.isAbsolute() == path2.isAbsolute(),
+        "Both paths must be absolute or both paths must be relative. (%s is %s, %s is %s)",
+        path1,
+        path1.isAbsolute() ? "absolute" : "relative",
+        path2,
+        path2.isAbsolute() ? "absolute" : "relative");
+
+    // Work around JDK-8037945 (Paths.get("").normalize() throws ArrayIndexOutOfBoundsException).
+    if (!path1.equals(emptyPath)) {
+      path1 = path1.normalize();
+    }
+    if (!path2.equals(emptyPath)) {
+      path2 = path2.normalize();
+    }
+    return path1.relativize(path2);
   }
 
   /**
@@ -158,7 +194,7 @@ public class MorePaths {
           @Override
           public Path apply(Path input) {
             if (input.isAbsolute()) {
-              return normalizedRoot.relativize(input.normalize());
+              return relativize(normalizedRoot, input);
             } else {
               return input;
             }
@@ -186,5 +222,42 @@ public class MorePaths {
       return homePath;
     }
     return homePath.resolve(path.subpath(1, path.getNameCount()));
+  }
+
+  public static boolean fileContentsDiffer(
+      InputStream contents,
+      Path path,
+      ProjectFilesystem projectFilesystem) throws IOException {
+    try {
+      // Hash the contents of the file at path so we don't have to pull the whole thing into memory.
+      MessageDigest sha1 = MessageDigest.getInstance("SHA-1");
+      byte[] pathDigest;
+      try (InputStream is = projectFilesystem.newFileInputStream(path)) {
+          pathDigest = inputStreamDigest(is, sha1);
+      }
+      // Hash 'contents' and see if the two differ.
+      sha1.reset();
+      byte[] contentsDigest = inputStreamDigest(contents, sha1);
+      return !Arrays.equals(pathDigest, contentsDigest);
+    } catch (NoSuchFileException e) {
+      // If the file doesn't exist, we need to create it.
+      return true;
+    } catch (NoSuchAlgorithmException e) {
+      throw Throwables.propagate(e);
+    }
+  }
+
+  private static byte[] inputStreamDigest(InputStream inputStream, MessageDigest messageDigest)
+      throws IOException {
+    try (DigestInputStream dis = new DigestInputStream(inputStream, messageDigest)) {
+      byte[] buf = new byte[4096];
+      while (true) {
+        // Read the contents of the existing file so we can hash it.
+        if (dis.read(buf) == -1) {
+          break;
+        }
+      }
+      return dis.getMessageDigest().digest();
+    }
   }
 }

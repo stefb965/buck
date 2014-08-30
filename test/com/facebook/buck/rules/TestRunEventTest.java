@@ -22,36 +22,37 @@ import static org.junit.Assert.assertTrue;
 import com.facebook.buck.test.TestResults;
 import com.facebook.buck.test.selectors.TestSelectorList;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import org.junit.Test;
 
 public class TestRunEventTest {
 
   @Test
-  public void startAndStopShouldPairUpProperlyBasedOnHash() {
-    ImmutableList<String> tests = ImmutableList.of("//exmaple:other", "//thing/made/of:cheese");
+  public void startAndStopShouldRelateProperlyBasedOnHash() {
+    ImmutableSet<String> tests = ImmutableSet.of("//exmaple:other", "//thing/made/of:cheese");
 
     TestRunEvent.Started started = TestRunEvent.started(
         false, TestSelectorList.empty(), false, tests);
     TestRunEvent.Finished finished = TestRunEvent.finished(
         tests, ImmutableList.<TestResults>of());
 
-    assertTrue(started.eventsArePair(finished));
-    assertTrue(finished.eventsArePair(started));
+    assertTrue(started.isRelatedTo(finished));
+    assertTrue(finished.isRelatedTo(started));
   }
 
   @Test
-  public void shouldNotBelieveThatEventsThatAreNotPairsArePairs() {
-    ImmutableList<String> tests = ImmutableList.of("//exmaple:other", "//thing/made/of:cheese");
-    ImmutableList<String> otherTests = ImmutableList.of("//example:test");
+  public void shouldNotBelieveThatEventsThatAreNotRelatedAreRelated() {
+    ImmutableSet<String> tests = ImmutableSet.of("//exmaple:other", "//thing/made/of:cheese");
+    ImmutableSet<String> otherTests = ImmutableSet.of("//example:test");
 
     TestRunEvent.Started started = TestRunEvent.started(
         false, TestSelectorList.empty(), false, tests);
     TestRunEvent.Finished finished = TestRunEvent.finished(
         otherTests, ImmutableList.<TestResults>of());
 
-    assertFalse(started.eventsArePair(finished));
-    assertFalse(finished.eventsArePair(started));
+    assertFalse(started.isRelatedTo(finished));
+    assertFalse(finished.isRelatedTo(started));
   }
 
 }

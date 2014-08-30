@@ -4,7 +4,6 @@
   <property name="src.dir" value="${basedir}/src" />
   <property name="aosp.src.dir" value="third-party/java/aosp/src" />
   <property name="test.dir" value="${basedir}/test" />
-  <property name="plugin.dir" value="${basedir}/plugin" />
   <property name="lib.dir" value="${basedir}/lib" />
   <property name="third-party.dir" value="${basedir}/third-party" />
   <property name="build.dir" value="${basedir}/build" />
@@ -14,13 +13,12 @@
   <property name="buck.path_to_buck_py" value="${basedir}/src/com/facebook/buck/parser/buck.py" />
   <property name="buck.path_to_compile_asset_catalogs_py" value="${basedir}/src/com/facebook/buck/apple/compile_asset_catalogs.py" />
   <property name="buck.path_to_compile_asset_catalogs_build_phase_sh" value="${basedir}/src/com/facebook/buck/apple/compile_asset_catalogs_build_phase.sh" />
-  <property name="buck.path_to_emma_jar"
-            value="${basedir}/third-party/java/emma-2.0.5312/out/emma-2.0.5312.jar"
-            />
   <property name="buck.logging_config_file" value="${basedir}/config/logging.properties" />
   <property name="classes.dir" value="${build.dir}/classes" />
   <property name="testclasses.dir" value="${build.dir}/testclasses" />
   <property name="javadoc.dir" value="${build.dir}/javadoc" />
+  <property name="javadoc-with-android.dir" value="${build.dir}/javadoc-with-android" />
+  <property name="javadoc-all.dir" value="${build.dir}/javadoc-all" />
   <property name="client.dir" value="third-party/nailgun" />
   <property name="test.class" value="Test" />
   <property name="javacc.gensrc.dir" value="${build.dir}/javacc" />
@@ -36,7 +34,7 @@
   <fileset dir="${lib.dir}" id="buck.jars">
     <include name="args4j-2.0.28.jar" />
     <include name="ddmlib-22.5.3.jar" />
-    <include name="guava-15.0.jar" />
+    <include name="guava-17.0.jar" />
     <include name="ini4j-0.5.2.jar" />
     <include name="jackson-annotations-2.0.5.jar" />
     <include name="jackson-core-2.0.5.jar" />
@@ -75,6 +73,7 @@
     <include name="java/closure-templates/soy-2012-12-21-no-guava.jar" />
     <include name="java/dd-plist/dd-plist.jar" />
     <include name="java/gson/gson-2.2.4.jar" />
+    <include name="java/infer-annotations/infer-annotations-1.0.jar" />
     <include name="java/jetty/jetty-all-9.0.4.v20130625.jar" />
     <include name="java/jetty/servlet-api.jar" />
     <include name="java/xz-java-1.3/xz-1.3.jar" />
@@ -96,7 +95,6 @@
   </path>
 
   <target name="clean" description="remove all generated files">
-    <ant inheritAll="false" antfile="third-party/java/emma-2.0.5312/build.xml" target="clean" />
     <ant inheritAll="false" antfile="third-party/java/jacoco-0.6.4/build.xml" target="clean" />
     <delete dir="${build.dir}" />
   </target>
@@ -160,7 +158,6 @@
   <target name="compile"
           depends="compile-testrunner, compile-abi-processor, javacc, dx"
           description="compile Java source code">
-    <ant inheritAll="false" antfile="third-party/java/emma-2.0.5312/build.xml" target="core.package" />
     <ant inheritAll="false" antfile="third-party/java/jacoco-0.6.4/build.xml" target="build" />
     <mkdir dir="${classes.dir}" />
     <javac destdir="${classes.dir}"
@@ -172,6 +169,7 @@
       <src path="${src.dir}" />
       <src path="${aosp.src.dir}" />
       <src path="${javacc.gensrc.dir}" />
+      <exclude name="com/facebook/buck/android/support/**" />
       <exclude name="com/facebook/buck/cli/quickstart/**" />
       <exclude name="com/facebook/buck/java/abi/**" />
       <exclude name="com/facebook/buck/junit/**" />
@@ -185,7 +183,7 @@
   </target>
 
   <fileset dir="${lib.dir}" id="dx.jars">
-    <include name="guava-15.0.jar" />
+    <include name="guava-17.0.jar" />
   </fileset>
 
   <path id="dx.classpath">
@@ -205,7 +203,7 @@
     </javac>
 
     <jar destfile="${build.dir}/dx.jar">
-      <zipfileset includes="**/*.class" src="${lib.dir}/guava-15.0.jar"/>
+      <zipfileset includes="**/*.class" src="${lib.dir}/guava-17.0.jar"/>
       <zipfileset includes="**/*.class" src="${lib.dir}/junit-4.11.jar" />
       <fileset dir="${dx.classes.dir}" />
       <manifest>
@@ -305,8 +303,8 @@
           >
     <junit failureproperty="hasFailingTests"
            showoutput="true"
-           forkmode="perBatch">
-      <sysproperty key="buck.path_to_emma_jar" value="${buck.path_to_emma_jar}" />
+           forkmode="perBatch"
+           haltonerror="on">
       <sysproperty key="buck.path_to_buck_py" value="${buck.path_to_buck_py}" />
       <sysproperty key="buck.path_to_compile_asset_catalogs_py" value="${buck.path_to_compile_asset_catalogs_py}" />
       <sysproperty key="buck.path_to_compile_asset_catalogs_build_phase_sh" value="${buck.path_to_compile_asset_catalogs_build_phase_sh}" />
@@ -363,7 +361,7 @@
   </target>
 
   <!--
-  Runs pmd on all source, test, and plugin files.
+  Runs pmd on all source and test files.
   -->
   <target name="pmd">
     <taskdef name="pmd"
@@ -378,9 +376,6 @@
       <fileset dir="${test.dir}">
         <include name="**/*.java"/>
         <exclude name="**/testdata/**"/>
-      </fileset>
-      <fileset dir="${plugin.dir}">
-        <include name="**/*.java"/>
       </fileset>
     </pmd>
   </target>
@@ -443,27 +438,101 @@
 
   <target name="test" depends="java-test, py-test" description="runs the unit tests" />
 
-  <target name="javadoc" description="generates HTML documentation for Java code"
-      depends="compile">
-    <mkdir dir="${javadoc.dir}" />
-    <javadoc destdir="${javadoc.dir}"
-             protected="true"
-             classpathref="tests.classpath"
-             windowtitle="Buck"
-             failonerror="true"
-             >
-      <fileset dir="${src.dir}">
-        <include name="**/*.java" />
-        <exclude name="com/facebook/buck/cli/quickstart/**" />
-      </fileset>
-      <fileset dir="${javacc.gensrc.dir}">
-      </fileset>
-      <link href="http://docs.oracle.com/javase/7/docs/api/" />
-      <link href="http://docs.guava-libraries.googlecode.com/git-history/v15.0/javadoc/" />
-      <!-- The latest version of the javadocs is only for 4.10 -->
-      <link href="http://junit-team.github.io/junit/javadoc/latest/" />
-    </javadoc>
+  <macrodef name="buck-javadoc" description="generates HTML documentation for Java code">
+    <attribute name="destdir" />
+    <attribute name="classpathref" />
+    <attribute name="access" default="protected" />
+    <element name="additional-links" optional="true" />
+    <sequential>
+      <delete dir="@{destdir}" />
+      <mkdir dir="@{destdir}" />
+      <record name="@{destdir}/javadoc.log" action="start" />
+      <javadoc destdir="@{destdir}"
+               access="@{access}"
+               classpathref="@{classpathref}"
+               windowtitle="Buck"
+               failonerror="true"
+               >
+        <fileset dir="${src.dir}">
+          <include name="**/*.java" />
+          <exclude name="com/facebook/buck/cli/quickstart/**" />
+        </fileset>
+        <fileset dir="${javacc.gensrc.dir}" />
+        <link href="http://docs.oracle.com/javase/7/docs/api/" />
+        <link href="http://docs.guava-libraries.googlecode.com/git-history/v15.0/javadoc/" />
+        <!-- The latest version of the javadocs is only for 4.10 -->
+        <link href="https://junit-team.github.io/junit/javadoc/latest/" />
+        <additional-links />
+      </javadoc>
+      <record name="@{destdir}/javadoc.log" action="stop" />
+    </sequential>
+  </macrodef>
+
+  <target name="-javadoc-deps" depends="compile" />
+
+  <path id="javadoc.classpath">
+    <path refid="classpath" />
+    <!-- Buck test runner has references to JUnit. -->
+    <pathelement location="${lib.dir}/junit-4.11.jar" />
+  </path>
+
+  <target name="javadoc"
+          description="generates HTML documentation for Java code"
+          depends="-javadoc-deps">
+    <buck-javadoc destdir="${javadoc.dir}"
+                  classpathref="javadoc.classpath"
+                  >
+    </buck-javadoc>
   </target>
+
+  <path id="javadoc-with-android.classpath">
+    <path refid="javadoc.classpath" />
+    <!-- Buck's Android support library has references to Android. -->
+    <pathelement location="${env.ANDROID_HOME}/platforms/android-16/android.jar" />
+  </path>
+
+  <macrodef name="javadoc-with-android">
+    <attribute name="destdir" />
+    <attribute name="access" />
+    <sequential>
+      <fail unless="env.ANDROID_HOME" message="ANDROID_HOME not set." />
+
+      <buck-javadoc destdir="@{destdir}"
+                    classpathref="javadoc-with-android.classpath"
+                    access="@{access}"
+                    >
+        <additional-links>
+          <!--
+            This is the recommended way to link to Android's Javadoc.
+            This problem derives from Android's refusal to publish the package-list file
+            with their Javadoc: http://stackoverflow.com/a/2823592/396304.
+
+            Surprisingly, the generated Javadoc does link to http://d.android.com/
+            rather than a local file:/// URI that points to the local $ANDROID_HOME.
+          -->
+          <link offline="true" href="http://d.android.com/reference" packagelistLoc="${env.ANDROID_HOME}/docs/reference"/>
+        </additional-links>
+      </buck-javadoc>
+    </sequential>
+  </macrodef>
+
+  <target name="javadoc-with-android"
+          description="generates HTML documentation for Java code with links to Android"
+          depends="-javadoc-deps">
+    <javadoc-with-android destdir="${javadoc-with-android.dir}" access="protected" />
+  </target>
+
+  <target name="verify-javadoc"
+          description="verify that full Javadoc ran without errors"
+          depends="-javadoc-deps">
+    <!-- Runs javadoc with -private to catch errors in all possible docblocks. -->
+    <javadoc-with-android destdir="${javadoc-all.dir}" access="private" />
+    <exec executable="${basedir}/scripts/verify-javadoc.py" failonerror="true">
+      <arg value="${javadoc-all.dir}/javadoc.log" />
+    </exec>
+  </target>
+
+  <target name="travis" depends="test, verify-javadoc" />
 
   <target name="client" description="install nailgun buckd c client">
     <mkdir dir="${build.dir}" />

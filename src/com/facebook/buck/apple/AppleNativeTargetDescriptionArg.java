@@ -21,6 +21,7 @@ import com.facebook.buck.rules.ConstructorArg;
 
 import com.facebook.buck.rules.coercer.AppleSource;
 import com.facebook.buck.rules.coercer.Either;
+import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -31,8 +32,8 @@ import java.nio.file.Path;
 /**
  * Arguments common to {@link com.facebook.buck.apple.AbstractAppleNativeTargetBuildRule} subclasses
  */
+@SuppressFieldNotInitialized
 public class AppleNativeTargetDescriptionArg implements ConstructorArg {
-  public Optional<Path> infoPlist;
   /**
    * @see com.facebook.buck.apple.XcodeRuleConfiguration#fromRawJsonStructure
    */
@@ -42,4 +43,7 @@ public class AppleNativeTargetDescriptionArg implements ConstructorArg {
   public ImmutableList<AppleSource> srcs;
   public ImmutableSortedSet<String> frameworks;
   public Optional<ImmutableSortedSet<BuildRule>> deps;
+  public Optional<String> gid;
+  public Optional<String> headerPathPrefix;
+  public Optional<Boolean> useBuckHeaderMaps;
 }

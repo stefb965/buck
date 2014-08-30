@@ -4,6 +4,7 @@
     src_roots = src, test
 [alias]
     buck = //src/com/facebook/buck/cli:cli
+    buck-android-support = //src/com/facebook/buck/android/support:buck-android-support
 [buildfile]
     includes = //DEFS
 [project]
@@ -24,6 +25,10 @@
       test/com/facebook/buck/test/cache/testdata, \
       test/com/facebook/buck/test/labels/testdata, \
       test/com/facebook/buck/test/result/groups/testdata, \
+      test/com/facebook/buck/event/listener/integration/testdata, \
+      test/com/facebook/buck/thrift/testdata, \
+      test/com/facebook/buck/cxx/testdata, \
+      test/com/facebook/buck/python/testdata, \
 
     # Common temp file patterns:
     # .*\.swp$ (vim)

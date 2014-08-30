@@ -145,7 +145,7 @@ public class GenruleTest {
         getAbsolutePathInBase(GEN_DIR + "/src/com/facebook/katana/AndroidManifest.xml").toString(),
         ((Genrule) genrule).getAbsoluteOutputFilePath());
     BuildContext buildContext = null; // unused since there are no deps
-    ImmutableSortedSet<Path> inputsToCompareToOutputs = ImmutableSortedSet.of(
+    ImmutableList<Path> inputsToCompareToOutputs = ImmutableList.of(
         Paths.get("src/com/facebook/katana/convert_to_katana.py"),
         Paths.get("src/com/facebook/katana/AndroidManifest.xml"));
     assertEquals(
@@ -326,7 +326,7 @@ public class GenruleTest {
     BuildRule javaBinary = createSampleJavaBinaryRule(ruleResolver);
 
     String originalCmd = "$(exe //java/com/facebook/util:ManifestGenerator) $OUT";
-    String contextBasePath = "java/com/facebook/util";
+    Path contextBasePath = Paths.get("java/com/facebook/util");
     Set<? extends BuildRule> deps = ImmutableSet.of(javaBinary);
 
     Genrule buildable = (Genrule) createGenrule(ruleResolver, originalCmd, contextBasePath, deps);
@@ -351,7 +351,7 @@ public class GenruleTest {
     BuildRule javaBinary = createSampleJavaBinaryRule(ruleResolver);
 
     String originalCmd = "$(exe :ManifestGenerator) $OUT";
-    String contextBasePath = "java/com/facebook/util";
+    Path contextBasePath = Paths.get("java/com/facebook/util");
     Set<? extends BuildRule> deps = ImmutableSet.of(javaBinary);
 
     Genrule buildable = (Genrule) createGenrule(ruleResolver, originalCmd, contextBasePath, deps);
@@ -382,7 +382,7 @@ public class GenruleTest {
         javaBinary.getBuildTarget().getShortName(),
         javaBinary.getBuildTarget().getFullyQualifiedName());
 
-    String contextBasePath = javaBinary.getBuildTarget().getBasePath();
+    Path contextBasePath = javaBinary.getBuildTarget().getBasePath();
     Set<? extends BuildRule> deps = ImmutableSet.of(javaBinary);
 
     Genrule buildable = (Genrule) createGenrule(ruleResolver, originalCmd, contextBasePath, deps);
@@ -405,7 +405,7 @@ public class GenruleTest {
     // Interpolate the build target in the genrule cmd string.
     String originalCmd = "$(exe :ManifestGenerator) $OUT";
     Set<? extends BuildRule> deps = ImmutableSet.of(javaBinary);
-    String contextBasePath = "java/com/facebook/util";
+    Path contextBasePath = Paths.get("java/com/facebook/util");
 
     Genrule rule = (Genrule) createGenrule(ruleResolver, originalCmd, contextBasePath, deps);
     AbstractGenruleStep genruleStep = rule.createGenruleStep();
@@ -471,7 +471,7 @@ public class GenruleTest {
 
   private BuildRule createGenrule(BuildRuleResolver ruleResolver,
                                 String originalCmd,
-                                String contextBasePath,
+                                Path contextBasePath,
                                 Set<? extends BuildRule> deps) {
     BuildTarget target = BuildTargetFactory.newInstance(
         String.format("//%s:genrule", contextBasePath));
@@ -494,6 +494,7 @@ public class GenruleTest {
   public void testShouldIncludeDxInEnvironmentIfPresent() {
     AndroidPlatformTarget android = EasyMock.createNiceMock(AndroidPlatformTarget.class);
     EasyMock.expect(android.getDxExecutable()).andStubReturn(Paths.get("."));
+    EasyMock.expect(android.getZipalignExecutable()).andStubReturn(Paths.get("zipalign"));
     EasyMock.replay(android);
 
     BuildTarget target = BuildTargetFactory.newInstance("//example:genrule");
@@ -511,6 +512,7 @@ public class GenruleTest {
     ImmutableMap<String, String> env = builder.build();
 
     assertEquals(Paths.get(".").toString(), env.get("DX"));
+    assertEquals(Paths.get("zipalign").toString(), env.get("ZIPALIGN"));
 
     EasyMock.verify(android);
   }
@@ -568,6 +570,26 @@ public class GenruleTest {
     } catch (HumanReadableException e) {
       assertEquals(String.format("You must specify either cmd_exe or cmd for genrule %s.",
           genruleName), e.getHumanReadableErrorMessage());
+    }
+  }
+
+  @Test
+  public void testGetOutputNameMethod() {
+    BuildTarget target = BuildTargetFactory.newInstance("//:test");
+
+    // Sample data of output names to test with Genrule
+    ImmutableList<String> names = ImmutableList.of(
+        "out.txt",
+        "out/file.txt");
+
+    // Create genrules using the names above and verify the output name method returns
+    // them.
+    for (String name : names) {
+      Genrule genrule = GenruleBuilder
+          .createGenrule(target)
+          .setOut(name)
+          .build();
+      assertEquals(name, genrule.getOutputName());
     }
   }
 

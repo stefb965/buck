@@ -22,14 +22,17 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.TestRule;
+import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterables;
 
 import java.io.IOException;
-import java.util.List;
 
 /**
  * A subgraph of the full action graph, which is also a valid action graph.
@@ -37,19 +40,19 @@ import java.util.List;
 public class PartialGraph {
 
   private final ActionGraph graph;
-  private final List<BuildTarget> targets;
+  private final ImmutableSet<BuildTarget> targets;
 
   @VisibleForTesting
-  PartialGraph(ActionGraph graph, List<BuildTarget> targets) {
-    this.graph = graph;
-    this.targets = ImmutableList.copyOf(targets);
+  PartialGraph(ActionGraph graph, ImmutableSet<BuildTarget> targets) {
+    this.graph = Preconditions.checkNotNull(graph);
+    this.targets = Preconditions.checkNotNull(targets);
   }
 
   public ActionGraph getActionGraph() {
     return graph;
   }
 
-  public List<BuildTarget> getTargets() {
+  public ImmutableSet<BuildTarget> getTargets() {
     return targets;
   }
 
@@ -57,138 +60,156 @@ public class PartialGraph {
       ProjectFilesystem projectFilesystem,
       Iterable<String> includes,
       Parser parser,
-      BuckEventBus eventBus)
+      BuckEventBus eventBus,
+      Console console,
+      ImmutableMap<String, String> environment)
       throws BuildTargetException, BuildFileParseException, IOException, InterruptedException {
-    return createPartialGraph(RawRulePredicates.alwaysTrue(),
+    return createPartialGraph(
+        RuleJsonPredicates.alwaysTrue(),
         projectFilesystem,
         includes,
         parser,
-        eventBus);
+        eventBus,
+        console,
+        environment);
   }
 
   public static PartialGraph createPartialGraph(
-      RawRulePredicate predicate,
+      RuleJsonPredicate predicate,
       ProjectFilesystem filesystem,
       Iterable<String> includes,
       Parser parser,
-      BuckEventBus eventBus)
+      BuckEventBus eventBus,
+      Console console,
+      ImmutableMap<String, String> environment)
       throws BuildTargetException, BuildFileParseException, IOException, InterruptedException {
-    Preconditions.checkNotNull(predicate);
-
-    List<BuildTarget> targets = parser.filterAllTargetsInProject(filesystem,
-        includes,
-        predicate);
-
-    return parseAndCreateGraphFromTargets(targets, includes, parser, eventBus);
+    return Iterables.getOnlyElement(
+        createPartialGraphs(
+            Optional.<ImmutableSet<BuildTarget>>absent(),
+            Optional.of(predicate),
+            ImmutableList.<RuleJsonPredicate>of(),
+            ImmutableList.<AssociatedRulePredicate>of(),
+            filesystem,
+            includes,
+            parser,
+            eventBus,
+            console,
+            environment));
   }
 
   /**
-   * Creates a partial graph of all {@link BuildRule}s that are either
-   * transitive dependencies or tests for (rules that pass {@code predicate} and are contained in
-   * BUCK files that contain transitive dependencies of the {@link BuildTarget}s defined in
-   * {@code roots}).
+   * Creates a graph containing the {@link BuildRule}s identified by {@code roots} and their
+   * dependencies. Then for each pair of {@link RuleJsonPredicate} in {@code predicates} and
+   * {@link AssociatedRulePredicate} in {@code associatedRulePredicates}, rules throughout the
+   * project that pass are added to the graph.
    */
-  public static PartialGraph createPartialGraphFromRootsWithTests(
-      Iterable<BuildTarget> roots,
-      RawRulePredicate predicate,
+  public static ImmutableList<PartialGraph> createPartialGraphs(
+      Optional<ImmutableSet<BuildTarget>> rootsOptional,
+      Optional<RuleJsonPredicate> rootsPredicate,
+      ImmutableList<RuleJsonPredicate> predicates,
+      ImmutableList<AssociatedRulePredicate> associatedRulePredicates,
       ProjectFilesystem filesystem,
       Iterable<String> includes,
       Parser parser,
-      BuckEventBus eventBus)
+      BuckEventBus eventBus,
+      Console console,
+      ImmutableMap<String, String> environment)
       throws BuildTargetException, BuildFileParseException, IOException, InterruptedException {
-    Preconditions.checkNotNull(predicate);
+    ImmutableSet<BuildTarget> roots = rootsOptional.or(
+        parser.filterAllTargetsInProject(
+            filesystem,
+            includes,
+            rootsPredicate.or(RuleJsonPredicates.alwaysTrue()),
+            console,
+            environment));
 
-    Iterable<BuildTarget> buildTargets = parser.filterTargetsInProjectFromRoots(
-        roots, includes, eventBus, RawRulePredicates.alwaysTrue());
-    ActionGraph buildGraph =
-        parseAndCreateGraphFromTargets(buildTargets, includes, parser, eventBus)
-            .getActionGraph();
+    ImmutableList.Builder<PartialGraph> graphs = ImmutableList.builder();
 
-    // We have to enumerate all test targets, and see which ones refer to a rule in our build graph
-    // with it's src_under_test field.
-    ImmutableList.Builder<BuildTarget> buildAndTestTargetsBuilder =
-        ImmutableList.<BuildTarget>builder()
-            .addAll(roots);
-
-    PartialGraph testGraph = PartialGraph.createPartialGraph(
-        RawRulePredicates.isTestRule(),
-        filesystem,
+    PartialGraph partialGraph = parseAndCreateGraphFromTargets(
+        roots,
         includes,
         parser,
-        eventBus);
+        eventBus,
+        console,
+        environment);
 
-    ActionGraph testActionGraph = testGraph.getActionGraph();
+    graphs.add(partialGraph);
 
-    // Iterate through all possible test targets, looking for ones who's src_under_test intersects
-    // with our build graph.
-    for (BuildTarget buildTarget : testGraph.getTargets()) {
-      TestRule testRule =
-          (TestRule) testActionGraph.findBuildRuleByTarget(buildTarget);
-      for (BuildRule buildRuleUnderTest : testRule.getSourceUnderTest()) {
-        if (buildGraph.findBuildRuleByTarget(buildRuleUnderTest.getBuildTarget()) != null) {
-          buildAndTestTargetsBuilder.add(testRule.getBuildTarget());
-          break;
+    for (int i = 0; i < predicates.size(); i++) {
+      RuleJsonPredicate predicate = predicates.get(i);
+      AssociatedRulePredicate associatedRulePredicate = associatedRulePredicates.get(i);
+
+      PartialGraph associatedPartialGraph = PartialGraph.createPartialGraph(
+          predicate,
+          filesystem,
+          includes,
+          parser,
+          eventBus,
+          console,
+          environment);
+
+      ImmutableSet.Builder<BuildTarget> allTargetsBuilder = ImmutableSet.builder();
+      allTargetsBuilder.addAll(partialGraph.getTargets());
+
+      for (BuildTarget buildTarget : associatedPartialGraph.getTargets()) {
+        BuildRule buildRule = associatedPartialGraph
+            .getActionGraph()
+            .findBuildRuleByTarget(buildTarget);
+        if (associatedRulePredicate.isMatch(buildRule, partialGraph.getActionGraph())) {
+          allTargetsBuilder.add(buildRule.getBuildTarget());
         }
       }
+
+      partialGraph = parseAndCreateGraphFromTargets(
+          allTargetsBuilder.build(),
+          includes,
+          parser,
+          eventBus,
+          console,
+          environment);
+
+      graphs.add(partialGraph);
     }
 
-    Iterable<BuildTarget> allTargets = parser.filterTargetsInProjectFromRoots(
-        buildAndTestTargetsBuilder.build(), includes, eventBus, predicate);
-    return parseAndCreateGraphFromTargets(allTargets, includes, parser, eventBus);
+    return graphs.build();
   }
 
   /**
-   * Creates a partial graph of all {@link BuildRule}s that are transitive
-   * dependencies of (rules that pass {@code predicate} and are contained in BUCK files that contain
-   * transitive dependencies of the {@link BuildTarget}s defined in {@code roots}).
-
-   */
-  public static PartialGraph createPartialGraphFromRoots(
-      Iterable<BuildTarget> roots,
-      RawRulePredicate predicate,
-
-      Iterable<String> includes,
-      Parser parser,
-      BuckEventBus eventBus)
-      throws BuildTargetException, BuildFileParseException, IOException, InterruptedException {
-    Preconditions.checkNotNull(predicate);
-
-    Iterable<BuildTarget> targets = parser.filterTargetsInProjectFromRoots(
-        roots, includes, eventBus, predicate);
-
-    return parseAndCreateGraphFromTargets(targets, includes, parser, eventBus);
-  }
-
-
-  /**
-   * Like {@link #createPartialGraphFromRootsWithTests}, but trades accuracy for speed.
+   * Like {@link #createPartialGraphs}, but trades accuracy for speed.
    *
    * <p>The graph returned from this method will include all transitive deps of the roots, but
    * might also include rules that are not actually dependencies.  This looseness allows us to
    * run faster by avoiding a post-hoc filtering step.
    */
   public static PartialGraph createPartialGraphIncludingRoots(
-      Iterable<BuildTarget> roots,
+      ImmutableSet<BuildTarget> roots,
       Iterable<String> includes,
       Parser parser,
-      BuckEventBus eventBus)
+      BuckEventBus eventBus,
+      Console console, ImmutableMap<String, String> environment)
       throws BuildTargetException, BuildFileParseException, IOException, InterruptedException {
-    return parseAndCreateGraphFromTargets(roots, includes, parser, eventBus);
+    return parseAndCreateGraphFromTargets(roots, includes, parser, eventBus, console, environment);
   }
 
   private static PartialGraph parseAndCreateGraphFromTargets(
-      Iterable<BuildTarget> targets,
+      ImmutableSet<BuildTarget> targets,
       Iterable<String> includes,
       Parser parser,
-      BuckEventBus eventBus)
+      BuckEventBus eventBus,
+      Console console, ImmutableMap<String, String> environment)
       throws BuildTargetException, BuildFileParseException, IOException, InterruptedException {
 
     Preconditions.checkNotNull(parser);
 
     // Now that the Parser is loaded up with the set of all build rules, use it to create a
     // DependencyGraph of only the targets we want to build.
-    ActionGraph graph = parser.parseBuildFilesForTargets(targets, includes, eventBus);
+    ActionGraph graph = parser.parseBuildFilesForTargets(
+        targets,
+        includes,
+        eventBus,
+        console,
+        environment);
 
-    return new PartialGraph(graph, ImmutableList.copyOf(targets));
+    return new PartialGraph(graph, targets);
   }
 }

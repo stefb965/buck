@@ -15,6 +15,7 @@
  */
 package com.facebook.buck.event;
 
+import com.facebook.buck.log.CommandThreadFactory;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.timing.Clock;
@@ -55,7 +56,8 @@ public class BuckEventBus implements Closeable {
 
   public BuckEventBus(Clock clock, BuildId buildId) {
     this(clock,
-        MoreExecutors.newSingleThreadExecutor(BuckEventBus.class.getSimpleName()),
+        MoreExecutors.newSingleThreadExecutor(
+            new CommandThreadFactory(BuckEventBus.class.getSimpleName())),
         buildId,
         DEFAULT_SHUTDOWN_TIMEOUT_MS);
   }
@@ -76,6 +78,16 @@ public class BuckEventBus implements Closeable {
   public void post(BuckEvent event) {
     timestamp(event);
     eventBus.post(event);
+  }
+
+  public void logVerboseAndPost(Logger logger, BuckEvent event) {
+    logger.verbose("%s", event);
+    post(event);
+  }
+
+  public void logDebugAndPost(Logger logger, BuckEvent event) {
+    logger.debug("%s", event);
+    post(event);
   }
 
   /**

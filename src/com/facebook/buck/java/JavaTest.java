@@ -179,7 +179,6 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule {
         pathToTestOutput,
         tmpDirectory,
         executionContext.isCodeCoverageEnabled(),
-        executionContext.isJacocoEnabled(),
         executionContext.isDebugEnabled(),
         executionContext.getBuckEventBus().getBuildId(),
         testSelectorList,
@@ -359,7 +358,7 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule {
      * @param jarFile jar where the generated .class files were written
      */
     @VisibleForTesting
-    static Set<String> getClassNamesForSources(Set<SourcePath> sources, @Nullable Path jarFile) {
+    static Set<String>  getClassNamesForSources(Set<SourcePath> sources, @Nullable Path jarFile) {
       if (jarFile == null) {
         return ImmutableSet.of();
       }

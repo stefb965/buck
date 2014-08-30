@@ -37,8 +37,8 @@ public abstract class ArtifactCacheConnectEvent extends AbstractBuckEvent implem
   }
 
   @Override
-  public boolean eventsArePair(BuckEvent event) {
-    if (!(event instanceof ArtifactCacheEvent)) {
+  public boolean isRelatedTo(BuckEvent event) {
+    if (!(event instanceof ArtifactCacheConnectEvent)) {
       return false;
     }
     return true;

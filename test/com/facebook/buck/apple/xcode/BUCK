@@ -2,8 +2,8 @@ java_test(
   name = 'xcode',
   srcs = [
     'XcodeprojSerializerTest.java',
-    'GidGeneratorTest.java'
-  ],
+    'GidGeneratorTest.java',
+  ] + glob(['xcodeproj/*Test.java']),
   source_under_test = [
     '//src/com/facebook/buck/apple/xcode:xcode',
   ],
@@ -40,8 +40,7 @@ java_test(
     '//src/com/facebook/buck/apple/xcode:project_generator',
     '//src/com/facebook/buck/apple/xcode:xcode',
     '//src/com/facebook/buck/apple/clang:headermap',
-    '//src/com/facebook/buck/codegen:codegen',
-    '//src/com/facebook/buck/cpp:rules',
+    '//src/com/facebook/buck/cxx:rules',
     '//src/com/facebook/buck/graph:graph',
     '//src/com/facebook/buck/model:model',
     '//src/com/facebook/buck/parser:parser',
@@ -50,14 +49,17 @@ java_test(
     '//src/com/facebook/buck/rules:rules',
     '//src/com/facebook/buck/shell:rules',
     '//src/com/facebook/buck/step:step',
+    '//src/com/facebook/buck/timing:timing',
     '//src/com/facebook/buck/util:exceptions',
     '//src/com/facebook/buck/util:io',
+    '//src/com/facebook/buck/util:util',
     '//test/com/facebook/buck/model:BuildTargetFactory',
     '//test/com/facebook/buck/parser:PartialGraphFactory',
     '//test/com/facebook/buck/rules:testutil',
     '//test/com/facebook/buck/shell:testutil',
     '//test/com/facebook/buck/step:testutil',
     '//test/com/facebook/buck/testutil:testutil',
+    '//test/com/facebook/buck/timing:testutil',
     '//third-party/java/dd-plist:dd-plist',
   ]
 )

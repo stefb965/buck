@@ -28,7 +28,6 @@ import static org.easymock.EasyMock.replay;
 import static org.easymock.EasyMock.verify;
 import static org.junit.Assert.assertEquals;
 
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.eventbus.EventBus;
 
@@ -38,7 +37,6 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileVisitor;
 import java.nio.file.Path;
@@ -73,7 +71,6 @@ public class WatchServiceWatcherTest {
     expect(filesystem.getRootPath()).andReturn(Paths.get("./someproject/"));
     visitor = new Capture<>();
     filesystem.walkFileTree(anyObject(Path.class), capture(visitor));
-    expect(path.normalize()).andReturn(path);
     expect(path.register(anyObject(WatchService.class),
         eq(StandardWatchEventKinds.ENTRY_CREATE),
         eq(StandardWatchEventKinds.ENTRY_DELETE),
@@ -89,7 +86,7 @@ public class WatchServiceWatcherTest {
 
     // Pump WatchServiceWatcher.
     watcher = new WatchServiceWatcher(
-        filesystem, eventBus, ImmutableSet.<Path>of(), watchService);
+        filesystem, eventBus, watchService);
     visitor.getValue().preVisitDirectory(path, null);
     watcher.postEvents();
 
@@ -107,7 +104,7 @@ public class WatchServiceWatcherTest {
     expect(key.pollEvents()).andReturn(
         Lists.<WatchEvent<?>>newArrayList(
             createPathEvent(
-                new File("./someproject/SomeClass.java"),
+                Paths.get("./someproject/SomeClass.java"),
                 StandardWatchEventKinds.ENTRY_MODIFY)));
     expect(path.relativize(anyObject(Path.class))).andReturn(Paths.get("SomeClass.java"));
     eventBus.post(anyObject(WatchEvent.class));
@@ -126,7 +123,7 @@ public class WatchServiceWatcherTest {
 
     // Pump WatchServiceWatcher.
     watcher = new WatchServiceWatcher(
-        filesystem, eventBus, ImmutableSet.<Path>of(), watchService);
+        filesystem, eventBus, watchService);
     visitor.getValue().preVisitDirectory(path, null);
     watcher.postEvents();
 
@@ -140,18 +137,19 @@ public class WatchServiceWatcherTest {
     // Return a single modify event when WatchService polled.
     expect(watchService.poll()).andReturn(key).andReturn(null);
     expect(filesystem.isPathChangeEvent(anyObject(WatchEvent.class))).andReturn(true).anyTimes();
+    expect(filesystem.isIgnored(Paths.get("somedir/SomeClass.java"))).andReturn(true);
     expect(filesystem.getRootPath()).andReturn(path).anyTimes();
     expect(key.pollEvents()).andReturn(
         Lists.<WatchEvent<?>>newArrayList(
             createPathEvent(
-                new File("./someproject/somedir/SomeClass.java"),
+                Paths.get("./someproject/somedir/SomeClass.java"),
                 StandardWatchEventKinds.ENTRY_MODIFY)));
     expect(path.relativize(anyObject(Path.class))).andReturn(Paths.get("somedir/SomeClass.java"));
     replay(filesystem, eventBus, watchService, path, key);
 
     // Pump WatchServiceWatcher.
     watcher = new WatchServiceWatcher(
-        filesystem, eventBus, ImmutableSet.<Path>of(Paths.get("somedir")), watchService);
+        filesystem, eventBus, watchService);
     visitor.getValue().preVisitDirectory(path, null);
     watcher.postEvents();
 

@@ -21,33 +21,32 @@ import com.dd.plist.NSDictionary;
 import com.dd.plist.NSObject;
 import com.dd.plist.NSString;
 import com.dd.plist.PropertyListParser;
+import com.facebook.buck.apple.AppleBuildRules;
 import com.facebook.buck.apple.AbstractAppleNativeTargetBuildRule;
 import com.facebook.buck.apple.AppleAssetCatalog;
 import com.facebook.buck.apple.AppleAssetCatalogDescription;
+import com.facebook.buck.apple.AppleBundle;
+import com.facebook.buck.apple.AppleBundleDescription;
+import com.facebook.buck.apple.AppleBundleExtension;
+import com.facebook.buck.apple.AppleBinary;
+import com.facebook.buck.apple.AppleBinaryDescription;
+import com.facebook.buck.apple.AppleLibrary;
 import com.facebook.buck.apple.AppleResource;
+import com.facebook.buck.apple.AppleResourceDescription;
+import com.facebook.buck.apple.AppleTest;
+import com.facebook.buck.apple.AppleTestDescription;
 import com.facebook.buck.apple.CoreDataModel;
 import com.facebook.buck.apple.CoreDataModelDescription;
 import com.facebook.buck.apple.FileExtensions;
 import com.facebook.buck.apple.GroupedSource;
 import com.facebook.buck.apple.HeaderVisibility;
-import com.facebook.buck.apple.IosBinary;
-import com.facebook.buck.apple.IosBinaryDescription;
-import com.facebook.buck.apple.IosLibrary;
-import com.facebook.buck.apple.IosLibraryDescription;
+import com.facebook.buck.apple.AppleLibraryDescription;
 import com.facebook.buck.apple.IosPostprocessResourcesDescription;
-import com.facebook.buck.apple.IosResourceDescription;
-import com.facebook.buck.apple.IosTest;
-import com.facebook.buck.apple.IosTestDescription;
-import com.facebook.buck.apple.IosTestType;
-import com.facebook.buck.apple.MacosxBinary;
-import com.facebook.buck.apple.MacosxBinaryDescription;
-import com.facebook.buck.apple.MacosxFramework;
-import com.facebook.buck.apple.MacosxFrameworkDescription;
-import com.facebook.buck.apple.OsxResourceDescription;
+import com.facebook.buck.apple.XcodeNative;
+import com.facebook.buck.apple.XcodeNativeDescription;
 import com.facebook.buck.apple.XcodeRuleConfiguration;
 import com.facebook.buck.apple.clang.HeaderMap;
 import com.facebook.buck.apple.xcode.xcconfig.XcconfigStack;
-import com.facebook.buck.apple.xcode.xcodeproj.PBXAggregateTarget;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXBuildFile;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXBuildPhase;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXCopyFilesBuildPhase;
@@ -65,12 +64,9 @@ import com.facebook.buck.apple.xcode.xcodeproj.PBXTarget;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXVariantGroup;
 import com.facebook.buck.apple.xcode.xcodeproj.SourceTreePath;
 import com.facebook.buck.apple.xcode.xcodeproj.XCBuildConfiguration;
-import com.facebook.buck.apple.xcode.xcodeproj.XCConfigurationList;
 import com.facebook.buck.apple.xcode.xcodeproj.XCVersionGroup;
-import com.facebook.buck.codegen.SourceSigner;
-import com.facebook.buck.graph.AbstractAcyclicDepthFirstPostOrderTraversal;
+import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.parser.PartialGraph;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.SourcePath;
@@ -82,8 +78,10 @@ import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.MorePaths;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Charsets;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
@@ -99,13 +97,16 @@ import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
+import com.google.common.io.BaseEncoding;
 import com.google.common.util.concurrent.UncheckedExecutionException;
 
 import org.w3c.dom.DOMImplementation;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -119,7 +120,8 @@ import java.nio.file.attribute.FileAttribute;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
-import java.util.Iterator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -139,6 +141,8 @@ import javax.xml.transform.stream.StreamResult;
  * Generator for xcode project and associated files from a set of xcode/ios rules.
  */
 public class ProjectGenerator {
+  private static final Logger LOG = Logger.get(ProjectGenerator.class);
+
   public enum Option {
     /**
      * generate native xcode targets for dependent build targets.
@@ -165,11 +169,11 @@ public class ProjectGenerator {
     /** Use short BuildTarget name instead of full name for targets */
     USE_SHORT_NAMES_FOR_TARGETS,
 
-    /** Generate headermaps for public headers of libraries */
-    GENERATE_HEADER_MAPS_FOR_LIBRARY_TARGETS,
-
     /** Generate read-only project files */
     GENERATE_READ_ONLY_FILES,
+
+    /** Include tests in the scheme */
+    INCLUDE_TESTS,
     ;
   }
 
@@ -195,6 +199,10 @@ public class ProjectGenerator {
           "buck.path_override_for_asset_catalog_build_phase",
           null);
 
+  private static final String PUBLIC_HEADER_MAP_SUFFIX = "-public-headers.hmap";
+  private static final String TARGET_HEADER_MAP_SUFFIX = "-target-headers.hmap";
+  private static final String TARGET_USER_HEADER_MAP_SUFFIX = "-target-user-headers.hmap";
+
   private static final FileAttribute<?> READ_ONLY_FILE_ATTRIBUTE =
     PosixFilePermissions.asFileAttribute(
       ImmutableSet.<PosixFilePermission>of(
@@ -202,7 +210,7 @@ public class ProjectGenerator {
           PosixFilePermission.GROUP_READ,
           PosixFilePermission.OTHERS_READ));
 
-  private final PartialGraph partialGraph;
+  private final ImmutableSet<BuildRule> rulesToBuild;
   private final ProjectFilesystem projectFilesystem;
   private final ExecutionContext executionContext;
   private final Path outputDirectory;
@@ -231,17 +239,17 @@ public class ProjectGenerator {
   private final ImmutableMultimap.Builder<String, ConfigInXcodeLayout>
     xcodeConfigurationLayersMultimapBuilder;
 
-  private ImmutableMap<String, String> targetNameToGIDMap;
+  private Set<String> nativeTargetGIDs;
 
   public ProjectGenerator(
-      PartialGraph partialGraph,
+      Iterable<BuildRule> rulesToBuild,
       Set<BuildTarget> initialTargets,
       ProjectFilesystem projectFilesystem,
       ExecutionContext executionContext,
       Path outputDirectory,
       String projectName,
       Set<Option> options) {
-    this.partialGraph = Preconditions.checkNotNull(partialGraph);
+    this.rulesToBuild = ImmutableSet.copyOf(rulesToBuild);
     this.initialTargets = ImmutableSet.copyOf(initialTargets);
     this.projectFilesystem = Preconditions.checkNotNull(projectFilesystem);
     this.executionContext = Preconditions.checkNotNull(executionContext);
@@ -251,14 +259,21 @@ public class ProjectGenerator {
 
     this.projectPath = outputDirectory.resolve(projectName + ".xcodeproj");
     this.repoRootRelativeToOutputDirectory =
-        this.outputDirectory.normalize().toAbsolutePath().relativize(
-            projectFilesystem.getRootPath().toAbsolutePath());
+      MorePaths.relativize(
+          this.outputDirectory.toAbsolutePath(),
+          projectFilesystem.getRootPath().toAbsolutePath());
 
-    this.placedAssetCatalogBuildPhaseScript = this.projectFilesystem.getPathForRelativePath(
-        BuckConstant.BIN_PATH.resolve("xcode-scripts/compile_asset_catalogs_build_phase.sh"));
+    LOG.debug(
+        "Output directory %s, profile fs root path %s, repo root relative to output dir %s",
+        this.outputDirectory,
+        projectFilesystem.getRootPath(),
+        this.repoRootRelativeToOutputDirectory);
+
+    this.placedAssetCatalogBuildPhaseScript =
+        BuckConstant.BIN_PATH.resolve("xcode-scripts/compile_asset_catalogs_build_phase.sh");
 
     this.project = new PBXProject(projectName);
-    this.headerMaps = new ArrayList<Path>();
+    this.headerMaps = new ArrayList<>();
 
     this.buildRuleToGeneratedTargetBuilder = ImmutableMap.builder();
     this.buildRuleToXcodeTarget = CacheBuilder.newBuilder().build(
@@ -270,6 +285,7 @@ public class ProjectGenerator {
         });
 
     xcodeConfigurationLayersMultimapBuilder = ImmutableMultimap.builder();
+    nativeTargetGIDs = new HashSet<>();
   }
 
   @VisibleForTesting
@@ -298,17 +314,24 @@ public class ProjectGenerator {
   }
 
   public void createXcodeProjects() throws IOException {
-    try {
-      targetNameToGIDMap = buildTargetNameToGIDMap();
-      Iterable<BuildRule> allRules = RuleDependencyFinder.getAllRules(partialGraph, initialTargets);
+    LOG.debug("Creating projects for targets %s", initialTargets);
 
-      for (BuildRule rule : allRules) {
+    try {
+      for (BuildRule rule : rulesToBuild) {
         if (isBuiltByCurrentProject(rule)) {
+          LOG.debug("Including rule %s in project", rule);
           // Trigger the loading cache to call the generateTargetForBuildRule function.
           Optional<PBXTarget> target = buildRuleToXcodeTarget.getUnchecked(rule);
           if (target.isPresent()) {
+            // TODO(grp, t4964329): SchemeGenerator should look for the AppleTest rule itself.
+            if (rule.getType().equals(AppleTestDescription.TYPE)) {
+              AppleTest test = (AppleTest) rule;
+              rule = test.getTestBundle();
+            }
             buildRuleToGeneratedTargetBuilder.put(rule, target.get());
           }
+        } else {
+          LOG.verbose("Excluding rule %s (not built by current project)", rule);
         }
       }
 
@@ -320,7 +343,6 @@ public class ProjectGenerator {
                 xcodeConfigurationLayersMultimapBuilder.build()));
       }
 
-      addGeneratedSignedSourceTarget(project);
       writeProjectFile(project);
 
       if (options.contains(Option.GENERATE_WORKSPACE)) {
@@ -331,6 +353,7 @@ public class ProjectGenerator {
         Path placedAssetCatalogCompilerPath = projectFilesystem.getPathForRelativePath(
             BuckConstant.BIN_PATH.resolve(
                 "xcode-scripts/compile_asset_catalogs.py"));
+        LOG.debug("Ensuring asset catalog is copied to path [%s]", placedAssetCatalogCompilerPath);
         projectFilesystem.createParentDirs(placedAssetCatalogCompilerPath);
         projectFilesystem.createParentDirs(placedAssetCatalogBuildPhaseScript);
         projectFilesystem.copyFile(
@@ -356,200 +379,240 @@ public class ProjectGenerator {
     Preconditions.checkState(
         isBuiltByCurrentProject(rule),
         "should not generate rule if it shouldn't be built by current project");
-    Preconditions.checkNotNull(targetNameToGIDMap);
     Optional<PBXTarget> result;
-    if (rule.getType().equals(IosLibraryDescription.TYPE)) {
-      result = Optional.of((PBXTarget) generateIosLibraryTarget(
-          project, rule, (IosLibrary) rule));
-    } else if (rule.getType().equals(IosTestDescription.TYPE)) {
-      result = Optional.of((PBXTarget) generateIosTestTarget(
-          project, rule, (IosTest) rule));
-    } else if (rule.getType().equals(IosBinaryDescription.TYPE)) {
-      result = Optional.of((PBXTarget) generateIOSBinaryTarget(
-              project, rule, (IosBinary) rule));
-    } else if (rule.getType().equals(MacosxFrameworkDescription.TYPE)) {
-      result = Optional.of((PBXTarget) generateMacosxFrameworkTarget(
-              project, rule, (MacosxFramework) rule));
-    } else if (rule.getType().equals(MacosxBinaryDescription.TYPE)) {
-    result = Optional.of((PBXTarget) generateMacosxBinaryTarget(
-            project, rule, (MacosxBinary) rule));
+    Optional<AbstractAppleNativeTargetBuildRule> nativeTargetRule;
+    if (rule.getType().equals(AppleLibraryDescription.TYPE)) {
+      AppleLibrary library = (AppleLibrary) rule;
+      result = Optional.of(
+          (PBXTarget) generateAppleLibraryTarget(
+              project, rule, library));
+      nativeTargetRule = Optional.<AbstractAppleNativeTargetBuildRule>of(library);
+    } else if (rule.getType().equals(AppleBinaryDescription.TYPE)) {
+      AppleBinary binary = (AppleBinary) rule;
+      result = Optional.of(
+          (PBXTarget) generateAppleBinaryTarget(
+              project, rule, binary));
+      nativeTargetRule = Optional.<AbstractAppleNativeTargetBuildRule>of(binary);
+    } else if (rule.getType().equals(AppleBundleDescription.TYPE)) {
+      AppleBundle bundle = (AppleBundle) rule;
+      result = Optional.of(
+          (PBXTarget) generateAppleBundleTarget(
+              project, rule, bundle));
+      nativeTargetRule = Optional.of((AbstractAppleNativeTargetBuildRule) bundle.getBinary());
+    } else if (rule.getType().equals(AppleTestDescription.TYPE)) {
+      AppleTest test = (AppleTest) rule;
+      if (test.getTestBundle().getType().equals(AppleBundleDescription.TYPE)) {
+        AppleBundle bundle = (AppleBundle) test.getTestBundle();
+        if (bundle.getExtensionValue().isPresent() &&
+            AppleBuildRules.isXcodeTargetTestBundleExtension(bundle.getExtensionValue().get())) {
+          result = Optional.of(
+              (PBXTarget) generateAppleBundleTarget(
+                  project, bundle, bundle));
+          nativeTargetRule = Optional.of((AbstractAppleNativeTargetBuildRule) bundle.getBinary());
+        } else {
+          throw new HumanReadableException("Incorrect extension: " + bundle.getExtensionString());
+        }
+      } else {
+        throw new HumanReadableException("Test bundle should be a bundle: " + test.getTestBundle());
+      }
     } else {
       result = Optional.absent();
+      nativeTargetRule = Optional.absent();
     }
 
-    if (result.isPresent()) {
-      setTargetGIDIfNameInMap(result.get(), targetNameToGIDMap);
+    if (result.isPresent() &&
+        nativeTargetRule.isPresent()) {
+      Optional<String> gid = nativeTargetRule.get().getGid();
+      if (gid.isPresent()) {
+        // Remember the GID hard-coded in the target's BUCK file
+        // so we don't try to re-use it later.
+        nativeTargetGIDs.add(gid.get());
+      }
     }
 
     return result;
   }
 
-  private PBXNativeTarget generateIosLibraryTarget(
+  private PBXNativeTarget generateAppleBundleTarget(
       PBXProject project,
       BuildRule rule,
-      IosLibrary buildable)
+      AppleBundle bundle)
       throws IOException {
-    PBXNativeTarget target = new PBXNativeTarget(getXcodeTargetName(rule));
-    target.setProductType(PBXTarget.ProductType.IOS_LIBRARY);
-
-    PBXGroup targetGroup = project.getMainGroup().getOrCreateChildGroupByName(target.getName());
-
-    // -- configurations
-    setTargetBuildConfigurations(
-        rule.getBuildTarget(), target, targetGroup,
-        buildable.getConfigurations(), ImmutableMap.<String, String>of());
-
-    // -- build phases
-    // TODO(Task #3772930): Go through all dependencies of the rule
-    // and add any shell script rules here
-    addRunScriptBuildPhasesForDependencies(rule, target);
-    addSourcesAndHeadersBuildPhases(
-        target,
-        targetGroup,
-        buildable.getSrcs(),
-        buildable.getPerFileFlags());
-    addCoreDataModelBuildPhase(
-        targetGroup,
-        collectCoreDataModels(rule.getDeps()));
-
-    // -- products
-    PBXGroup productsGroup = project.getMainGroup().getOrCreateChildGroupByName("Products");
-    String libraryName = "lib" + getProductName(rule.getBuildTarget()) + ".a";
-    PBXFileReference productReference = new PBXFileReference(
-        libraryName, libraryName, PBXReference.SourceTree.BUILT_PRODUCTS_DIR);
-    productsGroup.getChildren().add(productReference);
-    target.setProductReference(productReference);
-
-    // -- header map
-    if (options.contains(Option.GENERATE_HEADER_MAPS_FOR_LIBRARY_TARGETS)) {
-      HeaderMap.Builder builder = HeaderMap.builder();
-      addGroupedSourcesToHeaderMap(
-          builder,
-          Paths.get(getProductName(rule.getBuildTarget())),
-          buildable.getSrcs(),
-          buildable.getPerFileFlags());
-      // Make .hmap files signable. The empty key is impossible: #include <> or "" does not parse.
-      builder.add(
-          "",
-          "",
-          "\n// @gen" + "erated SignedSource<<00000000000000000000000000000000>>\n");
-      HeaderMap headerMap = builder.build();
-      String headerMapName = getProductName(rule.getBuildTarget()) + "-public-headers.hmap";
-      Path headerMapFile = projectPath.resolve(headerMapName);
-      headerMaps.add(headerMapFile);
-      projectFilesystem.mkdirs(projectPath);
-      if (shouldGenerateReadOnlyFiles()) {
-        projectFilesystem.writeBytesToPath(
-            headerMap.getBytes(),
-            headerMapFile,
-            READ_ONLY_FILE_ATTRIBUTE);
-      } else {
-        projectFilesystem.writeBytesToPath(
-            headerMap.getBytes(),
-            headerMapFile);
-      }
+    Optional<Path> infoPlistPath;
+    if (bundle.getInfoPlist().isPresent()) {
+      infoPlistPath = Optional.of(bundle.getInfoPlist().get().resolve());
+    } else {
+      infoPlistPath = Optional.absent();
     }
 
-    project.getTargets().add(target);
-    return target;
-  }
-
-  private PBXNativeTarget generateIosTestTarget(
-      PBXProject project, BuildRule rule, IosTest buildable) throws IOException {
     PBXNativeTarget target = generateBinaryTarget(
         project,
         rule,
-        buildable,
-        testTypeToTargetProductType(buildable.getTestType()),
-        "%s." + buildable.getTestType().toFileExtension(),
-        IosResourceDescription.TYPE);
-    project.getTargets().add(target);
-    return target;
-  }
+        (AbstractAppleNativeTargetBuildRule) bundle.getBinary(),
+        bundleToTargetProductType(bundle),
+        "%s." + bundle.getExtensionString(),
+        infoPlistPath,
+        /* includeFrameworks */ true,
+        /* includeResources */ true);
 
-  private PBXNativeTarget generateIOSBinaryTarget(
-      PBXProject project, BuildRule rule, IosBinary buildable)
-      throws IOException {
-    PBXNativeTarget target = generateBinaryTarget(
-        project,
+    // -- copy any binary and bundle targets into this bundle
+    Iterable<BuildRule> copiedRules = AppleBuildRules.getRecursiveRuleDependenciesOfType(
+        AppleBuildRules.RecursiveRuleDependenciesMode.COPYING,
         rule,
-        buildable,
-        PBXTarget.ProductType.IOS_BINARY,
-        "%s.app",
-        IosResourceDescription.TYPE);
+        AppleLibraryDescription.TYPE,
+        AppleBinaryDescription.TYPE,
+        AppleBundleDescription.TYPE);
+    generateCopyFilesBuildPhases(project, target, copiedRules);
 
     addPostBuildScriptPhasesForDependencies(rule, target);
 
     project.getTargets().add(target);
+    LOG.debug("Generated iOS bundle target %s", target);
     return target;
   }
 
-  private PBXNativeTarget generateMacosxFrameworkTarget(
+  private PBXNativeTarget generateAppleBinaryTarget(
       PBXProject project,
       BuildRule rule,
-      MacosxFramework buildable)
+      AppleBinary buildable)
       throws IOException {
     PBXNativeTarget target = generateBinaryTarget(
         project,
         rule,
         buildable,
-        PBXTarget.ProductType.MACOSX_FRAMEWORK,
-        "%s.framework",
-        OsxResourceDescription.TYPE);
+        PBXTarget.ProductType.TOOL,
+        "%s",
+        Optional.<Path>absent(),
+        /* includeFrameworks */ true,
+        /* includeResources */ false);
     project.getTargets().add(target);
+    LOG.debug("Generated Apple binary target %s", target);
     return target;
+  }
+
+  private PBXNativeTarget generateAppleLibraryTarget(
+      PBXProject project,
+      BuildRule rule,
+      AppleLibrary buildable)
+      throws IOException {
+    PBXTarget.ProductType productType = buildable.getLinkedDynamically() ?
+        PBXTarget.ProductType.DYNAMIC_LIBRARY : PBXTarget.ProductType.STATIC_LIBRARY;
+    PBXNativeTarget target = generateBinaryTarget(
+        project,
+        rule,
+        buildable,
+        productType,
+        AppleLibrary.getOutputFileNameFormat(buildable.getLinkedDynamically()),
+        Optional.<Path>absent(),
+        /* includeFrameworks */ buildable.getLinkedDynamically(),
+        /* includeResources */ false);
+    project.getTargets().add(target);
+    LOG.debug("Generated iOS library target %s", target);
+    return target;
+  }
+
+  private void writeHeaderMap(HeaderMap headerMap, BuildTarget target, String suffix)
+      throws IOException {
+    if (headerMap.getNumEntries() == 0) {
+      return;
+    }
+    Path headerMapFile = getHeaderMapPathForTarget(target, suffix);
+    headerMaps.add(headerMapFile);
+    projectFilesystem.mkdirs(headerMapFile.getParent());
+    if (shouldGenerateReadOnlyFiles()) {
+      projectFilesystem.writeBytesToPath(
+          headerMap.getBytes(),
+          headerMapFile,
+          READ_ONLY_FILE_ATTRIBUTE);
+    } else {
+      projectFilesystem.writeBytesToPath(
+          headerMap.getBytes(),
+          headerMapFile);
+    }
+  }
+
+  private void setNativeTargetGid(
+      PBXNativeTarget target,
+      AbstractAppleNativeTargetBuildRule buildable) {
+    Optional<String> buildableGid = buildable.getGid();
+    if (buildableGid.isPresent()) {
+      target.setGlobalID(buildableGid.get());
+    }
   }
 
   private PBXNativeTarget generateBinaryTarget(
       PBXProject project,
       BuildRule rule,
-        AbstractAppleNativeTargetBuildRule buildable,
+      AbstractAppleNativeTargetBuildRule buildable,
       PBXTarget.ProductType productType,
       String productOutputFormat,
-      BuildRuleType resourceRuleType)
+      Optional<Path> infoPlistOptional,
+      boolean includeFrameworks,
+      boolean includeResources)
       throws IOException {
     PBXNativeTarget target = new PBXNativeTarget(getXcodeTargetName(rule));
     target.setProductType(productType);
+    setNativeTargetGid(target, buildable);
 
     PBXGroup targetGroup = project.getMainGroup().getOrCreateChildGroupByName(target.getName());
 
     // -- configurations
     ImmutableMap.Builder<String, String> extraSettingsBuilder = ImmutableMap.builder();
-    Optional<Path> infoPlistOptional = buildable.getInfoPlist();
     if (infoPlistOptional.isPresent()) {
       Path infoPlistPath = repoRootRelativeToOutputDirectory.resolve(infoPlistOptional.get());
       extraSettingsBuilder.put("INFOPLIST_FILE", infoPlistPath.toString());
     }
+    if (buildable.getUseBuckHeaderMaps()) {
+      extraSettingsBuilder.put("USE_HEADERMAP", "NO");
+    }
+    ImmutableMap.Builder<String, String> defaultSettingsBuilder = ImmutableMap.builder();
+    defaultSettingsBuilder.put("PUBLIC_HEADERS_FOLDER_PATH",
+        getHeaderOutputPathForRule(buildable.getHeaderPathPrefix()));
+    if (rule.getType().equals(AppleLibraryDescription.TYPE)) {
+      defaultSettingsBuilder.put("CONFIGURATION_BUILD_DIR", getObjectOutputPathForRule(rule));
+    }
     setTargetBuildConfigurations(
-        rule.getBuildTarget(),
+        rule,
         target,
         targetGroup,
         buildable.getConfigurations(),
-        extraSettingsBuilder.build());
+        extraSettingsBuilder.build(),
+        defaultSettingsBuilder.build(),
+        ImmutableMap.<String, String>of());
 
     // -- phases
     // TODO(Task #3772930): Go through all dependencies of the rule
     // and add any shell script rules here
     addRunScriptBuildPhasesForDependencies(rule, target);
-    addSourcesAndHeadersBuildPhases(
-        target,
-        targetGroup,
-        buildable.getSrcs(),
-        buildable.getPerFileFlags());
-    ImmutableSet.Builder<String> frameworksBuilder = ImmutableSet.builder();
-    frameworksBuilder.addAll(buildable.getFrameworks());
-    collectRecursiveFrameworkDependencies(rule, frameworksBuilder);
-    addFrameworksBuildPhase(
+    if (rule != buildable) {
+      addRunScriptBuildPhasesForDependencies(buildable, target);
+    }
+    addBuildPhasesGroupsAndHeaderMapsForSourcesAndHeaders(
         rule.getBuildTarget(),
         target,
-        project.getMainGroup().getOrCreateChildGroupByName("Frameworks"),
-        frameworksBuilder.build(),
-        collectRecursiveLibraryDependencies(rule));
-    addResourcesBuildPhase(
-        target,
         targetGroup,
-        collectRecursiveResources(rule, resourceRuleType));
-    addAssetCatalogBuildPhase(target, targetGroup, collectRecursiveAssetCatalogs(rule));
+        buildable.getHeaderPathPrefix(),
+        buildable.getUseBuckHeaderMaps(),
+        buildable.getSrcs(),
+        buildable.getPerFileFlags());
+    if (includeFrameworks) {
+      ImmutableSet.Builder<String> frameworksBuilder = ImmutableSet.builder();
+      frameworksBuilder.addAll(buildable.getFrameworks());
+      collectRecursiveFrameworkDependencies(rule, frameworksBuilder);
+      addFrameworksBuildPhase(
+          rule.getBuildTarget(),
+          target,
+          project.getMainGroup().getOrCreateChildGroupByName("Frameworks"),
+          frameworksBuilder.build(),
+          collectRecursiveLibraryDependencies(rule));
+    }
+    if (includeResources) {
+      addResourcesBuildPhase(
+          target,
+          targetGroup,
+          collectRecursiveResources(rule, AppleResourceDescription.TYPE));
+      addAssetCatalogBuildPhase(target, targetGroup, collectRecursiveAssetCatalogs(rule));
+    }
     addCoreDataModelBuildPhase(
         targetGroup,
         collectCoreDataModels(rule.getDeps()));
@@ -557,39 +620,12 @@ public class ProjectGenerator {
     // -- products
     PBXGroup productsGroup = project.getMainGroup().getOrCreateChildGroupByName("Products");
     String productName = getProductName(rule.getBuildTarget());
-    String productOutputName = String.format(productOutputFormat, productName);
-    PBXFileReference productReference = new PBXFileReference(
-        productOutputName, productOutputName, PBXReference.SourceTree.BUILT_PRODUCTS_DIR);
-    productsGroup.getChildren().add(productReference);
+    String outputName = String.format(productOutputFormat, productName);
+    PBXFileReference productReference = productsGroup.getOrCreateFileReferenceBySourceTreePath(
+        new SourceTreePath(PBXReference.SourceTree.BUILT_PRODUCTS_DIR, Paths.get(outputName)));
     target.setProductName(productName);
     target.setProductReference(productReference);
 
-    return target;
-  }
-
-  private PBXNativeTarget generateMacosxBinaryTarget(
-      PBXProject project, BuildRule rule, MacosxBinary buildable)
-      throws IOException {
-    PBXNativeTarget target = generateBinaryTarget(
-        project,
-        rule,
-        buildable,
-        PBXTarget.ProductType.MACOSX_BINARY,
-        "%s.app",
-        OsxResourceDescription.TYPE);
-
-    // Unlike an ios target, macosx targets collect their frameworks and copy them in.
-    ImmutableSet.Builder<String> frameworksBuilder = ImmutableSet.builder();
-    frameworksBuilder.addAll(buildable.getFrameworks());
-    collectRecursiveFrameworkDependencies(rule, frameworksBuilder);
-
-    addCopyFrameworksBuildPhase(
-        rule.getBuildTarget(),
-        target,
-        project.getMainGroup().getOrCreateChildGroupByName("Frameworks"),
-        frameworksBuilder.build());
-
-    project.getTargets().add(target);
     return target;
   }
 
@@ -601,19 +637,48 @@ public class ProjectGenerator {
    * effectively laid out in layers.
    */
   private void setTargetBuildConfigurations(
-      BuildTarget buildTarget,
+      BuildRule buildRule,
       PBXTarget target,
       PBXGroup targetGroup,
       ImmutableSet<XcodeRuleConfiguration> configurations,
-      ImmutableMap<String, String> extraBuildSettings)
+      ImmutableMap<String, String> overrideBuildSettings,
+      ImmutableMap<String, String> defaultBuildSettings,
+      ImmutableMap<String, String> appendBuildSettings)
       throws IOException {
+    BuildTarget buildTarget = buildRule.getBuildTarget();
 
-    ImmutableMap.Builder<String, String> extraConfigsBuilder = ImmutableMap.builder();
+    ImmutableMap.Builder<String, String> overrideConfigsBuilder = ImmutableMap.builder();
 
-    extraConfigsBuilder
-        .putAll(extraBuildSettings)
+    overrideConfigsBuilder
+        .putAll(overrideBuildSettings)
         .put("TARGET_NAME", getProductName(buildTarget))
         .put("SRCROOT", relativizeBuckRelativePathToGeneratedProject(buildTarget, "").toString());
+
+    ImmutableMap.Builder<String, String> defaultConfigsBuilder = ImmutableMap.builder();
+
+    defaultConfigsBuilder
+        .putAll(defaultBuildSettings)
+        .put("PRODUCT_NAME", getProductName(buildTarget));
+
+    ImmutableMap.Builder<String, String> appendConfigsBuilder = ImmutableMap.builder();
+
+    appendConfigsBuilder
+        .putAll(
+            appendBuildSettings)
+        .put(
+            "HEADER_SEARCH_PATHS",
+            Joiner.on(' ').join(Iterators.concat(
+                collectRecursiveHeaderSearchPaths(buildRule).iterator(),
+                collectRecursiveHeaderMaps(buildRule).iterator())))
+        .put(
+            "USER_HEADER_SEARCH_PATHS",
+            Joiner.on(' ').join(collectUserHeaderMaps(buildRule)))
+        .put(
+            "LIBRARY_SEARCH_PATHS",
+            Joiner.on(' ').join(collectRecursiveLibrarySearchPaths(buildRule)))
+        .put(
+            "FRAMEWORK_SEARCH_PATHS",
+            Joiner.on(' ').join(collectRecursiveFrameworkSearchPaths(buildRule)));
 
     // HACK: GCC_PREFIX_HEADER needs to be modified because the path is referenced relative to
     // project root, so if the project is generated in a different place from the BUCK file, it
@@ -626,10 +691,12 @@ public class ProjectGenerator {
     // In the long run, setting should be written relative to SRCROOT everywhere, and this entire
     // hack can be deleted.
     if (!options.contains(Option.REFERENCE_EXISTING_XCCONFIGS)) {
-      extraConfigsBuilder.put("GCC_PREFIX_HEADER", "$(SRCROOT)/$(inherited)");
+      overrideConfigsBuilder.put("GCC_PREFIX_HEADER", "$(SRCROOT)/$(inherited)");
     }
 
-    ImmutableMap<String, String> extraConfigs = extraConfigsBuilder.build();
+    ImmutableMap<String, String> overrideConfigs = overrideConfigsBuilder.build();
+    ImmutableMap<String, String> defaultConfigs = defaultConfigsBuilder.build();
+    ImmutableMap<String, String> appendConfigs = appendConfigsBuilder.build();
 
     PBXGroup configurationsGroup = targetGroup.getOrCreateChildGroupByName("Configurations");
 
@@ -642,6 +709,28 @@ public class ProjectGenerator {
             target.getBuildConfigurationList().getBuildConfigurationsByName()
                 .getUnchecked(configuration.getName());
         if (layers.targetLevelConfigFile.isPresent()) {
+          {
+            Map<String, String> mutableOverrideConfigs = new HashMap<>(overrideConfigs);
+            for (Map.Entry<String, String> entry: defaultConfigs.entrySet()) {
+              String existingSetting = layers.targetLevelInlineSettings.get(entry.getKey());
+              if (existingSetting == null) {
+                mutableOverrideConfigs.put(entry.getKey(), entry.getValue());
+              }
+            }
+
+            for (Map.Entry<String, String> entry : appendConfigs.entrySet()) {
+              String existingSetting = layers.targetLevelInlineSettings.get(entry.getKey());
+              String settingPrefix;
+              if (existingSetting != null) {
+                settingPrefix = existingSetting + ' ';
+              } else {
+                settingPrefix = "$(inherited) ";
+              }
+              mutableOverrideConfigs.put(entry.getKey(), settingPrefix + entry.getValue());
+            }
+            overrideConfigs = ImmutableMap.copyOf(mutableOverrideConfigs);
+          }
+
           PBXFileReference fileReference =
               configurationsGroup.getOrCreateFileReferenceBySourceTreePath(
                   new SourceTreePath(
@@ -653,13 +742,21 @@ public class ProjectGenerator {
           NSDictionary inlineSettings = new NSDictionary();
           Iterable<Map.Entry<String, String>> entries = Iterables.concat(
               layers.targetLevelInlineSettings.entrySet(),
-              extraConfigs.entrySet());
+              overrideConfigs.entrySet());
           for (Map.Entry<String, String> entry : entries) {
             inlineSettings.put(entry.getKey(), entry.getValue());
           }
           outputConfiguration.setBuildSettings(inlineSettings);
         }
       } else {
+        // Add search paths for dependencies
+        Map<String, String> mutableExtraConfigs = new HashMap<>(overrideConfigs);
+        for (Map.Entry<String, String> entry : appendBuildSettings.entrySet()) {
+          String setting = "$(inherited) " + entry.getValue();
+          mutableExtraConfigs.put(entry.getKey(), setting);
+        }
+        overrideConfigs = ImmutableMap.copyOf(mutableExtraConfigs);
+
         Path outputConfigurationDirectory = outputDirectory.resolve("Configurations");
         projectFilesystem.mkdirs(outputConfigurationDirectory);
 
@@ -678,16 +775,21 @@ public class ProjectGenerator {
         Path configurationFilePath = outputConfigurationDirectory.resolve(
             mangledBuildTargetName(buildTarget) + "-" + configuration.getName() + ".xcconfig");
         String serializedConfiguration = serializeBuildConfiguration(
-            configuration, searchPaths, extraConfigs);
-        if (shouldGenerateReadOnlyFiles()) {
-          projectFilesystem.writeContentsToPath(
-              serializedConfiguration,
-              configurationFilePath,
-              READ_ONLY_FILE_ATTRIBUTE);
-        } else {
-          projectFilesystem.writeContentsToPath(
-              serializedConfiguration,
-              configurationFilePath);
+            configuration, searchPaths, overrideConfigs);
+        if (MorePaths.fileContentsDiffer(
+            new ByteArrayInputStream(serializedConfiguration.getBytes(Charsets.UTF_8)),
+            configurationFilePath,
+            projectFilesystem)) {
+          if (shouldGenerateReadOnlyFiles()) {
+            projectFilesystem.writeContentsToPath(
+                serializedConfiguration,
+                configurationFilePath,
+                READ_ONLY_FILE_ATTRIBUTE);
+          } else {
+            projectFilesystem.writeContentsToPath(
+                serializedConfiguration,
+                configurationFilePath);
+          }
         }
 
         PBXFileReference fileReference =
@@ -744,13 +846,14 @@ public class ProjectGenerator {
 
   private void addPostBuildScriptPhasesForDependencies(BuildRule rule, PBXNativeTarget target) {
     addRunScriptBuildPhasesForDependenciesWithType(
-      rule,
-      target,
-      IosPostprocessResourcesDescription.TYPE);
+        rule,
+        target,
+        IosPostprocessResourcesDescription.TYPE);
   }
 
   /**
    * Add sources and headers build phases to a target, and add references to the target's group.
+   * Create header map files and write them to disk.
    *
    * @param target      Target to add the build phases to.
    * @param targetGroup Group to link the source files to.
@@ -758,11 +861,14 @@ public class ProjectGenerator {
    *        phase, path relative to project root.
    * @param sourceFlags    Source path to flag mapping.
    */
-  private void addSourcesAndHeadersBuildPhases(
+  private void addBuildPhasesGroupsAndHeaderMapsForSourcesAndHeaders(
+      BuildTarget buildTarget,
       PBXNativeTarget target,
       PBXGroup targetGroup,
+      Optional<String> headerPathPrefix,
+      boolean useBuckHeaderMaps,
       Iterable<GroupedSource> groupedSources,
-      ImmutableMap<SourcePath, String> sourceFlags) {
+      ImmutableMap<SourcePath, String> sourceFlags) throws IOException {
     PBXGroup sourcesGroup = targetGroup.getOrCreateChildGroupByName("Sources");
     // Sources groups stay in the order in which they're declared in the BUCK file.
     sourcesGroup.setSortPolicy(PBXGroup.SortPolicy.UNSORTED);
@@ -772,7 +878,10 @@ public class ProjectGenerator {
     addGroupedSourcesToBuildPhases(
         sourcesGroup,
         sourcesBuildPhase,
-        Optional.of(headersBuildPhase),
+        // We still want to create groups for header files even if header build phases
+        // are replaced with header maps.
+        (useBuckHeaderMaps ? Optional.<PBXHeadersBuildPhase>absent()
+            : Optional.of(headersBuildPhase)),
         groupedSources,
         sourceFlags);
 
@@ -782,10 +891,30 @@ public class ProjectGenerator {
     if (!headersBuildPhase.getFiles().isEmpty()) {
       target.getBuildPhases().add(headersBuildPhase);
     }
+
+    // -- header maps
+    if (useBuckHeaderMaps) {
+      HeaderMap.Builder publicMapBuilder = HeaderMap.builder();
+      HeaderMap.Builder targetMapBuilder = HeaderMap.builder();
+      HeaderMap.Builder targetUserMapBuilder = HeaderMap.builder();
+      addGroupedSourcesToHeaderMaps(
+          publicMapBuilder,
+          targetMapBuilder,
+          targetUserMapBuilder,
+          Paths.get(headerPathPrefix.or(getProductName(buildTarget))),
+          groupedSources,
+          sourceFlags);
+      writeHeaderMap(publicMapBuilder.build(), buildTarget, PUBLIC_HEADER_MAP_SUFFIX);
+      writeHeaderMap(targetMapBuilder.build(), buildTarget, TARGET_HEADER_MAP_SUFFIX);
+      writeHeaderMap(targetUserMapBuilder.build(), buildTarget, TARGET_USER_HEADER_MAP_SUFFIX);
+    }
+
   }
 
-  private void addGroupedSourcesToHeaderMap(
-      HeaderMap.Builder headerMap,
+  private void addGroupedSourcesToHeaderMaps(
+      HeaderMap.Builder publicHeaderMap,
+      HeaderMap.Builder targetHeaderMap,
+      HeaderMap.Builder targetUserHeaderMap,
       Path prefix,
       Iterable<GroupedSource> groupedSources,
       ImmutableMap<SourcePath, String> sourceFlags) {
@@ -795,16 +924,20 @@ public class ProjectGenerator {
           if (SourcePaths.isSourcePathExtensionInSet(
                   groupedSource.getSourcePath(),
                   FileExtensions.CLANG_HEADERS)) {
-            addSourcePathToHeaderMap(
+            addSourcePathToHeaderMaps(
                 groupedSource.getSourcePath(),
                 prefix,
-                headerMap,
+                publicHeaderMap,
+                targetHeaderMap,
+                targetUserHeaderMap,
                 sourceFlags);
           }
           break;
         case SOURCE_GROUP:
-          addGroupedSourcesToHeaderMap(
-              headerMap,
+          addGroupedSourcesToHeaderMaps(
+              publicHeaderMap,
+              targetHeaderMap,
+              targetUserHeaderMap,
               prefix,
               groupedSource.getSourceGroup(),
               sourceFlags);
@@ -827,13 +960,11 @@ public class ProjectGenerator {
           if (SourcePaths.isSourcePathExtensionInSet(
                   groupedSource.getSourcePath(),
                   FileExtensions.CLANG_HEADERS)) {
-            if (headersBuildPhase.isPresent()) {
               addSourcePathToHeadersBuildPhase(
                   groupedSource.getSourcePath(),
                   sourcesGroup,
-                  headersBuildPhase.get(),
+                  headersBuildPhase,
                   sourceFlags);
-            }
           } else {
             addSourcePathToSourcesBuildPhase(
                 groupedSource.getSourcePath(),
@@ -878,34 +1009,74 @@ public class ProjectGenerator {
       settings.put("COMPILER_FLAGS", customFlags);
       buildFile.setSettings(Optional.of(settings));
     }
+    LOG.verbose(
+        "Added source path %s to group %s, flags %s, PBXFileReference %s",
+        sourcePath,
+        sourcesGroup.getName(),
+        customFlags,
+        fileReference);
   }
 
-  private void addSourcePathToHeaderMap(
+  private void addHeaderMapEntry(
+      HeaderMap.Builder builder,
+      String builderName,
+      String key,
+      Path value) {
+    builder.add(key, value);
+    LOG.verbose(
+        "Adding %s mapping %s -> %s",
+        builderName,
+        key,
+        value);
+  }
+
+  private void addSourcePathToHeaderMaps(
       SourcePath headerPath,
       Path prefix,
-      HeaderMap.Builder headerMap,
+      HeaderMap.Builder publicHeaderMap,
+      HeaderMap.Builder targetHeaderMap,
+      HeaderMap.Builder targetUserHeaderMap,
       ImmutableMap<SourcePath, String> sourceFlags) {
+    HeaderVisibility visibility = HeaderVisibility.PROJECT;
     String headerFlags = sourceFlags.get(headerPath);
     if (headerFlags != null) {
-      HeaderVisibility visibility = HeaderVisibility.fromString(headerFlags);
-      if (visibility == HeaderVisibility.PUBLIC) {
-        // Add an entry: LibraryName/File.h -> Path/From/RepoRoot/File.h
-        Path keyPath = prefix.resolve(headerPath.resolve().getFileName());
-        headerMap.add(keyPath.toString(), headerPath.resolve());
-      }
+      visibility = HeaderVisibility.fromString(headerFlags);
+    }
+    String fileName = headerPath.resolve().getFileName().toString();
+    String prefixedFileName = prefix.resolve(fileName).toString();
+    Path value =
+        projectFilesystem.getPathForRelativePath(headerPath.resolve())
+            .toAbsolutePath().normalize();
+
+    // Add an entry Prefix/File.h -> AbsolutePathTo/File.h
+    // to targetHeaderMap and possibly publicHeaderMap
+    addHeaderMapEntry(targetHeaderMap, "target", prefixedFileName, value);
+    if (visibility == HeaderVisibility.PUBLIC) {
+      addHeaderMapEntry(publicHeaderMap, "public", prefixedFileName, value);
+    }
+
+    // Add an entry File.h -> AbsolutePathTo/File.h
+    // to targetUserHeaderMap
+    addHeaderMapEntry(targetUserHeaderMap, "target-user", fileName, value);
+    if (visibility == HeaderVisibility.PRIVATE) {
+      throw new HumanReadableException(
+          "Xcode's so-called 'private' headers have been deprecated in the new header map mode. " +
+          "Please declare '" + fileName + "' as public, " +
+          "or use the default visibility (i.e. by target) instead.");
     }
   }
 
   private void addSourcePathToHeadersBuildPhase(
       SourcePath headerPath,
       PBXGroup headersGroup,
-      PBXHeadersBuildPhase headersBuildPhase,
+      Optional<PBXHeadersBuildPhase> headersBuildPhase,
       ImmutableMap<SourcePath, String> sourceFlags) {
     Path path = headerPath.resolve();
+    Path repoRootRelativePath = repoRootRelativeToOutputDirectory.resolve(path);
     PBXFileReference fileReference = headersGroup.getOrCreateFileReferenceBySourceTreePath(
         new SourceTreePath(
             PBXReference.SourceTree.SOURCE_ROOT,
-            repoRootRelativeToOutputDirectory.resolve(path)));
+            repoRootRelativePath));
     PBXBuildFile buildFile = new PBXBuildFile(fileReference);
     String headerFlags = sourceFlags.get(headerPath);
     if (headerFlags != null) {
@@ -918,7 +1089,22 @@ public class ProjectGenerator {
     } else {
       buildFile.setSettings(Optional.<NSDictionary>absent());
     }
-    headersBuildPhase.getFiles().add(buildFile);
+    if (headersBuildPhase.isPresent()) {
+      headersBuildPhase.get().getFiles().add(buildFile);
+      LOG.verbose(
+          "Added header path %s to headers group %s, flags %s, PBXFileReference %s",
+          headerPath,
+          headersGroup.getName(),
+          headerFlags,
+          fileReference);
+    } else {
+      LOG.verbose(
+          "Skipped header path %s to headers group %s, flags %s, PBXFileReference %s",
+          headerPath,
+          headersGroup.getName(),
+          headerFlags,
+          fileReference);
+    }
   }
 
   private void addResourcesBuildPhase(
@@ -963,11 +1149,13 @@ public class ProjectGenerator {
         }
       }
     }
+    LOG.debug("Added resources build phase %s", phase);
   }
 
   private void addAssetCatalogBuildPhase(
       PBXNativeTarget target, PBXGroup targetGroup,
       final Iterable<AppleAssetCatalog> assetCatalogs) {
+
     // Asset catalogs go in the resources group also.
     PBXGroup resourcesGroup = targetGroup.getOrCreateChildGroupByName("Resources");
 
@@ -987,7 +1175,10 @@ public class ProjectGenerator {
                 PBXReference.SourceTree.SOURCE_ROOT,
                 repoRootRelativeToOutputDirectory.resolve(dir)));
 
-        Path pathRelativeToProjectRoot = outputDirectory.relativize(dir);
+        Path pathRelativeToProjectRoot = MorePaths.relativize(outputDirectory, dir);
+        LOG.debug(
+            "Resolved asset catalog path %s, output directory %s, result %s",
+            dir, outputDirectory, pathRelativeToProjectRoot);
         scriptArguments.add("$PROJECT_DIR/" + pathRelativeToProjectRoot.toString());
       }
 
@@ -1020,7 +1211,7 @@ public class ProjectGenerator {
       shouldPlaceAssetCatalogCompiler = true;
 
       assetCatalogBuildPhaseScriptRelativeToProjectRoot =
-          outputDirectory.relativize(placedAssetCatalogBuildPhaseScript);
+        MorePaths.relativize(outputDirectory, placedAssetCatalogBuildPhaseScript);
     }
 
     // Map asset catalog paths to their shell script arguments relative to the project's root
@@ -1043,6 +1234,7 @@ public class ProjectGenerator {
               combinedAssetCatalogsToBeSplitIntoBundlesScriptArguments);
     }
     phase.setShellScript(scriptBuilder.toString());
+    LOG.debug("Added asset catalog build phase %s", phase);
     target.getBuildPhases().add(phase);
   }
 
@@ -1128,6 +1320,77 @@ public class ProjectGenerator {
     }
   }
 
+  private Optional<PBXCopyFilesBuildPhase.Destination> getDestinationForRule(BuildRule rule) {
+    if (rule.getType().equals(AppleBundleDescription.TYPE)) {
+      AppleBundle bundle = (AppleBundle) rule;
+      AppleBundleExtension extension = bundle.getExtensionValue().or(AppleBundleExtension.BUNDLE);
+      switch (extension) {
+        case FRAMEWORK:
+          return Optional.of(PBXCopyFilesBuildPhase.Destination.FRAMEWORKS);
+        case APPEX:
+        case PLUGIN:
+          return Optional.of(PBXCopyFilesBuildPhase.Destination.PLUGINS);
+        case APP:
+          return Optional.of(PBXCopyFilesBuildPhase.Destination.EXECUTABLES);
+        default:
+          return Optional.of(PBXCopyFilesBuildPhase.Destination.PRODUCTS);
+      }
+    } else if (rule.getType().equals(AppleLibraryDescription.TYPE)) {
+      AppleLibrary library = (AppleLibrary) rule;
+      if (library.getLinkedDynamically()) {
+        return Optional.of(PBXCopyFilesBuildPhase.Destination.FRAMEWORKS);
+      } else {
+        return Optional.absent();
+      }
+    } else if (rule.getType().equals(AppleBinaryDescription.TYPE)) {
+      return Optional.of(PBXCopyFilesBuildPhase.Destination.EXECUTABLES);
+    } else {
+      throw new RuntimeException("Unexpected type: " + rule.getType());
+    }
+  }
+
+  private void generateCopyFilesBuildPhases(
+      PBXProject project,
+      PBXNativeTarget target,
+      Iterable<BuildRule> copiedRules) {
+    ImmutableMap.Builder<PBXCopyFilesBuildPhase.Destination, ImmutableSet.Builder<BuildRule>>
+        destinationRulesBuildersBuilder = ImmutableMap.builder();
+    for (PBXCopyFilesBuildPhase.Destination destination :
+        PBXCopyFilesBuildPhase.Destination.values()) {
+      destinationRulesBuildersBuilder.put(destination, ImmutableSet.<BuildRule>builder());
+    }
+
+    ImmutableMap<PBXCopyFilesBuildPhase.Destination, ImmutableSet.Builder<BuildRule>>
+        destinationRulesBuilders = destinationRulesBuildersBuilder.build();
+
+    for (BuildRule copiedRule : copiedRules) {
+      Optional<PBXCopyFilesBuildPhase.Destination> optionalDestination =
+          getDestinationForRule(copiedRule);
+
+      if (optionalDestination.isPresent()) {
+        PBXCopyFilesBuildPhase.Destination destination = optionalDestination.get();
+        ImmutableSet.Builder<BuildRule> rulesBuilder = destinationRulesBuilders.get(destination);
+        rulesBuilder.add(copiedRule);
+      }
+    }
+
+    for (PBXCopyFilesBuildPhase.Destination destination : destinationRulesBuilders.keySet()) {
+      ImmutableSet<BuildRule> rules = destinationRulesBuilders.get(destination).build();
+
+      ImmutableSet.Builder<SourceTreePath> copiedSourceTreePathsBuilder = ImmutableSet.builder();
+      for (BuildRule rule : rules) {
+        copiedSourceTreePathsBuilder.add(getProductsSourceTreePathForRule(rule));
+      }
+
+      addCopyFilesBuildPhase(
+          target,
+          project.getMainGroup().getOrCreateChildGroupByName("Dependencies"),
+          destination,
+          "",
+          copiedSourceTreePathsBuilder.build());
+    }
+  }
+
   private void addFrameworksBuildPhase(
       BuildTarget buildTarget,
       PBXNativeTarget target,
@@ -1181,93 +1444,58 @@ public class ProjectGenerator {
     }
   }
 
-  private void addCopyFrameworksBuildPhase(
-      BuildTarget buildTarget,
+  private void addCopyFilesBuildPhase(
       PBXNativeTarget target,
-      PBXGroup sharedFrameworksGroup,
-      Iterable<String> frameworks) {
-    PBXCopyFilesBuildPhase copyFrameworksBuildPhase =
-        new PBXCopyFilesBuildPhase(PBXCopyFilesBuildPhase.Destination.FRAMEWORKS, "");
-    target.getBuildPhases().add(copyFrameworksBuildPhase);
-
-    for (String framework : frameworks) {
-      Path path = Paths.get(framework);
-
-      String firstElement =
-        Preconditions.checkNotNull(Iterables.getFirst(path, Paths.get(""))).toString();
-
-      if (firstElement.charAt(0) == '$') {
-        Optional<PBXReference.SourceTree> sourceTree =
-            PBXReference.SourceTree.fromBuildSetting(firstElement);
-        if (sourceTree.isPresent() &&
-            (sourceTree.get() == PBXReference.SourceTree.BUILT_PRODUCTS_DIR ||
-            sourceTree.get() == PBXReference.SourceTree.ABSOLUTE)) {
-          Path sdkRootRelativePath = path.subpath(1, path.getNameCount());
-          PBXFileReference fileReference =
-              sharedFrameworksGroup.getOrCreateFileReferenceBySourceTreePath(
-                  new SourceTreePath(sourceTree.get(), sdkRootRelativePath));
-          copyFrameworksBuildPhase.getFiles().add(new PBXBuildFile(fileReference));
-        }
-      } else {
-        // regular path
-        PBXFileReference fileReference =
-            sharedFrameworksGroup.getOrCreateFileReferenceBySourceTreePath(
-                new SourceTreePath(
-                    PBXReference.SourceTree.GROUP,
-                    relativizeBuckRelativePathToGeneratedProject(buildTarget, path.toString())));
-        copyFrameworksBuildPhase.getFiles().add(new PBXBuildFile(fileReference));
+      PBXGroup sharedGroup,
+      PBXCopyFilesBuildPhase.Destination destination,
+      String destinationSubpath,
+      Iterable<SourceTreePath> files) {
+    PBXCopyFilesBuildPhase copyFilesBuildPhase = null;
+    for (SourceTreePath file : files) {
+      if (copyFilesBuildPhase == null) {
+        copyFilesBuildPhase =
+            new PBXCopyFilesBuildPhase(destination, destinationSubpath);
+        target.getBuildPhases().add(copyFilesBuildPhase);
       }
+      PBXFileReference fileReference = sharedGroup.getOrCreateFileReferenceBySourceTreePath(
+          file);
+      copyFilesBuildPhase.getFiles().add(new PBXBuildFile(fileReference));
     }
-  }
-
-  private void addGeneratedSignedSourceTarget(PBXProject project) {
-    PBXAggregateTarget target = new PBXAggregateTarget("GeneratedSignedSourceTarget");
-    // If we don't do this, Xcode "helpfully" generates a new configuration list
-    // with a new GID every time.
-    XCConfigurationList buildConfigurationList = new XCConfigurationList();
-    for (String projectConfigurationName :
-           project.getBuildConfigurationList().getBuildConfigurationsByName().asMap().keySet()) {
-      buildConfigurationList.getBuildConfigurationsByName().getUnchecked(projectConfigurationName);
-    }
-    target.setBuildConfigurationList(buildConfigurationList);
-    setTargetGIDIfNameInMap(target, targetNameToGIDMap);
-    PBXShellScriptBuildPhase generatedSignedSourceScriptPhase = new PBXShellScriptBuildPhase();
-    generatedSignedSourceScriptPhase.setShellScript(
-        "# Do not change or remove this. This is a generated script phase\n" +
-            "# used solely to include a signature in the generated Xcode project.\n" +
-            "# " + SourceSigner.SIGNED_SOURCE_PLACEHOLDER);
-    target.getBuildPhases().add(generatedSignedSourceScriptPhase);
-    project.getTargets().add(target);
   }
 
   /**
    * Create the project bundle structure and write {@code project.pbxproj}.
    */
   private Path writeProjectFile(PBXProject project) throws IOException {
-    Preconditions.checkNotNull(targetNameToGIDMap);
     XcodeprojSerializer serializer = new XcodeprojSerializer(
-        new GidGenerator(ImmutableSet.copyOf(targetNameToGIDMap.values())), project);
+        new GidGenerator(
+            ImmutableSet.<String>builder()
+                .addAll(nativeTargetGIDs)
+                .build()),
+        project);
     NSDictionary rootObject = serializer.toPlist();
     Path xcodeprojDir = outputDirectory.resolve(projectName + ".xcodeproj");
     projectFilesystem.mkdirs(xcodeprojDir);
     Path serializedProject = xcodeprojDir.resolve("project.pbxproj");
-    String unsignedXmlProject = rootObject.toXMLPropertyList();
-    Optional<String> signedXmlProject = SourceSigner.sign(unsignedXmlProject);
-    String contentsToWrite;
-    if (signedXmlProject.isPresent()) {
-      contentsToWrite = signedXmlProject.get();
+    String contentsToWrite = rootObject.toXMLPropertyList();
+    // Before we write any files, check if the file contents have changed.
+    if (MorePaths.fileContentsDiffer(
+            new ByteArrayInputStream(contentsToWrite.getBytes(Charsets.UTF_8)),
+            serializedProject,
+            projectFilesystem)) {
+      LOG.debug("Regenerating project at %s", serializedProject);
+      if (shouldGenerateReadOnlyFiles()) {
+        projectFilesystem.writeContentsToPath(
+            contentsToWrite,
+            serializedProject,
+            READ_ONLY_FILE_ATTRIBUTE);
+      } else {
+        projectFilesystem.writeContentsToPath(
+            contentsToWrite,
+            serializedProject);
+      }
     } else {
-      contentsToWrite = unsignedXmlProject;
-    }
-    if (shouldGenerateReadOnlyFiles()) {
-      projectFilesystem.writeContentsToPath(
-          contentsToWrite,
-          serializedProject,
-          READ_ONLY_FILE_ATTRIBUTE);
-    } else {
-      projectFilesystem.writeContentsToPath(
-          contentsToWrite,
-          serializedProject);
+      LOG.debug("Not regenerating project at %s (contents have not changed)", serializedProject);
     }
     return xcodeprojDir;
   }
@@ -1306,15 +1534,21 @@ public class ProjectGenerator {
       DOMSource source = new DOMSource(doc);
       StreamResult result = new StreamResult(outputStream);
       transformer.transform(source, result);
-      if (shouldGenerateReadOnlyFiles()) {
-        projectFilesystem.writeContentsToPath(
-            outputStream.toString(),
-            serializedWorkspace,
-            READ_ONLY_FILE_ATTRIBUTE);
-      } else {
-        projectFilesystem.writeContentsToPath(
-            outputStream.toString(),
-            serializedWorkspace);
+      String contentsToWrite = outputStream.toString();
+      if (MorePaths.fileContentsDiffer(
+          new ByteArrayInputStream(contentsToWrite.getBytes(Charsets.UTF_8)),
+          serializedWorkspace,
+          projectFilesystem)) {
+        if (shouldGenerateReadOnlyFiles()) {
+          projectFilesystem.writeContentsToPath(
+              contentsToWrite,
+              serializedWorkspace,
+              READ_ONLY_FILE_ATTRIBUTE);
+        } else {
+          projectFilesystem.writeContentsToPath(
+              contentsToWrite,
+              serializedWorkspace);
+        }
       }
     } catch (TransformerException e) {
       throw new RuntimeException(e);
@@ -1354,7 +1588,7 @@ public class ProjectGenerator {
     StringBuilder stringBuilder = new StringBuilder();
     stringBuilder.append(
         "// This configuration is autogenerated.\n" +
-        "// Re-run buck to update this file after modifying the hand-written configs.\n");
+            "// Re-run buck to update this file after modifying the hand-written configs.\n");
     for (String line : sortedConfigs) {
       stringBuilder.append(line);
       stringBuilder.append('\n');
@@ -1370,7 +1604,7 @@ public class ProjectGenerator {
   }
 
   private static String getProductName(BuildTarget buildTarget) {
-    return buildTarget.getShortName();
+    return buildTarget.getShortNameOnly();
   }
 
   /**
@@ -1383,25 +1617,194 @@ public class ProjectGenerator {
   private Path relativizeBuckRelativePathToGeneratedProject(BuildTarget buildTarget, String path) {
     Path originalProjectPath = projectFilesystem.getPathForRelativePath(
         Paths.get(buildTarget.getBasePathWithSlash()));
-    return repoRootRelativeToOutputDirectory.resolve(originalProjectPath).resolve(path);
+    return repoRootRelativeToOutputDirectory.resolve(originalProjectPath).resolve(path).normalize();
+  }
+
+  private String getHeaderOutputPathForRule(Optional<String> headerPathPrefix) {
+    // This is appended to $(CONFIGURATION_BUILD_DIR), so we need to get reference the parent
+    // directory to get $(SYMROOT)
+    return Joiner.on('/').join(
+        "..",
+        "Headers",
+        headerPathPrefix.or("$TARGET_NAME"));
+  }
+
+  private Path getHeaderMapPathForTarget(BuildTarget target, String suffix) {
+    Path targetPath = target.getBasePath();
+    String fileName = getProductName(target) + suffix;
+    return BuckConstant.BUCK_OUTPUT_PATH.resolve(targetPath).resolve(fileName);
+  }
+
+  private String getHeaderMapRelativePathForRule(BuildRule rule, String suffix) {
+    Path filePath = getHeaderMapPathForTarget(rule.getBuildTarget(), suffix);
+    return repoRootRelativeToOutputDirectory.resolve(filePath).toString();
+  }
+
+  private String getHeaderSearchPathForRule(BuildRule rule) {
+    if (rule.getType().equals(AppleLibraryDescription.TYPE)) {
+      return Joiner.on('/').join(
+          "$SYMROOT",
+          BaseEncoding
+              .base32()
+              .omitPadding()
+              .encode(rule.getFullyQualifiedName().getBytes()),
+          "Headers");
+    } else if (rule.getType().equals(XcodeNativeDescription.TYPE)) {
+      return "$BUILT_PRODUCTS_DIR/Headers";
+    } else {
+      throw new RuntimeException("Unexpected type: " + rule.getType());
+    }
+  }
+
+  private String getObjectOutputPathForRule(BuildRule rule) {
+    if (rule.getType().equals(AppleLibraryDescription.TYPE)) {
+      return Joiner.on('/').join(
+          "$SYMROOT",
+          BaseEncoding
+              .base32()
+              .omitPadding()
+              .encode(rule.getFullyQualifiedName().getBytes()),
+          // $EFFECTIVE_PLATFORM_NAME starts with a dash, so this expands to something like:
+          // Debug-iphonesimulator
+          "$CONFIGURATION$EFFECTIVE_PLATFORM_NAME");
+    } else if (rule.getType().equals(XcodeNativeDescription.TYPE)) {
+      return "$BUILT_PRODUCTS_DIR";
+    } else {
+      throw new RuntimeException("Unexpected type: " + rule.getType());
+    }
+  }
+
+  private static boolean hasBuckHeaderMaps(BuildRule rule) {
+    return (rule instanceof AbstractAppleNativeTargetBuildRule) &&
+        ((AbstractAppleNativeTargetBuildRule) rule).getUseBuckHeaderMaps();
+  }
+
+  private ImmutableSet<String> collectRecursiveHeaderSearchPaths(BuildRule rule) {
+    return FluentIterable
+        .from(
+            AppleBuildRules.getRecursiveRuleDependenciesOfType(
+                AppleBuildRules.RecursiveRuleDependenciesMode.BUILDING,
+                rule,
+                AppleLibraryDescription.TYPE,
+                XcodeNativeDescription.TYPE))
+        .filter(new Predicate<BuildRule>() {
+          @Override
+          public boolean apply(BuildRule input) {
+            return !hasBuckHeaderMaps(input);
+          }
+        })
+        .transform(
+            new Function<BuildRule, String>() {
+              @Override
+              public String apply(BuildRule input) {
+                return getHeaderSearchPathForRule(input);
+              }
+            })
+        .toSet();
+  }
+
+  private ImmutableSet<String> collectRecursiveHeaderMaps(BuildRule rule) {
+    ImmutableSet.Builder<String> builder = ImmutableSet.builder();
+
+    if (hasBuckHeaderMaps(rule)) {
+      builder.add(getHeaderMapRelativePathForRule(rule, TARGET_HEADER_MAP_SUFFIX));
+    }
+
+    for (BuildRule input :
+        AppleBuildRules.getRecursiveRuleDependenciesOfType(
+            AppleBuildRules.RecursiveRuleDependenciesMode.BUILDING,
+            rule,
+            AppleLibraryDescription.TYPE)) {
+      if (hasBuckHeaderMaps(input)) {
+        builder.add(getHeaderMapRelativePathForRule(input, PUBLIC_HEADER_MAP_SUFFIX));
+      }
+    }
+
+    return builder.build();
+  }
+
+  private ImmutableSet<String> collectUserHeaderMaps(BuildRule rule) {
+    if (hasBuckHeaderMaps(rule)) {
+      return ImmutableSet.of(getHeaderMapRelativePathForRule(rule,
+          TARGET_USER_HEADER_MAP_SUFFIX));
+    } else {
+      return ImmutableSet.of();
+    }
+  }
+
+  private ImmutableSet<String> collectRecursiveLibrarySearchPaths(BuildRule rule) {
+    return FluentIterable
+        .from(
+            AppleBuildRules.getRecursiveRuleDependenciesOfType(
+                AppleBuildRules.RecursiveRuleDependenciesMode.LINKING,
+                rule,
+                AppleLibraryDescription.TYPE,
+                XcodeNativeDescription.TYPE))
+        .transform(
+            new Function<BuildRule, String>() {
+              @Override
+              public String apply(BuildRule input) {
+                return getObjectOutputPathForRule(input);
+              }
+            })
+        .toSet();
+  }
+
+  private ImmutableSet<String> collectRecursiveFrameworkSearchPaths(BuildRule rule) {
+    return FluentIterable
+        .from(
+            AppleBuildRules.getRecursiveRuleDependenciesOfType(
+                AppleBuildRules.RecursiveRuleDependenciesMode.LINKING,
+                rule,
+                AppleLibraryDescription.TYPE,
+                XcodeNativeDescription.TYPE))
+        .transform(
+            new Function<BuildRule, String>() {
+              @Override
+              public String apply(BuildRule input) {
+                return getObjectOutputPathForRule(input);
+              }
+            })
+        .toSet();
   }
 
   private void collectRecursiveFrameworkDependencies(
       BuildRule rule,
       ImmutableSet.Builder<String> frameworksBuilder) {
     for (BuildRule ruleDependency :
-           getRecursiveRuleDependenciesOfType(rule, IosLibraryDescription.TYPE)) {
-      IosLibrary iosLibrary =
-          (IosLibrary) Preconditions.checkNotNull(ruleDependency);
-      frameworksBuilder.addAll(iosLibrary.getFrameworks());
+           AppleBuildRules.getRecursiveRuleDependenciesOfType(
+               AppleBuildRules.RecursiveRuleDependenciesMode.LINKING,
+               rule,
+               AppleLibraryDescription.TYPE)) {
+      // TODO(user): Add support to xcode_native rule for framework dependencies
+      AppleLibrary appleLibrary =
+          (AppleLibrary) Preconditions.checkNotNull(ruleDependency);
+      frameworksBuilder.addAll(appleLibrary.getFrameworks());
     }
   }
 
   private ImmutableSet<PBXFileReference> collectRecursiveLibraryDependencies(BuildRule rule) {
     return FluentIterable
-        .from(getRecursiveRuleDependenciesOfType(
+        .from(AppleBuildRules.getRecursiveRuleDependenciesOfType(
+            AppleBuildRules.RecursiveRuleDependenciesMode.LINKING,
             rule,
-            IosLibraryDescription.TYPE))
+            AppleLibraryDescription.TYPE,
+            AppleBundleDescription.TYPE,
+            XcodeNativeDescription.TYPE))
+        .filter(
+            new Predicate<BuildRule>() {
+              @Override
+              public boolean apply(BuildRule input) {
+                if (input.getType().equals(AppleBundleDescription.TYPE)) {
+                  AppleBundle bundle = (AppleBundle) input;
+                  Optional<AppleBundleExtension> extension = bundle.getExtensionValue();
+                  return extension.isPresent() && extension.get() == AppleBundleExtension.FRAMEWORK;
+                } else {
+                  return true;
+                }
+              }
+            }
+        )
         .transform(
             new Function<BuildRule, PBXFileReference>() {
               @Override
@@ -1411,19 +1814,49 @@ public class ProjectGenerator {
             }).toSet();
   }
 
+  private SourceTreePath getProductsSourceTreePathForRule(BuildRule rule) {
+    String productName = getProductName(rule.getBuildTarget());
+    String productOutputName;
+
+    if (rule.getType().equals(AppleLibraryDescription.TYPE)) {
+      AppleLibrary library = (AppleLibrary) rule;
+      String productOutputFormat =
+          AppleLibrary.getOutputFileNameFormat(library.getLinkedDynamically());
+      productOutputName = String.format(productOutputFormat, productName);
+    } else if (rule.getType().equals(AppleBundleDescription.TYPE)) {
+      AppleBundle bundle = (AppleBundle) rule;
+      productOutputName = productName + "." + bundle.getExtensionString();
+    } else if (rule.getType().equals(AppleBinaryDescription.TYPE)) {
+      productOutputName = productName;
+    } else {
+      throw new RuntimeException("Unexpected type: " + rule.getType());
+    }
+
+    return new SourceTreePath(
+        PBXReference.SourceTree.BUILT_PRODUCTS_DIR,
+        Paths.get(productOutputName));
+  }
+
   private PBXFileReference getLibraryFileReferenceForRule(BuildRule rule) {
-    if (rule.getType().equals(IosLibraryDescription.TYPE)) {
+    if (rule.getType().equals(AppleLibraryDescription.TYPE) ||
+        rule.getType().equals(AppleBundleDescription.TYPE)) {
       if (isBuiltByCurrentProject(rule)) {
         PBXNativeTarget target = (PBXNativeTarget) buildRuleToXcodeTarget.getUnchecked(rule).get();
         return target.getProductReference();
       } else {
+        SourceTreePath productsPath = getProductsSourceTreePathForRule(rule);
+        return project.getMainGroup()
+            .getOrCreateChildGroupByName("Frameworks")
+            .getOrCreateFileReferenceBySourceTreePath(productsPath);
+      }
+    } else if (rule.getType().equals(XcodeNativeDescription.TYPE)) {
+      XcodeNative nativeRule = (XcodeNative) rule;
         return project.getMainGroup()
             .getOrCreateChildGroupByName("Frameworks")
             .getOrCreateFileReferenceBySourceTreePath(
                 new SourceTreePath(
                     PBXReference.SourceTree.BUILT_PRODUCTS_DIR,
-                    Paths.get(getLibraryNameFromTargetName(rule.getBuildTarget().getShortName()))));
-      }
+                    Paths.get(nativeRule.getBuildableName())));
     } else {
       throw new RuntimeException("Unexpected type: " + rule.getType());
     }
@@ -1437,13 +1870,9 @@ public class ProjectGenerator {
         initialTargets.contains(rule.getBuildTarget());
   }
 
-  private static String getLibraryNameFromTargetName(String string) {
-    return "lib" + string + ".a";
-  }
-
   private String getXcodeTargetName(BuildRule rule) {
     return options.contains(Option.USE_SHORT_NAMES_FOR_TARGETS)
-        ? rule.getBuildTarget().getShortName()
+        ? rule.getBuildTarget().getShortNameOnly()
         : rule.getBuildTarget().getFullyQualifiedName();
   }
 
@@ -1461,7 +1890,10 @@ public class ProjectGenerator {
   private Iterable<AppleResource> collectRecursiveResources(
       BuildRule rule,
       BuildRuleType resourceRuleType) {
-    Iterable<BuildRule> resourceRules = getRecursiveRuleDependenciesOfType(rule, resourceRuleType);
+    Iterable<BuildRule> resourceRules = AppleBuildRules.getRecursiveRuleDependenciesOfType(
+        AppleBuildRules.RecursiveRuleDependenciesMode.COPYING,
+        rule,
+        resourceRuleType);
     ImmutableSet.Builder<AppleResource> resources = ImmutableSet.builder();
     for (BuildRule resourceRule : resourceRules) {
       AppleResource resource =
@@ -1475,7 +1907,8 @@ public class ProjectGenerator {
    * Collect asset catalogs from recursive dependencies.
    */
   private Iterable<AppleAssetCatalog> collectRecursiveAssetCatalogs(BuildRule rule) {
-    Iterable<BuildRule> assetCatalogRules = getRecursiveRuleDependenciesOfType(
+    Iterable<BuildRule> assetCatalogRules = AppleBuildRules.getRecursiveRuleDependenciesOfType(
+        AppleBuildRules.RecursiveRuleDependenciesMode.COPYING,
         rule,
         AppleAssetCatalogDescription.TYPE);
     ImmutableSet.Builder<AppleAssetCatalog> assetCatalogs = ImmutableSet.builder();
@@ -1500,94 +1933,43 @@ public class ProjectGenerator {
         });
   }
 
-  private Iterable<BuildRule> getRecursiveRuleDependenciesOfType(
-      final BuildRule rule, BuildRuleType... types) {
-    final ImmutableSet<BuildRuleType> requestedTypes = ImmutableSet.copyOf(types);
-    final ImmutableList.Builder<BuildRule> filteredRules = ImmutableList.builder();
-    AbstractAcyclicDepthFirstPostOrderTraversal<BuildRule> traversal =
-        new AbstractAcyclicDepthFirstPostOrderTraversal<BuildRule>() {
-          @Override
-          protected Iterator<BuildRule> findChildren(BuildRule node) throws IOException {
-            return node.getDeps().iterator();
+  private static PBXTarget.ProductType bundleToTargetProductType(AppleBundle bundle) {
+    BuildRule binary = bundle.getBinary();
+
+    if (bundle.getExtensionValue().isPresent()) {
+      AppleBundleExtension extension = bundle.getExtensionValue().get();
+
+      if (binary.getType().equals(AppleLibraryDescription.TYPE)) {
+        AppleLibrary library = (AppleLibrary) binary;
+
+        if (library.getLinkedDynamically()) {
+          switch (extension) {
+            case FRAMEWORK:
+              return PBXTarget.ProductType.FRAMEWORK;
+            case APPEX:
+              return PBXTarget.ProductType.APP_EXTENSION;
+            case BUNDLE:
+              return PBXTarget.ProductType.BUNDLE;
+            case OCTEST:
+              return PBXTarget.ProductType.BUNDLE;
+            case XCTEST:
+              return PBXTarget.ProductType.UNIT_TEST;
           }
-
-          @Override
-          protected void onNodeExplored(BuildRule node) {
-            if (node != rule && requestedTypes.contains(node.getType())) {
-              filteredRules.add(node);
-            }
+        } else {
+          switch (extension) {
+            case FRAMEWORK:
+              return PBXTarget.ProductType.STATIC_FRAMEWORK;
           }
-
-          @Override
-          protected void onTraversalComplete(Iterable<BuildRule> nodesInExplorationOrder) {
-          }
-        };
-    try {
-      traversal.traverse(ImmutableList.of(rule));
-    } catch (AbstractAcyclicDepthFirstPostOrderTraversal.CycleException | IOException e) {
-      // actual load failures and cycle exceptions should have been caught at an earlier stage
-      throw new RuntimeException(e);
-    }
-    return filteredRules.build();
-  }
-
-  /**
-   * Once we've generated the target, check if there's already a GID for a
-   * target with the same name in an existing on-disk Xcode project.
-   *
-   * If there is, then re-use that target's GID instead of generating
-   * a new one based on the target's name.
-   */
-  private static void setTargetGIDIfNameInMap(
-      PBXTarget target,
-      ImmutableMap<String, String> targetNameToGIDMap) {
-    @Nullable String existingTargetGID = targetNameToGIDMap.get(target.getName());
-    if (existingTargetGID == null) {
-      return;
-    }
-
-    if (target.getGlobalID() == null) {
-      target.setGlobalID(existingTargetGID);
-    } else {
-      // We better not have already generated some other GID for this
-      // target.
-      Preconditions.checkState(target.getGlobalID().equals(existingTargetGID));
-    }
-  }
-
-  /**
-   * Reads in an existing Xcode project at
-   * "projectPath/project.pbxproj" and returns a map of {target-name:
-   * GID} pairs.
-   *
-   * If no such project exists, returns an empty map.
-   */
-  @SuppressWarnings("PMD.EmptyCatchBlock")
-  private ImmutableMap<String, String> buildTargetNameToGIDMap() throws IOException {
-    ImmutableMap.Builder<String, String> targetNameToGIDMapBuilder = ImmutableMap.builder();
-    try {
-      InputStream projectInputStream =
-        projectFilesystem.newFileInputStream(projectPath.resolve(Paths.get("project.pbxproj")));
-      NSDictionary projectObjects = ProjectParser.extractObjectsFromXcodeProject(
-          projectInputStream);
-      ProjectParser.extractTargetNameToGIDMap(
-          projectObjects,
-          targetNameToGIDMapBuilder);
-    } catch (NoSuchFileException e) {
-      // We'll leave the builder empty in this case and return an empty map.
-    }
-    return targetNameToGIDMapBuilder.build();
-  }
-
-  private static PBXTarget.ProductType testTypeToTargetProductType(IosTestType testType) {
-      switch (testType) {
-        case OCTEST:
-          return PBXTarget.ProductType.IOS_TEST_OCTEST;
-        case XCTEST:
-          return PBXTarget.ProductType.IOS_TEST_XCTEST;
-        default:
-          throw new IllegalStateException("Invalid test type value: " + testType.toString());
+        }
+      } else if (binary.getType().equals(AppleBinaryDescription.TYPE)) {
+        switch (extension) {
+          case APP:
+            return PBXTarget.ProductType.APPLICATION;
+        }
       }
+    }
+
+    return PBXTarget.ProductType.BUNDLE;
   }
 
   /**

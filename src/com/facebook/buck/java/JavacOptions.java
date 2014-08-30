@@ -75,8 +75,8 @@ public class JavacOptions {
     Preconditions.checkNotNull(optionsBuilder);
 
     // Add some standard options.
-    optionsBuilder.add("-target", javacEnv.getSourceLevel());
-    optionsBuilder.add("-source", javacEnv.getTargetLevel());
+    optionsBuilder.add("-source", javacEnv.getSourceLevel());
+    optionsBuilder.add("-target", javacEnv.getTargetLevel());
 
     if (debug) {
       optionsBuilder.add("-g");
@@ -99,7 +99,7 @@ public class JavacOptions {
       // Specify where to generate sources so IntelliJ can pick them up.
       Path generateTo = annotationProcessingData.getGeneratedSourceFolderName();
       if (generateTo != null) {
-        optionsBuilder.add("-s").add(generateTo.toString());
+        optionsBuilder.add("-s").add(pathRelativizer.apply(generateTo).toString());
       }
 
       // Create a path relativizer that relativizes all processor paths, except for
@@ -171,7 +171,7 @@ public class JavacOptions {
     builder.setAnnotationProcessingData(options.annotationProcessingData);
     builder.setBootclasspath(options.bootclasspath.orNull());
 
-    builder.setJavaCompilerEnviornment(options.getJavaCompilerEnvironment());
+    builder.setJavaCompilerEnvironment(options.getJavaCompilerEnvironment());
 
     return builder;
   }
@@ -206,7 +206,7 @@ public class JavacOptions {
       return this;
     }
 
-    public Builder setJavaCompilerEnviornment(JavaCompilerEnvironment javacEnv) {
+    public Builder setJavaCompilerEnvironment(JavaCompilerEnvironment javacEnv) {
       this.javacEnv = javacEnv;
       return this;
     }
