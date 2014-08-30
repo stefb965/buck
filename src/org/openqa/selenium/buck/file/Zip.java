@@ -1,5 +1,8 @@
 package org.openqa.selenium.buck.file;
 
+import static com.facebook.buck.step.fs.CopyStep.DirectoryMode.DIRECTORY_AND_CONTENTS;
+
+import com.facebook.buck.java.JavacStep;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildContext;
@@ -12,6 +15,8 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
+import com.facebook.buck.step.fs.RmStep;
+import com.facebook.buck.zip.UnzipStep;
 import com.facebook.buck.zip.ZipStep;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
@@ -30,11 +35,11 @@ public class Zip extends AbstractBuildRule {
   private final Path localPath;
   private final Path scratchDir;
 
-  public Zip(BuildRuleParams params, ImmutableSortedSet<SourcePath> sources) {
+  public Zip(BuildRuleParams params, String outputName, ImmutableSortedSet<SourcePath> sources) {
     super(params);
     this.sources = Preconditions.checkNotNull(sources);
 
-    this.output = BuildTargets.getGenPath(getBuildTarget(), "%s.zip");
+    this.output = BuildTargets.getGenPath(getBuildTarget(), outputName);
     this.scratchDir = BuildTargets.getBinPath(getBuildTarget(), "%s.zip.scratch");
     this.localPath = getBuildTarget().getBasePath();
   }
@@ -48,32 +53,47 @@ public class Zip extends AbstractBuildRule {
   public ImmutableList<Step> getBuildSteps(
       BuildContext context,
       BuildableContext buildableContext) {
-    ImmutableList.Builder<Step> commands = ImmutableList.builder();
+    ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
-    commands.add(new MakeCleanDirectoryStep(output.getParent()));
-    commands.add(new MakeCleanDirectoryStep(scratchDir));
+    steps.add(new RmStep(output, true));
+    steps.add(new MakeCleanDirectoryStep(scratchDir));
 
     Set<Path> createdDir = Sets.newHashSet();
+    Path basePath = getBuildTarget().getBasePath();
     for (SourcePath source : sources) {
       Path path = source.resolve();
 
-      Path localName = localPath.relativize(path);
+      // Handle a source zip.
+      if (path.toString().endsWith(JavacStep.SRC_ZIP)) {
+        steps.add(new UnzipStep(path, scratchDir));
+        continue;
+      }
 
-      Path destination = scratchDir.resolve(localName);
+      Path destination;
+      if (path.startsWith(basePath)) {
+        // If we're dealing with a file beneath where this rule is executing, copy it based on its
+        // relative path.
+        destination = scratchDir.resolve(path.relativize(basePath));
+      } else {
+        // We're dealing with something else entirely. Copy directly into the scratch dir.
+        destination = scratchDir.resolve(path.getFileName());
+      }
 
       if (Files.isDirectory(path)) {
         if (createdDir.add(path)) {
-          commands.add(new MkdirStep(destination));
+          steps.add(new MkdirStep(destination));
         }
+        steps.add(CopyStep.forDirectory(path, destination, DIRECTORY_AND_CONTENTS));
       } else {
         if (createdDir.add(path)) {
-          commands.add(new MkdirStep(destination));
+          steps.add(new MkdirStep(destination.getParent()));
         }
-        commands.add(CopyStep.forFile(path, destination));
+        steps.add(CopyStep.forFile(path, destination));
       }
     }
 
-    commands.add(new ZipStep(
+    steps.add(
+        new ZipStep(
             output,
             ImmutableSortedSet.<Path>of(),
             /* junk paths */ false,
@@ -82,7 +102,7 @@ public class Zip extends AbstractBuildRule {
 
     buildableContext.recordArtifact(output);
 
-    return commands.build();
+    return steps.build();
   }
 
   @Override

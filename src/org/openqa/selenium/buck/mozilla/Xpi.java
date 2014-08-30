@@ -18,6 +18,8 @@ package org.openqa.selenium.buck.mozilla;
 
 import static com.facebook.buck.step.fs.CopyStep.DirectoryMode.DIRECTORY_AND_CONTENTS;
 
+import com.facebook.buck.java.JavacStep;
+import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildContext;
@@ -29,17 +31,22 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
+import com.facebook.buck.zip.UnzipStep;
 import com.facebook.buck.zip.ZipStep;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 import javax.annotation.Nullable;
 
 public class Xpi extends AbstractBuildRule {
+
+  private final static Logger LOG = Logger.get(Xpi.class);
 
   private final Path scratch;
   private final Path output;
@@ -48,20 +55,24 @@ public class Xpi extends AbstractBuildRule {
   private final ImmutableSortedSet<Path> content;
   private final Path install;
   private final ImmutableSortedSet<SourcePath> resources;
+  private final ImmutableSortedSet<SourcePath> platforms;
 
   public Xpi(
       BuildRuleParams params,
       Path chrome,
       ImmutableSortedSet<SourcePath> components,
       ImmutableSortedSet<Path> content,
-      Path install, ImmutableSortedSet<SourcePath> resources) {
+      Path install,
+      ImmutableSortedSet<SourcePath> resources,
+      ImmutableSortedSet<SourcePath> platforms) {
     super(params);
 
-    this.chrome = chrome;
-    this.components = components;
-    this.content = content;
-    this.install = install;
-    this.resources = resources;
+    this.chrome = Preconditions.checkNotNull(chrome);
+    this.components = Preconditions.checkNotNull(components);
+    this.content = Preconditions.checkNotNull(content);
+    this.install = Preconditions.checkNotNull(install);
+    this.resources = Preconditions.checkNotNull(resources);
+    this.platforms = Preconditions.checkNotNull(platforms);
 
     this.output = BuildTargets.getGenPath(
         getBuildTarget(),
@@ -97,12 +108,21 @@ public class Xpi extends AbstractBuildRule {
     steps.add(new MkdirStep(componentDir));
     for (SourcePath component : components) {
       Path resolved = component.resolve();
-      steps.add(CopyStep.forFile(resolved, componentDir.resolve(resolved.getFileName())));
+      copy(steps, resolved, componentDir);
     }
 
+    Path platformDir = scratch.resolve("platform");
+    steps.add(new MkdirStep(platformDir));
+    for (SourcePath resource : platforms) {
+      Path resolved = resource.resolve();
+      copy(steps, resolved, platformDir);
+    }
+
+    Path resourceDir = scratch.resolve("resource");
+    steps.add(new MkdirStep(resourceDir));
     for (SourcePath resource : resources) {
       Path resolved = resource.resolve();
-      steps.add(getCopyStep(resolved, scratch));
+      copy(steps, resolved, resourceDir);
     }
 
     steps.add(new MakeCleanDirectoryStep(output.getParent()));
@@ -116,6 +136,17 @@ public class Xpi extends AbstractBuildRule {
     buildableContext.recordArtifact(output);
 
     return steps.build();
+  }
+
+  private void copy(ImmutableList.Builder<Step> steps, Path item, Path destinationDir) {
+    if (item.toString().endsWith(JavacStep.SRC_ZIP)) {
+      steps.add(new UnzipStep(item, destinationDir));
+    } else if (Files.isDirectory(item)) {
+      LOG.warn("Being asked to copy a directory. Tsk!");
+      steps.add(CopyStep.forDirectory(item, destinationDir, DIRECTORY_AND_CONTENTS));
+    } else {
+      steps.add(CopyStep.forFile(item, destinationDir.resolve(item.getFileName())));
+    }
   }
 
   private CopyStep getCopyStep(Path item, Path destination) {

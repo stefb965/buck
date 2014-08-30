@@ -50,8 +50,8 @@ public class XpiDescription implements Description<XpiDescription.Arg> {
         args.components.get(),
         args.content.get(),
         args.install,
-        args.resources.get()
-    );
+        args.resources.get(),
+        args.platforms.get());
   }
 
   public static class Arg implements ConstructorArg {
@@ -59,6 +59,7 @@ public class XpiDescription implements Description<XpiDescription.Arg> {
     public Optional<ImmutableSortedSet<SourcePath>> components;
     public Optional<ImmutableSortedSet<Path>> content;
     public Path install;
+    public Optional<ImmutableSortedSet<SourcePath>> platforms;
     public Optional<ImmutableSortedSet<SourcePath>> resources;
   }
 }

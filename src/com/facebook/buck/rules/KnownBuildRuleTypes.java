@@ -72,6 +72,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 
+import org.openqa.selenium.buck.file.FolderDescription;
 import org.openqa.selenium.buck.file.ZipDescription;
 import org.openqa.selenium.buck.javascript.JsBinaryDescription;
 import org.openqa.selenium.buck.javascript.JsFragmentDescription;
@@ -237,6 +238,7 @@ public class KnownBuildRuleTypes {
     builder.register(new XcodeWorkspaceConfigDescription());
 
     // TODO(simons): Added for selenium. Move to that project once the plugin API works.
+    builder.register(new FolderDescription());
     builder.register(new JsBinaryDescription());
     builder.register(new JsFragmentDescription());
     builder.register(new JsLibraryDescription());

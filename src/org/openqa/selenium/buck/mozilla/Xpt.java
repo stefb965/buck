@@ -48,8 +48,7 @@ public class Xpt extends AbstractBuildRule {
     this.fallback = Preconditions.checkNotNull(fallback);
     this.src = Preconditions.checkNotNull(src);
     String name = Files.getNameWithoutExtension(src.getFileName().toString()) + ".xpt";
-
-    this.out = BuildTargets.getGenPath(getBuildTarget(), "%s");
+    this.out = BuildTargets.getGenPath(getBuildTarget(), name);
   }
 
   @Override
