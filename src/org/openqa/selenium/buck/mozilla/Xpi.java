@@ -16,7 +16,6 @@
 
 package org.openqa.selenium.buck.mozilla;
 
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildContext;
@@ -44,8 +43,6 @@ import java.nio.file.Path;
 import javax.annotation.Nullable;
 
 public class Xpi extends AbstractBuildRule {
-
-  private final static Logger LOG = Logger.get(Xpi.class);
 
   private final Path scratch;
   private final Path output;

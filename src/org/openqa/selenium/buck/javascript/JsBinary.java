@@ -16,8 +16,6 @@
 
 package org.openqa.selenium.buck.javascript;
 
-import static com.facebook.buck.util.BuckConstant.GEN_DIR;
-
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildContext;
@@ -45,7 +43,6 @@ import com.google.common.collect.Sets;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.List;
 import java.util.Set;
 
