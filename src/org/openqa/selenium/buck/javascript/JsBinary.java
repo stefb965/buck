@@ -43,6 +43,7 @@ import com.google.common.collect.Sets;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.nio.file.Path;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -106,10 +107,12 @@ public class JsBinary extends AbstractBuildRule implements
     JavascriptDependencies smidgen = new JavascriptDependencies();
 
     Set<String> jsDeps = Sets.newHashSet();
+    Set<JavascriptSource> jsSources = Sets.newHashSet();
     // Do the magic with the sources, as if we're a js_library
     for (SourcePath src : srcs) {
       Path resolved = src.resolve();
       JavascriptSource jsSource = new JavascriptSource(resolved);
+      jsSources.add(jsSource);
 
       graph.amendGraph(jsSource);
       smidgen.add(jsSource);
@@ -139,7 +142,16 @@ public class JsBinary extends AbstractBuildRule implements
       smidgen.amendGraph(graph, dep);
     }
 
-    ImmutableSortedSet<Path> requiredSources = graph.sortSources();
+    // If the srcs don't goog.provide anything, they won't be included in the sources. Which is an
+    // oversight.
+    LinkedHashSet<Path> requiredSources = new LinkedHashSet<>();
+    requiredSources.addAll(graph.sortSources());
+    for (JavascriptSource jsSource : jsSources) {
+      if (jsSource.getProvides().isEmpty()) {
+        requiredSources.add(jsSource.getPath());
+      }
+    }
+
     ClosureCompilerStep compiler = ClosureCompilerStep.builder()
         .defines(defines)
         .externs(externs)

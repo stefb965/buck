@@ -21,7 +21,7 @@ import com.facebook.buck.graph.TopologicalSort;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
@@ -52,7 +52,7 @@ public class JavascriptDependencyGraph {
     }
   }
 
-  public ImmutableSortedSet<Path> sortSources() {
+  public ImmutableSet<Path> sortSources() {
     MutableDirectedGraph<String> graph = new MutableDirectedGraph<>();
 
     for (JavascriptSource source : sources) {
@@ -68,7 +68,7 @@ public class JavascriptDependencyGraph {
 
     // Final step, topo sort the graph of deps and map back to files.
     ImmutableList<String> sorted = TopologicalSort.sort(graph, Predicates.<String>alwaysTrue());
-    ImmutableSortedSet.Builder<Path> builder = ImmutableSortedSet.naturalOrder();
+    ImmutableSet.Builder<Path> builder = ImmutableSet.builder();
     builder.add(BASE_JS);
 
     for (String dep : sorted) {

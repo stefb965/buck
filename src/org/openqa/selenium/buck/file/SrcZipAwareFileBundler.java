@@ -55,6 +55,7 @@ public class SrcZipAwareFileBundler {
 
       if (resolved.toString().endsWith(JavacStep.SRC_ZIP)) {
         steps.add(new UnzipStep(resolved, destinationDir));
+        continue;
       }
 
       if (Files.isDirectory(resolved)) {
