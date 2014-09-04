@@ -118,6 +118,28 @@ public class ZipStep implements Step {
           out.closeEntry();
           return FileVisitResult.CONTINUE;
         }
+
+        @Override
+        public FileVisitResult preVisitDirectory(
+            Path dir, BasicFileAttributes attributes) throws IOException {
+          if (junkPaths) {
+            return FileVisitResult.CONTINUE;
+          }
+
+          Path relativePath = baseDir.relativize(dir);
+          String entryName = relativePath.toString() + "/";
+          if ("/".equals(entryName)) {
+            return FileVisitResult.CONTINUE;
+          }
+          CustomZipEntry entry = new CustomZipEntry(entryName);
+          entry.setTime(attributes.lastModifiedTime().toMillis());
+          entry.setCompressionLevel(compressionLevel);
+
+          out.putNextEntry(entry);
+          out.closeEntry();
+
+          return FileVisitResult.CONTINUE;
+        }
       };
       filesystem.walkRelativeFileTree(baseDir, pathFileVisitor);
     } catch (IOException e) {
