@@ -18,6 +18,7 @@ package com.facebook.buck.rules;
 
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.ProjectFilesystem;
@@ -42,7 +43,7 @@ public class ParamInfoTest {
     }
 
     Field field = Example.class.getField("path");
-    ParamInfo info = new ParamInfo(typeCoercerFactory, path, field);
+    ParamInfo info = new ParamInfo(typeCoercerFactory, field);
 
     Class<?> type = info.getResultClass();
     assertEquals(SourcePath.class, type);
@@ -56,7 +57,7 @@ public class ParamInfoTest {
     }
 
     Field field = Example.class.getField("path");
-    ParamInfo info = new ParamInfo(typeCoercerFactory, path, field);
+    ParamInfo info = new ParamInfo(typeCoercerFactory, field);
 
     Class<?> type = info.getResultClass();
     assertEquals(SourcePath.class, type);
@@ -70,7 +71,7 @@ public class ParamInfoTest {
     }
 
     Field field = Example.class.getField("bad");
-    new ParamInfo(typeCoercerFactory, path, field);
+    new ParamInfo(typeCoercerFactory, field);
   }
 
   @Test(expected = IllegalArgumentException.class)
@@ -81,7 +82,7 @@ public class ParamInfoTest {
     }
 
     Field field = Example.class.getField("bad");
-    new ParamInfo(typeCoercerFactory, path, field);
+    new ParamInfo(typeCoercerFactory, field);
   }
 
   @Test
@@ -96,33 +97,33 @@ public class ParamInfoTest {
 
     ParamInfo info;
 
-    info = new ParamInfo(typeCoercerFactory, path, Example.class.getField("isDefaultName"));
+    info = new ParamInfo(typeCoercerFactory, Example.class.getField("isDefaultName"));
     assertEquals("is_default_name", info.getPythonName());
 
-    info = new ParamInfo(typeCoercerFactory, path, Example.class.getField("notDefaultName"));
+    info = new ParamInfo(typeCoercerFactory, Example.class.getField("notDefaultName"));
     assertEquals("not_the_default_name_123", info.getPythonName());
   }
 
   @Test
   public void fieldSetForOptionalFields() throws NoSuchFieldException, ParamInfoException {
-    @SuppressWarnings("unused")
     class Example {
       public Optional<String> field;
     }
     Example example = new Example();
 
+    BuildTargetParser buildTargetParser = new BuildTargetParser();
     BuildRuleResolver resolver = new BuildRuleResolver();
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
-    ParamInfo info = new ParamInfo(typeCoercerFactory, path, Example.class.getField("field"));
+    ParamInfo info = new ParamInfo(typeCoercerFactory, Example.class.getField("field"));
 
-    info.set(resolver, filesystem, example, null);
+    info.set(buildTargetParser, resolver, filesystem, path, example, null);
     assertEquals(Optional.<String>absent(), example.field);
 
-    info.set(resolver, filesystem, example, "");
+    info.set(buildTargetParser, resolver, filesystem, path, example, "");
     assertEquals(Optional.of(""), example.field);
 
-    info.set(resolver, filesystem, example, "foo");
+    info.set(buildTargetParser, resolver, filesystem, path, example, "foo");
     assertEquals(Optional.of("foo"), example.field);
   }
 }

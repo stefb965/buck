@@ -17,12 +17,14 @@
 package com.facebook.buck.apple;
 
 import com.facebook.buck.graph.AbstractAcyclicDepthFirstPostOrderTraversal;
+import com.facebook.buck.log.Logger;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleType;
 import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMultimap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 
@@ -35,6 +37,8 @@ import javax.annotation.Nullable;
  * Helpers for reading properties of Apple target build rules.
  */
 public final class AppleBuildRules {
+
+  private static final Logger LOG = Logger.get(AppleBuildRules.class);
 
   // Utility class not to be instantiated.
   private AppleBuildRules() { }
@@ -70,6 +74,20 @@ public final class AppleBuildRules {
    */
   public static boolean isXcodeTargetTestBundleExtension(AppleBundleExtension extension) {
     return XCODE_TARGET_TEST_BUNDLE_EXTENSIONS.contains(extension);
+  }
+
+  /**
+   * Whether the rule is an AppleBundle rule containing a known test bundle extension.
+   */
+  public static boolean isXcodeTargetTestBundleBuildRule(BuildRule rule) {
+    if (!(rule instanceof AppleBundle)) {
+      return false;
+    }
+    AppleBundle appleBundleRule = (AppleBundle) rule;
+    if (!appleBundleRule.getExtensionValue().isPresent()) {
+      return false;
+    }
+    return isXcodeTargetTestBundleExtension(appleBundleRule.getExtensionValue().get());
   }
 
   public enum RecursiveRuleDependenciesMode {
@@ -148,8 +166,8 @@ public final class AppleBuildRules {
                     deps = defaultDeps;
                   }
                   break;
-                case BUILDING:
-                default:
+                //$CASES-OMITTED$
+              default:
                   deps = defaultDeps;
                   break;
               }
@@ -173,7 +191,8 @@ public final class AppleBuildRules {
         };
     try {
       traversal.traverse(ImmutableList.of(rule));
-    } catch (AbstractAcyclicDepthFirstPostOrderTraversal.CycleException | IOException e) {
+    } catch (AbstractAcyclicDepthFirstPostOrderTraversal.CycleException | IOException |
+        InterruptedException e) {
       // actual load failures and cycle exceptions should have been caught at an earlier stage
       throw new RuntimeException(e);
     }
@@ -202,5 +221,26 @@ public final class AppleBuildRules {
                 return true;
               }
             }));
+  }
+
+  /**
+   * Builds the multimap of (source rule: [test rule 1, test rule 2, ...])
+   * for the set of test rules covering each source rule.
+   */
+  public static final ImmutableMultimap<BuildRule, AppleTest> getSourceRuleToTestRulesMap(
+      Iterable<BuildRule> testRules) {
+    ImmutableMultimap.Builder<BuildRule, AppleTest> sourceRuleToTestRulesBuilder =
+      ImmutableMultimap.builder();
+    for (BuildRule rule : testRules) {
+      if (!isXcodeTargetTestBuildRule(rule)) {
+        LOG.verbose("Skipping rule %s (not xcode target test)", rule);
+        continue;
+      }
+      AppleTest testRule = (AppleTest) rule;
+      for (BuildRule sourceRule : testRule.getSourceUnderTest()) {
+        sourceRuleToTestRulesBuilder.put(sourceRule, testRule);
+      }
+    }
+    return sourceRuleToTestRulesBuilder.build();
   }
 }

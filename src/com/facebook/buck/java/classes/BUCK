@@ -2,7 +2,8 @@ java_library(
   name = 'classes',
   srcs = glob(['*.java']),
   deps = [
-    '//lib:guava',
+    '//third-party/java/guava:guava',
+    '//third-party/java/jsr:jsr305',
     '//src/com/facebook/buck/util:io',
     '//src/com/facebook/buck/util:util',
   ],

@@ -59,10 +59,15 @@ public class PythonTestDescription implements Description<PythonTestDescription.
 
   private final Path pathToPex;
   private final Path pathToPythonTestMain;
+  private final PythonEnvironment pythonEnvironment;
 
-  public PythonTestDescription(Path pathToPex, Path pathToPythonTestMain) {
+  public PythonTestDescription(
+      Path pathToPex,
+      Path pathToPythonTestMain,
+      PythonEnvironment pythonEnvironment) {
     this.pathToPex = Preconditions.checkNotNull(pathToPex);
     this.pathToPythonTestMain = Preconditions.checkNotNull(pathToPythonTestMain);
+    this.pythonEnvironment = Preconditions.checkNotNull(pythonEnvironment);
   }
 
   @Override
@@ -167,17 +172,19 @@ public class PythonTestDescription implements Description<PythonTestDescription.
       BuildRuleResolver resolver,
       A args) {
 
+    Path baseModule = PythonUtil.getBasePath(params.getBuildTarget(), args.baseModule);
+
     ImmutableMap<Path, SourcePath> srcs = PythonUtil.toModuleMap(
         params.getBuildTarget(),
         "srcs",
-        params.getBuildTarget().getBasePath(),
-        args.srcs.or(ImmutableSortedSet.<SourcePath>of()));
+        baseModule,
+        args.srcs);
 
     ImmutableMap<Path, SourcePath> resources = PythonUtil.toModuleMap(
         params.getBuildTarget(),
         "resources",
-        params.getBuildTarget().getBasePath(),
-        args.resources.or(ImmutableSortedSet.<SourcePath>of()));
+        baseModule,
+        args.resources);
 
     // Convert the passed in module paths into test module names.
     ImmutableSet.Builder<String> testModulesBuilder = ImmutableSet.builder();
@@ -216,6 +223,7 @@ public class PythonTestDescription implements Description<PythonTestDescription.
     PythonBinary binary = new PythonBinary(
         binaryParams,
         pathToPex,
+        pythonEnvironment,
         getTestMainName(),
         allComponents);
     resolver.addToIndex(binary);
@@ -229,7 +237,7 @@ public class PythonTestDescription implements Description<PythonTestDescription.
                 .build(),
             params.getExtraDeps()),
         new BuildRuleSourcePath(binary),
-        args.sourceUnderTest.or(ImmutableSet.<BuildRule>of()),
+        resolver.getAllRules(args.sourceUnderTest.or(ImmutableSortedSet.<BuildTarget>of())),
         args.labels.or(ImmutableSet.<Label>of()),
         args.contacts.or(ImmutableSet.<String>of()));
   }
@@ -238,7 +246,7 @@ public class PythonTestDescription implements Description<PythonTestDescription.
   public static class Arg extends PythonLibraryDescription.Arg {
     public Optional<ImmutableSet<String>> contacts;
     public Optional<ImmutableSet<Label>> labels;
-    public Optional<ImmutableSet<BuildRule>> sourceUnderTest;
+    public Optional<ImmutableSortedSet<BuildTarget>> sourceUnderTest;
   }
 
 }

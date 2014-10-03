@@ -3,9 +3,7 @@ from buck import split_path
 from buck import glob_walk_internal
 from buck import glob_walk
 from buck import glob_match
-from buck import relpath
 from buck import path_join
-from buck import symlink_aware_walk
 from buck import glob_module
 import fnmatch
 import unittest
@@ -267,7 +265,8 @@ class TestBuck(unittest.TestCase):
                 build_env=None):
             return (name, deps, build_env)
 
-        testLazy = LazyBuildEnvPartial(cobol_binary, {})
+        testLazy = LazyBuildEnvPartial(cobol_binary)
+        testLazy.build_env = {}
         self.assertEqual(
             ('HAL', [1, 2, 3], {}),
             testLazy.invoke(name='HAL', deps=[1, 2, 3]))
@@ -275,85 +274,6 @@ class TestBuck(unittest.TestCase):
         self.assertEqual(
             ('HAL', [1, 2, 3], {'abc': 789}),
             testLazy.invoke(name='HAL', deps=[1, 2, 3]))
-
-    # Test the temporary reimplementation of relpath
-    # TODO(user): upgrade to a jython including os.relpath
-    def test_relpath(self):
-        real_getcwd = os.getcwd
-        try:
-            os.getcwd = lambda: r"/home/user/bar"
-            curdir = os.path.split(os.getcwd())[-1]
-            self.assertRaises(ValueError, relpath, "")
-            self.assertEqual("a", relpath("a"))
-            self.assertEqual("a", relpath(posixpath.abspath("a")))
-            self.assertEqual("a/b", relpath("a/b"))
-            self.assertEqual("../a/b", relpath("../a/b"))
-            self.assertEqual("../" + curdir + "/a", relpath("a", "../b"))
-            self.assertEqual("../" + curdir + "/a/b", relpath("a/b", "../c"))
-            self.assertEqual("../../a", relpath("a", "b/c"))
-        finally:
-            os.getcwd = real_getcwd
-
-
-    def test_symlink_aware_walk(self):
-        real_walk = os.walk
-        real_realpath = os.path.realpath
-        real_abspath = os.path.abspath
-
-        # a/
-        #  b/
-        #   c/
-        #    file
-        #   sibling -> c
-        #   ancestor -> ../..
-
-        def mock_walk(base, **kwargs):
-            self.assertEqual('a', base)
-
-            dirs = ['b']
-            yield ('a', dirs, [])
-            self.assertEqual(['b'], dirs)
-
-            dirs = ['c', 'sibling', 'ancestor']
-            yield ('a/b', dirs, [])
-            self.assertEqual(['c', 'sibling', 'ancestor'], dirs)
-
-            yield ('a/b/c', [], ['file'])
-            yield ('a/b/sibling', [], ['file'])
-
-            dirs = ['b']
-            yield ('a/b/ancestor', dirs, [])
-            self.assertEqual([], dirs)
-
-            raise StopIteration
-
-        def mock_realpath(path):
-            if path == 'a/b/sibling':
-                return 'a/b/c'
-            if path == 'a/b/ancestor':
-                return 'a'
-            return path
-
-        def mock_abspath(path):
-            return path
-
-        try:
-            os.walk = mock_walk
-            os.path.realpath = mock_realpath
-            os.path.abspath = mock_abspath
-            result = set(root for (root, _, _) in symlink_aware_walk('a'))
-            self.assertEqual(
-                set([
-                    'a',
-                    'a/b',
-                    'a/b/c',
-                    'a/b/sibling',
-                    ]),
-                result)
-        finally:
-            os.walk = real_walk
-            os.path.realpath = real_realpath
-            os.path.abspath = real_abspath
 
 
 if __name__ == '__main__':

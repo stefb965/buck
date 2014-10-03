@@ -90,7 +90,7 @@ public class PreDexMerge extends AbstractBuildRule implements InitializableFromD
   private final Path primaryDexPath;
   private final DexSplitMode dexSplitMode;
   private final ImmutableSet<DexProducedFromJavaLibrary> preDexDeps;
-  private final UberRDotJava uberRDotJava;
+  private final AaptPackageResources aaptPackageResources;
   private final BuildOutputInitializer<BuildOutput> buildOutputInitializer;
 
   public PreDexMerge(
@@ -98,12 +98,12 @@ public class PreDexMerge extends AbstractBuildRule implements InitializableFromD
       Path primaryDexPath,
       DexSplitMode dexSplitMode,
       ImmutableSet<DexProducedFromJavaLibrary> preDexDeps,
-      UberRDotJava uberRDotJava) {
+      AaptPackageResources aaptPackageResources) {
     super(params);
     this.primaryDexPath = Preconditions.checkNotNull(primaryDexPath);
     this.dexSplitMode = Preconditions.checkNotNull(dexSplitMode);
     this.preDexDeps = Preconditions.checkNotNull(preDexDeps);
-    this.uberRDotJava = Preconditions.checkNotNull(uberRDotJava);
+    this.aaptPackageResources = Preconditions.checkNotNull(aaptPackageResources);
     this.buildOutputInitializer = new BuildOutputInitializer<>(params.getBuildTarget(), this);
   }
 
@@ -171,7 +171,8 @@ public class PreDexMerge extends AbstractBuildRule implements InitializableFromD
     final ImmutableSet<Path> secondaryDexDirectories;
     if (dexSplitMode.getDexStore() == DexStore.RAW) {
       // Raw classes*.dex files go in the top-level of the APK.
-      secondaryDexDirectories = ImmutableSet.of(paths.jarfilesSubdir);
+      secondaryDexDirectories = ImmutableSet.of(paths.jarfilesSubdir
+      );
     } else {
       // Otherwise, we want to include the metadata and jars as assets.
       secondaryDexDirectories = ImmutableSet.of(paths.metadataDir, paths.jarfilesDir);
@@ -194,7 +195,7 @@ public class PreDexMerge extends AbstractBuildRule implements InitializableFromD
     buildableContext.recordArtifactsInDirectory(paths.successDir);
 
     PreDexedFilesSorter preDexedFilesSorter = new PreDexedFilesSorter(
-        uberRDotJava.getRDotJavaDexWithClasses(),
+        aaptPackageResources.getRDotJavaDexWithClasses(),
         dexFilesToMerge,
         dexSplitMode.getPrimaryDexPatterns(),
         paths.scratchDir,
@@ -266,7 +267,8 @@ public class PreDexMerge extends AbstractBuildRule implements InitializableFromD
         .filter(Predicates.notNull());
 
     // If this APK has Android resources, then the generated R.class files also need to be dexed.
-    Optional<DexWithClasses> rDotJavaDexWithClasses = uberRDotJava.getRDotJavaDexWithClasses();
+    Optional<DexWithClasses> rDotJavaDexWithClasses =
+        aaptPackageResources.getRDotJavaDexWithClasses();
     if (rDotJavaDexWithClasses.isPresent()) {
       filesToDex = Iterables.concat(
           filesToDex,
@@ -305,6 +307,7 @@ public class PreDexMerge extends AbstractBuildRule implements InitializableFromD
     return null;
   }
 
+  @Nullable
   public Sha1HashCode getPrimaryDexHash() {
     Preconditions.checkState(dexSplitMode.isShouldSplitDex());
     return buildOutputInitializer.getBuildOutput().primaryDexHash;
@@ -319,7 +322,7 @@ public class PreDexMerge extends AbstractBuildRule implements InitializableFromD
     @Nullable private final Sha1HashCode primaryDexHash;
     private final ImmutableSet<Path> secondaryDexDirectories;
 
-    BuildOutput(Sha1HashCode primaryDexHash, ImmutableSet<Path> secondaryDexDirectories) {
+    BuildOutput(@Nullable Sha1HashCode primaryDexHash, ImmutableSet<Path> secondaryDexDirectories) {
       this.primaryDexHash = primaryDexHash;
       this.secondaryDexDirectories = Preconditions.checkNotNull(secondaryDexDirectories);
     }

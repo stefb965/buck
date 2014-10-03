@@ -17,15 +17,17 @@
 package com.facebook.buck.rules;
 
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Function;
+import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
 
 import java.util.Map;
 import java.util.Set;
-
-import javax.annotation.Nullable;
 
 /**
  * Provides a mechanism for mapping between a {@link BuildTarget} and the {@link BuildRule} it
@@ -61,23 +63,35 @@ public class BuildRuleResolver {
   }
 
   /**
-   * Returns the {@link BuildRule} with the {@code fullyQualifiedName}.
-   * @param fullyQualifiedName if {@code null}, this method will return {@code null}
+   * Returns the {@link BuildRule} with the {@code buildTarget}.
    */
-  @Nullable
-  public BuildRule get(@Nullable BuildTarget fullyQualifiedName) {
-    return fullyQualifiedName == null ? null : buildRuleIndex.get(fullyQualifiedName);
+  public BuildRule getRule(BuildTarget buildTarget) {
+    BuildRule rule = buildRuleIndex.get(Preconditions.checkNotNull(buildTarget));
+    if (rule == null) {
+      throw new HumanReadableException("Rule for target '%s' could not be resolved.", buildTarget);
+    }
+    return rule;
   }
 
-  /**
-   * Adds to the index a mapping from {@code target} to {@code buildRule}.
-   */
-  public void addToIndex(BuildTarget target, BuildRule buildRule) {
-    BuildRule oldValue = buildRuleIndex.put(target, buildRule);
-    if (oldValue != null) {
-      throw new IllegalStateException("A build rule for this target has already been created: " +
-          target);
+  public Optional<BuildRule> getRuleOptional(BuildTarget buildTarget) {
+    return Optional.fromNullable(buildRuleIndex.get(Preconditions.checkNotNull(buildTarget)));
+  }
+
+  public Function<BuildTarget, BuildRule> getRuleFunction() {
+    return new Function<BuildTarget, BuildRule>() {
+      @Override
+      public BuildRule apply(BuildTarget input) {
+        return getRule(input);
+      }
+    };
+  }
+
+  public ImmutableSortedSet<BuildRule> getAllRules(Iterable<BuildTarget> targets) {
+    ImmutableSortedSet.Builder<BuildRule> rules = ImmutableSortedSet.naturalOrder();
+    for (BuildTarget target : targets) {
+      rules.add(getRule(target));
     }
+    return rules.build();
   }
 
   /**
@@ -86,7 +100,11 @@ public class BuildRuleResolver {
    */
   @VisibleForTesting
   public <T extends BuildRule> T addToIndex(T buildRule) {
-    addToIndex(buildRule.getBuildTarget(), buildRule);
+    BuildRule oldValue = buildRuleIndex.put(buildRule.getBuildTarget(), buildRule);
+    if (oldValue != null) {
+      throw new IllegalStateException("A build rule for this target has already been created: " +
+          oldValue.getBuildTarget());
+    }
     return buildRule;
   }
 

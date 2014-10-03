@@ -289,7 +289,8 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
         getParser(),
         getBuckEventBus(),
         console,
-        environment);
+        environment,
+        false /* enableProfiling */);
 
     final ActionGraph graph = partialGraph.getActionGraph();
 
@@ -327,7 +328,8 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
         options.getTargetDeviceOptional(),
         getCommandRunnerParams().getPlatform(),
         getCommandRunnerParams().getEnvironment(),
-        getCommandRunnerParams().getObjectMapper())) {
+        getCommandRunnerParams().getObjectMapper(),
+        getCommandRunnerParams().getClock())) {
 
       // Build all of the test rules.
       int exitCode = BuildCommand.executeBuildAndPrintAnyFailuresToConsole(
@@ -598,7 +600,19 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
       }
     });
 
-    return failures ? TEST_FAILURES_EXIT_CODE : 0;
+    boolean significantAssumptionViolations = false;
+    if (options.getBuckConfig().isTreatingAssumptionsAsErrors()) {
+      // Assumption-violations are only significant if we are treating them as errors.
+      significantAssumptionViolations =
+          Iterables.any(completedResults, new Predicate<TestResults>() {
+        @Override
+        public boolean apply(TestResults results) {
+          return results.hasAssumptionViolations();
+        }
+      });
+    }
+
+    return (failures || significantAssumptionViolations) ? TEST_FAILURES_EXIT_CODE : 0;
   }
 
   private FutureCallback<TestResults> getFutureCallback(

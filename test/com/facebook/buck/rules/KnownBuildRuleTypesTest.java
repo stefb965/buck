@@ -29,8 +29,11 @@ import com.facebook.buck.java.JavaBuckConfig;
 import com.facebook.buck.java.JavaCompilerEnvironment;
 import com.facebook.buck.java.JavaLibraryDescription;
 import com.facebook.buck.java.JavacVersion;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
+import com.facebook.buck.python.PythonEnvironment;
+import com.facebook.buck.python.PythonVersion;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
 import com.facebook.buck.util.FakeAndroidDirectoryResolver;
@@ -49,6 +52,7 @@ import org.junit.rules.TemporaryFolder;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Map;
 
 
@@ -57,9 +61,12 @@ public class KnownBuildRuleTypesTest {
   @ClassRule public static TemporaryFolder folder = new TemporaryFolder();
   @Rule public DebuggableTemporaryFolder temporaryFolder = new DebuggableTemporaryFolder();
 
+  private static final PythonEnvironment DUMMY_PYTHON_ENVIRONMENT =
+      new PythonEnvironment(Paths.get("fake_python"), new PythonVersion("Python 2.7"));
+
   private static BuildRuleParams buildRuleParams;
 
-  private static class TestDescription implements Description<ConstructorArg> {
+  private static class TestDescription implements Description<Object> {
 
     public static final BuildRuleType TYPE = new BuildRuleType("known_rule_test");
 
@@ -79,12 +86,12 @@ public class KnownBuildRuleTypesTest {
     }
 
     @Override
-    public ConstructorArg createUnpopulatedConstructorArg() {
-      return new ConstructorArg() {};
+    public Object createUnpopulatedConstructorArg() {
+      return new Object();
     }
 
     @Override
-    public <A extends ConstructorArg> BuildRule createBuildRule(
+    public <A> BuildRule createBuildRule(
         BuildRuleParams params,
         BuildRuleResolver resolver,
         A args) {
@@ -104,15 +111,15 @@ public class KnownBuildRuleTypesTest {
     arg.source = Optional.absent();
     arg.target = Optional.absent();
     arg.proguardConfig = Optional.absent();
-    arg.annotationProcessorDeps = Optional.of(ImmutableSortedSet.<BuildRule>of());
+    arg.annotationProcessorDeps = Optional.of(ImmutableSortedSet.<BuildTarget>of());
     arg.annotationProcessorParams = Optional.of(ImmutableList.<String>of());
     arg.annotationProcessors = Optional.of(ImmutableSet.<String>of());
     arg.annotationProcessorOnly = Optional.absent();
     arg.postprocessClassesCommands = Optional.of(ImmutableList.<String>of());
     arg.resourcesRoot = Optional.absent();
-    arg.providedDeps = Optional.of(ImmutableSortedSet.<BuildRule>of());
-    arg.exportedDeps = Optional.of(ImmutableSortedSet.<BuildRule>of());
-    arg.deps = Optional.of(ImmutableSortedSet.<BuildRule>of());
+    arg.providedDeps = Optional.of(ImmutableSortedSet.<BuildTarget>of());
+    arg.exportedDeps = Optional.of(ImmutableSortedSet.<BuildTarget>of());
+    arg.deps = Optional.of(ImmutableSortedSet.<BuildTarget>of());
   }
 
   private DefaultJavaLibrary createJavaLibrary(KnownBuildRuleTypes buildRuleTypes) {
@@ -135,7 +142,8 @@ public class KnownBuildRuleTypesTest {
     KnownBuildRuleTypes buildRuleTypes = KnownBuildRuleTypes.createBuilder(
         buckConfig,
         new FakeAndroidDirectoryResolver(),
-        JavaCompilerEnvironment.DEFAULT).build();
+        JavaCompilerEnvironment.DEFAULT,
+        DUMMY_PYTHON_ENVIRONMENT).build();
     DefaultJavaLibrary libraryRule = createJavaLibrary(buildRuleTypes);
     assertEquals(Optional.<String> absent(), libraryRule.getJavac());
   }
@@ -158,7 +166,8 @@ public class KnownBuildRuleTypesTest {
             javaConfig.getJavac(),
             Optional.<JavacVersion>absent(),
             TARGETED_JAVA_VERSION,
-            TARGETED_JAVA_VERSION))
+            TARGETED_JAVA_VERSION),
+        DUMMY_PYTHON_ENVIRONMENT)
         .build();
 
     DefaultJavaLibrary libraryRule = createJavaLibrary(buildRuleTypes);
@@ -184,7 +193,8 @@ public class KnownBuildRuleTypesTest {
             Optional.<Path>absent(),
             Optional.of(javacVersion),
             TARGETED_JAVA_VERSION,
-            TARGETED_JAVA_VERSION))
+            TARGETED_JAVA_VERSION),
+        DUMMY_PYTHON_ENVIRONMENT)
         .build();
     DefaultJavaLibrary libraryRule = createJavaLibrary(buildRuleTypes);
     assertEquals(javacVersion, libraryRule.getJavacVersion().get());
@@ -211,7 +221,8 @@ public class KnownBuildRuleTypesTest {
             Optional.<Path>absent(),
             Optional.of(new JavacVersion("fakeVersion 0.1")),
             TARGETED_JAVA_VERSION,
-            TARGETED_JAVA_VERSION))
+            TARGETED_JAVA_VERSION),
+        DUMMY_PYTHON_ENVIRONMENT)
         .build();
     DefaultJavaLibrary configuredRule = createJavaLibrary(configuredBuildRuleTypes);
 
@@ -236,7 +247,8 @@ public class KnownBuildRuleTypesTest {
             javaConfig.getJavac(),
             Optional.of(new JavacVersion("fakeVersion 0.1")),
             TARGETED_JAVA_VERSION,
-            TARGETED_JAVA_VERSION))
+            TARGETED_JAVA_VERSION),
+        DUMMY_PYTHON_ENVIRONMENT)
         .build();
     DefaultJavaLibrary configuredRule1 = createJavaLibrary(configuredBuildRuleTypes1);
 
@@ -247,7 +259,8 @@ public class KnownBuildRuleTypesTest {
             javaConfig.getJavac(),
             Optional.of(new JavacVersion("fakeVersion 0.2")),
             TARGETED_JAVA_VERSION,
-            TARGETED_JAVA_VERSION))
+            TARGETED_JAVA_VERSION),
+        DUMMY_PYTHON_ENVIRONMENT)
         .build();
     DefaultJavaLibrary configuredRule2 = createJavaLibrary(configuredBuildRuleTypes2);
 
@@ -262,7 +275,8 @@ public class KnownBuildRuleTypesTest {
     KnownBuildRuleTypes buildRuleTypes = KnownBuildRuleTypes.createBuilder(
         buckConfig,
         new FakeAndroidDirectoryResolver(),
-        JavaCompilerEnvironment.DEFAULT).build();
+        JavaCompilerEnvironment.DEFAULT,
+        new PythonEnvironment(Paths.get("fake_python"), new PythonVersion("Python 2.7"))).build();
     AndroidLibraryDescription description =
         (AndroidLibraryDescription) buildRuleTypes.getDescription(AndroidLibraryDescription.TYPE);
 
@@ -294,7 +308,8 @@ public class KnownBuildRuleTypesTest {
             javaConfig.getJavac(),
             Optional.<JavacVersion>absent(),
             TARGETED_JAVA_VERSION,
-            TARGETED_JAVA_VERSION))
+            TARGETED_JAVA_VERSION),
+        DUMMY_PYTHON_ENVIRONMENT)
         .build();
     AndroidLibraryDescription description =
         (AndroidLibraryDescription) buildRuleTypes.getDescription(AndroidLibraryDescription.TYPE);

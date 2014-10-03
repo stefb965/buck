@@ -16,6 +16,7 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.android.AndroidLibraryGraphEnhancer.ResourceDependencyMode;
 import com.facebook.buck.java.AnnotationProcessingParams;
 import com.facebook.buck.java.JavaCompilerEnvironment;
 import com.facebook.buck.java.JavaLibraryDescription;
@@ -61,13 +62,15 @@ public class RobolectricTestDescription implements Description<RobolectricTestDe
 
     AnnotationProcessingParams annotationParams = args.buildAnnotationProcessingParams(
         params.getBuildTarget(),
-        params.getProjectFilesystem());
+        params.getProjectFilesystem(),
+        resolver);
     javacOptions.setAnnotationProcessingData(annotationParams);
 
     AndroidLibraryGraphEnhancer graphEnhancer = new AndroidLibraryGraphEnhancer(
         params.getBuildTarget(),
-        params.copyWithExtraDeps(args.exportedDeps.get()),
-        javacOptions.build());
+        params.copyWithExtraDeps(resolver.getAllRules(args.exportedDeps.get())),
+        javacOptions.build(),
+        ResourceDependencyMode.TRANSITIVE);
     Optional<DummyRDotJava> dummyRDotJava = graphEnhancer.createBuildableForAndroidResources(
         resolver,
         /* createBuildableIfEmpty */ true);

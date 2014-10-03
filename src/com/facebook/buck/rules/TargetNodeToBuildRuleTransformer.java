@@ -16,31 +16,26 @@
 
 package com.facebook.buck.rules;
 
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.parser.ParseContext;
 import com.facebook.buck.util.HumanReadableException;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSortedSet;
 
 /**
- * Takes in an {@link TargetNode} from the target graph and builds a {@link DescribedRule}.
+ * Takes in an {@link TargetNode} from the target graph and builds a {@link BuildRule}.
  */
-public class TargetNodeToBuildRuleTransformer<T extends ConstructorArg> {
+public class TargetNodeToBuildRuleTransformer {
 
-  private final TargetNode<T> targetNode;
+  ConstructorArgMarshaller inspector = new ConstructorArgMarshaller();
 
-  public TargetNodeToBuildRuleTransformer(TargetNode<T> targetNode) {
-    this.targetNode = Preconditions.checkNotNull(targetNode);
-  }
-
-  public BuildRule transform(BuildRuleResolver ruleResolver) throws NoSuchBuildTargetException {
+  public <T> BuildRule transform(
+      BuildRuleResolver ruleResolver,
+      TargetNode<T> targetNode)
+      throws NoSuchBuildTargetException {
     BuildRuleFactoryParams ruleFactoryParams = targetNode.getRuleFactoryParams();
     Description<T> description = targetNode.getDescription();
-    ConstructorArgMarshaller inspector =
-        new ConstructorArgMarshaller(targetNode.getBuildTarget().getBasePath());
+
     T arg = description.createUnpopulatedConstructorArg();
     try {
       inspector.populate(
@@ -52,18 +47,13 @@ public class TargetNodeToBuildRuleTransformer<T extends ConstructorArg> {
       throw new HumanReadableException("%s: %s", targetNode.getBuildTarget(), e.getMessage());
     }
 
-    ImmutableSortedSet.Builder<BuildRule> declaredRules =
-        expandRules(ruleResolver, targetNode.getDeclaredDeps());
-    ImmutableSortedSet.Builder<BuildRule> extraRules =
-        expandRules(ruleResolver, targetNode.getExtraDeps());
-
     // The params used for the Buildable only contain the declared parameters. However, the deps of
     // the rule include not only those, but also any that were picked up through the deps declared
     // via a SourcePath.
     BuildRuleParams params = new BuildRuleParams(
         targetNode.getBuildTarget(),
-        declaredRules.build(),
-        extraRules.build(),
+        ruleResolver.getAllRules(targetNode.getDeclaredDeps()),
+        ruleResolver.getAllRules(targetNode.getExtraDeps()),
         getVisibilityPatterns(targetNode),
         ruleFactoryParams.getProjectFilesystem(),
         ruleFactoryParams.getRuleKeyBuilderFactory(),
@@ -82,20 +72,6 @@ public class TargetNodeToBuildRuleTransformer<T extends ConstructorArg> {
     }
 
     return buildRule;
-  }
-
-  private static ImmutableSortedSet.Builder<BuildRule> expandRules(
-      BuildRuleResolver ruleResolver,
-      Iterable<BuildTarget> targets) {
-    ImmutableSortedSet.Builder<BuildRule> rules = ImmutableSortedSet.naturalOrder();
-
-    for (BuildTarget target : targets) {
-      BuildRule rule = ruleResolver.get(target);
-      Preconditions.checkNotNull(rule);
-      rules.add(rule);
-    }
-
-    return rules;
   }
 
   private static ImmutableSet<BuildTargetPattern> getVisibilityPatterns(TargetNode<?> targetNode)

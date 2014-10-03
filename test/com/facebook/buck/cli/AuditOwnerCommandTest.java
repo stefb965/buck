@@ -31,14 +31,15 @@ import com.facebook.buck.rules.BuildRuleFactoryParams;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
-import com.facebook.buck.rules.ConstructorArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.FakeBuildRule;
+import com.facebook.buck.rules.FakeRepositoryFactory;
 import com.facebook.buck.rules.NonCheckingBuildRuleFactoryParams;
 import com.facebook.buck.rules.NoopArtifactCache;
 import com.facebook.buck.rules.Repository;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TestRepositoryBuilder;
+import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.AndroidDirectoryResolver;
 import com.facebook.buck.util.FakeAndroidDirectoryResolver;
@@ -58,7 +59,9 @@ import org.kohsuke.args4j.CmdLineException;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 
 /**
  * Outputs targets that own a specified list of files.
@@ -86,7 +89,7 @@ public class AuditOwnerCommandTest {
       return new FakeBuildRule(params);
     }
 
-    public static class FakeArg implements ConstructorArg {
+    public static class FakeArg {
 
     }
   }
@@ -98,7 +101,7 @@ public class AuditOwnerCommandTest {
     BuildRuleFactoryParams params =
         NonCheckingBuildRuleFactoryParams.createNonCheckingBuildRuleFactoryParams(
             Maps.<String, Object>newHashMap(),
-            new BuildTargetParser(new FakeProjectFilesystem()),
+            new BuildTargetParser(),
             buildTarget);
     return new TargetNode<>(
         description,
@@ -188,13 +191,15 @@ public class AuditOwnerCommandTest {
     buckConfig = new FakeBuckConfig();
   }
 
-  private AuditOwnerCommand createAuditOwnerCommand(ProjectFilesystem filesystem) {
+  private AuditOwnerCommand createAuditOwnerCommand(ProjectFilesystem filesystem)
+      throws IOException, InterruptedException {
     ArtifactCache artifactCache = new NoopArtifactCache();
     BuckEventBus eventBus = BuckEventBusFactory.newInstance();
     AndroidDirectoryResolver androidDirectoryResolver = new FakeAndroidDirectoryResolver();
     Repository repository = new TestRepositoryBuilder().setFilesystem(filesystem).build();
     return new AuditOwnerCommand(new CommandRunnerParams(
         console,
+        new FakeRepositoryFactory(),
         repository,
         androidDirectoryResolver,
         new InstanceArtifactCacheFactory(artifactCache),
@@ -203,11 +208,13 @@ public class AuditOwnerCommandTest {
         Platform.detect(),
         ImmutableMap.copyOf(System.getenv()),
         new FakeJavaPackageFinder(),
-        new ObjectMapper()));
+        new ObjectMapper(),
+        FakeFileHashCache.EMPTY_CACHE));
   }
 
   @Test
-  public void verifyPathsThatAreNotFilesAreCorrectlyReported() throws CmdLineException {
+  public void verifyPathsThatAreNotFilesAreCorrectlyReported()
+      throws CmdLineException, IOException, InterruptedException {
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem() {
       @Override
       public File getFileForRelativePath(String pathRelativeToProjectRoot) {
@@ -233,7 +240,8 @@ public class AuditOwnerCommandTest {
   }
 
   @Test
-  public void verifyMissingFilesAreCorrectlyReported() throws CmdLineException {
+  public void verifyMissingFilesAreCorrectlyReported()
+      throws CmdLineException, IOException, InterruptedException {
     // All files will be directories now
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem() {
       @Override
@@ -260,7 +268,8 @@ public class AuditOwnerCommandTest {
   }
 
   @Test
-  public void verifyInputsWithoutOwnersAreCorrectlyReported() throws CmdLineException {
+  public void verifyInputsWithoutOwnersAreCorrectlyReported()
+      throws CmdLineException, IOException, InterruptedException {
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem() {
       @Override
       public File getFileForRelativePath(String pathRelativeToProjectRoot) {
@@ -291,7 +300,8 @@ public class AuditOwnerCommandTest {
    *  - one owner, multiple inputs
    */
   @Test
-  public void verifyInputsWithOneOwnerAreCorrectlyReported() throws CmdLineException {
+  public void verifyInputsWithOneOwnerAreCorrectlyReported()
+      throws CmdLineException, IOException, InterruptedException {
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem() {
       @Override
       public File getFileForRelativePath(String pathRelativeToProjectRoot) {
@@ -325,7 +335,7 @@ public class AuditOwnerCommandTest {
    */
   @Test
   public void verifyInputsWithOneOwnerAreCorrectlyReportedInJson()
-    throws CmdLineException, IOException {
+      throws CmdLineException, IOException, InterruptedException {
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem() {
       @Override
       public File getFileForRelativePath(String pathRelativeToProjectRoot) {
@@ -363,7 +373,8 @@ public class AuditOwnerCommandTest {
    *  - inputs that belong to multiple targets
    */
   @Test
-  public void verifyInputsWithMultipleOwnersAreCorrectlyReported() throws CmdLineException {
+  public void verifyInputsWithMultipleOwnersAreCorrectlyReported()
+      throws CmdLineException, IOException, InterruptedException {
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem() {
       @Override
       public File getFileForRelativePath(String pathRelativeToProjectRoot) {
@@ -395,6 +406,78 @@ public class AuditOwnerCommandTest {
     assertTrue(report.owners.containsKey(targetNode2));
     assertEquals(targetNode1.getInputs(), report.owners.get(targetNode1));
     assertEquals(targetNode2.getInputs(), report.owners.get(targetNode2));
+  }
+
+  @Test
+  public void verifyBuckFileIsFoundWhenAvailable() throws IOException, InterruptedException {
+    final Path root = Paths.get("root");
+    final Path buckFile = Paths.get("root/BUCK");
+
+    FakeProjectFilesystem filesystem = new FakeProjectFilesystem() {
+      private ImmutableSet<Path> existingFiles = ImmutableSet.of(
+          buckFile,
+          Paths.get("root/.buckconfig"),
+          Paths.get("root/sub/Test.java"));
+
+      @Override
+      public boolean exists(Path path) {
+        return existingFiles.contains(path);
+      }
+
+      @Override
+      public Path resolve(Path path) {
+        if (path.equals(Paths.get(".buckconfig"))) {
+          return Paths.get("root/.buckconfig");
+        }
+        return path;
+      }
+
+      @Override
+      public boolean isDirectory(Path path, LinkOption... linkOptions) {
+        return path.equals(root) || path.equals(Paths.get("root/sub"));
+      }
+
+      @Override
+      public Path getRootPath() {
+        return root;
+      }
+    };
+
+    AuditOwnerCommand command = createAuditOwnerCommand(filesystem);
+    assertEquals(
+        buckFile,
+        command.findBuckFileFor(Paths.get("root/.buckconfig")));
+    assertEquals(
+        buckFile,
+        command.findBuckFileFor(Paths.get(".buckconfig")));
+    assertEquals(
+        buckFile,
+        command.findBuckFileFor(Paths.get("root/sub/Test.java")));
+  }
+
+  @Test
+  public void verifyBuckFileIsNullWhenNotFound() throws IOException, InterruptedException {
+    FakeProjectFilesystem filesystem = new FakeProjectFilesystem() {
+      @Override
+      public boolean exists(Path path) {
+        return path.equals(Paths.get("root/.buckconfig"));
+      }
+
+      @Override
+      public boolean isDirectory(Path path, LinkOption... linkOptions) {
+        return path.equals(getRootPath());
+      }
+
+      @Override
+      public Path getRootPath() {
+        return Paths.get("root");
+      }
+    };
+
+    AuditOwnerCommand command = createAuditOwnerCommand(filesystem);
+    assertEquals(
+        null,
+        command.findBuckFileFor(Paths.get("root/.buckconfig")));
   }
 
 }

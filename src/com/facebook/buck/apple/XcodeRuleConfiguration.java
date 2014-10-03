@@ -16,17 +16,14 @@
 
 package com.facebook.buck.apple;
 
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.coercer.Either;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 
-import java.nio.file.Path;
 import java.util.Objects;
-
-import javax.annotation.Nullable;
 
 /**
  * Represents a layered Xcode build configuration.
@@ -35,18 +32,10 @@ import javax.annotation.Nullable;
  * when resolving variables.
  */
 public class XcodeRuleConfiguration {
-  private final String name;
   private final ImmutableList<Layer> layers;
 
-  public XcodeRuleConfiguration(
-      String name,
-      ImmutableList<Layer> layers) {
-    this.name = Preconditions.checkNotNull(name);
+  public XcodeRuleConfiguration(ImmutableList<Layer> layers) {
     this.layers = Preconditions.checkNotNull(layers);
-  }
-
-  public String getName() {
-    return name;
   }
 
   public ImmutableList<Layer> getLayers() {
@@ -63,13 +52,12 @@ public class XcodeRuleConfiguration {
     }
 
     XcodeRuleConfiguration that = (XcodeRuleConfiguration) o;
-    return Objects.equals(name, that.name) &&
-        Objects.equals(layers, that.layers);
+    return Objects.equals(layers, that.layers);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(name, layers);
+    return Objects.hash(layers);
   }
 
   /**
@@ -80,22 +68,24 @@ public class XcodeRuleConfiguration {
    *    configuration. Each layer can be specified as a path to a .xcconfig file, or a dictionary of
    *    xcode build settings.
    */
-  public static ImmutableSet<XcodeRuleConfiguration> fromRawJsonStructure(
+  public static ImmutableMap<String, XcodeRuleConfiguration> fromRawJsonStructure(
       ImmutableMap<
           String,
-          ImmutableList<Either<Path, ImmutableMap<String, String>>>> configurations) {
-    ImmutableSet.Builder<XcodeRuleConfiguration> builder = ImmutableSet.builder();
-    for (ImmutableMap.Entry<String, ImmutableList<Either<Path, ImmutableMap<String, String>>>> entry
+          ImmutableList<Either<SourcePath, ImmutableMap<String, String>>>> configurations) {
+    ImmutableMap.Builder<String, XcodeRuleConfiguration> builder = ImmutableMap.builder();
+    for (ImmutableMap.Entry<
+        String,
+        ImmutableList<Either<SourcePath, ImmutableMap<String, String>>>> entry
         : configurations.entrySet()) {
       ImmutableList.Builder<Layer> layers = ImmutableList.builder();
-      for (Either<Path, ImmutableMap<String, String>> value : entry.getValue()) {
+      for (Either<SourcePath, ImmutableMap<String, String>> value : entry.getValue()) {
         if (value.isLeft()) {
           layers.add(new Layer(value.getLeft()));
         } else if (value.isRight()) {
           layers.add(new Layer(value.getRight()));
         }
       }
-      builder.add(new XcodeRuleConfiguration(entry.getKey(), layers.build()));
+      builder.put(entry.getKey(), new XcodeRuleConfiguration(layers.build()));
     }
     return builder.build();
   }
@@ -107,33 +97,31 @@ public class XcodeRuleConfiguration {
 
   public static class Layer {
     private final LayerType layerType;
-    @Nullable private final Path path;
-    @Nullable private final ImmutableMap<String, String> inlineSettings;
+    private final Optional<SourcePath> sourcePath;
+    private final Optional<ImmutableMap<String, String>> inlineSettings;
 
-    public Layer(Path path) {
+    public Layer(SourcePath path) {
       this.layerType = LayerType.FILE;
-      this.path = Preconditions.checkNotNull(path);
-      this.inlineSettings = null;
+      this.sourcePath = Optional.of(Preconditions.checkNotNull(path));
+      this.inlineSettings = Optional.absent();
     }
 
     public Layer(ImmutableMap<String, String> inlineSettings) {
       this.layerType = LayerType.INLINE_SETTINGS;
-      this.path = null;
-      this.inlineSettings = Preconditions.checkNotNull(inlineSettings);
+      this.sourcePath = Optional.absent();
+      this.inlineSettings = Optional.of(Preconditions.checkNotNull(inlineSettings));
     }
 
     public LayerType getLayerType() {
       return layerType;
     }
 
-    public Optional<Path> getPath() {
-      return layerType == LayerType.FILE ? Optional.of(path) : Optional.<Path>absent();
+    public Optional<SourcePath> getSourcePath() {
+      return sourcePath;
     }
 
     public Optional<ImmutableMap<String, String>> getInlineSettings() {
-      return layerType == LayerType.INLINE_SETTINGS
-          ? Optional.of(inlineSettings)
-          : Optional.<ImmutableMap<String, String>>absent();
+      return inlineSettings;
     }
 
     @Override
@@ -147,13 +135,13 @@ public class XcodeRuleConfiguration {
 
       Layer that = (Layer) o;
       return Objects.equals(this.layerType, that.layerType) &&
-          Objects.equals(this.path, that.path) &&
+          Objects.equals(this.sourcePath, that.sourcePath) &&
           Objects.equals(this.inlineSettings, that.inlineSettings);
     }
 
     @Override
     public int hashCode() {
-      return Objects.hash(layerType, path, inlineSettings);
+      return Objects.hash(layerType, sourcePath, inlineSettings);
     }
   }
 }

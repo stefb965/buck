@@ -26,8 +26,8 @@ import static org.junit.Assert.assertThat;
 import com.facebook.buck.apple.AppleBundleDescription;
 import com.facebook.buck.apple.AppleBundleExtension;
 import com.facebook.buck.apple.AppleLibraryDescription;
-import com.facebook.buck.apple.AppleTestDescription;
 import com.facebook.buck.apple.AppleNativeTargetDescriptionArg;
+import com.facebook.buck.apple.AppleTestDescription;
 import com.facebook.buck.apple.SchemeActionType;
 import com.facebook.buck.apple.XcodeNativeDescription;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXFileReference;
@@ -43,6 +43,7 @@ import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TestSourcePath;
+import com.facebook.buck.rules.coercer.AppleSource;
 import com.facebook.buck.rules.coercer.Either;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.timing.SettableFakeClock;
@@ -95,47 +96,60 @@ public class SchemeGeneratorTest {
 
   @Test
   public void schemeWithMultipleTargetsBuildsInCorrectOrder() throws Exception {
+    BuildRuleResolver resolver = new BuildRuleResolver();
+
     BuildRule rootRule = createBuildRuleWithDefaults(
         BuildTarget.builder("//foo", "root").build(),
         ImmutableSortedSet.<BuildRule>of(),
-        appleLibraryDescription);
+        appleLibraryDescription,
+        resolver);
+    resolver.addToIndex(rootRule);
+
     BuildRule leftRule = createBuildRuleWithDefaults(
         BuildTarget.builder("//foo", "left").build(),
         ImmutableSortedSet.of(rootRule),
-        appleLibraryDescription);
+        appleLibraryDescription,
+        resolver);
+    resolver.addToIndex(leftRule);
+
     BuildRule rightRule = createBuildRuleWithDefaults(
         BuildTarget.builder("//foo", "right").build(),
         ImmutableSortedSet.of(rootRule),
-        appleLibraryDescription);
+        appleLibraryDescription,
+        resolver);
+    resolver.addToIndex(rightRule);
+
     BuildRule childRule = createBuildRuleWithDefaults(
         BuildTarget.builder("//foo", "child").build(),
         ImmutableSortedSet.of(leftRule, rightRule),
-        appleLibraryDescription);
+        appleLibraryDescription,
+        resolver);
+    resolver.addToIndex(childRule);
 
     ImmutableMap.Builder<BuildRule, PBXTarget> buildRuleToTargetMapBuilder =
       ImmutableMap.builder();
     ImmutableMap.Builder<PBXTarget, Path> targetToProjectPathMapBuilder =
       ImmutableMap.builder();
 
-    PBXTarget rootTarget = new PBXNativeTarget("rootRule");
+    PBXTarget rootTarget = new PBXNativeTarget("rootRule", PBXTarget.ProductType.STATIC_LIBRARY);
     rootTarget.setGlobalID("rootGID");
     rootTarget.setProductReference(
         new PBXFileReference(
             "root.a", "root.a", PBXReference.SourceTree.BUILT_PRODUCTS_DIR));
     buildRuleToTargetMapBuilder.put(rootRule, rootTarget);
-    PBXTarget leftTarget = new PBXNativeTarget("leftRule");
+    PBXTarget leftTarget = new PBXNativeTarget("leftRule", PBXTarget.ProductType.STATIC_LIBRARY);
     leftTarget.setGlobalID("leftGID");
     leftTarget.setProductReference(
         new PBXFileReference(
             "left.a", "left.a", PBXReference.SourceTree.BUILT_PRODUCTS_DIR));
     buildRuleToTargetMapBuilder.put(leftRule, leftTarget);
-    PBXTarget rightTarget = new PBXNativeTarget("rightRule");
+    PBXTarget rightTarget = new PBXNativeTarget("rightRule", PBXTarget.ProductType.STATIC_LIBRARY);
     rightTarget.setGlobalID("rightGID");
     rightTarget.setProductReference(
         new PBXFileReference(
             "right.a", "right.a", PBXReference.SourceTree.BUILT_PRODUCTS_DIR));
     buildRuleToTargetMapBuilder.put(rightRule, rightTarget);
-    PBXTarget childTarget = new PBXNativeTarget("childRule");
+    PBXTarget childTarget = new PBXNativeTarget("childRule", PBXTarget.ProductType.STATIC_LIBRARY);
     childTarget.setGlobalID("childGID");
     childTarget.setProductReference(
         new PBXFileReference(
@@ -150,7 +164,7 @@ public class SchemeGeneratorTest {
 
     SchemeGenerator schemeGenerator = new SchemeGenerator(
         projectFilesystem,
-        childRule,
+        Optional.of(childRule),
         ImmutableSet.of(rootRule, leftRule, rightRule, childRule),
         ImmutableSet.<BuildRule>of(),
         ImmutableSet.<BuildRule>of(),
@@ -189,14 +203,17 @@ public class SchemeGeneratorTest {
 
   @Test(expected = HumanReadableException.class)
   public void schemeWithTargetWithoutCorrespondingProjectsFails() throws Exception {
+    BuildRuleResolver resolver = new BuildRuleResolver();
+
     BuildRule rootRule = createBuildRuleWithDefaults(
         BuildTarget.builder("//foo", "root").build(),
         ImmutableSortedSet.<BuildRule>of(),
-        appleLibraryDescription);
+        appleLibraryDescription,
+        resolver);
 
     SchemeGenerator schemeGenerator = new SchemeGenerator(
         projectFilesystem,
-        rootRule,
+        Optional.of(rootRule),
         ImmutableSet.<BuildRule>of(rootRule),
         ImmutableSet.<BuildRule>of(),
         ImmutableSet.<BuildRule>of(),
@@ -211,27 +228,35 @@ public class SchemeGeneratorTest {
 
   @Test
   public void schemeIncludesXcodeNativeTargets() throws Exception {
+    BuildRuleResolver resolver = new BuildRuleResolver();
+
     BuildRule xcodeNativeRule = createBuildRuleWithDefaults(
         BuildTarget.builder("//foo", "xcode-native").build(),
         ImmutableSortedSet.<BuildRule>of(),
-        xcodeNativeDescription);
+        xcodeNativeDescription,
+        resolver);
+    resolver.addToIndex(xcodeNativeRule);
+
     BuildRule rootRule = createBuildRuleWithDefaults(
         BuildTarget.builder("//foo", "root").build(),
         ImmutableSortedSet.of(xcodeNativeRule),
-        appleLibraryDescription);
+        appleLibraryDescription,
+        resolver);
+    resolver.addToIndex(rootRule);
 
     ImmutableMap.Builder<BuildRule, PBXTarget> buildRuleToTargetMapBuilder =
       ImmutableMap.builder();
     ImmutableMap.Builder<PBXTarget, Path> targetToProjectPathMapBuilder =
       ImmutableMap.builder();
 
-    PBXTarget rootTarget = new PBXNativeTarget("root");
+    PBXTarget rootTarget = new PBXNativeTarget("root", PBXTarget.ProductType.STATIC_LIBRARY);
     rootTarget.setGlobalID("rootGID");
     rootTarget.setProductReference(
         new PBXFileReference(
             "root.a", "root.a", PBXReference.SourceTree.BUILT_PRODUCTS_DIR));
     buildRuleToTargetMapBuilder.put(rootRule, rootTarget);
-    PBXTarget xcodeNativeTarget = new PBXNativeTarget("xcode-native");
+    PBXTarget xcodeNativeTarget =
+        new PBXNativeTarget("xcode-native", PBXTarget.ProductType.STATIC_LIBRARY);
     xcodeNativeTarget.setGlobalID("xcode-nativeGID");
     xcodeNativeTarget.setProductReference(
         new PBXFileReference(
@@ -246,7 +271,7 @@ public class SchemeGeneratorTest {
 
     SchemeGenerator schemeGenerator = new SchemeGenerator(
         projectFilesystem,
-        rootRule,
+        Optional.of(rootRule),
         ImmutableSet.<BuildRule>of(xcodeNativeRule, rootRule),
         ImmutableSet.<BuildRule>of(),
         ImmutableSet.<BuildRule>of(),
@@ -283,21 +308,25 @@ public class SchemeGeneratorTest {
 
   @Test
   public void schemeBuildsAndTestsAppleTestTargets() throws Exception {
+    BuildRuleResolver resolver = new BuildRuleResolver();
     BuildRuleParams testDepParams =
         new FakeBuildRuleParamsBuilder(BuildTarget.builder("//foo", "testDep").build())
             .setType(AppleLibraryDescription.TYPE)
             .build();
     AppleNativeTargetDescriptionArg testDepArg =
         appleLibraryDescription.createUnpopulatedConstructorArg();
-    testDepArg.configs = ImmutableMap.of();
-    testDepArg.srcs = ImmutableList.of();
-    testDepArg.frameworks = ImmutableSortedSet.of();
+    testDepArg.configs = Optional.of(
+        ImmutableMap.<String, ImmutableList<Either<SourcePath, ImmutableMap<String, String>>>>of());
+    testDepArg.srcs = Optional.of(ImmutableList.<AppleSource>of());
+    testDepArg.frameworks = Optional.of(ImmutableSortedSet.<String>of());
+    testDepArg.weakFrameworks = Optional.of(ImmutableSortedSet.<String>of());
     testDepArg.deps = Optional.absent();
     testDepArg.gid = Optional.absent();
     testDepArg.headerPathPrefix = Optional.absent();
     testDepArg.useBuckHeaderMaps = Optional.absent();
     BuildRule testDepRule =
-        appleLibraryDescription.createBuildRule(testDepParams, new BuildRuleResolver(), testDepArg);
+        appleLibraryDescription.createBuildRule(testDepParams, resolver, testDepArg);
+    resolver.addToIndex(testDepRule);
 
     BuildRuleParams libraryParams =
         new FakeBuildRuleParamsBuilder(BuildTarget.builder("//foo", "lib").build())
@@ -305,15 +334,18 @@ public class SchemeGeneratorTest {
             .build();
     AppleNativeTargetDescriptionArg libraryArg =
         appleLibraryDescription.createUnpopulatedConstructorArg();
-    libraryArg.configs = ImmutableMap.of();
-    libraryArg.srcs = ImmutableList.of();
-    libraryArg.frameworks = ImmutableSortedSet.of();
-    libraryArg.deps = Optional.of(ImmutableSortedSet.of(testDepRule));
+    libraryArg.configs = Optional.of(
+        ImmutableMap.<String, ImmutableList<Either<SourcePath, ImmutableMap<String, String>>>>of());
+    libraryArg.srcs = Optional.of(ImmutableList.<AppleSource>of());
+    libraryArg.frameworks = Optional.of(ImmutableSortedSet.<String>of());
+    libraryArg.weakFrameworks = Optional.of(ImmutableSortedSet.<String>of());
+    libraryArg.deps = Optional.of(ImmutableSortedSet.of(testDepRule.getBuildTarget()));
     libraryArg.gid = Optional.absent();
     libraryArg.headerPathPrefix = Optional.absent();
     libraryArg.useBuckHeaderMaps = Optional.absent();
     BuildRule libraryRule =
-        appleLibraryDescription.createBuildRule(libraryParams, new BuildRuleResolver(), libraryArg);
+        appleLibraryDescription.createBuildRule(libraryParams, resolver, libraryArg);
+    resolver.addToIndex(libraryRule);
 
     BuildRuleParams xctestParams =
         new FakeBuildRuleParamsBuilder(BuildTarget.builder("//foo", "xctest").build())
@@ -324,14 +356,13 @@ public class SchemeGeneratorTest {
     AppleBundleDescription.Arg xctestArg =
         appleBundleDescription.createUnpopulatedConstructorArg();
     xctestArg.infoPlist = Optional.<SourcePath>of(new TestSourcePath("Info.plist"));
-    xctestArg.binary = libraryRule;
+    xctestArg.binary = libraryRule.getBuildTarget();
     xctestArg.extension = Either.ofLeft(AppleBundleExtension.XCTEST);
     xctestArg.deps = Optional.absent();
 
-    BuildRule xctestRule = appleBundleDescription.createBuildRule(
-        xctestParams,
-        new BuildRuleResolver(),
-        xctestArg);
+    BuildRule xctestRule =
+        appleBundleDescription.createBuildRule(xctestParams, resolver, xctestArg);
+    resolver.addToIndex(xctestRule);
 
     BuildRuleParams params =
         new FakeBuildRuleParamsBuilder(BuildTarget.builder("//foo", "test").build())
@@ -341,49 +372,49 @@ public class SchemeGeneratorTest {
 
     AppleTestDescription.Arg arg =
         appleTestDescription.createUnpopulatedConstructorArg();
-    arg.testBundle = xctestRule;
+    arg.testBundle = xctestRule.getBuildTarget();
     arg.contacts = Optional.of(ImmutableSortedSet.<String>of());
     arg.labels = Optional.of(ImmutableSortedSet.<Label>of());
-    arg.deps = Optional.of(ImmutableSortedSet.of(xctestRule));
-    arg.sourceUnderTest = Optional.of(ImmutableSortedSet.<BuildRule>of());
+    arg.deps = Optional.of(ImmutableSortedSet.of(xctestRule.getBuildTarget()));
+    arg.sourceUnderTest = Optional.of(ImmutableSortedSet.<BuildTarget>of());
 
-    BuildRule testRule = appleTestDescription.createBuildRule(
-        params,
-        new BuildRuleResolver(),
-        arg);
+    BuildRule testRule = appleTestDescription.createBuildRule(params, resolver, arg);
+    resolver.addToIndex(testRule);
 
     BuildRule rootRule = createBuildRuleWithDefaults(
         BuildTarget.builder("//foo", "root").build(),
         ImmutableSortedSet.<BuildRule>of(),
-        appleLibraryDescription);
+        appleLibraryDescription,
+        resolver);
 
     ImmutableMap.Builder<BuildRule, PBXTarget> buildRuleToTargetMapBuilder =
         ImmutableMap.builder();
     ImmutableMap.Builder<PBXTarget, Path> targetToProjectPathMapBuilder =
         ImmutableMap.builder();
 
-    PBXTarget testDepTarget = new PBXNativeTarget("testDep");
+    PBXTarget testDepTarget = new PBXNativeTarget("testDep", PBXTarget.ProductType.STATIC_LIBRARY);
     testDepTarget.setGlobalID("testDepGID");
     testDepTarget.setProductReference(
         new PBXFileReference(
             "libDep.a", "libDep.a", PBXReference.SourceTree.BUILT_PRODUCTS_DIR));
     buildRuleToTargetMapBuilder.put(testDepRule, testDepTarget);
 
-    PBXTarget testLibraryTarget = new PBXNativeTarget("testLibrary");
+    PBXTarget testLibraryTarget =
+        new PBXNativeTarget("testLibrary", PBXTarget.ProductType.STATIC_LIBRARY);
     testLibraryTarget.setGlobalID("testLibraryGID");
     testLibraryTarget.setProductReference(
         new PBXFileReference(
             "lib.a", "lib.a", PBXReference.SourceTree.BUILT_PRODUCTS_DIR));
     buildRuleToTargetMapBuilder.put(libraryRule, testLibraryTarget);
 
-    PBXTarget testTarget = new PBXNativeTarget("test");
+    PBXTarget testTarget = new PBXNativeTarget("test", PBXTarget.ProductType.UNIT_TEST);
     testTarget.setGlobalID("testGID");
     testTarget.setProductReference(
         new PBXFileReference(
             "test.xctest", "test.xctest", PBXReference.SourceTree.BUILT_PRODUCTS_DIR));
     buildRuleToTargetMapBuilder.put(testRule, testTarget);
 
-    PBXTarget rootTarget = new PBXNativeTarget("root");
+    PBXTarget rootTarget = new PBXNativeTarget("root", PBXTarget.ProductType.STATIC_LIBRARY);
     rootTarget.setGlobalID("rootGID");
     rootTarget.setProductReference(
         new PBXFileReference(
@@ -398,7 +429,7 @@ public class SchemeGeneratorTest {
 
     SchemeGenerator schemeGenerator = new SchemeGenerator(
         projectFilesystem,
-        rootRule,
+        Optional.of(rootRule),
         ImmutableSet.of(rootRule),
         ImmutableSet.of(testDepRule, testRule),
         ImmutableSet.of(testRule),
@@ -447,10 +478,13 @@ public class SchemeGeneratorTest {
 
   @Test
   public void schemeIncludesAllExpectedActions() throws Exception {
+    BuildRuleResolver resolver = new BuildRuleResolver();
     BuildRule rootRule = createBuildRuleWithDefaults(
         BuildTarget.builder("//foo", "root").build(),
         ImmutableSortedSet.<BuildRule>of(),
-        appleLibraryDescription);
+        appleLibraryDescription,
+        resolver);
+    resolver.addToIndex(rootRule);
 
     BuildRuleParams libraryParams =
         new FakeBuildRuleParamsBuilder(BuildTarget.builder("//foo", "lib").build())
@@ -458,15 +492,18 @@ public class SchemeGeneratorTest {
             .build();
     AppleNativeTargetDescriptionArg libraryArg =
         appleLibraryDescription.createUnpopulatedConstructorArg();
-    libraryArg.configs = ImmutableMap.of();
-    libraryArg.srcs = ImmutableList.of();
-    libraryArg.frameworks = ImmutableSortedSet.of();
+    libraryArg.configs = Optional.of(
+        ImmutableMap.<String, ImmutableList<Either<SourcePath, ImmutableMap<String, String>>>>of());
+    libraryArg.srcs = Optional.of(ImmutableList.<AppleSource>of());
+    libraryArg.frameworks = Optional.of(ImmutableSortedSet.<String>of());
+    libraryArg.weakFrameworks = Optional.of(ImmutableSortedSet.<String>of());
     libraryArg.deps = Optional.absent();
     libraryArg.gid = Optional.absent();
     libraryArg.headerPathPrefix = Optional.absent();
     libraryArg.useBuckHeaderMaps = Optional.absent();
     BuildRule libraryRule =
-        appleLibraryDescription.createBuildRule(libraryParams, new BuildRuleResolver(), libraryArg);
+        appleLibraryDescription.createBuildRule(libraryParams, resolver, libraryArg);
+    resolver.addToIndex(libraryRule);
 
     BuildRuleParams xctestParams =
         new FakeBuildRuleParamsBuilder(BuildTarget.builder("//foo", "xctest").build())
@@ -477,14 +514,13 @@ public class SchemeGeneratorTest {
     AppleBundleDescription.Arg xctestArg =
         appleBundleDescription.createUnpopulatedConstructorArg();
     xctestArg.infoPlist = Optional.<SourcePath>of(new TestSourcePath("Info.plist"));
-    xctestArg.binary = libraryRule;
+    xctestArg.binary = libraryRule.getBuildTarget();
     xctestArg.extension = Either.ofLeft(AppleBundleExtension.XCTEST);
     xctestArg.deps = Optional.absent();
 
-    BuildRule xctestRule = appleBundleDescription.createBuildRule(
-        xctestParams,
-        new BuildRuleResolver(),
-        xctestArg);
+    BuildRule xctestRule =
+        appleBundleDescription.createBuildRule(xctestParams, resolver, xctestArg);
+    resolver.addToIndex(xctestRule);
 
     BuildRuleParams params =
         new FakeBuildRuleParamsBuilder(BuildTarget.builder("//foo", "test").build())
@@ -494,39 +530,40 @@ public class SchemeGeneratorTest {
 
     AppleTestDescription.Arg arg =
         appleTestDescription.createUnpopulatedConstructorArg();
-    arg.testBundle = xctestRule;
+    arg.testBundle = xctestRule.getBuildTarget();
     arg.contacts = Optional.of(ImmutableSortedSet.<String>of());
     arg.labels = Optional.of(ImmutableSortedSet.<Label>of());
-    arg.deps = Optional.of(ImmutableSortedSet.of(xctestRule));
-    arg.sourceUnderTest = Optional.of(ImmutableSortedSet.<BuildRule>of(rootRule));
+    arg.deps = Optional.of(ImmutableSortedSet.of(xctestRule.getBuildTarget()));
+    arg.sourceUnderTest = Optional.of(ImmutableSortedSet.of(rootRule.getBuildTarget()));
 
-    BuildRule testRule = appleTestDescription.createBuildRule(
-        params,
-        new BuildRuleResolver(),
-        arg);
+    BuildRule testRule = appleTestDescription.createBuildRule(params, resolver, arg);
+    resolver.addToIndex(testRule);
 
     ImmutableMap.Builder<BuildRule, PBXTarget> buildRuleToTargetMapBuilder =
       ImmutableMap.builder();
     ImmutableMap.Builder<PBXTarget, Path> targetToProjectPathMapBuilder =
       ImmutableMap.builder();
 
-    PBXTarget rootTarget = new PBXNativeTarget("rootRule");
+    PBXTarget rootTarget = new PBXNativeTarget("rootRule", PBXTarget.ProductType.STATIC_LIBRARY);
     rootTarget.setGlobalID("rootGID");
     rootTarget.setProductReference(
         new PBXFileReference(
             "root.a", "root.a", PBXReference.SourceTree.BUILT_PRODUCTS_DIR));
     buildRuleToTargetMapBuilder.put(rootRule, rootTarget);
-    PBXTarget testTarget = new PBXNativeTarget("testRule");
+    PBXTarget testTarget = new PBXNativeTarget("testRule", PBXTarget.ProductType.STATIC_LIBRARY);
     testTarget.setGlobalID("testGID");
     testTarget.setProductReference(
         new PBXFileReference(
             "test.a", "test.a", PBXReference.SourceTree.BUILT_PRODUCTS_DIR));
     buildRuleToTargetMapBuilder.put(testRule, testTarget);
-    PBXTarget testBundleTarget = new PBXNativeTarget("testBundleRule");
+    PBXTarget testBundleTarget =
+        new PBXNativeTarget("testBundleRule", PBXTarget.ProductType.UNIT_TEST);
     testBundleTarget.setGlobalID("testBundleGID");
     testBundleTarget.setProductReference(
         new PBXFileReference(
-            "test.xctest", "test.xctest", PBXReference.SourceTree.BUILT_PRODUCTS_DIR));
+            "test.xctest",
+            "test.xctest",
+            PBXReference.SourceTree.BUILT_PRODUCTS_DIR));
     buildRuleToTargetMapBuilder.put(xctestRule, testBundleTarget);
 
     Path pbxprojectPath = Paths.get("foo/Foo.xcodeproj/project.pbxproj");
@@ -536,7 +573,7 @@ public class SchemeGeneratorTest {
 
     SchemeGenerator schemeGenerator = new SchemeGenerator(
         projectFilesystem,
-        rootRule,
+        Optional.of(rootRule),
         ImmutableSet.of(rootRule),
         ImmutableSet.of(xctestRule),
         ImmutableSet.of(xctestRule),
@@ -595,17 +632,21 @@ public class SchemeGeneratorTest {
 
   @Test
   public void buildableReferenceShouldHaveExpectedProperties() throws Exception {
+    BuildRuleResolver resolver = new BuildRuleResolver();
+
     BuildRule rootRule = createBuildRuleWithDefaults(
         BuildTarget.builder("//foo", "root").build(),
         ImmutableSortedSet.<BuildRule>of(),
-        appleLibraryDescription);
+        appleLibraryDescription,
+        resolver);
+    resolver.addToIndex(rootRule);
 
     ImmutableMap.Builder<BuildRule, PBXTarget> buildRuleToTargetMapBuilder =
       ImmutableMap.builder();
     ImmutableMap.Builder<PBXTarget, Path> targetToProjectPathMapBuilder =
       ImmutableMap.builder();
 
-    PBXTarget rootTarget = new PBXNativeTarget("rootRule");
+    PBXTarget rootTarget = new PBXNativeTarget("rootRule", PBXTarget.ProductType.STATIC_LIBRARY);
     rootTarget.setGlobalID("rootGID");
     rootTarget.setProductReference(
         new PBXFileReference(
@@ -617,7 +658,7 @@ public class SchemeGeneratorTest {
 
     SchemeGenerator schemeGenerator = new SchemeGenerator(
         projectFilesystem,
-        rootRule,
+        Optional.of(rootRule),
         ImmutableSet.of(rootRule),
         ImmutableSet.<BuildRule>of(),
         ImmutableSet.<BuildRule>of(),
@@ -656,17 +697,21 @@ public class SchemeGeneratorTest {
 
   @Test
   public void allActionsShouldBePresentInSchemeWithDefaultBuildConfigurations() throws Exception {
+    BuildRuleResolver resolver = new BuildRuleResolver();
+
     BuildRule rootRule = createBuildRuleWithDefaults(
         BuildTarget.builder("//foo", "root").build(),
         ImmutableSortedSet.<BuildRule>of(),
-        appleLibraryDescription);
+        appleLibraryDescription,
+        resolver);
+    resolver.addToIndex(rootRule);
 
     ImmutableMap.Builder<BuildRule, PBXTarget> buildRuleToTargetMapBuilder =
       ImmutableMap.builder();
     ImmutableMap.Builder<PBXTarget, Path> targetToProjectPathMapBuilder =
       ImmutableMap.builder();
 
-    PBXTarget rootTarget = new PBXNativeTarget("rootRule");
+    PBXTarget rootTarget = new PBXNativeTarget("rootRule", PBXTarget.ProductType.STATIC_LIBRARY);
     rootTarget.setGlobalID("rootGID");
     rootTarget.setProductReference(
         new PBXFileReference(
@@ -678,7 +723,7 @@ public class SchemeGeneratorTest {
 
     SchemeGenerator schemeGenerator = new SchemeGenerator(
         projectFilesystem,
-        rootRule,
+        Optional.of(rootRule),
         ImmutableSet.of(rootRule),
         ImmutableSet.<BuildRule>of(),
         ImmutableSet.<BuildRule>of(),
@@ -742,18 +787,21 @@ public class SchemeGeneratorTest {
 
   @Test
   public void schemeIsRewrittenIfContentsHaveChanged() throws IOException {
+    BuildRuleResolver resolver = new BuildRuleResolver();
+
     {
       BuildRule rootRule = createBuildRuleWithDefaults(
           BuildTarget.builder("//foo", "root").build(),
           ImmutableSortedSet.<BuildRule>of(),
-          appleLibraryDescription);
+          appleLibraryDescription, resolver);
+      resolver.addToIndex(rootRule);
 
       ImmutableMap.Builder<BuildRule, PBXTarget> buildRuleToTargetMapBuilder =
         ImmutableMap.builder();
       ImmutableMap.Builder<PBXTarget, Path> targetToProjectPathMapBuilder =
         ImmutableMap.builder();
 
-      PBXTarget rootTarget = new PBXNativeTarget("rootRule");
+      PBXTarget rootTarget = new PBXNativeTarget("rootRule", PBXTarget.ProductType.STATIC_LIBRARY);
       rootTarget.setGlobalID("rootGID");
       rootTarget.setProductReference(
           new PBXFileReference(
@@ -766,7 +814,7 @@ public class SchemeGeneratorTest {
       clock.setCurrentTimeMillis(49152);
       SchemeGenerator schemeGenerator = new SchemeGenerator(
           projectFilesystem,
-          rootRule,
+          Optional.of(rootRule),
           ImmutableSet.of(rootRule),
           ImmutableSet.<BuildRule>of(),
           ImmutableSet.<BuildRule>of(),
@@ -784,9 +832,11 @@ public class SchemeGeneratorTest {
       BuildRule rootRule = createBuildRuleWithDefaults(
           BuildTarget.builder("//foo", "root2").build(),
           ImmutableSortedSet.<BuildRule>of(),
-          appleLibraryDescription);
+          appleLibraryDescription,
+          resolver);
+      resolver.addToIndex(rootRule);
 
-      PBXTarget rootTarget = new PBXNativeTarget("rootRule2");
+      PBXTarget rootTarget = new PBXNativeTarget("rootRule2", PBXTarget.ProductType.STATIC_LIBRARY);
       rootTarget.setGlobalID("root2GID");
       rootTarget.setProductReference(
           new PBXFileReference(
@@ -797,7 +847,7 @@ public class SchemeGeneratorTest {
       clock.setCurrentTimeMillis(64738);
       SchemeGenerator schemeGenerator = new SchemeGenerator(
           projectFilesystem,
-          rootRule,
+          Optional.of(rootRule),
           ImmutableSet.of(rootRule),
           ImmutableSet.<BuildRule>of(),
           ImmutableSet.<BuildRule>of(),
@@ -814,13 +864,17 @@ public class SchemeGeneratorTest {
 
   @Test
   public void schemeIsNotRewrittenIfContentsHaveNotChanged() throws IOException {
+    BuildRuleResolver resolver = new BuildRuleResolver();
+
     {
       BuildRule rootRule = createBuildRuleWithDefaults(
-          BuildTarget.builder("//foo", "root").build(),
+          BuildTarget.builder("//foo", "root1").build(),
           ImmutableSortedSet.<BuildRule>of(),
-          appleLibraryDescription);
+          appleLibraryDescription,
+          resolver);
+      resolver.addToIndex(rootRule);
 
-      PBXTarget rootTarget = new PBXNativeTarget("rootRule");
+      PBXTarget rootTarget = new PBXNativeTarget("rootRule", PBXTarget.ProductType.STATIC_LIBRARY);
       rootTarget.setGlobalID("rootGID");
       rootTarget.setProductReference(
           new PBXFileReference(
@@ -831,7 +885,7 @@ public class SchemeGeneratorTest {
       clock.setCurrentTimeMillis(49152);
       SchemeGenerator schemeGenerator = new SchemeGenerator(
           projectFilesystem,
-          rootRule,
+          Optional.of(rootRule),
           ImmutableSet.of(rootRule),
           ImmutableSet.<BuildRule>of(),
           ImmutableSet.<BuildRule>of(),
@@ -847,11 +901,13 @@ public class SchemeGeneratorTest {
 
     {
       BuildRule rootRule = createBuildRuleWithDefaults(
-          BuildTarget.builder("//foo", "root").build(),
+          BuildTarget.builder("//foo", "root2").build(),
           ImmutableSortedSet.<BuildRule>of(),
-          appleLibraryDescription);
+          appleLibraryDescription,
+          resolver);
+      resolver.addToIndex(rootRule);
 
-      PBXTarget rootTarget = new PBXNativeTarget("rootRule");
+      PBXTarget rootTarget = new PBXNativeTarget("rootRule", PBXTarget.ProductType.STATIC_LIBRARY);
       rootTarget.setGlobalID("rootGID");
       rootTarget.setProductReference(
           new PBXFileReference(
@@ -862,7 +918,7 @@ public class SchemeGeneratorTest {
       clock.setCurrentTimeMillis(64738);
       SchemeGenerator schemeGenerator = new SchemeGenerator(
           projectFilesystem,
-          rootRule,
+          Optional.of(rootRule),
           ImmutableSet.of(rootRule),
           ImmutableSet.<BuildRule>of(),
           ImmutableSet.<BuildRule>of(),
@@ -874,5 +930,180 @@ public class SchemeGeneratorTest {
       Path schemePath = schemeGenerator.writeScheme();
       assertThat(projectFilesystem.getLastModifiedTime(schemePath), equalTo(49152L));
     }
+  }
+
+  @Test
+  public void schemeWithNoPrimaryRuleCanIncludeTests() throws Exception{
+    BuildRuleResolver resolver = new BuildRuleResolver();
+    BuildRuleParams libraryParams =
+        new FakeBuildRuleParamsBuilder(BuildTarget.builder("//foo", "lib").build())
+            .setType(AppleLibraryDescription.TYPE)
+            .build();
+    AppleNativeTargetDescriptionArg libraryArg =
+        appleLibraryDescription.createUnpopulatedConstructorArg();
+    libraryArg.configs = Optional.of(
+        ImmutableMap.<String, ImmutableList<Either<SourcePath, ImmutableMap<String, String>>>>of());
+    libraryArg.srcs = Optional.of(ImmutableList.<AppleSource>of());
+    libraryArg.frameworks = Optional.of(ImmutableSortedSet.<String>of());
+    libraryArg.weakFrameworks = Optional.of(ImmutableSortedSet.<String>of());
+    libraryArg.deps = Optional.absent();
+    libraryArg.gid = Optional.absent();
+    libraryArg.headerPathPrefix = Optional.absent();
+    libraryArg.useBuckHeaderMaps = Optional.absent();
+    BuildRule libraryRule =
+        appleLibraryDescription.createBuildRule(libraryParams, resolver, libraryArg);
+    resolver.addToIndex(libraryRule);
+
+    BuildRuleParams xctestParams =
+        new FakeBuildRuleParamsBuilder(BuildTarget.builder("//foo", "xctest").build())
+            .setDeps(ImmutableSortedSet.of(libraryRule))
+            .setType(AppleBundleDescription.TYPE)
+            .build();
+
+    AppleBundleDescription.Arg xctestArg =
+        appleBundleDescription.createUnpopulatedConstructorArg();
+    xctestArg.infoPlist = Optional.<SourcePath>of(new TestSourcePath("Info.plist"));
+    xctestArg.binary = libraryRule.getBuildTarget();
+    xctestArg.extension = Either.ofLeft(AppleBundleExtension.XCTEST);
+    xctestArg.deps = Optional.absent();
+
+    BuildRule xctestRule =
+        appleBundleDescription.createBuildRule(xctestParams, resolver, xctestArg);
+    resolver.addToIndex(xctestRule);
+
+    BuildRuleParams params =
+        new FakeBuildRuleParamsBuilder(BuildTarget.builder("//foo", "test").build())
+            .setDeps(ImmutableSortedSet.of(xctestRule))
+            .setType(AppleTestDescription.TYPE)
+            .build();
+
+    AppleTestDescription.Arg arg =
+        appleTestDescription.createUnpopulatedConstructorArg();
+    arg.testBundle = xctestRule.getBuildTarget();
+    arg.contacts = Optional.of(ImmutableSortedSet.<String>of());
+    arg.labels = Optional.of(ImmutableSortedSet.<Label>of());
+    arg.deps = Optional.of(ImmutableSortedSet.of(xctestRule.getBuildTarget()));
+    arg.sourceUnderTest = Optional.of(ImmutableSortedSet.of(libraryRule.getBuildTarget()));
+
+    BuildRule testRule = appleTestDescription.createBuildRule(params, resolver, arg);
+    resolver.addToIndex(testRule);
+
+    ImmutableMap.Builder<BuildRule, PBXTarget> buildRuleToTargetMapBuilder =
+      ImmutableMap.builder();
+    ImmutableMap.Builder<PBXTarget, Path> targetToProjectPathMapBuilder =
+      ImmutableMap.builder();
+
+    PBXTarget testLibraryTarget =
+        new PBXNativeTarget("testLibrary", PBXTarget.ProductType.STATIC_LIBRARY);
+    testLibraryTarget.setGlobalID("testLibraryGID");
+    testLibraryTarget.setProductReference(
+        new PBXFileReference(
+            "lib.a", "lib.a", PBXReference.SourceTree.BUILT_PRODUCTS_DIR));
+    buildRuleToTargetMapBuilder.put(libraryRule, testLibraryTarget);
+    PBXTarget testTarget = new PBXNativeTarget("testRule", PBXTarget.ProductType.STATIC_LIBRARY);
+    testTarget.setGlobalID("testGID");
+    testTarget.setProductReference(
+        new PBXFileReference(
+            "test.a", "test.a", PBXReference.SourceTree.BUILT_PRODUCTS_DIR));
+    buildRuleToTargetMapBuilder.put(testRule, testTarget);
+    PBXTarget testBundleTarget =
+        new PBXNativeTarget("testBundleRule", PBXTarget.ProductType.UNIT_TEST);
+    testBundleTarget.setGlobalID("testBundleGID");
+    testBundleTarget.setProductReference(
+        new PBXFileReference(
+            "test.xctest",
+            "test.xctest",
+            PBXReference.SourceTree.BUILT_PRODUCTS_DIR));
+    buildRuleToTargetMapBuilder.put(xctestRule, testBundleTarget);
+
+    Path pbxprojectPath = Paths.get("foo/Foo.xcodeproj/project.pbxproj");
+    targetToProjectPathMapBuilder.put(testLibraryTarget, pbxprojectPath);
+    targetToProjectPathMapBuilder.put(testTarget, pbxprojectPath);
+    targetToProjectPathMapBuilder.put(testBundleTarget, pbxprojectPath);
+
+    SchemeGenerator schemeGenerator = new SchemeGenerator(
+        projectFilesystem,
+        Optional.<BuildRule>absent(),
+        ImmutableSet.<BuildRule>of(),
+        ImmutableSet.of(xctestRule),
+        ImmutableSet.of(xctestRule),
+        "TestScheme",
+        Paths.get("_gen/Foo.xcworkspace/scshareddata/xcshemes"),
+        SchemeActionType.DEFAULT_CONFIG_NAMES,
+        buildRuleToTargetMapBuilder.build(),
+        targetToProjectPathMapBuilder.build());
+
+    Path schemePath = schemeGenerator.writeScheme();
+    String schemeXml = projectFilesystem.readFileIfItExists(schemePath).get();
+    System.out.println(schemeXml);
+
+    DocumentBuilderFactory dbFactory = DocumentBuilderFactory.newInstance();
+    DocumentBuilder dBuilder = dbFactory.newDocumentBuilder();
+    Document scheme = dBuilder.parse(projectFilesystem.newFileInputStream(schemePath));
+
+    XPathFactory xpathFactory = XPathFactory.newInstance();
+
+    XPath buildActionXpath = xpathFactory.newXPath();
+    XPathExpression buildActionExpr =
+        buildActionXpath.compile("//BuildAction//BuildableReference/@BlueprintIdentifier");
+    NodeList buildActionNodes = (NodeList) buildActionExpr.evaluate(scheme, XPathConstants.NODESET);
+
+    List<String> expectedOrdering = ImmutableList.of(
+        "testBundleGID");
+
+    List<String> actualOrdering = Lists.newArrayList();
+    for (int i = 0; i < buildActionNodes.getLength(); i++) {
+      actualOrdering.add(buildActionNodes.item(i).getNodeValue());
+    }
+    assertThat(actualOrdering, equalTo(expectedOrdering));
+
+    XPath testActionXpath = xpathFactory.newXPath();
+    XPathExpression testActionExpr =
+        testActionXpath.compile("//TestAction//BuildableReference/@BlueprintIdentifier");
+    String testActionBlueprintIdentifier =
+        (String) testActionExpr.evaluate(scheme, XPathConstants.STRING);
+    assertThat(testActionBlueprintIdentifier, equalTo("testBundleGID"));
+
+    XPath launchActionXpath = xpathFactory.newXPath();
+    XPathExpression launchActionExpr =
+        launchActionXpath.compile("//LaunchAction//BuildableReference/@BlueprintIdentifier");
+    String launchActionBlueprintIdentifier =
+        (String) launchActionExpr.evaluate(scheme, XPathConstants.STRING);
+    assertThat(launchActionBlueprintIdentifier, equalTo(""));
+
+    XPath launchActionBuildConfigurationXpath = xpathFactory.newXPath();
+    XPathExpression launchActionBuildConfigurationExpr =
+        launchActionBuildConfigurationXpath.compile("//LaunchAction//@buildConfiguration");
+    String launchActionBuildConfigurationBlueprintIdentifier =
+        (String) launchActionBuildConfigurationExpr.evaluate(scheme, XPathConstants.STRING);
+    assertThat(launchActionBuildConfigurationBlueprintIdentifier, equalTo("Debug"));
+
+    XPath profileActionXpath = xpathFactory.newXPath();
+    XPathExpression profileActionExpr =
+        profileActionXpath.compile("//ProfileAction//BuildableReference/@BlueprintIdentifier");
+    String profileActionBlueprintIdentifier =
+        (String) profileActionExpr.evaluate(scheme, XPathConstants.STRING);
+    assertThat(profileActionBlueprintIdentifier, equalTo(""));
+
+    XPath profileActionBuildConfigurationXpath = xpathFactory.newXPath();
+    XPathExpression profileActionBuildConfigurationExpr =
+        profileActionBuildConfigurationXpath.compile("//ProfileAction//@buildConfiguration");
+    String profileActionBuildConfigurationBlueprintIdentifier =
+        (String) profileActionBuildConfigurationExpr.evaluate(scheme, XPathConstants.STRING);
+    assertThat(profileActionBuildConfigurationBlueprintIdentifier, equalTo("Release"));
+
+    XPath analyzeActionBuildConfigurationXpath = xpathFactory.newXPath();
+    XPathExpression analyzeActionBuildConfigurationExpr =
+        analyzeActionBuildConfigurationXpath.compile("//AnalyzeAction//@buildConfiguration");
+    String analyzeActionBuildConfigurationBlueprintIdentifier =
+        (String) analyzeActionBuildConfigurationExpr.evaluate(scheme, XPathConstants.STRING);
+    assertThat(analyzeActionBuildConfigurationBlueprintIdentifier, equalTo("Debug"));
+
+    XPath archiveActionBuildConfigurationXpath = xpathFactory.newXPath();
+    XPathExpression archiveActionBuildConfigurationExpr =
+        archiveActionBuildConfigurationXpath.compile("//ArchiveAction//@buildConfiguration");
+    String archiveActionBuildConfigurationBlueprintIdentifier =
+        (String) archiveActionBuildConfigurationExpr.evaluate(scheme, XPathConstants.STRING);
+    assertThat(archiveActionBuildConfigurationBlueprintIdentifier, equalTo("Release"));
   }
 }

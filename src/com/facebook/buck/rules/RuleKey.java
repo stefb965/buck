@@ -285,12 +285,30 @@ public class RuleKey {
       return separate();
     }
 
-    private void setInputVal(Path input) {
+    private Builder setInputVal(Path input) {
       HashCode sha1 = hashCache.get(input);
       if (sha1 == null) {
         throw new RuntimeException("No SHA for " + input);
       }
-      setVal(sha1.toString());
+      return setVal(sha1.toString());
+    }
+
+    private Builder setInputVal(SourcePath path) {
+      Object ref = path.asReference();
+      if (ref instanceof BuildRule) {
+        return setVal(((BuildRule) ref).getRuleKey());
+      } else {
+        return setInputVal(path.resolve());
+      }
+    }
+
+    /**
+     * Hash the value of the given {@link SourcePath}, which is either the {@link RuleKey} in the
+     * case of a {@link BuildRuleSourcePath} or the hash of the contents in the case of a
+     * {@link PathSourcePath}.
+     */
+    public Builder setInput(String key, SourcePath input) {
+      return setKey(key).setInputVal(input).separate();
     }
 
     public Builder setSourcePaths(String key, @Nullable ImmutableSortedSet<SourcePath> val) {
@@ -423,6 +441,43 @@ public class RuleKey {
       public RuleKey getRuleKeyWithoutDeps() {
         return ruleKeyWithoutDeps;
       }
+
+      @Override
+      public boolean equals(Object o) {
+        if (this == o) {
+          return true;
+        }
+
+        if (!(o instanceof RuleKeyPair)) {
+          return false;
+        }
+
+        RuleKeyPair that = (RuleKeyPair) o;
+
+        if (!ruleKeyWithoutDeps.equals(that.ruleKeyWithoutDeps)) {
+          return false;
+        }
+
+        if (!totalRuleKey.equals(that.totalRuleKey)) {
+          return false;
+        }
+
+        return true;
+      }
+
+      @Override
+      public int hashCode() {
+        return Objects.hashCode(totalRuleKey, ruleKeyWithoutDeps);
+      }
+
+      @Override
+      public String toString() {
+        return Objects.toStringHelper(this.getClass())
+            .add("totalRuleKey", totalRuleKey)
+            .add("ruleKeyWithoutDeps", ruleKeyWithoutDeps)
+            .toString();
+      }
+
     }
 
     public RuleKeyPair build() {

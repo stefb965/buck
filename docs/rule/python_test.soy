@@ -5,6 +5,10 @@
   {call buck.page}
     {param title: 'python_test()' /}
     {param prettify: true /}
+    {param description}
+      A rule that is used to define a set of python files that contian tests
+      to run via the python unit testing framework.
+    {/param}
     {param content}
 
 {call buck.rule}
@@ -37,6 +41,16 @@ files that contain tests to run via the <a href="https://docs.python.org/2/libra
   {param desc}
   Static files to be packaged along with the python sources. These resources can be
   accessed at runtime using the <a href="https://pythonhosted.org/setuptools/pkg_resources.html">pkg_resources</a> API.
+  {/param}
+{/call}
+
+{call buck.arg}
+  {param name: 'base_module' /}
+  {param default : 'None' /}
+  {param desc}
+  The package for which the given specified sources and resources should reside in their final
+  location in the top-level binary. If unset, the project relative directory that houses the
+  BUCK file is used.
   {/param}
 {/call}
 

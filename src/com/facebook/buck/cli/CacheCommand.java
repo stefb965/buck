@@ -53,7 +53,8 @@ public class CacheCommand extends AbstractCommandRunner<CacheCommandOptions> {
     BuckConfig buckConfig = options.getBuckConfig();
     CassandraArtifactCache cassandra = buckConfig.createCassandraArtifactCache(
         Optional.<String>absent(),
-        getBuckEventBus());
+        getBuckEventBus(),
+        getCommandRunnerParams().getFileHashCache());
     if (cassandra == null) {
       console.printErrorText("No cassandra cache defined.");
       return 1;

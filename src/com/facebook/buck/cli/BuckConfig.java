@@ -21,7 +21,6 @@ import com.facebook.buck.event.ThrowableConsoleEvent;
 import com.facebook.buck.java.DefaultJavaPackageFinder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.BuildTargetParser;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.parser.ParseContext;
 import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.BuildDependencies;
@@ -32,6 +31,7 @@ import com.facebook.buck.rules.MultiArtifactCache;
 import com.facebook.buck.rules.NoopArtifactCache;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.BuckConstant;
+import com.facebook.buck.util.FileHashCache;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MorePaths;
 import com.facebook.buck.util.ProjectFilesystem;
@@ -45,12 +45,15 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Objects;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Predicate;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
+import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.io.CharStreams;
 import com.google.common.io.Files;
@@ -185,7 +188,7 @@ public class BuckConfig {
       throws IOException {
     Preconditions.checkNotNull(projectFilesystem);
     Preconditions.checkNotNull(files);
-    BuildTargetParser buildTargetParser = new BuildTargetParser(projectFilesystem);
+    BuildTargetParser buildTargetParser = new BuildTargetParser();
 
     if (Iterables.isEmpty(files)) {
       return new BuckConfig(
@@ -368,28 +371,54 @@ public class BuckConfig {
     }
 
     if (projectConfig.containsKey(ignoreKey)) {
-      builder.addAll(MorePaths.asPaths(
-          Splitter.on(',')
-            .omitEmptyStrings()
-            .trimResults()
-            .split(projectConfig.get(ignoreKey))));
+      builder.addAll(
+          Lists.transform(asListWithoutComments(projectConfig.get(ignoreKey)), MorePaths.TO_PATH));
     }
 
     // Normalize paths in order to eliminate trailing '/' characters and whatnot.
     return builder.build();
   }
 
+  /**
+   * ini4j leaves things that look like comments in the values of entries in the file. Generally,
+   * we don't want to include these in our parameters, so filter them out where necessary. In an INI
+   * file, the comment separator is ";", but some parsers (ini4j included) use "#" too. This method
+   * handles both cases.
+   *
+   * @return An {@link ImmutableList} containing all entries that don't look like comments, or the
+   *     empty list if there are no values of if {@code value} is null.
+   */
+  private ImmutableList<String> asListWithoutComments(@Nullable String value) {
+    if (value == null) {
+      return ImmutableList.of();
+    }
+
+    Iterable<String> allValues = Splitter.on(',')
+        .omitEmptyStrings()
+        .trimResults()
+        .split(value);
+    return FluentIterable.from(allValues)
+        .filter(
+            new Predicate<String>() {
+              @Override
+              public boolean apply(String input) {
+                // Reject if the first printable character is an ini comment char (';' or '#')
+                return !Pattern.compile("^\\s*[#;]").matcher(input).find();
+              }
+            })
+        .toList();
+  }
+
+  private ImmutableList<String> asListWithoutComments(Optional<String> value) {
+    return asListWithoutComments(value.orNull());
+  }
+
   public ImmutableSet<Pattern> getTempFilePatterns() {
     final ImmutableMap<String, String> projectConfig = getEntriesForSection("project");
     final String tempFilesKey = "temp_files";
     ImmutableSet.Builder<Pattern> builder = ImmutableSet.builder();
-    if (projectConfig.containsKey(tempFilesKey)) {
-      for (String regex : Splitter.on(',')
-          .omitEmptyStrings()
-          .trimResults()
-          .split(projectConfig.get(tempFilesKey))) {
-        builder.add(Pattern.compile(regex));
-      }
+    for (String regex : asListWithoutComments(projectConfig.get(tempFilesKey))) {
+      builder.add(Pattern.compile(regex));
     }
     return builder.build();
   }
@@ -405,9 +434,32 @@ public class BuckConfig {
     }
   }
 
-  public BuildTarget getBuildTargetForFullyQualifiedTarget(String target)
-      throws NoSuchBuildTargetException {
+  public BuildTarget getBuildTargetForFullyQualifiedTarget(String target) {
     return buildTargetParser.parse(target, ParseContext.fullyQualified());
+  }
+
+  /**
+   * @return the parsed BuildTarget in the given section and field, if set.
+   */
+  public Optional<BuildTarget> getBuildTarget(String section, String field) {
+    Optional<String> target = getValue(section, field);
+    return target.isPresent() ?
+        Optional.of(getBuildTargetForFullyQualifiedTarget(target.get())) :
+        Optional.<BuildTarget>absent();
+  }
+
+  /**
+   * @return the parsed BuildTarget in the given section and field.
+   */
+  public BuildTarget getRequiredBuildTarget(String section, String field) {
+    Optional<BuildTarget> target = getBuildTarget(section, field);
+    if (!target.isPresent()) {
+      throw new HumanReadableException(String.format(
+          ".buckconfig: %s:%s must be set",
+          section,
+          field));
+    }
+    return target.get();
   }
 
   /**
@@ -416,7 +468,8 @@ public class BuckConfig {
    * reflects the result of resolving all aliases as values in the {@code alias} section.
    */
   private static ImmutableMap<String, BuildTarget> createAliasToBuildTargetMap(
-      ImmutableMap<String, String> rawAliasMap, BuildTargetParser buildTargetParser) {
+      ImmutableMap<String, String> rawAliasMap,
+      BuildTargetParser buildTargetParser) {
     // We use a LinkedHashMap rather than an ImmutableMap.Builder because we want both (1) order to
     // be preserved, and (2) the ability to inspect the Map while building it up.
     LinkedHashMap<String, BuildTarget> aliasToBuildTarget = Maps.newLinkedHashMap();
@@ -435,11 +488,7 @@ public class BuckConfig {
       } else {
         // Here we parse the alias values with a BuildTargetParser to be strict. We could be looser
         // and just grab everything between "//" and ":" and assume it's a valid base path.
-        try {
-          buildTarget = buildTargetParser.parse(value, ParseContext.fullyQualified());
-        } catch (NoSuchBuildTargetException e) {
-          throw new HumanReadableException(e);
-        }
+        buildTarget = buildTargetParser.parse(value, ParseContext.fullyQualified());
       }
       aliasToBuildTarget.put(alias, buildTarget);
     }
@@ -496,20 +545,11 @@ public class BuckConfig {
   }
 
   public ImmutableSet<String> getListenerJars() {
-    String jarPathsString = getValue("extensions", "listeners").or("");
-    Splitter splitter = Splitter.on(',').omitEmptyStrings().trimResults();
-    return ImmutableSet.copyOf(splitter.split(jarPathsString));
+    return ImmutableSet.copyOf(asListWithoutComments(getValue("extensions", "listeners")));
   }
 
   public ImmutableSet<String> getSrcRoots() {
-    Optional<String> srcRootsOptional = getValue("java", "src_roots");
-    if (srcRootsOptional.isPresent()) {
-      String srcRoots = srcRootsOptional.get();
-      Splitter splitter = Splitter.on(',').omitEmptyStrings().trimResults();
-      return ImmutableSet.copyOf(splitter.split(srcRoots));
-    } else {
-      return ImmutableSet.of();
-    }
+    return ImmutableSet.copyOf(asListWithoutComments(getValue("java", "src_roots")));
   }
 
   @VisibleForTesting
@@ -523,18 +563,7 @@ public class BuckConfig {
    */
   ImmutableList<String> getDefaultRawExcludedLabelSelectors() {
     Optional<String> excludedRulesOptional = getValue("test", "excluded_labels");
-    if (excludedRulesOptional.isPresent()) {
-      String excludedRules = excludedRulesOptional.get();
-      Splitter splitter = Splitter.on(',').omitEmptyStrings().trimResults();
-      ImmutableList.Builder<String> builder = new ImmutableList.Builder<>();
-      // Validate that all specified labels are valid.
-      for (String raw : splitter.split(excludedRules)) {
-        builder.add(raw);
-      }
-      return builder.build();
-    } else {
-      return ImmutableList.of();
-    }
+    return asListWithoutComments(excludedRulesOptional);
   }
 
   @Beta
@@ -579,7 +608,8 @@ public class BuckConfig {
 
   public ArtifactCache createArtifactCache(
       Optional<String> currentWifiSsid,
-      BuckEventBus buckEventBus) {
+      BuckEventBus buckEventBus,
+      FileHashCache fileHashCache) {
     ImmutableList<String> modes = getArtifactCacheModes();
     if (modes.isEmpty()) {
       return new NoopArtifactCache();
@@ -596,13 +626,14 @@ public class BuckConfig {
         case cassandra:
           ArtifactCache cassandraArtifactCache = createCassandraArtifactCache(
               currentWifiSsid,
-              buckEventBus);
+              buckEventBus,
+              fileHashCache);
           if (cassandraArtifactCache != null) {
             builder.add(cassandraArtifactCache);
           }
           break;
         case http:
-          ArtifactCache httpArtifactCache = createHttpArtifactCache(buckEventBus);
+          ArtifactCache httpArtifactCache = createHttpArtifactCache(buckEventBus, fileHashCache);
           builder.add(httpArtifactCache);
           break;
         }
@@ -620,8 +651,7 @@ public class BuckConfig {
   }
 
   ImmutableList<String> getArtifactCacheModes() {
-    String cacheMode = getValue("cache", "mode").or("");
-    return ImmutableList.copyOf(Splitter.on(',').trimResults().omitEmptyStrings().split(cacheMode));
+    return asListWithoutComments(getValue("cache", "mode"));
   }
 
   @VisibleForTesting
@@ -632,12 +662,13 @@ public class BuckConfig {
   }
 
   public Optional<Long> getCacheDirMaxSizeBytes() {
-    return getValue("cache", "dir_max_size").transform(new Function<String, Long>() {
-      @Override
-      public Long apply(String input) {
-        return SizeUnit.parseBytes(input);
-      }
-    });
+    return getValue("cache", "dir_max_size").transform(
+        new Function<String, Long>() {
+          @Override
+          public Long apply(String input) {
+            return SizeUnit.parseBytes(input);
+          }
+        });
   }
 
   private ArtifactCache createDirArtifactCache() {
@@ -652,20 +683,18 @@ public class BuckConfig {
   }
 
   /**
-   * Clients should use {@link #createArtifactCache(Optional, BuckEventBus)} unless it
-   * is expected that the user has defined a {@code cassandra} cache, and that it should be used
+   * Clients should use {@link #createArtifactCache(Optional, BuckEventBus, FileHashCache)} unless
+   * it is expected that the user has defined a {@code cassandra} cache, and that it should be used
    * exclusively.
    */
   @Nullable
   CassandraArtifactCache createCassandraArtifactCache(
       Optional<String> currentWifiSsid,
-      BuckEventBus buckEventBus) {
+      BuckEventBus buckEventBus,
+      FileHashCache fileHashCache) {
     // cache.blacklisted_wifi_ssids
     ImmutableSet<String> blacklistedWifi = ImmutableSet.copyOf(
-        Splitter.on(",")
-            .trimResults()
-            .omitEmptyStrings()
-            .split(getValue("cache", "blacklisted_wifi_ssids").or("")));
+        asListWithoutComments(getValue("cache", "blacklisted_wifi_ssids")));
     if (currentWifiSsid.isPresent() && blacklistedWifi.contains(currentWifiSsid.get())) {
       // We're connected to a wifi hotspot that has been explicitly blacklisted from connecting to
       // Cassandra.
@@ -683,14 +712,22 @@ public class BuckConfig {
         getValue("cache", "connection_timeout_seconds").or(DEFAULT_CASSANDRA_TIMEOUT_SECONDS));
 
     try {
-      return new CassandraArtifactCache(cacheHosts, port, timeoutSeconds, doStore, buckEventBus);
+      return new CassandraArtifactCache(
+          cacheHosts,
+          port,
+          timeoutSeconds,
+          doStore,
+          buckEventBus,
+          fileHashCache);
     } catch (ConnectionException e) {
       buckEventBus.post(ThrowableConsoleEvent.create(e, "Cassandra cache connection failure."));
       return null;
     }
   }
 
-  private ArtifactCache createHttpArtifactCache(BuckEventBus buckEventBus) {
+  private ArtifactCache createHttpArtifactCache(
+      BuckEventBus buckEventBus,
+      FileHashCache fileHashCache) {
     String host = getValue("cache", "http_host").or("localhost");
     int port = Integer.parseInt(getValue("cache", "http_port").or(DEFAULT_HTTP_CACHE_PORT));
     int timeoutSeconds = Integer.parseInt(
@@ -702,7 +739,8 @@ public class BuckConfig {
         timeoutSeconds,
         doStore,
         projectFilesystem,
-        buckEventBus);
+        buckEventBus,
+        fileHashCache);
   }
 
   private boolean readCacheMode(String fieldName, String defaultValue) {
@@ -785,11 +823,11 @@ public class BuckConfig {
 
   /**
    * Returns the path to python interpreter. If python is specified in the tools section
-   * that is used and an error reported if invalid. If no python is specified, the PATH
-   * is searched and if no python is found, jython is used as a fallback.
+   * that is used and an error reported if invalid.
    * @return The found python interpreter.
    */
   public String getPythonInterpreter() {
+    Preconditions.checkState(environment.containsKey("PATH"), "PATH is not defined.");
     Optional<String> configPath = getValue("tools", "python");
     if (configPath.isPresent()) {
       // Python path in config. Use it or report error if invalid.
@@ -811,12 +849,7 @@ public class BuckConfig {
           }
         }
       }
-      // Fall back to Jython if no python found.
-      File jython = new File(getProperty("buck.path_to_python_interp", "bin/jython"));
-      if (isExecutableFile(jython)) {
-        return jython.getAbsolutePath();
-      }
-      throw new HumanReadableException("No python or jython found.");
+      throw new HumanReadableException("No python2 or python found.");
     }
   }
 

@@ -40,7 +40,6 @@ import com.google.common.collect.Sets;
 import org.junit.Before;
 import org.junit.Test;
 
-import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
@@ -59,7 +58,7 @@ public class ConstructorArgMarshallerTest {
   @Before
   public void setUpInspector() {
     basePath = Paths.get("example", "path");
-    marshaller = new ConstructorArgMarshaller(basePath);
+    marshaller = new ConstructorArgMarshaller();
     ruleResolver = new BuildRuleResolver();
     filesystem = new FakeProjectFilesystem();
     ruleType = new BuildRuleType("example");
@@ -67,7 +66,7 @@ public class ConstructorArgMarshallerTest {
 
   @Test
   public void shouldNotPopulateAnEmptyArg() {
-    class Dto implements ConstructorArg {
+    class Dto {
     }
 
     Dto dto = new Dto();
@@ -81,7 +80,7 @@ public class ConstructorArgMarshallerTest {
 
   @Test
   public void shouldPopulateAStringValue() throws ConstructorArgMarshalException {
-    class Dto implements ConstructorArg {
+    class Dto {
       public String name;
     }
 
@@ -97,7 +96,7 @@ public class ConstructorArgMarshallerTest {
 
   @Test
   public void shouldPopulateABooleanValue() throws ConstructorArgMarshalException {
-    class Dto implements ConstructorArg {
+    class Dto {
       public boolean value;
     }
 
@@ -113,7 +112,7 @@ public class ConstructorArgMarshallerTest {
 
   @Test
   public void shouldPopulateBuildTargetValues() throws ConstructorArgMarshalException {
-    class Dto implements ConstructorArg {
+    class Dto {
       public BuildTarget target;
       public BuildTarget local;
     }
@@ -134,7 +133,7 @@ public class ConstructorArgMarshallerTest {
 
   @Test
   public void shouldPopulateANumericValue() throws ConstructorArgMarshalException {
-    class Dto implements ConstructorArg {
+    class Dto {
       public long number;
     }
 
@@ -150,7 +149,7 @@ public class ConstructorArgMarshallerTest {
 
   @Test
   public void shouldPopulateAPathValue() throws ConstructorArgMarshalException {
-    class Dto implements ConstructorArg {
+    class Dto {
       @Hint(name = "some_path")
       public Path somePath;
     }
@@ -167,14 +166,14 @@ public class ConstructorArgMarshallerTest {
 
   @Test
   public void shouldPopulateSourcePaths() throws ConstructorArgMarshalException {
-    class Dto implements ConstructorArg {
+    class Dto {
       public SourcePath filePath;
       public SourcePath targetPath;
     }
 
     BuildTarget target = BuildTargetFactory.newInstance("//example/path:peas");
     FakeBuildRule rule = new FakeBuildRule(ruleType, target);
-    ruleResolver.addToIndex(target, rule);
+    ruleResolver.addToIndex(rule);
     Dto dto = new Dto();
     marshaller.populate(
         ruleResolver,
@@ -191,7 +190,7 @@ public class ConstructorArgMarshallerTest {
 
   @Test
   public void shouldPopulateAnImmutableSortedSet() throws ConstructorArgMarshalException {
-    class Dto implements ConstructorArg {
+    class Dto {
       public ImmutableSortedSet<BuildTarget> deps;
     }
 
@@ -212,7 +211,7 @@ public class ConstructorArgMarshallerTest {
 
   @Test
   public void shouldPopulateSets() throws ConstructorArgMarshalException {
-    class Dto implements ConstructorArg {
+    class Dto {
       public Set<Path> paths;
     }
 
@@ -231,7 +230,7 @@ public class ConstructorArgMarshallerTest {
 
   @Test
   public void shouldPopulateLists() throws ConstructorArgMarshalException {
-    class Dto implements ConstructorArg {
+    class Dto {
       public List<String> list;
     }
 
@@ -250,7 +249,7 @@ public class ConstructorArgMarshallerTest {
   public void collectionsCanBeOptionalAndWillBeSetToAnOptionalEmptyCollectionIfMissing()
       throws ConstructorArgMarshalException {
 
-    class Dto implements ConstructorArg {
+    class Dto {
       public Optional<Set<BuildTarget>> targets;
     }
 
@@ -267,7 +266,7 @@ public class ConstructorArgMarshallerTest {
   public void optionalCollectionsWithoutAValueWillBeSetToAnEmptyOptionalCollection()
       throws ConstructorArgMarshalException {
 
-    class Dto implements ConstructorArg {
+    class Dto {
       public Optional<Set<String>> strings;
     }
 
@@ -284,7 +283,7 @@ public class ConstructorArgMarshallerTest {
   public void shouldBeAnErrorToAttemptToSetASingleValueToACollection()
       throws ConstructorArgMarshalException {
 
-    class Dto implements ConstructorArg {
+    class Dto {
       public String file;
     }
 
@@ -300,7 +299,7 @@ public class ConstructorArgMarshallerTest {
   public void shouldBeAnErrorToAttemptToSetACollectionToASingleValue()
       throws ConstructorArgMarshalException {
 
-    class Dto implements ConstructorArg {
+    class Dto {
       public Set<String> strings;
     }
 
@@ -316,7 +315,7 @@ public class ConstructorArgMarshallerTest {
   public void shouldBeAnErrorToSetTheWrongTypeOfValueInACollection()
       throws ConstructorArgMarshalException {
 
-    class Dto implements ConstructorArg {
+    class Dto {
       public Set<String> strings;
     }
 
@@ -332,7 +331,7 @@ public class ConstructorArgMarshallerTest {
   @Test
   public void shouldNormalizePaths() throws ConstructorArgMarshalException {
 
-    class Dto implements ConstructorArg {
+    class Dto {
       public Path path;
     }
 
@@ -349,7 +348,7 @@ public class ConstructorArgMarshallerTest {
   @Test(expected = RuntimeException.class)
   public void lowerBoundGenericTypesCauseAnException() throws ConstructorArgMarshalException {
 
-    class Dto implements ConstructorArg {
+    class Dto {
       public List<? super BuildTarget> nope;
     }
 
@@ -362,7 +361,7 @@ public class ConstructorArgMarshallerTest {
   }
 
   public void shouldSetBuildTargetParameters() throws ConstructorArgMarshalException {
-    class Dto implements ConstructorArg {
+    class Dto {
       public BuildTarget single;
       public BuildTarget sameBuildFileTarget;
       public List<BuildTarget> targets;
@@ -388,52 +387,33 @@ public class ConstructorArgMarshallerTest {
   }
 
   @Test
-  public void shouldSetBuildRulesIfRequested() throws ConstructorArgMarshalException {
-    class Dto implements ConstructorArg {
-      public BuildRule directDep;
-    }
-
-    BuildTarget target = BuildTargetFactory.newInstance("//some/exmaple:target");
-    BuildRule rule = new FakeBuildRule(new BuildRuleType("example"), target);
-
-    BuildRuleResolver resolver = new BuildRuleResolver(ImmutableMap.of(target, rule));
-
-    Dto dto = new Dto();
-    marshaller.populate(
-        resolver,
-        filesystem,
-        buildRuleFactoryParams(ImmutableMap.<String, Object>of(
-            "directDep", target.getFullyQualifiedName())),
-        dto);
-
-    assertEquals(dto.directDep, rule);
-  }
-
-  @Test
   public void upperBoundGenericTypesCauseValuesToBeSetToTheUpperBound()
       throws ConstructorArgMarshalException {
 
-    class Dto implements ConstructorArg {
+    class Dto {
       public List<? extends SourcePath> yup;
     }
 
-    BuildTarget target = BuildTargetFactory.newInstance("//will:happen");
-    ruleResolver.addToIndex(target, new FakeBuildRule(new BuildRuleType("example"), target));
+    BuildRule rule = new FakeBuildRule(
+        new BuildRuleType("example"),
+        BuildTargetFactory.newInstance("//will:happen"));
+    ruleResolver.addToIndex(rule);
     Dto dto = new Dto();
     marshaller.populate(
         ruleResolver,
         filesystem,
         buildRuleFactoryParams(ImmutableMap.<String, Object>of(
-            "yup", ImmutableList.of(target.getFullyQualifiedName()))),
+            "yup", ImmutableList.of(rule.getBuildTarget().getFullyQualifiedName()))),
         dto);
 
-    BuildRuleSourcePath path = new BuildRuleSourcePath(new FakeBuildRule(ruleType, target));
+    BuildRuleSourcePath path = new BuildRuleSourcePath(
+        new FakeBuildRule(ruleType, rule.getBuildTarget()));
     assertEquals(ImmutableList.of(path), dto.yup);
   }
 
   @Test
   public void specifyingZeroIsNotConsideredOptional() throws ConstructorArgMarshalException {
-    class Dto implements ConstructorArg {
+    class Dto {
       public Optional<Integer> number;
     }
 
@@ -452,7 +432,7 @@ public class ConstructorArgMarshallerTest {
   public void canPopulateSimpleConstructorArgFromBuildFactoryParams()
       throws ConstructorArgMarshalException {
 
-    class Dto implements ConstructorArg {
+    class Dto {
       public String required;
       public Optional<String> notRequired;
 
@@ -473,7 +453,7 @@ public class ConstructorArgMarshallerTest {
     FakeBuildRule expectedRule = new FakeBuildRule(
         ruleType,
         BuildTargetFactory.newInstance("//example/path:path"));
-    ruleResolver.addToIndex(expectedRule.getBuildTarget(), expectedRule);
+    ruleResolver.addToIndex(expectedRule);
 
     ImmutableMap<String, Object> args = ImmutableMap.<String, Object>builder()
         .put("required", "cheese")
@@ -507,7 +487,7 @@ public class ConstructorArgMarshallerTest {
    * what we want as authors of buildables. Handle that case.
    */
   public void shouldPopulateDefaultValuesAsBeingAbsent() throws ConstructorArgMarshalException {
-    class Dto implements ConstructorArg {
+    class Dto {
       public Optional<String> noString;
       public Optional<String> defaultString;
 
@@ -536,31 +516,8 @@ public class ConstructorArgMarshallerTest {
   }
 
   @Test
-  public void shouldResolveBuildRulesFromTargetsAndAssignToFields()
-      throws ConstructorArgMarshalException {
-
-    class Dto implements ConstructorArg {
-      public BuildRule rule;
-    }
-
-    BuildTarget target = BuildTargetFactory.newInstance("//i/love:lucy");
-    BuildRule rule = new FakeBuildRule(new BuildRuleType("example"), target);
-    BuildRuleResolver resolver = new BuildRuleResolver(ImmutableMap.of(target, rule));
-
-    Dto dto = new Dto();
-    marshaller.populate(
-        resolver,
-        filesystem,
-        buildRuleFactoryParams(
-            ImmutableMap.<String, Object>of("rule", target.getFullyQualifiedName())),
-        dto);
-
-    assertEquals(rule, dto.rule);
-  }
-
-  @Test
   public void shouldResolveCollectionOfSourcePaths() throws ConstructorArgMarshalException {
-    class Dto implements ConstructorArg {
+    class Dto {
       public ImmutableSortedSet<SourcePath> srcs;
     }
 
@@ -589,13 +546,7 @@ public class ConstructorArgMarshallerTest {
   }
 
   public BuildRuleFactoryParams buildRuleFactoryParams(Map<String, Object> args) {
-    ProjectFilesystem filesystem = new ProjectFilesystem(new File(".")) {
-      @Override
-      public boolean exists(Path pathRelativeToProjectRoot) {
-        return true;
-      }
-    };
-    BuildTargetParser parser = new BuildTargetParser(filesystem);
+    BuildTargetParser parser = new BuildTargetParser();
     BuildTarget target = BuildTargetFactory.newInstance("//example/path:three");
     return NonCheckingBuildRuleFactoryParams.createNonCheckingBuildRuleFactoryParams(
         args, parser, target);

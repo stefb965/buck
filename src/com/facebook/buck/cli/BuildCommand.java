@@ -108,11 +108,12 @@ public class BuildCommand extends AbstractCommandRunner<BuildCommandOptions> {
     // Parse the build files to create a ActionGraph.
     ActionGraph actionGraph;
     try {
-      actionGraph = getParser().parseBuildFilesForTargets(buildTargets,
+      actionGraph = getParser().buildTargetGraph(
+          buildTargets,
           options.getDefaultIncludes(),
           getBuckEventBus(),
           console,
-          environment);
+          environment).buildActionGraph();
     } catch (BuildTargetException | BuildFileParseException e) {
       console.printBuildFailureWithoutStacktrace(e);
       return 1;
@@ -135,7 +136,8 @@ public class BuildCommand extends AbstractCommandRunner<BuildCommandOptions> {
         Optional.<TargetDevice>absent(),
         getCommandRunnerParams().getPlatform(),
         getCommandRunnerParams().getEnvironment(),
-        getCommandRunnerParams().getObjectMapper());
+        getCommandRunnerParams().getObjectMapper(),
+        getCommandRunnerParams().getClock());
     int exitCode = 0;
     try {
       exitCode = executeBuildAndPrintAnyFailuresToConsole(buildTargets, build, console);

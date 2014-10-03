@@ -24,10 +24,10 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
-import com.facebook.buck.rules.ConstructorArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Optional;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -56,10 +56,10 @@ public class GwtBinaryDescription implements Description<GwtBinaryDescription.Ar
   private static final Integer DEFAULT_OPTIMIZE = Integer.valueOf(9);
 
   @SuppressFieldNotInitialized
-  public static class Arg implements ConstructorArg {
+  public static class Arg {
     public Optional<ImmutableSortedSet<String>> modules;
-    public Optional<ImmutableSortedSet<BuildRule>> moduleDeps;
-    public Optional<ImmutableSortedSet<BuildRule>> deps;
+    public Optional<ImmutableSortedSet<BuildTarget>> moduleDeps;
+    public Optional<ImmutableSortedSet<BuildTarget>> deps;
 
     /**
      * In practice, these may be values such as {@code -Xmx512m}.
@@ -110,7 +110,8 @@ public class GwtBinaryDescription implements Description<GwtBinaryDescription.Ar
     // Find all of the reachable JavaLibrary rules and grab their associated GwtModules.
     final ImmutableSortedSet.Builder<Path> gwtModuleJarsBuilder =
         ImmutableSortedSet.naturalOrder();
-    new AbstractDependencyVisitor(args.moduleDeps.get()) {
+    ImmutableSortedSet<BuildRule> moduleDependencies = resolver.getAllRules(args.moduleDeps.get());
+    new AbstractDependencyVisitor(moduleDependencies) {
       @Override
       public ImmutableSet<BuildRule> visit(BuildRule rule) {
         if (!(rule instanceof JavaLibrary)) {
@@ -120,13 +121,14 @@ public class GwtBinaryDescription implements Description<GwtBinaryDescription.Ar
         JavaLibrary javaLibrary = (JavaLibrary) rule;
         BuildTarget gwtModuleTarget = BuildTargets.createFlavoredBuildTarget(
             javaLibrary, JavaLibrary.GWT_MODULE_FLAVOR);
-        BuildRule gwtModule = resolver.get(gwtModuleTarget);
+        Optional<BuildRule> gwtModule = resolver.getRuleOptional(gwtModuleTarget);
 
-        // Note that gwtModule could be null if javaLibrary is a rule with no srcs of its own,
+        // Note that gwtModule could be absent if javaLibrary is a rule with no srcs of its own,
         // but a rule that exists only as a collection of deps.
-        if (gwtModule != null) {
-          extraDeps.add(gwtModule);
-          gwtModuleJarsBuilder.add(gwtModule.getPathToOutputFile());
+        if (gwtModule.isPresent()) {
+          extraDeps.add(gwtModule.get());
+          gwtModuleJarsBuilder.add(
+              Preconditions.checkNotNull(gwtModule.get().getPathToOutputFile()));
         }
 
         // Traverse all of the deps of this rule.
@@ -144,7 +146,7 @@ public class GwtBinaryDescription implements Description<GwtBinaryDescription.Ar
         args.localWorkers.or(DEFAULT_NUM_LOCAL_WORKERS),
         args.strict.or(DEFAULT_STRICT),
         args.experimentalArgs.get(),
-        args.moduleDeps.get(),
+        moduleDependencies,
         gwtModuleJarsBuilder.build());
   }
 }

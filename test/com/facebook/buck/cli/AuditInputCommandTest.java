@@ -30,10 +30,12 @@ import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.FakeRepositoryFactory;
 import com.facebook.buck.rules.NoopArtifactCache;
 import com.facebook.buck.rules.Repository;
 import com.facebook.buck.rules.TestRepositoryBuilder;
 import com.facebook.buck.testutil.BuckTestConstant;
+import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.RuleMap;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.FakeAndroidDirectoryResolver;
@@ -58,7 +60,7 @@ public class AuditInputCommandTest {
   private AuditInputCommand auditInputCommand;
 
   @Before
-  public void setUp() {
+  public void setUp() throws IOException, InterruptedException{
     console = new TestConsole();
     Repository repository = new TestRepositoryBuilder().build();
     ArtifactCache artifactCache = new NoopArtifactCache();
@@ -66,6 +68,7 @@ public class AuditInputCommandTest {
 
     auditInputCommand = new AuditInputCommand(new CommandRunnerParams(
         console,
+        new FakeRepositoryFactory(),
         repository,
         new FakeAndroidDirectoryResolver(),
         new InstanceArtifactCacheFactory(artifactCache),
@@ -74,7 +77,8 @@ public class AuditInputCommandTest {
         Platform.detect(),
         ImmutableMap.copyOf(System.getenv()),
         new FakeJavaPackageFinder(),
-        new ObjectMapper()));
+        new ObjectMapper(),
+        FakeFileHashCache.EMPTY_CACHE));
   }
 
   private static final String EXPECTED_JSON = Joiner.on("").join(
@@ -106,7 +110,7 @@ public class AuditInputCommandTest {
     JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:test-android-library"))
         .addSrc(Paths.get("src/com/facebook/TestAndroidLibrary.java"))
         .addSrc(Paths.get("src/com/facebook/AndroidLibraryTwo.java"))
-        .addDep(rootRule)
+        .addDep(rootRule.getBuildTarget())
         .build(ruleResolver);
 
     ImmutableSet<BuildTarget> buildTargets = ImmutableSet.copyOf(

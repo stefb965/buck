@@ -5,6 +5,10 @@
   {call buck.page}
     {param title: 'python_binary()' /}
     {param prettify: true /}
+    {param description}
+      A rule that is used to build a PEX file that includes python sources and
+      resources from all transitive python_library() dependencies.
+    {/param}
     {param content}
 
 {call buck.rule}
@@ -29,6 +33,16 @@ from all transitive {call buck.python_library /} dependencies.
   {param desc}
   A <code>.py</code> source serving as the entry point for this rule.
   This source will be executed by the interpreter when the PEX file is run.
+  {/param}
+{/call}
+
+{call buck.arg}
+  {param name: 'base_module' /}
+  {param default : 'None' /}
+  {param desc}
+  The package for which the main module should reside under in it's final location
+  in the binary.  If unset, the project relative directory that houses the BUCK file
+  is used.
   {/param}
 {/call}
 

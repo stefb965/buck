@@ -26,6 +26,7 @@ import com.facebook.buck.java.JavaLibraryBuilder;
 import com.facebook.buck.java.JavaPackageFinder;
 import com.facebook.buck.java.Keystore;
 import com.facebook.buck.java.KeystoreBuilder;
+import com.facebook.buck.model.BuildId;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.BuildTargetParser;
@@ -55,6 +56,7 @@ import com.facebook.buck.step.fs.MkdirAndSymlinkFileStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.testutil.MoreAsserts;
+import com.facebook.buck.timing.Clock;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Function;
@@ -104,8 +106,8 @@ public class ApkGenruleTest {
     AndroidBinaryBuilder.createBuilder(BuildTargetFactory.newInstance("//:fb4a"))
         .setManifest(new TestSourcePath("AndroidManifest.xml"))
         .setTarget("Google Inc.:Google APIs:16")
-        .setOriginalDeps(ImmutableSortedSet.of(androidLibRule))
-        .setKeystore(keystore)
+        .setOriginalDeps(ImmutableSortedSet.of(androidLibRule.getBuildTarget()))
+        .setKeystore(keystore.getBuildTarget())
         .build(ruleResolver);
   }
 
@@ -126,7 +128,7 @@ public class ApkGenruleTest {
     BuildTarget buildTarget = BuildTarget.builder("//src/com/facebook", "sign_fb4a").build();
     ApkGenruleDescription description = new ApkGenruleDescription();
     ApkGenruleDescription.Arg arg = description.createUnpopulatedConstructorArg();
-    arg.apk = new FakeInstallable(AndroidBinaryDescription.TYPE, apkTarget);
+    arg.apk = new FakeInstallable(AndroidBinaryDescription.TYPE, apkTarget).getBuildTarget();
     arg.bash = Optional.of("");
     arg.cmd = Optional.of("python signer.py $APK key.properties > $OUT");
     arg.cmdExe = Optional.of("");
@@ -143,7 +145,7 @@ public class ApkGenruleTest {
               }
             }).build();
     ApkGenrule apkGenrule = description.createBuildRule(params, ruleResolver, arg);
-    ruleResolver.addToIndex(buildTarget, apkGenrule);
+    ruleResolver.addToIndex(apkGenrule);
 
     // Verify all of the observers of the Genrule.
     String expectedApkOutput =
@@ -161,6 +163,8 @@ public class ApkGenruleTest {
         .setActionGraph(EasyMock.createMock(ActionGraph.class))
         .setStepRunner(EasyMock.createNiceMock(StepRunner.class))
         .setProjectFilesystem(EasyMock.createNiceMock(ProjectFilesystem.class))
+        .setClock(EasyMock.createMock(Clock.class))
+        .setBuildId(EasyMock.createMock(BuildId.class))
         .setArtifactCache(EasyMock.createMock(ArtifactCache.class))
         .setJavaPackageFinder(EasyMock.createNiceMock(JavaPackageFinder.class))
         .setEventBus(BuckEventBusFactory.newInstance())

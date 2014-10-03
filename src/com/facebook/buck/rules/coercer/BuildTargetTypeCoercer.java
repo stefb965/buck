@@ -17,7 +17,11 @@
 package com.facebook.buck.rules.coercer;
 
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.parser.BuildTargetParseException;
+import com.facebook.buck.parser.BuildTargetParser;
+import com.facebook.buck.parser.ParseContext;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.util.MorePaths;
 import com.facebook.buck.util.ProjectFilesystem;
 
 import java.nio.file.Path;
@@ -31,6 +35,7 @@ public class BuildTargetTypeCoercer extends LeafTypeCoercer<BuildTarget> {
 
   @Override
   public BuildTarget coerce(
+      BuildTargetParser buildTargetParser,
       BuildRuleResolver unused,
       ProjectFilesystem alsoUnused,
       Path pathRelativeToProjectRoot,
@@ -42,16 +47,15 @@ public class BuildTargetTypeCoercer extends LeafTypeCoercer<BuildTarget> {
 
     if (object instanceof String) {
       String param = (String) object;
-      if (param.startsWith(BuildTarget.BUILD_TARGET_PREFIX) ||
-          (!param.isEmpty() && param.charAt(0) == ':')) {
-        int colon = param.indexOf(':');
-        if (colon == 0 && param.length() > 1) {
-          return BuildTarget.builder(
-              BuildTarget.BUILD_TARGET_PREFIX + pathRelativeToProjectRoot.toString(),
-              param.substring(1)).build();
-        } else if (colon > 0 && param.length() > 2) {
-          return BuildTarget.builder(param.substring(0, colon), param.substring(colon + 1)).build();
-        }
+      try {
+        String baseName = BuildTarget.BUILD_TARGET_PREFIX +
+            MorePaths.pathWithUnixSeparators(pathRelativeToProjectRoot);
+
+        return buildTargetParser.parse(
+            param,
+            ParseContext.forBaseName(baseName));
+      } catch (BuildTargetParseException e) {
+        throw CoerceFailedException.simple(object, getOutputClass());
       }
     }
 

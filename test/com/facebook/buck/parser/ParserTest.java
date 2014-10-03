@@ -19,7 +19,6 @@ package com.facebook.buck.parser;
 import static com.facebook.buck.parser.RuleJsonPredicates.alwaysTrue;
 import static com.facebook.buck.testutil.WatchEvents.createPathEvent;
 import static org.easymock.EasyMock.expect;
-import static org.easymock.EasyMock.expectLastCall;
 import static org.easymock.EasyMock.replay;
 import static org.easymock.EasyMock.verify;
 import static org.junit.Assert.assertEquals;
@@ -32,7 +31,6 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.event.FakeBuckEventListener;
 import com.facebook.buck.event.TestEventConfigerator;
-import com.facebook.buck.java.PrebuiltJarDescription;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.json.DefaultProjectBuildFileParserFactory;
 import com.facebook.buck.json.ProjectBuildFileParser;
@@ -41,15 +39,14 @@ import com.facebook.buck.model.BuildFileTree;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.FilesystemBackedBuildFileTree;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.DefaultKnownBuildRuleTypes;
+import com.facebook.buck.rules.FakeRepositoryFactory;
 import com.facebook.buck.rules.FakeRuleKeyBuilderFactory;
 import com.facebook.buck.rules.KnownBuildRuleTypes;
 import com.facebook.buck.rules.Repository;
-import com.facebook.buck.rules.TestRepositoryBuilder;
+import com.facebook.buck.rules.RepositoryFactory;
 import com.facebook.buck.testutil.BuckTestConstant;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.WatchEvents;
@@ -96,14 +93,14 @@ public class ParserTest extends EasyMockSupport {
   private Parser testParser;
   private KnownBuildRuleTypes buildRuleTypes;
   private ProjectFilesystem filesystem;
-  private Repository repository;
+  private RepositoryFactory repositoryFactory;
 
   @Rule
   public TemporaryFolder tempDir = new TemporaryFolder();
   private ImmutableSet<Pattern> tempFilePatterns = ImmutableSet.of(Pattern.compile(".*\\.swp$"));
 
   @Before
-  public void setUp() throws IOException {
+  public void setUp() throws IOException, InterruptedException  {
     tempDir.newFolder("java", "com", "facebook");
 
     defaultIncludeFile = tempDir.newFile(
@@ -140,14 +137,11 @@ public class ParserTest extends EasyMockSupport {
 
     // Create a temp directory with some build files.
     File root = tempDir.getRoot();
-    filesystem = new ProjectFilesystem(root);
+    repositoryFactory = new FakeRepositoryFactory(root.toPath());
+    Repository repository = repositoryFactory.getRootRepository();
+    filesystem = repository.getFilesystem();
 
-    buildRuleTypes = DefaultKnownBuildRuleTypes.getDefaultKnownBuildRuleTypes(filesystem);
-
-    repository = new TestRepositoryBuilder()
-        .setFilesystem(filesystem)
-        .setBuildRuleTypes(buildRuleTypes)
-        .build();
+    buildRuleTypes = repository.getKnownBuildRuleTypes();
 
     DefaultProjectBuildFileParserFactory testBuildFileParserFactory =
         new DefaultProjectBuildFileParserFactory(
@@ -157,47 +151,49 @@ public class ParserTest extends EasyMockSupport {
     testParser = createParser(emptyBuildTargets(), testBuildFileParserFactory);
   }
 
-  private ProjectBuildFileParserFactory createDoNothingBuildFileParserFactory()
-      throws BuildFileParseException, InterruptedException {
-    final ProjectBuildFileParser mockBuildFileParser = createMock(ProjectBuildFileParser.class);
-    mockBuildFileParser.close();
-    expectLastCall().anyTimes();
-
-    return new ProjectBuildFileParserFactory() {
-      @Override
-      public ProjectBuildFileParser createParser(
-          Iterable<String> commonIncludes,
-          Console console, ImmutableMap<String, String> environment) {
-        return mockBuildFileParser;
-      }
-    };
-  }
-
   private Parser createParser(Iterable<Map<String, Object>> rules)
-      throws IOException {
+      throws IOException, InterruptedException {
     return createParser(
         ofInstance(new FilesystemBackedBuildFileTree(filesystem)),
         rules,
         new TestProjectBuildFileParserFactory(filesystem, buildRuleTypes),
-        new BuildTargetParser(filesystem));
+        new BuildTargetParser());
   }
 
   private Parser createParser(
       Iterable<Map<String, Object>> rules,
-      ProjectBuildFileParserFactory buildFileParserFactory) throws IOException {
+      ProjectBuildFileParserFactory buildFileParserFactory)
+      throws IOException, InterruptedException {
     return createParser(
         ofInstance(new FilesystemBackedBuildFileTree(filesystem)),
         rules,
         buildFileParserFactory,
-        new BuildTargetParser(filesystem));
+        new BuildTargetParser());
   }
 
-  private Parser createParser(Supplier<BuildFileTree> buildFileTreeSupplier,
-    Iterable<Map<String, Object>> rules,
-    ProjectBuildFileParserFactory buildFileParserFactory,
-    BuildTargetParser buildTargetParser) {
+  private Parser createParser(
+          Supplier<BuildFileTree> buildFileTreeSupplier,
+      Iterable<Map<String, Object>> rules,
+      ProjectBuildFileParserFactory buildFileParserFactory,
+      BuildTargetParser buildTargetParser)
+      throws IOException, InterruptedException {
+    return createParser(
+        buildFileTreeSupplier,
+        rules,
+        buildFileParserFactory,
+        buildTargetParser,
+        repositoryFactory);
+  }
+
+    private Parser createParser(
+        Supplier<BuildFileTree> buildFileTreeSupplier,
+        Iterable<Map<String, Object>> rules,
+        ProjectBuildFileParserFactory buildFileParserFactory,
+        BuildTargetParser buildTargetParser,
+        RepositoryFactory repositoryFactory)
+        throws IOException, InterruptedException {
     Parser parser = new Parser(
-        repository,
+        repositoryFactory,
         buildFileTreeSupplier,
         buildTargetParser,
         buildFileParserFactory,
@@ -213,106 +209,10 @@ public class ParserTest extends EasyMockSupport {
     return parser;
   }
 
-  /**
-   * If a rule contains an erroneous dep to a non-existent rule, then it should throw an
-   * appropriate message to help the user find the source of his error.
-   */
-  @Test
-  public void testParseRawRulesWithBadDependency()
-      throws BuildTargetException, BuildFileParseException, IOException, InterruptedException {
-    String nonExistentBuildTarget = "//testdata/com/facebook/feed:util";
-    Map<String, Object> rawRule = ImmutableMap.<String, Object>of(
-        "type", "java_library",
-        "name", "feed",
-        // A non-existent dependency: this is a user error that should be reported.
-        "deps", ImmutableList.of(nonExistentBuildTarget),
-        "buck.base_path", "testdata/com/facebook/feed/model");
-    List<Map<String, Object>> ruleObjects = ImmutableList.of(rawRule);
-
-    ProjectFilesystem filesystem = new ProjectFilesystem(Paths.get("."));
-    Parser parser = new Parser(
-        new TestRepositoryBuilder().setFilesystem(filesystem).build(),
-        BuckTestConstant.PYTHON_INTERPRETER,
-        tempFilePatterns,
-        new FakeRuleKeyBuilderFactory());
-
-    parser.parseRawRulesInternal(ruleObjects);
-    RuleJsonPredicate predicate = alwaysTrue();
-    ImmutableSet<BuildTarget> targets = parser.filterTargets(predicate);
-    BuildTarget expectedBuildTarget = BuildTarget.builder(
-        "//testdata/com/facebook/feed/model",
-        "feed").build();
-    assertEquals(ImmutableSet.of(expectedBuildTarget), targets);
-
-    try {
-      parser.onlyUseThisWhenTestingToFindAllTransitiveDependencies(
-          targets,
-          ImmutableList.<String>of(),
-          new TestConsole(),
-          ImmutableMap.<String, String>of());
-      fail("Should have thrown a HumanReadableException.");
-    } catch (HumanReadableException e) {
-      assertEquals(
-          String.format("No rule found when resolving target %s in build file " +
-              "//testdata/com/facebook/feed/BUCK", nonExistentBuildTarget),
-          e.getHumanReadableErrorMessage());
-    }
-  }
-
-  /**
-   * Creates the following graph (assume all / and \ indicate downward pointing arrows):
-   * <pre>
-   *         A
-   *       /   \
-   *     B       C <----|
-   *   /   \   /        |
-   * D       E          |
-   *   \   /            |
-   *     F --------------
-   * </pre>
-   * Note that there is a circular dependency from C -> E -> F -> C that should be caught by the
-   * parser.
-   */
-  @Test
-  public void testCircularDependencyDetection()
-      throws BuildFileParseException, BuildTargetException, IOException, InterruptedException {
-    // Mock out objects that are not critical to parsing.
-    ProjectFilesystem projectFilesystem = createMock(ProjectFilesystem.class);
-    BuildTargetParser buildTargetParser = new BuildTargetParser(projectFilesystem) {
-      @Override
-      public BuildTarget parse(String buildTargetName, ParseContext parseContext)
-          throws NoSuchBuildTargetException {
-        return BuildTargetFactory.newInstance(buildTargetName);
-      }
-    };
-    final BuildFileTree buildFiles = createMock(BuildFileTree.class);
-
-    Parser parser = createParser(
-        ofInstance(buildFiles),
-        circularBuildTargets(),
-        createDoNothingBuildFileParserFactory(),
-        buildTargetParser);
-
-    replayAll();
-
-    BuildTarget rootNode = BuildTargetFactory.newInstance("//:A");
-    Iterable<BuildTarget> buildTargets = ImmutableSet.of(rootNode);
-    Iterable<String> defaultIncludes = ImmutableList.of();
-    try {
-      parser.onlyUseThisWhenTestingToFindAllTransitiveDependencies(
-          buildTargets, defaultIncludes, new TestConsole(), ImmutableMap.<String, String>of());
-      fail("Should have thrown a HumanReadableException.");
-    } catch (HumanReadableException e) {
-      assertEquals("Cycle found: //:F -> //:C -> //:E -> //:F", e.getMessage());
-    }
-
-    verifyAll();
-  }
-
   @Test
   public void testParseBuildFilesForTargetsWithOverlappingTargets()
       throws BuildFileParseException, BuildTargetException, IOException, InterruptedException {
-    // Execute parseBuildFilesForTargets() with multiple targets that require parsing the same
+    // Execute buildTargetGraph() with multiple targets that require parsing the same
     // build file.
     BuildTarget fooTarget = BuildTarget.builder("//java/com/facebook", "foo").build();
     BuildTarget barTarget = BuildTarget.builder("//java/com/facebook", "bar").build();
@@ -324,21 +224,22 @@ public class ParserTest extends EasyMockSupport {
     FakeBuckEventListener listener = new FakeBuckEventListener();
     eventBus.register(listener);
 
-    ActionGraph graph = testParser.parseBuildFilesForTargets(
+    TargetGraph targetGraph = testParser.buildTargetGraph(
         buildTargets,
         defaultIncludes,
         eventBus,
         new TestConsole(),
         ImmutableMap.<String, String>of());
-    BuildRule fooRule = graph.findBuildRuleByTarget(fooTarget);
+    ActionGraph actionGraph = targetGraph.buildActionGraph();
+    BuildRule fooRule = actionGraph.findBuildRuleByTarget(fooTarget);
     assertNotNull(fooRule);
-    BuildRule barRule = graph.findBuildRuleByTarget(barTarget);
+    BuildRule barRule = actionGraph.findBuildRuleByTarget(barTarget);
     assertNotNull(barRule);
 
     ImmutableList<ParseEvent> expected = ImmutableList.of(
         TestEventConfigerator.configureTestEvent(ParseEvent.started(buildTargets), eventBus),
         TestEventConfigerator.configureTestEvent(ParseEvent.finished(buildTargets,
-            Optional.of(graph)),
+            Optional.of(targetGraph)),
             eventBus));
 
     Iterable<ParseEvent> events = Iterables.filter(listener.getEvents(), ParseEvent.class);
@@ -348,14 +249,14 @@ public class ParserTest extends EasyMockSupport {
   @Test
   public void testMissingBuildRuleInValidFile()
       throws BuildFileParseException, BuildTargetException, IOException, InterruptedException {
-    // Execute parseBuildFilesForTargets() with a target in a valid file but a bad rule name.
+    // Execute buildTargetGraph() with a target in a valid file but a bad rule name.
     BuildTarget fooTarget = BuildTarget.builder("//java/com/facebook", "foo").build();
     BuildTarget razTarget = BuildTarget.builder("//java/com/facebook", "raz").build();
     Iterable<BuildTarget> buildTargets = ImmutableList.of(fooTarget, razTarget);
     Iterable<String> defaultIncludes = ImmutableList.of();
 
     try {
-      testParser.parseBuildFilesForTargets(
+      testParser.buildTargetGraph(
           buildTargets,
           defaultIncludes,
           BuckEventBusFactory.newInstance(),
@@ -373,10 +274,10 @@ public class ParserTest extends EasyMockSupport {
   public void shouldThrowAnExceptionWhenAnUnknownFlavorIsSeen()
       throws BuildFileParseException, BuildTargetException, InterruptedException, IOException {
     BuildTarget flavored = BuildTarget.builder("//java/com/facebook", "foo")
-        .setFlavor("doesNotExist")
+        .addFlavor("doesNotExist")
         .build();
     try {
-      testParser.parseBuildFilesForTargets(
+      testParser.buildTargetGraph(
           ImmutableSortedSet.of(flavored),
           ImmutableList.<String>of(),
           BuckEventBusFactory.newInstance(),
@@ -393,7 +294,7 @@ public class ParserTest extends EasyMockSupport {
   @Test
   public void testInvalidDepFromValidFile()
       throws IOException, BuildFileParseException, BuildTargetException, InterruptedException {
-    // Execute parseBuildFilesForTargets() with a target in a valid file but a bad rule name.
+    // Execute buildTargetGraph() with a target in a valid file but a bad rule name.
     tempDir.newFolder("java", "com", "facebook", "invalid");
 
     File testInvalidBuildFile = tempDir.newFile(
@@ -413,7 +314,7 @@ public class ParserTest extends EasyMockSupport {
     Iterable<String> defaultIncludes = ImmutableList.of();
 
     try {
-      testParser.parseBuildFilesForTargets(
+      testParser.buildTargetGraph(
           buildTargets,
           defaultIncludes,
           BuckEventBusFactory.newInstance(),
@@ -438,7 +339,9 @@ public class ParserTest extends EasyMockSupport {
         Lists.<String>newArrayList(),
         alwaysTrue(),
         new TestConsole(),
-        ImmutableMap.<String, String>of());
+        ImmutableMap.<String, String>of(),
+        BuckEventBusFactory.newInstance(),
+        false /* enableProfiling */);
 
     ImmutableSet<BuildTarget> expectedTargets = ImmutableSet.of(
         BuildTarget.builder("//java/com/facebook", "foo").build(),
@@ -457,13 +360,17 @@ public class ParserTest extends EasyMockSupport {
         filesystem, Lists.<String>newArrayList(),
         alwaysTrue(),
         new TestConsole(),
-        ImmutableMap.<String, String>of());
+        ImmutableMap.<String, String>of(),
+        BuckEventBusFactory.newInstance(),
+        false /* enableProfiling */);
     parser.filterAllTargetsInProject(
         filesystem,
         Lists.<String>newArrayList(),
         alwaysTrue(),
         new TestConsole(),
-        ImmutableMap.<String, String>of());
+        ImmutableMap.<String, String>of(),
+        BuckEventBusFactory.newInstance(),
+        false);
 
     assertEquals("Should have cached build rules.", 1, buildFileParserFactory.calls);
   }
@@ -481,7 +388,9 @@ public class ParserTest extends EasyMockSupport {
         Lists.<String>newArrayList(),
         alwaysTrue(),
         new TestConsole(),
-        ImmutableMap.<String, String>of());
+        ImmutableMap.<String, String>of(),
+        BuckEventBusFactory.newInstance(),
+        false /* enableProfiling */);
 
     // Process event.
     WatchEvent<Object> event = WatchEvents.createOverflowEvent();
@@ -493,7 +402,9 @@ public class ParserTest extends EasyMockSupport {
         Lists.<String>newArrayList(),
         alwaysTrue(),
         new TestConsole(),
-        ImmutableMap.<String, String>of());
+        ImmutableMap.<String, String>of(),
+        BuckEventBusFactory.newInstance(),
+        false /* enableProfiling */);
 
     // Test that the second parseBuildFile call repopulated the cache.
     assertEquals("Should have invalidated cache.", 2, buildFileParserFactory.calls);
@@ -512,7 +423,9 @@ public class ParserTest extends EasyMockSupport {
         Lists.<String>newArrayList(),
         alwaysTrue(),
         new TestConsole(),
-        ImmutableMap.of("Some Key", "Some Value"));
+        ImmutableMap.of("Some Key", "Some Value"),
+        BuckEventBusFactory.newInstance(),
+        false /* enableProfiling */);
 
     // Call filterAllTargetsInProject to request cached rules.
     parser.filterAllTargetsInProject(
@@ -520,7 +433,9 @@ public class ParserTest extends EasyMockSupport {
         Lists.<String>newArrayList(),
         alwaysTrue(),
         new TestConsole(),
-        ImmutableMap.of("Some Key", "Some Other Value"));
+        ImmutableMap.of("Some Key", "Some Other Value"),
+        BuckEventBusFactory.newInstance(),
+        false /* enableProfiling */);
 
     // Test that the second parseBuildFile call repopulated the cache.
     assertEquals("Should have invalidated cache.", 2, buildFileParserFactory.calls);
@@ -540,14 +455,18 @@ public class ParserTest extends EasyMockSupport {
         Lists.<String>newArrayList(),
         alwaysTrue(),
         new TestConsole(),
-        ImmutableMap.of("Some Key", "Some Value"));
+        ImmutableMap.of("Some Key", "Some Value"),
+        BuckEventBusFactory.newInstance(),
+        false /* enableProfiling */);
 
     // Call filterAllTargetsInProject to request cached rules with identical environment.
     parser.filterAllTargetsInProject(
         filesystem,
         Lists.<String>newArrayList(), alwaysTrue(),
         new TestConsole(),
-        ImmutableMap.of("Some Key", "Some Value"));
+        ImmutableMap.of("Some Key", "Some Value"),
+        BuckEventBusFactory.newInstance(),
+        false /* enableProfiling */);
 
     // Test that the second parseBuildFile call repopulated the cache.
     assertEquals("Should not have invalidated cache.", 1, buildFileParserFactory.calls);
@@ -561,7 +480,8 @@ public class ParserTest extends EasyMockSupport {
     try (ProjectBuildFileParser projectBuildFileParser = buildFileParserFactory.createParser(
         /* commonIncludes */ Lists.<String>newArrayList(),
         new TestConsole(),
-        ImmutableMap.<String, String>of())) {
+        ImmutableMap.<String, String>of(),
+        BuckEventBusFactory.newInstance())) {
       parser.parseBuildFile(
           buildFile,
           /* defaultIncludes */ ImmutableList.<String>of(),
@@ -1022,7 +942,8 @@ public class ParserTest extends EasyMockSupport {
     parseBuildFile(testBuildFile, parser, buildFileParserFactory);
 
     // Process event.
-    WatchEvent<Path> event = createPathEvent(Paths.get("SomeClass.java__backup"),
+    WatchEvent<Path> event = createPathEvent(
+        Paths.get("SomeClass.java__backup"),
         StandardWatchEventKinds.ENTRY_DELETE);
     parser.onFileSystemChange(event);
 
@@ -1036,7 +957,7 @@ public class ParserTest extends EasyMockSupport {
   @Test
   public void testGeneratedDeps()
       throws IOException, BuildFileParseException, BuildTargetException, InterruptedException {
-    // Execute parseBuildFilesForTargets() with a target in a valid file but a bad rule name.
+    // Execute buildTargetGraph() with a target in a valid file but a bad rule name.
     tempDir.newFolder("java", "com", "facebook", "generateddeps");
 
     File testGeneratedDepsBuckFile = tempDir.newFile(
@@ -1054,12 +975,12 @@ public class ParserTest extends EasyMockSupport {
     Iterable<BuildTarget> buildTargets = ImmutableList.of(fooTarget, barTarget);
     Iterable<String> defaultIncludes = ImmutableList.of();
 
-    ActionGraph graph = testParser.parseBuildFilesForTargets(
+    ActionGraph graph = testParser.buildTargetGraph(
         buildTargets,
         defaultIncludes,
         BuckEventBusFactory.newInstance(),
         new TestConsole(),
-        ImmutableMap.<String, String>of());
+        ImmutableMap.<String, String>of()).buildActionGraph();
 
     BuildRule fooRule = graph.findBuildRuleByTarget(fooTarget);
     assertNotNull(fooRule);
@@ -1081,13 +1002,17 @@ public class ParserTest extends EasyMockSupport {
         Lists.<String>newArrayList(),
         alwaysTrue(),
         new TestConsole(),
-        ImmutableMap.<String, String>of());
+        ImmutableMap.<String, String>of(),
+        BuckEventBusFactory.newInstance(),
+        false /* enableProfiling */);
     parser.filterAllTargetsInProject(
         filesystem,
         ImmutableList.of("//bar.py"),
         alwaysTrue(),
         new TestConsole(),
-        ImmutableMap.<String, String>of());
+        ImmutableMap.<String, String>of(),
+        BuckEventBusFactory.newInstance(),
+        false /* enableProfiling */);
 
     assertEquals("Should have invalidated cache.", 2, buildFileParserFactory.calls);
   }
@@ -1104,9 +1029,11 @@ public class ParserTest extends EasyMockSupport {
         Lists.<String>newArrayList(),
         alwaysTrue(),
         new TestConsole(),
-        ImmutableMap.<String, String>of());
+        ImmutableMap.<String, String>of(),
+        BuckEventBusFactory.newInstance(),
+        false /* enableProfiling */);
     BuildTarget foo = BuildTarget.builder("//java/com/facebook", "foo").build();
-    parser.parseBuildFilesForTargets(
+    parser.buildTargetGraph(
         ImmutableList.of(foo),
         Lists.<String>newArrayList(),
         BuckEventBusFactory.newInstance(),
@@ -1117,14 +1044,14 @@ public class ParserTest extends EasyMockSupport {
   }
 
   @Test
-  public void whenSingleTargetThenAllRulesRequestedThenRulesAreParsedTwice()
+  public void whenSingleTargetThenAllRulesRequestedThenRulesAreParsedOnce()
       throws BuildFileParseException, BuildTargetException, IOException, InterruptedException {
     TestProjectBuildFileParserFactory buildFileParserFactory =
         new TestProjectBuildFileParserFactory(filesystem, buildRuleTypes);
     Parser parser = createParser(emptyBuildTargets(), buildFileParserFactory);
 
     BuildTarget foo = BuildTarget.builder("//java/com/facebook", "foo").build();
-    parser.parseBuildFilesForTargets(
+    parser.buildTargetGraph(
         ImmutableList.of(foo),
         Lists.<String>newArrayList(),
         BuckEventBusFactory.newInstance(),
@@ -1135,9 +1062,11 @@ public class ParserTest extends EasyMockSupport {
         Lists.<String>newArrayList(),
         alwaysTrue(),
         new TestConsole(),
-        ImmutableMap.<String, String>of());
+        ImmutableMap.<String, String>of(),
+        BuckEventBusFactory.newInstance(),
+        false /* enableProfiling */);
 
-    assertEquals("Should have replaced build rules", 2, buildFileParserFactory.calls);
+    assertEquals("Should have replaced build rules", 1, buildFileParserFactory.calls);
   }
 
   @Test
@@ -1216,36 +1145,6 @@ public class ParserTest extends EasyMockSupport {
     return Sets.newHashSet();
   }
 
-  private Iterable<Map<String, Object>> circularBuildTargets() {
-    return ImmutableSet.<Map<String, Object>>builder()
-        .add(createRule("//:A", "B", "C"))
-        .add(createRule("//:B", "D", "E"))
-        .add(createRule("//:C", "E"))
-        .add(createRule("//:D", "F"))
-        .add(createRule("//:E", "F"))
-        .add(createRule("//:F", "C"))
-        .build();
-  }
-
-  private ImmutableMap<String, Object> createRule(String name, String... deps) {
-    BuildTarget target = BuildTargetFactory.newInstance(name);
-
-    ImmutableMap.Builder<String, Object> rule = ImmutableMap.<String, Object>builder()
-        .put("name", target.getShortName())
-        .put("type", PrebuiltJarDescription.TYPE.toString())
-        .put("binary_jar", name + ".jar")
-        .put("buck.base_path", target.getBasePath().toString());
-
-    ImmutableList.Builder<String> allDeps = ImmutableList.builder();
-    for (String dep : deps) {
-      allDeps.add(String.format("%s:%s", BuildTarget.BUILD_TARGET_PREFIX, dep));
-    }
-    rule.put("deps", allDeps.build());
-
-    return rule.build();
-  }
-
-
   /**
    * ProjectBuildFileParser test double which counts the number of times rules are parsed to test
    * caching logic in Parser.
@@ -1266,7 +1165,8 @@ public class ParserTest extends EasyMockSupport {
     public ProjectBuildFileParser createParser(
         Iterable<String> commonIncludes,
         Console console,
-        ImmutableMap<String, String> environment) {
+        ImmutableMap<String, String> environment,
+        BuckEventBus buckEventBus) {
       return new TestProjectBuildFileParser("python" /* pythonInterpreter */);
     }
 
@@ -1288,7 +1188,8 @@ public class ParserTest extends EasyMockSupport {
             pythonInterpreter,
             buildRuleTypes.getAllDescriptions(),
             new TestConsole(),
-            ImmutableMap.<String, String>of());
+            ImmutableMap.<String, String>of(),
+            BuckEventBusFactory.newInstance());
       }
 
       @Override

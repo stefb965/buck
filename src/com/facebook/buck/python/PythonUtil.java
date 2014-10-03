@@ -22,12 +22,15 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.coercer.Either;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MorePaths;
+import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
+import java.nio.file.Paths;
 
 public class PythonUtil {
 
@@ -37,10 +40,23 @@ public class PythonUtil {
       BuildTarget target,
       String parameter,
       Path baseModule,
-      Iterable<SourcePath> sourcePaths) {
+      Optional<Either<ImmutableSortedSet<SourcePath>, ImmutableMap<String, SourcePath>>> inputs) {
 
-    ImmutableMap<String, SourcePath> namesAndSourcePaths =
-        SourcePaths.getSourcePathNames(target, parameter, sourcePaths);
+    if (!inputs.isPresent()) {
+      return ImmutableMap.of();
+    }
+
+    final ImmutableMap<String, SourcePath> namesAndSourcePaths;
+
+    if (inputs.get().isLeft()) {
+      namesAndSourcePaths = SourcePaths.getSourcePathNames(
+          target,
+          parameter,
+          inputs.get().getLeft());
+    } else {
+      namesAndSourcePaths = inputs.get().getRight();
+    }
+
     ImmutableMap.Builder<Path, SourcePath> moduleNamesAndSourcePaths = ImmutableMap.builder();
 
     for (ImmutableMap.Entry<String, SourcePath> entry : namesAndSourcePaths.entrySet()) {
@@ -123,6 +139,12 @@ public class PythonUtil {
     }.start();
 
     return components.build();
+  }
+
+  public static Path getBasePath(BuildTarget target, Optional<String> override) {
+    return override.isPresent()
+        ? Paths.get(override.get().replace('.', '/'))
+        : target.getBasePath();
   }
 
 }

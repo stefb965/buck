@@ -5,6 +5,10 @@
   {call buck.page}
     {param title: 'python_library()' /}
     {param prettify: true /}
+    {param description}
+      A python_library() rule is used to group Python source files and
+      resources.
+    {/param}
     {param content}
 
 {call buck.rule}
@@ -37,6 +41,16 @@ and resources to be packaged into a top-level {call buck.python_binary /} rule.
   {param desc}
   Static files to be packaged along with the python sources. These resources can be
   accessed at runtime using the <a href="https://pythonhosted.org/setuptools/pkg_resources.html">pkg_resources</a> API.
+  {/param}
+{/call}
+
+{call buck.arg}
+  {param name: 'base_module' /}
+  {param default : 'None' /}
+  {param desc}
+  The package for which the given specified sources and resources should reside in their final
+  location in the top-level binary. If unset, the project relative directory that houses the
+  BUCK file is used.
   {/param}
 {/call}
 

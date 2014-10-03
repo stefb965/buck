@@ -16,27 +16,37 @@
 
 package com.facebook.buck.python;
 
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.python.PythonLibraryDescription.Arg;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
-import com.facebook.buck.rules.ConstructorArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.coercer.Either;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Optional;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
+
+import java.nio.file.Path;
 
 public class PythonLibraryDescription implements Description<Arg> {
 
   public static final BuildRuleType TYPE = new BuildRuleType("python_library");
 
   @SuppressFieldNotInitialized
-  public static class Arg implements ConstructorArg {
-    public Optional<ImmutableSortedSet<SourcePath>> srcs;
-    public Optional<ImmutableSortedSet<SourcePath>> resources;
-    public Optional<ImmutableSortedSet<BuildRule>> deps;
+  public static class Arg {
+    public Optional<Either<
+        ImmutableSortedSet<SourcePath>,
+        ImmutableMap<String, SourcePath>>>
+            srcs;
+    public Optional<Either<
+        ImmutableSortedSet<SourcePath>,
+        ImmutableMap<String, SourcePath>>>
+            resources;
+    public Optional<ImmutableSortedSet<BuildTarget>> deps;
+    public Optional<String> baseModule;
   }
 
   @Override
@@ -54,18 +64,19 @@ public class PythonLibraryDescription implements Description<Arg> {
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) {
+    Path baseModule = PythonUtil.getBasePath(params.getBuildTarget(), args.baseModule);
     return new PythonLibrary(
         params,
         PythonUtil.toModuleMap(
             params.getBuildTarget(),
             "srcs",
-            params.getBuildTarget().getBasePath(),
-            args.srcs.or(ImmutableSortedSet.<SourcePath>of())),
+            baseModule,
+            args.srcs),
         PythonUtil.toModuleMap(
             params.getBuildTarget(),
             "resources",
-            params.getBuildTarget().getBasePath(),
-            args.resources.or(ImmutableSortedSet.<SourcePath>of())));
+            baseModule,
+            args.resources));
   }
 
 }

@@ -37,7 +37,7 @@ import java.nio.file.Paths;
  *
  * @param <A> The type of the constructor arg returned by the Buildable's {@link Description}.
  */
-public abstract class AbstractBuilder<A extends ConstructorArg> {
+public abstract class AbstractBuilder<A> {
 
   private final Description<A> description;
   private final BuildTarget target;
@@ -50,25 +50,23 @@ public abstract class AbstractBuilder<A extends ConstructorArg> {
     populateWithDefaultValues(this.arg, this.target);
   }
 
-  public final BuildRule build() {
-    return build(new BuildRuleResolver());
-  }
-
   public final BuildRule build(BuildRuleResolver resolver) {
     return build(resolver, new FakeProjectFilesystem());
   }
 
   public final BuildRule build(BuildRuleResolver resolver, ProjectFilesystem filesystem) {
     // The BuildRule determines its deps by extracting them from the rule parameters.
-    BuildRuleParams params = createBuildRuleParams(filesystem);
+    BuildRuleParams params = createBuildRuleParams(resolver, filesystem);
 
     BuildRule rule = description.createBuildRule(params, resolver, arg);
-    resolver.addToIndex(target, rule);
+    resolver.addToIndex(rule);
     return rule;
   }
 
   @SuppressWarnings("unchecked")
-  private BuildRuleParams createBuildRuleParams(ProjectFilesystem filesystem) {
+  private BuildRuleParams createBuildRuleParams(
+      BuildRuleResolver resolver,
+      ProjectFilesystem filesystem) {
     // Not all rules have deps, but all rules call them deps. When they do, they're always optional.
     // Grab them in the unsafest way I know.
     FakeBuildRuleParamsBuilder builder = new FakeBuildRuleParamsBuilder(target)
@@ -82,9 +80,9 @@ public abstract class AbstractBuilder<A extends ConstructorArg> {
         return builder.build();
       }
       // Here's a whole series of assumptions in one lump of a Bad Idea.
-      ImmutableSortedSet<BuildRule> deps =
-          (ImmutableSortedSet<BuildRule>) ((Optional<?>) optional).get();
-      return builder.setDeps(deps).build();
+      ImmutableSortedSet<BuildTarget> deps =
+          (ImmutableSortedSet<BuildTarget>) ((Optional<?>) optional).get();
+      return builder.setDeps(resolver.getAllRules(deps)).build();
     } catch (ReflectiveOperationException ignored) {
       // Field doesn't exist: no deps.
       return builder.build();
@@ -120,10 +118,10 @@ public abstract class AbstractBuilder<A extends ConstructorArg> {
     BuildRuleFactoryParams factoryParams = NonCheckingBuildRuleFactoryParams
         .createNonCheckingBuildRuleFactoryParams(
             Maps.<String, Object>newHashMap(),
-            new BuildTargetParser(filesystem),
+            new BuildTargetParser(),
             target);
     try {
-      new ConstructorArgMarshaller(Paths.get("."))
+      new ConstructorArgMarshaller()
           .populate(resolver, filesystem, factoryParams, arg, true);
     } catch (ConstructorArgMarshalException error) {
       throw Throwables.propagate(error);

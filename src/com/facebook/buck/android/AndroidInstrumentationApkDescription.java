@@ -29,7 +29,6 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
-import com.facebook.buck.rules.ConstructorArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.InstallableApk;
 import com.facebook.buck.rules.SourcePath;
@@ -64,14 +63,15 @@ public class AndroidInstrumentationApkDescription
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) {
-    if (!(args.apk instanceof InstallableApk)) {
+    BuildRule installableApk = resolver.getRule(args.apk);
+    if (!(installableApk instanceof InstallableApk)) {
       throw new HumanReadableException(
           "In %s, apk='%s' must be an android_binary() or apk_genrule() but was %s().",
           params.getBuildTarget(),
-          args.apk.getFullyQualifiedName(),
-          args.apk.getType().getName());
+          installableApk.getFullyQualifiedName(),
+          installableApk.getType().getName());
     }
-    AndroidBinary apkUnderTest = getUnderlyingApk((InstallableApk) args.apk);
+    AndroidBinary apkUnderTest = getUnderlyingApk((InstallableApk) installableApk);
 
     ImmutableSortedSet<JavaLibrary> rulesToExcludeFromDex = FluentIterable.from(
         ImmutableSet.<JavaLibrary>builder()
@@ -135,9 +135,9 @@ public class AndroidInstrumentationApkDescription
   }
 
   @SuppressFieldNotInitialized
-  public static class Arg implements ConstructorArg {
+  public static class Arg {
     public SourcePath manifest;
-    public BuildRule apk;
-    public Optional<ImmutableSortedSet<BuildRule>> deps;
+    public BuildTarget apk;
+    public Optional<ImmutableSortedSet<BuildTarget>> deps;
   }
 }

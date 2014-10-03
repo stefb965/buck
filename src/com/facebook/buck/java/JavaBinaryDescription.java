@@ -16,11 +16,10 @@
 
 package com.facebook.buck.java;
 
-import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
-import com.facebook.buck.rules.ConstructorArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.util.DefaultDirectoryTraverser;
@@ -61,8 +60,8 @@ public class JavaBinaryDescription implements Description<JavaBinaryDescription.
   }
 
   @SuppressFieldNotInitialized
-  public static class Args implements ConstructorArg {
-    public Optional<ImmutableSortedSet<BuildRule>> deps;
+  public static class Args {
+    public Optional<ImmutableSortedSet<BuildTarget>> deps;
     public Optional<String> mainClass;
     public Optional<SourcePath> manifestFile;
     public Optional<Boolean> mergeManifests;

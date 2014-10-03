@@ -16,11 +16,10 @@
 
 package org.openqa.selenium.buck.javascript;
 
-import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
-import com.facebook.buck.rules.ConstructorArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.google.common.base.Optional;
@@ -55,12 +54,12 @@ public class JsBinaryDescription implements Description<JsBinaryDescription.Arg>
         args.externs);
   }
 
-  public static class Arg implements ConstructorArg {
+  public static class Arg {
     public Optional<List<String>> defines;
     public Optional<List<Path>> externs;
     public Optional<List<String>> flags;
     public ImmutableSortedSet<SourcePath> srcs;
 
-    public Optional<ImmutableSortedSet<BuildRule>> deps;
+    public Optional<ImmutableSortedSet<BuildTarget>> deps;
   }
 }

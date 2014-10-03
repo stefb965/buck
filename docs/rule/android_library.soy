@@ -5,6 +5,10 @@
   {call buck.page}
     {param title: 'android_library()' /}
     {param prettify: true /}
+    {param description}
+      A rule that is used to define a set of Java files that can be compiled
+      together against the Android SDK.
+    {/param}
     {param content}
 
 {call buck.rule}
@@ -56,6 +60,15 @@ compiled class files and resources.
   Rules (usually other <code>android_library</code> rules)
   that are used to generate the classpath required to compile this
   {sp}<code>android_library</code>.
+  {/param}
+{/call}
+
+{call buck.arg}
+  {param name: 'exported_deps' /}
+  {param default : '[]' /}
+  {param desc}
+  This is the same as in <a href="java_library.html"><code>java_library
+  </code></a>.
   {/param}
 {/call}
 

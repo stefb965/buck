@@ -46,10 +46,12 @@ public class CxxCompileTest {
       ImmutableList.of("-fsanitize=address");
   private static final Path DEFAULT_OUTPUT = Paths.get("test.o");
   private static final SourcePath DEFAULT_INPUT = new TestSourcePath("test.cpp");
-  private static final ImmutableList<Path> DEFAULT_INCLUDES = ImmutableList.of(
+  private static final ImmutableMap<Path, SourcePath> DEFAULT_INCLUDES =
+      ImmutableMap.<Path, SourcePath>of(Paths.get("test.h"), new TestSourcePath("foo/test.h"));
+  private static final ImmutableList<Path> DEFAULT_INCLUDE_ROOTS = ImmutableList.of(
       Paths.get("foo/bar"),
       Paths.get("test"));
-  private static final ImmutableList<Path> DEFAULT_SYSTEM_INCLUDES = ImmutableList.of(
+  private static final ImmutableList<Path> DEFAULT_SYSTEM_INCLUDE_ROOTS = ImmutableList.of(
       Paths.get("/usr/include"),
       Paths.get("/include"));
 
@@ -73,7 +75,8 @@ public class CxxCompileTest {
                     "compiler", Strings.repeat("a", 40),
                     "test.o", Strings.repeat("b", 40),
                     "test.cpp", Strings.repeat("c", 40),
-                    "different", Strings.repeat("d", 40))));
+                    "different", Strings.repeat("d", 40),
+                    "foo/test.h", Strings.repeat("e", 40))));
 
     // Generate a rule key for the defaults.
     RuleKey.Builder.RuleKeyPair defaultRuleKey = generateRuleKey(
@@ -84,8 +87,9 @@ public class CxxCompileTest {
             DEFAULT_FLAGS,
             DEFAULT_OUTPUT,
             DEFAULT_INPUT,
-            DEFAULT_INCLUDES,
-            DEFAULT_SYSTEM_INCLUDES));
+            DEFAULT_INCLUDE_ROOTS,
+            DEFAULT_SYSTEM_INCLUDE_ROOTS,
+            DEFAULT_INCLUDES));
 
     // Verify that changing the compiler causes a rulekey change.
     RuleKey.Builder.RuleKeyPair compilerChange = generateRuleKey(
@@ -96,9 +100,10 @@ public class CxxCompileTest {
             DEFAULT_FLAGS,
             DEFAULT_OUTPUT,
             DEFAULT_INPUT,
-            DEFAULT_INCLUDES,
-            DEFAULT_SYSTEM_INCLUDES));
-    assertNotEquals(defaultRuleKey.getTotalRuleKey(), compilerChange.getTotalRuleKey());
+            DEFAULT_INCLUDE_ROOTS,
+            DEFAULT_SYSTEM_INCLUDE_ROOTS,
+            DEFAULT_INCLUDES));
+    assertNotEquals(defaultRuleKey, compilerChange);
 
     // Verify that changing the flags causes a rulekey change.
     RuleKey.Builder.RuleKeyPair flagsChange = generateRuleKey(
@@ -109,9 +114,10 @@ public class CxxCompileTest {
             ImmutableList.of("-different"),
             DEFAULT_OUTPUT,
             DEFAULT_INPUT,
-            DEFAULT_INCLUDES,
-            DEFAULT_SYSTEM_INCLUDES));
-    assertNotEquals(defaultRuleKey.getTotalRuleKey(), flagsChange.getTotalRuleKey());
+            DEFAULT_INCLUDE_ROOTS,
+            DEFAULT_SYSTEM_INCLUDE_ROOTS,
+            DEFAULT_INCLUDES));
+    assertNotEquals(defaultRuleKey, flagsChange);
 
     // Verify that changing the input causes a rulekey change.
     RuleKey.Builder.RuleKeyPair inputChange = generateRuleKey(
@@ -122,9 +128,10 @@ public class CxxCompileTest {
             DEFAULT_FLAGS,
             DEFAULT_OUTPUT,
             new TestSourcePath("different"),
-            DEFAULT_INCLUDES,
-            DEFAULT_SYSTEM_INCLUDES));
-    assertNotEquals(defaultRuleKey.getTotalRuleKey(), inputChange.getTotalRuleKey());
+            DEFAULT_INCLUDE_ROOTS,
+            DEFAULT_SYSTEM_INCLUDE_ROOTS,
+            DEFAULT_INCLUDES));
+    assertNotEquals(defaultRuleKey, inputChange);
 
     // Verify that changing the includes does *not* cause a rulekey change, since we use a
     // different mechanism to track header changes.
@@ -137,8 +144,9 @@ public class CxxCompileTest {
             DEFAULT_OUTPUT,
             DEFAULT_INPUT,
             ImmutableList.of(Paths.get("different")),
-            DEFAULT_SYSTEM_INCLUDES));
-    assertEquals(defaultRuleKey.getTotalRuleKey(), includesChange.getTotalRuleKey());
+            DEFAULT_SYSTEM_INCLUDE_ROOTS,
+            DEFAULT_INCLUDES));
+    assertEquals(defaultRuleKey, includesChange);
 
     // Verify that changing the system includes does *not* cause a rulekey change, since we use a
     // different mechanism to track header changes.
@@ -150,9 +158,10 @@ public class CxxCompileTest {
             DEFAULT_FLAGS,
             DEFAULT_OUTPUT,
             DEFAULT_INPUT,
-            DEFAULT_INCLUDES,
-            ImmutableList.of(Paths.get("different"))));
-    assertEquals(defaultRuleKey.getTotalRuleKey(), systemIncludesChange.getTotalRuleKey());
+            DEFAULT_INCLUDE_ROOTS,
+            ImmutableList.of(Paths.get("different")),
+            DEFAULT_INCLUDES));
+    assertEquals(defaultRuleKey, systemIncludesChange);
   }
 
 }

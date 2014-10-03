@@ -28,7 +28,6 @@ import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -45,6 +44,7 @@ import javax.annotation.Nullable;
 public abstract class ShellStep implements Step {
 
   /** Defined lazily by {@link #getShellCommand(com.facebook.buck.step.ExecutionContext)}. */
+  @Nullable
   private ImmutableList<String> shellCommandArgs;
 
   /** If specified, working directory will be different from project root. **/
@@ -55,15 +55,13 @@ public abstract class ShellStep implements Step {
    * This is set if {@link #shouldPrintStdout(Verbosity)} returns {@code true} when the command is
    * executed.
    */
-  @Nullable
-  private String stdout;
+  private Optional<String> stdout;
 
   /**
    * This is set if {@link #shouldPrintStderr(Verbosity)} returns {@code true} when the command is
    * executed.
    */
-  @Nullable
-  private String stderr;
+  private Optional<String> stderr;
 
   private long startTime = 0L;
   private long endTime = 0L;
@@ -74,6 +72,8 @@ public abstract class ShellStep implements Step {
 
   protected ShellStep(@Nullable File workingDirectory) {
     this.workingDirectory = workingDirectory;
+    this.stdout = Optional.<String>absent();
+    this.stderr = Optional.<String>absent();
   }
 
   /**
@@ -151,11 +151,11 @@ public abstract class ShellStep implements Step {
     stderr = result.getStderr();
 
     Verbosity verbosity = context.getVerbosity();
-    if (!Strings.isNullOrEmpty(stdout) && shouldPrintStdout(verbosity)) {
-      context.postEvent(ConsoleEvent.info("%s", stdout));
+    if (stdout.isPresent() && !stdout.get().isEmpty() && shouldPrintStdout(verbosity)) {
+      context.postEvent(ConsoleEvent.info("%s", stdout.get()));
     }
-    if (!Strings.isNullOrEmpty(stderr) && shouldPrintStderr(verbosity)) {
-      context.postEvent(ConsoleEvent.severe("%s", stderr));
+    if (stderr.isPresent() && !stderr.get().isEmpty() && shouldPrintStderr(verbosity)) {
+      context.postEvent(ConsoleEvent.warning("%s", stderr.get()));
     }
 
     return result.getExitCode();
@@ -212,7 +212,7 @@ public abstract class ShellStep implements Step {
       // this is what the user might type in a shell to get the same behavior. The (...) syntax
       // introduces a subshell in which the command is only executed if cd was successful.
       return String.format("(cd %s && %s)",
-          Escaper.escapeAsBashString(workingDirectory.getPath()),
+          Escaper.escapeAsBashString(Preconditions.checkNotNull(workingDirectory).getPath()),
           shellCommand);
     }
   }
@@ -241,9 +241,11 @@ public abstract class ShellStep implements Step {
    * @return the stdout of this ShellCommand or throws an exception if the stdout was not recorded
    */
   public final String getStdout() {
-    Preconditions.checkNotNull(this.stdout, "stdout was not set: " +
-        "shouldPrintStdout() must return false and execute() must have been invoked");
-    return this.stdout;
+    Preconditions.checkState(
+        this.stdout.isPresent(),
+        "stdout was not set: shouldPrintStdout() must return false and execute() must " +
+        "have been invoked");
+    return this.stdout.get();
   }
 
   /**
@@ -259,9 +261,11 @@ public abstract class ShellStep implements Step {
    * @return the stderr of this ShellCommand or throws an exception if the stderr was not recorded
    */
   public final String getStderr() {
-    Preconditions.checkNotNull(this.stderr, "stderr was not set: " +
-        "shouldPrintStdErr() must return false and execute() must have been invoked");
-    return this.stderr;
+    Preconditions.checkState(
+        this.stderr.isPresent(),
+        "stderr was not set: shouldPrintStdErr() must return false and execute() must " +
+        "have been invoked");
+    return this.stderr.get();
   }
 
   /**

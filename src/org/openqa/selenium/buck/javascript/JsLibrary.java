@@ -153,6 +153,7 @@ public class JsLibrary extends AbstractBuildRule implements
     return output;
   }
 
+  @Override
   public JavascriptDependencies getBundleOfJoy() {
     return joy;
   }

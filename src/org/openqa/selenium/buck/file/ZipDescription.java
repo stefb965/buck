@@ -16,11 +16,10 @@
 
 package org.openqa.selenium.buck.file;
 
-import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
-import com.facebook.buck.rules.ConstructorArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.google.common.base.Optional;
@@ -46,10 +45,10 @@ public class ZipDescription implements Description<ZipDescription.Arg> {
     return new Zip(params, args.out.or(params.getBuildTarget().getShortName() + ".zip"), args.srcs);
   }
 
-  public class Arg implements ConstructorArg {
+  public class Arg {
     public Optional<String> out;
     public ImmutableSortedSet<SourcePath> srcs;
 
-    public Optional<ImmutableSortedSet<BuildRule>> deps;
+    public Optional<ImmutableSortedSet<BuildTarget>> deps;
   }
 }

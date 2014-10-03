@@ -19,6 +19,7 @@ package com.facebook.buck.rules;
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.not;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.java.JavaLibraryBuilder;
@@ -74,7 +75,7 @@ public class RuleKeyTest {
     BuildRule libraryNoCommon = javaLibraryBuilder.build(ruleResolver1);
 
     // Create the same java_library() rule, but with a dep on //src/com/facebook/buck/cli:common.
-    javaLibraryBuilder.addDep(commonJavaLibrary);
+    javaLibraryBuilder.addDep(commonJavaLibrary.getBuildTarget());
     BuildRule libraryWithCommon = javaLibraryBuilder.build(ruleResolver2);
 
     // Assert that the RuleKeys are distinct.
@@ -192,6 +193,85 @@ public class RuleKeyTest {
         .build();
 
     assertEquals(manual.getTotalRuleKey(), reflective.getTotalRuleKey());
+  }
+
+  @Test
+  public void testRuleKeyPairEqualsAndHashCodeMethods() {
+    RuleKey.Builder.RuleKeyPair keyPair1 =
+        createEmptyRuleKey()
+            .set("something", "foo")
+            .build();
+    RuleKey.Builder.RuleKeyPair keyPair2 =
+        createEmptyRuleKey()
+            .set("something", "foo")
+            .build();
+    RuleKey.Builder.RuleKeyPair keyPair3 =
+        createEmptyRuleKey()
+            .set("something", "bar")
+            .build();
+    assertEquals(keyPair1, keyPair2);
+    assertEquals(keyPair1.hashCode(), keyPair2.hashCode());
+    assertNotEquals(keyPair1, keyPair3);
+    assertNotEquals(keyPair1.hashCode(), keyPair3.hashCode());
+    assertNotEquals(keyPair2, keyPair3);
+    assertNotEquals(keyPair2.hashCode(), keyPair3.hashCode());
+  }
+
+  @Test
+  public void setInputPathSourcePath() {
+
+    // Just changing the name of a named source path shouldn't change the hash.
+    assertEquals(
+        createEmptyRuleKey()
+            .setInput("key", new PathSourcePath(Paths.get("something")))
+            .build(),
+        createEmptyRuleKey()
+            .setInput("key", new PathSourcePath(Paths.get("something", "else")))
+            .build());
+
+    // But changing the key should...
+    assertNotEquals(
+        createEmptyRuleKey()
+            .setInput("key", new PathSourcePath(Paths.get("something")))
+            .build(),
+        createEmptyRuleKey()
+            .setInput("different-key", new PathSourcePath(Paths.get("something")))
+            .build());
+  }
+
+  @Test
+  public void setInputBuildRuleSourcePath() {
+    FakeBuildRule fake1 = new FakeBuildRule("//:fake1");
+    fake1.setRuleKey(RuleKey.TO_RULE_KEY.apply("deadbeef"));
+    FakeBuildRule fake2 = new FakeBuildRule("//:fake2");
+    fake2.setRuleKey(RuleKey.TO_RULE_KEY.apply("feeddeed"));
+
+    // Verify that just changing the path of the build rule doesn't affect the rule key.
+    assertEquals(
+        createEmptyRuleKey()
+            .setInput("key", new BuildRuleSourcePath(fake1, Paths.get("location")))
+            .build(),
+        createEmptyRuleKey()
+            .setInput("key", new BuildRuleSourcePath(fake1, Paths.get("different")))
+            .build());
+
+    // Verify that just changing the build rule rule key changes the calculated rule key.
+    assertNotEquals(
+        createEmptyRuleKey()
+            .setInput("key", new BuildRuleSourcePath(fake1, Paths.get("location")))
+            .build(),
+        createEmptyRuleKey()
+            .setInput("key", new BuildRuleSourcePath(fake2, Paths.get("location")))
+            .build());
+
+    // Verify that just changing the key changes the calculated rule key.
+    assertNotEquals(
+        createEmptyRuleKey()
+            .setInput("key", new BuildRuleSourcePath(fake1, Paths.get("location")))
+            .build(),
+        createEmptyRuleKey()
+            .setInput("different-key", new BuildRuleSourcePath(fake1, Paths.get("location")))
+            .build());
   }
 
   private RuleKey.Builder createEmptyRuleKey() {

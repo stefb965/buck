@@ -41,6 +41,7 @@ import com.facebook.buck.rules.RuleKey.Builder;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.timing.DefaultClock;
+import com.facebook.buck.timing.NanosAdjustedClock;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultFileHashCache;
@@ -105,6 +106,8 @@ public final class Main {
 
   private static final String BUCK_VERSION_UID_KEY = "buck.version_uid";
   private static final String BUCK_VERSION_UID = System.getProperty(BUCK_VERSION_UID_KEY, "N/A");
+  private static final Optional<String> BUCKD_LAUNCH_TIME_NANOS =
+    Optional.fromNullable(System.getProperty("buck.buckd_launch_time_nanos"));
 
   private static final String BUCKD_COLOR_DEFAULT_ENV_VAR = "BUCKD_COLOR_DEFAULT";
 
@@ -157,15 +160,16 @@ public final class Main {
     private final ObjectMapper objectMapper;
 
     public Daemon(
-        Repository repository,
+        RepositoryFactory repositoryFactory,
         Clock clock,
-        ObjectMapper objectMapper) throws IOException {
-      this.repository = repository;
+        ObjectMapper objectMapper)
+        throws IOException, InterruptedException  {
+      this.repository = repositoryFactory.getRootRepository();
       this.clock = Preconditions.checkNotNull(clock);
       this.objectMapper = Preconditions.checkNotNull(objectMapper);
       this.hashCache = new DefaultFileHashCache(repository.getFilesystem());
-      this.parser = new Parser(
-          repository,
+      this.parser = Parser.createParser(
+          repositoryFactory,
           repository.getBuckConfig().getPythonInterpreter(),
           repository.getBuckConfig().getTempFilePatterns(),
           createRuleKeyBuilderFactory(hashCache));
@@ -198,31 +202,44 @@ public final class Main {
           FileSystems.getDefault().newWatchService());
     }
 
-    private Optional<WebServer> createWebServer(
-        BuckConfig config,
-        ProjectFilesystem projectFilesystem) {
+    private Optional<WebServer> createWebServer(BuckConfig config, ProjectFilesystem filesystem) {
+      Optional<Integer> port = getValidWebServerPort(config);
+      if (port.isPresent()) {
+        WebServer webServer = new WebServer(port.get(), filesystem, STATIC_CONTENT_DIRECTORY);
+        return Optional.of(webServer);
+      } else {
+        return Optional.absent();
+      }
+    }
+
+    /**
+     * If the return value is not absent, then the port is a nonnegative integer. This means that
+     * specifying a port of -1 effectively disables the WebServer.
+     */
+    private static Optional<Integer> getValidWebServerPort(BuckConfig config) {
       // Enable the web httpserver if it is given by command line parameter or specified in
-      // .buckconfig. The presence of a port number is sufficient.
+      // .buckconfig. The presence of a nonnegative port number is sufficient.
       Optional<String> serverPort =
           Optional.fromNullable(System.getProperty("buck.httpserver.port"));
       if (!serverPort.isPresent()) {
         serverPort = config.getValue("httpserver", "port");
       }
-      Optional<WebServer> webServer;
-      if (serverPort.isPresent() && !serverPort.get().isEmpty()) {
-        String rawPort = serverPort.get();
-        try {
-          int port = Integer.parseInt(rawPort, 10);
-          LOG.debug("Starting up web server on port %d.", port);
-          webServer = Optional.of(new WebServer(port, projectFilesystem, STATIC_CONTENT_DIRECTORY));
-        } catch (NumberFormatException e) {
-          LOG.error("Could not parse port for httpserver: %s.", rawPort);
-          webServer = Optional.absent();
-        }
-      } else {
-        webServer = Optional.absent();
+
+      if (!serverPort.isPresent() || serverPort.get().isEmpty()) {
+        return Optional.absent();
       }
-      return webServer;
+
+      String rawPort = serverPort.get();
+      int port;
+      try {
+        port = Integer.parseInt(rawPort, 10);
+        LOG.debug("Starting up web server on port %d.", port);
+      } catch (NumberFormatException e) {
+        LOG.error("Could not parse port for httpserver: %s.", rawPort);
+        return Optional.absent();
+      }
+
+      return port >= 0 ? Optional.of(port) : Optional.<Integer>absent();
     }
 
     public Optional<WebServer> getWebServer() {
@@ -305,13 +322,14 @@ public final class Main {
    */
   @VisibleForTesting
   static Daemon getDaemon(
-      Repository repository,
+      RepositoryFactory repositoryFactory,
       Clock clock,
-      ObjectMapper objectMapper) throws IOException {
+      ObjectMapper objectMapper)
+      throws IOException, InterruptedException  {
+    Path rootPath = repositoryFactory.getRootRepository().getFilesystem().getRootPath();
     if (daemon == null) {
-      LOG.debug("Starting up daemon for project root [%s]",
-          repository.getFilesystem().getRootPath());
-      daemon = new Daemon(repository, clock, objectMapper);
+      LOG.debug("Starting up daemon for project root [%s]", rootPath);
+      daemon = new Daemon(repositoryFactory, clock, objectMapper);
     } else {
       // Buck daemons cache build files within a single project root, changing to a different
       // project root is not supported and will likely result in incorrect builds. The buck and
@@ -319,17 +337,17 @@ public final class Main {
       // should be reported rather than silently worked around by invalidating the cache and
       // creating a new daemon object.
       Path parserRoot = daemon.getParser().getProjectRoot();
-      if (!repository.getFilesystem().getRootPath().equals(parserRoot)) {
+      if (!rootPath.equals(parserRoot)) {
         throw new HumanReadableException(String.format("Unsupported root path change from %s to %s",
-            repository.getFilesystem().getRootPath(), parserRoot));
+            rootPath, parserRoot));
       }
 
       // If Buck config or the AndroidDirectoryResolver has changed, invalidate the cache and
       // create a new daemon.
-      if (!daemon.repository.equals(repository)) {
+      if (!daemon.repository.equals(repositoryFactory.getRootRepository())) {
         LOG.info("Shutting down and restarting daemon on config or directory resolver change.");
         daemon.close();
-        daemon = new Daemon(repository, clock, objectMapper);
+        daemon = new Daemon(repositoryFactory, clock, objectMapper);
       }
     }
     return daemon;
@@ -489,7 +507,7 @@ public final class Main {
     RepositoryFactory repositoryFactory =
         new RepositoryFactory(clientEnvironment, platform, console, canonicalRootPath);
 
-    Repository rootRepository = repositoryFactory.getRepositoryByAbsolutePath(canonicalRootPath);
+    Repository rootRepository = repositoryFactory.getRootRepository();
 
     if (commandParseResult.getErrorText().isPresent()) {
       console.getStdErr().println(commandParseResult.getErrorText().get());
@@ -497,7 +515,14 @@ public final class Main {
 
     int exitCode;
     ImmutableList<BuckEventListener> eventListeners;
-    Clock clock = new DefaultClock();
+    Clock clock;
+    if (BUCKD_LAUNCH_TIME_NANOS.isPresent()) {
+      long nanosEpoch = Long.parseLong(BUCKD_LAUNCH_TIME_NANOS.get(), 10);
+      LOG.verbose("Using nanos epoch: %d", nanosEpoch);
+      clock = new NanosAdjustedClock(nanosEpoch);
+    } else {
+      clock = new DefaultClock();
+    }
     ProcessExecutor processExecutor = new ProcessExecutor(console);
     ExecutionEnvironment executionEnvironment = new DefaultExecutionEnvironment(
         processExecutor,
@@ -515,6 +540,8 @@ public final class Main {
         return BUSY_EXIT_CODE;
       }
     }
+
+    DefaultFileHashCache fileHashCache = new DefaultFileHashCache(rootRepository.getFilesystem());
 
     @Nullable ArtifactCacheFactory artifactCacheFactory = null;
 
@@ -539,13 +566,20 @@ public final class Main {
 
       // The ArtifactCache is constructed lazily so that we do not try to connect to Cassandra when
       // running commands such as `buck clean`.
-      artifactCacheFactory = new LoggingArtifactCacheFactory(executionEnvironment, buildEventBus);
+      artifactCacheFactory = new LoggingArtifactCacheFactory(
+          executionEnvironment,
+          buildEventBus,
+          fileHashCache);
 
-      Optional<WebServer> webServer = getWebServerIfDaemon(context, rootRepository, clock);
+      Optional<WebServer> webServer = getWebServerIfDaemon(
+          context,
+          repositoryFactory,
+          clock);
       eventListeners = addEventListeners(buildEventBus,
           rootRepository.getFilesystem(),
           rootRepository.getBuckConfig(),
           webServer,
+          clock,
           console,
           consoleListener,
           rootRepository.getKnownBuildRuleTypes(),
@@ -567,7 +601,7 @@ public final class Main {
         try {
           parser = getParserFromDaemon(
               context,
-              rootRepository,
+              repositoryFactory,
               commandEvent,
               buildEventBus,
               clock);
@@ -579,11 +613,11 @@ public final class Main {
       }
 
       if (parser == null) {
-        parser = new Parser(
-            rootRepository,
+        parser = Parser.createParser(
+            repositoryFactory,
             rootRepository.getBuckConfig().getPythonInterpreter(),
             rootRepository.getBuckConfig().getTempFilePatterns(),
-            createRuleKeyBuilderFactory(new DefaultFileHashCache(rootRepository.getFilesystem())));
+            createRuleKeyBuilderFactory(fileHashCache));
       }
       JavaUtilsLoggingBuildListener.ensureLogFileIsWritten(rootRepository.getFilesystem());
 
@@ -601,13 +635,17 @@ public final class Main {
               platform,
               clientEnvironment,
               rootRepository.getBuckConfig().createDefaultJavaPackageFinder(),
-              objectMapper));
+              objectMapper,
+              fileHashCache,
+              clock));
 
       // If the Daemon is running and serving web traffic, print the URL to the Chrome Trace.
       if (webServer.isPresent()) {
-        int port = webServer.get().getPort();
-        buildEventBus.post(ConsoleEvent.info(
-            "See trace at http://localhost:%s/trace/%s", port, buildId));
+        Optional<Integer> port = webServer.get().getPort();
+        if (port.isPresent()) {
+          buildEventBus.post(ConsoleEvent.info(
+              "See trace at http://localhost:%s/trace/%s", port.get(), buildId));
+        }
       }
 
       buildEventBus.post(CommandEvent.finished(commandName, remainingArgs, isDaemon, exitCode));
@@ -663,12 +701,12 @@ public final class Main {
 
   private Parser getParserFromDaemon(
       Optional<NGContext> context,
-      Repository repository,
+      RepositoryFactory repositoryFactory,
       CommandEvent commandEvent,
       BuckEventBus eventBus,
       Clock clock) throws IOException, InterruptedException {
     // Wire up daemon to new client and get cached Parser.
-    Daemon daemon = getDaemon(repository, clock, objectMapper);
+    Daemon daemon = getDaemon(repositoryFactory, clock, objectMapper);
     daemon.watchClient(context.get());
     daemon.watchFileSystem(commandEvent, eventBus);
     daemon.initWebServer();
@@ -677,10 +715,11 @@ public final class Main {
 
   private Optional<WebServer> getWebServerIfDaemon(
       Optional<NGContext> context,
-      Repository repository,
-      Clock clock) throws IOException {
+      RepositoryFactory repositoryFactory,
+      Clock clock)
+      throws IOException, InterruptedException  {
     if (context.isPresent()) {
-      Daemon daemon = getDaemon(repository, clock, objectMapper);
+      Daemon daemon = getDaemon(repositoryFactory, clock, objectMapper);
       return daemon.getWebServer();
     }
     return Optional.absent();
@@ -743,6 +782,7 @@ public final class Main {
       ProjectFilesystem projectFilesystem,
       BuckConfig config,
       Optional<WebServer> webServer,
+      Clock clock,
       Console console,
       AbstractConsoleEventBusListener consoleEventBusListener,
       KnownBuildRuleTypes knownBuildRuleTypes,
@@ -750,7 +790,7 @@ public final class Main {
     ImmutableList.Builder<BuckEventListener> eventListenersBuilder =
         ImmutableList.<BuckEventListener>builder()
             .add(new JavaUtilsLoggingBuildListener())
-            .add(new ChromeTraceBuildListener(projectFilesystem, config.getMaxTraces()))
+            .add(new ChromeTraceBuildListener(projectFilesystem, clock, config.getMaxTraces()))
             .add(consoleEventBusListener)
             .add(new LoggingBuildListener());
 
@@ -789,7 +829,8 @@ public final class Main {
       Verbosity verbosity,
       ExecutionEnvironment executionEnvironment,
       BuckConfig config) {
-    if (console.getAnsi().isAnsiTerminal() &&
+    if (Platform.WINDOWS != Platform.detect() &&
+        console.getAnsi().isAnsiTerminal() &&
         !verbosity.shouldPrintCommand() &&
         verbosity.shouldPrintStandardInformation()) {
       SuperConsoleEventBusListener superConsole = new SuperConsoleEventBusListener(

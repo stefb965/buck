@@ -35,6 +35,8 @@ import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipException;
 
+import javax.annotation.Nullable;
+
 /**
  * An implementation of an {@link OutputStream} for zip files that allows newer entries to overwrite
  * or refresh previously written entries.
@@ -48,9 +50,9 @@ public class OverwritingZipOutputStream extends CustomZipOutputStream {
   private final Map<File, EntryAccounting> entries = Maps.newLinkedHashMap();
   private final File scratchDir;
   private final Clock clock;
-  private EntryAccounting currentEntry;
+  @Nullable private EntryAccounting currentEntry;
   /** Place-holder for bytes. */
-  private OutputStream currentOutput;
+  @Nullable private OutputStream currentOutput;
 
   public OverwritingZipOutputStream(Clock clock, OutputStream out) {
     super(out);
@@ -87,13 +89,17 @@ public class OverwritingZipOutputStream extends CustomZipOutputStream {
   protected void actuallyCloseEntry() throws IOException {
     // We'll close the entry once we have the ultimate output stream and know the entry's location
     // within the generated zip.
-    currentOutput.close();
+    if (currentOutput != null) {
+      currentOutput.close();
+    }
     currentOutput = null;
     currentEntry = null;
   }
 
   @Override
   protected void actuallyWrite(byte[] b, int off, int len) throws IOException {
+    Preconditions.checkNotNull(currentEntry);
+    Preconditions.checkNotNull(currentOutput);
     currentEntry.write(currentOutput, b, off, len);
   }
 
@@ -106,10 +112,19 @@ public class OverwritingZipOutputStream extends CustomZipOutputStream {
       entry.setOffset(currentOffset);
       currentOffset += entry.writeLocalFileHeader(delegate);
 
-      // Don't update the offset, as entry.close will write the file header, which contains the
-      // correct size of the output.
       Files.copy(mapEntry.getKey().toPath(), delegate);
-      currentOffset += entry.close(delegate);
+
+      // If `entry.close()` returns 0, this means that we're using the STORED method, which doesn't
+      // perform compression.  In this case, we're responsible for manually updating the offset
+      // accounted for by the written output.  However, if a non-0 size is returned, we're using
+      // the DEFLATED method, so we don't update the offset, as entry.close will write the file
+      // header, which contains the correct size of the output.
+      long closeSize = entry.close(delegate);
+      if (closeSize == 0) {
+        currentOffset += entry.getSize();
+      } else {
+        currentOffset += closeSize;
+      }
     }
 
     new CentralDirectory().writeCentralDirectory(delegate, currentOffset, entries.values());

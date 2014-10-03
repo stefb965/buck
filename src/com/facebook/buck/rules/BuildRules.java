@@ -20,9 +20,8 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.util.DirectoryTraverser;
 import com.facebook.buck.util.DirectoryTraversers;
 import com.facebook.buck.util.HumanReadableException;
-import com.google.common.collect.ImmutableMultimap;
+import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Multimap;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -44,9 +43,9 @@ public class BuildRules {
     ImmutableSortedSet.Builder<BuildRule> buildRules = ImmutableSortedSet.naturalOrder();
 
     for (BuildTarget target : buildTargets) {
-      BuildRule buildRule = ruleResolver.get(target);
-      if (buildRule != null) {
-        buildRules.add(buildRule);
+      Optional<BuildRule> buildRule = ruleResolver.getRuleOptional(target);
+      if (buildRule.isPresent()) {
+        buildRules.add(buildRule.get());
       } else if (!allowNonExistentRule) {
         throw new HumanReadableException("No rule for %s found when processing %s",
             target, invokingBuildTarget.getFullyQualifiedName());
@@ -54,14 +53,6 @@ public class BuildRules {
     }
 
     return buildRules.build();
-  }
-
-  public static Multimap<Path, BuildRule> buildRulesByTargetBasePath(Iterable<BuildRule> rules) {
-    ImmutableMultimap.Builder<Path, BuildRule> result = ImmutableMultimap.builder();
-    for (BuildRule rule : rules) {
-      result.put(rule.getBuildTarget().getBasePath(), rule);
-    }
-    return result.build();
   }
 
   /**

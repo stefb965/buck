@@ -20,22 +20,29 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.java.FakeJavaPackageFinder;
 import com.facebook.buck.java.JavaPackageFinder;
+import com.facebook.buck.rules.FakeRepositoryFactory;
 import com.facebook.buck.rules.NoopArtifactCache;
 import com.facebook.buck.rules.Repository;
+import com.facebook.buck.rules.RepositoryFactory;
 import com.facebook.buck.rules.TestRepositoryBuilder;
 import com.facebook.buck.testutil.BuckTestConstant;
+import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.AndroidDirectoryResolver;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.FakeAndroidDirectoryResolver;
+import com.facebook.buck.util.FileHashCache;
 import com.facebook.buck.util.environment.Platform;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableMap;
+
+import java.io.IOException;
 
 public class CommandRunnerParamsForTesting extends CommandRunnerParams {
 
   private CommandRunnerParamsForTesting(
       Console console,
+      RepositoryFactory repositoryFactory,
       Repository repository,
       AndroidDirectoryResolver androidDirectoryResolver,
       ArtifactCacheFactory artifactCacheFactory,
@@ -44,8 +51,12 @@ public class CommandRunnerParamsForTesting extends CommandRunnerParams {
       Platform platform,
       ImmutableMap<String, String> environment,
       JavaPackageFinder javaPackageFinder,
-      ObjectMapper objectMapper) {
-    super(console,
+      ObjectMapper objectMapper,
+      FileHashCache fileHashCache)
+      throws IOException, InterruptedException{
+    super(
+        console,
+        repositoryFactory,
         repository,
         androidDirectoryResolver,
         artifactCacheFactory,
@@ -54,7 +65,8 @@ public class CommandRunnerParamsForTesting extends CommandRunnerParams {
         platform,
         environment,
         javaPackageFinder,
-        objectMapper);
+        objectMapper,
+        fileHashCache);
   }
 
   // Admittedly, this class has no additional methods beyond its superclass today, but we will
@@ -76,12 +88,14 @@ public class CommandRunnerParamsForTesting extends CommandRunnerParams {
     private ImmutableMap<String, String> environment = ImmutableMap.copyOf(System.getenv());
     private JavaPackageFinder javaPackageFinder = new FakeJavaPackageFinder();
     private ObjectMapper objectMapper = new ObjectMapper();
+    private FileHashCache fileHashCache = FakeFileHashCache.EMPTY_CACHE;
 
-    public CommandRunnerParamsForTesting build() {
-      Repository repository = new TestRepositoryBuilder().build();
+    public CommandRunnerParamsForTesting build()
+        throws IOException, InterruptedException{
       return new CommandRunnerParamsForTesting(
           console,
-          repository,
+          new FakeRepositoryFactory(),
+          new TestRepositoryBuilder().build(),
           androidDirectoryResolver,
           artifactCacheFactory,
           eventBus,
@@ -89,7 +103,8 @@ public class CommandRunnerParamsForTesting extends CommandRunnerParams {
           platform,
           environment,
           javaPackageFinder,
-          objectMapper);
+          objectMapper,
+          fileHashCache);
     }
 
     public Builder setConsole(Console console) {

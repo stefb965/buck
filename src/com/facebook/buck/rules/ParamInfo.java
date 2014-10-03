@@ -16,6 +16,7 @@
 
 package com.facebook.buck.rules;
 
+import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.rules.coercer.CoerceFailedException;
 import com.facebook.buck.rules.coercer.TypeCoercer;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
@@ -32,24 +33,20 @@ import javax.annotation.Nullable;
 
 class ParamInfo implements Comparable<ParamInfo> {
 
-  private final Path pathRelativeToProjectRoot;
   private final TypeCoercer<?> typeCoercer;
 
   private final boolean isOptional;
   private final String name;
   private final String pythonName;
+  private final boolean isDep;
   private final Field field;
 
-  public ParamInfo(
-      TypeCoercerFactory typeCoercerFactory,
-      Path pathRelativeToProjectRoot,
-      Field field) {
-
-    this.pathRelativeToProjectRoot = Preconditions.checkNotNull(pathRelativeToProjectRoot);
+  public ParamInfo(TypeCoercerFactory typeCoercerFactory, Field field) {
     this.field = Preconditions.checkNotNull(field);
     this.name = field.getName();
     Hint hint = field.getAnnotation(Hint.class);
     this.pythonName = determinePythonName(this.name, hint);
+    this.isDep = hint != null ? hint.isDep() : Hint.DEFAULT_IS_DEP;
 
     isOptional = Optional.class.isAssignableFrom(field.getType());
     this.typeCoercer = typeCoercerFactory.typeCoercerForType(Types.getFirstNonOptionalType(field));
@@ -65,6 +62,10 @@ class ParamInfo implements Comparable<ParamInfo> {
 
   public String getPythonName() {
     return pythonName;
+  }
+
+  public boolean isDep() {
+    return isDep;
   }
 
   /**
@@ -90,7 +91,13 @@ class ParamInfo implements Comparable<ParamInfo> {
       ProjectFilesystem filesystem,
       Object arg,
       BuildRuleFactoryParams params) throws ParamInfoException {
-    set(ruleResolver, filesystem, arg, params.getNullableRawAttribute(name));
+    set(
+        params.buildTargetParser,
+        ruleResolver,
+        filesystem,
+        params.target.getBasePath(),
+        arg,
+        params.getNullableRawAttribute(name));
   }
 
   /**
@@ -98,12 +105,15 @@ class ParamInfo implements Comparable<ParamInfo> {
    *
    * @param ruleResolver {@link BuildRuleResolver} used for {@link BuildRule} instances.
    * @param filesystem {@link ProjectFilesystem} used to ensure {@link Path}s exist.
+   * @param pathRelativeToProjectRoot The path relative to the project root that this DTO is for.
    * @param dto The constructor DTO on which the value should be set.
    * @param value The value, which may be coerced depending on the type on {@code dto}.
    */
   public void set(
+      BuildTargetParser buildTargetParser,
       BuildRuleResolver ruleResolver,
       ProjectFilesystem filesystem,
+      Path pathRelativeToProjectRoot,
       Object dto,
       @Nullable Object value) throws ParamInfoException {
     Object result;
@@ -120,7 +130,12 @@ class ParamInfo implements Comparable<ParamInfo> {
       }
     } else {
       try {
-        result = typeCoercer.coerce(ruleResolver, filesystem, pathRelativeToProjectRoot, value);
+        result = typeCoercer.coerce(
+            buildTargetParser,
+            ruleResolver,
+            filesystem,
+            pathRelativeToProjectRoot,
+            value);
       } catch (CoerceFailedException e) {
         throw new ParamInfoException(name, e.getMessage(), e);
       }
@@ -160,7 +175,7 @@ class ParamInfo implements Comparable<ParamInfo> {
   }
 
   private String determinePythonName(String javaName, @Nullable Hint hint) {
-    if (hint != null) {
+    if (hint != null && !Hint.DEFAULT_NAME.equals(hint.name())) {
       return hint.name();
     }
     return CaseFormat.LOWER_CAMEL.to(CaseFormat.LOWER_UNDERSCORE, javaName);

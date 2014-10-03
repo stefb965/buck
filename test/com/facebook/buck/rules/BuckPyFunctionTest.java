@@ -28,8 +28,6 @@ import com.google.common.base.Optional;
 import org.junit.Before;
 import org.junit.Test;
 
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.List;
 import java.util.Set;
 
@@ -40,13 +38,12 @@ public class BuckPyFunctionTest {
 
   @Before
   public void setUpMarshaller() {
-    Path basePath = Paths.get("example", "path");
-    buckPyFunction = new BuckPyFunction(new ConstructorArgMarshaller(basePath));
+    buckPyFunction = new BuckPyFunction(new ConstructorArgMarshaller());
   }
 
   @Test
   public void nameWillBeAddedIfMissing() {
-    class NoName implements ConstructorArg { public String random; }
+    class NoName { public String random; }
 
     String definition = buckPyFunction.toPythonFunction(new BuildRuleType("bad"), new NoName());
 
@@ -55,7 +52,7 @@ public class BuckPyFunctionTest {
 
   @Test
   public void visibilityWillBeAddedIfMissing() {
-    class NoVis implements ConstructorArg { public String random; }
+    class NoVis { public String random; }
 
     String definition = buckPyFunction.toPythonFunction(new BuildRuleType("bad"), new NoVis());
 
@@ -64,7 +61,7 @@ public class BuckPyFunctionTest {
 
   @Test
   public void shouldOnlyIncludeTheNameFieldOnce() {
-    class Named implements ConstructorArg { public String name; }
+    class Named { public String name; }
 
     String definition = buckPyFunction.toPythonFunction(new BuildRuleType("named"), new Named());
 
@@ -84,7 +81,7 @@ public class BuckPyFunctionTest {
   @Test
   public void testHasDefaultName() {
     @TargetName(name = "lollerskates")
-    class NoName implements ConstructorArg { public String foobar; }
+    class NoName { public String foobar; }
 
     String definition = buckPyFunction.toPythonFunction(new BuildRuleType("noname"), new NoName());
 
@@ -104,14 +101,14 @@ public class BuckPyFunctionTest {
 
   @Test(expected = HumanReadableException.class)
   public void theNameFieldMustBeAString() {
-    class BadName implements ConstructorArg { public int name; }
+    class BadName { public int name; }
 
     buckPyFunction.toPythonFunction(new BuildRuleType("nope"), new BadName());
   }
 
   @Test
   public void optionalFieldsAreGivenSensibleDefaultValues() {
-    class LotsOfOptions implements ConstructorArg {
+    class LotsOfOptions {
       public Optional<String> thing;
       public Optional<List<BuildTarget>> targets;
       public Optional<Integer> version;
@@ -125,7 +122,7 @@ public class BuckPyFunctionTest {
 
   @Test
   public void optionalFieldsAreListedAfterMandatoryOnes() {
-    class Either implements ConstructorArg {
+    class Either {
       // Alphabetical ordering is deliberate.
       public Optional<String> cat;
       public String dog;
@@ -154,7 +151,7 @@ public class BuckPyFunctionTest {
 
   @Test(expected = HumanReadableException.class)
   public void visibilityOptionsMustNotBeSetAsTheyArePassedInBuildRuleParamsLater() {
-    class Visible implements ConstructorArg {
+    class Visible {
       public Set<BuildTargetPattern> visibility;
     }
 
@@ -163,7 +160,7 @@ public class BuckPyFunctionTest {
 
   @Test
   public void shouldConvertCamelCaseFieldNameToSnakeCaseParameter() {
-    class Dto implements ConstructorArg {
+    class Dto {
       public String someField;
 
       @Hint(name = "all_this_was_fields")
@@ -189,7 +186,7 @@ public class BuckPyFunctionTest {
 
   @Test
   public void optionalBooleanValuesShouldBeRepresentedByNone() {
-    class Dto implements ConstructorArg {
+    class Dto {
       public Optional<Boolean> field;
     }
 

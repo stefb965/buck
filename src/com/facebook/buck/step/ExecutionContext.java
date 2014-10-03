@@ -21,6 +21,7 @@ import com.facebook.buck.event.BuckEvent;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ThrowableConsoleEvent;
 import com.facebook.buck.java.JavaPackageFinder;
+import com.facebook.buck.model.BuildId;
 import com.facebook.buck.util.AndroidPlatformTarget;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.Console;
@@ -56,18 +57,18 @@ public class ExecutionContext {
   private final ObjectMapper objectMapper;
 
   private ExecutionContext(
-      ProjectFilesystem projectFilesystem,
-      Console console,
+      @Nullable ProjectFilesystem projectFilesystem,
+      @Nullable Console console,
       Optional<AndroidPlatformTarget> androidPlatformTarget,
       Optional<TargetDevice> targetDevice,
       long defaultTestTimeoutMillis,
       boolean isCodeCoverageEnabled,
       boolean isDebugEnabled,
-      BuckEventBus eventBus,
-      Platform platform,
-      ImmutableMap<String, String> environment,
-      JavaPackageFinder javaPackageFinder,
-      ObjectMapper objectMapper) {
+      @Nullable BuckEventBus eventBus,
+      @Nullable Platform platform,
+      @Nullable ImmutableMap<String, String> environment,
+      @Nullable JavaPackageFinder javaPackageFinder,
+      @Nullable ObjectMapper objectMapper) {
     this.verbosity = Preconditions.checkNotNull(console).getVerbosity();
     this.projectFilesystem = Preconditions.checkNotNull(projectFilesystem);
     this.console = Preconditions.checkNotNull(console);
@@ -213,6 +214,10 @@ public class ExecutionContext {
 
   public ImmutableMap<String, String> getEnvironment() {
     return environment;
+  }
+
+  public BuildId getBuildId() {
+    return eventBus.getBuildId();
   }
 
   public static class Builder {

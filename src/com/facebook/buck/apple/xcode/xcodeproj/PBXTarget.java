@@ -22,6 +22,8 @@ import com.google.common.collect.Lists;
 
 import java.util.List;
 
+import javax.annotation.Nullable;
+
 /**
  * Information for building a specific artifact (a library, binary, or test).
  */
@@ -49,33 +51,43 @@ public abstract class PBXTarget extends PBXProjectItem {
     }
   }
 
-  private String name;
-  private String productName;
-  private ProductType productType;
-  private PBXFileReference productReference;
-  private List<PBXTargetDependency> dependencies;
-  private List<PBXBuildPhase> buildPhases;
-  private XCConfigurationList buildConfigurationList;
+  private final String name;
+  private final ProductType productType;
+  private final List<PBXTargetDependency> dependencies;
+  private final List<PBXBuildPhase> buildPhases;
+  private final XCConfigurationList buildConfigurationList;
+  @Nullable private String productName;
+  @Nullable private PBXFileReference productReference;
 
-  public PBXTarget(String name) {
+  public PBXTarget(String name, ProductType productType) {
     this.name = Preconditions.checkNotNull(name);
+    this.productType = Preconditions.checkNotNull(productType);
     this.dependencies = Lists.newArrayList();
     this.buildPhases = Lists.newArrayList();
+    this.buildConfigurationList = new XCConfigurationList();
   }
 
   public String getName() {
     return name;
   }
-  public void setName(String v) {
-    name = v;
-  }
+
   public ProductType getProductType() {
     return productType;
   }
-  public void setProductType(ProductType v) {
-    productType = v;
+
+  public List<PBXTargetDependency> getDependencies() {
+    return dependencies;
   }
 
+  public List<PBXBuildPhase> getBuildPhases() {
+    return buildPhases;
+  }
+
+  public XCConfigurationList getBuildConfigurationList() {
+    return buildConfigurationList;
+  }
+
+  @Nullable
   public String getProductName() {
     return productName;
   }
@@ -84,29 +96,13 @@ public abstract class PBXTarget extends PBXProjectItem {
     this.productName = productName;
   }
 
+  @Nullable
   public PBXFileReference getProductReference() {
     return productReference;
   }
+
   public void setProductReference(PBXFileReference v) {
     productReference = v;
-  }
-  public List<PBXTargetDependency> getDependencies() {
-    return dependencies;
-  }
-  public void setDependencies(List<PBXTargetDependency> v) {
-    dependencies = v;
-  }
-  public List<PBXBuildPhase> getBuildPhases() {
-    return buildPhases;
-  }
-  public void setBuildPhases(List<PBXBuildPhase> v) {
-    buildPhases = v;
-  }
-  public XCConfigurationList getBuildConfigurationList() {
-    return buildConfigurationList;
-  }
-  public void setBuildConfigurationList(XCConfigurationList v) {
-    buildConfigurationList = v;
   }
 
   @Override
@@ -127,10 +123,16 @@ public abstract class PBXTarget extends PBXProjectItem {
     if (productType != null) {
       s.addField("productType", productType.toString());
     }
-    s.addField("productName", productName);
-    s.addField("productReference", productReference);
+    if (productName != null) {
+      s.addField("productName", productName);
+    }
+    if (productReference != null) {
+      s.addField("productReference", productReference);
+    }
     s.addField("dependencies", dependencies);
     s.addField("buildPhases", buildPhases);
-    s.addField("buildConfigurationList", buildConfigurationList);
+    if (buildConfigurationList != null) {
+      s.addField("buildConfigurationList", buildConfigurationList);
+    }
   }
 }

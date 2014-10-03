@@ -74,6 +74,7 @@ public class JUnitStepTest {
         pretendBuildId,
         TestSelectorList.empty(),
         /* isDryRun */ false,
+        TestType.JUNIT,
         testRunnerClassesDirectory);
 
     ExecutionContext executionContext = EasyMock.createMock(ExecutionContext.class);
@@ -138,6 +139,7 @@ public class JUnitStepTest {
         pretendBuildId,
         TestSelectorList.empty(),
         /* isDryRun */ false,
+        TestType.JUNIT,
         testRunnerClassesDirectory);
 
 

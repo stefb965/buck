@@ -23,6 +23,7 @@ import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.HasBuildTarget;
+import com.facebook.buck.python.PythonPackageComponents;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleParamsFactory;
@@ -37,6 +38,7 @@ import com.facebook.buck.shell.GenruleBuilder;
 import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
@@ -57,22 +59,25 @@ public class CxxBinaryDescriptionTest {
   }
 
   @Test
+  @SuppressWarnings("PMD.UseAssertTrueInsteadOfAssertEquals")
   public void createBuildRule() {
     BuildRuleResolver resolver = new BuildRuleResolver();
 
     // Setup a genrule the generates a header we'll list.
     String genHeaderName = "test/foo.h";
     BuildTarget genHeaderTarget = BuildTargetFactory.newInstance("//:genHeader");
-    Genrule genHeader = GenruleBuilder.createGenrule(genHeaderTarget)
+    Genrule genHeader = (Genrule) GenruleBuilder
+        .newGenruleBuilder(genHeaderTarget)
         .setOut(genHeaderName)
-        .build();
+        .build(resolver);
 
     // Setup a genrule the generates a source we'll list.
     String genSourceName = "test/foo.cpp";
     BuildTarget genSourceTarget = BuildTargetFactory.newInstance("//:genSource");
-    Genrule genSource = GenruleBuilder.createGenrule(genSourceTarget)
+    Genrule genSource = (Genrule) GenruleBuilder
+        .newGenruleBuilder(genSourceTarget)
         .setOut(genSourceName)
-        .build();
+        .build(resolver);
 
     // Setup a C/C++ library that we'll depend on form the C/C++ binary description.
     final BuildRule header = createFakeBuildRule("//:header");
@@ -92,16 +97,24 @@ public class CxxBinaryDescriptionTest {
                 headerSymlinkTree.getBuildTarget()),
             ImmutableList.<String>of(),
             ImmutableList.<String>of(),
+            ImmutableMap.<Path, SourcePath>of(),
             ImmutableList.of(headerSymlinkTreeRoot),
             ImmutableList.<Path>of());
       }
 
       @Override
-      public NativeLinkableInput getNativeLinkableInput() {
+      public NativeLinkableInput getNativeLinkableInput(Type type) {
         return new NativeLinkableInput(
-            ImmutableSet.of(archive.getBuildTarget()),
-            ImmutableList.of(archiveOutput),
+            ImmutableList.<SourcePath>of(new BuildRuleSourcePath(archive)),
             ImmutableList.of(archiveOutput.toString()));
+      }
+
+      @Override
+      public PythonPackageComponents getPythonPackageComponents() {
+        return new PythonPackageComponents(
+            ImmutableMap.<Path, SourcePath>of(),
+            ImmutableMap.<Path, SourcePath>of(),
+            ImmutableMap.<Path, SourcePath>of());
       }
 
     };
@@ -115,7 +128,7 @@ public class CxxBinaryDescriptionTest {
 
     // Create the description arg.
     CxxBinaryDescription.Arg arg = new CxxBinaryDescription.Arg();
-    arg.deps = Optional.of(ImmutableSortedSet.<BuildRule>of(dep));
+    arg.deps = Optional.of(ImmutableSortedSet.of(dep.getBuildTarget()));
     arg.srcs = Optional.of(ImmutableList.<SourcePath>of(
         new TestSourcePath("test/bar.cpp"),
         new BuildRuleSourcePath(genSource)));
@@ -124,18 +137,27 @@ public class CxxBinaryDescriptionTest {
         new BuildRuleSourcePath(genHeader)));
     arg.compilerFlags = Optional.absent();
     arg.preprocessorFlags = Optional.absent();
+    arg.lexSrcs = Optional.absent();
+    arg.yaccSrcs = Optional.absent();
 
     // Instantiate a description and call its `createBuildRule` method.
     CxxBuckConfig cxxBuckConfig = new CxxBuckConfig(new FakeBuckConfig());
     CxxBinaryDescription description = new CxxBinaryDescription(cxxBuckConfig);
-    CxxLink rule = description.createBuildRule(params, resolver, arg);
+    CxxBinary binRule = description.createBuildRule(params, resolver, arg);
+    CxxLink rule = binRule.getRule();
 
     // Check that link rule has the expected deps: the object files for our sources and the
     // archive from the dependency.
     assertEquals(
         ImmutableSet.of(
-            CxxCompilableEnhancer.createCompileBuildTarget(target, "test/bar.cpp"),
-            CxxCompilableEnhancer.createCompileBuildTarget(target, genSourceName),
+            CxxCompilableEnhancer.createCompileBuildTarget(
+                target,
+                "test/bar.cpp",
+                /* pic */ false),
+            CxxCompilableEnhancer.createCompileBuildTarget(
+                target,
+                genSourceName,
+                /* pic */ false),
             archive.getBuildTarget()),
         FluentIterable.from(rule.getDeps())
             .transform(HasBuildTarget.TO_TARGET)
@@ -143,14 +165,17 @@ public class CxxBinaryDescriptionTest {
 
     // Verify that the compile rule for our user-provided source has correct deps setup
     // for the various header rules.
-    BuildRule compileRule1 = resolver.get(
-        CxxCompilableEnhancer.createCompileBuildTarget(target, "test/bar.cpp"));
+    BuildRule compileRule1 = resolver.getRule(
+        CxxCompilableEnhancer.createCompileBuildTarget(
+            target,
+            "test/bar.cpp",
+            /* pic */ false));
     assertNotNull(compileRule1);
     assertEquals(
         ImmutableSet.of(
+            genHeaderTarget,
             headerSymlinkTree.getBuildTarget(),
             header.getBuildTarget(),
-            CxxDescriptionEnhancer.createHeaderTarget(target),
             CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(target)),
         FluentIterable.from(compileRule1.getDeps())
             .transform(HasBuildTarget.TO_TARGET)
@@ -158,15 +183,18 @@ public class CxxBinaryDescriptionTest {
 
     // Verify that the compile rule for our genrule-generated source has correct deps setup
     // for the various header rules and the generating genrule.
-    BuildRule compileRule2 = resolver.get(
-        CxxCompilableEnhancer.createCompileBuildTarget(target, genSourceName));
+    BuildRule compileRule2 = resolver.getRule(
+        CxxCompilableEnhancer.createCompileBuildTarget(
+            target,
+            genSourceName,
+            /* pic */ false));
     assertNotNull(compileRule2);
     assertEquals(
         ImmutableSet.of(
+            genHeaderTarget,
             genSourceTarget,
             headerSymlinkTree.getBuildTarget(),
             header.getBuildTarget(),
-            CxxDescriptionEnhancer.createHeaderTarget(target),
             CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(target)),
         FluentIterable.from(compileRule2.getDeps())
             .transform(HasBuildTarget.TO_TARGET)

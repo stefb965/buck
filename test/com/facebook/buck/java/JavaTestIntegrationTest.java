@@ -17,6 +17,8 @@
 package com.facebook.buck.java;
 
 
+import static org.junit.Assert.assertTrue;
+
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
@@ -30,6 +32,64 @@ public class JavaTestIntegrationTest {
 
   @Rule
   public DebuggableTemporaryFolder temp = new DebuggableTemporaryFolder();
+
+  @Test
+  public void shouldRefuseToRunJUnitTestsIfHamcrestNotOnClasspath() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this,
+        "missing_test_deps",
+        temp);
+    workspace.setUp();
+
+    ProjectWorkspace.ProcessResult result = workspace.runBuckCommand("test", "//:no-hamcrest");
+
+    // The bug this addresses was exposed as a missing output XML files. We expect the test to fail
+    // with a warning to the user explaining that hamcrest was missing.
+    result.assertFailure();
+    String stderr = result.getStderr();
+    assertTrue(
+        stderr,
+        stderr.contains(
+            "Unable to locate hamcrest on the classpath. Please add as a test dependency."));
+  }
+
+  @Test
+  public void shouldRefuseToRunJUnitTestsIfJUnitNotOnClasspath() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this,
+        "missing_test_deps",
+        temp);
+    workspace.setUp();
+
+    ProjectWorkspace.ProcessResult result = workspace.runBuckCommand("test", "//:no-junit");
+
+    // The bug this address was exposed as a missing output XML files. We expect the test to fail
+    // with a warning to the user explaining that hamcrest was missing.
+    result.assertFailure();
+    String stderr = result.getStderr();
+    assertTrue(
+        stderr,
+        stderr.contains(
+            "Unable to locate junit on the classpath. Please add as a test dependency."));
+  }
+
+  @Test
+  public void shouldRefuseToRunTestNgTestsIfTestNgNotOnClasspath() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this,
+        "missing_test_deps",
+        temp);
+    workspace.setUp();
+
+    ProjectWorkspace.ProcessResult result = workspace.runBuckCommand("test", "//:no-testng");
+
+    result.assertFailure();
+    String stderr = result.getStderr();
+    assertTrue(
+        stderr,
+        stderr.contains(
+            "Unable to locate testng on the classpath. Please add as a test dependency."));
+  }
 
   /**
    * There's a requirement that the JUnitRunner creates and runs tests on the same thread (thanks to
@@ -52,11 +112,23 @@ public class JavaTestIntegrationTest {
         temp);
     workspace.setUp();
 
-    ProjectWorkspace.ProcessResult result = workspace.runBuckCommand("test", "//:suite", "-v", "5");
-
-    System.out.println("err = " + result.getStderr());
-    System.out.println("out = " + result.getStdout());
+    ProjectWorkspace.ProcessResult result = workspace.runBuckCommand("test", "//:suite");
 
     result.assertSuccess();
+  }
+
+  @Test
+  public void missingResultsFileIsTestFailure() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this,
+        "java_test_missing_result_file",
+        temp);
+    workspace.setUp();
+
+    ProjectWorkspace.ProcessResult result = workspace.runBuckCommand("test", "//:simple");
+
+    result.assertSpecialExitCode("test should fail", 42);
+    String stderr = result.getStderr();
+    assertTrue(stderr, stderr.contains("test exited before generating results file"));
   }
 }

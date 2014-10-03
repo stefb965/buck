@@ -16,14 +16,14 @@
 
 package com.facebook.buck.python;
 
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
-import com.facebook.buck.rules.ConstructorArg;
 import com.facebook.buck.rules.Description;
-import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -41,9 +41,11 @@ public class PythonBinaryDescription implements Description<PythonBinaryDescript
   public static final BuildRuleType TYPE = new BuildRuleType("python_binary");
 
   private final Path pathToPex;
+  private final PythonEnvironment pythonEnvironment;
 
-  public PythonBinaryDescription(Path pathToPex) {
+  public PythonBinaryDescription(Path pathToPex, PythonEnvironment pythonEnv) {
     this.pathToPex = Preconditions.checkNotNull(pathToPex);
+    this.pythonEnvironment = Preconditions.checkNotNull(pythonEnv);
   }
 
   @Override
@@ -62,8 +64,9 @@ public class PythonBinaryDescription implements Description<PythonBinaryDescript
       BuildRuleResolver resolver,
       A args) {
 
+    Path baseModule = PythonUtil.getBasePath(params.getBuildTarget(), args.baseModule);
     String mainName = args.main.getName();
-    Path mainModule = params.getBuildTarget().getBasePath().resolve(mainName);
+    Path mainModule = baseModule.resolve(mainName);
 
     // Build up the list of all components going into the python binary.
     PythonPackageComponents binaryPackageComponents = new PythonPackageComponents(
@@ -82,14 +85,16 @@ public class PythonBinaryDescription implements Description<PythonBinaryDescript
     return new PythonBinary(
         binaryParams,
         pathToPex,
+        pythonEnvironment,
         mainModule,
         allPackageComponents);
   }
 
   @SuppressFieldNotInitialized
-  public static class Arg implements ConstructorArg {
+  public static class Arg {
     public SourcePath main;
-    public Optional<ImmutableSortedSet<BuildRule>> deps;
+    public Optional<ImmutableSortedSet<BuildTarget>> deps;
+    public Optional<String> baseModule;
   }
 
 }

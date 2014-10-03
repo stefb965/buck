@@ -18,6 +18,7 @@ package com.facebook.buck.rules.coercer;
 
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
@@ -45,6 +46,7 @@ public class SourcePathTypeCoercerTest {
     // Verify that regular strings coerced as PathSourcePaths preserve their original name.
     String src = "test/source.cpp";
     SourcePath res = sourcePathTypeCoercer.coerce(
+        new BuildTargetParser(),
         buildRuleResolver,
         filesystem,
         basePath,

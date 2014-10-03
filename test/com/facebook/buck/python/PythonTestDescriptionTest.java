@@ -20,14 +20,17 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildRuleParamsFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TestSourcePath;
+import com.facebook.buck.rules.coercer.Either;
 import com.google.common.base.Optional;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 
 import org.junit.Test;
@@ -46,17 +49,23 @@ public class PythonTestDescriptionTest {
     BuildRuleParams params =
         new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance("//:bin"))
             .build();
-    PythonTestDescription desc = new PythonTestDescription(PEX_PATH, TEST_MAIN);
+    PythonTestDescription desc = new PythonTestDescription(
+        PEX_PATH,
+        TEST_MAIN,
+        new PythonEnvironment(Paths.get("fake_python"), new PythonVersion("Python 2.7")));
     PythonTestDescription.Arg arg = desc.createUnpopulatedConstructorArg();
-    arg.deps = Optional.of(ImmutableSortedSet.<BuildRule>of());
-    arg.srcs = Optional.of(ImmutableSortedSet.<SourcePath>of(new TestSourcePath("blah.py")));
+    arg.deps = Optional.of(ImmutableSortedSet.<BuildTarget>of());
+    arg.srcs = Optional.of(
+        Either.<ImmutableSortedSet<SourcePath>, ImmutableMap<String, SourcePath>>ofLeft(
+            ImmutableSortedSet.<SourcePath>of(new TestSourcePath("blah.py"))));
     arg.resources = Optional.absent();
+    arg.baseModule = Optional.absent();
     arg.contacts = Optional.absent();
     arg.labels = Optional.absent();
     arg.sourceUnderTest = Optional.absent();
     PythonTest testRule = desc.createBuildRule(params, resolver, arg);
 
-    PythonBinary binRule = (PythonBinary) resolver.get(
+    PythonBinary binRule = (PythonBinary) resolver.getRule(
         desc.getBinaryBuildTarget(testRule.getBuildTarget()));
     assertNotNull(binRule);
 
@@ -64,6 +73,49 @@ public class PythonTestDescriptionTest {
     assertTrue(components.getModules().containsKey(desc.getTestModulesListName()));
     assertTrue(components.getModules().containsKey(desc.getTestMainName()));
     assertEquals(binRule.getMain(), desc.getTestMainName());
+  }
+
+  @Test
+  public void baseModule() {
+    BuildRuleResolver resolver;
+    BuildTarget target = BuildTargetFactory.newInstance("//foo:lib");
+    BuildRuleParams params = BuildRuleParamsFactory.createTrivialBuildRuleParams(target);
+    String sourceName = "main.py";
+    SourcePath source = new TestSourcePath("foo/" + sourceName, sourceName);
+    PythonTestDescription desc = new PythonTestDescription(
+        PEX_PATH,
+        TEST_MAIN,
+        new PythonEnvironment(Paths.get("python"), new PythonVersion("2.5")));
+    PythonTestDescription.Arg arg = desc.createUnpopulatedConstructorArg();
+    arg.deps = Optional.absent();
+    arg.resources = Optional.absent();
+    arg.contacts = Optional.absent();
+    arg.labels = Optional.absent();
+    arg.sourceUnderTest = Optional.absent();
+    arg.srcs = Optional.of(
+        Either.<ImmutableSortedSet<SourcePath>, ImmutableMap<String, SourcePath>>ofLeft(
+            ImmutableSortedSet.of(source)));
+
+    // Run without a base module set and verify it defaults to using the build target
+    // base name.
+    arg.baseModule = Optional.absent();
+    resolver = new BuildRuleResolver();
+    desc.createBuildRule(params, resolver, arg);
+    PythonBinary normalRule = (PythonBinary) resolver.getRule(
+        desc.getBinaryBuildTarget(target));
+    assertNotNull(normalRule);
+    assertTrue(normalRule.getComponents().getModules().containsKey(
+        target.getBasePath().resolve(sourceName)));
+
+    // Run *with* a base module set and verify it gets used to build the main module path.
+    arg.baseModule = Optional.of("blah");
+    resolver = new BuildRuleResolver();
+    desc.createBuildRule(params, resolver, arg);
+    PythonBinary baseModuleRule = (PythonBinary) resolver.getRule(
+        desc.getBinaryBuildTarget(target));
+    assertNotNull(baseModuleRule);
+    assertTrue(baseModuleRule.getComponents().getModules().containsKey(
+        Paths.get(arg.baseModule.get()).resolve(sourceName)));
   }
 
 }

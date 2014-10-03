@@ -26,7 +26,6 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.ConstructorArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.FlavorableDescription;
 import com.facebook.buck.rules.RuleKey.Builder;
@@ -49,13 +48,13 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
     FlavorableDescription<PrebuiltJarDescription.Arg>{
 
   @SuppressFieldNotInitialized
-  public static class Arg implements ConstructorArg {
+  public static class Arg {
     public SourcePath binaryJar;
     public Optional<SourcePath> sourceJar;
     public Optional<SourcePath> gwtJar;
     public Optional<String> javadocUrl;
 
-    public Optional<ImmutableSortedSet<BuildRule>> deps;
+    public Optional<ImmutableSortedSet<BuildTarget>> deps;
   }
 
   public static final BuildRuleType TYPE = new BuildRuleType("prebuilt_jar");
@@ -102,7 +101,7 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
         ruleKeyBuilderFactory,
         BuildRuleType.GWT_MODULE);
     BuildRule gwtModule = createGwtModule(params, arg);
-    ruleResolver.addToIndex(gwtModule.getBuildTarget(), gwtModule);
+    ruleResolver.addToIndex(gwtModule);
   }
 
   @VisibleForTesting

@@ -68,7 +68,7 @@ class SchemeGenerator {
   private static final Logger LOG = Logger.get(SchemeGenerator.class);
 
   private final ProjectFilesystem projectFilesystem;
-  private final BuildRule primaryRule;
+  private final Optional<BuildRule> primaryRule;
   private final ImmutableSet<BuildRule> orderedBuildRules;
   private final ImmutableSet<BuildRule> orderedTestBuildRules;
   private final ImmutableSet<BuildRule> orderedTestBundleRules;
@@ -80,7 +80,7 @@ class SchemeGenerator {
 
   public SchemeGenerator(
       ProjectFilesystem projectFilesystem,
-      BuildRule primaryRule,
+      Optional<BuildRule> primaryRule,
       Iterable<BuildRule> orderedBuildRules,
       Iterable<BuildRule> orderedTestBuildRules,
       Iterable<BuildRule> orderedTestBundleRules,
@@ -177,15 +177,17 @@ class SchemeGenerator {
     Optional<XCScheme.LaunchAction> launchAction = Optional.absent();
     Optional<XCScheme.ProfileAction> profileAction = Optional.absent();
 
-    XCScheme.BuildableReference primaryBuildableReference =
-        buildRuleToBuildableReferenceMap.get(primaryRule);
-    if (primaryBuildableReference != null) {
-      launchAction = Optional.of(new XCScheme.LaunchAction(
-          primaryBuildableReference,
-          actionConfigNames.get(SchemeActionType.LAUNCH)));
-      profileAction = Optional.of(new XCScheme.ProfileAction(
-          primaryBuildableReference,
-          actionConfigNames.get(SchemeActionType.PROFILE)));
+    if (primaryRule.isPresent()) {
+      XCScheme.BuildableReference primaryBuildableReference =
+        buildRuleToBuildableReferenceMap.get(primaryRule.get());
+      if (primaryBuildableReference != null) {
+        launchAction = Optional.of(new XCScheme.LaunchAction(
+            primaryBuildableReference,
+            actionConfigNames.get(SchemeActionType.LAUNCH)));
+        profileAction = Optional.of(new XCScheme.ProfileAction(
+            primaryBuildableReference,
+            actionConfigNames.get(SchemeActionType.PROFILE)));
+      }
     }
     XCScheme.AnalyzeAction analyzeAction = new XCScheme.AnalyzeAction(
         actionConfigNames.get(SchemeActionType.ANALYZE));
@@ -353,6 +355,12 @@ class SchemeGenerator {
       launchActionElem.setAttribute(
           "buildConfiguration", launchAction.get().getBuildConfiguration());
       rootElem.appendChild(launchActionElem);
+    } else {
+      Element launchActionElem = doc.createElement("LaunchAction");
+      launchActionElem.setAttribute(
+          "buildConfiguration",
+          "Debug");
+      rootElem.appendChild(launchActionElem);
     }
 
     Optional<XCScheme.ProfileAction> profileAction = scheme.getProfileAction();
@@ -360,6 +368,12 @@ class SchemeGenerator {
       Element profileActionElem = serializeProfileAction(doc, profileAction.get());
       profileActionElem.setAttribute(
           "buildConfiguration", profileAction.get().getBuildConfiguration());
+      rootElem.appendChild(profileActionElem);
+    } else {
+      Element profileActionElem = doc.createElement("ProfileAction");
+      profileActionElem.setAttribute(
+          "buildConfiguration",
+          "Release");
       rootElem.appendChild(profileActionElem);
     }
 
@@ -369,6 +383,12 @@ class SchemeGenerator {
       analyzeActionElem.setAttribute(
           "buildConfiguration", analyzeAction.get().getBuildConfiguration());
       rootElem.appendChild(analyzeActionElem);
+    } else {
+      Element analyzeActionElem = doc.createElement("AnalyzeAction");
+      analyzeActionElem.setAttribute(
+          "buildConfiguration",
+          "Debug");
+      rootElem.appendChild(analyzeActionElem);
     }
 
     Optional<XCScheme.ArchiveAction> archiveAction = scheme.getArchiveAction();
@@ -377,6 +397,12 @@ class SchemeGenerator {
       archiveActionElem.setAttribute(
           "buildConfiguration", archiveAction.get().getBuildConfiguration());
       archiveActionElem.setAttribute("revealArchiveInOrganizer", "YES");
+      rootElem.appendChild(archiveActionElem);
+    } else {
+      Element archiveActionElem = doc.createElement("ArchiveAction");
+      archiveActionElem.setAttribute(
+          "buildConfiguration",
+          "Release");
       rootElem.appendChild(archiveActionElem);
     }
 

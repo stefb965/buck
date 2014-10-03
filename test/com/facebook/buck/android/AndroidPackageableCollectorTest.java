@@ -19,7 +19,6 @@ package com.facebook.buck.android;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.java.JavaLibraryBuilder;
-import com.facebook.buck.java.Keystore;
 import com.facebook.buck.java.KeystoreBuilder;
 import com.facebook.buck.java.PrebuiltJarBuilder;
 import com.facebook.buck.model.BuildTarget;
@@ -28,7 +27,9 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.TestSourcePath;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.BuckConstant;
+import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -36,6 +37,8 @@ import com.google.common.collect.ImmutableSortedSet;
 
 import org.junit.Test;
 
+import java.io.IOException;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 
 public class AndroidPackageableCollectorTest {
@@ -45,71 +48,81 @@ public class AndroidPackageableCollectorTest {
    * re-introduced to fb4a.
    */
   @Test
-  public void testFindTransitiveDependencies() {
+  public void testFindTransitiveDependencies() throws IOException {
     BuildRuleResolver ruleResolver = new BuildRuleResolver();
+    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
+    Path prebuiltNativeLibraryPath = Paths.get("java/com/facebook/prebuilt_native_library/libs");
+    projectFilesystem.mkdirs(prebuiltNativeLibraryPath);
 
     // Create an AndroidBinaryRule that transitively depends on two prebuilt JARs. One of the two
     // prebuilt JARs will be listed in the AndroidBinaryRule's no_dx list.
     BuildTarget guavaTarget = BuildTargetFactory.newInstance("//third_party/guava:guava");
-    BuildRule guavaRule =
-        PrebuiltJarBuilder.createBuilder(guavaTarget)
+    PrebuiltJarBuilder
+        .createBuilder(guavaTarget)
         .setBinaryJar(Paths.get("third_party/guava/guava-10.0.1.jar"))
         .build(ruleResolver);
 
-    BuildRule jsr305Rule = PrebuiltJarBuilder
-        .createBuilder(BuildTargetFactory.newInstance("//third_party/jsr-305:jsr-305"))
+    BuildTarget jsr305Target = BuildTargetFactory.newInstance("//third_party/jsr-305:jsr-305");
+    PrebuiltJarBuilder
+        .createBuilder(jsr305Target)
         .setBinaryJar(Paths.get("third_party/jsr-305/jsr305.jar"))
         .build(ruleResolver);
 
     BuildRule ndkLibrary =
-        NdkLibraryBuilder.createNdkLibrary(BuildTargetFactory.newInstance(
+        NdkLibraryBuilder
+            .createNdkLibrary(BuildTargetFactory.newInstance(
                 "//java/com/facebook/native_library:library"))
             .addSrc(Paths.get("Android.mk"))
             .setIsAsset(false).build();
-    ruleResolver.addToIndex(ndkLibrary.getBuildTarget(), ndkLibrary);
+    ruleResolver.addToIndex(ndkLibrary);
 
     BuildTarget prebuiltNativeLibraryTarget =
         BuildTargetFactory.newInstance("//java/com/facebook/prebuilt_native_library:library");
     BuildRule prebuiltNativeLibraryBuild =
         PrebuiltNativeLibraryBuilder.newBuilder(prebuiltNativeLibraryTarget)
-        .setNativeLibs(Paths.get("/java/com/facebook/prebuilt_native_library/libs"))
+        .setNativeLibs(prebuiltNativeLibraryPath)
         .setIsAsset(true)
-        .build();
-    ruleResolver.addToIndex(prebuiltNativeLibraryTarget, prebuiltNativeLibraryBuild);
+        .build(ruleResolver, projectFilesystem);
 
-    BuildRule libraryRule = JavaLibraryBuilder
-        .createBuilder(BuildTargetFactory.newInstance("//java/src/com/facebook:example"))
+    BuildTarget libraryRuleTarget =
+        BuildTargetFactory.newInstance("//java/src/com/facebook:example");
+    JavaLibraryBuilder
+        .createBuilder(libraryRuleTarget)
         .setProguardConfig(Paths.get("debug.pro"))
         .addSrc(Paths.get("Example.java"))
-        .addDep(guavaRule)
-        .addDep(jsr305Rule)
-        .addDep(prebuiltNativeLibraryBuild)
-        .addDep(ndkLibrary)
+        .addDep(guavaTarget)
+        .addDep(jsr305Target)
+        .addDep(prebuiltNativeLibraryBuild.getBuildTarget())
+        .addDep(ndkLibrary.getBuildTarget())
         .build(ruleResolver);
 
-    BuildRule manifestRule = ruleResolver.addToIndex(
-        AndroidResourceRuleBuilder.newBuilder()
-            .setBuildTarget(BuildTargetFactory.newInstance("//java/src/com/facebook:res"))
-            .setManifest(
-                new PathSourcePath(Paths.get("java/src/com/facebook/module/AndroidManifest.xml")))
-            .setAssets(Paths.get("assets"))
-            .build());
+    BuildTarget manifestTarget = BuildTargetFactory.newInstance("//java/src/com/facebook:res");
+    AndroidResource manifestRule = AndroidResourceRuleBuilder
+        .newBuilder()
+        .setBuildTarget(manifestTarget)
+        .setManifest(
+            new PathSourcePath(Paths.get("java/src/com/facebook/module/AndroidManifest.xml")))
+        .setAssets(Paths.get("assets"))
+        .build();
+    ruleResolver.addToIndex(manifestRule);
 
     BuildTarget keystoreTarget = BuildTargetFactory.newInstance("//keystore:debug");
-    BuildRule keystore = KeystoreBuilder.createBuilder(keystoreTarget)
+    KeystoreBuilder.createBuilder(keystoreTarget)
         .setStore(Paths.get("keystore/debug.keystore"))
         .setProperties(Paths.get("keystore/debug.keystore.properties"))
         .build(ruleResolver);
 
-    ImmutableSortedSet<BuildRule> originalDeps = ImmutableSortedSet.of(libraryRule, manifestRule);
+    ImmutableSortedSet<BuildTarget> originalDepsTargets =
+        ImmutableSortedSet.of(libraryRuleTarget, manifestTarget);
+    ruleResolver.getAllRules(originalDepsTargets);
     AndroidBinary binaryRule = (AndroidBinary) AndroidBinaryBuilder.createBuilder(
         BuildTargetFactory.newInstance("//java/src/com/facebook:app"))
-        .setOriginalDeps(originalDeps)
+        .setOriginalDeps(originalDepsTargets)
         .setBuildTargetsToExcludeFromDex(
             ImmutableSet.of(BuildTargetFactory.newInstance("//third_party/guava:guava")))
         .setManifest(new TestSourcePath("java/src/com/facebook/AndroidManifest.xml"))
         .setTarget("Google Inc.:Google APIs:16")
-        .setKeystore((Keystore) keystore)
+        .setKeystore(keystoreTarget)
         .build(ruleResolver);
 
     // Verify that the correct transitive dependencies are found.
@@ -230,18 +243,19 @@ public class AndroidPackageableCollectorTest {
     // sort results. This verifies that both AndroidResourceRule.getAndroidResourceDeps does the
     // right thing when it gets a non-AndroidResourceRule as well as an AndroidResourceRule.
     BuildTarget keystoreTarget = BuildTargetFactory.newInstance("//keystore:debug");
-    BuildRule keystore = KeystoreBuilder.createBuilder(keystoreTarget)
+    KeystoreBuilder.createBuilder(keystoreTarget)
         .setStore(Paths.get("keystore/debug.keystore"))
         .setProperties(Paths.get("keystore/debug.keystore.properties"))
         .build(ruleResolver);
 
-    ImmutableSortedSet<BuildRule> declaredDeps = ImmutableSortedSet.of(a, c);
+    ImmutableSortedSet<BuildTarget> declaredDepsTargets =
+        ImmutableSortedSet.of(a.getBuildTarget(), c.getBuildTarget());
     AndroidBinary androidBinary = (AndroidBinary) AndroidBinaryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//:e"))
         .setManifest(new TestSourcePath("AndroidManfiest.xml"))
         .setTarget("Google Inc.:Google APIs:16")
-        .setKeystore((Keystore) keystore)
-        .setOriginalDeps(declaredDeps)
+        .setKeystore(keystoreTarget)
+        .setOriginalDeps(declaredDepsTargets)
         .build(ruleResolver);
 
     assertEquals(
@@ -269,10 +283,10 @@ public class AndroidPackageableCollectorTest {
         .build(ruleResolver);
 
     BuildTarget keystoreTarget = BuildTarget.builder("//keystore", "debug").build();
-    BuildRule keystore = KeystoreBuilder.createBuilder(keystoreTarget)
+    KeystoreBuilder.createBuilder(keystoreTarget)
         .setStore(Paths.get("keystore/debug.keystore"))
         .setProperties(Paths.get("keystore/debug.keystore.properties"))
-        .addDep(androidLibraryKeystore)
+        .addDep(androidLibraryKeystore.getBuildTarget())
         .build(ruleResolver);
 
     BuildTarget androidLibraryTarget =
@@ -281,13 +295,14 @@ public class AndroidPackageableCollectorTest {
         .addSrc(Paths.get("java/com/facebook/base/Base.java"))
         .build(ruleResolver);
 
-    ImmutableSortedSet<BuildRule> originalDeps = ImmutableSortedSet.of(androidLibrary);
+    ImmutableSortedSet<BuildTarget> originalDepsTargets =
+        ImmutableSortedSet.of(androidLibrary.getBuildTarget());
     AndroidBinary androidBinary = (AndroidBinary) AndroidBinaryBuilder.createBuilder(
         BuildTarget.builder("//apps/sample", "app").build())
         .setManifest(new TestSourcePath("apps/sample/AndroidManifest.xml"))
         .setTarget("Google Inc.:Google APIs:16")
-        .setOriginalDeps(originalDeps)
-        .setKeystore((Keystore) keystore)
+        .setOriginalDeps(originalDepsTargets)
+        .setKeystore(keystoreTarget)
         .build(ruleResolver);
 
     AndroidPackageableCollection packageableCollection =

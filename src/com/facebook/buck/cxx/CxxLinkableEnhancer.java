@@ -22,12 +22,13 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractDependencyVisitor;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.util.MoreIterables;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Functions;
+import com.google.common.base.Optional;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -43,30 +44,55 @@ public class CxxLinkableEnhancer {
   private CxxLinkableEnhancer() {}
 
   /**
-   * Topologically sort the dependency chain represented by the given inputs and filter
-   * by the given class.
+   * Collect up and merge all {@link NativeLinkableInput} objects from transitively traversing
+   * all unbroken dependency chains of {@link NativeLinkable} objects found via the passed in
+   * {@link BuildRule} roots.
    */
-  private static <A extends BuildRule> ImmutableList<BuildRule> topoSort(Iterable<A> inputs) {
+  @VisibleForTesting
+  protected static NativeLinkableInput getTransitiveNativeLinkableInput(
+      Iterable<? extends BuildRule> inputs,
+      NativeLinkable.Type depType) {
 
-    // Build up a graph of the inputs and their transitive dependencies.
+    // Build up a graph of the inputs and their transitive dependencies, we'll use the graph
+    // to topologically sort the dependencies.
     final MutableDirectedGraph<BuildRule> graph = new MutableDirectedGraph<>();
-    AbstractDependencyVisitor visitor = new AbstractDependencyVisitor(
-        ImmutableList.<BuildRule>copyOf(inputs)) {
+    AbstractDependencyVisitor visitor = new AbstractDependencyVisitor(inputs) {
       @Override
       public ImmutableSet<BuildRule> visit(BuildRule rule) {
-        graph.addNode(rule);
-        for (BuildRule dep : rule.getDeps()) {
-          graph.addEdge(rule, dep);
+        if (rule instanceof NativeLinkable) {
+          graph.addNode(rule);
+          for (BuildRule dep : rule.getDeps()) {
+            if (dep instanceof NativeLinkable) {
+              graph.addEdge(rule, dep);
+            }
+          }
+          return rule.getDeps();
+        } else {
+          return ImmutableSet.of();
         }
-        return rule.getDeps();
       }
     };
     visitor.start();
 
-    // Topologically sort the graph and return as a list.
-    return FluentIterable
-        .from(TopologicalSort.sort(graph, Predicates.<BuildRule>alwaysTrue()))
-        .toList();
+    // Collect and topologically sort our deps that contribute to the link.
+    return NativeLinkableInput.concat(
+        FluentIterable
+            .from(TopologicalSort.sort(graph, Predicates.<BuildRule>alwaysTrue()).reverse())
+            .filter(NativeLinkable.class)
+            .transform(NativeLinkables.getNativeLinkableInput(depType)));
+  }
+
+  /**
+   * Represents the link types.
+   */
+  public static enum LinkType {
+
+    // Link as standalone executable.
+    EXECUTABLE,
+
+    // Link as shared library, which can be loaded into a process image.
+    SHARED,
+
   }
 
   /**
@@ -75,62 +101,70 @@ public class CxxLinkableEnhancer {
    */
   public static CxxLink createCxxLinkableBuildRule(
       BuildRuleParams params,
-      BuildRuleResolver resolver,
       Path linker,
       ImmutableList<String> cxxLdFlags,
       ImmutableList<String> ldFlags,
       BuildTarget target,
+      LinkType linkType,
+      Optional<String> soname,
       Path output,
       Iterable<SourcePath> objects,
+      NativeLinkable.Type depType,
       Iterable<BuildRule> nativeLinkableDeps) {
 
+    // Soname should only ever be set when linking a "shared" library.
+    Preconditions.checkState(!soname.isPresent() || linkType.equals(LinkType.SHARED));
+
     // Collect and topologically sort our deps that contribute to the link.
-    NativeLinkableInput linkableInput = NativeLinkableInput.concat(
-        FluentIterable
-            .from(topoSort(nativeLinkableDeps).reverse())
-            .filter(NativeLinkable.class)
-            .transform(NativeLinkable.GET_NATIVE_LINKABLE_INPUT));
+    NativeLinkableInput linkableInput =
+        getTransitiveNativeLinkableInput(
+            nativeLinkableDeps,
+            depType);
+    ImmutableList<SourcePath> allInputs =
+        ImmutableList.<SourcePath>builder()
+            .addAll(objects)
+            .addAll(linkableInput.getInputs())
+            .build();
 
     // Construct our link build rule params.  The important part here is combining the build rules
     // that construct our object file inputs and also the deps that build our dependencies.
     BuildRuleParams linkParams = params.copyWithChanges(
         NativeLinkable.NATIVE_LINKABLE_TYPE,
         target,
-        ImmutableSortedSet.copyOf(
-            Iterables.concat(
-                // Add dependencies for build rules generating the object files.
-                SourcePaths.filterBuildRuleInputs(objects),
-                // Add dependencies for the target-node-level dependencies that
-                // contribute to the link.
-                BuildRules.toBuildRulesFor(target, resolver, linkableInput.getTargets(), false))),
+        // Add dependencies for build rules generating the object files and inputs from
+        // dependencies.
+        ImmutableSortedSet.copyOf(SourcePaths.filterBuildRuleInputs(allInputs)),
         ImmutableSortedSet.<BuildRule>of());
 
     // Build up the arguments to pass to the linker.
-    ImmutableList<String> args = ImmutableList.<String>builder()
-        .addAll(cxxLdFlags)
-        .addAll(
-            MoreIterables.zipAndConcat(
-                Iterables.cycle("-Xlinker"),
-                ldFlags))
-        .addAll(
-            MoreIterables.zipAndConcat(
-                Iterables.cycle("-Xlinker"),
-                Iterables.concat(
-                    FluentIterable.from(objects)
-                        .transform(SourcePaths.TO_PATH)
-                        .transform(Functions.toStringFunction()),
-                    linkableInput.getArgs())))
-        .build();
+    ImmutableList.Builder<String> argsBuilder = ImmutableList.builder();
+    if (linkType == LinkType.SHARED) {
+      argsBuilder.add("-shared");
+    }
+    if (soname.isPresent()) {
+      argsBuilder.add("-Xlinker", "-soname=" + soname.get());
+    }
+    argsBuilder.addAll(cxxLdFlags);
+    argsBuilder.addAll(
+        MoreIterables.zipAndConcat(
+            Iterables.cycle("-Xlinker"),
+            ldFlags));
+    argsBuilder.addAll(
+        MoreIterables.zipAndConcat(
+            Iterables.cycle("-Xlinker"),
+            Iterables.concat(
+                FluentIterable.from(objects)
+                    .transform(SourcePaths.TO_PATH)
+                    .transform(Functions.toStringFunction()),
+                linkableInput.getArgs())));
+    ImmutableList<String> args = argsBuilder.build();
 
     // Build the C/C++ link step.
     return new CxxLink(
         linkParams,
         linker,
         output,
-        ImmutableList.<SourcePath>builder()
-            .addAll(objects)
-            .addAll(SourcePaths.toSourcePathsSortedByNaturalOrder(linkableInput.getInputs()))
-            .build(),
+        allInputs,
         args);
   }
 

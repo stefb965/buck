@@ -23,6 +23,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableSet;
 
 import java.nio.file.Path;
 
@@ -49,8 +50,12 @@ public class AppleLibraryDescription implements
   }
 
   @Override
-  public boolean hasFlavor(Flavor flavor) {
-    return flavor.equals(Flavor.DEFAULT) || flavor.equals(DYNAMIC_LIBRARY);
+  public boolean hasFlavors(ImmutableSet<Flavor> flavors) {
+    boolean match = true;
+    for (Flavor flavor : flavors) {
+      match &= DYNAMIC_LIBRARY.equals(flavor) || Flavor.DEFAULT.equals(flavor);
+    }
+    return match;
   }
 
   @Override
@@ -61,8 +66,8 @@ public class AppleLibraryDescription implements
     return new AppleLibrary(
         params,
         args,
-        TargetSources.ofAppleSources(args.srcs),
+        TargetSources.ofAppleSources(args.srcs.get()),
         archiver,
-        params.getBuildTarget().getFlavor().equals(DYNAMIC_LIBRARY));
+        params.getBuildTarget().getFlavors().contains(DYNAMIC_LIBRARY));
   }
 }

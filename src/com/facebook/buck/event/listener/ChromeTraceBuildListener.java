@@ -24,6 +24,7 @@ import com.facebook.buck.event.BuckEvent;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.event.ChromeTraceEvent;
 import com.facebook.buck.event.TraceEvent;
+import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.parser.ParseEvent;
 import com.facebook.buck.rules.ArtifactCacheConnectEvent;
@@ -31,6 +32,7 @@ import com.facebook.buck.rules.ArtifactCacheEvent;
 import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleEvent;
+import com.facebook.buck.timing.Clock;
 import com.facebook.buck.step.StepEvent;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.HumanReadableException;
@@ -50,8 +52,12 @@ import com.google.common.eventbus.Subscribe;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Paths;
+import java.text.SimpleDateFormat;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.Date;
+import java.util.Locale;
+import java.util.TimeZone;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
 
@@ -59,15 +65,41 @@ import java.util.concurrent.TimeUnit;
  * Logs events to a json file formatted to be viewed in Chrome Trace View (chrome://tracing).
  */
 public class ChromeTraceBuildListener implements BuckEventListener {
-  private static final String TRACE_FILE_PATTERN = "build\\.\\d*\\.trace";
+  private static final Logger LOG = Logger.get(ChromeTraceBuildListener.class);
+  private static final String TRACE_FILE_PATTERN =
+    "build\\.[a-z\\d\\-\\.]*\\.trace";
 
   private final ProjectFilesystem projectFilesystem;
+  private final Clock clock;
   private final int tracesToKeep;
+  private final ThreadLocal<SimpleDateFormat> dateFormat;
   private ConcurrentLinkedQueue<ChromeTraceEvent> eventList =
       new ConcurrentLinkedQueue<ChromeTraceEvent>();
 
-  public ChromeTraceBuildListener(ProjectFilesystem projectFilesystem, int tracesToKeep) {
+  public ChromeTraceBuildListener(
+      ProjectFilesystem projectFilesystem,
+      Clock clock,
+      int tracesToKeep) {
+    this(projectFilesystem, clock, Locale.US, TimeZone.getDefault(), tracesToKeep);
+  }
+
+  @VisibleForTesting
+  ChromeTraceBuildListener(
+      ProjectFilesystem projectFilesystem,
+      Clock clock,
+      final Locale locale,
+      final TimeZone timeZone,
+      int tracesToKeep) {
     this.projectFilesystem = Preconditions.checkNotNull(projectFilesystem);
+    this.clock = Preconditions.checkNotNull(clock);
+    this.dateFormat = new ThreadLocal<SimpleDateFormat>() {
+      @Override
+      protected SimpleDateFormat initialValue() {
+          SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd.HH-mm-ss", locale);
+          dateFormat.setTimeZone(timeZone);
+          return dateFormat;
+      }
+    };
     this.tracesToKeep = tracesToKeep;
   }
 
@@ -95,6 +127,7 @@ public class ChromeTraceBuildListener implements BuckEventListener {
     if (filesSortedByModified.size() > tracesToKeep) {
       ImmutableList<File> filesToRemove =
           filesSortedByModified.subList(tracesToKeep, filesSortedByModified.size());
+      LOG.debug("Deleting old traces: %s", filesToRemove);
       for (File file : filesToRemove) {
         file.delete();
       }
@@ -105,8 +138,10 @@ public class ChromeTraceBuildListener implements BuckEventListener {
   public void outputTrace(BuildId buildId) {
     Preconditions.checkNotNull(buildId);
     try {
-      String tracePath = String.format("%s/build.%s.trace",
+      String filenameTime = dateFormat.get().format(new Date(clock.currentTimeMillis()));
+      String tracePath = String.format("%s/build.%s.%s.trace",
           BuckConstant.BUCK_TRACE_DIR,
+          filenameTime,
           buildId);
       File traceOutput = projectFilesystem.getFileForRelativePath(tracePath);
       projectFilesystem.createParentDirs(tracePath);
@@ -121,6 +156,7 @@ public class ChromeTraceBuildListener implements BuckEventListener {
           });
 
       ObjectMapper mapper = new ObjectMapper();
+      LOG.debug("Writing Chrome trace to %s", tracePath);
       mapper.writeValue(traceOutput, tsSortedEvents);
 
       String symlinkPath = String.format("%s/build.trace",

@@ -5,6 +5,10 @@
   {call buck.page}
     {param title: 'java_library()' /}
     {param prettify: true /}
+    {param description}
+      A rule that is used to define a set of Java files that can be compiled
+      together.
+    {/param}
     {param content}
 
 {call buck.rule}
@@ -80,7 +84,7 @@ of the compiled class files and resources.
 
 {call buck.arg}
   {param name: 'source' /}
-  {param default : '\'6\'' /}
+  {param default : '\'7\'' /}
   {param desc}
   Java language level for compiling. Corresponds to the
   {sp}<code>-source</code> argument for <code>javac</code>.
@@ -89,7 +93,7 @@ of the compiled class files and resources.
 
 {call buck.arg}
   {param name: 'target' /}
-  {param default : '\'6\'' /}
+  {param default : '\'7\'' /}
   {param desc}
   Bytecode target level for compiling. Corresponds to the
   {sp}<code>-target</code> argument for <code>javac</code>.

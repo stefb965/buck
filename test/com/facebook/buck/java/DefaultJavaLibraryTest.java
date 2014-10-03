@@ -35,6 +35,7 @@ import com.facebook.buck.android.AndroidLibraryDescription;
 import com.facebook.buck.android.AndroidResourceDescription;
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.java.abi.AbiWriterProtocol;
+import com.facebook.buck.model.BuildId;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.AbiRule;
@@ -69,6 +70,7 @@ import com.facebook.buck.testutil.AllExistingProjectFilesystem;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.testutil.RuleMap;
+import com.facebook.buck.timing.DefaultClock;
 import com.facebook.buck.util.AndroidPlatformTarget;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.BuckConstant;
@@ -177,11 +179,11 @@ public class DefaultJavaLibraryTest {
     BuildRuleResolver ruleResolver = new BuildRuleResolver();
 
     BuildTarget genruleBuildTarget = BuildTargetFactory.newInstance("//generated:stuff");
-    BuildRule genrule = GenruleBuilder.createGenrule(genruleBuildTarget)
+    BuildRule genrule = GenruleBuilder
+        .newGenruleBuilder(genruleBuildTarget)
         .setBash("echo 'aha' > $OUT")
         .setOut("stuff.txt")
-        .build();
-    ruleResolver.addToIndex(genruleBuildTarget, genrule);
+        .build(ruleResolver);
 
     ProjectFilesystem filesystem = new AllExistingProjectFilesystem() {
       @Override
@@ -332,14 +334,14 @@ public class DefaultJavaLibraryTest {
     BuildRule libraryTwo = JavaLibraryBuilder
         .createBuilder(libraryTwoTarget)
         .addSrc(Paths.get("java/src/com/libtwo/Foo.java"))
-        .addDep(libraryOne)
+        .addDep(libraryOne.getBuildTarget())
         .build(ruleResolver);
 
     BuildTarget parentTarget = BuildTargetFactory.newInstance("//:parent");
     BuildRule parent = JavaLibraryBuilder
         .createBuilder(parentTarget)
         .addSrc(Paths.get("java/src/com/parent/Meh.java"))
-        .addDep(libraryTwo)
+        .addDep(libraryTwo.getBuildTarget())
         .build(ruleResolver);
 
     assertEquals(
@@ -392,7 +394,7 @@ public class DefaultJavaLibraryTest {
     BuildRule libraryTwo = JavaLibraryBuilder
         .createBuilder(libraryTwoTarget)
         .addSrc(Paths.get("java/src/com/libtwo/Foo.java"))
-        .addDep(libraryOne)
+        .addDep(libraryOne.getBuildTarget())
         .build(ruleResolver);
 
     BuildContext buildContext = EasyMock.createMock(BuildContext.class);
@@ -492,9 +494,9 @@ public class DefaultJavaLibraryTest {
     BuildTarget libraryOneTarget = BuildTargetFactory.newInstance("//:libone");
     BuildRule libraryOne = JavaLibraryBuilder
         .createBuilder(libraryOneTarget)
-        .addDep(notIncluded)
-        .addDep(included)
-        .addExportedDep(included)
+        .addDep(notIncluded.getBuildTarget())
+        .addDep(included.getBuildTarget())
+        .addExportedDep(included.getBuildTarget())
         .addSrc(Paths.get("java/src/com/libone/Bar.java"))
         .build(ruleResolver);
 
@@ -502,15 +504,15 @@ public class DefaultJavaLibraryTest {
     BuildRule libraryTwo = JavaLibraryBuilder
         .createBuilder(libraryTwoTarget)
         .addSrc(Paths.get("java/src/com/libtwo/Foo.java"))
-        .addDep(libraryOne)
-        .addExportedDep(libraryOne)
+        .addDep(libraryOne.getBuildTarget())
+        .addExportedDep(libraryOne.getBuildTarget())
         .build(ruleResolver);
 
     BuildTarget parentTarget = BuildTargetFactory.newInstance("//:parent");
     BuildRule parent = JavaLibraryBuilder
         .createBuilder(parentTarget)
         .addSrc(Paths.get("java/src/com/parent/Meh.java"))
-        .addDep(libraryTwo)
+        .addDep(libraryTwo.getBuildTarget())
         .build(ruleResolver);
 
     assertEquals(
@@ -595,11 +597,11 @@ public class DefaultJavaLibraryTest {
     BuildRuleResolver ruleResolver = new BuildRuleResolver();
 
     BuildTarget genruleBuildTarget = BuildTargetFactory.newInstance("//generated:stuff");
-    BuildRule genrule = GenruleBuilder.createGenrule(genruleBuildTarget)
+    BuildRule genrule = GenruleBuilder
+        .newGenruleBuilder(genruleBuildTarget)
         .setBash("echo 'aha' > $OUT")
         .setOut("stuff.txt")
-        .build();
-    ruleResolver.addToIndex(genruleBuildTarget, genrule);
+        .build(ruleResolver);
 
     String commonLibAbiKeyHash = Strings.repeat("a", 40);
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//:lib");
@@ -712,11 +714,11 @@ public class DefaultJavaLibraryTest {
     // Create two rules, each of which depends on one of the //:common_XXX rules.
     BuildRule consumerNoExport = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//:consumer_no_export"))
-        .addDep(commonNoExport)
+        .addDep(commonNoExport.getBuildTarget())
         .build(ruleResolver);
     BuildRule consumerWithExport = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//:consumer_with_export"))
-        .addDep(commonWithExport)
+        .addDep(commonWithExport.getBuildTarget())
         .build(ruleResolver);
 
     // Verify getAbiKeyForDeps() for the two //:consumer_XXX rules.
@@ -981,7 +983,7 @@ public class DefaultJavaLibraryTest {
     JavaLibrary libraryOne = (JavaLibrary) JavaLibraryBuilder
         .createBuilder(libraryOneTarget)
         .addSrc(Paths.get("java/src/com/libone/bar.java"))
-        .build();
+        .build(ruleResolver);
 
     BuildContext context = createSuggestContext(ruleResolver,
         BuildDependencies.FIRST_ORDER_ONLY);
@@ -1015,21 +1017,21 @@ public class DefaultJavaLibraryTest {
     BuildRule libraryTwo = JavaLibraryBuilder
         .createBuilder(libraryTwoTarget)
         .addSrc(Paths.get("java/src/com/libtwo/Foo.java"))
-        .addDep(libraryOne)
+        .addDep(libraryOne.getBuildTarget())
         .build(ruleResolver);
 
     BuildTarget parentTarget = BuildTargetFactory.newInstance("//:parent");
     BuildRule parent = JavaLibraryBuilder
         .createBuilder(parentTarget)
         .addSrc(Paths.get("java/src/com/parent/Meh.java"))
-        .addDep(libraryTwo)
+        .addDep(libraryTwo.getBuildTarget())
         .build(ruleResolver);
 
     BuildTarget grandparentTarget = BuildTargetFactory.newInstance("//:grandparent");
     BuildRule grandparent = JavaLibraryBuilder
         .createBuilder(grandparentTarget)
         .addSrc(Paths.get("java/src/com/parent/OldManRiver.java"))
-        .addDep(parent)
+        .addDep(parent.getBuildTarget())
         .build(ruleResolver);
 
     BuildContext context = createSuggestContext(ruleResolver,
@@ -1279,6 +1281,8 @@ public class DefaultJavaLibraryTest {
         .setActionGraph(RuleMap.createGraphFromSingleRule(javaLibrary))
         .setStepRunner(EasyMock.createMock(StepRunner.class))
         .setProjectFilesystem(projectFilesystem)
+        .setClock(new DefaultClock())
+        .setBuildId(new BuildId())
         .setArtifactCache(new NoopArtifactCache())
         .setBuildDependencies(BuildDependencies.TRANSITIVE)
         .setJavaPackageFinder(EasyMock.createMock(JavaPackageFinder.class))

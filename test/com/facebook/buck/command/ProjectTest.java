@@ -33,17 +33,15 @@ import com.facebook.buck.java.JavaLibraryBuilder;
 import com.facebook.buck.java.JavaLibraryDescription;
 import com.facebook.buck.java.JavaPackageFinder;
 import com.facebook.buck.java.JavaTestBuilder;
-import com.facebook.buck.java.Keystore;
 import com.facebook.buck.java.KeystoreBuilder;
 import com.facebook.buck.java.PrebuiltJarBuilder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.parser.PartialGraph;
-import com.facebook.buck.parser.PartialGraphFactory;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.FakeBuildRule;
+import com.facebook.buck.rules.ProjectConfig;
 import com.facebook.buck.rules.ProjectConfigBuilder;
 import com.facebook.buck.rules.TestSourcePath;
 import com.facebook.buck.step.ExecutionContext;
@@ -52,7 +50,6 @@ import com.facebook.buck.testutil.RuleMap;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -113,10 +110,10 @@ public class ProjectTest {
             .build());
 
     // project_config android_res/base:res
-    BuildRule projectConfigForResource = ProjectConfigBuilder
+    ProjectConfig projectConfigForResource = (ProjectConfig) ProjectConfigBuilder
         .newProjectConfigRuleBuilder(
             BuildTargetFactory.newInstance("//android_res/base:project_config"))
-        .setSrcRule(androidResRule)
+        .setSrcRule(androidResRule.getBuildTarget())
         .setSrcRoots(ImmutableList.of("res"))
         .build(ruleResolver);
 
@@ -132,7 +129,7 @@ public class ProjectTest {
     BuildRule childRule = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//java/src/com/facebook/child:child"))
         .addSrc(Paths.get("Child.java"))
-        .addDep(grandchild)
+        .addDep(grandchild.getBuildTarget())
         .build(ruleResolver);
 
     // java_library //java/src/com/facebook/exportlib:exportlib
@@ -140,33 +137,33 @@ public class ProjectTest {
         .createBuilder(
             BuildTargetFactory.newInstance("//java/src/com/facebook/exportlib:exportlib"))
         .addSrc(Paths.get("ExportLib.java"))
-        .addDep(guava)
-        .addExportedDep(guava)
+        .addDep(guava.getBuildTarget())
+        .addExportedDep(guava.getBuildTarget())
         .build(ruleResolver);
 
     // android_library //java/src/com/facebook/base:base
     BuildRule baseRule = AndroidLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//java/src/com/facebook/base:base"))
         .addSrc(Paths.get("Base.java"))
-        .addDep(rRule)
-        .addDep(exportLib)
-        .addDep(childRule)
-        .addDep(androidResRule)
+        .addDep(rRule.getBuildTarget())
+        .addDep(exportLib.getBuildTarget())
+        .addDep(childRule.getBuildTarget())
+        .addDep(androidResRule.getBuildTarget())
         .build(ruleResolver);
 
     // project_config //java/src/com/facebook/base:project_config
-    BuildRule projectConfigForLibrary = ProjectConfigBuilder
+    ProjectConfig projectConfigForLibrary = (ProjectConfig) ProjectConfigBuilder
         .newProjectConfigRuleBuilder(
             BuildTargetFactory.newInstance(
                 "//java/src/com/facebook/base:project_config"))
-        .setSrcRule(baseRule)
+        .setSrcRule(baseRule.getBuildTarget())
         .setSrcRoots(ImmutableList.of("src", "src-gen"))
         .build(ruleResolver);
 
-    BuildRule projectConfigForExportLibrary = ProjectConfigBuilder
+    ProjectConfig projectConfigForExportLibrary = (ProjectConfig) ProjectConfigBuilder
         .newProjectConfigRuleBuilder(
             BuildTargetFactory.newInstance("//java/src/com/facebook/exportlib:project_config"))
-        .setSrcRule(exportLib)
+        .setSrcRule(exportLib.getBuildTarget())
         .setSrcRoots(ImmutableList.of("src")).build(ruleResolver);
 
     // keystore //keystore:debug
@@ -177,42 +174,44 @@ public class ProjectTest {
         .build(ruleResolver);
 
     // android_binary //foo:app
-    ImmutableSortedSet<BuildRule> androidBinaryRuleDeps = ImmutableSortedSet.of(baseRule);
+    ImmutableSortedSet<BuildTarget> androidBinaryRuleDepsTarget =
+        ImmutableSortedSet.of(baseRule.getBuildTarget());
     AndroidBinary androidBinaryRule = (AndroidBinary) AndroidBinaryBuilder.createBuilder(
             BuildTargetFactory.newInstance("//foo:app"))
-            .setOriginalDeps(androidBinaryRuleDeps)
+            .setOriginalDeps(androidBinaryRuleDepsTarget)
             .setManifest(new TestSourcePath("foo/AndroidManifest.xml"))
             .setTarget("Google Inc.:Google APIs:16")
-            .setKeystore((Keystore) keystore)
+            .setKeystore(keystore.getBuildTarget())
             .setBuildTargetsToExcludeFromDex(
                 ImmutableSet.of(
                     BuildTargetFactory.newInstance("//third_party/guava:guava")))
             .build(ruleResolver);
 
     // project_config //foo:project_config
-    BuildRule projectConfigUsingNoDx = ProjectConfigBuilder
+    ProjectConfig projectConfigUsingNoDx = (ProjectConfig) ProjectConfigBuilder
         .newProjectConfigRuleBuilder(BuildTargetFactory.newInstance("//foo:project_config"))
-        .setSrcRule(androidBinaryRule)
+        .setSrcRule(androidBinaryRule.getBuildTarget())
         .build(ruleResolver);
 
     // android_binary //bar:app
-    ImmutableSortedSet<BuildRule> barAppBuildRuleDeps = ImmutableSortedSet.of(baseRule);
+    ImmutableSortedSet<BuildTarget> barAppBuildRuleDepsTarget =
+        ImmutableSortedSet.of(baseRule.getBuildTarget());
     AndroidBinary barAppBuildRule = (AndroidBinary) AndroidBinaryBuilder.createBuilder(
             BuildTargetFactory.newInstance("//bar:app"))
-            .setOriginalDeps(barAppBuildRuleDeps)
+            .setOriginalDeps(barAppBuildRuleDepsTarget)
             .setManifest(new TestSourcePath("foo/AndroidManifest.xml"))
             .setTarget("Google Inc.:Google APIs:16")
-            .setKeystore((Keystore) keystore)
+            .setKeystore(keystore.getBuildTarget())
             .build(ruleResolver);
 
     // project_config //bar:project_config
-    BuildRule projectConfig = ProjectConfigBuilder
+    ProjectConfig projectConfig = (ProjectConfig) ProjectConfigBuilder
         .newProjectConfigRuleBuilder(BuildTargetFactory.newInstance("//bar:project_config"))
-        .setSrcRule(barAppBuildRule)
+        .setSrcRule(barAppBuildRule.getBuildTarget())
         .build(ruleResolver);
 
     return getModulesForPartialGraph(ruleResolver,
-        ImmutableList.of(
+        ImmutableSet.of(
             projectConfigForExportLibrary,
             projectConfigForLibrary,
             projectConfigForResource,
@@ -243,7 +242,7 @@ public class ProjectTest {
 
     ProjectWithModules projectWithModules = createPartialGraphForTesting(javaPackageFinder);
     Project project = projectWithModules.project;
-    PartialGraph partialGraph = project.getPartialGraph();
+    ActionGraph actionGraph = project.getActionGraph();
     List<Module> modules = projectWithModules.modules;
 
     assertEquals("Should be one module for the java_library, one for the android_library, " +
@@ -253,7 +252,7 @@ public class ProjectTest {
 
     // Check the values of the module that corresponds to the android_library.
     Module javaLibraryModule = modules.get(0);
-    assertSame(getRuleById("//java/src/com/facebook/exportlib:exportlib", partialGraph),
+    assertSame(getRuleById("//java/src/com/facebook/exportlib:exportlib", actionGraph),
         javaLibraryModule.srcRule);
     assertEquals("module_java_src_com_facebook_exportlib", javaLibraryModule.name);
     assertEquals("java/src/com/facebook/exportlib/module_java_src_com_facebook_exportlib.iml",
@@ -277,7 +276,7 @@ public class ProjectTest {
 
     // Check the values of the module that corresponds to the android_library.
     Module androidLibraryModule = modules.get(1);
-    assertSame(getRuleById("//java/src/com/facebook/base:base", partialGraph),
+    assertSame(getRuleById("//java/src/com/facebook/base:base", actionGraph),
         androidLibraryModule.srcRule);
     assertEquals("module_java_src_com_facebook_base", androidLibraryModule.name);
     assertEquals("java/src/com/facebook/base/module_java_src_com_facebook_base.iml",
@@ -318,13 +317,13 @@ public class ProjectTest {
 
     // Check the values of the module that corresponds to the android_binary that uses no_dx.
     Module androidResourceModule = modules.get(2);
-    assertSame(getRuleById("//android_res/base:res", partialGraph), androidResourceModule.srcRule);
+    assertSame(getRuleById("//android_res/base:res", actionGraph), androidResourceModule.srcRule);
 
     assertEquals("/res", androidResourceModule.resFolder);
 
     // Check the values of the module that corresponds to the android_binary that uses no_dx.
     Module androidBinaryModuleNoDx = modules.get(3);
-    assertSame(getRuleById("//foo:app", partialGraph), androidBinaryModuleNoDx.srcRule);
+    assertSame(getRuleById("//foo:app", actionGraph), androidBinaryModuleNoDx.srcRule);
     assertEquals("module_foo", androidBinaryModuleNoDx.name);
     assertEquals("foo/module_foo.iml", androidBinaryModuleNoDx.pathToImlFile);
 
@@ -356,7 +355,7 @@ public class ProjectTest {
 
     // Check the values of the module that corresponds to the android_binary with an empty no_dx.
     Module androidBinaryModuleEmptyNoDx = modules.get(4);
-    assertSame(getRuleById("//bar:app", partialGraph), androidBinaryModuleEmptyNoDx.srcRule);
+    assertSame(getRuleById("//bar:app", actionGraph), androidBinaryModuleEmptyNoDx.srcRule);
     assertEquals("module_bar", androidBinaryModuleEmptyNoDx.name);
     assertEquals("bar/module_bar.iml", androidBinaryModuleEmptyNoDx.pathToImlFile);
     assertListEquals(
@@ -384,7 +383,7 @@ public class ProjectTest {
         androidBinaryModuleEmptyNoDx.dependencies);
 
     // Check that the correct data was extracted to populate the .idea/libraries directory.
-    BuildRule guava = getRuleById("//third_party/guava:guava", partialGraph);
+    BuildRule guava = getRuleById("//third_party/guava:guava", actionGraph);
     assertSame(guava, Iterables.getOnlyElement(project.getLibraryJars()));
   }
 
@@ -436,24 +435,24 @@ public class ProjectTest {
     BuildRule easymock = PrebuiltJarBuilder
         .createBuilder(BuildTargetFactory.newInstance("//third_party/java/easymock:easymock"))
         .setBinaryJar(Paths.get("third_party/java/easymock/easymock.jar"))
-        .addDep(cglib)
-        .addDep(objenesis)
+        .addDep(cglib.getBuildTarget())
+        .addDep(objenesis.getBuildTarget())
         .build(ruleResolver);
 
     BuildTarget easyMockExampleTarget = BuildTargetFactory.newInstance(
         "//third_party/java/easymock:example");
     BuildRule mockRule = AndroidLibraryBuilder.createBuilder(easyMockExampleTarget)
-        .addDep(easymock)
+        .addDep(easymock.getBuildTarget())
         .build(ruleResolver);
 
-    BuildRule projectConfig = ProjectConfigBuilder
+    ProjectConfig projectConfig = (ProjectConfig) ProjectConfigBuilder
         .newProjectConfigRuleBuilder(
             BuildTargetFactory.newInstance("//third_party/java/easymock:project_config"))
-        .setSrcRule(mockRule)
+        .setSrcRule(mockRule.getBuildTarget())
         .build(ruleResolver);
 
     ProjectWithModules projectWithModules = getModulesForPartialGraph(ruleResolver,
-        ImmutableList.of(projectConfig),
+        ImmutableSet.of(projectConfig),
         null /* javaPackageFinder */);
     List<Module> modules = projectWithModules.modules;
 
@@ -489,24 +488,24 @@ public class ProjectTest {
 
     BuildRule baseBuildRule = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//java/com/example/base:base"))
-        .addDep(guava)
+        .addDep(guava.getBuildTarget())
         .build(ruleResolver);
 
     BuildRule testBuildRule = JavaTestBuilder
-        .createBuilder(BuildTargetFactory.newInstance("//java/com/example/base:tests"))
-        .addDep(guava)
+        .newJavaTestBuilder(BuildTargetFactory.newInstance("//java/com/example/base:tests"))
+        .addDep(guava.getBuildTarget())
         .build(ruleResolver);
 
-    BuildRule projectConfig = ProjectConfigBuilder
+    ProjectConfig projectConfig = (ProjectConfig) ProjectConfigBuilder
         .newProjectConfigRuleBuilder(
             BuildTargetFactory.newInstance("//java/com/example/base:project_config"))
-        .setSrcRule(baseBuildRule)
-        .setTestRule(testBuildRule)
+        .setSrcRule(baseBuildRule.getBuildTarget())
+        .setTestRule(testBuildRule.getBuildTarget())
         .setTestRoots(ImmutableList.of("tests"))
         .build(ruleResolver);
 
     ProjectWithModules projectWithModules = getModulesForPartialGraph(ruleResolver,
-        ImmutableList.of(projectConfig),
+        ImmutableSet.of(projectConfig),
         null /* javaPackageFinder */);
     List<Module> modules = projectWithModules.modules;
     assertEquals(1, modules.size());
@@ -551,19 +550,19 @@ public class ProjectTest {
         BuildTargetFactory.newInstance("//third_party/java/robolectric:robolectric");
     BuildRule robolectricRule = JavaLibraryBuilder
         .createBuilder(robolectricTarget)
-        .addDep(supportV4)
-        .addDep(httpCore)
+        .addDep(supportV4.getBuildTarget())
+        .addDep(httpCore.getBuildTarget())
         .build(ruleResolver);
 
-    BuildRule projectConfig = ProjectConfigBuilder
+    ProjectConfig projectConfig = (ProjectConfig) ProjectConfigBuilder
         .newProjectConfigRuleBuilder(
             BuildTargetFactory.newInstance("//third_party/java/robolectric:project_config"))
-        .setSrcRule(robolectricRule)
+        .setSrcRule(robolectricRule.getBuildTarget())
         .setSrcRoots(ImmutableList.of("src/main/java"))
         .build(ruleResolver);
 
     ProjectWithModules projectWithModules = getModulesForPartialGraph(ruleResolver,
-        ImmutableList.of(projectConfig),
+        ImmutableSet.of(projectConfig),
         null /* javaPackageFinder */);
     List<Module> modules = projectWithModules.modules;
     assertEquals("Should be one module for the android_library", 1, modules.size());
@@ -609,14 +608,14 @@ public class ProjectTest {
         AndroidResourceRuleBuilder.newBuilder()
             .setBuildTarget(BuildTargetFactory.newInstance("//resources/com/example:res"))
             .build());
-    BuildRule projectConfigNullSrcRoots = ProjectConfigBuilder
+    ProjectConfig projectConfigNullSrcRoots = (ProjectConfig) ProjectConfigBuilder
         .newProjectConfigRuleBuilder(
             BuildTargetFactory.newInstance("//resources/com/example:project_config"))
-        .setSrcRule(resBuildRule)
+        .setSrcRule(resBuildRule.getBuildTarget())
         .setSrcRoots(null)
         .build(ruleResolver1);
     ProjectWithModules projectWithModules1 = getModulesForPartialGraph(ruleResolver1,
-        ImmutableList.of(projectConfigNullSrcRoots),
+        ImmutableSet.of(projectConfigNullSrcRoots),
         null /* javaPackageFinder */);
 
     // Verify that the correct source folders are created.
@@ -632,10 +631,10 @@ public class ProjectTest {
     BuildRule baseBuildRule = AndroidLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//java/com/example/base:base"))
         .build(ruleResolver2);
-    BuildRule inPackageProjectConfig = ProjectConfigBuilder
+    ProjectConfig inPackageProjectConfig = (ProjectConfig) ProjectConfigBuilder
         .newProjectConfigRuleBuilder(
             BuildTargetFactory.newInstance("//java/com/example/base:project_config"))
-        .setSrcRule(baseBuildRule)
+        .setSrcRule(baseBuildRule.getBuildTarget())
         .setSrcRoots(ImmutableList.<String>of())
         .build(ruleResolver2);
 
@@ -645,7 +644,7 @@ public class ProjectTest {
         "java/com/example/base/module_java_com_example_base.iml")).andReturn("com.example.base");
     EasyMock.replay(javaPackageFinder);
     ProjectWithModules projectWithModules2 = getModulesForPartialGraph(ruleResolver2,
-        ImmutableList.of(inPackageProjectConfig),
+        ImmutableSet.of(inPackageProjectConfig),
         javaPackageFinder);
     EasyMock.verify(javaPackageFinder);
     assertEquals(1, projectWithModules2.modules.size());
@@ -663,14 +662,14 @@ public class ProjectTest {
     BuildRule baseBuildRule3 = AndroidLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//java/com/example/base:base"))
         .build(ruleResolver3);
-    BuildRule hasSrcFolderProjectConfig = ProjectConfigBuilder
+    ProjectConfig hasSrcFolderProjectConfig = (ProjectConfig) ProjectConfigBuilder
         .newProjectConfigRuleBuilder(
             BuildTargetFactory.newInstance("//java/com/example/base:project_config"))
-        .setSrcRule(baseBuildRule3)
+        .setSrcRule(baseBuildRule3.getBuildTarget())
         .setSrcRoots(ImmutableList.of("src"))
         .build(ruleResolver3);
     ProjectWithModules projectWithModules3 = getModulesForPartialGraph(ruleResolver3,
-        ImmutableList.of(hasSrcFolderProjectConfig),
+        ImmutableSet.of(hasSrcFolderProjectConfig),
         null /* javaPackageFinder */);
 
     // Verify that the correct source folders are created.
@@ -695,23 +694,13 @@ public class ProjectTest {
 
   private ProjectWithModules getModulesForPartialGraph(
       BuildRuleResolver ruleResolver,
-      ImmutableList<BuildRule> projectConfigs,
+      ImmutableSet<ProjectConfig> projectConfigs,
       @Nullable JavaPackageFinder javaPackageFinder) throws IOException {
     if (javaPackageFinder == null) {
       javaPackageFinder = new FakeJavaPackageFinder();
     }
 
-    ActionGraph graph = RuleMap.createGraphFromBuildRules(ruleResolver);
-    ImmutableSet<BuildTarget> targets = ImmutableSet.copyOf(
-        Iterables.transform(
-            projectConfigs,
-            new Function<BuildRule, BuildTarget>() {
-              @Override
-              public BuildTarget apply(BuildRule rule) {
-                return rule.getBuildTarget();
-              }
-            }));
-    PartialGraph partialGraph = PartialGraphFactory.newInstance(graph, targets);
+    ActionGraph actionGraph = RuleMap.createGraphFromBuildRules(ruleResolver);
 
     // Create the Project.
     ExecutionContext executionContext = EasyMock.createMock(ExecutionContext.class);
@@ -727,7 +716,8 @@ public class ProjectTest {
 
     ImmutableMap<Path, String> basePathToAliasMap = ImmutableMap.of();
     Project project = new Project(
-        partialGraph,
+        projectConfigs,
+        actionGraph,
         basePathToAliasMap,
         javaPackageFinder,
         executionContext,
@@ -745,9 +735,9 @@ public class ProjectTest {
     return new ProjectWithModules(project, ImmutableList.copyOf(modules));
   }
 
-  private static BuildRule getRuleById(String id, PartialGraph graph) {
+  private static BuildRule getRuleById(String id, ActionGraph actionGraph) {
     String[] parts = id.split(":");
-    BuildRule rule = graph.getActionGraph().findBuildRuleByTarget(
+    BuildRule rule = actionGraph.findBuildRuleByTarget(
         BuildTarget.builder(parts[0], parts[1]).build());
     Preconditions.checkNotNull(rule, "No rule for %s", id);
     return rule;
@@ -772,17 +762,17 @@ public class ProjectTest {
         .addSrc(Paths.get("Android.mk"))
         .build();
 
-    ruleResolver.addToIndex(ndkLibrary.getBuildTarget(), ndkLibrary);
+    ruleResolver.addToIndex(ndkLibrary);
 
-    BuildRule ndkProjectConfig = ProjectConfigBuilder
+    ProjectConfig ndkProjectConfig = (ProjectConfig) ProjectConfigBuilder
         .newProjectConfigRuleBuilder(
             BuildTargetFactory.newInstance(
                 "//third_party/java/foo/jni:project_config"))
-        .setSrcRule(ndkLibrary)
+        .setSrcRule(ndkLibrary.getBuildTarget())
         .build(ruleResolver);
 
     ProjectWithModules projectWithModules = getModulesForPartialGraph(ruleResolver,
-        ImmutableList.of(ndkProjectConfig),
+        ImmutableSet.of(ndkProjectConfig),
         null /* javaPackageFinder */);
     List<Module> modules = projectWithModules.modules;
 
@@ -810,23 +800,23 @@ public class ProjectTest {
     BuildRule ex2 = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//example/child:ex2"))
         .addSrc(Paths.get("AlsoDoesNotExist.java"))
-        .addDep(ex1)
+        .addDep(ex1.getBuildTarget())
         .build(ruleResolver);
 
     BuildRule tests = JavaTestBuilder
-        .createBuilder(BuildTargetFactory.newInstance("//example/child:tests"))
+        .newJavaTestBuilder(BuildTargetFactory.newInstance("//example/child:tests"))
         .addSrc(Paths.get("SomeTestFile.java"))
-        .addDep(ex2)
+        .addDep(ex2.getBuildTarget())
         .build(ruleResolver);
 
-    BuildRule config = ProjectConfigBuilder
+    ProjectConfig config = (ProjectConfig) ProjectConfigBuilder
         .newProjectConfigRuleBuilder(BuildTargetFactory.newInstance("//example/child:config"))
-        .setSrcRule(ex2)
-        .setTestRule(tests)
+        .setSrcRule(ex2.getBuildTarget())
+        .setTestRule(tests.getBuildTarget())
         .build(ruleResolver);
 
     ProjectWithModules projectWithModules = getModulesForPartialGraph(
-        ruleResolver, ImmutableList.of(config), null);
+        ruleResolver, ImmutableSet.of(config), null);
 
     Module module = Iterables.getOnlyElement(projectWithModules.modules);
     List<Module> modules = projectWithModules.project.createModulesForProjectConfigs();

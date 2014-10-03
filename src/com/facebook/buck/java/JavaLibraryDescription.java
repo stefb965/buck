@@ -25,7 +25,6 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
-import com.facebook.buck.rules.ConstructorArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.FlavorableDescription;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
@@ -62,8 +61,12 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
   }
 
   @Override
-  public boolean hasFlavor(Flavor flavor) {
-    return flavor.equals(Flavor.DEFAULT) || flavor.equals(JavaLibrary.SRC_JAR);
+  public boolean hasFlavors(ImmutableSet<Flavor> flavors) {
+    boolean match = true;
+    for (Flavor flavor : flavors) {
+      match &= JavaLibrary.SRC_JAR.equals(flavor) || Flavor.DEFAULT.equals(flavor);
+    }
+    return match;
   }
 
   @Override
@@ -81,14 +84,14 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
     // We know that the flavour we're being asked to create is valid, since the check is done when
     // creating the action graph from the target graph.
 
-    if (JavaLibrary.SRC_JAR.equals(target.getFlavor())) {
+    if (target.getFlavors().contains(JavaLibrary.SRC_JAR)) {
       return new JavaSourceJar(params, args.srcs.get());
     }
 
     JavacOptions.Builder javacOptions = JavaLibraryDescription.getJavacOptions(args, javacEnv);
 
     AnnotationProcessingParams annotationParams =
-        args.buildAnnotationProcessingParams(target, params.getProjectFilesystem());
+        args.buildAnnotationProcessingParams(target, params.getProjectFilesystem(), resolver);
     javacOptions.setAnnotationProcessingData(annotationParams);
 
     return new DefaultJavaLibrary(
@@ -97,8 +100,8 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
         validateResources(args, params.getProjectFilesystem()),
         args.proguardConfig,
         args.postprocessClassesCommands.get(),
-        args.exportedDeps.get(),
-        args.providedDeps.get(),
+        resolver.getAllRules(args.exportedDeps.get()),
+        resolver.getAllRules(args.providedDeps.get()),
         /* additionalClasspathEntries */ ImmutableSet.<Path>of(),
         javacOptions.build(),
         args.resourcesRoot);
@@ -139,26 +142,27 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
   }
 
   @SuppressFieldNotInitialized
-  public static class Arg implements ConstructorArg {
+  public static class Arg {
     public Optional<ImmutableSortedSet<SourcePath>> srcs;
     public Optional<ImmutableSortedSet<SourcePath>> resources;
     public Optional<String> source;
     public Optional<String> target;
     public Optional<Path> proguardConfig;
-    public Optional<ImmutableSortedSet<BuildRule>> annotationProcessorDeps;
+    public Optional<ImmutableSortedSet<BuildTarget>> annotationProcessorDeps;
     public Optional<ImmutableList<String>> annotationProcessorParams;
     public Optional<ImmutableSet<String>> annotationProcessors;
     public Optional<Boolean> annotationProcessorOnly;
     public Optional<ImmutableList<String>> postprocessClassesCommands;
     public Optional<Path> resourcesRoot;
 
-    public Optional<ImmutableSortedSet<BuildRule>> providedDeps;
-    public Optional<ImmutableSortedSet<BuildRule>> exportedDeps;
-    public Optional<ImmutableSortedSet<BuildRule>> deps;
+    public Optional<ImmutableSortedSet<BuildTarget>> providedDeps;
+    public Optional<ImmutableSortedSet<BuildTarget>> exportedDeps;
+    public Optional<ImmutableSortedSet<BuildTarget>> deps;
 
     public AnnotationProcessingParams buildAnnotationProcessingParams(
         BuildTarget owner,
-        ProjectFilesystem filesystem) {
+        ProjectFilesystem filesystem,
+        BuildRuleResolver resolver) {
       ImmutableSet<String> annotationProcessors =
           this.annotationProcessors.or(ImmutableSet.<String>of());
 
@@ -171,7 +175,7 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
       builder.addAllProcessors(annotationProcessors);
       builder.setProjectFilesystem(filesystem);
       ImmutableSortedSet<BuildRule> processorDeps =
-          annotationProcessorDeps.or(ImmutableSortedSet.<BuildRule>of());
+          resolver.getAllRules(annotationProcessorDeps.or(ImmutableSortedSet.<BuildTarget>of()));
       for (BuildRule processorDep : processorDeps) {
         builder.addProcessorBuildTarget(processorDep);
       }
@@ -207,7 +211,7 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
     }
 
     GwtModule gwtModule = gwtModuleOptional.get();
-    ruleResolver.addToIndex(gwtModule.getBuildTarget(), gwtModule);
+    ruleResolver.addToIndex(gwtModule);
   }
 
   /**
@@ -224,7 +228,7 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
       Arg arg) {
     if (arg.srcs.get().isEmpty() &&
         arg.resources.get().isEmpty() &&
-        Flavor.DEFAULT.equals(originalBuildTarget.getFlavor())) {
+        !originalBuildTarget.isFlavored()) {
       return Optional.absent();
     }
 

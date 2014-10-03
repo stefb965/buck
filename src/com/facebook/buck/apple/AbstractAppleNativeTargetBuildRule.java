@@ -23,7 +23,6 @@ import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 /**
@@ -31,10 +30,11 @@ import com.google.common.collect.ImmutableSortedSet;
  */
 public abstract class AbstractAppleNativeTargetBuildRule extends AbstractNativeBuildRule {
 
-  private final ImmutableSet<XcodeRuleConfiguration> configurations;
+  private final ImmutableMap<String, XcodeRuleConfiguration> configurations;
   private final ImmutableList<GroupedSource> srcs;
   private final ImmutableMap<SourcePath, String> perFileFlags;
   private final ImmutableSortedSet<String> frameworks;
+  private final ImmutableSortedSet<String> weakFrameworks;
   private final Optional<String> gid;
   private final Optional<String> headerPathPrefix;
   private final boolean useBuckHeaderMaps;
@@ -44,8 +44,9 @@ public abstract class AbstractAppleNativeTargetBuildRule extends AbstractNativeB
       AppleNativeTargetDescriptionArg arg,
       TargetSources targetSources) {
     super(params, targetSources.srcPaths, targetSources.headerPaths, targetSources.perFileFlags);
-    configurations = XcodeRuleConfiguration.fromRawJsonStructure(arg.configs);
-    frameworks = Preconditions.checkNotNull(arg.frameworks);
+    configurations = XcodeRuleConfiguration.fromRawJsonStructure(arg.configs.get());
+    frameworks = Preconditions.checkNotNull(arg.frameworks.get());
+    weakFrameworks = Preconditions.checkNotNull(arg.weakFrameworks.get());
     srcs = Preconditions.checkNotNull(targetSources.srcs);
     perFileFlags = Preconditions.checkNotNull(targetSources.perFileFlags);
     gid = Preconditions.checkNotNull(arg.gid);
@@ -56,7 +57,7 @@ public abstract class AbstractAppleNativeTargetBuildRule extends AbstractNativeB
   /**
    * Returns a set of Xcode configuration rules.
    */
-  public ImmutableSet<XcodeRuleConfiguration> getConfigurations() {
+  public ImmutableMap<String, XcodeRuleConfiguration> getConfigurations() {
     return configurations;
   }
 
@@ -79,6 +80,13 @@ public abstract class AbstractAppleNativeTargetBuildRule extends AbstractNativeB
    */
   public ImmutableSortedSet<String> getFrameworks() {
     return frameworks;
+  }
+
+  /**
+   * Returns the set of frameworks to weak link with the target.
+   */
+  public ImmutableSortedSet<String> getWeakFrameworks() {
+    return weakFrameworks;
   }
 
   /**

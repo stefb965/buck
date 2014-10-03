@@ -5,6 +5,9 @@
   {call buck.page}
     {param title: 'java_test()' /}
     {param prettify: true /}
+    {param description}
+      A rule that is used to define a set of Java files that contain tests.
+    {/param}
     {param content}
 
 {call buck.rule}
@@ -101,6 +104,15 @@ A <code>java_test()</code> rule is used to define a set of
   Same as <a href="java_library.html"><code>java_library()</code></a>.
   // org.junit.rules.Timeout was not introduced until 4.7.
   Must include JUnit as a dependency (version 4.7 or later).
+  {/param}
+{/call}
+
+{call buck.arg}
+  {param name: 'test_type' /}
+  {param default : 'junit' /}
+  {param desc}
+  Specifies which test framework to use.
+  The currently supported options are 'junit' and 'testng'.
   {/param}
 {/call}
 

@@ -2,8 +2,8 @@ java_library(
   name = 'rules',
   srcs = glob(['*.java']),
   deps = [
-    '//lib:guava',
-    '//lib:jsr305',
+    '//third-party/java/guava:guava',
+    '//third-party/java/jsr:jsr305',
     '//src/com/facebook/buck/model:model',
     '//src/com/facebook/buck/parser:rule_pattern',
     '//src/com/facebook/buck/rules:build_rule',
@@ -17,6 +17,10 @@ java_library(
     '//src/com/facebook/buck/graph:graph',
     '//src/com/facebook/buck/util:exceptions',
     '//src/com/facebook/buck/cli:config',
+    '//src/com/facebook/buck/python:rules',
+    '//src/com/facebook/buck/test/result/type:type',
+    '//src/com/facebook/buck/test/selectors:selectors',
+    '//src/com/facebook/buck/test:test',
     '//third-party/java/infer-annotations:infer-annotations',
   ],
   visibility = [

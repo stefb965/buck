@@ -16,11 +16,11 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
-import com.facebook.buck.rules.ConstructorArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.Hint;
 import com.facebook.buck.rules.SourcePath;
@@ -127,7 +127,7 @@ public class AndroidResourceDescription implements Description<AndroidResourceDe
         params.copyWithDeps(
             androidResOnly(params.getDeclaredDeps()),
             androidResOnly(params.getExtraDeps())),
-        args.deps.get(),
+        resolver.getAllRules(args.deps.get()),
         args.res.orNull(),
         collectInputFiles(filesystem, args.res),
         args.rDotJavaPackage.orNull(),
@@ -190,7 +190,7 @@ public class AndroidResourceDescription implements Description<AndroidResourceDe
   }
 
   @SuppressFieldNotInitialized
-  public static class Arg implements ConstructorArg {
+  public static class Arg {
     public Optional<Path> res;
     public Optional<Path> assets;
     public Optional<Boolean> hasWhitelistedStrings;
@@ -198,6 +198,6 @@ public class AndroidResourceDescription implements Description<AndroidResourceDe
     public Optional<String> rDotJavaPackage;
     public Optional<SourcePath> manifest;
 
-    public Optional<ImmutableSortedSet<BuildRule>> deps;
+    public Optional<ImmutableSortedSet<BuildTarget>> deps;
   }
 }

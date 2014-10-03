@@ -43,10 +43,13 @@ public class CxxBinaryIntegrationTest {
     workspace.setUp();
 
     BuildTarget target = BuildTargetFactory.newInstance("//foo:simple");
+    BuildTarget binaryTarget = CxxDescriptionEnhancer.createCxxLinkTarget(target);
     String sourceName = "simple.cpp";
     String sourceFull = "foo/" + sourceName;
-    BuildTarget compileTarget = CxxCompilableEnhancer.createCompileBuildTarget(target, sourceName);
-    BuildTarget headerTarget = CxxDescriptionEnhancer.createHeaderTarget(target);
+    BuildTarget compileTarget = CxxCompilableEnhancer.createCompileBuildTarget(
+        target,
+        sourceName,
+        /* pic */ false);
     BuildTarget headerSymlinkTreeTarget =
         CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(target);
 
@@ -55,11 +58,11 @@ public class CxxBinaryIntegrationTest {
     workspace.runBuckCommand("build", target.toString()).assertSuccess();
     BuckBuildLog buildLog = workspace.getBuildLog();
     assertEquals(
-        ImmutableSet.of(headerTarget, headerSymlinkTreeTarget, compileTarget, target),
+        ImmutableSet.of(headerSymlinkTreeTarget, compileTarget, binaryTarget, target),
         buildLog.getAllTargets());
-    buildLog.assertTargetBuiltLocally(headerTarget.toString());
     buildLog.assertTargetBuiltLocally(headerSymlinkTreeTarget.toString());
     buildLog.assertTargetBuiltLocally(compileTarget.toString());
+    buildLog.assertTargetBuiltLocally(binaryTarget.toString());
     buildLog.assertTargetBuiltLocally(target.toString());
 
     // Clear for new build.
@@ -70,11 +73,11 @@ public class CxxBinaryIntegrationTest {
     workspace.runBuckCommand("build", target.toString()).assertSuccess();
     buildLog = workspace.getBuildLog();
     assertEquals(
-        ImmutableSet.of(headerTarget, headerSymlinkTreeTarget, compileTarget, target),
+        ImmutableSet.of(headerSymlinkTreeTarget, compileTarget, binaryTarget, target),
         buildLog.getAllTargets());
-    buildLog.assertTargetHadMatchingRuleKey(headerTarget.toString());
     buildLog.assertTargetHadMatchingRuleKey(headerSymlinkTreeTarget.toString());
     buildLog.assertTargetHadMatchingRuleKey(compileTarget.toString());
+    buildLog.assertTargetHadMatchingRuleKey(binaryTarget.toString());
     buildLog.assertTargetHadMatchingRuleKey(target.toString());
 
     // Clear for new build.
@@ -88,11 +91,11 @@ public class CxxBinaryIntegrationTest {
     workspace.runBuckCommand("build", target.toString()).assertSuccess();
     buildLog = workspace.getBuildLog();
     assertEquals(
-        ImmutableSet.of(headerTarget, headerSymlinkTreeTarget, compileTarget, target),
+        ImmutableSet.of(headerSymlinkTreeTarget, compileTarget, binaryTarget, target),
         buildLog.getAllTargets());
-    buildLog.assertTargetHadMatchingRuleKey(headerTarget.toString());
     buildLog.assertTargetHadMatchingRuleKey(headerSymlinkTreeTarget.toString());
     buildLog.assertTargetBuiltLocally(compileTarget.toString());
+    buildLog.assertTargetBuiltLocally(binaryTarget.toString());
     buildLog.assertTargetBuiltLocally(target.toString());
 
     // Clear for new build.
@@ -106,9 +109,8 @@ public class CxxBinaryIntegrationTest {
     workspace.runBuckCommand("build", target.toString()).assertFailure();
     buildLog = workspace.getBuildLog();
     assertEquals(
-        ImmutableSet.of(headerTarget, headerSymlinkTreeTarget, compileTarget),
+        ImmutableSet.of(headerSymlinkTreeTarget, compileTarget),
         buildLog.getAllTargets());
-    buildLog.assertTargetHadMatchingRuleKey(headerTarget.toString());
     buildLog.assertTargetHadMatchingRuleKey(headerSymlinkTreeTarget.toString());
     buildLog.assertTargetFailed(compileTarget.toString());
   }
@@ -128,11 +130,14 @@ public class CxxBinaryIntegrationTest {
     workspace.setUp();
 
     BuildTarget target = BuildTargetFactory.newInstance("//foo:simple_with_header");
+    BuildTarget binaryTarget = CxxDescriptionEnhancer.createCxxLinkTarget(target);
     String sourceName = "simple_with_header.cpp";
     String headerName = "simple_with_header.h";
     String headerFull = "foo/" + headerName;
-    BuildTarget compileTarget = CxxCompilableEnhancer.createCompileBuildTarget(target, sourceName);
-    BuildTarget headerTarget = CxxDescriptionEnhancer.createHeaderTarget(target);
+    BuildTarget compileTarget = CxxCompilableEnhancer.createCompileBuildTarget(
+        target,
+        sourceName,
+        /* pic */ false);
     BuildTarget headerSymlinkTreeTarget =
         CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(target);
 
@@ -141,11 +146,11 @@ public class CxxBinaryIntegrationTest {
     workspace.runBuckCommand("build", target.toString()).assertSuccess();
     BuckBuildLog buildLog = workspace.getBuildLog();
     assertEquals(
-        ImmutableSet.of(headerTarget, headerSymlinkTreeTarget, compileTarget, target),
+        ImmutableSet.of(headerSymlinkTreeTarget, compileTarget, binaryTarget, target),
         buildLog.getAllTargets());
-    buildLog.assertTargetBuiltLocally(headerTarget.toString());
     buildLog.assertTargetBuiltLocally(headerSymlinkTreeTarget.toString());
     buildLog.assertTargetBuiltLocally(compileTarget.toString());
+    buildLog.assertTargetBuiltLocally(binaryTarget.toString());
     buildLog.assertTargetBuiltLocally(target.toString());
 
     // Clear for new build.
@@ -159,11 +164,11 @@ public class CxxBinaryIntegrationTest {
     workspace.runBuckCommand("build", target.toString()).assertSuccess();
     buildLog = workspace.getBuildLog();
     assertEquals(
-        ImmutableSet.of(headerTarget, headerSymlinkTreeTarget, compileTarget, target),
+        ImmutableSet.of(headerSymlinkTreeTarget, compileTarget, binaryTarget, target),
         buildLog.getAllTargets());
-    buildLog.assertTargetBuiltLocally(headerTarget.toString());
     buildLog.assertTargetHadMatchingRuleKey(headerSymlinkTreeTarget.toString());
     buildLog.assertTargetBuiltLocally(compileTarget.toString());
+    buildLog.assertTargetBuiltLocally(binaryTarget.toString());
     buildLog.assertTargetBuiltLocally(target.toString());
   }
 
@@ -183,9 +188,12 @@ public class CxxBinaryIntegrationTest {
 
     // Setup variables pointing to the sources and targets of the top-level binary rule.
     BuildTarget target = BuildTargetFactory.newInstance("//foo:binary_with_dep");
+    BuildTarget binaryTarget = CxxDescriptionEnhancer.createCxxLinkTarget(target);
     String sourceName = "foo.cpp";
-    BuildTarget compileTarget = CxxCompilableEnhancer.createCompileBuildTarget(target, sourceName);
-    BuildTarget headerTarget = CxxDescriptionEnhancer.createHeaderTarget(target);
+    BuildTarget compileTarget = CxxCompilableEnhancer.createCompileBuildTarget(
+        target,
+        sourceName,
+        /* pic */ false);
     BuildTarget headerSymlinkTreeTarget =
         CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(target);
 
@@ -196,8 +204,10 @@ public class CxxBinaryIntegrationTest {
     String depHeaderName = "bar.h";
     String depHeaderFull = "foo/" + depHeaderName;
     BuildTarget depCompileTarget =
-        CxxCompilableEnhancer.createCompileBuildTarget(depTarget, depSourceName);
-    BuildTarget depHeaderTarget = CxxDescriptionEnhancer.createHeaderTarget(depTarget);
+        CxxCompilableEnhancer.createCompileBuildTarget(
+            depTarget,
+            depSourceName,
+            /* pic */ false);
     BuildTarget depHeaderSymlinkTreeTarget =
         CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(depTarget);
     BuildTarget depArchiveTarget = CxxDescriptionEnhancer.createStaticLibraryBuildTarget(depTarget);
@@ -208,22 +218,22 @@ public class CxxBinaryIntegrationTest {
     BuckBuildLog buildLog = workspace.getBuildLog();
     assertEquals(
         ImmutableSet.of(
-            depHeaderTarget,
             depHeaderSymlinkTreeTarget,
             depCompileTarget,
             depArchiveTarget,
-            headerTarget,
+            depTarget,
             headerSymlinkTreeTarget,
             compileTarget,
+            binaryTarget,
             target),
         buildLog.getAllTargets());
-    buildLog.assertTargetBuiltLocally(depHeaderTarget.toString());
     buildLog.assertTargetBuiltLocally(depHeaderSymlinkTreeTarget.toString());
     buildLog.assertTargetBuiltLocally(depCompileTarget.toString());
     buildLog.assertTargetBuiltLocally(depArchiveTarget.toString());
-    buildLog.assertTargetBuiltLocally(headerTarget.toString());
+    buildLog.assertTargetBuiltLocally(depTarget.toString());
     buildLog.assertTargetBuiltLocally(headerSymlinkTreeTarget.toString());
     buildLog.assertTargetBuiltLocally(compileTarget.toString());
+    buildLog.assertTargetBuiltLocally(binaryTarget.toString());
     buildLog.assertTargetBuiltLocally(target.toString());
 
     // Clear for new build.
@@ -238,22 +248,22 @@ public class CxxBinaryIntegrationTest {
     buildLog = workspace.getBuildLog();
     assertEquals(
         ImmutableSet.of(
-            depHeaderTarget,
             depHeaderSymlinkTreeTarget,
             depCompileTarget,
             depArchiveTarget,
-            headerTarget,
+            depTarget,
             headerSymlinkTreeTarget,
             compileTarget,
+            binaryTarget,
             target),
         buildLog.getAllTargets());
-    buildLog.assertTargetBuiltLocally(depHeaderTarget.toString());
     buildLog.assertTargetHadMatchingRuleKey(depHeaderSymlinkTreeTarget.toString());
     buildLog.assertTargetBuiltLocally(depCompileTarget.toString());
     buildLog.assertTargetBuiltLocally(depArchiveTarget.toString());
-    buildLog.assertTargetHadMatchingRuleKey(headerTarget.toString());
+    buildLog.assertTargetHadMatchingRuleKey(depTarget.toString());
     buildLog.assertTargetHadMatchingRuleKey(headerSymlinkTreeTarget.toString());
     buildLog.assertTargetBuiltLocally(compileTarget.toString());
+    buildLog.assertTargetBuiltLocally(binaryTarget.toString());
     buildLog.assertTargetBuiltLocally(target.toString());
 
     // Clear for new build.
@@ -268,22 +278,22 @@ public class CxxBinaryIntegrationTest {
     buildLog = workspace.getBuildLog();
     assertEquals(
         ImmutableSet.of(
-            depHeaderTarget,
             depHeaderSymlinkTreeTarget,
             depCompileTarget,
             depArchiveTarget,
-            headerTarget,
+            depTarget,
             headerSymlinkTreeTarget,
             compileTarget,
+            binaryTarget,
             target),
         buildLog.getAllTargets());
-    buildLog.assertTargetHadMatchingRuleKey(depHeaderTarget.toString());
     buildLog.assertTargetHadMatchingRuleKey(depHeaderSymlinkTreeTarget.toString());
     buildLog.assertTargetBuiltLocally(depCompileTarget.toString());
     buildLog.assertTargetBuiltLocally(depArchiveTarget.toString());
-    buildLog.assertTargetHadMatchingRuleKey(headerTarget.toString());
+    buildLog.assertTargetHadMatchingRuleKey(depTarget.toString());
     buildLog.assertTargetHadMatchingRuleKey(headerSymlinkTreeTarget.toString());
     buildLog.assertTargetHadMatchingRuleKey(compileTarget.toString());
+    buildLog.assertTargetBuiltLocally(binaryTarget.toString());
     buildLog.assertTargetBuiltLocally(target.toString());
   }
 

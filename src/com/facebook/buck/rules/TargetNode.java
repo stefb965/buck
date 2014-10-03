@@ -39,7 +39,7 @@ import java.util.Set;
  * responsible for processing the raw (python) inputs of a build rule, and gathering any build
  * targets and paths referenced from those inputs.
  */
-public class TargetNode<T extends ConstructorArg> implements Comparable<TargetNode<?>> {
+public class TargetNode<T> implements Comparable<TargetNode<?>> {
 
   private final BuildRuleFactoryParams ruleFactoryParams;
   private final Description<T> description;
@@ -83,9 +83,9 @@ public class TargetNode<T extends ConstructorArg> implements Comparable<TargetNo
     TypeCoercerFactory typeCoercerFactory = new TypeCoercerFactory();
     T arg = description.createUnpopulatedConstructorArg();
     for (Field field : arg.getClass().getFields()) {
-      ParamInfo info =
-          new ParamInfo(typeCoercerFactory, params.target.getBasePath(), field);
-      if (info.hasElementTypes(BuildRule.class, SourcePath.class, Path.class)) {
+      ParamInfo info = new ParamInfo(typeCoercerFactory, field);
+      if (info.isDep() &&
+          info.hasElementTypes(BuildTarget.class, SourcePath.class, Path.class)) {
         detectBuildTargetsAndPathsForParameter(extraDeps, paths, info, params);
       }
     }
@@ -126,11 +126,11 @@ public class TargetNode<T extends ConstructorArg> implements Comparable<TargetNo
     return pathsReferenced;
   }
 
-  public Set<BuildTarget> getDeclaredDeps() {
+  public ImmutableSortedSet<BuildTarget> getDeclaredDeps() {
     return declaredDeps;
   }
 
-  public Set<BuildTarget> getExtraDeps() {
+  public ImmutableSortedSet<BuildTarget> getExtraDeps() {
     return extraDeps;
   }
 
@@ -207,7 +207,7 @@ public class TargetNode<T extends ConstructorArg> implements Comparable<TargetNo
   }
 
   private boolean isPossiblyATarget(String param) {
-    return param.charAt(0) == ':' || param.startsWith(BuildTarget.BUILD_TARGET_PREFIX);
+    return param.startsWith(":") || param.startsWith(BuildTarget.BUILD_TARGET_PREFIX);
   }
 
   @Override

@@ -36,11 +36,13 @@ import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.FakeRepositoryFactory;
 import com.facebook.buck.rules.NoopArtifactCache;
 import com.facebook.buck.rules.Repository;
 import com.facebook.buck.rules.TestRepositoryBuilder;
 import com.facebook.buck.rules.TestSourcePath;
 import com.facebook.buck.testutil.BuckTestConstant;
+import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.RuleMap;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.AndroidDirectoryResolver;
@@ -72,7 +74,7 @@ public class AuditClasspathCommandTest {
   private AuditClasspathCommand auditClasspathCommand;
 
   @Before
-  public void setUp() throws IOException {
+  public void setUp() throws IOException, InterruptedException {
     console = new TestConsole();
     AndroidDirectoryResolver androidDirectoryResolver = new FakeAndroidDirectoryResolver();
     ArtifactCache artifactCache = new NoopArtifactCache();
@@ -82,6 +84,7 @@ public class AuditClasspathCommandTest {
 
     auditClasspathCommand = new AuditClasspathCommand(new CommandRunnerParams(
         console,
+        new FakeRepositoryFactory(),
         repository,
         androidDirectoryResolver,
         new InstanceArtifactCacheFactory(artifactCache),
@@ -90,7 +93,8 @@ public class AuditClasspathCommandTest {
         Platform.detect(),
         ImmutableMap.copyOf(System.getenv()),
         new FakeJavaPackageFinder(),
-        new ObjectMapper()));
+        new ObjectMapper(),
+        FakeFileHashCache.EMPTY_CACHE));
   }
 
   private PartialGraph createGraphFromBuildRules(BuildRuleResolver ruleResolver,
@@ -110,7 +114,8 @@ public class AuditClasspathCommandTest {
   }
 
   @Test
-  public void testClassPathOutput() throws IOException {
+  public void testClassPathOutput()
+      throws IOException, InterruptedException {
     // Build a DependencyGraph of build rules manually.
     BuildRuleResolver ruleResolver = new BuildRuleResolver();
     List<String> targets = Lists.newArrayList();
@@ -131,7 +136,7 @@ public class AuditClasspathCommandTest {
         BuildTargetFactory.newInstance(
             "//:test-android-library"))
         .addSrc(Paths.get("src/com/facebook/TestAndroidLibrary.java"))
-        .addDep(javaLibrary)
+        .addDep(javaLibrary.getBuildTarget())
         .build(ruleResolver);
 
     BuildTarget keystoreBuildTarget = BuildTargetFactory.newInstance("//:keystore");
@@ -142,12 +147,13 @@ public class AuditClasspathCommandTest {
     AndroidBinaryBuilder.createBuilder(BuildTargetFactory.newInstance("//:test-android-binary"))
         .setManifest(new TestSourcePath("AndroidManifest.xml"))
         .setTarget("Google Inc.:Google APIs:16")
-        .setKeystore(keystore)
-        .setOriginalDeps(ImmutableSortedSet.of(androidLibrary, javaLibrary))
+        .setKeystore(keystore.getBuildTarget())
+        .setOriginalDeps(
+            ImmutableSortedSet.of(androidLibrary.getBuildTarget(), javaLibrary.getBuildTarget()))
         .build(ruleResolver);
-    JavaTestBuilder.createBuilder(BuildTargetFactory.newInstance("//:project-tests"))
-        .addDep(javaLibrary)
-        .setSourceUnderTest(ImmutableSet.of(javaLibrary))
+    JavaTestBuilder.newJavaTestBuilder(BuildTargetFactory.newInstance("//:project-tests"))
+        .addDep(javaLibrary.getBuildTarget())
+        .setSourceUnderTest(ImmutableSortedSet.of(javaLibrary.getBuildTarget()))
         .addSrc(Paths.get("src/com/facebook/test/ProjectTests.java"))
         .build(ruleResolver);
     PartialGraph partialGraph2 = createGraphFromBuildRules(ruleResolver, targets);
@@ -218,7 +224,7 @@ public class AuditClasspathCommandTest {
         .build(ruleResolver);
     AndroidLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:test-android-library"))
         .addSrc(Paths.get("src/com/facebook/TestAndroidLibrary.java"))
-        .addDep(library)
+        .addDep(library.getBuildTarget())
         .build(ruleResolver);
 
     PartialGraph partialGraph = createGraphFromBuildRules(ruleResolver, targets);

@@ -19,7 +19,6 @@ package com.facebook.buck.rules;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.BuildTargetPatternParser;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.parser.ParseContext;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Optional;
@@ -38,7 +37,7 @@ import javax.annotation.Nullable;
  */
 public final class BuildRuleFactoryParams {
 
-  private final Map<String, ?> instance;
+  private final Map<String, Object> instance;
   private final ProjectFilesystem filesystem;
   public final BuildTargetParser buildTargetParser;
   public final BuildTargetPatternParser buildTargetPatternParser;
@@ -47,7 +46,7 @@ public final class BuildRuleFactoryParams {
   private final BuildRuleBuilderParams abstractBuildRuleFactoryParams;
 
   public BuildRuleFactoryParams(
-      Map<String, ?> instance,
+      Map<String, Object> instance,
       ProjectFilesystem filesystem,
       BuildTargetParser buildTargetParser,
       BuildTarget target,
@@ -55,7 +54,7 @@ public final class BuildRuleFactoryParams {
     this.instance = instance;
     this.filesystem = filesystem;
     this.buildTargetParser = buildTargetParser;
-    this.buildTargetPatternParser = new BuildTargetPatternParser(filesystem);
+    this.buildTargetPatternParser = new BuildTargetPatternParser();
     this.target = Preconditions.checkNotNull(target);
     this.buildFileParseContext = ParseContext.forBaseName(target.getBaseName());
 
@@ -80,7 +79,7 @@ public final class BuildRuleFactoryParams {
     }
   }
 
-  public BuildTarget resolveBuildTarget(String target) throws NoSuchBuildTargetException {
+  public BuildTarget resolveBuildTarget(String target) {
     return buildTargetParser.parse(target, buildFileParseContext);
   }
 
@@ -132,4 +131,9 @@ public final class BuildRuleFactoryParams {
   public RuleKeyBuilderFactory getRuleKeyBuilderFactory() {
     return abstractBuildRuleFactoryParams.getRuleKeyBuilderFactory();
   }
+
+  public Map<String, Object> getInstance() {
+    return instance;
+  }
+
 }

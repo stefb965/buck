@@ -16,25 +16,21 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleFactoryParams;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
-import com.facebook.buck.rules.ConstructorArg;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
-import java.nio.file.Path;
-
-public class CxxBinaryDescription implements Description<CxxBinaryDescription.Arg> {
+public class CxxBinaryDescription implements
+    Description<CxxBinaryDescription.Arg>,
+    ImplicitDepsInferringDescription {
 
   public static final BuildRuleType TYPE = new BuildRuleType("cxx_binary");
 
@@ -49,52 +45,37 @@ public class CxxBinaryDescription implements Description<CxxBinaryDescription.Ar
     return new Arg();
   }
 
-  private static Path getOutputPath(BuildTarget target) {
-    return BuildTargets.getBinPath(target, "%s/" + target.getShortName());
-  }
-
   @Override
-  public <A extends Arg> CxxLink createBuildRule(
+  public <A extends Arg> CxxBinary createBuildRule(
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) {
 
-    // Extract the C/C++ sources from the constructor arg.
-    ImmutableList<CxxSource> srcs =
-        CxxDescriptionEnhancer.parseCxxSources(
-            params.getBuildTarget(),
-            args.srcs.or(ImmutableList.<SourcePath>of()));
-
-    // Extract the header map from the our constructor arg.
-    ImmutableMap<Path, SourcePath> headers =
-        CxxDescriptionEnhancer.parseHeaders(
-            params.getBuildTarget(),
-            args.headers.or((ImmutableList.<SourcePath>of())));
-
-    // Generate the rules for setting up and headers, preprocessing, and compiling the input
-    // sources and return the source paths for the object files.
-    ImmutableList<SourcePath> objects =
-        CxxDescriptionEnhancer.createPreprocessAndCompileBuildRules(
-            params,
-            resolver,
-            cxxBuckConfig,
-            args.preprocessorFlags.or(ImmutableList.<String>of()),
-            headers,
-            args.compilerFlags.or(ImmutableList.<String>of()),
-            srcs);
-
-    // Generate the final link rule.  We use the top-level target as the link rule's
-    // target, so that it corresponds to the actual binary we build.
-    return CxxLinkableEnhancer.createCxxLinkableBuildRule(
+    CxxLink cxxLink = CxxDescriptionEnhancer.createBuildRulesForCxxBinaryDescriptionArg(
         params,
         resolver,
-        cxxBuckConfig.getLd().or(CxxLinkables.DEFAULT_LINKER_PATH),
-        cxxBuckConfig.getCxxLdFlags(),
-        cxxBuckConfig.getLdFlags(),
-        params.getBuildTarget(),
-        getOutputPath(params.getBuildTarget()),
-        objects,
-        params.getDeps());
+        cxxBuckConfig,
+        args);
+
+    // Return a CxxBinary rule as our representative in the action graph, rather than the CxxLink
+    // rule above for a couple reasons:
+    //  1) CxxBinary extends BinaryBuildRule whereas CxxLink does not, so the former can be used
+    //     as executables for genrules.
+    //  2) In some cases, users add dependencies from some rules onto other binary rules, typically
+    //     if the binary is executed by some test or library code at test time.  These target graph
+    //     deps should *not* become build time dependencies on the CxxLink step, otherwise we'd
+    //     have to wait for the dependency binary to link before we could link the dependent binary.
+    //     By using another BuildRule, we can keep the original target graph dependency tree while
+    //     preventing it from affecting link parallelism.
+    return new CxxBinary(
+        params.copyWithDeps(
+            ImmutableSortedSet.<BuildRule>naturalOrder()
+                .addAll(params.getDeclaredDeps())
+                .add(cxxLink)
+                .build(),
+            params.getExtraDeps()),
+        cxxLink.getOutput(),
+        cxxLink);
   }
 
   @Override
@@ -102,13 +83,18 @@ public class CxxBinaryDescription implements Description<CxxBinaryDescription.Ar
     return TYPE;
   }
 
-  @SuppressFieldNotInitialized
-  public static class Arg implements ConstructorArg {
-    public Optional<ImmutableList<SourcePath>> srcs;
-    public Optional<ImmutableList<SourcePath>> headers;
-    public Optional<ImmutableSortedSet<BuildRule>> deps;
-    public Optional<ImmutableList<String>> compilerFlags;
-    public Optional<ImmutableList<String>> preprocessorFlags;
+  @Override
+  public Iterable<String> findDepsFromParams(BuildRuleFactoryParams params) {
+    ImmutableSet.Builder<String> deps = ImmutableSet.builder();
+
+    if (!params.getOptionalListAttribute("lexSrcs").isEmpty()) {
+      deps.add(cxxBuckConfig.getLexDep().toString());
+    }
+
+    return deps.build();
   }
+
+  @SuppressFieldNotInitialized
+  public static class Arg extends CxxConstructorArg {}
 
 }

@@ -20,7 +20,6 @@ import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.model.ImmediateDirectoryBuildTargetPattern;
 import com.facebook.buck.model.SingletonBuildTargetPattern;
 import com.facebook.buck.model.SubdirectoryBuildTargetPattern;
-import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 
@@ -34,12 +33,12 @@ public class BuildTargetPatternParser {
 
   private BuildTargetParser buildTargetParser;
 
-  public BuildTargetPatternParser(ProjectFilesystem projectFilesystem) {
-    buildTargetParser = new BuildTargetParser(projectFilesystem);
+  public BuildTargetPatternParser() {
+    buildTargetParser = new BuildTargetParser();
   }
 
   /**
-   * 1. //src/com/facebook/buck/cli:cli will be convert to a single build target
+   * 1. //src/com/facebook/buck/cli:cli will be converted to a single build target
    * 2. //src/com/facebook/buck/cli: will match all in the same directory.
    * 3. //src/com/facebook/buck/cli/... will match all in or under that directory.
    * For case 2 and 3, parseContext is expected to be {@link ParseContext#forVisibilityArgument()}.
@@ -60,17 +59,17 @@ public class BuildTargetPatternParser {
     }
 
     Preconditions.checkArgument(buildTargetPattern.startsWith(BUILD_RULE_PREFIX),
-        "buildTargetPattern must start with //");
+        String.format("'%s' must start with '//'", buildTargetPattern));
     Preconditions.checkNotNull(parseContext);
 
     if (buildTargetPattern.endsWith(WILDCARD_BUILD_RULE_SUFFIX)) {
       if (parseContext.getType() != ParseContext.Type.VISIBILITY) {
         throw new BuildTargetParseException(
-            String.format("%s cannot end with ...", buildTargetPattern));
+            String.format("'%s' cannot end with '...'", buildTargetPattern));
       } else {
         if (buildTargetPattern.contains(BUILD_RULE_SEPARATOR)) {
           throw new BuildTargetParseException(String.format(
-              "%s cannot contain colon", buildTargetPattern));
+              "'%s' cannot contain colon", buildTargetPattern));
         }
         String basePathWithSlash = buildTargetPattern.substring(
             BUILD_RULE_PREFIX.length(),

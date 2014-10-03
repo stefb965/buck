@@ -22,6 +22,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.Hint;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
@@ -61,7 +62,8 @@ public class JavaTestDescription implements Description<JavaTestDescription.Arg>
 
     AnnotationProcessingParams annotationParams = args.buildAnnotationProcessingParams(
         params.getBuildTarget(),
-        params.getProjectFilesystem());
+        params.getProjectFilesystem(),
+        resolver);
     javacOptions.setAnnotationProcessingData(annotationParams);
 
     return new JavaTest(
@@ -74,6 +76,7 @@ public class JavaTestDescription implements Description<JavaTestDescription.Arg>
         args.contacts.get(),
         args.proguardConfig,
         /* additionalClasspathEntries */ ImmutableSet.<Path>of(),
+        args.testType.or(TestType.JUNIT),
         javacOptions.build(),
         args.vmArgs.get(),
         validateAndGetSourcesUnderTest(
@@ -89,13 +92,7 @@ public class JavaTestDescription implements Description<JavaTestDescription.Arg>
       BuildRuleResolver resolver) {
     ImmutableSet.Builder<BuildRule> sourceUnderTest = ImmutableSet.builder();
     for (BuildTarget target : sourceUnderTestTargets) {
-      BuildRule rule = resolver.get(target);
-      if (rule == null) {
-        throw new HumanReadableException(
-            "Specified source under test for %s is not among its dependencies: %s",
-            owner,
-            target);
-      }
+      BuildRule rule = resolver.getRule(target);
       if (!(rule instanceof JavaLibrary)) {
         // In this case, the source under test specified in the build file was not a Java library
         // rule. Since EMMA requires the sources to be in Java, we will throw this exception and
@@ -115,7 +112,8 @@ public class JavaTestDescription implements Description<JavaTestDescription.Arg>
   public static class Arg extends JavaLibraryDescription.Arg {
     public Optional<ImmutableSortedSet<String>> contacts;
     public Optional<ImmutableSortedSet<Label>> labels;
-    public Optional<ImmutableSortedSet<BuildTarget>> sourceUnderTest;
+    @Hint(isDep = false) public Optional<ImmutableSortedSet<BuildTarget>> sourceUnderTest;
     public Optional<ImmutableList<String>> vmArgs;
+    public Optional<TestType> testType;
   }
 }

@@ -46,6 +46,7 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
+import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TestSourcePath;
 import com.facebook.buck.rules.coercer.Either;
@@ -84,16 +85,19 @@ public class SeparatedProjectsGeneratorTest {
 
   @Test(expected = HumanReadableException.class)
   public void errorsIfNotPassingInXcodeConfigRules() throws IOException {
+    BuildRuleResolver resolver = new BuildRuleResolver();
+
     BuildRule rule = createBuildRuleWithDefaults(
         BuildTarget.builder("//foo", "thing").build(),
         ImmutableSortedSet.<BuildRule>of(),
-        appleLibraryDescription);
+        appleLibraryDescription,
+        resolver);
     PartialGraph partialGraph = createPartialGraphFromBuildRules(
         ImmutableSet.of(rule));
 
     SeparatedProjectsGenerator generator = new SeparatedProjectsGenerator(
         projectFilesystem,
-        partialGraph,
+        partialGraph.getActionGraph(),
         executionContext,
         ImmutableSet.of(rule.getBuildTarget()),
         ImmutableSet.<ProjectGenerator.Option>of());
@@ -102,10 +106,13 @@ public class SeparatedProjectsGeneratorTest {
 
   @Test
   public void errorsIfPassingInNonexistentRule() throws IOException {
+    BuildRuleResolver resolver = new BuildRuleResolver();
+
     BuildRule rule = createBuildRuleWithDefaults(
         BuildTarget.builder("//foo", "thing").build(),
         ImmutableSortedSet.<BuildRule>of(),
-        appleLibraryDescription);
+        appleLibraryDescription,
+        resolver);
     expectedException.expect(HumanReadableException.class);
     expectedException.expectMessage("target not found");
 
@@ -113,7 +120,7 @@ public class SeparatedProjectsGeneratorTest {
 
     SeparatedProjectsGenerator generator = new SeparatedProjectsGenerator(
         projectFilesystem,
-        partialGraph,
+        partialGraph.getActionGraph(),
         executionContext,
         ImmutableSet.of(rule.getBuildTarget()),
         ImmutableSet.<ProjectGenerator.Option>of());
@@ -122,19 +129,27 @@ public class SeparatedProjectsGeneratorTest {
 
   @Test
   public void generatesProjectFilesInCorrectLocations() throws IOException {
+    BuildRuleResolver resolver = new BuildRuleResolver();
+
     BuildRule rule = createBuildRuleWithDefaults(
         BuildTarget.builder("//foo/bar", "somelib").build(),
         ImmutableSortedSet.<BuildRule>of(),
-        appleLibraryDescription);
+        appleLibraryDescription,
+        resolver);
+    resolver.addToIndex(rule);
+
     BuildRule configRule = createXcodeProjectConfigRule(
         "//foo/bar",
         "fooproject",
-        ImmutableSet.of(rule));
+        resolver,
+        ImmutableSortedSet.of(rule.getBuildTarget()));
+    resolver.addToIndex(configRule);
+
     PartialGraph partialGraph = createPartialGraphFromBuildRules(
         ImmutableSet.of(rule, configRule));
     SeparatedProjectsGenerator generator = new SeparatedProjectsGenerator(
         projectFilesystem,
-        partialGraph,
+        partialGraph.getActionGraph(),
         executionContext,
         ImmutableSet.of(configRule.getBuildTarget()),
         ImmutableSet.<ProjectGenerator.Option>of());
@@ -157,23 +172,34 @@ public class SeparatedProjectsGeneratorTest {
 
   @Test
   public void generatesOnlyReferencedTargets() throws IOException {
+    BuildRuleResolver resolver = new BuildRuleResolver();
+
     BuildRule depRule = createBuildRuleWithDefaults(
         BuildTarget.builder("//elsewhere", "somedep").build(),
         ImmutableSortedSet.<BuildRule>of(),
-        appleLibraryDescription);
+        appleLibraryDescription,
+        resolver);
+    resolver.addToIndex(depRule);
+
     BuildRule rule = createBuildRuleWithDefaults(
         BuildTarget.builder("//foo/bar", "somelib").build(),
         ImmutableSortedSet.of(depRule),
-        appleLibraryDescription);
+        appleLibraryDescription,
+        resolver);
+    resolver.addToIndex(rule);
+
     BuildRule configRule = createXcodeProjectConfigRule(
         "//foo/bar",
         "fooproject",
-        ImmutableSet.of(rule));
+        resolver,
+        ImmutableSortedSet.of(rule.getBuildTarget()));
+    resolver.addToIndex(configRule);
+
     PartialGraph partialGraph = createPartialGraphFromBuildRules(
         ImmutableSet.of(rule, configRule));
     SeparatedProjectsGenerator generator = new SeparatedProjectsGenerator(
         projectFilesystem,
-        partialGraph,
+        partialGraph.getActionGraph(),
         executionContext,
         ImmutableSet.of(configRule.getBuildTarget()),
         ImmutableSet.<ProjectGenerator.Option>of());
@@ -190,16 +216,22 @@ public class SeparatedProjectsGeneratorTest {
 
   @Test
   public void generatedBinariesLinksLibraryDependencies() throws IOException {
+    BuildRuleResolver resolver = new BuildRuleResolver();
+
     BuildRule depRule = createBuildRuleWithDefaults(
         BuildTarget.builder("//elsewhere", "somedep").build(),
         ImmutableSortedSet.<BuildRule>of(),
-        appleLibraryDescription);
+        appleLibraryDescription,
+        resolver);
+    resolver.addToIndex(depRule);
 
     BuildRule dynamicLibraryDep = createBuildRuleWithDefaults(
         BuildTarget.builder("//dep", "dynamic").setFlavor(
             AppleLibraryDescription.DYNAMIC_LIBRARY).build(),
         ImmutableSortedSet.of(depRule),
-        appleLibraryDescription);
+        appleLibraryDescription,
+        resolver);
+    resolver.addToIndex(dynamicLibraryDep);
 
     BuildRuleParams params =
         new FakeBuildRuleParamsBuilder(BuildTarget.builder("//foo", "bin").build())
@@ -210,24 +242,26 @@ public class SeparatedProjectsGeneratorTest {
     AppleBundleDescription.Arg arg =
         appleBundleDescription.createUnpopulatedConstructorArg();
     arg.infoPlist = Optional.<SourcePath>of(new TestSourcePath("Info.plist"));
-    arg.binary = dynamicLibraryDep;
+    arg.binary = dynamicLibraryDep.getBuildTarget();
     arg.extension = Either.ofLeft(AppleBundleExtension.FRAMEWORK);
     arg.deps = Optional.absent();
 
     BuildRule rule = appleBundleDescription.createBuildRule(
         params,
-        new BuildRuleResolver(),
+        resolver,
         arg);
+    resolver.addToIndex(rule);
 
     BuildRule configRule = createXcodeProjectConfigRule(
         "//foo/bar",
         "fooproject",
-        ImmutableSet.of(rule));
+        resolver,
+        ImmutableSortedSet.of(rule.getBuildTarget()));
     PartialGraph partialGraph = createPartialGraphFromBuildRules(
         ImmutableSet.of(rule, configRule));
     SeparatedProjectsGenerator generator = new SeparatedProjectsGenerator(
         projectFilesystem,
-        partialGraph,
+        partialGraph.getActionGraph(),
         executionContext,
         ImmutableSet.of(configRule.getBuildTarget()),
         ImmutableSet.<ProjectGenerator.Option>of());
@@ -242,28 +276,37 @@ public class SeparatedProjectsGeneratorTest {
 
   @Test
   public void generatedProjectsReferencesXcconfigFilesDirectly() throws IOException {
+    BuildRuleResolver resolver = new BuildRuleResolver();
+
     BuildRule rule = createBuildRuleWithDefaults(
         BuildTarget.builder("//foo", "rule").build(),
+        resolver,
         ImmutableSortedSet.<BuildRule>of(),
         appleLibraryDescription,
         new Function<AppleNativeTargetDescriptionArg, AppleNativeTargetDescriptionArg>() {
           @Override
           public AppleNativeTargetDescriptionArg apply(AppleNativeTargetDescriptionArg input) {
-            input.configs = ImmutableMap.of("Debug", ImmutableList.of(
-                Either.<Path, ImmutableMap<String, String>>ofLeft(Paths.get("project.xcconfig")),
-                Either.<Path, ImmutableMap<String, String>>ofLeft(Paths.get("target.xcconfig"))));
+            input.configs = Optional.of(
+                ImmutableMap.of("Debug", ImmutableList.of(
+                    Either.<SourcePath, ImmutableMap<String, String>>ofLeft(
+                        new PathSourcePath(Paths.get("project.xcconfig"))),
+                    Either.<SourcePath, ImmutableMap<String, String>>ofLeft(
+                        new PathSourcePath(Paths.get("target.xcconfig"))))));
             return input;
           }
         });
+    resolver.addToIndex(rule);
 
     BuildRule configRule = createXcodeProjectConfigRule(
         "//foo",
         "fooproject",
-        ImmutableSet.of(rule));
+        resolver,
+        ImmutableSortedSet.of(rule.getBuildTarget()));
+    resolver.addToIndex(configRule);
 
     SeparatedProjectsGenerator generator = new SeparatedProjectsGenerator(
         projectFilesystem,
-        createPartialGraphFromBuildRules(ImmutableSet.of(configRule, rule)),
+        createPartialGraphFromBuildRules(ImmutableSet.of(configRule, rule)).getActionGraph(),
         executionContext,
         ImmutableSet.of(configRule.getBuildTarget()),
         ImmutableSet.<ProjectGenerator.Option>of());
@@ -298,58 +341,73 @@ public class SeparatedProjectsGeneratorTest {
   /** Tests that project and target level configs are set in the generated project correctly */
   @Test
   public void generatedProjectsSetsInlineConfigsCorrectly() throws IOException {
+    BuildRuleResolver resolver = new BuildRuleResolver();
+
     BuildRule rule1 = createBuildRuleWithDefaults(
         BuildTarget.builder("//foo", "rule1").build(),
+        resolver,
         ImmutableSortedSet.<BuildRule>of(),
         appleLibraryDescription,
         new Function<AppleNativeTargetDescriptionArg, AppleNativeTargetDescriptionArg>() {
           @Override
           public AppleNativeTargetDescriptionArg apply(AppleNativeTargetDescriptionArg input) {
-            input.configs = ImmutableMap.of("Debug", ImmutableList.of(
-                Either.<Path, ImmutableMap<String, String>>ofLeft(Paths.get("project.xcconfig")),
-                Either.<Path, ImmutableMap<String, String>>ofRight(
-                    ImmutableMap.of(
-                        "PROJECT_FLAG1", "p1",
-                        "PROJECT_FLAG2", "p2")),
-                Either.<Path, ImmutableMap<String, String>>ofLeft(Paths.get("target.xcconfig")),
-                Either.<Path, ImmutableMap<String, String>>ofRight(
-                    ImmutableMap.of(
-                        "TARGET_FLAG1", "t1",
-                        "TARGET_FLAG2", "t2"))));
+            input.configs = Optional.of(
+                ImmutableMap.of("Debug", ImmutableList.of(
+                    Either.<SourcePath, ImmutableMap<String, String>>ofLeft(
+                        new PathSourcePath(Paths.get("project.xcconfig"))),
+                    Either.<SourcePath, ImmutableMap<String, String>>ofRight(
+                        ImmutableMap.of(
+                            "PROJECT_FLAG1", "p1",
+                            "PROJECT_FLAG2", "p2")),
+                    Either.<SourcePath, ImmutableMap<String, String>>ofLeft(
+                        new PathSourcePath(Paths.get("target.xcconfig"))),
+                    Either.<SourcePath, ImmutableMap<String, String>>ofRight(
+                        ImmutableMap.of(
+                            "TARGET_FLAG1", "t1",
+                            "TARGET_FLAG2", "t2")))));
             return input;
           }
         });
+    resolver.addToIndex(rule1);
 
     BuildRule rule2 = createBuildRuleWithDefaults(
         BuildTarget.builder("//foo", "rule2").build(),
+        resolver,
         ImmutableSortedSet.<BuildRule>of(),
         appleLibraryDescription,
         new Function<AppleNativeTargetDescriptionArg, AppleNativeTargetDescriptionArg>() {
           @Override
           public AppleNativeTargetDescriptionArg apply(AppleNativeTargetDescriptionArg input) {
-            input.configs = ImmutableMap.of("Debug", ImmutableList.of(
-                Either.<Path, ImmutableMap<String, String>>ofLeft(Paths.get("project.xcconfig")),
-                Either.<Path, ImmutableMap<String, String>>ofRight(
-                    ImmutableMap.of(
-                        "PROJECT_FLAG1", "p1",
-                        "PROJECT_FLAG2", "p2")),
-                Either.<Path, ImmutableMap<String, String>>ofLeft(Paths.get("target.xcconfig")),
-                Either.<Path, ImmutableMap<String, String>>ofRight(
-                    ImmutableMap.of(
-                        "TARGET_FLAG3", "t3",
-                        "TARGET_FLAG4", "t4"))));
+            input.configs = Optional.of(
+                ImmutableMap.of("Debug", ImmutableList.of(
+                    Either.<SourcePath, ImmutableMap<String, String>>ofLeft(
+                        new PathSourcePath(Paths.get("project.xcconfig"))),
+                    Either.<SourcePath, ImmutableMap<String, String>>ofRight(
+                        ImmutableMap.of(
+                            "PROJECT_FLAG1", "p1",
+                            "PROJECT_FLAG2", "p2")),
+                    Either.<SourcePath, ImmutableMap<String, String>>ofLeft(
+                        new PathSourcePath(Paths.get("target.xcconfig"))),
+                    Either.<SourcePath, ImmutableMap<String, String>>ofRight(
+                        ImmutableMap.of(
+                            "TARGET_FLAG3", "t3",
+                            "TARGET_FLAG4", "t4")))));
             return input;
           }
         });
+    resolver.addToIndex(rule2);
 
     BuildRule configRule = createXcodeProjectConfigRule(
         "//foo",
         "fooproject",
-        ImmutableSet.of(rule1, rule2));
+        resolver,
+        ImmutableSortedSet.of(rule1.getBuildTarget(), rule2.getBuildTarget()));
+    resolver.addToIndex(configRule);
 
     SeparatedProjectsGenerator generator = new SeparatedProjectsGenerator(
         projectFilesystem,
-        createPartialGraphFromBuildRules(ImmutableSet.of(configRule, rule1, rule2)),
+        createPartialGraphFromBuildRules(
+            ImmutableSet.of(configRule, rule1, rule2)).getActionGraph(),
         executionContext,
         ImmutableSet.of(configRule.getBuildTarget()),
         ImmutableSet.<ProjectGenerator.Option>of());
@@ -396,28 +454,36 @@ public class SeparatedProjectsGeneratorTest {
 
   @Test(expected = HumanReadableException.class)
   public void errorIfXcconfigHasIncorrectPatternOfLayers() throws IOException {
+    BuildRuleResolver resolver = new BuildRuleResolver();
+
     BuildRule rule = createBuildRuleWithDefaults(
         BuildTarget.builder("//foo", "rule").build(),
+        resolver,
         ImmutableSortedSet.<BuildRule>of(),
         appleLibraryDescription,
         new Function<AppleNativeTargetDescriptionArg, AppleNativeTargetDescriptionArg>() {
           @Override
           public AppleNativeTargetDescriptionArg apply(AppleNativeTargetDescriptionArg input) {
-            input.configs = ImmutableMap.of("Debug", ImmutableList.of(
-                // this only has one layer, accepted layers is 2 or 4
-                Either.<Path, ImmutableMap<String, String>>ofLeft(Paths.get("target.xcconfig"))));
+            input.configs = Optional.of(
+                ImmutableMap.of("Debug", ImmutableList.of(
+                    // this only has one layer, accepted layers is 2 or 4
+                    Either.<SourcePath, ImmutableMap<String, String>>ofLeft(
+                        new PathSourcePath(Paths.get("target.xcconfig"))))));
             return input;
           }
         });
+    resolver.addToIndex(rule);
 
     BuildRule configRule = createXcodeProjectConfigRule(
         "//foo",
         "fooproject",
-        ImmutableSet.of(rule));
+        resolver,
+        ImmutableSortedSet.of(rule.getBuildTarget()));
+    resolver.addToIndex(configRule);
 
     SeparatedProjectsGenerator generator = new SeparatedProjectsGenerator(
         projectFilesystem,
-        createPartialGraphFromBuildRules(ImmutableSet.of(configRule, rule)),
+        createPartialGraphFromBuildRules(ImmutableSet.of(configRule, rule)).getActionGraph(),
         executionContext,
         ImmutableSet.of(configRule.getBuildTarget()),
         ImmutableSet.<ProjectGenerator.Option>of());
@@ -426,16 +492,22 @@ public class SeparatedProjectsGeneratorTest {
 
   @Test
   public void generatedTargetsShouldUseShortNames() throws IOException {
+    BuildRuleResolver resolver = new BuildRuleResolver();
+
     BuildRule libraryRule = createBuildRuleWithDefaults(
         BuildTarget.builder("//foo", "library").build(),
         ImmutableSortedSet.<BuildRule>of(),
-        appleLibraryDescription);
+        appleLibraryDescription,
+        resolver);
+    resolver.addToIndex(libraryRule);
 
     BuildRule binaryDep = createBuildRuleWithDefaults(
         BuildTarget.builder("//foo", "binarybin").setFlavor(
             AppleLibraryDescription.DYNAMIC_LIBRARY).build(),
         ImmutableSortedSet.<BuildRule>of(),
-        appleBinaryDescription);
+        appleBinaryDescription,
+        resolver);
+    resolver.addToIndex(binaryDep);
 
     BuildRuleParams params =
         new FakeBuildRuleParamsBuilder(BuildTarget.builder("//foo", "binary").build())
@@ -446,29 +518,37 @@ public class SeparatedProjectsGeneratorTest {
     AppleBundleDescription.Arg arg =
         appleBundleDescription.createUnpopulatedConstructorArg();
     arg.infoPlist = Optional.<SourcePath>of(new TestSourcePath("Info.plist"));
-    arg.binary = binaryDep;
+    arg.binary = binaryDep.getBuildTarget();
     arg.extension = Either.ofLeft(AppleBundleExtension.APP);
     arg.deps = Optional.absent();
 
     BuildRule binaryRule = appleBundleDescription.createBuildRule(
         params,
-        new BuildRuleResolver(),
+        resolver,
         arg);
+    resolver.addToIndex(binaryRule);
 
     BuildRule nativeRule = createBuildRuleWithDefaults(
         BuildTarget.builder("//foo", "native").build(),
         ImmutableSortedSet.<BuildRule>of(),
-        appleLibraryDescription);
+        appleLibraryDescription,
+        resolver);
+    resolver.addToIndex(nativeRule);
 
     BuildRule configRule = createXcodeProjectConfigRule(
         "//foo",
         "fooproject",
-        ImmutableSet.of(libraryRule, binaryRule, nativeRule));
+        resolver,
+        ImmutableSortedSet.of(
+            libraryRule.getBuildTarget(),
+            binaryRule.getBuildTarget(),
+            nativeRule.getBuildTarget()));
+    resolver.addToIndex(configRule);
 
     SeparatedProjectsGenerator generator = new SeparatedProjectsGenerator(
         projectFilesystem,
         createPartialGraphFromBuildRules(
-            ImmutableSet.of(configRule, libraryRule, binaryRule, nativeRule)),
+            ImmutableSet.of(configRule, libraryRule, binaryRule, nativeRule)).getActionGraph(),
         executionContext,
         ImmutableSet.of(configRule.getBuildTarget()),
         ImmutableSet.<ProjectGenerator.Option>of());
@@ -482,30 +562,40 @@ public class SeparatedProjectsGeneratorTest {
 
   @Test
   public void shouldReturnListOfGeneratedProjects() throws IOException {
+    BuildRuleResolver resolver = new BuildRuleResolver();
+
     BuildRule fooRule1 = createBuildRuleWithDefaults(
         BuildTarget.builder("//foo", "rule1").build(),
         ImmutableSortedSet.<BuildRule>of(),
-        appleLibraryDescription);
+        appleLibraryDescription,
+        resolver);
+    resolver.addToIndex(fooRule1);
 
     BuildRule fooConfigRule = createXcodeProjectConfigRule(
         "//foo",
         "fooproject",
-        ImmutableSet.of(fooRule1));
+        resolver,
+        ImmutableSortedSet.of(fooRule1.getBuildTarget()));
+    resolver.addToIndex(fooConfigRule);
 
     BuildRule barRule2 = createBuildRuleWithDefaults(
         BuildTarget.builder("//bar", "rule2").build(),
         ImmutableSortedSet.<BuildRule>of(),
-        appleLibraryDescription);
+        appleLibraryDescription,
+        resolver);
+    resolver.addToIndex(barRule2);
 
     BuildRule barConfigRule = createXcodeProjectConfigRule(
         "//bar",
         "barproject",
-        ImmutableSet.of(barRule2));
+        resolver,
+        ImmutableSortedSet.of(barRule2.getBuildTarget()));
+    resolver.addToIndex(barConfigRule);
 
     SeparatedProjectsGenerator generator = new SeparatedProjectsGenerator(
         projectFilesystem,
         createPartialGraphFromBuildRules(
-            ImmutableSet.of(fooRule1, barRule2, fooConfigRule, barConfigRule)),
+            ImmutableSet.of(fooRule1, barRule2, fooConfigRule, barConfigRule)).getActionGraph(),
         executionContext,
         ImmutableSet.of(fooConfigRule.getBuildTarget(), barConfigRule.getBuildTarget()),
         ImmutableSet.<ProjectGenerator.Option>of());
@@ -522,9 +612,11 @@ public class SeparatedProjectsGeneratorTest {
   private BuildRule createXcodeProjectConfigRule(
       String baseName,
       final String projectName,
-      final ImmutableSet<BuildRule> buildRules) {
+      BuildRuleResolver resolver,
+      final ImmutableSortedSet<BuildTarget> buildRules) {
     return createBuildRuleWithDefaults(
         BuildTarget.builder(baseName, "project").build(),
+        resolver,
         ImmutableSortedSet.<BuildRule>of(),
         xcodeProjectConfigDescription,
         new Function<XcodeProjectConfigDescription.Arg, XcodeProjectConfigDescription.Arg>() {

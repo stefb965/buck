@@ -348,4 +348,70 @@ public class ProjectIntegrationTest {
 
     workspace.verify();
   }
+
+  @Test
+  public void testBuckProjectGeneratedSchemesDoNotIncludeOtherTests()
+      throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this,
+        "project_generated_schemes_do_not_include_other_tests",
+        temporaryFolder);
+    workspace.setUp();
+
+    ProcessResult result = workspace.runBuckCommand(
+        "project",
+        "--workspace-and-projects",
+        "--with-tests");
+    result.assertSuccess();
+
+    workspace.verify();
+  }
+
+  @Test
+  public void projectRulesCanReferenceTargetsInOtherBuckFiles() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this,
+        "project_rules_can_reference_targets_in_other_buck_files",
+        temporaryFolder);
+    workspace.setUp();
+
+    ProcessResult result = workspace.runBuckCommand(
+        "project",
+        "--workspace-and-projects");
+    result.assertSuccess();
+
+    workspace.verify();
+  }
+
+  @Test
+  public void allTargetsInAProjectRuleCanBeInOtherBuckFiles() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this,
+        "all_targets_in_a_project_rule_can_be_in_other_buck_files",
+        temporaryFolder);
+    workspace.setUp();
+
+    ProcessResult result = workspace.runBuckCommand(
+        "project",
+        "--workspace-and-projects");
+    result.assertSuccess();
+
+    workspace.verify();
+  }
+
+  @Test
+  public void generatingAllWorkspacesWillNotIncludeAllProjectsInEachOfThem() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this,
+        "generating_all_workspaces_will_not_include_all_projects_in_each_of_them",
+        temporaryFolder);
+    workspace.setUp();
+
+    ProcessResult result = workspace.runBuckCommand(
+        "project",
+        "--workspace-and-projects");
+    result.assertSuccess();
+
+    workspace.verify();
+  }
 }

@@ -46,10 +46,12 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.FakeBuildRule;
+import com.facebook.buck.rules.FakeRepositoryFactory;
 import com.facebook.buck.rules.NoopArtifactCache;
 import com.facebook.buck.rules.Repository;
 import com.facebook.buck.rules.TestRepositoryBuilder;
 import com.facebook.buck.testutil.BuckTestConstant;
+import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.RuleMap;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.AndroidDirectoryResolver;
@@ -115,7 +117,7 @@ public class TargetsCommandTest {
   }
 
   @Before
-  public void setUp() {
+  public void setUp() throws IOException, InterruptedException {
     console = new TestConsole();
     Repository repository = new TestRepositoryBuilder()
         .setFilesystem(new ProjectFilesystem(Paths.get(".")))
@@ -128,6 +130,7 @@ public class TargetsCommandTest {
     targetsCommand =
         new TargetsCommand(new CommandRunnerParams(
             console,
+            new FakeRepositoryFactory(),
             repository,
             androidDirectoryResolver,
             new InstanceArtifactCacheFactory(artifactCache),
@@ -136,7 +139,8 @@ public class TargetsCommandTest {
             Platform.detect(),
             ImmutableMap.copyOf(System.getenv()),
             new FakeJavaPackageFinder(),
-            objectMapper));
+            objectMapper,
+            FakeFileHashCache.EMPTY_CACHE));
   }
 
   @Test
@@ -225,25 +229,23 @@ public class TargetsCommandTest {
     // Set up the test buck file, parser, config, options.
     BuildTargetParser parser = EasyMock.createMock(BuildTargetParser.class);
     EasyMock.expect(parser.parse("//:test-library", ParseContext.fullyQualified()))
-        .andReturn(BuildTarget.builder(
-            "//testdata/com/facebook/buck/cli", "test-library").build())
+        .andReturn(BuildTarget.builder("//testdata/com/facebook/buck/cli", "test-library").build())
         .anyTimes();
     EasyMock.expect(parser.parse("//:", ParseContext.fullyQualified()))
         .andThrow(new BuildTargetParseException(
             String.format("%s cannot end with a colon.", "//:")))
         .anyTimes();
     EasyMock.expect(parser.parse("//blah/foo:bar", ParseContext.fullyQualified()))
-        .andThrow(EasyMock.createMock(NoSuchBuildTargetException.class))
+        .andReturn(BuildTarget.builder("//blah/foo", "bar").build())
         .anyTimes();
     EasyMock.expect(parser.parse("//:test-libarry", ParseContext.fullyQualified()))
-        .andReturn(BuildTarget.builder(
-            "//testdata/com/facebook/buck/cli", "test-libarry").build())
+        .andReturn(BuildTarget.builder("//testdata/com/facebook/buck/cli", "test-libarry").build())
         .anyTimes();
     EasyMock.replay(parser);
     Reader reader = new StringReader("");
     BuckConfig config = BuckConfig.createFromReader(
         reader,
-        new ProjectFilesystem(new File(".")),
+        new ProjectFilesystem(Paths.get(".")),
         parser,
         Platform.detect(),
         ImmutableMap.copyOf(System.getenv()));
@@ -295,11 +297,12 @@ public class TargetsCommandTest {
     BuildRule javaLibrary = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//javasrc:java-library"))
         .addSrc(Paths.get("javasrc/JavaLibrary.java"))
-        .addDep(prebuiltJar)
+        .addDep(prebuiltJar.getBuildTarget())
         .build(ruleResolver);
-    JavaTestBuilder.createBuilder(BuildTargetFactory.newInstance("//javatest:test-java-library"))
+    JavaTestBuilder
+        .newJavaTestBuilder(BuildTargetFactory.newInstance("//javatest:test-java-library"))
         .addSrc(Paths.get("javatest/TestJavaLibrary.java"))
-        .addDep(javaLibrary)
+        .addDep(javaLibrary.getBuildTarget())
         .build(ruleResolver);
 
     List<String> targets = Lists.newArrayList();

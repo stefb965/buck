@@ -19,6 +19,8 @@ package com.facebook.buck.rules;
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.java.JavaBuckConfig;
 import com.facebook.buck.java.JavaCompilerEnvironment;
+import com.facebook.buck.python.PythonBuckConfig;
+import com.facebook.buck.python.PythonEnvironment;
 import com.facebook.buck.util.AndroidDirectoryResolver;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultAndroidDirectoryResolver;
@@ -28,6 +30,7 @@ import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.buck.util.PropertyFinder;
 import com.facebook.buck.util.environment.Platform;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.BiMap;
@@ -50,8 +53,10 @@ public class RepositoryFactory {
   private final Platform platform;
   private final Console console;
 
-  private final ConcurrentMap<Path, Repository> cachedRepositories = Maps.newConcurrentMap();
-  private final BiMap<Path, Optional<String>> canonicalPathNames =
+  @VisibleForTesting
+  protected final ConcurrentMap<Path, Repository> cachedRepositories = Maps.newConcurrentMap();
+  @VisibleForTesting
+  protected final BiMap<Path, Optional<String>> canonicalPathNames =
       Maps.synchronizedBiMap(HashBiMap.<Path, Optional<String>>create());
 
   public RepositoryFactory(
@@ -87,30 +92,34 @@ public class RepositoryFactory {
     return getRepositoryByAbsolutePath(repoPath);
   }
 
+  public Repository getRootRepository()
+      throws IOException, InterruptedException {
+    return getRepositoryByCanonicalName(Optional.<String>absent());
+  }
+
   public Repository getRepositoryByAbsolutePath(Path absolutePath)
       throws IOException, InterruptedException {
     Preconditions.checkNotNull(absolutePath);
     Preconditions.checkArgument(absolutePath.isAbsolute());
-    // Resolve symlinks and everything, so that we can detect the same repo referenced from two
-    // different (but ultimately equivalent) paths.
-    Path root = absolutePath.toRealPath();
 
-    if (cachedRepositories.containsKey(root)) {
-      return cachedRepositories.get(root);
+    if (cachedRepositories.containsKey(absolutePath)) {
+      return cachedRepositories.get(absolutePath);
     }
 
-    if (!canonicalPathNames.containsKey(root)) {
-      throw new HumanReadableException("No repository name known for " + root);
+    if (!canonicalPathNames.containsKey(absolutePath)) {
+      throw new HumanReadableException("No repository name known for " + absolutePath);
     }
-    Optional<String> name = canonicalPathNames.get(root);
+    Optional<String> name = canonicalPathNames.get(absolutePath);
 
     // Create common command parameters. projectFilesystem initialization looks odd because it needs
     // ignorePaths from a BuckConfig instance, which in turn needs a ProjectFilesystem (i.e. this
     // solves a bootstrapping issue).
     ProjectFilesystem projectFilesystem = new ProjectFilesystem(
-        root,
-        BuckConfig.createDefaultBuckConfig(new ProjectFilesystem(root), platform, clientEnvironment)
-            .getIgnorePaths());
+        absolutePath,
+        BuckConfig.createDefaultBuckConfig(
+            new ProjectFilesystem(absolutePath),
+            platform,
+            clientEnvironment).getIgnorePaths());
     BuckConfig config = BuckConfig.createDefaultBuckConfig(
         projectFilesystem,
         platform,
@@ -130,6 +139,9 @@ public class RepositoryFactory {
     ProcessExecutor processExecutor = new ProcessExecutor(console);
     JavaCompilerEnvironment javacEnv = javaConfig.getJavaCompilerEnvironment(processExecutor);
 
+    PythonBuckConfig pythonConfig = new PythonBuckConfig(config);
+    PythonEnvironment pythonEnv = pythonConfig.getPythonEnvironment(processExecutor);
+
     // NOTE:  If any other variable is used when configuring buildRuleTypes, it MUST be passed down
     // to the Daemon and implement equals/hashCode so we can invalidate the Parser if values used
     // for configuring buildRuleTypes have changed between builds.
@@ -137,7 +149,8 @@ public class RepositoryFactory {
         KnownBuildRuleTypes.createInstance(
             config,
             androidDirectoryResolver,
-            javacEnv);
+            javacEnv,
+            pythonEnv);
 
     Repository repository = new Repository(
         name,
@@ -146,7 +159,7 @@ public class RepositoryFactory {
         config,
         this,
         androidDirectoryResolver);
-    cachedRepositories.put(root, repository);
+    cachedRepositories.put(absolutePath, repository);
 
     updateCanonicalNames(repository.getBuckConfig().getRepositoryPaths());
 

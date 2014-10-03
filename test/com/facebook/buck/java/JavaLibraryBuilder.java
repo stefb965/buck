@@ -18,17 +18,13 @@ package com.facebook.buck.java;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractBuilder;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.google.common.base.Optional;
-import com.google.common.collect.ImmutableSet;
 
 import java.nio.file.Path;
-import java.util.List;
 
-public class JavaLibraryBuilder
-    extends AbstractBuilder<JavaLibraryDescription.Arg> {
+public class JavaLibraryBuilder extends AbstractBuilder<JavaLibraryDescription.Arg> {
 
   protected JavaLibraryBuilder(BuildTarget target) {
     super(new JavaLibraryDescription(JavaCompilerEnvironment.DEFAULT), target);
@@ -38,17 +34,12 @@ public class JavaLibraryBuilder
     return new JavaLibraryBuilder(target);
   }
 
-  public JavaLibraryBuilder addAllAnnotationProcessors(List<String> processorNames) {
-    arg.annotationProcessors = Optional.of(ImmutableSet.copyOf(processorNames));
-    return this;
-  }
-
-  public JavaLibraryBuilder addDep(BuildRule rule) {
+  public JavaLibraryBuilder addDep(BuildTarget rule) {
     arg.deps = amend(arg.deps, rule);
     return this;
   }
 
-  public JavaLibraryBuilder addExportedDep(BuildRule rule) {
+  public JavaLibraryBuilder addExportedDep(BuildTarget rule) {
     arg.exportedDeps = amend(arg.exportedDeps, rule);
     return this;
   }

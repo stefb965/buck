@@ -25,7 +25,6 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.coercer.AppleSource;
-import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -40,11 +39,13 @@ import java.util.Map;
 public class TargetNodeTest {
 
   @Test
-  public void testIgnoreNonBuildRuleOrPathOrSourcePathArgument() throws NoSuchBuildTargetException {
+  public void testIgnoreNonBuildTargetOrPathOrSourcePathArgument()
+      throws NoSuchBuildTargetException {
     Description<Arg> description = new TestDescription();
     TargetNode<Arg> targetNode = new TargetNode<>(
         description,
-        buildRuleFactoryParams(ImmutableMap.<String, Object>of(
+        buildRuleFactoryParams(
+            ImmutableMap.<String, Object>of(
                 "string", "//example/path:one",
                 "target", "//example/path:two")));
 
@@ -57,7 +58,8 @@ public class TargetNodeTest {
     Description<Arg> description = new TestDescription();
     TargetNode<Arg> targetNode = new TargetNode<>(
         description,
-        buildRuleFactoryParams(ImmutableMap.<String, Object>of(
+        buildRuleFactoryParams(
+            ImmutableMap.<String, Object>of(
                 "deps", ImmutableList.of("//example/path:one", "//example/path:two"),
                 "sourcePaths", ImmutableList.of("//example/path:four", "MyClass.java"),
                 "appleSource", "//example/path:five",
@@ -82,13 +84,13 @@ public class TargetNodeTest {
             BuildTargetFactory.newInstance("//example/path:two")));
   }
 
-  @SuppressWarnings("unused")
-  public class Arg implements ConstructorArg {
-    public ImmutableSortedSet<BuildRule> deps;
+  public class Arg {
+    public ImmutableSortedSet<BuildTarget> deps;
     public ImmutableSortedSet<SourcePath> sourcePaths;
     public Optional<AppleSource> appleSource;
     public Optional<Path> source;
     public Optional<String> string;
+    @Hint(isDep = false)
     public Optional<BuildTarget> target;
   }
 
@@ -114,15 +116,7 @@ public class TargetNodeTest {
   }
 
   public BuildRuleFactoryParams buildRuleFactoryParams(Map<String, Object> args) {
-    // TODO(natthu): Add a `isForgiving` flag to FakeProjectFilesystem to mimic the following
-    // behaviour.
-    ProjectFilesystem filesystem = new ProjectFilesystem(Paths.get(".")) {
-      @Override
-      public boolean exists(Path pathRelativeToProjectRoot) {
-        return true;
-      }
-    };
-    BuildTargetParser parser = new BuildTargetParser(filesystem);
+    BuildTargetParser parser = new BuildTargetParser();
     BuildTarget target = BuildTargetFactory.newInstance("//example/path:three");
     return NonCheckingBuildRuleFactoryParams.createNonCheckingBuildRuleFactoryParams(
         args, parser, target);

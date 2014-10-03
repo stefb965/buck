@@ -145,7 +145,8 @@ public class JavaSymbolFinder {
         // TODO(jacko): Get this from the right place when plugins are working.
         config.getDefaultIncludes(),
         console,
-        environment)) {
+        environment,
+        buckEventBus)) {
       for (Path sourceFile : sourceFilePaths) {
         for (Path buckFile : possibleBuckFilesForSourceFile(sourceFile)) {
           List<Map<String, Object>> rules;
@@ -153,7 +154,7 @@ public class JavaSymbolFinder {
           if (parsedBuildFiles.containsKey(buckFile)) {
             rules = parsedBuildFiles.get(buckFile);
           } else {
-            rules = parser.getAllRules(buckFile);
+            rules = parser.getAll(buckFile);
             parsedBuildFiles.put(buckFile, rules);
           }
 

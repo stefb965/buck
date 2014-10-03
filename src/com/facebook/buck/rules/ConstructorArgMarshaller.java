@@ -20,7 +20,8 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Optional;
-import com.google.common.base.Preconditions;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableSet;
 
 import java.lang.reflect.Field;
@@ -28,40 +29,29 @@ import java.lang.reflect.Modifier;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
 
 /**
  * Used to derive information from the constructor args returned by {@link Description} instances.
  * There are two major uses this information is put to: populating the DTO object from the
  * {@link BuildRuleFactoryParams}, which is populated by the functions added to Buck's core build
  * file parsing script. The second function of this class is to generate those functions.
- *
- * @see ConstructorArg
  */
 public class ConstructorArgMarshaller {
 
-  private final Path basePath;
   private final TypeCoercerFactory typeCoercerFactory;
+  private final Cache<Class<?>, ImmutableSet<ParamInfo>> coercedTypes;
 
   /**
    * Constructor. {@code pathFromProjectRootToBuildFile} is the path relative to the project root to
    * the build file that has called the build rule's function in buck.py. This is used for resolving
    * additional paths to ones relative to the project root, and to allow {@link BuildTarget}
    * instances to be fully qualified.
-   *
-   * @param pathFromProjectRootToBuildFile The path from the root of the project to the directory of
-   *     the build file that this function is being created from.
    */
-  public ConstructorArgMarshaller(Path pathFromProjectRootToBuildFile) {
-    Preconditions.checkNotNull(pathFromProjectRootToBuildFile);
-
-    // Without this check an IndexOutOfBounds exception is thrown by normalize.
-    if (pathFromProjectRootToBuildFile.toString().isEmpty()) {
-      this.basePath = pathFromProjectRootToBuildFile;
-    } else {
-      this.basePath = pathFromProjectRootToBuildFile.normalize();
-    }
-
+  public ConstructorArgMarshaller() {
     this.typeCoercerFactory = new TypeCoercerFactory();
+    this.coercedTypes = CacheBuilder.newBuilder().build();
   }
 
   /**
@@ -91,7 +81,7 @@ public class ConstructorArgMarshaller {
       BuildRuleResolver ruleResolver,
       ProjectFilesystem filesystem,
       BuildRuleFactoryParams params,
-      ConstructorArg dto) throws ConstructorArgMarshalException {
+      Object dto) throws ConstructorArgMarshalException {
     populate(
         ruleResolver,
         filesystem,
@@ -104,7 +94,7 @@ public class ConstructorArgMarshaller {
       BuildRuleResolver ruleResolver,
       ProjectFilesystem filesystem,
       BuildRuleFactoryParams params,
-      ConstructorArg dto,
+      Object dto,
       boolean onlyOptional) throws ConstructorArgMarshalException {
     Set<ParamInfo> allInfo = getAllParamInfo(dto);
 
@@ -120,18 +110,29 @@ public class ConstructorArgMarshaller {
     }
   }
 
-  ImmutableSet<ParamInfo> getAllParamInfo(ConstructorArg dto) {
-    Class<?> argClass = dto.getClass();
+  ImmutableSet<ParamInfo> getAllParamInfo(Object dto) {
+    final Class<?> argClass = dto.getClass();
+    try {
+      return coercedTypes.get(argClass, new Callable<ImmutableSet<ParamInfo>>() {
+            @Override
+            public ImmutableSet<ParamInfo> call() {
+              ImmutableSet.Builder<ParamInfo> allInfo = ImmutableSet.builder();
 
-    ImmutableSet.Builder<ParamInfo> allInfo = ImmutableSet.builder();
+              for (Field field : argClass.getFields()) {
+                if (Modifier.isFinal(field.getModifiers())) {
+                  continue;
+                }
+                allInfo.add(new ParamInfo(typeCoercerFactory, field));
+              }
 
-    for (Field field : argClass.getFields()) {
-      if (Modifier.isFinal(field.getModifiers())) {
-        continue;
-      }
-      allInfo.add(new ParamInfo(typeCoercerFactory, basePath, field));
+              return allInfo.build();
+            }
+          });
+    } catch (ExecutionException e) {
+      // This gets thrown if we saw an error when loading the value. Nothing sane to do here, and
+      // we (previously, before using a cache), simply allowed a RuntimeException to bubble up.
+      // Maintain that behaviour.
+      throw new RuntimeException(e);
     }
-
-    return allInfo.build();
   }
 }

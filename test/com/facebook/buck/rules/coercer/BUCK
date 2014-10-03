@@ -5,10 +5,11 @@ java_test(
     '//src/com/facebook/buck/rules:build_rule',
   ],
   deps = [
-    '//lib:guava',
-    '//lib:junit',
+    '//third-party/java/guava:guava',
+    '//third-party/java/junit:junit',
     '//src/com/facebook/buck/rules:build_rule',
     '//src/com/facebook/buck/model:model',
+    '//src/com/facebook/buck/parser:rule_pattern',
     '//src/com/facebook/buck/util:io',
     '//test/com/facebook/buck/testutil:testutil',
   ],

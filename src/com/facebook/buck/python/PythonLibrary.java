@@ -42,7 +42,7 @@ public class PythonLibrary extends AbstractBuildRule implements PythonPackagable
   private final ImmutableMap<Path, SourcePath> srcs;
   private final ImmutableMap<Path, SourcePath> resources;
 
-  protected PythonLibrary(
+  public PythonLibrary(
       BuildRuleParams params,
       ImmutableMap<Path, SourcePath> srcs,
       ImmutableMap<Path, SourcePath> resources) {
@@ -88,6 +88,14 @@ public class PythonLibrary extends AbstractBuildRule implements PythonPackagable
   @Override
   public BuildableProperties getProperties() {
     return OUTPUT_TYPE;
+  }
+
+  public ImmutableMap<Path, SourcePath> getSrcs() {
+    return srcs;
+  }
+
+  public ImmutableMap<Path, SourcePath> getResources() {
+    return resources;
   }
 
 }

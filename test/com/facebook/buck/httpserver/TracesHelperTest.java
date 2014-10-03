@@ -37,15 +37,18 @@ import java.nio.file.Path;
 public class TracesHelperTest extends EasyMockSupport {
 
   @Test
-  @SuppressWarnings({ "rawtypes", "unchecked" })
   public void testGetTraceAttributesForId() throws IOException {
     ProjectFilesystem projectFilesystem = createMock(ProjectFilesystem.class);
 
     File traceFile = createMock(File.class);
-    expect(traceFile.lastModified()).andStubReturn(1000L);
     String name = "build.a.trace";
     expect(traceFile.getName()).andStubReturn(name);
     Path pathToTraceFile = BuckConstant.BUCK_TRACE_DIR.resolve(name);
+    expect(traceFile.toPath()).andReturn(pathToTraceFile);
+    expect(projectFilesystem.listFiles(BuckConstant.BUCK_TRACE_DIR)).andStubReturn(
+        new File[] {traceFile});
+
+    expect(traceFile.lastModified()).andStubReturn(1000L);
     expect(projectFilesystem.getFileForRelativePath(pathToTraceFile)).andStubReturn(traceFile);
     String buckBuildJson =
         "[" +
@@ -80,15 +83,18 @@ public class TracesHelperTest extends EasyMockSupport {
   }
 
   @Test
-  @SuppressWarnings({ "rawtypes", "unchecked" })
   public void testGetTraceAttributesForJsonWithoutName() throws IOException {
     ProjectFilesystem projectFilesystem = createMock(ProjectFilesystem.class);
 
     File traceFile = createMock(File.class);
-    expect(traceFile.lastModified()).andStubReturn(2000L);
     String name = "build.b.trace";
     expect(traceFile.getName()).andStubReturn(name);
     Path pathToTraceFile = BuckConstant.BUCK_TRACE_DIR.resolve(name);
+    expect(traceFile.toPath()).andReturn(pathToTraceFile);
+    expect(projectFilesystem.listFiles(BuckConstant.BUCK_TRACE_DIR)).andStubReturn(
+        new File[] {traceFile});
+
+    expect(traceFile.lastModified()).andStubReturn(2000L);
     expect(projectFilesystem.getFileForRelativePath(pathToTraceFile)).andStubReturn(traceFile);
     String buckBuildJson =
         "[" +
@@ -119,15 +125,18 @@ public class TracesHelperTest extends EasyMockSupport {
   }
 
   @Test
-  @SuppressWarnings({ "rawtypes", "unchecked" })
   public void testGetTraceAttributesForJsonWithoutCommandArgs() throws IOException {
     ProjectFilesystem projectFilesystem = createMock(ProjectFilesystem.class);
 
     File traceFile = createMock(File.class);
-    expect(traceFile.lastModified()).andStubReturn(2000L);
     String name = "build.c.trace";
     expect(traceFile.getName()).andStubReturn(name);
     Path pathToTraceFile = BuckConstant.BUCK_TRACE_DIR.resolve(name);
+    expect(traceFile.toPath()).andReturn(pathToTraceFile);
+    expect(projectFilesystem.listFiles(BuckConstant.BUCK_TRACE_DIR)).andStubReturn(
+        new File[] {traceFile});
+
+    expect(traceFile.lastModified()).andStubReturn(2000L);
     expect(projectFilesystem.getFileForRelativePath(pathToTraceFile)).andStubReturn(traceFile);
     String buckBuildJson =
         "[" +
