@@ -21,7 +21,6 @@ import com.facebook.buck.dalvik.DefaultZipSplitterFactory;
 import com.facebook.buck.dalvik.ZipSplitter;
 import com.facebook.buck.dalvik.ZipSplitterFactory;
 import com.facebook.buck.dalvik.firstorder.FirstOrderHelper;
-import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.util.ProjectFilesystem;
@@ -77,7 +76,6 @@ public class SplitZipStep implements Step {
 
   // Transform Function that calls String.trim()
   private static final Function<String, String> STRING_TRIM = new Function<String, String>() {
-    @Nullable
     @Override
     public String apply(String line) {
       return line.trim();
@@ -87,9 +85,8 @@ public class SplitZipStep implements Step {
   // Transform Function that appends ".class"
   private static final Function<String, String> APPEND_CLASS_SUFFIX =
       new Function<String, String>() {
-        @Nullable
         @Override
-        public String apply(@Nullable String input) {
+        public String apply(String input) {
           return input + ".class";
         }
       };
@@ -105,9 +102,8 @@ public class SplitZipStep implements Step {
   // Transform Function that calls Type.GetObjectType.
   private static final Function<String, Type> TYPE_GET_OBJECT_TYPE =
       new Function<String, Type>() {
-        @Nullable
         @Override
-        public Type apply(@Nullable String input) {
+        public Type apply(String input) {
           return Type.getObjectType(input);
         }
       };
@@ -126,6 +122,7 @@ public class SplitZipStep implements Step {
   private final Path pathToReportDir;
 
   private final Optional<Path> primaryDexScenarioFile;
+  private final Optional<Path> primaryDexClassesFile;
 
   @Nullable
   private List<File> outputFiles;
@@ -153,19 +150,21 @@ public class SplitZipStep implements Step {
       Optional<Path> proguardFullConfigFile,
       Optional<Path> proguardMappingFile,
       DexSplitMode dexSplitMode,
+      Optional<Path> primaryDexScenarioFile,
+      Optional<Path> primaryDexClassesFile,
       Path pathToReportDir) {
     this.inputPathsToSplit = ImmutableSet.copyOf(inputPathsToSplit);
-    this.secondaryJarMetaPath = Preconditions.checkNotNull(secondaryJarMetaPath);
-    this.primaryJarPath = Preconditions.checkNotNull(primaryJarPath);
-    this.secondaryJarDir = Preconditions.checkNotNull(secondaryJarDir);
-    this.secondaryJarPattern = Preconditions.checkNotNull(secondaryJarPattern);
-    this.proguardFullConfigFile = Preconditions.checkNotNull(proguardFullConfigFile);
-    this.proguardMappingFile = Preconditions.checkNotNull(proguardMappingFile);
-    this.dexSplitMode = Preconditions.checkNotNull(dexSplitMode);
-    this.pathToReportDir = Preconditions.checkNotNull(pathToReportDir);
+    this.secondaryJarMetaPath = secondaryJarMetaPath;
+    this.primaryJarPath = primaryJarPath;
+    this.secondaryJarDir = secondaryJarDir;
+    this.secondaryJarPattern = secondaryJarPattern;
+    this.proguardFullConfigFile = proguardFullConfigFile;
+    this.proguardMappingFile = proguardMappingFile;
+    this.dexSplitMode = dexSplitMode;
+    this.primaryDexScenarioFile = primaryDexScenarioFile;
+    this.primaryDexClassesFile = primaryDexClassesFile;
+    this.pathToReportDir = pathToReportDir;
 
-    this.primaryDexScenarioFile = dexSplitMode.getPrimaryDexScenarioFile()
-        .transform(SourcePaths.TO_PATH);
     Preconditions.checkArgument(
         proguardFullConfigFile.isPresent() == proguardMappingFile.isPresent(),
         "ProGuard configuration and mapping must both be present or absent.");
@@ -270,8 +269,6 @@ public class SplitZipStep implements Step {
       throws IOException {
     ImmutableSet.Builder<String> builder = ImmutableSet.builder();
 
-    Optional<Path> primaryDexClassesFile = dexSplitMode.getPrimaryDexClassesFile()
-        .transform(SourcePaths.TO_PATH);
     if (primaryDexClassesFile.isPresent()) {
       Iterable<String> classes = FluentIterable
           .from(context.getProjectFilesystem().readLines(primaryDexClassesFile.get()))

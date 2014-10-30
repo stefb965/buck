@@ -23,6 +23,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.coercer.Either;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Optional;
@@ -64,19 +65,21 @@ public class PythonLibraryDescription implements Description<Arg> {
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) {
+    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
     Path baseModule = PythonUtil.getBasePath(params.getBuildTarget(), args.baseModule);
     return new PythonLibrary(
         params,
+        pathResolver,
         PythonUtil.toModuleMap(
             params.getBuildTarget(),
+            pathResolver,
             "srcs",
-            baseModule,
-            args.srcs),
+            baseModule, args.srcs),
         PythonUtil.toModuleMap(
             params.getBuildTarget(),
+            pathResolver,
             "resources",
-            baseModule,
-            args.resources));
+            baseModule, args.resources));
   }
 
 }

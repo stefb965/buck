@@ -24,16 +24,17 @@ import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.parser.ParseEvent;
 import com.facebook.buck.parser.TargetGraph;
 import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleEvent;
+import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleStatus;
 import com.facebook.buck.rules.BuildRuleSuccess;
 import com.facebook.buck.rules.CacheResult;
 import com.facebook.buck.rules.FakeBuildRule;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.shell.GenruleDescription;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.timing.Clock;
@@ -60,8 +61,9 @@ public class SimpleConsoleEventBusListenerTest {
     FakeBuildRule fakeRule = new FakeBuildRule(
         GenruleDescription.TYPE,
         fakeTarget,
-        ImmutableSortedSet.<BuildRule>of(),
-        ImmutableSet.<BuildTargetPattern>of());
+        new SourcePathResolver(new BuildRuleResolver()),
+        ImmutableSortedSet.<BuildRule>of()
+    );
 
     SimpleConsoleEventBusListener listener = new SimpleConsoleEventBusListener(
         console,

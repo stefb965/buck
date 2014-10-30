@@ -21,14 +21,12 @@ import com.android.manifmerger.ICallback;
 import com.android.manifmerger.IMergerLog;
 import com.android.manifmerger.ManifestMerger;
 import com.android.manifmerger.MergerLog;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Charsets;
 import com.google.common.base.Objects;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
@@ -44,16 +42,16 @@ public class GenerateManifestStep implements Step {
   private static final int BASE_SDK_LEVEL = 1;
 
   private Path skeletonManifestPath;
-  private ImmutableSet<SourcePath> libraryManifestPaths;
+  private ImmutableSet<Path> libraryManifestPaths;
   private Path outManifestPath;
 
   public GenerateManifestStep(
       Path skeletonManifestPath,
-      ImmutableSet<SourcePath> libraryManifestPaths,
+      ImmutableSet<Path> libraryManifestPaths,
       Path outManifestPath) {
-    this.skeletonManifestPath = Preconditions.checkNotNull(skeletonManifestPath);
+    this.skeletonManifestPath = skeletonManifestPath;
     this.libraryManifestPaths = ImmutableSet.copyOf(libraryManifestPaths);
-    this.outManifestPath = Preconditions.checkNotNull(outManifestPath);
+    this.outManifestPath = outManifestPath;
   }
 
   @Override
@@ -67,7 +65,7 @@ public class GenerateManifestStep implements Step {
       throw new HumanReadableException("Output Manifest filepath is missing");
     }
 
-    if (libraryManifestPaths == null || libraryManifestPaths.isEmpty()) {
+    if (libraryManifestPaths.isEmpty()) {
       warnUser(context, "No library manifests found. Aborting manifest merge step.");
       return 1;
     }
@@ -81,8 +79,8 @@ public class GenerateManifestStep implements Step {
 
     List<File> libraryManifestFiles = Lists.newArrayList();
 
-    for (SourcePath path : libraryManifestPaths) {
-      libraryManifestFiles.add(path.resolve().toFile());
+    for (Path path : libraryManifestPaths) {
+      libraryManifestFiles.add(path.toFile());
     }
 
     File skeletonManifestFile = skeletonManifestPath.toFile();

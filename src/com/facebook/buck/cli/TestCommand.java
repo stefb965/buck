@@ -27,7 +27,6 @@ import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.parser.PartialGraph;
-import com.facebook.buck.parser.RuleJsonPredicates;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.BuildContext;
@@ -36,7 +35,7 @@ import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleSuccess;
 import com.facebook.buck.rules.IndividualTestEvent;
-import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TestRule;
 import com.facebook.buck.rules.TestRunEvent;
 import com.facebook.buck.step.DefaultStepRunner;
@@ -147,7 +146,7 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
       printMatchingTestRules(console, results);
     }
 
-    BuildContext buildContext = build.getBuildContext();
+    BuildContext buildContext = Preconditions.checkNotNull(build.getBuildContext());
     ExecutionContext buildExecutionContext = build.getExecutionContext();
     ExecutionContext testExecutionContext = ExecutionContext.builder().
         setExecutionContext(buildExecutionContext).
@@ -193,7 +192,11 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
       pathsToClasses.add(pathToOutput);
     }
 
-    return new GenerateCodeCoverageReportStep(pathsToClasses.build(), outputDirectory, format);
+    return new GenerateCodeCoverageReportStep(
+        srcDirectories.build(),
+        pathsToClasses.build(),
+        outputDirectory,
+        format);
   }
 
   /**
@@ -204,10 +207,10 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
       JavaLibrary rule,
       Optional<DefaultJavaPackageFinder> defaultJavaPackageFinderOptional,
       ProjectFilesystem filesystem) {
-    ImmutableSet<SourcePath> javaSrcPaths = rule.getJavaSrcs();
+    ImmutableSet<Path> javaSrcs = rule.getJavaSrcs();
 
-    // A Java library rule with just resource files has an empty javaSrcPaths.
-    if (javaSrcPaths.isEmpty()) {
+    // A Java library rule with just resource files has an empty javaSrcs.
+    if (javaSrcs.isEmpty()) {
       return ImmutableSet.of();
     }
 
@@ -224,12 +227,12 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
     // folders for the source paths.
     Set<String> srcFolders = Sets.newHashSet();
     loopThroughSourcePath:
-    for (SourcePath javaSrcPath : javaSrcPaths) {
-      if (!MorePaths.isGeneratedFile(javaSrcPath.resolve())) {
+    for (Path javaSrcPath : javaSrcs) {
+      if (!MorePaths.isGeneratedFile(javaSrcPath)) {
         // If the source path is already under a known source folder, then we can skip this
         // source path.
         for (String srcFolder : srcFolders) {
-          if (javaSrcPath.resolve().startsWith(srcFolder)) {
+          if (javaSrcPath.startsWith(srcFolder)) {
             continue loopThroughSourcePath;
           }
         }
@@ -238,7 +241,7 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
         // root.
         ImmutableSortedSet<String> pathsFromRoot = defaultJavaPackageFinder.getPathsFromRoot();
         for (String root : pathsFromRoot) {
-          if (javaSrcPath.resolve().startsWith(root)) {
+          if (javaSrcPath.startsWith(root)) {
             srcFolders.add(root);
             continue loopThroughSourcePath;
           }
@@ -247,7 +250,7 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
         // Traverse the file system from the parent directory of the java file until we hit the
         // parent of the src root directory.
         ImmutableSet<String> pathElements = defaultJavaPackageFinder.getPathElements();
-        File directory = filesystem.getFileForRelativePath(javaSrcPath.resolve().getParent());
+        File directory = filesystem.getFileForRelativePath(javaSrcPath.getParent());
         while (directory != null && !pathElements.contains(directory.getName())) {
           directory = directory.getParentFile();
         }
@@ -283,7 +286,12 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
     // The first step is to parse all of the build files. This will populate the parser and find all
     // of the test rules.
     PartialGraph partialGraph = PartialGraph.createPartialGraph(
-        RuleJsonPredicates.isTestRule(),
+        new Predicate<TargetNode<?>>() {
+          @Override
+          public boolean apply(TargetNode<?> input) {
+            return input.getType().isTestRule();
+          }
+        },
         getProjectFilesystem(),
         options.getDefaultIncludes(),
         getParser(),
@@ -292,7 +300,7 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
         environment,
         false /* enableProfiling */);
 
-    final ActionGraph graph = partialGraph.getActionGraph();
+    final ActionGraph graph = partialGraph.getTargetGraph().getActionGraph(getBuckEventBus());
 
     // Look up all of the test rules in the action graph.
     Iterable<TestRule> testRules = Iterables.transform(
@@ -341,7 +349,7 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
 
       // Once all of the rules are built, then run the tests.
       return runTestsAndShutdownExecutor(testRules,
-          build.getBuildContext(),
+          Preconditions.checkNotNull(build.getBuildContext()),
           build.getExecutionContext(),
           options);
     }
@@ -520,6 +528,7 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
             buildContext,
             executionContext,
             options.isDryRun(),
+            options.isShufflingTests(),
             options.getTestSelectorList());
         if (!testSteps.isEmpty()) {
           stepsBuilder.addAll(testSteps);
@@ -568,9 +577,10 @@ public class TestCommand extends AbstractCommandRunner<TestCommandOptions> {
         options.getArgumentsFormattedAsBuildTargets(), completedResults));
 
     // Write out the results as XML, if requested.
-    if (options.getPathToXmlTestOutput() != null) {
+    String path = options.getPathToXmlTestOutput();
+    if (path != null) {
       try (Writer writer = Files.newWriter(
-        new File(options.getPathToXmlTestOutput()),
+        new File(path),
         Charsets.UTF_8)) {
         writeXmlOutput(completedResults, writer);
       }

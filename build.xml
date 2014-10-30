@@ -35,10 +35,14 @@
   <property name="pathlib.dir" value="${third-party.dir}/py/pathlib" />
   <property name="unittest2.dir" value="${third-party.dir}/py/unittest2" />
 
+  <property name="immutables-value-standalone.jar" value="${third-party.dir}/java/immutables/value-standalone-0.31-SNAPSHOT.jar" />
+  <property name="immutables.gensrc.dir" value="${build.dir}/immutables" />
+  <property name="immutables.gensrc.test.dir" value="${build.dir}/immutables-tests" />
+
   <fileset dir="${third-party.dir}/java" id="buck.jars">
     <include name="args4j/args4j-2.0.30.jar" />
     <include name="ddmlib/ddmlib-22.5.3.jar" />
-    <include name="guava/guava-17.0.jar" />
+    <include name="guava/guava-18.0.jar" />
     <include name="ini4j/ini4j-0.5.2.jar" />
     <include name="jackson/jackson-annotations-2.0.5.jar" />
     <include name="jackson/jackson-core-2.0.5.jar" />
@@ -49,7 +53,9 @@
   </fileset>
 
   <fileset dir="${third-party.dir}/java" id="third-party.jars">
-    <include name="asm/asm-debug-all-4.1.jar" />
+    <include name="asm/asm-debug-all-5.0.3.jar" />
+    <include name="auto-service/auto-service-1.0-rc1.jar" />
+    <include name="aopalliance/aopalliance.jar" />
     <include name="astyanax/astyanax-cassandra-1.56.38.jar" />
     <include name="astyanax/astyanax-cassandra-1.56.38-javadoc.jar" />
     <include name="astyanax/astyanax-cassandra-1.56.38-sources.jar" />
@@ -64,6 +70,11 @@
     <include name="astyanax/joda-time-2.2.jar" />
     <include name="astyanax/libthrift-0.7.0.jar" />
     <include name="astyanax/log4j-1.2.16.jar" />
+    <include name="astyanax/slf4j-api-1.7.2.jar" />
+    <include name="astyanax/slf4j-log4j12-1.7.2.jar" />
+    <include name="closure-templates/soy-excluding-deps.jar" />
+    <include name="commons-compress/commons-compress-1.8.1.jar" />
+    <include name="dd-plist/dd-plist.jar" />
     <include name="eclipse/org.eclipse.core.contenttype_3.4.200.v20130326-1255.jar" />
     <include name="eclipse/org.eclipse.core.jobs_3.5.300.v20130429-1813.jar" />
     <include name="eclipse/org.eclipse.core.resources_3.8.101.v20130717-0806.jar" />
@@ -72,16 +83,21 @@
     <include name="eclipse/org.eclipse.equinox.preferences_3.5.100.v20130422-1538.jar" />
     <include name="eclipse/org.eclipse.jdt.core_3.9.2.v20140114-1555.jar" />
     <include name="eclipse/org.eclipse.osgi_3.9.1.v20140110-1610.jar" />
-    <include name="astyanax/slf4j-api-1.7.2.jar" />
-    <include name="astyanax/slf4j-log4j12-1.7.2.jar" />
-    <include name="closure-templates/soy-2012-12-21-no-guava.jar" />
-    <include name="dd-plist/dd-plist.jar" />
+    <include name="guice/guice-3.0.jar" />
+    <include name="guice/guice-assistedinject-3.0.jar" />
+    <include name="guice/guice-multibindings-3.0.jar" />
     <include name="gson/gson-2.2.4.jar" />
+    <include name="icu4j/icu4j-54.1.1.jar" />
+    <include name="immutables/value-0.31-SNAPSHOT.jar" />
     <include name="infer-annotations/infer-annotations-1.1.jar" />
+    <include name="jacoco/org.jacoco.core-0.7.2.201409121644.jar" />
+    <include name="jacoco/org.jacoco.report-0.7.2.201409121644.jar" />
     <include name="jetty/jetty-all-9.0.4.v20130625.jar" />
     <include name="jetty/servlet-api.jar" />
+    <include name="jsr/javax.inject-1.jar" />
+    <include name="parboiled/parboiled-core-1.1.6.jar" />
+    <include name="parboiled/parboiled-java-1.1.6.jar" />
     <include name="xz-java-1.3/xz-1.3.jar" />
-    <include name="commons-compress/commons-compress-1.8.1.jar" />
   </fileset>
 
   <path id="classpath-no-src">
@@ -94,6 +110,7 @@
   <path id="classpath">
     <path refid="classpath-no-src" />
     <pathelement location="${src.dir}" />
+    <pathelement location="${immutables.gensrc.dir}" />
   </path>
 
   <path id="junit">
@@ -104,13 +121,12 @@
   </path>
 
   <target name="clean" description="remove all generated files">
-    <ant inheritAll="false" antfile="third-party/java/jacoco-0.6.4/build.xml" target="clean" />
     <delete dir="${build.dir}" />
   </target>
 
   <!-- Default target so that a command line build can
-       do more than one thing.  'success' must be the last dependency. -->
-  <target name="default" depends="compile, dx, client, javacc-tests, success" />
+       do more than one thing. -->
+  <target name="default" depends="compile, dx, client, javacc-tests" />
 
   <target name="checkversion">
     <!-- The nio Files class was only introduced in Java 7. -->
@@ -164,6 +180,45 @@
         />
   </target>
 
+  <path id="immutables-classpath">
+    <path refid="classpath" />
+    <pathelement location="${immutables-value-standalone.jar}" />
+    <pathelement location="${src.dir}" />
+  </path>
+
+  <target name="generate-immutables">
+    <mkdir dir="${immutables.gensrc.dir}" />
+    <javac srcdir="${src.dir}"
+           classpathref="classpath"
+           includeAntRuntime="no">
+      <src path="${aosp.src.dir}" />
+      <exclude name="com/facebook/buck/android/support/**" />
+      <exclude name="com/facebook/buck/apple/xcode/xcconfig/**" />
+      <exclude name="com/facebook/buck/cli/quickstart/**" />
+      <exclude name="com/facebook/buck/java/abi/AbiWriter.java" />
+      <exclude name="com/facebook/buck/java/abi/Annotations.java" />
+      <exclude name="com/facebook/buck/java/abi/ConstructorSummary.java" />
+      <exclude name="com/facebook/buck/java/abi/EmptySummary.java" />
+      <exclude name="com/facebook/buck/java/abi/EnumConstantSummary.java" />
+      <exclude name="com/facebook/buck/java/abi/FieldSummary.java" />
+      <exclude name="com/facebook/buck/java/abi/Joiner.java" />
+      <exclude name="com/facebook/buck/java/abi/MethodSummary.java" />
+      <exclude name="com/facebook/buck/java/abi/Modifiers.java" />
+      <exclude name="com/facebook/buck/java/abi/Parameters.java" />
+      <exclude name="com/facebook/buck/java/abi/Renderable.java" />
+      <exclude name="com/facebook/buck/java/abi/RenderableTypes.java" />
+      <exclude name="com/facebook/buck/java/abi/TypeSummary.java" />
+      <exclude name="com/facebook/buck/junit/**" />
+      <compilerarg value="-processorpath" />
+      <compilerarg value="${immutables-value-standalone.jar}" />
+      <compilerarg value="-processor" />
+      <compilerarg value="org.immutables.value.internal.processor.Processor" />
+      <compilerarg value="-proc:only" />
+      <compilerarg value="-s" />
+      <compilerarg value="${immutables.gensrc.dir}" />
+    </javac>
+  </target>
+
   <macrodef name="ecj" description="Compile Java using the ecj compiler with strict checks.">
     <attribute name="srcdir" default="${src.dir}" />
     <attribute name="classpathref" default="classpath-no-src" />
@@ -210,9 +265,8 @@
   </macrodef>
 
   <target name="compile"
-          depends="compile-testrunner, compile-abi-processor, javacc, dx"
+          depends="compile-testrunner, compile-abi-processor, javacc, dx, generate-immutables"
           description="compile Java source code">
-    <ant inheritAll="false" antfile="third-party/java/jacoco-0.6.4/build.xml" target="build" />
     <mkdir dir="${classes.dir}" />
 
     <!--
@@ -227,6 +281,21 @@
     -->
     <ecj>
       <patterns>
+        <!-- //src/com/facebook/buck/log:log -->
+        <include name="com/facebook/buck/log/CommandThreadAssociation.java" />
+        <include name="com/facebook/buck/log/CommandThreadFactory.java" />
+        <include name="com/facebook/buck/log/ConsoleHandler.java" />
+        <include name="com/facebook/buck/log/GlobalState.java" />
+        <include name="com/facebook/buck/log/LogConfig.java" />
+        <include name="com/facebook/buck/log/LogConfigPaths.java" />
+        <include name="com/facebook/buck/log/LogFormatter.java" />
+        <include name="com/facebook/buck/log/Logger.java" />
+
+        <!-- //src/com/facebook/buck/util:concurrent -->
+        <include name="com/facebook/buck/util/concurrent/MoreExecutors.java" />
+        <include name="com/facebook/buck/util/concurrent/MoreFutures.java" />
+        <include name="com/facebook/buck/util/concurrent/TimeSpan.java" />
+
         <!-- //src/com/facebook/buck/util:exceptions -->
         <include name="com/facebook/buck/util/ExceptionWithHumanReadableMessage.java" />
         <include name="com/facebook/buck/util/HumanReadableException.java" />
@@ -244,7 +313,10 @@
         <include name="com/facebook/buck/util/MoreFiles.java" />
         <include name="com/facebook/buck/util/MorePaths.java" />
         <include name="com/facebook/buck/util/MorePosixFilePermissions.java" />
+        <include name="com/facebook/buck/util/PkillProcessManager.java" />
         <include name="com/facebook/buck/util/ProcessExecutor.java" />
+        <include name="com/facebook/buck/util/ProcessExecutorParams.java" />
+        <include name="com/facebook/buck/util/ProcessManager.java" />
         <include name="com/facebook/buck/util/ProjectFilesystem.java" />
         <include name="com/facebook/buck/util/Threads.java" />
         <include name="com/facebook/buck/util/Verbosity.java" />
@@ -327,7 +399,7 @@
   </target>
 
   <fileset dir="${third-party.dir}/java" id="dx.jars">
-    <include name="guava/guava-17.0.jar" />
+    <include name="guava/guava-18.0.jar" />
   </fileset>
 
   <path id="dx.classpath">
@@ -347,7 +419,7 @@
     </javac>
 
     <jar destfile="${build.dir}/dx.jar">
-      <zipfileset includes="**/*.class" src="${third-party.dir}/java/guava/guava-17.0.jar"/>
+      <zipfileset includes="**/*.class" src="${third-party.dir}/java/guava/guava-18.0.jar"/>
       <zipfileset includes="**/*.class" src="${third-party.dir}/java/junit/junit-4.11.jar" />
       <fileset dir="${dx.classes.dir}" />
       <manifest>
@@ -399,13 +471,6 @@
     </jar>
   </target>
 
-  <!-- The buck wrapper script checks the output file from this target
-       to determine whether Buck needs to be built. -->
-  <target name="success"
-          description="Run after a successful build to indicate that a rebuild is unnecessary.">
-    <touch file="${build.dir}/successful-build" />
-  </target>
-
   <path id="tests.classpath">
     <path refid="classpath" />
     <fileset dir="${third-party.dir}/java">
@@ -421,19 +486,39 @@
     <pathelement location="${test.dir}" />
     <pathelement location="${abi_processor.classes.dir}" />
     <pathelement location="${testrunner.classes.dir}" />
+    <pathelement location="${immutables.gensrc.dir}" />
+    <pathelement location="${immutables.gensrc.test.dir}" />
   </path>
 
+  <target name="generate-test-immutables" depends="compile">
+    <mkdir dir="${immutables.gensrc.test.dir}" />
+    <javac srcdir="${test.dir}"
+           classpathref="tests.classpath"
+           includeAntRuntime="no">
+      <exclude name="**/javacc/**" />
+      <exclude name="**/testdata/**" />
+      <compilerarg value="-processorpath" />
+      <compilerarg value="${immutables-value-standalone.jar}" />
+      <compilerarg value="-processor" />
+      <compilerarg value="org.immutables.value.internal.processor.Processor" />
+      <compilerarg value="-proc:only" />
+      <compilerarg value="-s" />
+      <compilerarg value="${immutables.gensrc.test.dir}" />
+    </javac>
+  </target>
+
   <target name="compile-tests"
-          depends="compile, javacc-tests"
+          depends="compile, generate-test-immutables, javacc-tests"
           >
     <mkdir dir="${testclasses.dir}" />
+    <mkdir dir="${immutables.gensrc.dir}" />
     <javac srcdir="${javacc.test.dir}"
            destdir="${testclasses.dir}"
            classpathref="tests.classpath"
            debug="on"
            deprecation="on"
-           includeAntRuntime="on"
-           />
+           includeAntRuntime="on">
+    </javac>
     <ecj srcdir="${test.dir}"
          destdir="${testclasses.dir}"
          classpathref="tests.classpath"
@@ -619,8 +704,11 @@
           <exclude name="com/facebook/buck/cli/quickstart/**" />
         </fileset>
         <fileset dir="${javacc.gensrc.dir}" />
+        <fileset dir="${immutables.gensrc.dir}" />
         <link href="http://docs.oracle.com/javase/7/docs/api/" />
-        <link href="http://docs.guava-libraries.googlecode.com/git-history/v15.0/javadoc/" />
+        <link href="http://docs.guava-libraries.googlecode.com/git-history/v18.0/javadoc/"
+              offline="true"
+              packagelistloc="third-party/java/guava"/>
         <!-- The latest version of the javadocs is only for 4.10 -->
         <link href="https://junit-team.github.io/junit/javadoc/latest/" />
         <additional-links />

@@ -53,6 +53,7 @@ import java.io.Writer;
 import java.nio.channels.Channels;
 import java.nio.file.CopyOption;
 import java.nio.file.DirectoryStream;
+import java.nio.file.FileSystem;
 import java.nio.file.FileVisitOption;
 import java.nio.file.FileVisitResult;
 import java.nio.file.FileVisitor;
@@ -75,8 +76,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
-
-import javax.annotation.Nullable;
 
 /**
  * An injectable service for interacting with the filesystem relative to the project root.
@@ -115,6 +114,10 @@ public class ProjectFilesystem {
   @VisibleForTesting
   protected boolean ignoreValidityOfPaths;
 
+  public ProjectFilesystem(Path projectRoot) {
+    this(projectRoot, ImmutableSet.<Path>of());
+  }
+
   /**
    * There should only be one {@link ProjectFilesystem} created per process.
    * <p>
@@ -124,7 +127,12 @@ public class ProjectFilesystem {
    * where specifying {@code new File(".")} as the project root might be the appropriate thing.
    */
   public ProjectFilesystem(Path projectRoot, ImmutableSet<Path> ignorePaths) {
+    this(projectRoot.getFileSystem(), projectRoot, ignorePaths);
+  }
+
+  protected ProjectFilesystem(FileSystem vfs, Path projectRoot, ImmutableSet<Path> ignorePaths) {
     Preconditions.checkArgument(Files.isDirectory(projectRoot));
+    Preconditions.checkState(vfs.equals(projectRoot.getFileSystem()));
     this.projectRoot = projectRoot;
     this.pathAbsolutifier = new Function<Path, Path>() {
       @Override
@@ -136,18 +144,6 @@ public class ProjectFilesystem {
     this.ignoreValidityOfPaths = false;
   }
 
-  public ProjectFilesystem(Path projectRoot) {
-    this(projectRoot, ImmutableSet.<Path>of());
-  }
-
-  /**
-   * // @deprecated Prefer passing around {@code Path}s instead of {@code File}s or {@code String}s,
-   *  replaced by {@link #ProjectFilesystem(java.nio.file.Path)}.
-   */
-  public ProjectFilesystem(File projectRoot) {
-    this(projectRoot.toPath());
-  }
-
   public Path getRootPath() {
     return projectRoot;
   }
@@ -156,7 +152,7 @@ public class ProjectFilesystem {
    * @return the specified {@code path} resolved against {@link #getRootPath()} to an absolute path.
    */
   public Path resolve(Path path) {
-    return projectRoot.resolve(path).toAbsolutePath().normalize();
+    return getRootPath().resolve(path).toAbsolutePath().normalize();
   }
 
   /**
@@ -368,12 +364,8 @@ public class ProjectFilesystem {
    *
    * // @deprecated Replaced by {@link #getDirectoryContents}
    */
-  @Nullable
-  public File[] listFiles(Path pathRelativeToProjectRoot) {
+  public File[] listFiles(Path pathRelativeToProjectRoot) throws IOException {
     Collection<Path> paths = getDirectoryContents(pathRelativeToProjectRoot);
-    if (paths == null) {
-      return null;
-    }
 
     File[] result = new File[paths.size()];
     return Collections2.transform(paths, new Function<Path, File>() {
@@ -384,13 +376,11 @@ public class ProjectFilesystem {
     }).toArray(result);
   }
 
-  @Nullable
-  public ImmutableCollection<Path> getDirectoryContents(Path pathRelativeToProjectRoot) {
+  public ImmutableCollection<Path> getDirectoryContents(Path pathRelativeToProjectRoot)
+      throws IOException {
     Path path = getPathForRelativePath(pathRelativeToProjectRoot);
     try (DirectoryStream<Path> stream = Files.newDirectoryStream(path)) {
       return ImmutableList.copyOf(stream);
-    } catch (IOException e) {
-      return null;
     }
   }
 
@@ -666,6 +656,14 @@ public class ProjectFilesystem {
     } else {
       Files.createSymbolicLink(targetPath, sourcePath);
     }
+  }
+
+  /**
+   * Returns true if the file under {@code path} exists and is a symbolic
+   * link, false otherwise.
+   */
+  public boolean isSymLink(Path path) throws IOException {
+    return Files.isSymbolicLink(getPathForRelativePath(path));
   }
 
   /**

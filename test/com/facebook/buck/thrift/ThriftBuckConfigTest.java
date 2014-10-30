@@ -16,6 +16,7 @@
 
 package com.facebook.buck.thrift;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -24,11 +25,12 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleSourcePath;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.collect.ImmutableMap;
@@ -45,67 +47,34 @@ public class ThriftBuckConfigTest {
 
   private static FakeBuildRule createFakeBuildRule(
       String target,
+      SourcePathResolver resolver,
       BuildRule... deps) {
     return new FakeBuildRule(
         new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance(target))
             .setDeps(ImmutableSortedSet.copyOf(deps))
-            .build());
+            .build(),
+        resolver);
   }
 
   @Test
   public void getCompilerFailsIfNothingSet() {
-    BuildRuleResolver resolver = new BuildRuleResolver();
-
     // Setup an empty thrift buck config, missing the compiler.
     FakeBuckConfig buckConfig = new FakeBuckConfig();
     ThriftBuckConfig thriftBuckConfig = new ThriftBuckConfig(buckConfig);
 
     // Now try to lookup the compiler, which should fail since nothing was set.
     try {
-      thriftBuckConfig.getCompiler(resolver);
+      thriftBuckConfig.getCompiler();
       fail("expected to throw");
     } catch (HumanReadableException e) {
       assertTrue(
           e.getMessage(),
-          e.getMessage().contains(
-              ".buckconfig: must set either thrift:compiler_target or thrift:compiler_path"));
+          e.getMessage().contains(".buckconfig: thrift:compiler must be set"));
     }
   }
 
   @Test
-  public void getCompilerFailsIfBothSet() throws IOException {
-    BuildRuleResolver resolver = new BuildRuleResolver();
-    BuildTarget thriftTarget = BuildTargetFactory.newInstance("//:thrift_target");
-    Path thriftPath = Paths.get("thrift_path");
-    FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
-    filesystem.touch(thriftPath);
-
-    // Setup an empty thrift buck config, missing the compiler.
-    FakeBuckConfig buckConfig = new FakeBuckConfig(
-        ImmutableMap.<String, Map<String, String>>of(
-            "thrift", ImmutableMap.of(
-                "compiler_target", thriftTarget.toString(),
-                "compiler_path", thriftPath.toString())),
-        filesystem);
-    ThriftBuckConfig thriftBuckConfig = new ThriftBuckConfig(buckConfig);
-
-    // Create a build rule that represents the thrift rule.
-    FakeBuildRule thriftRule = createFakeBuildRule("//:thrift_target");
-    resolver.addToIndex(thriftRule);
-
-    // Now try to lookup the compiler, which should fail since nothing was set.
-    try {
-      thriftBuckConfig.getCompiler(resolver);
-      fail("expected to throw");
-    } catch (HumanReadableException e) {
-      assertTrue(
-          e.getMessage().contains(
-              "Cannot set both thrift:compiler_target and thrift:compiler_path"));
-    }
-  }
-
-  @Test
-  public void getCompilerSucceedsIfJustCompilerPathIsSet() {
+  public void getCompilerSucceedsIfJustCompilerPathIsSet() throws IOException {
     BuildRuleResolver resolver = new BuildRuleResolver();
     Path thriftPath = Paths.get("thrift_path");
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
@@ -114,22 +83,25 @@ public class ThriftBuckConfigTest {
     // Setup an empty thrift buck config, missing the compiler.
     FakeBuckConfig buckConfig = new FakeBuckConfig(
         ImmutableMap.<String, Map<String, String>>of(
-            "thrift", ImmutableMap.of("compiler_path", thriftPath.toString())),
+            "thrift", ImmutableMap.of("compiler", thriftPath.toString())),
         filesystem);
     ThriftBuckConfig thriftBuckConfig = new ThriftBuckConfig(buckConfig);
 
     // Now try to lookup the compiler, which should succeed.
-    SourcePath compiler = thriftBuckConfig.getCompiler(resolver);
+    SourcePath compiler = thriftBuckConfig.getCompiler();
 
     // Verify that the returned SourcePath wraps the compiler path correctly.
     assertTrue(compiler instanceof PathSourcePath);
-    assertTrue(compiler.resolve().equals(filesystem.resolve(thriftPath)));
+    assertEquals(
+        thriftPath,
+        new SourcePathResolver(resolver).getPath(compiler));
   }
 
   @Test
   public void getCompilerSucceedsIfJustCompilerTargetIsSet() {
     BuildRuleResolver resolver = new BuildRuleResolver();
-    BuildRule thriftRule = createFakeBuildRule("//thrift:target");
+    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    BuildRule thriftRule = createFakeBuildRule("//thrift:target", pathResolver);
     BuildTarget thriftTarget = thriftRule.getBuildTarget();
 
     // Add the thrift rule to the resolver.
@@ -138,15 +110,17 @@ public class ThriftBuckConfigTest {
     // Setup an empty thrift buck config, missing the compiler.
     FakeBuckConfig buckConfig = new FakeBuckConfig(
         ImmutableMap.<String, Map<String, String>>of(
-            "thrift", ImmutableMap.of("compiler_target", thriftTarget.toString())));
+            "thrift", ImmutableMap.of("compiler", thriftTarget.toString())));
     ThriftBuckConfig thriftBuckConfig = new ThriftBuckConfig(buckConfig);
 
     // Now try to lookup the compiler, which should succeed.
-    SourcePath compiler = thriftBuckConfig.getCompiler(resolver);
+    SourcePath compiler = thriftBuckConfig.getCompiler();
 
     // Verify that the returned SourcePath wraps the compiler path correctly.
-    assertTrue(compiler instanceof BuildRuleSourcePath);
-    assertTrue(((BuildRuleSourcePath) compiler).getRule().equals(thriftRule));
+    assertTrue(compiler instanceof BuildTargetSourcePath);
+    assertEquals(
+        BuildTargetFactory.newInstance("//thrift:target"),
+        ((BuildTargetSourcePath) compiler).getTarget());
   }
 
 }

@@ -18,7 +18,7 @@ package com.facebook.buck.cli;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.util.MorePaths;
+import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableSet;
 
@@ -26,20 +26,23 @@ import org.kohsuke.args4j.Option;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 
 import javax.annotation.Nullable;
 
 public class TargetsCommandOptions extends BuildCommandOptions {
 
+  // TODO(mbolin): Use org.kohsuke.args4j.spi.PathOptionHandler. Currently, we resolve paths
+  // manually, which is likely the path to madness.
   @Option(name = "--referenced_file",
       usage = "The referenced file list, --referenced_file file1 file2  ... fileN --other_option",
       handler = StringSetOptionHandler.class)
+  @SuppressFieldNotInitialized
   private Supplier<ImmutableSet<String>> referencedFiles;
 
   @Option(name = "--type",
       usage = "The types of target to filter by, --type type1 type2 ... typeN --other_option",
       handler = StringSetOptionHandler.class)
+  @SuppressFieldNotInitialized
   private Supplier<ImmutableSet<String>> types;
 
   @Option(name = "--json", usage = "Print JSON representation of each target")
@@ -65,35 +68,9 @@ public class TargetsCommandOptions extends BuildCommandOptions {
     return types.get();
   }
 
-  /**
-   * Filter files under the project root, and convert to canonical relative path style.
-   * For example, the project root is /project,
-   * 1. file path /project/./src/com/facebook/./test/../Test.java will be converted to
-   *    src/com/facebook/Test.java
-   * 2. file path /otherproject/src/com/facebook/Test.java will be ignored.
-   */
-  public static ImmutableSet<String> getCanonicalFilesUnderProjectRoot(
-      Path projectRoot, ImmutableSet<String> nonCanonicalFilePaths)
+  public PathArguments.ReferencedFiles getReferencedFiles(Path projectRoot)
       throws IOException {
-    ImmutableSet.Builder<String> builder = ImmutableSet.builder();
-    Path normalizedRoot = projectRoot.normalize();
-    for (String filePath : nonCanonicalFilePaths) {
-      Path canonicalFullPath = Paths.get(filePath).toAbsolutePath().normalize();
-
-      // Ignore files that aren't under project root.
-      if (canonicalFullPath.startsWith(normalizedRoot)) {
-        Path relativePath = canonicalFullPath.subpath(
-            normalizedRoot.getNameCount(),
-            canonicalFullPath.getNameCount());
-        builder.add(MorePaths.pathWithUnixSeparators(relativePath));
-      }
-    }
-    return builder.build();
-  }
-
-  public ImmutableSet<String> getReferencedFiles(Path projectRoot)
-      throws IOException {
-    return getCanonicalFilesUnderProjectRoot(projectRoot, referencedFiles.get());
+    return PathArguments.getCanonicalFilesUnderProjectRoot(projectRoot, referencedFiles.get());
   }
 
   public boolean getPrintJson() {

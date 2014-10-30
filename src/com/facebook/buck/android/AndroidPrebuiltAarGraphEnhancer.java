@@ -27,13 +27,13 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleSourcePath;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.OutputOnlyBuildRule;
 import com.facebook.buck.rules.RuleKey.Builder;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -44,12 +44,11 @@ import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.buck.util.ProjectFilesystem.CopySourceMode;
 import com.facebook.buck.zip.UnzipStep;
 import com.google.common.base.Optional;
-import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Collections;
@@ -85,6 +84,8 @@ class AndroidPrebuiltAarGraphEnhancer {
       BuildRuleParams originalBuildRuleParams,
       SourcePath aarFile,
       BuildRuleResolver ruleResolver) {
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleResolver);
+
     // unzip_aar
     BuildTarget originalBuildTarget = originalBuildRuleParams.getBuildTarget();
     BuildRuleParams unzipAarParams = originalBuildRuleParams.copyWithChanges(
@@ -92,7 +93,7 @@ class AndroidPrebuiltAarGraphEnhancer {
         BuildTargets.createFlavoredBuildTarget(originalBuildTarget, AAR_UNZIP_FLAVOR),
         originalBuildRuleParams.getDeclaredDeps(),
         originalBuildRuleParams.getExtraDeps());
-    UnzipAar unzipAar = new UnzipAar(unzipAarParams, aarFile);
+    UnzipAar unzipAar = new UnzipAar(unzipAarParams, pathResolver, aarFile);
     ruleResolver.addToIndex(unzipAar);
 
     // unzip_aar#aar_classes_jar
@@ -102,7 +103,9 @@ class AndroidPrebuiltAarGraphEnhancer {
         /* declaredDeps */ ImmutableSortedSet.<BuildRule>of(unzipAar),
         /* extraDeps */ ImmutableSortedSet.<BuildRule>of());
     OutputOnlyBuildRule classesJar = new OutputOnlyBuildRule(
-        classesJarParams, unzipAar.getPathToClassesJar());
+        classesJarParams,
+        pathResolver,
+        unzipAar.getPathToClassesJar());
     ruleResolver.addToIndex(classesJar);
 
     // prebuilt_jar
@@ -113,7 +116,8 @@ class AndroidPrebuiltAarGraphEnhancer {
         /* extraDeps */ ImmutableSortedSet.<BuildRule>of());
     PrebuiltJar prebuiltJar = new PrebuiltJar(
         /* params */ prebuiltJarParams,
-        new BuildRuleSourcePath(classesJar),
+        pathResolver,
+        new BuildTargetSourcePath(classesJar.getBuildTarget()),
         /* sourceJar */ Optional.<SourcePath>absent(),
         /* gwtJar */ Optional.<SourcePath>absent(),
         /* javadocUrl */ Optional.<String>absent());
@@ -126,7 +130,9 @@ class AndroidPrebuiltAarGraphEnhancer {
         /* declaredDeps */ ImmutableSortedSet.<BuildRule>of(unzipAar),
         /* extraDeps */ ImmutableSortedSet.<BuildRule>of());
     OutputOnlyBuildRule manifest = new OutputOnlyBuildRule(
-        manifestParams, unzipAar.getAndroidManifest());
+        manifestParams,
+        pathResolver,
+        unzipAar.getAndroidManifest());
     ruleResolver.addToIndex(manifest);
 
     // android_resource
@@ -142,13 +148,14 @@ class AndroidPrebuiltAarGraphEnhancer {
 
     AndroidResource androidResource = new AndroidResource(
         androidResourceParams,
+        pathResolver,
         /* deps */ ImmutableSortedSet.<BuildRule>of(unzipAar),
         unzipAar.getResDirectory(),
         resSrcs,
         /* rDotJavaPackage */ null,
         /* assets */ unzipAar.getAssetsDirectory(),
         assetsSrcs,
-        new BuildRuleSourcePath(manifest),
+        new BuildTargetSourcePath(manifest.getBuildTarget()),
         /* hasWhitelistedStrings */ false);
     ruleResolver.addToIndex(androidResource);
 
@@ -163,6 +170,7 @@ class AndroidPrebuiltAarGraphEnhancer {
         /* extraDeps */ ImmutableSortedSet.<BuildRule>of());
     return new AndroidPrebuiltAar(
         androidLibraryParams,
+        pathResolver,
         unzipAar.getProguardConfig(),
         prebuiltJar,
         androidResource);
@@ -174,9 +182,12 @@ class AndroidPrebuiltAarGraphEnhancer {
     private final Path unpackDirectory;
     private final Path uberClassesJar;
 
-    private UnzipAar(BuildRuleParams buildRuleParams, SourcePath aarFile) {
-      super(buildRuleParams);
-      this.aarFile = Preconditions.checkNotNull(aarFile);
+    private UnzipAar(
+        BuildRuleParams buildRuleParams,
+        SourcePathResolver resolver,
+        SourcePath aarFile) {
+      super(buildRuleParams, resolver);
+      this.aarFile = aarFile;
       this.unpackDirectory = BuildTargets.getBinPath(
           buildRuleParams.getBuildTarget(),
           "__unpack_%s__");
@@ -190,7 +201,7 @@ class AndroidPrebuiltAarGraphEnhancer {
         BuildableContext buildableContext) {
       ImmutableList.Builder<Step> steps = ImmutableList.builder();
       steps.add(new MakeCleanDirectoryStep(unpackDirectory));
-      steps.add(new UnzipStep(aarFile.resolve(), unpackDirectory));
+      steps.add(new UnzipStep(getResolver().getPath(aarFile), unpackDirectory));
       steps.add(new TouchStep(getProguardConfig()));
       steps.add(new MkdirStep(getAssetsDirectory()));
 
@@ -204,11 +215,23 @@ class AndroidPrebuiltAarGraphEnhancer {
       steps.add(new AbstractExecutionStep("create_uber_classes_jar") {
         @Override
         public int execute(ExecutionContext context) {
-          Path classesJar = unpackDirectory.resolve("classes.jar");
-          Path libsDirectory = unpackDirectory.resolve("libs");
           ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
-          if (!projectFilesystem.exists(libsDirectory) ||
-              projectFilesystem.listFiles(libsDirectory).length == 0) {
+          Path libsDirectory = unpackDirectory.resolve("libs");
+          boolean dirDoesNotExistOrIsEmpty;
+          if (!projectFilesystem.exists(libsDirectory)) {
+            dirDoesNotExistOrIsEmpty = true;
+          } else {
+            try {
+              dirDoesNotExistOrIsEmpty =
+                  projectFilesystem.getDirectoryContents(libsDirectory).isEmpty();
+            } catch (IOException e) {
+              context.logError(e, "Failed to get directory contents of %s", libsDirectory);
+              return 1;
+            }
+          }
+
+          Path classesJar = unpackDirectory.resolve("classes.jar");
+          if (dirDoesNotExistOrIsEmpty) {
             try {
               projectFilesystem.copy(classesJar, uberClassesJar, CopySourceMode.FILE);
             } catch (IOException e) {
@@ -219,8 +242,11 @@ class AndroidPrebuiltAarGraphEnhancer {
             // Glob all of the contents from classes.jar and the entries in libs/ into a single JAR.
             ImmutableSet.Builder<Path> entriesToJarBuilder = ImmutableSet.builder();
             entriesToJarBuilder.add(classesJar);
-            for (File file : projectFilesystem.listFiles(libsDirectory)) {
-              entriesToJarBuilder.add(file.toPath());
+            try {
+              entriesToJarBuilder.addAll(projectFilesystem.getDirectoryContents(libsDirectory));
+            } catch (IOException e) {
+              context.logError(e, "Failed to get directory contents of %s", libsDirectory);
+              return 1;
             }
 
             ImmutableSet<Path> entriesToJar = entriesToJarBuilder.build();
@@ -254,8 +280,8 @@ class AndroidPrebuiltAarGraphEnhancer {
     }
 
     @Override
-    protected Iterable<Path> getInputsToCompareToOutput() {
-      return SourcePaths.filterInputsToCompareToOutput(Collections.singleton(aarFile));
+    protected ImmutableCollection<Path> getInputsToCompareToOutput() {
+      return getResolver().filterInputsToCompareToOutput(Collections.singleton(aarFile));
     }
 
     @Override

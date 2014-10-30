@@ -30,23 +30,27 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleParamsFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleSourcePath;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TestSourcePath;
 import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.shell.GenruleBuilder;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableSortedSet;
 
 import org.junit.Test;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
@@ -55,15 +59,17 @@ public class CxxDescriptionEnhancerTest {
 
   private static FakeBuildRule createFakeBuildRule(
       String target,
+      SourcePathResolver resolver,
       BuildRule... deps) {
     return new FakeBuildRule(
         new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance(target))
             .setDeps(ImmutableSortedSet.copyOf(deps))
-            .build());
+            .build(),
+        resolver);
   }
 
   @Test
-  public void createLexYaccBuildRules() {
+  public void createLexYaccBuildRules() throws IOException {
     BuildRuleResolver resolver = new BuildRuleResolver();
 
     // Setup our C++ buck config with the paths to the lex/yacc binaries.
@@ -78,7 +84,7 @@ public class CxxDescriptionEnhancerTest {
                 "lex", lexPath.toString(),
                 "yacc", yaccPath.toString())),
         filesystem);
-    CxxBuckConfig cxxBuckConfig = new CxxBuckConfig(buckConfig);
+    DefaultCxxPlatform cxxBuckConfig = new DefaultCxxPlatform(buckConfig);
 
     // Setup the target name and build params.
     BuildTarget target = BuildTargetFactory.newInstance("//:test");
@@ -91,7 +97,7 @@ public class CxxDescriptionEnhancerTest {
         .newGenruleBuilder(genruleTarget)
         .setOut(lexSourceName)
         .build(resolver);
-    SourcePath lexSource = new BuildRuleSourcePath(genrule);
+    SourcePath lexSource = new BuildTargetSourcePath(genrule.getBuildTarget());
 
     // Use a regular path for our yacc source.
     String yaccSourceName = "test.yy";
@@ -132,16 +138,18 @@ public class CxxDescriptionEnhancerTest {
     CxxHeaderSourceSpec expected = new CxxHeaderSourceSpec(
         ImmutableMap.<Path, SourcePath>of(
             target.getBasePath().resolve(lexSourceName + ".h"),
-            new BuildRuleSourcePath(lex, lexOutputHeader),
+            new BuildTargetSourcePath(lex.getBuildTarget(), lexOutputHeader),
             target.getBasePath().resolve(yaccSourceName + ".h"),
-            new BuildRuleSourcePath(yacc, yaccOutputHeader)),
-        ImmutableList.of(
+    new BuildTargetSourcePath(yacc.getBuildTarget(), yaccOutputHeader)),
+        ImmutableMap.of(
+            lexSourceName + ".cc",
             new CxxSource(
-                lexSourceName + ".cc",
-                new BuildRuleSourcePath(lex, lexOutputSource)),
+                CxxSource.Type.CXX,
+                new BuildTargetSourcePath(lex.getBuildTarget(), lexOutputSource)),
+            yaccSourceName + ".cc",
             new CxxSource(
-                yaccSourceName + ".cc",
-                new BuildRuleSourcePath(yacc, yaccOutputSource))));
+                CxxSource.Type.CXX,
+                new BuildTargetSourcePath(yacc.getBuildTarget(), yaccOutputSource))));
     assertEquals(expected, actual);
   }
 
@@ -149,7 +157,8 @@ public class CxxDescriptionEnhancerTest {
   @Test
   public void linkWhole() {
     FakeBuckConfig buckConfig = new FakeBuckConfig();
-    CxxBuckConfig cxxBuckConfig = new CxxBuckConfig(buckConfig);
+    DefaultCxxPlatform cxxBuckConfig = new DefaultCxxPlatform(buckConfig);
+    Linker linker = new GnuLinker(new TestSourcePath("linker"));
 
     // Setup the target name and build params.
     BuildTarget target = BuildTargetFactory.newInstance("//:test");
@@ -157,7 +166,7 @@ public class CxxDescriptionEnhancerTest {
 
     String sourceName = "test.cc";
     CxxSource source = new CxxSource(
-        sourceName,
+        CxxSource.Type.CXX,
         new TestSourcePath(sourceName));
 
     // First, create a cxx library without using link whole.
@@ -165,42 +174,45 @@ public class CxxDescriptionEnhancerTest {
         params,
         new BuildRuleResolver(),
         cxxBuckConfig,
-        /* preprocessorFlags */ ImmutableList.<String>of(),
-        /* propagatedPpFlags */ ImmutableList.<String>of(),
+        /* preprocessorFlags */ ImmutableMultimap.<CxxSource.Type, String>of(),
+        /* propagatedPpFlags */ ImmutableMultimap.<CxxSource.Type, String>of(),
         /* headers */ ImmutableMap.<Path, SourcePath>of(),
         /* compilerFlags */ ImmutableList.<String>of(),
-        /* sources */ ImmutableList.of(source),
-        /* linkWhole */ false);
+        /* sources */ ImmutableMap.of(sourceName, source),
+        /* linkWhole */ false,
+        /* soname */ Optional.<String>absent());
 
     // Verify that the linker args contains the link whole flags.
     assertFalse(normal.getNativeLinkableInput(
-        NativeLinkable.Type.STATIC).getArgs().contains("--whole-archive"));
+        linker, NativeLinkable.Type.STATIC).getArgs().contains("--whole-archive"));
     assertFalse(normal.getNativeLinkableInput(
-        NativeLinkable.Type.STATIC).getArgs().contains("--no-whole-archive"));
+        linker, NativeLinkable.Type.STATIC).getArgs().contains("--no-whole-archive"));
 
     // Create a cxx library using link whole.
     CxxLibrary linkWhole = CxxDescriptionEnhancer.createCxxLibraryBuildRules(
         params,
         new BuildRuleResolver(),
         cxxBuckConfig,
-        /* preprocessorFlags */ ImmutableList.<String>of(),
-        /* propagatedPpFlags */ ImmutableList.<String>of(),
+        /* preprocessorFlags */ ImmutableMultimap.<CxxSource.Type, String>of(),
+        /* propagatedPpFlags */ ImmutableMultimap.<CxxSource.Type, String>of(),
         /* headers */ ImmutableMap.<Path, SourcePath>of(),
         /* compilerFlags */ ImmutableList.<String>of(),
-        /* sources */ ImmutableList.of(source),
-        /* linkWhole */ true);
+        /* sources */ ImmutableMap.of(sourceName, source),
+        /* linkWhole */ true,
+        /* soname */ Optional.<String>absent());
 
     // Verify that the linker args contains the link whole flags.
     assertTrue(linkWhole.getNativeLinkableInput(
-        NativeLinkable.Type.STATIC).getArgs().contains("--whole-archive"));
+        linker, NativeLinkable.Type.STATIC).getArgs().contains("--whole-archive"));
     assertTrue(linkWhole.getNativeLinkableInput(
-        NativeLinkable.Type.STATIC).getArgs().contains("--no-whole-archive"));
+        linker, NativeLinkable.Type.STATIC).getArgs().contains("--no-whole-archive"));
   }
 
   @Test
   @SuppressWarnings("PMD.UseAssertTrueInsteadOfAssertEquals")
   public void createCxxLibraryBuildRules() {
     BuildRuleResolver resolver = new BuildRuleResolver();
+    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
 
     // Setup a normal C++ source
     String sourceName = "test/bar.cpp";
@@ -222,39 +234,39 @@ public class CxxDescriptionEnhancerTest {
         .build(resolver);
 
     // Setup a C/C++ library that we'll depend on form the C/C++ binary description.
-    final BuildRule header = createFakeBuildRule("//:header");
-    final BuildRule headerSymlinkTree = createFakeBuildRule("//:symlink");
+    final BuildRule header = createFakeBuildRule("//:header", pathResolver);
+    final BuildRule headerSymlinkTree = createFakeBuildRule("//:symlink", pathResolver);
     final Path headerSymlinkTreeRoot = Paths.get("symlink/tree/root");
-    final BuildRule staticLibraryDep = createFakeBuildRule("//:static");
+    final BuildRule staticLibraryDep = createFakeBuildRule("//:static", pathResolver);
     final Path staticLibraryOutput = Paths.get("output/path/lib.a");
-    final BuildRule sharedLibraryDep = createFakeBuildRule("//:shared");
+    final BuildRule sharedLibraryDep = createFakeBuildRule("//:shared", pathResolver);
     final Path sharedLibraryOutput = Paths.get("output/path/lib.so");
     final String sharedLibrarySoname = "soname";
     BuildTarget depTarget = BuildTargetFactory.newInstance("//:dep");
     BuildRuleParams depParams = BuildRuleParamsFactory.createTrivialBuildRuleParams(depTarget);
-    CxxLibrary dep = new CxxLibrary(depParams) {
+    CxxLibrary dep = new CxxLibrary(depParams, pathResolver) {
 
       @Override
       public CxxPreprocessorInput getCxxPreprocessorInput() {
-        return new CxxPreprocessorInput(
-            ImmutableSet.of(
-                header.getBuildTarget(),
-                headerSymlinkTree.getBuildTarget()),
-            ImmutableList.<String>of(),
-            ImmutableList.<String>of(),
-            ImmutableMap.<Path, SourcePath>of(),
-            ImmutableList.of(headerSymlinkTreeRoot),
-            ImmutableList.<Path>of());
+        return CxxPreprocessorInput.builder()
+            .setRules(
+                ImmutableSet.of(
+                    header.getBuildTarget(),
+                    headerSymlinkTree.getBuildTarget()))
+            .setIncludeRoots(ImmutableList.of(headerSymlinkTreeRoot))
+            .build();
       }
 
       @Override
-      public NativeLinkableInput getNativeLinkableInput(Type type) {
+      public NativeLinkableInput getNativeLinkableInput(Linker linker, Type type) {
         return type == Type.STATIC ?
             new NativeLinkableInput(
-                ImmutableList.<SourcePath>of(new BuildRuleSourcePath(staticLibraryDep)),
+                ImmutableList.<SourcePath>of(
+                    new BuildTargetSourcePath(staticLibraryDep.getBuildTarget())),
                 ImmutableList.of(staticLibraryOutput.toString())) :
             new NativeLinkableInput(
-                ImmutableList.<SourcePath>of(new BuildRuleSourcePath(sharedLibraryDep)),
+                ImmutableList.<SourcePath>of(
+                    new BuildTargetSourcePath(sharedLibraryDep.getBuildTarget())),
                 ImmutableList.of(sharedLibraryOutput.toString()));
       }
 
@@ -282,33 +294,41 @@ public class CxxDescriptionEnhancerTest {
         .build();
 
     // Construct C/C++ library build rules.
-    CxxBuckConfig cxxBuckConfig = new CxxBuckConfig(new FakeBuckConfig());
+    DefaultCxxPlatform cxxBuckConfig = new DefaultCxxPlatform(new FakeBuckConfig());
     CxxLibrary rule = CxxDescriptionEnhancer.createCxxLibraryBuildRules(
         params,
         resolver,
         cxxBuckConfig,
-        ImmutableList.<String>of(),
-        ImmutableList.<String>of(),
+        /* preprocessorFlags */ ImmutableMultimap.<CxxSource.Type, String>of(),
+        /* propagatedPpFlags */ ImmutableMultimap.<CxxSource.Type, String>of(),
         ImmutableMap.<Path, SourcePath>of(
-            target.getBasePath().resolve(genHeaderName), new BuildRuleSourcePath(genHeader)),
+            target.getBasePath().resolve(genHeaderName),
+            new BuildTargetSourcePath(genHeader.getBuildTarget())),
         ImmutableList.<String>of(),
-        ImmutableList.of(
-            new CxxSource(sourceName, new TestSourcePath(sourceName)),
-            new CxxSource(genSourceName, new BuildRuleSourcePath(genSource))),
-        /* linkWhole */ false);
+        ImmutableMap.of(
+            sourceName,
+            new CxxSource(CxxSource.Type.CXX, new TestSourcePath(sourceName)),
+            genSourceName,
+            new CxxSource(
+                CxxSource.Type.CXX,
+                new BuildTargetSourcePath(genSource.getBuildTarget()))),
+        /* linkWhole */ false,
+        /* soname */ Optional.<String>absent());
 
     // Verify the C/C++ preprocessor input is setup correctly.
     assertEquals(
-        new CxxPreprocessorInput(
-            ImmutableSet.of(
-                CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(target)),
-            ImmutableList.<String>of(),
-            ImmutableList.<String>of(),
-            ImmutableMap.<Path, SourcePath>of(
-                Paths.get(genHeaderName), new BuildRuleSourcePath(genHeader)),
-            ImmutableList.of(
-                CxxDescriptionEnhancer.getHeaderSymlinkTreePath(target)),
-            ImmutableList.<Path>of()),
+        CxxPreprocessorInput.builder()
+            .setRules(
+                ImmutableSet.of(
+                    CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(target)))
+            .setIncludes(
+                ImmutableMap.<Path, SourcePath>of(
+                    Paths.get(genHeaderName),
+                    new BuildTargetSourcePath(genHeader.getBuildTarget())))
+            .setIncludeRoots(
+                ImmutableList.of(
+                    CxxDescriptionEnhancer.getHeaderSymlinkTreePath(target)))
+            .build(),
         rule.getCxxPreprocessorInput());
 
     // Verify that the archive rule has the correct deps: the object files from our sources.
@@ -428,7 +448,7 @@ public class CxxDescriptionEnhancerTest {
         ImmutableMap.<Path, SourcePath>of(),
         ImmutableMap.<Path, SourcePath>of(
             Paths.get(CxxDescriptionEnhancer.getSharedLibrarySoname(target)),
-            new BuildRuleSourcePath(sharedRule)));
+            new BuildTargetSourcePath(sharedRule.getBuildTarget())));
     assertEquals(
         expectedPythonPackageComponents,
         rule.getPythonPackageComponents());

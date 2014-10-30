@@ -22,7 +22,9 @@ import static org.junit.Assert.fail;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.parser.BuildTargetParser;
+import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Functions;
@@ -65,53 +67,65 @@ public class ConstructorArgMarshallerTest {
   }
 
   @Test
-  public void shouldNotPopulateAnEmptyArg() {
+  public void shouldNotPopulateAnEmptyArg() throws NoSuchBuildTargetException {
     class Dto {
     }
 
     Dto dto = new Dto();
     try {
       marshaller.populate(
-          ruleResolver, filesystem, buildRuleFactoryParams(ImmutableMap.<String, Object>of()), dto);
+          filesystem,
+          buildRuleFactoryParams(),
+          dto,
+          ImmutableSet.<BuildTarget>builder(),
+          ImmutableSet.<BuildTargetPattern>builder(),
+          ImmutableMap.<String, Object>of());
     } catch (RuntimeException | ConstructorArgMarshalException e) {
       fail("Did not expect an exception to be thrown:\n" + Throwables.getStackTraceAsString(e));
     }
   }
 
   @Test
-  public void shouldPopulateAStringValue() throws ConstructorArgMarshalException {
+  public void shouldPopulateAStringValue()
+      throws ConstructorArgMarshalException, NoSuchBuildTargetException {
     class Dto {
       public String name;
     }
 
     Dto dto = new Dto();
     marshaller.populate(
-        ruleResolver,
         filesystem,
-        buildRuleFactoryParams(ImmutableMap.<String, Object>of("name", "cheese")),
-        dto);
+        buildRuleFactoryParams(),
+        dto,
+        ImmutableSet.<BuildTarget>builder(),
+        ImmutableSet.<BuildTargetPattern>builder(),
+        ImmutableMap.<String, Object>of("name", "cheese"));
 
     assertEquals("cheese", dto.name);
   }
 
   @Test
-  public void shouldPopulateABooleanValue() throws ConstructorArgMarshalException {
+  public void shouldPopulateABooleanValue()
+      throws ConstructorArgMarshalException, NoSuchBuildTargetException {
     class Dto {
       public boolean value;
     }
 
     Dto dto = new Dto();
     marshaller.populate(
-        ruleResolver,
         filesystem,
-        buildRuleFactoryParams(ImmutableMap.<String, Object>of("value", true)),
-        dto);
+        buildRuleFactoryParams(),
+        dto,
+        ImmutableSet.<BuildTarget>builder(),
+        ImmutableSet.<BuildTargetPattern>builder(),
+        ImmutableMap.<String, Object>of("value", true));
 
     assertTrue(dto.value);
   }
 
   @Test
-  public void shouldPopulateBuildTargetValues() throws ConstructorArgMarshalException {
+  public void shouldPopulateBuildTargetValues()
+      throws ConstructorArgMarshalException, NoSuchBuildTargetException {
     class Dto {
       public BuildTarget target;
       public BuildTarget local;
@@ -119,36 +133,42 @@ public class ConstructorArgMarshallerTest {
 
     Dto dto = new Dto();
     marshaller.populate(
-        ruleResolver,
         filesystem,
-        buildRuleFactoryParams(ImmutableMap.<String, Object>of(
+        buildRuleFactoryParams(),
+        dto,
+        ImmutableSet.<BuildTarget>builder(),
+        ImmutableSet.<BuildTargetPattern>builder(),
+        ImmutableMap.<String, Object>of(
             "target", "//cake:walk",
             "local", ":fish"
-        )),
-        dto);
+        ));
 
     assertEquals(BuildTargetFactory.newInstance("//cake:walk"), dto.target);
     assertEquals(BuildTargetFactory.newInstance("//example/path:fish"), dto.local);
   }
 
   @Test
-  public void shouldPopulateANumericValue() throws ConstructorArgMarshalException {
+  public void shouldPopulateANumericValue()
+      throws ConstructorArgMarshalException, NoSuchBuildTargetException {
     class Dto {
       public long number;
     }
 
     Dto dto = new Dto();
     marshaller.populate(
-        ruleResolver,
         filesystem,
-        buildRuleFactoryParams(ImmutableMap.<String, Object>of("number", 42L)),
-        dto);
+        buildRuleFactoryParams(),
+        dto,
+        ImmutableSet.<BuildTarget>builder(),
+        ImmutableSet.<BuildTargetPattern>builder(),
+        ImmutableMap.<String, Object>of("number", 42L));
 
     assertEquals(42, dto.number);
   }
 
   @Test
-  public void shouldPopulateAPathValue() throws ConstructorArgMarshalException {
+  public void shouldPopulateAPathValue()
+      throws ConstructorArgMarshalException, NoSuchBuildTargetException {
     class Dto {
       @Hint(name = "some_path")
       public Path somePath;
@@ -156,40 +176,49 @@ public class ConstructorArgMarshallerTest {
 
     Dto dto = new Dto();
     marshaller.populate(
-        ruleResolver,
         filesystem,
-        buildRuleFactoryParams(ImmutableMap.<String, Object>of("somePath", "Fish.java")),
-        dto);
+        buildRuleFactoryParams(),
+        dto,
+        ImmutableSet.<BuildTarget>builder(),
+        ImmutableSet.<BuildTargetPattern>builder(),
+        ImmutableMap.<String, Object>of("somePath", "Fish.java"));
 
     assertEquals(Paths.get("example/path", "Fish.java"), dto.somePath);
   }
 
   @Test
-  public void shouldPopulateSourcePaths() throws ConstructorArgMarshalException {
+  public void shouldPopulateSourcePaths()
+      throws ConstructorArgMarshalException, NoSuchBuildTargetException {
     class Dto {
       public SourcePath filePath;
       public SourcePath targetPath;
     }
 
     BuildTarget target = BuildTargetFactory.newInstance("//example/path:peas");
-    FakeBuildRule rule = new FakeBuildRule(ruleType, target);
+    FakeBuildRule rule = new FakeBuildRule(
+        ruleType,
+        target,
+        new SourcePathResolver(new BuildRuleResolver()));
     ruleResolver.addToIndex(rule);
     Dto dto = new Dto();
     marshaller.populate(
-        ruleResolver,
         filesystem,
-        buildRuleFactoryParams(ImmutableMap.<String, Object>of(
+        buildRuleFactoryParams(),
+        dto,
+        ImmutableSet.<BuildTarget>builder(),
+        ImmutableSet.<BuildTargetPattern>builder(),
+        ImmutableMap.<String, Object>of(
             "filePath", "cheese.txt",
             "targetPath", ":peas"
-        )),
-        dto);
+        ));
 
     assertEquals(new PathSourcePath(Paths.get("example/path/cheese.txt")), dto.filePath);
-    assertEquals(new BuildRuleSourcePath(rule), dto.targetPath);
+    assertEquals(new BuildTargetSourcePath(rule.getBuildTarget()), dto.targetPath);
   }
 
   @Test
-  public void shouldPopulateAnImmutableSortedSet() throws ConstructorArgMarshalException {
+  public void shouldPopulateAnImmutableSortedSet()
+      throws ConstructorArgMarshalException, NoSuchBuildTargetException {
     class Dto {
       public ImmutableSortedSet<BuildTarget> deps;
     }
@@ -200,28 +229,31 @@ public class ConstructorArgMarshallerTest {
     Dto dto = new Dto();
     // Note: the ordering is reversed from the natural ordering
     marshaller.populate(
-        ruleResolver,
         filesystem,
-        buildRuleFactoryParams(ImmutableMap.<String, Object>of(
-            "deps", ImmutableList.of("//please/go:here", ":there"))),
-        dto);
+        buildRuleFactoryParams(),
+        dto,
+        ImmutableSet.<BuildTarget>builder(),
+        ImmutableSet.<BuildTargetPattern>builder(),
+        ImmutableMap.<String, Object>of("deps", ImmutableList.of("//please/go:here", ":there")));
 
     assertEquals(ImmutableSortedSet.of(t2, t1), dto.deps);
   }
 
   @Test
-  public void shouldPopulateSets() throws ConstructorArgMarshalException {
+  public void shouldPopulateSets()
+      throws ConstructorArgMarshalException, NoSuchBuildTargetException {
     class Dto {
       public Set<Path> paths;
     }
 
     Dto dto = new Dto();
     marshaller.populate(
-        ruleResolver,
         filesystem,
-        buildRuleFactoryParams(ImmutableMap.<String, Object>of(
-            "paths", ImmutableList.of("one", "two"))),
-        dto);
+        buildRuleFactoryParams(),
+        dto,
+        ImmutableSet.<BuildTarget>builder(),
+        ImmutableSet.<BuildTargetPattern>builder(),
+        ImmutableMap.<String, Object>of("paths", ImmutableList.of("one", "two")));
 
     assertEquals(
         ImmutableSet.of(Paths.get("example/path/one"), Paths.get("example/path/two")),
@@ -229,25 +261,27 @@ public class ConstructorArgMarshallerTest {
   }
 
   @Test
-  public void shouldPopulateLists() throws ConstructorArgMarshalException {
+  public void shouldPopulateLists()
+      throws ConstructorArgMarshalException, NoSuchBuildTargetException {
     class Dto {
       public List<String> list;
     }
 
     Dto dto = new Dto();
     marshaller.populate(
-        ruleResolver,
         filesystem,
-        buildRuleFactoryParams(ImmutableMap.<String, Object>of(
-            "list", ImmutableList.of("alpha", "beta"))),
-        dto);
+        buildRuleFactoryParams(),
+        dto,
+        ImmutableSet.<BuildTarget>builder(),
+        ImmutableSet.<BuildTargetPattern>builder(),
+        ImmutableMap.<String, Object>of("list", ImmutableList.of("alpha", "beta")));
 
     assertEquals(ImmutableList.of("alpha", "beta"), dto.list);
   }
 
   @Test
   public void collectionsCanBeOptionalAndWillBeSetToAnOptionalEmptyCollectionIfMissing()
-      throws ConstructorArgMarshalException {
+      throws ConstructorArgMarshalException, NoSuchBuildTargetException {
 
     class Dto {
       public Optional<Set<BuildTarget>> targets;
@@ -257,14 +291,20 @@ public class ConstructorArgMarshallerTest {
     Map<String, Object> args = Maps.newHashMap();
     args.put("targets", Lists.newArrayList());
 
-    marshaller.populate(ruleResolver, filesystem, buildRuleFactoryParams(args), dto);
+    marshaller.populate(
+        filesystem,
+        buildRuleFactoryParams(),
+        dto,
+        ImmutableSet.<BuildTarget>builder(),
+        ImmutableSet.<BuildTargetPattern>builder(),
+        args);
 
-    assertEquals(Optional.of(Sets.newHashSet()), dto.targets);
+    assertEquals(Optional.of((Set<BuildTarget>) Sets.<BuildTarget>newHashSet()), dto.targets);
   }
 
   @Test
   public void optionalCollectionsWithoutAValueWillBeSetToAnEmptyOptionalCollection()
-      throws ConstructorArgMarshalException {
+      throws ConstructorArgMarshalException, NoSuchBuildTargetException {
 
     class Dto {
       public Optional<Set<String>> strings;
@@ -274,14 +314,20 @@ public class ConstructorArgMarshallerTest {
     Map<String, Object> args = Maps.newHashMap();
     // Deliberately not populating args
 
-    marshaller.populate(ruleResolver, filesystem, buildRuleFactoryParams(args), dto);
+    marshaller.populate(
+        filesystem,
+        buildRuleFactoryParams(),
+        dto,
+        ImmutableSet.<BuildTarget>builder(),
+        ImmutableSet.<BuildTargetPattern>builder(),
+        args);
 
-    assertEquals(Optional.of(Sets.newHashSet()), dto.strings);
+    assertEquals(Optional.of((Set<String>) Sets.<String>newHashSet()), dto.strings);
   }
 
   @Test(expected = ConstructorArgMarshalException.class)
   public void shouldBeAnErrorToAttemptToSetASingleValueToACollection()
-      throws ConstructorArgMarshalException {
+      throws ConstructorArgMarshalException, NoSuchBuildTargetException {
 
     class Dto {
       public String file;
@@ -289,15 +335,17 @@ public class ConstructorArgMarshallerTest {
 
     Dto dto = new Dto();
     marshaller.populate(
-        ruleResolver,
         filesystem,
-        buildRuleFactoryParams(ImmutableMap.<String, Object>of("file", ImmutableList.of("a", "b"))),
-        dto);
+        buildRuleFactoryParams(),
+        dto,
+        ImmutableSet.<BuildTarget>builder(),
+        ImmutableSet.<BuildTargetPattern>builder(),
+        ImmutableMap.<String, Object>of("file", ImmutableList.of("a", "b")));
   }
 
   @Test(expected = ConstructorArgMarshalException.class)
   public void shouldBeAnErrorToAttemptToSetACollectionToASingleValue()
-      throws ConstructorArgMarshalException {
+      throws ConstructorArgMarshalException, NoSuchBuildTargetException {
 
     class Dto {
       public Set<String> strings;
@@ -305,15 +353,17 @@ public class ConstructorArgMarshallerTest {
 
     Dto dto = new Dto();
     marshaller.populate(
-        ruleResolver,
         filesystem,
-        buildRuleFactoryParams(ImmutableMap.<String, Object>of("strings", "isn't going to happen")),
-        dto);
+        buildRuleFactoryParams(),
+        dto,
+        ImmutableSet.<BuildTarget>builder(),
+        ImmutableSet.<BuildTargetPattern>builder(),
+        ImmutableMap.<String, Object>of("strings", "isn't going to happen"));
   }
 
   @Test(expected = ConstructorArgMarshalException.class)
   public void shouldBeAnErrorToSetTheWrongTypeOfValueInACollection()
-      throws ConstructorArgMarshalException {
+      throws ConstructorArgMarshalException, NoSuchBuildTargetException {
 
     class Dto {
       public Set<String> strings;
@@ -321,15 +371,17 @@ public class ConstructorArgMarshallerTest {
 
     Dto dto = new Dto();
     marshaller.populate(
-        ruleResolver,
         filesystem,
-        buildRuleFactoryParams(ImmutableMap.<String, Object>of(
-            "strings", ImmutableSet.of(true, false))),
-        dto);
+        buildRuleFactoryParams(),
+        dto,
+        ImmutableSet.<BuildTarget>builder(),
+        ImmutableSet.<BuildTargetPattern>builder(),
+        ImmutableMap.<String, Object>of("strings", ImmutableSet.of(true, false)));
   }
 
   @Test
-  public void shouldNormalizePaths() throws ConstructorArgMarshalException {
+  public void shouldNormalizePaths()
+      throws ConstructorArgMarshalException, NoSuchBuildTargetException {
 
     class Dto {
       public Path path;
@@ -337,30 +389,35 @@ public class ConstructorArgMarshallerTest {
 
     Dto dto = new Dto();
     marshaller.populate(
-        ruleResolver,
         filesystem,
-        buildRuleFactoryParams(ImmutableMap.<String, Object>of("path", "./bar/././fish.txt")),
-        dto);
+        buildRuleFactoryParams(),
+        dto,
+        ImmutableSet.<BuildTarget>builder(),
+        ImmutableSet.<BuildTargetPattern>builder(),
+        ImmutableMap.<String, Object>of("path", "./bar/././fish.txt"));
 
     assertEquals(basePath.resolve("bar/fish.txt").normalize(), dto.path);
   }
 
   @Test(expected = RuntimeException.class)
-  public void lowerBoundGenericTypesCauseAnException() throws ConstructorArgMarshalException {
+  public void lowerBoundGenericTypesCauseAnException()
+      throws ConstructorArgMarshalException, NoSuchBuildTargetException {
 
     class Dto {
       public List<? super BuildTarget> nope;
     }
 
     marshaller.populate(
-        ruleResolver,
         filesystem,
-        buildRuleFactoryParams(ImmutableMap.<String, Object>of(
-            "nope", ImmutableList.of("//will/not:happen"))),
-        new Dto());
+        buildRuleFactoryParams(),
+        new Dto(),
+        ImmutableSet.<BuildTarget>builder(),
+        ImmutableSet.<BuildTargetPattern>builder(),
+        ImmutableMap.<String, Object>of("nope", ImmutableList.of("//will/not:happen")));
   }
 
-  public void shouldSetBuildTargetParameters() throws ConstructorArgMarshalException {
+  public void shouldSetBuildTargetParameters()
+      throws ConstructorArgMarshalException, NoSuchBuildTargetException {
     class Dto {
       public BuildTarget single;
       public BuildTarget sameBuildFileTarget;
@@ -369,14 +426,16 @@ public class ConstructorArgMarshallerTest {
     Dto dto = new Dto();
 
     marshaller.populate(
-        ruleResolver,
         filesystem,
-        buildRuleFactoryParams(ImmutableMap.<String, Object>of(
+        buildRuleFactoryParams(),
+        dto,
+        ImmutableSet.<BuildTarget>builder(),
+        ImmutableSet.<BuildTargetPattern>builder(),
+        ImmutableMap.<String, Object>of(
             "single", "//com/example:cheese",
             "sameBuildFileTarget", ":cake",
             "targets", ImmutableList.of(":cake", "//com/example:cheese")
-        )),
-        dto);
+        ));
 
     BuildTarget cheese = BuildTargetFactory.newInstance("//com/example:cheese");
     BuildTarget cake = BuildTargetFactory.newInstance("//example/path:cake");
@@ -388,41 +447,47 @@ public class ConstructorArgMarshallerTest {
 
   @Test
   public void upperBoundGenericTypesCauseValuesToBeSetToTheUpperBound()
-      throws ConstructorArgMarshalException {
+      throws ConstructorArgMarshalException, NoSuchBuildTargetException {
 
     class Dto {
       public List<? extends SourcePath> yup;
     }
 
+    SourcePathResolver pathResolver = new SourcePathResolver(new BuildRuleResolver());
     BuildRule rule = new FakeBuildRule(
         new BuildRuleType("example"),
-        BuildTargetFactory.newInstance("//will:happen"));
+        BuildTargetFactory.newInstance("//will:happen"), pathResolver);
     ruleResolver.addToIndex(rule);
     Dto dto = new Dto();
     marshaller.populate(
-        ruleResolver,
         filesystem,
-        buildRuleFactoryParams(ImmutableMap.<String, Object>of(
-            "yup", ImmutableList.of(rule.getBuildTarget().getFullyQualifiedName()))),
-        dto);
+        buildRuleFactoryParams(),
+        dto,
+        ImmutableSet.<BuildTarget>builder(),
+        ImmutableSet.<BuildTargetPattern>builder(),
+        ImmutableMap.<String, Object>of(
+            "yup",
+            ImmutableList.of(rule.getBuildTarget().getFullyQualifiedName())));
 
-    BuildRuleSourcePath path = new BuildRuleSourcePath(
-        new FakeBuildRule(ruleType, rule.getBuildTarget()));
+    BuildTargetSourcePath path = new BuildTargetSourcePath(rule.getBuildTarget());
     assertEquals(ImmutableList.of(path), dto.yup);
   }
 
   @Test
-  public void specifyingZeroIsNotConsideredOptional() throws ConstructorArgMarshalException {
+  public void specifyingZeroIsNotConsideredOptional()
+      throws ConstructorArgMarshalException, NoSuchBuildTargetException {
     class Dto {
       public Optional<Integer> number;
     }
 
     Dto dto = new Dto();
     marshaller.populate(
-        ruleResolver,
         filesystem,
-        buildRuleFactoryParams(ImmutableMap.<String, Object>of("number", 0)),
-        dto);
+        buildRuleFactoryParams(),
+        dto,
+        ImmutableSet.<BuildTarget>builder(),
+        ImmutableSet.<BuildTargetPattern>builder(),
+        ImmutableMap.<String, Object>of("number", 0));
 
     assertTrue(dto.number.isPresent());
     assertEquals(Optional.of(0), dto.number);
@@ -430,7 +495,7 @@ public class ConstructorArgMarshallerTest {
 
   @Test
   public void canPopulateSimpleConstructorArgFromBuildFactoryParams()
-      throws ConstructorArgMarshalException {
+      throws ConstructorArgMarshalException, NoSuchBuildTargetException {
 
     class Dto {
       public String required;
@@ -452,7 +517,8 @@ public class ConstructorArgMarshallerTest {
 
     FakeBuildRule expectedRule = new FakeBuildRule(
         ruleType,
-        BuildTargetFactory.newInstance("//example/path:path"));
+        BuildTargetFactory.newInstance("//example/path:path"),
+        new SourcePathResolver(new BuildRuleResolver()));
     ruleResolver.addToIndex(expectedRule);
 
     ImmutableMap<String, Object> args = ImmutableMap.<String, Object>builder()
@@ -468,14 +534,20 @@ public class ConstructorArgMarshallerTest {
         .put("notAPath", "./NotFile.java")
         .build();
     Dto dto = new Dto();
-    marshaller.populate(ruleResolver, filesystem, buildRuleFactoryParams(args), dto);
+    marshaller.populate(
+        filesystem,
+        buildRuleFactoryParams(),
+        dto,
+        ImmutableSet.<BuildTarget>builder(),
+        ImmutableSet.<BuildTargetPattern>builder(),
+        args);
 
     assertEquals("cheese", dto.required);
     assertEquals("cake", dto.notRequired.get());
     assertEquals(42, dto.num);
     assertTrue(dto.needed);
     assertEquals(Optional.<Boolean>absent(), dto.notNeeded);
-    BuildRuleSourcePath expected = new BuildRuleSourcePath(expectedRule);
+    BuildTargetSourcePath expected = new BuildTargetSourcePath(expectedRule.getBuildTarget());
     assertEquals(expected, dto.aSrcPath);
     assertEquals(Paths.get("example/path/NotFile.java"), dto.notAPath.get());
   }
@@ -486,7 +558,8 @@ public class ConstructorArgMarshallerTest {
    * values instead of nulls it's never possible for someone to see "Optional.absent()", but that's
    * what we want as authors of buildables. Handle that case.
    */
-  public void shouldPopulateDefaultValuesAsBeingAbsent() throws ConstructorArgMarshalException {
+  public void shouldPopulateDefaultValuesAsBeingAbsent()
+      throws ConstructorArgMarshalException, NoSuchBuildTargetException {
     class Dto {
       public Optional<String> noString;
       public Optional<String> defaultString;
@@ -505,34 +578,47 @@ public class ConstructorArgMarshallerTest {
     args.put("defaultString", null);
     args.put("defaultSourcePath", null);
     Dto dto = new Dto();
-    marshaller.populate(ruleResolver, filesystem, buildRuleFactoryParams(args), dto);
+    marshaller.populate(
+        filesystem,
+        buildRuleFactoryParams(),
+        dto,
+        ImmutableSet.<BuildTarget>builder(),
+        ImmutableSet.<BuildTargetPattern>builder(),
+        args);
 
-    assertEquals(Optional.absent(), dto.noString);
-    assertEquals(Optional.absent(), dto.defaultString);
-    assertEquals(Optional.absent(), dto.noSourcePath);
-    assertEquals(Optional.absent(), dto.defaultSourcePath);
+    assertEquals(Optional.<String>absent(), dto.noString);
+    assertEquals(Optional.<String>absent(), dto.defaultString);
+    assertEquals(Optional.<SourcePath>absent(), dto.noSourcePath);
+    assertEquals(Optional.<SourcePath>absent(), dto.defaultSourcePath);
     assertEquals(0, dto.primitiveNum);
     assertEquals(Integer.valueOf(0), dto.wrapperObjectNum);
   }
 
   @Test
-  public void shouldResolveCollectionOfSourcePaths() throws ConstructorArgMarshalException {
+  public void shouldResolveCollectionOfSourcePaths()
+      throws ConstructorArgMarshalException, NoSuchBuildTargetException {
     class Dto {
       public ImmutableSortedSet<SourcePath> srcs;
     }
 
+    BuildRuleResolver resolver = new BuildRuleResolver();
     BuildTarget target = BuildTargetFactory.newInstance("//example/path:manifest");
-    BuildRule rule = new FakeBuildRule(new BuildRuleType("py"), target);
-    BuildRuleResolver resolver = new BuildRuleResolver(ImmutableMap.of(target, rule));
+    BuildRule rule = new FakeBuildRule(
+        new BuildRuleType("py"),
+        target,
+        new SourcePathResolver(resolver));
+    resolver.addToIndex(rule);
 
     Dto dto = new Dto();
     marshaller.populate(
-        resolver,
         filesystem,
-        buildRuleFactoryParams(
-            ImmutableMap.<String, Object>of("srcs",
-                ImmutableList.of("main.py", "lib/__init__.py", "lib/manifest.py"))),
-        dto);
+        buildRuleFactoryParams(),
+        dto,
+        ImmutableSet.<BuildTarget>builder(),
+        ImmutableSet.<BuildTargetPattern>builder(),
+        ImmutableMap.<String, Object>of(
+            "srcs",
+            ImmutableList.of("main.py", "lib/__init__.py", "lib/manifest.py")));
 
     ImmutableSet<String> observedValues = FluentIterable.from(dto.srcs)
         .transform(Functions.toStringFunction())
@@ -545,10 +631,11 @@ public class ConstructorArgMarshallerTest {
         observedValues);
   }
 
-  public BuildRuleFactoryParams buildRuleFactoryParams(Map<String, Object> args) {
+  public BuildRuleFactoryParams buildRuleFactoryParams() {
     BuildTargetParser parser = new BuildTargetParser();
     BuildTarget target = BuildTargetFactory.newInstance("//example/path:three");
     return NonCheckingBuildRuleFactoryParams.createNonCheckingBuildRuleFactoryParams(
-        args, parser, target);
+        parser,
+        target);
   }
 }

@@ -16,8 +16,6 @@
 
 package com.facebook.buck.java;
 
-import static com.facebook.buck.java.GenerateCodeCoverageReportStep.PATH_TO_ASM_JAR;
-import static com.facebook.buck.java.JUnitStep.PATH_TO_JACOCO_JARS;
 import static org.easymock.EasyMock.createMock;
 import static org.easymock.EasyMock.expect;
 import static org.easymock.EasyMock.replay;
@@ -43,29 +41,33 @@ public class GenerateCodeCoverageReportStepTest {
   @Test
   public void testGetShellCommandInternal() {
     String outputDirectory = "buck-out/gen/output";
+    Set<String> sourceDirectories = ImmutableSet.of(
+        "/absolute/path/to/parentDirectory1/src", "/absolute/path/to/parentDirectory2/src");
     Set<Path> classesDirectories = ImmutableSet.of(
         Paths.get("parentDirectory1/classes"), Paths.get("root/parentDirectory/classes"));
 
-    testJacocoReportGeneratorCommand(classesDirectories, outputDirectory);
+    testJacocoReportGeneratorCommand(sourceDirectories, classesDirectories, outputDirectory);
   }
 
   private void testJacocoReportGeneratorCommand(
+      Set<String> sourceDirectories,
       Set<Path> classesDirectories,
       String outputDirectory) {
     GenerateCodeCoverageReportStep step = new GenerateCodeCoverageReportStep(
-        classesDirectories, Paths.get(outputDirectory), CoverageReportFormat.HTML);
+        sourceDirectories, classesDirectories,
+        Paths.get(outputDirectory), CoverageReportFormat.HTML);
 
     ExecutionContext context = createMock(ExecutionContext.class);
     expect(
-        context.getProjectFilesystem()).andReturn(new ProjectFilesystem(new File("."))).anyTimes();
+        context.getProjectFilesystem())
+        .andReturn(new ProjectFilesystem(Paths.get(".")))
+        .anyTimes();
     replay(context);
 
     ImmutableList.Builder<String> shellCommandBuilder = ImmutableList.builder();
 
     shellCommandBuilder.add(
         "java",
-        "-classpath", String.format("%s:%s/*:%s/../report-generator-build/",
-        PATH_TO_ASM_JAR, PATH_TO_JACOCO_JARS, PATH_TO_JACOCO_JARS),
         String.format("-Djacoco.output.dir=%s", outputDirectory),
         String.format("-Djacoco.exec.data.file=%s", JUnitStep.JACOCO_EXEC_COVERAGE_FILE),
         "-Djacoco.format=html",
@@ -75,8 +77,12 @@ public class GenerateCodeCoverageReportStepTest {
                 "parentDirectory1/classes",
                 new File(".").getAbsoluteFile().toPath().normalize(),
                 "root/parentDirectory/classes")),
-        String.format("-Dsrc.dir=%s", "src"),
-        "ReportGenerator");
+        String.format("-Dsrc.dir=%s",
+            String.format("%s:%s",
+                "/absolute/path/to/parentDirectory1/src",
+                "/absolute/path/to/parentDirectory2/src")),
+        "-jar", GenerateCodeCoverageReportStep.BUCK_HOME +
+            "/buck-out/gen/src/com/facebook/buck/java/report-generator.jar");
 
     List<String> expectedShellCommand = shellCommandBuilder.build();
 

@@ -23,30 +23,18 @@ import java.nio.file.Path;
 public class PathSourcePath extends AbstractSourcePath {
 
   private final Path relativePath;
-  private final String name;
-
-  public PathSourcePath(Path relativePath, String name) {
-    this.relativePath = Preconditions.checkNotNull(relativePath);
-    this.name = Preconditions.checkNotNull(name);
-  }
 
   public PathSourcePath(Path relativePath) {
-    this(relativePath, relativePath.toString());
+    this.relativePath = Preconditions.checkNotNull(relativePath);
   }
 
   @Override
-  public Path resolve() {
+  protected Object asReference() {
     return relativePath;
   }
 
-  @Override
-  public Path asReference() {
+  public Path getRelativePath() {
     return relativePath;
-  }
-
-  @Override
-  public String getName() {
-    return name;
   }
 
 }

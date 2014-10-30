@@ -18,11 +18,9 @@ package com.facebook.buck.rules;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.step.Step;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
@@ -39,39 +37,39 @@ public class FakeBuildRule extends AbstractBuildRule implements BuildRule {
   @Nullable
   private RuleKey ruleKey;
 
-  public FakeBuildRule(BuildRuleType type,
+  public FakeBuildRule(
+      BuildRuleType type,
       BuildTarget target,
-      ImmutableSortedSet<BuildRule> deps,
-      ImmutableSet<BuildTargetPattern> visibilityPatterns) {
+      SourcePathResolver resolver,
+      ImmutableSortedSet<BuildRule> deps) {
     this(
         new FakeBuildRuleParamsBuilder(target)
             .setDeps(deps)
             .setType(type)
-            .setVisibility(visibilityPatterns)
-            .build());
+            .build(), resolver);
   }
 
-  public FakeBuildRule(BuildRuleParams buildRuleParams) {
-    super(buildRuleParams);
+  public FakeBuildRule(BuildRuleParams buildRuleParams, SourcePathResolver resolver) {
+    super(buildRuleParams, resolver);
   }
 
-  public FakeBuildRule(BuildRuleType type, BuildTarget buildTarget) {
-    this(new FakeBuildRuleParamsBuilder(buildTarget).setType(type).build());
+  public FakeBuildRule(BuildRuleType type, BuildTarget buildTarget, SourcePathResolver resolver) {
+    this(new FakeBuildRuleParamsBuilder(buildTarget).setType(type).build(), resolver);
   }
 
-  public FakeBuildRule(BuildTarget target, BuildRule... deps) {
+  public FakeBuildRule(BuildTarget target, SourcePathResolver resolver, BuildRule... deps) {
     this(
         new FakeBuildRuleParamsBuilder(target)
             .setDeps(ImmutableSortedSet.copyOf(deps))
-            .build());
+            .build(), resolver);
   }
 
-  public FakeBuildRule(String target, BuildRule... deps) {
-    this(BuildTargetFactory.newInstance(target), deps);
+  public FakeBuildRule(String target, SourcePathResolver resolver, BuildRule... deps) {
+    this(BuildTargetFactory.newInstance(target), resolver, deps);
   }
 
   @Override
-  public Iterable<Path> getInputs() {
+  public ImmutableCollection<Path> getInputs() {
     return ImmutableList.of();
   }
 

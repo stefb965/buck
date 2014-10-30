@@ -43,7 +43,7 @@ public class ParamInfoTest {
     }
 
     Field field = Example.class.getField("path");
-    ParamInfo info = new ParamInfo(typeCoercerFactory, field);
+    ParamInfo<?> info = new ParamInfo<Object>(typeCoercerFactory, field);
 
     Class<?> type = info.getResultClass();
     assertEquals(SourcePath.class, type);
@@ -57,7 +57,7 @@ public class ParamInfoTest {
     }
 
     Field field = Example.class.getField("path");
-    ParamInfo info = new ParamInfo(typeCoercerFactory, field);
+    ParamInfo<?> info = new ParamInfo<Object>(typeCoercerFactory, field);
 
     Class<?> type = info.getResultClass();
     assertEquals(SourcePath.class, type);
@@ -71,7 +71,7 @@ public class ParamInfoTest {
     }
 
     Field field = Example.class.getField("bad");
-    new ParamInfo(typeCoercerFactory, field);
+    new ParamInfo<Object>(typeCoercerFactory, field);
   }
 
   @Test(expected = IllegalArgumentException.class)
@@ -82,7 +82,7 @@ public class ParamInfoTest {
     }
 
     Field field = Example.class.getField("bad");
-    new ParamInfo(typeCoercerFactory, field);
+    new ParamInfo<Object>(typeCoercerFactory, field);
   }
 
   @Test
@@ -95,12 +95,12 @@ public class ParamInfoTest {
       public String notDefaultName;
     }
 
-    ParamInfo info;
+    ParamInfo<?> info;
 
-    info = new ParamInfo(typeCoercerFactory, Example.class.getField("isDefaultName"));
+    info = new ParamInfo<Object>(typeCoercerFactory, Example.class.getField("isDefaultName"));
     assertEquals("is_default_name", info.getPythonName());
 
-    info = new ParamInfo(typeCoercerFactory, Example.class.getField("notDefaultName"));
+    info = new ParamInfo<Object>(typeCoercerFactory, Example.class.getField("notDefaultName"));
     assertEquals("not_the_default_name_123", info.getPythonName());
   }
 
@@ -112,18 +112,17 @@ public class ParamInfoTest {
     Example example = new Example();
 
     BuildTargetParser buildTargetParser = new BuildTargetParser();
-    BuildRuleResolver resolver = new BuildRuleResolver();
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
-    ParamInfo info = new ParamInfo(typeCoercerFactory, Example.class.getField("field"));
+    ParamInfo<?> info = new ParamInfo<Object>(typeCoercerFactory, Example.class.getField("field"));
 
-    info.set(buildTargetParser, resolver, filesystem, path, example, null);
+    info.set(buildTargetParser, filesystem, path, example, null);
     assertEquals(Optional.<String>absent(), example.field);
 
-    info.set(buildTargetParser, resolver, filesystem, path, example, "");
+    info.set(buildTargetParser, filesystem, path, example, "");
     assertEquals(Optional.of(""), example.field);
 
-    info.set(buildTargetParser, resolver, filesystem, path, example, "foo");
+    info.set(buildTargetParser, filesystem, path, example, "foo");
     assertEquals(Optional.of("foo"), example.field);
   }
 }

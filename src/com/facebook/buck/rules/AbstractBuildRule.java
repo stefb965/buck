@@ -20,6 +20,7 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.HasBuildTarget;
 import com.google.common.annotations.Beta;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
@@ -39,17 +40,19 @@ public abstract class AbstractBuildRule implements BuildRule {
   private final ImmutableSortedSet<BuildRule> deps;
   private final RuleKeyBuilderFactory ruleKeyBuilderFactory;
   private final BuildRuleType buildRuleType;
+  private final SourcePathResolver resolver;
   /** @see #getInputsToCompareToOutput()  */
-  @Nullable private Iterable<Path> inputsToCompareToOutputs;
+  @Nullable private ImmutableCollection<Path> inputsToCompareToOutputs;
   @Nullable private volatile RuleKey.Builder.RuleKeyPair ruleKeyPair;
 
-  protected AbstractBuildRule(BuildRuleParams buildRuleParams) {
+  protected AbstractBuildRule(BuildRuleParams buildRuleParams, SourcePathResolver resolver) {
     Preconditions.checkNotNull(buildRuleParams);
     this.buildTarget = buildRuleParams.getBuildTarget();
     this.declaredDeps = buildRuleParams.getDeclaredDeps();
     this.deps = buildRuleParams.getDeps();
     this.ruleKeyBuilderFactory = buildRuleParams.getRuleKeyBuilderFactory();
     this.buildRuleType = buildRuleParams.getBuildRuleType();
+    this.resolver = Preconditions.checkNotNull(resolver);
   }
 
   @Override
@@ -81,15 +84,19 @@ public abstract class AbstractBuildRule implements BuildRule {
     return buildRuleType;
   }
 
+  public final SourcePathResolver getResolver() {
+    return resolver;
+  }
+
   @Override
-  public Iterable<Path> getInputs() {
+  public ImmutableCollection<Path> getInputs() {
     if (inputsToCompareToOutputs == null) {
       inputsToCompareToOutputs = getInputsToCompareToOutput();
     }
     return inputsToCompareToOutputs;
   }
 
-  protected abstract Iterable<Path> getInputsToCompareToOutput();
+  protected abstract ImmutableCollection<Path> getInputsToCompareToOutput();
 
   @Override
   public final int compareTo(HasBuildTarget that) {
@@ -136,7 +143,7 @@ public abstract class AbstractBuildRule implements BuildRule {
     // files will be hashed. In the case of .set("srcs", srcs), the list of strings itself will be
     // hashed. It turns out that we need both of these in order to construct a RuleKey correctly.
     // Note: appendToRuleKey() should not set("srcs", srcs) if the inputs are order-independent.
-    Iterable<Path> inputs = getInputs();
+    ImmutableCollection<Path> inputs = getInputs();
     builder = builder
         .setInputs("buck.inputs", inputs.iterator())
         .setSourcePaths("buck.sourcepaths", SourcePaths.toSourcePathsSortedByNaturalOrder(inputs));
@@ -169,7 +176,7 @@ public abstract class AbstractBuildRule implements BuildRule {
     if (ruleKeyPair == null) {
       synchronized (this) {
         if (ruleKeyPair == null) {
-          RuleKey.Builder builder = ruleKeyBuilderFactory.newInstance(this);
+          RuleKey.Builder builder = ruleKeyBuilderFactory.newInstance(this, getResolver());
           appendToRuleKey(builder);
           ruleKeyPair = builder.build();
         }
@@ -177,4 +184,10 @@ public abstract class AbstractBuildRule implements BuildRule {
     }
     return ruleKeyPair;
   }
+
+  @Override
+  public CacheMode getCacheMode() {
+    return CacheMode.ENABLED;
+  }
+
 }

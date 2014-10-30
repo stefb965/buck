@@ -16,20 +16,19 @@
 
 package com.facebook.buck.thrift;
 
-import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.CxxCompilables;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxHeaderSourceSpec;
 import com.facebook.buck.cxx.CxxLibrary;
+import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxSource;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleFactoryParams;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleSourcePath;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.VisibleForTesting;
@@ -37,12 +36,12 @@ import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.io.Files;
 
 import java.nio.file.Path;
-import java.util.List;
 
 public class ThriftCxxEnhancer implements ThriftLanguageSpecificEnhancer {
 
@@ -50,15 +49,15 @@ public class ThriftCxxEnhancer implements ThriftLanguageSpecificEnhancer {
   private static final Flavor CPP2_FLAVOR = new Flavor("cpp2");
 
   private final ThriftBuckConfig thriftBuckConfig;
-  private final CxxBuckConfig cxxBuckConfig;
+  private final CxxPlatform cxxPlatform;
   private final boolean cpp2;
 
   public ThriftCxxEnhancer(
       ThriftBuckConfig thriftBuckConfig,
-      CxxBuckConfig cxxBuckConfig,
+      CxxPlatform cxxPlatform,
       boolean cpp2) {
     this.thriftBuckConfig = Preconditions.checkNotNull(thriftBuckConfig);
-    this.cxxBuckConfig = Preconditions.checkNotNull(cxxBuckConfig);
+    this.cxxPlatform = Preconditions.checkNotNull(cxxPlatform);
     this.cpp2 = cpp2;
   }
 
@@ -134,7 +133,7 @@ public class ThriftCxxEnhancer implements ThriftLanguageSpecificEnhancer {
     ImmutableSet<String> options =
         (cpp2 ? args.cpp2Options : args.cppOptions).or(ImmutableSet.<String>of());
 
-    ImmutableList.Builder<CxxSource> cxxSourcesBuilder = ImmutableList.builder();
+    ImmutableMap.Builder<String, CxxSource> cxxSourcesBuilder = ImmutableMap.builder();
     ImmutableMap.Builder<Path, SourcePath> headersBuilder = ImmutableMap.builder();
 
     for (ImmutableMap.Entry<String, ThriftSource> ent : sources.entrySet()) {
@@ -151,14 +150,19 @@ public class ThriftCxxEnhancer implements ThriftLanguageSpecificEnhancer {
         String extension = Files.getFileExtension(name);
 
         if (CxxCompilables.SOURCE_EXTENSIONS.contains(extension)) {
-          cxxSourcesBuilder.add(
+          cxxSourcesBuilder.put(
+              name,
               new CxxSource(
-                  name,
-                  new BuildRuleSourcePath(source.getCompileRule(), outputDir.resolve(name))));
+                  CxxSource.Type.fromExtension(extension).get(),
+                      new BuildTargetSourcePath(
+                          source.getCompileRule().getBuildTarget(),
+                          outputDir.resolve(name))));
         } else if (CxxCompilables.HEADER_EXTENSIONS.contains(extension)) {
           headersBuilder.put(
               params.getBuildTarget().getBasePath().resolve(name),
-              new BuildRuleSourcePath(source.getCompileRule(), outputDir.resolve(name)));
+              new BuildTargetSourcePath(
+                  source.getCompileRule().getBuildTarget(),
+                  outputDir.resolve(name)));
         } else {
           throw new HumanReadableException(String.format(
               "%s: unexpected extension for \"%s\"",
@@ -204,13 +208,14 @@ public class ThriftCxxEnhancer implements ThriftLanguageSpecificEnhancer {
     return CxxDescriptionEnhancer.createCxxLibraryBuildRules(
         langParams,
         resolver,
-        cxxBuckConfig,
-        /* preprocessorFlags */ ImmutableList.<String>of(),
-        /* propagatedPpFlags */ ImmutableList.<String>of(),
+        cxxPlatform,
+        /* preprocessorFlags */ ImmutableMultimap.<CxxSource.Type, String>of(),
+        /* propagatedPpFlags */ ImmutableMultimap.<CxxSource.Type, String>of(),
         spec.getCxxHeaders(),
         /* compilerFlags */ ImmutableList.<String>of(),
         spec.getCxxSources(),
-        /* linkWhole */ false);
+        /* linkWhole */ false,
+        /* soname */ Optional.<String>absent());
   }
 
   private ImmutableSet<BuildTarget> getImplicitDepsFromOptions(
@@ -252,13 +257,7 @@ public class ThriftCxxEnhancer implements ThriftLanguageSpecificEnhancer {
   }
 
   @Override
-  public ImmutableSet<BuildTarget> getImplicitDepsFromParams(BuildRuleFactoryParams params) {
-    List<String> options = params.getOptionalListAttribute(cpp2 ? "cpp2Options" : "cppOptions");
-    return getImplicitDepsFromOptions(params.target, ImmutableSet.copyOf(options));
-  }
-
-  @Override
-  public ImmutableSet<BuildTarget> getImplicitDepsFromArg(
+  public ImmutableSet<BuildTarget> getImplicitDepsForTargetFromConstructorArg(
       BuildTarget target,
       ThriftConstructorArg arg) {
     Optional<ImmutableSet<String>> options = cpp2 ? arg.cpp2Options : arg.cppOptions;

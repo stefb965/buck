@@ -17,22 +17,28 @@
 package com.facebook.buck.cxx;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.python.PythonPackageComponents;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleParamsFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 
+import org.easymock.EasyMock;
 import org.junit.Test;
 
 import java.nio.file.Path;
@@ -41,10 +47,9 @@ import java.nio.file.Paths;
 public class PrebuiltCxxLibraryDescriptionTest {
 
   private static final BuildTarget TARGET = BuildTargetFactory.newInstance("//:target");
-  private static final BuildRuleParams PARAMS =
-      BuildRuleParamsFactory.createTrivialBuildRuleParams(TARGET);
-  private static final BuildRuleResolver RESOLVER = new BuildRuleResolver();
-  private static final PrebuiltCxxLibraryDescription DESC = new PrebuiltCxxLibraryDescription();
+  private static final CxxPlatform CXX_PLATFORM = new DefaultCxxPlatform(new FakeBuckConfig());
+  private static final PrebuiltCxxLibraryDescription DESC =
+      new PrebuiltCxxLibraryDescription(CXX_PLATFORM);
 
   private static PrebuiltCxxLibraryDescription.Arg getDefaultArg() {
     PrebuiltCxxLibraryDescription.Arg arg = DESC.createUnpopulatedConstructorArg();
@@ -93,17 +98,20 @@ public class PrebuiltCxxLibraryDescriptionTest {
 
   @Test
   public void createBuildRuleDefault() {
+    BuildRuleResolver resolver = new BuildRuleResolver();
     PrebuiltCxxLibraryDescription.Arg arg = getDefaultArg();
-    CxxLibrary lib = DESC.createBuildRule(PARAMS, RESOLVER, arg);
+    ProjectFilesystem filesystem = EasyMock.createMock(ProjectFilesystem.class);
+    EasyMock.expect(filesystem.exists(EasyMock.anyObject(Path.class))).andReturn(true);
+    BuildRuleParams params = new FakeBuildRuleParamsBuilder(TARGET)
+        .setProjectFilesystem(filesystem)
+        .build();
+    EasyMock.replay(filesystem);
+    CxxLibrary lib = DESC.createBuildRule(params, resolver, arg);
 
     // Verify the preprocessable input is as expected.
-    CxxPreprocessorInput expectedCxxPreprocessorInput = new CxxPreprocessorInput(
-        ImmutableSet.<BuildTarget>of(),
-        ImmutableList.<String>of(),
-        ImmutableList.<String>of(),
-        ImmutableMap.<Path, SourcePath>of(),
-        ImmutableList.<Path>of(),
-        getIncludeDirs(arg));
+    CxxPreprocessorInput expectedCxxPreprocessorInput = CxxPreprocessorInput.builder()
+        .setSystemIncludeRoots(getIncludeDirs(arg))
+        .build();
     assertEquals(
         expectedCxxPreprocessorInput,
         lib.getCxxPreprocessorInput());
@@ -114,7 +122,7 @@ public class PrebuiltCxxLibraryDescriptionTest {
         ImmutableList.of(getStaticLibraryPath(arg).toString()));
     assertEquals(
         expectedStaticLinkableInput,
-        lib.getNativeLinkableInput(NativeLinkable.Type.STATIC));
+        lib.getNativeLinkableInput(CXX_PLATFORM.getLd(), NativeLinkable.Type.STATIC));
 
     // Verify shared native linkable input.
     NativeLinkableInput expectedSharedLinkableInput = new NativeLinkableInput(
@@ -122,7 +130,7 @@ public class PrebuiltCxxLibraryDescriptionTest {
         ImmutableList.of(getSharedLibraryPath(arg).toString()));
     assertEquals(
         expectedSharedLinkableInput,
-        lib.getNativeLinkableInput(NativeLinkable.Type.SHARED));
+        lib.getNativeLinkableInput(CXX_PLATFORM.getLd(), NativeLinkable.Type.SHARED));
 
     // Verify the python packageable components are correct.
     PythonPackageComponents expectedComponents = new PythonPackageComponents(
@@ -138,18 +146,21 @@ public class PrebuiltCxxLibraryDescriptionTest {
 
   @Test
   public void createBuildRuleHeaderOnly() {
+    BuildRuleResolver resolver = new BuildRuleResolver();
     PrebuiltCxxLibraryDescription.Arg arg = getDefaultArg();
     arg.headerOnly = Optional.of(true);
-    CxxLibrary lib = DESC.createBuildRule(PARAMS, RESOLVER, arg);
+    ProjectFilesystem filesystem = EasyMock.createMock(ProjectFilesystem.class);
+    EasyMock.expect(filesystem.exists(EasyMock.anyObject(Path.class))).andReturn(true);
+    BuildRuleParams params = new FakeBuildRuleParamsBuilder(TARGET)
+        .setProjectFilesystem(filesystem)
+        .build();
+    EasyMock.replay(filesystem);
+    CxxLibrary lib = DESC.createBuildRule(params, resolver, arg);
 
     // Verify the preprocessable input is as expected.
-    CxxPreprocessorInput expectedCxxPreprocessorInput = new CxxPreprocessorInput(
-        ImmutableSet.<BuildTarget>of(),
-        ImmutableList.<String>of(),
-        ImmutableList.<String>of(),
-        ImmutableMap.<Path, SourcePath>of(),
-        ImmutableList.<Path>of(),
-        getIncludeDirs(arg));
+    CxxPreprocessorInput expectedCxxPreprocessorInput = CxxPreprocessorInput.builder()
+        .setSystemIncludeRoots(getIncludeDirs(arg))
+        .build();
     assertEquals(
         expectedCxxPreprocessorInput,
         lib.getCxxPreprocessorInput());
@@ -160,7 +171,7 @@ public class PrebuiltCxxLibraryDescriptionTest {
         ImmutableList.<String>of());
     assertEquals(
         expectedStaticLinkableInput,
-        lib.getNativeLinkableInput(NativeLinkable.Type.STATIC));
+        lib.getNativeLinkableInput(CXX_PLATFORM.getLd(), NativeLinkable.Type.STATIC));
 
     // Verify shared native linkable input.
     NativeLinkableInput expectedSharedLinkableInput = new NativeLinkableInput(
@@ -168,7 +179,7 @@ public class PrebuiltCxxLibraryDescriptionTest {
         ImmutableList.<String>of());
     assertEquals(
         expectedSharedLinkableInput,
-        lib.getNativeLinkableInput(NativeLinkable.Type.SHARED));
+        lib.getNativeLinkableInput(CXX_PLATFORM.getLd(), NativeLinkable.Type.SHARED));
 
     // Verify the python packageable components are correct.
     PythonPackageComponents expectedComponents = new PythonPackageComponents(
@@ -182,18 +193,21 @@ public class PrebuiltCxxLibraryDescriptionTest {
 
   @Test
   public void createBuildRuleExternal() {
+    BuildRuleResolver resolver = new BuildRuleResolver();
     PrebuiltCxxLibraryDescription.Arg arg = getDefaultArg();
     arg.provided = Optional.of(true);
-    CxxLibrary lib = DESC.createBuildRule(PARAMS, RESOLVER, arg);
+    ProjectFilesystem filesystem = EasyMock.createMock(ProjectFilesystem.class);
+    EasyMock.expect(filesystem.exists(EasyMock.anyObject(Path.class))).andReturn(true);
+    BuildRuleParams params = new FakeBuildRuleParamsBuilder(TARGET)
+        .setProjectFilesystem(filesystem)
+        .build();
+    EasyMock.replay(filesystem);
+    CxxLibrary lib = DESC.createBuildRule(params, resolver, arg);
 
     // Verify the preprocessable input is as expected.
-    CxxPreprocessorInput expectedCxxPreprocessorInput = new CxxPreprocessorInput(
-        ImmutableSet.<BuildTarget>of(),
-        ImmutableList.<String>of(),
-        ImmutableList.<String>of(),
-        ImmutableMap.<Path, SourcePath>of(),
-        ImmutableList.<Path>of(),
-        getIncludeDirs(arg));
+    CxxPreprocessorInput expectedCxxPreprocessorInput = CxxPreprocessorInput.builder()
+        .setSystemIncludeRoots(getIncludeDirs(arg))
+        .build();
     assertEquals(
         expectedCxxPreprocessorInput,
         lib.getCxxPreprocessorInput());
@@ -204,7 +218,7 @@ public class PrebuiltCxxLibraryDescriptionTest {
         ImmutableList.of(getSharedLibraryPath(arg).toString()));
     assertEquals(
         expectedStaticLinkableInput,
-        lib.getNativeLinkableInput(NativeLinkable.Type.STATIC));
+        lib.getNativeLinkableInput(CXX_PLATFORM.getLd(), NativeLinkable.Type.STATIC));
 
     // Verify shared native linkable input.
     NativeLinkableInput expectedSharedLinkableInput = new NativeLinkableInput(
@@ -212,7 +226,7 @@ public class PrebuiltCxxLibraryDescriptionTest {
         ImmutableList.of(getSharedLibraryPath(arg).toString()));
     assertEquals(
         expectedSharedLinkableInput,
-        lib.getNativeLinkableInput(NativeLinkable.Type.SHARED));
+        lib.getNativeLinkableInput(CXX_PLATFORM.getLd(), NativeLinkable.Type.SHARED));
 
     // Verify the python packageable components are correct.
     PythonPackageComponents expectedComponents = new PythonPackageComponents(
@@ -226,18 +240,21 @@ public class PrebuiltCxxLibraryDescriptionTest {
 
   @Test
   public void createBuildRuleIncludeDirs() {
+    BuildRuleResolver resolver = new BuildRuleResolver();
     PrebuiltCxxLibraryDescription.Arg arg = getDefaultArg();
     arg.includeDirs = Optional.of(ImmutableList.of("test"));
-    CxxLibrary lib = DESC.createBuildRule(PARAMS, RESOLVER, arg);
+    ProjectFilesystem filesystem = EasyMock.createMock(ProjectFilesystem.class);
+    EasyMock.expect(filesystem.exists(EasyMock.anyObject(Path.class))).andReturn(true);
+    BuildRuleParams params = new FakeBuildRuleParamsBuilder(TARGET)
+        .setProjectFilesystem(filesystem)
+        .build();
+    EasyMock.replay(filesystem);
+    CxxLibrary lib = DESC.createBuildRule(params, resolver, arg);
 
     // Verify the preprocessable input is as expected.
-    CxxPreprocessorInput expectedCxxPreprocessorInput = new CxxPreprocessorInput(
-        ImmutableSet.<BuildTarget>of(),
-        ImmutableList.<String>of(),
-        ImmutableList.<String>of(),
-        ImmutableMap.<Path, SourcePath>of(),
-        ImmutableList.<Path>of(),
-        getIncludeDirs(arg));
+    CxxPreprocessorInput expectedCxxPreprocessorInput = CxxPreprocessorInput.builder()
+        .setSystemIncludeRoots(getIncludeDirs(arg))
+        .build();
     assertEquals(
         expectedCxxPreprocessorInput,
         lib.getCxxPreprocessorInput());
@@ -248,7 +265,7 @@ public class PrebuiltCxxLibraryDescriptionTest {
         ImmutableList.of(getStaticLibraryPath(arg).toString()));
     assertEquals(
         expectedStaticLinkableInput,
-        lib.getNativeLinkableInput(NativeLinkable.Type.STATIC));
+        lib.getNativeLinkableInput(CXX_PLATFORM.getLd(), NativeLinkable.Type.STATIC));
 
     // Verify shared native linkable input.
     NativeLinkableInput expectedSharedLinkableInput = new NativeLinkableInput(
@@ -256,7 +273,7 @@ public class PrebuiltCxxLibraryDescriptionTest {
         ImmutableList.of(getSharedLibraryPath(arg).toString()));
     assertEquals(
         expectedSharedLinkableInput,
-        lib.getNativeLinkableInput(NativeLinkable.Type.SHARED));
+        lib.getNativeLinkableInput(CXX_PLATFORM.getLd(), NativeLinkable.Type.SHARED));
 
     // Verify the python packageable components are correct.
     PythonPackageComponents expectedComponents = new PythonPackageComponents(
@@ -268,6 +285,39 @@ public class PrebuiltCxxLibraryDescriptionTest {
     assertEquals(
         expectedComponents,
         lib.getPythonPackageComponents());
+  }
+
+  @Test
+  public void missingSharedLibsAreAutoBuilt() {
+    BuildRuleResolver resolver = new BuildRuleResolver();
+    PrebuiltCxxLibraryDescription.Arg arg = getDefaultArg();
+    ProjectFilesystem filesystem = new FakeProjectFilesystem();
+    BuildRuleParams params = new FakeBuildRuleParamsBuilder(TARGET)
+        .setProjectFilesystem(filesystem)
+        .build();
+    CxxLibrary lib = DESC.createBuildRule(params, resolver, arg);
+    NativeLinkableInput nativeLinkableInput = lib.getNativeLinkableInput(
+        CXX_PLATFORM.getLd(),
+        NativeLinkable.Type.SHARED);
+    SourcePath input = nativeLinkableInput.getInputs().get(0);
+    assertTrue(input instanceof BuildTargetSourcePath);
+    assertTrue(new SourcePathResolver(resolver).getRule(input).get() instanceof CxxLink);
+  }
+
+  @Test
+  public void missingSharedLibsAreNotAutoBuiltForHeaderOnlyRules() {
+    BuildRuleResolver resolver = new BuildRuleResolver();
+    PrebuiltCxxLibraryDescription.Arg arg = getDefaultArg();
+    arg.headerOnly = Optional.of(true);
+    ProjectFilesystem filesystem = new FakeProjectFilesystem();
+    BuildRuleParams params = new FakeBuildRuleParamsBuilder(TARGET)
+        .setProjectFilesystem(filesystem)
+        .build();
+    CxxLibrary lib = DESC.createBuildRule(params, resolver, arg);
+    NativeLinkableInput nativeLinkableInput = lib.getNativeLinkableInput(
+        CXX_PLATFORM.getLd(),
+        NativeLinkable.Type.SHARED);
+    assertTrue(nativeLinkableInput.getInputs().isEmpty());
   }
 
 }

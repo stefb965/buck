@@ -20,31 +20,36 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
-import com.facebook.buck.rules.ActionGraph;
+import com.facebook.buck.model.HasBuildTarget;
+import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Predicate;
+import com.google.common.base.Predicates;
+import com.google.common.collect.FluentIterable;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
 import java.io.IOException;
 
 /**
- * A subgraph of the full action graph, which is also a valid action graph.
+ * A subgraph of the full target graph, which is also a valid target graph.
  */
 public class PartialGraph {
 
-  private final ActionGraph graph;
+  private final TargetGraph graph;
   private final ImmutableSet<BuildTarget> targets;
 
   @VisibleForTesting
-  PartialGraph(ActionGraph graph, ImmutableSet<BuildTarget> targets) {
+  PartialGraph(TargetGraph graph, ImmutableSet<BuildTarget> targets) {
     this.graph = Preconditions.checkNotNull(graph);
     this.targets = Preconditions.checkNotNull(targets);
   }
 
-  public ActionGraph getActionGraph() {
+  public TargetGraph getTargetGraph() {
     return graph;
   }
 
@@ -61,19 +66,25 @@ public class PartialGraph {
       ImmutableMap<String, String> environment,
       boolean enableProfiling)
       throws BuildTargetException, BuildFileParseException, IOException, InterruptedException {
-    return createPartialGraph(
-        RuleJsonPredicates.alwaysTrue(),
-        projectFilesystem,
+
+    TargetGraph graph = parser.buildTargetGraphForTargetNodeSpecs(
+        ImmutableList.of(
+            new TargetNodePredicateSpec(
+                Predicates.<TargetNode<?>>alwaysTrue(),
+                projectFilesystem.getIgnorePaths())),
         includes,
-        parser,
         eventBus,
         console,
         environment,
         enableProfiling);
+
+    return new PartialGraph(
+        graph,
+        FluentIterable.from(graph.getNodes()).transform(HasBuildTarget.TO_TARGET).toSet());
   }
 
   public static PartialGraph createPartialGraph(
-      RuleJsonPredicate predicate,
+      Predicate<TargetNode<?>> predicate,
       ProjectFilesystem filesystem,
       Iterable<String> includes,
       Parser parser,
@@ -105,18 +116,18 @@ public class PartialGraph {
       Iterable<String> includes,
       Parser parser,
       BuckEventBus eventBus,
-      Console console, ImmutableMap<String, String> environment)
+      Console console,
+      ImmutableMap<String, String> environment)
       throws BuildTargetException, BuildFileParseException, IOException, InterruptedException {
     Preconditions.checkNotNull(parser);
 
-    // Now that the Parser is loaded up with the set of all build rules, use it to create a
-    // DependencyGraph of only the targets we want to build.
-    ActionGraph graph = parser.buildTargetGraph(
+    TargetGraph graph = parser.buildTargetGraphForBuildTargets(
         targets,
         includes,
         eventBus,
         console,
-        environment).buildActionGraph();
+        environment,
+        /* enableProfiling */ false);
 
     return new PartialGraph(graph, targets);
   }

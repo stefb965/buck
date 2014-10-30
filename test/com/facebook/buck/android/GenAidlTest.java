@@ -28,8 +28,10 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -41,7 +43,6 @@ import com.google.common.collect.ImmutableList;
 
 import org.junit.Test;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -58,7 +59,11 @@ public class GenAidlTest {
 
     BuildTarget target = BuildTargetFactory.newInstance("//java/com/example/base:IWhateverService");
     BuildRuleParams params = new FakeBuildRuleParamsBuilder(target).build();
-    GenAidl genAidlRule = new GenAidl(params, pathToAidl, importPath);
+    GenAidl genAidlRule = new GenAidl(
+        params,
+        new SourcePathResolver(new BuildRuleResolver()),
+        pathToAidl,
+        importPath);
 
     GenAidlDescription description = new GenAidlDescription();
     assertEquals(GenAidlDescription.TYPE, description.getBuildRuleType());
@@ -78,7 +83,7 @@ public class GenAidlTest {
     ExecutionContext executionContext = createMock(ExecutionContext.class);
     expect(executionContext.getAndroidPlatformTarget()).andReturn(androidPlatformTarget);
     expect(executionContext.getProjectFilesystem()).andReturn(
-        new ProjectFilesystem(new File(".")) {
+        new ProjectFilesystem(Paths.get(".")) {
           @Override
           public Path resolve(Path path) {
             return path;

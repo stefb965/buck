@@ -20,8 +20,6 @@ import static com.facebook.buck.rules.BuildableProperties.Kind.LIBRARY;
 
 import com.facebook.buck.android.AndroidPackageable;
 import com.facebook.buck.android.AndroidPackageableCollector;
-import com.facebook.buck.model.BuildTargetPattern;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbiRule;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AnnotationProcessingData;
@@ -37,7 +35,7 @@ import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.Sha1HashCode;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.util.Optionals;
@@ -47,7 +45,6 @@ import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -66,7 +63,6 @@ public class PrebuiltJar extends AbstractBuildRule
   private final Optional<SourcePath> sourceJar;
   private final Optional<SourcePath> gwtJar;
   private final Optional<String> javadocUrl;
-  private final ImmutableSet<BuildTargetPattern> visibilityPatterns;
   private final Supplier<ImmutableSetMultimap<JavaLibrary, Path>>
       transitiveClasspathEntriesSupplier;
 
@@ -77,16 +73,16 @@ public class PrebuiltJar extends AbstractBuildRule
 
   public PrebuiltJar(
       BuildRuleParams params,
+      SourcePathResolver resolver,
       SourcePath binaryJar,
       Optional<SourcePath> sourceJar,
       Optional<SourcePath> gwtJar,
       Optional<String> javadocUrl) {
-    super(params);
+    super(params, resolver);
     this.binaryJar = Preconditions.checkNotNull(binaryJar);
     this.sourceJar = Preconditions.checkNotNull(sourceJar);
     this.gwtJar = Preconditions.checkNotNull(gwtJar);
     this.javadocUrl = Preconditions.checkNotNull(javadocUrl);
-    this.visibilityPatterns = Preconditions.checkNotNull(params.getVisibilityPatterns());
 
     transitiveClasspathEntriesSupplier =
         Suppliers.memoize(new Supplier<ImmutableSetMultimap<JavaLibrary, Path>>() {
@@ -94,7 +90,7 @@ public class PrebuiltJar extends AbstractBuildRule
           public ImmutableSetMultimap<JavaLibrary, Path> get() {
             ImmutableSetMultimap.Builder<JavaLibrary, Path> classpathEntries =
                 ImmutableSetMultimap.builder();
-            classpathEntries.put(PrebuiltJar.this, getBinaryJar().resolve());
+            classpathEntries.put(PrebuiltJar.this, getResolver().getPath(getBinaryJar()));
             classpathEntries.putAll(Classpaths.getClasspathEntries(
                     PrebuiltJar.this.getDeclaredDeps()));
             return classpathEntries.build();
@@ -107,7 +103,7 @@ public class PrebuiltJar extends AbstractBuildRule
           public ImmutableSetMultimap<JavaLibrary, Path> get() {
             ImmutableSetMultimap.Builder<JavaLibrary, Path> classpathEntries =
                 ImmutableSetMultimap.builder();
-            classpathEntries.put(PrebuiltJar.this, getBinaryJar().resolve());
+            classpathEntries.put(PrebuiltJar.this, getResolver().getPath(getBinaryJar()));
             return classpathEntries.build();
           }
         });
@@ -129,10 +125,6 @@ public class PrebuiltJar extends AbstractBuildRule
     return sourceJar;
   }
 
-  public Optional<SourcePath> getGwtJar() {
-    return gwtJar;
-  }
-
   public Optional<String> getJavadocUrl() {
     return javadocUrl;
   }
@@ -143,7 +135,7 @@ public class PrebuiltJar extends AbstractBuildRule
     inputsToCompareToOutput.add(binaryJar);
     Optionals.addIfPresent(sourceJar, inputsToCompareToOutput);
     Optionals.addIfPresent(gwtJar, inputsToCompareToOutput);
-    return SourcePaths.filterInputsToCompareToOutput(inputsToCompareToOutput.build());
+    return getResolver().filterInputsToCompareToOutput(inputsToCompareToOutput.build());
   }
 
   @Override
@@ -183,11 +175,11 @@ public class PrebuiltJar extends AbstractBuildRule
 
   @Override
   public ImmutableSetMultimap<JavaLibrary, Path> getOutputClasspathEntries() {
-    return ImmutableSetMultimap.<JavaLibrary, Path>of(this, getBinaryJar().resolve());
+    return ImmutableSetMultimap.<JavaLibrary, Path>of(this, getResolver().getPath(getBinaryJar()));
   }
 
   @Override
-  public ImmutableSortedSet<SourcePath> getJavaSrcs() {
+  public ImmutableSortedSet<Path> getJavaSrcs() {
     return ImmutableSortedSet.of();
   }
 
@@ -222,8 +214,8 @@ public class PrebuiltJar extends AbstractBuildRule
 
   @Override
   public void addToCollector(AndroidPackageableCollector collector) {
-    collector.addClasspathEntry(this, getBinaryJar().resolve());
-    collector.addPathToThirdPartyJar(getBuildTarget(), getBinaryJar().resolve());
+    collector.addClasspathEntry(this, getResolver().getPath(getBinaryJar()));
+    collector.addPathToThirdPartyJar(getBuildTarget(), getResolver().getPath(getBinaryJar()));
   }
 
   class CalculateAbiStep implements Step {
@@ -241,7 +233,7 @@ public class PrebuiltJar extends AbstractBuildRule
       // the contents of its .class files rather than just hashing its contents.
       String fileSha1;
       try {
-        fileSha1 = context.getProjectFilesystem().computeSha1(binaryJar.resolve());
+        fileSha1 = context.getProjectFilesystem().computeSha1(getResolver().getPath(binaryJar));
       } catch (IOException e) {
         context.logError(e, "Failed to calculate ABI for %s.", binaryJar);
         return 1;
@@ -267,7 +259,7 @@ public class PrebuiltJar extends AbstractBuildRule
 
   @Override
   public Path getPathToOutputFile() {
-    return getBinaryJar().resolve();
+    return getResolver().getPath(getBinaryJar());
   }
 
   @Override
@@ -277,14 +269,6 @@ public class PrebuiltJar extends AbstractBuildRule
         .setReflectively("sourceJar", sourceJar)
         .setReflectively("gwtJar", gwtJar)
         .set("javadocUrl", javadocUrl);
-  }
-
-  @Override
-  public boolean isVisibleTo(JavaLibrary other) {
-    return BuildTargets.isVisibleTo(
-        getBuildTarget(),
-        visibilityPatterns,
-        other.getBuildTarget());
   }
 
 }

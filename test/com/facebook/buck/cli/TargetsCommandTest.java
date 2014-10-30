@@ -33,13 +33,13 @@ import com.facebook.buck.java.PrebuiltJarBuilder;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.parser.BuildTargetParseException;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.parser.ParseContext;
 import com.facebook.buck.parser.PartialGraph;
 import com.facebook.buck.parser.PartialGraphFactory;
+import com.facebook.buck.parser.TargetGraph;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.BuildRule;
@@ -49,10 +49,12 @@ import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeRepositoryFactory;
 import com.facebook.buck.rules.NoopArtifactCache;
 import com.facebook.buck.rules.Repository;
+import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TestRepositoryBuilder;
 import com.facebook.buck.testutil.BuckTestConstant;
 import com.facebook.buck.testutil.FakeFileHashCache;
-import com.facebook.buck.testutil.RuleMap;
+import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.AndroidDirectoryResolver;
 import com.facebook.buck.util.BuckConstant;
@@ -63,13 +65,10 @@ import com.fasterxml.jackson.core.JsonParser.Feature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Charsets;
-import com.google.common.base.Function;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Iterables;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.io.Files;
 
@@ -82,8 +81,8 @@ import java.io.File;
 import java.io.IOException;
 import java.io.Reader;
 import java.io.StringReader;
+import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.List;
 import java.util.SortedMap;
 
 public class TargetsCommandTest {
@@ -99,13 +98,15 @@ public class TargetsCommandTest {
   private SortedMap<String, BuildRule> buildBuildTargets(String outputFile,
       String name,
       String baseName) {
+    SourcePathResolver pathResolver = new SourcePathResolver(new BuildRuleResolver());
     SortedMap<String, BuildRule> buildRules = Maps.newTreeMap();
     BuildTarget buildTarget = BuildTarget.builder(baseName, name).build();
     FakeBuildRule buildRule = new FakeBuildRule(
         JavaLibraryDescription.TYPE,
         buildTarget,
-        ImmutableSortedSet.<BuildRule>of(),
-        ImmutableSet.<BuildTargetPattern>of());
+        pathResolver,
+        ImmutableSortedSet.<BuildRule>of()
+    );
     buildRule.setOutputFile(outputFile);
 
     buildRules.put(buildTarget.getFullyQualifiedName(), buildRule);
@@ -163,7 +164,7 @@ public class TargetsCommandTest {
         .replace("{$OUTPUT_FILE}", outputFile);
     JsonNode expected = objectMapper.readTree(
         objectMapper.getJsonFactory().createJsonParser(expectedJson)
-        .enable(Feature.ALLOW_COMMENTS));
+            .enable(Feature.ALLOW_COMMENTS));
 
     assertEquals("Output from targets command should match expected JSON.", expected, observed);
     assertEquals("Nothing should be printed to stderr.",
@@ -219,7 +220,8 @@ public class TargetsCommandTest {
 
     String output = console.getTextWrittenToStdOut();
     assertEquals("[\n]\n", output);
-    assertEquals("unable to find rule for target //:nonexistent\n",
+    assertEquals(
+        "unable to find rule for target //:nonexistent\n",
         console.getTextWrittenToStdErr());
   }
 
@@ -271,97 +273,119 @@ public class TargetsCommandTest {
         "//:test-libarry", options));
   }
 
-  private PartialGraph createGraphFromBuildRules(BuildRuleResolver ruleResolver,
-      List<String> targets) {
-    ImmutableSet<BuildTarget> buildTargets = ImmutableSet.copyOf(
-        Iterables.transform(
-            targets,
-            new Function<String, BuildTarget>() {
-              @Override
-              public BuildTarget apply(String target) {
-                return BuildTargetFactory.newInstance(target);
-              }
-            }));
-
-    ActionGraph actionGraph = RuleMap.createGraphFromBuildRules(ruleResolver);
-    return PartialGraphFactory.newInstance(actionGraph, buildTargets);
-  }
-
   @Test
   public void testGetMachingBuildTargets() throws CmdLineException, IOException {
-    BuildRuleResolver ruleResolver = new BuildRuleResolver();
-    BuildRule prebuiltJar = PrebuiltJarBuilder
-        .createBuilder(BuildTargetFactory.newInstance("//empty:empty"))
+    BuckEventBus eventBus = BuckEventBusFactory.newInstance();
+
+    BuildTarget prebuiltJarTarget = BuildTargetFactory.newInstance("//empty:empty");
+    TargetNode<?> prebuiltJarNode = PrebuiltJarBuilder
+        .createBuilder(prebuiltJarTarget)
         .setBinaryJar(Paths.get("spoof"))
-        .build(ruleResolver);
-    BuildRule javaLibrary = JavaLibraryBuilder
-        .createBuilder(BuildTargetFactory.newInstance("//javasrc:java-library"))
+        .build();
+
+    BuildTarget javaLibraryTarget = BuildTargetFactory.newInstance("//javasrc:java-library");
+    TargetNode<?> javaLibraryNode = JavaLibraryBuilder
+        .createBuilder(javaLibraryTarget)
         .addSrc(Paths.get("javasrc/JavaLibrary.java"))
-        .addDep(prebuiltJar.getBuildTarget())
-        .build(ruleResolver);
-    JavaTestBuilder
-        .newJavaTestBuilder(BuildTargetFactory.newInstance("//javatest:test-java-library"))
+        .addDep(prebuiltJarTarget)
+        .build();
+
+    BuildTarget javaTestTarget = BuildTargetFactory.newInstance("//javatest:test-java-library");
+    TargetNode<?> javaTestNode = JavaTestBuilder
+        .createBuilder(javaTestTarget)
         .addSrc(Paths.get("javatest/TestJavaLibrary.java"))
-        .addDep(javaLibrary.getBuildTarget())
-        .build(ruleResolver);
+        .addDep(javaLibraryTarget)
+        .build();
 
-    List<String> targets = Lists.newArrayList();
-    targets.add("//empty:empty");
-    targets.add("//javasrc:java-library");
-    targets.add("//javatest:test-java-library");
+    ImmutableSet<TargetNode<?>>nodes = ImmutableSet.of(
+        prebuiltJarNode,
+        javaLibraryNode,
+        javaTestNode);
+    ImmutableSet<BuildTarget> targets = ImmutableSet.of(
+        prebuiltJarTarget,
+        javaLibraryTarget,
+        javaTestTarget);
 
-    PartialGraph graph = createGraphFromBuildRules(ruleResolver, targets);
+    TargetGraph targetGraph = TargetGraphFactory.newInstance(nodes);
+    ActionGraph actionGraph = targetGraph.getActionGraph(eventBus);
+    PartialGraph graph = PartialGraphFactory.newInstance(targetGraph, targets);
     ImmutableSet<BuildRuleType> buildRuleTypes = ImmutableSet.of();
 
-    ImmutableSet<String> referencedFiles;
+    ImmutableSet<Path> referencedFiles;
     ImmutableSet<BuildTarget> targetBuildRules = ImmutableSet.of();
 
     // No target depends on the referenced file.
-    referencedFiles = ImmutableSet.of("excludesrc/CannotFind.java");
+    referencedFiles = ImmutableSet.of(Paths.get("excludesrc/CannotFind.java"));
     SortedMap<String, BuildRule> matchingBuildRules =
         targetsCommand.getMatchingBuildRules(
-            graph.getActionGraph(),
-            new TargetsCommandPredicate(graph, buildRuleTypes, referencedFiles, targetBuildRules));
+            actionGraph,
+            new TargetsCommandPredicate(
+                graph,
+                buildRuleTypes,
+                referencedFiles,
+                targetBuildRules,
+                eventBus));
     assertTrue(matchingBuildRules.isEmpty());
 
     // Only test-android-library target depends on the referenced file.
-    referencedFiles = ImmutableSet.of("javatest/TestJavaLibrary.java");
+    referencedFiles = ImmutableSet.of(Paths.get("javatest/TestJavaLibrary.java"));
     matchingBuildRules =
         targetsCommand.getMatchingBuildRules(
-            graph.getActionGraph(),
-            new TargetsCommandPredicate(graph, buildRuleTypes, referencedFiles, targetBuildRules));
+            actionGraph,
+            new TargetsCommandPredicate(
+                graph,
+                buildRuleTypes,
+                referencedFiles,
+                targetBuildRules,
+                eventBus));
     assertEquals(
         ImmutableSet.of("//javatest:test-java-library"),
         matchingBuildRules.keySet());
 
     // The test-android-library target indirectly depends on the referenced file,
     // while test-java-library target directly depends on the referenced file.
-    referencedFiles = ImmutableSet.of("javasrc/JavaLibrary.java");
+    referencedFiles = ImmutableSet.of(Paths.get("javasrc/JavaLibrary.java"));
     matchingBuildRules =
         targetsCommand.getMatchingBuildRules(
-            graph.getActionGraph(),
-            new TargetsCommandPredicate(graph, buildRuleTypes, referencedFiles, targetBuildRules));
+            actionGraph,
+            new TargetsCommandPredicate(
+                graph,
+                buildRuleTypes,
+                referencedFiles,
+                targetBuildRules,
+                eventBus));
     assertEquals(
         ImmutableSet.of("//javatest:test-java-library", "//javasrc:java-library"),
         matchingBuildRules.keySet());
 
     // Verify that BUCK files show up as referenced_files.
-    referencedFiles = ImmutableSet.of("javasrc/" + BuckConstant.BUILD_RULES_FILE_NAME);
+    referencedFiles = ImmutableSet.of(Paths.get("javasrc/" + BuckConstant.BUILD_RULES_FILE_NAME));
     matchingBuildRules =
         targetsCommand.getMatchingBuildRules(
-            graph.getActionGraph(),
-            new TargetsCommandPredicate(graph, buildRuleTypes, referencedFiles, targetBuildRules));
+            actionGraph,
+            new TargetsCommandPredicate(
+                graph,
+                buildRuleTypes,
+                referencedFiles,
+                targetBuildRules,
+                eventBus));
     assertEquals(
         ImmutableSet.of("//javatest:test-java-library", "//javasrc:java-library"),
         matchingBuildRules.keySet());
 
     // Output target only need to depend on one referenced file.
     referencedFiles = ImmutableSet.of(
-        "javatest/TestJavaLibrary.java", "othersrc/CannotFind.java");
+        Paths.get("javatest/TestJavaLibrary.java"),
+        Paths.get("othersrc/CannotFind.java"));
     matchingBuildRules =
         targetsCommand.getMatchingBuildRules(
-            graph.getActionGraph(),
-            new TargetsCommandPredicate(graph, buildRuleTypes, referencedFiles, targetBuildRules));
+            actionGraph,
+            new TargetsCommandPredicate(
+                graph,
+                buildRuleTypes,
+                referencedFiles,
+                targetBuildRules,
+                eventBus));
     assertEquals(
         ImmutableSet.of("//javatest:test-java-library"),
         matchingBuildRules.keySet());
@@ -369,11 +393,13 @@ public class TargetsCommandTest {
     // If no referenced file, means this filter is disabled, we can find all targets.
     matchingBuildRules =
         targetsCommand.getMatchingBuildRules(
-            graph.getActionGraph(),
-            new TargetsCommandPredicate(graph,
+            actionGraph,
+            new TargetsCommandPredicate(
+                graph,
                 buildRuleTypes,
-                ImmutableSet.<String>of(),
-                targetBuildRules));
+                ImmutableSet.<Path>of(),
+                targetBuildRules,
+                eventBus));
     assertEquals(
         ImmutableSet.of(
             "//javatest:test-java-library",
@@ -384,12 +410,13 @@ public class TargetsCommandTest {
     // Specify java_test, java_library as type filters.
     matchingBuildRules =
         targetsCommand.getMatchingBuildRules(
-            graph.getActionGraph(),
+            actionGraph,
             new TargetsCommandPredicate(
                 graph,
                 ImmutableSet.of(JavaTestDescription.TYPE, JavaLibraryDescription.TYPE),
-                ImmutableSet.<String>of(),
-                targetBuildRules));
+                ImmutableSet.<Path>of(),
+                targetBuildRules,
+                eventBus));
     assertEquals(
         ImmutableSet.of(
             "//javatest:test-java-library",
@@ -400,24 +427,26 @@ public class TargetsCommandTest {
     // Specify java_test, java_library, and a rule name as type filters.
     matchingBuildRules =
         targetsCommand.getMatchingBuildRules(
-            graph.getActionGraph(),
+            actionGraph,
             new TargetsCommandPredicate(
                 graph,
                 ImmutableSet.of(JavaTestDescription.TYPE, JavaLibraryDescription.TYPE),
-                ImmutableSet.<String>of(),
-                ImmutableSet.of(BuildTargetFactory.newInstance("//javasrc:java-library"))));
+                ImmutableSet.<Path>of(),
+                ImmutableSet.of(BuildTargetFactory.newInstance("//javasrc:java-library")),
+                eventBus));
     assertEquals(
         ImmutableSet.of("//javasrc:java-library"), matchingBuildRules.keySet());
 
     // Only filter by BuildTarget
     matchingBuildRules =
         targetsCommand.getMatchingBuildRules(
-            graph.getActionGraph(),
+            actionGraph,
             new TargetsCommandPredicate(
                 graph,
                 ImmutableSet.<BuildRuleType>of(),
-                ImmutableSet.<String>of(),
-                ImmutableSet.of(BuildTargetFactory.newInstance("//javasrc:java-library"))));
+                ImmutableSet.<Path>of(),
+                ImmutableSet.of(BuildTargetFactory.newInstance("//javasrc:java-library")),
+                eventBus));
     assertEquals(
         ImmutableSet.of("//javasrc:java-library"), matchingBuildRules.keySet());
 
@@ -425,12 +454,13 @@ public class TargetsCommandTest {
     // Filter by BuildTarget and Referenced Files
     matchingBuildRules =
         targetsCommand.getMatchingBuildRules(
-            graph.getActionGraph(),
+            actionGraph,
             new TargetsCommandPredicate(
                 graph,
                 ImmutableSet.<BuildRuleType>of(),
-                ImmutableSet.of("javatest/TestJavaLibrary.java"),
-                ImmutableSet.of(BuildTargetFactory.newInstance("//javasrc:java-library"))));
+                ImmutableSet.of(Paths.get("javatest/TestJavaLibrary.java")),
+                ImmutableSet.of(BuildTargetFactory.newInstance("//javasrc:java-library")),
+                eventBus));
     assertEquals(
         ImmutableSet.<String>of(), matchingBuildRules.keySet());
 

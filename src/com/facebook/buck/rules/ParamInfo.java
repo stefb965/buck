@@ -28,10 +28,11 @@ import com.google.common.base.Preconditions;
 
 import java.lang.reflect.Field;
 import java.nio.file.Path;
+import java.util.Map;
 
 import javax.annotation.Nullable;
 
-class ParamInfo implements Comparable<ParamInfo> {
+class ParamInfo<T> implements Comparable<ParamInfo<T>> {
 
   private final TypeCoercer<?> typeCoercer;
 
@@ -76,7 +77,24 @@ class ParamInfo implements Comparable<ParamInfo> {
     return typeCoercer.getOutputClass();
   }
 
-  public void traverse(Traversal traversal, @Nullable Object object) {
+  public void traverse(Traversal traversal, T dto) {
+    traverseHelper(typeCoercer, traversal, dto);
+  }
+
+  @SuppressWarnings("unchecked")
+  private <U> void traverseHelper(TypeCoercer<U> typeCoercer, Traversal traversal, T dto) {
+    U object;
+    try {
+      if (isOptional) {
+        Optional<U> optional = (Optional<U>) field.get(dto);
+        object = optional.orNull();
+      } else {
+        object = (U) field.get(dto);
+      }
+    } catch (ReflectiveOperationException e) {
+      throw new RuntimeException(e);
+    }
+
     if (object != null) {
       typeCoercer.traverse(object, traversal);
     }
@@ -87,31 +105,29 @@ class ParamInfo implements Comparable<ParamInfo> {
   }
 
   public void setFromParams(
-      BuildRuleResolver ruleResolver,
       ProjectFilesystem filesystem,
+      BuildRuleFactoryParams params,
       Object arg,
-      BuildRuleFactoryParams params) throws ParamInfoException {
+      Map<String, ?> instance
+      ) throws ParamInfoException {
     set(
         params.buildTargetParser,
-        ruleResolver,
         filesystem,
         params.target.getBasePath(),
         arg,
-        params.getNullableRawAttribute(name));
+        instance.get(name));
   }
 
   /**
    * Sets a single property of the {@code dto}, coercing types as necessary.
-   *
-   * @param ruleResolver {@link BuildRuleResolver} used for {@link BuildRule} instances.
-   * @param filesystem {@link ProjectFilesystem} used to ensure {@link Path}s exist.
+   * @param filesystem {@link com.facebook.buck.util.ProjectFilesystem} used to ensure
+   *        {@link java.nio.file.Path}s exist.
    * @param pathRelativeToProjectRoot The path relative to the project root that this DTO is for.
    * @param dto The constructor DTO on which the value should be set.
    * @param value The value, which may be coerced depending on the type on {@code dto}.
    */
   public void set(
       BuildTargetParser buildTargetParser,
-      BuildRuleResolver ruleResolver,
       ProjectFilesystem filesystem,
       Path pathRelativeToProjectRoot,
       Object dto,
@@ -132,7 +148,6 @@ class ParamInfo implements Comparable<ParamInfo> {
       try {
         result = typeCoercer.coerce(
             buildTargetParser,
-            ruleResolver,
             filesystem,
             pathRelativeToProjectRoot,
             value);
@@ -155,7 +170,7 @@ class ParamInfo implements Comparable<ParamInfo> {
    * Only valid when comparing {@link ParamInfo} instances from the same description.
    */
   @Override
-  public int compareTo(ParamInfo that) {
+  public int compareTo(ParamInfo<T> that) {
     return this.name.compareTo(that.name);
   }
 
@@ -170,7 +185,7 @@ class ParamInfo implements Comparable<ParamInfo> {
       return false;
     }
 
-    ParamInfo that = (ParamInfo) obj;
+    ParamInfo<?> that = (ParamInfo<?>) obj;
     return name.equals(that.getName());
   }
 

@@ -24,12 +24,14 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleParamsFactory;
+import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeRuleKeyBuilderFactory;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TestSourcePath;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
@@ -61,15 +63,17 @@ public class ThriftCompilerTest {
 
   private RuleKey.Builder.RuleKeyPair generateRuleKey(
       RuleKeyBuilderFactory factory,
+      SourcePathResolver resolver,
       AbstractBuildRule rule) {
 
-    RuleKey.Builder builder = factory.newInstance(rule);
+    RuleKey.Builder builder = factory.newInstance(rule, resolver);
     rule.appendToRuleKey(builder);
     return builder.build();
   }
 
   @Test
   public void testThatInputChangesCauseRuleKeyChanges() {
+    SourcePathResolver resolver = new SourcePathResolver(new BuildRuleResolver());
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     BuildRuleParams params = BuildRuleParamsFactory.createTrivialBuildRuleParams(target);
     RuleKeyBuilderFactory ruleKeyBuilderFactory =
@@ -85,8 +89,10 @@ public class ThriftCompilerTest {
     // Generate a rule key for the defaults.
     RuleKey.Builder.RuleKeyPair defaultRuleKey = generateRuleKey(
         ruleKeyBuilderFactory,
+        resolver,
         new ThriftCompiler(
             params,
+            resolver,
             DEFAULT_COMPILER,
             DEFAULT_FLAGS,
             DEFAULT_OUTPUT_DIR,
@@ -99,8 +105,10 @@ public class ThriftCompilerTest {
     // Verify that changing the compiler causes a rulekey change.
     RuleKey.Builder.RuleKeyPair compilerChange = generateRuleKey(
         ruleKeyBuilderFactory,
+        resolver,
         new ThriftCompiler(
             params,
+            resolver,
             new TestSourcePath("different"),
             DEFAULT_FLAGS,
             DEFAULT_OUTPUT_DIR,
@@ -114,8 +122,10 @@ public class ThriftCompilerTest {
     // Verify that changing the flags causes a rulekey change.
     RuleKey.Builder.RuleKeyPair flagsChange = generateRuleKey(
         ruleKeyBuilderFactory,
+        resolver,
         new ThriftCompiler(
             params,
+            resolver,
             DEFAULT_COMPILER,
             ImmutableList.of("--different"),
             DEFAULT_OUTPUT_DIR,
@@ -129,8 +139,10 @@ public class ThriftCompilerTest {
     // Verify that changing the flags causes a rulekey change.
     RuleKey.Builder.RuleKeyPair outputDirChange = generateRuleKey(
         ruleKeyBuilderFactory,
+        resolver,
         new ThriftCompiler(
             params,
+            resolver,
             DEFAULT_COMPILER,
             DEFAULT_FLAGS,
             Paths.get("different-dir"),
@@ -144,8 +156,10 @@ public class ThriftCompilerTest {
     // Verify that changing the input causes a rulekey change.
     RuleKey.Builder.RuleKeyPair inputChange = generateRuleKey(
         ruleKeyBuilderFactory,
+        resolver,
         new ThriftCompiler(
             params,
+            resolver,
             DEFAULT_COMPILER,
             DEFAULT_FLAGS,
             DEFAULT_OUTPUT_DIR,
@@ -159,8 +173,10 @@ public class ThriftCompilerTest {
     // Verify that changing the input causes a rulekey change.
     RuleKey.Builder.RuleKeyPair languageChange = generateRuleKey(
         ruleKeyBuilderFactory,
+        resolver,
         new ThriftCompiler(
             params,
+            resolver,
             DEFAULT_COMPILER,
             DEFAULT_FLAGS,
             DEFAULT_OUTPUT_DIR,
@@ -174,8 +190,10 @@ public class ThriftCompilerTest {
     // Verify that changing the input causes a rulekey change.
     RuleKey.Builder.RuleKeyPair optionsChange = generateRuleKey(
         ruleKeyBuilderFactory,
+        resolver,
         new ThriftCompiler(
             params,
+            resolver,
             DEFAULT_COMPILER,
             DEFAULT_FLAGS,
             DEFAULT_OUTPUT_DIR,
@@ -190,8 +208,10 @@ public class ThriftCompilerTest {
     // different mechanism to track header changes.
     RuleKey.Builder.RuleKeyPair includeRootsChange = generateRuleKey(
         ruleKeyBuilderFactory,
+        resolver,
         new ThriftCompiler(
             params,
+            resolver,
             DEFAULT_COMPILER,
             DEFAULT_FLAGS,
             DEFAULT_OUTPUT_DIR,
@@ -205,8 +225,10 @@ public class ThriftCompilerTest {
     // Verify that changing the name of the include causes a rulekey change.
     RuleKey.Builder.RuleKeyPair includesKeyChange = generateRuleKey(
         ruleKeyBuilderFactory,
+        resolver,
         new ThriftCompiler(
             params,
+            resolver,
             DEFAULT_COMPILER,
             DEFAULT_FLAGS,
             DEFAULT_OUTPUT_DIR,
@@ -222,8 +244,10 @@ public class ThriftCompilerTest {
     // Verify that changing the contents of an include causes a rulekey change.
     RuleKey.Builder.RuleKeyPair includesValueChange = generateRuleKey(
         ruleKeyBuilderFactory,
+        resolver,
         new ThriftCompiler(
             params,
+            resolver,
             DEFAULT_COMPILER,
             DEFAULT_FLAGS,
             DEFAULT_OUTPUT_DIR,
@@ -239,11 +263,13 @@ public class ThriftCompilerTest {
 
   @Test
   public void thatCorrectBuildStepsAreUsed() {
+    SourcePathResolver pathResolver = new SourcePathResolver(new BuildRuleResolver());
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     BuildRuleParams params = BuildRuleParamsFactory.createTrivialBuildRuleParams(target);
 
     ThriftCompiler thriftCompiler = new ThriftCompiler(
         params,
+        pathResolver,
         DEFAULT_COMPILER,
         DEFAULT_FLAGS,
         DEFAULT_OUTPUT_DIR,
@@ -256,10 +282,10 @@ public class ThriftCompilerTest {
     ImmutableList<Step> expected = ImmutableList.of(
         new MakeCleanDirectoryStep(DEFAULT_OUTPUT_DIR),
         new ThriftCompilerStep(
-            DEFAULT_COMPILER.resolve(),
+            pathResolver.getPath(DEFAULT_COMPILER),
             DEFAULT_FLAGS,
             DEFAULT_OUTPUT_DIR,
-            DEFAULT_INPUT.resolve(),
+            pathResolver.getPath(DEFAULT_INPUT),
             DEFAULT_LANGUAGE,
             DEFAULT_OPTIONS,
             DEFAULT_INCLUDE_ROOTS));

@@ -19,7 +19,9 @@ import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
+import com.google.common.collect.ImmutableCollection;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Objects;
 import java.util.StringTokenizer;
@@ -34,8 +36,6 @@ public class DefaultAndroidDirectoryResolver implements AndroidDirectoryResolver
 
   private final Supplier<Optional<Path>> sdkSupplier;
   private final Supplier<Optional<Path>> ndkSupplier;
-
-
 
   public DefaultAndroidDirectoryResolver(
       ProjectFilesystem projectFilesystem,
@@ -57,7 +57,7 @@ public class DefaultAndroidDirectoryResolver implements AndroidDirectoryResolver
         Suppliers.memoize(new Supplier<Optional<Path>>() {
           @Override
           public Optional<Path> get() {
-            return getNdkPathFromNdkDir().or(getNdkPathFromNdkRepository());
+            return getNdkPathFromNdkRepository().or(getNdkPathFromNdkDir());
           }
         });
   }
@@ -150,10 +150,18 @@ public class DefaultAndroidDirectoryResolver implements AndroidDirectoryResolver
     if (repositoryPathOptional.isPresent()) {
       Path repositoryPath = repositoryPathOptional.get();
 
-      String newestVersion = "";
+      ImmutableCollection<Path> repositoryPathContents;
+      try {
+        repositoryPathContents = projectFilesystem.getDirectoryContents(repositoryPath);
+      } catch (IOException e) {
+        throw new HumanReadableException(
+            e,
+            "Failed to read the Android NDK repository directory: %s",
+            repositoryPath);
+      }
 
-      for (Path potentialNdkPath :
-          Preconditions.checkNotNull(projectFilesystem.getDirectoryContents(repositoryPath))) {
+      String newestVersion = "";
+      for (Path potentialNdkPath : repositoryPathContents) {
         if (potentialNdkPath.toFile().isDirectory()) {
           Optional<String> ndkVersion = findNdkVersionFromPath(potentialNdkPath);
           // For each directory found, first check to see if it is in fact something we

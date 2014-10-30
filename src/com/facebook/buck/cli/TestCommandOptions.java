@@ -16,11 +16,12 @@
 
 package com.facebook.buck.cli;
 
-import com.facebook.buck.test.CoverageReportFormat;
 import com.facebook.buck.java.DefaultJavaPackageFinder;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.step.TargetDevice;
+import com.facebook.buck.test.CoverageReportFormat;
 import com.facebook.buck.test.selectors.TestSelectorList;
+import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Optional;
 
 import org.kohsuke.args4j.Option;
@@ -88,13 +89,23 @@ public class TestCommandOptions extends BuildCommandOptions {
           "that are found in the transitive build graph are run.")
   private boolean noRunTransitive;
 
+  @Option(
+      name = "--shuffle",
+      usage =
+          "Randomize the order in which test classes are executed." +
+          "WARNING: only works for Java tests!")
+  private boolean isShufflingTests;
+
   @AdditionalOptions
+  @SuppressFieldNotInitialized
   private TargetDeviceOptions targetDeviceOptions;
 
   @AdditionalOptions
+  @SuppressFieldNotInitialized
   private TestSelectorOptions testSelectorOptions;
 
   @AdditionalOptions
+  @SuppressFieldNotInitialized
   private TestLabelOptions testLabelOptions;
 
   public TestCommandOptions(BuckConfig buckConfig) {
@@ -177,6 +188,10 @@ public class TestCommandOptions extends BuildCommandOptions {
 
   public boolean isRunningTransitive() {
     return isRunAllTests() || !noRunTransitive;
+  }
+
+  public boolean isShufflingTests() {
+    return isShufflingTests;
   }
 
   public boolean shouldExcludeWin() {

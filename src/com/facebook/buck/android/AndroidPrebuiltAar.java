@@ -22,8 +22,8 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.Sha1HashCode;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.google.common.base.Optional;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -38,11 +38,13 @@ public class AndroidPrebuiltAar extends AndroidLibrary implements HasAndroidReso
 
   public AndroidPrebuiltAar(
       BuildRuleParams androidLibraryParams,
+      SourcePathResolver resolver,
       Path proguardConfig,
       PrebuiltJar prebuiltJar,
       AndroidResource androidResource) {
     super(
         androidLibraryParams,
+        resolver,
         /* srcs */ ImmutableSortedSet.<SourcePath>of(),
         /* resources */ ImmutableSortedSet.<SourcePath>of(),
         Optional.of(proguardConfig),
@@ -54,7 +56,7 @@ public class AndroidPrebuiltAar extends AndroidLibrary implements HasAndroidReso
         /* resourcesRoot */ Optional.<Path>absent(),
         /* manifestFile */ Optional.<SourcePath>absent(),
         /* isPrebuiltAar */ true);
-    this.androidResource = Preconditions.checkNotNull(androidResource);
+    this.androidResource = androidResource;
   }
 
   @Override

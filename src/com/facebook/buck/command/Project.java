@@ -38,6 +38,7 @@ import com.facebook.buck.rules.AnnotationProcessingData;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.ExportDependencies;
 import com.facebook.buck.rules.ProjectConfig;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourceRoot;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
@@ -59,6 +60,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -130,6 +132,7 @@ public class Project {
    */
   private static final boolean GENERATE_PROPERTIES_FILES = false;
 
+  private final SourcePathResolver resolver;
   private final ImmutableSet<ProjectConfig> rules;
   private final ActionGraph actionGraph;
   private final BuildFileTree buildFileTree;
@@ -143,7 +146,9 @@ public class Project {
   private final String pythonInterpreter;
   private final ObjectMapper objectMapper;
 
-  public Project(ImmutableSet<ProjectConfig> rules,
+  public Project(
+      SourcePathResolver resolver,
+      ImmutableSet<ProjectConfig> rules,
       ActionGraph actionGraph,
       Map<Path, String> basePathToAliasMap,
       JavaPackageFinder javaPackageFinder,
@@ -153,8 +158,9 @@ public class Project {
       Optional<String> pathToPostProcessScript,
       String pythonInterpreter,
       ObjectMapper objectMapper) {
-    this.rules = Preconditions.checkNotNull(rules);
-    this.actionGraph = Preconditions.checkNotNull(actionGraph);
+    this.resolver = resolver;
+    this.rules = rules;
+    this.actionGraph = actionGraph;
     this.buildFileTree = new InMemoryBuildFileTree(
         Iterables.transform(
             actionGraph.getNodes(),
@@ -166,14 +172,14 @@ public class Project {
             }
         ));
     this.basePathToAliasMap = ImmutableMap.copyOf(basePathToAliasMap);
-    this.javaPackageFinder = Preconditions.checkNotNull(javaPackageFinder);
-    this.executionContext = Preconditions.checkNotNull(executionContext);
-    this.projectFilesystem = Preconditions.checkNotNull(projectFilesystem);
-    this.pathToDefaultAndroidManifest = Preconditions.checkNotNull(pathToDefaultAndroidManifest);
-    this.pathToPostProcessScript = Preconditions.checkNotNull(pathToPostProcessScript);
+    this.javaPackageFinder = javaPackageFinder;
+    this.executionContext = executionContext;
+    this.projectFilesystem = projectFilesystem;
+    this.pathToDefaultAndroidManifest = pathToDefaultAndroidManifest;
+    this.pathToPostProcessScript = pathToPostProcessScript;
     this.libraryJars = Sets.newHashSet();
-    this.pythonInterpreter = Preconditions.checkNotNull(pythonInterpreter);
-    this.objectMapper = Preconditions.checkNotNull(objectMapper);
+    this.pythonInterpreter = pythonInterpreter;
+    this.objectMapper = objectMapper;
   }
 
   public int createIntellijProject(
@@ -276,7 +282,7 @@ public class Project {
   File writeProjectDotPropertiesFile(Module module, Map<String, Module> nameToModuleIndex)
       throws IOException {
     SortedSet<String> references = Sets.newTreeSet();
-    for (DependentModule dependency : module.dependencies) {
+    for (DependentModule dependency : Preconditions.checkNotNull(module.dependencies)) {
       if (!dependency.isModule()) {
         continue;
       }
@@ -385,7 +391,7 @@ public class Project {
   }
 
   private Module createModuleForProjectConfig(ProjectConfig projectConfig) throws IOException {
-    BuildRule projectRule = projectConfig.getProjectRule();
+    BuildRule projectRule = Preconditions.checkNotNull(projectConfig.getProjectRule());
     Preconditions.checkState(
         projectRule instanceof JavaLibrary ||
         projectRule instanceof JavaBinary ||
@@ -674,7 +680,7 @@ public class Project {
 
   @VisibleForTesting
   static void addRootExcludes(Module module,
-      BuildRule buildRule,
+      @Nullable BuildRule buildRule,
       ProjectFilesystem projectFilesystem) {
     // If in the root of the project, specify ignored paths.
     if (buildRule != null && buildRule.getBuildTarget().getBasePathWithSlash().isEmpty()) {
@@ -743,7 +749,7 @@ public class Project {
 
       // Inspect all of the library dependencies. If the corresponding JAR file is in the set of
       // noDxJars, then either change its scope to "COMPILE" or "PROVIDED", as appropriate.
-      for (DependentModule dependentModule : module.dependencies) {
+      for (DependentModule dependentModule : Preconditions.checkNotNull(module.dependencies)) {
         if (!dependentModule.isLibrary()) {
           continue;
         }
@@ -767,7 +773,7 @@ public class Project {
       for (Path entry : classpathEntriesToDex) {
         String libraryName = getIntellijNameForBinaryJar(entry);
         DependentModule dependency = DependentModule.newLibrary(null, libraryName);
-        module.dependencies.add(dependency);
+        Preconditions.checkNotNull(module.dependencies).add(dependency);
       }
     }
   }
@@ -913,7 +919,7 @@ public class Project {
     } else {
       Path basePath = rule.getBuildTarget().getBasePath();
       if (basePathToAliasMap != null && basePathToAliasMap.containsKey(basePath)) {
-        name = basePathToAliasMap.get(basePath);
+        name = Preconditions.checkNotNull(basePathToAliasMap.get(basePath));
       } else {
         name = rule.getBuildTarget().getBasePath().toString();
         name = name.replace('/', '_');
@@ -959,7 +965,18 @@ public class Project {
     List<SerializablePrebuiltJarRule> libraries = Lists.newArrayListWithCapacity(
         libraryJars.size());
     for (BuildRule libraryJar : libraryJars) {
-      libraries.add(new SerializablePrebuiltJarRule(libraryJar));
+      Preconditions.checkState(libraryJar instanceof PrebuiltJar);
+      String name = getIntellijNameForRule(libraryJar, null /* basePathToAliasMap */);
+
+      PrebuiltJar prebuiltJar = (PrebuiltJar) libraryJar;
+
+      String binaryJar = resolver.getPath(prebuiltJar.getBinaryJar()).toString();
+      String sourceJar = null;
+      if (prebuiltJar.getSourceJar().isPresent()) {
+        sourceJar = prebuiltJar.getSourceJar().get().toString();
+      }
+      String javadocUrl = prebuiltJar.getJavadocUrl().orNull();
+      libraries.add(new SerializablePrebuiltJarRule(name, binaryJar, sourceJar, javadocUrl));
     }
 
     Map<String, Object> config = ImmutableMap.<String, Object>of(
@@ -1024,8 +1041,8 @@ public class Project {
     private final String stdErr;
     ExitCodeAndOutput(int exitCode, String stdOut, String stdErr) {
       this.exitCode = exitCode;
-      this.stdOut = Preconditions.checkNotNull(stdOut);
-      this.stdErr = Preconditions.checkNotNull(stdErr);
+      this.stdOut = stdOut;
+      this.stdErr = stdErr;
     }
   }
 
@@ -1078,7 +1095,7 @@ public class Project {
 
     @Override
     public String toString() {
-      return Objects.toStringHelper(SourceFolder.class)
+      return MoreObjects.toStringHelper(SourceFolder.class)
           .add("url", url)
           .add("isTestSource", isTestSource)
           .add("packagePrefix", packagePrefix)
@@ -1091,27 +1108,25 @@ public class Project {
   static class SerializablePrebuiltJarRule {
     @JsonProperty private final String name;
     @JsonProperty private final String binaryJar;
+    @Nullable
     @JsonProperty private final String sourceJar;
+    @Nullable
     @JsonProperty private final String javadocUrl;
 
-    private SerializablePrebuiltJarRule(BuildRule rule) {
-      Preconditions.checkState(rule instanceof PrebuiltJar);
-      this.name = getIntellijNameForRule(rule, null /* basePathToAliasMap */);
-
-      PrebuiltJar prebuiltJar = (PrebuiltJar) rule;
-
-      this.binaryJar = prebuiltJar.getBinaryJar().resolve().toString();
-      if (prebuiltJar.getSourceJar().isPresent()) {
-        this.sourceJar = prebuiltJar.getSourceJar().get().toString();
-      } else {
-        this.sourceJar = null;
-      }
-      this.javadocUrl = prebuiltJar.getJavadocUrl().orNull();
+    private SerializablePrebuiltJarRule(
+        String name,
+        String binaryJar,
+        @Nullable String sourceJar,
+        @Nullable String javadocUrl) {
+      this.name = name;
+      this.binaryJar = binaryJar;
+      this.sourceJar = sourceJar;
+      this.javadocUrl = javadocUrl;
     }
 
     @Override
     public String toString() {
-      return Objects.toStringHelper(SerializablePrebuiltJarRule.class)
+      return MoreObjects.toStringHelper(SerializablePrebuiltJarRule.class)
           .add("name", name)
           .add("binaryJar", binaryJar)
           .add("sourceJar", sourceJar)

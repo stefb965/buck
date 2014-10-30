@@ -26,6 +26,7 @@ import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.InstallableApk;
 import com.facebook.buck.step.ExecutionContext;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.io.IOException;
@@ -60,19 +61,21 @@ public class UninstallCommand extends AbstractCommandRunner<UninstallCommandOpti
     BuildTarget buildTarget;
     try {
       buildTarget = buildTargetParser.parse(buildTargetName, ParseContext.fullyQualified());
-      actionGraph = parser.buildTargetGraph(
+      actionGraph = parser.buildTargetGraphForBuildTargets(
           ImmutableList.of(buildTarget),
           options.getDefaultIncludes(),
           getBuckEventBus(),
           console,
-          environment).buildActionGraph();
+          environment,
+          options.getEnableProfiling()).getActionGraph(getBuckEventBus());
     } catch (BuildTargetException | BuildFileParseException e) {
       console.printBuildFailureWithoutStacktrace(e);
       return 1;
     }
 
     // Find the android_binary() rule from the parse.
-    BuildRule buildRule = actionGraph.findBuildRuleByTarget(buildTarget);
+    BuildRule buildRule = Preconditions.checkNotNull(
+        actionGraph.findBuildRuleByTarget(buildTarget));
     if (buildRule == null || !(buildRule instanceof InstallableApk)) {
       console.printBuildFailure(String.format(
           "Specified rule %s must be of type android_binary() or apk_genrule() but was %s().\n",

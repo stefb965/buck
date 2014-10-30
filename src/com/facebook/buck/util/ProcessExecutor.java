@@ -16,6 +16,8 @@
 
 package com.facebook.buck.util;
 
+import com.facebook.buck.log.Logger;
+
 import com.google.common.base.Charsets;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -30,6 +32,8 @@ import java.util.Set;
  * Executes a {@link Process} and blocks until it is finished.
  */
 public class ProcessExecutor {
+
+  private static final Logger LOG = Logger.get(ProcessExecutor.class);
 
   /**
    * Options for {@link ProcessExecutor#execute(Process, Set, Optional)}.
@@ -68,6 +72,62 @@ public class ProcessExecutor {
   }
 
   /**
+   * Convenience method for {@link #launchAndExecute(ProcessExecutorParams, Set, Optional)}
+   * with boolean values set to {@code false} and optional values set to absent.
+   */
+  public Result launchAndExecute(ProcessExecutorParams params)
+      throws InterruptedException, IOException {
+    return launchAndExecute(
+        params,
+        ImmutableSet.<Option>of(),
+        /* stdin */ Optional.<String>absent());
+  }
+
+  /**
+   * Launches then executes a process with the specified {@code params}.
+   * <p>
+   * If {@code options} contains {@link Option#PRINT_STD_OUT}, then the stdout of the process will
+   * be written directly to the stdout passed to the constructor of this executor. Otherwise,
+   * the stdout of the process will be made available via {@link Result#getStdout()}.
+   * <p>
+   * If {@code options} contains {@link Option#PRINT_STD_ERR}, then the stderr of the process will
+   * be written directly to the stderr passed to the constructor of this executor. Otherwise,
+   * the stderr of the process will be made available via {@link Result#getStderr()}.
+   */
+  public Result launchAndExecute(
+      ProcessExecutorParams params,
+      Set<Option> options,
+      Optional<String> stdin) throws InterruptedException, IOException {
+    return execute(launchProcess(params), options, stdin);
+  }
+
+  /**
+   * Launches a {@link java.lang.Process} given {@link ProcessExecutorParams}.
+   */
+  private Process launchProcess(ProcessExecutorParams params) throws IOException {
+    Preconditions.checkNotNull(params);
+
+    ProcessBuilder pb = new ProcessBuilder(params.getCommand());
+    if (params.getDirectory().isPresent()) {
+      pb.directory(params.getDirectory().get());
+    }
+    if (params.getEnvironment().isPresent()) {
+      pb.environment().clear();
+      pb.environment().putAll(params.getEnvironment().get());
+    }
+    if (params.getRedirectInput().isPresent()) {
+      pb.redirectInput(params.getRedirectInput().get());
+    }
+    if (params.getRedirectOutput().isPresent()) {
+      pb.redirectOutput(params.getRedirectOutput().get());
+    }
+    if (params.getRedirectError().isPresent()) {
+      pb.redirectError(params.getRedirectError().get());
+    }
+    return pb.start();
+  }
+
+  /**
    * Convenience method for {@link #execute(Process, Set, Optional)}
    * with boolean values set to {@code false} and optional values set to absent.
    */
@@ -78,7 +138,7 @@ public class ProcessExecutor {
   }
 
   /**
-   * Executes the specified process.
+   * Executes the specified already-launched process.
    * <p>
    * If {@code options} contains {@link Option#PRINT_STD_OUT}, then the stdout of the process will
    * be written directly to the stdout passed to the constructor of this executor. Otherwise,
@@ -161,10 +221,12 @@ public class ProcessExecutor {
     // If the command has failed and we're not being explicitly quiet, ensure everything gets
     // printed.
     if (exitCode != 0 && !options.contains(Option.IS_SILENT)) {
-      if (!shouldPrintStdOut) {
+      if (!shouldPrintStdOut && !stdoutText.get().isEmpty()) {
+        LOG.verbose("Writing captured stdout text to stream: [%s]", stdoutText.get());
         stdOutStream.print(stdoutText.get());
       }
-      if (!shouldPrintStdErr) {
+      if (!shouldPrintStdErr && !stderrText.get().isEmpty()) {
+        LOG.verbose("Writing captured stderr text to stream: [%s]", stderrText.get());
         stdErrStream.print(stderrText.get());
       }
     }

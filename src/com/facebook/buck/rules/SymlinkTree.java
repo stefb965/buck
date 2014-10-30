@@ -17,8 +17,9 @@
 package com.facebook.buck.rules;
 
 import com.facebook.buck.step.Step;
-import com.facebook.buck.step.fs.SymlinkTreeStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
+import com.facebook.buck.step.fs.SymlinkTreeStep;
+import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -39,9 +40,10 @@ public class SymlinkTree extends AbstractBuildRule implements AbiRule {
 
   public SymlinkTree(
       BuildRuleParams params,
+      SourcePathResolver resolver,
       Path root,
       ImmutableMap<Path, SourcePath> links) {
-    super(params);
+    super(params, resolver);
     this.root = Preconditions.checkNotNull(root);
     this.links = Preconditions.checkNotNull(links);
   }
@@ -52,7 +54,7 @@ public class SymlinkTree extends AbstractBuildRule implements AbiRule {
   private ImmutableMap<Path, Path> resolveLinks() {
     ImmutableMap.Builder<Path, Path> resolvedLinks = ImmutableMap.builder();
     for (ImmutableMap.Entry<Path, SourcePath> entry : links.entrySet()) {
-      resolvedLinks.put(entry.getKey(), entry.getValue().resolve());
+      resolvedLinks.put(entry.getKey(), getResolver().getPath(entry.getValue()));
     }
     return resolvedLinks.build();
   }
@@ -66,6 +68,14 @@ public class SymlinkTree extends AbstractBuildRule implements AbiRule {
         new SymlinkTreeStep(root, resolveLinks()));
   }
 
+  /**
+   * @return The root of the symlinks directory or {@link Optional#absent()} if there were no
+   *     files to symlink.
+   */
+  public Optional<Path> getRootOfSymlinksDirectory() {
+    return links.isEmpty() ? Optional.<Path>absent() : Optional.of(root);
+  }
+
   // Put the link map into the rule key, as if it changes at all, we need to
   // re-run it.
   @Override
@@ -73,7 +83,7 @@ public class SymlinkTree extends AbstractBuildRule implements AbiRule {
     List<Path> keyList = Lists.newArrayList(links.keySet());
     Collections.sort(keyList);
     for (Path key : keyList) {
-      builder.set("link(" + key.toString() + ")", links.get(key).resolve().toString());
+      builder.set("link(" + key.toString() + ")", getResolver().getPath(links.get(key)).toString());
     }
     return builder;
   }
@@ -91,6 +101,13 @@ public class SymlinkTree extends AbstractBuildRule implements AbiRule {
   @Override
   public ImmutableCollection<Path> getInputsToCompareToOutput() {
     return ImmutableList.of();
+  }
+
+  // We never want to cache this step, as we're only writing symlinks, and caching can
+  // *only* ever make this slower.
+  @Override
+  public CacheMode getCacheMode() {
+    return CacheMode.DISABLED;
   }
 
   // Since we're just setting up symlinks to existing files, we don't actually need to

@@ -22,6 +22,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSortedSet;
 
@@ -42,7 +43,11 @@ public class ZipDescription implements Description<ZipDescription.Arg> {
   @Override
   public <A extends Arg> Zip createBuildRule(
       BuildRuleParams params, BuildRuleResolver resolver, A args) {
-    return new Zip(params, args.out.or(params.getBuildTarget().getShortName() + ".zip"), args.srcs);
+    return new Zip(
+        params,
+        new SourcePathResolver(resolver),
+        args.out.or(params.getBuildTarget().getShortName() + ".zip"),
+        args.srcs);
   }
 
   public class Arg {

@@ -25,6 +25,7 @@ import static org.junit.Assert.fail;
 
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.IdentityPathAbsolutifier;
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
@@ -35,7 +36,6 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MorePaths;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.buck.util.environment.Platform;
-import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
@@ -228,13 +228,6 @@ public class BuckConfigTest {
     BuckConfig.validateAliasName("FB4_");
 
     try {
-      BuckConfig.validateAliasName(null);
-      fail("Should have thrown HumanReadableException");
-    } catch (HumanReadableException e) {
-      assertEquals("Alias cannot be null.", e.getHumanReadableErrorMessage());
-    }
-
-    try {
       BuckConfig.validateAliasName("");
       fail("Should have thrown HumanReadableException");
     } catch (HumanReadableException e) {
@@ -388,6 +381,28 @@ public class BuckConfigTest {
         "User home cache directory must be expanded.",
         MorePaths.expandHomeDir(Paths.get("~/cache_dir")),
         config.getCacheDir());
+  }
+
+  @Test
+  public void testResolveNullPathThatMayBeOutsideTheProjectFilesystem() throws IOException {
+    BuckConfig config = createFromText("");
+    assertNull(config.resolvePathThatMayBeOutsideTheProjectFilesystem(null));
+  }
+
+  @Test
+  public void testResolveAbsolutePathThatMayBeOutsideTheProjectFilesystem() throws IOException {
+    BuckConfig config = createFromText("");
+    assertEquals(
+        Paths.get("/foo/bar"),
+        config.resolvePathThatMayBeOutsideTheProjectFilesystem(Paths.get("/foo/bar")));
+  }
+
+  @Test
+  public void testResolveRelativePathThatMayBeOutsideTheProjectFilesystem() throws IOException {
+    BuckConfig config = createFromText("");
+    assertEquals(
+        Paths.get("/project/foo/bar"),
+        config.resolvePathThatMayBeOutsideTheProjectFilesystem(Paths.get("../foo/bar")));
   }
 
   @Test
@@ -551,30 +566,6 @@ public class BuckConfigTest {
   }
 
   @Test
-  public void whenRelativeProguardJarOverrideUsed() throws IOException {
-    String proguardJarName = "proguard.jar";
-    temporaryFolder.newFile(proguardJarName);
-    Reader reader = new StringReader(Joiner.on('\n').join(
-        "[tools]",
-        "    proguard = " + proguardJarName));
-    BuckConfig config = createWithDefaultFilesystem(reader, null);
-    assertEquals(
-        "Should resolve to the fully qualified path",
-        temporaryFolder.getRoot().toPath().resolve(proguardJarName).toString(),
-        config.getProguardJarOverride().transform(Functions.toStringFunction()).orNull());
-  }
-
-  @Test(expected = HumanReadableException.class)
-  public void whenProguardJarNotFound() throws IOException {
-    String proguardJarName = "proguard.jar";
-    Reader reader = new StringReader(Joiner.on('\n').join(
-        "[tools]",
-        "    proguard = " + proguardJarName));
-    BuckConfig config = createWithDefaultFilesystem(reader, null);
-    config.getProguardJarOverride();
-  }
-
-  @Test
   public void getEnvUsesSuppliedEnvironment() {
     String name = "SOME_ENVIRONMENT_VARIABLE";
     String value = "SOME_VALUE";
@@ -583,9 +574,40 @@ public class BuckConfigTest {
     assertArrayEquals("Should match value in environment.", expected, config.getEnv(name, ":"));
   }
 
+  private static enum TestEnum {
+    A,
+    B
+  }
+
+  @Test
+  public void getEnum() {
+    FakeBuckConfig config = new FakeBuckConfig(
+        ImmutableMap.<String, Map<String, String>>of("section",
+            ImmutableMap.of("field", "A")));
+    Optional<TestEnum> value = config.getEnum("section", "field", TestEnum.class);
+    assertEquals(Optional.of(TestEnum.A), value);
+  }
+
+  @Test
+  public void getEnumLowerCase() {
+    FakeBuckConfig config = new FakeBuckConfig(
+        ImmutableMap.<String, Map<String, String>>of("section",
+            ImmutableMap.of("field", "a")));
+    Optional<TestEnum> value = config.getEnum("section", "field", TestEnum.class);
+    assertEquals(Optional.of(TestEnum.A), value);
+  }
+
+  @Test(expected = HumanReadableException.class)
+  public void getEnumInvalidValue() {
+    FakeBuckConfig config = new FakeBuckConfig(
+        ImmutableMap.<String, Map<String, String>>of("section",
+            ImmutableMap.of("field", "C")));
+    config.getEnum("section", "field", TestEnum.class);
+  }
+
   private BuckConfig createWithDefaultFilesystem(Reader reader, @Nullable BuildTargetParser parser)
       throws IOException {
-    ProjectFilesystem projectFilesystem = new ProjectFilesystem(temporaryFolder.getRoot());
+    ProjectFilesystem projectFilesystem = new ProjectFilesystem(temporaryFolder.getRootPath());
     if (parser == null) {
       parser = new BuildTargetParser();
     }
@@ -598,7 +620,12 @@ public class BuckConfigTest {
   }
 
   private BuckConfig createFromText(String... lines) throws IOException {
-    ProjectFilesystem projectFilesystem = new ProjectFilesystem(new File("."));
+    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem() {
+      @Override
+      public Path getRootPath() {
+        return Paths.get("/project/root");
+      }
+    };
     BuildTargetParser parser = new BuildTargetParser();
     StringReader reader = new StringReader(Joiner.on('\n').join(lines));
     return BuckConfig.createFromReader(
@@ -608,4 +635,5 @@ public class BuckConfigTest {
         Platform.detect(),
         ImmutableMap.copyOf(System.getenv()));
   }
+
 }

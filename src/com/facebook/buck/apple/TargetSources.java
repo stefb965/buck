@@ -17,11 +17,10 @@
 package com.facebook.buck.apple;
 
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.coercer.AppleSource;
-
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.util.Collection;
@@ -41,7 +40,7 @@ public class TargetSources {
    * A map of (source path : flags) pairs containing flags to
    * apply to each source or header path.
    */
-  public final ImmutableMap<SourcePath, String> perFileFlags;
+  public final ImmutableSortedMap<SourcePath, String> perFileFlags;
 
   /**
    * Paths to each source code file in the target to be compiled.
@@ -55,24 +54,28 @@ public class TargetSources {
 
   private TargetSources(
       ImmutableList<GroupedSource> srcs,
-      ImmutableMap<SourcePath, String> perFileFlags,
+      ImmutableSortedMap<SourcePath, String> perFileFlags,
       ImmutableSortedSet<SourcePath> srcPaths,
       ImmutableSortedSet<SourcePath> headerPaths) {
-    this.srcs = Preconditions.checkNotNull(srcs);
-    this.perFileFlags = Preconditions.checkNotNull(perFileFlags);
-    this.srcPaths = Preconditions.checkNotNull(srcPaths);
-    this.headerPaths = Preconditions.checkNotNull(headerPaths);
+    this.srcs = srcs;
+    this.perFileFlags = perFileFlags;
+    this.srcPaths = srcPaths;
+    this.headerPaths = headerPaths;
   }
 
   /**
    * Creates a {@link TargetSources} given a list of {@link AppleSource}s.
    */
-  public static TargetSources ofAppleSources(Collection<AppleSource> appleSources) {
+  public static TargetSources ofAppleSources(
+      SourcePathResolver resolver,
+      Collection<AppleSource> appleSources) {
     ImmutableList.Builder<GroupedSource> srcsBuilder = ImmutableList.builder();
-    ImmutableMap.Builder<SourcePath, String> perFileFlagsBuilder = ImmutableMap.builder();
+    ImmutableSortedMap.Builder<SourcePath, String> perFileFlagsBuilder = ImmutableSortedMap
+        .naturalOrder();
     ImmutableSortedSet.Builder<SourcePath> srcPathsBuilder = ImmutableSortedSet.naturalOrder();
     ImmutableSortedSet.Builder<SourcePath> headerPathsBuilder = ImmutableSortedSet.naturalOrder();
     RuleUtils.extractSourcePaths(
+        resolver,
         srcsBuilder,
         perFileFlagsBuilder,
         srcPathsBuilder,

@@ -30,10 +30,9 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
-import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.Sha1HashCode;
-import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -70,13 +69,14 @@ public class DummyRDotJava extends AbstractBuildRule
 
   public DummyRDotJava(
       BuildRuleParams params,
+      SourcePathResolver resolver,
       Set<HasAndroidResourceDeps> androidResourceDeps,
       JavacOptions javacOptions) {
-    super(params);
+    super(params, resolver);
     // Sort the input so that we get a stable ABI for the same set of resources.
     this.androidResourceDeps = FluentIterable.from(androidResourceDeps)
         .toSortedList(HasBuildTarget.BUILD_TARGET_COMPARATOR);
-    this.javacOptions = Preconditions.checkNotNull(javacOptions);
+    this.javacOptions = javacOptions;
     this.buildOutputInitializer = new BuildOutputInitializer<>(params.getBuildTarget(), this);
   }
 
@@ -94,7 +94,7 @@ public class DummyRDotJava extends AbstractBuildRule
     steps.add(new MakeCleanDirectoryStep(rDotJavaSrcFolder));
 
     // Generate the .java files and record where they will be written in javaSourceFilePaths.
-    Set<SourcePath> javaSourceFilePaths;
+    Set<Path> javaSourceFilePaths;
     if (androidResourceDeps.isEmpty()) {
       // In this case, the user is likely running a Robolectric test that does not happen to
       // depend on any resources. However, if Robolectric doesn't find an R.java file, it flips
@@ -107,14 +107,15 @@ public class DummyRDotJava extends AbstractBuildRule
       steps.add(new WriteFileStep(
           "package com.facebook;\n public class R {}\n",
           emptyRDotJava));
-      javaSourceFilePaths = ImmutableSet.<SourcePath>of(new PathSourcePath(emptyRDotJava));
+      javaSourceFilePaths = ImmutableSet.of(emptyRDotJava);
     } else {
       MergeAndroidResourcesStep mergeStep = new MergeAndroidResourcesStep(
               androidResourceDeps,
               /* uberRDotTxt */ Optional.<Path>absent(),
               rDotJavaSrcFolder);
       steps.add(mergeStep);
-      javaSourceFilePaths = mergeStep.getRDotJavaFiles();
+      javaSourceFilePaths =
+          ImmutableSet.copyOf(getResolver().getAllPaths(mergeStep.getRDotJavaFiles()));
     }
 
     // Clear out the directory where the .class files will be generated.
@@ -127,7 +128,7 @@ public class DummyRDotJava extends AbstractBuildRule
 
     // Compile the .java files.
     final JavacStep javacStep =
-        UberRDotJavaUtil.createJavacStepForDummyRDotJavaFiles(
+        RDotJava.createJavacStepForDummyRDotJavaFiles(
             javaSourceFilePaths,
             rDotJavaClassesFolder,
             Optional.of(pathToAbiOutputFile),
@@ -217,7 +218,7 @@ public class DummyRDotJava extends AbstractBuildRule
     final Sha1HashCode rDotTxtSha1;
 
     public BuildOutput(Sha1HashCode rDotTxtSha1) {
-      this.rDotTxtSha1 = Preconditions.checkNotNull(rDotTxtSha1);
+      this.rDotTxtSha1 = rDotTxtSha1;
     }
   }
 }

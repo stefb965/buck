@@ -31,6 +31,7 @@ import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.FluentIterable;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Ordering;
@@ -58,6 +59,8 @@ import javax.xml.xpath.XPathFactory;
  * <p>
  */
 public class MiniAapt implements Step {
+
+  private static final ImmutableList<String> IGNORED_FILE_EXTENSIONS = ImmutableList.of("orig");
 
   private static final String ID_DEFINITION_PREFIX = "@+id/";
   private static final String ITEM_TAG = "item";
@@ -93,9 +96,9 @@ public class MiniAapt implements Step {
       Path resDirectory,
       Path pathToTextSymbolsFile,
       ImmutableSet<Path> pathsToSymblolsOfDeps) {
-    this.resDirectory = Preconditions.checkNotNull(resDirectory);
-    this.pathToTextSymbolsFile = Preconditions.checkNotNull(pathToTextSymbolsFile);
-    this.pathsToSymblolsOfDeps = Preconditions.checkNotNull(pathsToSymblolsOfDeps);
+    this.resDirectory = resDirectory;
+    this.pathToTextSymbolsFile = pathToTextSymbolsFile;
+    this.pathsToSymblolsOfDeps = pathsToSymblolsOfDeps;
     this.resourceCollector = new AaptResourceCollector();
   }
 
@@ -203,14 +206,14 @@ public class MiniAapt implements Step {
 
       String dirname = dir.getFileName().toString();
       if (dirname.startsWith("values")) {
-        if (!dirname.equals("values") && !dirname.startsWith("values-")) {
+        if (!isAValuesDir(dirname)) {
           throw new ResourceParseException("'%s' is not a valid values directory.", dir);
         }
         processValues(filesystem, eventBus, dir);
-        continue;
+      } else {
+        processFileNamesInDirectory(filesystem, dir);
       }
 
-      processFileNamesInDirectory(filesystem, dir);
     }
   }
 
@@ -227,7 +230,7 @@ public class MiniAapt implements Step {
     }
 
     for (Path resourceFile : filesystem.getDirectoryContents(dir)) {
-      if (filesystem.isHidden(resourceFile)) {
+      if (shouldIgnoreFile(resourceFile, filesystem)) {
         continue;
       }
 
@@ -242,7 +245,7 @@ public class MiniAapt implements Step {
   void processValues(ProjectFilesystem filesystem, BuckEventBus eventBus, Path valuesDir)
       throws IOException, ResourceParseException {
     for (Path path : filesystem.getFilesUnderPath(valuesDir)) {
-      if (filesystem.isHidden(path)) {
+      if (shouldIgnoreFile(path, filesystem)) {
         continue;
       }
       if (!filesystem.isFile(path) && !filesystem.isIgnored(path)) {
@@ -350,6 +353,11 @@ public class MiniAapt implements Step {
       ImmutableSet.Builder<RDotTxtEntry> references)
       throws IOException, XPathExpressionException, ResourceParseException {
     for (Path path : filesystem.getFilesUnderPath(resDirectory, ENDS_WITH_XML)) {
+      String dirname = resDirectory.relativize(path).getName(0).toString();
+      if (isAValuesDir(dirname)) {
+        // Ignore files under values* directories.
+        continue;
+      }
       processXmlFile(filesystem, path, references);
     }
   }
@@ -385,11 +393,16 @@ public class MiniAapt implements Step {
         Preconditions.checkState(slashPosition != -1);
 
         String rawRType = resourceName.substring(1, slashPosition);
+        String name = resourceName.substring(slashPosition + 1);
+
+        if (name.startsWith("android:")) {
+          continue;
+        }
         if (!RESOURCE_TYPES.containsKey(rawRType)) {
           throw new ResourceParseException("Invalid reference '%s' in '%s'", resourceName, xmlFile);
         }
         RType rType = RESOURCE_TYPES.get(rawRType);
-        String name = resourceName.substring(slashPosition + 1);
+
 
         references.add(new FakeRDotTxtEntry(IdType.INT, rType, sanitizeName(name)));
       }
@@ -402,6 +415,17 @@ public class MiniAapt implements Step {
 
   private static String sanitizeName(String rawName) {
     return rawName.replaceAll("[.:]", "_");
+  }
+
+  private static boolean isAValuesDir(String dirname) {
+    return dirname.equals("values") || dirname.startsWith("values-");
+  }
+
+  private static boolean shouldIgnoreFile(Path path, ProjectFilesystem filesystem)
+      throws IOException{
+    return filesystem.isHidden(path) ||
+        IGNORED_FILE_EXTENSIONS.contains(
+            com.google.common.io.Files.getFileExtension(path.getFileName().toString()));
   }
 
   @VisibleForTesting

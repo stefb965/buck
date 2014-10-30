@@ -71,10 +71,11 @@ RULES_SRCS = [
   'PreDexMerge.java',
   'PrebuiltNativeLibrary.java',
   'PrebuiltNativeLibraryDescription.java',
+  'ProGuardConfig.java',
   'ResourcesFilter.java',
   'RobolectricTestDescription.java',
   'RobolectricTest.java',
-  'UberRDotJavaUtil.java',
+  'RDotJava.java',
   'UnsortedAndroidResourceDeps.java',
 ]
 java_library(
@@ -90,6 +91,7 @@ java_library(
     '//third-party/java/jackson:jackson-databind',
     '//third-party/java/jsr:jsr305',
     '//src/com/facebook/buck/android/aapt:aapt',
+    '//src/com/facebook/buck/cli:config',
     '//src/com/facebook/buck/dalvik:dalvik',
     '//src/com/facebook/buck/dalvik:steps',
     '//src/com/facebook/buck/event:event',
@@ -105,6 +107,7 @@ java_library(
     '//src/com/facebook/buck/parser:rule_pattern',
     '//src/com/facebook/buck/rules:build_rule',
     '//src/com/facebook/buck/rules:rules',
+    '//src/com/facebook/buck/rules/macros:macros',
     '//src/com/facebook/buck/shell:steps',
     '//src/com/facebook/buck/shell:rules',
     '//src/com/facebook/buck/step:step',

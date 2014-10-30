@@ -23,6 +23,7 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -48,10 +49,11 @@ public class JsFragment extends AbstractBuildRule {
 
   public JsFragment(
       BuildRuleParams params,
+      SourcePathResolver resolver,
       ImmutableSortedSet<BuildRule> deps,
       String module,
       String function) {
-    super(params);
+    super(params, resolver);
 
     this.deps = deps;
     this.module = module;

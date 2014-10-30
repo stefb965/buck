@@ -53,10 +53,30 @@ java_library(
   ],
   visibility = [
     '//src/com/facebook/buck/rules:types',
+    '//src/com/facebook/buck/ocaml:rules',
     '//src/com/facebook/buck/cxx:rules',
     '//test/com/facebook/buck/python:',
     '//test/com/facebook/buck/cxx:cpp',
     '//src/com/facebook/buck/thrift:rules',
     '//test/com/facebook/buck/thrift:thrift',
+  ],
+)
+
+python_library(
+  name = 'pexlib',
+  resources = [
+    '//third-party/py/setuptools:pkg_resources.py',
+  ],
+)
+
+python_binary(
+  name = 'pex',
+  main = 'pex.py',
+  deps = [
+    ':pexlib',
+    '//third-party/py/twitter-commons/src/python:twitter-commons',
+  ],
+  visibility = [
+    'PUBLIC',
   ],
 )

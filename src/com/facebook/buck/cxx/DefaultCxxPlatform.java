@@ -1,0 +1,269 @@
+/*
+ * Copyright 2014-present Facebook, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may
+ * not use this file except in compliance with the License. You may obtain
+ * a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+ * License for the specific language governing permissions and limitations
+ * under the License.
+ */
+
+package com.facebook.buck.cxx;
+
+import com.facebook.buck.cli.BuckConfig;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.PathSourcePath;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.environment.Platform;
+import com.google.common.base.Optional;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Splitter;
+import com.google.common.collect.ImmutableList;
+
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+/**
+ * A C/C++ platform described in the "cxx" section of .buckconfig, with reasonable system defaults.
+ */
+public class DefaultCxxPlatform implements CxxPlatform {
+
+  private static enum LinkerType {
+    GNU,
+    DARWIN,
+  }
+
+  private static final Path DEFAULT_AS = Paths.get("/usr/bin/as");
+  private static final ImmutableList<String> DEFAULT_ASFLAGS = ImmutableList.of();
+
+  private static final Path DEFAULT_ASPP = Paths.get("/usr/bin/gcc");
+  private static final ImmutableList<String> DEFAULT_ASPPFLAGS = ImmutableList.of();
+
+  private static final Path DEFAULT_CC = Paths.get("/usr/bin/gcc");
+  private static final ImmutableList<String> DEFAULT_CFLAGS = ImmutableList.of();
+
+  private static final Path DEFAULT_CXX = Paths.get("/usr/bin/g++");
+  private static final ImmutableList<String> DEFAULT_CXXFLAGS = ImmutableList.of();
+
+  private static final Path DEFAULT_CPP = Paths.get("/usr/bin/gcc");
+  private static final ImmutableList<String> DEFAULT_CPPFLAGS = ImmutableList.of();
+
+  private static final Path DEFAULT_CXXPP = Paths.get("/usr/bin/g++");
+  private static final ImmutableList<String> DEFAULT_CXXPPFLAGS = ImmutableList.of();
+
+  private static final Path DEFAULT_CXXLD = Paths.get("/usr/bin/g++");
+  private static final ImmutableList<String> DEFAULT_CXXLDFLAGS = ImmutableList.of();
+
+  private static final Path DEFAULT_LD = Paths.get("/usr/bin/ld");
+  private static final ImmutableList<String> DEFAULT_LDFLAGS = ImmutableList.of();
+
+  private static final Path DEFAULT_AR = Paths.get("/usr/bin/ar");
+  private static final ImmutableList<String> DEFAULT_ARFLAGS = ImmutableList.of();
+
+  private static final Path DEFAULT_LEX = Paths.get("/usr/bin/flex");
+  private static final ImmutableList<String> DEFAULT_LEX_FLAGS = ImmutableList.of();
+  private static final Path DEFAULT_YACC = Paths.get("/usr/bin/bison");
+  private static final ImmutableList<String> DEFAULT_YACC_FLAGS = ImmutableList.of("-y");
+
+  private final Platform platform;
+  private final BuckConfig delegate;
+
+  public DefaultCxxPlatform(Platform platform, BuckConfig delegate) {
+    this.platform = Preconditions.checkNotNull(platform);
+    this.delegate = Preconditions.checkNotNull(delegate);
+  }
+
+  public DefaultCxxPlatform(BuckConfig delegate) {
+    this(Platform.detect(), delegate);
+  }
+
+  private ImmutableList<String> getFlags(String section, String field, ImmutableList<String> def) {
+    Optional<String> value = delegate.getValue(section, field);
+    if (!value.isPresent()) {
+      return def;
+    }
+    ImmutableList.Builder<String> split = ImmutableList.builder();
+    if (!value.get().trim().isEmpty()) {
+      split.addAll(Splitter.on(" ").split(value.get().trim()));
+    }
+    return split.build();
+  }
+
+  private SourcePath getSourcePath(String section, String field, Path def) {
+    Optional<Path> path = delegate.getPath(section, field);
+    return new PathSourcePath(path.or(def));
+  }
+
+  @Override
+  public String getName() {
+    return "Default";
+  }
+
+  @Override
+  public SourcePath getAs() {
+    return getSourcePath("cxx", "as", DEFAULT_AS);
+  }
+
+  @Override
+  public ImmutableList<String> getAsflags() {
+    return getFlags("cxx", "asflags", DEFAULT_ASFLAGS);
+  }
+
+  @Override
+  public SourcePath getAspp() {
+    return getSourcePath("cxx", "aspp", DEFAULT_ASPP);
+  }
+
+  @Override
+  public ImmutableList<String> getAsppflags() {
+    return getFlags("cxx", "asppflags", DEFAULT_ASPPFLAGS);
+  }
+
+  @Override
+  public SourcePath getCc() {
+    return getSourcePath("cxx", "cc", DEFAULT_CC);
+  }
+
+  @Override
+  public ImmutableList<String> getCflags() {
+    return getFlags("cxx", "cflags", DEFAULT_CFLAGS);
+  }
+
+  @Override
+  public SourcePath getCxx() {
+    return getSourcePath("cxx", "cxx", DEFAULT_CXX);
+  }
+
+  @Override
+  public ImmutableList<String> getCxxflags() {
+    return getFlags("cxx", "cxxflags", DEFAULT_CXXFLAGS);
+  }
+
+  @Override
+  public SourcePath getCpp() {
+    return getSourcePath("cxx", "cpp", DEFAULT_CPP);
+  }
+
+  @Override
+  public ImmutableList<String> getCppflags() {
+    return getFlags("cxx", "cppflags", DEFAULT_CPPFLAGS);
+  }
+
+  @Override
+  public SourcePath getCxxpp() {
+    return getSourcePath("cxx", "cxxpp", DEFAULT_CXXPP);
+  }
+
+  @Override
+  public ImmutableList<String> getCxxppflags() {
+    return getFlags("cxx", "cxxppflags", DEFAULT_CXXPPFLAGS);
+  }
+
+  @Override
+  public SourcePath getCxxld() {
+    return getSourcePath("cxx", "cxxld", DEFAULT_CXXLD);
+  }
+
+  @Override
+  public ImmutableList<String> getCxxldflags() {
+    return getFlags("cxx", "cxxldflags", DEFAULT_CXXLDFLAGS);
+  }
+
+  private LinkerType getLinkerTypeForPlatform() {
+    switch (platform) {
+      case LINUX:
+        return LinkerType.GNU;
+      case MACOS:
+        return LinkerType.DARWIN;
+      //$CASES-OMITTED$
+      default:
+        throw new HumanReadableException(
+            "cannot detect linker type, try explicitly setting it in " +
+            ".buckconfig's [cxx] ld_type section");
+    }
+  }
+
+  private LinkerType getLinkerType() {
+    Optional<LinkerType> type = delegate.getEnum("cxx", "ld_type", LinkerType.class);
+    return type.or(getLinkerTypeForPlatform());
+  }
+
+  @Override
+  public Linker getLd() {
+    SourcePath path = getSourcePath("cxx", "ld", DEFAULT_LD);
+    LinkerType type = getLinkerType();
+    switch (type) {
+      case GNU:
+        return new GnuLinker(path);
+      case DARWIN:
+        return new DarwinLinker(path);
+      // Add a "default" case, even thought we've handled all cases above, just to make the
+      // compiler happy.
+      default:
+        throw new IllegalStateException();
+    }
+  }
+
+  @Override
+  public ImmutableList<String> getLdflags() {
+    return getFlags("cxx", "ldflags", DEFAULT_LDFLAGS);
+  }
+
+  @Override
+  public SourcePath getAr() {
+    return getSourcePath("cxx", "ar", DEFAULT_AR);
+  }
+
+  @Override
+  public ImmutableList<String> getArflags() {
+    return getFlags("cxx", "arflags", DEFAULT_ARFLAGS);
+  }
+
+  @Override
+  public SourcePath getLex() {
+    return getSourcePath("cxx", "lex", DEFAULT_LEX);
+  }
+
+  @Override
+  public ImmutableList<String> getLexFlags() {
+    return getFlags("cxx", "lexflags", DEFAULT_LEX_FLAGS);
+  }
+
+  @Override
+  public BuildTarget getLexDep() {
+    return delegate.getRequiredBuildTarget("cxx", "lex_dep");
+  }
+
+  @Override
+  public SourcePath getYacc() {
+    return getSourcePath("cxx", "yacc", DEFAULT_YACC);
+  }
+
+  @Override
+  public ImmutableList<String> getYaccFlags() {
+    return getFlags("cxx", "yaccflags", DEFAULT_YACC_FLAGS);
+  }
+
+  @Override
+  public BuildTarget getPythonDep() {
+    return delegate.getRequiredBuildTarget("cxx", "python_dep");
+  }
+
+  @Override
+  public BuildTarget getGtestDep() {
+    return delegate.getRequiredBuildTarget("cxx", "gtest_dep");
+  }
+
+  @Override
+  public BuildTarget getBoostTestDep() {
+    return delegate.getRequiredBuildTarget("cxx", "boost_test_dep");
+  }
+
+}

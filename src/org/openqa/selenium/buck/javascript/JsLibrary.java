@@ -27,7 +27,7 @@ import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.WriteFileStep;
@@ -57,9 +57,10 @@ public class JsLibrary extends AbstractBuildRule implements
 
   public JsLibrary(
       BuildRuleParams params,
+      SourcePathResolver resolver,
       ImmutableSortedSet<BuildRule> deps,
       ImmutableSortedSet<SourcePath> srcs) {
-    super(params);
+    super(params, resolver);
     this.deps = Preconditions.checkNotNull(deps);
     this.srcs = Preconditions.checkNotNull(srcs);
 
@@ -70,7 +71,7 @@ public class JsLibrary extends AbstractBuildRule implements
 
   @Override
   public ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return SourcePaths.filterInputsToCompareToOutput(srcs);
+    return getResolver().filterInputsToCompareToOutput(srcs);
   }
 
   @Override
@@ -87,7 +88,7 @@ public class JsLibrary extends AbstractBuildRule implements
     Set<String> allProvides = Sets.newHashSet();
     JavascriptDependencies smidgen = new JavascriptDependencies();
     for (SourcePath src : srcs) {
-      Path path = src.resolve();
+      Path path = getResolver().getPath(src);
       JavascriptSource source = new JavascriptSource(path);
       smidgen.add(source);
       allRequires.addAll(source.getRequires());

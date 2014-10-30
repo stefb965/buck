@@ -17,7 +17,6 @@
 package com.facebook.buck.rules.coercer;
 
 import com.facebook.buck.parser.BuildTargetParser;
-import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -61,16 +60,11 @@ public class EitherTypeCoercer<Left, Right> implements TypeCoercer<Either<Left, 
   }
 
   @Override
-  public boolean traverse(Object object, Traversal traversal) {
-    // This does introspection and pick the side that contains child elements to try first.
-    // This is not terribly robust, but is sufficient for most use cases.
-    if (leftTypeCoercer instanceof CollectionTypeCoercer ||
-        leftTypeCoercer instanceof MapTypeCoercer) {
-      return leftTypeCoercer.traverse(object, traversal) ||
-          rightTypeCoercer.traverse(object, traversal);
+  public void traverse(Either<Left, Right> object, Traversal traversal) {
+    if (object.isLeft()) {
+      leftTypeCoercer.traverse(object.getLeft(), traversal);
     } else {
-      return rightTypeCoercer.traverse(object, traversal) ||
-          leftTypeCoercer.traverse(object, traversal);
+      rightTypeCoercer.traverse(object.getRight(), traversal);
     }
   }
 
@@ -107,7 +101,6 @@ public class EitherTypeCoercer<Left, Right> implements TypeCoercer<Either<Left, 
   @Override
   public Either<Left, Right> coerce(
       BuildTargetParser buildTargetParser,
-      BuildRuleResolver buildRuleResolver,
       ProjectFilesystem filesystem,
       Path pathRelativeToProjectRoot,
       Object object) throws CoerceFailedException {
@@ -125,7 +118,6 @@ public class EitherTypeCoercer<Left, Right> implements TypeCoercer<Either<Left, 
       try {
         return Either.ofLeft(leftTypeCoercer.coerce(
             buildTargetParser,
-            buildRuleResolver,
             filesystem,
             pathRelativeToProjectRoot,
             object));
@@ -133,7 +125,6 @@ public class EitherTypeCoercer<Left, Right> implements TypeCoercer<Either<Left, 
         try {
           return Either.ofRight(rightTypeCoercer.coerce(
               buildTargetParser,
-              buildRuleResolver,
               filesystem,
               pathRelativeToProjectRoot,
               object));
@@ -152,7 +143,6 @@ public class EitherTypeCoercer<Left, Right> implements TypeCoercer<Either<Left, 
     if (leftCoercerType == objectType) {
       return Either.ofLeft(leftTypeCoercer.coerce(
           buildTargetParser,
-          buildRuleResolver,
           filesystem,
           pathRelativeToProjectRoot,
           object));
@@ -163,7 +153,6 @@ public class EitherTypeCoercer<Left, Right> implements TypeCoercer<Either<Left, 
     if (rightCoercerType == objectType) {
       return Either.ofRight(rightTypeCoercer.coerce(
           buildTargetParser,
-          buildRuleResolver,
           filesystem,
           pathRelativeToProjectRoot,
           object));

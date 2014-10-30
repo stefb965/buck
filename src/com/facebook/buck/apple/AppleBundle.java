@@ -23,10 +23,10 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.coercer.Either;
 import com.facebook.buck.step.Step;
 import com.google.common.base.Optional;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 
@@ -45,13 +45,14 @@ public class AppleBundle extends AbstractBuildRule {
 
   AppleBundle(
       BuildRuleParams params,
+      SourcePathResolver resolver,
       Either<AppleBundleExtension, String> extension,
       Optional<SourcePath> infoPlist,
       BuildRule binary) {
-    super(params);
-    this.extension = Preconditions.checkNotNull(extension);
-    this.infoPlist = Preconditions.checkNotNull(infoPlist);
-    this.binary = Preconditions.checkNotNull(binary);
+    super(params, resolver);
+    this.extension = extension;
+    this.infoPlist = infoPlist;
+    this.binary = binary;
   }
 
   /**
@@ -87,9 +88,8 @@ public class AppleBundle extends AbstractBuildRule {
   }
 
   @Override
-  @Nullable
   public ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return null;
+    return ImmutableList.of();
   }
 
   @Override
@@ -104,10 +104,9 @@ public class AppleBundle extends AbstractBuildRule {
   }
 
   @Override
-  @Nullable
   public ImmutableList<Step> getBuildSteps(
       BuildContext context,
       BuildableContext buildableContext) {
-    return null;
+    return ImmutableList.of();
   }
 }

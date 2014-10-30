@@ -27,6 +27,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 
 import java.io.File;
@@ -49,7 +50,7 @@ public class JUnitStep extends ShellStep {
   public static final String BUILD_ID_PROPERTY = "com.facebook.buck.buildId";
 
   private final ImmutableSet<Path> classpathEntries;
-  private final Set<String> testClassNames;
+  private final Iterable<String> testClassNames;
   private final List<String> vmArgs;
   private final Path directoryForTestResults;
   private final Path tmpDirectory;
@@ -64,13 +65,10 @@ public class JUnitStep extends ShellStep {
   /**
    *  JaCoco is enabled for the code-coverage analysis.
    */
-  public static final String PATH_TO_JACOCO_JARS = System.getProperty("buck.path_to_jacoco_jars",
-      "third-party/java/jacoco-0.6.4/out");
-
-  public static final String PATH_TO_JACOCO_AGENT_JAR = String.format(
-      "%s/%s",
-      PATH_TO_JACOCO_JARS,
-      System.getProperty("buck.jacoco_agent_jar", "jacocoagent.jar"));
+  public static final String PATH_TO_JACOCO_AGENT_JAR =
+      System.getProperty(
+          "buck.jacoco_agent_jar",
+          "third-party/java/jacoco/jacocoagent.jar");
 
   public static final String JACOCO_EXEC_COVERAGE_FILE = "jacoco.exec";
 
@@ -87,7 +85,7 @@ public class JUnitStep extends ShellStep {
    */
   public JUnitStep(
       Set<Path> classpathEntries,
-      Set<String> testClassNames,
+      Iterable<String> testClassNames,
       List<String> vmArgs,
       Path directoryForTestResults,
       Path tmpDirectory,
@@ -116,7 +114,7 @@ public class JUnitStep extends ShellStep {
   @VisibleForTesting
   JUnitStep(
       Set<Path> classpathEntries,
-      Set<String> testClassNames,
+      Iterable<String> testClassNames,
       List<String> vmArgs,
       Path directoryForTestResults,
       Path tmpDirectory,
@@ -128,7 +126,7 @@ public class JUnitStep extends ShellStep {
       TestType type,
       Path testRunnerClassesDirectory) {
     this.classpathEntries = ImmutableSet.copyOf(classpathEntries);
-    this.testClassNames = ImmutableSet.copyOf(testClassNames);
+    this.testClassNames = Iterables.unmodifiableIterable(testClassNames);
     this.vmArgs = ImmutableList.copyOf(vmArgs);
     this.directoryForTestResults = Preconditions.checkNotNull(directoryForTestResults);
     this.tmpDirectory = Preconditions.checkNotNull(tmpDirectory);

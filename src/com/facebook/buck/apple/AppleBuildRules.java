@@ -58,7 +58,7 @@ public final class AppleBuildRules {
   /**
    * Whether the build rule type is equivalent to some kind of Xcode target.
    */
-  public static boolean isXcodeTargetBuildRuleType(BuildRuleType type) {
+  public static boolean isXcodeTargetBuildRuleType(@Nullable BuildRuleType type) {
     return XCODE_TARGET_BUILD_RULE_TYPES.contains(type);
   }
 
@@ -107,7 +107,7 @@ public final class AppleBuildRules {
      * Will also not traverse the dependencies of dynamic libraries, as those are linked already.
      */
     LINKING,
-  };
+  }
 
   public static Iterable<BuildRule> getRecursiveRuleDependenciesOfType(
       final RecursiveRuleDependenciesMode mode, final BuildRule rule, BuildRuleType... types) {
@@ -212,13 +212,9 @@ public final class AppleBuildRules {
             buildRulesIterable,
             new Predicate<BuildRule>() {
               @Override
-              public boolean apply(@Nullable BuildRule input) {
-                if (!isXcodeTargetBuildRuleType(input.getType()) &&
-                    XcodeNativeDescription.TYPE != input.getType()) {
-                  return false;
-                }
-
-                return true;
+              public boolean apply(BuildRule input) {
+                return isXcodeTargetBuildRuleType(input.getType()) ||
+                    XcodeNativeDescription.TYPE == input.getType();
               }
             }));
   }
@@ -227,7 +223,7 @@ public final class AppleBuildRules {
    * Builds the multimap of (source rule: [test rule 1, test rule 2, ...])
    * for the set of test rules covering each source rule.
    */
-  public static final ImmutableMultimap<BuildRule, AppleTest> getSourceRuleToTestRulesMap(
+  public static ImmutableMultimap<BuildRule, AppleTest> getSourceRuleToTestRulesMap(
       Iterable<BuildRule> testRules) {
     ImmutableMultimap.Builder<BuildRule, AppleTest> sourceRuleToTestRulesBuilder =
       ImmutableMultimap.builder();

@@ -17,7 +17,7 @@
 package com.facebook.buck.java;
 
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractBuilder;
+import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.PathSourcePath;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
@@ -27,12 +27,12 @@ import java.nio.file.Path;
 
 import javax.annotation.Nullable;
 
-public class JavaTestBuilder extends AbstractBuilder<JavaTestDescription.Arg> {
+public class JavaTestBuilder extends AbstractNodeBuilder<JavaTestDescription.Arg> {
   private JavaTestBuilder(BuildTarget target) {
     super(new JavaTestDescription(JavaCompilerEnvironment.DEFAULT), target);
   }
 
-  public static JavaTestBuilder newJavaTestBuilder(BuildTarget target) {
+  public static JavaTestBuilder createBuilder(BuildTarget target) {
     return new JavaTestBuilder(target);
   }
 

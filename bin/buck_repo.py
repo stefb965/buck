@@ -22,17 +22,23 @@ JAVA_CLASSPATHS = [
     "build/abi_processor/classes",
     "build/classes",
     "build/dx_classes",
+    "third-party/java/aopalliance/aopalliance.jar",
     "third-party/java/args4j/args4j-2.0.30.jar",
     "third-party/java/ddmlib/ddmlib-22.5.3.jar",
-    "third-party/java/guava/guava-17.0.jar",
+    "third-party/java/guava/guava-18.0.jar",
+    "third-party/java/guice/guice-3.0.jar",
+    "third-party/java/guice/guice-assistedinject-3.0.jar",
+    "third-party/java/guice/guice-multibindings-3.0.jar",
     "third-party/java/ini4j/ini4j-0.5.2.jar",
     "third-party/java/jackson/jackson-annotations-2.0.5.jar",
     "third-party/java/jackson/jackson-core-2.0.5.jar",
     "third-party/java/jackson/jackson-databind-2.0.5.jar",
+    "third-party/java/jsr/javax.inject-1.jar",
     "third-party/java/jsr/jsr305.jar",
+    "third-party/java/icu4j/icu4j-54.1.1.jar",
     "third-party/java/nailgun/nailgun-server-0.9.2-SNAPSHOT.jar",
     "third-party/java/android/sdklib.jar",
-    "third-party/java/asm/asm-debug-all-4.1.jar",
+    "third-party/java/asm/asm-debug-all-5.0.3.jar",
     "third-party/java/astyanax/astyanax-cassandra-1.56.38.jar",
     "third-party/java/astyanax/astyanax-core-1.56.38.jar",
     "third-party/java/astyanax/astyanax-thrift-1.56.38.jar",
@@ -47,7 +53,7 @@ JAVA_CLASSPATHS = [
     "third-party/java/astyanax/log4j-1.2.16.jar",
     "third-party/java/astyanax/slf4j-api-1.7.2.jar",
     "third-party/java/astyanax/slf4j-log4j12-1.7.2.jar",
-    "third-party/java/closure-templates/soy-2012-12-21-no-guava.jar",
+    "third-party/java/closure-templates/soy-excluding-deps.jar",
     "third-party/java/gson/gson-2.2.4.jar",
     "third-party/java/eclipse/org.eclipse.core.contenttype_3.4.200.v20130326-1255.jar",
     "third-party/java/eclipse/org.eclipse.core.jobs_3.5.300.v20130429-1813.jar",
@@ -68,9 +74,10 @@ BUCK_DIR_JAVA_ARGS = {
     "testrunner_classes": "build/testrunner/classes",
     "abi_processor_classes": "build/abi_processor/classes",
     "path_to_emma_jar": "third-party/java/emma-2.0.5312/out/emma-2.0.5312.jar",
-    "path_to_asm_jar": "third-party/java/asm/asm-debug-all-4.1.jar",
+    "path_to_asm_jar": "third-party/java/asm/asm-debug-all-5.0.3.jar",
     "logging_config_file": "config/logging.properties",
     "path_to_buck_py": "src/com/facebook/buck/parser/buck.py",
+    "path_to_pathlib_py": "third-party/py/pathlib/pathlib.py",
 
     "path_to_compile_asset_catalogs_py":
     "src/com/facebook/buck/apple/compile_asset_catalogs.py",
@@ -79,7 +86,7 @@ BUCK_DIR_JAVA_ARGS = {
     "src/com/facebook/buck/apple/compile_asset_catalogs_build_phase.sh",
 
     "path_to_intellij_py": "src/com/facebook/buck/command/intellij.py",
-    "path_to_jacoco_jars": "third-party/java/jacoco-0.6.4/out",
+    "jacoco_agent_jar": "third-party/java/jacoco/jacocoagent.jar",
     "path_to_static_content": "webserver/static",
     "path_to_pex": "src/com/facebook/buck/python/pex.py",
     "quickstart_origin_dir": "src/com/facebook/buck/cli/quickstart/android",
@@ -137,10 +144,10 @@ class BuckRepo:
         self._buck_version_uid = self._get_buck_version_uid()
         self._build()
 
-    def launch_buck(self):
+    def launch_buck(self, build_id):
         with Tracing('BuckRepo.launch_buck'):
             self.kill_autobuild()
-            if 'clean' in sys.argv or os.environ.get('NO_BUCKD'):
+            if 'clean' in sys.argv:
                 self.kill_buckd()
 
             use_buckd = not os.environ.get('NO_BUCKD')
@@ -163,7 +170,10 @@ class BuckRepo:
                 print("Not using buckd because watchman isn't installed.",
                       file=sys.stderr)
 
-            if self._is_buckd_running() and os.path.exists(self._buck_client_file):
+            env = os.environ.copy()
+            env['BUCK_BUILD_ID'] = build_id
+
+            if use_buckd and self._is_buckd_running() and os.path.exists(self._buck_client_file):
                 print("Using buckd.", file=sys.stderr)
                 buckd_port = self._buck_project.get_buckd_port()
                 if not buckd_port or not buckd_port.isdigit():
@@ -178,14 +188,14 @@ class BuckRepo:
                     command.append("com.facebook.buck.cli.Main")
                     command.extend(sys.argv[1:])
                     with Tracing('buck', args={'command': command}):
-                        exit_code = subprocess.call(command, cwd=self._buck_project.root)
+                        exit_code = subprocess.call(command, cwd=self._buck_project.root, env=env)
                         if exit_code == 2:
                             print('Daemon is busy, please wait',
                                   'or run "buckd --kill" to terminate it.',
                                   file=sys.stderr)
                         return exit_code
 
-            command = ["java"]
+            command = [which("java")]
             command.extend(self._get_java_args(self._buck_version_uid))
             command.append("-Djava.io.tmpdir={0}".format(self._tmp_dir))
             command.append("-classpath")
@@ -193,7 +203,7 @@ class BuckRepo:
             command.append("com.facebook.buck.cli.Main")
             command.extend(sys.argv[1:])
 
-            return subprocess.call(command, cwd=self._buck_project.root)
+            return subprocess.call(command, cwd=self._buck_project.root, env=env)
 
     def launch_buckd(self):
         with Tracing('BuckRepo.launch_buckd'):
@@ -210,7 +220,7 @@ class BuckRepo:
             disconnection occurs. Specify port 0 to allow Nailgun to find an
             available port, then parse the port number out of the first log entry.
             '''
-            command = ["java"]
+            command = [which("java")]
             command.extend(self._get_java_args(self._buck_version_uid))
             command.append("-Dbuck.buckd_launch_time_nanos={0}".format(monotonic_time_nanos()))
             command.append("-Dbuck.buckd_watcher=Watchman")
@@ -381,8 +391,8 @@ class BuckRepo:
                 if os.path.exists(self._build_success_file):
                     os.remove(self._build_success_file)
 
-                self._check_for_ant()
-                self._run_ant_clean()
+                ant = self._check_for_ant()
+                self._run_ant_clean(ant)
                 self._restart_buck()
 
     def _join_buck_dir(self, relative_path):
@@ -433,11 +443,13 @@ class BuckRepo:
         return returncode == 0
 
     def _check_for_ant(self):
-        if not which('ant'):
+        ant = which('ant')
+        if not ant:
             message = "You do not have ant on your $PATH. Cannot build Buck."
             if sys.platform == "darwin":
                 message += "\nTry running 'brew install ant'."
             raise BuckRepoException(message)
+        return ant
 
     def _print_ant_failure_and_exit(self, ant_log_path):
         print(textwrap.dedent("""\
@@ -455,18 +467,18 @@ class BuckRepo:
                 ::: It is possible that running this command will fix it:
                 ::: rm -rf "{0}"/build""".format(self._buck_dir)))
 
-    def _run_ant_clean(self):
+    def _run_ant_clean(self, ant):
         clean_log_path = os.path.join(self._buck_project.get_buck_out_log_dir(), 'ant-clean.log')
         with open(clean_log_path, 'w') as clean_log:
-            exitcode = subprocess.call(['ant', 'clean'], stdout=clean_log,
+            exitcode = subprocess.call([ant, 'clean'], stdout=clean_log,
                                        cwd=self._buck_dir)
             if exitcode is not 0:
                 self._print_ant_failure_and_exit(clean_log_path)
 
-    def _run_ant(self):
+    def _run_ant(self, ant):
         ant_log_path = os.path.join(self._buck_project.get_buck_out_log_dir(), 'ant.log')
         with open(ant_log_path, 'w') as ant_log:
-            exitcode = subprocess.call(['ant'], stdout=ant_log,
+            exitcode = subprocess.call([ant], stdout=ant_log,
                                        cwd=self._buck_dir)
             if exitcode is not 0:
                 self._print_ant_failure_and_exit(ant_log_path)
@@ -485,8 +497,8 @@ class BuckRepo:
             ['git', 'log', '-n1', '--pretty=format:%T', 'HEAD', '--'],
             cwd=self._buck_dir).strip()
 
-        with tempfile.NamedTemporaryFile(prefix='buck-git-index',
-                                         dir=self._tmp_dir) as index_file:
+        with EmptyTempFile(prefix='buck-git-index',
+                           dir=self._tmp_dir) as index_file:
             new_environ = os.environ.copy()
             new_environ['GIT_INDEX_FILE'] = index_file.name
             subprocess.check_call(
@@ -504,10 +516,11 @@ class BuckRepo:
                 cwd=self._buck_dir,
                 env=new_environ).strip()
 
-        with tempfile.NamedTemporaryFile(prefix='buck-version-uid-input',
-                                         dir=self._tmp_dir) as uid_input:
+        with EmptyTempFile(prefix='buck-version-uid-input',
+                           dir=self._tmp_dir,
+                           closed=False) as uid_input:
             subprocess.check_call(
-                ['git', 'ls-tree',  '--full-tree', git_tree_out],
+                ['git', 'ls-tree', '--full-tree', git_tree_out],
                 cwd=self._buck_dir,
                 stdout=uid_input)
             return check_output(
@@ -517,14 +530,13 @@ class BuckRepo:
     def _build(self):
         with Tracing('BuckRepo._build'):
             if not os.path.exists(self._build_success_file):
-                # TODO(natthu): kill buckd if running, and
-                # restart buckd only if it was running before.
                 print(
                     "Buck does not appear to have been built -- building Buck!",
                     file=sys.stderr)
-                self._check_for_ant()
-                self._run_ant_clean()
-                self._run_ant()
+                ant = self._check_for_ant()
+                self._run_ant_clean(ant)
+                self._run_ant(ant)
+                open(self._build_success_file, 'w').close()
 
     def _get_buck_version_uid(self):
         with Tracing('BuckRepo._get_buck_version_uid'):
@@ -613,6 +625,29 @@ class BuckRepo:
 
 class BuckRepoException(Exception):
     pass
+
+
+class EmptyTempFile:
+    def __init__(self, prefix=None, dir=None, closed=True):
+        self.file, self.name = tempfile.mkstemp(prefix=prefix, dir=dir)
+        if closed:
+            os.close(self.file)
+        self.closed = closed
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        os.remove(self.name)
+
+    def close(self):
+        if not self.closed:
+            os.close(self.file)
+        self.closed = True
+
+    def fileno(self):
+        return self.file
 
 
 #
@@ -709,6 +744,6 @@ def check_output(*popenargs, **kwargs):
 
 
 def is_java8():
-    output = check_output(['java', '-version'], stderr=subprocess.STDOUT)
+    output = check_output([which('java'), '-version'], stderr=subprocess.STDOUT)
     version_line = output.strip().splitlines()[0]
-    return re.compile('java version "1\.8\..*').match(version_line)
+    return re.compile(b'java version "1\.8\..*').match(version_line)

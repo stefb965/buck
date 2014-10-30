@@ -28,10 +28,11 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleParamsFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleSourcePath;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TestSourcePath;
 import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.shell.GenruleBuilder;
@@ -51,17 +52,20 @@ public class CxxBinaryDescriptionTest {
 
   private static FakeBuildRule createFakeBuildRule(
       String target,
+      SourcePathResolver resolver,
       BuildRule... deps) {
     return new FakeBuildRule(
         new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance(target))
             .setDeps(ImmutableSortedSet.copyOf(deps))
-            .build());
+            .build(),
+        resolver);
   }
 
   @Test
   @SuppressWarnings("PMD.UseAssertTrueInsteadOfAssertEquals")
   public void createBuildRule() {
     BuildRuleResolver resolver = new BuildRuleResolver();
+    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
 
     // Setup a genrule the generates a header we'll list.
     String genHeaderName = "test/foo.h";
@@ -80,32 +84,30 @@ public class CxxBinaryDescriptionTest {
         .build(resolver);
 
     // Setup a C/C++ library that we'll depend on form the C/C++ binary description.
-    final BuildRule header = createFakeBuildRule("//:header");
-    final BuildRule headerSymlinkTree = createFakeBuildRule("//:symlink");
+    final BuildRule header = createFakeBuildRule("//:header", pathResolver);
+    final BuildRule headerSymlinkTree = createFakeBuildRule("//:symlink", pathResolver);
     final Path headerSymlinkTreeRoot = Paths.get("symlink/tree/root");
-    final BuildRule archive = createFakeBuildRule("//:archive");
+    final BuildRule archive = createFakeBuildRule("//:archive", pathResolver);
     final Path archiveOutput = Paths.get("output/path/lib.a");
     BuildTarget depTarget = BuildTargetFactory.newInstance("//:dep");
     BuildRuleParams depParams = BuildRuleParamsFactory.createTrivialBuildRuleParams(depTarget);
-    CxxLibrary dep = new CxxLibrary(depParams) {
+    CxxLibrary dep = new CxxLibrary(depParams, pathResolver) {
 
       @Override
       public CxxPreprocessorInput getCxxPreprocessorInput() {
-        return new CxxPreprocessorInput(
-            ImmutableSet.of(
-                header.getBuildTarget(),
-                headerSymlinkTree.getBuildTarget()),
-            ImmutableList.<String>of(),
-            ImmutableList.<String>of(),
-            ImmutableMap.<Path, SourcePath>of(),
-            ImmutableList.of(headerSymlinkTreeRoot),
-            ImmutableList.<Path>of());
+        return CxxPreprocessorInput.builder()
+            .setRules(
+                ImmutableSet.of(
+                    header.getBuildTarget(),
+                    headerSymlinkTree.getBuildTarget()))
+            .setIncludeRoots(headerSymlinkTreeRoot)
+            .build();
       }
 
       @Override
-      public NativeLinkableInput getNativeLinkableInput(Type type) {
+      public NativeLinkableInput getNativeLinkableInput(Linker linker, Type type) {
         return new NativeLinkableInput(
-            ImmutableList.<SourcePath>of(new BuildRuleSourcePath(archive)),
+            ImmutableList.<SourcePath>of(new BuildTargetSourcePath(archive.getBuildTarget())),
             ImmutableList.of(archiveOutput.toString()));
       }
 
@@ -131,17 +133,19 @@ public class CxxBinaryDescriptionTest {
     arg.deps = Optional.of(ImmutableSortedSet.of(dep.getBuildTarget()));
     arg.srcs = Optional.of(ImmutableList.<SourcePath>of(
         new TestSourcePath("test/bar.cpp"),
-        new BuildRuleSourcePath(genSource)));
+        new BuildTargetSourcePath(genSource.getBuildTarget())));
     arg.headers = Optional.of(ImmutableList.<SourcePath>of(
         new TestSourcePath("test/bar.h"),
-        new BuildRuleSourcePath(genHeader)));
+        new BuildTargetSourcePath(genHeader.getBuildTarget())));
     arg.compilerFlags = Optional.absent();
     arg.preprocessorFlags = Optional.absent();
+    arg.langPreprocessorFlags = Optional.absent();
     arg.lexSrcs = Optional.absent();
     arg.yaccSrcs = Optional.absent();
+    arg.headerNamespace = Optional.absent();
 
     // Instantiate a description and call its `createBuildRule` method.
-    CxxBuckConfig cxxBuckConfig = new CxxBuckConfig(new FakeBuckConfig());
+    DefaultCxxPlatform cxxBuckConfig = new DefaultCxxPlatform(new FakeBuckConfig());
     CxxBinaryDescription description = new CxxBinaryDescription(cxxBuckConfig);
     CxxBinary binRule = description.createBuildRule(params, resolver, arg);
     CxxLink rule = binRule.getRule();

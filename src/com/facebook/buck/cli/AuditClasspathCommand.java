@@ -22,14 +22,15 @@ import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.parser.PartialGraph;
-import com.facebook.buck.parser.RuleJsonPredicate;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleType;
+import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Functions;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.LinkedHashMultimap;
@@ -38,7 +39,6 @@ import com.google.common.collect.Sets;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.Map;
 import java.util.SortedSet;
 
 import javax.annotation.Nullable;
@@ -67,18 +67,16 @@ public class AuditClasspathCommand extends AbstractCommandRunner<AuditCommandOpt
       return 1;
     }
 
-    RuleJsonPredicate predicate = new RuleJsonPredicate() {
-      @Override
-      public boolean isMatch(
-          Map<String, Object> rawParseData,
-          BuildRuleType buildRuleType,
-          BuildTarget buildTarget) {
-        return fullyQualifiedBuildTargets.contains(buildTarget.getFullyQualifiedName());
-      }
-    };
     PartialGraph partialGraph;
     try {
-      partialGraph = PartialGraph.createPartialGraph(predicate,
+      partialGraph = PartialGraph.createPartialGraph(
+          new Predicate<TargetNode<?>>() {
+            @Override
+            public boolean apply(TargetNode<?> input) {
+              return fullyQualifiedBuildTargets.contains(
+                  input.getBuildTarget().getFullyQualifiedName());
+            }
+          },
           getProjectFilesystem(),
           options.getDefaultIncludes(),
           getParser(),
@@ -92,7 +90,7 @@ public class AuditClasspathCommand extends AbstractCommandRunner<AuditCommandOpt
     }
 
     if (options.shouldGenerateDotOutput()) {
-      return printDotOutput(partialGraph.getActionGraph());
+      return printDotOutput(partialGraph.getTargetGraph().getActionGraph(getBuckEventBus()));
     } else if (options.shouldGenerateJsonOutput()) {
       return printJsonClasspath(partialGraph);
     } else {
@@ -123,11 +121,11 @@ public class AuditClasspathCommand extends AbstractCommandRunner<AuditCommandOpt
   @VisibleForTesting
   int printClasspath(PartialGraph partialGraph) {
     ImmutableSet<BuildTarget> targets = partialGraph.getTargets();
-    ActionGraph graph = partialGraph.getActionGraph();
+    ActionGraph graph = partialGraph.getTargetGraph().getActionGraph(getBuckEventBus());
     SortedSet<Path> classpathEntries = Sets.newTreeSet();
 
     for (BuildTarget target : targets) {
-      BuildRule rule = graph.findBuildRuleByTarget(target);
+      BuildRule rule = Preconditions.checkNotNull(graph.findBuildRuleByTarget(target));
       HasClasspathEntries hasClasspathEntries = getHasClasspathEntriesFrom(rule);
       if (hasClasspathEntries != null) {
         classpathEntries.addAll(hasClasspathEntries.getTransitiveClasspathEntries().values());
@@ -146,12 +144,12 @@ public class AuditClasspathCommand extends AbstractCommandRunner<AuditCommandOpt
 
   @VisibleForTesting
   int printJsonClasspath(PartialGraph partialGraph) throws IOException {
-    ActionGraph graph = partialGraph.getActionGraph();
+    ActionGraph graph = partialGraph.getTargetGraph().getActionGraph(getBuckEventBus());
     ImmutableSet<BuildTarget> targets = partialGraph.getTargets();
     Multimap<String, String> targetClasspaths = LinkedHashMultimap.create();
 
     for (BuildTarget target : targets) {
-      BuildRule rule = graph.findBuildRuleByTarget(target);
+      BuildRule rule = Preconditions.checkNotNull(graph.findBuildRuleByTarget(target));
       HasClasspathEntries hasClasspathEntries = getHasClasspathEntriesFrom(rule);
       if (hasClasspathEntries == null) {
         continue;

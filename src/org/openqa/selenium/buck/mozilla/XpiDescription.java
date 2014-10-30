@@ -21,6 +21,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSortedSet;
 
@@ -45,6 +46,7 @@ public class XpiDescription implements Description<XpiDescription.Arg> {
       BuildRuleParams params, BuildRuleResolver resolver, A args) {
     return new Xpi(
         params,
+        new SourcePathResolver(resolver),
         args.chrome,
         args.components.get(),
         args.content.get(),

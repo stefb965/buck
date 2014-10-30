@@ -23,7 +23,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSet;
@@ -51,6 +51,8 @@ public class AndroidManifestDescription implements Description<AndroidManifestDe
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) {
+    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+
     AndroidTransitiveDependencyGraph transitiveDependencyGraph =
         new AndroidTransitiveDependencyGraph(resolver.getAllRules(args.deps.get()));
     ImmutableSet<SourcePath> manifestFiles = transitiveDependencyGraph.findManifestFiles();
@@ -59,17 +61,19 @@ public class AndroidManifestDescription implements Description<AndroidManifestDe
     // responsible for generating the AndroidManifest.xml files in the manifestFiles set (and
     // possibly the skeleton).
     //
-    // If the skeleton is a BuildRuleSourcePath, then its build rule must also be in the deps.
+    // If the skeleton is a BuildTargetSourcePath, then its build rule must also be in the deps.
     // The skeleton does not appear to be in either params.getDeclaredDeps() or
     // params.getExtraDeps(), even though the type of Arg.skeleton is SourcePath.
     // TODO(simons): t4744625 This should happen automagically.
     ImmutableSortedSet<BuildRule> newDeps = ImmutableSortedSet.<BuildRule>naturalOrder()
-        .addAll(SourcePaths.filterBuildRuleInputs(
-            Sets.union(manifestFiles, Collections.singleton(args.skeleton))))
+        .addAll(
+            pathResolver.filterBuildRuleInputs(
+                Sets.union(manifestFiles, Collections.singleton(args.skeleton))))
         .build();
 
     return new AndroidManifest(
         params.copyWithDeps(newDeps, params.getExtraDeps()),
+        pathResolver,
         args.skeleton,
         manifestFiles);
   }

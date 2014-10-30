@@ -22,6 +22,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSortedSet;
 
@@ -44,6 +45,7 @@ public class JsFragmentDescription implements Description<JsFragmentDescription.
       BuildRuleParams params, BuildRuleResolver resolver, A args) {
     return new JsFragment(
         params,
+        new SourcePathResolver(resolver),
         params.getDeps(),
         args.module,
         args.function);

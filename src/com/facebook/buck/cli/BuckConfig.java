@@ -20,15 +20,19 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ThrowableConsoleEvent;
 import com.facebook.buck.java.DefaultJavaPackageFinder;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.parser.BuildTargetParseException;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.ParseContext;
 import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.BuildDependencies;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CassandraArtifactCache;
 import com.facebook.buck.rules.DirArtifactCache;
 import com.facebook.buck.rules.HttpArtifactCache;
 import com.facebook.buck.rules.MultiArtifactCache;
 import com.facebook.buck.rules.NoopArtifactCache;
+import com.facebook.buck.rules.PathSourcePath;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.FileHashCache;
@@ -69,6 +73,7 @@ import java.io.StringReader;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -151,10 +156,9 @@ public class BuckConfig {
       Platform platform,
       ImmutableMap<String, String> environment,
       ImmutableMap<String, Path> repoNamesToPaths) {
-    this.projectFilesystem = Preconditions.checkNotNull(projectFilesystem);
-    this.buildTargetParser = Preconditions.checkNotNull(buildTargetParser);
+    this.projectFilesystem = projectFilesystem;
+    this.buildTargetParser = buildTargetParser;
 
-    Preconditions.checkNotNull(sectionsToEntries);
     ImmutableMap.Builder<String, ImmutableMap<String, String>> sectionsToEntriesBuilder =
         ImmutableMap.builder();
     for (Map.Entry<String, Map<String, String>> entry : sectionsToEntries.entrySet()) {
@@ -168,10 +172,10 @@ public class BuckConfig {
         this.getEntriesForSection(ALIAS_SECTION_HEADER),
         buildTargetParser);
 
-    this.repoNamesToPaths = Preconditions.checkNotNull(repoNamesToPaths);
+    this.repoNamesToPaths = repoNamesToPaths;
 
-    this.platform = Preconditions.checkNotNull(platform);
-    this.environment = Preconditions.checkNotNull(environment);
+    this.platform = platform;
+    this.environment = environment;
   }
 
   /**
@@ -186,8 +190,6 @@ public class BuckConfig {
       Platform platform,
       ImmutableMap<String, String> environment)
       throws IOException {
-    Preconditions.checkNotNull(projectFilesystem);
-    Preconditions.checkNotNull(files);
     BuildTargetParser buildTargetParser = new BuildTargetParser();
 
     if (Iterables.isEmpty(files)) {
@@ -218,7 +220,7 @@ public class BuckConfig {
    *     indicate whether it is an alias that maps to a build target in a BuckConfig.
    */
   private static boolean isValidAliasName(String aliasName) {
-    return aliasName != null && ALIAS_PATTERN.matcher(aliasName).matches();
+    return ALIAS_PATTERN.matcher(aliasName).matches();
   }
 
   public static void validateAliasName(String aliasName) throws HumanReadableException {
@@ -232,10 +234,6 @@ public class BuckConfig {
   private static void validateAgainstAlias(String aliasName, String fieldName) {
     if (isValidAliasName(aliasName)) {
       return;
-    }
-
-    if (aliasName == null) {
-      throw new HumanReadableException("%s cannot be null.", fieldName);
     }
 
     if (aliasName.isEmpty()) {
@@ -264,7 +262,6 @@ public class BuckConfig {
   @VisibleForTesting
   static Map<String, Map<String, String>> createFromReaders(Iterable<Reader> readers)
       throws IOException {
-    Preconditions.checkNotNull(readers);
 
     Ini ini = new Ini();
     for (Reader reader : readers) {
@@ -330,7 +327,6 @@ public class BuckConfig {
   }
 
   public ImmutableMap<String, String> getEntriesForSection(String section) {
-    Preconditions.checkNotNull(section);
     ImmutableMap<String, String> entries = sectionsToEntries.get(section);
     if (entries != null) {
       return entries;
@@ -425,7 +421,6 @@ public class BuckConfig {
 
   @Nullable
   public String getBuildTargetForAlias(String alias) {
-    Preconditions.checkNotNull(alias);
     BuildTarget buildTarget = aliasToBuildTargetMap.get(alias);
     if (buildTarget != null) {
       return buildTarget.getFullyQualifiedName();
@@ -453,13 +448,58 @@ public class BuckConfig {
    */
   public BuildTarget getRequiredBuildTarget(String section, String field) {
     Optional<BuildTarget> target = getBuildTarget(section, field);
-    if (!target.isPresent()) {
-      throw new HumanReadableException(String.format(
-          ".buckconfig: %s:%s must be set",
-          section,
-          field));
+    return required(section, field, target);
+  }
+
+  public <T extends Enum<T>> Optional<T> getEnum(String section, String field, Class<T> clazz) {
+    Optional<String> value = getValue(section, field);
+    if (!value.isPresent()) {
+      return Optional.absent();
     }
-    return target.get();
+    try {
+      return Optional.of(Enum.valueOf(clazz, value.get().toUpperCase(Locale.ROOT)));
+    } catch (IllegalArgumentException e) {
+      throw new HumanReadableException(
+          ".buckconfig: %s:%s must be one of %s (was %s)",
+          section,
+          field,
+          clazz.getEnumConstants(),
+          value.get());
+    }
+  }
+
+  public <T extends Enum<T>> T getRequiredEnum(String section, String field, Class<T> clazz) {
+    Optional<T> value = getEnum(section, field, clazz);
+    return required(section, field, value);
+  }
+
+  /**
+   * @return a {@link SourcePath} identified by a @{link BuildTarget} or {@link Path} reference
+   *     by the given section:field, if set.
+   */
+  public Optional<SourcePath> getSourcePath(String section, String field) {
+    Optional<String> value = getValue(section, field);
+    if (!value.isPresent()) {
+      return Optional.absent();
+    }
+    try {
+      BuildTarget target = getBuildTargetForFullyQualifiedTarget(value.get());
+      return Optional.<SourcePath>of(new BuildTargetSourcePath(target));
+    } catch (BuildTargetParseException e) {
+      checkPathExists(
+          value.get(),
+          String.format("Overridden %s:%s path not found: ", section, field));
+      return Optional.<SourcePath>of(new PathSourcePath(Paths.get(value.get())));
+    }
+  }
+
+  /**
+   * @return a {@link SourcePath} identified by a @{link BuildTarget} or {@link Path} reference
+   *     by the given section:field.
+   */
+  public SourcePath getRequiredSourcePath(String section, String field) {
+    Optional<SourcePath> path = getSourcePath(section, field);
+    return required(section, field, path);
   }
 
   /**
@@ -657,7 +697,21 @@ public class BuckConfig {
   @VisibleForTesting
   Path getCacheDir() {
     String cacheDir = getValue("cache", "dir").or(DEFAULT_CACHE_DIR);
-    Path expandedPath = MorePaths.expandHomeDir(Paths.get(cacheDir));
+    Path pathToCacheDir = resolvePathThatMayBeOutsideTheProjectFilesystem(Paths.get(cacheDir));
+    return Preconditions.checkNotNull(pathToCacheDir);
+  }
+
+  @Nullable
+  Path resolvePathThatMayBeOutsideTheProjectFilesystem(@Nullable Path path) {
+    if (path == null) {
+      return path;
+    }
+
+    if (path.isAbsolute()) {
+      return path;
+    }
+
+    Path expandedPath = MorePaths.expandHomeDir(path);
     return projectFilesystem.getAbsolutifier().apply(expandedPath);
   }
 
@@ -789,6 +843,16 @@ public class BuckConfig {
     }
   }
 
+  private <T> T required(String section, String field, Optional<T> value) {
+    if (!value.isPresent()) {
+      throw new HumanReadableException(String.format(
+          ".buckconfig: %s:%s must be set",
+          section,
+          field));
+    }
+    return value.get();
+  }
+
   @Override
   public boolean equals(Object obj) {
     if (this == obj) {
@@ -827,7 +891,6 @@ public class BuckConfig {
    * @return The found python interpreter.
    */
   public String getPythonInterpreter() {
-    Preconditions.checkState(environment.containsKey("PATH"), "PATH is not defined.");
     Optional<String> configPath = getValue("tools", "python");
     if (configPath.isPresent()) {
       // Python path in config. Use it or report error if invalid.
@@ -851,18 +914,6 @@ public class BuckConfig {
       }
       throw new HumanReadableException("No python2 or python found.");
     }
-  }
-
-  /**
-   * Returns the path to the proguard.jar file that is overridden by the current project.  If
-   * not specified, the Android platform proguard.jar will be used.
-   */
-  public Optional<Path> getProguardJarOverride() {
-    Optional<String> pathString = getValue("tools", "proguard");
-    if (pathString.isPresent()) {
-      return checkPathExists(pathString.get(), "Overridden proguard path not found: ");
-    }
-    return Optional.absent();
   }
 
   /**

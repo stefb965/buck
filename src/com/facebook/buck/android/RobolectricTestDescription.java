@@ -27,6 +27,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSet;
@@ -58,6 +59,8 @@ public class RobolectricTestDescription implements Description<RobolectricTestDe
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) {
+    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+
     JavacOptions.Builder javacOptions = JavaLibraryDescription.getJavacOptions(args, javacEnv);
 
     AnnotationProcessingParams annotationParams = args.buildAnnotationProcessingParams(
@@ -87,10 +90,11 @@ public class RobolectricTestDescription implements Description<RobolectricTestDe
 
     return new RobolectricTest(
         params,
+        pathResolver,
         args.srcs.get(),
         JavaLibraryDescription.validateResources(
-            args,
-            params.getProjectFilesystem()),
+            pathResolver,
+            args, params.getProjectFilesystem()),
         args.labels.get(),
         args.contacts.get(),
         args.proguardConfig,

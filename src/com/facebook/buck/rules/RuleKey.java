@@ -23,6 +23,7 @@ import com.facebook.buck.util.hash.AppendingHasher;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -76,7 +77,7 @@ public class RuleKey {
     return hashCode;
   }
 
-  /** @return the {@link #toString} of the hash code that underlies this RuleKey. */
+  /** @return the {@code toString()} of the hash code that underlies this RuleKey. */
   @Override
   public String toString() {
     return getHashCode().toString();
@@ -112,14 +113,23 @@ public class RuleKey {
   /**
    * Builder for a {@link RuleKey} that is a function of all of a {@link BuildRule}'s inputs.
    */
-  public static Builder builder(BuildRule rule, FileHashCache hashCache) {
+  public static Builder builder(
+      BuildRule rule,
+      SourcePathResolver resolver,
+      FileHashCache hashCache) {
     ImmutableSortedSet<BuildRule> exportedDeps;
     if (rule instanceof ExportDependencies) {
       exportedDeps = ((ExportDependencies) rule).getExportedDeps();
     } else {
       exportedDeps = ImmutableSortedSet.of();
     }
-    return builder(rule.getBuildTarget(), rule.getType(), rule.getDeps(), exportedDeps, hashCache);
+    return builder(
+        rule.getBuildTarget(),
+        rule.getType(),
+        resolver,
+        rule.getDeps(),
+        exportedDeps,
+        hashCache);
   }
 
   /**
@@ -128,10 +138,11 @@ public class RuleKey {
   public static Builder builder(
       BuildTarget name,
       BuildRuleType type,
+      SourcePathResolver resolver,
       ImmutableSortedSet<BuildRule> deps,
       ImmutableSortedSet<BuildRule> exportedDeps,
       FileHashCache hashCache) {
-    return new Builder(deps, exportedDeps, hashCache)
+    return new Builder(resolver, deps, exportedDeps, hashCache)
         .set("name", name.getFullyQualifiedName())
         // Keyed as "buck.type" rather than "type" in case a build rule has its own "type" argument.
         .set("buck.type", type.getName());
@@ -144,6 +155,7 @@ public class RuleKey {
 
     private static final Logger logger = Logger.get(Builder.class);
 
+    private final SourcePathResolver resolver;
     private final ImmutableSortedSet<BuildRule> deps;
     private final ImmutableSortedSet<BuildRule> exportedDeps;
     private final Hasher hasher;
@@ -152,9 +164,11 @@ public class RuleKey {
     @Nullable private List<String> logElms;
 
     private Builder(
+        SourcePathResolver resolver,
         ImmutableSortedSet<BuildRule> deps,
         ImmutableSortedSet<BuildRule> exportedDeps,
         FileHashCache hashCache) {
+      this.resolver = Preconditions.checkNotNull(resolver);
       this.deps = Preconditions.checkNotNull(deps);
       this.exportedDeps = Preconditions.checkNotNull(exportedDeps);
       this.hasher = new AppendingHasher(Hashing.sha1(), /* numHashers */ 2);
@@ -294,17 +308,19 @@ public class RuleKey {
     }
 
     private Builder setInputVal(SourcePath path) {
-      Object ref = path.asReference();
-      if (ref instanceof BuildRule) {
-        return setVal(((BuildRule) ref).getRuleKey());
+      Optional<BuildRule> buildRule = resolver.getRule(path);
+      if (buildRule.isPresent()) {
+        return setVal(buildRule.get().getRuleKey());
       } else {
-        return setInputVal(path.resolve());
+        Optional<Path> relativePath = resolver.getRelativePath(path);
+        Preconditions.checkState(relativePath.isPresent());
+        return setInputVal(relativePath.get());
       }
     }
 
     /**
      * Hash the value of the given {@link SourcePath}, which is either the {@link RuleKey} in the
-     * case of a {@link BuildRuleSourcePath} or the hash of the contents in the case of a
+     * case of a {@link BuildTargetSourcePath} or the hash of the contents in the case of a
      * {@link PathSourcePath}.
      */
     public Builder setInput(String key, SourcePath input) {
@@ -316,11 +332,13 @@ public class RuleKey {
       if (val != null) {
         for (SourcePath path : val) {
           setVal(path.toString());
-          Object ref = path.asReference();
-          if (ref instanceof BuildRule) {
-            setVal(((BuildRule) ref).getRuleKey());
+          Optional<BuildRule> buildRule = resolver.getRule(path);
+          if (buildRule.isPresent()) {
+            setVal(buildRule.get().getRuleKey());
           } else {
-            setVal(String.valueOf(ref));
+            Optional<Path> relativePath = resolver.getRelativePath(path);
+            Preconditions.checkState(relativePath.isPresent());
+            setVal(relativePath.get().toString());
           }
         }
       }
@@ -368,6 +386,8 @@ public class RuleKey {
         return set(key, (long) val);
       } else if (val instanceof Path) {
         return setInput(key, (Path) val);
+      } else if (val instanceof SourcePath) {
+        return setInput(key, (SourcePath) val);
       } else if (val instanceof RuleKey) {
         return set(key, (RuleKey) val);
       }
@@ -472,7 +492,7 @@ public class RuleKey {
 
       @Override
       public String toString() {
-        return Objects.toStringHelper(this.getClass())
+        return MoreObjects.toStringHelper(this.getClass())
             .add("totalRuleKey", totalRuleKey)
             .add("ruleKeyWithoutDeps", ruleKeyWithoutDeps)
             .toString();

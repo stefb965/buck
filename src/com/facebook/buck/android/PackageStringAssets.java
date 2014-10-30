@@ -27,10 +27,10 @@ import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.RecordFileSha1Step;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.Sha1HashCode;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.zip.ZipStep;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -57,11 +57,12 @@ public class PackageStringAssets extends AbstractBuildRule
 
   public PackageStringAssets(
       BuildRuleParams params,
+      SourcePathResolver resolver,
       FilteredResourcesProvider filteredResourcesProvider,
       AaptPackageResources aaptPackageResources) {
-    super(params);
-    this.filteredResourcesProvider = Preconditions.checkNotNull(filteredResourcesProvider);
-    this.aaptPackageResources = Preconditions.checkNotNull(aaptPackageResources);
+    super(params, resolver);
+    this.filteredResourcesProvider = filteredResourcesProvider;
+    this.aaptPackageResources = aaptPackageResources;
     this.buildOutputInitializer = new BuildOutputInitializer<>(params.getBuildTarget(), this);
   }
 
@@ -130,7 +131,7 @@ public class PackageStringAssets extends AbstractBuildRule
     private final Sha1HashCode stringAssetsZipHash;
 
     public BuildOutput(Sha1HashCode stringAssetsZipHash) {
-      this.stringAssetsZipHash = Preconditions.checkNotNull(stringAssetsZipHash);
+      this.stringAssetsZipHash = stringAssetsZipHash;
     }
   }
 

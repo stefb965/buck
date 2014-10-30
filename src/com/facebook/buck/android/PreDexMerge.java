@@ -28,7 +28,7 @@ import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.RecordFileSha1Step;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.Sha1HashCode;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -95,21 +95,22 @@ public class PreDexMerge extends AbstractBuildRule implements InitializableFromD
 
   public PreDexMerge(
       BuildRuleParams params,
+      SourcePathResolver resolver,
       Path primaryDexPath,
       DexSplitMode dexSplitMode,
       ImmutableSet<DexProducedFromJavaLibrary> preDexDeps,
       AaptPackageResources aaptPackageResources) {
-    super(params);
-    this.primaryDexPath = Preconditions.checkNotNull(primaryDexPath);
-    this.dexSplitMode = Preconditions.checkNotNull(dexSplitMode);
-    this.preDexDeps = Preconditions.checkNotNull(preDexDeps);
-    this.aaptPackageResources = Preconditions.checkNotNull(aaptPackageResources);
+    super(params, resolver);
+    this.primaryDexPath = primaryDexPath;
+    this.dexSplitMode = dexSplitMode;
+    this.preDexDeps = preDexDeps;
+    this.aaptPackageResources = aaptPackageResources;
     this.buildOutputInitializer = new BuildOutputInitializer<>(params.getBuildTarget(), this);
   }
 
   @Override
   public ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return SourcePaths.filterInputsToCompareToOutput(dexSplitMode.getSourcePaths());
+    return getResolver().filterInputsToCompareToOutput(dexSplitMode.getSourcePaths());
   }
 
   @Override
@@ -324,7 +325,7 @@ public class PreDexMerge extends AbstractBuildRule implements InitializableFromD
 
     BuildOutput(@Nullable Sha1HashCode primaryDexHash, ImmutableSet<Path> secondaryDexDirectories) {
       this.primaryDexHash = primaryDexHash;
-      this.secondaryDexDirectories = Preconditions.checkNotNull(secondaryDexDirectories);
+      this.secondaryDexDirectories = secondaryDexDirectories;
     }
   }
 

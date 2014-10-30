@@ -25,13 +25,14 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.zip.ZipStep;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -46,9 +47,10 @@ public class Folder extends AbstractBuildRule {
 
   protected Folder(
       BuildRuleParams buildRuleParams,
+      SourcePathResolver resolver,
       String folderName,
       ImmutableSortedSet<SourcePath> srcs) {
-    super(buildRuleParams);
+    super(buildRuleParams, resolver);
 
     this.folderName = Preconditions.checkNotNull(Paths.get(folderName));
     this.output = BuildTargets.getGenPath(getBuildTarget(),  "%s.src.zip");
@@ -67,7 +69,7 @@ public class Folder extends AbstractBuildRule {
     steps.add(new MakeCleanDirectoryStep(scratch));
 
     SrcZipAwareFileBundler bundler = new SrcZipAwareFileBundler(getBuildTarget());
-    bundler.copy(steps, scratch, srcs, false);
+    bundler.copy(getResolver(), steps, scratch, srcs, false);
     steps.add(new ZipStep(
             output,
             ImmutableSet.<Path>of(),
@@ -86,8 +88,8 @@ public class Folder extends AbstractBuildRule {
   }
 
   @Override
-  protected Iterable<Path> getInputsToCompareToOutput() {
-    return SourcePaths.filterInputsToCompareToOutput(srcs);
+  protected ImmutableCollection<Path> getInputsToCompareToOutput() {
+    return getResolver().filterInputsToCompareToOutput(srcs);
   }
 
   @Override

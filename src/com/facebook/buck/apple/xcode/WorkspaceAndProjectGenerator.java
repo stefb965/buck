@@ -28,14 +28,15 @@ import com.facebook.buck.apple.xcode.xcodeproj.PBXTarget;
 import com.facebook.buck.graph.TopologicalSort;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleType;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Optional;
-import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
@@ -50,11 +51,10 @@ import java.nio.file.Path;
 import java.util.Map;
 import java.util.Set;
 
-import javax.annotation.Nullable;
-
 public class WorkspaceAndProjectGenerator {
   private static final Logger LOG = Logger.get(WorkspaceAndProjectGenerator.class);
 
+  private final SourcePathResolver resolver;
   private final ProjectFilesystem projectFilesystem;
   private final ActionGraph projectGraph;
   private final ExecutionContext executionContext;
@@ -64,6 +64,7 @@ public class WorkspaceAndProjectGenerator {
   private final ImmutableSet<BuildRule> extraTestBundleRules;
 
   public WorkspaceAndProjectGenerator(
+      SourcePathResolver resolver,
       ProjectFilesystem projectFilesystem,
       ActionGraph projectGraph,
       ExecutionContext executionContext,
@@ -71,10 +72,11 @@ public class WorkspaceAndProjectGenerator {
       Set<ProjectGenerator.Option> projectGeneratorOptions,
       Multimap<BuildRule, AppleTest> sourceRuleToTestRules,
       Iterable<BuildRule> extraTestBundleRules) {
-    this.projectFilesystem = Preconditions.checkNotNull(projectFilesystem);
-    this.projectGraph = Preconditions.checkNotNull(projectGraph);
-    this.executionContext = Preconditions.checkNotNull(executionContext);
-    this.workspaceBuildable = Preconditions.checkNotNull(workspaceBuildable);
+    this.resolver = resolver;
+    this.projectFilesystem = projectFilesystem;
+    this.projectGraph = projectGraph;
+    this.executionContext = executionContext;
+    this.workspaceBuildable = workspaceBuildable;
     this.projectGeneratorOptions = ImmutableSet.<ProjectGenerator.Option>builder()
       .addAll(projectGeneratorOptions)
       .addAll(ProjectGenerator.SEPARATED_PROJECT_OPTIONS)
@@ -125,7 +127,7 @@ public class WorkspaceAndProjectGenerator {
 
     Sets.SetView<BuildRule> rulesInRequiredProjects =
         Sets.union(orderedBuildRules, orderedTestBuildRules);
-    ImmutableMap.Builder<BuildRule, PBXTarget> buildRuleToTargetMapBuilder =
+    ImmutableMap.Builder<BuildTarget, PBXTarget> buildTargetToPbxTargetMapBuilder =
         ImmutableMap.builder();
     ImmutableMap.Builder<PBXTarget, Path> targetToProjectPathMapBuilder =
         ImmutableMap.builder();
@@ -147,6 +149,7 @@ public class WorkspaceAndProjectGenerator {
       if (generator == null) {
         LOG.debug("Generating project for rule %s", xcodeProjectConfig);
         generator = new ProjectGenerator(
+            resolver,
             projectGraph.getNodes(),
             initialTargets,
             projectFilesystem,
@@ -162,8 +165,8 @@ public class WorkspaceAndProjectGenerator {
 
       workspaceGenerator.addFilePath(generator.getProjectPath());
 
-      buildRuleToTargetMapBuilder.putAll(generator.getBuildRuleToGeneratedTargetMap());
-      for (PBXTarget target : generator.getBuildRuleToGeneratedTargetMap().values()) {
+      buildTargetToPbxTargetMapBuilder.putAll(generator.getBuildTargetToGeneratedTargetMap());
+      for (PBXTarget target : generator.getBuildTargetToGeneratedTargetMap().values()) {
         targetToProjectPathMapBuilder.put(target, generator.getProjectPath());
       }
     }
@@ -171,7 +174,7 @@ public class WorkspaceAndProjectGenerator {
     for (XcodeNative buildable : Iterables.filter(
         projectGraph.getNodes(),
         XcodeNative.class)) {
-      Path projectPath = buildable.getProjectContainerPath().resolve();
+      Path projectPath = resolver.getPath(buildable.getProjectContainerPath());
       Path pbxprojectPath = projectPath.resolve("project.pbxproj");
       String targetName = buildable.getTargetName();
 
@@ -213,7 +216,7 @@ public class WorkspaceAndProjectGenerator {
             targetFileName,
             PBXFileReference.SourceTree.BUILT_PRODUCTS_DIR);
         fakeTarget.setProductReference(fakeProductReference);
-        buildRuleToTargetMapBuilder.put(buildable, fakeTarget);
+        buildTargetToPbxTargetMapBuilder.put(buildable.getBuildTarget(), fakeTarget);
         targetToProjectPathMapBuilder.put(fakeTarget, projectPath);
       }
     }
@@ -222,21 +225,27 @@ public class WorkspaceAndProjectGenerator {
 
     SchemeGenerator schemeGenerator = new SchemeGenerator(
         projectFilesystem,
-        workspaceBuildable.getSrcTarget(),
-        orderedBuildRules,
-        orderedTestBuildRules,
-        orderedTestBundleRules,
+        workspaceBuildable.getSrcTarget().transform(HasBuildTarget.TO_TARGET),
+        Iterables.transform(
+            orderedBuildRules,
+            HasBuildTarget.TO_TARGET),
+        Iterables.transform(
+            orderedTestBuildRules,
+            HasBuildTarget.TO_TARGET),
+        Iterables.transform(
+            orderedTestBundleRules,
+            HasBuildTarget.TO_TARGET),
         workspaceName,
         outputDirectory.resolve(workspaceName + ".xcworkspace"),
         workspaceBuildable.getActionConfigNames(),
-        buildRuleToTargetMapBuilder.build(),
+        buildTargetToPbxTargetMapBuilder.build(),
         targetToProjectPathMapBuilder.build());
     schemeGenerator.writeScheme();
 
     return workspacePath;
   }
 
-  private static final void getOrderedTestRules(
+  private static void getOrderedTestRules(
       ActionGraph actionGraph,
       ImmutableMultimap<BuildRule, AppleTest> sourceRuleToTestRules,
       ImmutableSet<BuildRule> orderedBuildRules,
@@ -276,7 +285,7 @@ public class WorkspaceAndProjectGenerator {
         actionGraph,
         new Predicate<BuildRule>() {
           @Override
-          public boolean apply(@Nullable BuildRule input) {
+          public boolean apply(BuildRule input) {
             if (!includedTestRules.contains(input) ||
                 !AppleBuildRules.isXcodeTargetBuildRuleType(input.getType())) {
               return false;
@@ -287,7 +296,7 @@ public class WorkspaceAndProjectGenerator {
         }));
   }
 
-  private static final void addTestRuleAndDependencies(
+  private static void addTestRuleAndDependencies(
       BuildRule testBundleRule,
       ImmutableSet.Builder<BuildRule> recursiveTestRulesBuilder,
       ImmutableSet.Builder<BuildRule> orderedTestBundleRulesBuilder) {

@@ -25,11 +25,11 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleFactoryParams;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePaths;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
@@ -72,9 +72,10 @@ public class ThriftJavaEnhancer implements ThriftLanguageSpecificEnhancer {
   protected BuildTarget getSourceZipBuildTarget(BuildTarget target, String name) {
     return BuildTargets.createFlavoredBuildTarget(
         target.getUnflavoredTarget(),
-        new Flavor(String.format(
-            "thrift-java-source-zip-%s",
-            name.replace('/', '-').replace('.', '-'))));
+        new Flavor(
+            String.format(
+                "thrift-java-source-zip-%s",
+                name.replace('/', '-').replace('.', '-'))));
   }
 
   private Path getSourceZipOutputPath(BuildTarget target, String name) {
@@ -89,6 +90,7 @@ public class ThriftJavaEnhancer implements ThriftLanguageSpecificEnhancer {
       ThriftConstructorArg args,
       ImmutableMap<String, ThriftSource> sources,
       ImmutableSortedSet<BuildRule> deps) {
+    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
 
     // Pack all the generated sources into a single source zip that we'll pass to the
     // java rule below.
@@ -108,6 +110,7 @@ public class ThriftJavaEnhancer implements ThriftLanguageSpecificEnhancer {
                   sourceZipTarget,
                   ImmutableSortedSet.of(compilerRule),
                   ImmutableSortedSet.<BuildRule>of()),
+              pathResolver,
               sourceZip,
               sourceDirectory));
     }
@@ -130,8 +133,9 @@ public class ThriftJavaEnhancer implements ThriftLanguageSpecificEnhancer {
         .build();
     DefaultJavaLibrary defaultJavaLibrary = new DefaultJavaLibrary(
         javaParams,
+        pathResolver,
         FluentIterable.from(sourceZips)
-            .transform(SourcePaths.TO_BUILD_RULE_SOURCE_PATH)
+            .transform(SourcePaths.TO_BUILD_TARGET_SOURCE_PATH)
             .toSortedSet(Ordering.natural()),
         /* resources */ ImmutableSet.<SourcePath>of(),
         /* proguardConfig */ Optional.<Path>absent(),
@@ -150,12 +154,7 @@ public class ThriftJavaEnhancer implements ThriftLanguageSpecificEnhancer {
   }
 
   @Override
-  public ImmutableSet<BuildTarget> getImplicitDepsFromParams(BuildRuleFactoryParams params) {
-    return getImplicitDeps();
-  }
-
-  @Override
-  public ImmutableSet<BuildTarget> getImplicitDepsFromArg(
+  public ImmutableSet<BuildTarget> getImplicitDepsForTargetFromConstructorArg(
       BuildTarget target,
       ThriftConstructorArg args) {
     return getImplicitDeps();

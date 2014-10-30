@@ -25,17 +25,15 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
-import java.util.Collections;
 import java.util.Set;
 
 public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackageable {
@@ -53,6 +51,7 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
   @VisibleForTesting
   public AndroidLibrary(
       BuildRuleParams params,
+      SourcePathResolver resolver,
       Set<? extends SourcePath> srcs,
       Set<? extends SourcePath> resources,
       Optional<Path> proguardConfig,
@@ -66,6 +65,7 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
       boolean isPrebuiltAar) {
     super(
         params,
+        resolver,
         srcs,
         resources,
         proguardConfig,
@@ -75,7 +75,7 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
         additionalClasspathEntries,
         javacOptions,
         resourcesRoot);
-    this.manifestFile = Preconditions.checkNotNull(manifestFile);
+    this.manifestFile = manifestFile;
     this.isPrebuiltAar = isPrebuiltAar;
   }
 
@@ -93,8 +93,7 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
     if (manifestFile.isPresent()) {
       return ImmutableList.<Path>builder()
           .addAll(super.getInputsToCompareToOutput())
-          .addAll(
-              SourcePaths.filterInputsToCompareToOutput(Collections.singleton(manifestFile.get())))
+          .addAll(getResolver().filterInputsToCompareToOutput(manifestFile.get()))
           .build();
     } else {
       return super.getInputsToCompareToOutput();
@@ -105,7 +104,7 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
   public void addToCollector(AndroidPackageableCollector collector) {
     super.addToCollector(collector);
     if (manifestFile.isPresent()) {
-      collector.addManifestFile(getBuildTarget(), manifestFile.get().resolve());
+      collector.addManifestFile(getBuildTarget(), getResolver().getPath(manifestFile.get()));
     }
   }
 

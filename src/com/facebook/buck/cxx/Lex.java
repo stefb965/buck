@@ -22,11 +22,12 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 
 import java.nio.file.Path;
@@ -43,13 +44,14 @@ public class Lex extends AbstractBuildRule {
 
   public Lex(
       BuildRuleParams params,
+      SourcePathResolver resolver,
       SourcePath lex,
       ImmutableList<String> flags,
       Path outputSource,
       Path outputHeader,
       SourcePath input) {
 
-    super(params);
+    super(params, resolver);
 
     this.lex = Preconditions.checkNotNull(lex);
     this.flags = Preconditions.checkNotNull(flags);
@@ -59,8 +61,8 @@ public class Lex extends AbstractBuildRule {
   }
 
   @Override
-  protected Iterable<Path> getInputsToCompareToOutput() {
-    return SourcePaths.filterInputsToCompareToOutput(ImmutableList.of(input));
+  protected ImmutableCollection<Path> getInputsToCompareToOutput() {
+    return getResolver().filterInputsToCompareToOutput(ImmutableList.of(input));
   }
 
   @Override
@@ -88,7 +90,12 @@ public class Lex extends AbstractBuildRule {
         new RmStep(outputSource, /* shouldForceDeletion */ true),
         new MkdirStep(outputHeader.getParent()),
         new RmStep(outputHeader, /* shouldForceDeletion */ true),
-        new LexStep(lex.resolve(), flags, outputSource, outputHeader, input.resolve()));
+        new LexStep(
+            getResolver().getPath(lex),
+            flags,
+            outputSource,
+            outputHeader,
+            getResolver().getPath(input)));
   }
 
   @Nullable

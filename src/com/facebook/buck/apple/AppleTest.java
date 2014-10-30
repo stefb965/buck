@@ -23,13 +23,13 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TestRule;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.test.TestCaseSummary;
 import com.facebook.buck.test.TestResults;
 import com.facebook.buck.test.selectors.TestSelectorList;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -50,15 +50,16 @@ public class AppleTest extends AbstractBuildRule implements TestRule {
 
   AppleTest(
       BuildRuleParams params,
+      SourcePathResolver resolver,
       BuildRule testBundle,
       ImmutableSet<String> contacts,
       ImmutableSet<Label> labels,
       ImmutableSet<BuildRule> sourceUnderTest) {
-    super(params);
-    this.testBundle = Preconditions.checkNotNull(testBundle);
-    this.contacts = Preconditions.checkNotNull(contacts);
-    this.labels = Preconditions.checkNotNull(labels);
-    this.sourceUnderTest = Preconditions.checkNotNull(sourceUnderTest);
+    super(params, resolver);
+    this.testBundle = testBundle;
+    this.contacts = contacts;
+    this.labels = labels;
+    this.sourceUnderTest = sourceUnderTest;
   }
 
   /**
@@ -84,9 +85,8 @@ public class AppleTest extends AbstractBuildRule implements TestRule {
   }
 
   @Override
-  @Nullable
   public ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return null;
+    return ImmutableList.of();
   }
 
   @Override
@@ -118,6 +118,7 @@ public class AppleTest extends AbstractBuildRule implements TestRule {
       BuildContext buildContext,
       ExecutionContext executionContext,
       boolean isDryRun,
+      boolean isShufflingTests,
       TestSelectorList testSelectorList) {
     // TODO(user): Make iOS tests runnable by Buck.
     return ImmutableList.of();

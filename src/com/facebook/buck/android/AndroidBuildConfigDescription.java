@@ -25,7 +25,7 @@ import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.Hint;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Optional;
@@ -96,6 +96,7 @@ public class AndroidBuildConfigDescription
     //
     // This fixes the issue, but deviates from the common pattern where a build rule has at most
     // one flavored version of itself for a given flavor.
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleResolver);
     BuildTarget buildConfigBuildTarget;
     if (!params.getBuildTarget().isFlavored()) {
       // android_build_config() case.
@@ -118,10 +119,11 @@ public class AndroidBuildConfigDescription
         params.getDeclaredDeps(),
         /* extraDeps */ ImmutableSortedSet.<BuildRule>naturalOrder()
             .addAll(params.getExtraDeps())
-            .addAll(SourcePaths.filterBuildRuleInputs(valuesFile.asSet()))
+            .addAll(pathResolver.filterBuildRuleInputs(valuesFile.asSet()))
             .build());
     AndroidBuildConfig androidBuildConfig = new AndroidBuildConfig(
         buildConfigParams,
+        pathResolver,
         javaPackage,
         values,
         valuesFile,
@@ -136,6 +138,7 @@ public class AndroidBuildConfigDescription
         /* extraDeps */ ImmutableSortedSet.<BuildRule>of());
     return new AndroidBuildConfigJavaLibrary(
         javaLibraryParams,
+        pathResolver,
         androidBuildConfig);
   }
 

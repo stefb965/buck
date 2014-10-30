@@ -17,7 +17,6 @@
 package com.facebook.buck.java;
 
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildContext;
@@ -31,7 +30,7 @@ import com.facebook.buck.rules.FlavorableDescription;
 import com.facebook.buck.rules.RuleKey.Builder;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
@@ -76,6 +75,7 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
       A args) {
     return new PrebuiltJar(
         params,
+        new SourcePathResolver(resolver),
         args.binaryJar,
         args.sourceJar,
         args.gwtJar,
@@ -96,18 +96,17 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
         flavoredBuildTarget,
         /* declaredDeps */ ImmutableSortedSet.of(buildRule),
         /* inferredDeps */ ImmutableSortedSet.<BuildRule>of(),
-        BuildTargetPattern.PUBLIC,
         projectFilesystem,
         ruleKeyBuilderFactory,
         BuildRuleType.GWT_MODULE);
-    BuildRule gwtModule = createGwtModule(params, arg);
+    BuildRule gwtModule = createGwtModule(params, new SourcePathResolver(ruleResolver), arg);
     ruleResolver.addToIndex(gwtModule);
   }
 
   @VisibleForTesting
-  static BuildRule createGwtModule(BuildRuleParams params, Arg arg) {
+  static BuildRule createGwtModule(BuildRuleParams params, SourcePathResolver resolver, Arg arg) {
     // Because a PrebuiltJar rarely requires any building whatsoever (it could if the source_jar
-    // is a BuildRuleSourcePath), we make the PrebuiltJar a dependency of the GWT module. If this
+    // is a BuildTargetSourcePath), we make the PrebuiltJar a dependency of the GWT module. If this
     // becomes a performance issue in practice, then we will explore reducing the dependencies of
     // the GWT module.
     final SourcePath inputToCompareToOutput;
@@ -119,12 +118,12 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
       inputToCompareToOutput = arg.binaryJar;
     }
     final ImmutableCollection<Path> inputsToCompareToOutput =
-        SourcePaths.filterInputsToCompareToOutput(Collections.singleton(inputToCompareToOutput));
-    final Path pathToExistingJarFile = inputToCompareToOutput.resolve();
+        resolver.filterInputsToCompareToOutput(Collections.singleton(inputToCompareToOutput));
+    final Path pathToExistingJarFile = resolver.getPath(inputToCompareToOutput);
 
-    BuildRule buildRule = new AbstractBuildRule(params) {
+    BuildRule buildRule = new AbstractBuildRule(params, resolver) {
       @Override
-      protected Iterable<Path> getInputsToCompareToOutput() {
+      protected ImmutableCollection<Path> getInputsToCompareToOutput() {
         return inputsToCompareToOutput;
       }
 

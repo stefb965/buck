@@ -25,6 +25,7 @@ import com.facebook.buck.java.FakeJavaPackageFinder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.parser.BuildTargetParser;
+import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleFactoryParams;
@@ -37,9 +38,11 @@ import com.facebook.buck.rules.FakeRepositoryFactory;
 import com.facebook.buck.rules.NonCheckingBuildRuleFactoryParams;
 import com.facebook.buck.rules.NoopArtifactCache;
 import com.facebook.buck.rules.Repository;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TestRepositoryBuilder;
 import com.facebook.buck.testutil.FakeFileHashCache;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.AndroidDirectoryResolver;
 import com.facebook.buck.util.FakeAndroidDirectoryResolver;
@@ -51,7 +54,6 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Maps;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -86,11 +88,11 @@ public class AuditOwnerCommandTest {
         BuildRuleParams params,
         BuildRuleResolver resolver,
         A args) {
-      return new FakeBuildRule(params);
+      return new FakeBuildRule(params, new SourcePathResolver(resolver));
     }
 
     public static class FakeArg {
-
+      public ImmutableSet<Path> inputs;
     }
   }
 
@@ -98,22 +100,21 @@ public class AuditOwnerCommandTest {
       BuildTarget buildTarget,
       ImmutableSet<Path> inputs) {
     Description<FakeDescription.FakeArg> description = new FakeDescription();
+    FakeDescription.FakeArg arg = description.createUnpopulatedConstructorArg();
+    arg.inputs = inputs;
     BuildRuleFactoryParams params =
         NonCheckingBuildRuleFactoryParams.createNonCheckingBuildRuleFactoryParams(
-            Maps.<String, Object>newHashMap(),
             new BuildTargetParser(),
             buildTarget);
-    return new TargetNode<>(
-        description,
-        params,
-        inputs,
-        ImmutableSet.<BuildTarget>of(),
-        ImmutableSet.<BuildTargetPattern>of());
-  }
-
-  private static class FakeProjectFilesystem extends ProjectFilesystem {
-    public FakeProjectFilesystem() {
-      super(new File("."));
+    try {
+      return new TargetNode<>(
+          description,
+          arg,
+          params,
+          ImmutableSet.<BuildTarget>of(),
+          ImmutableSet.<BuildTargetPattern>of());
+    } catch (NoSuchBuildTargetException e) {
+      throw new RuntimeException(e);
     }
   }
 
@@ -293,6 +294,36 @@ public class AuditOwnerCommandTest {
     assertTrue(report.nonFileInputs.isEmpty());
     assertTrue(report.nonExistentInputs.isEmpty());
     assertEquals(inputPaths, report.inputsWithNoOwners);
+  }
+
+  @Test
+  public void verifyInputsAgainstRulesThatListDirectoryInputs()
+      throws IOException, InterruptedException {
+    FakeProjectFilesystem filesystem = new FakeProjectFilesystem() {
+      @Override
+      public File getFileForRelativePath(String pathRelativeToProjectRoot) {
+        return new ExistingFile(getRootPath(), pathRelativeToProjectRoot);
+      }
+    };
+
+    // Inputs that should be treated as existing files
+    ImmutableSet<String> inputs = ImmutableSet.of(
+        "java/somefolder/badfolder/somefile.java",
+        "java/somefolder/perfect.java");
+    ImmutableSet<Path> inputPaths = MorePaths.asPaths(inputs);
+
+    BuildTarget target = BuildTarget.builder("//base", "name").build();
+    TargetNode<?> targetNode = createTargetNode(
+        target,
+        ImmutableSet.of(Paths.get("java/somefolder")));
+
+    AuditOwnerCommand command = createAuditOwnerCommand(filesystem);
+    AuditOwnerCommand.OwnersReport report = command.generateOwnersReport(targetNode, inputs, false);
+    assertTrue(report.owners.containsKey(targetNode));
+    assertEquals(inputPaths, report.owners.get(targetNode));
+    assertTrue(report.nonFileInputs.isEmpty());
+    assertTrue(report.nonExistentInputs.isEmpty());
+    assertTrue(report.inputsWithNoOwners.isEmpty());
   }
 
   /**

@@ -28,7 +28,6 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Objects;
 import com.google.common.base.Optional;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -53,6 +52,7 @@ public final class ProGuardObfuscateStep extends ShellStep {
   private final Map<Path, Path> inputAndOutputEntries;
   private final Path pathToProGuardCommandLineArgsFile;
   private final Optional<Path> proguardJarOverride;
+  private final String proguardMaxHeapSize;
 
   /**
    * Create steps that write out ProGuard's command line arguments to a text file and then run
@@ -63,6 +63,7 @@ public final class ProGuardObfuscateStep extends ShellStep {
    */
   public static void create(
       Optional<Path> proguardJarOverride,
+      String proguardMaxHeapSize,
       Path generatedProGuardConfig,
       Set<Path> customProguardConfigs,
       SdkProguardType sdkProguardConfig,
@@ -88,7 +89,8 @@ public final class ProGuardObfuscateStep extends ShellStep {
     ProGuardObfuscateStep proGuardStep = new ProGuardObfuscateStep(
         inputAndOutputEntries,
         pathToProGuardCommandLineArgsFile,
-        proguardJarOverride);
+        proguardJarOverride,
+        proguardMaxHeapSize);
 
     buildableContext.recordArtifact(commandLineHelperStep.getConfigurationTxt());
     buildableContext.recordArtifact(commandLineHelperStep.getMappingTxt());
@@ -104,11 +106,12 @@ public final class ProGuardObfuscateStep extends ShellStep {
   private ProGuardObfuscateStep(
       Map<Path, Path> inputAndOutputEntries,
       Path pathToProGuardCommandLineArgsFile,
-      Optional<Path> proguardJarOverride) {
+      Optional<Path> proguardJarOverride,
+      String proguardMaxHeapSize) {
     this.inputAndOutputEntries = ImmutableMap.copyOf(inputAndOutputEntries);
-    this.pathToProGuardCommandLineArgsFile = Preconditions.checkNotNull(
-        pathToProGuardCommandLineArgsFile);
-    this.proguardJarOverride = Preconditions.checkNotNull(proguardJarOverride);
+    this.pathToProGuardCommandLineArgsFile = pathToProGuardCommandLineArgsFile;
+    this.proguardJarOverride = proguardJarOverride;
+    this.proguardMaxHeapSize = proguardMaxHeapSize;
   }
 
   @Override
@@ -130,7 +133,7 @@ public final class ProGuardObfuscateStep extends ShellStep {
 
     ImmutableList.Builder<String> args = ImmutableList.builder();
     args.add("java")
-        .add("-Xmx1024M")
+        .add("-Xmx" + proguardMaxHeapSize)
         .add("-jar").add(proguardJar.toString())
         .add("@" + pathToProGuardCommandLineArgsFile);
     return args.build();
@@ -236,13 +239,13 @@ public final class ProGuardObfuscateStep extends ShellStep {
         Path proguardDirectory,
         Path pathToProGuardCommandLineArgsFile) {
       super("write_proguard_command_line_parameters");
-      this.generatedProGuardConfig = Preconditions.checkNotNull(generatedProGuardConfig);
+      this.generatedProGuardConfig = generatedProGuardConfig;
       this.customProguardConfigs = ImmutableSet.copyOf(customProguardConfigs);
       this.sdkProguardConfig = sdkProguardConfig;
-      this.optimizationPasses = Preconditions.checkNotNull(optimizationPasses);
+      this.optimizationPasses = optimizationPasses;
       this.inputAndOutputEntries = ImmutableMap.copyOf(inputAndOutputEntries);
       this.additionalLibraryJarsForProguard = ImmutableSet.copyOf(additionalLibraryJarsForProguard);
-      this.proguardDirectory = Preconditions.checkNotNull(proguardDirectory);
+      this.proguardDirectory = proguardDirectory;
       this.pathToProGuardCommandLineArgsFile = pathToProGuardCommandLineArgsFile;
     }
 

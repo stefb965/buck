@@ -24,9 +24,10 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleParamsFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleSourcePath;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TestSourcePath;
 import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.shell.GenruleBuilder;
@@ -55,8 +56,9 @@ public class PythonBinaryDescriptionTest {
         BuildTargetFactory.newInstance("//:lib"));
     PythonLibrary lib = new PythonLibrary(
         libParams,
+        new SourcePathResolver(resolver),
         ImmutableMap.<Path, SourcePath>of(
-            Paths.get("hello"), new BuildRuleSourcePath(genrule)),
+            Paths.get("hello"), new BuildTargetSourcePath(genrule.getBuildTarget())),
         ImmutableMap.<Path, SourcePath>of());
 
     BuildRuleParams params =
@@ -92,7 +94,7 @@ public class PythonBinaryDescriptionTest {
         new PythonEnvironment(Paths.get("fake_python"), new PythonVersion("Python 2.7")));
     PythonBinaryDescription.Arg arg = desc.createUnpopulatedConstructorArg();
     arg.deps = Optional.of(ImmutableSortedSet.<BuildTarget>of());
-    arg.main = new BuildRuleSourcePath(genrule);
+    arg.main = new BuildTargetSourcePath(genrule.getBuildTarget());
     arg.baseModule = Optional.absent();
     BuildRule rule = desc.createBuildRule(params, resolver, arg);
     assertEquals(
@@ -112,7 +114,7 @@ public class PythonBinaryDescriptionTest {
         new PythonEnvironment(Paths.get("python"), new PythonVersion("2.5")));
     PythonBinaryDescription.Arg arg = desc.createUnpopulatedConstructorArg();
     arg.deps = Optional.of(ImmutableSortedSet.<BuildTarget>of());
-    arg.main = new TestSourcePath("foo/" + mainName, mainName);
+    arg.main = new TestSourcePath("foo/" + mainName);
 
     // Run without a base module set and verify it defaults to using the build target
     // base name.

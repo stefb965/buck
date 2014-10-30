@@ -30,11 +30,15 @@ import com.facebook.buck.model.BuildFileTree;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
+import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.model.FilesystemBackedBuildFileTree;
 import com.facebook.buck.model.Flavored;
+import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildRuleFactoryParams;
 import com.facebook.buck.rules.BuildRuleType;
+import com.facebook.buck.rules.ConstructorArgMarshalException;
+import com.facebook.buck.rules.ConstructorArgMarshaller;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.Repository;
 import com.facebook.buck.rules.RepositoryFactory;
@@ -50,6 +54,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -62,10 +67,13 @@ import com.google.common.collect.Sets;
 import com.google.common.eventbus.Subscribe;
 
 import java.io.IOException;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardWatchEventKinds;
 import java.nio.file.WatchEvent;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -116,6 +124,8 @@ public class Parser {
   private Optional<BuckEvent> parseStartEvent = Optional.absent();
 
   private static final Logger LOG = Logger.get(Parser.class);
+
+  private static final ConstructorArgMarshaller marshaller = new ConstructorArgMarshaller();
 
   /**
    * A cached BuildFileTree which can be invalidated and lazily constructs new BuildFileTrees.
@@ -256,6 +266,14 @@ public class Parser {
   }
 
   /**
+   * Invoke this after each command to clean any parts of the cache
+   * that must not be retained between commands.
+   */
+  public synchronized void cleanCache() {
+    state.cleanCache();
+  }
+
+  /**
    * @return a set of {@link BuildTarget} objects that this {@link TargetNodeSpec} refers to.
    */
   private ImmutableSet<BuildTarget> resolveTargetSpec(
@@ -322,7 +340,7 @@ public class Parser {
    * @param eventBus used to log events while parsing.
    * @return the target graph containing the build targets and their related targets.
    */
-  public synchronized TargetGraph buildTargetGraph(
+  public synchronized TargetGraph buildTargetGraphForTargetNodeSpecs(
       Iterable<? extends TargetNodeSpec> targetNodeSpecs,
       Iterable<String> defaultIncludes,
       BuckEventBus eventBus,
@@ -370,20 +388,21 @@ public class Parser {
    * @param eventBus used to log events while parsing.
    * @return the target graph containing the build targets and their related targets.
    */
-  public TargetGraph buildTargetGraph(
+  public TargetGraph buildTargetGraphForBuildTargets(
       Iterable<BuildTarget> buildTargets,
       Iterable<String> defaultIncludes,
       BuckEventBus eventBus,
       Console console,
-      ImmutableMap<String, String> environment)
+      ImmutableMap<String, String> environment,
+      boolean enableProfiling)
       throws BuildFileParseException, BuildTargetException, IOException, InterruptedException {
-    return buildTargetGraph(
+    return buildTargetGraphForTargetNodeSpecs(
         Iterables.transform(buildTargets, BuildTargetSpec.TO_BUILD_TARGET_SPEC),
         defaultIncludes,
         eventBus,
         console,
         environment,
-        /* enableProfiling */ false);
+        enableProfiling);
   }
 
   @Nullable
@@ -446,8 +465,12 @@ public class Parser {
                 }
                 depTargetNode.checkVisibility(buildTarget);
                 deps.add(buildTargetForDep);
-              } catch (BuildTargetException | BuildFileParseException e) {
-                throw new HumanReadableException(e);
+              } catch (HumanReadableException | BuildTargetException | BuildFileParseException e) {
+                throw new HumanReadableException(
+                    e,
+                    "Couldn't get dependency %s of target %s.",
+                    buildTargetForDep,
+                    buildTarget);
               }
             }
 
@@ -555,6 +578,7 @@ public class Parser {
   @VisibleForTesting
   synchronized void parseRawRulesInternal(Iterable<Map<String, Object>> rules)
       throws BuildTargetException, IOException {
+    LOG.verbose("Parsing raw rules, state before parse %s", state);
     for (Map<String, Object> map : rules) {
 
       if (isMetaRule(map)) {
@@ -573,6 +597,7 @@ public class Parser {
 
       state.put(target, map);
     }
+    LOG.verbose("Finished parsing raw rules, state after parse %s", state);
   }
 
   /**
@@ -645,8 +670,8 @@ public class Parser {
    */
   public synchronized ImmutableSet<BuildTarget> filterAllTargetsInProject(
       ProjectFilesystem filesystem,
-      Iterable<String> includes,
-      RuleJsonPredicate filter,
+      final Iterable<String> includes,
+      final Predicate<TargetNode<?>> filter,
       Console console,
       ImmutableMap<String, String> environment,
       BuckEventBus buckEventBus,
@@ -659,14 +684,18 @@ public class Parser {
       throw new HumanReadableException(String.format("Unsupported root path change from %s to %s",
           projectFilesystem.getRootPath(), filesystem.getRootPath()));
     }
-    buildTargetGraph(
-        ImmutableList.of(new RuleJsonPredicateSpec(filter, filesystem.getIgnorePaths())),
-        includes,
-        buckEventBus,
-        console,
-        environment,
-        enableProfiling);
-    return filterTargets(filter);
+    return FluentIterable
+        .from(
+            buildTargetGraphForTargetNodeSpecs(
+                ImmutableList.of(new TargetNodePredicateSpec(filter, filesystem.getIgnorePaths())),
+                includes,
+                buckEventBus,
+                console,
+                environment,
+                enableProfiling).getNodes())
+        .filter(filter)
+        .transform(HasBuildTarget.TO_TARGET)
+        .toSet();
   }
 
 
@@ -716,6 +745,8 @@ public class Parser {
           invalidateContainingBuildFile(path);
         }
       }
+
+      LOG.verbose("Invalidating dependents for path %s, cache state %s", path, state);
 
       // Invalidate the raw rules and targets dependent on this file.
       state.invalidateDependents(path);
@@ -826,6 +857,26 @@ public class Parser {
     private final ListMultimap<Path, Map<String, Object>> parsedBuildFiles;
 
     /**
+     * Cache of (symlink path: symlink target) pairs used to avoid repeatedly
+     * checking for the existence of symlinks in the source tree.
+     */
+    private final Map<Path, Path> symlinkExistenceCache;
+
+    /**
+     * Build rule input files (e.g., paths in {@code srcs}) whose
+     * paths contain an element which exists in {@code symlinkExistenceCache}.
+     *
+     * Used to invalidate build rules in {@code cleanCache} if their
+     * inputs contain any files in this set.
+     */
+    private final Set<Path> buildInputPathsUnderSymlink;
+
+    /**
+     * Map from build file path to targets generated by that file.
+     */
+    private final ListMultimap<Path, BuildTarget> pathsToBuildTargets;
+
+    /**
      * We parse a build file in search for one particular rule; however, we also keep track of the
      * other rules that were also parsed from it.
      */
@@ -853,14 +904,35 @@ public class Parser {
 
     public CachedState() {
       this.memoizedTargetNodes = Maps.newHashMap();
+      this.symlinkExistenceCache = Maps.newHashMap();
+      this.buildInputPathsUnderSymlink = Sets.newHashSet();
       this.parsedBuildFiles = ArrayListMultimap.create();
       this.targetsToFile = Maps.newHashMap();
+      this.pathsToBuildTargets = ArrayListMultimap.create();
     }
 
     public void invalidateAll() {
+      LOG.debug("Invalidating all cached data.");
       parsedBuildFiles.clear();
+      symlinkExistenceCache.clear();
+      buildInputPathsUnderSymlink.clear();
       memoizedTargetNodes.clear();
       targetsToFile.clear();
+      pathsToBuildTargets.clear();
+    }
+
+    @Override
+    public String toString() {
+      return String.format(
+          "%s memoized=%s symlinks=%s build files under symlink=%s parsed=%s targets-to-files=%s " +
+          "paths-to-targets=%s",
+          super.toString(),
+          memoizedTargetNodes,
+          symlinkExistenceCache,
+          buildInputPathsUnderSymlink,
+          parsedBuildFiles,
+          targetsToFile,
+          pathsToBuildTargets);
     }
 
     /**
@@ -909,21 +981,34 @@ public class Parser {
       // Normalize path to ensure it hashes equally with map keys.
       path = normalize(path);
 
-      if (parsedBuildFiles.containsKey(path)) {
-        LOG.debug("Parser invalidating %s cache", path.toAbsolutePath());
+      // The path may have changed from being a symlink to not being a symlink.
+      symlinkExistenceCache.remove(path);
 
-        // Remove all targets defined by path from cache.
-        for (Map<String, Object> rawRule : parsedBuildFiles.get(path)) {
-          BuildTarget target = parseBuildTargetFromRawRule(rawRule);
-          memoizedTargetNodes.remove(target);
-        }
+      if (parsedBuildFiles.containsKey(path)) {
+        LOG.debug("Parser invalidating %s cache", path);
 
         // Remove all rules defined in path from cache.
-        parsedBuildFiles.removeAll(path);
+        List<?> removed = parsedBuildFiles.removeAll(path);
+        LOG.verbose("Removed parsed build files %s defined by %s", removed, path);
+
+        // If this build file contained inputs under a symlink, we'll be reparsing
+        // it, so forget that.
+        buildInputPathsUnderSymlink.remove(path);
+      } else {
+        LOG.debug("Parsed build files does not contain %s, not invalidating", path);
       }
 
+      List<BuildTarget> targetsToRemove = pathsToBuildTargets.get(path);
+      LOG.debug("Removing targets %s for path %s", targetsToRemove, path);
+      for (BuildTarget target : targetsToRemove) {
+        memoizedTargetNodes.remove(target);
+      }
+      pathsToBuildTargets.removeAll(path);
+
+      List<Path> dependents = buildFileDependents.get(path);
+      LOG.verbose("Invalidating dependents %s of path %s", dependents, path);
       // Recursively invalidate dependents.
-      for (Path dependent : buildFileDependents.get(path)) {
+      for (Path dependent : dependents) {
 
         if (!dependent.equals(path)) {
           invalidateDependents(dependent);
@@ -931,7 +1016,8 @@ public class Parser {
       }
 
       // Dependencies will be repopulated when files are re-parsed.
-      buildFileDependents.removeAll(path);
+      List<?> removedDependents = buildFileDependents.removeAll(path);
+      LOG.verbose("Removed build file dependents %s defined by %s", removedDependents, path);
     }
 
     public boolean isParsed(Path buildFile) {
@@ -943,7 +1029,9 @@ public class Parser {
     }
 
     public void put(BuildTarget target, Map<String, Object> rawRules) {
-      parsedBuildFiles.put(normalize(target.getBuildFilePath()), rawRules);
+      Path normalized = normalize(target.getBuildFilePath());
+      LOG.verbose("Adding rules for parsed build file %s", normalized);
+      parsedBuildFiles.put(normalized, rawRules);
 
       targetsToFile.put(
           target,
@@ -965,6 +1053,7 @@ public class Parser {
     }
 
     @Nullable
+    @SuppressWarnings({"rawtypes", "unchecked"})
     public TargetNode<?> get(BuildTarget buildTarget) throws IOException, InterruptedException {
       // Fast path.
       TargetNode<?> toReturn = memoizedTargetNodes.get(buildTarget);
@@ -1010,22 +1099,53 @@ public class Parser {
               buildTarget.getBuildFilePath());
         }
 
+        this.pathsToBuildTargets.put(buildFilePath, buildTarget);
+
         BuildRuleFactoryParams factoryParams = new BuildRuleFactoryParams(
-            map,
             targetRepo.getFilesystem(),
             targetRepo.getBuildTargetParser(),
             // Although we store the rule by its unflavoured name, when we construct it, we need the
             // flavour.
             buildTarget,
             ruleKeyBuilderFactory);
+        Object constructorArg = description.createUnpopulatedConstructorArg();
         TargetNode<?> targetNode;
         try {
-          targetNode = new TargetNode<>(description, factoryParams);
+          ImmutableSet.Builder<BuildTarget> declaredDeps = ImmutableSet.builder();
+          ImmutableSet.Builder<BuildTargetPattern> visibilityPatterns = ImmutableSet.builder();
+          marshaller.populate(
+              targetRepo.getFilesystem(),
+              factoryParams,
+              constructorArg,
+              declaredDeps,
+              visibilityPatterns,
+              map);
+          targetNode = new TargetNode(
+              description,
+              constructorArg,
+              factoryParams,
+              declaredDeps.build(),
+              visibilityPatterns.build());
         } catch (NoSuchBuildTargetException e) {
-          //
           throw new HumanReadableException(e);
+        } catch (ConstructorArgMarshalException e) {
+          throw new HumanReadableException("%s: %s", buildTarget, e.getMessage());
         }
 
+        Map<Path, Path> newSymlinksEncountered = Maps.newHashMap();
+        if (inputFilesUnderSymlink(
+                targetNode.getInputs(),
+                targetRepo.getFilesystem(),
+                symlinkExistenceCache,
+                newSymlinksEncountered)) {
+          LOG.warn(
+              "Disabling caching for target %s, because one or more input files are under a " +
+              "symbolic link (%s). This will severely impact performance! To resolve this, use " +
+              "separate rules and declare dependencies instead of using symbolic links.",
+              targetNode.getBuildTarget(),
+              newSymlinksEncountered);
+          buildInputPathsUnderSymlink.add(buildFilePath);
+        }
         TargetNode<?> existingTargetNode = memoizedTargetNodes.put(buildTarget, targetNode);
         if (existingTargetNode != null) {
           throw new HumanReadableException("Duplicate definition for " + unflavored);
@@ -1036,6 +1156,50 @@ public class Parser {
 
       return memoizedTargetNodes.get(buildTarget);
     }
+
+    public synchronized void cleanCache() {
+      LOG.debug(
+          "Cleaning cache of build files with inputs under symlink %s",
+          buildInputPathsUnderSymlink);
+      Set<Path> buildInputPathsUnderSymlinkCopy = new HashSet<>(buildInputPathsUnderSymlink);
+      buildInputPathsUnderSymlink.clear();
+      for (Path buildFilePath : buildInputPathsUnderSymlinkCopy) {
+        invalidateDependents(buildFilePath);
+      }
+    }
+  }
+
+  private static boolean inputFilesUnderSymlink(
+      // We use Collection<Path> instead of Iterable<Path> to prevent
+      // accidentally passing in Path, since Path itself is Iterable<Path>.
+      Collection<Path> inputs,
+      ProjectFilesystem projectFilesystem,
+      Map<Path, Path> symlinkExistenceCache,
+      Map<Path, Path> newSymlinksEncountered) throws IOException {
+    boolean result = false;
+    for (Path input : inputs) {
+      for (int i = 1; i < input.getNameCount(); i++) {
+        Path subpath = input.subpath(0, i);
+        Path resolvedSymlink = symlinkExistenceCache.get(subpath);
+        if (resolvedSymlink != null) {
+          newSymlinksEncountered.put(subpath, resolvedSymlink);
+          result = true;
+        } else if (projectFilesystem.isSymLink(subpath)) {
+          try {
+            resolvedSymlink = projectFilesystem.getRootPath().relativize(subpath.toRealPath());
+            LOG.debug("Detected symbolic link %s -> %s", subpath, resolvedSymlink);
+            newSymlinksEncountered.put(subpath, resolvedSymlink);
+            symlinkExistenceCache.put(subpath, resolvedSymlink);
+          } catch (NoSuchFileException e) {
+            LOG.verbose(e, "No such file detecting symlink at %s", subpath);
+          } catch (IOException e) {
+            LOG.error(e, "Couldn't detect symbolic link at %s", subpath);
+          }
+          result = true;
+        }
+      }
+    }
+    return result;
   }
 
 }

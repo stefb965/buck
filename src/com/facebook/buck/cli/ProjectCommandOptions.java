@@ -18,6 +18,7 @@ package com.facebook.buck.cli;
 
 import com.facebook.buck.java.JavaPackageFinder;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Ascii;
 import com.google.common.base.Function;
@@ -33,6 +34,8 @@ import org.kohsuke.args4j.Option;
 
 import java.nio.file.Path;
 import java.util.List;
+
+import javax.annotation.Nullable;
 
 public class ProjectCommandOptions extends AbstractCommandOptions {
 
@@ -59,6 +62,7 @@ public class ProjectCommandOptions extends AbstractCommandOptions {
   @Option(
       name = "--combined-project",
       usage = "Generate an xcode project of a target and its dependencies.")
+  @SuppressFieldNotInitialized
   private String combinedProject;
 
   @Option(
@@ -79,6 +83,7 @@ public class ProjectCommandOptions extends AbstractCommandOptions {
       name = "--ide",
       usage = "The type of IDE for which to generate a project. Defaults to 'intellij' if not " +
           "specified in .buckconfig.")
+  @Nullable
   private Ide ide = null;
 
   @Option(
@@ -87,11 +92,6 @@ public class ProjectCommandOptions extends AbstractCommandOptions {
           DEFAULT_READ_ONLY_VALUE + "' if not specified in .buckconfig. (Only " +
           "applies to generated Xcode projects.)")
   private boolean readOnly = DEFAULT_READ_ONLY_VALUE;
-
-  @Option(
-      name = "--profile",
-      usage = "Enable profiling of buck.py in debug log")
-  private boolean enableProfiling = false;
 
   @Argument
   private List<String> arguments = Lists.newArrayList();
@@ -161,6 +161,14 @@ public class ProjectCommandOptions extends AbstractCommandOptions {
     return getBuckConfig().getBooleanValue("project", "read_only", DEFAULT_READ_ONLY_VALUE);
   }
 
+  /**
+   * Returns true if Buck should prompt to kill a running IDE before changing its files,
+   * false otherwise.
+   */
+  public boolean getIdePrompt() {
+    return getBuckConfig().getBooleanValue("project", "ide_prompt", true);
+  }
+
   public Ide getIde() {
     if (ide != null) {
       return ide;
@@ -207,7 +215,4 @@ public class ProjectCommandOptions extends AbstractCommandOptions {
     return buildCommandOptions;
   }
 
-  public boolean getEnableProfiling() {
-    return enableProfiling;
-  }
 }

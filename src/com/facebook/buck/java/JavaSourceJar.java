@@ -27,7 +27,7 @@ import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
@@ -35,6 +35,7 @@ import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.zip.ZipStep;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -53,8 +54,9 @@ public class JavaSourceJar extends AbstractBuildRule {
 
   public JavaSourceJar(
       BuildRuleParams params,
+      SourcePathResolver resolver,
       ImmutableSortedSet<SourcePath> sources) {
-    super(params);
+    super(params, resolver);
     this.sources = Preconditions.checkNotNull(sources);
     BuildTarget target = params.getBuildTarget();
     this.output = BuildTargets.getGenPath(target, String.format("%%s%s", JavacStep.SRC_ZIP));
@@ -62,13 +64,13 @@ public class JavaSourceJar extends AbstractBuildRule {
   }
 
   @Override
-  protected Iterable<Path> getInputsToCompareToOutput() {
-    return SourcePaths.filterInputsToCompareToOutput(sources);
+  protected ImmutableCollection<Path> getInputsToCompareToOutput() {
+    return getResolver().filterInputsToCompareToOutput(sources);
   }
 
   @Override
   protected RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
-    return builder.setReflectively("srcs", SourcePaths.filterInputsToCompareToOutput(sources));
+    return builder.setReflectively("srcs", getResolver().filterInputsToCompareToOutput(sources));
   }
 
   @Override
@@ -87,7 +89,7 @@ public class JavaSourceJar extends AbstractBuildRule {
     // We only want to consider raw source files, since the java package finder doesn't have the
     // smarts to read the "package" line from a source file.
 
-    for (Path source : SourcePaths.filterInputsToCompareToOutput(sources)) {
+    for (Path source : getResolver().filterInputsToCompareToOutput(sources)) {
       String packageFolder = packageFinder.findJavaPackageFolderForPath(source.toString());
       Path packageDir = temp.resolve(packageFolder);
       if (seenPackages.add(packageDir)) {

@@ -25,10 +25,11 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleSourcePath;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.TestSourcePath;
 import com.facebook.buck.shell.Genrule;
@@ -36,6 +37,7 @@ import com.facebook.buck.shell.GenruleBuilder;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
@@ -51,8 +53,11 @@ public class CxxPreprocessablesTest {
 
     private final CxxPreprocessorInput input;
 
-    public FakeCxxPreprocessorDep(BuildRuleParams params, CxxPreprocessorInput input) {
-      super(params);
+    public FakeCxxPreprocessorDep(
+        BuildRuleParams params,
+        SourcePathResolver resolver,
+        CxxPreprocessorInput input) {
+      super(params, resolver);
       this.input = Preconditions.checkNotNull(input);
     }
 
@@ -65,29 +70,37 @@ public class CxxPreprocessablesTest {
 
   private static FakeCxxPreprocessorDep createFakeCxxPreprocessorDep(
       BuildTarget target,
+      SourcePathResolver resolver,
       CxxPreprocessorInput input,
       BuildRule... deps) {
     return new FakeCxxPreprocessorDep(
         new FakeBuildRuleParamsBuilder(target)
             .setDeps(ImmutableSortedSet.copyOf(deps))
             .build(),
-        input);
+        resolver, input);
   }
 
   private static FakeCxxPreprocessorDep createFakeCxxPreprocessorDep(
       String target,
+      SourcePathResolver resolver,
       CxxPreprocessorInput input,
       BuildRule... deps) {
-    return createFakeCxxPreprocessorDep(BuildTargetFactory.newInstance(target), input, deps);
+    return createFakeCxxPreprocessorDep(
+        BuildTargetFactory.newInstance(target),
+        resolver,
+        input,
+        deps);
   }
 
   private static FakeBuildRule createFakeBuildRule(
       BuildTarget target,
+      SourcePathResolver resolver,
       BuildRule... deps) {
     return new FakeBuildRule(
         new FakeBuildRuleParamsBuilder(target)
             .setDeps(ImmutableSortedSet.copyOf(deps))
-            .build());
+            .build(),
+        resolver);
   }
 
   @Test
@@ -102,47 +115,48 @@ public class CxxPreprocessablesTest {
         target.getBasePath().resolve("foo/bar.h"), new TestSourcePath("header1.h"),
         target.getBasePath().resolve("foo/hello.h"), new TestSourcePath("header2.h"));
     ImmutableMap<Path, SourcePath> actual = CxxPreprocessables.resolveHeaderMap(
-        target, headerMap);
+        target.getBasePath(), headerMap);
     assertEquals(expected, actual);
   }
 
   @Test
   public void getTransitiveCxxPreprocessorInput() {
+    SourcePathResolver pathResolver = new SourcePathResolver(new BuildRuleResolver());
 
     // Setup a simple CxxPreprocessorDep which contributes components to preprocessing.
     BuildTarget cppDepTarget1 = BuildTargetFactory.newInstance("//:cpp1");
-    CxxPreprocessorInput input1 = new CxxPreprocessorInput(
-        ImmutableSet.of(cppDepTarget1),
-        ImmutableList.of("-Dtest=yes"),
-        ImmutableList.of("-Dtest=yes"),
-        ImmutableMap.<Path, SourcePath>of(),
-        ImmutableList.of(Paths.get("foo/bar"), Paths.get("hello")),
-        ImmutableList.of(Paths.get("/usr/include")));
+    CxxPreprocessorInput input1 = CxxPreprocessorInput.builder()
+        .setRules(ImmutableSet.of(cppDepTarget1))
+        .setPreprocessorFlags(
+            ImmutableMultimap.of(
+                CxxSource.Type.C, "-Dtest=yes",
+                CxxSource.Type.CXX, "-Dtest=yes"))
+        .setIncludeRoots(ImmutableList.of(Paths.get("foo/bar"), Paths.get("hello")))
+        .setSystemIncludeRoots(ImmutableList.of(Paths.get("/usr/include")))
+        .build();
     BuildTarget depTarget1 = BuildTargetFactory.newInstance("//:dep1");
-    FakeCxxPreprocessorDep dep1 = createFakeCxxPreprocessorDep(depTarget1, input1);
+    FakeCxxPreprocessorDep dep1 = createFakeCxxPreprocessorDep(depTarget1, pathResolver, input1);
 
     // Setup another simple CxxPreprocessorDep which contributes components to preprocessing.
     BuildTarget cppDepTarget2 = BuildTargetFactory.newInstance("//:cpp2");
-    CxxPreprocessorInput input2 = new CxxPreprocessorInput(
-        ImmutableSet.of(cppDepTarget2),
-        ImmutableList.of("-DBLAH"),
-        ImmutableList.of("-DBLAH"),
-        ImmutableMap.<Path, SourcePath>of(),
-        ImmutableList.of(Paths.get("goodbye")),
-        ImmutableList.of(Paths.get("test")));
+    CxxPreprocessorInput input2 = CxxPreprocessorInput.builder()
+        .setRules(ImmutableSet.of(cppDepTarget2))
+        .setPreprocessorFlags(
+            ImmutableMultimap.of(
+                CxxSource.Type.C, "-DBLAH",
+                CxxSource.Type.CXX, "-DBLAH"))
+        .setIncludeRoots(ImmutableList.of(Paths.get("goodbye")))
+        .setSystemIncludeRoots(ImmutableList.of(Paths.get("test")))
+        .build();
     BuildTarget depTarget2 = BuildTargetFactory.newInstance("//:dep2");
-    FakeCxxPreprocessorDep dep2 = createFakeCxxPreprocessorDep(depTarget2, input2);
+    FakeCxxPreprocessorDep dep2 = createFakeCxxPreprocessorDep(depTarget2, pathResolver, input2);
 
     // Create a normal dep which depends on the two CxxPreprocessorDep rules above.
     BuildTarget depTarget3 = BuildTargetFactory.newInstance("//:dep3");
-    CxxPreprocessorInput nothing = new CxxPreprocessorInput(
-        ImmutableSet.<BuildTarget>of(),
-        ImmutableList.<String>of(),
-        ImmutableList.<String>of(),
-        ImmutableMap.<Path, SourcePath>of(),
-        ImmutableList.<Path>of(),
-        ImmutableList.<Path>of());
-    FakeCxxPreprocessorDep dep3 = createFakeCxxPreprocessorDep(depTarget3, nothing, dep1, dep2);
+    CxxPreprocessorInput nothing = CxxPreprocessorInput.EMPTY;
+    FakeCxxPreprocessorDep dep3 = createFakeCxxPreprocessorDep(depTarget3,
+        pathResolver,
+        nothing, dep1, dep2);
 
     // Verify that getTransitiveCxxPreprocessorInput gets all CxxPreprocessorInput objects
     // from the relevant rules above.
@@ -156,16 +170,19 @@ public class CxxPreprocessablesTest {
   @Test
   public void createHeaderSymlinkTreeBuildRuleHasNoDeps() {
     BuildRuleResolver resolver = new BuildRuleResolver();
+    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
     // Setup up the main build target and build params, which some random dep.  We'll make
     // sure the dep doesn't get propagated to the symlink rule below.
-    FakeBuildRule dep = createFakeBuildRule(BuildTargetFactory.newInstance("//random:dep"));
+    FakeBuildRule dep = createFakeBuildRule(
+        BuildTargetFactory.newInstance("//random:dep"),
+        pathResolver);
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     BuildRuleParams params = new FakeBuildRuleParamsBuilder(target)
         .setDeps(ImmutableSortedSet.<BuildRule>of(dep))
         .build();
     Path root = Paths.get("root");
 
-    // Setup a simple genrule we can wrap in a BuildRuleSourcePath to model a input source
+    // Setup a simple genrule we can wrap in a BuildTargetSourcePath to model a input source
     // that is built by another rule.
     Genrule genrule = (Genrule) GenruleBuilder
         .newGenruleBuilder(BuildTargetFactory.newInstance("//:genrule"))
@@ -176,10 +193,11 @@ public class CxxPreprocessablesTest {
     // another build rule.
     ImmutableMap<Path, SourcePath> links = ImmutableMap.<Path, SourcePath>of(
         Paths.get("link1"), new TestSourcePath("hello"),
-        Paths.get("link2"), new BuildRuleSourcePath(genrule));
+        Paths.get("link2"), new BuildTargetSourcePath(genrule.getBuildTarget()));
 
     // Build our symlink tree rule using the helper method.
     SymlinkTree symlinkTree = CxxPreprocessables.createHeaderSymlinkTreeBuildRule(
+        pathResolver,
         target,
         params,
         root,
@@ -193,39 +211,30 @@ public class CxxPreprocessablesTest {
 
   @Test
   public void getTransitiveNativeLinkableInputDoesNotTraversePastNonNativeLinkables() {
+    SourcePathResolver pathResolver = new SourcePathResolver(new BuildRuleResolver());
 
     // Create a native linkable that sits at the bottom of the dep chain.
     String sentinal = "bottom";
-    CxxPreprocessorInput bottomInput = new CxxPreprocessorInput(
-        ImmutableSet.<BuildTarget>of(),
-        ImmutableList.of(sentinal),
-        ImmutableList.<String>of(),
-        ImmutableMap.<Path, SourcePath>of(),
-        ImmutableList.<Path>of(),
-        ImmutableList.<Path>of());
-    BuildRule bottom = createFakeCxxPreprocessorDep("//:bottom", bottomInput);
+    CxxPreprocessorInput bottomInput = CxxPreprocessorInput.builder()
+        .setPreprocessorFlags(ImmutableMultimap.of(CxxSource.Type.C, sentinal))
+        .build();
+    BuildRule bottom = createFakeCxxPreprocessorDep("//:bottom", pathResolver, bottomInput);
 
     // Create a non-native linkable that sits in the middle of the dep chain, preventing
     // traversals to the bottom native linkable.
-    BuildRule middle = new FakeBuildRule("//:middle", bottom);
+    BuildRule middle = new FakeBuildRule("//:middle", pathResolver, bottom);
 
     // Create a native linkable that sits at the top of the dep chain.
-    CxxPreprocessorInput topInput = new CxxPreprocessorInput(
-        ImmutableSet.<BuildTarget>of(),
-        ImmutableList.<String>of(),
-        ImmutableList.<String>of(),
-        ImmutableMap.<Path, SourcePath>of(),
-        ImmutableList.<Path>of(),
-        ImmutableList.<Path>of());
-    BuildRule top = createFakeCxxPreprocessorDep("//:top", topInput, middle);
+    CxxPreprocessorInput topInput = CxxPreprocessorInput.EMPTY;
+    BuildRule top = createFakeCxxPreprocessorDep("//:top", pathResolver, topInput, middle);
 
     // Now grab all input via traversing deps and verify that the middle rule prevents pulling
     // in the bottom input.
     CxxPreprocessorInput totalInput =
         CxxPreprocessables.getTransitiveCxxPreprocessorInput(
             ImmutableList.of(top));
-    assertTrue(bottomInput.getCppflags().contains(sentinal));
-    assertFalse(totalInput.getCppflags().contains(sentinal));
+    assertTrue(bottomInput.getPreprocessorFlags().get(CxxSource.Type.C).contains(sentinal));
+    assertFalse(totalInput.getPreprocessorFlags().get(CxxSource.Type.C).contains(sentinal));
   }
 
 }

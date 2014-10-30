@@ -25,7 +25,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.shell.AbstractGenruleStep.CommandString;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -108,6 +108,7 @@ public class Genrule extends AbstractBuildRule implements HasOutputName {
    */
   protected final ImmutableList<SourcePath> srcs;
 
+  protected final Function<String, String> macroExpander;
   protected final Optional<String> cmd;
   protected final Optional<String> bash;
   protected final Optional<String> cmdExe;
@@ -125,20 +126,23 @@ public class Genrule extends AbstractBuildRule implements HasOutputName {
 
   protected Genrule(
       BuildRuleParams params,
+      SourcePathResolver resolver,
       List<SourcePath> srcs,
+      Function<String, String> macroExpander,
       Optional<String> cmd,
       Optional<String> bash,
       Optional<String> cmdExe,
       String out,
       final Function<Path, Path> relativeToAbsolutePathFunction) {
-    super(params);
+    super(params, resolver);
     this.srcs = ImmutableList.copyOf(srcs);
+    this.macroExpander = Preconditions.checkNotNull(macroExpander);
     this.cmd = Preconditions.checkNotNull(cmd);
     this.bash = Preconditions.checkNotNull(bash);
     this.cmdExe = Preconditions.checkNotNull(cmdExe);
     this.srcsToAbsolutePaths = FluentIterable
         .from(srcs)
-        .transform(SourcePaths.TO_PATH)
+        .transform(resolver.getPathFunction())
         .toMap(new Function<Path, Path>() {
           @Override
           public Path apply(Path src) {
@@ -177,7 +181,7 @@ public class Genrule extends AbstractBuildRule implements HasOutputName {
 
   @Override
   public ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return SourcePaths.filterInputsToCompareToOutput(srcs);
+    return getResolver().filterInputsToCompareToOutput(srcs);
   }
 
   @Override
@@ -195,7 +199,7 @@ public class Genrule extends AbstractBuildRule implements HasOutputName {
   }
 
   public ImmutableList<Path> getSrcs() {
-    return SourcePaths.toPaths(srcs);
+    return getResolver().getAllPaths(srcs);
   }
 
   protected void addEnvironmentVariables(ExecutionContext context,
@@ -222,6 +226,9 @@ public class Genrule extends AbstractBuildRule implements HasOutputName {
       environmentVariablesBuilder.put("DX", android.getDxExecutable().toString());
       environmentVariablesBuilder.put("ZIPALIGN", android.getZipalignExecutable().toString());
     }
+
+    // TODO(user): This shouldn't be necessary. Speculatively disabling.
+    environmentVariablesBuilder.put("NO_BUCKD", "1");
   }
 
   private void transformNames(Set<BuildRule> processedBuildRules,
@@ -262,10 +269,11 @@ public class Genrule extends AbstractBuildRule implements HasOutputName {
     File workingDirectory = new File(absolutePathToSrcDirectory.toString());
 
     return new AbstractGenruleStep(
-        getType(),
         getBuildTarget(),
-        new CommandString(cmd, bash, cmdExe),
-        getDeps(),
+        new CommandString(
+            cmd.transform(macroExpander),
+            bash.transform(macroExpander),
+            cmdExe.transform(macroExpander)),
         workingDirectory) {
       @Override
       protected void addEnvironmentVariables(

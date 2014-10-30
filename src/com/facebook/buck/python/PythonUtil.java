@@ -21,7 +21,7 @@ import com.facebook.buck.rules.AbstractDependencyVisitor;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.coercer.Either;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MorePaths;
@@ -38,6 +38,7 @@ public class PythonUtil {
 
   public static ImmutableMap<Path, SourcePath> toModuleMap(
       BuildTarget target,
+      SourcePathResolver resolver,
       String parameter,
       Path baseModule,
       Optional<Either<ImmutableSortedSet<SourcePath>, ImmutableMap<String, SourcePath>>> inputs) {
@@ -49,7 +50,7 @@ public class PythonUtil {
     final ImmutableMap<String, SourcePath> namesAndSourcePaths;
 
     if (inputs.get().isLeft()) {
-      namesAndSourcePaths = SourcePaths.getSourcePathNames(
+      namesAndSourcePaths = resolver.getSourcePathNames(
           target,
           parameter,
           inputs.get().getLeft());
@@ -80,27 +81,13 @@ public class PythonUtil {
     return MorePaths.pathWithUnixSeparators(name).replace('/', '.');
   }
 
-  /**
-   * Convert a set of SourcePaths to a map of Paths mapped to themselves,
-   * appropriate for being put into a PythonPackageComponents instance.
-   */
-  public static ImmutableMap<Path, Path> getPathMapFromSourcePaths(
-      ImmutableMap<Path, SourcePath> sourcePaths) {
-    ImmutableMap.Builder<Path, Path> paths = ImmutableMap.builder();
-    for (ImmutableMap.Entry<Path, SourcePath> src : sourcePaths.entrySet()) {
-      paths.put(
-          src.getKey(),
-          src.getValue().resolve());
-    }
-    return paths.build();
-  }
-
   public static ImmutableSortedSet<BuildRule> getDepsFromComponents(
+      SourcePathResolver resolver,
       PythonPackageComponents components) {
     return ImmutableSortedSet.<BuildRule>naturalOrder()
-        .addAll(SourcePaths.filterBuildRuleInputs(components.getModules().values()))
-        .addAll(SourcePaths.filterBuildRuleInputs(components.getResources().values()))
-        .addAll(SourcePaths.filterBuildRuleInputs(components.getNativeLibraries().values()))
+        .addAll(resolver.filterBuildRuleInputs(components.getModules().values()))
+        .addAll(resolver.filterBuildRuleInputs(components.getResources().values()))
+        .addAll(resolver.filterBuildRuleInputs(components.getNativeLibraries().values()))
         .build();
   }
 

@@ -24,6 +24,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TestRule;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -36,6 +37,7 @@ import com.facebook.buck.test.selectors.TestSelectorList;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
@@ -55,17 +57,18 @@ public abstract class CxxTest extends AbstractBuildRule implements TestRule {
 
   public CxxTest(
       BuildRuleParams params,
+      SourcePathResolver resolver,
       ImmutableSet<Label> labels,
       ImmutableSet<String> contacts,
       ImmutableSet<BuildRule> sourceUnderTest) {
-    super(params);
+    super(params, resolver);
     this.labels = Preconditions.checkNotNull(labels);
     this.contacts = Preconditions.checkNotNull(contacts);
     this.sourceUnderTest = Preconditions.checkNotNull(sourceUnderTest);
   }
 
   @Override
-  protected Iterable<Path> getInputsToCompareToOutput() {
+  protected ImmutableCollection<Path> getInputsToCompareToOutput() {
     return ImmutableList.of();
   }
 
@@ -127,6 +130,7 @@ public abstract class CxxTest extends AbstractBuildRule implements TestRule {
       BuildContext buildContext,
       ExecutionContext executionContext,
       boolean isDryRun,
+      boolean isShufflingTests,
       TestSelectorList testSelectorList) {
     return ImmutableList.of(
         new MakeCleanDirectoryStep(getPathToTestOutputDirectory()),

@@ -50,7 +50,7 @@ import java.util.List;
 
 public class FakeProjectFilesystemTest {
   @Test
-  public void testFilesystemReturnsAddedContents() {
+  public void testFilesystemReturnsAddedContents() throws IOException {
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
     filesystem.writeContentsToPath("Some content", Paths.get("A.txt"));
 
@@ -148,7 +148,7 @@ public class FakeProjectFilesystemTest {
   }
 
   @Test
-  public void testWriteContentsWithDefaultFileAttributes() {
+  public void testWriteContentsWithDefaultFileAttributes() throws IOException {
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
     Path path = Paths.get("hello.txt");
     filesystem.writeContentsToPath("hello world", path);
@@ -156,7 +156,7 @@ public class FakeProjectFilesystemTest {
   }
 
   @Test
-  public void testWriteContentsWithSpecifiedFileAttributes() {
+  public void testWriteContentsWithSpecifiedFileAttributes() throws IOException {
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
     ImmutableSet<PosixFilePermission> permissions =
       ImmutableSet.of(
@@ -273,12 +273,32 @@ public class FakeProjectFilesystemTest {
   }
 
   @Test
-  public void testWritingAFileAddsParentDirectories() {
+  public void testWritingAFileAddsParentDirectories() throws IOException {
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
     filesystem.writeContentsToPath("hello", Paths.get("test/one/two/three.txt"));
 
     assertTrue(filesystem.exists(Paths.get("test/one/two")));
     assertTrue(filesystem.exists(Paths.get("test/one")));
     assertTrue(filesystem.exists(Paths.get("test")));
+  }
+
+  @Test
+  public void testIsSymLinkReturnsTrueForSymLink() throws IOException {
+    FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
+    filesystem.createSymLink(Paths.get("foo"), Paths.get("bar"), false);
+    assertTrue(filesystem.isSymLink(Paths.get("foo")));
+  }
+
+  @Test
+  public void testIsSymLinkReturnsFalseForFile() throws IOException {
+    FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
+    filesystem.touch(Paths.get("foo"));
+    assertFalse(filesystem.isSymLink(Paths.get("foo")));
+  }
+
+  @Test
+  public void testIsSymLinkReturnsFalseForNotExistent() throws IOException {
+    FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
+    assertFalse(filesystem.isSymLink(Paths.get("foo")));
   }
 }

@@ -22,6 +22,7 @@ import static com.facebook.buck.rules.BuildableProperties.Kind.PACKAGING;
 import com.android.common.SdkConstants;
 import com.facebook.buck.android.FilterResourcesStep.ResourceFilter;
 import com.facebook.buck.android.ResourcesFilter.ResourceCompressionMode;
+import com.facebook.buck.java.AccumulateClassNamesStep;
 import com.facebook.buck.java.Classpaths;
 import com.facebook.buck.java.HasClasspathEntries;
 import com.facebook.buck.java.JavaLibrary;
@@ -39,7 +40,7 @@ import com.facebook.buck.rules.InstallableApk;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.Sha1HashCode;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.shell.AbstractGenruleStep;
 import com.facebook.buck.shell.EchoStep;
 import com.facebook.buck.shell.SymlinkFilesIntoDirectoryStep;
@@ -66,6 +67,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSetMultimap;
+import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Multimap;
@@ -106,6 +108,7 @@ public class AndroidBinary extends AbstractBuildRule implements
   static final String SECONDARY_DEX_SUBDIR = "assets/secondary-program-dex-jars";
 
   private final Optional<Path> proguardJarOverride;
+  private final String proguardMaxHeapSize;
 
   /**
    * This list of package types is taken from the set of targets that the default build.xml provides
@@ -123,7 +126,7 @@ public class AndroidBinary extends AbstractBuildRule implements
     /**
      * @return true if ProGuard should be used to obfuscate the output
      */
-    private final boolean isBuildWithObfuscation() {
+    private boolean isBuildWithObfuscation() {
       return this == RELEASE;
     }
 
@@ -154,6 +157,7 @@ public class AndroidBinary extends AbstractBuildRule implements
   private final Path primaryDexPath;
   private final boolean exopackage;
   private final ImmutableSortedSet<BuildRule> preprocessJavaClassesDeps;
+  private final Function<String, String> macroExpander;
   private final Optional<String> preprocessJavaClassesBash;
   protected final ImmutableSortedSet<JavaLibrary> rulesToExcludeFromDex;
   protected final AndroidBinaryGraphEnhancer.EnhancementResult enhancementResult;
@@ -165,7 +169,9 @@ public class AndroidBinary extends AbstractBuildRule implements
    */
   AndroidBinary(
       BuildRuleParams params,
+      SourcePathResolver resolver,
       Optional<Path> proguardJarOverride,
+      String proguardMaxHeapSize,
       SourcePath manifest,
       String target,
       Keystore keystore,
@@ -180,29 +186,31 @@ public class AndroidBinary extends AbstractBuildRule implements
       ResourceFilter resourceFilter,
       boolean exopackage,
       Set<BuildRule> preprocessJavaClassesDeps,
+      Function<String, String> macroExpander,
       Optional<String> preprocessJavaClassesBash,
       ImmutableSortedSet<JavaLibrary> rulesToExcludeFromDex,
       AndroidBinaryGraphEnhancer.EnhancementResult enhancementResult) {
-    super(params);
-    this.proguardJarOverride = Preconditions.checkNotNull(proguardJarOverride);
-    this.manifest = Preconditions.checkNotNull(manifest);
-    this.target = Preconditions.checkNotNull(target);
-    this.keystore = Preconditions.checkNotNull(keystore);
-    this.packageType = Preconditions.checkNotNull(packageType);
-    this.dexSplitMode = Preconditions.checkNotNull(dexSplitMode);
-    this.buildTargetsToExcludeFromDex = ImmutableSet.copyOf(
-        Preconditions.checkNotNull(buildTargetsToExcludeFromDex));
+    super(params, resolver);
+    this.proguardJarOverride = proguardJarOverride;
+    this.proguardMaxHeapSize = proguardMaxHeapSize;
+    this.manifest = manifest;
+    this.target = target;
+    this.keystore = keystore;
+    this.packageType = packageType;
+    this.dexSplitMode = dexSplitMode;
+    this.buildTargetsToExcludeFromDex = ImmutableSet.copyOf(buildTargetsToExcludeFromDex);
     this.sdkProguardConfig = sdkProguardConfig;
-    this.optimizationPasses = Preconditions.checkNotNull(proguardOptimizationPasses);
-    this.proguardConfig = Preconditions.checkNotNull(proguardConfig);
-    this.resourceCompressionMode = Preconditions.checkNotNull(resourceCompressionMode);
+    this.optimizationPasses = proguardOptimizationPasses;
+    this.proguardConfig = proguardConfig;
+    this.resourceCompressionMode = resourceCompressionMode;
     this.cpuFilters = ImmutableSet.copyOf(cpuFilters);
-    this.resourceFilter = Preconditions.checkNotNull(resourceFilter);
+    this.resourceFilter = resourceFilter;
     this.exopackage = exopackage;
     this.preprocessJavaClassesDeps = ImmutableSortedSet.copyOf(preprocessJavaClassesDeps);
-    this.preprocessJavaClassesBash = Preconditions.checkNotNull(preprocessJavaClassesBash);
-    this.rulesToExcludeFromDex = Preconditions.checkNotNull(rulesToExcludeFromDex);
-    this.enhancementResult = Preconditions.checkNotNull(enhancementResult);
+    this.macroExpander = macroExpander;
+    this.preprocessJavaClassesBash = preprocessJavaClassesBash;
+    this.rulesToExcludeFromDex = rulesToExcludeFromDex;
+    this.enhancementResult = enhancementResult;
     this.primaryDexPath = getPrimaryDexPath(params.getBuildTarget());
 
     if (exopackage) {
@@ -290,12 +298,8 @@ public class AndroidBinary extends AbstractBuildRule implements
     return enhancementResult.getFilteredResourcesProvider();
   }
 
-  public ImmutableSortedSet<BuildRule> getPreprocessJavaClassesDeps() {
-    return preprocessJavaClassesDeps;
-  }
-
-  public Optional<String> getPreprocessJavaClassesBash() {
-    return preprocessJavaClassesBash;
+  public Function<String, String> getMacroExpander() {
+    return macroExpander;
   }
 
   ProGuardObfuscateStep.SdkProguardType getSdkProguardConfig() {
@@ -436,7 +440,7 @@ public class AndroidBinary extends AbstractBuildRule implements
     Optionals.addIfPresent(proguardConfig, sourcePaths);
     sourcePaths.addAll(dexSplitMode.getSourcePaths());
 
-    return SourcePaths.filterInputsToCompareToOutput(sourcePaths.build());
+    return getResolver().filterInputsToCompareToOutput(sourcePaths.build());
   }
 
   @Override
@@ -482,7 +486,7 @@ public class AndroidBinary extends AbstractBuildRule implements
       Path libSubdirectory = pathForNativeLibsAsAssets.resolve("assets").resolve("lib");
       steps.add(new MakeCleanDirectoryStep(libSubdirectory));
       for (Path nativeLibDir : packageableCollection.nativeLibAssetsDirectories) {
-        AndroidBinary.copyNativeLibrary(nativeLibDir, libSubdirectory, cpuFilters, steps);
+        copyNativeLibrary(nativeLibDir, libSubdirectory, cpuFilters, steps);
       }
       nativeLibraryAsAssetDirectories = ImmutableSet.of(pathForNativeLibsAsAssets);
     } else {
@@ -595,14 +599,12 @@ public class AndroidBinary extends AbstractBuildRule implements
 
       AbstractGenruleStep.CommandString commandString = new AbstractGenruleStep.CommandString(
           /* cmd */ Optional.<String>absent(),
-          /* bash */ preprocessJavaClassesBash,
+          /* bash */ preprocessJavaClassesBash.transform(macroExpander),
           /* cmdExe */ Optional.<String>absent());
       steps.add(new AbstractGenruleStep(
-          AndroidBinaryDescription.TYPE,
           this.getBuildTarget(),
           commandString,
-          preprocessJavaClassesDeps,
-          preprocessJavaClassesInDir.toFile()) {
+          context.getProjectRoot().resolve(preprocessJavaClassesInDir).toFile()) {
 
         @Override
         protected void addEnvironmentVariables(
@@ -644,6 +646,16 @@ public class AndroidBinary extends AbstractBuildRule implements
           buildableContext);
     }
 
+    Supplier<Map<String, HashCode>> classNamesToHashesSupplier;
+    boolean classFilesHaveChanged = preprocessJavaClassesBash.isPresent() ||
+        packageType.isBuildWithObfuscation();
+
+    if (classFilesHaveChanged) {
+      classNamesToHashesSupplier = addAccumulateClassNamesStep(classpathEntriesToDex, steps);
+    } else {
+      classNamesToHashesSupplier = packageableCollection.classNamesToHashesSupplier;
+    }
+
     // Create the final DEX (or set of DEX files in the case of split dex).
     // The APK building command needs to take a directory of raw files, so primaryDexPath
     // can only contain .dex files from this build rule.
@@ -671,7 +683,7 @@ public class AndroidBinary extends AbstractBuildRule implements
 
       addDexingSteps(
           classpathEntriesToDex,
-          packageableCollection.classNamesToHashesSupplier,
+          classNamesToHashesSupplier,
           secondaryDexDirectoriesBuilder,
           steps,
           primaryDexPath);
@@ -680,6 +692,36 @@ public class AndroidBinary extends AbstractBuildRule implements
     }
 
     return new DexFilesInfo(primaryDexPath, secondaryDexDirectoriesBuilder.build());
+  }
+
+  public Supplier<Map<String, HashCode>> addAccumulateClassNamesStep(
+      final ImmutableSet<Path> classPathEntriesToDex,
+      ImmutableList.Builder<Step> steps) {
+    final ImmutableMap.Builder<String, HashCode> builder = ImmutableMap.builder();
+
+    steps.add(
+        new AbstractExecutionStep("collect_all_class_names") {
+          @Override
+          public int execute(ExecutionContext context) {
+            for (Path path : classPathEntriesToDex) {
+              Optional<ImmutableSortedMap<String, HashCode>> hashes =
+                  AccumulateClassNamesStep.calculateClassHashes(context, path);
+              if (!hashes.isPresent()) {
+                return 1;
+              }
+              builder.putAll(hashes.get());
+            }
+            return 0;
+          }
+        });
+
+    return Suppliers.memoize(
+        new Supplier<Map<String, HashCode>>() {
+          @Override
+          public Map<String, HashCode> get() {
+            return builder.build();
+          }
+        });
   }
 
   public AndroidPackageableCollection getAndroidPackageableCollection() {
@@ -749,8 +791,7 @@ public class AndroidBinary extends AbstractBuildRule implements
     String obfuscatedName =
         Files.getNameWithoutExtension(classpathEntry.toString()) + "-obfuscated.jar";
     Path dirName = classpathEntry.getParent();
-    Path outputJar = getPathForProGuardDirectory().resolve(dirName).resolve(obfuscatedName);
-    return outputJar;
+    return getPathForProGuardDirectory().resolve(dirName).resolve(obfuscatedName);
   }
 
   /**
@@ -787,7 +828,7 @@ public class AndroidBinary extends AbstractBuildRule implements
     ImmutableSet.Builder<Path> proguardConfigsBuilder = ImmutableSet.builder();
     proguardConfigsBuilder.addAll(depsProguardConfigs);
     if (proguardConfig.isPresent()) {
-      proguardConfigsBuilder.add(proguardConfig.get().resolve());
+      proguardConfigsBuilder.add(getResolver().getPath(proguardConfig.get()));
     }
 
     // Transform our input classpath to a set of output locations for each input classpath.
@@ -805,6 +846,7 @@ public class AndroidBinary extends AbstractBuildRule implements
     // Run ProGuard on the classpath entries.
     ProGuardObfuscateStep.create(
         proguardJarOverride,
+        proguardMaxHeapSize,
         generatedProGuardConfig,
         proguardConfigsBuilder.build(),
         sdkProguardConfig,
@@ -827,7 +869,6 @@ public class AndroidBinary extends AbstractBuildRule implements
    *  @param classpathEntriesToDex Full set of classpath entries that must make
    *     their way into the final APK structure (but not necessarily into the
    *     primary dex).
-   * @param classNamesToHashesSupplier
    * @param secondaryDexDirectories The contract for updating this builder must match that
    *     of {@link PreDexMerge#getSecondaryDexDirectories()}.
    * @param steps List of steps to add to.
@@ -887,6 +928,8 @@ public class AndroidBinary extends AbstractBuildRule implements
           proguardFullConfigFile,
           proguardMappingFile,
           dexSplitMode,
+          dexSplitMode.getPrimaryDexScenarioFile().transform(getResolver().getPathFunction()),
+          dexSplitMode.getPrimaryDexClassesFile().transform(getResolver().getPathFunction()),
           zipSplitReportDir);
       steps.add(splitZipCommand);
 
@@ -995,8 +1038,8 @@ public class AndroidBinary extends AbstractBuildRule implements
     final ImmutableSet<Path> secondaryDexDirs;
 
     DexFilesInfo(Path primaryDexPath, ImmutableSet<Path> secondaryDexDirs) {
-      this.primaryDexPath = Preconditions.checkNotNull(primaryDexPath);
-      this.secondaryDexDirs = Preconditions.checkNotNull(secondaryDexDirs);
+      this.primaryDexPath = primaryDexPath;
+      this.secondaryDexDirs = secondaryDexDirs;
     }
   }
 }

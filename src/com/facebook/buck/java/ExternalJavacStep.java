@@ -20,7 +20,6 @@ package com.facebook.buck.java;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildDependencies;
 import com.facebook.buck.rules.Sha1HashCode;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
@@ -34,7 +33,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Iterables;
 import com.google.common.io.Files;
 
 import java.io.File;
@@ -51,7 +49,7 @@ public class ExternalJavacStep extends JavacStep {
 
   public ExternalJavacStep(
       Path outputDirectory,
-      Set<? extends SourcePath> javaSourceFilePaths,
+      Set<Path> javaSourceFilePaths,
       Set<Path> transitiveClasspathEntries,
       Set<Path> declaredClasspathEntries,
       JavacOptions javacOptions,
@@ -117,7 +115,9 @@ public class ExternalJavacStep extends JavacStep {
     if (pathToSrcsList.isPresent()) {
       try {
         context.getProjectFilesystem().writeLinesToPath(
-            Iterables.transform(expandedSources, Functions.toStringFunction()),
+            FluentIterable.from(expandedSources)
+                .transform(Functions.toStringFunction())
+                .transform(ARGFILES_ESCAPER),
             pathToSrcsList.get());
         command.add("@" + pathToSrcsList.get());
       } catch (IOException e) {
@@ -180,9 +180,7 @@ public class ExternalJavacStep extends JavacStep {
 
     // Add sources file or sources list to command
     ImmutableList.Builder<Path> sources = ImmutableList.builder();
-    for (SourcePath sourcePath : javaSourceFilePaths) {
-      Path path = sourcePath.resolve();
-
+    for (Path path : javaSourceFilePaths) {
       if (path.toString().endsWith(".java")) {
         sources.add(path);
       } else if (path.toString().endsWith(SRC_ZIP)) {

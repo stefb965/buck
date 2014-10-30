@@ -23,10 +23,12 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleParamsFactory;
+import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.FakeRuleKeyBuilderFactory;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TestSourcePath;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.google.common.base.Strings;
@@ -48,15 +50,17 @@ public class LexTest {
 
   private RuleKey.Builder.RuleKeyPair generateRuleKey(
       RuleKeyBuilderFactory factory,
+      SourcePathResolver resolver,
       AbstractBuildRule rule) {
 
-    RuleKey.Builder builder = factory.newInstance(rule);
+    RuleKey.Builder builder = factory.newInstance(rule, resolver);
     rule.appendToRuleKey(builder);
     return builder.build();
   }
 
   @Test
   public void testThatInputChangesCauseRuleKeyChanges() {
+    SourcePathResolver pathResolver = new SourcePathResolver(new BuildRuleResolver());
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     BuildRuleParams params = BuildRuleParamsFactory.createTrivialBuildRuleParams(target);
     RuleKeyBuilderFactory ruleKeyBuilderFactory =
@@ -70,8 +74,10 @@ public class LexTest {
     // Generate a rule key for the defaults.
     RuleKey.Builder.RuleKeyPair defaultRuleKey = generateRuleKey(
         ruleKeyBuilderFactory,
+        pathResolver,
         new Lex(
             params,
+            pathResolver,
             DEFAULT_LEX,
             DEFAULT_FLAGS,
             DEFAULT_OUTPUT_SOURCE,
@@ -81,8 +87,10 @@ public class LexTest {
     // Verify that changing the archiver causes a rulekey change.
     RuleKey.Builder.RuleKeyPair lexChange = generateRuleKey(
         ruleKeyBuilderFactory,
+        pathResolver,
         new Lex(
             params,
+            pathResolver,
             new TestSourcePath("different"),
             DEFAULT_FLAGS,
             DEFAULT_OUTPUT_SOURCE,
@@ -93,8 +101,10 @@ public class LexTest {
     // Verify that changing the flags causes a rulekey change.
     RuleKey.Builder.RuleKeyPair flagsChange = generateRuleKey(
         ruleKeyBuilderFactory,
+        pathResolver,
         new Lex(
             params,
+            pathResolver,
             DEFAULT_LEX,
             ImmutableList.of("-different"),
             DEFAULT_OUTPUT_SOURCE,
@@ -105,8 +115,10 @@ public class LexTest {
     // Verify that changing the output source causes a rulekey change.
     RuleKey.Builder.RuleKeyPair outputSourceChange = generateRuleKey(
         ruleKeyBuilderFactory,
+        pathResolver,
         new Lex(
             params,
+            pathResolver,
             DEFAULT_LEX,
             DEFAULT_FLAGS,
             Paths.get("different"),
@@ -117,8 +129,10 @@ public class LexTest {
     // Verify that changing the output header causes a rulekey change.
     RuleKey.Builder.RuleKeyPair outputHeaderChange = generateRuleKey(
         ruleKeyBuilderFactory,
+        pathResolver,
         new Lex(
             params,
+            pathResolver,
             DEFAULT_LEX,
             DEFAULT_FLAGS,
             DEFAULT_OUTPUT_SOURCE,
@@ -129,8 +143,10 @@ public class LexTest {
     // Verify that changing the inputs causes a rulekey change.
     RuleKey.Builder.RuleKeyPair inputChange = generateRuleKey(
         ruleKeyBuilderFactory,
+        pathResolver,
         new Lex(
             params,
+            pathResolver,
             DEFAULT_LEX,
             DEFAULT_FLAGS,
             DEFAULT_OUTPUT_SOURCE,

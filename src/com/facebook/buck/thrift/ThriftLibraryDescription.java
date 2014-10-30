@@ -19,23 +19,24 @@ package com.facebook.buck.thrift;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
+import com.facebook.buck.model.FlavorDomain;
+import com.facebook.buck.model.FlavorDomainException;
 import com.facebook.buck.model.Flavored;
 import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.rules.AbstractDependencyVisitor;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleFactoryParams;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildRules;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Function;
 import com.google.common.base.Functions;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -46,13 +47,16 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 
 public class ThriftLibraryDescription
-  implements Description<ThriftConstructorArg>, Flavored, ImplicitDepsInferringDescription {
+  implements
+    Description<ThriftConstructorArg>,
+    Flavored,
+    ImplicitDepsInferringDescription<ThriftConstructorArg> {
 
   public static final BuildRuleType TYPE = new BuildRuleType("thrift_library");
   private static final Flavor INCLUDE_SYMLINK_TREE_FLAVOR = new Flavor("include_symlink_tree");
@@ -60,7 +64,7 @@ public class ThriftLibraryDescription
       new BuildRuleType("include_symlink_tree");
 
   private final ThriftBuckConfig thriftBuckConfig;
-  private final ImmutableMap<Flavor, ThriftLanguageSpecificEnhancer> enhancers;
+  private final FlavorDomain<ThriftLanguageSpecificEnhancer> enhancers;
 
   public ThriftLibraryDescription(
       ThriftBuckConfig thriftBuckConfig,
@@ -74,27 +78,7 @@ public class ThriftLibraryDescription
     for (ThriftLanguageSpecificEnhancer enhancer : enhancers) {
       enhancerMapBuilder.put(enhancer.getFlavor(), enhancer);
     }
-    this.enhancers = enhancerMapBuilder.build();
-  }
-
-  // Get the flavor that specified the language this build target.
-  private Optional<Flavor> getLanguageFlavor(BuildTarget flavoredTarget) {
-    Sets.SetView<Flavor> flavors = Sets.intersection(
-        enhancers.keySet(),
-        flavoredTarget.getFlavors());
-
-    if (flavors.size() == 0) {
-      return Optional.absent();
-    }
-
-    if (flavors.size() > 1) {
-      throw new HumanReadableException(String.format(
-          "%s: more than one language flavor specified: %s",
-          flavoredTarget,
-          flavors));
-    }
-
-    return Optional.of(flavors.iterator().next());
+    this.enhancers = new FlavorDomain<>("language", enhancerMapBuilder.build());
   }
 
   /**
@@ -175,7 +159,7 @@ public class ThriftLibraryDescription
       ImmutableMap<String, SourcePath> srcs,
       ImmutableSortedSet<ThriftLibrary> deps) {
 
-    SourcePath compiler = thriftBuckConfig.getCompiler(resolver);
+    SourcePath compiler = thriftBuckConfig.getCompiler();
 
     // Build up the include roots to find thrift file deps and also the build rules that
     // generate them.
@@ -209,7 +193,7 @@ public class ThriftLibraryDescription
                   target,
                   ImmutableSortedSet.<BuildRule>naturalOrder()
                       .addAll(
-                        SourcePaths.filterBuildRuleInputs(
+                        new SourcePathResolver(resolver).filterBuildRuleInputs(
                             ImmutableList.<SourcePath>builder()
                                 .add(compiler)
                                 .add(source)
@@ -218,6 +202,7 @@ public class ThriftLibraryDescription
                       .addAll(includeTreeRules)
                       .build(),
                   ImmutableSortedSet.<BuildRule>of()),
+              new SourcePathResolver(resolver),
               compiler,
               flags,
               outputDir,
@@ -229,15 +214,6 @@ public class ThriftLibraryDescription
     }
 
     return compileRules.build();
-  }
-
-  private static Function<BuildTarget, BuildTarget> getFlavorFn(final Flavor flavor) {
-    return new Function<BuildTarget, BuildTarget>() {
-      @Override
-      public BuildTarget apply(BuildTarget input) {
-        return BuildTargets.extendFlavoredBuildTarget(input, flavor);
-      }
-    };
   }
 
   /**
@@ -270,8 +246,18 @@ public class ThriftLibraryDescription
       A args) {
 
     BuildTarget target = params.getBuildTarget();
+
+    // Extract the thrift language we're using from our build target.
+    Optional<Map.Entry<Flavor, ThriftLanguageSpecificEnhancer>> enhancerFlavor;
+    try {
+      enhancerFlavor = enhancers.getFlavorAndValue(target.getFlavors());
+    } catch (FlavorDomainException e) {
+      throw new HumanReadableException("%s: %s", target, e.getMessage());
+    }
+
+    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
     ImmutableMap<String, SourcePath> namedSources =
-        SourcePaths.getSourcePathNames(target, "srcs", args.srcs.keySet());
+        pathResolver.getSourcePathNames(target, "srcs", args.srcs.keySet());
 
     // The dependencies listed in "deps", which should all be of type "ThriftLibrary".
     ImmutableSortedSet<ThriftLibrary> thriftDeps =
@@ -281,8 +267,7 @@ public class ThriftLibraryDescription
 
     // The unflavored version of this rule is responsible for setting up the the various
     // build rules to facilitate dependents including it's thrift sources.
-    Optional<Flavor> flavor = getLanguageFlavor(target);
-    if (!flavor.isPresent()) {
+    if (!enhancerFlavor.isPresent()) {
 
       // Namespace the thrift files using our target's base path.
       ImmutableMap.Builder<Path, SourcePath> includesBuilder = ImmutableMap.builder();
@@ -302,6 +287,7 @@ public class ThriftLibraryDescription
               symlinkTreeTarget,
               ImmutableSortedSet.<BuildRule>of(),
               ImmutableSortedSet.<BuildRule>of()),
+          pathResolver,
           includeRoot,
           includes);
       resolver.addToIndex(symlinkTree);
@@ -310,15 +296,18 @@ public class ThriftLibraryDescription
       // about this rule from the action graph.
       return new ThriftLibrary(
           params,
+          pathResolver,
           thriftDeps,
           symlinkTree,
           includes);
     }
 
-    ThriftLanguageSpecificEnhancer enhancer = enhancers.get(flavor.get());
+    ThriftLanguageSpecificEnhancer enhancer = enhancerFlavor.get().getValue();
     String language = enhancer.getLanguage();
     ImmutableSet<String> options = enhancer.getOptions(target, args);
-    ImmutableSet<BuildTarget> implicitDeps = enhancer.getImplicitDepsFromArg(target, args);
+    ImmutableSet<BuildTarget> implicitDeps = enhancer.getImplicitDepsForTargetFromConstructorArg(
+        target,
+        args);
 
     // Lookup the thrift library corresponding to this rule.  We add an implicit dep onto
     // this rule in the findImplicitDepsFromParams method, so this should always exist by
@@ -332,9 +321,11 @@ public class ThriftLibraryDescription
         target,
         resolver,
         Iterables.concat(
-            FluentIterable.from(thriftDeps)
-                .transform(HasBuildTarget.TO_TARGET)
-                .transform(getFlavorFn(flavor.get())),
+            BuildTargets.propagateFlavorDomains(
+                target,
+                ImmutableList.<FlavorDomain<?>>of(enhancers),
+                FluentIterable.from(thriftDeps)
+                    .transform(HasBuildTarget.TO_TARGET)),
             implicitDeps),
         false);
 
@@ -389,7 +380,7 @@ public class ThriftLibraryDescription
 
   @Override
   public boolean hasFlavors(ImmutableSet<Flavor> flavors) {
-    return !Sets.intersection(enhancers.keySet(), flavors).isEmpty() ||
+    return enhancers.containsAnyOf(flavors) ||
         flavors.equals(ImmutableSet.of(Flavor.DEFAULT));
   }
 
@@ -397,12 +388,19 @@ public class ThriftLibraryDescription
    * Collect implicit deps for the thrift compiler and language specific enhancers.
    */
   @Override
-  public Iterable<String> findDepsFromParams(BuildRuleFactoryParams params) {
-    Optional<Flavor> flavor = getLanguageFlavor(params.target);
+  public Iterable<String> findDepsForTargetFromConstructorArgs(
+      BuildTarget buildTarget,
+      ThriftConstructorArg arg) {
+    Optional<Map.Entry<Flavor, ThriftLanguageSpecificEnhancer>> enhancerFlavor;
+    try {
+      enhancerFlavor = enhancers.getFlavorAndValue(buildTarget.getFlavors());
+    } catch (FlavorDomainException e) {
+      throw new HumanReadableException("%s: %s", buildTarget, e.getMessage());
+    }
 
     // The unflavored target represents the actual thrift library, which doesn't need
     // any implicit deps.
-    if (!flavor.isPresent()) {
+    if (!enhancerFlavor.isPresent()) {
         return ImmutableList.of();
     }
 
@@ -410,32 +408,28 @@ public class ThriftLibraryDescription
 
     // The flavored versions of this rule must always implicitly depend on the non-flavored
     // version, as it sets up the include rules for dependents.
-    deps.add(params.target.getUnflavoredTarget());
+    deps.add(buildTarget.getUnflavoredTarget());
 
     // Convert all the thrift library deps into their flavored counterparts and
     // add them to our list of deps, to make sure they get included in the target graph.
-    for (String rawTarget : params.getOptionalListAttribute("deps")) {
-      BuildTarget target = params.resolveBuildTarget(rawTarget);
-      if (getLanguageFlavor(target).isPresent()) {
-        throw new HumanReadableException(String.format(
-            "%s: parameter \"deps\": target \"%s\" must not specify a language flavor",
-            params.target,
-            target));
-      }
-      BuildTarget flavoredTarget = BuildTargets.extendFlavoredBuildTarget(target, flavor.get());
-      deps.add(flavoredTarget);
-    }
+    deps.addAll(
+        BuildTargets.propagateFlavorDomains(
+            buildTarget,
+            ImmutableList.<FlavorDomain<?>>of(enhancers),
+            arg.deps.get()));
 
     // Add the compiler target, if there is one.
-    Optional<BuildTarget> thriftTarget = thriftBuckConfig.getCompilerTarget();
-    if (thriftTarget.isPresent()) {
-      deps.add(thriftTarget.get());
+    SourcePath compiler = thriftBuckConfig.getCompiler();
+    if (compiler instanceof BuildTargetSourcePath) {
+      deps.add(((BuildTargetSourcePath) compiler).getTarget());
     }
 
     // Grab the language specific implicit dependencies and add their raw target representations
     // to our list.
-    ThriftLanguageSpecificEnhancer enhancer = enhancers.get(flavor.get());
-    ImmutableSet<BuildTarget> implicitDeps = enhancer.getImplicitDepsFromParams(params);
+    ThriftLanguageSpecificEnhancer enhancer = enhancerFlavor.get().getValue();
+    ImmutableSet<BuildTarget> implicitDeps = enhancer.getImplicitDepsForTargetFromConstructorArg(
+        buildTarget,
+        arg);
     deps.addAll(implicitDeps);
 
     return Iterables.transform(deps, Functions.toStringFunction());

@@ -21,6 +21,7 @@ import com.facebook.buck.apple.XcodeProjectConfigDescription;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProjectFilesystem;
@@ -38,6 +39,7 @@ import javax.annotation.Nullable;
  * Generate separate xcode projects based on the given xcode_project_config rules
  */
 public class SeparatedProjectsGenerator {
+  private final SourcePathResolver resolver;
   private final ProjectFilesystem projectFilesystem;
   private final ActionGraph actionGraph;
   private final ExecutionContext executionContext;
@@ -52,15 +54,17 @@ public class SeparatedProjectsGenerator {
   private ImmutableMap<BuildTarget, ProjectGenerator> projectGenerators;
 
   public SeparatedProjectsGenerator(
+      SourcePathResolver resolver,
       ProjectFilesystem projectFilesystem,
       ActionGraph actionGraph,
       ExecutionContext executionContext,
       ImmutableSet<BuildTarget> projectConfigTargets,
       ImmutableSet<ProjectGenerator.Option> projectGeneratorOptions) {
-    this.projectFilesystem = Preconditions.checkNotNull(projectFilesystem);
-    this.actionGraph = Preconditions.checkNotNull(actionGraph);
-    this.executionContext = Preconditions.checkNotNull(executionContext);
-    this.projectConfigTargets = Preconditions.checkNotNull(projectConfigTargets);
+    this.resolver = resolver;
+    this.projectFilesystem = projectFilesystem;
+    this.actionGraph = actionGraph;
+    this.executionContext = executionContext;
+    this.projectConfigTargets = projectConfigTargets;
     this.projectGenerators = null;
     this.projectGeneratorOptions = ImmutableSet.<ProjectGenerator.Option>builder()
       .addAll(projectGeneratorOptions)
@@ -97,6 +101,7 @@ public class SeparatedProjectsGenerator {
         initialTargetsBuilder.add(memberRule.getBuildTarget());
       }
       ProjectGenerator generator = new ProjectGenerator(
+          resolver,
           actionGraph.getNodes(),
           initialTargetsBuilder.build(),
           projectFilesystem,

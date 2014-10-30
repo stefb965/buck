@@ -18,10 +18,7 @@ package com.facebook.buck.rules;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.BuildTargetParser;
-import com.facebook.buck.util.ProjectFilesystem;
-
-import java.io.File;
-import java.util.Map;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 
 /**
  * Factory for creating a {@link BuildRuleFactoryParams} that does not check whether the file
@@ -32,12 +29,10 @@ public final class NonCheckingBuildRuleFactoryParams {
   private NonCheckingBuildRuleFactoryParams() {}
 
   public static BuildRuleFactoryParams createNonCheckingBuildRuleFactoryParams(
-      Map<String, Object> instance,
       BuildTargetParser buildTargetParser,
       BuildTarget target) {
     return new BuildRuleFactoryParams(
-        instance,
-        new ProjectFilesystem(new File(".")),
+        new FakeProjectFilesystem(),
         buildTargetParser,
         target,
         new FakeRuleKeyBuilderFactory());

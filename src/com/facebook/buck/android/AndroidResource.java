@@ -37,7 +37,7 @@ import com.facebook.buck.rules.RecordFileSha1Step;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.Sha1HashCode;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -140,6 +140,7 @@ public class AndroidResource extends AbstractBuildRule
 
   protected AndroidResource(
       BuildRuleParams buildRuleParams,
+      SourcePathResolver resolver,
       final ImmutableSortedSet<BuildRule> deps,
       @Nullable final Path res,
       ImmutableSortedSet<Path> resSrcs,
@@ -148,7 +149,7 @@ public class AndroidResource extends AbstractBuildRule
       ImmutableSortedSet<Path> assetsSrcs,
       @Nullable SourcePath manifestFile,
       boolean hasWhitelistedStrings) {
-    super(buildRuleParams);
+    super(buildRuleParams, resolver);
     if (res != null && rDotJavaPackageArgument == null && manifestFile == null) {
       throw new HumanReadableException(
           "When the 'res' is specified for android_resource() %s, at least one of 'package' or " +
@@ -157,9 +158,9 @@ public class AndroidResource extends AbstractBuildRule
     }
 
     this.res = res;
-    this.resSrcs = Preconditions.checkNotNull(resSrcs);
+    this.resSrcs = resSrcs;
     this.assets = assets;
-    this.assetsSrcs = Preconditions.checkNotNull(assetsSrcs);
+    this.assetsSrcs = assetsSrcs;
     this.manifestFile = manifestFile;
     this.hasWhitelistedStrings = hasWhitelistedStrings;
 
@@ -172,7 +173,7 @@ public class AndroidResource extends AbstractBuildRule
       pathToTextSymbolsFile = pathToTextSymbolsDir.resolve("R.txt");
     }
 
-    this.deps = Preconditions.checkNotNull(deps);
+    this.deps = deps;
 
     this.buildOutputInitializer = new BuildOutputInitializer<>(buildTarget, this);
 
@@ -209,7 +210,7 @@ public class AndroidResource extends AbstractBuildRule
     // manifest file is optional.
     if (manifestFile != null) {
       inputs.addAll(
-          SourcePaths.filterInputsToCompareToOutput(Collections.singleton(manifestFile)));
+          getResolver().filterInputsToCompareToOutput(Collections.singleton(manifestFile)));
     }
 
     return inputs.build();
@@ -269,17 +270,14 @@ public class AndroidResource extends AbstractBuildRule
           AndroidManifestReader androidManifestReader;
           try {
             androidManifestReader = DefaultAndroidManifestReader.forPath(
-                manifestFile.resolve(), context.getProjectFilesystem());
+                getResolver().getPath(manifestFile),
+                context.getProjectFilesystem());
           } catch (IOException e) {
             context.logError(e, "Failed to create AndroidManifestReader for %s.", manifestFile);
             return 1;
           }
 
           String rDotJavaPackageFromAndroidManifest = androidManifestReader.getPackage();
-          if (rDotJavaPackageFromAndroidManifest == null) {
-            context.logError(new Throwable(), "Failed to read package from %s.", manifestFile);
-            return 1;
-          }
 
           AndroidResource.this.rDotJavaPackage.set(rDotJavaPackageFromAndroidManifest);
           buildableContext.addMetadata(
@@ -394,7 +392,7 @@ public class AndroidResource extends AbstractBuildRule
       collector.addAssetsDirectory(getBuildTarget(), assets);
     }
     if (manifestFile != null) {
-      collector.addManifestFile(getBuildTarget(), manifestFile.resolve());
+      collector.addManifestFile(getBuildTarget(), getResolver().getPath(manifestFile));
     }
   }
 
@@ -402,7 +400,7 @@ public class AndroidResource extends AbstractBuildRule
     private final Sha1HashCode textSymbolsAbiKey;
 
     public BuildOutput(Sha1HashCode textSymbolsAbiKey) {
-      this.textSymbolsAbiKey = Preconditions.checkNotNull(textSymbolsAbiKey);
+      this.textSymbolsAbiKey = textSymbolsAbiKey;
     }
   }
 }

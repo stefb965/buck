@@ -27,7 +27,7 @@ import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.WriteFileStep;
@@ -64,12 +64,13 @@ public class JsBinary extends AbstractBuildRule implements
 
   public JsBinary(
       BuildRuleParams params,
+      SourcePathResolver resolver,
       ImmutableSortedSet<BuildRule> deps,
       ImmutableSortedSet<SourcePath> srcs,
       Optional<List<String>> defines,
       Optional<List<String>> flags,
       Optional<List<Path>> externs) {
-    super(params);
+    super(params, resolver);
     this.deps = Preconditions.checkNotNull(deps);
     this.srcs = Preconditions.checkNotNull(srcs);
     this.defines = Preconditions.checkNotNull(defines);
@@ -84,7 +85,7 @@ public class JsBinary extends AbstractBuildRule implements
 
   @Override
   public ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return SourcePaths.filterInputsToCompareToOutput(srcs);
+    return getResolver().filterInputsToCompareToOutput(srcs);
   }
 
   @Override
@@ -110,7 +111,7 @@ public class JsBinary extends AbstractBuildRule implements
     Set<JavascriptSource> jsSources = Sets.newHashSet();
     // Do the magic with the sources, as if we're a js_library
     for (SourcePath src : srcs) {
-      Path resolved = src.resolve();
+      Path resolved = getResolver().getPath(src);
       JavascriptSource jsSource = new JavascriptSource(resolved);
       jsSources.add(jsSource);
 

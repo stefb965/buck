@@ -1,7 +1,7 @@
 java_library(
   name = 'testutil',
   srcs = [
-    'AbstractBuilder.java',
+    'AbstractNodeBuilder.java',
     'BuildRuleParamsFactory.java',
     'DefaultKnownBuildRuleTypes.java',
     'FakeBuildableContext.java',
@@ -9,7 +9,6 @@ java_library(
     'FakeBuildRule.java',
     'FakeBuildRuleParamsBuilder.java',
     'FakeOnDiskBuildInfo.java',
-    'FakeProcessExecutor.java',
     'FakeRepositoryFactory.java',
     'FakeRuleKeyBuilderFactory.java',
     'FakeTestRule.java',
@@ -34,6 +33,7 @@ java_library(
     '//src/com/facebook/buck/rules:build_rule',
     '//src/com/facebook/buck/rules:rules',
     '//src/com/facebook/buck/rules:types',
+    '//src/com/facebook/buck/rules/macros:macros',
     '//src/com/facebook/buck/step:step',
     '//src/com/facebook/buck/test:test',
     '//src/com/facebook/buck/test/selectors:selectors',
@@ -85,6 +85,7 @@ java_test(
     '//src/com/facebook/buck/rules:build_rule',
     '//src/com/facebook/buck/rules:rules',
     '//src/com/facebook/buck/rules:types',
+    '//src/com/facebook/buck/rules/macros:macros',
     '//src/com/facebook/buck/test:test',
     '//src/com/facebook/buck/shell:rules',
     '//src/com/facebook/buck/shell:steps',

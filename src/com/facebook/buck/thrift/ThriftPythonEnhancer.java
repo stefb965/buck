@@ -22,11 +22,11 @@ import com.facebook.buck.python.PythonLibrary;
 import com.facebook.buck.python.PythonLibraryDescription;
 import com.facebook.buck.python.PythonUtil;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleFactoryParams;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleSourcePath;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -102,7 +102,9 @@ public class ThriftPythonEnhancer implements ThriftLanguageSpecificEnhancer {
         Path path = outputDir
             .resolve("gen-" + getLanguage())
             .resolve(module);
-        modulesBuilder.put(module, new BuildRuleSourcePath(source.getCompileRule(), path));
+        modulesBuilder.put(
+            module,
+            new BuildTargetSourcePath(source.getCompileRule().getBuildTarget(), path));
       }
 
     }
@@ -120,6 +122,7 @@ public class ThriftPythonEnhancer implements ThriftLanguageSpecificEnhancer {
     // will use this to pull the generated sources into packages/PEXs.
     return new PythonLibrary(
         langParams,
+        new SourcePathResolver(resolver),
         modules,
         ImmutableMap.<Path, SourcePath>of());
   }
@@ -137,12 +140,7 @@ public class ThriftPythonEnhancer implements ThriftLanguageSpecificEnhancer {
   }
 
   @Override
-  public ImmutableSet<BuildTarget> getImplicitDepsFromParams(BuildRuleFactoryParams params) {
-    return getImplicitDeps();
-  }
-
-  @Override
-  public ImmutableSet<BuildTarget> getImplicitDepsFromArg(
+  public ImmutableSet<BuildTarget> getImplicitDepsForTargetFromConstructorArg(
       BuildTarget target,
       ThriftConstructorArg arg) {
     return getImplicitDeps();

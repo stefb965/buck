@@ -25,11 +25,10 @@ import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.util.DirectoryTraverser;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -37,6 +36,8 @@ import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
 import java.util.Map;
+
+import javax.annotation.Nullable;
 
 /**
  * Copies the image, sound, NIB/XIB, and other resources
@@ -67,10 +68,11 @@ public class AppleResource extends AbstractBuildRule {
 
   AppleResource(
       BuildRuleParams params,
+      SourcePathResolver resolver,
       DirectoryTraverser directoryTraverser,
       AppleResourceDescription.Arg args) {
-    super(params);
-    this.directoryTraverser = Preconditions.checkNotNull(directoryTraverser);
+    super(params, resolver);
+    this.directoryTraverser = directoryTraverser;
     this.dirs = ImmutableSortedSet.copyOf(args.dirs);
     this.files = ImmutableSortedSet.copyOf(args.files);
 
@@ -128,10 +130,10 @@ public class AppleResource extends AbstractBuildRule {
     for (String virtualPathName : variants.keySet()) {
       Map<String, SourcePath> variant = variants.get(virtualPathName);
       inputsToConsiderForCachingPurposes.addAll(
-          SourcePaths.filterInputsToCompareToOutput(variant.values()));
+          getResolver().filterInputsToCompareToOutput(variant.values()));
     }
 
-    inputsToConsiderForCachingPurposes.addAll(SourcePaths.filterInputsToCompareToOutput(files));
+    inputsToConsiderForCachingPurposes.addAll(getResolver().filterInputsToCompareToOutput(files));
     return inputsToConsiderForCachingPurposes.build();
   }
 
@@ -141,6 +143,7 @@ public class AppleResource extends AbstractBuildRule {
   }
 
   @Override
+  @Nullable
   public Path getPathToOutputFile() {
     return null;
   }
@@ -161,7 +164,7 @@ public class AppleResource extends AbstractBuildRule {
     }
 
     for (SourcePath file : files) {
-      steps.add(CopyStep.forFile(file.resolve(), outputDirectory));
+      steps.add(CopyStep.forFile(getResolver().getPath(file), outputDirectory));
     }
 
     // TODO(grp): Support copying variant resources like Xcode.

@@ -4,12 +4,15 @@ java_library(
   deps = [
     '//third-party/java/guava:guava',
     '//third-party/java/jsr:jsr305',
+    '//src/com/facebook/buck/apple/clang:headermap',
+    '//src/com/facebook/buck/cli:config',
     '//src/com/facebook/buck/cxx:rules',
     '//src/com/facebook/buck/graph:graph',
     '//src/com/facebook/buck/log:log',
     '//src/com/facebook/buck/model:model',
     '//src/com/facebook/buck/parser:rule_pattern',
     '//src/com/facebook/buck/rules:build_rule',
+    '//src/com/facebook/buck/rules/macros:macros',
     '//src/com/facebook/buck/rules:rules',
     '//src/com/facebook/buck/shell:steps',
     '//src/com/facebook/buck/shell:rules',
@@ -21,8 +24,26 @@ java_library(
     '//src/com/facebook/buck/util:exceptions',
     '//src/com/facebook/buck/util:io',
     '//third-party/java/infer-annotations:infer-annotations',
+    '//third-party/java/jackson:jackson',
   ],
   visibility = [
     'PUBLIC'
   ]
+)
+
+python_library(
+  name = 'asset_catalogs_compiler',
+  srcs = [
+    'compile_asset_catalogs.py',
+  ],
+)
+
+python_test(
+  name = 'asset_catalogs_test',
+  srcs = [
+    'compile_asset_catalogs_test.py',
+  ],
+  deps = [
+    ':asset_catalogs_compiler',
+  ],
 )

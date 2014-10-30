@@ -22,6 +22,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSortedSet;
@@ -45,7 +46,11 @@ public class FolderDescription implements Description<FolderDescription.Arg> {
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) {
-    return new Folder(params, args.out.or(params.getBuildTarget().getShortName()), args.srcs);
+    return new Folder(
+        params,
+        new SourcePathResolver(resolver),
+        args.out.or(params.getBuildTarget().getShortName()),
+        args.srcs);
   }
 
   @SuppressFieldNotInitialized

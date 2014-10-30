@@ -17,7 +17,6 @@
 package com.facebook.buck.rules.coercer;
 
 import com.facebook.buck.parser.BuildTargetParser;
-import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -52,23 +51,17 @@ public class MapTypeCoercer<K, V> implements TypeCoercer<ImmutableMap<K, V>> {
   }
 
   @Override
-  public boolean traverse(Object object, Traversal traversal) {
-    if (object instanceof Map) {
-      traversal.traverse(object);
-      for (Map.Entry<?, ?> element : ((Map<?, ?>) object).entrySet()) {
-        keyTypeCoercer.traverse(element.getKey(), traversal);
-        valueTypeCoercer.traverse(element.getValue(), traversal);
-      }
-      return true;
-    } else {
-      return false;
+  public void traverse(ImmutableMap<K, V> object, Traversal traversal) {
+    traversal.traverse(object);
+    for (Map.Entry<K, V> element : object.entrySet()) {
+      keyTypeCoercer.traverse(element.getKey(), traversal);
+      valueTypeCoercer.traverse(element.getValue(), traversal);
     }
   }
 
   @Override
   public ImmutableMap<K, V> coerce(
       BuildTargetParser buildTargetParser,
-      BuildRuleResolver buildRuleResolver,
       ProjectFilesystem filesystem,
       Path pathRelativeToProjectRoot,
       Object object)
@@ -79,13 +72,11 @@ public class MapTypeCoercer<K, V> implements TypeCoercer<ImmutableMap<K, V>> {
       for (Map.Entry<?, ?> entry : ((Map<?, ?>) object).entrySet()) {
         K key = keyTypeCoercer.coerce(
             buildTargetParser,
-            buildRuleResolver,
             filesystem,
             pathRelativeToProjectRoot,
             entry.getKey());
         V value = valueTypeCoercer.coerce(
             buildTargetParser,
-            buildRuleResolver,
             filesystem,
             pathRelativeToProjectRoot,
             entry.getValue());

@@ -5,6 +5,7 @@
 [alias]
     buck = //src/com/facebook/buck/cli:cli
     buck-android-support = //src/com/facebook/buck/android/support:buck-android-support
+    hmaptool = //src/com/facebook/buck/apple/clang:hmaptool
 [buildfile]
     includes = //DEFS
 [project]
@@ -15,11 +16,14 @@
       .git, \
       .buckd, \
       build, \
+      bin, \
       src/com/facebook/buck/cli/quickstart, \
       test/com/facebook/buck/android/testdata, \
+      test/com/facebook/buck/apple/testdata, \
       test/com/facebook/buck/cli/testdata, \
       test/com/facebook/buck/java/testdata, \
       test/com/facebook/buck/junit/testdata, \
+      test/com/facebook/buck/ocaml/testdata, \
       test/com/facebook/buck/parser/testdata, \
       test/com/facebook/buck/shell/testdata, \
       test/com/facebook/buck/test/cache/testdata, \

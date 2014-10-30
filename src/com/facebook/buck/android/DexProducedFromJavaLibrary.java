@@ -32,13 +32,13 @@ import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.Sha1HashCode;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableCollection;
@@ -76,9 +76,12 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRule
   private final BuildOutputInitializer<BuildOutput> buildOutputInitializer;
 
   @VisibleForTesting
-  DexProducedFromJavaLibrary(BuildRuleParams params, JavaLibrary javaLibrary) {
-    super(params);
-    this.javaLibrary = Preconditions.checkNotNull(javaLibrary);
+  DexProducedFromJavaLibrary(
+      BuildRuleParams params,
+      SourcePathResolver resolver,
+      JavaLibrary javaLibrary) {
+    super(params, resolver);
+    this.javaLibrary = javaLibrary;
     this.buildOutputInitializer = new BuildOutputInitializer<>(params.getBuildTarget(), this);
   }
 

@@ -6,7 +6,6 @@ import json
 import os
 import time
 from timing import monotonic_time_nanos
-from uuid import uuid4
 
 # We need to optionally include some functions for Windows.
 import platform
@@ -38,7 +37,14 @@ class _TraceEventPhases(object):
 
 
 class Tracing(object):
-    _trace_events = []
+    _trace_events = [
+        {
+            'name': 'process_name',
+            'ph': _TraceEventPhases.METADATA,
+            'pid': os.getpid(),
+            'args': {'name': 'buck.py'}
+        }
+    ]
 
     def __init__(self, name, args={}):
         self.name = name
@@ -86,23 +92,24 @@ class Tracing(object):
             'args': args})
 
     @staticmethod
-    def write_to_dir(buck_log_dir):
+    def write_to_dir(buck_log_dir, build_id):
         filename_time = time.strftime('%Y-%m-%d.%H-%M-%S')
         trace_filename = os.path.join(
-            buck_log_dir, 'launch.{0}.{1}.trace'.format(filename_time, uuid4()))
+            buck_log_dir, 'launch.{0}.{1}.trace'.format(filename_time, build_id))
         trace_filename_link = os.path.join(buck_log_dir, 'launch.trace')
         try:
             os.makedirs(buck_log_dir)
-        except OSError, e:
+        except OSError as e:
             if e.errno != errno.EEXIST:
                 raise
-        json.dump(Tracing._trace_events, file(trace_filename, 'w'))
+        with open(trace_filename, 'w') as f:
+            json.dump(Tracing._trace_events, f)
         create_symlink(trace_filename, trace_filename_link)
         Tracing.clean_up_old_logs(buck_log_dir)
 
     @staticmethod
     def clean_up_old_logs(buck_log_dir, logs_to_keep=25):
         traces = filter(os.path.isfile, glob.glob(os.path.join(buck_log_dir, 'launch.*.trace')))
-        traces.sort(key=os.path.getmtime)
+        traces = sorted(traces, key=os.path.getmtime)
         for f in traces[:-logs_to_keep]:
             os.remove(f)

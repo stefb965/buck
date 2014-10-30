@@ -200,6 +200,7 @@ ga('send', 'pageview');
         ]}
       <li><a href="{ROOT}function/{$function}.html">{$function}()</a>
     {/foreach}
+    <li><a href="{ROOT}function/string_parameter_macros.html">String Parameter Macros</a>
   </ul>
   <h3>Commands</h3>
   <ul>
@@ -230,6 +231,7 @@ ga('send', 'pageview');
     <li><a href="{ROOT}contributing/development.html">Development Workflow</a>
     <li><a href="{ROOT}contributing/codestyle.html">Code Style</a>
     <li><a href="{ROOT}contributing/logging.html">Logging</a>
+    <li><a href="{ROOT}contributing/immutables.html">Immutable Value Types</a>
     <li><a href="{ROOT}javadoc">API</a>
     <li><a href="https://github.com/facebook/buck">Browse the Source Code</a>
   </ul>
@@ -487,6 +489,11 @@ ga('send', 'pageview');
 /***/
 {template .fn_glob}
 <a href="{ROOT}function/glob.html"><code>glob()</code></a>
+{/template}
+
+/***/
+{template .string_parameter_macros}
+<a href="{ROOT}function/string_parameter_macros.html">string parameter macros</a>
 {/template}
 
 /**

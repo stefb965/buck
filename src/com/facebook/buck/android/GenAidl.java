@@ -29,11 +29,11 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.util.BuckConstant;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -68,10 +68,14 @@ public class GenAidl extends AbstractBuildRule {
   private final Path output;
   private final Path genPath;
 
-  GenAidl(BuildRuleParams params, Path aidlFilePath, String importPath) {
-    super(params);
-    this.aidlFilePath = Preconditions.checkNotNull(aidlFilePath);
-    this.importPath = Preconditions.checkNotNull(importPath);
+  GenAidl(
+      BuildRuleParams params,
+      SourcePathResolver resolver,
+      Path aidlFilePath,
+      String importPath) {
+    super(params, resolver);
+    this.aidlFilePath = aidlFilePath;
+    this.importPath = importPath;
     BuildTarget buildTarget = params.getBuildTarget();
     this.genPath = BuildTargets.getGenPath(buildTarget, "%s");
     this.output = genPath.resolve(String.format("lib%s%s", buildTarget.getShortName(), SRC_ZIP));

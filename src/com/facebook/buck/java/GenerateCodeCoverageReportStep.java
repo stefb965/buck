@@ -32,18 +32,20 @@ import java.util.Set;
 public class GenerateCodeCoverageReportStep extends ShellStep {
 
   @VisibleForTesting
-  static final String PATH_TO_ASM_JAR = System.getProperty(
-      "buck.path_to_asm_jar",
-      "third-party/java/asm/asm-debug-all-4.1.jar");
+  static final String BUCK_HOME =
+      System.getProperty("buck.buck_dir", System.getProperty("user.dir"));
 
+  private final Set<String> sourceDirectories;
   private final Set<Path> classesDirectories;
   private final Path outputDirectory;
   private CoverageReportFormat format;
 
   public GenerateCodeCoverageReportStep(
+      Set<String> sourceDirectories,
       Set<Path> classesDirectories,
       Path outputDirectory,
       CoverageReportFormat format) {
+    this.sourceDirectories = ImmutableSet.copyOf(sourceDirectories);
     this.classesDirectories = ImmutableSet.copyOf(classesDirectories);
     this.outputDirectory = Preconditions.checkNotNull(outputDirectory);
     this.format = Preconditions.checkNotNull(format);
@@ -59,10 +61,6 @@ public class GenerateCodeCoverageReportStep extends ShellStep {
     ImmutableList.Builder<String> args = ImmutableList.builder();
     args.add("java");
 
-    args.add("-classpath",
-        String.format("%s:%s/*:%s/../report-generator-build/",
-            PATH_TO_ASM_JAR, JUnitStep.PATH_TO_JACOCO_JARS, JUnitStep.PATH_TO_JACOCO_JARS));
-
     args.add(String.format("-Djacoco.output.dir=%s", outputDirectory));
 
     args.add(String.format("-Djacoco.exec.data.file=%s", JUnitStep.JACOCO_EXEC_COVERAGE_FILE));
@@ -73,11 +71,11 @@ public class GenerateCodeCoverageReportStep extends ShellStep {
         Joiner.on(":").join(Iterables.transform(classesDirectories,
             context.getProjectFilesystem().getAbsolutifier()))));
 
-    args.add(String.format("-Dsrc.dir=%s", "src"));
+    args.add(String.format("-Dsrc.dir=%s", Joiner.on(":").join(sourceDirectories)));
 
-    // Generate report from JaCoCo exec file using
-    // 'third-party/java/jacoco-0.6.4/report-generator-src/ReportGenerator.java'
-    args.add("ReportGenerator");
+    // Generate report from JaCoCo exec file using 'ReportGenerator.java'
+
+    args.add("-jar", BUCK_HOME + "/buck-out/gen/src/com/facebook/buck/java/report-generator.jar");
 
     return args.build();
   }

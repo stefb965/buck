@@ -27,7 +27,7 @@ import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -80,11 +80,12 @@ public class NdkLibrary extends AbstractBuildRule
 
   protected NdkLibrary(
       BuildRuleParams params,
+      SourcePathResolver resolver,
       Set<SourcePath> sources,
       List<String> flags,
       boolean isAsset,
       Optional<String> ndkVersion) {
-    super(params);
+    super(params, resolver);
     this.isAsset = isAsset;
 
     BuildTarget buildTarget = params.getBuildTarget();
@@ -98,7 +99,7 @@ public class NdkLibrary extends AbstractBuildRule
     this.sources = ImmutableSortedSet.copyOf(sources);
     this.flags = ImmutableList.copyOf(flags);
 
-    this.ndkVersion = Preconditions.checkNotNull(ndkVersion);
+    this.ndkVersion = ndkVersion;
   }
 
   @Override
@@ -172,7 +173,7 @@ public class NdkLibrary extends AbstractBuildRule
    * @param isScratchDir true if this should be the "working directory" where a build rule may write
    *     intermediate files when computing its output. false if this should be the gen/ directory
    *     where the "official" outputs of the build rule should be written. Files of the latter type
-   *     can be referenced via a {@link com.facebook.buck.rules.BuildRuleSourcePath} or somesuch.
+   *     can be referenced via a {@link com.facebook.buck.rules.BuildTargetSourcePath} or somesuch.
    */
   private Path getBuildArtifactsDirectory(BuildTarget target, boolean isScratchDir) {
     Path base = isScratchDir ? BuckConstant.BIN_PATH : BuckConstant.GEN_PATH;
@@ -194,7 +195,7 @@ public class NdkLibrary extends AbstractBuildRule
 
   @Override
   public ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return SourcePaths.filterInputsToCompareToOutput(sources);
+    return getResolver().filterInputsToCompareToOutput(sources);
   }
 
   @Override

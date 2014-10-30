@@ -20,10 +20,11 @@ import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.java.JavaTestDescription;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.FakeTestRule;
 import com.facebook.buck.rules.Label;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TestRule;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -80,7 +81,8 @@ public class TestResultsGrouperTest {
         JavaTestDescription.TYPE,
         ImmutableSet.<Label>of(),
         BuildTargetFactory.newInstance(name),
-        ImmutableSortedSet.copyOf(dependencies),
-        ImmutableSet.<BuildTargetPattern>of());
+        new SourcePathResolver(new BuildRuleResolver()),
+        ImmutableSortedSet.copyOf(dependencies)
+    );
   }
 }

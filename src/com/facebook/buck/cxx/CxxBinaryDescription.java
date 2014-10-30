@@ -16,13 +16,14 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleFactoryParams;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
@@ -30,14 +31,14 @@ import com.google.common.collect.ImmutableSortedSet;
 
 public class CxxBinaryDescription implements
     Description<CxxBinaryDescription.Arg>,
-    ImplicitDepsInferringDescription {
+    ImplicitDepsInferringDescription<CxxBinaryDescription.Arg> {
 
   public static final BuildRuleType TYPE = new BuildRuleType("cxx_binary");
 
-  private final CxxBuckConfig cxxBuckConfig;
+  private final CxxPlatform cxxPlatform;
 
-  public CxxBinaryDescription(CxxBuckConfig cxxBuckConfig) {
-    this.cxxBuckConfig = Preconditions.checkNotNull(cxxBuckConfig);
+  public CxxBinaryDescription(CxxPlatform cxxPlatform) {
+    this.cxxPlatform = Preconditions.checkNotNull(cxxPlatform);
   }
 
   @Override
@@ -54,7 +55,7 @@ public class CxxBinaryDescription implements
     CxxLink cxxLink = CxxDescriptionEnhancer.createBuildRulesForCxxBinaryDescriptionArg(
         params,
         resolver,
-        cxxBuckConfig,
+        cxxPlatform,
         args);
 
     // Return a CxxBinary rule as our representative in the action graph, rather than the CxxLink
@@ -74,6 +75,7 @@ public class CxxBinaryDescription implements
                 .add(cxxLink)
                 .build(),
             params.getExtraDeps()),
+        new SourcePathResolver(resolver),
         cxxLink.getOutput(),
         cxxLink);
   }
@@ -84,11 +86,13 @@ public class CxxBinaryDescription implements
   }
 
   @Override
-  public Iterable<String> findDepsFromParams(BuildRuleFactoryParams params) {
+  public Iterable<String> findDepsForTargetFromConstructorArgs(
+      BuildTarget buildTarget,
+      Arg constructorArg) {
     ImmutableSet.Builder<String> deps = ImmutableSet.builder();
 
-    if (!params.getOptionalListAttribute("lexSrcs").isEmpty()) {
-      deps.add(cxxBuckConfig.getLexDep().toString());
+    if (!constructorArg.lexSrcs.get().isEmpty()) {
+      deps.add(cxxPlatform.getLexDep().toString());
     }
 
     return deps.build();

@@ -24,7 +24,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.RuleKey.Builder;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.google.common.base.Preconditions;
@@ -50,8 +50,9 @@ public class GwtModule extends AbstractBuildRule {
 
   GwtModule(
       BuildRuleParams params,
+      SourcePathResolver resolver,
       ImmutableSortedSet<SourcePath> filesForGwtModule) {
-    super(params);
+    super(params, resolver);
     BuildTarget target = params.getBuildTarget();
     this.outputFile = BuildTargets.getGenPath(
         target,
@@ -61,7 +62,7 @@ public class GwtModule extends AbstractBuildRule {
 
   @Override
   public ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return SourcePaths.filterInputsToCompareToOutput(filesForGwtModule);
+    return getResolver().filterInputsToCompareToOutput(filesForGwtModule);
   }
 
   @Override
@@ -79,6 +80,7 @@ public class GwtModule extends AbstractBuildRule {
     // "/java/" is listed under src_roots in .buckconfig).
     Path tempJarFolder = workingDirectory.resolve("tmp");
     steps.add(new CopyResourcesStep(
+        getResolver(),
         getBuildTarget(),
         filesForGwtModule,
         tempJarFolder,

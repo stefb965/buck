@@ -21,11 +21,13 @@ import static org.junit.Assert.assertNotEquals;
 
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRuleParamsFactory;
+import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.FakeRuleKeyBuilderFactory;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.google.common.base.Charsets;
 import com.google.common.base.Strings;
@@ -50,11 +52,13 @@ public class PythonBinaryTest {
       String main, Path mainSrc,
       String mod1, Path src1,
       String mod2, Path src2) throws IOException {
+    SourcePathResolver resolver = new SourcePathResolver(new BuildRuleResolver());
 
     // The top-level python binary that lists the above libraries as deps.
     PythonBinary binary = new PythonBinary(
         BuildRuleParamsFactory.createTrivialBuildRuleParams(
             BuildTargetFactory.newInstance("//:bin")),
+        resolver,
         Paths.get("dummy_path_to_pex"),
         new PythonEnvironment(Paths.get("fake_python"), new PythonVersion("Python 2.7")),
         Paths.get("main.py"),
@@ -67,7 +71,7 @@ public class PythonBinaryTest {
             ImmutableMap.<Path, SourcePath>of()));
 
     // Calculate and return the rule key.
-    RuleKey.Builder builder = ruleKeyBuilderFactory.newInstance(binary);
+    RuleKey.Builder builder = ruleKeyBuilderFactory.newInstance(binary, resolver);
     binary.appendToRuleKey(builder);
     return builder.build();
   }

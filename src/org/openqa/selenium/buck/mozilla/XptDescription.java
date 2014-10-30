@@ -21,6 +21,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 
 import java.nio.file.Path;
 
@@ -41,7 +42,7 @@ public class XptDescription implements Description<XptDescription.Arg> {
   @Override
   public <A extends Arg> Xpt createBuildRule(
       BuildRuleParams params, BuildRuleResolver resolver, A args) {
-    return new Xpt(params, args.src, args.fallback);
+    return new Xpt(params, new SourcePathResolver(resolver), args.src, args.fallback);
   }
 
   public static class Arg {

@@ -37,7 +37,7 @@ import com.facebook.buck.rules.RecordFileSha1Step;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.Sha1HashCode;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -97,6 +97,7 @@ public class AaptPackageResources extends AbstractBuildRule
 
   AaptPackageResources(
       BuildRuleParams params,
+      SourcePathResolver resolver,
       SourcePath manifest,
       FilteredResourcesProvider filteredResourcesProvider,
       ImmutableList<HasAndroidResourceDeps> resourceDeps,
@@ -106,14 +107,14 @@ public class AaptPackageResources extends AbstractBuildRule
       JavacOptions javacOptions,
       boolean rDotJavaNeedsDexing,
       boolean shouldBuildStringSourceMap) {
-    super(params);
-    this.manifest = Preconditions.checkNotNull(manifest);
-    this.filteredResourcesProvider = Preconditions.checkNotNull(filteredResourcesProvider);
-    this.resourceDeps = Preconditions.checkNotNull(resourceDeps);
-    this.assetsDirectories = Preconditions.checkNotNull(assetsDirectories);
-    this.packageType = Preconditions.checkNotNull(packageType);
-    this.cpuFilters = Preconditions.checkNotNull(cpuFilters);
-    this.javacOptions = Preconditions.checkNotNull(javacOptions);
+    super(params, resolver);
+    this.manifest = manifest;
+    this.filteredResourcesProvider = filteredResourcesProvider;
+    this.resourceDeps = resourceDeps;
+    this.assetsDirectories = assetsDirectories;
+    this.packageType = packageType;
+    this.cpuFilters = cpuFilters;
+    this.javacOptions = javacOptions;
     this.rDotJavaNeedsDexing = rDotJavaNeedsDexing;
     this.shouldBuildStringSourceMap = shouldBuildStringSourceMap;
     this.buildOutputInitializer = new BuildOutputInitializer<>(params.getBuildTarget(), this);
@@ -121,7 +122,7 @@ public class AaptPackageResources extends AbstractBuildRule
 
   @Override
   public ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return SourcePaths.filterInputsToCompareToOutput(Collections.singleton(manifest));
+    return getResolver().filterInputsToCompareToOutput(Collections.singleton(manifest));
   }
 
   @Override
@@ -201,7 +202,8 @@ public class AaptPackageResources extends AbstractBuildRule
 
     // Symlink the manifest to a path named AndroidManifest.xml. Do this before running any other
     // commands to ensure that it is available at the desired path.
-    steps.add(new MkdirAndSymlinkFileStep(manifest.resolve(), getAndroidManifestXml()));
+    steps.add(
+        new MkdirAndSymlinkFileStep(getResolver().getPath(manifest), getAndroidManifestXml()));
 
     // Copy the transitive closure of files in assets to a single directory, if any.
     // TODO(mbolin): Older versions of aapt did not support multiple -A flags, so we can probably
@@ -340,8 +342,8 @@ public class AaptPackageResources extends AbstractBuildRule
     Path rDotJavaBin = getPathToCompiledRDotJavaFiles();
     steps.add(new MakeCleanDirectoryStep(rDotJavaBin));
 
-    JavacStep javac = UberRDotJavaUtil.createJavacStepForUberRDotJavaFiles(
-        mergeStep.getRDotJavaFiles(),
+    JavacStep javac = RDotJava.createJavacStepForUberRDotJavaFiles(
+        ImmutableSet.copyOf(getResolver().getAllPaths(mergeStep.getRDotJavaFiles())),
         rDotJavaBin,
         javacOptions,
         getBuildTarget());
@@ -442,10 +444,9 @@ public class AaptPackageResources extends AbstractBuildRule
         Sha1HashCode resourcePackageHash,
         Optional<Integer> rDotJavaDexLinearAllocEstimate,
         ImmutableSortedMap<String, HashCode> rDotJavaClassesHash) {
-      this.resourcePackageHash = Preconditions.checkNotNull(resourcePackageHash);
-      this.rDotJavaDexLinearAllocEstimate =
-          Preconditions.checkNotNull(rDotJavaDexLinearAllocEstimate);
-      this.rDotJavaClassesHash = Preconditions.checkNotNull(rDotJavaClassesHash);
+      this.resourcePackageHash = resourcePackageHash;
+      this.rDotJavaDexLinearAllocEstimate = rDotJavaDexLinearAllocEstimate;
+      this.rDotJavaClassesHash = rDotJavaClassesHash;
     }
   }
 

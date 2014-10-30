@@ -16,11 +16,11 @@
 package com.facebook.buck.rules;
 
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.test.TestResults;
 import com.facebook.buck.test.selectors.TestSelectorList;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -32,27 +32,32 @@ public class FakeTestRule extends AbstractBuildRule implements TestRule {
 
   private final ImmutableSet<Label> labels;
 
-  public FakeTestRule(BuildRuleType type,
-                       ImmutableSet<Label> labels,
-                       BuildTarget target,
-                       ImmutableSortedSet<BuildRule> deps,
-                       ImmutableSet<BuildTargetPattern> visibilityPatterns) {
+  public FakeTestRule(
+      BuildRuleType type,
+      ImmutableSet<Label> labels,
+      BuildTarget target,
+      SourcePathResolver resolver,
+      ImmutableSortedSet<BuildRule> deps) {
     this(
-        labels,
         new FakeBuildRuleParamsBuilder(target)
             .setDeps(deps)
-            .setVisibility(visibilityPatterns)
             .setType(type)
-            .build());
+            .build(),
+        resolver,
+        labels
+    );
   }
 
-  public FakeTestRule(ImmutableSet<Label> labels, BuildRuleParams buildRuleParams) {
-    super(buildRuleParams);
+  public FakeTestRule(
+      BuildRuleParams buildRuleParams,
+      SourcePathResolver resolver,
+      ImmutableSet<Label> labels) {
+    super(buildRuleParams, resolver);
     this.labels = labels;
   }
 
   @Override
-  public Iterable<Path> getInputs() {
+  public ImmutableCollection<Path> getInputs() {
     return ImmutableList.of();
   }
 
@@ -68,8 +73,8 @@ public class FakeTestRule extends AbstractBuildRule implements TestRule {
   }
 
   @Override
-  protected Iterable<Path> getInputsToCompareToOutput() {
-    return null;
+  protected ImmutableCollection<Path> getInputsToCompareToOutput() {
+    return ImmutableList.of();
   }
 
   @Override
@@ -87,6 +92,7 @@ public class FakeTestRule extends AbstractBuildRule implements TestRule {
       BuildContext buildContext,
       ExecutionContext executionContext,
       boolean isDryRun,
+      boolean isShufflingTests,
       TestSelectorList testSelectorList) {
     throw new UnsupportedOperationException("runTests() not supported in fake");
   }

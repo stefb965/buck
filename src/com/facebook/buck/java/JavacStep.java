@@ -19,12 +19,13 @@ package com.facebook.buck.java;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildDependencies;
 import com.facebook.buck.rules.Sha1HashCode;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.util.CapturingPrintStream;
+import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.CharMatcher;
 import com.google.common.base.Charsets;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
@@ -63,7 +64,7 @@ public abstract class JavacStep implements Step {
   // TODO(user) s/protected/get...()/g
   protected final Path outputDirectory;
 
-  protected final Set<SourcePath> javaSourceFilePaths;
+  protected final Set<Path> javaSourceFilePaths;
 
   protected final JavacOptions javacOptions;
 
@@ -116,6 +117,14 @@ public abstract class JavacStep implements Step {
 
   private static final String LINE_SEPARATOR = System.getProperty("line.separator");
 
+  /**
+   * An escaper for arguments written to @argfiles.
+   */
+  protected static final Function<String, String> ARGFILES_ESCAPER =
+      Escaper.escaper(
+          Escaper.Quoter.DOUBLE,
+          CharMatcher.anyOf("#\"'").or(CharMatcher.WHITESPACE));
+
   public static interface SuggestBuildRules {
     public ImmutableSet<String> suggest(ProjectFilesystem filesystem,
         ImmutableSet<String> failedImports);
@@ -123,7 +132,7 @@ public abstract class JavacStep implements Step {
 
   public JavacStep(
       Path outputDirectory,
-      Set<? extends SourcePath> javaSourceFilePaths,
+      Set<Path> javaSourceFilePaths,
       Set<Path> transitiveClasspathEntries,
       Set<Path> declaredClasspathEntries,
       JavacOptions javacOptions,
@@ -286,7 +295,7 @@ public abstract class JavacStep implements Step {
   }
 
   @VisibleForTesting
-  Set<SourcePath> getSrcs() {
+  Set<Path> getSrcs() {
     return javaSourceFilePaths;
   }
 

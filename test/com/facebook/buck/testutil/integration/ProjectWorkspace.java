@@ -25,7 +25,6 @@ import com.facebook.buck.cli.TestCommand;
 import com.facebook.buck.event.BuckEvent;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.model.BuildId;
-import com.facebook.buck.rules.DefaultKnownBuildRuleTypes;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.CapturingPrintStream;
 import com.facebook.buck.util.MoreFiles;
@@ -93,7 +92,6 @@ public class ProjectWorkspace {
 
   private boolean isSetUp = false;
   private final Path templatePath;
-  private final File destDir;
   private final Path destPath;
 
   /**
@@ -106,16 +104,14 @@ public class ProjectWorkspace {
     Preconditions.checkNotNull(templateDir);
     Preconditions.checkNotNull(temporaryFolder);
     this.templatePath = templateDir.toPath();
-    this.destDir = temporaryFolder.getRoot();
-    this.destPath = destDir.toPath();
+    this.destPath = temporaryFolder.getRoot().toPath();
   }
 
   /**
    * This will copy the template directory, renaming files named {@code BUCK.test} to {@code BUCK}
    * in the process. Files whose names end in {@code .expected} will not be copied.
    */
-  public void setUp() throws IOException {
-    DefaultKnownBuildRuleTypes.resetInstance();
+  public ProjectWorkspace setUp() throws IOException {
 
     MoreFiles.copyRecursively(templatePath, destPath, BUILD_FILE_RENAME);
 
@@ -156,6 +152,7 @@ public class ProjectWorkspace {
       java.nio.file.Files.walkFileTree(destPath, copyDirVisitor);
     }
     isSetUp = true;
+    return this;
   }
 
   public ProcessResult runBuckBuild(String... args) throws IOException {
@@ -251,7 +248,7 @@ public class ProjectWorkspace {
     Main main = new Main(stdout, stderr, Optional.of(capturingEventListener));
     int exitCode = 0;
     try {
-      exitCode = main.runMainWithExitCode(new BuildId(), destDir, context, args);
+      exitCode = main.runMainWithExitCode(new BuildId(), destPath, context, args);
     } catch (InterruptedException e) {
       e.printStackTrace(stderr);
       exitCode = Main.FAIL_EXIT_CODE;
@@ -268,7 +265,7 @@ public class ProjectWorkspace {
    * @return the {@link File} that corresponds to the {@code pathRelativeToProjectRoot}.
    */
   public File getFile(String pathRelativeToProjectRoot) {
-    return new File(destDir, pathRelativeToProjectRoot);
+    return destPath.resolve(pathRelativeToProjectRoot).toFile();
   }
 
   public String getFileContents(String pathRelativeToProjectRoot) throws IOException {
@@ -281,6 +278,10 @@ public class ProjectWorkspace {
 
   public void copyFile(String source, String dest) throws IOException {
     Files.copy(getFile(source), getFile(dest));
+  }
+
+  public void move(String source, String dest) throws IOException {
+    Files.move(getFile(source), getFile(dest));
   }
 
   public void replaceFileContents(String pathRelativeToProjectRoot,
@@ -354,33 +355,33 @@ public class ProjectWorkspace {
       return capturedEvents;
     }
 
-    public void assertSuccess() {
-      assertExitCode(null, 0);
+    public ProcessResult assertSuccess() {
+      return assertExitCode(null, 0);
     }
 
-    public void assertSuccess(String message) {
-      assertExitCode(message, 0);
+    public ProcessResult assertSuccess(String message) {
+      return assertExitCode(message, 0);
     }
 
-    public void assertFailure() {
-      assertExitCode(null, Main.FAIL_EXIT_CODE);
+    public ProcessResult assertFailure() {
+      return assertExitCode(null, Main.FAIL_EXIT_CODE);
     }
 
-    public void assertTestFailure() {
-      assertExitCode(null, TestCommand.TEST_FAILURES_EXIT_CODE);
+    public ProcessResult assertTestFailure() {
+      return assertExitCode(null, TestCommand.TEST_FAILURES_EXIT_CODE);
     }
 
-    public void assertTestFailure(String message) {
-      assertExitCode(message, TestCommand.TEST_FAILURES_EXIT_CODE);
+    public ProcessResult assertTestFailure(String message) {
+      return assertExitCode(message, TestCommand.TEST_FAILURES_EXIT_CODE);
     }
 
-    public void assertFailure(String message) {
-      assertExitCode(message, 1);
+    public ProcessResult assertFailure(String message) {
+      return assertExitCode(message, 1);
     }
 
-    private void assertExitCode(@Nullable String message, int exitCode) {
+    private ProcessResult assertExitCode(@Nullable String message, int exitCode) {
       if (exitCode == getExitCode()) {
-        return;
+        return this;
       }
 
       String failureMessage = String.format(
@@ -395,10 +396,11 @@ public class ProjectWorkspace {
       System.err.println("=== STDOUT ===");
       System.err.println(getStdout());
       fail(failureMessage);
+      return this;
     }
 
-    public void assertSpecialExitCode(String message, int exitCode) {
-      assertExitCode(message, exitCode);
+    public ProcessResult assertSpecialExitCode(String message, int exitCode) {
+      return assertExitCode(message, exitCode);
     }
   }
 

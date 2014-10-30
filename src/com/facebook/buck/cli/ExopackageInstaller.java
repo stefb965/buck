@@ -43,6 +43,7 @@ import java.io.OutputStream;
 import java.net.Socket;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -78,12 +79,14 @@ public class ExopackageInstaller {
    */
   private static final int MAX_ADB_COMMAND_SIZE = 1019;
 
+  private static final Path SECONDARY_DEX_DIR = Paths.get("secondary-dex");
+
   private final ProjectFilesystem projectFilesystem;
   private final BuckEventBus eventBus;
   private final AdbHelper adbHelper;
   private final InstallableApk apkRule;
   private final String packageName;
-  private final String dataRoot;
+  private final Path dataRoot;
 
   private final InstallableApk.ExopackageInfo exopackageInfo;
 
@@ -107,9 +110,9 @@ public class ExopackageInstaller {
     final String nativeLibPath;
     final String versionCode;
     private PackageInfo(String apkPath, String nativeLibPath, String versionCode) {
-      this.nativeLibPath = Preconditions.checkNotNull(nativeLibPath);
-      this.apkPath = Preconditions.checkNotNull(apkPath);
-      this.versionCode = Preconditions.checkNotNull(versionCode);
+      this.nativeLibPath = nativeLibPath;
+      this.apkPath = apkPath;
+      this.versionCode = versionCode;
     }
   }
 
@@ -117,12 +120,12 @@ public class ExopackageInstaller {
       ExecutionContext context,
       AdbHelper adbHelper,
       InstallableApk apkRule) {
-    this.adbHelper = Preconditions.checkNotNull(adbHelper);
+    this.adbHelper = adbHelper;
     this.projectFilesystem = context.getProjectFilesystem();
     this.eventBus = context.getBuckEventBus();
-    this.apkRule = Preconditions.checkNotNull(apkRule);
+    this.apkRule = apkRule;
     this.packageName = AdbHelper.tryToExtractPackageNameFromManifest(apkRule, context);
-    this.dataRoot = "/data/local/tmp/exopackage/" + packageName;
+    this.dataRoot = Paths.get("/data/local/tmp/exopackage/").resolve(packageName);
 
     Preconditions.checkArgument(AdbHelper.PACKAGE_NAME_PATTERN.matcher(packageName).matches());
 
@@ -174,6 +177,7 @@ public class ExopackageInstaller {
 
     if (shouldAppBeInstalled()) {
       try (TraceEventLogger ignored = TraceEventLogger.start(eventBus, "install_exo_apk")) {
+        Preconditions.checkNotNull(device);
         boolean success = adbHelper.installApkOnDevice(device, apk, installViaSd);
         if (!success) {
           return false;
@@ -201,6 +205,7 @@ public class ExopackageInstaller {
    * without -fPIC.  The java agent works fine on L as long as we don't use it for mkdir.
    */
   private void determineBestAgent() throws Exception {
+    Preconditions.checkNotNull(device);
     String value = AdbHelper.executeCommandWithErrorChecking(
         device, "getprop ro.build.version.sdk");
     try {
@@ -225,6 +230,8 @@ public class ExopackageInstaller {
         eventBus,
         "get_package_info",
         ImmutableMap.of("package", packageName))) {
+
+      Preconditions.checkNotNull(device);
 
       /* This produces output that looks like
 
@@ -335,6 +342,7 @@ public class ExopackageInstaller {
         throw new RuntimeException("Android agent apk path not specified in properties");
       }
       File apkPath = new File(apkFileName);
+      Preconditions.checkNotNull(device);
       boolean success = adbHelper.installApkOnDevice(device, apkPath, /* installViaSd */ false);
       if (!success) {
         return Optional.absent();
@@ -369,6 +377,7 @@ public class ExopackageInstaller {
     try (TraceEventLogger ignored = TraceEventLogger.start(eventBus, "get_app_signature")) {
       String command = getAgentCommand() + "get-signature " + packagePath;
       logFine("Executing %s", command);
+      Preconditions.checkNotNull(device);
       String output = AdbHelper.executeCommandWithErrorChecking(device, command);
 
       String result = output.trim();
@@ -382,7 +391,7 @@ public class ExopackageInstaller {
 
   private ImmutableMap<String, String> getRequiredDexFiles() throws IOException {
     ImmutableMap.Builder<String, String> hashToBasenameBuilder = ImmutableMap.builder();
-    for (String line : projectFilesystem.readLines(exopackageInfo.metadata)) {
+    for (String line : projectFilesystem.readLines(exopackageInfo.dexMetadata)) {
       List<String> parts = Splitter.on(' ').splitToList(line);
       if (parts.size() < 2) {
         throw new RuntimeException("Illegal line in metadata file: " + line);
@@ -402,10 +411,11 @@ public class ExopackageInstaller {
       // "mkdir -p" seems to work on all devices where we use use the java agent.
       String mkdirP = useNativeAgent ? getAgentCommand() + "mkdir-p" : "mkdir -p";
 
+      Preconditions.checkNotNull(device);
+      String secondaryDexDir = dataRoot.resolve(SECONDARY_DEX_DIR).toString();
       AdbHelper.executeCommandWithErrorChecking(
-          device, "umask 022 && " + mkdirP + " " + dataRoot + "/secondary-dex");
-      String output = AdbHelper.executeCommandWithErrorChecking(
-          device, "ls " + dataRoot + "/secondary-dex");
+          device, "umask 022 && " + mkdirP + " " + secondaryDexDir);
+      String output = AdbHelper.executeCommandWithErrorChecking(device, "ls " + secondaryDexDir);
 
       ImmutableSet.Builder<String> toDeleteBuilder = ImmutableSet.builder();
 
@@ -413,7 +423,7 @@ public class ExopackageInstaller {
 
       Iterable<String> filesToDelete = toDeleteBuilder.build();
 
-      String commandPrefix = "cd " + dataRoot + "/secondary-dex && rm ";
+      String commandPrefix = "cd " + secondaryDexDir + " && rm ";
       // Add a fudge factor for separators and error checking.
       final int overhead = commandPrefix.length() + 100;
       for (List<String> rmArgs : chunkArgs(filesToDelete, MAX_ADB_COMMAND_SIZE - overhead)) {
@@ -461,6 +471,7 @@ public class ExopackageInstaller {
       Set<String> hashesToInstall,
       ImmutableMap<String, String> hashToBasename)
       throws Exception {
+    Preconditions.checkNotNull(device);
     try (TraceEventLogger ignored1 = TraceEventLogger.start(eventBus, "install_secondary_dexes")) {
       device.createForward(AGENT_PORT, AGENT_PORT);
       try {
@@ -492,7 +503,7 @@ public class ExopackageInstaller {
           try (NamedTemporaryFile temp = new NamedTemporaryFile("metadata", "tmp")) {
             com.google.common.io.Files.write(
                 com.google.common.io.Files.toString(
-                    exopackageInfo.metadata.toFile(),
+                    exopackageInfo.dexMetadata.toFile(),
                     Charsets.UTF_8)
                     .replaceAll(
                       "secondary-(\\d+)\\.dex\\.jar (\\p{XDigit}{40}) ",
@@ -502,7 +513,7 @@ public class ExopackageInstaller {
             installFile(
                 device,
                 AGENT_PORT,
-                "metadata.txt",
+                SECONDARY_DEX_DIR.resolve("metadata.txt"),
                 temp.get());
           }
         }
@@ -518,13 +529,13 @@ public class ExopackageInstaller {
       String hash,
       final Path source)
       throws Exception {
-    installFile(device, port, "secondary-" + hash + ".dex.jar", source);
+    installFile(device, port, SECONDARY_DEX_DIR.resolve("secondary-" + hash + ".dex.jar"), source);
   }
 
   private void installFile(
       IDevice device,
       final int port,
-      String basename,
+      Path pathRelativeToDataRoot,
       final Path source) throws Exception {
     CollectingOutputReceiver receiver = new CollectingOutputReceiver() {
 
@@ -554,7 +565,7 @@ public class ExopackageInstaller {
       }
     };
 
-    String targetFileName = dataRoot + "/secondary-dex/" + basename;
+    String targetFileName = dataRoot.resolve(pathRelativeToDataRoot).toString();
     String command =
         "umask 022 && " +
             getAgentCommand() +

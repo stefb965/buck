@@ -19,6 +19,7 @@ package org.openqa.selenium.buck.file;
 import com.facebook.buck.java.JavacStep;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.SymlinkTreeStep;
 import com.facebook.buck.util.HumanReadableException;
@@ -43,6 +44,7 @@ public class SrcZipAwareFileBundler {
   }
 
   public void copy(
+      SourcePathResolver resolver,
       ImmutableList.Builder<Step> steps,
       Path destinationDir,
       Iterable<SourcePath> toCopy,
@@ -51,7 +53,7 @@ public class SrcZipAwareFileBundler {
     ImmutableMap.Builder<Path, Path> links = ImmutableMap.builder();
 
     for (SourcePath sourcePath : toCopy) {
-      Path resolved = sourcePath.resolve();
+      Path resolved = resolver.getPath(sourcePath);
 
       if (resolved.toString().endsWith(JavacStep.SRC_ZIP)) {
         steps.add(new UnzipStep(resolved, destinationDir));

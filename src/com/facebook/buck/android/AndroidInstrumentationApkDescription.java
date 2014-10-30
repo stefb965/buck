@@ -32,6 +32,7 @@ import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.InstallableApk;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
@@ -47,6 +48,12 @@ public class AndroidInstrumentationApkDescription
     implements Description<AndroidInstrumentationApkDescription.Arg> {
 
   public static final BuildRuleType TYPE = new BuildRuleType("android_instrumentation_apk");
+
+  private final ProGuardConfig proGuardConfig;
+
+  public AndroidInstrumentationApkDescription(ProGuardConfig proGuardConfig) {
+    this.proGuardConfig = proGuardConfig;
+  }
 
   @Override
   public BuildRuleType getBuildRuleType() {
@@ -115,6 +122,9 @@ public class AndroidInstrumentationApkDescription
 
     return new AndroidInstrumentationApk(
         params.copyWithExtraDeps(enhancementResult.getFinalDeps()),
+        new SourcePathResolver(resolver),
+        proGuardConfig.getProguardJarOverride(),
+        proGuardConfig.getProguardMaxHeapSize(),
         args.manifest,
         apkUnderTest,
         rulesToExcludeFromDex,

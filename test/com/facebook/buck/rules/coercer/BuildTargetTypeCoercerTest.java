@@ -20,19 +20,20 @@ import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.BuildTargetParser;
-import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.ProjectFilesystem;
 
 import org.junit.Test;
 
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
 public class BuildTargetTypeCoercerTest {
 
   private BuildTargetParser targetParser = new BuildTargetParser();
-  private BuildRuleResolver resolver = new BuildRuleResolver();
   private ProjectFilesystem filesystem = new FakeProjectFilesystem();
   private Path basePath = Paths.get("java/com/facebook/buck/example");
 
@@ -40,7 +41,6 @@ public class BuildTargetTypeCoercerTest {
   public void canCoerceAnUnflavoredFullyQualifiedTarget() throws CoerceFailedException {
     BuildTarget seen = new BuildTargetTypeCoercer().coerce(
         targetParser,
-        resolver,
         filesystem,
         basePath,
         "//foo:bar");
@@ -52,7 +52,6 @@ public class BuildTargetTypeCoercerTest {
   public void shouldCoerceAShortTarget() throws CoerceFailedException {
     BuildTarget seen = new BuildTargetTypeCoercer().coerce(
         targetParser,
-        resolver,
         filesystem,
         basePath,
         ":bar");
@@ -64,7 +63,6 @@ public class BuildTargetTypeCoercerTest {
   public void shouldCoerceATargetWithASingleFlavor() throws CoerceFailedException {
     BuildTarget seen = new BuildTargetTypeCoercer().coerce(
         targetParser,
-        resolver,
         filesystem,
         basePath,
         "//foo:bar#baz");
@@ -76,7 +74,6 @@ public class BuildTargetTypeCoercerTest {
   public void shouldCoerceMultipleFlavors() throws CoerceFailedException {
     BuildTarget seen = new BuildTargetTypeCoercer().coerce(
         targetParser,
-        resolver,
         filesystem,
         basePath,
         "//foo:bar#baz,qux");
@@ -90,7 +87,6 @@ public class BuildTargetTypeCoercerTest {
   public void shouldCoerceAShortTargetWithASingleFlavor() throws CoerceFailedException {
     BuildTarget seen = new BuildTargetTypeCoercer().coerce(
         targetParser,
-        resolver,
         filesystem,
         basePath,
         ":bar#baz");
@@ -98,6 +94,37 @@ public class BuildTargetTypeCoercerTest {
     BuildTarget expected = BuildTarget.builder("//java/com/facebook/buck/example", "bar")
         .addFlavor("baz")
         .build();
+    assertEquals(expected, seen);
+  }
+
+  @Test
+  public void shouldCoerceAWindowsStylePathCorrectly() throws CoerceFailedException {
+    // EasyMock doesn't stub out toString, equals, hashCode or finalize. An attempt to hack round
+    // this using the MockBuilder failed with an InvocationTargetException. Turns out that easymock
+    // just can't mock toString. So we're going to do this Old Skool using a dynamic proxy. *sigh*
+    // And we can't build a partial mock from an interface. *sigh*
+    final Path concreteType = Paths.get("notused");
+
+    Path stubPath = (Path) Proxy.newProxyInstance(
+        getClass().getClassLoader(),
+        new Class[]{Path.class},
+        new InvocationHandler() {
+          @Override
+          public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+            if ("toString".equals(method.getName())) {
+              return "foo\\bar";
+            }
+            return method.invoke(concreteType, args);
+          }
+        });
+
+    BuildTarget seen = new BuildTargetTypeCoercer().coerce(
+        targetParser,
+        filesystem,
+        stubPath,
+        ":baz");
+
+    BuildTarget expected = BuildTarget.builder("//foo/bar", "baz").build();
     assertEquals(expected, seen);
   }
 }

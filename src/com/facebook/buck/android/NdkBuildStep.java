@@ -43,11 +43,11 @@ public class NdkBuildStep extends ShellStep {
       Path buildArtifactsDirectory,
       Path binDirectory,
       Iterable<String> flags) {
-    this.makefileDirectory = Preconditions.checkNotNull(makefileDirectory);
+    this.makefileDirectory = makefileDirectory;
     Preconditions.checkArgument(makefileDirectory.endsWith("/"));
     this.makefilePath = this.makefileDirectory + "Android.mk";
-    this.buildArtifactsDirectory = Preconditions.checkNotNull(buildArtifactsDirectory);
-    this.binDirectory = Preconditions.checkNotNull(binDirectory);
+    this.buildArtifactsDirectory = buildArtifactsDirectory;
+    this.binDirectory = binDirectory;
     this.flags = ImmutableList.copyOf(flags);
     this.maxJobCount = Runtime.getRuntime().availableProcessors();
   }
@@ -105,8 +105,8 @@ public class NdkBuildStep extends ShellStep {
   // The ndk-build command delegates to `make` to run a lot of subcommands, so print them as they
   // happen.
   @Override
-  protected boolean shouldFlushStdOutErrAsProgressIsMade() {
-    return true;
+  protected boolean shouldFlushStdOutErrAsProgressIsMade(Verbosity verbosity) {
+    return verbosity.shouldPrintCommand();
   }
 
 }

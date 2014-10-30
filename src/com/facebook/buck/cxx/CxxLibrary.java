@@ -22,7 +22,9 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 
 import java.nio.file.Path;
@@ -36,12 +38,12 @@ import javax.annotation.Nullable;
 public abstract class CxxLibrary extends AbstractBuildRule
     implements CxxPreprocessorDep, NativeLinkable, PythonPackagable {
 
-  public CxxLibrary(BuildRuleParams params) {
-    super(params);
+  public CxxLibrary(BuildRuleParams params, SourcePathResolver resolver) {
+    super(params, resolver);
   }
 
   @Override
-  protected Iterable<Path> getInputsToCompareToOutput() {
+  protected ImmutableCollection<Path> getInputsToCompareToOutput() {
     return ImmutableList.of();
   }
 

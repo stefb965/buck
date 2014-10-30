@@ -26,24 +26,20 @@ import com.facebook.buck.java.JavaCompilerEnvironment;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.Flavor;
-import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleFactoryParams;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleParamsFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
-import com.facebook.buck.rules.FakeRuleKeyBuilderFactory;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TestSourcePath;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Maps;
 
 import org.junit.Test;
 
@@ -66,17 +62,21 @@ public class ThriftJavaEnhancerTest {
 
   private static FakeBuildRule createFakeBuildRule(
       String target,
+      SourcePathResolver resolver,
       BuildRule... deps) {
     return new FakeBuildRule(
         new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance(target))
             .setDeps(ImmutableSortedSet.copyOf(deps))
-            .build());
+            .build(), resolver);
   }
 
-  private static ThriftCompiler createFakeThriftCompiler(String target) {
+  private static ThriftCompiler createFakeThriftCompiler(
+      String target,
+      SourcePathResolver resolver) {
     return new ThriftCompiler(
         BuildRuleParamsFactory.createTrivialBuildRuleParams(
             BuildTargetFactory.newInstance(target)),
+        resolver,
         new TestSourcePath("compiler"),
         ImmutableList.<String>of(),
         Paths.get("output"),
@@ -129,29 +129,19 @@ public class ThriftJavaEnhancerTest {
 
   @Test
   public void getImplicitDeps() {
-    FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
-    BuildTargetParser parser = new BuildTargetParser();
-    BuildRuleFactoryParams params = new BuildRuleFactoryParams(
-        Maps.<String, Object>newHashMap(),
-        filesystem,
-        parser,
-        TARGET,
-        new FakeRuleKeyBuilderFactory());
     ThriftConstructorArg arg = new ThriftConstructorArg();
 
     // Verify that setting "thrift:java_library" in the buck config propagates that
     // dep via the getImplicitDeps method.
     assertEquals(
         ImmutableSet.of(JAVA_LIB_TARGET),
-        ENHANCER.getImplicitDepsFromParams(params));
-    assertEquals(
-        ImmutableSet.of(JAVA_LIB_TARGET),
-        ENHANCER.getImplicitDepsFromArg(TARGET, arg));
+        ENHANCER.getImplicitDepsForTargetFromConstructorArg(TARGET, arg));
   }
 
   @Test
   public void createBuildRule() {
     BuildRuleResolver resolver = new BuildRuleResolver();
+    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
     BuildRuleParams flavoredParams =
         BuildRuleParamsFactory.createTrivialBuildRuleParams(TARGET);
 
@@ -161,17 +151,17 @@ public class ThriftJavaEnhancerTest {
     // Setup up some thrift inputs to pass to the createBuildRule method.
     ImmutableMap<String, ThriftSource> sources = ImmutableMap.of(
         "test1.thrift", new ThriftSource(
-            createFakeThriftCompiler("//:thrift_source1"),
+            createFakeThriftCompiler("//:thrift_source1", pathResolver),
             ImmutableList.<String>of(),
             Paths.get("output1")),
         "test2.thrift", new ThriftSource(
-            createFakeThriftCompiler("//:thrift_source2"),
+            createFakeThriftCompiler("//:thrift_source2", pathResolver),
             ImmutableList.<String>of(),
             Paths.get("output2")));
 
     // Create a dummy implicit dep to pass in.
     ImmutableSortedSet<BuildRule> deps = ImmutableSortedSet.<BuildRule>of(
-        createFakeBuildRule("//:dep"));
+        createFakeBuildRule("//:dep", pathResolver));
 
     // Run the enhancer to create the language specific build rule.
     DefaultJavaLibrary library = ENHANCER.createBuildRule(

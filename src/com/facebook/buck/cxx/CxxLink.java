@@ -22,28 +22,30 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 
 import java.nio.file.Path;
 
 public class CxxLink extends AbstractBuildRule {
 
-  private final Path linker;
+  private final SourcePath linker;
   private final Path output;
   private final ImmutableList<SourcePath> inputs;
   private final ImmutableList<String> args;
 
   public CxxLink(
       BuildRuleParams params,
-      Path linker,
+      SourcePathResolver resolver,
+      SourcePath linker,
       Path output,
       ImmutableList<SourcePath> inputs,
       ImmutableList<String> args) {
-    super(params);
+    super(params, resolver);
     this.linker = Preconditions.checkNotNull(linker);
     this.output = Preconditions.checkNotNull(output);
     this.inputs = Preconditions.checkNotNull(inputs);
@@ -51,8 +53,8 @@ public class CxxLink extends AbstractBuildRule {
   }
 
   @Override
-  protected Iterable<Path> getInputsToCompareToOutput() {
-    return SourcePaths.toPaths(inputs);
+  protected ImmutableCollection<Path> getInputsToCompareToOutput() {
+    return getResolver().getAllPaths(inputs);
   }
 
   @Override
@@ -70,7 +72,7 @@ public class CxxLink extends AbstractBuildRule {
     return ImmutableList.of(
         new MkdirStep(output.getParent()),
         new CxxLinkStep(
-            linker,
+            getResolver().getPath(linker),
             output,
             args));
   }
@@ -80,7 +82,7 @@ public class CxxLink extends AbstractBuildRule {
     return output;
   }
 
-  public Path getLinker() {
+  public SourcePath getLinker() {
     return linker;
   }
 

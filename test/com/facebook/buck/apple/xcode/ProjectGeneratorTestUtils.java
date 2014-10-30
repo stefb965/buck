@@ -20,6 +20,9 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.facebook.buck.apple.AppleBundle;
+import com.facebook.buck.apple.AppleBundleDescription;
+import com.facebook.buck.apple.AppleBundleExtension;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXBuildFile;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXBuildPhase;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXCopyFilesBuildPhase;
@@ -28,9 +31,6 @@ import com.facebook.buck.apple.xcode.xcodeproj.PBXProject;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXReference;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXTarget;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.parser.PartialGraph;
-import com.facebook.buck.parser.PartialGraphFactory;
-import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -38,9 +38,10 @@ import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.TestSourcePath;
+import com.facebook.buck.rules.coercer.Either;
 import com.facebook.buck.rules.coercer.TypeCoercer;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
-import com.facebook.buck.testutil.RuleMap;
 import com.facebook.buck.util.Types;
 import com.google.common.base.Function;
 import com.google.common.base.Functions;
@@ -48,7 +49,6 @@ import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 
@@ -57,7 +57,7 @@ import java.lang.reflect.Type;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
-final class ProjectGeneratorTestUtils {
+public final class ProjectGeneratorTestUtils {
 
   /**
    * Utility class should not be instantiated.
@@ -88,6 +88,15 @@ final class ProjectGeneratorTestUtils {
       ImmutableSortedSet<BuildRule> deps,
       Description<T> description,
       Function<T, T> overrides) {
+    T arg = createDescriptionArgWithDefaults(description);
+    BuildRuleParams buildRuleParams = new FakeBuildRuleParamsBuilder(target)
+        .setDeps(deps)
+        .setType(description.getBuildRuleType())
+        .build();
+    return description.createBuildRule(buildRuleParams, resolver, overrides.apply(arg));
+  }
+
+  public static <T> T createDescriptionArgWithDefaults(Description<T> description) {
     T arg = description.createUnpopulatedConstructorArg();
     for (Field field : arg.getClass().getFields()) {
       Object value;
@@ -121,28 +130,7 @@ final class ProjectGeneratorTestUtils {
         throw new RuntimeException(e);
       }
     }
-    BuildRuleParams buildRuleParams = new FakeBuildRuleParamsBuilder(target)
-        .setDeps(deps)
-        .setType(description.getBuildRuleType())
-        .build();
-
-    return description.createBuildRule(
-        buildRuleParams,
-        resolver,
-        overrides.apply(arg));
-  }
-
-  public static PartialGraph createPartialGraphFromBuildRuleResolver(BuildRuleResolver resolver) {
-    ActionGraph graph = RuleMap.createGraphFromBuildRules(resolver);
-    ImmutableSet.Builder<BuildTarget> targets = ImmutableSet.builder();
-    for (BuildRule rule : graph.getNodes()) {
-      targets.add(rule.getBuildTarget());
-    }
-    return PartialGraphFactory.newInstance(graph, targets.build());
-  }
-
-  public static PartialGraph createPartialGraphFromBuildRules(ImmutableSet<BuildRule> rules) {
-    return createPartialGraphFromBuildRuleResolver(new BuildRuleResolver(rules));
+    return arg;
   }
 
   static PBXTarget assertTargetExistsAndReturnTarget(
@@ -190,7 +178,8 @@ final class ProjectGeneratorTestUtils {
         default:
           String serialized = "$" + sourceTree + "/" + file.getFileRef().getPath();
           assertTrue(
-              "Framework should be listed in list of expected entries: " + serialized,
+              "Source tree prefixed file references should exist in list of expected entries: " +
+                  serialized,
               entries.contains(serialized));
           break;
       }
@@ -211,5 +200,40 @@ final class ProjectGeneratorTestUtils {
     @SuppressWarnings("unchecked")
     T element = (T) Iterables.getOnlyElement(buildPhases);
     return element;
+  }
+
+  public static AppleBundle createAppleBundleBuildRule(
+      BuildTarget target,
+      BuildRuleResolver resolver,
+      AppleBundleDescription description,
+      BuildRule binaryRule,
+      AppleBundleExtension extension) {
+    return createAppleBundleBuildRule(
+        target, resolver, description, binaryRule, extension, ImmutableList.<BuildRule>of());
+  }
+
+  public static AppleBundle createAppleBundleBuildRule(
+      BuildTarget target,
+      BuildRuleResolver resolver,
+      AppleBundleDescription description,
+      BuildRule binaryRule,
+      AppleBundleExtension extension,
+      Iterable<BuildRule> extraDeps) {
+    AppleBundleDescription.Arg bundleArg = description.createUnpopulatedConstructorArg();
+    bundleArg.infoPlist = Optional.<SourcePath>of(new TestSourcePath("Info.plist"));
+    bundleArg.binary = binaryRule.getBuildTarget();
+    bundleArg.extension = Either.ofLeft(extension);
+    bundleArg.deps = Optional.of(ImmutableSortedSet.of(binaryRule.getBuildTarget()));
+
+    ImmutableSortedSet<BuildRule> deps = ImmutableSortedSet.<BuildRule>naturalOrder()
+        .add(binaryRule)
+        .addAll(extraDeps)
+        .build();
+    BuildRuleParams params =
+        new FakeBuildRuleParamsBuilder(target)
+            .setDeps(deps)
+            .setType(AppleBundleDescription.TYPE)
+            .build();
+    return description.createBuildRule(params, resolver, bundleArg);
   }
 }

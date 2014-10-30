@@ -24,6 +24,7 @@ import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.Hint;
 import com.facebook.buck.rules.Label;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Optional;
@@ -58,6 +59,8 @@ public class JavaTestDescription implements Description<JavaTestDescription.Arg>
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) {
+    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+
     JavacOptions.Builder javacOptions = JavaLibraryDescription.getJavacOptions(args, javacEnv);
 
     AnnotationProcessingParams annotationParams = args.buildAnnotationProcessingParams(
@@ -68,10 +71,11 @@ public class JavaTestDescription implements Description<JavaTestDescription.Arg>
 
     return new JavaTest(
         params,
+        pathResolver,
         args.srcs.get(),
         JavaLibraryDescription.validateResources(
-            args,
-            params.getProjectFilesystem()),
+            pathResolver,
+            args, params.getProjectFilesystem()),
         args.labels.get(),
         args.contacts.get(),
         args.proguardConfig,

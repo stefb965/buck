@@ -28,6 +28,7 @@ import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.Sha1HashCode;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -66,17 +67,18 @@ public class ComputeExopackageDepsAbi extends AbstractBuildRule
 
   public ComputeExopackageDepsAbi(
       BuildRuleParams params,
+      SourcePathResolver resolver,
       AndroidPackageableCollection packageableCollection,
       AaptPackageResources aaptPackageResources,
       Optional<PackageStringAssets> packageStringAssets,
       Optional<PreDexMerge> preDexMerge,
       Keystore keystore) {
-    super(params);
-    this.packageableCollection = Preconditions.checkNotNull(packageableCollection);
-    this.aaptPackageResources = Preconditions.checkNotNull(aaptPackageResources);
-    this.packageStringAssets = Preconditions.checkNotNull(packageStringAssets);
-    this.preDexMerge = Preconditions.checkNotNull(preDexMerge);
-    this.keystore = Preconditions.checkNotNull(keystore);
+    super(params, resolver);
+    this.packageableCollection = packageableCollection;
+    this.aaptPackageResources = aaptPackageResources;
+    this.packageStringAssets = packageStringAssets;
+    this.preDexMerge = preDexMerge;
+    this.keystore = keystore;
     this.buildOutputInitializer = new BuildOutputInitializer<>(params.getBuildTarget(), this);
   }
 
@@ -196,7 +198,7 @@ public class ComputeExopackageDepsAbi extends AbstractBuildRule
     private final Sha1HashCode abiHash;
 
     BuildOutput(Sha1HashCode abiHash) {
-      this.abiHash = Preconditions.checkNotNull(abiHash);
+      this.abiHash = abiHash;
     }
   }
 

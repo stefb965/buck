@@ -18,13 +18,13 @@ package com.facebook.buck.cxx;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleFactoryParams;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.Label;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -33,15 +33,15 @@ import com.google.common.collect.ImmutableSortedSet;
 
 public class CxxTestDescription implements
     Description<CxxTestDescription.Arg>,
-    ImplicitDepsInferringDescription {
+    ImplicitDepsInferringDescription<CxxTestDescription.Arg> {
 
   private static final BuildRuleType TYPE = new BuildRuleType("cxx_test");
   private static final CxxTestType DEFAULT_TEST_TYPE = CxxTestType.GTEST;
 
-  private final CxxBuckConfig cxxBuckConfig;
+  private final CxxPlatform cxxPlatform;
 
-  public CxxTestDescription(CxxBuckConfig cxxBuckConfig) {
-    this.cxxBuckConfig = Preconditions.checkNotNull(cxxBuckConfig);
+  public CxxTestDescription(CxxPlatform cxxPlatform) {
+    this.cxxPlatform = Preconditions.checkNotNull(cxxPlatform);
   }
 
   @Override
@@ -59,12 +59,13 @@ public class CxxTestDescription implements
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) {
+    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
 
     // Generate the link rule that builds the test binary.
     CxxLink cxxLink = CxxDescriptionEnhancer.createBuildRulesForCxxBinaryDescriptionArg(
         params,
         resolver,
-        cxxBuckConfig,
+        cxxPlatform,
         args);
 
     // Construct the actual build params we'll use, notably with an added dependency on the
@@ -84,6 +85,7 @@ public class CxxTestDescription implements
       case GTEST: {
         test = new CxxGtestTest(
             testParams,
+            pathResolver,
             cxxLink.getOutput(),
             args.labels.get(),
             args.contacts.get(),
@@ -93,6 +95,7 @@ public class CxxTestDescription implements
       case BOOST: {
         test = new CxxBoostTest(
             testParams,
+            pathResolver,
             cxxLink.getOutput(),
             args.labels.get(),
             args.contacts.get(),
@@ -108,54 +111,28 @@ public class CxxTestDescription implements
     return test;
   }
 
-  private Optional<CxxTestType> getTypeFromParams(BuildRuleFactoryParams params) {
-    Object rawType = params.getNullableRawAttribute("framework");
-
-    // If not set, return the default test type.
-    if (rawType == null) {
-      return Optional.of(getDefaultTestType());
-    }
-
-    // If the parameter isn't a string, this should be a coercion error, so just bail here
-    // and let the type coercer handle the actual error.
-    if (!(rawType instanceof String)) {
-      return Optional.absent();
-    }
-
-    // Try to convert the string to an enum.  If we fail, just return nothing and let the
-    // coercer throw the real error.
-    try {
-      String strType = (String) rawType;
-      return Optional.of(CxxTestType.valueOf(strType.toUpperCase()));
-    } catch (IllegalArgumentException e) {
-      return Optional.absent();
-    }
-  }
-
   @Override
-  public Iterable<String> findDepsFromParams(BuildRuleFactoryParams params) {
+  public Iterable<String> findDepsForTargetFromConstructorArgs(
+      BuildTarget buildTarget,
+      Arg constructorArg) {
     ImmutableSet.Builder<String> deps = ImmutableSet.builder();
 
-    if (!params.getOptionalListAttribute("lexSrcs").isEmpty()) {
-      deps.add(cxxBuckConfig.getLexDep().toString());
+    if (!constructorArg.lexSrcs.get().isEmpty()) {
+      deps.add(cxxPlatform.getLexDep().toString());
     }
 
-    // Attempt to extract the test type from the params, and add an implicit dep on the
-    // corresponding test framework library.
-    Optional<CxxTestType> type = getTypeFromParams(params);
-    if (type.isPresent()) {
-      switch (type.get()) {
-        case GTEST: {
-          deps.add(cxxBuckConfig.getGtestDep().toString());
-          break;
-        }
-        case BOOST: {
-          deps.add(cxxBuckConfig.getBoostTestDep().toString());
-          break;
-        }
-        default: {
-          break;
-        }
+    CxxTestType type = constructorArg.framework.or(getDefaultTestType());
+    switch (type) {
+      case GTEST: {
+        deps.add(cxxPlatform.getGtestDep().toString());
+        break;
+      }
+      case BOOST: {
+        deps.add(cxxPlatform.getBoostTestDep().toString());
+        break;
+      }
+      default: {
+        break;
       }
     }
 

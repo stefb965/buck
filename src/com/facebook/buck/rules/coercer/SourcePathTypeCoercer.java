@@ -18,13 +18,10 @@ package com.facebook.buck.rules.coercer;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.BuildTargetParser;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleSourcePath;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.util.ProjectFilesystem;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 
 import java.nio.file.Path;
@@ -48,33 +45,27 @@ public class SourcePathTypeCoercer extends LeafTypeCoercer<SourcePath> {
   @Override
   public SourcePath coerce(
       BuildTargetParser buildTargetParser,
-      BuildRuleResolver buildRuleResolver,
       ProjectFilesystem filesystem,
       Path pathRelativeToProjectRoot,
       Object object)
       throws CoerceFailedException {
-    try {
+    if ((object instanceof String) && (
+        ((String) object).startsWith("//") || ((String) object).startsWith(":"))
+        ) {
       BuildTarget buildTarget =
           buildTargetTypeCoercer.coerce(
               buildTargetParser,
-              buildRuleResolver,
               filesystem,
               pathRelativeToProjectRoot,
               object);
-      Optional<BuildRule> rule = buildRuleResolver.getRuleOptional(buildTarget);
-
-      if (!rule.isPresent()) {
-        throw CoerceFailedException.simple(object, BuildRule.class);
-      }
-      return new BuildRuleSourcePath(rule.get());
-    } catch (CoerceFailedException e) {
+      return new BuildTargetSourcePath(buildTarget);
+    } else {
       Path path = pathTypeCoercer.coerce(
           buildTargetParser,
-          buildRuleResolver,
           filesystem,
           pathRelativeToProjectRoot,
           object);
-      return new PathSourcePath(path, String.valueOf(object));
+      return new PathSourcePath(path);
     }
   }
 }

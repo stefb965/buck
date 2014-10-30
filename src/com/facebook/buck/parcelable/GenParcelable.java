@@ -26,7 +26,7 @@ import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.google.common.annotations.VisibleForTesting;
@@ -50,8 +50,8 @@ public class GenParcelable extends AbstractBuildRule {
   private final ImmutableSortedSet<SourcePath> srcs;
   private final Path outputDirectory;
 
-  GenParcelable(BuildRuleParams params, Set<SourcePath> srcs) {
-    super(params);
+  GenParcelable(BuildRuleParams params, SourcePathResolver resolver, Set<SourcePath> srcs) {
+    super(params, resolver);
     this.srcs = ImmutableSortedSet.copyOf(srcs);
     this.outputDirectory = BuildTargets.getGenPath(params.getBuildTarget(), "__%s__");
   }
@@ -64,7 +64,7 @@ public class GenParcelable extends AbstractBuildRule {
 
   @Override
   public ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return SourcePaths.filterInputsToCompareToOutput(srcs);
+    return getResolver().filterInputsToCompareToOutput(srcs);
   }
 
   @Override
@@ -76,7 +76,7 @@ public class GenParcelable extends AbstractBuildRule {
       @Override
       public int execute(ExecutionContext executionContext) {
         for (SourcePath sourcePath : srcs) {
-          Path src = sourcePath.resolve();
+          Path src = getResolver().getPath(sourcePath);
           File file = executionContext.getProjectFilesystem().getFileForRelativePath(src);
           try {
             // Generate the Java code for the Parcelable class.

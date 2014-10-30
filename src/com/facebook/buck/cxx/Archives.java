@@ -22,13 +22,12 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
-import java.nio.file.Paths;
 
 /**
  * A utility class containing helper methods for working with "ar" archives.
@@ -36,8 +35,6 @@ import java.nio.file.Paths;
 public class Archives {
 
   private Archives() {}
-
-  public static final Path DEFAULT_ARCHIVE_PATH = Paths.get("/usr/bin/ar");
 
   private static final BuildRuleType ARCHIVE_TYPE = new BuildRuleType("archive");
 
@@ -59,9 +56,10 @@ public class Archives {
    * provide the input {@link com.facebook.buck.rules.SourcePath}.
    */
   public static Archive createArchiveRule(
+      SourcePathResolver resolver,
       BuildTarget target,
       BuildRuleParams originalParams,
-      Path archiver,
+      SourcePath archiver,
       Path output,
       ImmutableList<SourcePath> inputs) {
 
@@ -72,11 +70,12 @@ public class Archives {
         target,
         ImmutableSortedSet.<BuildRule>of(),
         ImmutableSortedSet.copyOf(
-            SourcePaths.filterBuildRuleInputs(
+            resolver.filterBuildRuleInputs(
                 Preconditions.checkNotNull(inputs))));
 
     return new Archive(
         archiveParams,
+        resolver,
         archiver,
         output,
         inputs);

@@ -24,6 +24,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MkdirStep;
@@ -42,8 +43,8 @@ public class Xpt extends AbstractBuildRule {
   private final Path src;
   private final Path out;
 
-  public Xpt(BuildRuleParams params, Path src, SourcePath fallback) {
-    super(params);
+  public Xpt(BuildRuleParams params, SourcePathResolver resolver, Path src, SourcePath fallback) {
+    super(params, resolver);
 
     this.fallback = Preconditions.checkNotNull(fallback);
     this.src = Preconditions.checkNotNull(src);
@@ -70,7 +71,7 @@ public class Xpt extends AbstractBuildRule {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
     context.getEventBus().post(ConsoleEvent.warning("Defaulting to fallback for " + out));
-    Path from = fallback.resolve();
+    Path from = getResolver().getPath(fallback);
 
     steps.add(new MkdirStep(out.getParent()));
     steps.add(CopyStep.forFile(from, out));

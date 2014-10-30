@@ -19,6 +19,7 @@ package com.facebook.buck.android.aapt;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.MoreStrings;
 import com.google.common.base.Function;
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -122,10 +123,10 @@ public class RDotTxtEntry implements Comparable<RDotTxtEntry> {
       RType type,
       String name,
       String idValue) {
-    this.idType = Preconditions.checkNotNull(idType);
-    this.type = Preconditions.checkNotNull(type);
-    this.name = Preconditions.checkNotNull(name);
-    this.idValue = Preconditions.checkNotNull(idValue);
+    this.idType = idType;
+    this.type = type;
+    this.name = name;
+    this.idValue = idValue;
   }
 
   public RDotTxtEntry copyWithNewIdValue(String newIdValue) {
@@ -182,7 +183,7 @@ public class RDotTxtEntry implements Comparable<RDotTxtEntry> {
 
   @Override
   public String toString() {
-    return Objects.toStringHelper(RDotTxtEntry.class)
+    return MoreObjects.toStringHelper(RDotTxtEntry.class)
         .add("idType", idType)
         .add("type", type)
         .add("name", name)

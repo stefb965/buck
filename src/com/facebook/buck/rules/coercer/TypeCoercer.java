@@ -17,7 +17,6 @@
 package com.facebook.buck.rules.coercer;
 
 import com.facebook.buck.parser.BuildTargetParser;
-import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Optional;
 
@@ -47,21 +46,14 @@ public interface TypeCoercer<T> {
    * #{link Traversal#traverse} function will be called once for the object.
    * If the object is a collection or map, it will also recursively traverse all elements of the
    * map.
-   *
-   * Note that this does not check that the input can be coerced, except with respect to traversal.
-   * That is, it will check that the object is a collection before traversing down its members, but
-   * will not check that it's indeed a BuildTarget.
-   *
-   * @return Whether the traversal succeeded.
    */
-  public boolean traverse(Object object, Traversal traversal);
+  public void traverse(T object, Traversal traversal);
 
   /**
    * @throws CoerceFailedException Input object cannot be coerced into the given type.
    */
   public T coerce(
       BuildTargetParser buildTargetParser,
-      BuildRuleResolver buildRuleResolver,
       ProjectFilesystem filesystem,
       Path pathRelativeToProjectRoot,
       Object object) throws CoerceFailedException;

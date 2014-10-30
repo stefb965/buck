@@ -22,30 +22,25 @@ import static org.junit.Assert.fail;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.rules.coercer.CoerceFailedException;
 import com.facebook.buck.rules.coercer.PathTypeCoercer;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.ProjectFilesystem;
 
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
 public class PathTypeCoercerTest {
 
-  @Rule
-  public final TemporaryFolder tmpDir = new TemporaryFolder();
-
   private final BuildTargetParser buildTargetParser = new BuildTargetParser();
-  private final BuildRuleResolver buildRuleResolver = new BuildRuleResolver();
   private ProjectFilesystem filesystem;
   private final Path pathRelativeToProjectRoot = Paths.get("");
   private final PathTypeCoercer pathTypeCoercer = new PathTypeCoercer();
 
   @Before
   public void setUp() {
-    filesystem = new ProjectFilesystem(tmpDir.getRoot());
+    filesystem = new FakeProjectFilesystem().setIgnoreValidityOfPaths(false);
   }
 
   @Test
@@ -54,7 +49,6 @@ public class PathTypeCoercerTest {
     try {
       pathTypeCoercer.coerce(
           buildTargetParser,
-          buildRuleResolver,
           filesystem,
           pathRelativeToProjectRoot,
           invalidPath);
@@ -70,7 +64,6 @@ public class PathTypeCoercerTest {
     try {
       pathTypeCoercer.coerce(
           buildTargetParser,
-          buildRuleResolver,
           filesystem,
           pathRelativeToProjectRoot,
           missingPath);

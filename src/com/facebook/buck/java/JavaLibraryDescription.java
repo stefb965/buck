@@ -17,7 +17,6 @@
 package com.facebook.buck.java;
 
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.Flavored;
@@ -29,7 +28,7 @@ import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.FlavorableDescription;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
@@ -79,13 +78,14 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) {
+    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
     BuildTarget target = params.getBuildTarget();
 
     // We know that the flavour we're being asked to create is valid, since the check is done when
     // creating the action graph from the target graph.
 
     if (target.getFlavors().contains(JavaLibrary.SRC_JAR)) {
-      return new JavaSourceJar(params, args.srcs.get());
+      return new JavaSourceJar(params, pathResolver, args.srcs.get());
     }
 
     JavacOptions.Builder javacOptions = JavaLibraryDescription.getJavacOptions(args, javacEnv);
@@ -96,8 +96,9 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
 
     return new DefaultJavaLibrary(
         params,
+        pathResolver,
         args.srcs.get(),
-        validateResources(args, params.getProjectFilesystem()),
+        validateResources(pathResolver, args, params.getProjectFilesystem()),
         args.proguardConfig,
         args.postprocessClassesCommands.get(),
         resolver.getAllRules(args.exportedDeps.get()),
@@ -110,9 +111,10 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
   // TODO(natthu): Consider adding a validateArg() method on Description which gets called before
   // createBuildable().
   public static ImmutableSortedSet<SourcePath> validateResources(
+      SourcePathResolver resolver,
       Arg arg,
       ProjectFilesystem filesystem) {
-    for (Path path : SourcePaths.filterInputsToCompareToOutput(arg.resources.get())) {
+    for (Path path : resolver.filterInputsToCompareToOutput(arg.resources.get())) {
       if (!filesystem.exists(path)) {
         throw new HumanReadableException("Error: `resources` argument '%s' does not exist.", path);
       } else if (filesystem.isDirectory(path)) {
@@ -202,6 +204,7 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
     BuildTarget originalBuildTarget = buildRule.getBuildTarget();
 
     Optional<GwtModule> gwtModuleOptional = tryCreateGwtModule(
+        new SourcePathResolver(ruleResolver),
         originalBuildTarget,
         projectFilesystem,
         ruleKeyBuilderFactory,
@@ -222,6 +225,7 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
    */
   @VisibleForTesting
   static Optional<GwtModule> tryCreateGwtModule(
+      SourcePathResolver resolver,
       BuildTarget originalBuildTarget,
       ProjectFilesystem projectFilesystem,
       RuleKeyBuilderFactory ruleKeyBuilderFactory,
@@ -241,19 +245,19 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
         .addAll(arg.resources.get())
         .build();
 
-    // If any of the srcs or resources are BuildRuleSourcePaths, then their respective BuildRules
+    // If any of the srcs or resources are BuildTargetSourcePaths, then their respective BuildRules
     // must be included as deps.
     ImmutableSortedSet<BuildRule> deps =
-        ImmutableSortedSet.copyOf(SourcePaths.filterBuildRuleInputs(filesForGwtModule));
+        ImmutableSortedSet.copyOf(resolver.filterBuildRuleInputs(filesForGwtModule));
     GwtModule gwtModule = new GwtModule(
         new BuildRuleParams(
             gwtModuleBuildTarget,
             deps,
             /* inferredDeps */ ImmutableSortedSet.<BuildRule>of(),
-            BuildTargetPattern.PUBLIC,
             projectFilesystem,
             ruleKeyBuilderFactory,
             BuildRuleType.GWT_MODULE),
+        resolver,
         filesForGwtModule);
     return Optional.of(gwtModule);
   }

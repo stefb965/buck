@@ -27,6 +27,8 @@ import com.facebook.buck.util.MorePaths;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Predicate;
+import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSetMultimap;
@@ -109,13 +111,13 @@ public class AuditOwnerCommand extends AbstractCommandRunner<AuditOwnerOptions> 
     OwnersReport report = OwnersReport.emptyReport();
     Map<Path, List<TargetNode<?>>> targetNodes = Maps.newHashMap();
 
-    for (String filePath : options.getArguments()) {
-      Path buckFile = findBuckFileFor(Paths.get(filePath));
+    for (Path filePath : options.getArgumentsAsPaths(getProjectFilesystem().getRootPath())) {
+      Path buckFile = findBuckFileFor(filePath);
       if (buckFile == null) {
         report = report.updatedWith(
           new OwnersReport(
               ImmutableSetMultimap.<TargetNode<?>, Path>of(),
-              /* inputWithNoOwners */ ImmutableSet.of(new File(filePath).toPath()),
+              /* inputWithNoOwners */ ImmutableSet.of(filePath),
               Sets.<String>newHashSet(),
               Sets.<String>newHashSet()));
         continue;
@@ -167,7 +169,7 @@ public class AuditOwnerCommand extends AbstractCommandRunner<AuditOwnerOptions> 
         report = report.updatedWith(
             generateOwnersReport(
                 targetNode,
-                ImmutableList.of(filePath),
+                ImmutableList.of(filePath.toString()),
                 options.isGuessForDeletedEnabled()));
       }
     }
@@ -202,10 +204,19 @@ public class AuditOwnerCommand extends AbstractCommandRunner<AuditOwnerOptions> 
     // Try to find owners for each valid and existing file.
     Set<Path> inputsWithNoOwners = Sets.newHashSet(inputs);
     SetMultimap<TargetNode<?>, Path> owners = TreeMultimap.create();
-    for (Path ruleInput : targetNode.getInputs()) {
-      if (inputs.contains(ruleInput)) {
-        inputsWithNoOwners.remove(ruleInput);
-        owners.put(targetNode, ruleInput);
+    for (final Path commandInput : inputs) {
+      Predicate<Path> startsWith = new Predicate<Path>() {
+        @Override
+        public boolean apply(Path input) {
+          return !commandInput.equals(input) && commandInput.startsWith(input);
+        }
+      };
+
+      Set<Path> ruleInputs = targetNode.getInputs();
+      if (ruleInputs.contains(commandInput) ||
+          FluentIterable.from(ruleInputs).anyMatch(startsWith)) {
+        inputsWithNoOwners.remove(commandInput);
+        owners.put(targetNode, commandInput);
       }
     }
 

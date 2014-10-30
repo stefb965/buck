@@ -23,7 +23,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
@@ -55,13 +55,14 @@ public class Xpi extends AbstractBuildRule {
 
   public Xpi(
       BuildRuleParams params,
+      SourcePathResolver resolver,
       Path chrome,
       ImmutableSortedSet<SourcePath> components,
       ImmutableSortedSet<SourcePath> content,
       Path install,
       ImmutableSortedSet<SourcePath> resources,
       ImmutableSortedSet<SourcePath> platforms) {
-    super(params);
+    super(params, resolver);
 
     this.chrome = Preconditions.checkNotNull(chrome);
     this.components = Preconditions.checkNotNull(components);
@@ -83,7 +84,7 @@ public class Xpi extends AbstractBuildRule {
 
     return ImmutableSortedSet.<Path>naturalOrder()
         .add(chrome, install)
-        .addAll(SourcePaths.filterInputsToCompareToOutput(sourcePaths))
+        .addAll(getResolver().filterInputsToCompareToOutput(sourcePaths))
         .build();
   }
 
@@ -102,19 +103,19 @@ public class Xpi extends AbstractBuildRule {
 
     Path contentDir = scratch.resolve("content");
     steps.add(new MkdirStep(contentDir));
-    bundler.copy(steps, contentDir, content, true);
+    bundler.copy(getResolver(), steps, contentDir, content, true);
 
     Path componentDir = scratch.resolve("components");
     steps.add(new MkdirStep(componentDir));
-    bundler.copy(steps, componentDir, components, true);
+    bundler.copy(getResolver(), steps, componentDir, components, true);
 
     Path platformDir = scratch.resolve("platform");
     steps.add(new MkdirStep(platformDir));
-    bundler.copy(steps, platformDir, platforms, false);
+    bundler.copy(getResolver(), steps, platformDir, platforms, false);
 
     Path resourceDir = scratch.resolve("resource");
     steps.add(new MkdirStep(resourceDir));
-    bundler.copy(steps, resourceDir, resources, true);
+    bundler.copy(getResolver(), steps, resourceDir, resources, true);
 
     steps.add(new MakeCleanDirectoryStep(output.getParent()));
     steps.add(new ZipStep(

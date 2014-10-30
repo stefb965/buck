@@ -26,6 +26,7 @@ import com.facebook.buck.java.JavacOptions;
 import com.facebook.buck.java.Keystore;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.HasBuildTarget;
+import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -34,17 +35,22 @@ import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.Hint;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
+import com.facebook.buck.rules.macros.ExecutableMacroExpander;
+import com.facebook.buck.rules.macros.LocationMacroExpander;
+import com.facebook.buck.rules.macros.MacroExpander;
+import com.facebook.buck.rules.macros.MacroHandler;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 
@@ -58,14 +64,19 @@ public class AndroidBinaryDescription implements Description<AndroidBinaryDescri
    */
   private static final long DEFAULT_LINEAR_ALLOC_HARD_LIMIT = 4 * 1024 * 1024;
 
-  private final JavacOptions javacOptions;
-  private final Optional<Path> proguardJarOverride;
+  private static final BuildTargetParser BUILD_TARGET_PARSER = new BuildTargetParser();
+  private static final MacroHandler MACRO_HANDLER =
+      new MacroHandler(
+          ImmutableMap.<String, MacroExpander>of(
+              "exe", new ExecutableMacroExpander(BUILD_TARGET_PARSER),
+              "location", new LocationMacroExpander(BUILD_TARGET_PARSER)));
 
-  public AndroidBinaryDescription(
-      JavacOptions javacOptions,
-      Optional<Path> proguardJarOverride) {
-    this.javacOptions = Preconditions.checkNotNull(javacOptions);
-    this.proguardJarOverride = Preconditions.checkNotNull(proguardJarOverride);
+  private final JavacOptions javacOptions;
+  private final ProGuardConfig proGuardConfig;
+
+  public AndroidBinaryDescription(JavacOptions javacOptions, ProGuardConfig proGuardConfig) {
+    this.javacOptions = javacOptions;
+    this.proGuardConfig = proGuardConfig;
   }
 
   @Override
@@ -80,8 +91,8 @@ public class AndroidBinaryDescription implements Description<AndroidBinaryDescri
 
   @Override
   public <A extends Arg> AndroidBinary createBuildRule(
-      BuildRuleParams params,
-      BuildRuleResolver resolver,
+      final BuildRuleParams params,
+      final BuildRuleResolver resolver,
       A args) {
     BuildRule keystore = resolver.getRule(args.keystore);
     if (!(keystore instanceof Keystore)) {
@@ -154,7 +165,9 @@ public class AndroidBinaryDescription implements Description<AndroidBinaryDescri
 
     return new AndroidBinary(
         params.copyWithExtraDeps(result.getFinalDeps()),
-        proguardJarOverride,
+        new SourcePathResolver(resolver),
+        proGuardConfig.getProguardJarOverride(),
+        proGuardConfig.getProguardMaxHeapSize(),
         args.manifest,
         args.target,
         (Keystore) keystore,
@@ -170,6 +183,10 @@ public class AndroidBinaryDescription implements Description<AndroidBinaryDescri
         args.exopackage.or(false),
         resolver.getAllRules(
             args.preprocessJavaClassesDeps.or(ImmutableSortedSet.<BuildTarget>of())),
+        MACRO_HANDLER.getExpander(
+            params.getBuildTarget(),
+            resolver,
+            params.getProjectFilesystem()),
         args.preprocessJavaClassesBash,
         rulesToExcludeFromDex,
         result);

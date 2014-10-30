@@ -33,7 +33,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
@@ -42,6 +42,7 @@ import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 
@@ -71,9 +72,10 @@ public class BuckExtension extends AbstractBuildRule {
 
   public BuckExtension(
       BuildRuleParams params,
+      SourcePathResolver resolver,
       ImmutableSortedSet<? extends SourcePath> srcs,
       ImmutableSortedSet<? extends SourcePath> resources) {
-    super(params);
+    super(params, resolver);
     this.srcs = Preconditions.checkNotNull(srcs);
     this.resources = Preconditions.checkNotNull(resources);
 
@@ -85,7 +87,7 @@ public class BuckExtension extends AbstractBuildRule {
 
   @Override
   public ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return SourcePaths.filterInputsToCompareToOutput(Iterables.concat(srcs, resources));
+    return getResolver().filterInputsToCompareToOutput(Iterables.concat(srcs, resources));
   }
 
   @Override
@@ -108,7 +110,7 @@ public class BuckExtension extends AbstractBuildRule {
     steps.add(new MkdirStep(output.getParent()));
     steps.add(new JavacInMemoryStep(
             working,
-            ImmutableSortedSet.copyOf(srcs),
+            ImmutableSet.copyOf(getResolver().getAllPaths(srcs)),
             /* transitive classpath */ ImmutableSortedSet.<Path>of(),
             declaredClasspath,
             javacOptions,
@@ -118,6 +120,7 @@ public class BuckExtension extends AbstractBuildRule {
             Optional.<JavacStep.SuggestBuildRules>absent(),
             /* path to sources list */ Optional.<Path>absent()));
     steps.add(new CopyResourcesStep(
+            getResolver(),
             getBuildTarget(),
             resources,
             output,

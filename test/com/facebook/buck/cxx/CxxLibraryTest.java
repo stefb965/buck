@@ -20,16 +20,19 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.python.PythonPackageComponents;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleParamsFactory;
-import com.facebook.buck.rules.BuildRuleSourcePath;
+import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -44,8 +47,10 @@ public class CxxLibraryTest {
 
   @Test
   public void cxxLibraryInterfaces() {
+    SourcePathResolver pathResolver = new SourcePathResolver(new BuildRuleResolver());
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     BuildRuleParams params = BuildRuleParamsFactory.createTrivialBuildRuleParams(target);
+    CxxPlatform cxxPlatform = new DefaultCxxPlatform(new FakeBuckConfig());
 
     // Setup some dummy values for the header info.
     final BuildTarget headerTarget = BuildTargetFactory.newInstance("//:header");
@@ -53,36 +58,34 @@ public class CxxLibraryTest {
     final Path headerSymlinkTreeRoot = Paths.get("symlink/tree/root");
 
     // Setup some dummy values for the library archive info.
-    final BuildRule archive = new FakeBuildRule("//:archive");
+    final BuildRule archive = new FakeBuildRule("//:archive", pathResolver);
     final Path archiveOutput = Paths.get("output/path/lib.a");
 
     // Setup some dummy values for the library archive info.
-    final BuildRule sharedLibrary = new FakeBuildRule("//:shared");
+    final BuildRule sharedLibrary = new FakeBuildRule("//:shared", pathResolver);
     final Path sharedLibraryOutput = Paths.get("output/path/lib.so");
     final String sharedLibrarySoname = "lib.so";
 
     // Construct a CxxLibrary object to test.
-    CxxLibrary cxxLibrary = new CxxLibrary(params) {
+    CxxLibrary cxxLibrary = new CxxLibrary(params, pathResolver) {
 
       @Override
       public CxxPreprocessorInput getCxxPreprocessorInput() {
-        return new CxxPreprocessorInput(
-            ImmutableSet.of(headerTarget, headerSymlinkTreeTarget),
-            ImmutableList.<String>of(),
-            ImmutableList.<String>of(),
-            ImmutableMap.<Path, SourcePath>of(),
-            ImmutableList.of(headerSymlinkTreeRoot),
-            ImmutableList.<Path>of());
+        return CxxPreprocessorInput.builder()
+            .setRules(ImmutableSet.of(headerTarget, headerSymlinkTreeTarget))
+            .setIncludeRoots(headerSymlinkTreeRoot)
+            .build();
       }
 
       @Override
-      public NativeLinkableInput getNativeLinkableInput(Type type) {
+      public NativeLinkableInput getNativeLinkableInput(Linker linker, Type type) {
         return type == Type.STATIC ?
             new NativeLinkableInput(
-                ImmutableList.<SourcePath>of(new BuildRuleSourcePath(archive)),
+                ImmutableList.<SourcePath>of(new BuildTargetSourcePath(archive.getBuildTarget())),
                 ImmutableList.of(archiveOutput.toString())) :
             new NativeLinkableInput(
-                ImmutableList.<SourcePath>of(new BuildRuleSourcePath(sharedLibrary)),
+                ImmutableList.<SourcePath>of(
+                    new BuildTargetSourcePath(sharedLibrary.getBuildTarget())),
                 ImmutableList.of(sharedLibraryOutput.toString()));
       }
 
@@ -100,32 +103,33 @@ public class CxxLibraryTest {
 
     // Verify that we get the header/symlink targets and root via the CxxPreprocessorDep
     // interface.
-    CxxPreprocessorInput expectedCxxPreprocessorInput = new CxxPreprocessorInput(
-        ImmutableSet.of(headerTarget, headerSymlinkTreeTarget),
-        ImmutableList.<String>of(),
-        ImmutableList.<String>of(),
-        ImmutableMap.<Path, SourcePath>of(),
-        ImmutableList.of(headerSymlinkTreeRoot),
-        ImmutableList.<Path>of());
+    CxxPreprocessorInput expectedCxxPreprocessorInput = CxxPreprocessorInput.builder()
+        .setRules(ImmutableSet.of(headerTarget, headerSymlinkTreeTarget))
+        .setIncludeRoots(headerSymlinkTreeRoot)
+        .build();
     assertEquals(expectedCxxPreprocessorInput, cxxLibrary.getCxxPreprocessorInput());
 
     // Verify that we get the static archive and it's build target via the NativeLinkable
     // interface.
     NativeLinkableInput expectedStaticNativeLinkableInput = new NativeLinkableInput(
-        ImmutableList.<SourcePath>of(new BuildRuleSourcePath(archive)),
+        ImmutableList.<SourcePath>of(new BuildTargetSourcePath(archive.getBuildTarget())),
         ImmutableList.of(archiveOutput.toString()));
     assertEquals(
         expectedStaticNativeLinkableInput,
-        cxxLibrary.getNativeLinkableInput(NativeLinkable.Type.STATIC));
+        cxxLibrary.getNativeLinkableInput(
+            cxxPlatform.getLd(),
+            NativeLinkable.Type.STATIC));
 
     // Verify that we get the static archive and it's build target via the NativeLinkable
     // interface.
     NativeLinkableInput expectedSharedNativeLinkableInput = new NativeLinkableInput(
-        ImmutableList.<SourcePath>of(new BuildRuleSourcePath(sharedLibrary)),
+        ImmutableList.<SourcePath>of(new BuildTargetSourcePath(sharedLibrary.getBuildTarget())),
         ImmutableList.of(sharedLibraryOutput.toString()));
     assertEquals(
         expectedSharedNativeLinkableInput,
-        cxxLibrary.getNativeLinkableInput(NativeLinkable.Type.SHARED));
+        cxxLibrary.getNativeLinkableInput(
+            cxxPlatform.getLd(),
+            NativeLinkable.Type.SHARED));
 
     // Verify that we return the expected output for python packages.
     PythonPackageComponents expectedPythonPackageComponents = new PythonPackageComponents(

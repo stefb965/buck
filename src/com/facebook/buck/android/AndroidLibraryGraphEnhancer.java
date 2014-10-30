@@ -23,8 +23,8 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.google.common.base.Optional;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -48,19 +48,17 @@ public class AndroidLibraryGraphEnhancer {
       BuildRuleParams buildRuleParams,
       JavacOptions javacOptions,
       ResourceDependencyMode resourceDependencyMode) {
-    Preconditions.checkNotNull(buildTarget);
     this.dummyRDotJavaBuildTarget = BuildTarget.builder(buildTarget)
         .addFlavor(DUMMY_R_DOT_JAVA_FLAVOR)
         .build();
-    this.originalBuildRuleParams = Preconditions.checkNotNull(buildRuleParams);
+    this.originalBuildRuleParams = buildRuleParams;
     // Override javacoptions because DummyRDotJava doesn't require annotation processing
     // params data and more importantly, because javacoptions' rule key is not available when
     // DummyRDotJava is built.
-    Preconditions.checkNotNull(javacOptions);
     this.javacOptions = JavacOptions.builder(JavacOptions.DEFAULTS)
         .setJavaCompilerEnvironment(javacOptions.getJavaCompilerEnvironment())
         .build();
-    this.resourceDependencyMode = Preconditions.checkNotNull(resourceDependencyMode);
+    this.resourceDependencyMode = resourceDependencyMode;
   }
 
   public Optional<DummyRDotJava> createBuildableForAndroidResources(
@@ -108,6 +106,7 @@ public class AndroidLibraryGraphEnhancer {
 
     DummyRDotJava dummyRDotJava = new DummyRDotJava(
         dummyRDotJavaParams,
+        new SourcePathResolver(ruleResolver),
         androidResourceDeps,
         javacOptions);
     ruleResolver.addToIndex(dummyRDotJava);

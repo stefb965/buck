@@ -19,16 +19,16 @@ package com.facebook.buck.cxx;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.python.PythonUtil;
-import com.facebook.buck.rules.BuildRuleFactoryParams;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleSourcePath;
 import com.facebook.buck.rules.BuildRuleType;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SymlinkTree;
+import com.facebook.buck.util.MorePaths;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
@@ -41,14 +41,14 @@ import java.nio.file.Path;
 
 public class CxxPythonExtensionDescription implements
     Description<CxxPythonExtensionDescription.Arg>,
-    ImplicitDepsInferringDescription {
+    ImplicitDepsInferringDescription<CxxPythonExtensionDescription.Arg> {
 
   public static final BuildRuleType TYPE = new BuildRuleType("cxx_python_extension");
 
-  private final CxxBuckConfig cxxBuckConfig;
+  private final CxxPlatform cxxPlatform;
 
-  public CxxPythonExtensionDescription(CxxBuckConfig cxxBuckConfig) {
-    this.cxxBuckConfig = Preconditions.checkNotNull(cxxBuckConfig);
+  public CxxPythonExtensionDescription(CxxPlatform cxxPlatform) {
+    this.cxxPlatform = Preconditions.checkNotNull(cxxPlatform);
   }
 
   @Override
@@ -74,31 +74,36 @@ public class CxxPythonExtensionDescription implements
   @Override
   public <A extends Arg> CxxPythonExtension createBuildRule(
       BuildRuleParams params,
-      BuildRuleResolver resolver,
+      BuildRuleResolver ruleResolver,
       A args) {
 
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleResolver);
     // Extract the C/C++ sources from the constructor arg.
-    ImmutableList<CxxSource> srcs =
+    ImmutableMap<String, CxxSource> srcs =
         CxxDescriptionEnhancer.parseCxxSources(
             params.getBuildTarget(),
+            pathResolver,
             args.srcs.or(ImmutableList.<SourcePath>of()));
 
     // Extract the header map from the our constructor arg.
     ImmutableMap<Path, SourcePath> headers =
         CxxDescriptionEnhancer.parseHeaders(
             params.getBuildTarget(),
+            pathResolver,
+            args.headerNamespace.transform(MorePaths.TO_PATH)
+                .or(params.getBuildTarget().getBasePath()),
             args.headers.or((ImmutableList.<SourcePath>of())));
 
     // Extract the lex sources.
     ImmutableMap<String, SourcePath> lexSrcs =
-        SourcePaths.getSourcePathNames(
+        pathResolver.getSourcePathNames(
             params.getBuildTarget(),
             "lexSrcs",
             args.lexSrcs.or(ImmutableList.<SourcePath>of()));
 
     // Extract the yacc sources.
     ImmutableMap<String, SourcePath> yaccSrcs =
-        SourcePaths.getSourcePathNames(
+        pathResolver.getSourcePathNames(
             params.getBuildTarget(),
             "yaccSrcs",
             args.yaccSrcs.or(ImmutableList.<SourcePath>of()));
@@ -106,8 +111,8 @@ public class CxxPythonExtensionDescription implements
     CxxHeaderSourceSpec lexYaccSources =
         CxxDescriptionEnhancer.createLexYaccBuildRules(
             params,
-            resolver,
-            cxxBuckConfig,
+            ruleResolver,
+            cxxPlatform,
             ImmutableList.<String>of(),
             lexSrcs,
             ImmutableList.<String>of(),
@@ -117,12 +122,13 @@ public class CxxPythonExtensionDescription implements
     // and all dependencies.
     SymlinkTree headerSymlinkTree = CxxDescriptionEnhancer.createHeaderSymlinkTreeBuildRule(
         params,
-        resolver,
+        ruleResolver,
         headers);
     CxxPreprocessorInput cxxPreprocessorInput = CxxDescriptionEnhancer.combineCxxPreprocessorInput(
         params,
-        cxxBuckConfig,
-        args.preprocessorFlags.or(ImmutableList.<String>of()),
+        CxxPreprocessorFlags.fromArgs(
+            args.preprocessorFlags,
+            args.langPreprocessorFlags),
         headerSymlinkTree,
         ImmutableMap.<Path, SourcePath>builder()
             .putAll(headers)
@@ -132,14 +138,14 @@ public class CxxPythonExtensionDescription implements
     ImmutableList<SourcePath> picObjects =
         CxxDescriptionEnhancer.createPreprocessAndCompileBuildRules(
             params,
-            resolver,
-            cxxBuckConfig,
+            ruleResolver,
+            cxxPlatform,
             cxxPreprocessorInput,
             args.compilerFlags.or(ImmutableList.<String>of()),
             /* pic */ true,
-            ImmutableList.<CxxSource>builder()
-                .addAll(srcs)
-                .addAll(lexYaccSources.getCxxSources())
+            ImmutableMap.<String, CxxSource>builder()
+                .putAll(srcs)
+                .putAll(lexYaccSources.getCxxSources())
                 .build());
 
     // Setup the rules to link the shared library.
@@ -149,10 +155,11 @@ public class CxxPythonExtensionDescription implements
     Path extensionModule = baseModule.resolve(extensionName);
     final Path extensionPath = getExtensionPath(extensionTarget);
     CxxLink extensionRule = CxxLinkableEnhancer.createCxxLinkableBuildRule(
+        cxxPlatform,
         params,
-        cxxBuckConfig.getLd().or(CxxLinkables.DEFAULT_LINKER_PATH),
-        cxxBuckConfig.getCxxLdFlags(),
-        cxxBuckConfig.getLdFlags(),
+        pathResolver,
+        ImmutableList.<String>of(),
+        ImmutableList.<String>of(),
         extensionTarget,
         CxxLinkableEnhancer.LinkType.SHARED,
         Optional.of(extensionName),
@@ -160,7 +167,7 @@ public class CxxPythonExtensionDescription implements
         picObjects,
         NativeLinkable.Type.SHARED,
         params.getDeps());
-    resolver.addToIndex(extensionRule);
+    ruleResolver.addToIndex(extensionRule);
 
     // Create the CppLibrary rule that dependents can reference from the action graph
     // to get information about this rule (e.g. how this rule contributes to the C/C++
@@ -168,8 +175,9 @@ public class CxxPythonExtensionDescription implements
     // TargetGraph when it becomes exposed to build rule creation.
     return new CxxPythonExtension(
         params,
+        pathResolver,
         extensionModule,
-        new BuildRuleSourcePath(extensionRule),
+        new BuildTargetSourcePath(extensionRule.getBuildTarget()),
         extensionRule);
   }
 
@@ -179,13 +187,15 @@ public class CxxPythonExtensionDescription implements
   }
 
   @Override
-  public Iterable<String> findDepsFromParams(BuildRuleFactoryParams params) {
+  public Iterable<String> findDepsForTargetFromConstructorArgs(
+      BuildTarget buildTarget,
+      Arg constructorArg) {
     ImmutableSet.Builder<String> deps = ImmutableSet.builder();
 
-    deps.add(cxxBuckConfig.getPythonDep().toString());
+    deps.add(cxxPlatform.getPythonDep().toString());
 
-    if (!params.getOptionalListAttribute("lexSrcs").isEmpty()) {
-      deps.add(cxxBuckConfig.getLexDep().toString());
+    if (!constructorArg.lexSrcs.get().isEmpty()) {
+      deps.add(cxxPlatform.getLexDep().toString());
     }
 
     return deps.build();

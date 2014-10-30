@@ -22,6 +22,7 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SymlinkTree;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -45,7 +46,7 @@ public class CxxPreprocessables {
    * {@link SourcePath}.
    */
   public static ImmutableMap<Path, SourcePath> resolveHeaderMap(
-      BuildTarget target,
+      Path basePath,
       ImmutableMap<String, SourcePath> headers) {
 
     ImmutableMap.Builder<Path, SourcePath> headerMap = ImmutableMap.builder();
@@ -53,7 +54,7 @@ public class CxxPreprocessables {
     // Resolve the "names" of the headers to actual paths by prepending the base path
     // specified by the build target.
     for (ImmutableMap.Entry<String, SourcePath> ent : headers.entrySet()) {
-      Path path = target.getBasePath().resolve(ent.getKey());
+      Path path = basePath.resolve(ent.getKey());
       headerMap.put(path, ent.getValue());
     }
 
@@ -65,7 +66,7 @@ public class CxxPreprocessables {
    * found while traversing the dependencies starting from the {@link BuildRule} objects given.
    */
   @VisibleForTesting
-  protected static CxxPreprocessorInput getTransitiveCxxPreprocessorInput(
+  public static CxxPreprocessorInput getTransitiveCxxPreprocessorInput(
       Iterable<? extends BuildRule> inputs) {
 
     // We don't really care about the order we get back here, since headers shouldn't
@@ -99,6 +100,7 @@ public class CxxPreprocessables {
    * as these are modeled via {@link CxxCompile}.
    */
   public static SymlinkTree createHeaderSymlinkTreeBuildRule(
+      SourcePathResolver resolver,
       BuildTarget target,
       BuildRuleParams params,
       Path root,
@@ -111,6 +113,7 @@ public class CxxPreprocessables {
             // Symlink trees never need to depend on anything.
             ImmutableSortedSet.<BuildRule>of(),
             ImmutableSortedSet.<BuildRule>of()),
+        resolver,
         root,
         links);
   }

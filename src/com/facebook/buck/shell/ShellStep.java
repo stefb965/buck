@@ -17,6 +17,7 @@
 package com.facebook.buck.shell;
 
 import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.log.Logger;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.util.Escaper;
@@ -42,6 +43,8 @@ import java.util.Map.Entry;
 import javax.annotation.Nullable;
 
 public abstract class ShellStep implements Step {
+
+  private static final Logger LOG = Logger.get(ShellStep.class);
 
   /** Defined lazily by {@link #getShellCommand(com.facebook.buck.step.ExecutionContext)}. */
   @Nullable
@@ -137,13 +140,8 @@ public abstract class ShellStep implements Step {
   @VisibleForTesting
   int interactWithProcess(ExecutionContext context, Process process) throws InterruptedException {
     ImmutableSet.Builder<Option> options = ImmutableSet.builder();
-    if (shouldFlushStdOutErrAsProgressIsMade()) {
-      options.add(Option.PRINT_STD_OUT);
-      options.add(Option.PRINT_STD_ERR);
-    }
-    if (context.getVerbosity() == Verbosity.SILENT) {
-      options.add(Option.IS_SILENT);
-    }
+
+    addOptions(context, options);
 
     ProcessExecutor executor = context.getProcessExecutor();
     ProcessExecutor.Result result = executor.execute(process, options.build(), getStdin());
@@ -161,6 +159,18 @@ public abstract class ShellStep implements Step {
     return result.getExitCode();
   }
 
+  protected void addOptions(
+      ExecutionContext context,
+      ImmutableSet.Builder<Option> options) {
+    if (shouldFlushStdOutErrAsProgressIsMade(context.getVerbosity())) {
+      options.add(Option.PRINT_STD_OUT);
+      options.add(Option.PRINT_STD_ERR);
+    }
+    if (context.getVerbosity() == Verbosity.SILENT) {
+      options.add(Option.IS_SILENT);
+    }
+  }
+
   public long getDuration() {
     Preconditions.checkState(startTime > 0);
     Preconditions.checkState(endTime > 0);
@@ -174,6 +184,7 @@ public abstract class ShellStep implements Step {
   public final ImmutableList<String> getShellCommand(ExecutionContext context) {
     if (shellCommandArgs == null) {
       shellCommandArgs = getShellCommandInternal(context);
+      LOG.debug("Command: %s", Joiner.on(" ").join(shellCommandArgs));
     }
     return shellCommandArgs;
   }
@@ -277,7 +288,8 @@ public abstract class ShellStep implements Step {
    * To disable this behavior and print to stdout and stderr directly, this method should be
    * overridden to return {@code true}.
    */
-  protected boolean shouldFlushStdOutErrAsProgressIsMade() {
+  @SuppressWarnings("unused")
+  protected boolean shouldFlushStdOutErrAsProgressIsMade(Verbosity verbosity) {
     return false;
   }
 }

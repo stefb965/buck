@@ -22,27 +22,22 @@ import static org.junit.Assert.assertTrue;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.python.PythonPackageComponents;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleFactoryParams;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleParamsFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleSourcePath;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
-import com.facebook.buck.rules.FakeRuleKeyBuilderFactory;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Maps;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -60,21 +55,23 @@ public class CxxPythonExtensionDescriptionTest {
 
   private static FakeBuildRule createFakeBuildRule(
       String target,
+      SourcePathResolver resolver,
       BuildRule... deps) {
     return new FakeBuildRule(
         new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance(target))
             .setDeps(ImmutableSortedSet.copyOf(deps))
-            .build());
+            .build(), resolver);
   }
 
   private static BuildRule createFakeCxxLibrary(
       String target,
+      SourcePathResolver resolver,
       BuildRule... deps) {
     BuildRuleParams params =
         new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance(target))
             .setDeps(ImmutableSortedSet.copyOf(deps))
             .build();
-    return new CxxLibrary(params) {
+    return new CxxLibrary(params, resolver) {
 
       @Override
       public CxxPreprocessorInput getCxxPreprocessorInput() {
@@ -82,7 +79,7 @@ public class CxxPythonExtensionDescriptionTest {
       }
 
       @Override
-      public NativeLinkableInput getNativeLinkableInput(Type type) {
+      public NativeLinkableInput getNativeLinkableInput(Linker linker, Type type) {
         return null;
       }
 
@@ -98,14 +95,16 @@ public class CxxPythonExtensionDescriptionTest {
   public void setUp() {
     target = BuildTargetFactory.newInstance("//:target");
     params = BuildRuleParamsFactory.createTrivialBuildRuleParams(target);
-    pythonDep = createFakeCxxLibrary("//:python_dep");
+    pythonDep = createFakeCxxLibrary(
+        "//:python_dep",
+        new SourcePathResolver(new BuildRuleResolver()));
 
     // Setup a buck config with the python_dep as an entry.
     FakeBuckConfig buckConfig = new FakeBuckConfig(
         ImmutableMap.<String, Map<String, String>>of(
             "cxx", ImmutableMap.of(
                 "python_dep", pythonDep.toString())));
-    CxxBuckConfig cxxBuckConfig = new CxxBuckConfig(buckConfig);
+    DefaultCxxPlatform cxxBuckConfig = new DefaultCxxPlatform(buckConfig);
     desc = new CxxPythonExtensionDescription(cxxBuckConfig);
   }
 
@@ -117,9 +116,11 @@ public class CxxPythonExtensionDescriptionTest {
     arg.deps = Optional.absent();
     arg.compilerFlags = Optional.absent();
     arg.preprocessorFlags = Optional.absent();
+    arg.langPreprocessorFlags = Optional.absent();
     arg.lexSrcs = Optional.absent();
     arg.yaccSrcs = Optional.absent();
     arg.baseModule = Optional.absent();
+    arg.headerNamespace = Optional.absent();
     return arg;
   }
 
@@ -145,35 +146,32 @@ public class CxxPythonExtensionDescriptionTest {
   @Test
   public void createBuildRuleNativeLinkableDep() {
     BuildRuleResolver resolver = new BuildRuleResolver();
+    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
 
     // Setup a C/C++ library that we'll depend on form the C/C++ binary description.
-    final BuildRule sharedLibraryDep = createFakeBuildRule("//:shared");
+    final BuildRule sharedLibraryDep = createFakeBuildRule("//:shared", pathResolver);
     final Path sharedLibraryOutput = Paths.get("output/path/lib.so");
     final String sharedLibrarySoname = "soname";
     BuildTarget depTarget = BuildTargetFactory.newInstance("//:dep");
     BuildRuleParams depParams = BuildRuleParamsFactory.createTrivialBuildRuleParams(depTarget);
-    CxxLibrary dep = new CxxLibrary(depParams) {
+    CxxLibrary dep = new CxxLibrary(depParams, pathResolver) {
 
       @Override
       public CxxPreprocessorInput getCxxPreprocessorInput() {
-        return new CxxPreprocessorInput(
-            ImmutableSet.<BuildTarget>of(),
-            ImmutableList.<String>of(),
-            ImmutableList.<String>of(),
-            ImmutableMap.<Path, SourcePath>of(),
-            ImmutableList.<Path>of(),
-            ImmutableList.<Path>of());
+        return CxxPreprocessorInput.EMPTY;
       }
 
       @Override
-      public NativeLinkableInput getNativeLinkableInput(Type type) {
+      public NativeLinkableInput getNativeLinkableInput(Linker linker, Type type) {
         return type == Type.STATIC ?
             new NativeLinkableInput(
                 ImmutableList.<SourcePath>of(),
                 ImmutableList.<String>of()) :
             new NativeLinkableInput(
                 ImmutableList.<SourcePath>of(
-                    new BuildRuleSourcePath(sharedLibraryDep, sharedLibraryOutput)),
+                    new BuildTargetSourcePath(
+                        sharedLibraryDep.getBuildTarget(),
+                        sharedLibraryOutput)),
                 ImmutableList.of(sharedLibraryOutput.toString()));
       }
 
@@ -214,7 +212,7 @@ public class CxxPythonExtensionDescriptionTest {
     PythonPackageComponents expectedComponents = new PythonPackageComponents(
         ImmutableMap.<Path, SourcePath>of(
             target.getBasePath().resolve(desc.getExtensionName(target)),
-            new BuildRuleSourcePath(extension.getRule())),
+            new BuildTargetSourcePath(extension.getRule().getBuildTarget())),
         ImmutableMap.<Path, SourcePath>of(),
         ImmutableMap.<Path, SourcePath>of());
     assertEquals(
@@ -224,15 +222,11 @@ public class CxxPythonExtensionDescriptionTest {
 
   @Test
   public void findDepsFromParamsAddsPythonDep() {
-    FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
-    BuildTargetParser parser = new BuildTargetParser();
-    BuildRuleFactoryParams params = new BuildRuleFactoryParams(
-        Maps.<String, Object>newHashMap(),
-        filesystem,
-        parser,
-        target,
-        new FakeRuleKeyBuilderFactory());
-    Iterable<String> res = desc.findDepsFromParams(params);
+    CxxPythonExtensionDescription.Arg constructorArg = desc.createUnpopulatedConstructorArg();
+    constructorArg.lexSrcs = Optional.of(ImmutableList.<SourcePath>of());
+    Iterable<String> res = desc.findDepsForTargetFromConstructorArgs(
+        BuildTargetFactory.newInstance("//foo:bar"),
+        constructorArg);
     assertTrue(Iterables.contains(res, pythonDep.getBuildTarget().toString()));
   }
 

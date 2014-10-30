@@ -1,15 +1,15 @@
 java_library(
   name = 'parser',
   srcs = [
+    'BuildFileSpec.java',
+    'BuildTargetSpec.java',
+    'MissingBuildFileException.java',
+    'ParseEvent.java',
     'Parser.java',
     'PartialGraph.java',
-    'ParseEvent.java',
     'TargetGraph.java',
-    'BuildFileSpec.java',
+    'TargetNodePredicateSpec.java',
     'TargetNodeSpec.java',
-    'BuildTargetSpec.java',
-    'RuleJsonPredicateSpec.java',
-    'MissingBuildFileException.java',
   ],
   deps = [
     ':project',
@@ -41,7 +41,6 @@ java_library(
   # TODO(simons): Find a proper home for these.
   srcs = [
     'RuleJsonPredicate.java',
-    'RuleJsonPredicates.java',
     'AssociatedRulePredicate.java',
     'AssociatedRulePredicates.java',
   ],
@@ -83,6 +82,9 @@ python_library(
   srcs = [
     'buck.py',
   ],
+  deps = [
+    '//third-party/py/pathlib:pathlib',
+  ]
 )
 
 python_test(
@@ -93,5 +95,6 @@ python_test(
   ],
   deps = [
     ':buck',
+    '//third-party/py/pathlib:pathlib',
   ],
 )

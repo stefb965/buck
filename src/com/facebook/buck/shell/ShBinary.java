@@ -28,7 +28,7 @@ import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.util.ProjectFilesystem;
@@ -54,9 +54,10 @@ public class ShBinary extends AbstractBuildRule
 
   protected ShBinary(
       BuildRuleParams params,
+      SourcePathResolver resolver,
       SourcePath main,
       ImmutableSet<SourcePath> resources) {
-    super(params);
+    super(params, resolver);
     this.main = Preconditions.checkNotNull(main);
     this.resources = Preconditions.checkNotNull(resources);
 
@@ -74,7 +75,7 @@ public class ShBinary extends AbstractBuildRule
         .addAll(resources)
         .build();
 
-    return SourcePaths.filterInputsToCompareToOutput(allPaths);
+    return getResolver().filterInputsToCompareToOutput(allPaths);
   }
 
   @Override
@@ -88,8 +89,8 @@ public class ShBinary extends AbstractBuildRule
     // This generated .sh file will be returned by getExecutableCommand().
     GenerateShellScriptStep generateShellScript = new GenerateShellScriptStep(
         getBuildTarget().getBasePath(),
-        main.resolve(),
-        SourcePaths.toPaths(resources),
+        getResolver().getPath(main),
+        getResolver().getAllPaths(resources),
         output);
 
     buildableContext.recordArtifact(output);

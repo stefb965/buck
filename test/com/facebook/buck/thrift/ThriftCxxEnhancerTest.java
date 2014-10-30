@@ -19,23 +19,19 @@ package com.facebook.buck.thrift;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.cli.FakeBuckConfig;
-import com.facebook.buck.cxx.CxxBuckConfig;
+import com.facebook.buck.cxx.DefaultCxxPlatform;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.Flavor;
-import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleFactoryParams;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleParamsFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
-import com.facebook.buck.rules.FakeRuleKeyBuilderFactory;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TestSourcePath;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -53,7 +49,8 @@ public class ThriftCxxEnhancerTest {
   private static final BuildTarget TARGET = BuildTargetFactory.newInstance("//:test#cpp");
   private static final FakeBuckConfig BUCK_CONFIG = new FakeBuckConfig();
   private static final ThriftBuckConfig THRIFT_BUCK_CONFIG = new ThriftBuckConfig(BUCK_CONFIG);
-  private static final CxxBuckConfig CXX_BUCK_CONFIG = new CxxBuckConfig(BUCK_CONFIG);
+  private static final DefaultCxxPlatform CXX_BUCK_CONFIG =
+      new DefaultCxxPlatform(BUCK_CONFIG);
   private static final ThriftCxxEnhancer ENHANCER_CPP = new ThriftCxxEnhancer(
       THRIFT_BUCK_CONFIG,
       CXX_BUCK_CONFIG,
@@ -65,17 +62,22 @@ public class ThriftCxxEnhancerTest {
 
   private static FakeBuildRule createFakeBuildRule(
       String target,
+      SourcePathResolver resolver,
       BuildRule... deps) {
     return new FakeBuildRule(
         new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance(target))
             .setDeps(ImmutableSortedSet.copyOf(deps))
-            .build());
+            .build(),
+        resolver);
   }
 
-  private static ThriftCompiler createFakeThriftCompiler(String target) {
+  private static ThriftCompiler createFakeThriftCompiler(
+      String target,
+      SourcePathResolver resolver) {
     return new ThriftCompiler(
         BuildRuleParamsFactory.createTrivialBuildRuleParams(
             BuildTargetFactory.newInstance(target)),
+        resolver,
         new TestSourcePath("compiler"),
         ImmutableList.<String>of(),
         Paths.get("output"),
@@ -153,36 +155,20 @@ public class ThriftCxxEnhancerTest {
 
   private void expectImplicitDeps(
       ThriftCxxEnhancer enhancer,
-      ProjectFilesystem filesystem,
-      BuildTargetParser parser,
       ImmutableSet<String> options,
       ImmutableSet<BuildTarget> expected) {
 
-    BuildRuleFactoryParams params = new BuildRuleFactoryParams(
-        ImmutableMap.<String, Object>of(
-            "cppOptions", ImmutableList.copyOf(options),
-            "cpp2Options", ImmutableList.copyOf(options.toArray())),
-        filesystem,
-        parser,
-        TARGET,
-        new FakeRuleKeyBuilderFactory());
     ThriftConstructorArg arg = new ThriftConstructorArg();
     arg.cppOptions = Optional.of(options);
     arg.cpp2Options = Optional.of(options);
 
     assertEquals(
         expected,
-        enhancer.getImplicitDepsFromParams(params));
-    assertEquals(
-        expected,
-        enhancer.getImplicitDepsFromArg(TARGET, arg));
+        enhancer.getImplicitDepsForTargetFromConstructorArg(TARGET, arg));
   }
 
   @Test
   public void getImplicitDeps() {
-    FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
-    BuildTargetParser parser = new BuildTargetParser();
-
     // Setup an enhancer which sets all appropriate values in the config.
     ImmutableMap<String, BuildTarget> config = ImmutableMap.of(
         "cpp_library", BuildTargetFactory.newInstance("//:cpp_library"),
@@ -209,16 +195,12 @@ public class ThriftCxxEnhancerTest {
     // With no options we just need to find the C/C++ thrift library.
     expectImplicitDeps(
         cppEnhancerWithSettings,
-        filesystem,
-        parser,
         ImmutableSet.<String>of(),
         ImmutableSet.of(
             config.get("cpp_library"),
             config.get("cpp_reflection_library")));
     expectImplicitDeps(
         cpp2EnhancerWithSettings,
-        filesystem,
-        parser,
         ImmutableSet.<String>of(),
         ImmutableSet.of(
             config.get("cpp2_library"),
@@ -227,22 +209,16 @@ public class ThriftCxxEnhancerTest {
     // Now check for correct reaction to the "bootstrap" option.
     expectImplicitDeps(
         cppEnhancerWithSettings,
-        filesystem,
-        parser,
         ImmutableSet.of("bootstrap"),
         ImmutableSet.<BuildTarget>of());
     expectImplicitDeps(
         cpp2EnhancerWithSettings,
-        filesystem,
-        parser,
         ImmutableSet.of("bootstrap"),
         ImmutableSet.<BuildTarget>of());
 
     // Check the "frozen2" option
     expectImplicitDeps(
         cppEnhancerWithSettings,
-        filesystem,
-        parser,
         ImmutableSet.of("frozen2"),
         ImmutableSet.of(
             config.get("cpp_library"),
@@ -250,8 +226,6 @@ public class ThriftCxxEnhancerTest {
             config.get("cpp_frozen_library")));
     expectImplicitDeps(
         cpp2EnhancerWithSettings,
-        filesystem,
-        parser,
         ImmutableSet.of("frozen2"),
         ImmutableSet.of(
             config.get("cpp2_library"),
@@ -261,8 +235,6 @@ public class ThriftCxxEnhancerTest {
     // Check the "json" option
     expectImplicitDeps(
         cppEnhancerWithSettings,
-        filesystem,
-        parser,
         ImmutableSet.of("json"),
         ImmutableSet.of(
             config.get("cpp_library"),
@@ -270,8 +242,6 @@ public class ThriftCxxEnhancerTest {
             config.get("cpp_json_library")));
     expectImplicitDeps(
         cpp2EnhancerWithSettings,
-        filesystem,
-        parser,
         ImmutableSet.of("json"),
         ImmutableSet.of(
             config.get("cpp2_library"),
@@ -281,16 +251,12 @@ public class ThriftCxxEnhancerTest {
     // Check the "compatibility" option
     expectImplicitDeps(
         cppEnhancerWithSettings,
-        filesystem,
-        parser,
         ImmutableSet.of("compatibility"),
         ImmutableSet.of(
             config.get("cpp_library"),
             config.get("cpp_reflection_library")));
     expectImplicitDeps(
         cpp2EnhancerWithSettings,
-        filesystem,
-        parser,
         ImmutableSet.of("compatibility"),
         ImmutableSet.of(
             TARGET,
@@ -461,30 +427,36 @@ public class ThriftCxxEnhancerTest {
   @Test
   public void createBuildRule() {
     BuildRuleResolver resolver = new BuildRuleResolver();
+    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
     BuildRuleParams flavoredParams =
         BuildRuleParamsFactory.createTrivialBuildRuleParams(TARGET);
 
     // Add a dummy dependency to the constructor arg to make sure it gets through.
-    BuildRule argDep = createFakeBuildRule("//:arg_dep");
+    BuildRule argDep = createFakeBuildRule("//:arg_dep", pathResolver);
     resolver.addToIndex(argDep);
     ThriftConstructorArg arg = new ThriftConstructorArg();
     arg.cpp2Options = Optional.absent();
     arg.cpp2Deps = Optional.of(
         ImmutableSortedSet.of(argDep.getBuildTarget()));
 
+    ThriftCompiler thrift1 = createFakeThriftCompiler("//:thrift_source1", pathResolver);
+    resolver.addToIndex(thrift1);
+    ThriftCompiler thrift2 = createFakeThriftCompiler("//:thrift_source2", pathResolver);
+    resolver.addToIndex(thrift2);
+
     // Setup up some thrift inputs to pass to the createBuildRule method.
     ImmutableMap<String, ThriftSource> sources = ImmutableMap.of(
         "test1.thrift", new ThriftSource(
-            createFakeThriftCompiler("//:thrift_source1"),
+            thrift1,
             ImmutableList.<String>of(),
             Paths.get("output1")),
         "test2.thrift", new ThriftSource(
-            createFakeThriftCompiler("//:thrift_source2"),
+            thrift2,
             ImmutableList.<String>of(),
             Paths.get("output2")));
 
     // Create a dummy implicit dep to pass in.
-    BuildRule dep = createFakeBuildRule("//:dep");
+    BuildRule dep = createFakeBuildRule("//:dep", pathResolver);
     resolver.addToIndex(dep);
     ImmutableSortedSet<BuildRule> deps = ImmutableSortedSet.<BuildRule>of(dep);
 

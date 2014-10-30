@@ -48,10 +48,10 @@ import java.io.StringReader;
 import java.nio.file.CopyOption;
 import java.nio.file.FileVisitor;
 import java.nio.file.LinkOption;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.WatchEvent;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileAttribute;
 import java.nio.file.attribute.FileTime;
@@ -116,6 +116,7 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   private final Map<Path, byte[]> fileContents;
   private final Map<Path, ImmutableSet<FileAttribute<?>>> fileAttributes;
   private final Map<Path, FileTime> fileLastModifiedTimes;
+  private final Map<Path, Path> symLinks;
   private final Set<Path> directories;
   private final Clock clock;
 
@@ -128,11 +129,17 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
     fileContents = Maps.newHashMap();
     fileAttributes = Maps.newHashMap();
     fileLastModifiedTimes = Maps.newHashMap();
+    symLinks = Maps.newHashMap();
     directories = Sets.newHashSet();
     this.clock = Preconditions.checkNotNull(clock);
 
     // Generally, tests don't care whether files exist.
     ignoreValidityOfPaths = true;
+  }
+
+  public FakeProjectFilesystem setIgnoreValidityOfPaths(boolean shouldIgnore) {
+    this.ignoreValidityOfPaths = shouldIgnore;
+    return this;
   }
 
   private byte[] getFileBytes(Path path) {
@@ -153,7 +160,7 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   public <A extends BasicFileAttributes> A readAttributes(
       Path pathRelativeToProjectRoot,
       Class<A> type,
-      LinkOption... options) {
+      LinkOption... options) throws IOException {
     // Converting FileAttribute to BasicFileAttributes sub-interfaces is
     // really annoying. Let's just not do it.
     throw new UnsupportedOperationException();
@@ -181,7 +188,7 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   }
 
   @Override
-  public Properties readPropertiesFile(Path pathToPropertiesFile) {
+  public Properties readPropertiesFile(Path pathToPropertiesFile) throws IOException {
     throw new UnsupportedOperationException();
   }
 
@@ -191,7 +198,7 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   }
 
   @Override
-  public boolean isHidden(Path path) {
+  public boolean isHidden(Path path) throws IOException {
     return isFile(path) && path.getFileName().toString().startsWith(".");
   }
 
@@ -200,8 +207,12 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
     return directories.contains(path.normalize());
   }
 
+  /**
+   * Does not support symlinks.
+   */
   @Override
-  public ImmutableCollection<Path> getDirectoryContents(final Path pathRelativeToProjectRoot) {
+  public ImmutableCollection<Path> getDirectoryContents(final Path pathRelativeToProjectRoot)
+      throws IOException {
     Preconditions.checkState(isDirectory(pathRelativeToProjectRoot));
     return FluentIterable.from(fileContents.keySet()).filter(
         new Predicate<Path>() {
@@ -214,7 +225,7 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   }
 
   @Override
-  public void walkFileTree(Path root, FileVisitor<Path> fileVisitor) {
+  public void walkFileTree(Path root, FileVisitor<Path> fileVisitor) throws IOException {
     throw new UnsupportedOperationException();
   }
 
@@ -233,7 +244,7 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   }
 
   @Override
-  public void rmdir(Path path) {
+  public void rmdir(Path path) throws IOException {
     Path normalizedPath = path.normalize();
     for (Iterator<Path> iterator = fileContents.keySet().iterator(); iterator.hasNext();) {
       Path subPath = iterator.next();
@@ -248,7 +259,7 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   }
 
   @Override
-  public void mkdirs(Path path) {
+  public void mkdirs(Path path) throws IOException {
     for (int i = 0; i < path.getNameCount(); i++) {
       Path subpath = path.subpath(0, i + 1);
       directories.add(subpath);
@@ -260,7 +271,7 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   public void writeLinesToPath(
       Iterable<String> lines,
       Path path,
-      FileAttribute<?>... attrs) {
+      FileAttribute<?>... attrs) throws IOException {
     StringBuilder builder = new StringBuilder();
     if (!Iterables.isEmpty(lines)) {
       Joiner.on('\n').appendTo(builder, lines);
@@ -273,7 +284,7 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   public void writeContentsToPath(
       String contents,
       Path path,
-      FileAttribute<?>... attrs) {
+      FileAttribute<?>... attrs) throws IOException {
     writeBytesToPath(contents.getBytes(Charsets.UTF_8), path, attrs);
   }
 
@@ -281,7 +292,7 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   public void writeBytesToPath(
       byte[] bytes,
       Path path,
-      FileAttribute<?>... attrs) {
+      FileAttribute<?>... attrs) throws IOException {
     Path normalizedPath = path.normalize();
     fileContents.put(normalizedPath, Preconditions.checkNotNull(bytes));
     fileAttributes.put(normalizedPath, ImmutableSet.copyOf(attrs));
@@ -311,12 +322,15 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
         writeToMap();
       }
 
-      private void writeToMap() {
+      private void writeToMap() throws IOException {
         writeBytesToPath(toByteArray(), pathRelativeToProjectRoot, attrs);
       }
     };
   }
 
+  /**
+   * Does not support symlinks.
+   */
   @Override
   public InputStream newFileInputStream(Path pathRelativeToProjectRoot)
     throws IOException {
@@ -332,6 +346,9 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
     writeBytesToPath(ByteStreams.toByteArray(inputStream), path);
   }
 
+  /**
+   * Does not support symlinks.
+   */
   @Override
   public Optional<String> readFileIfItExists(Path path) {
     if (!exists(path)) {
@@ -340,6 +357,9 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
     return Optional.of(new String(getFileBytes(path), Charsets.UTF_8));
   }
 
+  /**
+   * Does not support symlinks.
+   */
   @Override
   public Optional<Reader> getReaderIfFileExists(Path path) {
     Optional<String> content = readFileIfItExists(path);
@@ -349,6 +369,9 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
     return Optional.of((Reader) new StringReader(content.get()));
   }
 
+  /**
+   * Does not support symlinks.
+   */
   @Override
   public Optional<String> readFirstLine(Path path) {
     List<String> lines;
@@ -361,6 +384,9 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
     return Optional.fromNullable(Iterables.get(lines, 0, null));
   }
 
+  /**
+   * Does not support symlinks.
+   */
   @Override
   public List<String> readLines(Path path) throws IOException {
     Optional<String> contents = readFileIfItExists(path);
@@ -372,6 +398,9 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
     return Splitter.on('\n').splitToList(content);
   }
 
+  /**
+   * Does not support symlinks.
+   */
   @Override
   public String computeSha1(Path path) throws IOException {
     if (!exists(path)) {
@@ -386,14 +415,15 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
    */
   @Override
   public void walkRelativeFileTree(Path path, FileVisitor<Path> fileVisitor) throws IOException {
-    Preconditions.checkArgument(!fileContents.containsKey(path),
+    Preconditions.checkArgument(
+        !fileContents.containsKey(path),
         "FakeProjectFilesystem only supports walkRelativeFileTree over directories.");
     for (Path file : getFilesUnderDir(path)) {
       fileVisitor.visitFile(file, DEFAULT_FILE_ATTRIBUTES);
     }
   }
 
-  public void touch(Path path) {
+  public void touch(Path path) throws IOException {
     writeContentsToPath("", path);
   }
 
@@ -407,27 +437,35 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   }
 
   @Override
-  public boolean isPathChangeEvent(WatchEvent<?> event) {
+  public void copyFolder(Path source, Path target) throws IOException {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public void copyFolder(Path source, Path target) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public void copyFile(Path source, Path target) {
+  public void copyFile(Path source, Path target) throws IOException {
     writeContentsToPath(readFileIfItExists(source).get(), target);
   }
 
   @Override
-  public void createSymLink(Path source, Path target, boolean force) {
-    throw new UnsupportedOperationException();
+  public void createSymLink(Path source, Path target, boolean force) throws IOException {
+    if (!force) {
+      if (fileContents.containsKey(source) || directories.contains(source)) {
+        throw new FileAlreadyExistsException(source.toString());
+      }
+    } else {
+      rmFile(source);
+      rmdir(source);
+    }
+    symLinks.put(source, target);
   }
 
   @Override
-  public void createZip(Collection<Path> pathsToIncludeInZip, File out) {
+  public boolean isSymLink(Path path) throws IOException {
+    return symLinks.containsKey(path);
+  }
+
+  @Override
+  public void createZip(Collection<Path> pathsToIncludeInZip, File out) throws IOException {
     throw new UnsupportedOperationException();
   }
 }

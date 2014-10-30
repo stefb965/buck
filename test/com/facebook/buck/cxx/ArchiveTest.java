@@ -23,10 +23,12 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleParamsFactory;
+import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.FakeRuleKeyBuilderFactory;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TestSourcePath;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.google.common.base.Strings;
@@ -40,7 +42,7 @@ import java.nio.file.Paths;
 
 public class ArchiveTest {
 
-  private static final Path DEFAULT_ARCHIVER = Paths.get("ar");
+  private static final SourcePath DEFAULT_ARCHIVER = new TestSourcePath("ar");
   private static final Path DEFAULT_OUTPUT = Paths.get("foo/libblah.a");
   private static final ImmutableList<SourcePath> DEFAULT_INPUTS =
       ImmutableList.<SourcePath>of(
@@ -50,15 +52,17 @@ public class ArchiveTest {
 
   private RuleKey.Builder.RuleKeyPair generateRuleKey(
       RuleKeyBuilderFactory factory,
+      SourcePathResolver resolver,
       AbstractBuildRule rule) {
 
-    RuleKey.Builder builder = factory.newInstance(rule);
+    RuleKey.Builder builder = factory.newInstance(rule, resolver);
     rule.appendToRuleKey(builder);
     return builder.build();
   }
 
   @Test
   public void testThatInputChangesCauseRuleKeyChanges() {
+    SourcePathResolver pathResolver = new SourcePathResolver(new BuildRuleResolver());
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     BuildRuleParams params = BuildRuleParamsFactory.createTrivialBuildRuleParams(target);
     RuleKeyBuilderFactory ruleKeyBuilderFactory =
@@ -74,8 +78,10 @@ public class ArchiveTest {
     // Generate a rule key for the defaults.
     RuleKey.Builder.RuleKeyPair defaultRuleKey = generateRuleKey(
         ruleKeyBuilderFactory,
+        pathResolver,
         new Archive(
             params,
+            pathResolver,
             DEFAULT_ARCHIVER,
             DEFAULT_OUTPUT,
             DEFAULT_INPUTS));
@@ -83,9 +89,11 @@ public class ArchiveTest {
     // Verify that changing the archiver causes a rulekey change.
     RuleKey.Builder.RuleKeyPair archiverChange = generateRuleKey(
         ruleKeyBuilderFactory,
+        pathResolver,
         new Archive(
             params,
-            Paths.get("different"),
+            pathResolver,
+            new TestSourcePath("different"),
             DEFAULT_OUTPUT,
             DEFAULT_INPUTS));
     assertNotEquals(defaultRuleKey, archiverChange);
@@ -93,8 +101,10 @@ public class ArchiveTest {
     // Verify that changing the output path causes a rulekey change.
     RuleKey.Builder.RuleKeyPair outputChange = generateRuleKey(
         ruleKeyBuilderFactory,
+        pathResolver,
         new Archive(
             params,
+            pathResolver,
             DEFAULT_ARCHIVER,
             Paths.get("different"),
             DEFAULT_INPUTS));
@@ -103,8 +113,10 @@ public class ArchiveTest {
     // Verify that changing the inputs causes a rulekey change.
     RuleKey.Builder.RuleKeyPair inputChange = generateRuleKey(
         ruleKeyBuilderFactory,
+        pathResolver,
         new Archive(
             params,
+            pathResolver,
             DEFAULT_ARCHIVER,
             DEFAULT_OUTPUT,
             ImmutableList.<SourcePath>of(new TestSourcePath("different"))));

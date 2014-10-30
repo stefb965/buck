@@ -20,6 +20,7 @@ import com.facebook.buck.model.BuildTarget;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonInclude.Include;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 
@@ -42,15 +43,19 @@ class DependentModule {
   private final String type;
 
   @JsonProperty
+  @Nullable
   String scope;
 
   @JsonProperty
+  @Nullable
   private String name;
 
   @JsonProperty
+  @Nullable
   private String moduleName;
 
   @JsonProperty
+  @Nullable
   private Boolean forTests;
 
   /**
@@ -68,7 +73,7 @@ class DependentModule {
   private String jdkType;
 
   private DependentModule(String type, @Nullable BuildTarget target) {
-    this.type = Preconditions.checkNotNull(type);
+    this.type = type;
     this.target = target;
   }
 
@@ -77,6 +82,7 @@ class DependentModule {
    *
    * @return the target that declared this module or null.
    */
+  @Nullable
   public String getTargetName() {
     if (target == null) {
       return null;
@@ -94,15 +100,15 @@ class DependentModule {
 
   String getLibraryName() {
     Preconditions.checkState(isLibrary());
-    return name;
+    return Preconditions.checkNotNull(name);
   }
 
   String getModuleName() {
     Preconditions.checkState(isModule());
-    return moduleName;
+    return Preconditions.checkNotNull(moduleName);
   }
 
-  static DependentModule newLibrary(BuildTarget owningTarget, String libraryName) {
+  static DependentModule newLibrary(@Nullable BuildTarget owningTarget, String libraryName) {
     DependentModule module = new DependentModule(LIBRARY_DEPENDENCY_TYPE, owningTarget);
     module.name = libraryName;
     return module;
@@ -165,7 +171,7 @@ class DependentModule {
   // This is helpful in the event of a unit test failure.
   @Override
   public String toString() {
-    return Objects.toStringHelper(DependentModule.class)
+    return MoreObjects.toStringHelper(DependentModule.class)
         .add("target", target)
         .add("type", type)
         .add("scope", scope)

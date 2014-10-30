@@ -19,29 +19,34 @@ package com.facebook.buck.android;
 import com.facebook.buck.android.AndroidLibraryGraphEnhancer.ResourceDependencyMode;
 import com.facebook.buck.java.AnnotationProcessingParams;
 import com.facebook.buck.java.JavaCompilerEnvironment;
+import com.facebook.buck.java.JavaLibrary;
 import com.facebook.buck.java.JavaLibraryDescription;
+import com.facebook.buck.java.JavaSourceJar;
 import com.facebook.buck.java.JavacOptions;
+import com.facebook.buck.model.Flavor;
+import com.facebook.buck.model.Flavored;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Optional;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
 
-public class AndroidLibraryDescription implements Description<AndroidLibraryDescription.Arg> {
+public class AndroidLibraryDescription
+    implements Description<AndroidLibraryDescription.Arg>, Flavored {
 
   public static final BuildRuleType TYPE = new BuildRuleType("android_library");
   private final JavaCompilerEnvironment javacEnv;
 
   public AndroidLibraryDescription(JavaCompilerEnvironment javacEnv) {
-    this.javacEnv = Preconditions.checkNotNull(javacEnv);
+    this.javacEnv = javacEnv;
   }
 
   @Override
@@ -55,10 +60,15 @@ public class AndroidLibraryDescription implements Description<AndroidLibraryDesc
   }
 
   @Override
-  public <A extends Arg> AndroidLibrary createBuildRule(
+  public <A extends Arg> BuildRule createBuildRule(
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) {
+    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    if (params.getBuildTarget().getFlavors().contains(JavaLibrary.SRC_JAR)) {
+      return new JavaSourceJar(params, pathResolver, args.srcs.get());
+    }
+
     JavacOptions.Builder javacOptions = JavaLibraryDescription.getJavacOptions(args, javacEnv);
 
     AnnotationProcessingParams annotationParams = args.buildAnnotationProcessingParams(
@@ -88,8 +98,10 @@ public class AndroidLibraryDescription implements Description<AndroidLibraryDesc
 
     return new AndroidLibrary(
         params,
+        pathResolver,
         args.srcs.get(),
         JavaLibraryDescription.validateResources(
+            pathResolver,
             args,
             params.getProjectFilesystem()),
         args.proguardConfig,
@@ -101,6 +113,11 @@ public class AndroidLibraryDescription implements Description<AndroidLibraryDesc
         args.resourcesRoot,
         args.manifest,
         /* isPrebuiltAar */ false);
+  }
+
+  @Override
+  public boolean hasFlavors(ImmutableSet<Flavor> flavors) {
+    return flavors.contains(JavaLibrary.SRC_JAR) || flavors.contains(Flavor.DEFAULT);
   }
 
   @SuppressFieldNotInitialized

@@ -22,9 +22,8 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 
@@ -49,13 +48,16 @@ public class XcodeNative extends AbstractBuildRule {
   private final String targetName;
   private final String buildableName;
 
-  public XcodeNative(BuildRuleParams params, XcodeNativeDescription.Arg arg) {
-    super(params);
-    this.projectContainerPath = Preconditions.checkNotNull(arg.projectContainerPath);
+  public XcodeNative(
+      BuildRuleParams params,
+      SourcePathResolver resolver,
+      XcodeNativeDescription.Arg arg) {
+    super(params, resolver);
+    this.projectContainerPath = arg.projectContainerPath;
 
     String shortName = params.getBuildTarget().getShortNameOnly();
-    this.targetName = Preconditions.checkNotNull(arg.targetName).or(shortName);
-    this.buildableName = Preconditions.checkNotNull(arg.buildableName).or("lib" + shortName + ".a");
+    this.targetName = arg.targetName.or(shortName);
+    this.buildableName = arg.buildableName.or("lib" + shortName + ".a");
   }
 
   public SourcePath getProjectContainerPath() {
@@ -80,7 +82,9 @@ public class XcodeNative extends AbstractBuildRule {
   @Override
   public ImmutableCollection<Path> getInputsToCompareToOutput() {
     // TODO(user): Somehow enumerate all files referenced by the xcode project.
-    return SourcePaths.filterInputsToCompareToOutput(Collections.singleton(projectContainerPath));
+    return getResolver().filterInputsToCompareToOutput(
+        Collections.singleton(
+            projectContainerPath));
   }
 
   @Override

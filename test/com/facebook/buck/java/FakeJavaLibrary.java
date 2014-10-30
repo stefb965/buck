@@ -21,7 +21,6 @@ import static com.facebook.buck.rules.BuildableProperties.Kind.LIBRARY;
 import com.facebook.buck.android.AndroidPackageable;
 import com.facebook.buck.android.AndroidPackageableCollector;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AnnotationProcessingData;
 import com.facebook.buck.rules.BuildRule;
@@ -30,10 +29,10 @@ import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.Sha1HashCode;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePaths;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -47,28 +46,28 @@ public class FakeJavaLibrary extends FakeBuildRule implements JavaLibrary, Andro
   private static final BuildableProperties OUTPUT_TYPE = new BuildableProperties(LIBRARY);
 
   private ImmutableSortedSet<SourcePath> srcs = ImmutableSortedSet.of();
-  private ImmutableSet<BuildTargetPattern> visibilityPatterns;
 
   public FakeJavaLibrary(
       BuildTarget target,
+      SourcePathResolver resolver,
       ImmutableSortedSet<BuildRule> deps) {
     this(JavaLibraryDescription.TYPE,
         target,
-        deps,
-        BuildTargetPattern.PUBLIC);
+        resolver,
+        deps
+    );
   }
 
   public FakeJavaLibrary(
       BuildRuleType type,
       BuildTarget target,
-      ImmutableSortedSet<BuildRule> deps,
-      ImmutableSet<BuildTargetPattern> visibilityPatterns) {
-    super(type, target, deps, visibilityPatterns);
-    this.visibilityPatterns = visibilityPatterns;
+      SourcePathResolver resolver,
+      ImmutableSortedSet<BuildRule> deps) {
+    super(type, target, resolver, deps);
   }
 
-  public FakeJavaLibrary(BuildTarget target) {
-    super(JavaLibraryDescription.TYPE, target);
+  public FakeJavaLibrary(BuildTarget target, SourcePathResolver resolver) {
+    super(JavaLibraryDescription.TYPE, target, resolver);
   }
 
   @Override
@@ -102,8 +101,8 @@ public class FakeJavaLibrary extends FakeBuildRule implements JavaLibrary, Andro
   }
 
   @Override
-  public ImmutableSortedSet<SourcePath> getJavaSrcs() {
-    return srcs;
+  public ImmutableSortedSet<Path> getJavaSrcs() {
+    return ImmutableSortedSet.copyOf(getResolver().getAllPaths(srcs));
   }
 
   public FakeJavaLibrary setJavaSrcs(ImmutableSortedSet<Path> srcs) {
@@ -137,14 +136,6 @@ public class FakeJavaLibrary extends FakeBuildRule implements JavaLibrary, Andro
   @Override
   public void addToCollector(AndroidPackageableCollector collector) {
     collector.addClasspathEntry(this, getPathToOutputFile());
-  }
-
-  @Override
-  public boolean isVisibleTo(JavaLibrary other) {
-    return BuildTargets.isVisibleTo(
-        getBuildTarget(),
-        visibilityPatterns,
-        other.getBuildTarget());
   }
 
 }

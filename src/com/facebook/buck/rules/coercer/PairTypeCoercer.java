@@ -17,7 +17,6 @@
 package com.facebook.buck.rules.coercer;
 
 import com.facebook.buck.parser.BuildTargetParser;
-import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -56,24 +55,14 @@ public class PairTypeCoercer<FIRST, SECOND> implements TypeCoercer<Pair<FIRST, S
   }
 
   @Override
-  public boolean traverse(Object object, Traversal traversal) {
-    if (object instanceof Collection) {
-      Collection<?> collection = (Collection<?>) object;
-      if (collection.size() != 2) {
-        return false;
-      }
-
-      Iterator<?> iterator = collection.iterator();
-      return firstTypeCoercer.traverse(iterator.next(), traversal) &&
-          secondTypeCoercer.traverse(iterator.next(), traversal);
-    }
-    return false;
+  public void traverse(Pair<FIRST, SECOND> object, Traversal traversal) {
+    firstTypeCoercer.traverse(object.getFirst(), traversal);
+    secondTypeCoercer.traverse(object.getSecond(), traversal);
   }
 
   @Override
   public Pair<FIRST, SECOND> coerce(
       BuildTargetParser buildTargetParser,
-      BuildRuleResolver buildRuleResolver,
       ProjectFilesystem filesystem,
       Path pathRelativeToProjectRoot,
       Object object)
@@ -89,13 +78,11 @@ public class PairTypeCoercer<FIRST, SECOND> implements TypeCoercer<Pair<FIRST, S
       Iterator<?> iterator = collection.iterator();
       FIRST first = firstTypeCoercer.coerce(
           buildTargetParser,
-          buildRuleResolver,
           filesystem,
           pathRelativeToProjectRoot,
           iterator.next());
       SECOND second = secondTypeCoercer.coerce(
           buildTargetParser,
-          buildRuleResolver,
           filesystem,
           pathRelativeToProjectRoot,
           iterator.next());

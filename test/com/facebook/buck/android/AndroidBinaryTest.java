@@ -37,6 +37,7 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TestSourcePath;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -58,7 +59,6 @@ import com.google.common.hash.HashCode;
 
 import org.junit.Test;
 
-import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
@@ -142,6 +142,7 @@ public class AndroidBinaryTest {
 
     ProGuardObfuscateStep.create(
         Optional.<Path>absent(),
+        "1024M",
         Paths.get("buck-out/gen/java/src/com/facebook/base/.proguard/apk/proguard.txt"),
         ImmutableSet.<Path>of(),
         ProGuardObfuscateStep.SdkProguardType.DEFAULT,
@@ -179,6 +180,7 @@ public class AndroidBinaryTest {
           BuildTargetFactory.newInstance(buildTarget + "_resources");
       BuildRule androidResourceRule = ruleResolver.addToIndex(
           AndroidResourceRuleBuilder.newBuilder()
+              .setResolver(new SourcePathResolver(ruleResolver))
               .setAssets(Paths.get(assetDirectory))
               .setRes(resDirectory == null ? null : Paths.get(resDirectory))
               .setBuildTarget(resourceOnebuildTarget)
@@ -397,7 +399,7 @@ public class AndroidBinaryTest {
     class FakeProjectFilesystem extends ProjectFilesystem {
 
       public FakeProjectFilesystem() {
-        super(new File("."));
+        super(Paths.get("."));
       }
 
       @Override

@@ -16,14 +16,15 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.rules.BuildRuleFactoryParams;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.util.MorePaths;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -35,14 +36,14 @@ import java.nio.file.Path;
 
 public class CxxLibraryDescription implements
     Description<CxxLibraryDescription.Arg>,
-    ImplicitDepsInferringDescription {
+    ImplicitDepsInferringDescription<CxxLibraryDescription.Arg> {
 
   public static final BuildRuleType TYPE = new BuildRuleType("cxx_library");
 
-  private final CxxBuckConfig cxxBuckConfig;
+  private final CxxPlatform cxxPlatform;
 
-  public CxxLibraryDescription(CxxBuckConfig cxxBuckConfig) {
-    this.cxxBuckConfig = Preconditions.checkNotNull(cxxBuckConfig);
+  public CxxLibraryDescription(CxxPlatform cxxPlatform) {
+    this.cxxPlatform = Preconditions.checkNotNull(cxxPlatform);
   }
 
   @Override
@@ -55,29 +56,34 @@ public class CxxLibraryDescription implements
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) {
+    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
 
     // Extract the C/C++ sources from the constructor arg.
-    ImmutableList<CxxSource> srcs =
+    ImmutableMap<String, CxxSource> srcs =
         CxxDescriptionEnhancer.parseCxxSources(
             params.getBuildTarget(),
+            pathResolver,
             args.srcs.or(ImmutableList.<SourcePath>of()));
 
     // Extract the header map from the our constructor arg.
     ImmutableMap<Path, SourcePath> headers =
         CxxDescriptionEnhancer.parseHeaders(
             params.getBuildTarget(),
+            pathResolver,
+            args.headerNamespace.transform(MorePaths.TO_PATH)
+                .or(params.getBuildTarget().getBasePath()),
             args.headers.or((ImmutableList.<SourcePath>of())));
 
     // Extract the lex sources.
     ImmutableMap<String, SourcePath> lexSrcs =
-        SourcePaths.getSourcePathNames(
+        pathResolver.getSourcePathNames(
             params.getBuildTarget(),
             "lexSrcs",
             args.lexSrcs.or(ImmutableList.<SourcePath>of()));
 
     // Extract the yacc sources.
     ImmutableMap<String, SourcePath> yaccSrcs =
-        SourcePaths.getSourcePathNames(
+        pathResolver.getSourcePathNames(
             params.getBuildTarget(),
             "yaccSrcs",
             args.yaccSrcs.or(ImmutableList.<SourcePath>of()));
@@ -87,7 +93,7 @@ public class CxxLibraryDescription implements
         CxxDescriptionEnhancer.createLexYaccBuildRules(
             params,
             resolver,
-            cxxBuckConfig,
+            cxxPlatform,
             ImmutableList.<String>of(),
             lexSrcs,
             ImmutableList.<String>of(),
@@ -98,19 +104,24 @@ public class CxxLibraryDescription implements
     return CxxDescriptionEnhancer.createCxxLibraryBuildRules(
         params,
         resolver,
-        cxxBuckConfig,
-        args.preprocessorFlags.or(ImmutableList.<String>of()),
-        args.propagatedPpFlags.or(ImmutableList.<String>of()),
+        cxxPlatform,
+        CxxPreprocessorFlags.fromArgs(
+            args.preprocessorFlags,
+            args.langPreprocessorFlags),
+        CxxPreprocessorFlags.fromArgs(
+            args.propagatedPpFlags,
+            args.propagatedLangPpFlags),
         ImmutableMap.<Path, SourcePath>builder()
             .putAll(headers)
             .putAll(lexYaccSources.getCxxHeaders())
             .build(),
         args.compilerFlags.or(ImmutableList.<String>of()),
-        ImmutableList.<CxxSource>builder()
-            .addAll(srcs)
-            .addAll(lexYaccSources.getCxxSources())
+        ImmutableMap.<String, CxxSource>builder()
+            .putAll(srcs)
+            .putAll(lexYaccSources.getCxxSources())
             .build(),
-        args.linkWhole.or(false));
+        args.linkWhole.or(false),
+        args.soname);
   }
 
   @Override
@@ -119,11 +130,13 @@ public class CxxLibraryDescription implements
   }
 
   @Override
-  public Iterable<String> findDepsFromParams(BuildRuleFactoryParams params) {
+  public Iterable<String> findDepsForTargetFromConstructorArgs(
+      BuildTarget buildTarget,
+      Arg constructorArg) {
     ImmutableSet.Builder<String> deps = ImmutableSet.builder();
 
-    if (!params.getOptionalListAttribute("lexSrcs").isEmpty()) {
-      deps.add(cxxBuckConfig.getLexDep().toString());
+    if (!constructorArg.lexSrcs.get().isEmpty()) {
+      deps.add(cxxPlatform.getLexDep().toString());
     }
 
     return deps.build();
@@ -132,6 +145,8 @@ public class CxxLibraryDescription implements
   @SuppressFieldNotInitialized
   public static class Arg extends CxxConstructorArg {
     public Optional<ImmutableList<String>> propagatedPpFlags;
+    public Optional<ImmutableMap<CxxSource.Type, ImmutableList<String>>> propagatedLangPpFlags;
+    public Optional<String> soname;
     public Optional<Boolean> linkWhole;
   }
 

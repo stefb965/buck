@@ -39,25 +39,24 @@ import com.facebook.buck.model.BuildId;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.AbiRule;
-import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildDependencies;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleSourcePath;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeRuleKeyBuilderFactory;
 import com.facebook.buck.rules.NoopArtifactCache;
-import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
 import com.facebook.buck.rules.Sha1HashCode;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.TestSourcePath;
 import com.facebook.buck.shell.GenruleBuilder;
@@ -107,7 +106,6 @@ import java.io.IOException;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -148,7 +146,7 @@ public class DefaultJavaLibraryTest {
 
     BuildRuleResolver ruleResolver = new BuildRuleResolver(
         ImmutableMap.<BuildTarget, BuildRule>of());
-    ProjectFilesystem projectFilesystem = new ProjectFilesystem(tmp.getRoot());
+    ProjectFilesystem projectFilesystem = new ProjectFilesystem(tmp.getRoot().toPath());
     BuildRule libraryRule = AndroidLibraryBuilder
         .createBuilder(buildTarget)
         .addSrc(src)
@@ -170,7 +168,7 @@ public class DefaultJavaLibraryTest {
     assertNotNull("Expected a JavacInMemoryCommand in the command list.", step);
     JavacInMemoryStep javac = (JavacInMemoryStep) step;
     assertEquals("Should compile Main.java rather than generated R.java.",
-        ImmutableSet.of(new PathSourcePath(src)),
+        ImmutableSet.of(src),
         javac.getSrcs());
   }
 
@@ -194,7 +192,7 @@ public class DefaultJavaLibraryTest {
 
     DefaultJavaLibrary javaRule = (DefaultJavaLibrary) JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//library:code"))
-        .addResource(new BuildRuleSourcePath(genrule))
+        .addResource(new BuildTargetSourcePath(genrule.getBuildTarget()))
         .addResource(new TestSourcePath("library/data.txt"))
         .build(ruleResolver, filesystem);
 
@@ -360,7 +358,9 @@ public class DefaultJavaLibraryTest {
     // libraryOne responds like an ordinary prebuilt_jar with no dependencies. We have to use a
     // FakeJavaLibraryRule so that we can override the behavior of getAbiKey().
     BuildTarget libraryOneTarget = BuildTargetFactory.newInstance("//:libone");
-    FakeJavaLibrary libraryOne = new FakeJavaLibrary(libraryOneTarget) {
+    FakeJavaLibrary libraryOne = new FakeJavaLibrary(
+        libraryOneTarget,
+        new SourcePathResolver(new BuildRuleResolver())) {
       @Override
       public Sha1HashCode getAbiKey() {
         return new Sha1HashCode(Strings.repeat("cafebabe", 5));
@@ -955,6 +955,7 @@ public class DefaultJavaLibraryTest {
 
     return new DefaultJavaLibrary(
         buildRuleParams,
+        new SourcePathResolver(new BuildRuleResolver()),
         srcsAsPaths,
         /* resources */ ImmutableSet.<SourcePath>of(),
         /* proguardConfig */ Optional.<Path>absent(),
@@ -1005,7 +1006,7 @@ public class DefaultJavaLibraryTest {
   @Test
   public void testSuggsetDepsReverseTopoSortRespected() {
     BuildRuleResolver ruleResolver = new BuildRuleResolver();
-    ProjectFilesystem projectFilesystem = new ProjectFilesystem(tmp.getRoot());
+    ProjectFilesystem projectFilesystem = new ProjectFilesystem(tmp.getRoot().toPath());
 
     BuildTarget libraryOneTarget = BuildTargetFactory.newInstance("//:libone");
     BuildRule libraryOne = JavaLibraryBuilder
@@ -1076,6 +1077,8 @@ public class DefaultJavaLibraryTest {
         return false;
       }
     };
+    BuildRuleResolver resolver1 = new BuildRuleResolver();
+    SourcePathResolver pathResolver1 = new SourcePathResolver(resolver1);
     DefaultJavaLibrary rule1 = (DefaultJavaLibrary) JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//lib:lib"))
         .addSrc(Paths.get("agifhbkjdec.java"))
@@ -1086,8 +1089,10 @@ public class DefaultJavaLibraryTest {
         .addResource(new TestSourcePath("bkhajdifcge.txt"))
         .addResource(new TestSourcePath("cabfghjekid.txt"))
         .addResource(new TestSourcePath("chkdbafijge.txt"))
-        .build(new BuildRuleResolver(), filesystem);
+        .build(resolver1, filesystem);
 
+    BuildRuleResolver resolver2 = new BuildRuleResolver();
+    SourcePathResolver pathResolver2 = new SourcePathResolver(resolver2);
     DefaultJavaLibrary rule2 = (DefaultJavaLibrary) JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//lib:lib"))
         .addSrc(Paths.get("cfiabkjehgd.java"))
@@ -1098,10 +1103,10 @@ public class DefaultJavaLibraryTest {
         .addResource(new TestSourcePath("cabfghjekid.txt"))
         .addResource(new TestSourcePath("bkhajdifcge.txt"))
         .addResource(new TestSourcePath("becgkaifhjd.txt"))
-        .build(new BuildRuleResolver(), filesystem);
+        .build(resolver2, filesystem);
 
-    Collection<Path> inputs1 = rule1.getInputsToCompareToOutput();
-    Collection<Path> inputs2 = rule2.getInputsToCompareToOutput();
+    Iterable<Path> inputs1 = rule1.getInputsToCompareToOutput();
+    Iterable<Path> inputs2 = rule2.getInputsToCompareToOutput();
     assertEquals(ImmutableList.copyOf(inputs1), ImmutableList.copyOf(inputs2));
 
     ImmutableMap.Builder<String, String> fileHashes = ImmutableMap.builder();
@@ -1113,10 +1118,10 @@ public class DefaultJavaLibraryTest {
     RuleKeyBuilderFactory ruleKeyBuilderFactory =
         new FakeRuleKeyBuilderFactory(FakeFileHashCache.createFromStrings(fileHashes.build()));
 
-    RuleKey.Builder builder1 = ruleKeyBuilderFactory.newInstance(rule1);
-    RuleKey.Builder builder2 = ruleKeyBuilderFactory.newInstance(rule2);
-    ((AbstractBuildRule) rule1).appendToRuleKey(builder1);
-    ((AbstractBuildRule) rule2).appendToRuleKey(builder2);
+    RuleKey.Builder builder1 = ruleKeyBuilderFactory.newInstance(rule1, pathResolver1);
+    RuleKey.Builder builder2 = ruleKeyBuilderFactory.newInstance(rule2, pathResolver2);
+    rule1.appendToRuleKey(builder1);
+    rule2.appendToRuleKey(builder2);
     RuleKey.Builder.RuleKeyPair pair1 = builder1.build();
     RuleKey.Builder.RuleKeyPair pair2 = builder2.build();
     assertEquals(pair1.getTotalRuleKey(), pair2.getTotalRuleKey());
@@ -1356,7 +1361,7 @@ public class DefaultJavaLibraryTest {
     }
 
     public ImmutableList<String> buildAndGetCompileParameters() throws IOException {
-      ProjectFilesystem projectFilesystem = new ProjectFilesystem(tmp.getRoot());
+      ProjectFilesystem projectFilesystem = new ProjectFilesystem(tmp.getRoot().toPath());
       BuildRule javaLibrary = createJavaLibraryRule(projectFilesystem);
       buildContext = createBuildContext(javaLibrary, /* bootclasspath */ null, projectFilesystem);
       List<Step> steps = javaLibrary.getBuildSteps(
@@ -1396,6 +1401,7 @@ public class DefaultJavaLibraryTest {
 
       return new AndroidLibrary(
           buildRuleParams,
+          new SourcePathResolver(new BuildRuleResolver()),
           ImmutableSet.of(new TestSourcePath(src)),
           /* resources */ ImmutableSet.<SourcePath>of(),
           /* proguardConfig */ Optional.<Path>absent(),
@@ -1426,7 +1432,7 @@ public class DefaultJavaLibraryTest {
     private final String abiKeyHash;
 
     public FakeJavaAbiRule(BuildRuleType type, BuildTarget buildTarget, String abiKeyHash) {
-      super(type, buildTarget);
+      super(type, buildTarget, new SourcePathResolver(new BuildRuleResolver()));
       this.abiKeyHash = abiKeyHash;
     }
 

@@ -16,18 +16,12 @@
 
 package com.facebook.buck.rules;
 
-import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.parser.ParseContext;
-import com.facebook.buck.util.HumanReadableException;
-import com.google.common.collect.ImmutableSet;
 
 /**
  * Takes in an {@link TargetNode} from the target graph and builds a {@link BuildRule}.
  */
 public class TargetNodeToBuildRuleTransformer {
-
-  ConstructorArgMarshaller inspector = new ConstructorArgMarshaller();
 
   public <T> BuildRule transform(
       BuildRuleResolver ruleResolver,
@@ -36,16 +30,7 @@ public class TargetNodeToBuildRuleTransformer {
     BuildRuleFactoryParams ruleFactoryParams = targetNode.getRuleFactoryParams();
     Description<T> description = targetNode.getDescription();
 
-    T arg = description.createUnpopulatedConstructorArg();
-    try {
-      inspector.populate(
-          ruleResolver,
-          ruleFactoryParams.getProjectFilesystem(),
-          ruleFactoryParams,
-          arg);
-    } catch (ConstructorArgMarshalException e) {
-      throw new HumanReadableException("%s: %s", targetNode.getBuildTarget(), e.getMessage());
-    }
+    T arg = targetNode.getConstructorArg();
 
     // The params used for the Buildable only contain the declared parameters. However, the deps of
     // the rule include not only those, but also any that were picked up through the deps declared
@@ -54,7 +39,6 @@ public class TargetNodeToBuildRuleTransformer {
         targetNode.getBuildTarget(),
         ruleResolver.getAllRules(targetNode.getDeclaredDeps()),
         ruleResolver.getAllRules(targetNode.getExtraDeps()),
-        getVisibilityPatterns(targetNode),
         ruleFactoryParams.getProjectFilesystem(),
         ruleFactoryParams.getRuleKeyBuilderFactory(),
         description.getBuildRuleType());
@@ -72,17 +56,5 @@ public class TargetNodeToBuildRuleTransformer {
     }
 
     return buildRule;
-  }
-
-  private static ImmutableSet<BuildTargetPattern> getVisibilityPatterns(TargetNode<?> targetNode)
-      throws NoSuchBuildTargetException {
-    ImmutableSet.Builder<BuildTargetPattern> builder = ImmutableSet.builder();
-    BuildRuleFactoryParams params = targetNode.getRuleFactoryParams();
-    for (String visibility : params.getOptionalListAttribute("visibility")) {
-      builder.add(params.buildTargetPatternParser.parse(
-              visibility,
-              ParseContext.forVisibilityArgument()));
-    }
-    return builder.build();
   }
 }

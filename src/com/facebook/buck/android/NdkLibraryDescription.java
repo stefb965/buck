@@ -22,10 +22,10 @@ import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.util.MoreStrings;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Optional;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 
@@ -49,7 +49,7 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescription.
   private final Optional<String> ndkVersion;
 
   public NdkLibraryDescription(Optional<String> ndkVersion) {
-    this.ndkVersion = Preconditions.checkNotNull(ndkVersion);
+    this.ndkVersion = ndkVersion;
   }
 
   @Override
@@ -95,6 +95,7 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescription.
 
     return new NdkLibrary(
         params,
+        new SourcePathResolver(resolver),
         srcs.build(),
         args.flags.get(),
         args.isAsset.or(false),

@@ -58,7 +58,7 @@ public class ExecutionContext {
 
   private ExecutionContext(
       @Nullable ProjectFilesystem projectFilesystem,
-      @Nullable Console console,
+      Console console,
       Optional<AndroidPlatformTarget> androidPlatformTarget,
       Optional<TargetDevice> targetDevice,
       long defaultTestTimeoutMillis,
@@ -240,7 +240,7 @@ public class ExecutionContext {
     public ExecutionContext build() {
       return new ExecutionContext(
           projectFilesystem,
-          console,
+          Preconditions.checkNotNull(console),
           androidPlatformTarget,
           targetDevice,
           defaultTestTimeoutMillis,
@@ -331,6 +331,5 @@ public class ExecutionContext {
       this.objectMapper = Preconditions.checkNotNull(objectMapper);
       return this;
     }
-
   }
 }

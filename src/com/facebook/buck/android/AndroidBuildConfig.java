@@ -24,7 +24,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
@@ -138,14 +138,15 @@ public class AndroidBuildConfig extends AbstractBuildRule {
 
   protected AndroidBuildConfig(
       BuildRuleParams buildRuleParams,
+      SourcePathResolver resolver,
       String javaPackage,
       BuildConfigFields defaultValues,
       Optional<SourcePath> valuesFile,
       boolean useConstantExpressions) {
-    super(buildRuleParams);
-    this.javaPackage = Preconditions.checkNotNull(javaPackage);
-    this.defaultValues = Preconditions.checkNotNull(defaultValues);
-    this.valuesFile = Preconditions.checkNotNull(valuesFile);
+    super(buildRuleParams, resolver);
+    this.javaPackage = javaPackage;
+    this.defaultValues = defaultValues;
+    this.valuesFile = valuesFile;
     this.useConstantExpressions = useConstantExpressions;
     this.pathToOutputFile = BuildTargets.getGenPath(buildRuleParams.getBuildTarget(), "__%s__")
         .resolve("BuildConfig.java");
@@ -153,7 +154,7 @@ public class AndroidBuildConfig extends AbstractBuildRule {
 
   @Override
   public ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return SourcePaths.filterInputsToCompareToOutput(valuesFile.asSet());
+    return getResolver().filterInputsToCompareToOutput(valuesFile.asSet());
   }
 
   @Override
@@ -173,7 +174,8 @@ public class AndroidBuildConfig extends AbstractBuildRule {
 
     Supplier<BuildConfigFields> totalFields;
     if (valuesFile.isPresent()) {
-      final ReadValuesStep readValuesStep = new ReadValuesStep(valuesFile.get());
+      final ReadValuesStep readValuesStep =
+          new ReadValuesStep(getResolver().getPath(valuesFile.get()));
       steps.add(readValuesStep);
       totalFields = Suppliers.memoize(new Supplier<BuildConfigFields>() {
         @Override
@@ -218,21 +220,21 @@ public class AndroidBuildConfig extends AbstractBuildRule {
   static class ReadValuesStep extends AbstractExecutionStep
       implements Supplier<BuildConfigFields> {
 
-    private final SourcePath valuesFile;
+    private final Path valuesFile;
 
     @Nullable
     private BuildConfigFields values;
 
-    public ReadValuesStep(SourcePath valuesFile) {
+    public ReadValuesStep(Path valuesFile) {
       super("read values from " + valuesFile.toString());
-      this.valuesFile = Preconditions.checkNotNull(valuesFile);
+      this.valuesFile = valuesFile;
     }
 
     @Override
     public int execute(ExecutionContext context) {
       List<String> lines;
       try {
-        lines = context.getProjectFilesystem().readLines(valuesFile.resolve());
+        lines = context.getProjectFilesystem().readLines(valuesFile);
       } catch (IOException e) {
         context.logError(e, "Error reading %s.", valuesFile);
         return 1;

@@ -23,11 +23,12 @@ import static org.junit.Assert.fail;
 import com.facebook.buck.java.abi.AbiWriterProtocol;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildDependencies;
-import com.facebook.buck.rules.BuildRuleSourcePath;
+import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.Sha1HashCode;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.TestSourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
@@ -153,19 +154,23 @@ public class JavacInMemoryStepIntegrationTest {
   }
 
   /**
-   * There was a bug where `BuildRuleSourcePath` sources were written to the classes file using
+   * There was a bug where `BuildTargetSourcePath` sources were written to the classes file using
    * their string representation, rather than their resolved path.
    */
   @Test
-  public void shouldWriteResolvedBuildRuleSourcePathsToClassesFile()
+  public void shouldWriteResolvedBuildTargetSourcePathsToClassesFile()
       throws IOException, InterruptedException {
+    BuildRuleResolver resolver = new BuildRuleResolver();
+    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    BuildRule rule = new FakeBuildRule("//:fake", pathResolver);
+    resolver.addToIndex(rule);
 
-    BuildRuleSourcePath sourcePath = new BuildRuleSourcePath(
-        new FakeBuildRule("//:fake"),
+    BuildTargetSourcePath sourcePath = new BuildTargetSourcePath(
+        rule.getBuildTarget(),
         Paths.get("Example.java"));
 
     JavacInMemoryStep javac = createJavac(
-        /* javaSourceFilePaths */ ImmutableSet.<SourcePath>of(sourcePath),
+        /* javaSourceFilePaths */ ImmutableSet.of(pathResolver.getPath(sourcePath)),
         /* withSyntaxError */ false);
     ExecutionContext executionContext = createExecutionContext();
     int exitCode = javac.execute(executionContext);
@@ -178,7 +183,7 @@ public class JavacInMemoryStepIntegrationTest {
   }
 
   private JavacInMemoryStep createJavac(
-      ImmutableSet<SourcePath> javaSourceFilePaths,
+      ImmutableSet<Path> javaSourceFilePaths,
       boolean withSyntaxError)
       throws IOException {
 
@@ -210,13 +215,13 @@ public class JavacInMemoryStepIntegrationTest {
 
   private JavacInMemoryStep createJavac(boolean withSyntaxError) throws IOException {
     return createJavac(
-        /* javaSourceFilePaths */ ImmutableSet.<SourcePath>of(new TestSourcePath("Example.java")),
+        /* javaSourceFilePaths */ ImmutableSet.of(Paths.get("Example.java")),
         withSyntaxError);
   }
 
   private ExecutionContext createExecutionContext() {
     return TestExecutionContext.newBuilder()
-        .setProjectFilesystem(new ProjectFilesystem(tmp.getRoot()))
+        .setProjectFilesystem(new ProjectFilesystem(tmp.getRootPath()))
         .build();
   }
 }

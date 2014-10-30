@@ -25,17 +25,18 @@ import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.json.ProjectBuildFileParseEvents;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.parser.ParseEvent;
 import com.facebook.buck.parser.TargetGraph;
+import com.facebook.buck.rules.ActionGraphEvent;
 import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleEvent;
+import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleStatus;
 import com.facebook.buck.rules.BuildRuleSuccess;
 import com.facebook.buck.rules.CacheResult;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.FakeProcessExecutor;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.shell.GenruleDescription;
 import com.facebook.buck.step.FakeStep;
 import com.facebook.buck.step.StepEvent;
@@ -43,6 +44,7 @@ import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.timing.IncrementingFakeClock;
 import com.facebook.buck.util.environment.DefaultExecutionEnvironment;
+import com.facebook.buck.util.FakeProcessExecutor;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
@@ -78,6 +80,7 @@ public class SuperConsoleEventBusListenerTest {
 
   @Test
   public void testSimpleBuild() {
+    SourcePathResolver pathResolver = new SourcePathResolver(new BuildRuleResolver());
     Clock fakeClock = new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1));
     BuckEventBus eventBus = BuckEventBusFactory.newInstance(fakeClock);
     EventBus rawEventBus = BuckEventBusFactory.getEventBusFor(eventBus);
@@ -89,13 +92,15 @@ public class SuperConsoleEventBusListenerTest {
     FakeBuildRule fakeRule = new FakeBuildRule(
         GenruleDescription.TYPE,
         fakeTarget,
-        ImmutableSortedSet.<BuildRule>of(),
-        ImmutableSet.<BuildTargetPattern>of());
+        pathResolver,
+        ImmutableSortedSet.<BuildRule>of()
+    );
     FakeBuildRule cachedRule = new FakeBuildRule(
         GenruleDescription.TYPE,
         cachedTarget,
-        ImmutableSortedSet.<BuildRule>of(),
-        ImmutableSet.<BuildTargetPattern>of());
+        pathResolver,
+        ImmutableSortedSet.<BuildRule>of()
+    );
 
     SuperConsoleEventBusListener listener =
         new SuperConsoleEventBusListener(
@@ -136,7 +141,13 @@ public class SuperConsoleEventBusListenerTest {
     rawEventBus.post(
         configureTestEventAtTime(ParseEvent.finished(buildTargets,
                                                      Optional.<TargetGraph>absent()),
-        400L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+        300L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    rawEventBus.post(
+        configureTestEventAtTime(
+            ActionGraphEvent.finished(buildTargets),
+            400L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     final String parsingLine = formatConsoleTimes("[-] PROCESSING BUCK FILES...FINISHED %s", 0.2);
 

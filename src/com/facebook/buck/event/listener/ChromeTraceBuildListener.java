@@ -27,13 +27,14 @@ import com.facebook.buck.event.TraceEvent;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.parser.ParseEvent;
+import com.facebook.buck.rules.ActionGraphEvent;
 import com.facebook.buck.rules.ArtifactCacheConnectEvent;
 import com.facebook.buck.rules.ArtifactCacheEvent;
 import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleEvent;
-import com.facebook.buck.timing.Clock;
 import com.facebook.buck.step.StepEvent;
+import com.facebook.buck.timing.Clock;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.Optionals;
@@ -44,6 +45,7 @@ import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
+import com.google.common.base.Throwables;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -51,9 +53,9 @@ import com.google.common.eventbus.Subscribe;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.text.SimpleDateFormat;
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.Locale;
@@ -101,6 +103,19 @@ public class ChromeTraceBuildListener implements BuckEventListener {
       }
     };
     this.tracesToKeep = tracesToKeep;
+    addProcessMetadataEvent();
+  }
+
+  private void addProcessMetadataEvent() {
+    eventList.add(
+        new ChromeTraceEvent(
+            "buck",
+            "process_name",
+            ChromeTraceEvent.Phase.METADATA,
+            /* processId */ 0,
+            /* threadId */ 0,
+            /* microTime */ 0,
+            ImmutableMap.of("name", "buck")));
   }
 
   @VisibleForTesting
@@ -109,28 +124,38 @@ public class ChromeTraceBuildListener implements BuckEventListener {
       return;
     }
 
-    ImmutableList<File> filesSortedByModified = FluentIterable.
-        from(Arrays.asList(projectFilesystem.listFiles(BuckConstant.BUCK_TRACE_DIR))).
-        filter(new Predicate<File>() {
-          @Override
-          public boolean apply(File input) {
-            return input.getName().matches(TRACE_FILE_PATTERN);
-          }
-        }).
-        toSortedList(new Comparator<File>() {
-          @Override
-          public int compare(File a, File b) {
-            return Long.signum(b.lastModified() - a.lastModified());
-          }
-        });
+    try {
+      ImmutableList<Path> pathsSortedByModified = FluentIterable.
+          from(projectFilesystem.getDirectoryContents(BuckConstant.BUCK_TRACE_DIR)).
+          filter(new Predicate<Path>() {
+            @Override
+            public boolean apply(Path input) {
+              return input.getFileName().toString().matches(TRACE_FILE_PATTERN);
+            }
+          }).
+          toSortedList(new Comparator<Path>() {
+            @Override
+            public int compare(Path a, Path b) {
+              try {
+                return Long.signum(
+                    projectFilesystem.getLastModifiedTime(b) -
+                    projectFilesystem.getLastModifiedTime(a));
+              } catch (IOException e) {
+                throw Throwables.propagate(e);
+              }
+            }
+          });
 
-    if (filesSortedByModified.size() > tracesToKeep) {
-      ImmutableList<File> filesToRemove =
-          filesSortedByModified.subList(tracesToKeep, filesSortedByModified.size());
-      LOG.debug("Deleting old traces: %s", filesToRemove);
-      for (File file : filesToRemove) {
-        file.delete();
+      if (pathsSortedByModified.size() > tracesToKeep) {
+        ImmutableList<Path> pathsToRemove =
+            pathsSortedByModified.subList(tracesToKeep, pathsSortedByModified.size());
+        LOG.debug("Deleting old traces: %s", pathsToRemove);
+        for (Path path : pathsToRemove) {
+          projectFilesystem.deleteFileAtPath(path);
+        }
       }
+    } catch (IOException e) {
+      LOG.error(e, "Couldn't delete old traces from %s", BuckConstant.BUCK_TRACE_DIR);
     }
   }
 
@@ -146,18 +171,9 @@ public class ChromeTraceBuildListener implements BuckEventListener {
       File traceOutput = projectFilesystem.getFileForRelativePath(tracePath);
       projectFilesystem.createParentDirs(tracePath);
 
-      ImmutableList<ChromeTraceEvent> tsSortedEvents = FluentIterable.
-          from(eventList).
-          toSortedList(new Comparator<ChromeTraceEvent>() {
-            @Override
-            public int compare(ChromeTraceEvent a, ChromeTraceEvent b) {
-              return Long.signum(a.getMicroTime() - b.getMicroTime());
-            }
-          });
-
       ObjectMapper mapper = new ObjectMapper();
       LOG.debug("Writing Chrome trace to %s", tracePath);
-      mapper.writeValue(traceOutput, tsSortedEvents);
+      mapper.writeValue(traceOutput, eventList);
 
       String symlinkPath = String.format("%s/build.trace",
           BuckConstant.BUCK_TRACE_DIR);
@@ -272,6 +288,26 @@ public class ChromeTraceBuildListener implements BuckEventListener {
         ChromeTraceEvent.Phase.END,
         ImmutableMap.<String, String>of("targets",
             Joiner.on(",").join(finished.getBuildTargets())),
+        finished);
+  }
+
+  @Subscribe
+  public void actionGraphStarted(ActionGraphEvent.Started started) {
+    writeChromeTraceEvent(
+        "buck",
+        "action_graph",
+        ChromeTraceEvent.Phase.BEGIN,
+        ImmutableMap.<String, String>of(),
+        started);
+  }
+
+  @Subscribe
+  public void actionGraphFinished(ActionGraphEvent.Finished finished) {
+    writeChromeTraceEvent(
+        "buck",
+        "action_graph",
+        ChromeTraceEvent.Phase.END,
+        ImmutableMap.<String, String>of(),
         finished);
   }
 

@@ -22,9 +22,11 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.step.Step;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -46,17 +48,18 @@ public class ThriftLibrary extends AbstractBuildRule {
 
   public ThriftLibrary(
       BuildRuleParams params,
+      SourcePathResolver resolver,
       ImmutableSortedSet<ThriftLibrary> thriftDeps,
       SymlinkTree includeTreeRule,
       ImmutableMap<Path, SourcePath> includes) {
-    super(params);
+    super(params, resolver);
     this.thriftDeps = Preconditions.checkNotNull(thriftDeps);
     this.includeTreeRule = Preconditions.checkNotNull(includeTreeRule);
     this.includes = Preconditions.checkNotNull(includes);
   }
 
   @Override
-  protected Iterable<Path> getInputsToCompareToOutput() {
+  protected ImmutableCollection<Path> getInputsToCompareToOutput() {
     return ImmutableList.of();
   }
 

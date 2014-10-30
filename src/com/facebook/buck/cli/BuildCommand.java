@@ -108,12 +108,13 @@ public class BuildCommand extends AbstractCommandRunner<BuildCommandOptions> {
     // Parse the build files to create a ActionGraph.
     ActionGraph actionGraph;
     try {
-      actionGraph = getParser().buildTargetGraph(
+      actionGraph = getParser().buildTargetGraphForBuildTargets(
           buildTargets,
           options.getDefaultIncludes(),
           getBuckEventBus(),
           console,
-          environment).buildActionGraph();
+          environment,
+          options.getEnableProfiling()).getActionGraph(getBuckEventBus());
     } catch (BuildTargetException | BuildFileParseException e) {
       console.printBuildFailureWithoutStacktrace(e);
       return 1;
@@ -157,7 +158,8 @@ public class BuildCommand extends AbstractCommandRunner<BuildCommandOptions> {
         .transform(new Function<HasBuildTarget, BuildRule>() {
                      @Override
                      public BuildRule apply(HasBuildTarget hasBuildTarget) {
-                       return actionGraph.findBuildRuleByTarget(hasBuildTarget.getBuildTarget());
+                       return Preconditions.checkNotNull(
+                           actionGraph.findBuildRuleByTarget(hasBuildTarget.getBuildTarget()));
                      }
                    })
         .toSet();
@@ -199,7 +201,8 @@ public class BuildCommand extends AbstractCommandRunner<BuildCommandOptions> {
         .transform(new Function<HasBuildTarget, BuildRule>() {
           @Override
           public BuildRule apply(HasBuildTarget hasBuildTarget) {
-            return actionGraph.findBuildRuleByTarget(hasBuildTarget.getBuildTarget());
+            return Preconditions.checkNotNull(
+                actionGraph.findBuildRuleByTarget(hasBuildTarget.getBuildTarget()));
           }
         })
         .toSet();

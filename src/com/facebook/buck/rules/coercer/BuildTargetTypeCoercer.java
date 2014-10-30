@@ -20,7 +20,6 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.BuildTargetParseException;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.ParseContext;
-import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.util.MorePaths;
 import com.facebook.buck.util.ProjectFilesystem;
 
@@ -36,29 +35,24 @@ public class BuildTargetTypeCoercer extends LeafTypeCoercer<BuildTarget> {
   @Override
   public BuildTarget coerce(
       BuildTargetParser buildTargetParser,
-      BuildRuleResolver unused,
       ProjectFilesystem alsoUnused,
       Path pathRelativeToProjectRoot,
       Object object)
       throws CoerceFailedException {
-    if (object instanceof BuildTarget) {
-      return (BuildTarget) object;
+    if (!(object instanceof String)) {
+      throw new IllegalArgumentException("BuildTargetTypeCoercer called for non-string object");
     }
+    String param = (String) object;
 
-    if (object instanceof String) {
-      String param = (String) object;
-      try {
+    try {
         String baseName = BuildTarget.BUILD_TARGET_PREFIX +
             MorePaths.pathWithUnixSeparators(pathRelativeToProjectRoot);
 
-        return buildTargetParser.parse(
-            param,
-            ParseContext.forBaseName(baseName));
-      } catch (BuildTargetParseException e) {
-        throw CoerceFailedException.simple(object, getOutputClass());
-      }
+      return buildTargetParser.parse(
+          param,
+          ParseContext.forBaseName(baseName));
+    } catch (BuildTargetParseException e) {
+      throw CoerceFailedException.simple(object, getOutputClass());
     }
-
-    throw CoerceFailedException.simple(object, getOutputClass());
   }
 }

@@ -24,7 +24,7 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleSourcePath;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.Description;
@@ -32,6 +32,7 @@ import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.WriteFileStep;
@@ -39,6 +40,7 @@ import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -121,6 +123,7 @@ public class PythonTestDescription implements Description<PythonTestDescription.
    */
   private static BuildRule createTestModulesSourceBuildRule(
       BuildRuleParams params,
+      BuildRuleResolver resolver,
       final Path outputPath,
       ImmutableSet<String> testModules) {
 
@@ -135,10 +138,10 @@ public class PythonTestDescription implements Description<PythonTestDescription.
 
     final String contents = getTestModulesListContents(testModules);
 
-    return new AbstractBuildRule(newParams) {
+    return new AbstractBuildRule(newParams, new SourcePathResolver(resolver)) {
 
       @Override
-      protected Iterable<Path> getInputsToCompareToOutput() {
+      protected ImmutableCollection<Path> getInputsToCompareToOutput() {
         return ImmutableList.of();
       }
 
@@ -171,20 +174,21 @@ public class PythonTestDescription implements Description<PythonTestDescription.
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) {
+    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
 
     Path baseModule = PythonUtil.getBasePath(params.getBuildTarget(), args.baseModule);
 
     ImmutableMap<Path, SourcePath> srcs = PythonUtil.toModuleMap(
         params.getBuildTarget(),
+        pathResolver,
         "srcs",
-        baseModule,
-        args.srcs);
+        baseModule, args.srcs);
 
     ImmutableMap<Path, SourcePath> resources = PythonUtil.toModuleMap(
         params.getBuildTarget(),
+        pathResolver,
         "resources",
-        baseModule,
-        args.resources);
+        baseModule, args.resources);
 
     // Convert the passed in module paths into test module names.
     ImmutableSet.Builder<String> testModulesBuilder = ImmutableSet.builder();
@@ -198,6 +202,7 @@ public class PythonTestDescription implements Description<PythonTestDescription.
     // add it to the build.
     BuildRule testModulesBuildRule = createTestModulesSourceBuildRule(
         params,
+        resolver,
         getTestModulesListPath(params.getBuildTarget()),
         testModules);
     resolver.addToIndex(testModulesBuildRule);
@@ -206,7 +211,9 @@ public class PythonTestDescription implements Description<PythonTestDescription.
     PythonPackageComponents testComponents = new PythonPackageComponents(
         ImmutableMap
             .<Path, SourcePath>builder()
-            .put(getTestModulesListName(), new BuildRuleSourcePath(testModulesBuildRule))
+            .put(
+                getTestModulesListName(),
+                new BuildTargetSourcePath(testModulesBuildRule.getBuildTarget()))
             .put(getTestMainName(), new PathSourcePath(pathToPythonTestMain))
             .putAll(srcs)
             .build(),
@@ -218,10 +225,11 @@ public class PythonTestDescription implements Description<PythonTestDescription.
     BuildRuleParams binaryParams = params.copyWithChanges(
         PythonBinaryDescription.TYPE,
         getBinaryBuildTarget(params.getBuildTarget()),
-        PythonUtil.getDepsFromComponents(allComponents),
+        PythonUtil.getDepsFromComponents(pathResolver, allComponents),
         ImmutableSortedSet.<BuildRule>of());
     PythonBinary binary = new PythonBinary(
         binaryParams,
+        pathResolver,
         pathToPex,
         pythonEnvironment,
         getTestMainName(),
@@ -236,7 +244,8 @@ public class PythonTestDescription implements Description<PythonTestDescription.
                 .add(binary)
                 .build(),
             params.getExtraDeps()),
-        new BuildRuleSourcePath(binary),
+        pathResolver,
+        new BuildTargetSourcePath(binary.getBuildTarget()),
         resolver.getAllRules(args.sourceUnderTest.or(ImmutableSortedSet.<BuildTarget>of())),
         args.labels.or(ImmutableSet.<Label>of()),
         args.contacts.or(ImmutableSet.<String>of()));

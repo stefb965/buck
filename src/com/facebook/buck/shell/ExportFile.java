@@ -17,6 +17,7 @@
 package com.facebook.buck.shell;
 
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.HasOutputName;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -24,7 +25,7 @@ import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MkdirStep;
@@ -75,28 +76,31 @@ import java.util.Collections;
  * of the file to be saved.
  */
 // TODO(simons): Extend to also allow exporting a rule.
-public class ExportFile extends AbstractBuildRule {
+public class ExportFile extends AbstractBuildRule implements HasOutputName {
 
+  private final String name;
   private final SourcePath src;
   private final Path out;
 
   @VisibleForTesting
-  ExportFile(BuildRuleParams params, ExportFileDescription.Arg args) {
-    super(params);
+  ExportFile(BuildRuleParams params, SourcePathResolver resolver, ExportFileDescription.Arg args) {
+    super(params, resolver);
     BuildTarget target = params.getBuildTarget();
+
+    this.name = args.out.or(target.getShortName());
+
     if (args.src.isPresent()) {
       this.src = args.src.get();
     } else {
       this.src = new PathSourcePath(target.getBasePath().resolve(target.getShortName()));
     }
 
-    final String outName = args.out.or(target.getShortName());
-    this.out = BuckConstant.GEN_PATH.resolve(target.getBasePath()).resolve(outName);
+    this.out = BuckConstant.GEN_PATH.resolve(target.getBasePath()).resolve(this.name);
   }
 
   @Override
   public ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return SourcePaths.filterInputsToCompareToOutput(Collections.singleton(src));
+    return getResolver().filterInputsToCompareToOutput(Collections.singleton(src));
   }
 
   @Override
@@ -114,7 +118,7 @@ public class ExportFile extends AbstractBuildRule {
     // unpacked on another machine, it is an ordinary file in both scenarios.
     ImmutableList.Builder<Step> builder = ImmutableList.<Step>builder()
         .add(new MkdirStep(out.getParent()))
-        .add(CopyStep.forFile(src.resolve(), out));
+        .add(CopyStep.forFile(getResolver().getPath(src), out));
 
     buildableContext.recordArtifact(out);
     return builder.build();
@@ -124,4 +128,10 @@ public class ExportFile extends AbstractBuildRule {
   public Path getPathToOutputFile() {
     return out;
   }
+
+  @Override
+  public String getOutputName() {
+    return name;
+  }
+
 }

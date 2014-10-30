@@ -39,6 +39,7 @@ import com.facebook.buck.rules.RepositoryFactory;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKey.Builder;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.timing.DefaultClock;
 import com.facebook.buck.timing.NanosAdjustedClock;
@@ -48,7 +49,9 @@ import com.facebook.buck.util.DefaultFileHashCache;
 import com.facebook.buck.util.FileHashCache;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.InterruptionFailedException;
+import com.facebook.buck.util.PkillProcessManager;
 import com.facebook.buck.util.ProcessExecutor;
+import com.facebook.buck.util.ProcessManager;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.buck.util.ProjectFilesystemWatcher;
 import com.facebook.buck.util.Verbosity;
@@ -75,7 +78,6 @@ import com.martiansoftware.nailgun.NGClientListener;
 import com.martiansoftware.nailgun.NGContext;
 
 import java.io.Closeable;
-import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.PrintStream;
@@ -85,7 +87,10 @@ import java.net.URLClassLoader;
 import java.nio.file.FileSystems;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.text.SimpleDateFormat;
 import java.util.Arrays;
+import java.util.Date;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
@@ -108,6 +113,7 @@ public final class Main {
   private static final String BUCK_VERSION_UID = System.getProperty(BUCK_VERSION_UID_KEY, "N/A");
   private static final Optional<String> BUCKD_LAUNCH_TIME_NANOS =
     Optional.fromNullable(System.getProperty("buck.buckd_launch_time_nanos"));
+  private static final String BUCK_BUILD_ID_ENV_VAR = "BUCK_BUILD_ID";
 
   private static final String BUCKD_COLOR_DEFAULT_ENV_VAR = "BUCKD_COLOR_DEFAULT";
 
@@ -165,8 +171,8 @@ public final class Main {
         ObjectMapper objectMapper)
         throws IOException, InterruptedException  {
       this.repository = repositoryFactory.getRootRepository();
-      this.clock = Preconditions.checkNotNull(clock);
-      this.objectMapper = Preconditions.checkNotNull(objectMapper);
+      this.clock = clock;
+      this.objectMapper = objectMapper;
       this.hashCache = new DefaultFileHashCache(repository.getFilesystem());
       this.parser = Parser.createParser(
           repositoryFactory,
@@ -389,8 +395,8 @@ public final class Main {
       PrintStream stdOut,
       PrintStream stdErr,
       Optional<BuckEventListener> externalEventsListener) {
-    this.stdOut = Preconditions.checkNotNull(stdOut);
-    this.stdErr = Preconditions.checkNotNull(stdErr);
+    this.stdOut = stdOut;
+    this.stdErr = stdErr;
     this.platform = Platform.detect();
     this.objectMapper = new ObjectMapper();
     this.externalEventsListener = externalEventsListener;
@@ -437,7 +443,7 @@ public final class Main {
    */
   public int runMainWithExitCode(
       BuildId buildId,
-      File projectRoot,
+      Path projectRoot,
       Optional<NGContext> context,
       String... args)
       throws IOException, InterruptedException {
@@ -472,7 +478,7 @@ public final class Main {
   @SuppressWarnings({"PMD.EmptyCatchBlock", "PMD.PrematureDeclaration"})
   public int executeCommand(
       BuildId buildId,
-      File projectRoot,
+      Path projectRoot,
       Command.ParseResult commandParseResult,
       Optional<NGContext> context,
       String... args) throws IOException, InterruptedException {
@@ -503,7 +509,7 @@ public final class Main {
         stdErr,
         bootstrapConfig.createAnsi(color));
 
-    Path canonicalRootPath = projectRoot.toPath().toRealPath();
+    Path canonicalRootPath = projectRoot.toRealPath();
     RepositoryFactory repositoryFactory =
         new RepositoryFactory(clientEnvironment, platform, console, canonicalRootPath);
 
@@ -622,6 +628,12 @@ public final class Main {
       JavaUtilsLoggingBuildListener.ensureLogFileIsWritten(rootRepository.getFilesystem());
 
       CachingBuildEngine buildEngine = new CachingBuildEngine();
+      Optional<ProcessManager> processManager;
+      if (platform == Platform.WINDOWS) {
+        processManager = Optional.absent();
+      } else {
+        processManager = Optional.<ProcessManager>of(new PkillProcessManager(processExecutor));
+      }
       exitCode = executingCommand.execute(remainingArgs,
           rootRepository.getBuckConfig(),
           new CommandRunnerParams(
@@ -637,7 +649,10 @@ public final class Main {
               rootRepository.getBuckConfig().createDefaultJavaPackageFinder(),
               objectMapper,
               fileHashCache,
-              clock));
+              clock,
+              processManager));
+
+      parser.cleanCache();
 
       // If the Daemon is running and serving web traffic, print the URL to the Chrome Trace.
       if (webServer.isPresent()) {
@@ -854,8 +869,8 @@ public final class Main {
   private static RuleKeyBuilderFactory createRuleKeyBuilderFactory(final FileHashCache hashCache) {
     return new RuleKeyBuilderFactory() {
       @Override
-      public Builder newInstance(BuildRule buildRule) {
-        RuleKey.Builder builder = RuleKey.builder(buildRule, hashCache);
+      public Builder newInstance(BuildRule buildRule, SourcePathResolver resolver) {
+        RuleKey.Builder builder = RuleKey.builder(buildRule, resolver, hashCache);
         builder.set("buckVersionUid", BUCK_VERSION_UID);
         return builder;
       }
@@ -865,7 +880,7 @@ public final class Main {
   @VisibleForTesting
   int tryRunMainWithExitCode(
       BuildId buildId,
-      File projectRoot,
+      Path projectRoot,
       Optional<NGContext> context,
       String... args)
       throws IOException, InterruptedException {
@@ -876,7 +891,22 @@ public final class Main {
         LogConfig.flushLogs();
         LogConfig.setupLogging();
       }
-      LOG.debug("Starting up with args: %s", Arrays.toString(args));
+      if (LOG.isDebugEnabled()) {
+        Long gitCommitTimestamp = Long.getLong("buck.git_commit_timestamp");
+        String buildDateStr;
+        if (gitCommitTimestamp == null) {
+          buildDateStr = "(unknown)";
+        } else {
+          buildDateStr = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US).format(
+              new Date(TimeUnit.SECONDS.toMillis(gitCommitTimestamp)));
+        }
+        String buildRev = System.getProperty("buck.git_commit", "(unknown)");
+        LOG.debug(
+            "Starting up (build date %s, rev %s), args: %s",
+            buildDateStr,
+            buildRev,
+            Arrays.toString(args));
+      }
       return runMainWithExitCode(buildId, projectRoot, context, args);
     } catch (HumanReadableException e) {
       Console console = new Console(Verbosity.STANDARD_INFORMATION,
@@ -895,10 +925,24 @@ public final class Main {
     }
   }
 
+  private static BuildId getBuildId(Optional<NGContext> context) {
+    String specifiedBuildId;
+    if (context.isPresent()) {
+      specifiedBuildId = context.get().getEnv().getProperty(BUCK_BUILD_ID_ENV_VAR);
+    } else {
+      specifiedBuildId = System.getenv().get(BUCK_BUILD_ID_ENV_VAR);
+    }
+    if (specifiedBuildId == null) {
+      return new BuildId();
+    } else {
+      return new BuildId(specifiedBuildId);
+    }
+  }
+
   private void runMainThenExit(String[] args, Optional<NGContext> context) {
-    File projectRoot = new File(".");
+    Path projectRoot = Paths.get(".");
     int exitCode = FAIL_EXIT_CODE;
-    BuildId buildId = new BuildId();
+    BuildId buildId = getBuildId(context);
 
     // Note that try-with-resources blocks close their resources *before*
     // executing catch or finally blocks. That means we can't use one here,
@@ -982,7 +1026,7 @@ public final class Main {
     }
 
     private DaemonSlayer(NGContext context) {
-      this.context = Preconditions.checkNotNull(context);
+      this.context = context;
       this.runCount = 0;
       this.lastRunCount = 0;
       this.executingCommand = false;

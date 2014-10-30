@@ -9,6 +9,7 @@ java_test(
   deps = [
     '//third-party/java/easymock:easymock',
     '//third-party/java/guava:guava',
+    '//third-party/java/hamcrest:hamcrest-core',
     '//third-party/java/jsr:jsr305',
     '//third-party/java/junit:junit',
     '//src/com/facebook/buck/event:event',
@@ -56,7 +57,7 @@ java_library(
   visibility = [
     '//test/com/facebook/buck/cli:cli',
     '//test/com/facebook/buck/command:command',
-    '//test/com/facebook/buck/apple/xcode:project_generator',
+    '//test/com/facebook/buck/apple/xcode:testutil',
   ],
 )
 

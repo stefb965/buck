@@ -23,7 +23,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.RmStep;
@@ -41,8 +41,12 @@ public class Zip extends AbstractBuildRule {
   private final ImmutableSortedSet<SourcePath> sources;
   private final Path scratchDir;
 
-  public Zip(BuildRuleParams params, String outputName, ImmutableSortedSet<SourcePath> sources) {
-    super(params);
+  public Zip(
+      BuildRuleParams params,
+      SourcePathResolver resolver,
+      String outputName,
+      ImmutableSortedSet<SourcePath> sources) {
+    super(params, resolver);
     this.sources = Preconditions.checkNotNull(sources);
 
     this.output = BuildTargets.getGenPath(getBuildTarget(), outputName);
@@ -51,7 +55,7 @@ public class Zip extends AbstractBuildRule {
 
   @Override
   public ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return SourcePaths.filterInputsToCompareToOutput(sources);
+    return getResolver().filterInputsToCompareToOutput(sources);
   }
 
   @Override
@@ -64,7 +68,7 @@ public class Zip extends AbstractBuildRule {
     steps.add(new MakeCleanDirectoryStep(scratchDir));
 
     SrcZipAwareFileBundler bundler = new SrcZipAwareFileBundler(getBuildTarget());
-    bundler.copy(steps, scratchDir, sources, false);
+    bundler.copy(getResolver(), steps, scratchDir, sources, false);
 
     steps.add(
         new ZipStep(
