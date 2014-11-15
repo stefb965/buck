@@ -20,8 +20,8 @@ import com.facebook.buck.cxx.CxxPreprocessorInput;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
 import java.nio.file.Path;
@@ -43,9 +43,9 @@ public class OCamlBuildStep implements Step {
       OCamlBuildContext ocamlContext,
       Path cCompiler,
       Path cxxCompiler) {
-    this.ocamlContext = Preconditions.checkNotNull(ocamlContext);
-    this.cCompiler = Preconditions.checkNotNull(cCompiler);
-    this.cxxCompiler = Preconditions.checkNotNull(cxxCompiler);
+    this.ocamlContext = ocamlContext;
+    this.cCompiler = cCompiler;
+    this.cxxCompiler = cxxCompiler;
 
     hasGeneratedSources = ocamlContext.getLexInput().size() > 0 ||
         ocamlContext.getYaccInput().size() > 0;
@@ -159,7 +159,7 @@ public class OCamlBuildStep implements Step {
             outputPath,
             cSrc,
             cCompileFlags.build(),
-            cxxPreprocessorInput.getIncludes()));
+              ImmutableMap.copyOf(cxxPreprocessorInput.getIncludes().nameToPathMap())));
       int compileExitCode = compileStep.execute(context);
       if (compileExitCode != 0) {
         return compileExitCode;

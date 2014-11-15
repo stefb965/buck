@@ -16,10 +16,12 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.android.AndroidBinary.ExopackageMode;
 import com.facebook.buck.android.AndroidBinary.PackageType;
 import com.facebook.buck.android.AndroidBinary.TargetCpuType;
 import com.facebook.buck.android.FilterResourcesStep.ResourceFilter;
 import com.facebook.buck.android.ResourcesFilter.ResourceCompressionMode;
+import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.dalvik.ZipSplitter.DexSplitStrategy;
 import com.facebook.buck.java.JavaLibrary;
 import com.facebook.buck.java.JavacOptions;
@@ -51,6 +53,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 
@@ -73,10 +76,15 @@ public class AndroidBinaryDescription implements Description<AndroidBinaryDescri
 
   private final JavacOptions javacOptions;
   private final ProGuardConfig proGuardConfig;
+  private final ImmutableMap<TargetCpuType, CxxPlatform> nativePlatforms;
 
-  public AndroidBinaryDescription(JavacOptions javacOptions, ProGuardConfig proGuardConfig) {
+  public AndroidBinaryDescription(
+      JavacOptions javacOptions,
+      ProGuardConfig proGuardConfig,
+      ImmutableMap<TargetCpuType, CxxPlatform> nativePlatforms) {
     this.javacOptions = javacOptions;
     this.proGuardConfig = proGuardConfig;
+    this.nativePlatforms = nativePlatforms;
   }
 
   @Override
@@ -141,6 +149,10 @@ public class AndroidBinaryDescription implements Description<AndroidBinaryDescri
     ResourceFilter resourceFilter =
         new ResourceFilter(args.resourceFilter.or(ImmutableList.<String>of()));
 
+    EnumSet<ExopackageMode> exopackageModes = args.exopackage.or(false)
+        ? EnumSet.of(ExopackageMode.SECONDARY_DEX)
+        : EnumSet.noneOf(ExopackageMode.class);
+
     AndroidBinaryGraphEnhancer graphEnhancer = new AndroidBinaryGraphEnhancer(
         params,
         resolver,
@@ -156,15 +168,16 @@ public class AndroidBinaryDescription implements Description<AndroidBinaryDescri
         ImmutableSet.copyOf(args.noDx.or(ImmutableSet.<BuildTarget>of())),
         /* resourcesToExclude */ ImmutableSet.<BuildTarget>of(),
         javacOptions,
-        args.exopackage.or(false),
+        exopackageModes,
         (Keystore) keystore,
         args.buildConfigValues.get(),
-        args.buildConfigValuesFile);
+        args.buildConfigValuesFile,
+        nativePlatforms);
     AndroidBinaryGraphEnhancer.EnhancementResult result =
         graphEnhancer.createAdditionalBuildables();
 
     return new AndroidBinary(
-        params.copyWithExtraDeps(result.getFinalDeps()),
+        params.copyWithExtraDeps(result.finalDeps()),
         new SourcePathResolver(resolver),
         proGuardConfig.getProguardJarOverride(),
         proGuardConfig.getProguardMaxHeapSize(),
@@ -180,7 +193,7 @@ public class AndroidBinaryDescription implements Description<AndroidBinaryDescri
         compressionMode,
         args.cpuFilters.get(),
         resourceFilter,
-        args.exopackage.or(false),
+        exopackageModes,
         resolver.getAllRules(
             args.preprocessJavaClassesDeps.or(ImmutableSortedSet.<BuildTarget>of())),
         MACRO_HANDLER.getExpander(

@@ -40,6 +40,7 @@ import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
+import org.xml.sax.SAXException;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -60,7 +61,10 @@ import javax.xml.xpath.XPathFactory;
  */
 public class MiniAapt implements Step {
 
-  private static final ImmutableList<String> IGNORED_FILE_EXTENSIONS = ImmutableList.of("orig");
+  /**
+   * See {@link com.facebook.buck.android.AaptStep} for a list of files that we ignore.
+   */
+  public static final ImmutableList<String> IGNORED_FILE_EXTENSIONS = ImmutableList.of("orig");
 
   private static final String ID_DEFINITION_PREFIX = "@+id/";
   private static final String ITEM_TAG = "item";
@@ -238,7 +242,9 @@ public class MiniAapt implements Step {
       int dotIndex = filename.indexOf('.');
       String resourceName = dotIndex != -1 ? filename.substring(0, dotIndex) : filename;
 
-      resourceCollector.addIntResourceIfNotPresent(RESOURCE_TYPES.get(dirname), resourceName);
+      resourceCollector.addIntResourceIfNotPresent(
+          Preconditions.checkNotNull(RESOURCE_TYPES.get(dirname)),
+          resourceName);
     }
   }
 
@@ -283,7 +289,7 @@ public class MiniAapt implements Step {
   void processValuesFile(ProjectFilesystem filesystem, Path valuesFile)
       throws IOException, ResourceParseException {
     try (InputStream stream = filesystem.newFileInputStream(valuesFile)) {
-      Document dom = XmlDomParser.parse(stream);
+      Document dom = parseXml(valuesFile, stream);
       Element root = dom.getDocumentElement();
 
       for (Node node = root.getFirstChild(); node != null; node = node.getNextSibling()) {
@@ -307,7 +313,7 @@ public class MiniAapt implements Step {
               valuesFile);
         }
 
-        RType rType = RESOURCE_TYPES.get(resourceType);
+        RType rType = Preconditions.checkNotNull(RESOURCE_TYPES.get(resourceType));
         addToResourceCollector(node, rType);
       }
     }
@@ -369,7 +375,7 @@ public class MiniAapt implements Step {
       ImmutableSet.Builder<RDotTxtEntry> references)
       throws IOException, XPathExpressionException, ResourceParseException {
     try (InputStream stream = filesystem.newFileInputStream(xmlFile)) {
-      Document dom = XmlDomParser.parse(stream);
+      Document dom = parseXml(xmlFile, stream);
       NodeList nodesWithIds =
           (NodeList) ANDROID_ID_DEFINITION.evaluate(dom, XPathConstants.NODESET);
       for (int i = 0; i < nodesWithIds.getLength(); i++) {
@@ -401,11 +407,23 @@ public class MiniAapt implements Step {
         if (!RESOURCE_TYPES.containsKey(rawRType)) {
           throw new ResourceParseException("Invalid reference '%s' in '%s'", resourceName, xmlFile);
         }
-        RType rType = RESOURCE_TYPES.get(rawRType);
+        RType rType = Preconditions.checkNotNull(RESOURCE_TYPES.get(rawRType));
 
 
         references.add(new FakeRDotTxtEntry(IdType.INT, rType, sanitizeName(name)));
       }
+    }
+  }
+
+  private static Document parseXml(Path filepath, InputStream inputStream)
+      throws IOException, ResourceParseException {
+    try {
+      return XmlDomParser.parse(inputStream);
+    } catch (SAXException e) {
+      throw new ResourceParseException(
+          "Error parsing xml file '%s': %s.",
+          filepath,
+          e.getMessage());
     }
   }
 

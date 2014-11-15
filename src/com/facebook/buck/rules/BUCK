@@ -8,11 +8,14 @@ java_library(
   deps = [
     ':build_rule',
     ':rules',
+    '//third-party/java/aosp:aosp',
     '//third-party/java/guava:guava',
     '//third-party/java/jsr:jsr305',
     '//src/com/facebook/buck/android:rules',
+    '//src/com/facebook/buck/android:steps',
     '//src/com/facebook/buck/apple:rules',
     '//src/com/facebook/buck/cli:config',
+    '//src/com/facebook/buck/cxx:platform',
     '//src/com/facebook/buck/extension:extension',
     '//src/com/facebook/buck/file:downloader',
     '//src/com/facebook/buck/file:file',
@@ -101,6 +104,7 @@ java_library(
     'SourcePathResolver.java',
     'SourcePaths.java',
     'SourceRoot.java',
+    'TargetGraph.java',
     'TargetName.java',
     'TargetNode.java',
     'TargetNodeToBuildRuleTransformer.java',
@@ -131,14 +135,13 @@ java_library(
   ],
 )
 
-java_library(
+java_immutables_library(
   name = 'rules',
   srcs = [
     'AbiRule.java',
     'AbstractBuildRule.java',
     'ArtifactCacheConnectEvent.java',
     'ArtifactCacheEvent.java',
-    'Builder.java',
     'BuildEvent.java',
     'BuildOutputInitializer.java',
     'BuildResult.java',
@@ -152,6 +155,7 @@ java_library(
     'BuildRuleBuilderParams.java',
     'DependencyEnhancer.java',
     'DirArtifactCache.java',
+    'ExopackageInfo.java',
     'HttpArtifactCache.java',
     'IndividualTestEvent.java',
     'InitializableFromDisk.java',

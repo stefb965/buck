@@ -16,6 +16,7 @@
 
 package com.facebook.buck.rules;
 
+import com.facebook.buck.android.AndroidBinary;
 import com.facebook.buck.android.AndroidBinaryDescription;
 import com.facebook.buck.android.AndroidBuildConfigDescription;
 import com.facebook.buck.android.AndroidInstrumentationApkDescription;
@@ -25,6 +26,7 @@ import com.facebook.buck.android.AndroidPrebuiltAarDescription;
 import com.facebook.buck.android.AndroidResourceDescription;
 import com.facebook.buck.android.ApkGenruleDescription;
 import com.facebook.buck.android.GenAidlDescription;
+import com.facebook.buck.android.NdkCxxPlatform;
 import com.facebook.buck.android.NdkLibraryDescription;
 import com.facebook.buck.android.PrebuiltNativeLibraryDescription;
 import com.facebook.buck.android.ProGuardConfig;
@@ -38,11 +40,12 @@ import com.facebook.buck.apple.AppleResourceDescription;
 import com.facebook.buck.apple.AppleTestDescription;
 import com.facebook.buck.apple.CoreDataModelDescription;
 import com.facebook.buck.apple.IosPostprocessResourcesDescription;
-import com.facebook.buck.apple.XcodeNativeDescription;
 import com.facebook.buck.apple.XcodeProjectConfigDescription;
 import com.facebook.buck.apple.XcodeWorkspaceConfigDescription;
 import com.facebook.buck.cli.BuckConfig;
+import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxBinaryDescription;
+import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.cxx.CxxPythonExtensionDescription;
 import com.facebook.buck.cxx.CxxTestDescription;
@@ -59,6 +62,8 @@ import com.facebook.buck.java.JavaTestDescription;
 import com.facebook.buck.java.JavacOptions;
 import com.facebook.buck.java.KeystoreDescription;
 import com.facebook.buck.java.PrebuiltJarDescription;
+import com.facebook.buck.model.Flavor;
+import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.ocaml.OCamlBinaryDescription;
 import com.facebook.buck.ocaml.OCamlBuckConfig;
 import com.facebook.buck.ocaml.OCamlLibraryDescription;
@@ -82,7 +87,6 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -148,6 +152,79 @@ public class KnownBuildRuleTypes {
     return createBuilder(config, androidDirectoryResolver, javacEnv, pythonEnv).build();
   }
 
+  /**
+   * @return the map holding the available {@link NdkCxxPlatform}s.
+   */
+  private static ImmutableMap<AndroidBinary.TargetCpuType, CxxPlatform> getNdkCxxPlatforms(
+      Path ndkRoot,
+      Platform platform) {
+
+    ImmutableMap.Builder<AndroidBinary.TargetCpuType, CxxPlatform> ndkCxxPlatformBuilder =
+        ImmutableMap.builder();
+
+    NdkCxxPlatform armeabi =
+        new NdkCxxPlatform(
+            "Android NDK arm",
+            new Flavor("android-arm"),
+            platform,
+            ndkRoot,
+            new NdkCxxPlatform.TargetConfiguration(
+                NdkCxxPlatform.Toolchain.ARM_LINUX_ADNROIDEABI_4_8,
+                NdkCxxPlatform.ToolchainPrefix.ARM_LINUX_ANDROIDEABI,
+                NdkCxxPlatform.TargetArch.ARM,
+                NdkCxxPlatform.TargetArchAbi.ARMEABI,
+                /* androidPlatform */ "android-9",
+                /* compilerVersion */ "4.8",
+                /* compilerFlags */ ImmutableList.of(
+                    "-march=armv5te",
+                    "-mtune=xscale",
+                    "-msoft-float",
+                    "-mthumb",
+                    "-Os")));
+    ndkCxxPlatformBuilder.put(AndroidBinary.TargetCpuType.ARM, armeabi);
+    NdkCxxPlatform armeabiv7 =
+        new NdkCxxPlatform(
+            "Android NDK arm-v7",
+            new Flavor("android-armv7"),
+            platform,
+            ndkRoot,
+            new NdkCxxPlatform.TargetConfiguration(
+                NdkCxxPlatform.Toolchain.ARM_LINUX_ADNROIDEABI_4_8,
+                NdkCxxPlatform.ToolchainPrefix.ARM_LINUX_ANDROIDEABI,
+                NdkCxxPlatform.TargetArch.ARM,
+                NdkCxxPlatform.TargetArchAbi.ARMEABI_V7A,
+                /* androidPlatform */ "android-9",
+                /* compilerVersion */ "4.8",
+                /* compilerFlags */ ImmutableList.of(
+                    "-finline-limit=64",
+                    "-march=armv7-a",
+                    "-mfpu=vfpv3-d16",
+                    "-mfloat-abi=softfp",
+                    "-mthumb",
+                    "-Os")));
+    ndkCxxPlatformBuilder.put(AndroidBinary.TargetCpuType.ARMV7, armeabiv7);
+    NdkCxxPlatform x86 =
+        new NdkCxxPlatform(
+            "Android NDK x86",
+            new Flavor("android-x86"),
+            platform,
+            ndkRoot,
+            new NdkCxxPlatform.TargetConfiguration(
+                NdkCxxPlatform.Toolchain.X86_4_8,
+                NdkCxxPlatform.ToolchainPrefix.I686_LINUX_ANDROID,
+                NdkCxxPlatform.TargetArch.X86,
+                NdkCxxPlatform.TargetArchAbi.X86,
+                /* androidPlatform */ "android-9",
+                /* compilerVersion */ "4.8",
+                /* compilerFlags */ ImmutableList.of(
+                    "-funswitch-loops",
+                    "-finline-limit=300",
+                    "-O2")));
+    ndkCxxPlatformBuilder.put(AndroidBinary.TargetCpuType.X86, x86);
+
+    return ndkCxxPlatformBuilder.build();
+  }
+
   @VisibleForTesting
   static Builder createBuilder(
       BuckConfig config,
@@ -172,8 +249,34 @@ public class KnownBuildRuleTypes {
     // Construct the OCaml config wrapping the buck config.
     OCamlBuckConfig ocamlBuckConfig = new OCamlBuckConfig(platform, config);
 
+    // Setup the NDK C/C++ platforms.
+    ImmutableMap.Builder<AndroidBinary.TargetCpuType, CxxPlatform> ndkCxxPlatformsBuilder =
+        ImmutableMap.builder();
+    Optional<Path> ndkRoot = androidDirectoryResolver.findAndroidNdkDir();
+    if (ndkRoot.isPresent()) {
+      ndkCxxPlatformsBuilder.putAll(getNdkCxxPlatforms(ndkRoot.get(), platform));
+    }
+    ImmutableMap<AndroidBinary.TargetCpuType, CxxPlatform> ndkCxxPlatforms =
+        ndkCxxPlatformsBuilder.build();
+
     // Construct the C/C++ config wrapping the buck config.
-    DefaultCxxPlatform cxxPlatform = new DefaultCxxPlatform(platform, config);
+    CxxBuckConfig cxxBuckConfig = new CxxBuckConfig(config);
+    ImmutableMap.Builder<Flavor, CxxPlatform> cxxPlatformsBuilder = ImmutableMap.builder();
+
+    // Add the default, config-defined C/C++ platform.
+    DefaultCxxPlatform defaultCxxPlatform = new DefaultCxxPlatform(platform, config);
+    cxxPlatformsBuilder.put(defaultCxxPlatform.asFlavor(), defaultCxxPlatform);
+
+    // If an Android NDK is present, add platforms for that.  This is mostly useful for
+    // testing our Android NDK support for right now.
+    for (CxxPlatform ndkCxxPlatform : ndkCxxPlatforms.values()) {
+      cxxPlatformsBuilder.put(ndkCxxPlatform.asFlavor(), ndkCxxPlatform);
+    }
+
+    // Build up the final list of C/C++ platforms.
+    FlavorDomain<CxxPlatform> cxxPlatforms = new FlavorDomain<>(
+        "C/C++ platform",
+        cxxPlatformsBuilder.build());
 
     ProGuardConfig proGuardConfig = new ProGuardConfig(config);
 
@@ -194,7 +297,11 @@ public class KnownBuildRuleTypes {
     JavacOptions androidBinaryOptions = JavacOptions.builder(JavacOptions.DEFAULTS)
         .setJavaCompilerEnvironment(javacEnv)
         .build();
-    builder.register(new AndroidBinaryDescription(androidBinaryOptions, proGuardConfig));
+    builder.register(
+        new AndroidBinaryDescription(
+            androidBinaryOptions,
+            proGuardConfig,
+            ndkCxxPlatforms));
     builder.register(new AndroidBuildConfigDescription());
     builder.register(new AndroidInstrumentationApkDescription(proGuardConfig));
     builder.register(new AndroidLibraryDescription(javacEnv));
@@ -210,10 +317,10 @@ public class KnownBuildRuleTypes {
     builder.register(new AppleTestDescription());
     builder.register(new BuckExtensionDescription());
     builder.register(new CoreDataModelDescription());
-    builder.register(new CxxBinaryDescription(cxxPlatform));
-    builder.register(new CxxLibraryDescription(cxxPlatform));
-    builder.register(new CxxPythonExtensionDescription(cxxPlatform));
-    builder.register(new CxxTestDescription(cxxPlatform));
+    builder.register(new CxxBinaryDescription(cxxBuckConfig, defaultCxxPlatform, cxxPlatforms));
+    builder.register(new CxxLibraryDescription(cxxBuckConfig, cxxPlatforms));
+    builder.register(new CxxPythonExtensionDescription(cxxBuckConfig, cxxPlatforms));
+    builder.register(new CxxTestDescription(cxxBuckConfig, defaultCxxPlatform, cxxPlatforms));
     builder.register(new ExportFileDescription());
     builder.register(new GenruleDescription());
     builder.register(new GenAidlDescription());
@@ -224,10 +331,10 @@ public class KnownBuildRuleTypes {
     builder.register(new JavaLibraryDescription(javacEnv));
     builder.register(new JavaTestDescription(javacEnv));
     builder.register(new KeystoreDescription());
-    builder.register(new NdkLibraryDescription(ndkVersion));
+    builder.register(new NdkLibraryDescription(ndkVersion, ndkCxxPlatforms));
     builder.register(new OCamlBinaryDescription(ocamlBuckConfig));
     builder.register(new OCamlLibraryDescription(ocamlBuckConfig));
-    builder.register(new PrebuiltCxxLibraryDescription(cxxPlatform));
+    builder.register(new PrebuiltCxxLibraryDescription(cxxPlatforms));
     builder.register(new PrebuiltJarDescription());
     builder.register(new PrebuiltNativeLibraryDescription());
     builder.register(new PrebuiltOCamlLibraryDescription());
@@ -235,13 +342,17 @@ public class KnownBuildRuleTypes {
     builder.register(
         new PythonBinaryDescription(
             pythonPathToPex.or(PythonBinaryDescription.DEFAULT_PATH_TO_PEX),
-            pythonEnv));
+            pythonEnv,
+            defaultCxxPlatform,
+            cxxPlatforms));
     builder.register(new PythonLibraryDescription());
     builder.register(
         new PythonTestDescription(
             pythonPathToPex.or(PythonBinaryDescription.DEFAULT_PATH_TO_PEX),
             pythonPathToPythonTestMain.or(PythonTestDescription.PYTHON_PATH_TO_PYTHON_TEST_MAIN),
-            pythonEnv));
+            pythonEnv,
+            defaultCxxPlatform,
+            cxxPlatforms));
     builder.register(new RemoteFileDescription(downloadAtRuntimeOk, downloader));
     builder.register(new RobolectricTestDescription(javacEnv));
     builder.register(new ShBinaryDescription());
@@ -251,11 +362,18 @@ public class KnownBuildRuleTypes {
             thriftBuckConfig,
             ImmutableList.of(
                 new ThriftJavaEnhancer(thriftBuckConfig, javacEnv),
-                new ThriftCxxEnhancer(thriftBuckConfig, cxxPlatform, /* cpp2 */ false),
-                new ThriftCxxEnhancer(thriftBuckConfig, cxxPlatform, /* cpp2 */ true),
+                new ThriftCxxEnhancer(
+                    thriftBuckConfig,
+                    cxxBuckConfig,
+                    cxxPlatforms,
+                    /* cpp2 */ false),
+                new ThriftCxxEnhancer(
+                    thriftBuckConfig,
+                    cxxBuckConfig,
+                    cxxPlatforms,
+                    /* cpp2 */ true),
                 new ThriftPythonEnhancer(thriftBuckConfig, ThriftPythonEnhancer.Type.NORMAL),
                 new ThriftPythonEnhancer(thriftBuckConfig, ThriftPythonEnhancer.Type.TWISTED))));
-    builder.register(new XcodeNativeDescription());
     builder.register(new XcodeProjectConfigDescription());
     builder.register(new XcodeWorkspaceConfigDescription());
 
@@ -281,7 +399,6 @@ public class KnownBuildRuleTypes {
     }
 
     public void register(Description<?> description) {
-      Preconditions.checkNotNull(description);
       BuildRuleType type = description.getBuildRuleType();
       types.put(type.getName(), type);
       descriptions.put(type, description);

@@ -20,7 +20,6 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.annotations.Beta;
 import com.google.common.base.Function;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
@@ -38,6 +37,7 @@ public class BuildRuleParams {
   private final ProjectFilesystem projectFilesystem;
   private final RuleKeyBuilderFactory ruleKeyBuilderFactory;
   private final BuildRuleType buildRuleType;
+  private final TargetGraph targetGraph;
 
   public BuildRuleParams(
       BuildTarget buildTarget,
@@ -45,13 +45,15 @@ public class BuildRuleParams {
       ImmutableSortedSet<BuildRule> extraDeps,
       ProjectFilesystem projectFilesystem,
       RuleKeyBuilderFactory ruleKeyBuilderFactory,
-      BuildRuleType buildRuleType) {
-    this.buildTarget = Preconditions.checkNotNull(buildTarget);
-    this.declaredDeps = Preconditions.checkNotNull(declaredDeps);
-    this.extraDeps = Preconditions.checkNotNull(extraDeps);
-    this.projectFilesystem = Preconditions.checkNotNull(projectFilesystem);
-    this.ruleKeyBuilderFactory = Preconditions.checkNotNull(ruleKeyBuilderFactory);
-    this.buildRuleType = Preconditions.checkNotNull(buildRuleType);
+      BuildRuleType buildRuleType,
+      TargetGraph targetGraph) {
+    this.buildTarget = buildTarget;
+    this.declaredDeps = declaredDeps;
+    this.extraDeps = extraDeps;
+    this.projectFilesystem = projectFilesystem;
+    this.ruleKeyBuilderFactory = ruleKeyBuilderFactory;
+    this.buildRuleType = buildRuleType;
+    this.targetGraph = targetGraph;
 
     this.totalDeps = ImmutableSortedSet.<BuildRule>naturalOrder()
         .addAll(declaredDeps)
@@ -80,7 +82,8 @@ public class BuildRuleParams {
         extraDeps,
         projectFilesystem,
         ruleKeyBuilderFactory,
-        buildRuleType);
+        buildRuleType,
+        targetGraph);
   }
 
   public BuildTarget getBuildTarget() {
@@ -113,5 +116,9 @@ public class BuildRuleParams {
 
   public BuildRuleType getBuildRuleType() {
     return buildRuleType;
+  }
+
+  public TargetGraph getTargetGraph() {
+    return targetGraph;
   }
 }

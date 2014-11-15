@@ -12,15 +12,17 @@ java_library(
 )
 
 PACKAGEABLE_SOURCES = [
+  'AndroidNativeLinkable.java',
   'AndroidPackageable.java',
   'AndroidPackageableCollection.java',
   'AndroidPackageableCollector.java',
 ]
-java_library(
+java_immutables_library(
   name = 'packageable',
   srcs = PACKAGEABLE_SOURCES,
   deps = [
     '//third-party/java/guava:guava',
+    '//src/com/facebook/buck/cxx:platform',
     '//src/com/facebook/buck/java:classhash',
     '//src/com/facebook/buck/model:model',
     '//src/com/facebook/buck/rules:build_rule',
@@ -53,6 +55,7 @@ RULES_SRCS = [
   'ApkGenrule.java',
   'ApkGenruleDescription.java',
   'ComputeExopackageDepsAbi.java',
+  'CopyNativeLibraries.java',
   'DexProducedFromJavaLibrary.java',
   'DexWithClasses.java',
   'DummyRDotJava.java',
@@ -78,7 +81,7 @@ RULES_SRCS = [
   'RDotJava.java',
   'UnsortedAndroidResourceDeps.java',
 ]
-java_library(
+java_immutables_library(
   name = 'rules',
   srcs = RULES_SRCS,
   deps = [
@@ -92,6 +95,8 @@ java_library(
     '//third-party/java/jsr:jsr305',
     '//src/com/facebook/buck/android/aapt:aapt',
     '//src/com/facebook/buck/cli:config',
+    '//src/com/facebook/buck/cxx:platform',
+    '//src/com/facebook/buck/cxx:rules',
     '//src/com/facebook/buck/dalvik:dalvik',
     '//src/com/facebook/buck/dalvik:steps',
     '//src/com/facebook/buck/event:event',
@@ -155,6 +160,7 @@ java_library(
     '//third-party/java/jackson:jackson-databind',
     '//third-party/java/jsr:jsr305',
     '//third-party/java/android:sdklib',
+    '//src/com/facebook/buck/cxx:platform',
     '//src/com/facebook/buck/dalvik/firstorder:firstorder',
     '//src/com/facebook/buck/dalvik:dalvik',
     '//src/com/facebook/buck/event:event',

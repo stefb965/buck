@@ -20,6 +20,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.android.AndroidPackageable;
+import com.facebook.buck.android.AndroidPackageableCollector;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
@@ -67,10 +69,10 @@ public class CxxLibraryTest {
     final String sharedLibrarySoname = "lib.so";
 
     // Construct a CxxLibrary object to test.
-    CxxLibrary cxxLibrary = new CxxLibrary(params, pathResolver) {
+    AbstractCxxLibrary cxxLibrary = new AbstractCxxLibrary(params, pathResolver) {
 
       @Override
-      public CxxPreprocessorInput getCxxPreprocessorInput() {
+      public CxxPreprocessorInput getCxxPreprocessorInput(CxxPlatform cxxPlatform) {
         return CxxPreprocessorInput.builder()
             .setRules(ImmutableSet.of(headerTarget, headerSymlinkTreeTarget))
             .setIncludeRoots(headerSymlinkTreeRoot)
@@ -78,7 +80,7 @@ public class CxxLibraryTest {
       }
 
       @Override
-      public NativeLinkableInput getNativeLinkableInput(Linker linker, Type type) {
+      public NativeLinkableInput getNativeLinkableInput(CxxPlatform cxxPlatform, Type type) {
         return type == Type.STATIC ?
             new NativeLinkableInput(
                 ImmutableList.<SourcePath>of(new BuildTargetSourcePath(archive.getBuildTarget())),
@@ -90,13 +92,26 @@ public class CxxLibraryTest {
       }
 
       @Override
-      public PythonPackageComponents getPythonPackageComponents() {
+      public PythonPackageComponents getPythonPackageComponents(CxxPlatform cxxPlatform) {
         return new PythonPackageComponents(
             ImmutableMap.<Path, SourcePath>of(),
             ImmutableMap.<Path, SourcePath>of(),
             ImmutableMap.<Path, SourcePath>of(
                 Paths.get(sharedLibrarySoname),
                 new PathSourcePath(sharedLibraryOutput)));
+      }
+
+      @Override
+      public Iterable<AndroidPackageable> getRequiredPackageables() {
+        return ImmutableList.of();
+      }
+
+      @Override
+      public void addToCollector(AndroidPackageableCollector collector) {}
+
+      @Override
+      public ImmutableMap<String, SourcePath> getSharedLibraries(CxxPlatform cxxPlatform) {
+        return ImmutableMap.of();
       }
 
     };
@@ -107,7 +122,7 @@ public class CxxLibraryTest {
         .setRules(ImmutableSet.of(headerTarget, headerSymlinkTreeTarget))
         .setIncludeRoots(headerSymlinkTreeRoot)
         .build();
-    assertEquals(expectedCxxPreprocessorInput, cxxLibrary.getCxxPreprocessorInput());
+    assertEquals(expectedCxxPreprocessorInput, cxxLibrary.getCxxPreprocessorInput(cxxPlatform));
 
     // Verify that we get the static archive and it's build target via the NativeLinkable
     // interface.
@@ -117,7 +132,7 @@ public class CxxLibraryTest {
     assertEquals(
         expectedStaticNativeLinkableInput,
         cxxLibrary.getNativeLinkableInput(
-            cxxPlatform.getLd(),
+            cxxPlatform,
             NativeLinkable.Type.STATIC));
 
     // Verify that we get the static archive and it's build target via the NativeLinkable
@@ -128,7 +143,7 @@ public class CxxLibraryTest {
     assertEquals(
         expectedSharedNativeLinkableInput,
         cxxLibrary.getNativeLinkableInput(
-            cxxPlatform.getLd(),
+            cxxPlatform,
             NativeLinkable.Type.SHARED));
 
     // Verify that we return the expected output for python packages.
@@ -140,12 +155,12 @@ public class CxxLibraryTest {
             new PathSourcePath(sharedLibraryOutput)));
     assertEquals(
         expectedPythonPackageComponents,
-        cxxLibrary.getPythonPackageComponents());
+        cxxLibrary.getPythonPackageComponents(cxxPlatform));
 
     // Verify that the implemented BuildRule methods are effectively unused.
     assertEquals(ImmutableList.<Step>of(), cxxLibrary.getBuildSteps(null, null));
     assertNull(cxxLibrary.getPathToOutputFile());
-    assertTrue(ImmutableList.copyOf(cxxLibrary.getInputsToCompareToOutput()).isEmpty());
+    assertTrue(ImmutableList.copyOf(cxxLibrary.getInputs()).isEmpty());
   }
 
 }

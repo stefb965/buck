@@ -16,7 +16,6 @@
 
 package com.facebook.buck.cxx;
 
-import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 
 import com.facebook.buck.model.BuildTarget;
@@ -49,14 +48,6 @@ public class CxxCompileTest {
       ImmutableList.of("-fsanitize=address");
   private static final Path DEFAULT_OUTPUT = Paths.get("test.o");
   private static final SourcePath DEFAULT_INPUT = new TestSourcePath("test.cpp");
-  private static final ImmutableMap<Path, SourcePath> DEFAULT_INCLUDES =
-      ImmutableMap.<Path, SourcePath>of(Paths.get("test.h"), new TestSourcePath("foo/test.h"));
-  private static final ImmutableList<Path> DEFAULT_INCLUDE_ROOTS = ImmutableList.of(
-      Paths.get("foo/bar"),
-      Paths.get("test"));
-  private static final ImmutableList<Path> DEFAULT_SYSTEM_INCLUDE_ROOTS = ImmutableList.of(
-      Paths.get("/usr/include"),
-      Paths.get("/include"));
   private static final Optional<CxxCompile.Plugin> DEFAULT_PLUGIN =
       Optional.of(new CxxCompile.Plugin(
               "name",
@@ -102,10 +93,7 @@ public class CxxCompileTest {
             DEFAULT_PLUGIN,
             DEFAULT_FLAGS,
             DEFAULT_OUTPUT,
-            DEFAULT_INPUT,
-            DEFAULT_INCLUDE_ROOTS,
-            DEFAULT_SYSTEM_INCLUDE_ROOTS,
-            DEFAULT_INCLUDES));
+            DEFAULT_INPUT));
 
     // Verify that changing the compiler causes a rulekey change.
     RuleKey.Builder.RuleKeyPair compilerChange = generateRuleKey(
@@ -118,10 +106,7 @@ public class CxxCompileTest {
             DEFAULT_PLUGIN,
             DEFAULT_FLAGS,
             DEFAULT_OUTPUT,
-            DEFAULT_INPUT,
-            DEFAULT_INCLUDE_ROOTS,
-            DEFAULT_SYSTEM_INCLUDE_ROOTS,
-            DEFAULT_INCLUDES));
+            DEFAULT_INPUT));
     assertNotEquals(defaultRuleKey, compilerChange);
 
     // Verify that changing the flags causes a rulekey change.
@@ -135,10 +120,7 @@ public class CxxCompileTest {
             DEFAULT_PLUGIN,
             ImmutableList.of("-different"),
             DEFAULT_OUTPUT,
-            DEFAULT_INPUT,
-            DEFAULT_INCLUDE_ROOTS,
-            DEFAULT_SYSTEM_INCLUDE_ROOTS,
-            DEFAULT_INCLUDES));
+            DEFAULT_INPUT));
     assertNotEquals(defaultRuleKey, flagsChange);
 
     // Verify that changing the input causes a rulekey change.
@@ -152,47 +134,8 @@ public class CxxCompileTest {
             DEFAULT_PLUGIN,
             DEFAULT_FLAGS,
             DEFAULT_OUTPUT,
-            new TestSourcePath("different"),
-            DEFAULT_INCLUDE_ROOTS,
-            DEFAULT_SYSTEM_INCLUDE_ROOTS,
-            DEFAULT_INCLUDES));
+            new TestSourcePath("different")));
     assertNotEquals(defaultRuleKey, inputChange);
-
-    // Verify that changing the includes does *not* cause a rulekey change, since we use a
-    // different mechanism to track header changes.
-    RuleKey.Builder.RuleKeyPair includesChange = generateRuleKey(
-        ruleKeyBuilderFactory,
-        pathResolver,
-        new CxxCompile(
-            params,
-            pathResolver,
-            DEFAULT_COMPILER,
-            DEFAULT_PLUGIN,
-            DEFAULT_FLAGS,
-            DEFAULT_OUTPUT,
-            DEFAULT_INPUT,
-            ImmutableList.of(Paths.get("different")),
-            DEFAULT_SYSTEM_INCLUDE_ROOTS,
-            DEFAULT_INCLUDES));
-    assertEquals(defaultRuleKey, includesChange);
-
-    // Verify that changing the system includes does *not* cause a rulekey change, since we use a
-    // different mechanism to track header changes.
-    RuleKey.Builder.RuleKeyPair systemIncludesChange = generateRuleKey(
-        ruleKeyBuilderFactory,
-        pathResolver,
-        new CxxCompile(
-            params,
-            pathResolver,
-            DEFAULT_COMPILER,
-            DEFAULT_PLUGIN,
-            DEFAULT_FLAGS,
-            DEFAULT_OUTPUT,
-            DEFAULT_INPUT,
-            DEFAULT_INCLUDE_ROOTS,
-            ImmutableList.of(Paths.get("different")),
-            DEFAULT_INCLUDES));
-    assertEquals(defaultRuleKey, systemIncludesChange);
 
     // Verify that not using a plugin changes the key
     RuleKey.Builder.RuleKeyPair pluginAbsentChange = generateRuleKey(
@@ -205,10 +148,7 @@ public class CxxCompileTest {
             Optional.<CxxCompile.Plugin>absent(),
             DEFAULT_FLAGS,
             DEFAULT_OUTPUT,
-            DEFAULT_INPUT,
-            DEFAULT_INCLUDE_ROOTS,
-            DEFAULT_SYSTEM_INCLUDE_ROOTS,
-            DEFAULT_INCLUDES));
+            DEFAULT_INPUT));
     assertNotEquals(defaultRuleKey, pluginAbsentChange);
 
     // Verify that changing the plugin path changes the key
@@ -225,10 +165,7 @@ public class CxxCompileTest {
                     DEFAULT_PLUGIN.get().getFlags())),
             DEFAULT_FLAGS,
             DEFAULT_OUTPUT,
-            DEFAULT_INPUT,
-            DEFAULT_INCLUDE_ROOTS,
-            DEFAULT_SYSTEM_INCLUDE_ROOTS,
-            DEFAULT_INCLUDES));
+            DEFAULT_INPUT));
     assertNotEquals(defaultRuleKey, pluginPathChange);
 
     // Verify that changing the plugin flags change the key
@@ -245,10 +182,7 @@ public class CxxCompileTest {
                     ImmutableList.of("-abcde", "-aeiou"))),
             DEFAULT_FLAGS,
             DEFAULT_OUTPUT,
-            DEFAULT_INPUT,
-            DEFAULT_INCLUDE_ROOTS,
-            DEFAULT_SYSTEM_INCLUDE_ROOTS,
-            DEFAULT_INCLUDES));
+            DEFAULT_INPUT));
     assertNotEquals(defaultRuleKey, pluginFlagsChange);
 
     // Verify that changing the plugin name changes the key
@@ -265,10 +199,7 @@ public class CxxCompileTest {
                     DEFAULT_PLUGIN.get().getFlags())),
             DEFAULT_FLAGS,
             DEFAULT_OUTPUT,
-            DEFAULT_INPUT,
-            DEFAULT_INCLUDE_ROOTS,
-            DEFAULT_SYSTEM_INCLUDE_ROOTS,
-            DEFAULT_INCLUDES));
+            DEFAULT_INPUT));
     assertNotEquals(defaultRuleKey, pluginNameChange);
   }
 

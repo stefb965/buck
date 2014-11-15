@@ -20,22 +20,24 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ProjectFilesystem;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
 public class DefaultProjectBuildFileParserFactory implements ProjectBuildFileParserFactory {
   private final ProjectFilesystem projectFilesystem;
   private final String pythonInterpreter;
+  private final boolean allowEmptyGlobs;
   private final ImmutableSet<Description<?>> descriptions;
 
   public DefaultProjectBuildFileParserFactory(
       ProjectFilesystem projectFilesystem,
       String pythonInterpreter,
+      boolean allowEmptyGlobs,
       ImmutableSet<Description<?>> descriptions) {
-    this.projectFilesystem = Preconditions.checkNotNull(projectFilesystem);
-    this.pythonInterpreter = Preconditions.checkNotNull(pythonInterpreter);
-    this.descriptions = Preconditions.checkNotNull(descriptions);
+    this.projectFilesystem = projectFilesystem;
+    this.pythonInterpreter = pythonInterpreter;
+    this.allowEmptyGlobs = allowEmptyGlobs;
+    this.descriptions = descriptions;
   }
 
   @Override
@@ -48,6 +50,7 @@ public class DefaultProjectBuildFileParserFactory implements ProjectBuildFilePar
         projectFilesystem,
         commonIncludes,
         pythonInterpreter,
+        allowEmptyGlobs,
         descriptions,
         console,
         environment,

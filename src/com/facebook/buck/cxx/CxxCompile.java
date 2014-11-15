@@ -29,13 +29,11 @@ import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
 
 /**
- * A build rule which preprocesses, compiles, and assembles a C/C++ source.
+ * A build rule which compiles and assembles a C/C++ source.
  * It supports the execution of one plugin during the compilation.
  */
 public class CxxCompile extends AbstractBuildRule {
@@ -45,9 +43,6 @@ public class CxxCompile extends AbstractBuildRule {
   private final ImmutableList<String> flags;
   private final Path output;
   private final SourcePath input;
-  private final ImmutableList<Path> includeRoots;
-  private final ImmutableList<Path> systemIncludeRoots;
-  private final ImmutableMap<Path, SourcePath> includes;
 
   public CxxCompile(
       BuildRuleParams params,
@@ -56,19 +51,13 @@ public class CxxCompile extends AbstractBuildRule {
       Optional<Plugin> plugin,
       ImmutableList<String> flags,
       Path output,
-      SourcePath input,
-      ImmutableList<Path> includeRoots,
-      ImmutableList<Path> systemIncludeRoots,
-      ImmutableMap<Path, SourcePath> includes) {
+      SourcePath input) {
     super(params, resolver);
-    this.compiler = Preconditions.checkNotNull(compiler);
-    this.flags = Preconditions.checkNotNull(flags);
-    this.plugin = Preconditions.checkNotNull(plugin);
-    this.output = Preconditions.checkNotNull(output);
-    this.input = Preconditions.checkNotNull(input);
-    this.includeRoots = Preconditions.checkNotNull(includeRoots);
-    this.systemIncludeRoots = Preconditions.checkNotNull(systemIncludeRoots);
-    this.includes = Preconditions.checkNotNull(includes);
+    this.compiler = compiler;
+    this.flags = flags;
+    this.plugin = plugin;
+    this.output = output;
+    this.input = input;
   }
 
   @Override
@@ -89,15 +78,6 @@ public class CxxCompile extends AbstractBuildRule {
       builder.set("plugin-" + p.getName() + "-flags", p.getFlags());
     }
 
-    // Hash the layout of each potentially included C/C++ header file and it's contents.
-    // We do this here, rather than returning them from `getInputsToCompareToOutput` so
-    // that we can match the contents hash up with where it was laid out in the include
-    // search path, and therefore can accurately capture header file renames.
-    for (Path path : ImmutableSortedSet.copyOf(includes.keySet())) {
-      SourcePath source = includes.get(path);
-      builder.setInput("include(" + path + ")", getResolver().getPath(source));
-    }
-
     return builder;
   }
 
@@ -105,6 +85,7 @@ public class CxxCompile extends AbstractBuildRule {
   public ImmutableList<Step> getBuildSteps(
       BuildContext context,
       BuildableContext buildableContext) {
+
     ImmutableList<String> allFlags =
         plugin.isPresent() ?
             ImmutableList.<String>builder()
@@ -120,9 +101,7 @@ public class CxxCompile extends AbstractBuildRule {
             getResolver().getPath(compiler),
             allFlags,
             output,
-            getResolver().getPath(input),
-            includeRoots,
-            systemIncludeRoots));
+            getResolver().getPath(input)));
   }
 
   @Override
@@ -150,18 +129,6 @@ public class CxxCompile extends AbstractBuildRule {
     return input;
   }
 
-  public ImmutableList<Path> getIncludeRoots() {
-    return includeRoots;
-  }
-
-  public ImmutableList<Path> getSystemIncludeRoots() {
-    return systemIncludeRoots;
-  }
-
-  public ImmutableMap<Path, SourcePath> getIncludes() {
-    return includes;
-  }
-
   public static class Plugin {
 
     private String name;
@@ -169,9 +136,9 @@ public class CxxCompile extends AbstractBuildRule {
     private ImmutableList<String> flags;
 
     public Plugin(String name, Path plugin, ImmutableList<String> flags) {
-      this.name = Preconditions.checkNotNull(name);
-      this.path = Preconditions.checkNotNull(plugin);
-      this.flags = Preconditions.checkNotNull(flags);
+      this.name = name;
+      this.path = plugin;
+      this.flags = flags;
 
       Preconditions.checkState(!name.isEmpty(), "Empty plugin name not allowed.");
       Preconditions.checkState(!flags.isEmpty(), "Empty plugin flags not allowed.");

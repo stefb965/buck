@@ -5,8 +5,10 @@ java_test(
     '//src/com/facebook/buck/apple:rules',
   ],
   deps = [
+    ':testutil',
     '//src/com/facebook/buck/apple:rules',
     '//src/com/facebook/buck/apple/clang:headermap',
+    '//src/com/facebook/buck/cxx:platform',
     '//src/com/facebook/buck/cxx:rules',
     '//src/com/facebook/buck/graph:graph',
     '//src/com/facebook/buck/model:model',
@@ -31,4 +33,25 @@ java_test(
     '//third-party/java/jackson:jackson',
     '//third-party/java/junit:junit',
   ]
+)
+
+java_library(
+  name = 'testutil',
+  srcs = glob(['*Builder.java']) + [
+    'FakeAppleConfig.java',
+  ],
+  deps = [
+    '//src/com/facebook/buck/apple:rules',
+    '//src/com/facebook/buck/cli:config',
+    '//src/com/facebook/buck/model:model',
+    '//src/com/facebook/buck/rules:build_rule',
+    '//src/com/facebook/buck/util:io',
+    '//test/com/facebook/buck/cli:FakeBuckConfig',
+    '//test/com/facebook/buck/rules:testutil',
+    '//third-party/java/guava:guava',
+    '//third-party/java/jsr:jsr305',
+  ],
+  visibility = [
+    '//test/...',
+  ],
 )

@@ -20,6 +20,7 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.Flavored;
+import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -34,7 +35,6 @@ import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -51,7 +51,7 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
   final JavaCompilerEnvironment javacEnv;
 
   public JavaLibraryDescription(JavaCompilerEnvironment javacEnv) {
-    this.javacEnv = Preconditions.checkNotNull(javacEnv);
+    this.javacEnv = javacEnv;
   }
 
   @Override
@@ -200,6 +200,7 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
       BuildRule buildRule,
       ProjectFilesystem projectFilesystem,
       RuleKeyBuilderFactory ruleKeyBuilderFactory,
+      TargetGraph targetGraph,
       BuildRuleResolver ruleResolver) {
     BuildTarget originalBuildTarget = buildRule.getBuildTarget();
 
@@ -208,6 +209,7 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
         originalBuildTarget,
         projectFilesystem,
         ruleKeyBuilderFactory,
+        targetGraph,
         arg);
     if (!gwtModuleOptional.isPresent()) {
       return;
@@ -229,6 +231,7 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
       BuildTarget originalBuildTarget,
       ProjectFilesystem projectFilesystem,
       RuleKeyBuilderFactory ruleKeyBuilderFactory,
+      TargetGraph targetGraph,
       Arg arg) {
     if (arg.srcs.get().isEmpty() &&
         arg.resources.get().isEmpty() &&
@@ -256,7 +259,8 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
             /* inferredDeps */ ImmutableSortedSet.<BuildRule>of(),
             projectFilesystem,
             ruleKeyBuilderFactory,
-            BuildRuleType.GWT_MODULE),
+            BuildRuleType.GWT_MODULE,
+            targetGraph),
         resolver,
         filesForGwtModule);
     return Optional.of(gwtModule);

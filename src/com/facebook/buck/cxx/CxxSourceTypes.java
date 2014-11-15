@@ -16,7 +16,6 @@
 
 package com.facebook.buck.cxx;
 
-import com.google.common.base.Preconditions;
 
 /**
  * Utilities for working with C-like source types.
@@ -29,7 +28,6 @@ public class CxxSourceTypes {
    * Returns true for source types which can be run through the C preprocessor.
    */
   public static boolean isPreprocessableType(CxxSource.Type sourceType) {
-    Preconditions.checkNotNull(sourceType);
     return
         sourceType == CxxSource.Type.C ||
         sourceType == CxxSource.Type.CXX ||
@@ -39,14 +37,26 @@ public class CxxSourceTypes {
   }
 
   /**
+   * Returns true for source types which can be run through the C preprocessor.
+   */
+  public static boolean isCompilableType(CxxSource.Type sourceType) {
+    return
+        sourceType == CxxSource.Type.C_CPP_OUTPUT ||
+        sourceType == CxxSource.Type.CXX_CPP_OUTPUT ||
+        sourceType == CxxSource.Type.ASSEMBLER ||
+        sourceType == CxxSource.Type.OBJC_CPP_OUTPUT ||
+        sourceType == CxxSource.Type.OBJCXX_CPP_OUTPUT;
+  }
+
+  /**
    * Returns true for source types which need to be built with a C++ compiler.
    */
   public static boolean needsCxxCompiler(CxxSource.Type sourceType) {
-    Preconditions.checkNotNull(sourceType);
     return
         sourceType == CxxSource.Type.CXX ||
         sourceType == CxxSource.Type.CXX_CPP_OUTPUT ||
         sourceType == CxxSource.Type.OBJCXX ||
         sourceType == CxxSource.Type.OBJCXX_CPP_OUTPUT;
   }
+
 }

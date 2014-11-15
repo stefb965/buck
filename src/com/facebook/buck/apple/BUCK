@@ -1,4 +1,4 @@
-java_library(
+java_immutables_library(
   name = 'rules',
   srcs = glob(['*.java']),
   deps = [
@@ -6,6 +6,7 @@ java_library(
     '//third-party/java/jsr:jsr305',
     '//src/com/facebook/buck/apple/clang:headermap',
     '//src/com/facebook/buck/cli:config',
+    '//src/com/facebook/buck/cxx:platform',
     '//src/com/facebook/buck/cxx:rules',
     '//src/com/facebook/buck/graph:graph',
     '//src/com/facebook/buck/log:log',
@@ -23,6 +24,8 @@ java_library(
     '//src/com/facebook/buck/util:constants',
     '//src/com/facebook/buck/util:exceptions',
     '//src/com/facebook/buck/util:io',
+    '//src/com/facebook/buck/util:util',
+    '//third-party/java/dd-plist:dd-plist',
     '//third-party/java/infer-annotations:infer-annotations',
     '//third-party/java/jackson:jackson',
   ],
@@ -46,4 +49,18 @@ python_test(
   deps = [
     ':asset_catalogs_compiler',
   ],
+)
+
+export_file(
+  name = 'compile_asset_catalogs.py',
+  visibility = [
+    'PUBLIC'
+  ]
+)
+
+export_file(
+  name = 'compile_asset_catalogs_build_phase.sh',
+  visibility = [
+    'PUBLIC'
+  ]
 )

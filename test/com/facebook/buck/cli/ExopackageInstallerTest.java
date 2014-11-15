@@ -19,14 +19,27 @@ package com.facebook.buck.cli;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.base.Optional;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ExpectedException;
+
+import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 @SuppressWarnings("PMD.AddEmptyString")
 public class ExopackageInstallerTest {
+
+  @Rule
+  public ExpectedException thrown = ExpectedException.none();
+
   @Test
   public void testScanSecondaryDexDir() throws Exception {
     String output =
@@ -44,8 +57,9 @@ public class ExopackageInstallerTest {
     ImmutableSet.Builder<String> foundHashesBuilder = ImmutableSet.builder();
     ImmutableSet.Builder<String> toDeleteBuilder = ImmutableSet.builder();
 
-    ExopackageInstaller.scanSecondaryDexDir(
+    ExopackageInstaller.processLsOutput(
         output,
+        ExopackageInstaller.DEX_FILE_PATTERN,
         requiredHashes,
         foundHashesBuilder,
         toDeleteBuilder);
@@ -89,6 +103,32 @@ public class ExopackageInstallerTest {
   }
 
   @Test
+  public void testParsePackageInfoOnLollipop() {
+    String lines =
+        "  Package [com.facebook.buck.android.agent] (3f784d07):\r\n" +
+        "    userId=10062 gids=[]\r\n" +
+        "    pkg=Package{81b1e34 com.facebook.buck.android.agent}\r\n" +
+        "    codePath=/data/app/com.facebook.buck.android.agent-1\r\n" +
+        "    resourcePath=/data/app/com.facebook.buck.android.agent-1\r\n" +
+        "    legacyNativeLibraryDir=/data/app/com.facebook.buck.android.agent-1/lib\r\n" +
+        "    primaryCpuAbi=armeabi-v7a\r\n" +
+        "    secondaryCpuAbi=null\r\n" +
+        "    versionCode=3 targetSdk=19\r\n" +
+        "    versionName=3\r\n" +
+        "";
+    Optional<ExopackageInstaller.PackageInfo> optionalInfo = ExopackageInstaller.parsePackageInfo(
+        "com.facebook.buck.android.agent",
+        lines);
+
+    assertTrue(optionalInfo.isPresent());
+    ExopackageInstaller.PackageInfo info = optionalInfo.get();
+
+    assertEquals("/data/app/com.facebook.buck.android.agent-1/base.apk", info.apkPath);
+    assertEquals("/data/app/com.facebook.buck.android.agent-1/lib", info.nativeLibPath);
+    assertEquals("3", info.versionCode);
+  }
+
+  @Test
   public void testChunkArgs() {
     assertEquals(
         ImmutableList.of(),
@@ -104,5 +144,66 @@ public class ExopackageInstallerTest {
             ImmutableList.of("abcd", "efg"),
             ImmutableList.of("hijkl")),
         ExopackageInstaller.chunkArgs(ImmutableList.of("abcd", "efg", "hijkl"), 8));
+  }
+
+  @Test
+  public void testFilterLibrariesForAbi() {
+    Path libsDir = Paths.get("example/libs");
+    ImmutableMap<String, Path> allLibs = ImmutableMap.of(
+        Strings.repeat("a", 40), libsDir.resolve("armeabi-v7a").resolve("libmy1.so"),
+        Strings.repeat("b", 40), libsDir.resolve("armeabi-v7a").resolve("libmy2.so"),
+        Strings.repeat("c", 40), libsDir.resolve("armeabi").resolve("libmy2.so"),
+        Strings.repeat("d", 40), libsDir.resolve("armeabi").resolve("libmy3.so"),
+        Strings.repeat("e", 40), libsDir.resolve("x86").resolve("libmy1.so"));
+
+    assertEquals(
+        ImmutableSet.of(Strings.repeat("a", 40), Strings.repeat("b", 40)),
+        ExopackageInstaller.filterLibrariesForAbi(
+            libsDir,
+            allLibs,
+            "armeabi-v7a",
+            ImmutableSet.<String>of()).keySet());
+
+    assertEquals(
+        ImmutableSet.of(Strings.repeat("d", 40)),
+        ExopackageInstaller.filterLibrariesForAbi(
+            libsDir,
+            allLibs,
+            "armeabi",
+            ImmutableSet.of("libmy1.so", "libmy2.so")).keySet());
+  }
+
+  @Test
+  public void testParseExopackageInfoMetadata() throws IOException {
+    String illegalLine = "no_space_in_this_line_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    thrown.expectMessage("Illegal line in metadata file: " + illegalLine);
+
+    Path baseDir = Paths.get("basedir");
+    FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
+    filesystem.writeLinesToPath(
+        ImmutableList.of(
+            "filename.jar aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "dir/anotherfile.jar bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+        Paths.get("metadata.txt"));
+
+    assertEquals(
+        ImmutableMap.of(
+            Strings.repeat("a", 40), Paths.get("basedir/filename.jar"),
+            Strings.repeat("b", 40), Paths.get("basedir/dir/anotherfile.jar")),
+        ExopackageInstaller.parseExopackageInfoMetadata(
+            Paths.get("metadata.txt"),
+            baseDir,
+            filesystem));
+
+    filesystem.writeLinesToPath(
+        ImmutableList.of(
+            "filename.jar aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            illegalLine),
+        Paths.get("metadata.txt"));
+
+    ExopackageInstaller.parseExopackageInfoMetadata(
+        Paths.get("metadata.txt"),
+        baseDir,
+        filesystem);
   }
 }

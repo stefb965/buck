@@ -23,7 +23,6 @@ import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Optional;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.nio.file.Path;
@@ -34,7 +33,7 @@ public class OCamlBuckConfig {
   private final CxxPlatform cxxPlatform;
 
   public OCamlBuckConfig(Platform platform, BuckConfig delegate) {
-    this.delegate = Preconditions.checkNotNull(delegate);
+    this.delegate = delegate;
     cxxPlatform = new DefaultCxxPlatform(platform, delegate);
   }
 
@@ -89,4 +88,9 @@ public class OCamlBuckConfig {
   public Optional<Path> getOCamlDebug() {
     return delegate.getPath("ocaml", "debug");
   }
+
+  public CxxPlatform getCxxPlatform() {
+    return cxxPlatform;
+  }
+
 }

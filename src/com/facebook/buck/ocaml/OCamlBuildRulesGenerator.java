@@ -75,14 +75,14 @@ public class OCamlBuildRulesGenerator {
       ImmutableList<SourcePath> cInput,
       Path cCompiler,
       Path cxxCompiler) {
-    this.params = Preconditions.checkNotNull(params);
-    this.pathResolver = Preconditions.checkNotNull(pathResolver);
-    this.resolver = Preconditions.checkNotNull(resolver);
-    this.ocamlContext = Preconditions.checkNotNull(ocamlContext);
-    this.mlInput = Preconditions.checkNotNull(mlInput);
-    this.cInput = Preconditions.checkNotNull(cInput);
-    this.cCompiler = Preconditions.checkNotNull(cCompiler);
-    this.cxxCompiler = Preconditions.checkNotNull(cxxCompiler);
+    this.params = params;
+    this.pathResolver = pathResolver;
+    this.resolver = resolver;
+    this.ocamlContext = ocamlContext;
+    this.mlInput = mlInput;
+    this.cInput = cInput;
+    this.cCompiler = cCompiler;
+    this.cxxCompiler = cxxCompiler;
   }
 
   ImmutableList<BuildRule> generate() {
@@ -158,7 +158,7 @@ public class OCamlBuildRulesGenerator {
                   pathResolver.filterBuildRuleInputs(
                       ImmutableList.<SourcePath>builder()
                           .add(cSrc)
-                          .addAll(cxxPreprocessorInput.getIncludes().values())
+                          .addAll(cxxPreprocessorInput.getIncludes().nameToPathMap().values())
                           .build()))
                   // Also add in extra deps from the preprocessor input, such as the symlink tree
                   // rules.
@@ -182,7 +182,7 @@ public class OCamlBuildRulesGenerator {
             outputPath,
             pathResolver.getPath(cSrc),
             cCompileFlags.build(),
-            cxxPreprocessorInput.getIncludes()));
+            ImmutableMap.copyOf(cxxPreprocessorInput.getIncludes().nameToPathMap())));
       resolver.addToIndex(compileRule);
       objects.add(new BuildTargetSourcePath(compileRule.getBuildTarget()));
     }
@@ -391,7 +391,7 @@ public class OCamlBuildRulesGenerator {
 
     ImmutableList.Builder<BuildRule> deps = ImmutableList.builder();
     if (sources.containsKey(mlSource)) {
-      for (SourcePath dep : sources.get(mlSource)) {
+      for (SourcePath dep : Preconditions.checkNotNull(sources.get(mlSource))) {
         generateSingleMLCompilation(sourceToRule, cmxFiles, dep, sources, newCycleDetector);
         deps.add(sourceToRule.get(dep));
       }
@@ -475,7 +475,7 @@ public class OCamlBuildRulesGenerator {
 
     ImmutableList.Builder<BuildRule> deps = ImmutableList.builder();
     if (sources.containsKey(mlSource)) {
-      for (SourcePath dep : sources.get(mlSource)) {
+      for (SourcePath dep : Preconditions.checkNotNull(sources.get(mlSource))) {
         generateSingleMLBytecodeCompilation(
             sourceToRule,
             cmoFiles,

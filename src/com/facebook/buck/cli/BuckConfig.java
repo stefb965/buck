@@ -111,6 +111,7 @@ public class BuckConfig {
   private static final String DEFAULT_HTTP_CACHE_PORT = "8080";
   private static final String DEFAULT_HTTP_CACHE_TIMEOUT_SECONDS = "10";
   private static final String DEFAULT_MAX_TRACES = "25";
+  private static final String DEFAULT_ALLOW_EMPTY_GLOBS = "true";
 
   // Prefer "python2" where available (Linux), but fall back to "python" (Mac).
   private static final ImmutableList<String> PYTHON_INTERPRETER_NAMES =
@@ -576,6 +577,12 @@ public class BuckConfig {
     return Integer.parseInt(getValue("log", "max_traces").or(DEFAULT_MAX_TRACES));
   }
 
+  public boolean getAllowEmptyGlobs() {
+    return Boolean.parseBoolean(
+        getValue("build", "allow_empty_globs").or(DEFAULT_ALLOW_EMPTY_GLOBS)
+    );
+  }
+
   public boolean getRestartAdbOnFailure() {
     return Boolean.parseBoolean(getValue("adb", "adb_restart_on_failure").or("true"));
   }
@@ -702,7 +709,7 @@ public class BuckConfig {
   }
 
   @Nullable
-  Path resolvePathThatMayBeOutsideTheProjectFilesystem(@Nullable Path path) {
+  public Path resolvePathThatMayBeOutsideTheProjectFilesystem(@Nullable Path path) {
     if (path == null) {
       return path;
     }
@@ -824,7 +831,7 @@ public class BuckConfig {
       return defaultValue;
     }
 
-    String answer = entries.get(propertyName);
+    String answer = Preconditions.checkNotNull(entries.get(propertyName));
     switch (answer.toLowerCase()) {
       case "yes":
       case "true":

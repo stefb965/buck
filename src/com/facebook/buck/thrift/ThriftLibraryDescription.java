@@ -70,7 +70,7 @@ public class ThriftLibraryDescription
       ThriftBuckConfig thriftBuckConfig,
       ImmutableList<ThriftLanguageSpecificEnhancer> enhancers) {
 
-    this.thriftBuckConfig = Preconditions.checkNotNull(thriftBuckConfig);
+    this.thriftBuckConfig = thriftBuckConfig;
 
     // Now build up a map indexing them by their flavor.
     ImmutableMap.Builder<Flavor, ThriftLanguageSpecificEnhancer> enhancerMapBuilder =
@@ -354,7 +354,7 @@ public class ThriftLibraryDescription
           ent.getKey(),
           new ThriftSource(
               Preconditions.checkNotNull(compilerRules.get(ent.getKey())),
-              args.srcs.get(ent.getValue()),
+              Preconditions.checkNotNull(args.srcs.get(ent.getValue())),
               getThriftCompilerOutputDir(target, ent.getKey())));
     }
     ImmutableMap<String, ThriftSource> thriftSources = thriftSourceBuilder.build();

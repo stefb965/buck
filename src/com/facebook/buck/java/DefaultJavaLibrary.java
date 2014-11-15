@@ -23,7 +23,6 @@ import com.facebook.buck.android.AndroidPackageable;
 import com.facebook.buck.android.AndroidPackageableCollector;
 import com.facebook.buck.graph.TopologicalSort;
 import com.facebook.buck.graph.TraversableGraph;
-import com.facebook.buck.java.abi.AbiWriterProtocol;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.HasBuildTarget;
@@ -195,13 +194,13 @@ public class DefaultJavaLibrary extends AbstractBuildRule
 
     this.srcs = ImmutableSortedSet.copyOf(srcs);
     this.resources = ImmutableSortedSet.copyOf(resources);
-    this.proguardConfig = Preconditions.checkNotNull(proguardConfig);
-    this.postprocessClassesCommands = Preconditions.checkNotNull(postprocessClassesCommands);
+    this.proguardConfig = proguardConfig;
+    this.postprocessClassesCommands = postprocessClassesCommands;
     this.exportedDeps = exportedDeps;
     this.providedDeps = providedDeps;
-    this.additionalClasspathEntries = Preconditions.checkNotNull(additionalClasspathEntries);
-    this.javacOptions = Preconditions.checkNotNull(javacOptions);
-    this.resourcesRoot = Preconditions.checkNotNull(resourcesRoot);
+    this.additionalClasspathEntries = additionalClasspathEntries;
+    this.javacOptions = javacOptions;
+    this.resourcesRoot = resourcesRoot;
 
     if (!srcs.isEmpty() || !resources.isEmpty()) {
       this.outputJar = Optional.of(getOutputJarPath(getBuildTarget()));
@@ -265,11 +264,11 @@ public class DefaultJavaLibrary extends AbstractBuildRule
     commands.add(mkdir);
 
     // Only run javac if there are .java files to compile.
+    final JavacStep javacStep;
     if (!getJavaSrcs().isEmpty()) {
       Path pathToSrcsList = BuildTargets.getGenPath(getBuildTarget(), "__%s__srcs");
       commands.add(new MkdirStep(pathToSrcsList.getParent()));
 
-      final JavacStep javacStep;
       if (javacOptions.getJavaCompilerEnvironment().getJavacPath().isPresent()) {
         Path workingDirectory = BuildTargets.getGenPath(target, "lib__%s____working_directory");
         commands.add(new MakeCleanDirectoryStep(workingDirectory));
@@ -300,19 +299,21 @@ public class DefaultJavaLibrary extends AbstractBuildRule
             Optional.of(pathToSrcsList));
       }
       commands.add(javacStep);
-
-      // Create a supplier that extracts the ABI key from javac after it executes.
-      return Suppliers.memoize(new Supplier<Sha1HashCode>() {
-        @Override
-        public Sha1HashCode get() {
-          return createTotalAbiKey(Preconditions.checkNotNull(javacStep.getAbiKey()));
-        }
-      });
     } else {
-      // When there are no .java files to compile, the ABI key should be a constant.
-      return Suppliers.ofInstance(createTotalAbiKey(
-          new Sha1HashCode(AbiWriterProtocol.EMPTY_ABI_KEY)));
+      javacStep = new NullJavacStep(
+          outputDirectory,
+          javacOptions,
+          Optional.of(target),
+          buildDependencies,
+          suggestBuildRules);
     }
+    // Create a supplier that extracts the ABI key from javac after it executes.
+    return Suppliers.memoize(new Supplier<Sha1HashCode>() {
+      @Override
+      public Sha1HashCode get() {
+        return createTotalAbiKey(Preconditions.checkNotNull(javacStep.getAbiKey()));
+      }
+    });
   }
 
   /**

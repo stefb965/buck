@@ -21,6 +21,8 @@ import static org.junit.Assert.assertTrue;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.model.Flavor;
+import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.rules.SourcePath;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
@@ -41,8 +43,12 @@ public class CxxTestDescriptionTest {
         ImmutableMap.<String, Map<String, String>>of(
             "cxx",
             ImmutableMap.of("gtest_dep", gtest.toString())));
-    DefaultCxxPlatform cxxBuckConfig = new DefaultCxxPlatform(buckConfig);
-    CxxTestDescription desc = new CxxTestDescription(cxxBuckConfig);
+    CxxBuckConfig cxxBuckConfig = new CxxBuckConfig(buckConfig);
+    DefaultCxxPlatform cxxPlatform = new DefaultCxxPlatform(buckConfig);
+    CxxTestDescription desc = new CxxTestDescription(
+        cxxBuckConfig,
+        cxxPlatform,
+        new FlavorDomain<>("platform", ImmutableMap.<Flavor, CxxPlatform>of()));
 
     BuildTarget target = BuildTargetFactory.newInstance("//:target");
     CxxTestDescription.Arg constructorArg = desc.createUnpopulatedConstructorArg();

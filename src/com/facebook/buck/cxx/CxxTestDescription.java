@@ -17,6 +17,10 @@
 package com.facebook.buck.cxx;
 
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.Flavor;
+import com.facebook.buck.model.FlavorDomain;
+import com.facebook.buck.model.FlavorDomainException;
+import com.facebook.buck.model.Flavored;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -25,6 +29,7 @@ import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -33,15 +38,23 @@ import com.google.common.collect.ImmutableSortedSet;
 
 public class CxxTestDescription implements
     Description<CxxTestDescription.Arg>,
+    Flavored,
     ImplicitDepsInferringDescription<CxxTestDescription.Arg> {
 
   private static final BuildRuleType TYPE = new BuildRuleType("cxx_test");
   private static final CxxTestType DEFAULT_TEST_TYPE = CxxTestType.GTEST;
 
-  private final CxxPlatform cxxPlatform;
+  private final CxxBuckConfig cxxBuckConfig;
+  private final CxxPlatform defaultCxxPlatform;
+  private final FlavorDomain<CxxPlatform> cxxPlatforms;
 
-  public CxxTestDescription(CxxPlatform cxxPlatform) {
-    this.cxxPlatform = Preconditions.checkNotNull(cxxPlatform);
+  public CxxTestDescription(
+      CxxBuckConfig cxxBuckConfig,
+      CxxPlatform defaultCxxPlatform,
+      FlavorDomain<CxxPlatform> cxxPlatforms) {
+    this.cxxBuckConfig = cxxBuckConfig;
+    this.defaultCxxPlatform = defaultCxxPlatform;
+    this.cxxPlatforms = cxxPlatforms;
   }
 
   @Override
@@ -59,7 +72,16 @@ public class CxxTestDescription implements
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) {
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+
+    // Extract the platform from the flavor, falling back to the default platform if none are
+    // found.
+    CxxPlatform cxxPlatform;
+    try {
+      cxxPlatform = cxxPlatforms.getValue(
+          params.getBuildTarget().getFlavors()).or(defaultCxxPlatform);
+    } catch (FlavorDomainException e) {
+      throw new HumanReadableException("%s: %s", params.getBuildTarget(), e.getMessage());
+    }
 
     // Generate the link rule that builds the test binary.
     CxxLink cxxLink = CxxDescriptionEnhancer.createBuildRulesForCxxBinaryDescriptionArg(
@@ -81,6 +103,7 @@ public class CxxTestDescription implements
     CxxTest test;
 
     CxxTestType type = args.framework.or(getDefaultTestType());
+    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
     switch (type) {
       case GTEST: {
         test = new CxxGtestTest(
@@ -115,10 +138,21 @@ public class CxxTestDescription implements
   public Iterable<String> findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
       Arg constructorArg) {
+
+    // Extract the platform from the flavor, falling back to the default platform if none are
+    // found.
+    CxxPlatform cxxPlatform;
+    try {
+      cxxPlatform = cxxPlatforms.getValue(
+          buildTarget.getFlavors()).or(defaultCxxPlatform);
+    } catch (FlavorDomainException e) {
+      throw new HumanReadableException("%s: %s", buildTarget, e.getMessage());
+    }
+
     ImmutableSet.Builder<String> deps = ImmutableSet.builder();
 
     if (!constructorArg.lexSrcs.get().isEmpty()) {
-      deps.add(cxxPlatform.getLexDep().toString());
+      deps.add(cxxBuckConfig.getLexDep().toString());
     }
 
     CxxTestType type = constructorArg.framework.or(getDefaultTestType());
@@ -141,6 +175,22 @@ public class CxxTestDescription implements
 
   public CxxTestType getDefaultTestType() {
     return DEFAULT_TEST_TYPE;
+  }
+
+  @Override
+  public boolean hasFlavors(ImmutableSet<Flavor> flavors) {
+
+    if (flavors.equals(ImmutableSet.of(Flavor.DEFAULT))) {
+      return true;
+    }
+
+    for (Flavor flavor : cxxPlatforms.getFlavors()) {
+      if (flavors.equals(ImmutableSet.of(Flavor.DEFAULT, flavor))) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   @SuppressFieldNotInitialized

@@ -18,10 +18,10 @@ package com.facebook.buck.apple.xcode;
 
 import com.facebook.buck.apple.XcodeProjectConfig;
 import com.facebook.buck.apple.XcodeProjectConfigDescription;
+import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProjectFilesystem;
@@ -39,9 +39,9 @@ import javax.annotation.Nullable;
  * Generate separate xcode projects based on the given xcode_project_config rules
  */
 public class SeparatedProjectsGenerator {
-  private final SourcePathResolver resolver;
   private final ProjectFilesystem projectFilesystem;
-  private final ActionGraph actionGraph;
+  private final BuckEventBus buckEventBus;
+  private final TargetGraph targetGraph;
   private final ExecutionContext executionContext;
   private final ImmutableSet<BuildTarget> projectConfigTargets;
   private final ImmutableSet<ProjectGenerator.Option> projectGeneratorOptions;
@@ -54,15 +54,15 @@ public class SeparatedProjectsGenerator {
   private ImmutableMap<BuildTarget, ProjectGenerator> projectGenerators;
 
   public SeparatedProjectsGenerator(
-      SourcePathResolver resolver,
       ProjectFilesystem projectFilesystem,
-      ActionGraph actionGraph,
+      BuckEventBus buckEventBus,
+      TargetGraph targetGraph,
       ExecutionContext executionContext,
       ImmutableSet<BuildTarget> projectConfigTargets,
       ImmutableSet<ProjectGenerator.Option> projectGeneratorOptions) {
-    this.resolver = resolver;
     this.projectFilesystem = projectFilesystem;
-    this.actionGraph = actionGraph;
+    this.buckEventBus = buckEventBus;
+    this.targetGraph = targetGraph;
     this.executionContext = executionContext;
     this.projectConfigTargets = projectConfigTargets;
     this.projectGenerators = null;
@@ -72,7 +72,7 @@ public class SeparatedProjectsGenerator {
       .build();
 
     for (BuildTarget target : projectConfigTargets) {
-      BuildRule rule = this.actionGraph.findBuildRuleByTarget(target);
+      BuildRule rule = this.targetGraph.getActionGraph(buckEventBus).findBuildRuleByTarget(target);
       if (rule == null) {
         throw new HumanReadableException(
             "target not found: " + target.toString());
@@ -92,7 +92,7 @@ public class SeparatedProjectsGenerator {
     ImmutableMap.Builder<BuildTarget, ProjectGenerator> projectGeneratorsBuilder =
         ImmutableMap.builder();
     for (BuildTarget target : projectConfigTargets) {
-      BuildRule rule = actionGraph.findBuildRuleByTarget(target);
+      BuildRule rule = targetGraph.getActionGraph(buckEventBus).findBuildRuleByTarget(target);
       XcodeProjectConfig buildable =
           (XcodeProjectConfig) Preconditions.checkNotNull(rule);
 
@@ -101,8 +101,7 @@ public class SeparatedProjectsGenerator {
         initialTargetsBuilder.add(memberRule.getBuildTarget());
       }
       ProjectGenerator generator = new ProjectGenerator(
-          resolver,
-          actionGraph.getNodes(),
+          targetGraph,
           initialTargetsBuilder.build(),
           projectFilesystem,
           executionContext,

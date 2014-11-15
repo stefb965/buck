@@ -27,7 +27,7 @@ adb shell rm -r /data/local/tmp/exopackage/buck.exotest
 echo '1a' > value.txt
 env NO_BUCKD=1 buck install //:exotest | cat
 adb logcat -c
-adb shell am startservice -n buck.exotest/exotest.LogService
+adb shell am start -n buck.exotest/exotest.LogActivity
 sleep 1
 adb logcat -d adb logcat '*:S' EXOPACKAGE_TEST:V > out1.txt
 
@@ -35,7 +35,7 @@ adb logcat -d adb logcat '*:S' EXOPACKAGE_TEST:V > out1.txt
 echo '2b' > value.txt
 env NO_BUCKD=1 buck install //:exotest | cat
 adb logcat -c
-adb shell am startservice -n buck.exotest/exotest.LogService
+adb shell am start -n buck.exotest/exotest.LogActivity
 sleep 1
 adb logcat -d adb logcat '*:S' EXOPACKAGE_TEST:V > out2.txt
 
@@ -48,4 +48,4 @@ buck uninstall //:exotest
 adb uninstall com.facebook.buck.android.agent
 
 # Celebrate!  (And show that we succeeded, because grep doesn't print error messages.)
-echo GREAT_SUCCESS
+echo -e '\E[42;37m'"\033[1mGREAT_SUCCESS\033[0m"

@@ -26,8 +26,10 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.facebook.buck.android.AndroidBinary.ExopackageMode;
 import com.facebook.buck.android.AndroidBinary.TargetCpuType;
 import com.facebook.buck.android.AndroidBinaryGraphEnhancer.EnhancementResult;
+import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.java.HasJavaClassHashes;
 import com.facebook.buck.java.JavaLibraryBuilder;
 import com.facebook.buck.java.JavacOptions;
@@ -35,6 +37,7 @@ import com.facebook.buck.java.Keystore;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
+import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -50,6 +53,7 @@ import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
@@ -57,6 +61,7 @@ import org.junit.Test;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.EnumSet;
 import java.util.Iterator;
 
 public class AndroidBinaryGraphEnhancerTest {
@@ -98,7 +103,8 @@ public class AndroidBinaryGraphEnhancerTest {
         originalDeps,
         new FakeProjectFilesystem(),
         ruleKeyBuilderFactory,
-        AndroidBinaryDescription.TYPE);
+        AndroidBinaryDescription.TYPE,
+        TargetGraph.EMPTY);
     AndroidBinaryGraphEnhancer graphEnhancer = new AndroidBinaryGraphEnhancer(
         originalParams,
         ruleResolver,
@@ -114,10 +120,11 @@ public class AndroidBinaryGraphEnhancerTest {
         buildRulesToExcludeFromDex,
         /* resourcesToExclude */ ImmutableSet.<BuildTarget>of(),
         JavacOptions.DEFAULTS,
-        /* exopackage */ false,
+        EnumSet.noneOf(ExopackageMode.class),
         createStrictMock(Keystore.class),
         /* buildConfigValues */ BuildConfigFields.empty(),
-        /* buildConfigValuesFile */ Optional.<SourcePath>absent());
+        /* buildConfigValuesFile */ Optional.<SourcePath>absent(),
+        /* nativePlatforms */ ImmutableMap.<TargetCpuType, CxxPlatform>of());
 
     BuildTarget aaptPackageResourcesTarget =
         BuildTarget.builder("//java/com/example", "apk").setFlavor("aapt_package").build();
@@ -220,10 +227,11 @@ public class AndroidBinaryGraphEnhancerTest {
         /* buildRulesToExcludeFromDex */ ImmutableSet.<BuildTarget>of(),
         /* resourcesToExclude */ ImmutableSet.<BuildTarget>of(),
         JavacOptions.DEFAULTS,
-        /* exopackage */ true,
+        EnumSet.of(ExopackageMode.SECONDARY_DEX),
         keystore,
         /* buildConfigValues */ BuildConfigFields.empty(),
-        /* buildConfigValuesFiles */ Optional.<SourcePath>absent());
+        /* buildConfigValuesFiles */ Optional.<SourcePath>absent(),
+        /* nativePlatforms */ ImmutableMap.<TargetCpuType, CxxPlatform>of());
     replay(keystore);
     EnhancementResult result = graphEnhancer.createAdditionalBuildables();
 
@@ -235,7 +243,7 @@ public class AndroidBinaryGraphEnhancerTest {
         ImmutableSet.of(Paths.get(
             "buck-out/gen/java/com/example/lib__apk#" + flavor + "__output/apk#" + flavor + ".jar")
         ),
-        result.getClasspathEntriesToDex());
+        result.classpathEntriesToDex());
     BuildTarget enhancedBuildConfigTarget = BuildTarget.builder(apkTarget).setFlavor(flavor)
         .build();
     BuildRule enhancedBuildConfigRule = ruleResolver.getRule(enhancedBuildConfigTarget);
@@ -249,17 +257,22 @@ public class AndroidBinaryGraphEnhancerTest {
         "IS_EXOPACKAGE defaults to false, but should now be true. DEBUG should still be true.",
         BuildConfigFields.fromFields(ImmutableList.of(
             new BuildConfigFields.Field("boolean", "DEBUG", "true"),
-            new BuildConfigFields.Field("boolean", "IS_EXOPACKAGE", "true"))),
+            new BuildConfigFields.Field("boolean", "IS_EXOPACKAGE", "true"),
+            new BuildConfigFields.Field(
+                "java.util.Set<String>",
+                "EXOPACKAGE_FLAGS",
+                "java.util.Collections.unmodifiableSet(new java.util.HashSet<>" +
+                    "(java.util.Arrays.asList(\"SECONDARY_DEX\")))"))),
         androidBuildConfig.getBuildConfigFields());
 
-    ImmutableSortedSet<BuildRule> finalDeps = result.getFinalDeps();
+    ImmutableSortedSet<BuildRule> finalDeps = result.finalDeps();
     // Verify that the only dep is computeExopackageDepsAbi
     assertEquals(1, finalDeps.size());
     BuildRule computeExopackageDepsAbiRule =
         findRuleOfType(ruleResolver, ComputeExopackageDepsAbi.class);
     assertEquals(computeExopackageDepsAbiRule, finalDeps.first());
 
-    FilteredResourcesProvider resourcesProvider = result.getFilteredResourcesProvider();
+    FilteredResourcesProvider resourcesProvider = result.filteredResourcesProvider();
     assertTrue(resourcesProvider instanceof ResourcesFilter);
     BuildRule resourcesFilterRule = findRuleOfType(ruleResolver, ResourcesFilter.class);
 
@@ -278,7 +291,7 @@ public class AndroidBinaryGraphEnhancerTest {
         aaptPackageResourcesRule);
 
 
-    assertFalse(result.getPreDexMerge().isPresent());
+    assertFalse(result.preDexMerge().isPresent());
 
     MoreAsserts.assertDepends(
         "ComputeExopackageDepsAbi must depend on ResourcesFilter",
@@ -293,8 +306,8 @@ public class AndroidBinaryGraphEnhancerTest {
         computeExopackageDepsAbiRule,
         aaptPackageResourcesRule);
 
-    assertTrue(result.getPackageStringAssets().isPresent());
-    assertTrue(result.getComputeExopackageDepsAbi().isPresent());
+    assertTrue(result.packageStringAssets().isPresent());
+    assertTrue(result.computeExopackageDepsAbi().isPresent());
 
     verify(keystore);
   }

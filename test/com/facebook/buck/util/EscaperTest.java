@@ -76,4 +76,22 @@ public class EscaperTest {
     assertEquals("\"\\u0100\"", Escaper.escapeAsPythonString(String.valueOf('\u0100')));
     assertEquals("\"\\u1000\"", Escaper.escapeAsPythonString(String.valueOf('\u1000')));
   }
+
+  @Test
+  public void escapePowerShell() {
+    assertEquals("``", Escaper.escapeAsPowerShellString("`"));
+    assertEquals("hello`;world", Escaper.escapeAsPowerShellString("hello;world"));
+    assertEquals("string` with` spaces", Escaper.escapeAsPowerShellString("string with spaces"));
+    assertEquals("simple", Escaper.escapeAsPowerShellString("simple"));
+    assertEquals("`'hello` world`'", Escaper.escapeAsPowerShellString("'hello world'"));
+  }
+
+  @Test
+  public void testEscapeMakefileValues() {
+    assertEquals("hello world", Escaper.escapeAsMakefileValueString("hello world"));
+    assertEquals("hello\\#world", Escaper.escapeAsMakefileValueString("hello#world"));
+    assertEquals("hello\\\\\\#world", Escaper.escapeAsMakefileValueString("hello\\#world"));
+    assertEquals("hello\\world", Escaper.escapeAsMakefileValueString("hello\\world"));
+  }
+
 }

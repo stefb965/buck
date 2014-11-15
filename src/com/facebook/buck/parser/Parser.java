@@ -43,6 +43,7 @@ import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.Repository;
 import com.facebook.buck.rules.RepositoryFactory;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
+import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.Console;
@@ -142,7 +143,7 @@ public class Parser {
      * @param buildFileTreeSupplier each call to get() must reconstruct the tree from disk.
      */
     public BuildFileTreeCache(Supplier<BuildFileTree> buildFileTreeSupplier) {
-      this.supplier = Preconditions.checkNotNull(buildFileTreeSupplier);
+      this.supplier = buildFileTreeSupplier;
     }
 
     /**
@@ -185,6 +186,7 @@ public class Parser {
   public static Parser createParser(
       final RepositoryFactory repositoryFactory,
       String pythonInterpreter,
+      boolean allowEmptyGlobs,
       ImmutableSet<Pattern> tempFilePatterns,
       RuleKeyBuilderFactory ruleKeyBuilderFactory)
       throws IOException, InterruptedException {
@@ -204,6 +206,7 @@ public class Parser {
         new DefaultProjectBuildFileParserFactory(
             rootRepository.getFilesystem(),
             pythonInterpreter,
+            allowEmptyGlobs,
             rootRepository.getAllDescriptions()),
         tempFilePatterns,
         ruleKeyBuilderFactory);
@@ -221,13 +224,13 @@ public class Parser {
       ImmutableSet<Pattern> tempFilePatterns,
       RuleKeyBuilderFactory ruleKeyBuilderFactory)
       throws IOException, InterruptedException {
-    this.repositoryFactory = Preconditions.checkNotNull(repositoryFactory);
+    this.repositoryFactory = repositoryFactory;
     this.repository = repositoryFactory.getRootRepository();
     this.buildFileTreeCache = new BuildFileTreeCache(
-        Preconditions.checkNotNull(buildFileTreeSupplier));
-    this.buildTargetParser = Preconditions.checkNotNull(buildTargetParser);
-    this.buildFileParserFactory = Preconditions.checkNotNull(buildFileParserFactory);
-    this.ruleKeyBuilderFactory = Preconditions.checkNotNull(ruleKeyBuilderFactory);
+        buildFileTreeSupplier);
+    this.buildTargetParser = buildTargetParser;
+    this.buildFileParserFactory = buildFileParserFactory;
+    this.ruleKeyBuilderFactory = ruleKeyBuilderFactory;
     this.buildFileDependents = ArrayListMultimap.create();
     this.tempFilePatterns = tempFilePatterns;
     this.state = new CachedState();
@@ -428,7 +431,9 @@ public class Parser {
       final Iterable<String> defaultIncludes,
       final ProjectBuildFileParser buildFileParser,
       final ImmutableMap<String, String> environment) throws IOException, InterruptedException {
+
     final MutableDirectedGraph<TargetNode<?>> graph = new MutableDirectedGraph<>();
+    final Map<BuildTarget, TargetNode<?>> nodes = Maps.newHashMap();
 
     AbstractAcyclicDepthFirstPostOrderTraversal<BuildTarget> traversal =
         new AbstractAcyclicDepthFirstPostOrderTraversal<BuildTarget>() {
@@ -468,9 +473,10 @@ public class Parser {
               } catch (HumanReadableException | BuildTargetException | BuildFileParseException e) {
                 throw new HumanReadableException(
                     e,
-                    "Couldn't get dependency %s of target %s.",
+                    "Couldn't get dependency '%s' of target '%s':\n%s",
                     buildTargetForDep,
-                    buildTarget);
+                    buildTarget,
+                    e.getHumanReadableErrorMessage());
               }
             }
 
@@ -483,6 +489,7 @@ public class Parser {
             TargetNode<?> targetNode = getTargetNode(buildTarget);
             Preconditions.checkNotNull(targetNode, "No target node found for %s", buildTarget);
             graph.addNode(targetNode);
+            nodes.put(targetNode.getBuildTarget().getUnflavoredTarget(), targetNode);
             for (BuildTarget target : targetNode.getDeps()) {
               graph.addEdge(targetNode, getTargetNode(target));
             }
@@ -499,7 +506,7 @@ public class Parser {
       throw new HumanReadableException(e.getMessage());
     }
 
-    return new TargetGraph(graph);
+    return new TargetGraph(graph, ImmutableMap.copyOf(nodes));
   }
 
   /**
@@ -559,9 +566,6 @@ public class Parser {
       ProjectBuildFileParser buildFileParser,
       ImmutableMap<String, String> environment)
       throws BuildFileParseException, BuildTargetException, IOException {
-    Preconditions.checkNotNull(buildFile);
-    Preconditions.checkNotNull(defaultIncludes);
-    Preconditions.checkNotNull(buildFileParser);
 
     if (!isCached(buildFile, defaultIncludes, environment)) {
       LOG.debug("Parsing %s file: %s", BuckConstant.BUILD_RULES_FILE_NAME, buildFile);
@@ -628,17 +632,6 @@ public class Parser {
   }
 
   /**
-   * @param filter the test to apply to all targets that have been read from build files, or null.
-   * @return the build targets that pass the test, or null if the filter was null.
-   */
-  @VisibleForTesting
-  ImmutableSet<BuildTarget> filterTargets(RuleJsonPredicate filter)
-      throws NoSuchBuildTargetException {
-
-    return state.filterTargets(filter);
-  }
-
-  /**
    * @param map the map of values that define the rule.
    * @return the type of rule defined by the map.
    */
@@ -677,8 +670,6 @@ public class Parser {
       BuckEventBus buckEventBus,
       boolean enableProfiling)
       throws BuildFileParseException, BuildTargetException, IOException, InterruptedException {
-    Preconditions.checkNotNull(filesystem);
-    Preconditions.checkNotNull(includes);
     ProjectFilesystem projectFilesystem = repository.getFilesystem();
     if (!projectFilesystem.getRootPath().equals(filesystem.getRootPath())) {
       throw new HumanReadableException(String.format("Unsupported root path change from %s to %s",
@@ -945,7 +936,7 @@ public class Parser {
      */
     private synchronized boolean invalidateCacheOnEnvironmentChange(
         ImmutableMap<String, String> environment) {
-      if (!Preconditions.checkNotNull(environment).equals(cacheEnvironment)) {
+      if (!environment.equals(cacheEnvironment)) {
         LOG.debug("Parser invalidating entire cache on environment change.");
         invalidateCache();
         this.cacheEnvironment = environment;
@@ -962,7 +953,7 @@ public class Parser {
      * @return true if the cache was invalidated, false if the cache is still valid.
      */
     private synchronized boolean invalidateCacheOnIncludeChange(Iterable<String> includes) {
-      List<String> includesList = Lists.newArrayList(Preconditions.checkNotNull(includes));
+      List<String> includesList = Lists.newArrayList(includes);
       if (!includesList.equals(this.cacheDefaultIncludes)) {
         LOG.debug("Parser invalidating entire cache on default include change.");
         invalidateCache();
@@ -1037,19 +1028,6 @@ public class Parser {
           target,
           normalize(Paths.get((String) rawRules.get("buck.base_path")))
               .resolve("BUCK").toAbsolutePath());
-    }
-
-    public ImmutableSet<BuildTarget> filterTargets(RuleJsonPredicate filter) {
-      ImmutableSet.Builder<BuildTarget> matchingTargets = ImmutableSet.builder();
-      for (Map<String, Object> map : parsedBuildFiles.values()) {
-        BuildRuleType buildRuleType = parseBuildRuleTypeFromRawRule(map);
-        BuildTarget target = parseBuildTargetFromRawRule(map);
-        if (filter.isMatch(map, buildRuleType, target)) {
-          matchingTargets.add(target);
-        }
-      }
-
-      return matchingTargets.build();
     }
 
     @Nullable

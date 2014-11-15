@@ -9,6 +9,8 @@
   <property name="testrunner.classes.dir" value="${build.dir}/testrunner/classes" />
   <property name="abi_processor.src.dir" value="${src.dir}/com/facebook/buck/java/abi/" />
   <property name="abi_processor.classes.dir" value="${build.dir}/abi_processor/classes" />
+  <property name="bootstrapper.src.dir" value="${src.dir}/com/facebook/buck/cli/bootstrapper/" />
+  <property name="bootstrapper.classes.dir" value="${build.dir}/bootstrapper/classes" />
   <property name="buck.path_to_buck_py" value="${basedir}/src/com/facebook/buck/parser/buck.py" />
   <property name="buck.path_to_compile_asset_catalogs_py" value="${basedir}/src/com/facebook/buck/apple/compile_asset_catalogs.py" />
   <property name="buck.path_to_compile_asset_catalogs_build_phase_sh" value="${basedir}/src/com/facebook/buck/apple/compile_asset_catalogs_build_phase.sh" />
@@ -35,7 +37,7 @@
   <property name="pathlib.dir" value="${third-party.dir}/py/pathlib" />
   <property name="unittest2.dir" value="${third-party.dir}/py/unittest2" />
 
-  <property name="immutables-value-standalone.jar" value="${third-party.dir}/java/immutables/value-standalone-0.31-SNAPSHOT.jar" />
+  <property name="immutables-value-standalone.jar" value="${third-party.dir}/java/immutables/value-standalone-1.0.1.jar" />
   <property name="immutables.gensrc.dir" value="${build.dir}/immutables" />
   <property name="immutables.gensrc.test.dir" value="${build.dir}/immutables-tests" />
 
@@ -88,8 +90,8 @@
     <include name="guice/guice-multibindings-3.0.jar" />
     <include name="gson/gson-2.2.4.jar" />
     <include name="icu4j/icu4j-54.1.1.jar" />
-    <include name="immutables/value-0.31-SNAPSHOT.jar" />
-    <include name="infer-annotations/infer-annotations-1.1.jar" />
+    <include name="immutables/value-1.0.1.jar" />
+    <include name="infer-annotations/infer-annotations-1.2.jar" />
     <include name="jacoco/org.jacoco.core-0.7.2.201409121644.jar" />
     <include name="jacoco/org.jacoco.report-0.7.2.201409121644.jar" />
     <include name="jetty/jetty-all-9.0.4.v20130625.jar" />
@@ -126,7 +128,10 @@
 
   <!-- Default target so that a command line build can
        do more than one thing. -->
-  <target name="default" depends="compile, dx, client, javacc-tests" />
+  <target name="default" depends="compile, dx, client, report-generator-jar" />
+
+  <!-- Convenience target to generate files needed by IntelliJ IDE -->
+  <target name="intellij" depends="javacc, javacc-tests" />
 
   <target name="checkversion">
     <!-- The nio Files class was only introduced in Java 7. -->
@@ -160,6 +165,17 @@
       <compilerarg value="-Xlint:unchecked" />
       <compilerarg value="-Xlint:serial" />
     </javac>
+  </target>
+
+  <target name="compile-bootstrapper" depends="checkversion">
+    <mkdir dir="${bootstrapper.classes.dir}" />
+    <ecj srcdir="${bootstrapper.src.dir}"
+           destdir="${bootstrapper.classes.dir}"
+           >
+      <javac-params>
+          <include name="**/*.java"/>
+      </javac-params>
+    </ecj>
   </target>
 
   <target name="javacc">
@@ -224,13 +240,16 @@
     <attribute name="classpathref" default="classpath-no-src" />
     <attribute name="destdir" default="${classes.dir}" />
     <!--
-      patterns should be a list of include and possibly exclude elements.
+      javac-params can contain any extra parameters to the javac ant command.
+
+      include and exclude elements are automatically relative to ${src.dir}.
+
       According to http://ant.apache.org/manual/Tasks/javac.html, the only way
       to enumerate the .java inputs to javac in Ant is to set the sourcepath
       to the empty string, set the srcdir to something, and use include/exclude
       elements to filter things under the srcdir.
     -->
-    <element name="patterns" />
+    <element name="javac-params" />
     <sequential>
       <javac srcdir="@{srcdir}"
              sourcepath=""
@@ -241,7 +260,7 @@
              includeAntRuntime="no"
              compiler="org.eclipse.jdt.core.JDTCompilerAdapter"
              >
-        <patterns />
+        <javac-params />
         <!--
           ecj does not appear to support -Werror. As suggested by
           http://stackoverflow.com/a/14927725/396304, we specify an Eclipse preferences
@@ -265,7 +284,7 @@
   </macrodef>
 
   <target name="compile"
-          depends="compile-testrunner, compile-abi-processor, javacc, dx, generate-immutables"
+          depends="compile-testrunner, compile-abi-processor, compile-bootstrapper, javacc, dx, generate-immutables"
           description="compile Java source code">
     <mkdir dir="${classes.dir}" />
 
@@ -276,11 +295,11 @@
 
       Admittedly, it is annoying to keep this list in sync with src/com/facebook/buck/util/BUCK,
       but there does not seem to be an easier way to do this right now. (Though moving
-      these build rules into their own subpackages of util would make the patterns easier
+      these build rules into their own subpackages of util would make the javac-params easier
       to maintain.)
     -->
     <ecj>
-      <patterns>
+      <javac-params>
         <!-- //src/com/facebook/buck/log:log -->
         <include name="com/facebook/buck/log/CommandThreadAssociation.java" />
         <include name="com/facebook/buck/log/CommandThreadFactory.java" />
@@ -339,7 +358,7 @@
 
         <!-- //src/com/facebook/buck/timing:timing -->
         <include name="com/facebook/buck/timing/*.java" />
-      </patterns>
+      </javac-params>
     </ecj>
 
     <!--
@@ -372,13 +391,14 @@
       <ecj> task. It's too much work to exclude them here.
     -->
     <ecj>
-      <patterns>
+      <javac-params>
         <!--
           These patterns are excluded because they are compiled elsewhere
           and are deliberately isolated from Buck's core.
         -->
         <exclude name="com/facebook/buck/android/support/**" />
         <exclude name="com/facebook/buck/apple/xcode/xcconfig/**" />
+        <exclude name="com/facebook/buck/cli/bootstrapper/**" />
         <exclude name="com/facebook/buck/cli/quickstart/**" />
         <exclude name="com/facebook/buck/java/abi/AbiWriter.java" />
         <exclude name="com/facebook/buck/java/abi/Annotations.java" />
@@ -394,7 +414,8 @@
         <exclude name="com/facebook/buck/java/abi/RenderableTypes.java" />
         <exclude name="com/facebook/buck/java/abi/TypeSummary.java" />
         <exclude name="com/facebook/buck/junit/**" />
-      </patterns>
+        <src path="${immutables.gensrc.dir}" />
+      </javac-params>
     </ecj>
   </target>
 
@@ -454,7 +475,9 @@
     </exec>
   </target>
 
-  <target name="jar"
+  <target name="jar" depends="buck-jar, report-generator-jar"/>
+
+  <target name="buck-jar"
           depends="compile"
           description="build buck.jar"
           >
@@ -467,6 +490,20 @@
       <fileset dir="${classes.dir}" />
       <manifest>
         <attribute name="Main-Class" value="com.facebook.buck.cli.Main" />
+      </manifest>
+    </jar>
+  </target>
+
+  <target name="report-generator-jar" depends="compile">
+    <jar destfile="${build.dir}/report-generator.jar">
+      <zipfileset excludes="**/*SF **/*RSA" src="${third-party.dir}/java/jacoco/org.jacoco.core-0.7.2.201409121644.jar"/>
+      <zipfileset excludes="**/*SF **/*RSA" src="${third-party.dir}/java/jacoco/org.jacoco.report-0.7.2.201409121644.jar"/>
+      <zipfileset excludes="**/*SF **/*RSA" src="${third-party.dir}/java/asm/asm-debug-all-5.0.3.jar"/>
+      <fileset dir="${classes.dir}">
+          <include name="com/facebook/buck/java/ReportGenerator.class"/>
+      </fileset>
+      <manifest>
+        <attribute name="Main-Class" value="com.facebook.buck.java.ReportGenerator" />
       </manifest>
     </jar>
   </target>
@@ -523,9 +560,9 @@
          destdir="${testclasses.dir}"
          classpathref="tests.classpath"
          >
-      <patterns>
+      <javac-params>
         <exclude name="**/testdata/**" />
-      </patterns>
+      </javac-params>
     </ecj>
   </target>
 
@@ -563,13 +600,20 @@
     <fail if="hasFailingTests" />
   </target>
 
-  <target name="py-test" description="runs the Python tests" depends="buck-py-test, asset-catalogs-py-test, pathlib-py-test" />
+  <target name="py-test" description="runs the Python tests" depends="buck-py-test, class-loader-py-test, asset-catalogs-py-test, pathlib-py-test" />
 
   <target name="buck-py-test" description="tests the BUCK parser">
     <exec executable="python" failonerror="true">
       <env key="PYTHONPATH" path="${pathlib.dir}" />
       <arg value="src/com/facebook/buck/parser/buck_test.py" />
     </exec>
+  </target>
+
+  <target name="class-loader-py-test" description="tests BUCK's class loader setup">
+      <exec executable="python" failonerror="true">
+          <env key="PYTHONPATH" path="${pathlib.dir}" />
+          <arg value="test/com/facebook/buck/cli/bootstrapper/class_loader_test.py" />
+      </exec>
   </target>
 
   <target name="asset-catalogs-py-test" description="tests the asset catalogs compiler">

@@ -18,12 +18,12 @@ package com.facebook.buck.cxx;
 
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.Flavor;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Optional;
-import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 
@@ -39,6 +39,8 @@ public class DefaultCxxPlatform implements CxxPlatform {
     GNU,
     DARWIN,
   }
+
+  private static final Flavor FLAVOR = new Flavor("default");
 
   private static final Path DEFAULT_AS = Paths.get("/usr/bin/as");
   private static final ImmutableList<String> DEFAULT_ASFLAGS = ImmutableList.of();
@@ -76,8 +78,8 @@ public class DefaultCxxPlatform implements CxxPlatform {
   private final BuckConfig delegate;
 
   public DefaultCxxPlatform(Platform platform, BuckConfig delegate) {
-    this.platform = Preconditions.checkNotNull(platform);
-    this.delegate = Preconditions.checkNotNull(delegate);
+    this.platform = platform;
+    this.delegate = delegate;
   }
 
   public DefaultCxxPlatform(BuckConfig delegate) {
@@ -104,6 +106,11 @@ public class DefaultCxxPlatform implements CxxPlatform {
   @Override
   public String getName() {
     return "Default";
+  }
+
+  @Override
+  public Flavor asFlavor() {
+    return FLAVOR;
   }
 
   @Override
@@ -237,11 +244,6 @@ public class DefaultCxxPlatform implements CxxPlatform {
   }
 
   @Override
-  public BuildTarget getLexDep() {
-    return delegate.getRequiredBuildTarget("cxx", "lex_dep");
-  }
-
-  @Override
   public SourcePath getYacc() {
     return getSourcePath("cxx", "yacc", DEFAULT_YACC);
   }
@@ -249,11 +251,6 @@ public class DefaultCxxPlatform implements CxxPlatform {
   @Override
   public ImmutableList<String> getYaccFlags() {
     return getFlags("cxx", "yaccflags", DEFAULT_YACC_FLAGS);
-  }
-
-  @Override
-  public BuildTarget getPythonDep() {
-    return delegate.getRequiredBuildTarget("cxx", "python_dep");
   }
 
   @Override

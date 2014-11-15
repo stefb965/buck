@@ -6,8 +6,6 @@ java_library(
     'MissingBuildFileException.java',
     'ParseEvent.java',
     'Parser.java',
-    'PartialGraph.java',
-    'TargetGraph.java',
     'TargetNodePredicateSpec.java',
     'TargetNodeSpec.java',
   ],
@@ -40,9 +38,7 @@ java_library(
   name = 'project',
   # TODO(simons): Find a proper home for these.
   srcs = [
-    'RuleJsonPredicate.java',
     'AssociatedRulePredicate.java',
-    'AssociatedRulePredicates.java',
   ],
   deps = [
     ':rule_pattern',
@@ -96,5 +92,12 @@ python_test(
   deps = [
     ':buck',
     '//third-party/py/pathlib:pathlib',
+  ],
+)
+
+export_file(
+  name = 'buck.py',
+  visibility = [
+    'PUBLIC',
   ],
 )

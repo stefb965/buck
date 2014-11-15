@@ -20,7 +20,6 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.SymlinkTreeStep;
 import com.google.common.base.Optional;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -37,6 +36,7 @@ public class SymlinkTree extends AbstractBuildRule implements AbiRule {
 
   private final Path root;
   private final ImmutableMap<Path, SourcePath> links;
+  private final ImmutableMap<Path, SourcePath> fullLinks;
 
   public SymlinkTree(
       BuildRuleParams params,
@@ -44,8 +44,14 @@ public class SymlinkTree extends AbstractBuildRule implements AbiRule {
       Path root,
       ImmutableMap<Path, SourcePath> links) {
     super(params, resolver);
-    this.root = Preconditions.checkNotNull(root);
-    this.links = Preconditions.checkNotNull(links);
+    this.root = root;
+    this.links = links;
+
+    ImmutableMap.Builder<Path, SourcePath> fullLinks = ImmutableMap.builder();
+    for (ImmutableMap.Entry<Path, SourcePath> entry : links.entrySet()) {
+      fullLinks.put(root.resolve(entry.getKey()), entry.getValue());
+    }
+    this.fullLinks = fullLinks.build();
   }
 
   /**
@@ -120,6 +126,14 @@ public class SymlinkTree extends AbstractBuildRule implements AbiRule {
 
   public Path getRoot() {
     return root;
+  }
+
+  public ImmutableMap<Path, SourcePath> getLinks() {
+    return links;
+  }
+
+  public ImmutableMap<Path, SourcePath> getFullLinks() {
+    return fullLinks;
   }
 
 }

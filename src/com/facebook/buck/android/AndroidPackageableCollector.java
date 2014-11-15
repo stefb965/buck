@@ -16,6 +16,7 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.android.ImmutableAndroidPackageableCollection.ResourceDetails;
 import com.facebook.buck.java.HasJavaClassHashes;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
@@ -25,7 +26,6 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -39,26 +39,19 @@ import java.util.Set;
 
 public class AndroidPackageableCollector {
 
+  private final ImmutableAndroidPackageableCollection.Builder collectionBuilder =
+      ImmutableAndroidPackageableCollection.builder();
+
+  private final ResourceDetails.Builder resourceDetailsBuilder = ResourceDetails.builder();
+
   private final ImmutableList.Builder<BuildTarget> resourcesWithNonEmptyResDir =
       ImmutableList.builder();
   private final ImmutableList.Builder<BuildTarget> resourcesWithAssets = ImmutableList.builder();
   private final ImmutableList.Builder<Path> resourceDirectories = ImmutableList.builder();
-  private final ImmutableSet.Builder<Path> whitelistedStringDirectories = ImmutableSet.builder();
-  private final ImmutableSet.Builder<String> rDotJavaPackages = ImmutableSet.builder();
-  private final ImmutableCollection.Builder<Supplier<String>> rDotJavaPackageSuppliers =
-      ImmutableList.builder();
-  private final ImmutableSet.Builder<Path> nativeLibsDirectories = ImmutableSet.builder();
-  private final ImmutableSet.Builder<Path> nativeLibAssetsDirectories = ImmutableSet.builder();
-  private final ImmutableSet.Builder<Path> assetsDirectories = ImmutableSet.builder();
-  private final ImmutableSet.Builder<Path> manifestFiles = ImmutableSet.builder();
-  private final ImmutableSet.Builder<Path> proguardConfigs = ImmutableSet.builder();
-  private final ImmutableSet.Builder<Path> classpathEntriesToDex = ImmutableSet.builder();
-  private final ImmutableSet.Builder<Path> noDxClasspathEntries = ImmutableSet.builder();
 
   // Map is used instead of ImmutableMap.Builder for its containsKey() method.
   private final Map<String, BuildConfigFields> buildConfigs = Maps.newHashMap();
 
-  private final ImmutableSet.Builder<Path> pathsToThirdPartyJars = ImmutableSet.builder();
   private final ImmutableSet.Builder<HasJavaClassHashes> javaClassHashesProviders =
       ImmutableSet.builder();
 
@@ -120,28 +113,22 @@ public class AndroidPackageableCollector {
 
   public AndroidPackageableCollector addStringWhitelistedResourceDirectory(
       BuildTarget owner,
-      Path resourceDir,
-      Supplier<String> rDotJavaPackage) {
+      Path resourceDir) {
     if (resourcesToExclude.contains(owner)) {
       return this;
     }
 
-    whitelistedStringDirectories.add(resourceDir);
+    resourceDetailsBuilder.addWhitelistedStringDirectories(resourceDir);
     doAddResourceDirectory(owner, resourceDir);
-    rDotJavaPackageSuppliers.add(rDotJavaPackage);
     return this;
   }
 
-  public AndroidPackageableCollector addResourceDirectory(
-      BuildTarget owner,
-      Path resourceDir,
-      Supplier<String> rDotJavaPackageSupplier) {
+  public AndroidPackageableCollector addResourceDirectory(BuildTarget owner, Path resourceDir) {
     if (resourcesToExclude.contains(owner)) {
       return this;
     }
 
     doAddResourceDirectory(owner, resourceDir);
-    rDotJavaPackageSuppliers.add(rDotJavaPackageSupplier);
     return this;
   }
 
@@ -150,13 +137,21 @@ public class AndroidPackageableCollector {
     resourceDirectories.add(resourceDir);
   }
 
-  public AndroidPackageableCollector addNativeLibsDirectory(Path nativeLibDir) {
-    nativeLibsDirectories.add(nativeLibDir);
+  public AndroidPackageableCollector addNativeLibsDirectory(
+      BuildTarget owner,
+      Path nativeLibDir) {
+    collectionBuilder.addNativeLibsTargets(owner);
+    collectionBuilder.addNativeLibsDirectories(nativeLibDir);
+    return this;
+  }
+
+  public AndroidPackageableCollector addNativeLinkable(AndroidNativeLinkable nativeLinkable) {
+    collectionBuilder.addNativeLinkables(nativeLinkable);
     return this;
   }
 
   public AndroidPackageableCollector addNativeLibAssetsDirectory(Path nativeLibAssetsDir) {
-    nativeLibAssetsDirectories.add(nativeLibAssetsDir);
+    collectionBuilder.addNativeLibAssetsDirectories(nativeLibAssetsDir);
     return this;
   }
 
@@ -166,21 +161,21 @@ public class AndroidPackageableCollector {
     }
 
     resourcesWithAssets.add(owner);
-    assetsDirectories.add(assetsDirectory);
+    collectionBuilder.addAssetsDirectories(assetsDirectory);
     return this;
   }
 
   public AndroidPackageableCollector addManifestFile(BuildTarget owner, Path manifestFile) {
     if (!buildTargetsToExcludeFromDex.contains(owner) &&
         !resourcesToExclude.contains(owner)) {
-      manifestFiles.add(manifestFile);
+      collectionBuilder.addManifestFiles(manifestFile);
     }
     return this;
   }
 
   public AndroidPackageableCollector addProguardConfig(BuildTarget owner, Path proguardConfig) {
     if (!buildTargetsToExcludeFromDex.contains(owner)) {
-      proguardConfigs.add(proguardConfig);
+      collectionBuilder.addProguardConfigs(proguardConfig);
     }
     return this;
   }
@@ -189,9 +184,9 @@ public class AndroidPackageableCollector {
       HasJavaClassHashes hasJavaClassHashes,
       Path classpathEntry) {
     if (buildTargetsToExcludeFromDex.contains(hasJavaClassHashes.getBuildTarget())) {
-      noDxClasspathEntries.add(classpathEntry);
+      collectionBuilder.addNoDxClasspathEntries(classpathEntry);
     } else {
-      classpathEntriesToDex.add(classpathEntry);
+      collectionBuilder.addClasspathEntriesToDex(classpathEntry);
       javaClassHashesProviders.add(hasJavaClassHashes);
     }
     return this;
@@ -201,9 +196,9 @@ public class AndroidPackageableCollector {
       BuildTarget owner,
       Path pathToThirdPartyJar) {
     if (buildTargetsToExcludeFromDex.contains(owner)) {
-      noDxClasspathEntries.add(pathToThirdPartyJar);
+      collectionBuilder.addNoDxClasspathEntries(pathToThirdPartyJar);
     } else {
-      pathsToThirdPartyJars.add(pathToThirdPartyJar);
+      collectionBuilder.addPathsToThirdPartyJars(pathToThirdPartyJar);
     }
     return this;
   }
@@ -219,68 +214,39 @@ public class AndroidPackageableCollector {
     buildConfigs.put(javaPackage, constants);
   }
 
-  public AndroidPackageableCollection build() {
+  public ImmutableAndroidPackageableCollection build() {
+    collectionBuilder.buildConfigs(ImmutableMap.copyOf(buildConfigs));
     final ImmutableSet<HasJavaClassHashes> javaClassProviders = javaClassHashesProviders.build();
-    Supplier<Map<String, HashCode>> classNamesToHashesSupplier = Suppliers.memoize(
-        new Supplier<Map<String, HashCode>>() {
-          @Override
-          public Map<String, HashCode> get() {
-            ImmutableMap.Builder<String, HashCode> builder = ImmutableMap.builder();
-            for (HasJavaClassHashes hasJavaClassHashes : javaClassProviders) {
-              builder.putAll(hasJavaClassHashes.getClassNamesToHashes());
-            }
-            return builder.build();
-          }
-        });
+    collectionBuilder.addAllJavaLibrariesToDex(
+        FluentIterable.from(javaClassProviders).transform(BuildTarget.TO_TARGET).toSet());
+    collectionBuilder.classNamesToHashesSupplier(Suppliers.memoize(
+            new Supplier<Map<String, HashCode>>() {
+              @Override
+              public Map<String, HashCode> get() {
 
-    ImmutableList.Builder<BuildTarget> resourcesWithEmptyResButNonEmptyAssetsDir =
-        ImmutableList.builder();
+                ImmutableMap.Builder<String, HashCode> builder = ImmutableMap.builder();
+                for (HasJavaClassHashes hasJavaClassHashes : javaClassProviders) {
+                  builder.putAll(hasJavaClassHashes.getClassNamesToHashes());
+                }
+                return builder.build();
+              }
+            }));
+
     ImmutableSet<BuildTarget> resources = ImmutableSet.copyOf(resourcesWithNonEmptyResDir.build());
     for (BuildTarget buildTarget : resourcesWithAssets.build()) {
       if (!resources.contains(buildTarget)) {
-        resourcesWithEmptyResButNonEmptyAssetsDir.add(buildTarget);
+        resourceDetailsBuilder.addResourcesWithEmptyResButNonEmptyAssetsDir(buildTarget);
       }
     }
 
-    final ImmutableSet<String> knownRDotJavaPackages = rDotJavaPackages.build();
-    final ImmutableCollection<Supplier<String>> knownRDotJavaPackageSuppliers =
-        rDotJavaPackageSuppliers.build();
-    boolean hasRDotJavaPackages = !knownRDotJavaPackages.isEmpty() ||
-        !knownRDotJavaPackageSuppliers.isEmpty();
-    Supplier<ImmutableSet<String>> rDotJavaPackagesSupplier = Suppliers.memoize(
-        new Supplier<ImmutableSet<String>>() {
-          @Override
-          public ImmutableSet<String> get() {
-            ImmutableSet.Builder<String> allRDotJavaPackages = ImmutableSet.builder();
-            allRDotJavaPackages.addAll(knownRDotJavaPackages);
-            for (Supplier<String> supplier : knownRDotJavaPackageSuppliers) {
-              allRDotJavaPackages.add(supplier.get());
-            }
-            return allRDotJavaPackages.build();
-          }
-    });
+    // Reverse the resource directories/targets collections because we perform a post-order
+    // traversal of the action graph, and we need to return these collections topologically
+    // sorted.
+    resourceDetailsBuilder.resourceDirectories(resourceDirectories.build().reverse());
+    resourceDetailsBuilder.resourcesWithNonEmptyResDir(
+        resourcesWithNonEmptyResDir.build().reverse());
 
-    return new AndroidPackageableCollection(
-        // Reverse the resource directories/targets collections because we perform a post-order
-        // traversal of the action graph, and we need to return these collections topologically
-        // sorted.
-        new AndroidPackageableCollection.ResourceDetails(
-            resourceDirectories.build().reverse(),
-            whitelistedStringDirectories.build(),
-            rDotJavaPackagesSupplier,
-            hasRDotJavaPackages,
-            resourcesWithNonEmptyResDir.build().reverse(),
-            resourcesWithEmptyResButNonEmptyAssetsDir.build().reverse()),
-        nativeLibsDirectories.build(),
-        nativeLibAssetsDirectories.build(),
-        assetsDirectories.build(),
-        manifestFiles.build(),
-        proguardConfigs.build(),
-        classpathEntriesToDex.build(),
-        noDxClasspathEntries.build(),
-        ImmutableMap.copyOf(buildConfigs),
-        pathsToThirdPartyJars.build(),
-        FluentIterable.from(javaClassProviders).transform(BuildTarget.TO_TARGET).toSet(),
-        classNamesToHashesSupplier);
-    }
+    collectionBuilder.resourceDetails(resourceDetailsBuilder.build());
+    return collectionBuilder.build();
+  }
 }

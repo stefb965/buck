@@ -61,22 +61,37 @@ public class CxxLexYaccIntegrationTest {
         this, "lexyacc", tmp);
     workspace.setUp();
 
+    CxxPlatform cxxPlatform = new DefaultCxxPlatform(new FakeBuckConfig());
     BuildTarget target = BuildTargetFactory.newInstance("//foo:main");
     BuildTarget binaryTarget = CxxDescriptionEnhancer.createCxxLinkTarget(target);
     String sourceName = "main.cpp";
     String yaccSourceName = "mainy.yy";
     String yaccSourceFull = "foo/" + yaccSourceName;
     BuildTarget yaccTarget = CxxDescriptionEnhancer.createYaccBuildTarget(target, yaccSourceName);
+    BuildTarget yaccPreprocessTarget = CxxPreprocessables.createPreprocessBuildTarget(
+        target,
+        cxxPlatform.asFlavor(),
+        CxxSource.Type.CXX,
+        /* pic */ false,
+        yaccSourceName + ".cc");
     BuildTarget yaccCompileTarget = CxxCompilableEnhancer.createCompileBuildTarget(
         target,
+        cxxPlatform.asFlavor(),
         yaccSourceName + ".cc",
         /* pic */ false);
+    BuildTarget preprocessTarget = CxxPreprocessables.createPreprocessBuildTarget(
+        target,
+        cxxPlatform.asFlavor(),
+        CxxSource.Type.CXX,
+        /* pic */ false,
+        sourceName);
     BuildTarget compileTarget = CxxCompilableEnhancer.createCompileBuildTarget(
         target,
+        cxxPlatform.asFlavor(),
         sourceName,
         /* pic */ false);
     BuildTarget headerSymlinkTreeTarget =
-        CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(target);
+        CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(target, cxxPlatform.asFlavor());
 
     // Do a clean build, verify that it succeeds, and check that all expected targets built
     // successfully.
@@ -86,7 +101,9 @@ public class CxxLexYaccIntegrationTest {
         ImmutableSet.of(
             yaccTarget,
             headerSymlinkTreeTarget,
+            yaccPreprocessTarget,
             yaccCompileTarget,
+            preprocessTarget,
             compileTarget,
             binaryTarget,
             target),
@@ -109,7 +126,9 @@ public class CxxLexYaccIntegrationTest {
         ImmutableSet.of(
             yaccTarget,
             headerSymlinkTreeTarget,
+            yaccPreprocessTarget,
             yaccCompileTarget,
+            preprocessTarget,
             compileTarget,
             binaryTarget,
             target),
@@ -135,7 +154,9 @@ public class CxxLexYaccIntegrationTest {
         ImmutableSet.of(
             yaccTarget,
             headerSymlinkTreeTarget,
+            yaccPreprocessTarget,
             yaccCompileTarget,
+            preprocessTarget,
             compileTarget,
             binaryTarget,
             target),

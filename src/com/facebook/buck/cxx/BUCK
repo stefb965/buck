@@ -1,9 +1,30 @@
+PLATFORM_SRCS = [
+  'CxxPlatform.java',
+  'Linker.java',
+  'GnuLinker.java',
+]
 java_library(
-  name = 'rules',
-  srcs = glob(['*.java']),
+  name = 'platform',
+  srcs = PLATFORM_SRCS,
   deps = [
     '//third-party/java/guava:guava',
+    '//src/com/facebook/buck/model:model',
+    '//src/com/facebook/buck/rules:build_rule',
+    '//src/com/facebook/buck/util:exceptions',
+  ],
+  visibility = [
+    'PUBLIC'
+  ]
+)
+
+java_immutables_library(
+  name = 'rules',
+  srcs = glob(['*.java'], excludes=PLATFORM_SRCS),
+  deps = [
+    ':platform',
+    '//third-party/java/guava:guava',
     '//third-party/java/jsr:jsr305',
+    '//src/com/facebook/buck/android:packageable',
     '//src/com/facebook/buck/model:model',
     '//src/com/facebook/buck/parser:rule_pattern',
     '//src/com/facebook/buck/rules:build_rule',

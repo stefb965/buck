@@ -155,6 +155,10 @@ public class ProjectFilesystem {
     return getRootPath().resolve(path).toAbsolutePath().normalize();
   }
 
+  public Path resolve(String path) {
+    return getRootPath().resolve(path).toAbsolutePath().normalize();
+  }
+
   /**
    * @return A {@link Function} that applies {@link #resolve(Path)} to its parameter.
    */
@@ -561,7 +565,6 @@ public class ProjectFilesystem {
    * returned. Otherwise, an {@link Optional} with the first line of the file will be returned.
    */
   public Optional<String> readFirstLine(Path pathRelativeToProjectRoot) {
-    Preconditions.checkNotNull(pathRelativeToProjectRoot);
     Path file = getPathForRelativePath(pathRelativeToProjectRoot);
     return readFirstLineFromFile(file);
   }

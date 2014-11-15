@@ -19,7 +19,6 @@ package com.facebook.buck.android;
 import static com.facebook.buck.rules.BuildableProperties.Kind.ANDROID;
 import static com.facebook.buck.rules.BuildableProperties.Kind.PACKAGING;
 
-import com.android.common.SdkConstants;
 import com.facebook.buck.android.FilterResourcesStep.ResourceFilter;
 import com.facebook.buck.android.ResourcesFilter.ResourceCompressionMode;
 import com.facebook.buck.java.AccumulateClassNamesStep;
@@ -36,6 +35,8 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableProperties;
+import com.facebook.buck.rules.ExopackageInfo;
+import com.facebook.buck.rules.ImmutableExopackageInfo;
 import com.facebook.buck.rules.InstallableApk;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.Sha1HashCode;
@@ -47,12 +48,10 @@ import com.facebook.buck.shell.SymlinkFilesIntoDirectoryStep;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
-import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.util.AndroidPlatformTarget;
 import com.facebook.buck.util.Optionals;
-import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.buck.zip.RepackZipEntriesStep;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
@@ -74,12 +73,8 @@ import com.google.common.collect.Multimap;
 import com.google.common.hash.HashCode;
 import com.google.common.io.Files;
 
-import java.io.IOException;
-import java.nio.file.FileVisitResult;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.SimpleFileVisitor;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.util.EnumSet;
 import java.util.Map;
 import java.util.Set;
@@ -135,11 +130,24 @@ public class AndroidBinary extends AbstractBuildRule implements
     }
   }
 
-  static enum TargetCpuType {
+  public static enum TargetCpuType {
     ARM,
     ARMV7,
     X86,
     MIPS,
+  }
+
+  static enum ExopackageMode {
+    SECONDARY_DEX,
+    NATIVE_LIBRARY;
+
+    public static boolean enabledForSecondaryDexes(EnumSet<ExopackageMode> modes) {
+      return modes.contains(SECONDARY_DEX);
+    }
+
+    public static boolean enabledForNativeLibraries(EnumSet<ExopackageMode> modes) {
+      return modes.contains(NATIVE_LIBRARY);
+    }
   }
 
   private final SourcePath manifest;
@@ -155,7 +163,7 @@ public class AndroidBinary extends AbstractBuildRule implements
   private final ImmutableSet<TargetCpuType> cpuFilters;
   private final ResourceFilter resourceFilter;
   private final Path primaryDexPath;
-  private final boolean exopackage;
+  private final EnumSet<ExopackageMode> exopackageModes;
   private final ImmutableSortedSet<BuildRule> preprocessJavaClassesDeps;
   private final Function<String, String> macroExpander;
   private final Optional<String> preprocessJavaClassesBash;
@@ -184,7 +192,7 @@ public class AndroidBinary extends AbstractBuildRule implements
       ResourceCompressionMode resourceCompressionMode,
       Set<TargetCpuType> cpuFilters,
       ResourceFilter resourceFilter,
-      boolean exopackage,
+      EnumSet<ExopackageMode> exopackageModes,
       Set<BuildRule> preprocessJavaClassesDeps,
       Function<String, String> macroExpander,
       Optional<String> preprocessJavaClassesBash,
@@ -205,7 +213,7 @@ public class AndroidBinary extends AbstractBuildRule implements
     this.resourceCompressionMode = resourceCompressionMode;
     this.cpuFilters = ImmutableSet.copyOf(cpuFilters);
     this.resourceFilter = resourceFilter;
-    this.exopackage = exopackage;
+    this.exopackageModes = exopackageModes;
     this.preprocessJavaClassesDeps = ImmutableSortedSet.copyOf(preprocessJavaClassesDeps);
     this.macroExpander = macroExpander;
     this.preprocessJavaClassesBash = preprocessJavaClassesBash;
@@ -213,15 +221,15 @@ public class AndroidBinary extends AbstractBuildRule implements
     this.enhancementResult = enhancementResult;
     this.primaryDexPath = getPrimaryDexPath(params.getBuildTarget());
 
-    if (exopackage) {
-      Preconditions.checkArgument(enhancementResult.getPreDexMerge().isPresent(),
+    if (ExopackageMode.enabledForSecondaryDexes(exopackageModes)) {
+      Preconditions.checkArgument(enhancementResult.preDexMerge().isPresent(),
           "%s specified exopackage without pre-dexing, which is invalid.",
           getBuildTarget());
       Preconditions.checkArgument(dexSplitMode.getDexStore() == DexStore.JAR,
           "%s specified exopackage with secondary dex mode %s, " +
               "which is invalid.  (Only JAR is allowed.)",
           getBuildTarget(), dexSplitMode.getDexStore());
-      Preconditions.checkArgument(enhancementResult.getComputeExopackageDepsAbi().isPresent(),
+      Preconditions.checkArgument(enhancementResult.computeExopackageDepsAbi().isPresent(),
           "computeExopackageDepsAbi must be set if exopackage is true.");
     }
   }
@@ -250,7 +258,7 @@ public class AndroidBinary extends AbstractBuildRule implements
         .setReflectively("optimizationPasses", optimizationPasses)
         .setReflectively("resourceCompressionMode", resourceCompressionMode)
         .setReflectively("cpuFilters", ImmutableSortedSet.copyOf(cpuFilters))
-        .setReflectively("exopackage", exopackage)
+        .setReflectively("exopackageModes", exopackageModes)
         .setReflectively("preprocessJavaClassesBash", preprocessJavaClassesBash)
         .setReflectively("preprocessJavaClassesDeps", preprocessJavaClassesDeps)
         .setReflectively("proguardJarOverride", proguardJarOverride);
@@ -295,7 +303,7 @@ public class AndroidBinary extends AbstractBuildRule implements
   }
   @VisibleForTesting
   FilteredResourcesProvider getFilteredResourcesProvider() {
-    return enhancementResult.getFilteredResourcesProvider();
+    return enhancementResult.filteredResourcesProvider();
   }
 
   public Function<String, String> getMacroExpander() {
@@ -308,117 +316,6 @@ public class AndroidBinary extends AbstractBuildRule implements
 
   public Optional<Integer> getOptimizationPasses() {
     return optimizationPasses;
-  }
-
-  /**
-   * Native libraries compiled for different CPU architectures are placed in the
-   * respective ABI subdirectories, such as 'armeabi', 'armeabi-v7a', 'x86' and 'mips'.
-   * This looks at the cpu filter and returns the correct subdirectory. If cpu filter is
-   * not present or not supported, returns Optional.absent();
-   */
-  private static Optional<String> getAbiDirectoryComponent(TargetCpuType cpuType) {
-    String component = null;
-    if (cpuType.equals(TargetCpuType.ARM)) {
-      component = SdkConstants.ABI_ARMEABI;
-    } else if (cpuType.equals(TargetCpuType.ARMV7)) {
-      component = SdkConstants.ABI_ARMEABI_V7A;
-    } else if (cpuType.equals(TargetCpuType.X86)) {
-      component = SdkConstants.ABI_INTEL_ATOM;
-    } else if (cpuType.equals(TargetCpuType.MIPS)) {
-      component = SdkConstants.ABI_MIPS;
-    }
-    return Optional.fromNullable(component);
-
-  }
-
-  @VisibleForTesting
-  static void copyNativeLibrary(Path sourceDir,
-      final Path destinationDir,
-      ImmutableSet<TargetCpuType> cpuFilters,
-      ImmutableList.Builder<Step> steps) {
-
-    if (cpuFilters.isEmpty()) {
-      steps.add(
-          CopyStep.forDirectory(
-              sourceDir,
-              destinationDir,
-              CopyStep.DirectoryMode.CONTENTS_ONLY));
-    } else {
-      for (TargetCpuType cpuType : cpuFilters) {
-        Optional<String> abiDirectoryComponent = getAbiDirectoryComponent(cpuType);
-        Preconditions.checkState(abiDirectoryComponent.isPresent());
-
-        final Path libSourceDir = sourceDir.resolve(abiDirectoryComponent.get());
-        Path libDestinationDir = destinationDir.resolve(abiDirectoryComponent.get());
-
-        final MkdirStep mkDirStep = new MkdirStep(libDestinationDir);
-        final CopyStep copyStep = CopyStep.forDirectory(
-            libSourceDir,
-            libDestinationDir,
-            CopyStep.DirectoryMode.CONTENTS_ONLY);
-        steps.add(new Step() {
-          @Override
-          public int execute(ExecutionContext context) {
-            if (!context.getProjectFilesystem().exists(libSourceDir)) {
-              return 0;
-            }
-            if (mkDirStep.execute(context) == 0 && copyStep.execute(context) == 0) {
-              return 0;
-            }
-            return 1;
-          }
-
-          @Override
-          public String getShortName() {
-            return "copy_native_libraries";
-          }
-
-          @Override
-          public String getDescription(ExecutionContext context) {
-            ImmutableList.Builder<String> stringBuilder = ImmutableList.builder();
-            stringBuilder.add(String.format("[ -d %s ]", libSourceDir.toString()));
-            stringBuilder.add(mkDirStep.getDescription(context));
-            stringBuilder.add(copyStep.getDescription(context));
-            return Joiner.on(" && ").join(stringBuilder.build());
-          }
-        });
-      }
-    }
-
-    // Rename native files named like "*-disguised-exe" to "lib*.so" so they will be unpacked
-    // by the Android package installer.  Then they can be executed like normal binaries
-    // on the device.
-    steps.add(
-        new AbstractExecutionStep("rename_native_executables") {
-
-          @Override
-          public int execute(ExecutionContext context) {
-
-            ProjectFilesystem filesystem = context.getProjectFilesystem();
-            final ImmutableSet.Builder<Path> executablesBuilder = ImmutableSet.builder();
-            try {
-              filesystem.walkRelativeFileTree(destinationDir, new SimpleFileVisitor<Path>() {
-                    @Override
-                    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
-                        throws IOException {
-                      if (file.toString().endsWith("-disguised-exe")) {
-                        executablesBuilder.add(file);
-                      }
-                      return FileVisitResult.CONTINUE;
-                    }
-                  });
-              for (Path exePath : executablesBuilder.build()) {
-                Path fakeSoPath = Paths.get(
-                    exePath.toString().replaceAll("/([^/]+)-disguised-exe$", "/lib$1.so"));
-                filesystem.move(exePath, fakeSoPath);
-              }
-            } catch (IOException e) {
-              context.logError(e, "Renaming native executables failed.");
-              return 1;
-            }
-            return 0;
-          }
-        });
   }
 
   /** The APK at this path is the final one that points to an APK that a user should install. */
@@ -454,7 +351,7 @@ public class AndroidBinary extends AbstractBuildRule implements
     Path signedApkPath = getSignedApkPath();
     DexFilesInfo dexFilesInfo = addFinalDxSteps(
         context,
-        enhancementResult.getFilteredResourcesProvider().getResDirectories(),
+        enhancementResult.filteredResourcesProvider().getResDirectories(),
         buildableContext,
         steps);
 
@@ -463,30 +360,23 @@ public class AndroidBinary extends AbstractBuildRule implements
     // Any inputs to apkbuilder must be reflected in the hash returned by getAbiKeyForDeps.
     ////
 
-    // Copy the transitive closure of files in native_libs to a single directory, if any.
-    AndroidPackageableCollection packageableCollection =
-        enhancementResult.getPackageableCollection();
-    ImmutableSet<Path> nativeLibraryDirectories;
-    if (!packageableCollection.nativeLibsDirectories.isEmpty()) {
-      Path pathForNativeLibs = getPathForNativeLibs();
-      Path libSubdirectory = pathForNativeLibs.resolve("lib");
-      steps.add(new MakeCleanDirectoryStep(libSubdirectory));
-      for (Path nativeLibDir : packageableCollection.nativeLibsDirectories) {
-        copyNativeLibrary(nativeLibDir, libSubdirectory, cpuFilters, steps);
-      }
-      nativeLibraryDirectories = ImmutableSet.of(libSubdirectory);
-    } else {
-      nativeLibraryDirectories = ImmutableSet.of();
+    ImmutableAndroidPackageableCollection packageableCollection =
+        enhancementResult.packageableCollection();
+    ImmutableSet<Path> nativeLibraryDirectories = ImmutableSet.of();
+    if (!ExopackageMode.enabledForNativeLibraries(exopackageModes) &&
+        enhancementResult.copyNativeLibraries().isPresent()) {
+      nativeLibraryDirectories = ImmutableSet.of(
+          enhancementResult.copyNativeLibraries().get().getPathToNativeLibsDir());
     }
 
     // Copy the transitive closure of native-libs-as-assets to a single directory, if any.
     ImmutableSet<Path> nativeLibraryAsAssetDirectories;
-    if (!packageableCollection.nativeLibAssetsDirectories.isEmpty()) {
+    if (!packageableCollection.nativeLibAssetsDirectories().isEmpty()) {
       Path pathForNativeLibsAsAssets = getPathForNativeLibsAsAssets();
       Path libSubdirectory = pathForNativeLibsAsAssets.resolve("assets").resolve("lib");
       steps.add(new MakeCleanDirectoryStep(libSubdirectory));
-      for (Path nativeLibDir : packageableCollection.nativeLibAssetsDirectories) {
-        copyNativeLibrary(nativeLibDir, libSubdirectory, cpuFilters, steps);
+      for (Path nativeLibDir : packageableCollection.nativeLibAssetsDirectories()) {
+        CopyNativeLibraries.copyNativeLibrary(nativeLibDir, libSubdirectory, cpuFilters, steps);
       }
       nativeLibraryAsAssetDirectories = ImmutableSet.of(pathForNativeLibsAsAssets);
     } else {
@@ -495,7 +385,7 @@ public class AndroidBinary extends AbstractBuildRule implements
 
     // If non-english strings are to be stored as assets, pass them to ApkBuilder.
     ImmutableSet.Builder<Path> zipFiles = ImmutableSet.builder();
-    Optional<PackageStringAssets> packageStringAssets = enhancementResult.getPackageStringAssets();
+    Optional<PackageStringAssets> packageStringAssets = enhancementResult.packageStringAssets();
     if (packageStringAssets.isPresent()) {
       final Path pathToStringAssetsZip = packageStringAssets.get().getPathToStringAssetsZip();
       zipFiles.add(pathToStringAssetsZip);
@@ -507,13 +397,13 @@ public class AndroidBinary extends AbstractBuildRule implements
         .build();
 
     ApkBuilderStep apkBuilderCommand = new ApkBuilderStep(
-        enhancementResult.getAaptPackageResources().getResourceApkPath(),
+        enhancementResult.aaptPackageResources().getResourceApkPath(),
         getSignedApkPath(),
         dexFilesInfo.primaryDexPath,
         allAssetDirectories,
         nativeLibraryDirectories,
         zipFiles.build(),
-        packageableCollection.pathsToThirdPartyJars,
+        packageableCollection.pathsToThirdPartyJars(),
         keystore.getPathToStore(),
         keystore.getPathToPropertiesFile(),
         /* debugMode */ false);
@@ -554,14 +444,11 @@ public class AndroidBinary extends AbstractBuildRule implements
     // For non-exopackages, there is no benefit to the ABI optimization, so we want to disable it.
     // Returning our RuleKey has this effect because we will never get an ABI match after a
     // RuleKey miss.
-    if (!exopackage) {
-      // TODO(natthu): This is a hack which avoids having to return rule key from the buildable.
-      // Once we figure out a way to expose the build engine to a buildable, this should return the
-      // rule key as before.
-      return Sha1HashCode.newRandomHashCode();
+    if (exopackageModes.isEmpty()) {
+      return new Sha1HashCode(getRuleKey().toString());
     }
 
-    return enhancementResult.getComputeExopackageDepsAbi().get().getAndroidBinaryAbiHash();
+    return enhancementResult.computeExopackageDepsAbi().get().getAndroidBinaryAbiHash();
   }
 
   /**
@@ -572,8 +459,7 @@ public class AndroidBinary extends AbstractBuildRule implements
       ImmutableList<Path> resDirectories,
       BuildableContext buildableContext,
       ImmutableList.Builder<Step> steps) {
-    AndroidPackageableCollection packageableCollection =
-        enhancementResult.getPackageableCollection();
+    AndroidPackageableCollection packageableCollection = enhancementResult.packageableCollection();
     // Execute preprocess_java_classes_binary, if appropriate.
     ImmutableSet<Path> classpathEntriesToDex;
     if (preprocessJavaClassesBash.isPresent()) {
@@ -586,9 +472,9 @@ public class AndroidBinary extends AbstractBuildRule implements
       steps.add(new MakeCleanDirectoryStep(preprocessJavaClassesOutDir));
       steps.add(new SymlinkFilesIntoDirectoryStep(
           context.getProjectRoot(),
-          enhancementResult.getClasspathEntriesToDex(),
+          enhancementResult.classpathEntriesToDex(),
           preprocessJavaClassesInDir));
-      classpathEntriesToDex = FluentIterable.from(enhancementResult.getClasspathEntriesToDex())
+      classpathEntriesToDex = FluentIterable.from(enhancementResult.classpathEntriesToDex())
           .transform(new Function<Path, Path>() {
             @Override
             public Path apply(Path classpathEntry) {
@@ -633,14 +519,14 @@ public class AndroidBinary extends AbstractBuildRule implements
       });
 
     } else {
-      classpathEntriesToDex = enhancementResult.getClasspathEntriesToDex();
+      classpathEntriesToDex = enhancementResult.classpathEntriesToDex();
     }
 
     // Execute proguard if desired (transforms input classpaths).
     if (packageType.isBuildWithObfuscation()) {
       classpathEntriesToDex = addProguardCommands(
           classpathEntriesToDex,
-          packageableCollection.proguardConfigs,
+          packageableCollection.proguardConfigs(),
           steps,
           resDirectories,
           buildableContext);
@@ -653,7 +539,7 @@ public class AndroidBinary extends AbstractBuildRule implements
     if (classFilesHaveChanged) {
       classNamesToHashesSupplier = addAccumulateClassNamesStep(classpathEntriesToDex, steps);
     } else {
-      classNamesToHashesSupplier = packageableCollection.classNamesToHashesSupplier;
+      classNamesToHashesSupplier = packageableCollection.classNamesToHashesSupplier();
     }
 
     // Create the final DEX (or set of DEX files in the case of split dex).
@@ -677,7 +563,7 @@ public class AndroidBinary extends AbstractBuildRule implements
     // listed in secondaryDexDirectoriesBuilder so that their contents will be compressed
     // appropriately for Froyo.
     ImmutableSet.Builder<Path> secondaryDexDirectoriesBuilder = ImmutableSet.builder();
-    Optional<PreDexMerge> preDexMerge = enhancementResult.getPreDexMerge();
+    Optional<PreDexMerge> preDexMerge = enhancementResult.preDexMerge();
     if (!preDexMerge.isPresent()) {
       steps.add(new MkdirStep(primaryDexPath.getParent()));
 
@@ -687,7 +573,7 @@ public class AndroidBinary extends AbstractBuildRule implements
           secondaryDexDirectoriesBuilder,
           steps,
           primaryDexPath);
-    } else if (!exopackage) {
+    } else if (!ExopackageMode.enabledForSecondaryDexes(exopackageModes)) {
       secondaryDexDirectoriesBuilder.addAll(preDexMerge.get().getSecondaryDexDirectories());
     }
 
@@ -725,7 +611,7 @@ public class AndroidBinary extends AbstractBuildRule implements
   }
 
   public AndroidPackageableCollection getAndroidPackageableCollection() {
-    return enhancementResult.getPackageableCollection();
+    return enhancementResult.packageableCollection();
   }
 
   /**
@@ -744,13 +630,6 @@ public class AndroidBinary extends AbstractBuildRule implements
   @VisibleForTesting
   Path getPathForProGuardDirectory() {
     return BuildTargets.getGenPath(getBuildTarget(), ".proguard/%s");
-  }
-
-  /**
-   * All native libs are copied to this directory before running apkbuilder.
-   */
-  private Path getPathForNativeLibs() {
-    return getBinPath("__native_libs_%s__");
   }
 
   /**
@@ -819,7 +698,7 @@ public class AndroidBinary extends AbstractBuildRule implements
     // Generate a file of ProGuard config options using aapt.
     Path generatedProGuardConfig = proguardDirectory.resolve("proguard.txt");
     GenProGuardConfigStep genProGuardConfig = new GenProGuardConfigStep(
-        enhancementResult.getAaptPackageResources().getAndroidManifestXml(),
+        enhancementResult.aaptPackageResources().getAndroidManifestXml(),
         resDirectories,
         generatedProGuardConfig);
     steps.add(genProGuardConfig);
@@ -997,7 +876,7 @@ public class AndroidBinary extends AbstractBuildRule implements
 
   @Override
   public Path getManifestPath() {
-    return enhancementResult.getAaptPackageResources().getAndroidManifestXml();
+    return enhancementResult.aaptPackageResources().getAndroidManifestXml();
   }
 
   String getTarget() {
@@ -1010,14 +889,34 @@ public class AndroidBinary extends AbstractBuildRule implements
 
   @Override
   public Optional<ExopackageInfo> getExopackageInfo() {
-    if (!exopackage) {
+    boolean shouldInstall = false;
+
+    ImmutableExopackageInfo.Builder builder = ImmutableExopackageInfo.builder();
+    if (ExopackageMode.enabledForSecondaryDexes(exopackageModes)) {
+      PreDexMerge preDexMerge = enhancementResult.preDexMerge().get();
+      builder.dexInfo(
+          ImmutableExopackageInfo.DexInfo.of(
+              preDexMerge.getMetadataTxtPath(),
+              preDexMerge.getDexDirectory()));
+      shouldInstall = true;
+    }
+
+    if (ExopackageMode.enabledForNativeLibraries(exopackageModes) &&
+        enhancementResult.copyNativeLibraries().isPresent()) {
+      CopyNativeLibraries copyNativeLibraries = enhancementResult.copyNativeLibraries().get();
+      builder.nativeLibsInfo(
+          ImmutableExopackageInfo.NativeLibsInfo.of(
+              copyNativeLibraries.getPathToMetadataTxt(),
+              copyNativeLibraries.getPathToNativeLibsDir()));
+      shouldInstall = true;
+    }
+
+    if (!shouldInstall) {
       return Optional.absent();
     }
-    Optional<PreDexMerge> preDexMerge = enhancementResult.getPreDexMerge();
-    return Optional.of(
-        new ExopackageInfo(
-            preDexMerge.get().getMetadataTxtPath(),
-            preDexMerge.get().getDexDirectory()));
+
+    ExopackageInfo exopackageInfo = builder.build();
+    return Optional.of(exopackageInfo);
   }
 
   public ImmutableSortedSet<BuildRule> getClasspathDeps() {

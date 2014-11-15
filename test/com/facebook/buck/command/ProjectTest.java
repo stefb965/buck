@@ -37,6 +37,7 @@ import com.facebook.buck.java.KeystoreBuilder;
 import com.facebook.buck.java.PrebuiltJarBuilder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.model.InMemoryBuildFileTree;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -79,14 +80,14 @@ public class ProjectTest {
   private BuildRule guava;
 
   /**
-   * Creates a PartialGraph with two android_binary rules, each of which depends on the same
+   * Creates an ActionGraph with two android_binary rules, each of which depends on the same
    * android_library. The difference between the two is that one lists Guava in its no_dx list and
    * the other does not.
    * <p>
-   * The PartialGraph also includes three project_config rules: one for the android_library, and one
+   * The ActionGraph also includes three project_config rules: one for the android_library, and one
    * for each of the android_binary rules.
    */
-  public ProjectWithModules createPartialGraphForTesting(
+  public ProjectWithModules createActionGraphForTesting(
       @Nullable JavaPackageFinder javaPackageFinder) throws IOException {
     BuildRuleResolver ruleResolver = new BuildRuleResolver();
 
@@ -212,7 +213,8 @@ public class ProjectTest {
         .setSrcRule(barAppBuildRule.getBuildTarget())
         .build(ruleResolver);
 
-    return getModulesForPartialGraph(ruleResolver,
+    return getModulesForActionGraph(
+        ruleResolver,
         ImmutableSet.of(
             projectConfigForExportLibrary,
             projectConfigForLibrary,
@@ -242,7 +244,7 @@ public class ProjectTest {
     EasyMock.expect(javaPackageFinder.findJavaPackageForPath("bar/module_bar.iml")).andReturn("");
     EasyMock.replay(javaPackageFinder);
 
-    ProjectWithModules projectWithModules = createPartialGraphForTesting(javaPackageFinder);
+    ProjectWithModules projectWithModules = createActionGraphForTesting(javaPackageFinder);
     Project project = projectWithModules.project;
     ActionGraph actionGraph = project.getActionGraph();
     List<Module> modules = projectWithModules.modules;
@@ -453,7 +455,8 @@ public class ProjectTest {
         .setSrcRule(mockRule.getBuildTarget())
         .build(ruleResolver);
 
-    ProjectWithModules projectWithModules = getModulesForPartialGraph(ruleResolver,
+    ProjectWithModules projectWithModules = getModulesForActionGraph(
+        ruleResolver,
         ImmutableSet.of(projectConfig),
         null /* javaPackageFinder */);
     List<Module> modules = projectWithModules.modules;
@@ -506,7 +509,8 @@ public class ProjectTest {
         .setTestRoots(ImmutableList.of("tests"))
         .build(ruleResolver);
 
-    ProjectWithModules projectWithModules = getModulesForPartialGraph(ruleResolver,
+    ProjectWithModules projectWithModules = getModulesForActionGraph(
+        ruleResolver,
         ImmutableSet.of(projectConfig),
         null /* javaPackageFinder */);
     List<Module> modules = projectWithModules.modules;
@@ -563,7 +567,8 @@ public class ProjectTest {
         .setSrcRoots(ImmutableList.of("src/main/java"))
         .build(ruleResolver);
 
-    ProjectWithModules projectWithModules = getModulesForPartialGraph(ruleResolver,
+    ProjectWithModules projectWithModules = getModulesForActionGraph(
+        ruleResolver,
         ImmutableSet.of(projectConfig),
         null /* javaPackageFinder */);
     List<Module> modules = projectWithModules.modules;
@@ -618,7 +623,8 @@ public class ProjectTest {
         .setSrcRule(resBuildRule.getBuildTarget())
         .setSrcRoots(null)
         .build(ruleResolver1);
-    ProjectWithModules projectWithModules1 = getModulesForPartialGraph(ruleResolver1,
+    ProjectWithModules projectWithModules1 = getModulesForActionGraph(
+        ruleResolver1,
         ImmutableSet.of(projectConfigNullSrcRoots),
         null /* javaPackageFinder */);
 
@@ -647,7 +653,8 @@ public class ProjectTest {
     EasyMock.expect(javaPackageFinder.findJavaPackageForPath(
         "java/com/example/base/module_java_com_example_base.iml")).andReturn("com.example.base");
     EasyMock.replay(javaPackageFinder);
-    ProjectWithModules projectWithModules2 = getModulesForPartialGraph(ruleResolver2,
+    ProjectWithModules projectWithModules2 = getModulesForActionGraph(
+        ruleResolver2,
         ImmutableSet.of(inPackageProjectConfig),
         javaPackageFinder);
     EasyMock.verify(javaPackageFinder);
@@ -672,7 +679,8 @@ public class ProjectTest {
         .setSrcRule(baseBuildRule3.getBuildTarget())
         .setSrcRoots(ImmutableList.of("src"))
         .build(ruleResolver3);
-    ProjectWithModules projectWithModules3 = getModulesForPartialGraph(ruleResolver3,
+    ProjectWithModules projectWithModules3 = getModulesForActionGraph(
+        ruleResolver3,
         ImmutableSet.of(hasSrcFolderProjectConfig),
         null /* javaPackageFinder */);
 
@@ -696,7 +704,7 @@ public class ProjectTest {
     }
   }
 
-  private ProjectWithModules getModulesForPartialGraph(
+  private ProjectWithModules getModulesForActionGraph(
       BuildRuleResolver ruleResolver,
       ImmutableSet<ProjectConfig> projectConfigs,
       @Nullable JavaPackageFinder javaPackageFinder) throws IOException {
@@ -726,6 +734,10 @@ public class ProjectTest {
         basePathToAliasMap,
         javaPackageFinder,
         executionContext,
+        new InMemoryBuildFileTree(
+            Iterables.transform(
+                actionGraph.getNodes(),
+                BuildTarget.TO_TARGET)),
         projectFilesystem,
         /* pathToDefaultAndroidManifest */ Optional.<String>absent(),
         /* pathToPostProcessScript */ Optional.<String>absent(),
@@ -777,7 +789,8 @@ public class ProjectTest {
         .setSrcRule(ndkLibrary.getBuildTarget())
         .build(ruleResolver);
 
-    ProjectWithModules projectWithModules = getModulesForPartialGraph(ruleResolver,
+    ProjectWithModules projectWithModules = getModulesForActionGraph(
+        ruleResolver,
         ImmutableSet.of(ndkProjectConfig),
         null /* javaPackageFinder */);
     List<Module> modules = projectWithModules.modules;
@@ -821,7 +834,7 @@ public class ProjectTest {
         .setTestRule(tests.getBuildTarget())
         .build(ruleResolver);
 
-    ProjectWithModules projectWithModules = getModulesForPartialGraph(
+    ProjectWithModules projectWithModules = getModulesForActionGraph(
         ruleResolver, ImmutableSet.of(config), null);
 
     Module module = Iterables.getOnlyElement(projectWithModules.modules);

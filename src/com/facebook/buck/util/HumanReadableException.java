@@ -16,8 +16,6 @@
 
 package com.facebook.buck.util;
 
-import com.google.common.base.Preconditions;
-
 import javax.annotation.Nullable;
 
 /**
@@ -35,12 +33,12 @@ public class HumanReadableException extends RuntimeException
   }
 
   public HumanReadableException(String humanReadableErrorMessage) {
-    this((Throwable) null /* cause */, humanReadableErrorMessage);
+    this(null /* cause */, humanReadableErrorMessage);
   }
 
   public HumanReadableException(@Nullable Throwable cause, String humanReadableErrorMessage) {
     super(humanReadableErrorMessage, cause);
-    this.humanReadableErrorMessage = Preconditions.checkNotNull(humanReadableErrorMessage);
+    this.humanReadableErrorMessage = humanReadableErrorMessage;
   }
 
   public HumanReadableException(@Nullable Throwable cause,

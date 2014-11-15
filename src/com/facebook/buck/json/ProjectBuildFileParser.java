@@ -87,6 +87,7 @@ public class ProjectBuildFileParser implements AutoCloseable {
   private final String pythonInterpreter;
   private final Console console;
   private final BuckEventBus buckEventBus;
+  private final boolean allowEmptyGlobs;
 
   private boolean isServerMode;
 
@@ -101,18 +102,20 @@ public class ProjectBuildFileParser implements AutoCloseable {
       ProjectFilesystem projectFilesystem,
       Iterable<String> commonIncludes,
       String pythonInterpreter,
+      boolean allowEmptyGlobs,
       ImmutableSet<Description<?>> descriptions,
       Console console,
       ImmutableMap<String, String> environment,
       BuckEventBus buckEventBus) {
     this.projectRoot = projectFilesystem.getRootPath();
-    this.descriptions = Preconditions.checkNotNull(descriptions);
+    this.descriptions = descriptions;
     this.commonIncludes = ImmutableList.copyOf(commonIncludes);
-    this.pythonInterpreter = Preconditions.checkNotNull(pythonInterpreter);
+    this.pythonInterpreter = pythonInterpreter;
+    this.allowEmptyGlobs = allowEmptyGlobs;
     this.pathToBuckPy = Optional.absent();
-    this.console = Preconditions.checkNotNull(console);
-    this.environment = Preconditions.checkNotNull(environment);
-    this.buckEventBus = Preconditions.checkNotNull(buckEventBus);
+    this.console = console;
+    this.environment = environment;
+    this.buckEventBus = buckEventBus;
 
     // Default to server mode unless explicitly unset internally.
     setServerMode(true);
@@ -233,6 +236,10 @@ public class ProjectBuildFileParser implements AutoCloseable {
     if (isServerMode) {
       // Provide BUCK files to parse via buck.py's stdin.
       argBuilder.add("--server");
+    }
+
+    if (allowEmptyGlobs) {
+      argBuilder.add("--allow_empty_globs");
     }
 
     argBuilder.add("--project_root", projectRoot.toAbsolutePath().toString());

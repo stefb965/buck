@@ -23,7 +23,6 @@ import com.facebook.buck.test.selectors.TestSelectorList;
 import com.facebook.buck.util.BuckConstant;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -46,6 +45,12 @@ public class JUnitStep extends ShellStep {
   static final String TESTNG_TEST_RUNNER_CLASS_NAME =
       "com.facebook.buck.junit.TestNGMain";
 
+  private static final Path TESTRUNNER_CLASSES =
+      Paths.get(
+          System.getProperty(
+              "buck.testrunner_classes",
+              new File("build/testrunner/classes").getAbsolutePath()));
+
   @VisibleForTesting
   public static final String BUILD_ID_PROPERTY = "com.facebook.buck.buildId";
 
@@ -54,7 +59,8 @@ public class JUnitStep extends ShellStep {
   private final List<String> vmArgs;
   private final Path directoryForTestResults;
   private final Path tmpDirectory;
-  private final Path testRunnerClassesDirectory;
+  private final Path testRunnerClasspath;
+  private final Path abiProcessorClasspath;
   private final boolean isCodeCoverageEnabled;
   private final boolean isDebugEnabled;
   private final BuildId buildId;
@@ -106,9 +112,8 @@ public class JUnitStep extends ShellStep {
         testSelectorList,
         isDryRun,
         type,
-        Paths.get(System.getProperty(
-                "buck.testrunner_classes",
-                new File("build/testrunner/classes").getAbsolutePath())));
+        TESTRUNNER_CLASSES,
+        AbiWritingAnnotationProcessingDataDecorator.ABI_PROCESSOR_CLASSPATH);
   }
 
   @VisibleForTesting
@@ -124,19 +129,21 @@ public class JUnitStep extends ShellStep {
       TestSelectorList testSelectorList,
       boolean isDryRun,
       TestType type,
-      Path testRunnerClassesDirectory) {
+      Path testRunnerClasspath,
+      Path abiProcessorClasspath) {
     this.classpathEntries = ImmutableSet.copyOf(classpathEntries);
     this.testClassNames = Iterables.unmodifiableIterable(testClassNames);
     this.vmArgs = ImmutableList.copyOf(vmArgs);
-    this.directoryForTestResults = Preconditions.checkNotNull(directoryForTestResults);
-    this.tmpDirectory = Preconditions.checkNotNull(tmpDirectory);
+    this.directoryForTestResults = directoryForTestResults;
+    this.tmpDirectory = tmpDirectory;
     this.isCodeCoverageEnabled = isCodeCoverageEnabled;
     this.isDebugEnabled = isDebugEnabled;
     this.buildId = buildId;
-    this.testSelectorList = Preconditions.checkNotNull(testSelectorList);
+    this.testSelectorList = testSelectorList;
     this.isDryRun = isDryRun;
     this.type = type;
-    this.testRunnerClassesDirectory = Preconditions.checkNotNull(testRunnerClassesDirectory);
+    this.testRunnerClasspath = testRunnerClasspath;
+    this.abiProcessorClasspath = abiProcessorClasspath;
   }
 
   @Override
@@ -149,6 +156,18 @@ public class JUnitStep extends ShellStep {
     ImmutableList.Builder<String> args = ImmutableList.builder();
     args.add("java");
     args.add(String.format("-Djava.io.tmpdir=%s", tmpDirectory));
+
+    // NOTE(agallagher): These propbably don't belong here, but buck integration tests need
+    // to find the ABI processor and test runner classes, so propagate these down via the
+    // relevant properties.
+    args.add(
+        String.format(
+            "-Dbuck.abi_processor_classes=%s",
+            abiProcessorClasspath));
+    args.add(
+        String.format(
+            "-Dbuck.testrunner_classes=%s",
+            testRunnerClasspath));
 
     if (isCodeCoverageEnabled) {
       args.add(String.format("-javaagent:%s=destfile=%s/%s,append=true",
@@ -181,7 +200,7 @@ public class JUnitStep extends ShellStep {
     List<Path> classpath = Lists.newArrayList(classpathEntries);
 
     // Finally, include an entry for the test runner.
-    classpath.add(testRunnerClassesDirectory);
+    classpath.add(testRunnerClasspath);
 
     // Add the -classpath argument.
     args.add("-classpath").add(Joiner.on(File.pathSeparator).join(classpath));

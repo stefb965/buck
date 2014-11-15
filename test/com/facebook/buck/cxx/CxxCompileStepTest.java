@@ -21,11 +21,8 @@ import static org.junit.Assert.assertEquals;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.util.MoreIterables;
 import com.facebook.buck.util.ProjectFilesystem;
-import com.google.common.base.Functions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Iterables;
 
 import org.junit.Test;
 
@@ -47,21 +44,13 @@ public class CxxCompileStepTest {
         ImmutableList.of("-fsanitize=address");
     Path output = Paths.get("test.o");
     Path input = Paths.get("test.cpp");
-    ImmutableList<Path> includes = ImmutableList.of(
-        Paths.get("foo/bar"),
-        Paths.get("test"));
-    ImmutableList<Path> systemIncludes = ImmutableList.of(
-        Paths.get("/usr/include"),
-        Paths.get("/include"));
 
     // Create our CxxCompileStep to test.
     CxxCompileStep cxxCompileStep = new CxxCompileStep(
         compiler,
         flags,
         output,
-        input,
-        includes,
-        systemIncludes);
+        input);
 
     // Verify it uses the expected command.
     ImmutableList<String> expected = ImmutableList.<String>builder()
@@ -69,14 +58,6 @@ public class CxxCompileStepTest {
         .add("-c")
         .addAll(flags)
         .add("-o", output.toString())
-        .addAll(
-            MoreIterables.zipAndConcat(
-                Iterables.cycle("-I"),
-                Iterables.transform(includes, Functions.toStringFunction())))
-        .addAll(
-            MoreIterables.zipAndConcat(
-                Iterables.cycle("-isystem"),
-                Iterables.transform(systemIncludes, Functions.toStringFunction())))
         .add(input.toString())
         .build();
     ImmutableList<String> actual = cxxCompileStep.getShellCommand(context);

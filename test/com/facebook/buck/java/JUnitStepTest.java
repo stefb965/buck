@@ -61,7 +61,8 @@ public class JUnitStepTest {
     Path directoryForTemp = Paths.get("buck-out/gen/thetmp/");
     boolean isCodeCoverageEnabled = false;
     boolean isDebugEnabled = false;
-    Path testRunnerClassesDirectory = Paths.get("build/classes/junit");
+    Path testRunnerClasspath = Paths.get("build/classes/junit");
+    Path abiProcessorClasspath = Paths.get("build/classes/abi");
 
     JUnitStep junit = new JUnitStep(
         classpathEntries,
@@ -75,7 +76,8 @@ public class JUnitStepTest {
         TestSelectorList.empty(),
         /* isDryRun */ false,
         TestType.JUNIT,
-        testRunnerClassesDirectory);
+        testRunnerClasspath,
+        abiProcessorClasspath);
 
     ExecutionContext executionContext = EasyMock.createMock(ExecutionContext.class);
     EasyMock.expect(executionContext.getVerbosity()).andReturn(Verbosity.ALL);
@@ -87,6 +89,8 @@ public class JUnitStepTest {
         ImmutableList.of(
             "java",
             "-Djava.io.tmpdir=" + directoryForTemp,
+            "-Dbuck.abi_processor_classes=" + abiProcessorClasspath,
+            "-Dbuck.testrunner_classes=" + testRunnerClasspath,
             buildIdArg,
             vmArg1,
             vmArg2,
@@ -126,7 +130,8 @@ public class JUnitStepTest {
     Path directoryForTemp = Paths.get("buck-out/gen/thetmp/");
     boolean isCodeCoverageEnabled = false;
     boolean isDebugEnabled = true;
-    Path testRunnerClassesDirectory = Paths.get("build/classes/junit");
+    Path testRunnerClasspath = Paths.get("build/classes/junit");
+    Path abiProcessorClasspath = Paths.get("build/classes/abi");
 
     JUnitStep junit = new JUnitStep(
         classpathEntries,
@@ -140,7 +145,8 @@ public class JUnitStepTest {
         TestSelectorList.empty(),
         /* isDryRun */ false,
         TestType.JUNIT,
-        testRunnerClassesDirectory);
+        testRunnerClasspath,
+        abiProcessorClasspath);
 
 
     TestConsole console = new TestConsole();
@@ -155,6 +161,8 @@ public class JUnitStepTest {
         ImmutableList.of(
             "java",
             "-Djava.io.tmpdir=" + directoryForTemp,
+            "-Dbuck.abi_processor_classes=" + abiProcessorClasspath,
+            "-Dbuck.testrunner_classes=" + testRunnerClasspath,
             buildIdArg,
             "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005",
             vmArg1,

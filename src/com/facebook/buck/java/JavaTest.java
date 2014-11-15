@@ -16,6 +16,7 @@
 
 package com.facebook.buck.java;
 
+import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
@@ -40,7 +41,6 @@ import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.buck.util.ZipFileTraversal;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
-import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -82,6 +82,8 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule {
 
   private static final int TEST_CLASSES_SHUFFLE_SEED = 0xFACEB00C;
 
+  private static final Logger LOG = Logger.get(JavaTest.class);
+
   protected JavaTest(
       BuildRuleParams params,
       SourcePathResolver resolver,
@@ -109,10 +111,10 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule {
         javacOptions,
         resourcesRoot);
     this.vmArgs = ImmutableList.copyOf(vmArgs);
-    this.sourceUnderTest = Preconditions.checkNotNull(sourceUnderTest);
+    this.sourceUnderTest = sourceUnderTest;
     this.labels = ImmutableSet.copyOf(labels);
     this.contacts = ImmutableSet.copyOf(contacts);
-    this.additionalClasspathEntries = Preconditions.checkNotNull(addtionalClasspathEntries);
+    this.additionalClasspathEntries = addtionalClasspathEntries;
     this.testType = testType;
   }
 
@@ -170,6 +172,7 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule {
     // other java_test() rules as deps, functioning as a test suite. In this case, simply return an
     // empty list of commands.
     Set<String> testClassNames = getClassNamesForSources(executionContext);
+    LOG.debug("Testing these classes: %s", testClassNames.toString());
     if (testClassNames.isEmpty()) {
       return ImmutableList.of();
     }
@@ -430,7 +433,7 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule {
       final Set<String> sourceClassNames = Sets.newHashSetWithExpectedSize(sources.size());
       for (Path path : sources) {
         String source = path.toString();
-        int lastSlashIndex = source.lastIndexOf('/');
+        int lastSlashIndex = source.lastIndexOf(File.separatorChar);
         if (lastSlashIndex >= 0) {
           source = source.substring(lastSlashIndex + 1);
         }

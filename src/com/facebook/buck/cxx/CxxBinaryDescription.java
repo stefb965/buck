@@ -17,6 +17,10 @@
 package com.facebook.buck.cxx;
 
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.Flavor;
+import com.facebook.buck.model.FlavorDomain;
+import com.facebook.buck.model.FlavorDomainException;
+import com.facebook.buck.model.Flavored;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -24,21 +28,29 @@ import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 public class CxxBinaryDescription implements
     Description<CxxBinaryDescription.Arg>,
+    Flavored,
     ImplicitDepsInferringDescription<CxxBinaryDescription.Arg> {
 
   public static final BuildRuleType TYPE = new BuildRuleType("cxx_binary");
 
-  private final CxxPlatform cxxPlatform;
+  private final CxxBuckConfig cxxBuckConfig;
+  private final CxxPlatform defaultCxxPlatform;
+  private final FlavorDomain<CxxPlatform> cxxPlatforms;
 
-  public CxxBinaryDescription(CxxPlatform cxxPlatform) {
-    this.cxxPlatform = Preconditions.checkNotNull(cxxPlatform);
+  public CxxBinaryDescription(
+      CxxBuckConfig cxxBuckConfig,
+      CxxPlatform defaultCxxPlatform,
+      FlavorDomain<CxxPlatform> cxxPlatforms) {
+    this.cxxBuckConfig = cxxBuckConfig;
+    this.defaultCxxPlatform = defaultCxxPlatform;
+    this.cxxPlatforms = cxxPlatforms;
   }
 
   @Override
@@ -51,6 +63,16 @@ public class CxxBinaryDescription implements
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) {
+
+    // Extract the platform from the flavor, falling back to the default platform if none are
+    // found.
+    CxxPlatform cxxPlatform;
+    try {
+      cxxPlatform = cxxPlatforms.getValue(
+          params.getBuildTarget().getFlavors()).or(defaultCxxPlatform);
+    } catch (FlavorDomainException e) {
+      throw new HumanReadableException("%s: %s", params.getBuildTarget(), e.getMessage());
+    }
 
     CxxLink cxxLink = CxxDescriptionEnhancer.createBuildRulesForCxxBinaryDescriptionArg(
         params,
@@ -92,10 +114,26 @@ public class CxxBinaryDescription implements
     ImmutableSet.Builder<String> deps = ImmutableSet.builder();
 
     if (!constructorArg.lexSrcs.get().isEmpty()) {
-      deps.add(cxxPlatform.getLexDep().toString());
+      deps.add(cxxBuckConfig.getLexDep().toString());
     }
 
     return deps.build();
+  }
+
+  @Override
+  public boolean hasFlavors(ImmutableSet<Flavor> flavors) {
+
+    if (flavors.equals(ImmutableSet.of(Flavor.DEFAULT))) {
+      return true;
+    }
+
+    for (Flavor flavor : cxxPlatforms.getFlavors()) {
+      if (flavors.equals(ImmutableSet.of(Flavor.DEFAULT, flavor))) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   @SuppressFieldNotInitialized

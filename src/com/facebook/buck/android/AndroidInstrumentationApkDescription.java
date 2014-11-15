@@ -18,8 +18,10 @@ package com.facebook.buck.android;
 
 import static com.facebook.buck.model.HasBuildTarget.TO_TARGET;
 
+import com.facebook.buck.android.AndroidBinary.ExopackageMode;
 import com.facebook.buck.android.AndroidBinary.PackageType;
 import com.facebook.buck.android.ResourcesFilter.ResourceCompressionMode;
+import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.java.Classpaths;
 import com.facebook.buck.java.JavaLibrary;
 import com.facebook.buck.java.JavacOptions;
@@ -38,11 +40,13 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 
 import java.nio.file.Path;
+import java.util.EnumSet;
 
 public class AndroidInstrumentationApkDescription
     implements Description<AndroidInstrumentationApkDescription.Arg> {
@@ -90,11 +94,11 @@ public class AndroidInstrumentationApkDescription
     // TODO(natthu): Instrumentation APKs should also exclude native libraries and assets from the
     // apk under test.
     AndroidPackageableCollection.ResourceDetails resourceDetails =
-        apkUnderTest.getAndroidPackageableCollection().resourceDetails;
+        apkUnderTest.getAndroidPackageableCollection().resourceDetails();
     ImmutableSet<BuildTarget> resourcesToExclude = ImmutableSet.copyOf(
         Iterables.concat(
-            resourceDetails.resourcesWithNonEmptyResDir,
-            resourceDetails.resourcesWithEmptyResButNonEmptyAssetsDir));
+            resourceDetails.resourcesWithNonEmptyResDir(),
+            resourceDetails.resourcesWithEmptyResButNonEmptyAssetsDir()));
 
     Path primaryDexPath = AndroidBinary.getPrimaryDexPath(params.getBuildTarget());
     AndroidBinaryGraphEnhancer graphEnhancer = new AndroidBinaryGraphEnhancer(
@@ -112,16 +116,17 @@ public class AndroidInstrumentationApkDescription
         FluentIterable.from(rulesToExcludeFromDex).transform(TO_TARGET).toSet(),
         resourcesToExclude,
         JavacOptions.DEFAULTS,
-        /* exopackage */ false,
+        EnumSet.noneOf(ExopackageMode.class),
         apkUnderTest.getKeystore(),
         /* buildConfigValues */ BuildConfigFields.empty(),
-        /* buildConfigValuesFile */ Optional.<SourcePath>absent());
+        /* buildConfigValuesFile */ Optional.<SourcePath>absent(),
+        ImmutableMap.<AndroidBinary.TargetCpuType, CxxPlatform>of());
 
     AndroidBinaryGraphEnhancer.EnhancementResult enhancementResult =
         graphEnhancer.createAdditionalBuildables();
 
     return new AndroidInstrumentationApk(
-        params.copyWithExtraDeps(enhancementResult.getFinalDeps()),
+        params.copyWithExtraDeps(enhancementResult.finalDeps()),
         new SourcePathResolver(resolver),
         proGuardConfig.getProguardJarOverride(),
         proGuardConfig.getProguardMaxHeapSize(),

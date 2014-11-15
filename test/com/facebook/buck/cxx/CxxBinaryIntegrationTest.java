@@ -16,20 +16,26 @@
 
 package com.facebook.buck.cxx;
 
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.cli.BuckConfig;
+import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.testutil.integration.BuckBuildLog;
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
+import com.facebook.buck.util.BuckConstant;
 import com.google.common.collect.ImmutableSet;
 
+import org.hamcrest.Matchers;
 import org.junit.Rule;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.nio.file.Path;
 
 public class CxxBinaryIntegrationTest {
 
@@ -42,25 +48,39 @@ public class CxxBinaryIntegrationTest {
         this, "simple", tmp);
     workspace.setUp();
 
+    CxxPlatform cxxPlatform = new DefaultCxxPlatform(new FakeBuckConfig());
     BuildTarget target = BuildTargetFactory.newInstance("//foo:simple");
     BuildTarget binaryTarget = CxxDescriptionEnhancer.createCxxLinkTarget(target);
     String sourceName = "simple.cpp";
     String sourceFull = "foo/" + sourceName;
+    BuildTarget preprocessTarget = CxxPreprocessables.createPreprocessBuildTarget(
+        target,
+        cxxPlatform.asFlavor(),
+        CxxSource.Type.CXX,
+        /* pic */ false,
+        sourceName);
     BuildTarget compileTarget = CxxCompilableEnhancer.createCompileBuildTarget(
         target,
+        cxxPlatform.asFlavor(),
         sourceName,
         /* pic */ false);
     BuildTarget headerSymlinkTreeTarget =
-        CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(target);
+        CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(target, cxxPlatform.asFlavor());
 
     // Do a clean build, verify that it succeeds, and check that all expected targets built
     // successfully.
     workspace.runBuckCommand("build", target.toString()).assertSuccess();
     BuckBuildLog buildLog = workspace.getBuildLog();
     assertEquals(
-        ImmutableSet.of(headerSymlinkTreeTarget, compileTarget, binaryTarget, target),
+        ImmutableSet.of(
+            headerSymlinkTreeTarget,
+            preprocessTarget,
+            compileTarget,
+            binaryTarget,
+            target),
         buildLog.getAllTargets());
     buildLog.assertTargetBuiltLocally(headerSymlinkTreeTarget.toString());
+    buildLog.assertTargetBuiltLocally(preprocessTarget.toString());
     buildLog.assertTargetBuiltLocally(compileTarget.toString());
     buildLog.assertTargetBuiltLocally(binaryTarget.toString());
     buildLog.assertTargetBuiltLocally(target.toString());
@@ -73,9 +93,15 @@ public class CxxBinaryIntegrationTest {
     workspace.runBuckCommand("build", target.toString()).assertSuccess();
     buildLog = workspace.getBuildLog();
     assertEquals(
-        ImmutableSet.of(headerSymlinkTreeTarget, compileTarget, binaryTarget, target),
+        ImmutableSet.of(
+            headerSymlinkTreeTarget,
+            preprocessTarget,
+            compileTarget,
+            binaryTarget,
+            target),
         buildLog.getAllTargets());
     buildLog.assertTargetHadMatchingRuleKey(headerSymlinkTreeTarget.toString());
+    buildLog.assertTargetHadMatchingRuleKey(preprocessTarget.toString());
     buildLog.assertTargetHadMatchingRuleKey(compileTarget.toString());
     buildLog.assertTargetHadMatchingRuleKey(binaryTarget.toString());
     buildLog.assertTargetHadMatchingRuleKey(target.toString());
@@ -91,9 +117,15 @@ public class CxxBinaryIntegrationTest {
     workspace.runBuckCommand("build", target.toString()).assertSuccess();
     buildLog = workspace.getBuildLog();
     assertEquals(
-        ImmutableSet.of(headerSymlinkTreeTarget, compileTarget, binaryTarget, target),
+        ImmutableSet.of(
+            headerSymlinkTreeTarget,
+            preprocessTarget,
+            compileTarget,
+            binaryTarget,
+            target),
         buildLog.getAllTargets());
     buildLog.assertTargetHadMatchingRuleKey(headerSymlinkTreeTarget.toString());
+    buildLog.assertTargetBuiltLocally(preprocessTarget.toString());
     buildLog.assertTargetBuiltLocally(compileTarget.toString());
     buildLog.assertTargetBuiltLocally(binaryTarget.toString());
     buildLog.assertTargetBuiltLocally(target.toString());
@@ -109,9 +141,13 @@ public class CxxBinaryIntegrationTest {
     workspace.runBuckCommand("build", target.toString()).assertFailure();
     buildLog = workspace.getBuildLog();
     assertEquals(
-        ImmutableSet.of(headerSymlinkTreeTarget, compileTarget),
+        ImmutableSet.of(
+            headerSymlinkTreeTarget,
+            preprocessTarget,
+            compileTarget),
         buildLog.getAllTargets());
     buildLog.assertTargetHadMatchingRuleKey(headerSymlinkTreeTarget.toString());
+    buildLog.assertTargetBuiltLocally(preprocessTarget.toString());
     buildLog.assertTargetFailed(compileTarget.toString());
   }
 
@@ -129,26 +165,40 @@ public class CxxBinaryIntegrationTest {
         this, "simple", tmp);
     workspace.setUp();
 
+    CxxPlatform cxxPlatform = new DefaultCxxPlatform(new FakeBuckConfig());
     BuildTarget target = BuildTargetFactory.newInstance("//foo:simple_with_header");
     BuildTarget binaryTarget = CxxDescriptionEnhancer.createCxxLinkTarget(target);
     String sourceName = "simple_with_header.cpp";
     String headerName = "simple_with_header.h";
     String headerFull = "foo/" + headerName;
+    BuildTarget preprocessTarget = CxxPreprocessables.createPreprocessBuildTarget(
+        target,
+        cxxPlatform.asFlavor(),
+        CxxSource.Type.CXX,
+        /* pic */ false,
+        sourceName);
     BuildTarget compileTarget = CxxCompilableEnhancer.createCompileBuildTarget(
         target,
+        cxxPlatform.asFlavor(),
         sourceName,
         /* pic */ false);
     BuildTarget headerSymlinkTreeTarget =
-        CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(target);
+        CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(target, cxxPlatform.asFlavor());
 
     // Do a clean build, verify that it succeeds, and check that all expected targets built
     // successfully.
     workspace.runBuckCommand("build", target.toString()).assertSuccess();
     BuckBuildLog buildLog = workspace.getBuildLog();
     assertEquals(
-        ImmutableSet.of(headerSymlinkTreeTarget, compileTarget, binaryTarget, target),
+        ImmutableSet.of(
+            headerSymlinkTreeTarget,
+            preprocessTarget,
+            compileTarget,
+            binaryTarget,
+            target),
         buildLog.getAllTargets());
     buildLog.assertTargetBuiltLocally(headerSymlinkTreeTarget.toString());
+    buildLog.assertTargetBuiltLocally(preprocessTarget.toString());
     buildLog.assertTargetBuiltLocally(compileTarget.toString());
     buildLog.assertTargetBuiltLocally(binaryTarget.toString());
     buildLog.assertTargetBuiltLocally(target.toString());
@@ -164,9 +214,15 @@ public class CxxBinaryIntegrationTest {
     workspace.runBuckCommand("build", target.toString()).assertSuccess();
     buildLog = workspace.getBuildLog();
     assertEquals(
-        ImmutableSet.of(headerSymlinkTreeTarget, compileTarget, binaryTarget, target),
+        ImmutableSet.of(
+            headerSymlinkTreeTarget,
+            preprocessTarget,
+            compileTarget,
+            binaryTarget,
+            target),
         buildLog.getAllTargets());
     buildLog.assertTargetHadMatchingRuleKey(headerSymlinkTreeTarget.toString());
+    buildLog.assertTargetBuiltLocally(preprocessTarget.toString());
     buildLog.assertTargetBuiltLocally(compileTarget.toString());
     buildLog.assertTargetBuiltLocally(binaryTarget.toString());
     buildLog.assertTargetBuiltLocally(target.toString());
@@ -187,15 +243,23 @@ public class CxxBinaryIntegrationTest {
     workspace.setUp();
 
     // Setup variables pointing to the sources and targets of the top-level binary rule.
+    CxxPlatform cxxPlatform = new DefaultCxxPlatform(new FakeBuckConfig());
     BuildTarget target = BuildTargetFactory.newInstance("//foo:binary_with_dep");
     BuildTarget binaryTarget = CxxDescriptionEnhancer.createCxxLinkTarget(target);
     String sourceName = "foo.cpp";
+    BuildTarget preprocessTarget = CxxPreprocessables.createPreprocessBuildTarget(
+        target,
+        cxxPlatform.asFlavor(),
+        CxxSource.Type.CXX,
+        /* pic */ false,
+        sourceName);
     BuildTarget compileTarget = CxxCompilableEnhancer.createCompileBuildTarget(
         target,
+        cxxPlatform.asFlavor(),
         sourceName,
         /* pic */ false);
     BuildTarget headerSymlinkTreeTarget =
-        CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(target);
+        CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(target, cxxPlatform.asFlavor());
 
     // Setup variables pointing to the sources and targets of the library dep.
     BuildTarget depTarget = BuildTargetFactory.newInstance("//foo:library_with_header");
@@ -203,14 +267,23 @@ public class CxxBinaryIntegrationTest {
     String depSourceFull = "foo/" + depSourceName;
     String depHeaderName = "bar.h";
     String depHeaderFull = "foo/" + depHeaderName;
+    BuildTarget depPreprocessTarget =
+        CxxPreprocessables.createPreprocessBuildTarget(
+            depTarget,
+            cxxPlatform.asFlavor(),
+            CxxSource.Type.CXX,
+            /* pic */ false,
+            depSourceName);
     BuildTarget depCompileTarget =
         CxxCompilableEnhancer.createCompileBuildTarget(
             depTarget,
+            cxxPlatform.asFlavor(),
             depSourceName,
             /* pic */ false);
     BuildTarget depHeaderSymlinkTreeTarget =
-        CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(depTarget);
-    BuildTarget depArchiveTarget = CxxDescriptionEnhancer.createStaticLibraryBuildTarget(depTarget);
+        CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(depTarget, cxxPlatform.asFlavor());
+    BuildTarget depArchiveTarget =
+        CxxDescriptionEnhancer.createStaticLibraryBuildTarget(depTarget, cxxPlatform.asFlavor());
 
     // Do a clean build, verify that it succeeds, and check that all expected targets built
     // successfully.
@@ -219,19 +292,23 @@ public class CxxBinaryIntegrationTest {
     assertEquals(
         ImmutableSet.of(
             depHeaderSymlinkTreeTarget,
+            depPreprocessTarget,
             depCompileTarget,
             depArchiveTarget,
             depTarget,
             headerSymlinkTreeTarget,
+            preprocessTarget,
             compileTarget,
             binaryTarget,
             target),
         buildLog.getAllTargets());
     buildLog.assertTargetBuiltLocally(depHeaderSymlinkTreeTarget.toString());
+    buildLog.assertTargetBuiltLocally(depPreprocessTarget.toString());
     buildLog.assertTargetBuiltLocally(depCompileTarget.toString());
     buildLog.assertTargetBuiltLocally(depArchiveTarget.toString());
     buildLog.assertTargetBuiltLocally(depTarget.toString());
     buildLog.assertTargetBuiltLocally(headerSymlinkTreeTarget.toString());
+    buildLog.assertTargetBuiltLocally(preprocessTarget.toString());
     buildLog.assertTargetBuiltLocally(compileTarget.toString());
     buildLog.assertTargetBuiltLocally(binaryTarget.toString());
     buildLog.assertTargetBuiltLocally(target.toString());
@@ -249,19 +326,23 @@ public class CxxBinaryIntegrationTest {
     assertEquals(
         ImmutableSet.of(
             depHeaderSymlinkTreeTarget,
+            depPreprocessTarget,
             depCompileTarget,
             depArchiveTarget,
             depTarget,
             headerSymlinkTreeTarget,
+            preprocessTarget,
             compileTarget,
             binaryTarget,
             target),
         buildLog.getAllTargets());
     buildLog.assertTargetHadMatchingRuleKey(depHeaderSymlinkTreeTarget.toString());
+    buildLog.assertTargetBuiltLocally(depPreprocessTarget.toString());
     buildLog.assertTargetBuiltLocally(depCompileTarget.toString());
     buildLog.assertTargetBuiltLocally(depArchiveTarget.toString());
     buildLog.assertTargetHadMatchingRuleKey(depTarget.toString());
     buildLog.assertTargetHadMatchingRuleKey(headerSymlinkTreeTarget.toString());
+    buildLog.assertTargetBuiltLocally(preprocessTarget.toString());
     buildLog.assertTargetBuiltLocally(compileTarget.toString());
     buildLog.assertTargetBuiltLocally(binaryTarget.toString());
     buildLog.assertTargetBuiltLocally(target.toString());
@@ -279,19 +360,23 @@ public class CxxBinaryIntegrationTest {
     assertEquals(
         ImmutableSet.of(
             depHeaderSymlinkTreeTarget,
+            depPreprocessTarget,
             depCompileTarget,
             depArchiveTarget,
             depTarget,
             headerSymlinkTreeTarget,
+            preprocessTarget,
             compileTarget,
             binaryTarget,
             target),
         buildLog.getAllTargets());
     buildLog.assertTargetHadMatchingRuleKey(depHeaderSymlinkTreeTarget.toString());
+    buildLog.assertTargetBuiltLocally(depPreprocessTarget.toString());
     buildLog.assertTargetBuiltLocally(depCompileTarget.toString());
     buildLog.assertTargetBuiltLocally(depArchiveTarget.toString());
     buildLog.assertTargetHadMatchingRuleKey(depTarget.toString());
     buildLog.assertTargetHadMatchingRuleKey(headerSymlinkTreeTarget.toString());
+    buildLog.assertTargetHadMatchingRuleKey(preprocessTarget.toString());
     buildLog.assertTargetHadMatchingRuleKey(compileTarget.toString());
     buildLog.assertTargetBuiltLocally(binaryTarget.toString());
     buildLog.assertTargetBuiltLocally(target.toString());
@@ -311,6 +396,76 @@ public class CxxBinaryIntegrationTest {
         this, "header_namespace", tmp);
     workspace.setUp();
     workspace.runBuckCommand("build", "//:test").assertSuccess();
+  }
+
+  @Test
+  public void resolveHeadersBehindSymlinkTreesInPreprocessedOutput() throws IOException {
+    BuckConfig buckConfig = new FakeBuckConfig();
+    CxxPlatform cxxPlatform = new DefaultCxxPlatform(buckConfig);
+
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "resolved", tmp);
+    workspace.setUp();
+
+    workspace.writeContentsToPath("", "lib2.h");
+
+    BuildTarget target = BuildTargetFactory.newInstance("//:bin");
+    workspace.runBuckCommand("build", target.toString()).assertSuccess();
+
+    // Verify that the preprocessed source contains no references to the symlink tree used to
+    // setup the headers.
+    BuildTarget ppTarget =
+        CxxPreprocessables.createPreprocessBuildTarget(
+            target,
+            cxxPlatform.asFlavor(),
+            CxxSource.Type.CXX,
+            /* pic */ false,
+            "bin.cpp");
+    Path output =
+        CxxPreprocessables.getPreprocessOutputPath(
+            ppTarget,
+            CxxSource.Type.CXX,
+            "bin.cpp");
+    String contents = workspace.getFileContents(output.toString());
+    assertThat(contents, Matchers.not(Matchers.containsString(BuckConstant.BIN_DIR)));
+    assertThat(contents, Matchers.not(Matchers.containsString(BuckConstant.GEN_DIR)));
+    assertThat(contents, Matchers.containsString("# 1 \"bin.h"));
+    assertThat(contents, Matchers.containsString("# 1 \"lib1.h"));
+    assertThat(contents, Matchers.containsString("# 1 \"lib2.h"));
+  }
+
+  @Test
+  public void resolveHeadersBehindSymlinkTreesInError() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "resolved", tmp);
+    workspace.setUp();
+
+    workspace.writeContentsToPath("#invalid_pragma", "lib2.h");
+
+    BuildTarget target = BuildTargetFactory.newInstance("//:bin");
+    ProjectWorkspace.ProcessResult result = workspace.runBuckCommand("build", target.toString());
+    result.assertFailure();
+
+    // Verify that the preprocessed source contains no references to the symlink tree used to
+    // setup the headers.
+    String error = result.getStderr();
+    assertThat(error, Matchers.not(Matchers.containsString(BuckConstant.BIN_DIR)));
+    assertThat(error, Matchers.not(Matchers.containsString(BuckConstant.GEN_DIR)));
+    assertThat(error, Matchers.containsString("In file included from lib1.h:1"));
+    assertThat(error, Matchers.containsString("from bin.h:1"));
+    assertThat(error, Matchers.containsString("from bin.cpp:1:"));
+    assertThat(error, Matchers.containsString("lib2.h:1:2: error: invalid preprocessing"));
+  }
+
+  @Test
+  public void ndkCxxPlatforms() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "simple", tmp);
+    workspace.setUp();
+
+    workspace.runBuckCommand("build", "//foo:simple#android-arm").assertSuccess();
+    workspace.runBuckCommand("build", "//foo:simple#android-armv7").assertSuccess();
+    workspace.runBuckCommand("build", "//foo:simple#android-x86").assertSuccess();
   }
 
 }

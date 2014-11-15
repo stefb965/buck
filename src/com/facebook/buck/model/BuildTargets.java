@@ -81,8 +81,6 @@ public class BuildTargets {
   public static BuildTarget createFlavoredBuildTarget(
       HasBuildTarget hasBuildTarget,
       Flavor flavor) {
-    Preconditions.checkNotNull(hasBuildTarget);
-    Preconditions.checkNotNull(flavor);
     BuildTarget buildTarget = hasBuildTarget.getBuildTarget();
     Preconditions.checkArgument(!buildTarget.isFlavored(),
         "Cannot add flavor %s to %s.",
@@ -120,8 +118,12 @@ public class BuildTargets {
    * @return a new flavored {@link BuildTarget} by merging any existing flavors with the
    *         given flavor.
    */
-  public static BuildTarget extendFlavoredBuildTarget(BuildTarget target, Flavor flavor) {
-    return BuildTarget.builder(target).addFlavor(flavor).build();
+  public static BuildTarget extendFlavoredBuildTarget(BuildTarget target, Flavor... flavors) {
+    BuildTarget.Builder builder = BuildTarget.builder(target);
+    for (Flavor flavor : flavors) {
+      builder.addFlavor(flavor);
+    }
+    return builder.build();
   }
 
   /**

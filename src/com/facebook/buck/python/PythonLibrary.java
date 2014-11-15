@@ -18,6 +18,7 @@ package com.facebook.buck.python;
 
 import static com.facebook.buck.rules.BuildableProperties.Kind.LIBRARY;
 
+import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -27,7 +28,6 @@ import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -49,8 +49,8 @@ public class PythonLibrary extends AbstractBuildRule implements PythonPackagable
       ImmutableMap<Path, SourcePath> srcs,
       ImmutableMap<Path, SourcePath> resources) {
     super(params, resolver);
-    this.srcs = Preconditions.checkNotNull(srcs);
-    this.resources = Preconditions.checkNotNull(resources);
+    this.srcs = srcs;
+    this.resources = resources;
   }
 
   @Nullable
@@ -68,7 +68,7 @@ public class PythonLibrary extends AbstractBuildRule implements PythonPackagable
    * Return the components to contribute to the top-level python package.
    */
   @Override
-  public PythonPackageComponents getPythonPackageComponents() {
+  public PythonPackageComponents getPythonPackageComponents(CxxPlatform cxxPlatform) {
     return new PythonPackageComponents(
         srcs,
         resources,

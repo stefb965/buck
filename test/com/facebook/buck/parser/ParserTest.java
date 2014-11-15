@@ -46,6 +46,7 @@ import com.facebook.buck.rules.FakeRuleKeyBuilderFactory;
 import com.facebook.buck.rules.KnownBuildRuleTypes;
 import com.facebook.buck.rules.Repository;
 import com.facebook.buck.rules.RepositoryFactory;
+import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.testutil.BuckTestConstant;
 import com.facebook.buck.testutil.TestConsole;
@@ -151,6 +152,7 @@ public class ParserTest extends EasyMockSupport {
         new DefaultProjectBuildFileParserFactory(
             filesystem,
             BuckTestConstant.PYTHON_INTERPRETER,
+            BuckTestConstant.ALLOW_EMPTY_GLOBS,
             buildRuleTypes.getAllDescriptions());
     testParser = createParser(emptyBuildTargets(), testBuildFileParserFactory);
   }
@@ -304,8 +306,8 @@ public class ParserTest extends EasyMockSupport {
     // Ensure an exception with a specific message is thrown.
     thrown.expect(HumanReadableException.class);
     thrown.expectMessage(
-        "Couldn't get dependency //java/com/facebook/invalid/lib:missing_rule of target " +
-        "//java/com/facebook/invalid:foo.");
+        "Couldn't get dependency '//java/com/facebook/invalid/lib:missing_rule' of target " +
+        "'//java/com/facebook/invalid:foo'");
 
     // Execute buildTargetGraphForBuildTargets() with a target in a valid file but a bad rule name.
     tempDir.newFolder("java", "com", "facebook", "invalid");
@@ -1416,6 +1418,7 @@ public class ParserTest extends EasyMockSupport {
             projectFilesystem,
             ImmutableList.of("//java/com/facebook/defaultIncludeFile"),
             pythonInterpreter,
+            BuckTestConstant.ALLOW_EMPTY_GLOBS,
             buildRuleTypes.getAllDescriptions(),
             new TestConsole(),
             ImmutableMap.<String, String>of(),

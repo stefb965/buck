@@ -21,8 +21,12 @@ import static com.facebook.buck.ocaml.OCamlRuleBuilder.createOCamlLinkTarget;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.cxx.CxxCompilableEnhancer;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
+import com.facebook.buck.cxx.CxxPreprocessables;
+import com.facebook.buck.cxx.CxxSource;
+import com.facebook.buck.cxx.DefaultCxxPlatform;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.testutil.integration.BuckBuildLog;
@@ -335,14 +339,23 @@ public class OCamlIntegrationTest {
     BuildTarget libplusStatic = createStaticLibraryBuildTarget(libplus);
     BuildTarget cclib = BuildTargetFactory.newInstance("//clib:cc");
 
-    BuildTarget cclibbin = CxxDescriptionEnhancer.createStaticLibraryBuildTarget(cclib);
-    String sourceName = "cc.cpp";
+    DefaultCxxPlatform cxxPlatform = new DefaultCxxPlatform(new FakeBuckConfig());
+    BuildTarget cclibbin =
+        CxxDescriptionEnhancer.createStaticLibraryBuildTarget(cclib, cxxPlatform.asFlavor());
+    String sourceName = "cc/cc.cpp";
+    BuildTarget ppObj = CxxPreprocessables.createPreprocessBuildTarget(
+        cclib,
+        cxxPlatform.asFlavor(),
+        CxxSource.Type.CXX,
+        /* pic */ false,
+        sourceName);
     BuildTarget ccObj = CxxCompilableEnhancer.createCompileBuildTarget(
         cclib,
+        cxxPlatform.asFlavor(),
         sourceName,
         /* pic */ false);
     BuildTarget headerSymlinkTreeTarget =
-        CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(cclib);
+        CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(cclib, cxxPlatform.asFlavor());
 
     ImmutableSet<BuildTarget> targets = ImmutableSet.of(
         target,
@@ -352,6 +365,7 @@ public class OCamlIntegrationTest {
         cclib,
         cclibbin,
         ccObj,
+        ppObj,
         headerSymlinkTreeTarget);
 
     workspace.runBuckCommand("build", target.toString()).assertSuccess();
@@ -363,6 +377,7 @@ public class OCamlIntegrationTest {
     buildLog.assertTargetBuiltLocally(libplusStatic.toString());
     buildLog.assertTargetBuiltLocally(cclibbin.toString());
     buildLog.assertTargetBuiltLocally(ccObj.toString());
+    buildLog.assertTargetBuiltLocally(ppObj.toString());
     buildLog.assertTargetBuiltLocally(headerSymlinkTreeTarget.toString());
 
     workspace.resetBuildLogFile();
@@ -376,6 +391,7 @@ public class OCamlIntegrationTest {
     buildLog.assertTargetHadMatchingRuleKey(libplusStatic.toString());
     buildLog.assertTargetHadMatchingRuleKey(cclibbin.toString());
     buildLog.assertTargetHadMatchingRuleKey(ccObj.toString());
+    buildLog.assertTargetHadMatchingRuleKey(ppObj.toString());
     buildLog.assertTargetHadMatchingRuleKey(headerSymlinkTreeTarget.toString());
 
     workspace.resetBuildLogFile();
@@ -389,6 +405,7 @@ public class OCamlIntegrationTest {
     buildLog.assertTargetBuiltLocally(libplusStatic.toString());
     buildLog.assertTargetBuiltLocally(cclibbin.toString());
     buildLog.assertTargetBuiltLocally(ccObj.toString());
+    buildLog.assertTargetBuiltLocally(ppObj.toString());
     buildLog.assertTargetHadMatchingRuleKey(headerSymlinkTreeTarget.toString());
   }
 }

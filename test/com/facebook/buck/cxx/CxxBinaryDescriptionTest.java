@@ -19,9 +19,13 @@ package com.facebook.buck.cxx;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
+import com.facebook.buck.android.AndroidPackageable;
+import com.facebook.buck.android.AndroidPackageableCollector;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.model.Flavor;
+import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.python.PythonPackageComponents;
 import com.facebook.buck.rules.BuildRule;
@@ -34,6 +38,7 @@ import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TestSourcePath;
+import com.facebook.buck.rules.coercer.Either;
 import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.google.common.base.Optional;
@@ -91,10 +96,10 @@ public class CxxBinaryDescriptionTest {
     final Path archiveOutput = Paths.get("output/path/lib.a");
     BuildTarget depTarget = BuildTargetFactory.newInstance("//:dep");
     BuildRuleParams depParams = BuildRuleParamsFactory.createTrivialBuildRuleParams(depTarget);
-    CxxLibrary dep = new CxxLibrary(depParams, pathResolver) {
+    AbstractCxxLibrary dep = new AbstractCxxLibrary(depParams, pathResolver) {
 
       @Override
-      public CxxPreprocessorInput getCxxPreprocessorInput() {
+      public CxxPreprocessorInput getCxxPreprocessorInput(CxxPlatform cxxPlatform) {
         return CxxPreprocessorInput.builder()
             .setRules(
                 ImmutableSet.of(
@@ -105,18 +110,31 @@ public class CxxBinaryDescriptionTest {
       }
 
       @Override
-      public NativeLinkableInput getNativeLinkableInput(Linker linker, Type type) {
+      public NativeLinkableInput getNativeLinkableInput(CxxPlatform cxxPlatform, Type type) {
         return new NativeLinkableInput(
             ImmutableList.<SourcePath>of(new BuildTargetSourcePath(archive.getBuildTarget())),
             ImmutableList.of(archiveOutput.toString()));
       }
 
       @Override
-      public PythonPackageComponents getPythonPackageComponents() {
+      public PythonPackageComponents getPythonPackageComponents(CxxPlatform cxxPlatform) {
         return new PythonPackageComponents(
             ImmutableMap.<Path, SourcePath>of(),
             ImmutableMap.<Path, SourcePath>of(),
             ImmutableMap.<Path, SourcePath>of());
+      }
+
+      @Override
+      public Iterable<AndroidPackageable> getRequiredPackageables() {
+        return ImmutableList.of();
+      }
+
+      @Override
+      public void addToCollector(AndroidPackageableCollector collector) {}
+
+      @Override
+      public ImmutableMap<String, SourcePath> getSharedLibraries(CxxPlatform cxxPlatform) {
+        return ImmutableMap.of();
       }
 
     };
@@ -131,12 +149,18 @@ public class CxxBinaryDescriptionTest {
     // Create the description arg.
     CxxBinaryDescription.Arg arg = new CxxBinaryDescription.Arg();
     arg.deps = Optional.of(ImmutableSortedSet.of(dep.getBuildTarget()));
-    arg.srcs = Optional.of(ImmutableList.<SourcePath>of(
-        new TestSourcePath("test/bar.cpp"),
-        new BuildTargetSourcePath(genSource.getBuildTarget())));
-    arg.headers = Optional.of(ImmutableList.<SourcePath>of(
-        new TestSourcePath("test/bar.h"),
-        new BuildTargetSourcePath(genHeader.getBuildTarget())));
+    arg.srcs =
+        Optional.of(
+            Either.<ImmutableList<SourcePath>, ImmutableMap<String, SourcePath>>ofLeft(
+                ImmutableList.<SourcePath>of(
+                    new TestSourcePath("test/bar.cpp"),
+                    new BuildTargetSourcePath(genSource.getBuildTarget()))));
+    arg.headers =
+        Optional.of(
+            Either.<ImmutableList<SourcePath>, ImmutableMap<String, SourcePath>>ofLeft(
+                ImmutableList.<SourcePath>of(
+                    new TestSourcePath("test/bar.h"),
+                    new BuildTargetSourcePath(genHeader.getBuildTarget()))));
     arg.compilerFlags = Optional.absent();
     arg.preprocessorFlags = Optional.absent();
     arg.langPreprocessorFlags = Optional.absent();
@@ -145,8 +169,13 @@ public class CxxBinaryDescriptionTest {
     arg.headerNamespace = Optional.absent();
 
     // Instantiate a description and call its `createBuildRule` method.
-    DefaultCxxPlatform cxxBuckConfig = new DefaultCxxPlatform(new FakeBuckConfig());
-    CxxBinaryDescription description = new CxxBinaryDescription(cxxBuckConfig);
+    CxxBuckConfig cxxBuckConfig = new CxxBuckConfig(new FakeBuckConfig());
+    DefaultCxxPlatform cxxPlatform = new DefaultCxxPlatform(new FakeBuckConfig());
+    CxxBinaryDescription description =
+        new CxxBinaryDescription(
+            cxxBuckConfig,
+            cxxPlatform,
+            new FlavorDomain<>("platform", ImmutableMap.<Flavor, CxxPlatform>of()));
     CxxBinary binRule = description.createBuildRule(params, resolver, arg);
     CxxLink rule = binRule.getRule();
 
@@ -156,14 +185,35 @@ public class CxxBinaryDescriptionTest {
         ImmutableSet.of(
             CxxCompilableEnhancer.createCompileBuildTarget(
                 target,
+                cxxPlatform.asFlavor(),
                 "test/bar.cpp",
                 /* pic */ false),
             CxxCompilableEnhancer.createCompileBuildTarget(
                 target,
+                cxxPlatform.asFlavor(),
                 genSourceName,
                 /* pic */ false),
             archive.getBuildTarget()),
         FluentIterable.from(rule.getDeps())
+            .transform(HasBuildTarget.TO_TARGET)
+            .toSet());
+
+    // Verify that the preproces rule for our user-provided source has correct deps setup
+    // for the various header rules.
+    BuildRule preprocessRule1 = resolver.getRule(
+        CxxPreprocessables.createPreprocessBuildTarget(
+            target,
+            cxxPlatform.asFlavor(),
+            CxxSource.Type.CXX,
+            /* pic */ false,
+            "test/bar.cpp"));
+    assertEquals(
+        ImmutableSet.of(
+            genHeaderTarget,
+            headerSymlinkTree.getBuildTarget(),
+            header.getBuildTarget(),
+            CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(target, cxxPlatform.asFlavor())),
+        FluentIterable.from(preprocessRule1.getDeps())
             .transform(HasBuildTarget.TO_TARGET)
             .toSet());
 
@@ -172,16 +222,34 @@ public class CxxBinaryDescriptionTest {
     BuildRule compileRule1 = resolver.getRule(
         CxxCompilableEnhancer.createCompileBuildTarget(
             target,
+            cxxPlatform.asFlavor(),
             "test/bar.cpp",
             /* pic */ false));
     assertNotNull(compileRule1);
     assertEquals(
         ImmutableSet.of(
+            preprocessRule1.getBuildTarget()),
+        FluentIterable.from(compileRule1.getDeps())
+            .transform(HasBuildTarget.TO_TARGET)
+            .toSet());
+
+    // Verify that the preproces rule for our user-provided source has correct deps setup
+    // for the various header rules.
+    BuildRule preprocessRule2 = resolver.getRule(
+        CxxPreprocessables.createPreprocessBuildTarget(
+            target,
+            cxxPlatform.asFlavor(),
+            CxxSource.Type.CXX,
+            /* pic */ false,
+            genSourceName));
+    assertEquals(
+        ImmutableSet.of(
             genHeaderTarget,
+            genSourceTarget,
             headerSymlinkTree.getBuildTarget(),
             header.getBuildTarget(),
-            CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(target)),
-        FluentIterable.from(compileRule1.getDeps())
+            CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(target, cxxPlatform.asFlavor())),
+        FluentIterable.from(preprocessRule2.getDeps())
             .transform(HasBuildTarget.TO_TARGET)
             .toSet());
 
@@ -190,16 +258,13 @@ public class CxxBinaryDescriptionTest {
     BuildRule compileRule2 = resolver.getRule(
         CxxCompilableEnhancer.createCompileBuildTarget(
             target,
+            cxxPlatform.asFlavor(),
             genSourceName,
             /* pic */ false));
     assertNotNull(compileRule2);
     assertEquals(
         ImmutableSet.of(
-            genHeaderTarget,
-            genSourceTarget,
-            headerSymlinkTree.getBuildTarget(),
-            header.getBuildTarget(),
-            CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(target)),
+            preprocessRule2.getBuildTarget()),
         FluentIterable.from(compileRule2.getDeps())
             .transform(HasBuildTarget.TO_TARGET)
             .toSet());

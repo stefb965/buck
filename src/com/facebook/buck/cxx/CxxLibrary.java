@@ -16,53 +16,155 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.python.PythonPackagable;
-import com.facebook.buck.rules.AbstractBuildRule;
-import com.facebook.buck.rules.BuildContext;
+import com.facebook.buck.android.AndroidPackageable;
+import com.facebook.buck.android.AndroidPackageableCollector;
+import com.facebook.buck.python.PythonPackageComponents;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.step.Step;
-import com.google.common.collect.ImmutableCollection;
+import com.facebook.buck.rules.SymlinkTree;
+import com.google.common.base.Optional;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMultimap;
+import com.google.common.collect.ImmutableSet;
 
 import java.nio.file.Path;
-
-import javax.annotation.Nullable;
+import java.nio.file.Paths;
 
 /**
  * An action graph representation of a C/C++ library from the target graph, providing the
  * various interfaces to make it consumable by C/C++ preprocessing and native linkable rules.
  */
-public abstract class CxxLibrary extends AbstractBuildRule
-    implements CxxPreprocessorDep, NativeLinkable, PythonPackagable {
+public class CxxLibrary extends AbstractCxxLibrary {
 
-  public CxxLibrary(BuildRuleParams params, SourcePathResolver resolver) {
-    super(params, resolver);
+  private final BuildRuleParams params;
+  private final BuildRuleResolver ruleResolver;
+  private final ImmutableMultimap<CxxSource.Type, String> exportedPreprocessorFlags;
+  private final boolean linkWhole;
+  private final Optional<String> soname;
+
+  public CxxLibrary(
+      BuildRuleParams params,
+      BuildRuleResolver ruleResolver,
+      SourcePathResolver pathResolver,
+      ImmutableMultimap<CxxSource.Type, String> exportedPreprocessorFlags,
+      boolean linkWhole,
+      Optional<String> soname) {
+    super(params, pathResolver);
+    this.params = params;
+    this.ruleResolver = ruleResolver;
+    this.exportedPreprocessorFlags = exportedPreprocessorFlags;
+    this.linkWhole = linkWhole;
+    this.soname = soname;
   }
 
   @Override
-  protected ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return ImmutableList.of();
+  public CxxPreprocessorInput getCxxPreprocessorInput(CxxPlatform cxxPlatform) {
+    BuildRule rule = CxxDescriptionEnhancer.requireBuildRule(
+        params,
+        ruleResolver,
+        cxxPlatform.asFlavor(),
+        CxxDescriptionEnhancer.HEADER_SYMLINK_TREE_FLAVOR);
+    Preconditions.checkState(rule instanceof SymlinkTree);
+    SymlinkTree symlinkTree = (SymlinkTree) rule;
+    return CxxPreprocessorInput.builder()
+        .setRules(ImmutableSet.of(symlinkTree.getBuildTarget()))
+        .setPreprocessorFlags(exportedPreprocessorFlags)
+        .setIncludes(
+            ImmutableCxxHeaders.builder()
+                .putAllNameToPathMap(symlinkTree.getLinks())
+                .putAllFullNameToPathMap(symlinkTree.getFullLinks())
+                .build())
+        .setIncludeRoots(ImmutableList.of(symlinkTree.getRoot()))
+        .build();
   }
 
   @Override
-  protected RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
-    return builder;
+  public NativeLinkableInput getNativeLinkableInput(
+      CxxPlatform cxxPlatform,
+      Type type) {
+
+    // Build up the arguments used to link this library.  If we're linking the
+    // whole archive, wrap the library argument in the necessary "ld" flags.
+    final BuildRule libraryRule;
+    ImmutableList.Builder<String> linkerArgsBuilder = ImmutableList.builder();
+    if (type == Type.SHARED) {
+      Path sharedLibraryPath = CxxDescriptionEnhancer.getSharedLibraryPath(
+          getBuildTarget(),
+          cxxPlatform.asFlavor());
+      libraryRule = CxxDescriptionEnhancer.requireBuildRule(
+          params,
+          ruleResolver,
+          cxxPlatform.asFlavor(),
+          CxxDescriptionEnhancer.SHARED_FLAVOR);
+      linkerArgsBuilder.add(sharedLibraryPath.toString());
+    } else {
+      libraryRule = CxxDescriptionEnhancer.requireBuildRule(
+          params,
+          ruleResolver,
+          cxxPlatform.asFlavor(),
+          CxxDescriptionEnhancer.STATIC_FLAVOR);
+      Path staticLibraryPath = CxxDescriptionEnhancer.getStaticLibraryPath(
+          getBuildTarget(),
+          cxxPlatform.asFlavor());
+      if (linkWhole) {
+        Linker linker = cxxPlatform.getLd();
+        linkerArgsBuilder.addAll(linker.linkWhole(staticLibraryPath.toString()));
+      } else {
+        linkerArgsBuilder.add(staticLibraryPath.toString());
+      }
+    }
+    final ImmutableList<String> linkerArgs = linkerArgsBuilder.build();
+
+    return new NativeLinkableInput(
+        ImmutableList.<SourcePath>of(new BuildTargetSourcePath(libraryRule.getBuildTarget())),
+        linkerArgs);
   }
 
   @Override
-  public ImmutableList<Step> getBuildSteps(
-      BuildContext context,
-      BuildableContext buildableContext) {
-    return ImmutableList.of();
+  public PythonPackageComponents getPythonPackageComponents(CxxPlatform cxxPlatform) {
+    String sharedLibrarySoname =
+        soname.or(CxxDescriptionEnhancer.getSharedLibrarySoname(getBuildTarget()));
+    BuildRule sharedLibraryBuildRule = CxxDescriptionEnhancer.requireBuildRule(
+        params,
+        ruleResolver,
+        cxxPlatform.asFlavor(),
+        CxxDescriptionEnhancer.SHARED_FLAVOR);
+    return new PythonPackageComponents(
+        /* modules */ ImmutableMap.<Path, SourcePath>of(),
+        /* resources */ ImmutableMap.<Path, SourcePath>of(),
+        /* nativeLibraries */ ImmutableMap.<Path, SourcePath>of(
+            Paths.get(sharedLibrarySoname),
+            new BuildTargetSourcePath(sharedLibraryBuildRule.getBuildTarget())));
   }
 
-  @Nullable
   @Override
-  public Path getPathToOutputFile() {
-    return null;
+  public Iterable<AndroidPackageable> getRequiredPackageables() {
+    return AndroidPackageableCollector.getPackageableRules(params.getDeps());
+  }
+
+  @Override
+  public void addToCollector(AndroidPackageableCollector collector) {
+    collector.addNativeLinkable(this);
+  }
+
+  @Override
+  public ImmutableMap<String, SourcePath> getSharedLibraries(CxxPlatform cxxPlatform) {
+    String sharedLibrarySoname =
+        soname.or(CxxDescriptionEnhancer.getSharedLibrarySoname(getBuildTarget()));
+    BuildRule sharedLibraryBuildRule = CxxDescriptionEnhancer.requireBuildRule(
+        params,
+        ruleResolver,
+        cxxPlatform.asFlavor(),
+        CxxDescriptionEnhancer.SHARED_FLAVOR);
+    return ImmutableMap.<String, SourcePath>of(
+        sharedLibrarySoname,
+        new BuildTargetSourcePath(sharedLibraryBuildRule.getBuildTarget()));
   }
 
 }
