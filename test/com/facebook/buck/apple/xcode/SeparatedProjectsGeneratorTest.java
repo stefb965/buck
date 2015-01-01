@@ -27,7 +27,6 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
-import com.dd.plist.NSString;
 import com.facebook.buck.apple.AppleBinaryBuilder;
 import com.facebook.buck.apple.AppleBundleBuilder;
 import com.facebook.buck.apple.AppleBundleExtension;
@@ -36,21 +35,17 @@ import com.facebook.buck.apple.AppleLibraryDescription;
 import com.facebook.buck.apple.XcodeProjectConfigBuilder;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXProject;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXTarget;
-import com.facebook.buck.apple.xcode.xcodeproj.XCBuildConfiguration;
-import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.event.BuckEventBusFactory;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.PathSourcePath;
+import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.coercer.Either;
-import com.facebook.buck.rules.coercer.XcodeRuleConfiguration;
-import com.facebook.buck.rules.coercer.XcodeRuleConfigurationLayer;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -68,8 +63,9 @@ import java.nio.file.Paths;
 
 public class SeparatedProjectsGeneratorTest {
   private final ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
-  private final BuckEventBus buckEventBus = BuckEventBusFactory.newInstance();
   private final ExecutionContext executionContext = TestExecutionContext.newInstance();
+  private final BuildRuleResolver buildRuleResolver = new BuildRuleResolver();
+  private final SourcePathResolver sourcePathResolver = new SourcePathResolver(buildRuleResolver);
 
   @Rule
   public ExpectedException expectedException = ExpectedException.none();
@@ -83,9 +79,10 @@ public class SeparatedProjectsGeneratorTest {
 
     SeparatedProjectsGenerator generator = new SeparatedProjectsGenerator(
         projectFilesystem,
-        buckEventBus,
         TargetGraphFactory.newInstance(ImmutableSet.<TargetNode<?>>of(node)),
         executionContext,
+        buildRuleResolver,
+        sourcePathResolver,
         ImmutableSet.of(target),
         ImmutableSet.<ProjectGenerator.Option>of());
     generator.generateProjects();
@@ -99,9 +96,10 @@ public class SeparatedProjectsGeneratorTest {
 
     SeparatedProjectsGenerator generator = new SeparatedProjectsGenerator(
         projectFilesystem,
-        buckEventBus,
         TargetGraphFactory.newInstance(ImmutableSet.<TargetNode<?>>of()),
         executionContext,
+        buildRuleResolver,
+        sourcePathResolver,
         ImmutableSet.of(target),
         ImmutableSet.<ProjectGenerator.Option>of());
     generator.generateProjects();
@@ -123,9 +121,10 @@ public class SeparatedProjectsGeneratorTest {
 
     SeparatedProjectsGenerator generator = new SeparatedProjectsGenerator(
         projectFilesystem,
-        buckEventBus,
         TargetGraphFactory.newInstance(ImmutableSet.of(libraryNode, configNode)),
         executionContext,
+        buildRuleResolver,
+        sourcePathResolver,
         ImmutableSet.of(configTarget),
         ImmutableSet.<ProjectGenerator.Option>of());
     generator.generateProjects();
@@ -167,9 +166,10 @@ public class SeparatedProjectsGeneratorTest {
 
     SeparatedProjectsGenerator generator = new SeparatedProjectsGenerator(
         projectFilesystem,
-        buckEventBus,
         TargetGraphFactory.newInstance(ImmutableSet.of(depNode, node, configNode)),
         executionContext,
+        buildRuleResolver,
+        sourcePathResolver,
         ImmutableSet.of(configTarget),
         ImmutableSet.<ProjectGenerator.Option>of());
     generator.generateProjects();
@@ -213,10 +213,11 @@ public class SeparatedProjectsGeneratorTest {
 
     SeparatedProjectsGenerator generator = new SeparatedProjectsGenerator(
         projectFilesystem,
-        buckEventBus,
         TargetGraphFactory.newInstance(
             ImmutableSet.of(depNode, dynamicLibraryNode, node, configNode)),
         executionContext,
+        buildRuleResolver,
+        sourcePathResolver,
         ImmutableSet.of(configTarget),
         ImmutableSet.<ProjectGenerator.Option>of());
     generator.generateProjects();
@@ -229,64 +230,6 @@ public class SeparatedProjectsGeneratorTest {
             "$BUILT_PRODUCTS_DIR/F4XWK3DTMV3WQZLSMU5HG33NMVSGK4A/libsomedep.a"));
   }
 
-  @Test
-  public void generatedProjectsReferencesXcconfigFilesDirectly() throws IOException {
-    BuildTarget target = BuildTarget.builder("//foo", "rule").build();
-    TargetNode<?> node = AppleLibraryBuilder
-        .createBuilder(target)
-        .setConfigs(Optional.of(
-                ImmutableSortedMap.of(
-                    "Debug",
-                    new XcodeRuleConfiguration(
-                        ImmutableList.of(
-                            new XcodeRuleConfigurationLayer(
-                                new PathSourcePath(Paths.get("project.xcconfig"))),
-                            new XcodeRuleConfigurationLayer(
-                                new PathSourcePath(Paths.get("target.xcconfig"))))))))
-        .build();
-
-    BuildTarget configTarget = BuildTarget.builder("//foo", "project").build();
-    TargetNode<?> configNode = XcodeProjectConfigBuilder
-        .createBuilder(configTarget)
-        .setProjectName("fooproject")
-        .setRules(ImmutableSortedSet.of(target))
-        .build();
-
-    SeparatedProjectsGenerator generator = new SeparatedProjectsGenerator(
-        projectFilesystem,
-        buckEventBus,
-        TargetGraphFactory.newInstance(ImmutableSet.of(node, configNode)),
-        executionContext,
-        ImmutableSet.of(configTarget),
-        ImmutableSet.<ProjectGenerator.Option>of());
-    generator.generateProjects();
-
-    PBXProject project = getGeneratedProjectOfConfigRule(generator, configTarget);
-
-    XCBuildConfiguration projectLevelConfig =
-        project.getBuildConfigurationList().getBuildConfigurationsByName().asMap().get("Debug");
-    assertNotNull("should have project level Debug config", projectLevelConfig);
-    assertNotNull(
-        "project level Debug config should reference xcconfig file",
-        projectLevelConfig.getBaseConfigurationReference());
-    assertEquals(
-        "Project level config file should be set correctly",
-        "../project.xcconfig", // reference is relative from project directory
-        projectLevelConfig.getBaseConfigurationReference().getPath());
-
-    XCBuildConfiguration targetLevelConfig =
-        ProjectGeneratorTestUtils.assertTargetExistsAndReturnTarget(project, "rule")
-            .getBuildConfigurationList().getBuildConfigurationsByName().asMap().get("Debug");
-    assertNotNull("should have target level Debug config", targetLevelConfig);
-    assertNotNull(
-        "project level Debug config should reference xcconfig file",
-        targetLevelConfig.getBaseConfigurationReference());
-    assertEquals(
-        "Target level config file should be set correctly",
-        "../target.xcconfig",
-        targetLevelConfig.getBaseConfigurationReference().getPath());
-  }
-
   /** Tests that project and target level configs are set in the generated project correctly */
   @Test
   public void generatedProjectsSetsInlineConfigsCorrectly() throws IOException {
@@ -296,19 +239,9 @@ public class SeparatedProjectsGeneratorTest {
         .setConfigs(Optional.of(
                 ImmutableSortedMap.of(
                     "Debug",
-                    new XcodeRuleConfiguration(
-                        ImmutableList.of(
-                            new XcodeRuleConfigurationLayer(
-                                new PathSourcePath(Paths.get("project.xcconfig"))),
-                            new XcodeRuleConfigurationLayer(ImmutableMap.of(
-                                "PROJECT_FLAG1", "p1",
-                                "PROJECT_FLAG2", "p2")),
-                            new XcodeRuleConfigurationLayer(
-                                new PathSourcePath(Paths.get("target.xcconfig"))),
-                            new XcodeRuleConfigurationLayer(
-                                ImmutableMap.of(
-                                    "TARGET_FLAG1", "t1",
-                                    "TARGET_FLAG2", "t2")))))))
+                    ImmutableMap.of(
+                        "TARGET_FLAG1", "t1",
+                        "TARGET_FLAG2", "t2"))))
         .build();
 
     BuildTarget target2 = BuildTarget.builder("//foo", "rule2").build();
@@ -318,20 +251,9 @@ public class SeparatedProjectsGeneratorTest {
             Optional.of(
                 ImmutableSortedMap.of(
                     "Debug",
-                    new XcodeRuleConfiguration(
-                        ImmutableList.of(
-                            new XcodeRuleConfigurationLayer(
-                                new PathSourcePath(Paths.get("project.xcconfig"))),
-                            new XcodeRuleConfigurationLayer(
-                                ImmutableMap.of(
-                                    "PROJECT_FLAG1", "p1",
-                                    "PROJECT_FLAG2", "p2")),
-                            new XcodeRuleConfigurationLayer(
-                                new PathSourcePath(Paths.get("target.xcconfig"))),
-                            new XcodeRuleConfigurationLayer(
-                                ImmutableMap.of(
-                                    "TARGET_FLAG3", "t3",
-                                    "TARGET_FLAG4", "t4")))))))
+                    ImmutableMap.of(
+                        "TARGET_FLAG3", "t3",
+                        "TARGET_FLAG4", "t4"))))
         .build();
 
     BuildTarget configTarget = BuildTarget.builder("//foo", "project").build();
@@ -343,9 +265,10 @@ public class SeparatedProjectsGeneratorTest {
 
     SeparatedProjectsGenerator generator = new SeparatedProjectsGenerator(
         projectFilesystem,
-        buckEventBus,
         TargetGraphFactory.newInstance(ImmutableSet.of(node1, node2, configNode)),
         executionContext,
+        buildRuleResolver,
+        sourcePathResolver,
         ImmutableSet.of(configTarget),
         ImmutableSet.<ProjectGenerator.Option>of());
     generator.generateProjects();
@@ -356,71 +279,27 @@ public class SeparatedProjectsGeneratorTest {
     // the other test: generatedProjectsReferencesXcconfigFilesDirectly
 
     {
-      XCBuildConfiguration projectLevelConfig =
-          project.getBuildConfigurationList().getBuildConfigurationsByName().asMap().get("Debug");
-
-      assertNotNull("should have project level Debug config", projectLevelConfig);
-      assertEquals(2, projectLevelConfig.getBuildSettings().count());
-      assertEquals(new NSString("p1"), projectLevelConfig.getBuildSettings().get("PROJECT_FLAG1"));
-      assertEquals(new NSString("p2"), projectLevelConfig.getBuildSettings().get("PROJECT_FLAG2"));
+      PBXTarget target =
+          ProjectGeneratorTestUtils.assertTargetExistsAndReturnTarget(project, "rule1");
+      ImmutableMap<String, String> settings = ProjectGeneratorTestUtils.getBuildSettings(
+          projectFilesystem, target1, target, "Debug");
+      assertEquals("t1", settings.get("TARGET_FLAG1"));
+      assertEquals("t2", settings.get("TARGET_FLAG2"));
+      assertFalse(settings.containsKey("TARGET_FLAG3"));
+      assertFalse(settings.containsKey("TARGET_FLAG4"));
     }
 
     {
-      XCBuildConfiguration targetLevelConfig =
-          ProjectGeneratorTestUtils.assertTargetExistsAndReturnTarget(project, "rule1")
-              .getBuildConfigurationList().getBuildConfigurationsByName().asMap().get("Debug");
-      assertNotNull("should have target level Debug config", targetLevelConfig);
-      assertEquals(new NSString("t1"), targetLevelConfig.getBuildSettings().get("TARGET_FLAG1"));
-      assertEquals(new NSString("t2"), targetLevelConfig.getBuildSettings().get("TARGET_FLAG2"));
-      assertFalse(targetLevelConfig.getBuildSettings().containsKey("TARGET_FLAG3"));
-      assertFalse(targetLevelConfig.getBuildSettings().containsKey("TARGET_FLAG4"));
+      PBXTarget target =
+          ProjectGeneratorTestUtils.assertTargetExistsAndReturnTarget(project, "rule2");
+      ImmutableMap<String, String> settings = ProjectGeneratorTestUtils.getBuildSettings(
+          projectFilesystem, target1, target, "Debug");
+      assertEquals("t3", settings.get("TARGET_FLAG3"));
+      assertEquals("t4", settings.get("TARGET_FLAG4"));
+      assertFalse(settings.containsKey("TARGET_FLAG1"));
+      assertFalse(settings.containsKey("TARGET_FLAG2"));
     }
 
-    {
-      XCBuildConfiguration targetLevelConfig =
-          ProjectGeneratorTestUtils.assertTargetExistsAndReturnTarget(project, "rule2")
-              .getBuildConfigurationList().getBuildConfigurationsByName().asMap().get("Debug");
-      assertNotNull("should have target level Debug config", targetLevelConfig);
-      assertEquals(new NSString("t3"), targetLevelConfig.getBuildSettings().get("TARGET_FLAG3"));
-      assertEquals(new NSString("t4"), targetLevelConfig.getBuildSettings().get("TARGET_FLAG4"));
-      assertFalse(targetLevelConfig.getBuildSettings().containsKey("TARGET_FLAG1"));
-      assertFalse(targetLevelConfig.getBuildSettings().containsKey("TARGET_FLAG2"));
-    }
-
-  }
-
-  @Test(expected = HumanReadableException.class)
-  public void errorIfXcconfigHasIncorrectPatternOfLayers() throws IOException {
-    BuildTarget target = BuildTarget.builder("//foo", "rule").build();
-    TargetNode<?> node = AppleLibraryBuilder
-        .createBuilder(target)
-        .setConfigs(
-            Optional.of(
-                ImmutableSortedMap.of(
-                    "Debug",
-                    new XcodeRuleConfiguration(
-                        ImmutableList.of(
-                            new XcodeRuleConfigurationLayer(
-                                ImmutableMap.<String, String>of()),
-                            new XcodeRuleConfigurationLayer(
-                                new PathSourcePath(Paths.get("target.xcconfig"))))))))
-        .build();
-
-    BuildTarget configTarget = BuildTarget.builder("//foo", "project").build();
-    TargetNode<?> configNode = XcodeProjectConfigBuilder
-        .createBuilder(configTarget)
-        .setProjectName("fooproject")
-        .setRules(ImmutableSortedSet.of(target))
-        .build();
-
-    SeparatedProjectsGenerator generator = new SeparatedProjectsGenerator(
-        projectFilesystem,
-        buckEventBus,
-        TargetGraphFactory.newInstance(ImmutableSet.of(node, configNode)),
-        executionContext,
-        ImmutableSet.of(configTarget),
-        ImmutableSet.<ProjectGenerator.Option>of());
-    generator.generateProjects();
   }
 
   @Test
@@ -457,10 +336,11 @@ public class SeparatedProjectsGeneratorTest {
 
     SeparatedProjectsGenerator generator = new SeparatedProjectsGenerator(
         projectFilesystem,
-        buckEventBus,
         TargetGraphFactory.newInstance(
             ImmutableSet.of(libraryNode, binaryDepNode, binaryNode, nativeNode, configNode)),
         executionContext,
+        buildRuleResolver,
+        sourcePathResolver,
         ImmutableSet.of(configTarget),
         ImmutableSet.<ProjectGenerator.Option>of());
     generator.generateProjects();
@@ -499,10 +379,11 @@ public class SeparatedProjectsGeneratorTest {
 
     SeparatedProjectsGenerator generator = new SeparatedProjectsGenerator(
         projectFilesystem,
-        buckEventBus,
         TargetGraphFactory.newInstance(
             ImmutableSet.of(fooNode1, fooConfigNode, barNode2, barConfigNode)),
         executionContext,
+        buildRuleResolver,
+        sourcePathResolver,
         ImmutableSet.of(fooConfigTarget, barConfigTarget),
         ImmutableSet.<ProjectGenerator.Option>of());
 

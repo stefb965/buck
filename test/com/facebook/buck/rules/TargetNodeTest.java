@@ -20,6 +20,7 @@ import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargetPattern;
@@ -27,7 +28,6 @@ import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.coercer.AppleSource;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
@@ -46,7 +46,7 @@ public class TargetNodeTest {
 
   @Test
   public void testIgnoreNonBuildTargetOrPathOrSourcePathArgument()
-      throws NoSuchBuildTargetException {
+      throws NoSuchBuildTargetException, TargetNode.InvalidSourcePathInputException {
     Description<Arg> description = new TestDescription();
     BuildRuleFactoryParams buildRuleFactoryParams = buildRuleFactoryParams();
     TargetNode<Arg> targetNode = new TargetNode<>(
@@ -68,7 +68,8 @@ public class TargetNodeTest {
   }
 
   @Test
-  public void testDepsAndPathsAreCollected() throws NoSuchBuildTargetException {
+  public void testDepsAndPathsAreCollected()
+      throws NoSuchBuildTargetException, TargetNode.InvalidSourcePathInputException {
     Description<Arg> description = new TestDescription();
     BuildRuleFactoryParams buildRuleFactoryParams = buildRuleFactoryParams();
     ImmutableList<String> depsStrings = ImmutableList.of(

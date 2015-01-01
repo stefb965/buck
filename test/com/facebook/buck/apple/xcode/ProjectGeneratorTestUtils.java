@@ -26,10 +26,13 @@ import com.facebook.buck.apple.AppleBundleExtension;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXBuildFile;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXBuildPhase;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXCopyFilesBuildPhase;
+import com.facebook.buck.apple.xcode.xcodeproj.PBXFileReference;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXFrameworksBuildPhase;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXProject;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXReference;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXTarget;
+import com.facebook.buck.apple.xcode.xcodeproj.XCBuildConfiguration;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -56,6 +59,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Type;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.HashMap;
 
 public final class ProjectGeneratorTestUtils {
 
@@ -200,6 +204,29 @@ public final class ProjectGeneratorTestUtils {
     @SuppressWarnings("unchecked")
     T element = (T) Iterables.getOnlyElement(buildPhases);
     return element;
+  }
+
+  public static ImmutableMap<String, String> getBuildSettings(
+      ProjectFilesystem projectFilesystem,
+      BuildTarget buildTarget,
+      PBXTarget target,
+      String config) {
+    XCBuildConfiguration configuration = target
+        .getBuildConfigurationList().getBuildConfigurationsByName().asMap().get(config);
+    assertEquals(configuration.getBuildSettings().count(), 0);
+
+    PBXFileReference xcconfigReference = configuration.getBaseConfigurationReference();
+    Path xcconfigPath = buildTarget.getBasePath().resolve(xcconfigReference.getPath());
+    String contents = projectFilesystem.readFileIfItExists(xcconfigPath).get();
+
+    // Use a HashMap to allow for duplicate keys.
+    HashMap<String, String> builder = new HashMap<String, String>();
+    for (String line : contents.split("\n")) {
+      String[] parts = line.split(" = ");
+      builder.put(parts[0], parts[1]);
+    }
+
+    return ImmutableMap.copyOf(builder);
   }
 
   public static AppleBundle createAppleBundleBuildRule(

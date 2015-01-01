@@ -16,6 +16,7 @@
 
 package com.facebook.buck.android;
 
+import static com.facebook.buck.java.JavaCompilationConstants.ANDROID_JAVAC_OPTIONS;
 import static org.easymock.EasyMock.createMock;
 import static org.easymock.EasyMock.createStrictMock;
 import static org.easymock.EasyMock.replay;
@@ -32,12 +33,10 @@ import com.facebook.buck.android.AndroidBinaryGraphEnhancer.EnhancementResult;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.java.HasJavaClassHashes;
 import com.facebook.buck.java.JavaLibraryBuilder;
-import com.facebook.buck.java.JavacOptions;
 import com.facebook.buck.java.Keystore;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -47,6 +46,7 @@ import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TestSourcePath;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
@@ -119,7 +119,7 @@ public class AndroidBinaryGraphEnhancerTest {
         DexSplitMode.NO_SPLIT,
         buildRulesToExcludeFromDex,
         /* resourcesToExclude */ ImmutableSet.<BuildTarget>of(),
-        JavacOptions.DEFAULTS,
+        ANDROID_JAVAC_OPTIONS,
         EnumSet.noneOf(ExopackageMode.class),
         createStrictMock(Keystore.class),
         /* buildConfigValues */ BuildConfigFields.empty(),
@@ -139,23 +139,22 @@ public class AndroidBinaryGraphEnhancerTest {
         ImmutableSet.<Path>of(),
         AndroidBinary.PackageType.DEBUG,
         ImmutableSet.<TargetCpuType>of(),
-        JavacOptions.DEFAULTS,
+        ANDROID_JAVAC_OPTIONS,
         false,
         false);
     ruleResolver.addToIndex(aaptPackageResources);
 
-    AndroidPackageableCollection collection =
-        new AndroidPackageableCollector(
+    ImmutableAndroidPackageableCollection collection = new AndroidPackageableCollector(
             /* collectionRoot */ apkTarget,
-            ImmutableSet.of(javaDep2BuildTarget),
+        ImmutableSet.of(javaDep2BuildTarget),
             /* resourcesToExclude */ ImmutableSet.<BuildTarget>of())
-            .addClasspathEntry(
-                ((HasJavaClassHashes) javaDep1), Paths.get("ignored"))
-            .addClasspathEntry(
-                ((HasJavaClassHashes) javaDep2), Paths.get("ignored"))
-            .addClasspathEntry(
-                ((HasJavaClassHashes) javaLib), Paths.get("ignored"))
-            .build();
+        .addClasspathEntry(
+            ((HasJavaClassHashes) javaDep1), Paths.get("ignored"))
+        .addClasspathEntry(
+            ((HasJavaClassHashes) javaDep2), Paths.get("ignored"))
+        .addClasspathEntry(
+            ((HasJavaClassHashes) javaLib), Paths.get("ignored"))
+        .build();
 
 
     BuildRule preDexMergeRule = graphEnhancer.createPreDexMergeRule(
@@ -203,6 +202,7 @@ public class AndroidBinaryGraphEnhancerTest {
           /* values */ BuildConfigFields.empty(),
           /* valuesFile */ Optional.<SourcePath>absent(),
           /* useConstantExpressions */ false,
+          ANDROID_JAVAC_OPTIONS,
           ruleResolver);
 
     BuildTarget apkTarget = BuildTargetFactory.newInstance("//java/com/example:apk");
@@ -226,7 +226,7 @@ public class AndroidBinaryGraphEnhancerTest {
         DexSplitMode.NO_SPLIT,
         /* buildRulesToExcludeFromDex */ ImmutableSet.<BuildTarget>of(),
         /* resourcesToExclude */ ImmutableSet.<BuildTarget>of(),
-        JavacOptions.DEFAULTS,
+        ANDROID_JAVAC_OPTIONS,
         EnumSet.of(ExopackageMode.SECONDARY_DEX),
         keystore,
         /* buildConfigValues */ BuildConfigFields.empty(),
@@ -258,11 +258,7 @@ public class AndroidBinaryGraphEnhancerTest {
         BuildConfigFields.fromFields(ImmutableList.of(
             new BuildConfigFields.Field("boolean", "DEBUG", "true"),
             new BuildConfigFields.Field("boolean", "IS_EXOPACKAGE", "true"),
-            new BuildConfigFields.Field(
-                "java.util.Set<String>",
-                "EXOPACKAGE_FLAGS",
-                "java.util.Collections.unmodifiableSet(new java.util.HashSet<>" +
-                    "(java.util.Arrays.asList(\"SECONDARY_DEX\")))"))),
+            new BuildConfigFields.Field("int", "EXOPACKAGE_FLAGS", "1"))),
         androidBuildConfig.getBuildConfigFields());
 
     ImmutableSortedSet<BuildRule> finalDeps = result.finalDeps();
@@ -272,7 +268,8 @@ public class AndroidBinaryGraphEnhancerTest {
         findRuleOfType(ruleResolver, ComputeExopackageDepsAbi.class);
     assertEquals(computeExopackageDepsAbiRule, finalDeps.first());
 
-    FilteredResourcesProvider resourcesProvider = result.filteredResourcesProvider();
+    FilteredResourcesProvider resourcesProvider = result.aaptPackageResources()
+        .getFilteredResourcesProvider();
     assertTrue(resourcesProvider instanceof ResourcesFilter);
     BuildRule resourcesFilterRule = findRuleOfType(ruleResolver, ResourcesFilter.class);
 

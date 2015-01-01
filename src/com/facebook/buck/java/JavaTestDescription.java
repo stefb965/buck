@@ -17,6 +17,7 @@
 package com.facebook.buck.java;
 
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.HasSourceUnderTest;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -37,10 +38,10 @@ import java.nio.file.Path;
 public class JavaTestDescription implements Description<JavaTestDescription.Arg> {
 
   public static final BuildRuleType TYPE = new BuildRuleType("java_test");
-  private final JavaCompilerEnvironment javacEnv;
+  private final JavacOptions templateOptions;
 
-  public JavaTestDescription(JavaCompilerEnvironment javacEnv) {
-    this.javacEnv = javacEnv;
+  public JavaTestDescription(JavacOptions templateOptions) {
+    this.templateOptions = templateOptions;
   }
 
   @Override
@@ -60,7 +61,9 @@ public class JavaTestDescription implements Description<JavaTestDescription.Arg>
       A args) {
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
 
-    JavacOptions.Builder javacOptions = JavaLibraryDescription.getJavacOptions(args, javacEnv);
+    JavacOptions.Builder javacOptions = JavaLibraryDescription.getJavacOptions(
+        args,
+        templateOptions);
 
     AnnotationProcessingParams annotationParams = args.buildAnnotationProcessingParams(
         params.getBuildTarget(),
@@ -112,11 +115,16 @@ public class JavaTestDescription implements Description<JavaTestDescription.Arg>
   }
 
   @SuppressFieldNotInitialized
-  public static class Arg extends JavaLibraryDescription.Arg {
+  public static class Arg extends JavaLibraryDescription.Arg implements HasSourceUnderTest {
     public Optional<ImmutableSortedSet<String>> contacts;
     public Optional<ImmutableSortedSet<Label>> labels;
     @Hint(isDep = false) public Optional<ImmutableSortedSet<BuildTarget>> sourceUnderTest;
     public Optional<ImmutableList<String>> vmArgs;
     public Optional<TestType> testType;
+
+    @Override
+    public ImmutableSortedSet<BuildTarget> getSourceUnderTest() {
+      return sourceUnderTest.get();
+    }
   }
 }

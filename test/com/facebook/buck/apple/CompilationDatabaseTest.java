@@ -21,6 +21,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.apple.CompilationDatabase.GenerateCompilationCommandsJson;
 import com.facebook.buck.apple.CompilationDatabase.JsonSerializableDatabaseEntry;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildContext;
@@ -42,7 +43,6 @@ import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
-import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
@@ -237,8 +237,7 @@ public class CompilationDatabaseTest {
                 "-include",
                 "/Users/user/src/foo/bar.pch",
                 "-c",
-                root + "/foo/Hello.h",
-                "public")));
+                root + "/foo/Hello.h")));
     Iterable<JsonSerializableDatabaseEntry> observedEntries = generateCompilationCommandsStep
         .createEntries(context);
     MoreAsserts.assertIterablesEquals(expectedEntries, observedEntries);
@@ -249,7 +248,7 @@ public class CompilationDatabaseTest {
     testSourcePathResolver = new SourcePathResolver(testBuildRuleResolver);
     Pair<SourcePath, String> publicHeader = new Pair<SourcePath, String>(
         new TestSourcePath("foo/Hello.h"),
-        "public");
+        "public"); // Note that "public" should not be included in the clang flags.
     Collection<AppleSource> appleSources = ImmutableList.of(
         AppleSource.ofSourcePathWithFlags(publicHeader),
         AppleSource.ofSourcePath(new TestSourcePath("foo/Hello.m")));

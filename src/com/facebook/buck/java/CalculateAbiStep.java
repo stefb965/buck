@@ -17,24 +17,24 @@
 package com.facebook.buck.java;
 
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.java.abi2.StubJar;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.java.abi.StubJar;
 import com.facebook.buck.rules.AbiRule;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.Sha1HashCode;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
-import com.facebook.buck.util.ProjectFilesystem;
 
 import java.io.IOException;
 import java.nio.file.Path;
 
-class CalculateAbiStep implements Step {
+public class CalculateAbiStep implements Step {
 
   private final BuildableContext buildableContext;
   private final Path binaryJar;
   private final Path abiJar;
 
-  CalculateAbiStep(
+  public CalculateAbiStep(
       BuildableContext buildableContext,
       Path binaryJar,
       Path abiJar) {

@@ -16,21 +16,19 @@
 
 package com.facebook.buck.java;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildDependencies;
-import com.facebook.buck.rules.Sha1HashCode;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.util.CapturingPrintStream;
 import com.facebook.buck.util.Escaper;
-import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Charsets;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
-import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -43,8 +41,6 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
-import javax.annotation.Nullable;
 
 /**
  * Command used to compile java libraries with a variety of ways to handle dependencies.
@@ -67,14 +63,6 @@ public abstract class JavacStep implements Step {
   protected final Set<Path> javaSourceFilePaths;
 
   protected final JavacOptions javacOptions;
-
-  protected final Optional<Path> pathToOutputAbiFile;
-
-  @Nullable
-  protected File abiKeyFile;
-
-  @Nullable
-  protected Sha1HashCode abiKey;
 
   protected final ImmutableSet<Path> transitiveClasspathEntries;
 
@@ -136,7 +124,6 @@ public abstract class JavacStep implements Step {
       Set<Path> transitiveClasspathEntries,
       Set<Path> declaredClasspathEntries,
       JavacOptions javacOptions,
-      Optional<Path> pathToOutputAbiFile,
       Optional<BuildTarget> invokingRule,
       BuildDependencies buildDependencies,
       Optional<SuggestBuildRules> suggestBuildRules,
@@ -145,7 +132,6 @@ public abstract class JavacStep implements Step {
     this.javaSourceFilePaths = ImmutableSet.copyOf(javaSourceFilePaths);
     this.transitiveClasspathEntries = ImmutableSet.copyOf(transitiveClasspathEntries);
     this.javacOptions = javacOptions;
-    this.pathToOutputAbiFile = pathToOutputAbiFile;
 
     this.declaredClasspathEntries = ImmutableSet.copyOf(declaredClasspathEntries);
     this.invokingRule = invokingRule;
@@ -250,13 +236,7 @@ public abstract class JavacStep implements Step {
     ImmutableList.Builder<String> builder = ImmutableList.builder();
 
     ProjectFilesystem filesystem = context.getProjectFilesystem();
-    AnnotationProcessingDataDecorator decorator;
-    if (pathToOutputAbiFile.isPresent()) {
-      abiKeyFile = filesystem.getFileForRelativePath(pathToOutputAbiFile.get());
-      decorator = new AbiWritingAnnotationProcessingDataDecorator(abiKeyFile);
-    } else {
-      decorator = AnnotationProcessingDataDecorators.identity();
-    }
+    AnnotationProcessingDataDecorator decorator = AnnotationProcessingDataDecorators.identity();
     javacOptions.appendOptionsToList(builder,
         context.getProjectFilesystem().getAbsolutifier(),
         decorator);
@@ -301,19 +281,5 @@ public abstract class JavacStep implements Step {
 
   public String getOutputDirectory() {
     return outputDirectory.toString();
-  }
-
-  /**
-   * Returns a SHA-1 hash for the ABI of the Java code compiled by this step.
-   * <p>
-   * In order for this method to return a non-null value, it must be invoked after
-   * {@link #buildWithClasspath(ExecutionContext, Set)}, which must have completed successfully
-   * (i.e., returned with an exit code of 0).
-   */
-  @Nullable
-  public Sha1HashCode getAbiKey() {
-    Preconditions.checkState(isExecuted.get(), "Must execute step before requesting AbiKey.");
-    // Note that if the rule fails, isExecuted should still be set, but abiKey will be null.
-    return abiKey;
   }
 }

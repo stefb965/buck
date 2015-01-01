@@ -21,6 +21,7 @@ import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.command.Project;
 import com.facebook.buck.event.BuckEventBusFactory;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.java.FakeJavaPackageFinder;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.rules.ArtifactCache;
@@ -33,7 +34,6 @@ import com.facebook.buck.timing.DefaultClock;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.FakeAndroidDirectoryResolver;
 import com.facebook.buck.util.ProcessManager;
-import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.buck.util.environment.Platform;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Optional;
@@ -59,7 +59,8 @@ public class CleanCommandTest extends EasyMockSupport {
   // exit code is 1 and that the appropriate error message is printed.
 
   @Test
-  public void testCleanCommandNoArguments() throws CmdLineException, IOException {
+  public void testCleanCommandNoArguments()
+      throws CmdLineException, IOException, InterruptedException {
     // Set up mocks.
     CleanCommand cleanCommand = createCommand();
     Capture<Path> binDir = new Capture<>();
@@ -80,7 +81,8 @@ public class CleanCommandTest extends EasyMockSupport {
   }
 
   @Test
-  public void testCleanCommandWithProjectArgument() throws CmdLineException, IOException {
+  public void testCleanCommandWithProjectArgument()
+      throws CmdLineException, IOException, InterruptedException {
     // Set up mocks.
     CleanCommand cleanCommand = createCommand();
     Capture<Path> androidGenDir = new Capture<>();
@@ -107,7 +109,7 @@ public class CleanCommandTest extends EasyMockSupport {
     return options;
   }
 
-  private CleanCommand createCommand() {
+  private CleanCommand createCommand() throws InterruptedException {
     projectFilesystem = createMock(ProjectFilesystem.class);
     Repository repository = new TestRepositoryBuilder().setFilesystem(projectFilesystem).build();
 

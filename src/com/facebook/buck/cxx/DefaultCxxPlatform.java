@@ -25,8 +25,10 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Optional;
 import com.google.common.base.Splitter;
+import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
 
+import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
@@ -77,6 +79,14 @@ public class DefaultCxxPlatform implements CxxPlatform {
   private final Platform platform;
   private final BuckConfig delegate;
 
+  private final Optional<DebugPathSanitizer> debugPathSanitizer =
+      Optional.of(
+          new DebugPathSanitizer(
+              250,
+              File.separatorChar,
+              Paths.get("."),
+              ImmutableBiMap.<Path, Path>of()));
+
   public DefaultCxxPlatform(Platform platform, BuckConfig delegate) {
     this.platform = platform;
     this.delegate = delegate;
@@ -101,11 +111,6 @@ public class DefaultCxxPlatform implements CxxPlatform {
   private SourcePath getSourcePath(String section, String field, Path def) {
     Optional<Path> path = delegate.getPath(section, field);
     return new PathSourcePath(path.or(def));
-  }
-
-  @Override
-  public String getName() {
-    return "Default";
   }
 
   @Override
@@ -251,6 +256,24 @@ public class DefaultCxxPlatform implements CxxPlatform {
   @Override
   public ImmutableList<String> getYaccFlags() {
     return getFlags("cxx", "yaccflags", DEFAULT_YACC_FLAGS);
+  }
+
+  @Override
+  public String getSharedLibraryExtension() {
+    switch (platform) {
+      case MACOS:
+        return "dylib";
+      case WINDOWS:
+        return "dll";
+      // $CASES-OMITTED$
+      default:
+        return "so";
+    }
+  }
+
+  @Override
+  public Optional<DebugPathSanitizer> getDebugPathSanitizer() {
+    return debugPathSanitizer;
   }
 
   @Override

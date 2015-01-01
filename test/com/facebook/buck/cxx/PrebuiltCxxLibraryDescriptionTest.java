@@ -20,10 +20,12 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.cli.FakeBuckConfig;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.model.FlavorDomain;
+import com.facebook.buck.model.InMemoryBuildFileTree;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.python.PythonPackageComponents;
@@ -41,7 +43,6 @@ import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.testutil.AllExistingProjectFilesystem;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
-import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Throwables;
@@ -65,7 +66,9 @@ public class PrebuiltCxxLibraryDescriptionTest {
         new FakeProjectFilesystem(),
         new BuildTargetParser(),
         target,
-        new FakeRuleKeyBuilderFactory());
+        new FakeRuleKeyBuilderFactory(),
+        new InMemoryBuildFileTree(ImmutableList.<BuildTarget>of()),
+        /* enforceBuckPackageBoundary */ true);
     try {
       return new TargetNode<>(
           description,
@@ -73,7 +76,7 @@ public class PrebuiltCxxLibraryDescriptionTest {
           params,
           ImmutableSet.<BuildTarget>of(),
           ImmutableSet.<BuildTargetPattern>of());
-    } catch (NoSuchBuildTargetException e) {
+    } catch (NoSuchBuildTargetException | TargetNode.InvalidSourcePathInputException e) {
       throw Throwables.propagate(e);
     }
   }

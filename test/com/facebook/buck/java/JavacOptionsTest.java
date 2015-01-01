@@ -16,30 +16,38 @@
 
 package com.facebook.buck.java;
 
+import static com.facebook.buck.java.JavaCompilationConstants.DEFAULT_JAVAC_ENV;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.testutil.IdentityPathAbsolutifier;
+import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
+import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 
 import org.junit.Test;
 
+import java.nio.file.Path;
 import java.util.Collections;
 
 public class JavacOptionsTest {
 
   @Test
   public void buildsAreDebugByDefault() {
-    JavacOptions options = JavacOptions.builder().build();
+    JavacOptions options = createStandardBuilder().build();
 
     assertOptionsContains(options, "-g");
   }
 
   @Test
   public void productionBuildsCanBeEnabled() {
-    JavacOptions options = JavacOptions.builder()
+    JavacOptions options = createStandardBuilder()
         .setProductionBuild()
         .build();
 
@@ -48,14 +56,14 @@ public class JavacOptionsTest {
 
   @Test
   public void testDoesNotSetBootclasspathByDefault() {
-    JavacOptions options = JavacOptions.builder().build();
+    JavacOptions options = createStandardBuilder().build();
 
     assertOptionsDoesNotContain(options, "-bootclasspath");
   }
 
   @Test
   public void canSetBootclasspath() {
-    JavacOptions options = JavacOptions.builder()
+    JavacOptions options = createStandardBuilder()
         .setBootclasspath("foo:bar")
         .build();
 
@@ -69,7 +77,7 @@ public class JavacOptionsTest {
         .setProcessOnly(true)
         .build();
 
-    JavacOptions options = JavacOptions.builder()
+    JavacOptions options = createStandardBuilder()
         .setAnnotationProcessingData(params)
         .build();
 
@@ -83,13 +91,72 @@ public class JavacOptionsTest {
         .setProcessOnly(true)
         .build();
 
-    JavacOptions options = JavacOptions.builder()
+    JavacOptions options = createStandardBuilder()
         .setAnnotationProcessingData(params)
         .build();
 
     assertOptionsContains(options, "-processor myproc,theirproc");
   }
 
+  @Test
+  public void shouldAddABootClasspathIfTheMapContainsOne() {
+    JavacOptions options = createStandardBuilder()
+        .setSourceLevel("5")
+        .setBootclasspathMap(ImmutableMap.of("5", "some-magic.jar:also.jar"))
+        .build();
+
+    ImmutableList.Builder<String> allArgs = ImmutableList.builder();
+    options.appendOptionsToList(allArgs, Functions.<Path>identity());
+
+    assertOptionsContains(options, "-bootclasspath some-magic.jar:also.jar");
+  }
+
+  @Test
+  public void shouldNotOverrideTheBootclasspathIfOneIsSet() {
+    String expectedBootClasspath = "some-magic.jar:also.jar";
+    JavacOptions options = createStandardBuilder()
+        .setBootclasspath(expectedBootClasspath)
+        .setSourceLevel("5")
+        .setBootclasspathMap(ImmutableMap.of("5", "not-the-right-path.jar"))
+        .build();
+
+    ImmutableList.Builder<String> allArgs = ImmutableList.builder();
+    options.appendOptionsToList(allArgs, Functions.<Path>identity());
+
+    ImmutableList<String> args = allArgs.build();
+    int bootclasspathIndex = Iterables.indexOf(args, Predicates.equalTo("-bootclasspath"));
+    assertNotEquals(-1, bootclasspathIndex);
+    assertEquals(expectedBootClasspath, args.get(bootclasspathIndex + 1));
+  }
+
+  @Test
+  public void shouldNotOverrideTheBootclasspathIfSourceLevelHasNoMapping() {
+    JavacOptions options = createStandardBuilder()
+        .setBootclasspath("cake.jar")
+        .setSourceLevel("6")
+        .setBootclasspathMap(ImmutableMap.of("5", "some-magic.jar:also.jar"))
+        .build();
+
+    ImmutableList.Builder<String> allArgs = ImmutableList.builder();
+    options.appendOptionsToList(allArgs, Functions.<Path>identity());
+
+    ImmutableList<String> args = allArgs.build();
+    int bootclasspathIndex = Iterables.indexOf(args, Predicates.equalTo("-bootclasspath"));
+    assertNotEquals(-1, bootclasspathIndex);
+    assertEquals("cake.jar", args.get(bootclasspathIndex + 1));
+  }
+
+  @Test
+  public void shouldCopyMapOfSourceLevelToBootclassPathWhenBuildingNewJavacOptions() {
+    JavacOptions original = createStandardBuilder()
+        .setSourceLevel("5")
+        .setBootclasspathMap(ImmutableMap.of("5", "some-magic.jar:also.jar"))
+        .build();
+
+    JavacOptions copy = JavacOptions.builder(original).build();
+
+    assertOptionsContains(copy, "-bootclasspath some-magic.jar:also.jar");
+  }
 
   private void assertOptionsContains(JavacOptions options, String param) {
     String output = optionsAsString(options);
@@ -101,7 +168,8 @@ public class JavacOptionsTest {
   private void assertOptionsDoesNotContain(JavacOptions options, String param) {
     String output = optionsAsString(options);
 
-    assertFalse(String.format("Surprisingly and unexpectedly found: %s in %s", param, output),
+    assertFalse(
+        String.format("Surprisingly and unexpectedly found: %s in %s", param, output),
         output.contains(" " + param + " "));
   }
 
@@ -113,5 +181,13 @@ public class JavacOptionsTest {
 
     ImmutableList<String> params = paramBuilder.build();
     return " " + Joiner.on(" ").join(params) + " ";
+  }
+
+  private JavacOptions.Builder createStandardBuilder() {
+    return JavacOptions.builderForUseInJavaBuckConfig()
+        .setSourceLevel("5")
+        .setTargetLevel("5")
+        .setBootclasspathMap(ImmutableMap.<String, String>of())
+        .setJavaCompilerEnvironment(DEFAULT_JAVAC_ENV);
   }
 }

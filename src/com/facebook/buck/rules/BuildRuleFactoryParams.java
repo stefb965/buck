@@ -16,54 +16,36 @@
 
 package com.facebook.buck.rules;
 
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildFileTree;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.BuildTargetParser;
-import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.parser.ParseContext;
-import com.facebook.buck.util.ProjectFilesystem;
-
-import java.nio.file.Path;
-import java.nio.file.Paths;
 
 public final class BuildRuleFactoryParams {
 
   private final ProjectFilesystem filesystem;
   public final BuildTargetParser buildTargetParser;
-  public final BuildTargetPatternParser buildTargetPatternParser;
   public final BuildTarget target;
   private final ParseContext buildFileParseContext;
-  private final BuildRuleBuilderParams abstractBuildRuleFactoryParams;
+  private final RuleKeyBuilderFactory ruleKeyBuilderFactory;
+  private final BuildFileTree buildFileTree;
+  private final boolean enforceBuckPackageBoundary;
 
   public BuildRuleFactoryParams(
       ProjectFilesystem filesystem,
       BuildTargetParser buildTargetParser,
       BuildTarget target,
-      RuleKeyBuilderFactory ruleKeyBuilderFactory) {
+      RuleKeyBuilderFactory ruleKeyBuilderFactory,
+      BuildFileTree buildFileTree,
+      boolean enforceBuckPackageBoundary) {
     this.filesystem = filesystem;
     this.buildTargetParser = buildTargetParser;
-    this.buildTargetPatternParser = new BuildTargetPatternParser();
     this.target = target;
     this.buildFileParseContext = ParseContext.forBaseName(target.getBaseName());
-
-    this.abstractBuildRuleFactoryParams = new BuildRuleBuilderParams(filesystem,
-        ruleKeyBuilderFactory);
-  }
-
-  /**
-   * For the specified string, return a corresponding file path that is relative to the project
-   * root. It is expected that {@code path} is a path relative to the directory containing the build
-   * file in which it was declared. This method will also assert that the file exists.
-   */
-  public Path resolveFilePathRelativeToBuildFileDirectory(String path) {
-    return Paths.get(resolvePathAgainstBuildTargetBase(path));
-  }
-
-  private String resolvePathAgainstBuildTargetBase(String path) {
-    if (target.isInProjectRoot()) {
-      return path;
-    } else {
-      return String.format("%s/%s", target.getBasePath(), path);
-    }
+    this.ruleKeyBuilderFactory = ruleKeyBuilderFactory;
+    this.buildFileTree = buildFileTree;
+    this.enforceBuckPackageBoundary = enforceBuckPackageBoundary;
   }
 
   public BuildTarget resolveBuildTarget(String target) {
@@ -75,7 +57,14 @@ public final class BuildRuleFactoryParams {
   }
 
   public RuleKeyBuilderFactory getRuleKeyBuilderFactory() {
-    return abstractBuildRuleFactoryParams.getRuleKeyBuilderFactory();
+    return ruleKeyBuilderFactory;
   }
 
+  public BuildFileTree getBuildFileTree() {
+    return buildFileTree;
+  }
+
+  public boolean enforceBuckPackageBoundary() {
+    return enforceBuckPackageBoundary;
+  }
 }

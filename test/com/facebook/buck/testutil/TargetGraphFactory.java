@@ -16,16 +16,15 @@
 
 package com.facebook.buck.testutil;
 
+import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.graph.MutableDirectedGraph;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
+import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Maps;
-
-import java.util.Map;
 
 public class TargetGraphFactory {
 
@@ -33,10 +32,8 @@ public class TargetGraphFactory {
 
   public static TargetGraph newInstance(ImmutableSet<TargetNode<?>> nodes) {
     ImmutableMap.Builder<BuildTarget, TargetNode<?>> builder = ImmutableMap.builder();
-    Map<BuildTarget, TargetNode<?>> unflavoredMap = Maps.newHashMap();
     for (TargetNode<?> node : nodes) {
       builder.put(node.getBuildTarget(), node);
-      unflavoredMap.put(node.getBuildTarget().getUnflavoredTarget(), node);
     }
     ImmutableMap<BuildTarget, TargetNode<?>> map = builder.build();
 
@@ -47,7 +44,9 @@ public class TargetGraphFactory {
         graph.addEdge(node, Preconditions.checkNotNull(map.get(dep), dep));
       }
     }
-    return new TargetGraph(graph, ImmutableMap.copyOf(unflavoredMap));
+    return new TargetGraph(
+        graph,
+        Optional.<BuckEventBus>absent());
   }
 
   public static TargetGraph newInstance(TargetNode<?>... nodes) {

@@ -17,6 +17,7 @@
 package com.facebook.buck.apple;
 
 import com.facebook.buck.apple.clang.HeaderMap;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
@@ -31,7 +32,6 @@ import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
-import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.buck.util.VersionStringComparator;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -52,6 +52,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
+import com.google.common.io.Files;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -62,11 +63,12 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Build rule that generates a <a href="http://clang.llvm.org/docs/JSONCompilationDatabase.html">
- * clang compilation database</a> for an {@link AbstractAppleNativeTargetBuildRule}.
+ * clang compilation database</a> for an Apple target.
  */
 public class CompilationDatabase extends AbstractBuildRule {
 
   public static final Flavor COMPILATION_DATABASE = new Flavor("compilation-database");
+
 
   private final AppleConfig appleConfig;
   private final TargetSources targetSources;
@@ -273,12 +275,13 @@ public class CompilationDatabase extends AbstractBuildRule {
 
         // Currently, perFileFlags is a single string rather than a list, so we concatenate it
         // to the end of the command string without escaping or splitting.
-        String command = Joiner.on(' ').join(commandArgs);
         String perFileFlags = Strings.nullToEmpty(targetSources.perFileFlags.get(srcPath));
-        if (!perFileFlags.isEmpty()) {
-          command += ' ' + perFileFlags;
+        if (!perFileFlags.isEmpty() && FileExtensions.CLANG_SOURCES.contains(
+            Files.getFileExtension(fileToCompile))) {
+          commandArgs.add(perFileFlags);
         }
 
+        String command = Joiner.on(' ').join(commandArgs);
         entries.add(new JsonSerializableDatabaseEntry(
             /* directory */ projectFilesystem.resolve(target.getBasePath()).toString(),
             fileToCompile,

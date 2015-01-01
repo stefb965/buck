@@ -22,13 +22,14 @@ import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.FlavorDomainException;
+import com.facebook.buck.model.HasSourceUnderTest;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildRuleType;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.Label;
@@ -54,23 +55,19 @@ import java.nio.file.Paths;
 
 public class PythonTestDescription implements Description<PythonTestDescription.Arg> {
 
-  public static final Path PYTHON_PATH_TO_PYTHON_TEST_MAIN =
-      Paths.get(System.getProperty("buck.buck_dir", System.getProperty("user.dir")))
-          .resolve("src/com/facebook/buck/python/__test_main__.py");
-
   private static final BuildRuleType TYPE = new BuildRuleType("python_test");
 
   private static final Flavor BINARY_FLAVOR = new Flavor("binary");
 
   private final Path pathToPex;
-  private final Path pathToPythonTestMain;
+  private final Optional<Path> pathToPythonTestMain;
   private final PythonEnvironment pythonEnvironment;
   private final CxxPlatform defaultCxxPlatform;
   private final FlavorDomain<CxxPlatform> cxxPlatforms;
 
   public PythonTestDescription(
       Path pathToPex,
-      Path pathToPythonTestMain,
+      Optional<Path> pathToPythonTestMain,
       PythonEnvironment pythonEnvironment,
       CxxPlatform defaultCxxPlatform,
       FlavorDomain<CxxPlatform> cxxPlatforms) {
@@ -184,6 +181,11 @@ public class PythonTestDescription implements Description<PythonTestDescription.
       BuildRuleResolver resolver,
       A args) {
 
+    if (!pathToPythonTestMain.isPresent()) {
+      throw new HumanReadableException(
+          "Please configure python -> path_to_python_test_main in your .buckconfig");
+    }
+
     // Extract the platform from the flavor, falling back to the default platform if none are
     // found.
     CxxPlatform cxxPlatform;
@@ -233,7 +235,7 @@ public class PythonTestDescription implements Description<PythonTestDescription.
             .put(
                 getTestModulesListName(),
                 new BuildTargetSourcePath(testModulesBuildRule.getBuildTarget()))
-            .put(getTestMainName(), new PathSourcePath(pathToPythonTestMain))
+            .put(getTestMainName(), new PathSourcePath(pathToPythonTestMain.get()))
             .putAll(srcs)
             .build(),
         resources,
@@ -272,10 +274,15 @@ public class PythonTestDescription implements Description<PythonTestDescription.
   }
 
   @SuppressFieldNotInitialized
-  public static class Arg extends PythonLibraryDescription.Arg {
+  public static class Arg extends PythonLibraryDescription.Arg implements HasSourceUnderTest {
     public Optional<ImmutableSet<String>> contacts;
     public Optional<ImmutableSet<Label>> labels;
     public Optional<ImmutableSortedSet<BuildTarget>> sourceUnderTest;
+
+    @Override
+    public ImmutableSortedSet<BuildTarget> getSourceUnderTest() {
+      return sourceUnderTest.get();
+    }
   }
 
 }

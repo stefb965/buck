@@ -21,6 +21,7 @@ import com.facebook.buck.event.BuckEvent;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.graph.AbstractAcyclicDepthFirstPostOrderTraversal;
 import com.facebook.buck.graph.MutableDirectedGraph;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.json.DefaultProjectBuildFileParserFactory;
 import com.facebook.buck.json.ProjectBuildFileParser;
@@ -48,7 +49,6 @@ import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -116,6 +116,8 @@ public class Parser {
    * that depend on them (typically {@code /jimp/BUCK} files).
    */
   private final ListMultimap<Path, Path> buildFileDependents;
+
+  private final boolean enforceBuckPackageBoundary;
 
   /**
    * A BuckEvent used to record the parse start time, which should include the WatchEvent
@@ -187,6 +189,7 @@ public class Parser {
       final RepositoryFactory repositoryFactory,
       String pythonInterpreter,
       boolean allowEmptyGlobs,
+      boolean enforceBuckPackageBoundary,
       ImmutableSet<Pattern> tempFilePatterns,
       RuleKeyBuilderFactory ruleKeyBuilderFactory)
       throws IOException, InterruptedException {
@@ -209,7 +212,8 @@ public class Parser {
             allowEmptyGlobs,
             rootRepository.getAllDescriptions()),
         tempFilePatterns,
-        ruleKeyBuilderFactory);
+        ruleKeyBuilderFactory,
+        enforceBuckPackageBoundary);
   }
 
   /**
@@ -222,15 +226,16 @@ public class Parser {
       BuildTargetParser buildTargetParser,
       ProjectBuildFileParserFactory buildFileParserFactory,
       ImmutableSet<Pattern> tempFilePatterns,
-      RuleKeyBuilderFactory ruleKeyBuilderFactory)
+      RuleKeyBuilderFactory ruleKeyBuilderFactory,
+      boolean enforceBuckPackageBoundary)
       throws IOException, InterruptedException {
     this.repositoryFactory = repositoryFactory;
     this.repository = repositoryFactory.getRootRepository();
-    this.buildFileTreeCache = new BuildFileTreeCache(
-        buildFileTreeSupplier);
+    this.buildFileTreeCache = new BuildFileTreeCache(buildFileTreeSupplier);
     this.buildTargetParser = buildTargetParser;
     this.buildFileParserFactory = buildFileParserFactory;
     this.ruleKeyBuilderFactory = ruleKeyBuilderFactory;
+    this.enforceBuckPackageBoundary = enforceBuckPackageBoundary;
     this.buildFileDependents = ArrayListMultimap.create();
     this.tempFilePatterns = tempFilePatterns;
     this.state = new CachedState();
@@ -377,7 +382,8 @@ public class Parser {
             buildTargets,
             defaultIncludes,
             buildFileParser,
-            environment);
+            environment,
+            eventBus);
         return graph;
       } finally {
         eventBus.post(ParseEvent.finished(buildTargets, Optional.fromNullable(graph)));
@@ -430,10 +436,10 @@ public class Parser {
       Iterable<BuildTarget> toExplore,
       final Iterable<String> defaultIncludes,
       final ProjectBuildFileParser buildFileParser,
-      final ImmutableMap<String, String> environment) throws IOException, InterruptedException {
+      final ImmutableMap<String, String> environment,
+      BuckEventBus buckEventBus) throws IOException, InterruptedException {
 
     final MutableDirectedGraph<TargetNode<?>> graph = new MutableDirectedGraph<>();
-    final Map<BuildTarget, TargetNode<?>> nodes = Maps.newHashMap();
 
     AbstractAcyclicDepthFirstPostOrderTraversal<BuildTarget> traversal =
         new AbstractAcyclicDepthFirstPostOrderTraversal<BuildTarget>() {
@@ -489,7 +495,6 @@ public class Parser {
             TargetNode<?> targetNode = getTargetNode(buildTarget);
             Preconditions.checkNotNull(targetNode, "No target node found for %s", buildTarget);
             graph.addNode(targetNode);
-            nodes.put(targetNode.getBuildTarget().getUnflavoredTarget(), targetNode);
             for (BuildTarget target : targetNode.getDeps()) {
               graph.addEdge(targetNode, getTargetNode(target));
             }
@@ -506,7 +511,7 @@ public class Parser {
       throw new HumanReadableException(e.getMessage());
     }
 
-    return new TargetGraph(graph, ImmutableMap.copyOf(nodes));
+    return new TargetGraph(graph, Optional.of(buckEventBus));
   }
 
   /**
@@ -772,11 +777,13 @@ public class Parser {
    *             within the build file to find and invalidate.
    */
   private synchronized void invalidateContainingBuildFile(Path path) throws IOException {
-    String packageBuildFilePath =
-        buildFileTreeCache.get().getBasePathOfAncestorTarget(path).toString();
+    Optional<Path> packageBuildFile = buildFileTreeCache.get().getBasePathOfAncestorTarget(path);
+    if (!packageBuildFile.isPresent()) {
+      return;
+    }
     state.invalidateDependents(
-        repository.getFilesystem().getFileForRelativePath(
-            packageBuildFilePath + '/' + BuckConstant.BUILD_RULES_FILE_NAME).toPath());
+        repository.getFilesystem().getPathForRelativePath(
+            packageBuildFile.get().resolve(BuckConstant.BUILD_RULES_FILE_NAME)));
   }
 
   private boolean isPathCreateOrDeleteEvent(WatchEvent<?> event) {
@@ -1069,8 +1076,9 @@ public class Parser {
               unflavored.getBuildFilePath());
         }
 
-        if ((description instanceof Flavored) &&
-            !((Flavored) description).hasFlavors(buildTarget.getFlavors())) {
+        if (buildTarget.isFlavored() &&
+            (!(description instanceof Flavored) ||
+            !((Flavored) description).hasFlavors(buildTarget.getFlavors()))) {
           throw new HumanReadableException("Unrecognized flavor in target %s while parsing %s%s.",
               buildTarget,
               BuildTarget.BUILD_TARGET_PREFIX,
@@ -1085,7 +1093,9 @@ public class Parser {
             // Although we store the rule by its unflavoured name, when we construct it, we need the
             // flavour.
             buildTarget,
-            ruleKeyBuilderFactory);
+            ruleKeyBuilderFactory,
+            buildFileTreeCache.get(),
+            enforceBuckPackageBoundary);
         Object constructorArg = description.createUnpopulatedConstructorArg();
         TargetNode<?> targetNode;
         try {
@@ -1104,7 +1114,7 @@ public class Parser {
               factoryParams,
               declaredDeps.build(),
               visibilityPatterns.build());
-        } catch (NoSuchBuildTargetException e) {
+        } catch (NoSuchBuildTargetException | TargetNode.InvalidSourcePathInputException e) {
           throw new HumanReadableException(e);
         } catch (ConstructorArgMarshalException e) {
           throw new HumanReadableException("%s: %s", buildTarget, e.getMessage());

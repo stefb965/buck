@@ -20,6 +20,7 @@ import com.facebook.buck.android.AaptPackageResources.BuildOutput;
 import com.facebook.buck.android.AndroidBinary.PackageType;
 import com.facebook.buck.android.AndroidBinary.TargetCpuType;
 import com.facebook.buck.dalvik.EstimateLinearAllocStep;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.java.AccumulateClassNamesStep;
 import com.facebook.buck.java.HasJavaClassHashes;
 import com.facebook.buck.java.JavacOptions;
@@ -45,7 +46,6 @@ import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirAndSymlinkFileStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -259,12 +259,21 @@ public class AaptPackageResources extends AbstractBuildRule
     Path rDotTxtDir = getPathToRDotTxtDir();
     steps.add(new MakeCleanDirectoryStep(rDotTxtDir));
 
+    Optional<Path> pathToGeneratedProguardConfig = Optional.absent();
+    if (packageType.isBuildWithObfuscation()) {
+      Path proguardConfigDir = getPathToGeneratedProguardConfigDir();
+      steps.add(new MakeCleanDirectoryStep(proguardConfigDir));
+      pathToGeneratedProguardConfig = Optional.of(proguardConfigDir.resolve("proguard.txt"));
+      buildableContext.recordArtifactsInDirectory(proguardConfigDir);
+    }
+
     steps.add(new AaptStep(
         getAndroidManifestXml(),
         filteredResourcesProvider.getResDirectories(),
         assetsDirectory,
         getResourceApkPath(),
         rDotTxtDir,
+        pathToGeneratedProguardConfig,
         packageType.isCrunchPngFiles()));
 
     if (!filteredResourcesProvider.getResDirectories().isEmpty()) {
@@ -507,8 +516,30 @@ public class AaptPackageResources extends AbstractBuildRule
     return BuildTargets.getBinPath(getBuildTarget(), "__%s_string_source_map__");
   }
 
+  /**
+   * This is the path to the directory for generated files related to ProGuard. Ultimately, it
+   * should include:
+   * <ul>
+   *   <li>proguard.txt
+   *   <li>dump.txt
+   *   <li>seeds.txt
+   *   <li>usage.txt
+   *   <li>mapping.txt
+   *   <li>obfuscated.jar
+   * </ul>
+   * @return path to directory (will not include trailing slash)
+   */
+  public Path getPathToGeneratedProguardConfigDir() {
+    return BuildTargets.getGenPath(getBuildTarget(), "__%s__proguard__").resolve(".proguard");
+  }
+
   @VisibleForTesting
   static Path getPathToGeneratedRDotJavaSrcFiles(BuildTarget buildTarget) {
     return BuildTargets.getBinPath(buildTarget, "__%s_rdotjava_src__");
+  }
+
+  @VisibleForTesting
+  FilteredResourcesProvider getFilteredResourcesProvider() {
+    return filteredResourcesProvider;
   }
 }

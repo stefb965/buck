@@ -16,11 +16,13 @@
 
 package com.facebook.buck.java;
 
+import static com.facebook.buck.java.JavaCompilationConstants.DEFAULT_JAVAC_OPTIONS;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.json.DefaultProjectBuildFileParserFactory;
 import com.facebook.buck.json.ProjectBuildFileParserFactory;
 import com.facebook.buck.model.BuildTarget;
@@ -30,7 +32,6 @@ import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -76,6 +77,7 @@ public class JavaSymbolFinderIntegrationTest {
     JavaSymbolFinder finder = new JavaSymbolFinder(
         projectFilesystem,
         srcRootsFinder,
+        DEFAULT_JAVAC_OPTIONS,
         projectBuildFileParserFactory,
         config,
         buckEventBus,

@@ -23,7 +23,6 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.timing.SettableFakeClock;
-
 import com.google.common.base.Charsets;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
@@ -300,5 +299,27 @@ public class FakeProjectFilesystemTest {
   public void testIsSymLinkReturnsFalseForNotExistent() throws IOException {
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
     assertFalse(filesystem.isSymLink(Paths.get("foo")));
+  }
+
+  @Test
+  public void testSortedDirectoryContents() throws IOException {
+    SettableFakeClock clock = new SettableFakeClock(1000, 0);
+    FakeProjectFilesystem filesystem = new FakeProjectFilesystem(clock);
+    filesystem.mkdirs(Paths.get("foo"));
+    Path a = Paths.get("foo/a.txt");
+    filesystem.touch(a);
+    clock.setCurrentTimeMillis(2000);
+    Path b = Paths.get("foo/b.txt");
+    filesystem.touch(b);
+    clock.setCurrentTimeMillis(3000);
+    Path c = Paths.get("foo/c.txt");
+    filesystem.touch(c);
+    filesystem.touch(Paths.get("foo/non-matching"));
+
+    assertEquals(
+        ImmutableSet.of(c, b, a),
+        filesystem.getSortedMatchingDirectoryContents(
+            Paths.get("foo"),
+            "*.txt"));
   }
 }

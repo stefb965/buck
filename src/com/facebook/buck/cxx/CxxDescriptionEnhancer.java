@@ -16,6 +16,7 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
@@ -30,8 +31,10 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.util.MorePaths;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Function;
+import com.google.common.base.Functions;
+import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
@@ -44,6 +47,8 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.io.Files;
 
 import java.nio.file.Path;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class CxxDescriptionEnhancer {
 
@@ -158,7 +163,7 @@ public class CxxDescriptionEnhancer {
         new Flavor(
             String.format(
                 "lex-%s",
-                name.replace('/', '-').replace('.', '-'))));
+                name.replace('/', '-').replace('.', '-').replace('+', '-').replace(' ', '-'))));
   }
 
   @VisibleForTesting
@@ -168,7 +173,7 @@ public class CxxDescriptionEnhancer {
         new Flavor(
             String.format(
                 "yacc-%s",
-                name.replace('/', '-').replace('.', '-'))));
+                name.replace('/', '-').replace('.', '-').replace('+', '-').replace(' ', '-'))));
   }
 
   /**
@@ -409,19 +414,27 @@ public class CxxDescriptionEnhancer {
         .resolve(name);
   }
 
-  public static String getSharedLibrarySoname(BuildTarget target) {
-    return String.format(
-        "lib%s_%s.so",
-        target.getBaseName().substring(2).replace('/', '_'),
-        target.getShortNameOnly());
+  public static String getSharedLibrarySoname(BuildTarget target, CxxPlatform platform) {
+    String libName =
+        Joiner.on('_').join(
+            ImmutableList.builder()
+                .addAll(
+                    FluentIterable.from(target.getBasePath())
+                        .transform(Functions.toStringFunction())
+                        .filter(Predicates.not(Predicates.equalTo(""))))
+                .add(target.getShortNameOnly())
+                .build());
+    String extension = platform.getSharedLibraryExtension();
+    return String.format("lib%s.%s", libName, extension);
   }
 
   public static Path getSharedLibraryPath(
       BuildTarget target,
-      Flavor platform) {
-    String name = String.format("lib%s.so", target.getShortNameOnly());
+      CxxPlatform platform) {
+    String extension = platform.getSharedLibraryExtension();
+    String name = String.format("lib%s.%s", target.getShortNameOnly(), extension);
     return BuildTargets.getBinPath(
-        createSharedLibraryBuildTarget(target, platform),
+        createSharedLibraryBuildTarget(target, platform.asFlavor()),
         "%s/" + name);
   }
 
@@ -567,6 +580,37 @@ public class CxxDescriptionEnhancer {
         node,
         String.format("%s not in target graph", params.getBuildTarget()));
     return requireBuildRule(params, ruleResolver, node, flavors);
+  }
+
+  /**
+   * @return a {@link Function} object which transforms path names from the output of a compiler
+   *     or preprocessor using {@code pathProcessor}.
+   */
+  public static Function<String, String> createErrorMessagePathProcessor(
+      final Function<String, String> pathProcessor) {
+    return new Function<String, String>() {
+
+      private final ImmutableList<Pattern> patterns =
+          ImmutableList.of(
+              Pattern.compile(
+                  "(?<=^(?:In file included |\\s+)from )" +
+                  "(?<path>[^:]+)" +
+                  "(?=[:,](?:\\d+[:,](?:\\d+[:,])?)?$)"),
+              Pattern.compile(
+                  "^(?<path>[^:]+)(?=:(?:\\d+:(?:\\d+:)?)? )"));
+
+      @Override
+      public String apply(String line) {
+        for (Pattern pattern : patterns) {
+          Matcher m = pattern.matcher(line);
+          if (m.find()) {
+            return m.replaceAll(pathProcessor.apply(m.group("path")));
+          }
+        }
+        return line;
+      }
+
+    };
   }
 
 }

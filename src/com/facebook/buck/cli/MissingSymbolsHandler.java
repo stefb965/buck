@@ -19,7 +19,9 @@ package com.facebook.buck.cli;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.event.MissingSymbolEvent;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.java.JavaSymbolFinder;
+import com.facebook.buck.java.JavacOptions;
 import com.facebook.buck.java.SrcRootsFinder;
 import com.facebook.buck.json.DefaultProjectBuildFileParserFactory;
 import com.facebook.buck.json.ProjectBuildFileParserFactory;
@@ -28,7 +30,6 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.util.Console;
-import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -58,6 +59,7 @@ public class MissingSymbolsHandler {
       BuckConfig config,
       BuckEventBus buckEventBus,
       Console console,
+      JavacOptions javacOptions,
       ImmutableMap<String, String> environment) {
     SrcRootsFinder srcRootsFinder = new SrcRootsFinder(projectFilesystem);
     ProjectBuildFileParserFactory projectBuildFileParserFactory =
@@ -69,6 +71,7 @@ public class MissingSymbolsHandler {
     JavaSymbolFinder javaSymbolFinder = new JavaSymbolFinder(
         projectFilesystem,
         srcRootsFinder,
+        javacOptions,
         projectBuildFileParserFactory,
         config,
         buckEventBus,
@@ -90,6 +93,7 @@ public class MissingSymbolsHandler {
       BuckConfig config,
       BuckEventBus buckEventBus,
       Console console,
+      JavacOptions javacOptions,
       ImmutableMap<String, String> environment) {
     final MissingSymbolsHandler missingSymbolsHandler = create(
         projectFilesystem,
@@ -97,6 +101,7 @@ public class MissingSymbolsHandler {
         config,
         buckEventBus,
         console,
+        javacOptions,
         environment);
 
     final Multimap<BuildId, MissingSymbolEvent> missingSymbolEvents = HashMultimap.create();

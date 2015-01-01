@@ -53,10 +53,10 @@ import com.facebook.buck.apple.xcode.xcodeproj.PBXShellScriptBuildPhase;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXSourcesBuildPhase;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXTarget;
 import com.facebook.buck.apple.xcode.xcodeproj.XCBuildConfiguration;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetNode;
@@ -64,15 +64,12 @@ import com.facebook.buck.rules.TestSourcePath;
 import com.facebook.buck.rules.coercer.AppleSource;
 import com.facebook.buck.rules.coercer.Either;
 import com.facebook.buck.rules.coercer.Pair;
-import com.facebook.buck.rules.coercer.XcodeRuleConfiguration;
-import com.facebook.buck.rules.coercer.XcodeRuleConfigurationLayer;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.timing.SettableFakeClock;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
 import com.google.common.collect.FluentIterable;
@@ -106,12 +103,13 @@ public class ProjectGeneratorTest {
       OUTPUT_DIRECTORY.resolve(PROJECT_CONTAINER);
   private static final Path OUTPUT_PROJECT_FILE_PATH =
       OUTPUT_PROJECT_BUNDLE_PATH.resolve("project.pbxproj");
-  private static final Path EMPTY_XCCONFIG_PATH = Paths.get("Empty.xcconfig");
 
   private SettableFakeClock clock;
   private ProjectFilesystem projectFilesystem;
   private FakeProjectFilesystem fakeProjectFilesystem;
   private ExecutionContext executionContext;
+  private BuildRuleResolver buildRuleResolver;
+  private SourcePathResolver sourcePathResolver;
 
   @Rule
   public ExpectedException thrown = ExpectedException.none();
@@ -122,6 +120,8 @@ public class ProjectGeneratorTest {
     fakeProjectFilesystem = new FakeProjectFilesystem(clock);
     projectFilesystem = fakeProjectFilesystem;
     executionContext = TestExecutionContext.newInstance();
+    buildRuleResolver = new BuildRuleResolver();
+    sourcePathResolver = new SourcePathResolver(buildRuleResolver);
 
     // Add support files needed by project generation to fake filesystem.
     projectFilesystem.writeContentsToPath(
@@ -130,9 +130,6 @@ public class ProjectGeneratorTest {
     projectFilesystem.writeContentsToPath(
         "",
         Paths.get(ProjectGenerator.PATH_TO_ASSET_CATALOG_COMPILER));
-    projectFilesystem.writeContentsToPath(
-        "",
-        EMPTY_XCCONFIG_PATH);
 
     // Add files and directories used to test resources.
     projectFilesystem.createParentDirs(Paths.get("foodir", "foo.png"));
@@ -312,11 +309,6 @@ public class ProjectGeneratorTest {
 
   @Test
   public void testAppleLibraryRule() throws IOException {
-    SourcePath confFile = new PathSourcePath(EMPTY_XCCONFIG_PATH);
-    ImmutableList<XcodeRuleConfigurationLayer> confFiles = ImmutableList.of(
-        new XcodeRuleConfigurationLayer(confFile),
-        new XcodeRuleConfigurationLayer(confFile));
-
     BuildTarget buildTarget = BuildTarget.builder("//foo", "lib").build();
     TargetNode<?> node = AppleLibraryBuilder
         .createBuilder(buildTarget)
@@ -324,7 +316,7 @@ public class ProjectGeneratorTest {
             Optional.of(
                 ImmutableSortedMap.of(
                     "Debug",
-                    new XcodeRuleConfiguration(confFiles))))
+                    ImmutableMap.<String, String>of())))
         .setSrcs(
             Optional.of(
                 ImmutableList.of(
@@ -376,10 +368,6 @@ public class ProjectGeneratorTest {
 
   @Test
   public void testAppleLibraryConfiguresOutputPaths() throws IOException {
-    Path rawXcconfigFile = Paths.get("Test.xcconfig");
-    SourcePath xcconfigFile = new PathSourcePath(rawXcconfigFile);
-    projectFilesystem.writeContentsToPath("", rawXcconfigFile);
-
     BuildTarget buildTarget = BuildTarget.builder("//foo", "lib").build();
     TargetNode<?> node = AppleLibraryBuilder
         .createBuilder(buildTarget)
@@ -387,10 +375,7 @@ public class ProjectGeneratorTest {
             Optional.of(
                 ImmutableSortedMap.of(
                     "Debug",
-                    new XcodeRuleConfiguration(
-                        ImmutableList.of(
-                            new XcodeRuleConfigurationLayer(xcconfigFile),
-                            new XcodeRuleConfigurationLayer(xcconfigFile))))))
+                    ImmutableMap.<String, String>of())))
         .setHeaderPathPrefix(Optional.of("MyHeaderPathPrefix"))
         .setPrefixHeader(Optional.<SourcePath>of(new TestSourcePath("Foo/Foo-Prefix.pch")))
         .setUseBuckHeaderMaps(Optional.of(false))
@@ -398,7 +383,7 @@ public class ProjectGeneratorTest {
 
     ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
         ImmutableSet.<TargetNode<?>>of(node),
-        ImmutableSet.of(ProjectGenerator.Option.REFERENCE_EXISTING_XCCONFIGS));
+        ImmutableSet.<ProjectGenerator.Option>of());
 
     projectGenerator.createXcodeProjects();
 
@@ -408,30 +393,23 @@ public class ProjectGeneratorTest {
     assertThat(target.isa(), equalTo("PBXNativeTarget"));
     assertThat(target.getProductType(), equalTo(PBXTarget.ProductType.STATIC_LIBRARY));
 
-    assertHasConfigurations(target, "Debug");
-    XCBuildConfiguration configuration = target
-        .getBuildConfigurationList().getBuildConfigurationsByName().asMap().get("Debug");
-    NSDictionary settings = configuration.getBuildSettings();
+    ImmutableMap<String, String> settings = getBuildSettings(buildTarget, target, "Debug");
     assertEquals(
-        new NSString("../Foo/Foo-Prefix.pch"),
+        "../Foo/Foo-Prefix.pch",
         settings.get("GCC_PREFIX_HEADER"));
     assertEquals(
-        new NSString("$SYMROOT/$CONFIGURATION$EFFECTIVE_PLATFORM_NAME"),
+        "$SYMROOT/$CONFIGURATION$EFFECTIVE_PLATFORM_NAME",
         settings.get("BUILT_PRODUCTS_DIR"));
     assertEquals(
-        new NSString("$BUILT_PRODUCTS_DIR/F4XWM33PHJWGSYQ"),
+        "$BUILT_PRODUCTS_DIR/F4XWM33PHJWGSYQ",
         settings.get("CONFIGURATION_BUILD_DIR"));
     assertEquals(
-        new NSString("Headers/MyHeaderPathPrefix"),
+        "Headers/MyHeaderPathPrefix",
         settings.get("PUBLIC_HEADERS_FOLDER_PATH"));
   }
 
   @Test
   public void testAppleLibraryConfiguresDynamicLibraryOutputPaths() throws IOException {
-    Path rawXcconfigFile = Paths.get("Test.xcconfig");
-    SourcePath xcconfigFile = new PathSourcePath(rawXcconfigFile);
-    projectFilesystem.writeContentsToPath("", rawXcconfigFile);
-
     BuildTarget buildTarget = BuildTarget.builder("//hi", "lib")
         .setFlavor(AppleLibraryDescription.DYNAMIC_LIBRARY)
         .build();
@@ -441,16 +419,13 @@ public class ProjectGeneratorTest {
             Optional.of(
                 ImmutableSortedMap.of(
                     "Debug",
-                    new XcodeRuleConfiguration(
-                        ImmutableList.of(
-                            new XcodeRuleConfigurationLayer(xcconfigFile),
-                            new XcodeRuleConfigurationLayer(xcconfigFile))))))
+                    ImmutableMap.<String, String>of())))
         .setHeaderPathPrefix(Optional.of("MyHeaderPathPrefix"))
         .build();
 
     ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
         ImmutableSet.<TargetNode<?>>of(node),
-        ImmutableSet.of(ProjectGenerator.Option.REFERENCE_EXISTING_XCCONFIGS));
+        ImmutableSet.<ProjectGenerator.Option>of());
 
     projectGenerator.createXcodeProjects();
 
@@ -460,27 +435,20 @@ public class ProjectGeneratorTest {
     assertThat(target.isa(), equalTo("PBXNativeTarget"));
     assertThat(target.getProductType(), equalTo(PBXTarget.ProductType.DYNAMIC_LIBRARY));
 
-    assertHasConfigurations(target, "Debug");
-    XCBuildConfiguration configuration = target
-        .getBuildConfigurationList().getBuildConfigurationsByName().asMap().get("Debug");
-    NSDictionary settings = configuration.getBuildSettings();
+    ImmutableMap<String, String> settings = getBuildSettings(buildTarget, target, "Debug");
     assertEquals(
-        new NSString("$SYMROOT/$CONFIGURATION$EFFECTIVE_PLATFORM_NAME"),
+        "$SYMROOT/$CONFIGURATION$EFFECTIVE_PLATFORM_NAME",
         settings.get("BUILT_PRODUCTS_DIR"));
     assertEquals(
-        new NSString("$BUILT_PRODUCTS_DIR/F4XWQ2J2NRUWEI3EPFXGC3LJMM"),
+        "$BUILT_PRODUCTS_DIR/F4XWQ2J2NRUWEI3EPFXGC3LJMM",
         settings.get("CONFIGURATION_BUILD_DIR"));
     assertEquals(
-        new NSString("Headers/MyHeaderPathPrefix"),
+        "Headers/MyHeaderPathPrefix",
         settings.get("PUBLIC_HEADERS_FOLDER_PATH"));
   }
 
   @Test
   public void testAppleLibraryDoesntOverrideHeaderOutputPath() throws IOException {
-    Path rawXcconfigFile = Paths.get("Test.xcconfig");
-    SourcePath xcconfigFile = new PathSourcePath(rawXcconfigFile);
-    projectFilesystem.writeContentsToPath("", rawXcconfigFile);
-
     BuildTarget buildTarget = BuildTarget.builder("//foo", "lib").build();
     TargetNode<?> node = AppleLibraryBuilder
         .createBuilder(buildTarget)
@@ -488,19 +456,12 @@ public class ProjectGeneratorTest {
             Optional.of(
                 ImmutableSortedMap.of(
                     "Debug",
-                    new XcodeRuleConfiguration(
-                        ImmutableList.of(
-                            new XcodeRuleConfigurationLayer(xcconfigFile),
-                            new XcodeRuleConfigurationLayer(
-                                ImmutableMap.of("PUBLIC_HEADERS_FOLDER_PATH", "FooHeaders")),
-                            new XcodeRuleConfigurationLayer(xcconfigFile),
-                            new XcodeRuleConfigurationLayer(
-                                ImmutableMap.of("PUBLIC_HEADERS_FOLDER_PATH", "FooHeaders")))))))
+                    ImmutableMap.of("PUBLIC_HEADERS_FOLDER_PATH", "FooHeaders"))))
         .build();
 
     ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
         ImmutableSet.<TargetNode<?>>of(node),
-        ImmutableSet.of(ProjectGenerator.Option.REFERENCE_EXISTING_XCCONFIGS));
+        ImmutableSet.<ProjectGenerator.Option>of());
 
     projectGenerator.createXcodeProjects();
 
@@ -510,18 +471,15 @@ public class ProjectGeneratorTest {
     assertThat(target.isa(), equalTo("PBXNativeTarget"));
     assertThat(target.getProductType(), equalTo(PBXTarget.ProductType.STATIC_LIBRARY));
 
-    assertHasConfigurations(target, "Debug");
-    XCBuildConfiguration configuration = target
-        .getBuildConfigurationList().getBuildConfigurationsByName().asMap().get("Debug");
-    NSDictionary settings = configuration.getBuildSettings();
+    ImmutableMap<String, String> settings = getBuildSettings(buildTarget, target, "Debug");
     assertEquals(
-        new NSString("$SYMROOT/$CONFIGURATION$EFFECTIVE_PLATFORM_NAME"),
+        "$SYMROOT/$CONFIGURATION$EFFECTIVE_PLATFORM_NAME",
         settings.get("BUILT_PRODUCTS_DIR"));
     assertEquals(
-        new NSString("$BUILT_PRODUCTS_DIR/F4XWM33PHJWGSYQ"),
+        "$BUILT_PRODUCTS_DIR/F4XWM33PHJWGSYQ",
         settings.get("CONFIGURATION_BUILD_DIR"));
     assertEquals(
-        new NSString("FooHeaders"),
+        "FooHeaders",
         settings.get("PUBLIC_HEADERS_FOLDER_PATH"));
   }
 
@@ -534,15 +492,12 @@ public class ProjectGeneratorTest {
             Optional.of(
                 ImmutableSortedMap.of(
                     "Debug",
-                    new XcodeRuleConfiguration(
-                        ImmutableList.of(
-                            new XcodeRuleConfigurationLayer(
-                                ImmutableMap.of("CUSTOM_SETTING", "VALUE")))))))
+                    ImmutableMap.of("CUSTOM_SETTING", "VALUE"))))
         .build();
 
     ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
         ImmutableSet.<TargetNode<?>>of(node),
-        ImmutableSet.of(ProjectGenerator.Option.REFERENCE_EXISTING_XCCONFIGS));
+        ImmutableSet.<ProjectGenerator.Option>of());
 
     projectGenerator.createXcodeProjects();
 
@@ -558,16 +513,10 @@ public class ProjectGeneratorTest {
     assertEquals(configuration.getBuildSettings().count(), 0);
 
     PBXFileReference xcconfigReference = configuration.getBaseConfigurationReference();
-    assertEquals(xcconfigReference.getPath(), "../buck-out/gen/foo/lib.xcconfig");
+    assertEquals(xcconfigReference.getPath(), "../buck-out/gen/foo/lib-Debug.xcconfig");
 
-    Path xcconfigPath = Paths.get("buck-out/gen/foo/lib.xcconfig");
-    String contents = projectFilesystem.readFileIfItExists(xcconfigPath).get();
-    ImmutableMap.Builder<String, String> builder = ImmutableMap.builder();
-    for (String line : contents.split("\n")) {
-        String[] parts = line.split(" = ");
-        builder.put(parts[0], parts[1]);
-    }
-    ImmutableMap<String, String> settings = builder.build();
+    ImmutableMap<String, String> settings = getBuildSettings(
+        buildTarget, target, "Debug");
     assertEquals(
         "$SYMROOT/$CONFIGURATION$EFFECTIVE_PLATFORM_NAME",
         settings.get("BUILT_PRODUCTS_DIR"));
@@ -581,17 +530,9 @@ public class ProjectGeneratorTest {
 
   @Test
   public void testAppleLibraryDependentsSearchHeadersAndLibraries() throws IOException {
-    Path rawXcconfigFile = Paths.get("Test.xcconfig");
-    SourcePath xcconfigFile = new PathSourcePath(rawXcconfigFile);
-    projectFilesystem.writeContentsToPath("", rawXcconfigFile);
-
-    ImmutableSortedMap<String, XcodeRuleConfiguration> configs =
+    ImmutableSortedMap<String, ImmutableMap<String, String>> configs =
         ImmutableSortedMap.of(
-            "Debug",
-            new XcodeRuleConfiguration(
-                ImmutableList.of(
-                    new XcodeRuleConfigurationLayer(xcconfigFile),
-                    new XcodeRuleConfigurationLayer(xcconfigFile))));
+            "Debug", ImmutableMap.<String, String>of());
 
     BuildTarget libraryTarget = BuildTarget.builder("//foo", "lib").build();
     TargetNode<?> libraryNode = AppleLibraryBuilder
@@ -630,7 +571,7 @@ public class ProjectGeneratorTest {
 
     ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
         ImmutableSet.of(libraryNode, testLibraryNode, testBundleNode, testNode),
-        ImmutableSet.of(ProjectGenerator.Option.REFERENCE_EXISTING_XCCONFIGS));
+        ImmutableSet.<ProjectGenerator.Option>of());
 
     projectGenerator.createXcodeProjects();
 
@@ -638,50 +579,30 @@ public class ProjectGeneratorTest {
         projectGenerator.getGeneratedProject(),
         "//foo:xctest");
 
-    assertHasConfigurations(target, "Debug");
-    XCBuildConfiguration configuration = target
-        .getBuildConfigurationList().getBuildConfigurationsByName().asMap().get("Debug");
-    NSDictionary settings = configuration.getBuildSettings();
+    ImmutableMap<String, String> settings = getBuildSettings(testBundleTarget, target, "Debug");
     assertEquals(
-        new NSString("$(inherited) " +
-            "$BUILT_PRODUCTS_DIR/F4XWM33PHJWGSYQ/Headers"),
+        "$(inherited) " + "$BUILT_PRODUCTS_DIR/F4XWM33PHJWGSYQ/Headers",
         settings.get("HEADER_SEARCH_PATHS"));
     assertEquals(
-        new NSString("$(inherited) "),
+        "$(inherited) ",
         settings.get("USER_HEADER_SEARCH_PATHS"));
     assertEquals(
-        new NSString("$(inherited) " +
-            "$BUILT_PRODUCTS_DIR/F4XWM33PHJWGSYQ"),
+        "$(inherited) " + "$BUILT_PRODUCTS_DIR/F4XWM33PHJWGSYQ",
         settings.get("LIBRARY_SEARCH_PATHS"));
     assertEquals(
-        new NSString("$(inherited) "),
+        "$(inherited) ",
         settings.get("FRAMEWORK_SEARCH_PATHS"));
   }
 
   @Test
   public void testAppleLibraryDependentsInheritSearchPaths() throws IOException {
-    Path rawXcconfigFile = Paths.get("Test.xcconfig");
-    SourcePath xcconfigFile = new PathSourcePath(rawXcconfigFile);
-    projectFilesystem.writeContentsToPath("", rawXcconfigFile);
-
-    ImmutableSortedMap<String, XcodeRuleConfiguration> configs = ImmutableSortedMap.of(
+    ImmutableSortedMap<String, ImmutableMap<String, String>> configs = ImmutableSortedMap.of(
         "Debug",
-        new XcodeRuleConfiguration(
-            ImmutableList.of(
-                new XcodeRuleConfigurationLayer(xcconfigFile),
-                new XcodeRuleConfigurationLayer(
-                    ImmutableMap.of(
-                        "HEADER_SEARCH_PATHS", "headers",
-                        "USER_HEADER_SEARCH_PATHS", "user_headers",
-                        "LIBRARY_SEARCH_PATHS", "libraries",
-                        "FRAMEWORK_SEARCH_PATHS", "frameworks")),
-                new XcodeRuleConfigurationLayer(xcconfigFile),
-                new XcodeRuleConfigurationLayer(
-                    ImmutableMap.of(
-                        "HEADER_SEARCH_PATHS", "headers",
-                        "USER_HEADER_SEARCH_PATHS", "user_headers",
-                        "LIBRARY_SEARCH_PATHS", "libraries",
-                        "FRAMEWORK_SEARCH_PATHS", "frameworks")))));
+        ImmutableMap.of(
+            "HEADER_SEARCH_PATHS", "headers",
+            "USER_HEADER_SEARCH_PATHS", "user_headers",
+            "LIBRARY_SEARCH_PATHS", "libraries",
+            "FRAMEWORK_SEARCH_PATHS", "frameworks"));
 
     BuildTarget libraryTarget = BuildTarget.builder("//foo", "lib").build();
     TargetNode<?> libraryNode = AppleLibraryBuilder
@@ -720,7 +641,7 @@ public class ProjectGeneratorTest {
 
     ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
         ImmutableSet.of(libraryNode, testLibraryNode, testBundleNode, testNode),
-        ImmutableSet.of(ProjectGenerator.Option.REFERENCE_EXISTING_XCCONFIGS));
+        ImmutableSet.<ProjectGenerator.Option>of());
 
     projectGenerator.createXcodeProjects();
 
@@ -728,39 +649,25 @@ public class ProjectGeneratorTest {
         projectGenerator.getGeneratedProject(),
         "//foo:xctest");
 
-    assertHasConfigurations(target, "Debug");
-    XCBuildConfiguration configuration = target
-        .getBuildConfigurationList().getBuildConfigurationsByName().asMap().get("Debug");
-    NSDictionary settings = configuration.getBuildSettings();
+    ImmutableMap<String, String> settings = getBuildSettings(testBundleTarget, target, "Debug");
     assertEquals(
-        new NSString("headers " +
-            "$BUILT_PRODUCTS_DIR/F4XWM33PHJWGSYQ/Headers"),
+        "headers " + "$BUILT_PRODUCTS_DIR/F4XWM33PHJWGSYQ/Headers",
         settings.get("HEADER_SEARCH_PATHS"));
     assertEquals(
-        new NSString("user_headers "),
+        "user_headers ",
         settings.get("USER_HEADER_SEARCH_PATHS"));
     assertEquals(
-        new NSString("libraries " +
-            "$BUILT_PRODUCTS_DIR/F4XWM33PHJWGSYQ"),
+        "libraries " + "$BUILT_PRODUCTS_DIR/F4XWM33PHJWGSYQ",
         settings.get("LIBRARY_SEARCH_PATHS"));
     assertEquals(
-        new NSString("frameworks "),
+        "frameworks ",
         settings.get("FRAMEWORK_SEARCH_PATHS"));
   }
 
   @Test
   public void testAppleLibraryTransitiveDependentsSearchHeadersAndLibraries() throws IOException {
-    Path rawXcconfigFile = Paths.get("Test.xcconfig");
-    SourcePath xcconfigFile = new PathSourcePath(rawXcconfigFile);
-    projectFilesystem.writeContentsToPath("", rawXcconfigFile);
-
-    ImmutableSortedMap<String, XcodeRuleConfiguration> configs =
-        ImmutableSortedMap.of(
-            "Debug",
-            new XcodeRuleConfiguration(
-                ImmutableList.of(
-                    new XcodeRuleConfigurationLayer(xcconfigFile),
-                    new XcodeRuleConfigurationLayer(xcconfigFile))));
+    ImmutableSortedMap<String, ImmutableMap<String, String>> configs = ImmutableSortedMap.of(
+        "Debug", ImmutableMap.<String, String>of());
 
     BuildTarget libraryDepTarget = BuildTarget.builder("//bar", "lib").build();
     TargetNode<?> libraryDepNode = AppleLibraryBuilder
@@ -809,7 +716,7 @@ public class ProjectGeneratorTest {
 
     ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
         ImmutableSet.of(libraryDepNode, libraryNode, testLibraryNode, testBundleNode, testNode),
-        ImmutableSet.of(ProjectGenerator.Option.REFERENCE_EXISTING_XCCONFIGS));
+        ImmutableSet.<ProjectGenerator.Option>of());
 
     projectGenerator.createXcodeProjects();
 
@@ -817,25 +724,22 @@ public class ProjectGeneratorTest {
         projectGenerator.getGeneratedProject(),
         "//foo:xctest");
 
-    assertHasConfigurations(target, "Debug");
-    XCBuildConfiguration configuration = target
-        .getBuildConfigurationList().getBuildConfigurationsByName().asMap().get("Debug");
-    NSDictionary settings = configuration.getBuildSettings();
+    ImmutableMap<String, String> settings = getBuildSettings(testBundleTarget, target, "Debug");
     assertEquals(
-        new NSString("$(inherited) " +
+        "$(inherited) " +
             "$BUILT_PRODUCTS_DIR/F4XWEYLSHJWGSYQ/Headers " +
-            "$BUILT_PRODUCTS_DIR/F4XWM33PHJWGSYQ/Headers"),
+            "$BUILT_PRODUCTS_DIR/F4XWM33PHJWGSYQ/Headers",
         settings.get("HEADER_SEARCH_PATHS"));
     assertEquals(
-        new NSString("$(inherited) "),
+        "$(inherited) ",
         settings.get("USER_HEADER_SEARCH_PATHS"));
     assertEquals(
-        new NSString("$(inherited) " +
+        "$(inherited) " +
             "$BUILT_PRODUCTS_DIR/F4XWEYLSHJWGSYQ " +
-            "$BUILT_PRODUCTS_DIR/F4XWM33PHJWGSYQ"),
+            "$BUILT_PRODUCTS_DIR/F4XWM33PHJWGSYQ",
         settings.get("LIBRARY_SEARCH_PATHS"));
     assertEquals(
-        new NSString("$(inherited) "),
+        "$(inherited) ",
         settings.get("FRAMEWORK_SEARCH_PATHS"));
   }
 
@@ -876,11 +780,6 @@ public class ProjectGeneratorTest {
 
   @Test
   public void testAppleBinaryRule() throws IOException {
-    SourcePath confFile = new PathSourcePath(EMPTY_XCCONFIG_PATH);
-    ImmutableList<XcodeRuleConfigurationLayer> confFiles = ImmutableList.of(
-        new XcodeRuleConfigurationLayer(confFile),
-        new XcodeRuleConfigurationLayer(confFile));
-
     BuildTarget depTarget = BuildTarget.builder("//dep", "dep").build();
     TargetNode<?> depNode = AppleLibraryBuilder
         .createBuilder(depTarget)
@@ -893,7 +792,7 @@ public class ProjectGeneratorTest {
             Optional.of(
                 ImmutableSortedMap.of(
                     "Debug",
-                    new XcodeRuleConfiguration(confFiles))))
+                    ImmutableMap.<String, String>of())))
         .setSrcs(
             Optional.of(
                 ImmutableList.of(
@@ -998,11 +897,6 @@ public class ProjectGeneratorTest {
 
   @Test
   public void testAppleBundleRuleForDynamicFramework() throws IOException {
-    SourcePath xcconfigFile = new PathSourcePath(Paths.get("Test.xcconfig"));
-    projectFilesystem.writeContentsToPath(
-        "",
-        new SourcePathResolver(new BuildRuleResolver()).getPath(xcconfigFile));
-
     BuildTarget dynamicLibraryTarget = BuildTarget
         .builder("//dep", "dynamic")
         .setFlavor(AppleLibraryDescription.DYNAMIC_LIBRARY)
@@ -1013,10 +907,7 @@ public class ProjectGeneratorTest {
             Optional.of(
                 ImmutableSortedMap.of(
                     "Debug",
-                    new XcodeRuleConfiguration(
-                        ImmutableList.of(
-                            new XcodeRuleConfigurationLayer(xcconfigFile),
-                            new XcodeRuleConfigurationLayer(xcconfigFile))))))
+                    ImmutableMap.<String, String>of())))
         .build();
 
     BuildTarget buildTarget = BuildTarget.builder("//foo", "bundle").build();
@@ -1028,7 +919,7 @@ public class ProjectGeneratorTest {
 
     ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
         ImmutableSet.of(dynamicLibraryNode, node),
-        ImmutableSet.of(ProjectGenerator.Option.REFERENCE_EXISTING_XCCONFIGS));
+        ImmutableSet.<ProjectGenerator.Option>of());
     projectGenerator.createXcodeProjects();
 
     PBXProject project = projectGenerator.getGeneratedProject();
@@ -1039,12 +930,9 @@ public class ProjectGeneratorTest {
     assertEquals("bundle.framework", productReference.getName());
     assertEquals(Optional.of("wrapper.framework"), productReference.getExplicitFileType());
 
-    assertHasConfigurations(target, "Debug");
-    XCBuildConfiguration configuration =
-        target.getBuildConfigurationList().getBuildConfigurationsByName().asMap().get("Debug");
-    NSDictionary settings = configuration.getBuildSettings();
+    ImmutableMap<String, String> settings = getBuildSettings(buildTarget, target, "Debug");
     assertEquals(
-        new NSString("framework"),
+        "framework",
         settings.get("WRAPPER_EXTENSION"));
   }
 
@@ -1416,6 +1304,32 @@ public class ProjectGeneratorTest {
     assertTrue(hasShellScriptPhaseToCompileAssetCatalogs(target));
   }
 
+  @Test
+  public void generatedTargetConfigurationHasRepoRootSet() throws IOException {
+    BuildTarget buildTarget = BuildTarget.builder("//foo", "rule").build();
+    TargetNode<?> node = AppleLibraryBuilder
+        .createBuilder(buildTarget)
+        .setConfigs(
+            Optional.of(
+                ImmutableSortedMap.of(
+                    "Debug",
+                    ImmutableMap.<String, String>of())))
+        .build();
+
+    ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
+        ImmutableSet.<TargetNode<?>>of(node),
+        ImmutableSet.<ProjectGenerator.Option>of());
+    projectGenerator.createXcodeProjects();
+
+    PBXProject generatedProject = projectGenerator.getGeneratedProject();
+    ImmutableMap<String, String> settings = getBuildSettings(
+        buildTarget, generatedProject.getTargets().get(0), "Debug");
+    assertThat(settings, hasKey("REPO_ROOT"));
+    assertEquals(
+        projectFilesystem.getRootPath().toAbsolutePath().normalize().toString(),
+        settings.get("REPO_ROOT"));
+  }
+
   /**
    * The project configurations should have named entries corresponding to every existing target
    * configuration for targets in the project.
@@ -1423,21 +1337,14 @@ public class ProjectGeneratorTest {
   @Test
   public void generatedProjectConfigurationListIsUnionOfAllTargetConfigurations()
       throws IOException {
-    SourcePath confFile = new PathSourcePath(EMPTY_XCCONFIG_PATH);
-    ImmutableList<XcodeRuleConfigurationLayer> confFiles = ImmutableList.of(
-        new XcodeRuleConfigurationLayer(confFile),
-        new XcodeRuleConfigurationLayer(confFile));
-
     BuildTarget buildTarget1 = BuildTarget.builder("//foo", "rule1").build();
     TargetNode<?> node1 = AppleLibraryBuilder
         .createBuilder(buildTarget1)
         .setConfigs(
             Optional.of(
                 ImmutableSortedMap.of(
-                    "Conf1",
-                    new XcodeRuleConfiguration(confFiles),
-                    "Conf2",
-                    new XcodeRuleConfiguration(confFiles))))
+                    "Conf1", ImmutableMap.<String, String>of(),
+                    "Conf2", ImmutableMap.<String, String>of())))
         .build();
 
     BuildTarget buildTarget2 = BuildTarget.builder("//foo", "rule2").build();
@@ -1446,10 +1353,8 @@ public class ProjectGeneratorTest {
         .setConfigs(
             Optional.of(
                 ImmutableSortedMap.of(
-                    "Conf2",
-                    new XcodeRuleConfiguration(confFiles),
-                    "Conf3",
-                    new XcodeRuleConfiguration(confFiles))))
+                    "Conf2", ImmutableMap.<String, String>of(),
+                    "Conf3", ImmutableMap.<String, String>of())))
         .build();
 
     ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
@@ -1462,42 +1367,6 @@ public class ProjectGeneratorTest {
     assertThat(configurations, hasKey("Conf1"));
     assertThat(configurations, hasKey("Conf2"));
     assertThat(configurations, hasKey("Conf3"));
-  }
-
-  @Test
-  public void generatedTargetConfigurationHasRepoRootSet() throws IOException {
-    SourcePath confFile = new PathSourcePath(EMPTY_XCCONFIG_PATH);
-    BuildTarget buildTarget = BuildTarget.builder("//foo", "rule").build();
-    TargetNode<?> node = AppleLibraryBuilder
-        .createBuilder(buildTarget)
-        .setConfigs(
-            Optional.of(
-                ImmutableSortedMap.of(
-                    "Debug",
-                    new XcodeRuleConfiguration(
-                        ImmutableList.of(
-                            new XcodeRuleConfigurationLayer(confFile),
-                            new XcodeRuleConfigurationLayer(confFile))))))
-        .build();
-
-    ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
-        ImmutableSet.<TargetNode<?>>of(node),
-        ImmutableSet.of(ProjectGenerator.Option.REFERENCE_EXISTING_XCCONFIGS));
-    projectGenerator.createXcodeProjects();
-
-    PBXProject generatedProject = projectGenerator.getGeneratedProject();
-    Map<String, XCBuildConfiguration> configurations = generatedProject
-        .getTargets()
-        .get(0)
-        .getBuildConfigurationList()
-        .getBuildConfigurationsByName()
-        .asMap();
-    assertThat(configurations, hasKey("Debug"));
-    NSDictionary buildSettings = configurations.get("Debug").getBuildSettings();
-    assertThat(buildSettings, hasKey("REPO_ROOT"));
-    assertEquals(
-        new NSString(projectFilesystem.getRootPath().toAbsolutePath().normalize().toString()),
-        buildSettings.get("REPO_ROOT"));
   }
 
   @Test
@@ -1779,6 +1648,8 @@ public class ProjectGeneratorTest {
         initialBuildTargets,
         projectFilesystem,
         executionContext,
+        buildRuleResolver,
+        sourcePathResolver,
         OUTPUT_DIRECTORY,
         PROJECT_NAME,
         projectGeneratorOptions);
@@ -1894,6 +1765,13 @@ public class ProjectGeneratorTest {
           "Resource should be in list of expected resources: " + source,
           expectedResourceSet.contains(source));
     }
+  }
+
+  private ImmutableMap<String, String> getBuildSettings(
+      BuildTarget buildTarget, PBXTarget target, String config) {
+    assertHasConfigurations(target, config);
+    return ProjectGeneratorTestUtils.getBuildSettings(
+        projectFilesystem, buildTarget, target, config);
   }
 
   private boolean hasShellScriptPhaseToCompileAssetCatalogs(PBXTarget target) {

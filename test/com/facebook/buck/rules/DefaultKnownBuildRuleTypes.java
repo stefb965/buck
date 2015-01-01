@@ -18,11 +18,11 @@ package com.facebook.buck.rules;
 
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.cli.FakeBuckConfig;
-import com.facebook.buck.java.JavaCompilerEnvironment;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.python.PythonEnvironment;
 import com.facebook.buck.python.PythonVersion;
 import com.facebook.buck.util.FakeAndroidDirectoryResolver;
-import com.facebook.buck.util.ProjectFilesystem;
+import com.facebook.buck.util.FakeProcessExecutor;
 
 import java.nio.file.Paths;
 
@@ -32,13 +32,14 @@ public class DefaultKnownBuildRuleTypes {
     // Utility class.
   }
 
-  public static KnownBuildRuleTypes getDefaultKnownBuildRuleTypes(ProjectFilesystem filesystem) {
+  public static KnownBuildRuleTypes getDefaultKnownBuildRuleTypes(ProjectFilesystem filesystem)
+      throws InterruptedException {
     BuckConfig config = new FakeBuckConfig(filesystem);
 
     return KnownBuildRuleTypes.createInstance(
         config,
+        new FakeProcessExecutor(),
         new FakeAndroidDirectoryResolver(),
-        JavaCompilerEnvironment.DEFAULT,
         new PythonEnvironment(Paths.get("fake_python"), new PythonVersion("Python 2.7")));
   }
 

@@ -18,11 +18,9 @@ package com.facebook.buck.util;
 
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-
 import com.google.common.collect.ImmutableList;
 
 import java.io.File;
-
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -130,6 +128,15 @@ public class ProcessExecutorParams {
       Objects.equals(redirectInput, that.redirectInput) &&
       Objects.equals(redirectOutput, that.redirectOutput) &&
       Objects.equals(redirectError, that.redirectError);
+  }
+
+  @Override
+  public String toString() {
+    return new StringBuilder("ProcessExecutorParams(")
+        .append(command)
+        .append(" {cwd = ").append(directory).append("}, ")
+        .append(environment)
+        .toString();
   }
 
   public static Builder builder() {

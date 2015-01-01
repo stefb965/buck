@@ -16,7 +16,8 @@
 
 package com.facebook.buck.android;
 
-import com.facebook.buck.java.JavaCompilerEnvironment;
+import static com.facebook.buck.java.JavaCompilationConstants.ANDROID_JAVAC_OPTIONS;
+
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.PathSourcePath;
@@ -27,7 +28,7 @@ public class RobolectricTestBuilder
     extends AbstractNodeBuilder<RobolectricTestDescription.Arg> {
 
   private RobolectricTestBuilder(BuildTarget target) {
-    super(new RobolectricTestDescription(JavaCompilerEnvironment.DEFAULT), target);
+    super(new RobolectricTestDescription(ANDROID_JAVAC_OPTIONS), target);
   }
 
   public static RobolectricTestBuilder createBuilder(BuildTarget target) {

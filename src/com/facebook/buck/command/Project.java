@@ -25,6 +25,7 @@ import com.facebook.buck.android.AndroidLibrary;
 import com.facebook.buck.android.AndroidPackageableCollection;
 import com.facebook.buck.android.AndroidResource;
 import com.facebook.buck.android.NdkLibrary;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.java.JavaBinary;
 import com.facebook.buck.java.JavaLibrary;
 import com.facebook.buck.java.JavaPackageFinder;
@@ -32,7 +33,7 @@ import com.facebook.buck.java.PrebuiltJar;
 import com.facebook.buck.model.BuildFileTree;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.FilesystemBackedBuildFileTree;
-import com.facebook.buck.rules.AbstractDependencyVisitor;
+import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.AnnotationProcessingData;
 import com.facebook.buck.rules.BuildRule;
@@ -49,7 +50,6 @@ import com.facebook.buck.util.Console;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.KeystoreProperties;
 import com.facebook.buck.util.ProcessExecutor;
-import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.buck.util.Verbosity;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonInclude.Include;
@@ -810,7 +810,7 @@ public class Project {
       @Nullable final BuildRule srcTarget) {
 
     final Path basePathForRule = rule.getBuildTarget().getBasePath();
-    new AbstractDependencyVisitor(rule, true /* excludeRoot */) {
+    new AbstractBreadthFirstTraversal<BuildRule>(rule.getDeps()) {
 
       private final LinkedHashSet<DependentModule> librariesToAdd = Sets.newLinkedHashSet();
       private final LinkedHashSet<DependentModule> modulesToAdd = Sets.newLinkedHashSet();

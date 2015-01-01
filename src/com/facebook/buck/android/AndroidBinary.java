@@ -19,6 +19,7 @@ package com.facebook.buck.android;
 import static com.facebook.buck.rules.BuildableProperties.Kind.ANDROID;
 import static com.facebook.buck.rules.BuildableProperties.Kind.PACKAGING;
 
+import com.facebook.buck.android.AndroidBinaryGraphEnhancer.EnhancementResult;
 import com.facebook.buck.android.FilterResourcesStep.ResourceFilter;
 import com.facebook.buck.android.ResourcesFilter.ResourceCompressionMode;
 import com.facebook.buck.java.AccumulateClassNamesStep;
@@ -121,7 +122,7 @@ public class AndroidBinary extends AbstractBuildRule implements
     /**
      * @return true if ProGuard should be used to obfuscate the output
      */
-    private boolean isBuildWithObfuscation() {
+    boolean isBuildWithObfuscation() {
       return this == RELEASE;
     }
 
@@ -138,8 +139,15 @@ public class AndroidBinary extends AbstractBuildRule implements
   }
 
   static enum ExopackageMode {
-    SECONDARY_DEX,
-    NATIVE_LIBRARY;
+    SECONDARY_DEX(1),
+    NATIVE_LIBRARY(2),
+    ;
+
+    private final int code;
+
+    private ExopackageMode(int code) {
+      this.code = code;
+    }
 
     public static boolean enabledForSecondaryDexes(EnumSet<ExopackageMode> modes) {
       return modes.contains(SECONDARY_DEX);
@@ -147,6 +155,14 @@ public class AndroidBinary extends AbstractBuildRule implements
 
     public static boolean enabledForNativeLibraries(EnumSet<ExopackageMode> modes) {
       return modes.contains(NATIVE_LIBRARY);
+    }
+
+    public static int toBitmask(EnumSet<ExopackageMode> modes) {
+      int bitmask = 0;
+      for (ExopackageMode mode : modes) {
+        bitmask |= mode.code;
+      }
+      return bitmask;
     }
   }
 
@@ -168,7 +184,7 @@ public class AndroidBinary extends AbstractBuildRule implements
   private final Function<String, String> macroExpander;
   private final Optional<String> preprocessJavaClassesBash;
   protected final ImmutableSortedSet<JavaLibrary> rulesToExcludeFromDex;
-  protected final AndroidBinaryGraphEnhancer.EnhancementResult enhancementResult;
+  protected final EnhancementResult enhancementResult;
 
   /**
    * @param target the Android platform version to target, e.g., "Google Inc.:Google APIs:16". You
@@ -197,7 +213,7 @@ public class AndroidBinary extends AbstractBuildRule implements
       Function<String, String> macroExpander,
       Optional<String> preprocessJavaClassesBash,
       ImmutableSortedSet<JavaLibrary> rulesToExcludeFromDex,
-      AndroidBinaryGraphEnhancer.EnhancementResult enhancementResult) {
+      EnhancementResult enhancementResult) {
     super(params, resolver);
     this.proguardJarOverride = proguardJarOverride;
     this.proguardMaxHeapSize = proguardMaxHeapSize;
@@ -301,10 +317,6 @@ public class AndroidBinary extends AbstractBuildRule implements
   public ResourceFilter getResourceFilter() {
     return resourceFilter;
   }
-  @VisibleForTesting
-  FilteredResourcesProvider getFilteredResourcesProvider() {
-    return enhancementResult.filteredResourcesProvider();
-  }
 
   public Function<String, String> getMacroExpander() {
     return macroExpander;
@@ -316,6 +328,11 @@ public class AndroidBinary extends AbstractBuildRule implements
 
   public Optional<Integer> getOptimizationPasses() {
     return optimizationPasses;
+  }
+
+  @VisibleForTesting
+  EnhancementResult getEnhancementResult() {
+    return enhancementResult;
   }
 
   /** The APK at this path is the final one that points to an APK that a user should install. */
@@ -349,11 +366,7 @@ public class AndroidBinary extends AbstractBuildRule implements
 
     // Create the .dex files if we aren't doing pre-dexing.
     Path signedApkPath = getSignedApkPath();
-    DexFilesInfo dexFilesInfo = addFinalDxSteps(
-        context,
-        enhancementResult.filteredResourcesProvider().getResDirectories(),
-        buildableContext,
-        steps);
+    DexFilesInfo dexFilesInfo = addFinalDxSteps(context, buildableContext, steps);
 
     ////
     // BE VERY CAREFUL adding any code below here.
@@ -456,7 +469,6 @@ public class AndroidBinary extends AbstractBuildRule implements
    */
   private DexFilesInfo addFinalDxSteps(
       BuildContext context,
-      ImmutableList<Path> resDirectories,
       BuildableContext buildableContext,
       ImmutableList.Builder<Step> steps) {
     AndroidPackageableCollection packageableCollection = enhancementResult.packageableCollection();
@@ -528,7 +540,6 @@ public class AndroidBinary extends AbstractBuildRule implements
           classpathEntriesToDex,
           packageableCollection.proguardConfigs(),
           steps,
-          resDirectories,
           buildableContext);
     }
 
@@ -615,24 +626,6 @@ public class AndroidBinary extends AbstractBuildRule implements
   }
 
   /**
-   * This is the path to the directory for generated files related to ProGuard. Ultimately, it
-   * should include:
-   * <ul>
-   *   <li>proguard.txt
-   *   <li>dump.txt
-   *   <li>seeds.txt
-   *   <li>usage.txt
-   *   <li>mapping.txt
-   *   <li>obfuscated.jar
-   * </ul>
-   * @return path to directory (will not include trailing slash)
-   */
-  @VisibleForTesting
-  Path getPathForProGuardDirectory() {
-    return BuildTargets.getGenPath(getBuildTarget(), ".proguard/%s");
-  }
-
-  /**
    * All native-libs-as-assets are copied to this directory before running apkbuilder.
    */
   private Path getPathForNativeLibsAsAssets() {
@@ -670,7 +663,9 @@ public class AndroidBinary extends AbstractBuildRule implements
     String obfuscatedName =
         Files.getNameWithoutExtension(classpathEntry.toString()) + "-obfuscated.jar";
     Path dirName = classpathEntry.getParent();
-    return getPathForProGuardDirectory().resolve(dirName).resolve(obfuscatedName);
+    Path proguardConfigDir = enhancementResult.aaptPackageResources()
+        .getPathToGeneratedProguardConfigDir();
+    return proguardConfigDir.resolve(dirName).resolve(obfuscatedName);
   }
 
   /**
@@ -681,7 +676,6 @@ public class AndroidBinary extends AbstractBuildRule implements
       Set<Path> classpathEntriesToDex,
       Set<Path> depsProguardConfigs,
       ImmutableList.Builder<Step> steps,
-      ImmutableList<Path> resDirectories,
       BuildableContext buildableContext) {
     final ImmutableSetMultimap<JavaLibrary, Path> classpathEntriesMap =
         getTransitiveClasspathEntries();
@@ -690,18 +684,6 @@ public class AndroidBinary extends AbstractBuildRule implements
     for (JavaLibrary buildRule : rulesToExcludeFromDex) {
       additionalLibraryJarsForProguardBuilder.addAll(classpathEntriesMap.get(buildRule));
     }
-
-    // Clean out the directory for generated ProGuard files.
-    Path proguardDirectory = getPathForProGuardDirectory();
-    steps.add(new MakeCleanDirectoryStep(proguardDirectory));
-
-    // Generate a file of ProGuard config options using aapt.
-    Path generatedProGuardConfig = proguardDirectory.resolve("proguard.txt");
-    GenProGuardConfigStep genProGuardConfig = new GenProGuardConfigStep(
-        enhancementResult.aaptPackageResources().getAndroidManifestXml(),
-        resDirectories,
-        generatedProGuardConfig);
-    steps.add(genProGuardConfig);
 
     // Create list of proguard Configs for the app project and its dependencies
     ImmutableSet.Builder<Path> proguardConfigsBuilder = ImmutableSet.builder();
@@ -722,17 +704,19 @@ public class AndroidBinary extends AbstractBuildRule implements
           }
         });
 
+    Path proguardConfigDir = enhancementResult.aaptPackageResources()
+        .getPathToGeneratedProguardConfigDir();
     // Run ProGuard on the classpath entries.
     ProGuardObfuscateStep.create(
         proguardJarOverride,
         proguardMaxHeapSize,
-        generatedProGuardConfig,
+        proguardConfigDir.resolve("proguard.txt"),
         proguardConfigsBuilder.build(),
         sdkProguardConfig,
         optimizationPasses,
         inputOutputEntries,
         additionalLibraryJarsForProguardBuilder.build(),
-        proguardDirectory,
+        proguardConfigDir,
         buildableContext,
         steps);
 
@@ -768,9 +752,10 @@ public class AndroidBinary extends AbstractBuildRule implements
       Optional<Path> proguardFullConfigFile = Optional.absent();
       Optional<Path> proguardMappingFile = Optional.absent();
       if (packageType.isBuildWithObfuscation()) {
-        proguardFullConfigFile =
-            Optional.of(getPathForProGuardDirectory().resolve("configuration.txt"));
-        proguardMappingFile = Optional.of(getPathForProGuardDirectory().resolve("mapping.txt"));
+        Path proguardConfigDir = enhancementResult.aaptPackageResources()
+            .getPathToGeneratedProguardConfigDir();
+        proguardFullConfigFile = Optional.of(proguardConfigDir.resolve("configuration.txt"));
+        proguardMappingFile = Optional.of(proguardConfigDir.resolve("mapping.txt"));
       }
 
       // DexLibLoader expects that metadata.txt and secondary jar files are under this dir

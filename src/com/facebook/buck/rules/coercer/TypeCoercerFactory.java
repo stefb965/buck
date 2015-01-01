@@ -16,12 +16,12 @@
 
 package com.facebook.buck.rules.coercer;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -67,8 +67,6 @@ public class TypeCoercerFactory {
 
   private final TypeCoercer<OCamlSource> ocamlSourceTypeCoercer;
 
-  private final TypeCoercer<XcodeRuleConfigurationLayer> xcodeRuleConfigurationLayerTypeCoercer;
-
   private final TypeCoercer<?>[] nonContainerTypeCoercers;
 
   public TypeCoercerFactory() {
@@ -79,9 +77,6 @@ public class TypeCoercerFactory {
             new PairTypeCoercer<>(sourcePathTypeCoercer, stringTypeCoercer),
             stringTypeCoercer);
     ocamlSourceTypeCoercer = new OCamlSourceTypeCoercer(sourcePathTypeCoercer);
-    xcodeRuleConfigurationLayerTypeCoercer = new XcodeRuleConfigurationLayerTypeCoercer(
-        sourcePathTypeCoercer,
-        new MapTypeCoercer<>(stringTypeCoercer, stringTypeCoercer));
     nonContainerTypeCoercers = new TypeCoercer<?>[] {
         // special classes
         labelTypeCoercer,
@@ -105,8 +100,6 @@ public class TypeCoercerFactory {
         // other simple
         appleSourceTypeCoercer,
         ocamlSourceTypeCoercer,
-        xcodeRuleConfigurationLayerTypeCoercer,
-        new XcodeRuleConfigurationTypeCoercer(xcodeRuleConfigurationLayerTypeCoercer),
         new AppleBundleDestinationTypeCoercer(stringTypeCoercer),
         new BuildConfigFieldsTypeCoercer(),
         new UriTypeCoercer(),

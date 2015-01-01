@@ -16,6 +16,7 @@
 
 package com.facebook.buck.cli;
 
+import static com.facebook.buck.cli.ExopackageInstaller.NATIVE_LIB_PATTERN;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
@@ -23,7 +24,7 @@ import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.base.Optional;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 
 import org.junit.Rule;
@@ -33,6 +34,7 @@ import org.junit.rules.ExpectedException;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.regex.Matcher;
 
 @SuppressWarnings("PMD.AddEmptyString")
 public class ExopackageInstallerTest {
@@ -149,7 +151,7 @@ public class ExopackageInstallerTest {
   @Test
   public void testFilterLibrariesForAbi() {
     Path libsDir = Paths.get("example/libs");
-    ImmutableMap<String, Path> allLibs = ImmutableMap.of(
+    ImmutableMultimap<String, Path> allLibs = ImmutableMultimap.of(
         Strings.repeat("a", 40), libsDir.resolve("armeabi-v7a").resolve("libmy1.so"),
         Strings.repeat("b", 40), libsDir.resolve("armeabi-v7a").resolve("libmy2.so"),
         Strings.repeat("c", 40), libsDir.resolve("armeabi").resolve("libmy2.so"),
@@ -187,7 +189,7 @@ public class ExopackageInstallerTest {
         Paths.get("metadata.txt"));
 
     assertEquals(
-        ImmutableMap.of(
+        ImmutableMultimap.of(
             Strings.repeat("a", 40), Paths.get("basedir/filename.jar"),
             Strings.repeat("b", 40), Paths.get("basedir/dir/anotherfile.jar")),
         ExopackageInstaller.parseExopackageInfoMetadata(
@@ -205,5 +207,22 @@ public class ExopackageInstallerTest {
         Paths.get("metadata.txt"),
         baseDir,
         filesystem);
+  }
+
+
+  @Test
+  public void testNativeLibFilesPattern() {
+    assertEquals("123abc", matchAndGetHash("native-123abc.so"));
+    assertEquals(null, matchAndGetHash("native-123abcz.so"));
+    assertEquals(null, matchAndGetHash("native-.so"));
+    assertEquals(null, matchAndGetHash("secondary-123abc.so"));
+  }
+
+  private String matchAndGetHash(String filename) {
+    Matcher m = NATIVE_LIB_PATTERN.matcher(filename);
+    if (m.matches()) {
+      return m.group(1);
+    }
+    return null;
   }
 }

@@ -16,7 +16,8 @@
 
 package com.facebook.buck.java;
 
-import static com.facebook.buck.java.JavaCompilerEnvironment.TARGETED_JAVA_VERSION;
+import static com.facebook.buck.java.JavaCompilationConstants.DEFAULT_JAVAC_OPTIONS;
+import static com.facebook.buck.java.JavaBuckConfig.TARGETED_JAVA_VERSION;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.model.BuildTarget;
@@ -84,8 +85,7 @@ public class JavacInMemoryStepTest extends EasyMockSupport {
           /* transitiveClasspathEntries */
             ImmutableSet.of(Paths.get("bar.jar"), Paths.get("foo.jar")),
           /* declaredClasspathEntries */ ImmutableSet.of(Paths.get("foo.jar")),
-          /* JavacOptions */ JavacOptions.DEFAULTS,
-          /* pathToOutputAbiFile */ Optional.<Path>absent(),
+          DEFAULT_JAVAC_OPTIONS,
           /* invokingRule */ Optional.<BuildTarget>absent(),
           /* buildDependencies */ buildDependencies,
           /* suggestBuildRules */ Optional.<JavacInMemoryStep.SuggestBuildRules>absent(),

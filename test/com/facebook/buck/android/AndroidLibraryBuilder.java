@@ -16,7 +16,8 @@
 
 package com.facebook.buck.android;
 
-import com.facebook.buck.java.JavaCompilerEnvironment;
+import static com.facebook.buck.java.JavaCompilationConstants.ANDROID_JAVAC_OPTIONS;
+
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.PathSourcePath;
@@ -28,7 +29,7 @@ import java.nio.file.Path;
 public class AndroidLibraryBuilder extends AbstractNodeBuilder<AndroidLibraryDescription.Arg> {
 
   private AndroidLibraryBuilder(BuildTarget target) {
-    super(new AndroidLibraryDescription(JavaCompilerEnvironment.DEFAULT), target);
+    super(new AndroidLibraryDescription(ANDROID_JAVAC_OPTIONS), target);
   }
 
   public static AndroidLibraryBuilder createBuilder(BuildTarget target) {

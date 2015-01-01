@@ -26,6 +26,9 @@ import com.facebook.buck.event.listener.LoggingBuildListener;
 import com.facebook.buck.event.listener.SimpleConsoleEventBusListener;
 import com.facebook.buck.event.listener.SuperConsoleEventBusListener;
 import com.facebook.buck.httpserver.WebServer;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.java.JavaBuckConfig;
+import com.facebook.buck.java.JavacOptions;
 import com.facebook.buck.log.CommandThreadAssociation;
 import com.facebook.buck.log.LogConfig;
 import com.facebook.buck.log.Logger;
@@ -52,7 +55,6 @@ import com.facebook.buck.util.InterruptionFailedException;
 import com.facebook.buck.util.PkillProcessManager;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessManager;
-import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.buck.util.ProjectFilesystemWatcher;
 import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.WatchServiceWatcher;
@@ -178,6 +180,7 @@ public final class Main {
           repositoryFactory,
           repository.getBuckConfig().getPythonInterpreter(),
           repository.getBuckConfig().getAllowEmptyGlobs(),
+          repository.getBuckConfig().enforceBuckPackageBoundary(),
           repository.getBuckConfig().getTempFilePatterns(),
           createRuleKeyBuilderFactory(hashCache));
 
@@ -624,6 +627,7 @@ public final class Main {
             repositoryFactory,
             rootRepository.getBuckConfig().getPythonInterpreter(),
             rootRepository.getBuckConfig().getAllowEmptyGlobs(),
+            rootRepository.getBuckConfig().enforceBuckPackageBoundary(),
             rootRepository.getBuckConfig().getTempFilePatterns(),
             createRuleKeyBuilderFactory(fileHashCache));
       }
@@ -803,7 +807,7 @@ public final class Main {
       Console console,
       AbstractConsoleEventBusListener consoleEventBusListener,
       KnownBuildRuleTypes knownBuildRuleTypes,
-      ImmutableMap<String, String> environment) {
+      ImmutableMap<String, String> environment) throws InterruptedException {
     ImmutableList.Builder<BuckEventListener> eventListenersBuilder =
         ImmutableList.<BuckEventListener>builder()
             .add(new JavaUtilsLoggingBuildListener())
@@ -819,12 +823,17 @@ public final class Main {
 
 
 
+    JavacOptions javacOptions = new JavaBuckConfig(config).getDefaultJavacOptions(
+        new ProcessExecutor(
+            console));
+
     eventListenersBuilder.add(MissingSymbolsHandler.createListener(
             projectFilesystem,
             knownBuildRuleTypes.getAllDescriptions(),
             config,
             buckEvents,
             console,
+            javacOptions,
             environment));
 
     ImmutableList<BuckEventListener> eventListeners = eventListenersBuilder.build();

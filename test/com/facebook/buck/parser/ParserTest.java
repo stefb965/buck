@@ -22,7 +22,6 @@ import static org.easymock.EasyMock.replay;
 import static org.easymock.EasyMock.verify;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.fail;
 import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.event.BuckEvent;
@@ -30,6 +29,8 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.event.FakeBuckEventListener;
 import com.facebook.buck.event.TestEventConfigerator;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.java.JavaLibrary;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.json.DefaultProjectBuildFileParserFactory;
 import com.facebook.buck.json.ProjectBuildFileParser;
@@ -54,7 +55,6 @@ import com.facebook.buck.testutil.WatchEvents;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Charsets;
 import com.google.common.base.Optional;
@@ -134,7 +134,8 @@ public class ParserTest extends EasyMockSupport {
     Files.write(
         "include_defs('//java/com/facebook/includedByBuildFile')\n" +
         "java_library(name = 'foo')\n" +
-        "java_library(name = 'bar')\n",
+        "java_library(name = 'bar')\n" +
+        "genrule(name = 'baz', out = '')\n",
         testBuildFile.toFile(),
         Charsets.UTF_8);
 
@@ -204,7 +205,8 @@ public class ParserTest extends EasyMockSupport {
         buildTargetParser,
         buildFileParserFactory,
         tempFilePatterns,
-        new FakeRuleKeyBuilderFactory());
+        new FakeRuleKeyBuilderFactory(),
+        /* enforceBuckPackageBoundary */ true);
 
     try {
       parser.parseRawRulesInternal(rules);
@@ -237,7 +239,7 @@ public class ParserTest extends EasyMockSupport {
         new TestConsole(),
         ImmutableMap.<String, String>of(),
         /* enableProfiling */ false);
-    ActionGraph actionGraph = targetGraph.getActionGraph(eventBus);
+    ActionGraph actionGraph = targetGraph.getActionGraph();
     BuildRule fooRule = actionGraph.findBuildRuleByTarget(fooTarget);
     assertNotNull(fooRule);
     BuildRule barRule = actionGraph.findBuildRuleByTarget(barTarget);
@@ -262,20 +264,18 @@ public class ParserTest extends EasyMockSupport {
     Iterable<BuildTarget> buildTargets = ImmutableList.of(fooTarget, razTarget);
     Iterable<String> defaultIncludes = ImmutableList.of();
 
-    try {
-      testParser.buildTargetGraphForBuildTargets(
-          buildTargets,
-          defaultIncludes,
-          BuckEventBusFactory.newInstance(),
-          new TestConsole(),
-          ImmutableMap.<String, String>of(),
-          /* enableProfiling */ false);
-      fail("HumanReadableException should be thrown");
-    } catch (HumanReadableException e) {
-      assertEquals("No rule found when resolving target //java/com/facebook:raz in build file " +
-                   "//java/com/facebook/BUCK",
-          e.getHumanReadableErrorMessage());
-    }
+    thrown.expect(HumanReadableException.class);
+    thrown.expectMessage(
+        "No rule found when resolving target //java/com/facebook:raz in build file " +
+            "//java/com/facebook/BUCK");
+
+    testParser.buildTargetGraphForBuildTargets(
+        buildTargets,
+        defaultIncludes,
+        BuckEventBusFactory.newInstance(),
+        new TestConsole(),
+        ImmutableMap.<String, String>of(),
+        /* enableProfiling */ false);
   }
 
   @Test
@@ -284,20 +284,38 @@ public class ParserTest extends EasyMockSupport {
     BuildTarget flavored = BuildTarget.builder("//java/com/facebook", "foo")
         .addFlavor("doesNotExist")
         .build();
-    try {
-      testParser.buildTargetGraphForBuildTargets(
-          ImmutableSortedSet.of(flavored),
-          ImmutableList.<String>of(),
-          BuckEventBusFactory.newInstance(),
-          new TestConsole(),
-          ImmutableMap.<String, String>of(),
-          /* enableProfiling */ false);
-    } catch (HumanReadableException e) {
-      assertEquals(
-          "Unrecognized flavor in target //java/com/facebook:foo#doesNotExist while parsing " +
-              "//java/com/facebook/BUCK.",
-          e.getHumanReadableErrorMessage());
-    }
+
+    thrown.expect(HumanReadableException.class);
+    thrown.expectMessage(
+        "Unrecognized flavor in target //java/com/facebook:foo#doesNotExist while parsing " +
+            "//java/com/facebook/BUCK.");
+    testParser.buildTargetGraphForBuildTargets(
+        ImmutableSortedSet.of(flavored),
+        ImmutableList.<String>of(),
+        BuckEventBusFactory.newInstance(),
+        new TestConsole(),
+        ImmutableMap.<String, String>of(),
+        /* enableProfiling */ false);
+  }
+
+  @Test
+  public void shouldThrowAnExceptionWhenAFlavorIsAskedOfATargetThatDoesntSupportFlavors()
+    throws BuildFileParseException, BuildTargetException, InterruptedException, IOException {
+    BuildTarget flavored = BuildTarget.builder("//java/com/facebook", "baz")
+        .addFlavor(JavaLibrary.SRC_JAR)
+        .build();
+
+    thrown.expect(HumanReadableException.class);
+    thrown.expectMessage(
+        "Unrecognized flavor in target //java/com/facebook:baz#src while parsing " +
+            "//java/com/facebook/BUCK.");
+    testParser.buildTargetGraphForBuildTargets(
+        ImmutableSortedSet.of(flavored),
+        ImmutableList.<String>of(),
+        BuckEventBusFactory.newInstance(),
+        new TestConsole(),
+        ImmutableMap.<String, String>of(),
+        /* enableProfiling */ false);
   }
 
   @Test
@@ -328,13 +346,13 @@ public class ParserTest extends EasyMockSupport {
     Iterable<BuildTarget> buildTargets = ImmutableList.of(fooTarget);
     Iterable<String> defaultIncludes = ImmutableList.of();
 
-  testParser.buildTargetGraphForBuildTargets(
-      buildTargets,
-      defaultIncludes,
-      BuckEventBusFactory.newInstance(),
-      new TestConsole(),
-      ImmutableMap.<String, String>of(),
-      /* enableProfiling */ false);
+    testParser.buildTargetGraphForBuildTargets(
+        buildTargets,
+        defaultIncludes,
+        BuckEventBusFactory.newInstance(),
+        new TestConsole(),
+        ImmutableMap.<String, String>of(),
+        /* enableProfiling */ false);
   }
 
   @Test
@@ -351,7 +369,8 @@ public class ParserTest extends EasyMockSupport {
 
     ImmutableSet<BuildTarget> expectedTargets = ImmutableSet.of(
         BuildTarget.builder("//java/com/facebook", "foo").build(),
-        BuildTarget.builder("//java/com/facebook", "bar").build());
+        BuildTarget.builder("//java/com/facebook", "bar").build(),
+        BuildTarget.builder("//java/com/facebook", "baz").build());
     assertEquals("Should have returned all rules.", expectedTargets, targets);
   }
 
@@ -481,8 +500,10 @@ public class ParserTest extends EasyMockSupport {
 
 
   // TODO(jimp/devjasta): clean up the horrible ProjectBuildFileParserFactory mess.
-  private void parseBuildFile(Path buildFile, Parser parser,
-                              ProjectBuildFileParserFactory buildFileParserFactory)
+  private void parseBuildFile(
+      Path buildFile,
+      Parser parser,
+      ProjectBuildFileParserFactory buildFileParserFactory)
       throws BuildFileParseException, BuildTargetException, IOException, InterruptedException {
     try (ProjectBuildFileParser projectBuildFileParser = buildFileParserFactory.createParser(
         /* commonIncludes */ Lists.<String>newArrayList(),
@@ -989,7 +1010,7 @@ public class ParserTest extends EasyMockSupport {
         eventBus,
         new TestConsole(),
         ImmutableMap.<String, String>of(),
-        /* enableProfiling */ false).getActionGraph(eventBus);
+        /* enableProfiling */ false).getActionGraph();
 
     BuildRule fooRule = graph.findBuildRuleByTarget(fooTarget);
     assertNotNull(fooRule);
@@ -1220,17 +1241,18 @@ public class ParserTest extends EasyMockSupport {
 
     tempDir.newFolder("bar");
     tempDir.newFile("bar/Bar.java");
+    tempDir.newFolder("foo");
     Path rootPath = tempDir.getRoot().toPath();
-    java.nio.file.Files.createSymbolicLink(rootPath.resolve("foo"), rootPath.resolve("bar"));
+    java.nio.file.Files.createSymbolicLink(rootPath.resolve("foo/bar"), rootPath.resolve("bar"));
 
-    File testBuckFile = tempDir.newFile(BuckConstant.BUILD_RULES_FILE_NAME);
+    Path testBuckFile = rootPath.resolve("foo").resolve(BuckConstant.BUILD_RULES_FILE_NAME);
     Files.write(
-        "java_library(name = 'lib', srcs=glob(['foo/*.java']))\n",
-        testBuckFile,
+        "java_library(name = 'lib', srcs=glob(['bar/*.java']))\n",
+        testBuckFile.toFile(),
         Charsets.UTF_8);
 
     // Fetch //:lib to put it in cache.
-    BuildTarget libTarget = BuildTarget.builder("//", "lib").build();
+    BuildTarget libTarget = BuildTarget.builder("//foo", "lib").build();
     Iterable<BuildTarget> buildTargets = ImmutableList.of(libTarget);
     Iterable<String> defaultIncludes = ImmutableList.of();
 
@@ -1244,10 +1266,10 @@ public class ParserTest extends EasyMockSupport {
           new TestConsole(),
           ImmutableMap.<String, String>of(),
           /* enableProfiling */ false)
-          .getActionGraph(eventBus);
+          .getActionGraph();
 
       BuildRule libRule = graph.findBuildRuleByTarget(libTarget);
-      assertEquals(ImmutableList.of(Paths.get("foo/Bar.java")), libRule.getInputs());
+      assertEquals(ImmutableList.of(Paths.get("foo/bar/Bar.java")), libRule.getInputs());
     }
 
     tempDir.newFile("bar/Baz.java");
@@ -1267,9 +1289,9 @@ public class ParserTest extends EasyMockSupport {
           new TestConsole(),
           ImmutableMap.<String, String>of(),
           /* enableProfiling */ false)
-             .getActionGraph(eventBus);
+             .getActionGraph();
       BuildRule libRule = graph.findBuildRuleByTarget(libTarget);
-      assertEquals(ImmutableList.of(Paths.get("foo/Bar.java")), libRule.getInputs());
+      assertEquals(ImmutableList.of(Paths.get("foo/bar/Bar.java")), libRule.getInputs());
     }
 
     // Now tell the parser to forget about build files with inputs under symlinks.
@@ -1283,10 +1305,10 @@ public class ParserTest extends EasyMockSupport {
           new TestConsole(),
           ImmutableMap.<String, String>of(),
           /* enableProfiling */ false)
-            .getActionGraph(eventBus);
+            .getActionGraph();
       BuildRule libRule = graph.findBuildRuleByTarget(libTarget);
       assertEquals(
-          ImmutableList.of(Paths.get("foo/Bar.java"), Paths.get("foo/Baz.java")),
+          ImmutableList.of(Paths.get("foo/bar/Bar.java"), Paths.get("foo/bar/Baz.java")),
           libRule.getInputs());
     }
   }
@@ -1298,18 +1320,19 @@ public class ParserTest extends EasyMockSupport {
 
     tempDir.newFolder("bar");
     tempDir.newFile("bar/Bar.java");
+    tempDir.newFolder("foo");
     File bazSourceFile = tempDir.newFile("bar/Baz.java");
     Path rootPath = tempDir.getRoot().toPath();
-    java.nio.file.Files.createSymbolicLink(rootPath.resolve("foo"), rootPath.resolve("bar"));
+    java.nio.file.Files.createSymbolicLink(rootPath.resolve("foo/bar"), rootPath.resolve("bar"));
 
-    File testBuckFile = tempDir.newFile(BuckConstant.BUILD_RULES_FILE_NAME);
+    Path testBuckFile = rootPath.resolve("foo").resolve(BuckConstant.BUILD_RULES_FILE_NAME);
     Files.write(
-        "java_library(name = 'lib', srcs=glob(['foo/*.java']))\n",
-        testBuckFile,
+        "java_library(name = 'lib', srcs=glob(['bar/*.java']))\n",
+        testBuckFile.toFile(),
         Charsets.UTF_8);
 
     // Fetch //:lib to put it in cache.
-    BuildTarget libTarget = BuildTarget.builder("//", "lib").build();
+    BuildTarget libTarget = BuildTarget.builder("//foo", "lib").build();
     Iterable<BuildTarget> buildTargets = ImmutableList.of(libTarget);
     Iterable<String> defaultIncludes = ImmutableList.of();
 
@@ -1322,11 +1345,11 @@ public class ParserTest extends EasyMockSupport {
           eventBus,
           new TestConsole(),
           ImmutableMap.<String, String>of(),
-          /* enableProfiling */ false).getActionGraph(eventBus);
+          /* enableProfiling */ false).getActionGraph();
 
       BuildRule libRule = graph.findBuildRuleByTarget(libTarget);
       assertEquals(
-          ImmutableList.of(Paths.get("foo/Bar.java"), Paths.get("foo/Baz.java")),
+          ImmutableList.of(Paths.get("foo/bar/Bar.java"), Paths.get("foo/bar/Baz.java")),
           libRule.getInputs());
     }
 
@@ -1347,10 +1370,10 @@ public class ParserTest extends EasyMockSupport {
           new TestConsole(),
           ImmutableMap.<String, String>of(),
           /* enableProfiling */ false)
-              .getActionGraph(eventBus);
+              .getActionGraph();
       BuildRule libRule = graph.findBuildRuleByTarget(libTarget);
       assertEquals(
-          ImmutableList.of(Paths.get("foo/Bar.java"), Paths.get("foo/Baz.java")),
+          ImmutableList.of(Paths.get("foo/bar/Bar.java"), Paths.get("foo/bar/Baz.java")),
           libRule.getInputs());
     }
 
@@ -1365,10 +1388,10 @@ public class ParserTest extends EasyMockSupport {
           new TestConsole(),
           ImmutableMap.<String, String>of(),
           /* enableProfiling */ false)
-              .getActionGraph(eventBus);
+              .getActionGraph();
       BuildRule libRule = graph.findBuildRuleByTarget(libTarget);
       assertEquals(
-          ImmutableList.of(Paths.get("foo/Bar.java")),
+          ImmutableList.of(Paths.get("foo/bar/Bar.java")),
           libRule.getInputs());
     }
   }

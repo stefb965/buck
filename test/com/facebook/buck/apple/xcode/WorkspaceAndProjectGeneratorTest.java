@@ -28,11 +28,12 @@ import com.facebook.buck.apple.AppleLibraryBuilder;
 import com.facebook.buck.apple.AppleLibraryDescription;
 import com.facebook.buck.apple.AppleTestBuilder;
 import com.facebook.buck.apple.XcodeProjectConfigBuilder;
-import com.facebook.buck.apple.XcodeWorkspaceConfig;
 import com.facebook.buck.apple.XcodeWorkspaceConfigBuilder;
+import com.facebook.buck.apple.XcodeWorkspaceConfigDescription;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.ActionGraph;
-import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.coercer.Either;
@@ -41,7 +42,6 @@ import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.timing.SettableFakeClock;
-import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -60,14 +60,15 @@ public class WorkspaceAndProjectGeneratorTest {
   private ProjectFilesystem projectFilesystem;
   private FakeProjectFilesystem fakeProjectFilesystem;
   private ExecutionContext executionContext;
+  private BuildRuleResolver buildRuleResolver;
+  private SourcePathResolver sourcePathResolver;
 
   private TargetGraph targetGraph;
-  private ActionGraph actionGraph;
-  private XcodeWorkspaceConfig workspaceConfig;
-  private BuildTarget fooProjectTarget;
-  private BuildTarget barProjectTarget;
-  private BuildTarget bazProjectTarget;
-  private BuildTarget quxProjectTarget;
+  private TargetNode<XcodeWorkspaceConfigDescription.Arg> workspaceNode;
+  private TargetNode<?> fooProjectNode;
+  private TargetNode<?> barProjectNode;
+  private TargetNode<?> bazProjectNode;
+  private TargetNode<?> quxProjectNode;
 
   @Before
   public void setUp() throws IOException {
@@ -75,6 +76,8 @@ public class WorkspaceAndProjectGeneratorTest {
     fakeProjectFilesystem = new FakeProjectFilesystem(clock);
     projectFilesystem = fakeProjectFilesystem;
     executionContext = TestExecutionContext.newInstance();
+    buildRuleResolver = new BuildRuleResolver();
+    sourcePathResolver = new SourcePathResolver(buildRuleResolver);
 
     // Add support files needed by project generation to fake filesystem.
     projectFilesystem.writeContentsToPath(
@@ -205,8 +208,8 @@ public class WorkspaceAndProjectGeneratorTest {
         .setDeps(Optional.of(ImmutableSortedSet.of(barLibTarget)))
         .build();
 
-    fooProjectTarget = BuildTarget.builder("//foo", "foo").build();
-    TargetNode<?> fooProjectNode = XcodeProjectConfigBuilder
+    BuildTarget fooProjectTarget = BuildTarget.builder("//foo", "foo").build();
+    fooProjectNode = XcodeProjectConfigBuilder
         .createBuilder(fooProjectTarget)
         .setProjectName("foo")
         .setRules(
@@ -220,15 +223,15 @@ public class WorkspaceAndProjectGeneratorTest {
                 fooBinTestBundleTarget))
         .build();
 
-    barProjectTarget = BuildTarget.builder("//bar", "bar").build();
-    TargetNode<?> barProjectNode = XcodeProjectConfigBuilder
+    BuildTarget barProjectTarget = BuildTarget.builder("//bar", "bar").build();
+    barProjectNode = XcodeProjectConfigBuilder
         .createBuilder(barProjectTarget)
         .setProjectName("bar")
         .setRules(ImmutableSortedSet.of(barLibTarget))
         .build();
 
-    bazProjectTarget = BuildTarget.builder("//baz", "baz").build();
-    TargetNode<?> bazProjectNode = XcodeProjectConfigBuilder
+    BuildTarget bazProjectTarget = BuildTarget.builder("//baz", "baz").build();
+    bazProjectNode = XcodeProjectConfigBuilder
         .createBuilder(bazProjectTarget)
         .setProjectName("baz")
         .setRules(
@@ -238,15 +241,15 @@ public class WorkspaceAndProjectGeneratorTest {
                 bazTestBundleTarget))
         .build();
 
-    quxProjectTarget = BuildTarget.builder("//qux", "qux").build();
-    TargetNode<?> quxProjectNode = XcodeProjectConfigBuilder
+    BuildTarget quxProjectTarget = BuildTarget.builder("//qux", "qux").build();
+    quxProjectNode = XcodeProjectConfigBuilder
         .createBuilder(quxProjectTarget)
         .setProjectName("qux")
         .setRules(ImmutableSortedSet.of(quxBinTarget))
         .build();
 
     BuildTarget workspaceTarget = BuildTarget.builder("//foo", "workspace").build();
-    TargetNode<?> workspaceNode = XcodeWorkspaceConfigBuilder
+    workspaceNode = XcodeWorkspaceConfigBuilder
         .createBuilder(workspaceTarget)
         .setWorkspaceName(Optional.of("workspace"))
         .setSrcTarget(Optional.of(fooBinTarget))
@@ -273,9 +276,6 @@ public class WorkspaceAndProjectGeneratorTest {
         bazProjectNode,
         quxProjectNode,
         workspaceNode);
-
-    actionGraph = targetGraph.getActionGraph(executionContext.getBuckEventBus());
-    workspaceConfig = (XcodeWorkspaceConfig) actionGraph.findBuildRuleByTarget(workspaceTarget);
   }
 
   @Test
@@ -284,22 +284,23 @@ public class WorkspaceAndProjectGeneratorTest {
         projectFilesystem,
         targetGraph,
         executionContext,
-        workspaceConfig,
-        ImmutableSet.of(ProjectGenerator.Option.REFERENCE_EXISTING_XCCONFIGS),
-        AppleBuildRules.getSourceRuleToTestRulesMap(actionGraph.getNodes()),
-        ImmutableSet.<BuildRule>of(),
+        buildRuleResolver,
+        sourcePathResolver,
+        workspaceNode,
+        ImmutableSet.<ProjectGenerator.Option>of(),
+        AppleBuildRules.getSourceTargetToTestNodesMap(targetGraph.getNodes()),
         false);
-    Map<BuildRule, ProjectGenerator> projectGenerators = new HashMap<>();
+    Map<TargetNode<?>, ProjectGenerator> projectGenerators = new HashMap<>();
     generator.generateWorkspaceAndDependentProjects(projectGenerators);
 
     ProjectGenerator fooProjectGenerator =
-        projectGenerators.get(actionGraph.findBuildRuleByTarget(fooProjectTarget));
+        projectGenerators.get(fooProjectNode);
     ProjectGenerator barProjectGenerator =
-        projectGenerators.get(actionGraph.findBuildRuleByTarget(barProjectTarget));
+        projectGenerators.get(barProjectNode);
     ProjectGenerator bazProjectGenerator =
-        projectGenerators.get(actionGraph.findBuildRuleByTarget(bazProjectTarget));
+        projectGenerators.get(bazProjectNode);
     ProjectGenerator quxProjectGenerator =
-        projectGenerators.get(actionGraph.findBuildRuleByTarget(quxProjectTarget));
+        projectGenerators.get(quxProjectNode);
 
     assertNull(
         "The Qux project should not be generated at all",
@@ -343,12 +344,13 @@ public class WorkspaceAndProjectGeneratorTest {
         projectFilesystem,
         targetGraph,
         executionContext,
-        workspaceConfig,
-        ImmutableSet.of(ProjectGenerator.Option.REFERENCE_EXISTING_XCCONFIGS),
-        AppleBuildRules.getSourceRuleToTestRulesMap(actionGraph.getNodes()),
-        ImmutableSet.<BuildRule>of(),
+        buildRuleResolver,
+        sourcePathResolver,
+        workspaceNode,
+        ImmutableSet.<ProjectGenerator.Option>of(),
+        AppleBuildRules.getSourceTargetToTestNodesMap(targetGraph.getNodes()),
         true);
-    Map<BuildRule, ProjectGenerator> projectGenerators = new HashMap<>();
+    Map<TargetNode<?>, ProjectGenerator> projectGenerators = new HashMap<>();
     generator.generateWorkspaceAndDependentProjects(projectGenerators);
 
     assertTrue(

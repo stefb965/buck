@@ -21,6 +21,7 @@ import com.facebook.buck.java.JavacOptions;
 import com.facebook.buck.java.JavacStep;
 import com.facebook.buck.java.JavacStepUtil;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.AnnotationProcessingData;
 import com.facebook.buck.rules.BuildDependencies;
 import com.facebook.buck.step.Step;
 import com.google.common.base.Optional;
@@ -50,7 +51,6 @@ public class RDotJava {
     return createJavacStepForDummyRDotJavaFiles(
         javaSourceFilePaths,
         outputDirectory,
-        /* pathToOutputAbiFile */ Optional.<Path>absent(),
         javacOptions,
         buildTarget);
   }
@@ -58,7 +58,6 @@ public class RDotJava {
   static JavacStep createJavacStepForDummyRDotJavaFiles(
       Set<Path> javaSourceFilePaths,
       Path outputDirectory,
-      Optional<Path> pathToOutputAbiFile,
       JavacOptions javacOptions,
       BuildTarget buildTarget) {
 
@@ -67,10 +66,9 @@ public class RDotJava {
         javaSourceFilePaths,
         ImmutableSet.<Path>of(),
         /* classpathEntries */ ImmutableSet.<Path>of(),
-        JavacOptions.builder(JavacOptions.DEFAULTS)
-            .setJavaCompilerEnvironment(javacOptions.getJavaCompilerEnvironment())
+        JavacOptions.builder(javacOptions)
+            .setAnnotationProcessingData(AnnotationProcessingData.EMPTY)
             .build(),
-        pathToOutputAbiFile,
         Optional.<BuildTarget>absent(),
         BuildDependencies.FIRST_ORDER_ONLY,
         Optional.<JavacInMemoryStep.SuggestBuildRules>absent(),

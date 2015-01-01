@@ -39,9 +39,9 @@ import java.nio.file.Path;
 
 public class CxxCompilableEnhancer {
 
-  private CxxCompilableEnhancer() {}
-
   private static final BuildRuleType COMPILE_TYPE = new BuildRuleType("compile");
+
+  private CxxCompilableEnhancer() {}
 
   /**
    * Prefixes each of the given assembler arguments with "-Xassembler" so that the compiler
@@ -109,7 +109,11 @@ public class CxxCompilableEnhancer {
         new Flavor(String.format(
             "compile-%s%s",
             pic ? "pic-" : "",
-            getOutputName(name).replace('/', '-').replace('.', '-'))));
+            getOutputName(name)
+                .replace('/', '-')
+                .replace('.', '-')
+                .replace('+', '-')
+                .replace(' ', '-'))));
   }
 
   /**
@@ -201,7 +205,8 @@ public class CxxCompilableEnhancer {
         Optional.<CxxCompile.Plugin>absent(),
         args.build(),
         getCompileOutputPath(target, name),
-        source.getPath());
+        source.getPath(),
+        platform.getDebugPathSanitizer());
   }
 
   /**

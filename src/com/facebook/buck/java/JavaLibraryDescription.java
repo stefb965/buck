@@ -16,11 +16,11 @@
 
 package com.facebook.buck.java;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.Flavored;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -30,8 +30,8 @@ import com.facebook.buck.rules.FlavorableDescription;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
@@ -45,13 +45,12 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
     FlavorableDescription<JavaLibraryDescription.Arg>, Flavored {
 
   public static final BuildRuleType TYPE = new BuildRuleType("java_library");
-  public static final String ANNOTATION_PROCESSORS = "annotation_processors";
 
   @VisibleForTesting
-  final JavaCompilerEnvironment javacEnv;
+  final JavacOptions defaultOptions;
 
-  public JavaLibraryDescription(JavaCompilerEnvironment javacEnv) {
-    this.javacEnv = javacEnv;
+  public JavaLibraryDescription(JavacOptions defaultOptions) {
+    this.defaultOptions = defaultOptions;
   }
 
   @Override
@@ -88,7 +87,9 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
       return new JavaSourceJar(params, pathResolver, args.srcs.get());
     }
 
-    JavacOptions.Builder javacOptions = JavaLibraryDescription.getJavacOptions(args, javacEnv);
+    JavacOptions.Builder javacOptions = JavaLibraryDescription.getJavacOptions(
+        args,
+        defaultOptions);
 
     AnnotationProcessingParams annotationParams =
         args.buildAnnotationProcessingParams(target, params.getProjectFilesystem(), resolver);
@@ -126,21 +127,18 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
     return arg.resources.get();
   }
 
-  public static JavacOptions.Builder getJavacOptions(Arg args, JavaCompilerEnvironment javacEnv) {
-    JavacOptions.Builder javacOptions = JavacOptions.builder();
+  public static JavacOptions.Builder getJavacOptions(Arg args, JavacOptions defaultOptions) {
+    JavacOptions.Builder builder = JavacOptions.builder(defaultOptions);
 
-    String sourceLevel = args.source.or(javacEnv.getSourceLevel());
-    String targetLevel = args.target.or(javacEnv.getTargetLevel());
+    if (args.source.isPresent()) {
+      builder.setSourceLevel(args.source.get());
+    }
 
-    JavaCompilerEnvironment javacEnvToUse = new JavaCompilerEnvironment(
-        javacEnv.getJavacPath(),
-        javacEnv.getJavacVersion(),
-        sourceLevel,
-        targetLevel);
+    if (args.target.isPresent()) {
+      builder.setTargetLevel(args.target.get());
+    }
 
-    javacOptions.setJavaCompilerEnvironment(javacEnvToUse);
-
-    return javacOptions;
+    return builder;
   }
 
   @SuppressFieldNotInitialized

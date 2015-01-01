@@ -16,7 +16,10 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.ProjectFilesystem.CopySourceMode;
 import com.facebook.buck.java.JarDirectoryStepHelper;
+import com.facebook.buck.java.JavacOptions;
 import com.facebook.buck.java.PrebuiltJar;
 import com.facebook.buck.java.PrebuiltJarDescription;
 import com.facebook.buck.model.BuildTarget;
@@ -27,8 +30,8 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildRuleType;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.OutputOnlyBuildRule;
 import com.facebook.buck.rules.RuleKey.Builder;
@@ -40,8 +43,6 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.TouchStep;
-import com.facebook.buck.util.ProjectFilesystem;
-import com.facebook.buck.util.ProjectFilesystem.CopySourceMode;
 import com.facebook.buck.zip.UnzipStep;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableCollection;
@@ -83,7 +84,8 @@ class AndroidPrebuiltAarGraphEnhancer {
   static AndroidPrebuiltAar enhance(
       BuildRuleParams originalBuildRuleParams,
       SourcePath aarFile,
-      BuildRuleResolver ruleResolver) {
+      BuildRuleResolver ruleResolver,
+      JavacOptions javacOptions) {
     SourcePathResolver pathResolver = new SourcePathResolver(ruleResolver);
 
     // unzip_aar
@@ -173,7 +175,8 @@ class AndroidPrebuiltAarGraphEnhancer {
         pathResolver,
         unzipAar.getProguardConfig(),
         prebuiltJar,
-        androidResource);
+        androidResource,
+        javacOptions);
   }
 
   private static class UnzipAar extends AbstractBuildRule {

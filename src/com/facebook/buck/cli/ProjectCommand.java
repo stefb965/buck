@@ -17,9 +17,7 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.apple.AppleBuildRules;
-import com.facebook.buck.apple.XcodeProjectConfig;
 import com.facebook.buck.apple.XcodeProjectConfigDescription;
-import com.facebook.buck.apple.XcodeWorkspaceConfig;
 import com.facebook.buck.apple.XcodeWorkspaceConfigDescription;
 import com.facebook.buck.apple.xcode.ProjectGenerator;
 import com.facebook.buck.apple.xcode.SeparatedProjectsGenerator;
@@ -31,10 +29,11 @@ import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.model.HasBuildTarget;
-import com.facebook.buck.parser.AssociatedRulePredicate;
+import com.facebook.buck.model.HasSourceUnderTest;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.parser.TargetNodePredicateSpec;
 import com.facebook.buck.rules.ActionGraph;
+import com.facebook.buck.rules.AssociatedTargetNodePredicate;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
@@ -43,7 +42,6 @@ import com.facebook.buck.rules.ProjectConfigDescription;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.rules.TestRule;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessManager;
@@ -56,14 +54,16 @@ import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Iterables;
 import com.google.common.io.Files;
 
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -82,41 +82,54 @@ public class ProjectCommand extends AbstractCommandRunner<ProjectCommandOptions>
       new Predicate<TargetNode<?>>() {
         @Override
         public boolean apply(TargetNode<?> input) {
-          Object constructorArg = input.getConstructorArg();
-          if (!(constructorArg instanceof JavaLibraryDescription.Arg)) {
+          if (input.getType() != JavaLibraryDescription.TYPE) {
             return false;
           }
-          JavaLibraryDescription.Arg arg = ((JavaLibraryDescription.Arg) constructorArg);
+          JavaLibraryDescription.Arg arg = ((JavaLibraryDescription.Arg) input.getConstructorArg());
           return !arg.annotationProcessors.get().isEmpty();
         }
       };
 
   private static final String XCODE_PROCESS_NAME = "Xcode";
 
-  private static class TargetGraphs {
-    private final TargetGraph mainGraph;
-    private final Optional<TargetGraph> testGraph;
-    private final TargetGraph projectGraph;
+  private static class TargetGraphAndTargets {
+    private final TargetGraph targetGraph;
+    private final TargetGraph fullGraph;
+    private final ImmutableSet<TargetNode<?>> projectRoots;
+    private final ImmutableSet<TargetNode<?>> associatedTests;
+    private final ImmutableSet<TargetNode<?>> associatedProjects;
 
-    public TargetGraphs(
-        TargetGraph mainGraph,
-        Optional<TargetGraph> testGraph,
-        TargetGraph projectGraph) {
-      this.mainGraph = mainGraph;
-      this.testGraph = testGraph;
-      this.projectGraph = projectGraph;
+    public TargetGraphAndTargets(
+        TargetGraph targetGraph,
+        TargetGraph fullGraph,
+        ImmutableSet<TargetNode<?>> projectRoots,
+        ImmutableSet<TargetNode<?>> associatedTests,
+        ImmutableSet<TargetNode<?>> associatedProjects) {
+      this.targetGraph = targetGraph;
+      this.fullGraph = fullGraph;
+      this.projectRoots = projectRoots;
+      this.associatedTests = associatedTests;
+      this.associatedProjects = associatedProjects;
     }
 
-    public TargetGraph getMainGraph() {
-      return mainGraph;
+    public TargetGraph getTargetGraph() {
+      return targetGraph;
     }
 
-    public Optional<TargetGraph> getTestGraph() {
-      return testGraph;
+    public TargetGraph getFullGraph() {
+      return fullGraph;
     }
 
-    public TargetGraph getProjectGraph() {
-      return projectGraph;
+    public ImmutableSet<TargetNode<?>> getProjectRoots() {
+      return projectRoots;
+    }
+
+    public ImmutableSet<TargetNode<?>> getAssociatedTests() {
+      return associatedTests;
+    }
+
+    public ImmutableSet<TargetNode<?>> getAssociatedProjects() {
+      return associatedProjects;
     }
   }
 
@@ -150,10 +163,13 @@ public class ProjectCommand extends AbstractCommandRunner<ProjectCommandOptions>
       throws IOException, InterruptedException {
     // Create an ActionGraph that only contains targets that can be represented as IDE
     // configuration files.
+    TargetGraph fullGraph;
     ActionGraph actionGraph;
 
     try {
-      actionGraph = createTargetGraphs(options).getProjectGraph().getActionGraph(getBuckEventBus());
+      TargetGraphAndTargets targetGraphAndTargets = createTargetGraph(options);
+      fullGraph = targetGraphAndTargets.getFullGraph();
+      actionGraph = targetGraphAndTargets.getTargetGraph().getActionGraph();
     } catch (BuildTargetException | BuildFileParseException e) {
       throw new HumanReadableException(e);
     }
@@ -209,7 +225,7 @@ public class ProjectCommand extends AbstractCommandRunner<ProjectCommandOptions>
       List<String> additionalInitialTargets = ImmutableList.of();
       if (options.shouldProcessAnnotations()) {
         try {
-          additionalInitialTargets = getAnnotationProcessingTargets(options);
+          additionalInitialTargets = getAnnotationProcessingTargets(fullGraph, options);
         } catch (BuildTargetException | BuildFileParseException e) {
           throw new HumanReadableException(e);
         }
@@ -252,9 +268,12 @@ public class ProjectCommand extends AbstractCommandRunner<ProjectCommandOptions>
     return 0;
   }
 
-  ImmutableList<String> getAnnotationProcessingTargets(ProjectCommandOptions options)
+  ImmutableList<String> getAnnotationProcessingTargets(
+      TargetGraph fullGraph,
+      ProjectCommandOptions options)
       throws BuildTargetException, BuildFileParseException, IOException, InterruptedException {
     ImmutableSet<BuildTarget> buildTargets = getRootsFromOptionsWithPredicate(
+        fullGraph,
         options,
         ANNOTATION_PREDICATE);
     return FluentIterable
@@ -270,9 +289,9 @@ public class ProjectCommand extends AbstractCommandRunner<ProjectCommandOptions>
       throws IOException, InterruptedException {
     checkForAndKillXcodeIfRunning(options.getIdePrompt());
 
-    TargetGraphs targetGraphs;
+    TargetGraphAndTargets targetGraphAndTargets;
     try {
-      targetGraphs = createTargetGraphs(options);
+      targetGraphAndTargets = createTargetGraph(options);
     } catch (BuildTargetException | BuildFileParseException e) {
       throw new HumanReadableException(e);
     }
@@ -286,9 +305,10 @@ public class ProjectCommand extends AbstractCommandRunner<ProjectCommandOptions>
       throw new HumanReadableException(e);
     }
 
-    ExecutionContext executionContext = createExecutionContext(
-        options,
-        targetGraphs.getProjectGraph().getActionGraph(getBuckEventBus()));
+    ActionGraph actionGraph = targetGraphAndTargets.getTargetGraph().getActionGraph();
+    ExecutionContext executionContext = createExecutionContext(options, actionGraph);
+    BuildRuleResolver buildRuleResolver = new BuildRuleResolver(actionGraph.getNodes());
+    SourcePathResolver sourcePathResolver = new SourcePathResolver(buildRuleResolver);
 
     ImmutableSet.Builder<ProjectGenerator.Option> optionsBuilder = ImmutableSet.builder();
     if (options.getReadOnly()) {
@@ -306,9 +326,10 @@ public class ProjectCommand extends AbstractCommandRunner<ProjectCommandOptions>
       }
       ImmutableSet<BuildTarget> targets;
       if (passedInTargetsSet.isEmpty()) {
-        targets = getAllTargetsOfType(
-            targetGraphs.getMainGraph().getNodes(),
-            XcodeWorkspaceConfigDescription.TYPE);
+        targets = FluentIterable
+            .from(targetGraphAndTargets.getProjectRoots())
+            .transform(HasBuildTarget.TO_TARGET)
+            .toSet();
       } else {
         targets = passedInTargetsSet;
       }
@@ -316,36 +337,27 @@ public class ProjectCommand extends AbstractCommandRunner<ProjectCommandOptions>
         optionsBuilder.addAll(ProjectGenerator.SEPARATED_PROJECT_OPTIONS);
       }
       LOG.debug("Generating workspace for config targets %s", targets);
-      Map<BuildRule, ProjectGenerator> projectGenerators = new HashMap<>();
-      for (BuildTarget workspaceConfig : targets) {
-        BuildRule workspaceRule =
-            Preconditions.checkNotNull(
-                targetGraphs.getMainGraph().getActionGraph(getBuckEventBus()).findBuildRuleByTarget(
-                    workspaceConfig));
-        if (!(workspaceRule instanceof XcodeWorkspaceConfig)) {
+      Map<TargetNode<?>, ProjectGenerator> projectGenerators = new HashMap<>();
+      ImmutableSet<TargetNode<?>> testTargetNodes = targetGraphAndTargets.getAssociatedTests();
+      ImmutableMultimap<BuildTarget, TargetNode<?>> sourceTargetToTestNodes =
+          AppleBuildRules.getSourceTargetToTestNodesMap(testTargetNodes);
+      for (BuildTarget workspaceTarget : targets) {
+        TargetNode<?> workspaceNode = Preconditions.checkNotNull(
+            targetGraphAndTargets.getTargetGraph().get(workspaceTarget));
+        if (workspaceNode.getType() != XcodeWorkspaceConfigDescription.TYPE) {
           throw new HumanReadableException(
               "%s must be a xcode_workspace_config",
-              workspaceRule.getFullyQualifiedName());
+              workspaceTarget);
         }
-        Iterable<BuildRule> testBuildRules;
-        if (targetGraphs.getTestGraph().isPresent()) {
-          testBuildRules = targetGraphs
-              .getTestGraph()
-              .get()
-              .getActionGraph(getBuckEventBus())
-              .getNodes();
-        } else {
-          testBuildRules = Collections.emptySet();
-        }
-        XcodeWorkspaceConfig workspaceConfigRule = (XcodeWorkspaceConfig) workspaceRule;
         WorkspaceAndProjectGenerator generator = new WorkspaceAndProjectGenerator(
             getProjectFilesystem(),
-            targetGraphs.getProjectGraph(),
+            targetGraphAndTargets.getTargetGraph(),
             executionContext,
-            workspaceConfigRule,
+            buildRuleResolver,
+            sourcePathResolver,
+            castToXcodeWorkspaceTargetNode(workspaceNode),
             optionsBuilder.build(),
-            AppleBuildRules.getSourceRuleToTestRulesMap(testBuildRules),
-            workspaceConfigRule.getExtraTests(),
+            sourceTargetToTestNodes,
             combinedProject);
         generator.generateWorkspaceAndDependentProjects(projectGenerators);
       }
@@ -355,24 +367,33 @@ public class ProjectCommand extends AbstractCommandRunner<ProjectCommandOptions>
 
       ImmutableSet<BuildTarget> targets;
       if (passedInTargetsSet.isEmpty()) {
-        targets = getAllTargetsOfType(
-            targetGraphs.getProjectGraph().getNodes(),
-            XcodeProjectConfigDescription.TYPE);
+        targets = FluentIterable
+            .from(targetGraphAndTargets.getAssociatedProjects())
+            .transform(HasBuildTarget.TO_TARGET)
+            .toSet();
       } else {
         targets = passedInTargetsSet;
       }
 
       SeparatedProjectsGenerator projectGenerator = new SeparatedProjectsGenerator(
           getProjectFilesystem(),
-          getBuckEventBus(),
-          targetGraphs.getProjectGraph(),
+          targetGraphAndTargets.getTargetGraph(),
           executionContext,
+          buildRuleResolver,
+          sourcePathResolver,
           targets,
           optionsBuilder.build());
       projectGenerator.generateProjects();
     }
 
     return 0;
+  }
+
+  @SuppressWarnings(value = "unchecked")
+  private static TargetNode<XcodeWorkspaceConfigDescription.Arg> castToXcodeWorkspaceTargetNode(
+      TargetNode<?> targetNode) {
+    Preconditions.checkArgument(targetNode.getType() == XcodeWorkspaceConfigDescription.TYPE);
+    return (TargetNode<XcodeWorkspaceConfigDescription.Arg>) targetNode;
   }
 
   private void checkForAndKillXcodeIfRunning(boolean enablePrompt)
@@ -400,10 +421,14 @@ public class ProjectCommand extends AbstractCommandRunner<ProjectCommandOptions>
                 "Xcode is running. Generated projects might be lost or corrupted if Xcode " +
                 "currently has them open."));
       }
-      console.getStdOut().print(
-          "To disable this prompt in the future, add the following to .buckconfig.local: \n\n" +
-          "[project]\n" +
-          "  ide_prompt = false\n\n");
+      console.getStdOut().format(
+          "To disable this prompt in the future, add the following to %s: \n\n" +
+              "[project]\n" +
+              "  ide_prompt = false\n\n",
+          getProjectFilesystem()
+              .getRootPath()
+              .resolve(BuckConfig.DEFAULT_BUCK_CONFIG_OVERRIDE_FILE_NAME)
+              .toAbsolutePath());
     } else {
       LOG.debug(
           "Xcode is running, but cannot prompt to kill it (enabled %s, can prompt %s)",
@@ -431,19 +456,8 @@ public class ProjectCommand extends AbstractCommandRunner<ProjectCommandOptions>
       (result.get().isEmpty() || result.get().toLowerCase(Locale.US).startsWith("y"));
   }
 
-  private static ImmutableSet<BuildTarget> getAllTargetsOfType(
-      Iterable<TargetNode<?>> nodes,
-      BuildRuleType type) {
-    ImmutableSet.Builder<BuildTarget> targetsBuilder = ImmutableSet.builder();
-    for (TargetNode<?> node : nodes) {
-      if (node.getType() == type) {
-        targetsBuilder.add(node.getBuildTarget());
-      }
-    }
-    return targetsBuilder.build();
-  }
-
   private ImmutableSet<BuildTarget> getRootsFromOptionsWithPredicate(
+      TargetGraph fullGraph,
       ProjectCommandOptions options,
       Predicate<TargetNode<?>> rootsPredicate)
       throws BuildFileParseException, BuildTargetException, InterruptedException, IOException {
@@ -451,21 +465,17 @@ public class ProjectCommand extends AbstractCommandRunner<ProjectCommandOptions>
     if (!argumentsAsBuildTargets.isEmpty()) {
       return getBuildTargets(argumentsAsBuildTargets);
     }
-    return getParser().filterAllTargetsInProject(
-        getProjectFilesystem(),
-        options.getDefaultIncludes(),
-        rootsPredicate,
-        console,
-        environment,
-        getBuckEventBus(),
-        options.getEnableProfiling());
+    return FluentIterable
+        .from(fullGraph.getNodes())
+        .filter(rootsPredicate)
+        .transform(HasBuildTarget.TO_TARGET)
+        .toSet();
   }
 
-  private TargetGraphs createTargetGraphs(final ProjectCommandOptions options)
+  private TargetGraphAndTargets createTargetGraph(final ProjectCommandOptions options)
       throws BuildFileParseException, BuildTargetException, InterruptedException, IOException {
     Predicate<TargetNode<?>> projectRootsPredicate;
-    Predicate<TargetNode<?>> projectPredicate;
-    AssociatedRulePredicate associatedProjectPredicate;
+    AssociatedTargetNodePredicate associatedProjectPredicate;
 
     // Prepare the predicates to create the project graph based on the IDE.
     switch (options.getIde()) {
@@ -476,20 +486,23 @@ public class ProjectCommand extends AbstractCommandRunner<ProjectCommandOptions>
             return input.getType() == ProjectConfigDescription.TYPE;
           }
         };
-        projectPredicate = projectRootsPredicate;
-        associatedProjectPredicate = new AssociatedRulePredicate() {
+        associatedProjectPredicate = new AssociatedTargetNodePredicate() {
           @Override
-          public boolean isMatch(BuildRule buildRule, ActionGraph actionGraph) {
-            ProjectConfig projectConfig;
-            if (buildRule instanceof ProjectConfig) {
-              projectConfig = (ProjectConfig) buildRule;
+          public boolean apply(TargetNode<?> targetNode, TargetGraph targetGraph) {
+            ProjectConfigDescription.Arg projectArg;
+            if (targetNode.getType() == ProjectConfigDescription.TYPE) {
+              projectArg = (ProjectConfigDescription.Arg) targetNode.getConstructorArg();
             } else {
               return false;
             }
 
-            BuildRule projectRule = projectConfig.getProjectRule();
-            return (projectRule != null &&
-                actionGraph.findBuildRuleByTarget(projectRule.getBuildTarget()) != null);
+            BuildTarget projectTarget = null;
+            if (projectArg.srcTarget.isPresent()) {
+              projectTarget = projectArg.srcTarget.get();
+            } else if (projectArg.testTarget.isPresent()) {
+              projectTarget = projectArg.testTarget.get();
+            }
+            return (projectTarget != null && targetGraph.get(projectTarget) != null);
           }
         };
         break;
@@ -522,25 +535,19 @@ public class ProjectCommand extends AbstractCommandRunner<ProjectCommandOptions>
             return true;
           }
         };
-        projectPredicate = new Predicate<TargetNode<?>>() {
+        associatedProjectPredicate = new AssociatedTargetNodePredicate() {
           @Override
-          public boolean apply(TargetNode<?> input) {
-            return input.getType() == XcodeProjectConfigDescription.TYPE;
-          }
-        };
-        associatedProjectPredicate = new AssociatedRulePredicate() {
-          @Override
-          public boolean isMatch(
-              BuildRule buildRule, ActionGraph actionGraph) {
-            XcodeProjectConfig xcodeProjectConfig;
-            if (buildRule instanceof XcodeProjectConfig) {
-              xcodeProjectConfig = (XcodeProjectConfig) buildRule;
+          public boolean apply(
+              TargetNode<?> targetNode, TargetGraph targetGraph) {
+            XcodeProjectConfigDescription.Arg projectArg;
+            if (targetNode.getType() == XcodeProjectConfigDescription.TYPE) {
+              projectArg = (XcodeProjectConfigDescription.Arg) targetNode.getConstructorArg();
             } else {
               return false;
             }
 
-            for (BuildRule includedBuildRule : xcodeProjectConfig.getRules()) {
-              if (actionGraph.findBuildRuleByTarget(includedBuildRule.getBuildTarget()) != null) {
+            for (BuildTarget includedBuildTarget : projectArg.rules) {
+              if (targetGraph.get(includedBuildTarget) != null) {
                 return true;
               }
             }
@@ -567,128 +574,88 @@ public class ProjectCommand extends AbstractCommandRunner<ProjectCommandOptions>
 
     // Create the main graph. This contains all the targets in the project slice, or all the valid
     // project roots if a project slice is not specified, and their transitive dependencies.
-    ImmutableSet<BuildTarget> mainRoots = getRootsFromOptionsWithPredicate(
-        options,
-        projectRootsPredicate);
-    TargetGraph mainGraph = getParser().buildTargetGraphForBuildTargets(
-        mainRoots,
-        options.getDefaultIncludes(),
-        getBuckEventBus(),
-        console,
-        environment,
-        options.getEnableProfiling());
+    ImmutableSet<TargetNode<?>> projectRoots = ImmutableSet.copyOf(
+        fullGraph.getAll(
+            getRootsFromOptionsWithPredicate(
+                fullGraph,
+                options,
+                projectRootsPredicate)));
 
     // Optionally create the test graph. This contains all the tests that cover targets in the main
     // graph, all the transitive dependencies of those tests, and all the targets in the main graph.
-    Optional<TargetGraph> testGraph = Optional.absent();
+    ImmutableSet<TargetNode<?>> associatedTests = ImmutableSet.of();
     if (options.isWithTests()) {
-      Predicate<TargetNode<?>> testPredicate = new Predicate<TargetNode<?>>() {
+      AssociatedTargetNodePredicate associatedTestsPredicate = new AssociatedTargetNodePredicate() {
         @Override
-        public boolean apply(TargetNode<?> input) {
-          return input.getType().isTestRule();
-        }
-      };
-
-      AssociatedRulePredicate associatedTestsPredicate = new AssociatedRulePredicate() {
-        @Override
-        public boolean isMatch(BuildRule buildRule, ActionGraph actionGraph) {
-          TestRule testRule;
-          if (buildRule instanceof TestRule) {
-            testRule = (TestRule) buildRule;
+        public boolean apply(TargetNode<?> targetNode, TargetGraph targetGraph) {
+          if (!targetNode.getType().isTestRule()) {
+            return false;
+          }
+          ImmutableSortedSet<BuildTarget> sourceUnderTest;
+          if (targetNode.getConstructorArg() instanceof HasSourceUnderTest) {
+            HasSourceUnderTest argWithSourceUnderTest =
+                (HasSourceUnderTest) targetNode.getConstructorArg();
+            sourceUnderTest = argWithSourceUnderTest.getSourceUnderTest();
           } else {
             return false;
           }
-          for (BuildRule buildRuleUnderTest : testRule.getSourceUnderTest()) {
-            if (actionGraph.findBuildRuleByTarget(buildRuleUnderTest.getBuildTarget()) != null) {
+
+          for (BuildTarget buildTargetUnderTest : sourceUnderTest) {
+            if (targetGraph.get(buildTargetUnderTest) != null) {
               return true;
             }
           }
+
           return false;
         }
       };
 
-      testGraph = Optional.of(
-          getAssociatedTargetGraph(
-              mainGraph,
-              mainRoots,
-              fullGraph,
-              testPredicate,
-              associatedTestsPredicate,
-              options));
+      associatedTests = getAssociatedTargetNodes(
+          fullGraph,
+          projectRoots,
+          associatedTestsPredicate);
     }
 
-    // Create the project graph. This contains all the projects that reference the targets in the
-    // main graph, or the test graph if present, and all the transitive dependencies of those
-    // projects.
-    TargetGraph projectGraph = getAssociatedTargetGraph(
-        testGraph.or(mainGraph),
-        /* additionalRoots */ ImmutableSet.<BuildTarget>of(),
+    ImmutableSet<TargetNode<?>> associatedProjects = getAssociatedTargetNodes(
         fullGraph,
-        projectPredicate,
-        associatedProjectPredicate,
-        options);
+        Iterables.concat(projectRoots, associatedTests),
+        associatedProjectPredicate);
 
-    return new TargetGraphs(
-        mainGraph,
-        testGraph,
-        projectGraph);
-  }
+    TargetGraph targetGraph = fullGraph.getSubgraph(
+        Iterables.concat(projectRoots, associatedTests, associatedProjects));
 
-  private static ImmutableSet<BuildTarget> filterTargetsFromGraph(
-      TargetGraph graph,
-      Predicate<TargetNode<?>> predicate) {
-    return FluentIterable
-        .from(graph.getNodes())
-        .filter(predicate)
-        .transform(HasBuildTarget.TO_TARGET)
-        .toSet();
+    return new TargetGraphAndTargets(
+        targetGraph,
+        fullGraph,
+        projectRoots,
+        associatedTests,
+        associatedProjects);
   }
 
   /**
-   * @param targetGraph The TargetGraph the nodes of the new TargetGraph are related to.
-   * @param additionalRoots Additional roots to be used to create the new TargetGraph.
    * @param fullGraph A TargetGraph containing all nodes that could be related.
-   * @param predicate A predicate that all related nodes pass. Unrelated nodes can pass it as well.
-   * @param associatedRulePredicate A predicate to determine whether a node is related or not.
-   * @return A TargetGraph with nodes related to the given {@code targetGraph}.
+   * @param subgraphRoots Target nodes forming the roots of the subgraph to which the returned nodes
+   *                      are related.
+   * @param associatedTargetNodePredicate A predicate to determine whether a node is related or not.
+   * @return A set of nodes related to {@code subgraphRoots} or their dependencies.
    */
-  private TargetGraph getAssociatedTargetGraph(
-      TargetGraph targetGraph,
-      ImmutableSet<BuildTarget> additionalRoots,
+  private ImmutableSet<TargetNode<?>> getAssociatedTargetNodes(
       TargetGraph fullGraph,
-      Predicate<TargetNode<?>> predicate,
-      AssociatedRulePredicate associatedRulePredicate,
-      ProjectCommandOptions options)
+      Iterable<TargetNode<?>> subgraphRoots,
+      final AssociatedTargetNodePredicate associatedTargetNodePredicate)
       throws BuildFileParseException, BuildTargetException, InterruptedException, IOException {
-    ImmutableSet<BuildTarget> candidateTargets = filterTargetsFromGraph(fullGraph, predicate);
-    TargetGraph candidateGraph = getParser().buildTargetGraphForBuildTargets(
-        candidateTargets,
-        options.getDefaultIncludes(),
-        getBuckEventBus(),
-        console,
-        environment,
-        options.getEnableProfiling());
+    final TargetGraph subgraph = fullGraph.getSubgraph(subgraphRoots);
 
-    ImmutableSet.Builder<BuildTarget> rootsBuilder = ImmutableSet.builder();
-    rootsBuilder.addAll(additionalRoots);
-
-    ActionGraph actionGraph = targetGraph.getActionGraph(getBuckEventBus());
-    ActionGraph candidateActionGraph = candidateGraph.getActionGraph(getBuckEventBus());
-
-    for (BuildTarget buildTarget : candidateTargets) {
-      BuildRule buildRule = candidateActionGraph.findBuildRuleByTarget(buildTarget);
-      if (buildRule != null && associatedRulePredicate.isMatch(buildRule, actionGraph)) {
-        rootsBuilder.add(buildRule.getBuildTarget());
-      }
-    }
-
-    return getParser().buildTargetGraphForBuildTargets(
-        rootsBuilder.build(),
-        options.getDefaultIncludes(),
-        getBuckEventBus(),
-        console,
-        environment,
-        options.getEnableProfiling());
+    return FluentIterable
+        .from(fullGraph.getNodes())
+        .filter(
+            new Predicate<TargetNode<?>>() {
+              @Override
+              public boolean apply(TargetNode<?> node) {
+                return associatedTargetNodePredicate.apply(node, subgraph);
+              }
+            })
+        .toSet();
   }
 
   @Override

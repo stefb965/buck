@@ -20,13 +20,13 @@ import com.facebook.buck.android.AndroidLibraryDescription;
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ThrowableConsoleEvent;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.json.ProjectBuildFileParser;
 import com.facebook.buck.json.ProjectBuildFileParserFactory;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.Console;
-import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
@@ -62,6 +62,7 @@ public class JavaSymbolFinder {
 
   private final ProjectFilesystem projectFilesystem;
   private final SrcRootsFinder srcRootsFinder;
+  private final JavacOptions javacOptions;
   private final ProjectBuildFileParserFactory projectBuildFileParserFactory;
   private final BuckConfig config;
   private final BuckEventBus buckEventBus;
@@ -71,6 +72,7 @@ public class JavaSymbolFinder {
   public JavaSymbolFinder(
       ProjectFilesystem projectFilesystem,
       SrcRootsFinder srcRootsFinder,
+      JavacOptions javacOptions,
       ProjectBuildFileParserFactory projectBuildFileParserFactory,
       BuckConfig config,
       BuckEventBus buckEventBus,
@@ -78,6 +80,7 @@ public class JavaSymbolFinder {
       ImmutableMap<String, String> environment) {
     this.projectFilesystem = projectFilesystem;
     this.srcRootsFinder = srcRootsFinder;
+    this.javacOptions = javacOptions;
     this.projectBuildFileParserFactory = projectBuildFileParserFactory;
     this.config = config;
     this.buckEventBus = buckEventBus;
@@ -235,7 +238,8 @@ public class JavaSymbolFinder {
    */
   private ImmutableSortedSet<Path> getDefiningPaths(String symbol, Collection<Path> srcRoots) {
     ImmutableSortedSet.Builder<Path> definingPaths = ImmutableSortedSet.naturalOrder();
-    JavaFileParser parser = JavaFileParser.createJavaFileParser(JavaCompilerEnvironment.DEFAULT);
+    // TODO(simons): This should use the same javac env as was used for compiling the code.
+    JavaFileParser parser = JavaFileParser.createJavaFileParser(javacOptions);
 
     for (Path candidatePath : getCandidatePaths(symbol, srcRoots)) {
       try {

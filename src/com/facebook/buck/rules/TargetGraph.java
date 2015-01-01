@@ -18,17 +18,17 @@ package com.facebook.buck.rules;
 
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.graph.AbstractBottomUpTraversal;
+import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.graph.DefaultImmutableDirectedAcyclicGraph;
 import com.facebook.buck.graph.MutableDirectedGraph;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Function;
+import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
@@ -43,22 +43,37 @@ public class TargetGraph extends DefaultImmutableDirectedAcyclicGraph<TargetNode
 
   public static final TargetGraph EMPTY = new TargetGraph(
       new MutableDirectedGraph<TargetNode<?>>(),
-      ImmutableMap.<BuildTarget, TargetNode<?>>of());
+      Optional.<BuckEventBus>absent());
 
-  private final ImmutableMap<BuildTarget, TargetNode<?>> unflavoredNodes;
+  private final ImmutableMap<BuildTarget, TargetNode<?>> targetsToNodes;
   private final Supplier<ActionGraph> actionGraphSupplier;
+  private final Optional<BuckEventBus> buckEventBus;
 
   public TargetGraph(
       MutableDirectedGraph<TargetNode<?>> graph,
-      ImmutableMap<BuildTarget, TargetNode<?>> unflavoredNodes) {
+      Optional<BuckEventBus> buckEventBus) {
     super(graph);
-    this.unflavoredNodes = unflavoredNodes;
+    ImmutableMap.Builder<BuildTarget, TargetNode<?>> builder = ImmutableMap.builder();
+    for (TargetNode<?> node : graph.getNodes()) {
+      builder.put(node.getBuildTarget(), node);
+    }
+    this.targetsToNodes = builder.build();
     actionGraphSupplier = createActionGraphSupplier();
+    this.buckEventBus = buckEventBus;
   }
 
   @Nullable
   public TargetNode<?> get(BuildTarget target) {
-    return unflavoredNodes.get(target.getUnflavoredTarget());
+    return targetsToNodes.get(target);
+  }
+
+  public Function<BuildTarget, TargetNode<?>> get() {
+    return new Function<BuildTarget, TargetNode<?>>() {
+      @Override
+      public TargetNode<?> apply(BuildTarget input) {
+        return Preconditions.checkNotNull(get(input));
+      }
+    };
   }
 
   public Iterable<TargetNode<?>> getAll(Iterable<BuildTarget> targets) {
@@ -78,6 +93,10 @@ public class TargetGraph extends DefaultImmutableDirectedAcyclicGraph<TargetNode
         new Supplier<ActionGraph>() {
           @Override
           public ActionGraph get() {
+            if (buckEventBus.isPresent()) {
+              buckEventBus.get().post(ActionGraphEvent.started());
+            }
+
             final BuildRuleResolver ruleResolver = new BuildRuleResolver();
             final MutableDirectedGraph<BuildRule> actionGraph = new MutableDirectedGraph<>();
 
@@ -95,7 +114,17 @@ public class TargetGraph extends DefaultImmutableDirectedAcyclicGraph<TargetNode
                     } catch (NoSuchBuildTargetException e) {
                       throw new HumanReadableException(e);
                     }
-                    ruleResolver.addToIndex(rule);
+
+                    // Check whether a rule with this build target already exists. This is possible
+                    // if we create a new build rule during graph enhancement, and the user asks to
+                    // build the same build rule.
+                    Optional<BuildRule> existingRule =
+                        ruleResolver.getRuleOptional(node.getBuildTarget());
+                    Preconditions.checkState(
+                        !existingRule.isPresent() || existingRule.get().equals(rule));
+                    if (!existingRule.isPresent()) {
+                      ruleResolver.addToIndex(rule);
+                    }
                     actionGraph.addNode(rule);
 
                     for (BuildRule buildRule : rule.getDeps()) {
@@ -116,7 +145,7 @@ public class TargetGraph extends DefaultImmutableDirectedAcyclicGraph<TargetNode
                   }
 
                   private void addGraphEnhancedDeps(BuildRule rule) {
-                    new AbstractDependencyVisitor(rule) {
+                    new AbstractBreadthFirstTraversal<BuildRule>(rule) {
                       @Override
                       public ImmutableSet<BuildRule> visit(BuildRule rule) {
                         ImmutableSet.Builder<BuildRule> depsToVisit = null;
@@ -144,20 +173,42 @@ public class TargetGraph extends DefaultImmutableDirectedAcyclicGraph<TargetNode
                   }
                 };
             bottomUpTraversal.traverse();
-            return bottomUpTraversal.getResult();
+            ActionGraph result = bottomUpTraversal.getResult();
+            if (buckEventBus.isPresent()) {
+              buckEventBus.get().post(ActionGraphEvent.finished());
+            }
+            return result;
           }
         });
   }
 
-  public ActionGraph getActionGraph(BuckEventBus eventBus) {
-    Iterable<BuildTarget> buildTargets = FluentIterable.from(getNodesWithNoIncomingEdges())
-        .transform(HasBuildTarget.TO_TARGET);
-
-    eventBus.post(ActionGraphEvent.started(buildTargets));
-    ActionGraph actionGraph = actionGraphSupplier.get();
-    eventBus.post(ActionGraphEvent.finished(buildTargets));
-
-    return actionGraph;
+  public ActionGraph getActionGraph() {
+    return actionGraphSupplier.get();
   }
 
+  /**
+   * Get the subgraph of the the current graph containing the passed in roots and all of their
+   * transitive dependencies as nodes. Edges between the included nodes are preserved.
+   *
+   * @param roots An iterable containing the roots of the new subgraph.
+   * @return A subgraph of the current graph.
+   */
+  public TargetGraph getSubgraph(Iterable<? extends TargetNode<?>> roots) {
+    final MutableDirectedGraph<TargetNode<?>> subgraph = new MutableDirectedGraph<>();
+
+    new AbstractBreadthFirstTraversal<TargetNode<?>>(roots) {
+      @Override
+      public ImmutableSet<TargetNode<?>> visit(TargetNode<?> node) {
+        subgraph.addNode(node);
+        ImmutableSet<TargetNode<?>> dependencies =
+            ImmutableSet.copyOf(getAll(node.getDeps()));
+        for (TargetNode<?> dependency : dependencies) {
+          subgraph.addEdge(node, dependency);
+        }
+        return dependencies;
+      }
+    }.start();
+
+    return new TargetGraph(subgraph, buckEventBus);
+  }
 }

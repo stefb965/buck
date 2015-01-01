@@ -18,16 +18,17 @@ package com.facebook.buck.rules;
 
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.io.DefaultDirectoryTraverser;
+import com.facebook.buck.io.DirectoryTraversal;
+import com.facebook.buck.io.DirectoryTraverser;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.timing.Clock;
-import com.facebook.buck.util.DefaultDirectoryTraverser;
-import com.facebook.buck.util.DirectoryTraversal;
-import com.facebook.buck.util.DirectoryTraverser;
-import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -56,6 +57,10 @@ import javax.annotation.Nullable;
  * build by an {@link OnDiskBuildInfo}.
  */
 public class BuildInfoRecorder {
+
+  @VisibleForTesting
+  static final String ABSOLUTE_PATH_ERROR_FORMAT =
+      "Error! '%s' is trying to record artifacts with absolute path: '%s'.";
 
   private static final DirectoryTraverser DEFAULT_DIRECTORY_TRAVERSER =
       new DefaultDirectoryTraverser();
@@ -238,10 +243,20 @@ public class BuildInfoRecorder {
    * @param pathToArtifact Relative path to the project root.
    */
   public void recordArtifact(Path pathToArtifact) {
+    Preconditions.checkArgument(
+        !pathToArtifact.isAbsolute(),
+        ABSOLUTE_PATH_ERROR_FORMAT,
+        buildTarget,
+        pathToArtifact);
     pathsToOutputFiles.add(pathToArtifact);
   }
 
   public void recordArtifactsInDirectory(Path pathToArtifactsDirectory) {
+    Preconditions.checkArgument(
+        !pathToArtifactsDirectory.isAbsolute(),
+        ABSOLUTE_PATH_ERROR_FORMAT,
+        buildTarget,
+        pathToArtifactsDirectory);
     pathsToOutputDirectories.add(pathToArtifactsDirectory);
   }
 

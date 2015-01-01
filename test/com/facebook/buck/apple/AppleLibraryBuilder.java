@@ -16,66 +16,40 @@
 
 package com.facebook.buck.apple;
 
+import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.cli.FakeBuckConfig;
+import com.facebook.buck.cxx.CxxBuckConfig;
+import com.facebook.buck.cxx.CxxLibraryDescription;
+import com.facebook.buck.cxx.CxxPlatform;
+import com.facebook.buck.cxx.DefaultCxxPlatform;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractNodeBuilder;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.coercer.AppleSource;
-import com.facebook.buck.rules.coercer.XcodeRuleConfiguration;
-import com.google.common.base.Optional;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSortedMap;
-import com.google.common.collect.ImmutableSortedSet;
+import com.facebook.buck.model.FlavorDomain;
+import com.google.common.collect.ImmutableMap;
 
-public class AppleLibraryBuilder extends AbstractNodeBuilder<AppleNativeTargetDescriptionArg> {
+public class AppleLibraryBuilder
+    extends AbstractAppleNativeTargetBuilder<AppleNativeTargetDescriptionArg, AppleLibraryBuilder> {
+
+  @Override
+  protected AppleLibraryBuilder getThis() {
+    return this;
+  }
 
   protected AppleLibraryBuilder(BuildTarget target) {
-    super(new AppleLibraryDescription(new AppleConfig(new FakeBuckConfig())), target);
+    super(createDescription(), target);
+  }
+
+  private static AppleLibraryDescription createDescription() {
+    BuckConfig buckConfig = new FakeBuckConfig();
+    CxxPlatform cxxPlatform = new DefaultCxxPlatform(buckConfig);
+    FlavorDomain<CxxPlatform> cxxPlatforms = new FlavorDomain<>(
+        "C/C++ Platform",
+        ImmutableMap.of(cxxPlatform.asFlavor(), cxxPlatform));
+    return new AppleLibraryDescription(
+        new AppleConfig(buckConfig),
+        new CxxLibraryDescription(new CxxBuckConfig(buckConfig), cxxPlatforms));
   }
 
   public static AppleLibraryBuilder createBuilder(BuildTarget target) {
     return new AppleLibraryBuilder(target);
   }
-
-  public AppleLibraryBuilder setConfigs(
-      Optional<ImmutableSortedMap<String, XcodeRuleConfiguration>> configs) {
-    arg.configs = configs;
-    return this;
-  }
-
-  public AppleLibraryBuilder setSrcs(Optional<ImmutableList<AppleSource>> srcs) {
-    arg.srcs = srcs;
-    return this;
-  }
-
-  public AppleLibraryBuilder setFrameworks(Optional<ImmutableSortedSet<String>> frameworks) {
-    arg.frameworks = frameworks;
-    return this;
-  }
-
-  public AppleLibraryBuilder setDeps(Optional<ImmutableSortedSet<BuildTarget>> deps) {
-    arg.deps = deps;
-    return this;
-  }
-
-  public AppleLibraryBuilder setGid(Optional<String> gid) {
-    arg.gid = gid;
-    return this;
-  }
-
-  public AppleLibraryBuilder setHeaderPathPrefix(Optional<String> headerPathPrefix) {
-    arg.headerPathPrefix = headerPathPrefix;
-    return this;
-  }
-
-  public AppleLibraryBuilder setUseBuckHeaderMaps(Optional<Boolean> useBuckHeaderMaps) {
-    arg.useBuckHeaderMaps = useBuckHeaderMaps;
-    return this;
-  }
-
-  public AppleLibraryBuilder setPrefixHeader(Optional<SourcePath> prefixHeader) {
-    arg.prefixHeader = prefixHeader;
-    return this;
-  }
-
 }

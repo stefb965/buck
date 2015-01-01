@@ -18,6 +18,8 @@ package com.facebook.buck.cli;
 
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ThrowableConsoleEvent;
+import com.facebook.buck.io.MorePaths;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.java.DefaultJavaPackageFinder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.BuildTargetParseException;
@@ -37,8 +39,6 @@ import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.FileHashCache;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.MorePaths;
-import com.facebook.buck.util.ProjectFilesystem;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.unit.SizeUnit;
 import com.google.common.annotations.Beta;
@@ -89,7 +89,7 @@ import javax.annotation.concurrent.Immutable;
 public class BuckConfig {
 
   private static final String DEFAULT_BUCK_CONFIG_FILE_NAME = ".buckconfig";
-  private static final String DEFAULT_BUCK_CONFIG_OVERRIDE_FILE_NAME = ".buckconfig.local";
+  public static final String DEFAULT_BUCK_CONFIG_OVERRIDE_FILE_NAME = ".buckconfig.local";
 
   private static final String ALIAS_SECTION_HEADER = "alias";
 
@@ -817,6 +817,10 @@ public class BuckConfig {
 
   public Optional<String> getNdkVersion() {
     return getValue("ndk", "ndk_version");
+  }
+
+  public boolean enforceBuckPackageBoundary() {
+    return getBooleanValue("project", "check_package_boundary", true);
   }
 
   public Optional<String> getValue(String sectionName, String propertyName) {

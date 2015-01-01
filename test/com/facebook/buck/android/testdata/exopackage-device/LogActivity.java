@@ -16,6 +16,8 @@
 
 package exotest;
 
+import com.facebook.buck.android.support.exopackage.ExopackageSoLoader;
+
 import android.app.Activity;
 import android.os.Build;
 import android.os.Bundle;
@@ -27,6 +29,13 @@ public class LogActivity extends Activity {
   @Override
   public void onCreate(Bundle bundle) {
     Log.i("EXOPACKAGE_TEST", "VALUE=" + Value.VALUE);
+
+    ExopackageSoLoader.loadLibrary("one");
+    ExopackageSoLoader.loadLibrary("two");
+
+    Log.i("EXOPACKAGE_TEST", "NATIVE_ONE=" + stringOneFromJNI());
+    Log.i("EXOPACKAGE_TEST", "NATIVE_TWO=" + stringTwoFromJNI());
+
     finish();
   }
 
@@ -38,4 +47,6 @@ public class LogActivity extends Activity {
     }
   }
 
+  public native String stringOneFromJNI();
+  public native String stringTwoFromJNI();
 }

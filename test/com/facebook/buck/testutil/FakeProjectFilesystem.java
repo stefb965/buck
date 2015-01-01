@@ -16,10 +16,11 @@
 
 package com.facebook.buck.testutil;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.timing.FakeClock;
-import com.facebook.buck.util.ProjectFilesystem;
 import com.google.common.base.Charsets;
+import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -30,7 +31,9 @@ import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Ordering;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.hash.Hashing;
@@ -46,11 +49,13 @@ import java.io.OutputStream;
 import java.io.Reader;
 import java.io.StringReader;
 import java.nio.file.CopyOption;
+import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.FileSystems;
 import java.nio.file.FileVisitor;
 import java.nio.file.LinkOption;
-import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.nio.file.PathMatcher;
 import java.nio.file.Paths;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileAttribute;
@@ -62,22 +67,27 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 
+import javax.annotation.Nullable;
+
 // TODO(natthu): Implement methods that throw UnsupportedOperationException.
 public class FakeProjectFilesystem extends ProjectFilesystem {
 
   private static final BasicFileAttributes DEFAULT_FILE_ATTRIBUTES =
       new BasicFileAttributes() {
         @Override
+        @Nullable
         public FileTime lastModifiedTime() {
           return null;
         }
 
         @Override
+        @Nullable
         public FileTime lastAccessTime() {
           return null;
         }
 
         @Override
+        @Nullable
         public FileTime creationTime() {
           return null;
         }
@@ -108,6 +118,7 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
         }
 
         @Override
+        @Nullable
         public Object fileKey() {
           return null;
         }
@@ -152,7 +163,7 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   }
 
   private byte[] getFileBytes(Path path) {
-    return fileContents.get(path.normalize());
+    return Preconditions.checkNotNull(fileContents.get(path.normalize()));
   }
 
   private void rmFile(Path path) {
@@ -162,7 +173,7 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   }
 
   public ImmutableSet<FileAttribute<?>> getFileAttributesAtPath(Path path) {
-    return fileAttributes.get(path);
+    return Preconditions.checkNotNull(fileAttributes.get(path));
   }
 
   @Override
@@ -234,6 +245,37 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   }
 
   @Override
+  public ImmutableSortedSet<Path> getSortedMatchingDirectoryContents(
+      final Path pathRelativeToProjectRoot,
+      String globPattern)
+      throws IOException {
+    Preconditions.checkState(isDirectory(pathRelativeToProjectRoot));
+    final PathMatcher pathMatcher = FileSystems.getDefault().getPathMatcher("glob:" + globPattern);
+    return FluentIterable.from(fileContents.keySet()).filter(
+        new Predicate<Path>() {
+          @Override
+          public boolean apply(Path input) {
+            return input.getParent().equals(pathRelativeToProjectRoot) &&
+                pathMatcher.matches(input.getFileName());
+          }
+        })
+        .toSortedSet(Ordering
+            .natural()
+            .onResultOf(new Function<Path, FileTime>() {
+                @Override
+                public FileTime apply(Path path) {
+                  try {
+                    return getLastModifiedTimeFetcher().getLastModifiedTime(path);
+                  } catch (IOException e) {
+                    throw new RuntimeException(e);
+                  }
+                }
+            })
+            .compound(Ordering.natural())
+            .reverse());
+  }
+
+  @Override
   public void walkFileTree(Path root, FileVisitor<Path> fileVisitor) throws IOException {
     throw new UnsupportedOperationException();
   }
@@ -249,7 +291,7 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
     if (!exists(normalizedPath)) {
       throw new NoSuchFileException(path.toString());
     }
-    return fileLastModifiedTimes.get(normalizedPath).toMillis();
+    return Preconditions.checkNotNull(fileLastModifiedTimes.get(normalizedPath)).toMillis();
   }
 
   @Override
