@@ -5,6 +5,7 @@ java_test(
     '//src/com/facebook/buck/command:command',
   ],
   deps = [
+    '//src/com/facebook/buck/android:packageable',
     '//src/com/facebook/buck/android:rules',
     '//src/com/facebook/buck/command:command',
     '//src/com/facebook/buck/graph:graph',
