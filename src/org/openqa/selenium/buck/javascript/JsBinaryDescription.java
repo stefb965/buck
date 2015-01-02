@@ -32,6 +32,11 @@ import java.util.List;
 public class JsBinaryDescription implements Description<JsBinaryDescription.Arg> {
 
   private static final BuildRuleType TYPE = new BuildRuleType("js_binary");
+  private final JavascriptConfig config;
+
+  public JsBinaryDescription(JavascriptConfig config) {
+    this.config = config;
+  }
 
   @Override
   public BuildRuleType getBuildRuleType() {
@@ -49,6 +54,7 @@ public class JsBinaryDescription implements Description<JsBinaryDescription.Arg>
     return new JsBinary(
         params,
         new SourcePathResolver(resolver),
+        config.getClosureCompilerPath(),
         params.getDeclaredDeps(),
         args.srcs,
         args.defines,

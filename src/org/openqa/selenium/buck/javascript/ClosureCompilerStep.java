@@ -30,7 +30,6 @@ import java.util.List;
 
 public class ClosureCompilerStep extends ShellStep {
 
-  public static final String COMPILER = "third_party/closure/bin/compiler-20140407.jar";
   private final Path output;
   private final ImmutableList<String> cmd;
 
@@ -64,8 +63,8 @@ public class ClosureCompilerStep extends ShellStep {
     return exitCode;
   }
 
-  public static Builder builder() {
-    return new Builder();
+  public static Builder builder(Path jsCompiler) {
+    return new Builder(jsCompiler);
   }
 
   public static class Builder {
@@ -73,8 +72,8 @@ public class ClosureCompilerStep extends ShellStep {
     private ImmutableList.Builder<String> cmd = ImmutableList.builder();
     private Path output;
 
-    public Builder() {
-      cmd.add("java", "-jar", COMPILER);
+    public Builder(Path compiler) {
+      cmd.add("java", "-jar", compiler.toAbsolutePath().toString());
       cmd.add("--third_party=true");
     }
 

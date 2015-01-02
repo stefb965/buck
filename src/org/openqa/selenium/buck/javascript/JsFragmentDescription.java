@@ -29,6 +29,11 @@ import com.google.common.collect.ImmutableSortedSet;
 public class JsFragmentDescription implements Description<JsFragmentDescription.Arg> {
 
   public static final BuildRuleType TYPE = new BuildRuleType("js_fragment");
+  private final JavascriptConfig config;
+
+  public JsFragmentDescription(JavascriptConfig config) {
+    this.config = config;
+  }
 
   @Override
   public BuildRuleType getBuildRuleType() {
@@ -46,6 +51,7 @@ public class JsFragmentDescription implements Description<JsFragmentDescription.
     return new JsFragment(
         params,
         new SourcePathResolver(resolver),
+        config.getClosureCompilerPath(),
         params.getDeps(),
         args.module,
         args.function);

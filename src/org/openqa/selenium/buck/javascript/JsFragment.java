@@ -43,6 +43,7 @@ public class JsFragment extends AbstractBuildRule {
 
   private final Path output;
   private final Path temp;
+  private final Path compiler;
   private final ImmutableSortedSet<BuildRule> deps;
   private final String module;
   private final String function;
@@ -50,6 +51,7 @@ public class JsFragment extends AbstractBuildRule {
   public JsFragment(
       BuildRuleParams params,
       SourcePathResolver resolver,
+      Path compiler,
       ImmutableSortedSet<BuildRule> deps,
       String module,
       String function) {
@@ -60,6 +62,7 @@ public class JsFragment extends AbstractBuildRule {
     this.function = function;
     this.output = BuildTargets.getGenPath(getBuildTarget(), "%s.js");
     this.temp = BuildTargets.getBinPath(getBuildTarget(), "%s-temp.js");
+    this.compiler = compiler;
   }
 
   @Override
@@ -111,7 +114,7 @@ public class JsFragment extends AbstractBuildRule {
     return output;
   }
 
-  private static class JavascriptFragmentStep extends ShellStep {
+  private class JavascriptFragmentStep extends ShellStep {
 
     private final Iterable<Path> jsDeps;
     private final Path temp;
@@ -134,9 +137,8 @@ public class JsFragment extends AbstractBuildRule {
               "document:typeof window!='undefined'?window.document:null" +
               "}, arguments);}", wrapper);
 
-      cmd.add("java", "-jar", ClosureCompilerStep.COMPILER);
+      cmd.add("java", "-jar", compiler.toAbsolutePath().toString());
       cmd.add(
-          "--create_name_map_files=true",
           "--third_party=false",
           String.format("--js_output_file='%s'", output),
           String.format("--output_wrapper='%s'", wrapper),

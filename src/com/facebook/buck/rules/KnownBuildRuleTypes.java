@@ -96,6 +96,7 @@ import com.google.common.collect.Maps;
 
 import org.openqa.selenium.buck.file.FolderDescription;
 import org.openqa.selenium.buck.file.ZipDescription;
+import org.openqa.selenium.buck.javascript.JavascriptConfig;
 import org.openqa.selenium.buck.javascript.JsBinaryDescription;
 import org.openqa.selenium.buck.javascript.JsFragmentDescription;
 import org.openqa.selenium.buck.javascript.JsLibraryDescription;
@@ -390,9 +391,10 @@ public class KnownBuildRuleTypes {
     builder.register(new XcodeWorkspaceConfigDescription());
 
     // TODO(simons): Added for selenium. Move to that project once the plugin API works.
+    JavascriptConfig jsConfig = new JavascriptConfig(config);
     builder.register(new FolderDescription());
-    builder.register(new JsBinaryDescription());
-    builder.register(new JsFragmentDescription());
+    builder.register(new JsBinaryDescription(jsConfig));
+    builder.register(new JsFragmentDescription(jsConfig));
     builder.register(new JsLibraryDescription());
     builder.register(new XpiDescription());
     builder.register(new XptDescription());

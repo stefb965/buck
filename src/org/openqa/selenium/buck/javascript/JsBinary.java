@@ -54,6 +54,7 @@ public class JsBinary extends AbstractBuildRule implements
 
   private final Path joyPath;
   private final Path output;
+  private final Path compiler;
   private final ImmutableSortedSet<BuildRule> deps;
   private final ImmutableSortedSet<SourcePath> srcs;
   private final Optional<List<String>> defines;
@@ -65,12 +66,16 @@ public class JsBinary extends AbstractBuildRule implements
   public JsBinary(
       BuildRuleParams params,
       SourcePathResolver resolver,
+      Path compiler,
       ImmutableSortedSet<BuildRule> deps,
       ImmutableSortedSet<SourcePath> srcs,
       Optional<List<String>> defines,
       Optional<List<String>> flags,
       Optional<List<Path>> externs) {
     super(params, resolver);
+
+    this.compiler = compiler;
+
     this.deps = Preconditions.checkNotNull(deps);
     this.srcs = Preconditions.checkNotNull(srcs);
     this.defines = Preconditions.checkNotNull(defines);
@@ -153,7 +158,7 @@ public class JsBinary extends AbstractBuildRule implements
       }
     }
 
-    ClosureCompilerStep compiler = ClosureCompilerStep.builder()
+    ClosureCompilerStep compileStep = ClosureCompilerStep.builder(compiler)
         .defines(defines)
         .externs(externs)
         .flags(flags)
@@ -168,7 +173,7 @@ public class JsBinary extends AbstractBuildRule implements
     steps.add(new MkdirStep(joyPath.getParent()));
     steps.add(new WriteFileStep(writer.toString(), joyPath));
     steps.add(new MkdirStep(output.getParent()));
-    steps.add(compiler);
+    steps.add(compileStep);
 
     buildableContext.recordArtifact(output);
 
