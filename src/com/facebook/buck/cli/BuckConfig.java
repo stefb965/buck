@@ -24,7 +24,7 @@ import com.facebook.buck.java.DefaultJavaPackageFinder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.BuildTargetParseException;
 import com.facebook.buck.parser.BuildTargetParser;
-import com.facebook.buck.parser.ParseContext;
+import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.BuildDependencies;
 import com.facebook.buck.rules.BuildTargetSourcePath;
@@ -36,6 +36,7 @@ import com.facebook.buck.rules.NoopArtifactCache;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.util.Ansi;
+import com.facebook.buck.util.AnsiEnvironmentChecking;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.FileHashCache;
 import com.facebook.buck.util.HumanReadableException;
@@ -300,7 +301,9 @@ public class BuckConfig {
       Section section = ini.get(sectionName);
       for (String propertyName : section.keySet()) {
         if (section.getAll(propertyName).size() > 1) {
-          throw new HumanReadableException("Duplicate definition for %s in [%s].",
+          throw new HumanReadableException(
+              "Duplicate definition for %s in the [%s] section of your .buckconfig or " +
+                  ".buckconfig.local.",
               propertyName,
               sectionName);
         }
@@ -431,7 +434,9 @@ public class BuckConfig {
   }
 
   public BuildTarget getBuildTargetForFullyQualifiedTarget(String target) {
-    return buildTargetParser.parse(target, ParseContext.fullyQualified());
+    return buildTargetParser.parse(
+        target,
+        BuildTargetPatternParser.fullyQualified(buildTargetParser));
   }
 
   /**
@@ -529,7 +534,9 @@ public class BuckConfig {
       } else {
         // Here we parse the alias values with a BuildTargetParser to be strict. We could be looser
         // and just grab everything between "//" and ":" and assume it's a valid base path.
-        buildTarget = buildTargetParser.parse(value, ParseContext.fullyQualified());
+        buildTarget = buildTargetParser.parse(
+            value,
+            BuildTargetPatternParser.fullyQualified(buildTargetParser));
       }
       aliasToBuildTarget.put(alias, buildTarget);
     }
@@ -649,7 +656,8 @@ public class BuckConfig {
         return Ansi.forceTty();
       case "auto":
       default:
-        return new Ansi(platform, Optional.fromNullable(environment.get("TERM")));
+        return new Ansi(
+            AnsiEnvironmentChecking.environmentSupportsAnsiEscapes(platform, environment));
     }
   }
 
@@ -828,6 +836,12 @@ public class BuckConfig {
     return Optional.fromNullable(properties.get(propertyName));
   }
 
+  public Optional<Long> getLong(String sectionName, String propertyName) {
+    Optional<String> value = getValue(sectionName, propertyName);
+    return value.isPresent() ?
+        Optional.of(Long.valueOf(value.get())) :
+        Optional.<Long>absent();
+  }
 
   public boolean getBooleanValue(String sectionName, String propertyName, boolean defaultValue) {
     Map<String, String> entries = getEntriesForSection(sectionName);

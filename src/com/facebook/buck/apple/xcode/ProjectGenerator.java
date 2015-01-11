@@ -29,10 +29,12 @@ import com.facebook.buck.apple.AppleBundleExtension;
 import com.facebook.buck.apple.AppleLibraryDescription;
 import com.facebook.buck.apple.AppleNativeTargetDescriptionArg;
 import com.facebook.buck.apple.AppleResourceDescription;
+import com.facebook.buck.apple.AppleTestBundleParamsKey;
 import com.facebook.buck.apple.AppleTestDescription;
 import com.facebook.buck.apple.CoreDataModelDescription;
 import com.facebook.buck.apple.FileExtensions;
 import com.facebook.buck.apple.GroupedSource;
+import com.facebook.buck.apple.HasAppleBundleFields;
 import com.facebook.buck.apple.HeaderMapType;
 import com.facebook.buck.apple.HeaderVisibility;
 import com.facebook.buck.apple.IosPostprocessResourcesDescription;
@@ -49,19 +51,23 @@ import com.facebook.buck.apple.xcode.xcodeproj.PBXTarget;
 import com.facebook.buck.apple.xcode.xcodeproj.SourceTreePath;
 import com.facebook.buck.apple.xcode.xcodeproj.XCBuildConfiguration;
 import com.facebook.buck.apple.xcode.xcodeproj.XCVersionGroup;
+import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
+import com.facebook.buck.model.HasTests;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.BuildRuleType;
+import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.rules.coercer.Either;
 import com.facebook.buck.shell.GenruleDescription;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.VisibleForTesting;
@@ -75,13 +81,18 @@ import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.FluentIterable;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSetMultimap;
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Multimap;
+import com.google.common.collect.Sets;
 import com.google.common.io.BaseEncoding;
 import com.google.common.util.concurrent.UncheckedExecutionException;
 
@@ -113,6 +124,9 @@ public class ProjectGenerator {
     /** Use short BuildTarget name instead of full name for targets */
     USE_SHORT_NAMES_FOR_TARGETS,
 
+    /** Put targets into groups reflecting directory structure of their BUCK files */
+    CREATE_DIRECTORY_STRUCTURE,
+
     /** Generate read-only project files */
     GENERATE_READ_ONLY_FILES,
 
@@ -125,6 +139,13 @@ public class ProjectGenerator {
    * Standard options for generating a separated project
    */
   public static final ImmutableSet<Option> SEPARATED_PROJECT_OPTIONS = ImmutableSet.of(
+      Option.USE_SHORT_NAMES_FOR_TARGETS);
+
+  /**
+   * Standard options for generating a combined project
+   */
+  public static final ImmutableSet<Option> COMBINED_PROJECT_OPTIONS = ImmutableSet.of(
+      Option.CREATE_DIRECTORY_STRUCTURE,
       Option.USE_SHORT_NAMES_FOR_TARGETS);
 
   public static final String PATH_TO_ASSET_CATALOG_COMPILER = System.getProperty(
@@ -145,11 +166,9 @@ public class ProjectGenerator {
           PosixFilePermission.GROUP_READ,
           PosixFilePermission.OTHERS_READ));
 
-  private final BuildRuleResolver buildRuleResolver;
   private final SourcePathResolver sourcePathResolver;
   private final TargetGraph targetGraph;
   private final ProjectFilesystem projectFilesystem;
-  private final ExecutionContext executionContext;
   private final Path outputDirectory;
   private final String projectName;
   private final ImmutableSet<BuildTarget> initialTargets;
@@ -159,6 +178,11 @@ public class ProjectGenerator {
 
   private final ImmutableSet<Option> options;
 
+  private ImmutableSet<TargetNode<AppleTestDescription.Arg>> testsToGenerateAsStaticLibraries =
+      ImmutableSet.of();
+  private ImmutableMultimap<AppleTestBundleParamsKey, TargetNode<AppleTestDescription.Arg>>
+      additionalCombinedTestTargets = ImmutableMultimap.of();
+
   // These fields are created/filled when creating the projects.
   private final PBXProject project;
   private final LoadingCache<TargetNode<?>, Optional<PBXTarget>> targetNodeToProjectTarget;
@@ -167,6 +191,8 @@ public class ProjectGenerator {
       targetNodeToGeneratedProjectTargetBuilder;
   private boolean projectGenerated;
   private List<Path> headerMaps;
+  private final ImmutableSet.Builder<PBXTarget> buildableCombinedTestTargets =
+      ImmutableSet.builder();
 
   /**
    * Populated while generating project configurations, in order to collect the possible
@@ -180,18 +206,13 @@ public class ProjectGenerator {
       TargetGraph targetGraph,
       Set<BuildTarget> initialTargets,
       ProjectFilesystem projectFilesystem,
-      ExecutionContext executionContext,
-      BuildRuleResolver buildRuleResolver,
-      SourcePathResolver sourcePathResolver,
       Path outputDirectory,
       String projectName,
       Set<Option> options) {
     this.targetGraph = targetGraph;
     this.initialTargets = ImmutableSet.copyOf(initialTargets);
     this.projectFilesystem = projectFilesystem;
-    this.executionContext = executionContext;
-    this.buildRuleResolver = buildRuleResolver;
-    this.sourcePathResolver = sourcePathResolver;
+    this.sourcePathResolver = new SourcePathResolver(new BuildRuleResolver());
     this.outputDirectory = outputDirectory;
     this.projectName = projectName;
     this.options = ImmutableSet.copyOf(options);
@@ -227,6 +248,26 @@ public class ProjectGenerator {
     gidsToTargetNames = new HashMap<>();
   }
 
+  /**
+   * Sets the set of tests which should be generated as static libraries instead of test bundles.
+   */
+  public ProjectGenerator setTestsToGenerateAsStaticLibraries(
+      Set<TargetNode<AppleTestDescription.Arg>> set) {
+    Preconditions.checkState(!projectGenerated);
+    this.testsToGenerateAsStaticLibraries = ImmutableSet.copyOf(set);
+    return this;
+  }
+
+  /**
+   * Sets combined test targets which should be generated in this project.
+   */
+  public ProjectGenerator setAdditionalCombinedTestTargets(
+      Multimap<AppleTestBundleParamsKey, TargetNode<AppleTestDescription.Arg>> targets) {
+    Preconditions.checkState(!projectGenerated);
+    this.additionalCombinedTestTargets = ImmutableMultimap.copyOf(targets);
+    return this;
+  }
+
   @VisibleForTesting
   PBXProject getGeneratedProject() {
     return project;
@@ -251,6 +292,11 @@ public class ProjectGenerator {
     return buildTargetToPbxTargetMap.build();
   }
 
+  public ImmutableSet<PBXTarget> getBuildableCombinedTestTargets() {
+    Preconditions.checkState(projectGenerated, "Must have called createXcodeProjects");
+    return buildableCombinedTestTargets.build();
+  }
+
   public void createXcodeProjects() throws IOException {
     LOG.debug("Creating projects for targets %s", initialTargets);
 
@@ -261,17 +307,19 @@ public class ProjectGenerator {
           // Trigger the loading cache to call the generateProjectTarget function.
           Optional<PBXTarget> target = targetNodeToProjectTarget.getUnchecked(targetNode);
           if (target.isPresent()) {
-            // TODO(grp, t4964329): SchemeGenerator should look for the AppleTest rule itself.
-            if (targetNode.getType().equals(AppleTestDescription.TYPE)) {
-              AppleTestDescription.Arg arg =
-                  (AppleTestDescription.Arg) targetNode.getConstructorArg();
-              targetNode = targetGraph.get(arg.testBundle);
-            }
             targetNodeToGeneratedProjectTargetBuilder.put(targetNode, target.get());
           }
         } else {
           LOG.verbose("Excluding rule %s (not built by current project)", targetNode);
         }
+      }
+
+      int combinedTestIndex = 0;
+      for (AppleTestBundleParamsKey key : additionalCombinedTestTargets.keySet()) {
+        generateCombinedTestTarget(
+            deriveCombinedTestTargetNameFromKey(key, combinedTestIndex++),
+            key,
+            additionalCombinedTestTargets.get(key));
       }
 
       for (String configName : targetConfigNamesBuilder.build()) {
@@ -332,24 +380,26 @@ public class ProjectGenerator {
               project,
               (TargetNode<AppleNativeTargetDescriptionArg>) targetNode));
     } else if (targetNode.getType().equals(AppleBundleDescription.TYPE)) {
+      TargetNode<AppleBundleDescription.Arg> bundleTargetNode =
+          (TargetNode<AppleBundleDescription.Arg>) targetNode;
       result = Optional.<PBXTarget>of(
           generateAppleBundleTarget(
               project,
-              (TargetNode<AppleBundleDescription.Arg>) targetNode));
+              bundleTargetNode,
+              (TargetNode<AppleNativeTargetDescriptionArg>) Preconditions.checkNotNull(
+                  targetGraph.get(bundleTargetNode.getConstructorArg().binary))));
     } else if (targetNode.getType().equals(AppleTestDescription.TYPE)) {
-      AppleTestDescription.Arg arg = (AppleTestDescription.Arg) targetNode.getConstructorArg();
-      TargetNode<AppleBundleDescription.Arg> bundle =
-          (TargetNode<AppleBundleDescription.Arg>) Preconditions.checkNotNull(
-              targetGraph.get(arg.testBundle));
-      if (bundle.getType().equals(AppleBundleDescription.TYPE)) {
-        if (bundle.getConstructorArg().isTestBundle()) {
-          result = Optional.<PBXTarget>of(generateAppleBundleTarget(project, bundle));
-        } else {
-          throw new HumanReadableException(
-              "Incorrect extension: " + bundle.getConstructorArg().extension.getRight());
-        }
+      TargetNode<AppleTestDescription.Arg> testTargetNode =
+          (TargetNode<AppleTestDescription.Arg>) targetNode;
+      if (testsToGenerateAsStaticLibraries.contains(testTargetNode)) {
+        result = Optional.<PBXTarget>of(
+            generateAppleLibraryTarget(project, testTargetNode));
       } else {
-        throw new HumanReadableException("Test bundle should be a bundle: " + bundle);
+        result = Optional.<PBXTarget>of(
+            generateAppleBundleTarget(
+                project,
+                testTargetNode,
+                testTargetNode));
       }
     } else if (targetNode.getType().equals(AppleResourceDescription.TYPE)) {
       // Check that the resource target node is referencing valid files or directories.
@@ -375,15 +425,15 @@ public class ProjectGenerator {
     return result;
   }
 
-  @SuppressWarnings("unchecked")
-  private PBXNativeTarget generateAppleBundleTarget(
+  PBXNativeTarget generateAppleBundleTarget(
       PBXProject project,
-      TargetNode<AppleBundleDescription.Arg> targetNode)
+      TargetNode<? extends HasAppleBundleFields> targetNode,
+      TargetNode<? extends AppleNativeTargetDescriptionArg> binaryNode)
       throws IOException {
     Optional<Path> infoPlistPath;
-    if (targetNode.getConstructorArg().infoPlist.isPresent()) {
+    if (targetNode.getConstructorArg().getInfoPlist().isPresent()) {
       infoPlistPath = Optional.of(
-          sourcePathResolver.getPath(targetNode.getConstructorArg().infoPlist.get()));
+          sourcePathResolver.getPath(targetNode.getConstructorArg().getInfoPlist().get()));
     } else {
       infoPlistPath = Optional.absent();
     }
@@ -391,14 +441,13 @@ public class ProjectGenerator {
     PBXNativeTarget target = generateBinaryTarget(
         project,
         Optional.of(targetNode),
-        (TargetNode<AppleNativeTargetDescriptionArg>) Preconditions.checkNotNull(
-            targetGraph.get(targetNode.getConstructorArg().binary)),
-        bundleToTargetProductType(targetNode),
-        "%s." + targetNode.getConstructorArg().getExtensionString(),
+        binaryNode,
+        bundleToTargetProductType(targetNode, binaryNode),
+        "%s." + getExtensionString(targetNode.getConstructorArg().getExtension()),
         infoPlistPath,
         /* includeFrameworks */ true,
-        collectRecursiveResources(targetNode),
-        collectRecursiveAssetCatalogs(targetNode));
+        collectRecursiveResources(ImmutableList.of(targetNode)),
+        collectRecursiveAssetCatalogs(ImmutableList.of(targetNode)));
 
     // -- copy any binary and bundle targets into this bundle
     Iterable<TargetNode<?>> copiedRules = AppleBuildRules.getRecursiveTargetNodeDependenciesOfTypes(
@@ -432,13 +481,13 @@ public class ProjectGenerator {
 
   private PBXNativeTarget generateAppleLibraryTarget(
       PBXProject project,
-      TargetNode<AppleNativeTargetDescriptionArg> targetNode)
+      TargetNode<? extends AppleNativeTargetDescriptionArg> targetNode)
       throws IOException {
-    boolean isDynamic = targetNode
+    boolean isShared = targetNode
         .getBuildTarget()
         .getFlavors()
-        .contains(AppleLibraryDescription.DYNAMIC_LIBRARY);
-    PBXTarget.ProductType productType = isDynamic ?
+        .contains(CxxDescriptionEnhancer.SHARED_FLAVOR);
+    PBXTarget.ProductType productType = isShared ?
         PBXTarget.ProductType.DYNAMIC_LIBRARY :
         PBXTarget.ProductType.STATIC_LIBRARY;
     PBXNativeTarget target = generateBinaryTarget(
@@ -446,9 +495,9 @@ public class ProjectGenerator {
         Optional.<TargetNode<AppleBundleDescription.Arg>>absent(),
         targetNode,
         productType,
-        AppleBuildRules.getOutputFileNameFormatForLibrary(isDynamic),
+        AppleBuildRules.getOutputFileNameFormatForLibrary(isShared),
         Optional.<Path>absent(),
-        /* includeFrameworks */ isDynamic,
+        /* includeFrameworks */ isShared,
         ImmutableSet.<AppleResourceDescription.Arg>of(),
         ImmutableSet.<AppleAssetCatalogDescription.Arg>of());
     LOG.debug("Generated iOS library target %s", target);
@@ -457,7 +506,7 @@ public class ProjectGenerator {
 
   private void writeHeaderMap(
       HeaderMap headerMap,
-      TargetNode<AppleNativeTargetDescriptionArg> targetNode,
+      TargetNode<? extends AppleNativeTargetDescriptionArg> targetNode,
       HeaderMapType headerMapType)
       throws IOException {
     if (headerMap.getNumEntries() == 0) {
@@ -482,8 +531,8 @@ public class ProjectGenerator {
 
   private PBXNativeTarget generateBinaryTarget(
       PBXProject project,
-      Optional<TargetNode<AppleBundleDescription.Arg>> bundle,
-      TargetNode<AppleNativeTargetDescriptionArg> targetNode,
+      Optional<? extends TargetNode<? extends HasAppleBundleFields>> bundle,
+      TargetNode<? extends AppleNativeTargetDescriptionArg> targetNode,
       PBXTarget.ProductType productType,
       String productOutputFormat,
       Optional<Path> infoPlistOptional,
@@ -506,19 +555,15 @@ public class ProjectGenerator {
     }
 
     TargetNode<?> buildTargetNode = bundle.isPresent() ? bundle.get() : targetNode;
-    BuildTarget buildTarget = buildTargetNode.getBuildTarget();
+    final BuildTarget buildTarget = buildTargetNode.getBuildTarget();
 
     String productName = getProductName(buildTarget);
     TargetSources sources = TargetSources.ofAppleSources(
         sourcePathResolver,
         targetNode.getConstructorArg().srcs.get());
     NewNativeTargetProjectMutator mutator = new NewNativeTargetProjectMutator(
-        targetGraph,
-        executionContext,
         pathRelativizer,
-        buildRuleResolver,
-        sourcePathResolver,
-        buildTarget);
+        sourcePathResolver);
     mutator
         .setTargetName(getXcodeTargetName(buildTarget))
         .setProduct(
@@ -531,26 +576,28 @@ public class ProjectGenerator {
         .setSources(sources.srcs, sources.perFileFlags)
         .setResources(resources);
 
-    Path assetCatalogBuildPhaseScript;
-    if (!assetCatalogs.isEmpty()) {
-      if (PATH_OVERRIDE_FOR_ASSET_CATALOG_BUILD_PHASE_SCRIPT != null) {
-        assetCatalogBuildPhaseScript =
-            Paths.get(PATH_OVERRIDE_FOR_ASSET_CATALOG_BUILD_PHASE_SCRIPT);
-      } else {
-        // In order for the script to run, it must be accessible by Xcode and
-        // deserves to be part of the generated output.
-        shouldPlaceAssetCatalogCompiler = true;
-        assetCatalogBuildPhaseScript = placedAssetCatalogBuildPhaseScript;
+    if (options.contains(Option.CREATE_DIRECTORY_STRUCTURE)) {
+      ImmutableList.Builder<String> targetGroupPathBuilder = ImmutableList.builder();
+      for (Path pathPart : buildTarget.getBasePath()) {
+        targetGroupPathBuilder.add(pathPart.toString());
       }
-      mutator.setAssetCatalogs(assetCatalogBuildPhaseScript, assetCatalogs);
+      mutator.setTargetGroupPath(targetGroupPathBuilder.build());
+    }
+
+    if (!assetCatalogs.isEmpty()) {
+      mutator.setAssetCatalogs(getAndMarkAssetCatalogBuildScript(), assetCatalogs);
     }
 
     if (includeFrameworks) {
-      ImmutableSet.Builder<String> frameworksBuilder = ImmutableSet.builder();
-      frameworksBuilder.addAll(targetNode.getConstructorArg().frameworks.get());
-      collectRecursiveFrameworkDependencies(targetNode, frameworksBuilder);
+      ImmutableSet.Builder<FrameworkPath> frameworksBuilder = ImmutableSet.builder();
+      frameworksBuilder.addAll(
+          Iterables.transform(
+              targetNode.getConstructorArg().frameworks.get(),
+              FrameworkPath.transformFromString(targetNode.getBuildTarget())));
+      frameworksBuilder.addAll(collectRecursiveFrameworkDependencies(ImmutableList.of(targetNode)));
       mutator.setFrameworks(frameworksBuilder.build());
-      mutator.setArchives(collectRecursiveLibraryDependencies(targetNode));
+      mutator.setArchives(
+          collectRecursiveLibraryDependencies(ImmutableList.of(targetNode)));
     }
 
     // TODO(Task #3772930): Go through all dependencies of the rule
@@ -593,6 +640,7 @@ public class ProjectGenerator {
         Path prefixHeaderRelative = sourcePathResolver.getPath(prefixHeaderOptional.get());
         Path prefixHeaderPath = pathRelativizer.outputDirToRootRelative(prefixHeaderRelative);
         extraSettingsBuilder.put("GCC_PREFIX_HEADER", prefixHeaderPath.toString());
+        extraSettingsBuilder.put("GCC_PRECOMPILE_PREFIX_HEADER", "YES");
     }
     if (targetNode.getConstructorArg().getUseBuckHeaderMaps()) {
       extraSettingsBuilder.put("USE_HEADERMAP", "NO");
@@ -606,7 +654,7 @@ public class ProjectGenerator {
     if (bundle.isPresent()) {
       defaultSettingsBuilder.put(
           "WRAPPER_EXTENSION",
-          bundle.get().getConstructorArg().getExtensionString());
+          getExtensionString(bundle.get().getConstructorArg().getExtension()));
     }
     defaultSettingsBuilder.put(
         "PUBLIC_HEADERS_FOLDER_PATH",
@@ -638,13 +686,20 @@ public class ProjectGenerator {
             Joiner.on(' ').join(collectUserHeaderMaps(targetNode)))
         .put(
             "LIBRARY_SEARCH_PATHS",
-            Joiner.on(' ').join(collectRecursiveLibrarySearchPaths(targetNode)))
+            Joiner.on(' ').join(
+                collectRecursiveLibrarySearchPaths(ImmutableSet.of(targetNode), false)))
         .put(
             "FRAMEWORK_SEARCH_PATHS",
-            Joiner.on(' ').join(collectRecursiveFrameworkSearchPaths(targetNode)));
+            Joiner.on(' ').join(
+                collectRecursiveFrameworkSearchPaths(ImmutableList.of(targetNode), false)));
 
     setTargetBuildConfigurations(
-        buildTarget,
+        new Function<String, Path>() {
+          @Override
+          public Path apply(String input) {
+            return BuildTargets.getGenPath(buildTarget, "%s-" + input + ".xcconfig");
+          }
+        },
         target,
         targetGroup,
         targetNode.getConstructorArg().configs.get(),
@@ -692,10 +747,98 @@ public class ProjectGenerator {
     return target;
   }
 
+  private void generateCombinedTestTarget(
+      final String productName,
+      AppleTestBundleParamsKey key,
+      ImmutableCollection<TargetNode<AppleTestDescription.Arg>> tests)
+      throws IOException {
+    ImmutableSet.Builder<PBXFileReference> testLibs = ImmutableSet.builder();
+    for (TargetNode<AppleTestDescription.Arg> test : tests) {
+      testLibs.add(getOrCreateTestLibraryFileReference(test));
+    }
+    NewNativeTargetProjectMutator mutator = new NewNativeTargetProjectMutator(
+        pathRelativizer,
+        sourcePathResolver)
+        .setTargetName(productName)
+        .setProduct(
+            dylibProductTypeByBundleExtension(key.extension().getLeft()).get(),
+            productName,
+            Paths.get(productName + "." + getExtensionString(key.extension())))
+        .setShouldGenerateCopyHeadersPhase(false)
+        .setSources(
+            ImmutableList.of(
+                GroupedSource.ofSourcePath(new PathSourcePath(emptyFileWithExtension("c")))),
+            ImmutableMap.<SourcePath, String>of())
+        .setArchives(Sets.union(collectRecursiveLibraryDependencies(tests), testLibs.build()))
+        .setResources(collectRecursiveResources(tests))
+        .setAssetCatalogs(
+            getAndMarkAssetCatalogBuildScript(),
+            collectRecursiveAssetCatalogs(tests));
+
+    ImmutableSet.Builder<FrameworkPath> frameworksBuilder = ImmutableSet.builder();
+    frameworksBuilder.addAll(collectRecursiveFrameworkDependencies(tests));
+    for (TargetNode<AppleTestDescription.Arg> test : tests) {
+      frameworksBuilder.addAll(
+          Iterables.transform(
+              test.getConstructorArg().frameworks.get(),
+              FrameworkPath.transformFromString(test.getBuildTarget())));
+    }
+    mutator.setFrameworks(frameworksBuilder.build());
+
+    NewNativeTargetProjectMutator.Result result;
+    try {
+      result = mutator.buildTargetAndAddToProject(project);
+    } catch (NoSuchBuildTargetException e) {
+      throw new HumanReadableException(e);
+    }
+
+    ImmutableMap.Builder<String, String> overrideBuildSettingsBuilder =
+        ImmutableMap.<String, String>builder()
+            .put("GCC_PREFIX_HEADER", "")
+            .put("USE_HEADERMAP", "NO");
+    if (key.infoPlist().isPresent()) {
+      overrideBuildSettingsBuilder.put(
+          "INFOPLIST_FILE",
+          pathRelativizer.outputDirToRootRelative(
+                sourcePathResolver.getPath(key.infoPlist().get())).toString());
+    }
+    setTargetBuildConfigurations(
+        new Function<String, Path>() {
+          @Override
+          public Path apply(String input) {
+            return outputDirectory.resolve(
+                String.format("xcconfigs/%s-%s.xcconfig", productName, input));
+          }
+        },
+        result.target,
+        result.targetGroup,
+        key.configs().get(),
+        overrideBuildSettingsBuilder.build(),
+        ImmutableMap.of(
+            "PRODUCT_NAME", productName,
+            "WRAPPER_EXTENSION", getExtensionString(key.extension())),
+        ImmutableMap.of(
+            "FRAMEWORK_SEARCH_PATHS", Joiner.on(' ').join(
+                collectRecursiveFrameworkSearchPaths(tests, true)),
+            "LIBRARY_SEARCH_PATHS", Joiner.on(' ').join(
+                collectRecursiveLibrarySearchPaths(tests, true))));
+    buildableCombinedTestTargets.add(result.target);
+  }
+
+  private String deriveCombinedTestTargetNameFromKey(
+      AppleTestBundleParamsKey key,
+      int combinedTestIndex) {
+    return Joiner.on("-").join(
+        "_BuckCombinedTest",
+        getExtensionString(key.extension()),
+        combinedTestIndex);
+
+  }
+
   /**
    * Create target level configuration entries.
    *
-   * @param buildTarget current build target being processed, used for error reporting.
+   * @param configurationNameToXcconfigPath
    * @param target      Xcode target for which the configurations will be set.
    * @param targetGroup Xcode group in which the configuration file references will be placed.
    * @param configurations  Configurations as extracted from the BUCK file.
@@ -706,7 +849,7 @@ public class ProjectGenerator {
    *                              existing value or values at a higher level.
    */
   private void setTargetBuildConfigurations(
-      BuildTarget buildTarget,
+      Function<String, Path> configurationNameToXcconfigPath,
       PBXTarget target,
       PBXGroup targetGroup,
       ImmutableMap<String, ImmutableMap<String, String>> configurations,
@@ -747,8 +890,7 @@ public class ProjectGenerator {
           targetLevelInlineSettings.entrySet(),
           combinedOverrideConfigs.entrySet());
 
-      Path xcconfigPath = BuildTargets.getGenPath(buildTarget, "%s-" +
-          configurationEntry.getKey() + ".xcconfig");
+      Path xcconfigPath = configurationNameToXcconfigPath.apply(configurationEntry.getKey());
       projectFilesystem.mkdirs(xcconfigPath.getParent());
 
       StringBuilder stringBuilder = new StringBuilder();
@@ -806,7 +948,7 @@ public class ProjectGenerator {
    * @param sourceFlags    Source path to flag mapping.
    */
   private void addHeaderMapsForHeaders(
-      TargetNode<AppleNativeTargetDescriptionArg> targetNode,
+      TargetNode<? extends AppleNativeTargetDescriptionArg> targetNode,
       Optional<String> headerPathPrefix,
       Iterable<GroupedSource> groupedSources,
       ImmutableMap<SourcePath, String> sourceFlags) throws IOException {
@@ -1012,7 +1154,7 @@ public class ProjectGenerator {
       if (targetNode
           .getBuildTarget()
           .getFlavors()
-          .contains(AppleLibraryDescription.DYNAMIC_LIBRARY)) {
+          .contains(CxxDescriptionEnhancer.SHARED_FLAVOR)) {
         return Optional.of(PBXCopyFilesBuildPhase.Destination.FRAMEWORKS);
       } else {
         return Optional.absent();
@@ -1101,7 +1243,7 @@ public class ProjectGenerator {
    * @param targetNode Must have a header map or an exception will be thrown.
    */
   private String getHeaderMapRelativePath(
-      TargetNode<AppleNativeTargetDescriptionArg> targetNode,
+      TargetNode<? extends AppleNativeTargetDescriptionArg> targetNode,
       HeaderMapType headerMapType) {
     Optional<Path> filePath = AbstractAppleNativeTargetBuildRuleDescriptions.getPathToHeaderMap(
         targetNode,
@@ -1118,12 +1260,9 @@ public class ProjectGenerator {
 
   private String getBuiltProductsRelativeTargetOutputPath(TargetNode<?> targetNode) {
     if (targetNode.getType().equals(AppleBinaryDescription.TYPE) ||
+        targetNode.getType().equals(AppleTestDescription.TYPE) ||
         (targetNode.getType().equals(AppleBundleDescription.TYPE) &&
-        (!((AppleBundleDescription.Arg)
-            targetNode.getConstructorArg()).getExtensionValue().isPresent() ||
-        (!((AppleBundleDescription.Arg)
-            targetNode.getConstructorArg()).getExtensionValue().get().equals(
-            AppleBundleExtension.FRAMEWORK))))) {
+            !isFrameworkBundle((AppleBundleDescription.Arg) targetNode.getConstructorArg()))) {
       // TODO(grp): These should be inside the path below. Right now, that causes issues with
       // bundle loader paths hardcoded in .xcconfig files that don't expect the full target path.
       // It also causes issues where Xcode doesn't know where to look for a final .app to run it.
@@ -1142,32 +1281,57 @@ public class ProjectGenerator {
         getBuiltProductsRelativeTargetOutputPath(targetNode));
   }
 
-  private static boolean hasBuckHeaderMaps(TargetNode<AppleNativeTargetDescriptionArg> targetNode) {
-    return targetNode.getConstructorArg().getUseBuckHeaderMaps();
-  }
-
   @SuppressWarnings("unchecked")
-  private static Optional<TargetNode<AppleNativeTargetDescriptionArg>>
-      getLibraryNode(TargetGraph targetGraph, TargetNode<?> targetNode) {
-    Optional<TargetNode<AppleNativeTargetDescriptionArg>> library = Optional.absent();
-    if (targetNode.getType().equals(AppleLibraryDescription.TYPE)) {
-      library = Optional.of((TargetNode<AppleNativeTargetDescriptionArg>) targetNode);
+  private static Optional<TargetNode<AppleNativeTargetDescriptionArg>> getAppleNativeNodeOfType(
+      TargetGraph targetGraph,
+      TargetNode<?> targetNode,
+      Set<BuildRuleType> nodeTypes,
+      Set<AppleBundleExtension> bundleExtensions) {
+    Optional<TargetNode<AppleNativeTargetDescriptionArg>> nativeNode = Optional.absent();
+    if (nodeTypes.contains(targetNode.getType())) {
+      nativeNode = Optional.of((TargetNode<AppleNativeTargetDescriptionArg>) targetNode);
     } else if (targetNode.getType().equals(AppleBundleDescription.TYPE)) {
       TargetNode<AppleBundleDescription.Arg> bundle =
           (TargetNode<AppleBundleDescription.Arg>) targetNode;
-      Optional<AppleBundleExtension> extension =
-          bundle.getConstructorArg().getExtensionValue();
-      if (extension.isPresent() && extension.get() == AppleBundleExtension.FRAMEWORK) {
-        library = Optional.of(Preconditions.checkNotNull(
-            (TargetNode<AppleNativeTargetDescriptionArg>) targetGraph.get(
-                bundle.getConstructorArg().binary)));
+      Either<AppleBundleExtension, String> extension = bundle.getConstructorArg().getExtension();
+      if (extension.isLeft() && bundleExtensions.contains(extension.getLeft())) {
+        nativeNode = Optional.of(
+            Preconditions.checkNotNull(
+                (TargetNode<AppleNativeTargetDescriptionArg>) targetGraph.get(
+                    bundle.getConstructorArg().binary)));
       }
     }
-    return library;
+    return nativeNode;
+  }
+
+  private static Optional<TargetNode<AppleNativeTargetDescriptionArg>> getAppleNativeNode(
+      TargetGraph targetGraph,
+      TargetNode<?> targetNode) {
+    return getAppleNativeNodeOfType(
+        targetGraph,
+        targetNode,
+        ImmutableSet.of(
+            AppleBinaryDescription.TYPE,
+            AppleLibraryDescription.TYPE),
+        ImmutableSet.of(
+            AppleBundleExtension.APP,
+            AppleBundleExtension.FRAMEWORK));
+  }
+
+  private static Optional<TargetNode<AppleNativeTargetDescriptionArg>> getLibraryNode(
+      TargetGraph targetGraph,
+      TargetNode<?> targetNode) {
+    return getAppleNativeNodeOfType(
+        targetGraph,
+        targetNode,
+        ImmutableSet.of(
+            AppleLibraryDescription.TYPE),
+        ImmutableSet.of(
+            AppleBundleExtension.FRAMEWORK));
   }
 
   private ImmutableSet<String> collectRecursiveHeaderSearchPaths(
-      TargetNode<AppleNativeTargetDescriptionArg> targetNode) {
+      TargetNode<? extends AppleNativeTargetDescriptionArg> targetNode) {
     return FluentIterable
         .from(
             AppleBuildRules.getRecursiveTargetNodeDependenciesOfTypes(
@@ -1179,9 +1343,10 @@ public class ProjectGenerator {
             new Predicate<TargetNode<?>>() {
               @Override
               public boolean apply(TargetNode<?> input) {
-                Optional<TargetNode<AppleNativeTargetDescriptionArg>> library =
-                    getLibraryNode(targetGraph, input);
-                return library.isPresent() && !hasBuckHeaderMaps(library.get());
+                Optional<TargetNode<AppleNativeTargetDescriptionArg>> nativeNode =
+                    getAppleNativeNode(targetGraph, input);
+                return nativeNode.isPresent() &&
+                    !nativeNode.get().getConstructorArg().getUseBuckHeaderMaps();
               }
             })
         .transform(
@@ -1195,12 +1360,11 @@ public class ProjectGenerator {
   }
 
   private ImmutableSet<String> collectRecursiveHeaderMaps(
-      TargetNode<AppleNativeTargetDescriptionArg> targetNode) {
+      TargetNode<? extends AppleNativeTargetDescriptionArg> targetNode) {
     ImmutableSet.Builder<String> builder = ImmutableSet.builder();
 
-    if (hasBuckHeaderMaps(targetNode)) {
-      builder.add(
-          getHeaderMapRelativePath(targetNode, HeaderMapType.TARGET_HEADER_MAP));
+    if (targetNode.getConstructorArg().getUseBuckHeaderMaps()) {
+      builder.add(getHeaderMapRelativePath(targetNode, HeaderMapType.TARGET_HEADER_MAP));
     }
 
     for (TargetNode<?> input :
@@ -1209,101 +1373,154 @@ public class ProjectGenerator {
             AppleBuildRules.RecursiveDependenciesMode.BUILDING,
             targetNode,
             Optional.of(AppleBuildRules.XCODE_TARGET_BUILD_RULE_TYPES))) {
-      Optional<TargetNode<AppleNativeTargetDescriptionArg>> library =
-          getLibraryNode(targetGraph, input);
-      if (library.isPresent() && hasBuckHeaderMaps(library.get())) {
-        builder.add(getHeaderMapRelativePath(library.get(), HeaderMapType.PUBLIC_HEADER_MAP));
+      Optional<TargetNode<AppleNativeTargetDescriptionArg>> nativeNode =
+          getAppleNativeNode(targetGraph, input);
+      if (nativeNode.isPresent() && nativeNode.get().getConstructorArg().getUseBuckHeaderMaps()) {
+        builder.add(getHeaderMapRelativePath(nativeNode.get(), HeaderMapType.PUBLIC_HEADER_MAP));
       }
     }
+
+    addHeaderMapsForSourceUnderTest(targetNode, builder, HeaderMapType.TARGET_HEADER_MAP);
 
     return builder.build();
   }
 
   private ImmutableSet<String> collectUserHeaderMaps(
-      TargetNode<AppleNativeTargetDescriptionArg> targetNode) {
-    if (hasBuckHeaderMaps(targetNode)) {
-      return ImmutableSet.of(
+      TargetNode<? extends AppleNativeTargetDescriptionArg> targetNode) {
+    ImmutableSet.Builder<String> builder = ImmutableSet.builder();
+
+    if (targetNode.getConstructorArg().getUseBuckHeaderMaps()) {
+      builder.add(
           getHeaderMapRelativePath(
               targetNode,
               HeaderMapType.TARGET_USER_HEADER_MAP));
-    } else {
-      return ImmutableSet.of();
+    }
+
+    addHeaderMapsForSourceUnderTest(targetNode, builder, HeaderMapType.TARGET_USER_HEADER_MAP);
+
+    return builder.build();
+  }
+
+  private void addHeaderMapsForSourceUnderTest(
+      TargetNode<? extends AppleNativeTargetDescriptionArg> targetNode,
+      ImmutableSet.Builder<String> headerMapsBuilder,
+      HeaderMapType headerMapType) {
+    ImmutableSet<TargetNode<?>> directDependencies = ImmutableSet.copyOf(
+        targetGraph.getAll(targetNode.getDeps()));
+    for (TargetNode<?> dependency : directDependencies) {
+      Optional<TargetNode<AppleNativeTargetDescriptionArg>> nativeNode =
+          getAppleNativeNode(targetGraph, dependency);
+      if (nativeNode.isPresent() &&
+          isSourceUnderTest(dependency, nativeNode.get(), targetNode) &&
+          nativeNode.get().getConstructorArg().getUseBuckHeaderMaps()) {
+        headerMapsBuilder.add(
+            getHeaderMapRelativePath(
+                nativeNode.get(),
+                headerMapType));
+      }
     }
   }
 
-  private ImmutableSet<String> collectRecursiveLibrarySearchPaths(TargetNode<?> targetNode) {
+  private boolean isSourceUnderTest(
+      TargetNode<?> dependencyNode,
+      TargetNode<AppleNativeTargetDescriptionArg> nativeNode,
+      TargetNode<?> testNode) {
+    boolean isSourceUnderTest =
+        nativeNode.getConstructorArg().getTests().contains(testNode.getBuildTarget());
+
+    if (dependencyNode != nativeNode && dependencyNode.getConstructorArg() instanceof HasTests) {
+      ImmutableSortedSet<BuildTarget> tests =
+          ((HasTests) dependencyNode.getConstructorArg()).getTests();
+      if (tests.contains(testNode.getBuildTarget())) {
+        isSourceUnderTest = true;
+      }
+    }
+
+    return isSourceUnderTest;
+  }
+
+  private <T> ImmutableSet<String> collectRecursiveLibrarySearchPaths(
+      Iterable<TargetNode<T>> targetNodes,
+      boolean includeInputs) {
     return FluentIterable
-        .from(
-            AppleBuildRules
-                .<AppleNativeTargetDescriptionArg>getRecursiveTargetNodeDependenciesOfType(
-                    targetGraph,
-                    AppleBuildRules.RecursiveDependenciesMode.LINKING,
-                    targetNode,
-                    AppleLibraryDescription.TYPE))
+        .from(targetNodes)
+        .transformAndConcat(
+            newRecursiveRuleDependencyTransformer(
+                AppleBuildRules.RecursiveDependenciesMode.LINKING,
+                ImmutableSet.of(AppleLibraryDescription.TYPE)))
+        .append(includeInputs ? targetNodes : ImmutableList.<TargetNode<?>>of())
         .transform(
-            new Function<TargetNode<AppleNativeTargetDescriptionArg>, String>() {
+            new Function<TargetNode<?>, String>() {
               @Override
-              public String apply(TargetNode<AppleNativeTargetDescriptionArg> input) {
+              public String apply(TargetNode<?> input) {
                 return getTargetOutputPath(input);
               }
             })
         .toSet();
   }
 
-  private ImmutableSet<String> collectRecursiveFrameworkSearchPaths(TargetNode<?> targetNode) {
+  private <T> ImmutableSet<String> collectRecursiveFrameworkSearchPaths(
+      Iterable<TargetNode<T>> targetNodes,
+      boolean includeInputs) {
     return FluentIterable
-        .from(
-            AppleBuildRules
-                .<AppleBundleDescription.Arg>getRecursiveTargetNodeDependenciesOfType(
-                    targetGraph,
-                    AppleBuildRules.RecursiveDependenciesMode.LINKING,
-                    targetNode,
-                    AppleBundleDescription.TYPE))
+        .from(targetNodes)
+        .transformAndConcat(
+            newRecursiveRuleDependencyTransformer(
+                AppleBuildRules.RecursiveDependenciesMode.LINKING,
+                ImmutableSet.of(AppleBundleDescription.TYPE)))
+        .append(includeInputs ? targetNodes : ImmutableList.<TargetNode<?>>of())
         .filter(
-            new Predicate<TargetNode<AppleBundleDescription.Arg>>() {
+            new Predicate<TargetNode<?>>() {
               @Override
-              public boolean apply(TargetNode<AppleBundleDescription.Arg> input) {
+              public boolean apply(TargetNode<?> input) {
                 return getLibraryNode(targetGraph, input).isPresent();
               }
             })
         .transform(
-          new Function<TargetNode<AppleBundleDescription.Arg>, String>() {
-            @Override
-            public String apply(TargetNode<AppleBundleDescription.Arg> input) {
-              return getTargetOutputPath(input);
-            }
-          })
+            new Function<TargetNode<?>, String>() {
+              @Override
+              public String apply(TargetNode<?> input) {
+                return getTargetOutputPath(input);
+              }
+            })
         .toSet();
   }
 
-  private void collectRecursiveFrameworkDependencies(
-      TargetNode<?> targetNode,
-      ImmutableSet.Builder<String> frameworksBuilder) {
-    for (TargetNode<?> dependency :
-           AppleBuildRules.getRecursiveTargetNodeDependenciesOfTypes(
-               targetGraph,
-               AppleBuildRules.RecursiveDependenciesMode.LINKING,
-               targetNode,
-               Optional.of(AppleBuildRules.XCODE_TARGET_BUILD_RULE_TYPES))) {
-      Optional<TargetNode<AppleNativeTargetDescriptionArg>> library =
-          getLibraryNode(targetGraph, dependency);
-      // Dynamically linked dependencies don't require including their frameworks in dependencies.
-      if (library.isPresent() &&
-          !AppleLibraryDescription.isDynamicLibraryTarget(library.get().getBuildTarget())) {
-        frameworksBuilder.addAll(
-            library.get().getConstructorArg().frameworks.get());
-      }
-    }
+  private <T> Iterable<FrameworkPath> collectRecursiveFrameworkDependencies(
+      Iterable<TargetNode<T>> targetNodes) {
+    return FluentIterable
+        .from(targetNodes)
+        .transformAndConcat(
+            newRecursiveRuleDependencyTransformer(
+                AppleBuildRules.RecursiveDependenciesMode.LINKING,
+                AppleBuildRules.XCODE_TARGET_BUILD_RULE_TYPES))
+        .transformAndConcat(
+            new Function<TargetNode<?>, Iterable<FrameworkPath>>() {
+              @Override
+              public Iterable<FrameworkPath> apply(TargetNode<?> input) {
+                Optional<TargetNode<AppleNativeTargetDescriptionArg>> library =
+                    getLibraryNode(targetGraph, input);
+                if (library.isPresent() &&
+                    !AppleLibraryDescription.isSharedLibraryTarget(
+                        library.get().getBuildTarget())) {
+                  return Iterables.transform(
+                      library.get().getConstructorArg().frameworks.get(),
+                      FrameworkPath.transformFromString(input.getBuildTarget()));
+                } else {
+                  return ImmutableList.of();
+                }
+              }
+            });
   }
 
-  private ImmutableSet<PBXFileReference> collectRecursiveLibraryDependencies(
-      TargetNode<?> targetNode) {
+  private <T> ImmutableSet<PBXFileReference> collectRecursiveLibraryDependencies(
+      Iterable<TargetNode<T>> targetNodes) {
     return FluentIterable
-        .from(AppleBuildRules.getRecursiveTargetNodeDependenciesOfTypes(
-                targetGraph,
+        .from(targetNodes)
+        .transformAndConcat(
+            newRecursiveRuleDependencyTransformer(
                 AppleBuildRules.RecursiveDependenciesMode.LINKING,
-                targetNode,
-                Optional.of(AppleBuildRules.XCODE_TARGET_BUILD_RULE_TYPES)))
+                AppleBuildRules.XCODE_TARGET_BUILD_RULE_TYPES))
         .filter(
             new Predicate<TargetNode<?>>() {
               @Override
@@ -1320,6 +1537,21 @@ public class ProjectGenerator {
             }).toSet();
   }
 
+  private Function<TargetNode<?>, Iterable<TargetNode<?>>> newRecursiveRuleDependencyTransformer(
+      final AppleBuildRules.RecursiveDependenciesMode mode,
+      final ImmutableSet<BuildRuleType> types) {
+    return new Function<TargetNode<?>, Iterable<TargetNode<?>>>() {
+      @Override
+      public Iterable<TargetNode<?>> apply(TargetNode<?> input) {
+        return AppleBuildRules.getRecursiveTargetNodeDependenciesOfTypes(
+            targetGraph,
+            mode,
+            input,
+            Optional.of(types));
+      }
+    };
+  }
+
   private SourceTreePath getProductsSourceTreePath(TargetNode<?> targetNode) {
     String productName = getProductName(targetNode.getBuildTarget());
     String productOutputName;
@@ -1329,11 +1561,12 @@ public class ProjectGenerator {
           targetNode
               .getBuildTarget()
               .getFlavors()
-              .contains(AppleLibraryDescription.DYNAMIC_LIBRARY));
+              .contains(CxxDescriptionEnhancer.SHARED_FLAVOR));
       productOutputName = String.format(productOutputFormat, productName);
-    } else if (targetNode.getType().equals(AppleBundleDescription.TYPE)) {
-      AppleBundleDescription.Arg arg = (AppleBundleDescription.Arg) targetNode.getConstructorArg();
-      productOutputName = productName + "." + arg.getExtensionString();
+    } else if (targetNode.getType().equals(AppleBundleDescription.TYPE) ||
+        targetNode.getType().equals(AppleTestDescription.TYPE)) {
+      HasAppleBundleFields arg = (HasAppleBundleFields) targetNode.getConstructorArg();
+      productOutputName = productName + "." + getExtensionString(arg.getExtension());
     } else if (targetNode.getType().equals(AppleBinaryDescription.TYPE)) {
       productOutputName = productName;
     } else {
@@ -1363,6 +1596,22 @@ public class ProjectGenerator {
   }
 
   /**
+   * Return a file reference to a test assuming it's built as a static library.
+   */
+  private PBXFileReference getOrCreateTestLibraryFileReference(
+      TargetNode<AppleTestDescription.Arg> test) {
+    SourceTreePath path = new SourceTreePath(
+        PBXReference.SourceTree.BUILT_PRODUCTS_DIR,
+        Paths.get(getBuiltProductsRelativeTargetOutputPath(test)).resolve(
+            String.format(
+                AppleBuildRules.getOutputFileNameFormatForLibrary(false),
+                getProductName(test.getBuildTarget()))));
+    return project.getMainGroup()
+        .getOrCreateChildGroupByName("Test Libraries")
+        .getOrCreateFileReferenceBySourceTreePath(path);
+  }
+
+  /**
    * Whether a given build target is built by the project being generated, or being build elsewhere.
    */
   private boolean isBuiltByCurrentProject(BuildTarget buildTarget) {
@@ -1378,26 +1627,22 @@ public class ProjectGenerator {
   /**
    * Collect resources from recursive dependencies.
    *
-   * @param targetNode {@link TargetNode} at the tip of the traversal.
+   * @param targetNodes {@link TargetNode} at the tip of the traversal.
    * @return The recursive resource buildables.
    */
-  private ImmutableSet<AppleResourceDescription.Arg> collectRecursiveResources(
-      TargetNode<?> targetNode) {
+  private <T> ImmutableSet<AppleResourceDescription.Arg> collectRecursiveResources(
+      Iterable<TargetNode<T>> targetNodes) {
     return FluentIterable
-        .from(
-            AppleBuildRules
-                .<AppleResourceDescription.Arg>getRecursiveTargetNodeDependenciesOfType(
-                    targetGraph,
-                    AppleBuildRules.RecursiveDependenciesMode.COPYING,
-                    targetNode,
-                    AppleResourceDescription.TYPE))
+        .from(targetNodes)
+        .transformAndConcat(
+            newRecursiveRuleDependencyTransformer(
+                AppleBuildRules.RecursiveDependenciesMode.COPYING,
+                ImmutableSet.of(AppleResourceDescription.TYPE)))
         .transform(
-            new Function<
-                TargetNode<AppleResourceDescription.Arg>, AppleResourceDescription.Arg>() {
+            new Function<TargetNode<?>, AppleResourceDescription.Arg>() {
               @Override
-              public AppleResourceDescription.Arg apply(
-                  TargetNode<AppleResourceDescription.Arg> input) {
-                return input.getConstructorArg();
+              public AppleResourceDescription.Arg apply(TargetNode<?> input) {
+                return (AppleResourceDescription.Arg) input.getConstructorArg();
               }
             })
         .toSet();
@@ -1406,52 +1651,38 @@ public class ProjectGenerator {
   /**
    * Collect asset catalogs from recursive dependencies.
    */
-  private ImmutableSet<AppleAssetCatalogDescription.Arg> collectRecursiveAssetCatalogs(
-      TargetNode<?> targetNode) {
+  private <T> ImmutableSet<AppleAssetCatalogDescription.Arg> collectRecursiveAssetCatalogs(
+      Iterable<TargetNode<T>> targetNodes) {
     return FluentIterable
-        .from(
-            AppleBuildRules
-                .<AppleAssetCatalogDescription.Arg>getRecursiveTargetNodeDependenciesOfType(
-                    targetGraph,
-                    AppleBuildRules.RecursiveDependenciesMode.COPYING,
-                    targetNode,
-                    AppleAssetCatalogDescription.TYPE))
+        .from(targetNodes)
+        .transformAndConcat(
+            newRecursiveRuleDependencyTransformer(
+                AppleBuildRules.RecursiveDependenciesMode.COPYING,
+                ImmutableSet.of(AppleAssetCatalogDescription.TYPE)))
         .transform(
-            new Function<
-                TargetNode<AppleAssetCatalogDescription.Arg>, AppleAssetCatalogDescription.Arg>() {
+            new Function<TargetNode<?>, AppleAssetCatalogDescription.Arg>() {
               @Override
-              public AppleAssetCatalogDescription.Arg apply(
-                  TargetNode<AppleAssetCatalogDescription.Arg> input) {
-                return input.getConstructorArg();
+              public AppleAssetCatalogDescription.Arg apply(TargetNode<?> input) {
+                return (AppleAssetCatalogDescription.Arg) input.getConstructorArg();
               }
             })
         .toSet();
   }
 
-  @SuppressWarnings({"incomplete-switch", "unchecked"})
-  private PBXTarget.ProductType bundleToTargetProductType(
-      TargetNode<AppleBundleDescription.Arg> targetNode) {
-    TargetNode<AppleNativeTargetDescriptionArg> binary =
-        (TargetNode<AppleNativeTargetDescriptionArg>) Preconditions.checkNotNull(
-            targetGraph.get(targetNode.getConstructorArg().binary));
+  @SuppressWarnings("incomplete-switch")
+  PBXTarget.ProductType bundleToTargetProductType(
+      TargetNode<? extends HasAppleBundleFields> targetNode,
+      TargetNode<? extends AppleNativeTargetDescriptionArg> binaryNode) {
+    if (targetNode.getConstructorArg().getExtension().isLeft()) {
+      AppleBundleExtension extension = targetNode.getConstructorArg().getExtension().getLeft();
 
-    if (targetNode.getConstructorArg().extension.isLeft()) {
-      AppleBundleExtension extension = targetNode.getConstructorArg().extension.getLeft();
-
-      if (binary.getType().equals(AppleLibraryDescription.TYPE)) {
-        if (binary.getBuildTarget().getFlavors().contains(
-            AppleLibraryDescription.DYNAMIC_LIBRARY)) {
-          switch (extension) {
-            case FRAMEWORK:
-              return PBXTarget.ProductType.FRAMEWORK;
-            case APPEX:
-              return PBXTarget.ProductType.APP_EXTENSION;
-            case BUNDLE:
-              return PBXTarget.ProductType.BUNDLE;
-            case OCTEST:
-              return PBXTarget.ProductType.BUNDLE;
-            case XCTEST:
-              return PBXTarget.ProductType.UNIT_TEST;
+      if (binaryNode.getType().equals(AppleLibraryDescription.TYPE)) {
+        if (binaryNode.getBuildTarget().getFlavors().contains(
+            CxxDescriptionEnhancer.SHARED_FLAVOR)) {
+          Optional<PBXTarget.ProductType> productType =
+              dylibProductTypeByBundleExtension(extension);
+          if (productType.isPresent()) {
+            return productType.get();
           }
         } else {
           switch (extension) {
@@ -1459,10 +1690,17 @@ public class ProjectGenerator {
               return PBXTarget.ProductType.STATIC_FRAMEWORK;
           }
         }
-      } else if (binary.getType().equals(AppleBinaryDescription.TYPE)) {
+      } else if (binaryNode.getType().equals(AppleBinaryDescription.TYPE)) {
         switch (extension) {
           case APP:
             return PBXTarget.ProductType.APPLICATION;
+        }
+      } else if (binaryNode.getType().equals(AppleTestDescription.TYPE)) {
+        switch (extension) {
+          case OCTEST:
+            return PBXTarget.ProductType.BUNDLE;
+          case XCTEST:
+            return PBXTarget.ProductType.UNIT_TEST;
         }
       }
     }
@@ -1472,5 +1710,66 @@ public class ProjectGenerator {
 
   private boolean shouldGenerateReadOnlyFiles() {
     return options.contains(Option.GENERATE_READ_ONLY_FILES);
+  }
+
+  private static String getExtensionString(Either<AppleBundleExtension, String> extension) {
+    return extension.isLeft() ? extension.getLeft().toFileExtension() : extension.getRight();
+  }
+
+  private static boolean isFrameworkBundle(HasAppleBundleFields arg) {
+    return arg.getExtension().isLeft() &&
+        arg.getExtension().getLeft().equals(AppleBundleExtension.FRAMEWORK);
+  }
+
+  /**
+   * Retrieve the location of the asset catalog build script.
+   *
+   * If the file is provided by buck and needs to be copied, mark it as such in the project.
+   */
+  private Path getAndMarkAssetCatalogBuildScript() {
+    if (PATH_OVERRIDE_FOR_ASSET_CATALOG_BUILD_PHASE_SCRIPT != null) {
+      return Paths.get(PATH_OVERRIDE_FOR_ASSET_CATALOG_BUILD_PHASE_SCRIPT);
+    } else {
+      // In order for the script to run, it must be accessible by Xcode and
+      // deserves to be part of the generated output.
+      shouldPlaceAssetCatalogCompiler = true;
+      return placedAssetCatalogBuildPhaseScript;
+    }
+  }
+
+  private Path emptyFileWithExtension(String extension) {
+    Path path = projectFilesystem.getPathForRelativePath(
+        BuckConstant.GEN_PATH.resolve("xcode-scripts/emptyFile." + extension));
+    if (!projectFilesystem.exists(path)) {
+      try {
+        projectFilesystem.createParentDirs(path);
+        projectFilesystem.newFileOutputStream(path).close();
+      } catch (IOException e) {
+        throw new RuntimeException(e);
+      }
+    }
+    return path;
+  }
+
+  /**
+   * @return product type of a bundle containing a dylib.
+   */
+  private static Optional<PBXTarget.ProductType> dylibProductTypeByBundleExtension(
+      AppleBundleExtension extension) {
+    switch (extension) {
+      case FRAMEWORK:
+        return Optional.of(PBXTarget.ProductType.FRAMEWORK);
+      case APPEX:
+        return Optional.of(PBXTarget.ProductType.APP_EXTENSION);
+      case BUNDLE:
+        return Optional.of(PBXTarget.ProductType.BUNDLE);
+      case OCTEST:
+        return Optional.of(PBXTarget.ProductType.BUNDLE);
+      case XCTEST:
+        return Optional.of(PBXTarget.ProductType.UNIT_TEST);
+      // $CASES-OMITTED$
+      default:
+        return Optional.absent();
+    }
   }
 }

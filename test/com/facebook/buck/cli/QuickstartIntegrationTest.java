@@ -19,13 +19,14 @@ package com.facebook.buck.cli;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.android.AssumeAndroidPlatform;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.ProjectWorkspace.ProcessResult;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.facebook.buck.util.AndroidDirectoryResolver;
-import com.facebook.buck.util.DefaultAndroidDirectoryResolver;
+import com.facebook.buck.android.AndroidDirectoryResolver;
+import com.facebook.buck.android.DefaultAndroidDirectoryResolver;
 import com.facebook.buck.util.DefaultPropertyFinder;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
@@ -58,6 +59,7 @@ public class QuickstartIntegrationTest {
    */
   @Test
   public void testQuickstartCreatesProject() throws CmdLineException, IOException {
+    AssumeAndroidPlatform.assumeSdkIsAvailable();
     ProjectWorkspace quickstartWorkspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "empty_project", quickstartDirectory);
     quickstartWorkspace.setUp();
@@ -110,16 +112,14 @@ public class QuickstartIntegrationTest {
 
     assertEquals(
       "`buck targets` should display a list of targets.",
-      Joiner.on('\n').join("//apps/myapp:app",
-        "//apps/myapp:app#aapt_package",
-        "//apps/myapp:app#dex_merge",
-        "//apps/myapp:debug_keystore",
-        "//apps/myapp:project_config",
-        "//java/com/example/activity:activity",
-        "//java/com/example/activity:activity#dex",
-        "//java/com/example/activity:project_config",
-        "//res/com/example/activity:project_config",
-        "//res/com/example/activity:res") + "\n",
+      Joiner.on('\n').join(
+          "//apps/myapp:app",
+          "//apps/myapp:debug_keystore",
+          "//apps/myapp:project_config",
+          "//java/com/example/activity:activity",
+          "//java/com/example/activity:project_config",
+          "//res/com/example/activity:project_config",
+          "//res/com/example/activity:res") + "\n",
       result.getStdout());
 
     result = targetsWorkspace.runBuckCommand("build", "app");

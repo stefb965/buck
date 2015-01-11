@@ -100,11 +100,15 @@ public class ProjectWorkspace {
    *     written. By requiring a {@link TemporaryFolder} rather than a {@link File}, we can ensure
    *     that JUnit will clean up the test correctly.
    */
-  public ProjectWorkspace(File templateDir, DebuggableTemporaryFolder temporaryFolder) {
+  public ProjectWorkspace(Path templateDir, DebuggableTemporaryFolder temporaryFolder) {
     Preconditions.checkNotNull(templateDir);
     Preconditions.checkNotNull(temporaryFolder);
-    this.templatePath = templateDir.toPath();
+    this.templatePath = templateDir;
     this.destPath = temporaryFolder.getRoot().toPath();
+  }
+
+  public ProjectWorkspace(File templateDir, DebuggableTemporaryFolder temporaryFolder) {
+    this(templateDir.toPath(), temporaryFolder);
   }
 
   /**
@@ -245,10 +249,33 @@ public class ProjectWorkspace {
       }
     };
 
+    // Construct a limited view of the parent environment for the child.
+    //
+    // TODO(#5754812): we should eventually get tests working without requiring these be set.
+    ImmutableList<String> inheritedEnvVars = ImmutableList.of(
+        "ANDROID_HOME",
+        "ANDROID_NDK",
+        "ANDROID_NDK_REPOSITORY",
+        "ANDROID_SDK",
+        "PATH");
+    ImmutableMap.Builder<String, String> envBuilder = ImmutableMap.builder();
+    for (String variable : inheritedEnvVars) {
+      String value = System.getenv(variable);
+      if (value != null) {
+        envBuilder.put(variable, value);
+      }
+    }
+    ImmutableMap<String, String> env = envBuilder.build();
+
     Main main = new Main(stdout, stderr, Optional.of(capturingEventListener));
     int exitCode = 0;
     try {
-      exitCode = main.runMainWithExitCode(new BuildId(), destPath, context, args);
+      exitCode = main.runMainWithExitCode(
+          new BuildId(),
+          destPath,
+          context,
+          env,
+          args);
     } catch (InterruptedException e) {
       e.printStackTrace(stderr);
       exitCode = Main.FAIL_EXIT_CODE;
@@ -265,7 +292,11 @@ public class ProjectWorkspace {
    * @return the {@link File} that corresponds to the {@code pathRelativeToProjectRoot}.
    */
   public File getFile(String pathRelativeToProjectRoot) {
-    return destPath.resolve(pathRelativeToProjectRoot).toFile();
+    return getPath(pathRelativeToProjectRoot).toFile();
+  }
+
+  public Path getPath(String pathRelativeToProjectRoot) {
+    return destPath.resolve(pathRelativeToProjectRoot);
   }
 
   public String getFileContents(String pathRelativeToProjectRoot) throws IOException {

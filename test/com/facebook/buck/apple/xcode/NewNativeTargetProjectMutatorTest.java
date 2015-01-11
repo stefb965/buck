@@ -30,6 +30,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import com.dd.plist.NSArray;
 import com.dd.plist.NSDictionary;
@@ -55,11 +56,9 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TestSourcePath;
 import com.facebook.buck.shell.GenruleBuilder;
-import com.facebook.buck.step.ExecutionContext;
-import com.facebook.buck.step.TestExecutionContext;
-import com.facebook.buck.testutil.TargetGraphFactory;
 import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
+import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -72,7 +71,6 @@ import org.junit.Test;
 import java.nio.file.Paths;
 
 public class NewNativeTargetProjectMutatorTest {
-  private ExecutionContext executionContext;
   private BuildRuleResolver buildRuleResolver;
   private PBXProject generatedProject;
   private PathRelativizer pathRelativizer;
@@ -80,7 +78,6 @@ public class NewNativeTargetProjectMutatorTest {
 
   @Before
   public void setUp() {
-    executionContext = TestExecutionContext.newInstance();
     buildRuleResolver = new BuildRuleResolver();
     generatedProject = new PBXProject("TestProject");
     sourcePathResolver = new SourcePathResolver(buildRuleResolver);
@@ -92,14 +89,9 @@ public class NewNativeTargetProjectMutatorTest {
 
   @Test
   public void shouldCreateTargetAndTargetGroup() throws NoSuchBuildTargetException {
-    BuildTarget testBuildTarget = BuildTarget.builder("//foo", "test").build();
     NewNativeTargetProjectMutator mutator = new NewNativeTargetProjectMutator(
-        TargetGraphFactory.newInstance(ImmutableSet.<TargetNode<?>>of()),
-        executionContext,
         pathRelativizer,
-        buildRuleResolver,
-        sourcePathResolver,
-        testBuildTarget);
+        sourcePathResolver);
     mutator
         .setTargetName("TestTarget")
         .setProduct(
@@ -113,9 +105,28 @@ public class NewNativeTargetProjectMutatorTest {
   }
 
   @Test
+  public void shouldCreateTargetAndCustomTargetGroup() throws NoSuchBuildTargetException {
+    NewNativeTargetProjectMutator mutator = new NewNativeTargetProjectMutator(
+        pathRelativizer,
+        sourcePathResolver);
+    mutator
+        .setTargetName("TestTarget")
+        .setTargetGroupPath(ImmutableList.of("Grandparent", "Parent"))
+        .setProduct(
+            PBXTarget.ProductType.BUNDLE,
+            "TestTargetProduct",
+            Paths.get("TestTargetProduct.bundle"))
+        .buildTargetAndAddToProject(generatedProject);
+
+    assertTargetExistsAndReturnTarget(generatedProject, "TestTarget");
+    PBXGroup grandparentGroup =
+        assertHasSubgroupAndReturnIt(generatedProject.getMainGroup(), "Grandparent");
+    assertHasSubgroupAndReturnIt(grandparentGroup, "Parent");
+  }
+
+  @Test
   public void testSourceGroups() throws NoSuchBuildTargetException {
-    BuildTarget testBuildTarget = BuildTarget.builder("//foo", "lib").build();
-    NewNativeTargetProjectMutator mutator = mutatorWithCommonDefaults(testBuildTarget);
+    NewNativeTargetProjectMutator mutator = mutatorWithCommonDefaults();
 
     SourcePath foo = new TestSourcePath("foo.m");
     SourcePath bar = new TestSourcePath("bar.m");
@@ -154,8 +165,7 @@ public class NewNativeTargetProjectMutatorTest {
 
   @Test
   public void testLibraryHeaderGroups() throws NoSuchBuildTargetException {
-    BuildTarget testBuildTarget = BuildTarget.builder("//foo", "lib").build();
-    NewNativeTargetProjectMutator mutator = mutatorWithCommonDefaults(testBuildTarget);
+    NewNativeTargetProjectMutator mutator = mutatorWithCommonDefaults();
 
     SourcePath foo = new TestSourcePath("foo.h");
     SourcePath bar = new TestSourcePath("bar.h");
@@ -228,8 +238,7 @@ public class NewNativeTargetProjectMutatorTest {
         GroupedSource.ofSourcePath(new TestSourcePath("foo.h")));
 
     {
-      BuildTarget testBuildTarget = BuildTarget.builder("//foo", "lib").build();
-      NewNativeTargetProjectMutator mutator = mutatorWithCommonDefaults(testBuildTarget);
+      NewNativeTargetProjectMutator mutator = mutatorWithCommonDefaults();
       mutator
           .setShouldGenerateCopyHeadersPhase(false)
           .setSources(sources, ImmutableMap.<SourcePath, String>of());
@@ -243,8 +252,7 @@ public class NewNativeTargetProjectMutatorTest {
     }
 
     {
-      BuildTarget testBuildTarget = BuildTarget.builder("//foo", "lib").build();
-      NewNativeTargetProjectMutator mutator = mutatorWithCommonDefaults(testBuildTarget);
+      NewNativeTargetProjectMutator mutator = mutatorWithCommonDefaults();
       mutator
           .setShouldGenerateCopyHeadersPhase(true)
           .setSources(sources, ImmutableMap.<SourcePath, String>of());
@@ -260,13 +268,15 @@ public class NewNativeTargetProjectMutatorTest {
   @Test
   public void testFrameworkBuildPhase() throws NoSuchBuildTargetException {
     BuildTarget testBuildTarget = BuildTarget.builder("//foo", "binary").build();
-    NewNativeTargetProjectMutator mutator = mutatorWithCommonDefaults(testBuildTarget);
-    mutator.setFrameworks(ImmutableSet.of("$SDKROOT/Foo.framework"));
-    mutator.setArchives(ImmutableSet.of(
-        new PBXFileReference(
-            "libdep.a",
-            "libdep.a",
-            PBXReference.SourceTree.BUILT_PRODUCTS_DIR)));
+    NewNativeTargetProjectMutator mutator = mutatorWithCommonDefaults();
+    mutator.setFrameworks(
+        ImmutableSet.of(FrameworkPath.fromString(testBuildTarget, "$SDKROOT/Foo.framework")));
+    mutator.setArchives(
+        ImmutableSet.of(
+            new PBXFileReference(
+                "libdep.a",
+                "libdep.a",
+                PBXReference.SourceTree.BUILT_PRODUCTS_DIR)));
     NewNativeTargetProjectMutator.Result result =
         mutator.buildTargetAndAddToProject(generatedProject);
     assertHasSingletonFrameworksPhaseWithFrameworkEntries(
@@ -278,8 +288,7 @@ public class NewNativeTargetProjectMutatorTest {
 
   @Test
   public void testResourcesBuildPhase() throws NoSuchBuildTargetException {
-    BuildTarget testBuildTarget = BuildTarget.builder("//foo", "binary").build();
-    NewNativeTargetProjectMutator mutator = mutatorWithCommonDefaults(testBuildTarget);
+    NewNativeTargetProjectMutator mutator = mutatorWithCommonDefaults();
 
     AppleResourceDescription appleResourceDescription = new AppleResourceDescription();
     AppleResourceDescription.Arg arg = createDescriptionArgWithDefaults(appleResourceDescription);
@@ -306,8 +315,7 @@ public class NewNativeTargetProjectMutatorTest {
     arg2.dirs = ImmutableSet.of(Paths.get("AssetCatalog2.xcassets"));
     arg2.copyToBundles = Optional.of(true);
 
-    BuildTarget testBuildTarget = BuildTarget.builder("//foo", "binary").build();
-    NewNativeTargetProjectMutator mutator = mutatorWithCommonDefaults(testBuildTarget);
+    NewNativeTargetProjectMutator mutator = mutatorWithCommonDefaults();
     mutator.setAssetCatalogs(
         Paths.get("compile_asset_catalogs"),
         ImmutableSet.of(arg1, arg2));
@@ -318,13 +326,12 @@ public class NewNativeTargetProjectMutatorTest {
 
   @Test
   public void testScriptBuildPhase() throws NoSuchBuildTargetException{
-    BuildTarget testBuildTarget = BuildTarget.builder("//foo", "library").build();
-    NewNativeTargetProjectMutator mutator = mutatorWithCommonDefaults(testBuildTarget);
+    NewNativeTargetProjectMutator mutator = mutatorWithCommonDefaults();
 
     TargetNode<?> genruleNode = GenruleBuilder
         .newGenruleBuilder(BuildTarget.builder("//foo", "script").build())
         .setSrcs(ImmutableList.<SourcePath>of(new TestSourcePath("script/input.png")))
-        .setBash("echo \"hello world!\"")
+        .setCmd("echo \"hello world!\"")
         .setOut("helloworld.txt")
         .build();
 
@@ -340,27 +347,26 @@ public class NewNativeTargetProjectMutatorTest {
         Iterables.getOnlyElement(phase.getInputPaths()));
     assertEquals(
         "should set script correctly",
-        "/bin/bash -e -c 'echo \"hello world!\"'",
+        "echo \"hello world!\"",
         phase.getShellScript());
   }
 
   @Test
   public void testScriptBuildPhaseWithGenruleDep() throws NoSuchBuildTargetException{
-    BuildTarget testBuildTarget = BuildTarget.builder("//foo", "library").build();
-    NewNativeTargetProjectMutator mutator = mutatorWithCommonDefaults(testBuildTarget);
+    NewNativeTargetProjectMutator mutator = mutatorWithCommonDefaults();
 
     BuildTarget depBuildTarget = BuildTarget.builder("//foo", "dep").build();
     // This has the side effect of adding the dependency to the BuildRuleResolver map.
     GenruleBuilder
         .newGenruleBuilder(depBuildTarget)
-        .setBash("echo \"hello dep!\"")
+        .setCmd("echo \"hello dep!\"")
         .setOut("dep.txt")
         .build(buildRuleResolver);
 
     TargetNode<?> genruleNode = GenruleBuilder
         .newGenruleBuilder(BuildTarget.builder("//foo", "script").build())
         .setSrcs(ImmutableList.<SourcePath>of(new TestSourcePath("script/input.png")))
-        .setBash("echo \"hello world!\"")
+        .setCmd("echo \"hello world!\"")
         .setOut("helloworld.txt")
         .setDeps(ImmutableSortedSet.of(depBuildTarget))
         .build();
@@ -377,18 +383,14 @@ public class NewNativeTargetProjectMutatorTest {
         Iterables.getOnlyElement(phase.getInputPaths()));
     assertEquals(
         "should set script correctly",
-        "/bin/bash -e -c 'echo \"hello world!\"'",
+        "echo \"hello world!\"",
         phase.getShellScript());
   }
 
-  private NewNativeTargetProjectMutator mutatorWithCommonDefaults(BuildTarget target) {
+  private NewNativeTargetProjectMutator mutatorWithCommonDefaults() {
     NewNativeTargetProjectMutator mutator = new NewNativeTargetProjectMutator(
-        TargetGraphFactory.newInstance(ImmutableSet.<TargetNode<?>>of()),
-        executionContext,
         pathRelativizer,
-        buildRuleResolver,
-        sourcePathResolver,
-        target);
+        sourcePathResolver);
     mutator
         .setTargetName("TestTarget")
         .setProduct(
@@ -409,6 +411,24 @@ public class NewNativeTargetProjectMutatorTest {
               }
             }),
         not(emptyIterable()));
+  }
+
+  private static PBXGroup assertHasSubgroupAndReturnIt(PBXGroup group, final String subgroupName) {
+    ImmutableList<PBXGroup> candidates = FluentIterable
+        .from(group.getChildren())
+        .filter(
+            new Predicate<PBXReference>() {
+              @Override
+              public boolean apply(PBXReference input) {
+                return input.getName().equals(subgroupName);
+              }
+            })
+        .filter(PBXGroup.class)
+        .toList();
+    if (candidates.size() != 1) {
+      fail("Could not find a unique subgroup by its name");
+    }
+    return candidates.get(0);
   }
 
   private boolean hasShellScriptPhaseToCompileCommonAndSplitAssetCatalogs(PBXTarget target) {

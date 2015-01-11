@@ -33,11 +33,13 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -51,13 +53,23 @@ public class CompilationDatabaseIntegrationTest {
 
   @Rule
   public DebuggableTemporaryFolder tmp = new DebuggableTemporaryFolder();
+  private ProjectWorkspace workspace;
 
-  @Test
-  public void testBuildHeadersFlavorDirectly() throws IOException {
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+  @Before
+  public void setupWorkspace() throws IOException {
+    workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "ios-project", tmp);
     workspace.setUp();
 
+    Path platforms = workspace.getPath("xcode-developer-dir/Platforms");
+    Path sdk = platforms.resolve("iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk");
+    Files.createSymbolicLink(sdk.getParent().resolve("iPhoneOS8.0.sdk"), sdk);
+    sdk = platforms.resolve("iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk");
+    Files.createSymbolicLink(sdk.getParent().resolve("iPhoneSimulator8.0.sdk"), sdk);
+  }
+
+  @Test
+  public void testBuildHeadersFlavorDirectly() throws IOException {
     // build an intermediate #headers rule.
     workspace.runBuckBuild("//Libraries/EXExample:EXExample#headers").assertSuccess();
 
@@ -75,10 +87,6 @@ public class CompilationDatabaseIntegrationTest {
 
   @Test
   public void testCreateCompilationDatabaseForAppleLibraryWithNoDeps() throws IOException {
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "ios-project", tmp);
-    workspace.setUp();
-
     // buck build the #compilation-database.
     File compilationDatabase = workspace.buildAndReturnOutput(
         "//Libraries/EXExample:EXExample#compilation-database");
@@ -115,6 +123,12 @@ public class CompilationDatabaseIntegrationTest {
         /* includes */ ImmutableList.<String>of(),
         iquoteArg);
     assertFlags(
+        "Libraries/EXExample/EXExample/EXUser.mm",
+        fileToEntry,
+        /* additionalFrameworks */ ImmutableList.<String>of(),
+        /* includes */ ImmutableList.<String>of(),
+        iquoteArg);
+    assertFlags(
         "Libraries/EXExample/EXExample/Categories/NSString+Palindrome.h",
         fileToEntry,
         /* additionalFrameworks */ ImmutableList.<String>of(),
@@ -141,10 +155,6 @@ public class CompilationDatabaseIntegrationTest {
 
   @Test
   public void testCreateCompilationDatabaseForAppleBinaryWithDeps() throws IOException {
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "ios-project", tmp);
-    workspace.setUp();
-
     // buck build the #compilation-database.
     File compilationDatabase = workspace.buildAndReturnOutput(
         "//Apps/Weather:Weather#compilation-database");
@@ -203,17 +213,23 @@ public class CompilationDatabaseIntegrationTest {
         .resolve(XCODE_DEVELOPER_DIR)
         .resolve("Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk")
         .toRealPath().toString();
+    String language = "objective-c";
+    String languageStandard = "-std=gnu99";
+    if ("Libraries/EXExample/EXExample/EXUser.mm".equals(fileName)) {
+      language = "objective-c++";
+      languageStandard = "-std=c++11";
+    }
     List<String> commandArgs = Lists.newArrayList(
         "clang",
         "-x",
-        "objective-c",
+        language,
         "-arch",
         "i386",
         "-mios-simulator-version-min=7.0",
         "-fmessage-length=0",
         "-fdiagnostics-show-note-include-stack",
         "-fmacro-backtrace-limit=0",
-        "-std=gnu99",
+        languageStandard,
         "-fpascal-strings",
         "-fexceptions",
         "-fasm-blocks",

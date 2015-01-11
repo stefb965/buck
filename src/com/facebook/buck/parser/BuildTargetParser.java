@@ -17,6 +17,7 @@
 package com.facebook.buck.parser;
 
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.FlavorParser;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -36,6 +37,7 @@ public class BuildTargetParser {
   private static final List<String> INVALID_BUILD_RULE_SUBSTRINGS = ImmutableList.of("..", "./");
 
   private final ImmutableMap<Optional<String>, Optional<String>> localToCanonicalRepoNamesMap;
+  private final FlavorParser flavorParser = new FlavorParser();
 
   public BuildTargetParser() {
     // By default, use a canonical names map that only allows targets with no repo name.
@@ -57,16 +59,20 @@ public class BuildTargetParser {
   }
 
   /**
-   * @param buildTargetName either a fully-qualified name or relative to the {@link ParseContext}.
+   * @param buildTargetName either a fully-qualified name or relative to the {@link BuildTargetPatternParser}.
    *     For example, inside {@code first-party/orca/orcaapp/BUILD}, which can be obtained by
    *     calling {@code ParseContext.forBaseName("first-party/orca/orcaapp")},
    *     {@code //first-party/orca/orcaapp:assets} and {@code :assets} refer to the same target.
    *     However, from the command line the context is obtained by calling
-   *     {@link ParseContext#fullyQualified()} and relative names are not recognized.
-   * @param parseContext how targets should be interpreted, such in the context of a specific build
-   *     file or only as fully-qualified names (as is the case for targets from the command line).
+   *     {@link BuildTargetPatternParser#fullyQualified(BuildTargetParser)} and relative names are
+   *     not recognized.
+   * @param buildTargetPatternParser how targets should be interpreted, such in the context of a
+   *     specific build file or only as fully-qualified names (as is the case for targets from the
+   *     command line).
    */
-  public BuildTarget parse(String buildTargetName, ParseContext parseContext) {
+  public BuildTarget parse(
+      String buildTargetName,
+      BuildTargetPatternParser buildTargetPatternParser) {
 
     for (String invalidSubstring : INVALID_BUILD_RULE_SUBSTRINGS) {
       if (buildTargetName.contains(invalidSubstring)) {
@@ -76,7 +82,7 @@ public class BuildTargetParser {
     }
 
     if (buildTargetName.endsWith(BUILD_RULE_SEPARATOR) &&
-        parseContext.getType() != ParseContext.Type.VISIBILITY) {
+        !buildTargetPatternParser.isWildCardAllowed()) {
       throw new BuildTargetParseException(
           String.format("%s cannot end with a colon", buildTargetName));
     }
@@ -114,15 +120,13 @@ public class BuildTargetParser {
           "%s must contain exactly one colon (found %d)", buildTargetName, parts.size() - 1));
     }
 
-    String baseName = parts.get(0).isEmpty() ? parseContext.getBaseName() : parts.get(0);
+    String baseName =
+        parts.get(0).isEmpty() ? buildTargetPatternParser.getBaseName() : parts.get(0);
     String shortName = parts.get(1);
     Iterable<String> flavorNames = new HashSet<>();
     int hashIndex = shortName.indexOf("#");
     if (hashIndex != -1 && hashIndex < shortName.length()) {
-      flavorNames = Splitter.on(",")
-          .omitEmptyStrings()
-          .trimResults()
-          .split(shortName.substring(hashIndex + 1));
+      flavorNames = flavorParser.parseFlavorString(shortName.substring(hashIndex + 1));
       shortName = shortName.substring(0, hashIndex);
     }
 

@@ -19,9 +19,9 @@ package com.facebook.buck.rules;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetPattern;
-import com.facebook.buck.parser.BuildTargetPatternParser;
+import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.parser.ParseContext;
+import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
@@ -48,7 +48,6 @@ public class ConstructorArgMarshaller {
 
   private final TypeCoercerFactory typeCoercerFactory;
   private final Cache<Class<?>, ImmutableSet<ParamInfo<?>>> coercedTypes;
-  private final BuildTargetPatternParser buildTargetPatternParser;
 
   /**
    * Constructor. {@code pathFromProjectRootToBuildFile} is the path relative to the project root to
@@ -59,7 +58,6 @@ public class ConstructorArgMarshaller {
   public ConstructorArgMarshaller() {
     this.typeCoercerFactory = new TypeCoercerFactory();
     this.coercedTypes = CacheBuilder.newBuilder().build();
-    this.buildTargetPatternParser = new BuildTargetPatternParser();
   }
 
   /**
@@ -98,7 +96,7 @@ public class ConstructorArgMarshaller {
         declaredDeps,
         instance,
         /* populate all fields, optional and required */ false);
-    populateVisibilityPatterns(visibilityPatterns, instance);
+    populateVisibilityPatterns(params.buildTargetParser, visibilityPatterns, instance);
   }
 
   @VisibleForTesting
@@ -146,6 +144,7 @@ public class ConstructorArgMarshaller {
 
   @SuppressWarnings("unchecked")
   private void populateVisibilityPatterns(
+      BuildTargetParser targetParser,
       ImmutableSet.Builder<BuildTargetPattern> visibilityPatterns,
       Map<String, ?> instance) throws NoSuchBuildTargetException {
     Object value = instance.get("visibility");
@@ -157,9 +156,7 @@ public class ConstructorArgMarshaller {
 
       for (String visibility : (List<String>) value) {
         visibilityPatterns.add(
-            buildTargetPatternParser.parse(
-                visibility,
-                ParseContext.forVisibilityArgument()));
+            BuildTargetPatternParser.forVisibilityArgument(targetParser).parse(visibility));
       }
     }
   }

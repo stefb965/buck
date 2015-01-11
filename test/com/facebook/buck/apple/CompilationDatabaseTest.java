@@ -35,7 +35,7 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TestSourcePath;
 import com.facebook.buck.rules.coercer.AppleSource;
-import com.facebook.buck.rules.coercer.Pair;
+import com.facebook.buck.model.Pair;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -267,10 +267,15 @@ public class CompilationDatabaseTest {
         Paths.get("/Users/user/src/buck-out/gen/library/lib.hmap"));
     Optional<SourcePath> pchFile = Optional.<SourcePath>of(new PathSourcePath(Paths.get(
         "foo/bar.pch")));
-    ImmutableMap<String, AppleSdkPaths> appleSdkPaths = ImmutableMap.of(
-          "iphonesimulator8.0",
+    ImmutableMap<AppleSdk, AppleSdkPaths> appleSdkPaths = ImmutableMap.of(
+          (AppleSdk) ImmutableAppleSdk.builder()
+              .name("iphonesimulator8.0")
+              .version("8.0")
+              .applePlatform(ApplePlatform.IPHONESIMULATOR)
+              .addArchitectures("i386", "x86_64")
+              .build(),
           (AppleSdkPaths) ImmutableAppleSdkPaths.builder()
-              .toolchainPath(Paths.get("toolchainPath"))
+              .addToolchainPaths(Paths.get("toolchainPath"))
               .platformDeveloperPath(Paths.get("platformDeveloperPath"))
               .sdkPath(Paths.get("/path/to/somewhere" +
                   "/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator8.0.sdk"))

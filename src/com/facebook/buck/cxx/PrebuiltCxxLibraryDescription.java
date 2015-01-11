@@ -29,6 +29,7 @@ import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.model.Pair;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Function;
@@ -105,11 +106,11 @@ public class PrebuiltCxxLibraryDescription
         /* extraCxxLdFlags */ ImmutableList.<String>of(),
         /* extraLdFlags */ ImmutableList.<String>of(),
         sharedTarget,
-        CxxLinkableEnhancer.LinkType.SHARED,
+        Linker.LinkType.SHARED,
         Optional.of(soname),
         builtSharedLibraryPath,
         ImmutableList.<SourcePath>of(new PathSourcePath(staticLibraryPath)),
-        NativeLinkable.Type.SHARED,
+        Linker.LinkableDepType.SHARED,
         params.getDeps());
   }
 
@@ -179,6 +180,8 @@ public class PrebuiltCxxLibraryDescription
         includeDirs,
         staticLibraryPath,
         sharedLibraryPath,
+        args.linkerFlags.or(ImmutableList.<String>of()),
+        args.platformLinkerFlags.get(),
         soname,
         headerOnly,
         linkWhole,
@@ -193,6 +196,8 @@ public class PrebuiltCxxLibraryDescription
     public Optional<Boolean> headerOnly;
     public Optional<Boolean> provided;
     public Optional<Boolean> linkWhole;
+    public Optional<ImmutableList<String>> linkerFlags;
+    public Optional<ImmutableList<Pair<String, ImmutableList<String>>>> platformLinkerFlags;
     public Optional<String> soname;
     public Optional<ImmutableSortedSet<BuildTarget>> deps;
   }

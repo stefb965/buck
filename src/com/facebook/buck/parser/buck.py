@@ -423,6 +423,15 @@ class BuildFileProcessor(object):
 
 
 def main():
+    # Our parent expects to read JSON from our stdout, so if anyone
+    # uses print, buck will complain with a helpful "but I wanted an
+    # array!" message and quit.  Redirect stdout to stderr so that
+    # doesn't happen.  Actually dup2 the file handle so that writing
+    # to file descriptor 1, os.system, and so on work as expected too.
+
+    to_parent = os.fdopen(os.dup(sys.stdout.fileno()), 'a')
+    os.dup2(sys.stderr.fileno(), sys.stdout.fileno())
+
     parser = optparse.OptionParser()
     parser.add_option(
         '--project_root',
@@ -438,11 +447,6 @@ def main():
         '--include',
         action='append',
         dest='include')
-    parser.add_option(
-        '--server',
-        action='store_true',
-        dest='server',
-        help='Invoke as a server to parse individual BUCK files on demand.')
     (options, args) = parser.parse_args()
 
     # Even though project_root is absolute path, it may not be concise. For
@@ -456,22 +460,19 @@ def main():
 
     for build_file in args:
         values = buildFileProcessor.process(build_file)
-        if options.server:
-            print json.dumps(values)
-        else:
-            for value in values:
-                print json.dumps(value)
+        to_parent.write(json.dumps(values))
+        to_parent.flush()
 
-    if options.server:
-        # "for ... in sys.stdin" in Python 2.x hangs until stdin is closed.
-        for build_file in iter(sys.stdin.readline, ''):
-            values = buildFileProcessor.process(build_file.rstrip())
-            print json.dumps(values)
+    # "for ... in sys.stdin" in Python 2.x hangs until stdin is closed.
+    for build_file in iter(sys.stdin.readline, ''):
+        values = buildFileProcessor.process(build_file.rstrip())
+        to_parent.write(json.dumps(values))
+        to_parent.flush()
 
     # Python tries to flush/close stdout when it quits, and if there's a dead
     # pipe on the other end, it will spit some warnings to stderr. This breaks
     # tests sometimes. Prevent that by explicitly catching the error.
     try:
-        sys.stdout.close()
+        to_parent.close()
     except IOError:
         pass

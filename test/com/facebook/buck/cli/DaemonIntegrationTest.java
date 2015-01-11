@@ -26,6 +26,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.junit.Assume.assumeTrue;
 
+import com.facebook.buck.android.AssumeAndroidPlatform;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.rules.FakeRepositoryFactory;
@@ -36,6 +37,7 @@ import com.facebook.buck.testutil.integration.TestContext;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.timing.FakeClock;
 import com.facebook.buck.util.CapturingPrintStream;
+import com.facebook.buck.android.FakeAndroidDirectoryResolver;
 import com.facebook.buck.util.environment.Platform;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Charsets;
@@ -217,6 +219,7 @@ public class DaemonIntegrationTest {
               new BuildId(),
               tmp.getRootPath(),
               Optional.<NGContext>of(new TestContext()),
+              ImmutableMap.copyOf(System.getenv()),
               args);
           assertEquals("Unexpected exit code.", expectedExitCode, exitCode);
         } catch (IOException e) {
@@ -324,6 +327,7 @@ public class DaemonIntegrationTest {
   @Test
   public void whenAppBuckFileRemovedThenRebuildFails()
       throws IOException, InterruptedException {
+    AssumeAndroidPlatform.assumeSdkIsAvailable();
     final ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "file_watching", tmp);
     workspace.setUp();
@@ -341,6 +345,7 @@ public class DaemonIntegrationTest {
   @Test
   public void whenActivityBuckFileRemovedThenRebuildFails()
       throws IOException, InterruptedException {
+    AssumeAndroidPlatform.assumeSdkIsAvailable();
     final ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "file_watching", tmp);
     workspace.setUp();
@@ -357,6 +362,7 @@ public class DaemonIntegrationTest {
   @Test
   public void whenSourceInputRemovedThenRebuildFails()
       throws IOException, InterruptedException {
+    AssumeAndroidPlatform.assumeNdkIsAvailable();
     final ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "file_watching", tmp);
     workspace.setUp();
@@ -379,6 +385,7 @@ public class DaemonIntegrationTest {
   @Test
   public void whenSourceInputInvalidatedThenRebuildFails()
       throws IOException, InterruptedException {
+    AssumeAndroidPlatform.assumeSdkIsAvailable();
     final ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "file_watching", tmp);
     workspace.setUp();
@@ -395,6 +402,7 @@ public class DaemonIntegrationTest {
   @Test
   public void whenAppBuckFileInvalidatedThenRebuildFails()
       throws IOException, InterruptedException {
+    AssumeAndroidPlatform.assumeSdkIsAvailable();
     final ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "file_watching", tmp);
     workspace.setUp();
@@ -463,6 +471,7 @@ public class DaemonIntegrationTest {
   @Test
   public void whenBuckBuiltTwiceLogIsPresent()
       throws IOException, InterruptedException {
+    AssumeAndroidPlatform.assumeSdkIsAvailable();
     final ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "file_watching", tmp);
     workspace.setUp();
@@ -480,6 +489,41 @@ public class DaemonIntegrationTest {
 
     buildLogFile = workspace.getFile("buck-out/bin/build.log");
     assertTrue(buildLogFile.isFile());
+  }
+
+  @Test
+  public void whenAndroidDirectoryResolverChangesParserInvalidated()
+      throws IOException, InterruptedException {
+    ProjectFilesystem filesystem = new ProjectFilesystem(tmp.getRoot().toPath());
+    ObjectMapper objectMapper = new ObjectMapper();
+
+    Object daemon = Main.getDaemon(
+        new FakeRepositoryFactory().setRootRepoForTesting(
+            new TestRepositoryBuilder()
+                .setAndroidDirectoryResolver(
+                    new FakeAndroidDirectoryResolver(
+                        Optional.<Path>absent(),
+                        Optional.<Path>absent(),
+                        Optional.of("something")))
+                .setFilesystem(filesystem)
+                .build()),
+        new FakeClock(0),
+        objectMapper);
+
+    assertNotEquals(
+        "Daemon should be replaced when not equal.", daemon,
+        Main.getDaemon(
+            new FakeRepositoryFactory().setRootRepoForTesting(
+                new TestRepositoryBuilder()
+                    .setAndroidDirectoryResolver(
+                        new FakeAndroidDirectoryResolver(
+                            Optional.<Path>absent(),
+                            Optional.<Path>absent(),
+                            Optional.of("different")))
+                    .setFilesystem(filesystem)
+                    .build()),
+            new FakeClock(0),
+            objectMapper));
   }
 
   private void waitForChange(final Path path) throws IOException, InterruptedException {

@@ -16,7 +16,6 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.rules.SourcePath;
 import com.google.common.base.Optional;
@@ -29,31 +28,34 @@ public interface CxxPlatform {
 
   Flavor asFlavor();
 
-  SourcePath getAs();
+  Tool getAs();
   ImmutableList<String> getAsflags();
 
-  SourcePath getAspp();
+  Tool getAspp();
   ImmutableList<String> getAsppflags();
 
-  SourcePath getCc();
+  Tool getCc();
   ImmutableList<String> getCflags();
 
-  SourcePath getCxx();
+  Tool getCxx();
   ImmutableList<String> getCxxflags();
 
-  SourcePath getCpp();
+  Tool getCpp();
   ImmutableList<String> getCppflags();
 
-  SourcePath getCxxpp();
+  Tool getCxxpp();
   ImmutableList<String> getCxxppflags();
 
-  SourcePath getCxxld();
+  Tool getCxxld();
   ImmutableList<String> getCxxldflags();
 
   Linker getLd();
   ImmutableList<String> getLdflags();
+  ImmutableList<String> getRuntimeLdflags(
+      Linker.LinkType linkType,
+      Linker.LinkableDepType linkableDepType);
 
-  SourcePath getAr();
+  Tool getAr();
   ImmutableList<String> getArflags();
 
   SourcePath getLex();
@@ -65,9 +67,5 @@ public interface CxxPlatform {
   String getSharedLibraryExtension();
 
   Optional<DebugPathSanitizer> getDebugPathSanitizer();
-
-  BuildTarget getGtestDep();
-
-  BuildTarget getBoostTestDep();
 
 }

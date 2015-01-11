@@ -17,9 +17,14 @@
 package com.facebook.buck.apple;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.model.Flavor;
+import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.util.environment.Platform;
+
+import static com.facebook.buck.testutil.HasConsecutiveItemsMatcher.hasConsecutiveItems;
 
 import org.junit.Test;
 
@@ -37,27 +42,47 @@ public class AppleCxxPlatformTest {
 
     AppleSdkPaths appleSdkPaths =
         ImmutableAppleSdkPaths.builder()
-            .toolchainPath(root.resolve("Toolchains/XcodeDefault.xctoolchain"))
+            .addToolchainPaths(root.resolve("Toolchains/XcodeDefault.xctoolchain"))
             .platformDeveloperPath(root.resolve("Platforms/iPhoneOS.platform/Developer"))
             .sdkPath(root.resolve("Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS8.0.sdk"))
             .build();
 
     AppleCxxPlatform appleCxxPlatform =
         new AppleCxxPlatform(
-            new Flavor("iphoneos-8-armv7-arm64"),
             Platform.MACOS,
+            ApplePlatform.IPHONEOS,
+            "iphoneos8.0",
+            "7.0",
+            "armv7",
             appleSdkPaths
         );
 
+    SourcePathResolver resolver = new SourcePathResolver(new BuildRuleResolver());
+
+    assertEquals(
+        new Flavor("iphoneos8.0-armv7"),
+        appleCxxPlatform.asFlavor());
     assertEquals(
         root.resolve("Toolchains/XcodeDefault.xctoolchain/usr/bin/clang").toString(),
-        appleCxxPlatform.getCc().toString());
+        appleCxxPlatform.getCc().getCommandPrefix(resolver).get(0));
+    assertThat(
+        appleCxxPlatform.getCflags(),
+        hasConsecutiveItems(
+            "-isysroot",
+            root.resolve("Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS8.0.sdk").toString()));
+    assertThat(
+        appleCxxPlatform.getCflags(),
+        hasConsecutiveItems("-arch", "armv7"));
+    assertThat(
+        appleCxxPlatform.getCflags(),
+        hasConsecutiveItems("-mios-version-min=7.0"));
+
     assertEquals(
         root.resolve("Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++").toString(),
-        appleCxxPlatform.getCxx().toString());
+        appleCxxPlatform.getCxx().getCommandPrefix(resolver).get(0));
     assertEquals(
         root.resolve("Platforms/iPhoneOS.platform/Developer/usr/bin/ar")
             .toString(),
-        appleCxxPlatform.getAr().toString());
+        appleCxxPlatform.getAr().getCommandPrefix(resolver).get(0));
   }
 }

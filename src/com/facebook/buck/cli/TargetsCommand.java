@@ -16,12 +16,14 @@
 
 package com.facebook.buck.cli;
 
-import com.facebook.buck.graph.AbstractBottomUpTraversal;
+import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.model.BuildFileTree;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.model.HasBuildTarget;
+import com.facebook.buck.model.HasSourceUnderTest;
+import com.facebook.buck.model.HasTests;
 import com.facebook.buck.model.InMemoryBuildFileTree;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.parser.Parser;
@@ -30,10 +32,13 @@ import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TargetGraphToActionGraph;
+import com.facebook.buck.rules.TargetGraphTransformer;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.util.HumanReadableException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
@@ -41,28 +46,31 @@ import com.google.common.base.Predicates;
 import com.google.common.base.Throwables;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 
 import java.io.IOException;
 import java.io.StringWriter;
 import java.nio.file.Path;
-import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.SortedMap;
 
 import javax.annotation.Nullable;
 
 public class TargetsCommand extends AbstractCommandRunner<TargetsCommandOptions> {
 
+  private final TargetGraphTransformer<ActionGraph> targetGraphTransformer;
+
   public TargetsCommand(CommandRunnerParams params) {
     super(params);
+
+    this.targetGraphTransformer = new TargetGraphToActionGraph(params.getBuckEventBus());
   }
 
   @Override
@@ -78,6 +86,10 @@ public class TargetsCommand extends AbstractCommandRunner<TargetsCommandOptions>
       return doResolveAlias(options);
     }
 
+    if (options.isShowOutput() || options.isShowRuleKey()) {
+      return doShowRules(options);
+    }
+
     // Verify the --type argument.
     ImmutableSet<String> types = options.getTypes();
     ImmutableSet.Builder<BuildRuleType> buildRuleTypesBuilder = ImmutableSet.builder();
@@ -90,20 +102,20 @@ public class TargetsCommand extends AbstractCommandRunner<TargetsCommandOptions>
       }
     }
 
-    ImmutableSet<BuildTarget> matchingBuildTargets;
-    try {
-      matchingBuildTargets = ImmutableSet.copyOf(
-          getBuildTargets(options.getArgumentsFormattedAsBuildTargets()));
-    } catch (NoSuchBuildTargetException e) {
-      console.printBuildFailureWithoutStacktrace(e);
-      return 1;
-    }
+    ImmutableSet<BuildTarget> matchingBuildTargets = ImmutableSet.copyOf(
+        getBuildTargets(options.getArgumentsFormattedAsBuildTargets()));
 
     // Parse the entire action graph, or (if targets are specified),
     // only the specified targets and their dependencies..
+    //
+    // TODO(jakubzika):
+    // If --detect-test-changes is specified, we need to load the whole graph, because we cannot
+    // know which targets can refer to the specified targets or their dependencies in their
+    // 'source_under_test'. Once we migrate from 'source_under_test' to 'tests', this should no
+    // longer be necessary.
     TargetGraph graph;
     try {
-      if (matchingBuildTargets.isEmpty()) {
+      if (matchingBuildTargets.isEmpty() || options.isDetectTestChanges()) {
         graph = getParser().buildTargetGraphForTargetNodeSpecs(
             ImmutableList.of(
                 new TargetNodePredicateSpec(
@@ -130,83 +142,166 @@ public class TargetsCommand extends AbstractCommandRunner<TargetsCommandOptions>
 
     PathArguments.ReferencedFiles referencedFiles = options.getReferencedFiles(
         getProjectFilesystem().getRootPath());
-    SortedMap<String, BuildRule> matchingBuildRules;
+    SortedMap<String, TargetNode<?>> matchingNodes;
     // If all of the referenced files are paths outside the project root, then print nothing.
     if (!referencedFiles.absolutePathsOutsideProjectRootOrNonExistingPaths.isEmpty() &&
         referencedFiles.relativePathsUnderProjectRoot.isEmpty()) {
-      matchingBuildRules = ImmutableSortedMap.of();
+      matchingNodes = ImmutableSortedMap.of();
     } else {
-      matchingBuildRules = getMatchingBuildRules(
-          graph.getActionGraph(),
-          new TargetsCommandPredicate(
-              graph,
-              buildRuleTypesBuilder.build(),
-              referencedFiles.relativePathsUnderProjectRoot,
-              matchingBuildTargets.isEmpty() ?
-                  Optional.<ImmutableSet<BuildTarget>>absent() :
-                  Optional.of(matchingBuildTargets)));
+      ImmutableSet<BuildRuleType> buildRuleTypes = buildRuleTypesBuilder.build();
+
+      matchingNodes = getMatchingNodes(
+          graph,
+          referencedFiles.relativePathsUnderProjectRoot.isEmpty() ?
+              Optional.<ImmutableSet<Path>>absent() :
+              Optional.of(referencedFiles.relativePathsUnderProjectRoot),
+          matchingBuildTargets.isEmpty() ?
+              Optional.<ImmutableSet<BuildTarget>>absent() :
+              Optional.of(matchingBuildTargets),
+          buildRuleTypes.isEmpty() ?
+              Optional.<ImmutableSet<BuildRuleType>>absent() :
+              Optional.of(buildRuleTypes),
+          options.isDetectTestChanges());
     }
 
     // Print out matching targets in alphabetical order.
     if (options.getPrintJson()) {
       try {
-        printJsonForTargets(matchingBuildRules, options.getDefaultIncludes());
+        printJsonForTargets(matchingNodes, options.getDefaultIncludes());
       } catch (BuildFileParseException e) {
         console.printBuildFailureWithoutStacktrace(e);
         return 1;
       }
     } else {
-      printTargetsList(matchingBuildRules, options.isShowOutput(), options.isShowRuleKey());
+      for (String target : matchingNodes.keySet()) {
+        getStdOut().println(target);
+      }
     }
 
     return 0;
   }
 
+  /**
+   * @param graph Graph used to resolve dependencies between targets and find all build files.
+   * @param referencedFiles If present, the result will be limited to the nodes that transitively
+   *                        depend on at least one of those.
+   * @param matchingBuildTargets If present, the result will be limited to the specified targets.
+   * @param buildRuleTypes If present, the result will be limited to targets with the specified
+   *                       types.
+   * @param detectTestChanges If true, tests are considered to be dependencies of the targets they
+   *                          are testing.
+   * @return A map of target names to target nodes.
+   */
   @VisibleForTesting
-  void printTargetsList(SortedMap<String, BuildRule> matchingBuildRules,
-      boolean showOutput,
-      boolean showRuleKey) throws IOException {
-    for (Map.Entry<String, BuildRule> target : matchingBuildRules.entrySet()) {
-      String output = target.getKey();
-      BuildRule buildRule = target.getValue();
-      if (showRuleKey) {
-        output += " " + buildRule.getRuleKey();
-      }
-      if (showOutput) {
-        Path outputPath = buildRule.getPathToOutputFile();
-        if (outputPath != null) {
-          output += " " + outputPath;
-        }
-      }
-      getStdOut().println(output);
+  ImmutableSortedMap<String, TargetNode<?>> getMatchingNodes(
+      TargetGraph graph,
+      Optional<ImmutableSet<Path>> referencedFiles,
+      final Optional<ImmutableSet<BuildTarget>> matchingBuildTargets,
+      final Optional<ImmutableSet<BuildRuleType>> buildRuleTypes,
+      boolean detectTestChanges) {
+    ImmutableSet<TargetNode<?>> directOwners;
+    if (referencedFiles.isPresent()) {
+      BuildFileTree buildFileTree = new InMemoryBuildFileTree(
+            FluentIterable
+                .from(graph.getNodes())
+                .transform(HasBuildTarget.TO_TARGET)
+                .toSet());
+      directOwners = FluentIterable
+          .from(graph.getNodes())
+          .filter(
+              new DirectOwnerPredicate(
+                  buildFileTree,
+                  referencedFiles.get()))
+          .toSet();
+    } else {
+      directOwners = graph.getNodes();
     }
+    ImmutableSet<TargetNode<?>> selectedReferrers = FluentIterable
+        .from(getDependentNodes(graph, directOwners, detectTestChanges))
+        .filter(
+            new Predicate<TargetNode<?>>() {
+              @Override
+              public boolean apply(TargetNode<?> targetNode) {
+                if (matchingBuildTargets.isPresent() &&
+                    !matchingBuildTargets.get().contains(targetNode.getBuildTarget())) {
+                  return false;
+                }
+
+                if (buildRuleTypes.isPresent() &&
+                    !buildRuleTypes.get().contains(targetNode.getType())) {
+                  return false;
+                }
+
+                return true;
+              }
+            })
+        .toSet();
+    ImmutableSortedMap.Builder<String, TargetNode<?>> matchingNodesBuilder =
+        ImmutableSortedMap.naturalOrder();
+    for (TargetNode<?> targetNode : selectedReferrers) {
+      matchingNodesBuilder.put(targetNode.getBuildTarget().getFullyQualifiedName(), targetNode);
+    }
+    return matchingNodesBuilder.build();
   }
 
-  @VisibleForTesting
-  SortedMap<String, BuildRule> getMatchingBuildRules(
-      final ActionGraph graph,
-      final TargetsCommandPredicate predicate) {
-    // Traverse the DependencyGraph and select all of the rules that accepted by Predicate.
-    AbstractBottomUpTraversal<BuildRule, SortedMap<String, BuildRule>> traversal =
-        new AbstractBottomUpTraversal<BuildRule, SortedMap<String, BuildRule>>(graph) {
+  /**
+   * @param graph A graph used to resolve dependencies between targets.
+   * @param nodes A set of nodes.
+   * @param detectTestChanges If true, tests are considered to be dependencies of the targets they
+   *                          are testing.
+   * @return A set of all nodes that transitively depend on {@code nodes}
+   * (a superset of {@code nodes}).
+   */
+  private static ImmutableSet<TargetNode<?>> getDependentNodes(
+      final TargetGraph graph,
+      ImmutableSet<TargetNode<?>> nodes,
+      boolean detectTestChanges) {
+    ImmutableMultimap.Builder<TargetNode<?>, TargetNode<?>> extraEdgesBuilder =
+        ImmutableMultimap.builder();
 
-      final SortedMap<String, BuildRule> matchingBuildRules = Maps.newTreeMap();
+    if (detectTestChanges) {
+      for (TargetNode<?> node : graph.getNodes()) {
+        if (node.getConstructorArg() instanceof HasTests) {
+          ImmutableSortedSet<BuildTarget> tests =
+              ((HasTests) node.getConstructorArg()).getTests();
+          for (BuildTarget testTarget : tests) {
+            TargetNode<?> testNode = graph.get(testTarget);
+            if (testNode == null) {
+              throw new HumanReadableException(
+                  "'%s' (test of '%s') is not in the target graph.",
+                  testTarget,
+                  node);
+            }
+            extraEdgesBuilder.put(testNode, node);
+          }
+        }
 
-      @Override
-      public void visit(BuildRule rule) {
-        if (predicate.apply(rule)) {
-          matchingBuildRules.put(rule.getFullyQualifiedName(), rule);
+        if (node.getConstructorArg() instanceof HasSourceUnderTest) {
+          ImmutableSortedSet<BuildTarget> sourceUnderTest =
+              ((HasSourceUnderTest) node.getConstructorArg()).getSourceUnderTest();
+          for (BuildTarget sourceTarget : sourceUnderTest) {
+            TargetNode<?> sourceNode = Preconditions.checkNotNull(graph.get(sourceTarget));
+            extraEdgesBuilder.put(node, sourceNode);
+          }
         }
       }
+    }
+    final ImmutableMultimap<TargetNode<?>, TargetNode<?>> extraEdges = extraEdgesBuilder.build();
 
-      @Override
-      public SortedMap<String, BuildRule> getResult() {
-        return matchingBuildRules;
-      }
+    final ImmutableSet.Builder<TargetNode<?>> builder = ImmutableSet.builder();
+    AbstractBreadthFirstTraversal<TargetNode<?>> traversal =
+        new AbstractBreadthFirstTraversal<TargetNode<?>>(nodes) {
+          @Override
+          public ImmutableSet<TargetNode<?>> visit(TargetNode<?> targetNode) {
+            builder.add(targetNode);
+            return FluentIterable
+                .from(graph.getIncomingNodesFor(targetNode))
+                .append(extraEdges.get(targetNode))
+                .toSet();
+          }
     };
-
-    traversal.traverse();
-    return traversal.getResult();
+    traversal.start();
+    return builder.build();
   }
 
   @Override
@@ -215,7 +310,8 @@ public class TargetsCommand extends AbstractCommandRunner<TargetsCommandOptions>
   }
 
   @VisibleForTesting
-  void printJsonForTargets(SortedMap<String, BuildRule> buildIndex,
+  void printJsonForTargets(
+      SortedMap<String, TargetNode<?>> buildIndex,
       Iterable<String> defaultIncludes)
       throws BuildFileParseException, IOException, InterruptedException {
     ImmutableList<String> includesCopy = ImmutableList.copyOf(defaultIncludes);
@@ -223,18 +319,17 @@ public class TargetsCommand extends AbstractCommandRunner<TargetsCommandOptions>
   }
 
   private void printJsonForTargetsInternal(
-      SortedMap<String, BuildRule> buildIndex,
+      SortedMap<String, TargetNode<?>> buildIndex,
       ImmutableList<String> defaultIncludes)
       throws BuildFileParseException, IOException, InterruptedException {
-    // Print the JSON representation of the build rule for the specified target(s).
+    // Print the JSON representation of the build node for the specified target(s).
     getStdOut().println("[");
 
     ObjectMapper mapper = getObjectMapper();
-    Iterator<BuildRule> valueIterator = buildIndex.values().iterator();
+    Iterator<TargetNode<?>> valueIterator = buildIndex.values().iterator();
 
     while (valueIterator.hasNext()) {
-      BuildRule buildRule = valueIterator.next();
-      BuildTarget buildTarget = buildRule.getBuildTarget();
+      BuildTarget buildTarget = valueIterator.next().getBuildTarget();
 
       List<Map<String, Object>> rules;
       try {
@@ -265,12 +360,6 @@ public class TargetsCommand extends AbstractCommandRunner<TargetsCommandOptions>
         console.printErrorText(
             "unable to find rule for target " + buildTarget.getFullyQualifiedName());
         continue;
-      }
-
-      Path outputPath = buildRule.getPathToOutputFile();
-
-      if (outputPath != null) {
-        targetRule.put("buck.output_file", outputPath.toString());
       }
 
       // Sort the rule items, both so we have a stable order for unit tests and
@@ -307,7 +396,7 @@ public class TargetsCommand extends AbstractCommandRunner<TargetsCommandOptions>
     for (String alias : options.getArguments()) {
       String buildTarget;
       if (alias.startsWith("//")) {
-        buildTarget = validateBuildTargetForFullyQualifiedTarget(alias, options);
+        buildTarget = validateBuildTargetForFullyQualifiedTarget(alias, options, getParser());
         if (buildTarget == null) {
           throw new HumanReadableException("%s is not a valid target.", alias);
         }
@@ -328,12 +417,62 @@ public class TargetsCommand extends AbstractCommandRunner<TargetsCommandOptions>
   }
 
   /**
+   * Assumes at least one target is specified.
+   * Prints each of the specified targets, followed by the rule key, output path or both, depending
+   * on what flags are passed in.
+   */
+  private int doShowRules(TargetsCommandOptions options) throws IOException, InterruptedException {
+    ImmutableSet<BuildTarget> matchingBuildTargets = ImmutableSet.copyOf(
+        getBuildTargets(options.getArgumentsFormattedAsBuildTargets()));
+
+    if (matchingBuildTargets.isEmpty()) {
+      console.printBuildFailure("Must specify at least one build target.");
+      return 1;
+    }
+
+    ActionGraph graph;
+    try {
+      TargetGraph targetGraph = getParser().buildTargetGraphForBuildTargets(
+          matchingBuildTargets,
+          options.getDefaultIncludes(),
+          getBuckEventBus(),
+          console,
+          environment,
+          options.getEnableProfiling());
+      graph = targetGraphTransformer.apply(targetGraph);
+    } catch (BuildTargetException | BuildFileParseException e) {
+      console.printBuildFailureWithoutStacktrace(e);
+      return 1;
+    }
+
+    for (BuildTarget target : ImmutableSortedSet.copyOf(matchingBuildTargets)) {
+      BuildRule rule = Preconditions.checkNotNull(graph.findBuildRuleByTarget(target));
+      ImmutableList.Builder<String> builder = ImmutableList.builder();
+      builder.add(target.getFullyQualifiedName());
+      if (options.isShowRuleKey()) {
+        builder.add(rule.getRuleKey().toString());
+      }
+      if (options.isShowOutput()) {
+        Path outputPath = rule.getPathToOutputFile();
+        if (outputPath != null) {
+          builder.add(outputPath.toString());
+        }
+      }
+      getStdOut().println(Joiner.on(' ').join(builder.build()));
+    }
+
+    return 0;
+  }
+
+  /**
    * Verify that the given target is a valid full-qualified (non-alias) target.
    */
   @Nullable
   @VisibleForTesting
   String validateBuildTargetForFullyQualifiedTarget(
-      String target, TargetsCommandOptions options) throws IOException, InterruptedException {
+      String target,
+      TargetsCommandOptions options,
+      Parser parser) throws IOException, InterruptedException {
     BuildTarget buildTarget;
     try {
       buildTarget = options.getBuildTargetForFullyQualifiedTarget(target);
@@ -342,9 +481,7 @@ public class TargetsCommand extends AbstractCommandRunner<TargetsCommandOptions>
     }
 
     // Get all valid targets in our target directory by reading the build file.
-
     List<Map<String, Object>> ruleObjects;
-    Parser parser = getParser();
     try {
       ruleObjects = parser.parseBuildFile(
           getRepository().getAbsolutePathToBuildFile(buildTarget),
@@ -367,91 +504,48 @@ public class TargetsCommand extends AbstractCommandRunner<TargetsCommandOptions>
     return null;
   }
 
-  static class TargetsCommandPredicate implements Predicate<BuildRule> {
+  private static class DirectOwnerPredicate implements Predicate<TargetNode<?>> {
 
-    private final ActionGraph graph;
-    private final ImmutableSet<BuildRuleType> buildRuleTypes;
-    @Nullable
-    private ImmutableSet<Path> referencedInputs;
-    private final Set<Path> basePathOfTargets;
-    private final Set<BuildRule> dependentTargets;
-    private final Optional<ImmutableSet<BuildTarget>> matchingTargets;
+    private final ImmutableSet<Path> referencedInputs;
+    private final ImmutableSet<Path> basePathOfTargets;
 
     /**
-     * @param buildRuleTypes A {@link BuildRule}'s {@link BuildRuleType} must be contained in this
-     *     set for it to match. Ignored if empty.
-     * @param referencedInputs A {@link BuildRule} must reference at least one of these paths as
+     * @param referencedInputs A {@link TargetNode} must reference at least one of these paths as
      *     input to match the predicate. All the paths must be relative to the project root. Ignored
      *     if empty.
-     * @param matchingTargets If present, a {@link BuildRule}'s {@link BuildTarget} must be
-     *     contained in this set for it to match.
      */
-    public TargetsCommandPredicate(
-        TargetGraph targetGraph,
-        ImmutableSet<BuildRuleType> buildRuleTypes,
-        ImmutableSet<Path> referencedInputs,
-        Optional<ImmutableSet<BuildTarget>> matchingTargets) {
-      this.graph = targetGraph.getActionGraph();
-      this.buildRuleTypes = buildRuleTypes;
-      this.matchingTargets = matchingTargets;
+    public DirectOwnerPredicate(
+        BuildFileTree buildFileTree,
+        ImmutableSet<Path> referencedInputs) {
+      this.referencedInputs = referencedInputs;
 
-      if (!referencedInputs.isEmpty()) {
-        this.referencedInputs = referencedInputs;
-        BuildFileTree tree = new InMemoryBuildFileTree(
-            matchingTargets.or(
-                FluentIterable
-                    .from(graph.getNodes())
-                    .transform(HasBuildTarget.TO_TARGET)
-                    .toSet()));
-        basePathOfTargets = Sets.newHashSet();
-        dependentTargets = Sets.newHashSet();
-        for (Path input : referencedInputs) {
-          Optional<Path> path = tree.getBasePathOfAncestorTarget(input);
-          if (path.isPresent()) {
-            basePathOfTargets.add(path.get());
-          }
+      ImmutableSet.Builder<Path> basePathOfTargetsBuilder = ImmutableSet.builder();
+      for (Path input : referencedInputs) {
+        Optional<Path> path = buildFileTree.getBasePathOfAncestorTarget(input);
+        if (path.isPresent()) {
+          basePathOfTargetsBuilder.add(path.get());
         }
-      } else {
-        basePathOfTargets = ImmutableSet.of();
-        dependentTargets = ImmutableSet.of();
       }
+      basePathOfTargets = basePathOfTargetsBuilder.build();
     }
 
     @Override
-    public boolean apply(BuildRule rule) {
-      boolean isDependent = true;
-      if (referencedInputs != null) {
-        // Indirectly depend on some referenced file.
-        isDependent = !Collections.disjoint(graph.getOutgoingNodesFor(rule), dependentTargets);
-
-        // Any referenced file, only those with the nearest BuildTarget can
-        // directly depend on that file.
-        if (!isDependent &&
-            basePathOfTargets.contains(rule.getBuildTarget().getBasePath())) {
-          for (Path input : rule.getInputs()) {
-            if (referencedInputs.contains(input)) {
-              isDependent = true;
-              break;
-            }
-          }
-          if (referencedInputs.contains(rule.getBuildTarget().getBuildFilePath())) {
-            isDependent = true;
-          }
-        }
-
-        if (isDependent) {
-          // Save the rule only when exists referenced file
-          // and this rule depend on at least one referenced file.
-          dependentTargets.add(rule);
-        }
-      }
-
-      if (matchingTargets.isPresent() && !matchingTargets.get().contains(rule.getBuildTarget())) {
+    public boolean apply(TargetNode<?> node) {
+      // For any referenced file, only those with the nearest target base path can
+      // directly depend on that file.
+      if (!basePathOfTargets.contains(node.getBuildTarget().getBasePath())) {
         return false;
       }
 
-      return (isDependent && (buildRuleTypes.isEmpty() || buildRuleTypes.contains(rule.getType())));
-    }
+      for (Path input : node.getInputs()) {
+        for (Path referencedInput : referencedInputs) {
+          if (referencedInput.startsWith(input)) {
+            return true;
+          }
+        }
+      }
 
+      return referencedInputs.contains(node.getBuildTarget().getBuildFilePath());
+    }
   }
 }

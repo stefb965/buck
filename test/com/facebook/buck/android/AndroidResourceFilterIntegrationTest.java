@@ -26,9 +26,6 @@ import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.testutil.integration.ZipInspector;
-import com.facebook.buck.util.AndroidDirectoryResolver;
-import com.facebook.buck.util.AndroidPlatformTarget;
-import com.facebook.buck.util.DefaultAndroidDirectoryResolver;
 import com.facebook.buck.util.DefaultPropertyFinder;
 import com.facebook.buck.util.VersionStringComparator;
 import com.google.common.base.Optional;
@@ -57,6 +54,7 @@ public class AndroidResourceFilterIntegrationTest {
 
   @BeforeClass
   public static void findBuildToolsVersion() {
+    AssumeAndroidPlatform.assumeSdkIsAvailable();
     ProjectFilesystem filesystem = new ProjectFilesystem(Paths.get("."));
     AndroidDirectoryResolver resolver = new DefaultAndroidDirectoryResolver(
         filesystem,

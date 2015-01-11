@@ -18,11 +18,13 @@ package com.facebook.buck.cli;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.ProjectWorkspace.ProcessResult;
 import com.facebook.buck.testutil.integration.TestDataHelper;
+import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableSet;
 
@@ -38,6 +40,77 @@ public class TargetsCommandIntegrationTest {
 
   @Rule
   public DebuggableTemporaryFolder tmp = new DebuggableTemporaryFolder();
+
+  @Test
+  public void testOutputPath() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "output_path", tmp);
+    workspace.setUp();
+
+    ProcessResult result = workspace.runBuckCommand(
+        "targets",
+        "--show_output",
+        "//:test");
+    result.assertSuccess();
+    assertEquals("//:test buck-out/gen/test-output\n", result.getStdout());
+  }
+
+  @Test
+  public void testRuleKey() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "output_path", tmp);
+    workspace.setUp();
+
+    ProcessResult result = workspace.runBuckCommand(
+        "targets",
+        "--show_rulekey",
+        "//:test");
+    result.assertSuccess();
+    assertEquals("//:test 79fd7645a0ee301307d83049da0ba75f46f7fef3\n", result.getStdout());
+  }
+
+  @Test
+  public void testBothOutputAndRuleKey() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "output_path", tmp);
+    workspace.setUp();
+
+    ProcessResult result = workspace.runBuckCommand(
+        "targets",
+        "--show_rulekey",
+        "--show_output",
+        "//:test");
+    result.assertSuccess();
+    assertEquals(
+        "//:test 79fd7645a0ee301307d83049da0ba75f46f7fef3 buck-out/gen/test-output\n",
+        result.getStdout());
+  }
+
+  @Test
+  public void testOutputWithoutTarget() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "output_path", tmp);
+    workspace.setUp();
+
+    ProcessResult result = workspace.runBuckCommand(
+        "targets",
+        "--show_output");
+    result.assertFailure();
+    assertEquals("BUILD FAILED: Must specify at least one build target.\n", result.getStderr());
+  }
+
+  @Test
+  public void testRuleKeyWithoutTarget() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "output_path", tmp);
+    workspace.setUp();
+
+    ProcessResult result = workspace.runBuckCommand(
+        "targets",
+        "--show_rulekey");
+    result.assertFailure();
+    assertEquals("BUILD FAILED: Must specify at least one build target.\n", result.getStderr());
+  }
 
   @Test
   public void testBuckTargetsReferencedFileWithFileOutsideOfProject() throws IOException {
@@ -95,5 +168,33 @@ public class TargetsCommandIntegrationTest {
         pathToNonExistentFile);
     result.assertSuccess("Even though the file does not exist, buck targets` should succeed.");
     assertEquals("Because no targets match, stdout should be empty.", "", result.getStdout());
+  }
+
+  @Test
+  public void testValidateBuildTargetForNonAliasTarget() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "target_validation", tmp);
+    workspace.setUp();
+
+    ProcessResult result = workspace.runBuckCommand("targets", "--resolvealias", "//:test-library");
+    assertTrue(result.getStdout(), result.getStdout().contains("//:test-library"));
+
+    try {
+      workspace.runBuckCommand("targets", "--resolvealias", "//:");
+    } catch (HumanReadableException e) {
+      assertEquals("//: cannot end with a colon", e.getMessage());
+    }
+
+    try {
+      workspace.runBuckCommand("targets", "--resolvealias", "//:test-libarry");
+    } catch (HumanReadableException e) {
+      assertEquals("//:test-libarry is not a valid target.", e.getMessage());
+    }
+
+    try {
+      workspace.runBuckCommand("targets", "--resolvealias", "//blah/foo");
+    } catch (HumanReadableException e) {
+      assertEquals("//blah/foo must contain exactly one colon (found 0)", e.getMessage());
+    }
   }
 }

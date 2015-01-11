@@ -16,58 +16,73 @@
 package com.facebook.buck.parser;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.fail;
 
+import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.model.ImmediateDirectoryBuildTargetPattern;
 import com.facebook.buck.model.SingletonBuildTargetPattern;
 import com.facebook.buck.model.SubdirectoryBuildTargetPattern;
 
+import org.junit.Before;
 import org.junit.Test;
 
 public class BuildTargetPatternParserTest {
 
+  private BuildTargetParser targetParser;
+
+  @Before
+  public void setUpBuildTargetParser() {
+    targetParser = new BuildTargetParser();
+  }
+
   @Test
   public void testParse() throws NoSuchBuildTargetException {
-    BuildTargetPatternParser parser = new BuildTargetPatternParser();
-    ParseContext parseContext = ParseContext.forVisibilityArgument();
+    BuildTargetPatternParser buildTargetPatternParser =
+        BuildTargetPatternParser.forVisibilityArgument(targetParser);
 
     assertEquals(
         new ImmediateDirectoryBuildTargetPattern("test/com/facebook/buck/parser/"),
-        parser.parse("//test/com/facebook/buck/parser:", parseContext));
+        buildTargetPatternParser.parse("//test/com/facebook/buck/parser:"));
 
     assertEquals(
         new SingletonBuildTargetPattern("//test/com/facebook/buck/parser:parser"),
-        parser.parse("//test/com/facebook/buck/parser:parser", parseContext));
+        buildTargetPatternParser.parse("//test/com/facebook/buck/parser:parser"));
 
     assertEquals(
         new SubdirectoryBuildTargetPattern("test/com/facebook/buck/parser/"),
-        parser.parse("//test/com/facebook/buck/parser/...", parseContext));
+        buildTargetPatternParser.parse("//test/com/facebook/buck/parser/..."));
   }
 
   @Test(expected = BuildTargetParseException.class)
   public void testParseWildcardWithInvalidContext() throws NoSuchBuildTargetException {
-    BuildTargetPatternParser parser = new BuildTargetPatternParser();
-    ParseContext parseContext = ParseContext.fullyQualified();
+    BuildTargetPatternParser buildTargetPatternParser =
+        BuildTargetPatternParser.fullyQualified(targetParser);
 
-    parser.parse("//...", parseContext);
-    fail();
+    buildTargetPatternParser.parse("//...");
   }
 
   @Test
   public void testParseRootPattern() throws NoSuchBuildTargetException {
-    BuildTargetPatternParser parser = new BuildTargetPatternParser();
-    ParseContext parseContext = ParseContext.forVisibilityArgument();
+    BuildTargetPatternParser buildTargetPatternParser =
+        BuildTargetPatternParser.forVisibilityArgument(targetParser);
 
     assertEquals(
         new ImmediateDirectoryBuildTargetPattern(""),
-        parser.parse("//:", parseContext));
+        buildTargetPatternParser.parse("//:"));
 
     assertEquals(
         new SingletonBuildTargetPattern("//:parser"),
-        parser.parse("//:parser", parseContext));
+        buildTargetPatternParser.parse("//:parser"));
 
     assertEquals(
         new SubdirectoryBuildTargetPattern(""),
-        parser.parse("//...", parseContext));
+        buildTargetPatternParser.parse("//..."));
+  }
+
+  @Test
+  public void visibilityParserCanHandleSpecialCasedPublicVisibility()
+      throws NoSuchBuildTargetException {
+    BuildTargetPatternParser parser = BuildTargetPatternParser.forVisibilityArgument(targetParser);
+
+    assertEquals(BuildTargetPattern.MATCH_ALL, parser.parse("PUBLIC"));
   }
 }

@@ -30,6 +30,7 @@ import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.coercer.Either;
+import com.facebook.buck.model.Pair;
 import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
 import com.google.common.collect.FluentIterable;
@@ -43,12 +44,9 @@ public class AppleLibraryDescription implements
     Description<AppleNativeTargetDescriptionArg>, Flavored {
   public static final BuildRuleType TYPE = new BuildRuleType("apple_library");
 
-  public static final Flavor DYNAMIC_LIBRARY = new Flavor("dynamic");
-
   private static final Set<Flavor> SUPPORTED_FLAVORS = ImmutableSet.of(
       CompilationDatabase.COMPILATION_DATABASE,
       Flavor.DEFAULT,
-      DYNAMIC_LIBRARY,
       AbstractAppleNativeTargetBuildRuleDescriptions.HEADERS,
       CxxDescriptionEnhancer.HEADER_SYMLINK_TREE_FLAVOR,
       CxxDescriptionEnhancer.STATIC_FLAVOR,
@@ -82,7 +80,8 @@ public class AppleLibraryDescription implements
 
   @Override
   public boolean hasFlavors(ImmutableSet<Flavor> flavors) {
-    return FluentIterable.from(flavors).allMatch(IS_SUPPORTED_FLAVOR);
+    return FluentIterable.from(flavors).allMatch(IS_SUPPORTED_FLAVOR) ||
+        delegate.hasFlavors(flavors);
   }
 
   @Override
@@ -120,16 +119,19 @@ public class AppleLibraryDescription implements
     delegateArg.deps = args.deps;
     delegateArg.headerNamespace = args.headerPathPrefix.or(
         Optional.of(params.getBuildTarget().getShortNameOnly()));
-    delegateArg.propagatedPpFlags = Optional.of(ImmutableList.<String>of());
-    delegateArg.propagatedLangPpFlags = Optional.of(
+    delegateArg.exportedPreprocessorFlags = Optional.of(ImmutableList.<String>of());
+    delegateArg.exportedLangPreprocessorFlags = Optional.of(
         ImmutableMap.<CxxSource.Type, ImmutableList<String>>of());
+    delegateArg.linkerFlags = Optional.of(ImmutableList.<String>of());
+    delegateArg.platformLinkerFlags =
+        Optional.of(ImmutableList.<Pair<String, ImmutableList<String>>>of());
     delegateArg.soname = Optional.absent();
-    delegateArg.linkWhole = Optional.of(!isDynamicLibraryTarget(params.getBuildTarget()));
+    delegateArg.linkWhole = Optional.of(!isSharedLibraryTarget(params.getBuildTarget()));
 
     return delegate.createBuildRule(params, resolver, delegateArg);
   }
 
-  public static boolean isDynamicLibraryTarget(BuildTarget target) {
-    return target.getFlavors().contains(DYNAMIC_LIBRARY);
+  public static boolean isSharedLibraryTarget(BuildTarget target) {
+    return target.getFlavors().contains(CxxDescriptionEnhancer.SHARED_FLAVOR);
   }
 }

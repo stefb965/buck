@@ -33,11 +33,17 @@ public class TargetsCommandOptions extends BuildCommandOptions {
 
   // TODO(mbolin): Use org.kohsuke.args4j.spi.PathOptionHandler. Currently, we resolve paths
   // manually, which is likely the path to madness.
-  @Option(name = "--referenced_file",
+  @Option(name = "--referenced-file",
+      aliases = {"--referenced_file"},
       usage = "The referenced file list, --referenced_file file1 file2  ... fileN --other_option",
       handler = StringSetOptionHandler.class)
   @SuppressFieldNotInitialized
   private Supplier<ImmutableSet<String>> referencedFiles;
+
+  @Option(name = "--detect-test-changes",
+      usage = "Modifies the --referenced-file flag resolution to pretend that targets depend on " +
+          "their tests (experimental)")
+  private boolean isDetectTestChanges;
 
   @Option(name = "--type",
       usage = "The types of target to filter by, --type type1 type2 ... typeN --other_option",
@@ -52,11 +58,13 @@ public class TargetsCommandOptions extends BuildCommandOptions {
       usage = "Print the fully-qualified build target for the specified alias[es]")
   private boolean isResolveAlias;
 
-  @Option(name = "--show_output",
+  @Option(name = "--show-output",
+      aliases = {"--show_output"},
       usage = "Print the absolute path to the output for each rule after the rule name.")
   private boolean isShowOutput;
 
-  @Option(name = "--show_rulekey",
+  @Option(name = "--show-rulekey",
+      aliases = {"--show_rulekey"},
       usage = "Print the RuleKey of each rule after the rule name.")
   private boolean isShowRuleKey;
 
@@ -71,6 +79,11 @@ public class TargetsCommandOptions extends BuildCommandOptions {
   public PathArguments.ReferencedFiles getReferencedFiles(Path projectRoot)
       throws IOException {
     return PathArguments.getCanonicalFilesUnderProjectRoot(projectRoot, referencedFiles.get());
+  }
+
+  /** @return {@code true} if {@code --detect-test-changes} was specified. */
+  public boolean isDetectTestChanges() {
+    return isDetectTestChanges;
   }
 
   public boolean getPrintJson() {

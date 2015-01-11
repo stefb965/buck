@@ -41,7 +41,6 @@ import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.base.Optional;
-import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.base.Strings;
 import com.google.common.collect.FluentIterable;
@@ -52,18 +51,21 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Ordering;
 import com.google.common.io.Files;
 
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Path;
-import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Build rule that generates a <a href="http://clang.llvm.org/docs/JSONCompilationDatabase.html">
  * clang compilation database</a> for an Apple target.
+ *
+ * TODO(mbolin): t5879160 Generate the compilation database based on a set of CxxCompile actions
+ * rather than a TargetSources object so the set of build flags is legit.
  */
 public class CompilationDatabase extends AbstractBuildRule {
 
@@ -196,10 +198,22 @@ public class CompilationDatabase extends AbstractBuildRule {
           targetSources.headerPaths);
       ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
       for (SourcePath srcPath : allSources) {
+        String fileToCompile = projectFilesystem.resolve(getResolver().getPath(srcPath))
+            .toString();
+        String language;
+        String languageStandard;
+        if (fileToCompile.endsWith(".mm")) {
+          language = "objective-c++";
+          languageStandard = "-std=c++11";
+        } else {
+          language = "objective-c";
+          languageStandard = "-std=gnu99";
+        }
+
         List<String> commandArgs = Lists.newArrayList(
             "clang",
             "-x",
-            "objective-c",
+            language,
 
             // TODO(mbolin): Simulator arguments should be configurable (and should likely be
             // derived from the PlatformFlavor).
@@ -210,7 +224,7 @@ public class CompilationDatabase extends AbstractBuildRule {
             "-fmessage-length=0",
             "-fdiagnostics-show-note-include-stack",
             "-fmacro-backtrace-limit=0",
-            "-std=gnu99",
+            languageStandard,
             "-fpascal-strings",
             "-fexceptions",
             "-fasm-blocks",
@@ -232,8 +246,8 @@ public class CompilationDatabase extends AbstractBuildRule {
         commandArgs.add("-fobjc-arc");
 
         // Result of `xcode-select --print-path`.
-        ImmutableMap<String, AppleSdkPaths> allAppleSdkPaths = appleConfig.getAppleSdkPaths(
-            context.getConsole());
+        ImmutableMap<AppleSdk, AppleSdkPaths> allAppleSdkPaths = appleConfig.getAppleSdkPaths(
+            context.getProcessExecutor());
         AppleSdkPaths appleSdkPaths = selectNewestSimulatorSdk(allAppleSdkPaths);
 
         // TODO(mbolin): Make the sysroot configurable.
@@ -269,8 +283,6 @@ public class CompilationDatabase extends AbstractBuildRule {
         }
 
         commandArgs.add("-c");
-        String fileToCompile = projectFilesystem.resolve(getResolver().getPath(srcPath))
-            .toString();
         commandArgs.add(fileToCompile);
 
         // Currently, perFileFlags is a single string rather than a list, so we concatenate it
@@ -318,30 +330,31 @@ public class CompilationDatabase extends AbstractBuildRule {
 
   // TODO(mbolin): This method should go away when the sdkName becomes a flavor.
   static AppleSdkPaths selectNewestSimulatorSdk(
-      ImmutableMap<String, AppleSdkPaths> allAppleSdkPaths) {
-    final String prefix = "iphonesimulator";
-    List<String> iphoneSimulatorVersions = Lists.newArrayList(FluentIterable
+      ImmutableMap<AppleSdk, AppleSdkPaths> allAppleSdkPaths) {
+    Ordering<AppleSdk> appleSdkVersionComparator =
+        Ordering
+            .from(new VersionStringComparator())
+            .onResultOf(new Function<AppleSdk, String>() {
+                @Override
+                public String apply(AppleSdk appleSdk) {
+                    return appleSdk.version();
+                }
+            });
+
+    ImmutableSortedSet<AppleSdk> sortedIphoneSimulatorSdks = FluentIterable
         .from(allAppleSdkPaths.keySet())
-        .filter(new Predicate<String>() {
+        .filter(new Predicate<AppleSdk>() {
           @Override
-          public boolean apply(String sdkName) {
-            return sdkName.startsWith(prefix);
+          public boolean apply(AppleSdk sdk) {
+            return sdk.applePlatform() == ApplePlatform.IPHONESIMULATOR;
           }
         })
-        .transform(new Function<String, String>() {
-          @Override
-          public String apply(String sdkName) {
-            return sdkName.substring(prefix.length());
-          }
-        })
-        .toSet());
-    if (iphoneSimulatorVersions.isEmpty()) {
+        .toSortedSet(appleSdkVersionComparator);
+    if (sortedIphoneSimulatorSdks.isEmpty()) {
       throw new RuntimeException("No iphonesimulator found in: " + allAppleSdkPaths.keySet());
     }
 
-    Collections.sort(iphoneSimulatorVersions, new VersionStringComparator());
-    String version = iphoneSimulatorVersions.get(iphoneSimulatorVersions.size() - 1);
-    return Preconditions.checkNotNull(allAppleSdkPaths.get(prefix + version));
+    return allAppleSdkPaths.get(sortedIphoneSimulatorSdks.last());
   }
 
   @VisibleForTesting

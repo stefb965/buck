@@ -63,11 +63,6 @@ public class ProjectCommandOptions extends AbstractCommandOptions {
       usage = "Generate an xcode project of a target and its dependencies.")
   private boolean combinedProject;
 
-  @Option(
-      name = "--workspace-and-projects",
-      usage = "Generate an xcode workspace containing separate projects per target.")
-  private boolean workspaceAndProjects;
-
   @Option(name = "--process-annotations", usage = "Enable annotation processing")
   private boolean processAnnotations;
 
@@ -76,6 +71,12 @@ public class ProjectCommandOptions extends AbstractCommandOptions {
       usage = "(In Alpha) When generating a project slice, also include all tests that test " +
           "code in that slice.")
   private boolean withTests = false;
+
+  @Option(
+      name = "--combine-test-bundles",
+      usage = "Combine multiple ios/osx test targets into the same bundle if they have identical " +
+          "settings")
+  private boolean combineTestBundles = false;
 
   @Option(
       name = "--ide",
@@ -90,6 +91,12 @@ public class ProjectCommandOptions extends AbstractCommandOptions {
           DEFAULT_READ_ONLY_VALUE + "' if not specified in .buckconfig. (Only " +
           "applies to generated Xcode projects.)")
   private boolean readOnly = DEFAULT_READ_ONLY_VALUE;
+
+  @Option(
+      name = "--dry-run",
+      usage = "Instead of actually generating the project, only print out the targets that " +
+          "would be included.")
+  private boolean dryRun = false;
 
   @Argument
   private List<String> arguments = Lists.newArrayList();
@@ -114,8 +121,12 @@ public class ProjectCommandOptions extends AbstractCommandOptions {
     return combinedProject;
   }
 
-  public boolean getWorkspaceAndProjects() {
-    return workspaceAndProjects;
+  public boolean getDryRun() {
+    return dryRun;
+  }
+
+  public boolean getCombineTestBundles() {
+    return combineTestBundles;
   }
 
   public boolean shouldProcessAnnotations() {

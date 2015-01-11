@@ -24,6 +24,7 @@ import com.facebook.buck.apple.AppleResourceDescription;
 import com.facebook.buck.apple.FileExtensions;
 import com.facebook.buck.apple.GroupedSource;
 import com.facebook.buck.apple.HeaderVisibility;
+import com.facebook.buck.apple.IosPostprocessResourcesDescription;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXBuildFile;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXBuildPhase;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXFileReference;
@@ -40,22 +41,13 @@ import com.facebook.buck.apple.xcode.xcodeproj.PBXTarget;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXVariantGroup;
 import com.facebook.buck.apple.xcode.xcodeproj.SourceTreePath;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.rules.TargetNodeToBuildRuleTransformer;
-import com.facebook.buck.shell.Genrule;
-import com.facebook.buck.step.ExecutionContext;
-import com.facebook.buck.util.Escaper;
-import com.facebook.buck.util.HumanReadableException;
-import com.google.common.base.Function;
+import com.facebook.buck.shell.GenruleDescription;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -64,6 +56,7 @@ import com.google.common.collect.Iterables;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Configures a PBXProject by adding a PBXNativeTarget and its associated dependencies into a
@@ -82,24 +75,19 @@ public class NewNativeTargetProjectMutator {
     }
   }
 
-  private final TargetNodeToBuildRuleTransformer targetNodeToBuildRuleTransformer =
-      new TargetNodeToBuildRuleTransformer();
-  private final TargetGraph targetGraph;
-  private final ExecutionContext executionContext;
   private final PathRelativizer pathRelativizer;
-  private final BuildRuleResolver buildRuleResolver;
   private final SourcePathResolver sourcePathResolver;
-  private final BuildTarget buildTarget;
 
   private PBXTarget.ProductType productType = PBXTarget.ProductType.BUNDLE;
   private Path productOutputPath = Paths.get("");
   private String productName = "";
-  private String targetName;
+  private String targetName = "";
+  private ImmutableList<String> targetGroupPath = ImmutableList.of();
   private Optional<String> gid = Optional.absent();
   private Iterable<GroupedSource> sources = ImmutableList.of();
   private ImmutableMap<SourcePath, String> sourceFlags = ImmutableMap.of();
   private boolean shouldGenerateCopyHeadersPhase = true;
-  private ImmutableSet<String> frameworks = ImmutableSet.of();
+  private ImmutableSet<FrameworkPath> frameworks = ImmutableSet.of();
   private ImmutableSet<PBXFileReference> archives = ImmutableSet.of();
   private ImmutableSet<AppleResourceDescription.Arg> resources = ImmutableSet.of();
   private ImmutableSet<AppleAssetCatalogDescription.Arg> assetCatalogs = ImmutableSet.of();
@@ -108,19 +96,10 @@ public class NewNativeTargetProjectMutator {
   private Iterable<TargetNode<?>> postBuildRunScriptPhases = ImmutableList.of();
 
   public NewNativeTargetProjectMutator(
-      TargetGraph targetGraph,
-      ExecutionContext executionContext,
       PathRelativizer pathRelativizer,
-      BuildRuleResolver buildRuleResolver,
-      SourcePathResolver sourcePathResolver,
-      BuildTarget buildTarget) {
-    this.targetGraph = targetGraph;
-    this.executionContext = executionContext;
+      SourcePathResolver sourcePathResolver) {
     this.pathRelativizer = pathRelativizer;
-    this.buildRuleResolver = buildRuleResolver;
     this.sourcePathResolver = sourcePathResolver;
-    this.buildTarget = buildTarget;
-    this.targetName = buildTarget.getFullyQualifiedName();
   }
 
   /**
@@ -150,11 +129,16 @@ public class NewNativeTargetProjectMutator {
     return this;
   }
 
+  public NewNativeTargetProjectMutator setTargetGroupPath(ImmutableList<String> targetGroupPath) {
+    this.targetGroupPath = targetGroupPath;
+    return this;
+  }
+
   public NewNativeTargetProjectMutator setSources(
       Iterable<GroupedSource> sources,
-      ImmutableMap<SourcePath, String> sourceFlags) {
+      Map<SourcePath, String> sourceFlags) {
     this.sources = sources;
-    this.sourceFlags = sourceFlags;
+    this.sourceFlags = ImmutableMap.copyOf(sourceFlags);
     return this;
   }
 
@@ -163,19 +147,18 @@ public class NewNativeTargetProjectMutator {
     return this;
   }
 
-  public NewNativeTargetProjectMutator setFrameworks(ImmutableSet<String> frameworks) {
-    this.frameworks = frameworks;
+  public NewNativeTargetProjectMutator setFrameworks(Set<FrameworkPath> frameworks) {
+    this.frameworks = ImmutableSet.copyOf(frameworks);
     return this;
   }
 
-  public NewNativeTargetProjectMutator setArchives(ImmutableSet<PBXFileReference> archives) {
-    this.archives = archives;
+  public NewNativeTargetProjectMutator setArchives(Set<PBXFileReference> archives) {
+    this.archives = ImmutableSet.copyOf(archives);
     return this;
   }
 
-  public NewNativeTargetProjectMutator setResources(
-      ImmutableSet<AppleResourceDescription.Arg> resources) {
-    this.resources = resources;
+  public NewNativeTargetProjectMutator setResources(Set<AppleResourceDescription.Arg> resources) {
+    this.resources = ImmutableSet.copyOf(resources);
     return this;
   }
 
@@ -195,16 +178,21 @@ public class NewNativeTargetProjectMutator {
    */
   public NewNativeTargetProjectMutator setAssetCatalogs(
       Path assetCatalogBuildScript,
-      ImmutableSet<AppleAssetCatalogDescription.Arg> assetCatalogs) {
+      Set<AppleAssetCatalogDescription.Arg> assetCatalogs) {
     this.assetCatalogBuildScript = assetCatalogBuildScript;
-    this.assetCatalogs = assetCatalogs;
+    this.assetCatalogs = ImmutableSet.copyOf(assetCatalogs);
     return this;
   }
 
   public Result buildTargetAndAddToProject(PBXProject project)
       throws NoSuchBuildTargetException {
     PBXNativeTarget target = new PBXNativeTarget(targetName, productType);
-    PBXGroup targetGroup = project.getMainGroup().getOrCreateChildGroupByName(targetName);
+
+    PBXGroup targetGroup = project.getMainGroup();
+    for (String groupPathPart : targetGroupPath) {
+      targetGroup = targetGroup.getOrCreateChildGroupByName(groupPathPart);
+    }
+    targetGroup = targetGroup.getOrCreateChildGroupByName(targetName);
 
     if (gid.isPresent()) {
       target.setGlobalID(gid.get());
@@ -373,44 +361,20 @@ public class NewNativeTargetProjectMutator {
     PBXFrameworksBuildPhase frameworksBuildPhase = new PBXFrameworksBuildPhase();
     target.getBuildPhases().add(frameworksBuildPhase);
 
-    for (String framework : frameworks) {
-      Path path = Paths.get(framework);
-
-      String firstElement =
-          Preconditions.checkNotNull(Iterables.getFirst(path, Paths.get(""))).toString();
-
-      if (firstElement.startsWith("$")) { // NOPMD - length() > 0 && charAt(0) == '$' is ridiculous
-        Optional<PBXReference.SourceTree> sourceTree =
-            PBXReference.SourceTree.fromBuildSetting(firstElement);
-        if (sourceTree.isPresent()) {
-          Path sdkRootRelativePath = path.subpath(1, path.getNameCount());
-          PBXFileReference fileReference =
-              sharedFrameworksGroup.getOrCreateFileReferenceBySourceTreePath(
-                  new SourceTreePath(sourceTree.get(), sdkRootRelativePath));
-          frameworksBuildPhase.getFiles().add(new PBXBuildFile(fileReference));
-        } else {
-          throw new HumanReadableException(String.format(
-              "Unknown SourceTree: %s in build target: %s. Should be one of: %s",
-              firstElement,
-              buildTarget,
-              Joiner.on(',').join(Iterables.transform(
-                      ImmutableList.copyOf(PBXReference.SourceTree.values()),
-                      new Function<PBXReference.SourceTree, String>() {
-                        @Override
-                        public String apply(PBXReference.SourceTree input) {
-                          return "$" + input.toString();
-                        }
-                      }))));
-        }
+    for (FrameworkPath framework : frameworks) {
+      SourceTreePath sourceTreePath;
+      if (framework.sourceTreePath().isPresent()) {
+        sourceTreePath = framework.sourceTreePath().get();
+      } else if (framework.sourcePath().isPresent()) {
+        sourceTreePath = new SourceTreePath(
+            PBXReference.SourceTree.SOURCE_ROOT,
+            pathRelativizer.outputPathToSourcePath(framework.sourcePath().get()));
       } else {
-        // regular path
-        PBXFileReference fileReference =
-            sharedFrameworksGroup.getOrCreateFileReferenceBySourceTreePath(
-                new SourceTreePath(
-                    PBXReference.SourceTree.GROUP,
-                    pathRelativizer.outputPathToBuildTargetPath(buildTarget, path)));
-        frameworksBuildPhase.getFiles().add(new PBXBuildFile(fileReference));
+        throw new RuntimeException();
       }
+      PBXFileReference fileReference =
+          sharedFrameworksGroup.getOrCreateFileReferenceBySourceTreePath(sourceTreePath);
+      frameworksBuildPhase.getFiles().add(new PBXBuildFile(fileReference));
     }
 
     for (PBXFileReference archive : archives) {
@@ -534,27 +498,31 @@ public class NewNativeTargetProjectMutator {
     for (TargetNode<?> node : nodes) {
       // TODO(user): Check and validate dependencies of the script. If it depends on libraries etc.
       // we can't handle it currently.
-      Genrule rule = (Genrule) targetNodeToBuildRuleTransformer.transform(
-          targetGraph,
-          buildRuleResolver,
-          node);
       PBXShellScriptBuildPhase shellScriptBuildPhase = new PBXShellScriptBuildPhase();
       target.getBuildPhases().add(shellScriptBuildPhase);
-      for (Path path : rule.getSrcs()) {
-        shellScriptBuildPhase.getInputPaths().add(
-            pathRelativizer.outputDirToRootRelative(path).toString());
-      }
-
-      StringBuilder bashCommandBuilder = new StringBuilder();
-      for (String commandElement : rule.createGenruleStep().getShellCommand(executionContext)) {
-        if (bashCommandBuilder.length() > 0) {
-          bashCommandBuilder.append(' ');
+      if (GenruleDescription.TYPE.equals(node.getType())) {
+        GenruleDescription.Arg arg = (GenruleDescription.Arg) node.getConstructorArg();
+        for (Path path : sourcePathResolver.getAllPaths(arg.srcs.get())) {
+          shellScriptBuildPhase.getInputPaths().add(
+              pathRelativizer.outputDirToRootRelative(path).toString());
         }
-        bashCommandBuilder.append(Escaper.escapeAsBashString(commandElement));
-      }
-      shellScriptBuildPhase.setShellScript(bashCommandBuilder.toString());
-      if (rule.getOutputName().length() > 0) {
-        shellScriptBuildPhase.getOutputPaths().add(rule.getOutputName());
+        if (arg.cmd.isPresent() && !arg.cmd.get().isEmpty()) {
+          shellScriptBuildPhase.setShellScript(arg.cmd.get());
+        } else if (arg.bash.isPresent() || arg.cmdExe.isPresent()) {
+          throw new IllegalStateException("Shell script phase only supports cmd for genrule.");
+        }
+        if (!arg.out.isEmpty()) {
+          shellScriptBuildPhase.getOutputPaths().add(arg.out);
+        }
+      } else if (IosPostprocessResourcesDescription.TYPE.equals(node.getType())) {
+        IosPostprocessResourcesDescription.Arg arg =
+            (IosPostprocessResourcesDescription.Arg) node.getConstructorArg();
+        if (arg.cmd.isPresent()) {
+          shellScriptBuildPhase.setShellScript(arg.cmd.get());
+        }
+      } else {
+        // unreachable
+        throw new IllegalStateException("Invalid rule type for shell script build phase");
       }
     }
   }

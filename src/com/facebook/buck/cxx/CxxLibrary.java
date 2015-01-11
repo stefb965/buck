@@ -26,6 +26,7 @@ import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SymlinkTree;
+import com.facebook.buck.model.Pair;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -45,6 +46,8 @@ public class CxxLibrary extends AbstractCxxLibrary {
   private final BuildRuleParams params;
   private final BuildRuleResolver ruleResolver;
   private final ImmutableMultimap<CxxSource.Type, String> exportedPreprocessorFlags;
+  private final ImmutableList<String> linkerFlags;
+  private final ImmutableList<Pair<String, ImmutableList<String>>> platformLinkerFlags;
   private final boolean linkWhole;
   private final Optional<String> soname;
 
@@ -53,12 +56,16 @@ public class CxxLibrary extends AbstractCxxLibrary {
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
       ImmutableMultimap<CxxSource.Type, String> exportedPreprocessorFlags,
+      ImmutableList<String> linkerFlags,
+      ImmutableList<Pair<String, ImmutableList<String>>> platformLinkerFlags,
       boolean linkWhole,
       Optional<String> soname) {
     super(params, pathResolver);
     this.params = params;
     this.ruleResolver = ruleResolver;
     this.exportedPreprocessorFlags = exportedPreprocessorFlags;
+    this.linkerFlags = linkerFlags;
+    this.platformLinkerFlags = platformLinkerFlags;
     this.linkWhole = linkWhole;
     this.soname = soname;
   }
@@ -87,13 +94,18 @@ public class CxxLibrary extends AbstractCxxLibrary {
   @Override
   public NativeLinkableInput getNativeLinkableInput(
       CxxPlatform cxxPlatform,
-      Type type) {
+      Linker.LinkableDepType type) {
 
     // Build up the arguments used to link this library.  If we're linking the
     // whole archive, wrap the library argument in the necessary "ld" flags.
     final BuildRule libraryRule;
     ImmutableList.Builder<String> linkerArgsBuilder = ImmutableList.builder();
-    if (type == Type.SHARED) {
+    linkerArgsBuilder.addAll(linkerFlags);
+    linkerArgsBuilder.addAll(
+        CxxDescriptionEnhancer.getPlatformFlags(
+            platformLinkerFlags,
+            cxxPlatform.asFlavor().toString()));
+    if (type == Linker.LinkableDepType.SHARED) {
       Path sharedLibraryPath = CxxDescriptionEnhancer.getSharedLibraryPath(
           getBuildTarget(),
           cxxPlatform);

@@ -18,6 +18,7 @@ package com.facebook.buck.ocaml;
 
 import com.facebook.buck.cxx.CxxPreprocessorInput;
 import com.facebook.buck.cxx.NativeLinkable;
+import com.facebook.buck.cxx.Tool;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
@@ -63,8 +64,8 @@ public class OCamlBuildRulesGenerator {
   private final ImmutableMap<SourcePath, ImmutableList<SourcePath>> mlInput;
   private final ImmutableList<SourcePath> cInput;
 
-  private final Path cCompiler;
-  private final Path cxxCompiler;
+  private final Tool cCompiler;
+  private final Tool cxxCompiler;
 
   public OCamlBuildRulesGenerator(
       BuildRuleParams params,
@@ -73,8 +74,8 @@ public class OCamlBuildRulesGenerator {
       OCamlBuildContext ocamlContext,
       ImmutableMap<SourcePath, ImmutableList<SourcePath>> mlInput,
       ImmutableList<SourcePath> cInput,
-      Path cCompiler,
-      Path cxxCompiler) {
+      Tool cCompiler,
+      Tool cxxCompiler) {
     this.params = params;
     this.pathResolver = pathResolver;
     this.resolver = resolver;
@@ -181,7 +182,7 @@ public class OCamlBuildRulesGenerator {
           cCompileParams,
           pathResolver,
           new OCamlCCompileStep.Args(
-            cCompiler,
+            cCompiler.getCommandPrefix(pathResolver),
             ocamlContext.getOcamlCompiler(),
             outputPath,
             pathResolver.getPath(cSrc),
@@ -238,7 +239,7 @@ public class OCamlBuildRulesGenerator {
         linkParams,
         pathResolver,
         new OCamlLinkStep.Args(
-          cxxCompiler,
+          cxxCompiler.getCommandPrefix(pathResolver),
           ocamlContext.getOcamlCompiler(),
           ocamlContext.getOutput(),
           ocamlContext.getLinkableInput().getArgs(),
@@ -276,7 +277,7 @@ public class OCamlBuildRulesGenerator {
         linkParams,
         pathResolver,
         new OCamlLinkStep.Args(
-            cxxCompiler,
+            cxxCompiler.getCommandPrefix(pathResolver),
             ocamlContext.getOcamlBytecodeCompiler(),
             ocamlContext.getBytecodeOutput(),
             ocamlContext.getLinkableInput().getArgs(),
@@ -434,7 +435,7 @@ public class OCamlBuildRulesGenerator {
         compileParams,
         pathResolver,
         new OCamlMLCompileStep.Args(
-          cCompiler,
+          cCompiler.getCommandPrefix(pathResolver),
           ocamlContext.getOcamlCompiler(),
           outputPath,
           pathResolver.getPath(mlSource),
@@ -522,7 +523,7 @@ public class OCamlBuildRulesGenerator {
         compileParams,
         pathResolver,
         new OCamlMLCompileStep.Args(
-          cCompiler,
+          cCompiler.getCommandPrefix(pathResolver),
           ocamlContext.getOcamlBytecodeCompiler(),
           outputPath,
           pathResolver.getPath(mlSource),

@@ -19,6 +19,7 @@ package com.facebook.buck.ocaml;
 import com.facebook.buck.cxx.CxxPreprocessables;
 import com.facebook.buck.cxx.CxxPreprocessorDep;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
+import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.cxx.NativeLinkable;
 import com.facebook.buck.cxx.NativeLinkableInput;
 import com.facebook.buck.cxx.NativeLinkables;
@@ -39,7 +40,6 @@ import com.facebook.buck.util.Console;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.Verbosity;
-import com.facebook.buck.util.environment.Platform;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
@@ -175,7 +175,7 @@ public class OCamlRuleBuilder {
     NativeLinkableInput linkableInput = NativeLinkables.getTransitiveNativeLinkableInput(
         ocamlBuckConfig.getCxxPlatform(),
         params.getDeps(),
-        NativeLinkable.Type.STATIC,
+        Linker.LinkableDepType.STATIC,
         /* reverse */ false);
 
     ImmutableList<OCamlLibrary> ocamlInput = OCamlUtil.getTransitiveOCamlInput(params.getDeps());
@@ -277,7 +277,7 @@ public class OCamlRuleBuilder {
     NativeLinkableInput linkableInput = NativeLinkables.getTransitiveNativeLinkableInput(
         ocamlBuckConfig.getCxxPlatform(),
         params.getDeps(),
-        NativeLinkable.Type.STATIC,
+        Linker.LinkableDepType.STATIC,
         /* reverse */ false);
 
     ImmutableList<OCamlLibrary> ocamlInput = OCamlUtil.getTransitiveOCamlInput(params.getDeps());
@@ -333,8 +333,8 @@ public class OCamlRuleBuilder {
         ocamlContext,
         mlInput,
         cInput,
-        pathResolver.getPath(ocamlBuckConfig.getCCompiler()),
-        pathResolver.getPath(ocamlBuckConfig.getCxxCompiler()));
+        ocamlBuckConfig.getCCompiler(),
+        ocamlBuckConfig.getCxxCompiler());
 
     ImmutableList<BuildRule> ocamlLibraryBuild = generator.generate();
 
@@ -431,21 +431,21 @@ public class OCamlRuleBuilder {
   private static Optional<String> executeProcessAndGetStdout(
       File baseDir,
       ImmutableList<String> cmd) throws IOException, InterruptedException {
-    Ansi ansi = new Ansi(Platform.detect(), Optional.<String>absent());
     PrintStream stdout = new CapturingPrintStream();
     PrintStream stderr = new CapturingPrintStream();
 
     ImmutableSet.Builder<ProcessExecutor.Option> options = ImmutableSet.builder();
     options.add(ProcessExecutor.Option.EXPECTING_STD_ERR);
     options.add(ProcessExecutor.Option.EXPECTING_STD_OUT);
-    Console console = new Console(Verbosity.SILENT, stdout, stderr, ansi);
+    Console console = new Console(Verbosity.SILENT, stdout, stderr, Ansi.withoutTty());
     ProcessExecutor exe = new ProcessExecutor(console);
     ProcessBuilder processBuilder = new ProcessBuilder(cmd);
     processBuilder.directory(baseDir);
     ProcessExecutor.Result result = exe.execute(
         processBuilder.start(),
         options.build(),
-        Optional.<String>absent());
+        /* stdin */ Optional.<String>absent(),
+        /* timeOutMs */ Optional.<Long>absent());
     if (result.getExitCode() != 0) {
       return Optional.absent();
     } else {

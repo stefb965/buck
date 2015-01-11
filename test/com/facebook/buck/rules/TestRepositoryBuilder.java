@@ -21,12 +21,13 @@ import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TestConsole;
-import com.facebook.buck.util.AndroidDirectoryResolver;
-import com.facebook.buck.util.FakeAndroidDirectoryResolver;
+import com.facebook.buck.android.AndroidDirectoryResolver;
+import com.facebook.buck.android.FakeAndroidDirectoryResolver;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableMap;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
@@ -38,7 +39,7 @@ public class TestRepositoryBuilder {
   private AndroidDirectoryResolver androidDirectoryResolver;
   private Path rootPath;
 
-  public TestRepositoryBuilder() throws InterruptedException {
+  public TestRepositoryBuilder() throws InterruptedException, IOException {
     name = Optional.absent();
     filesystem = new FakeProjectFilesystem();
     buildRuleTypes = DefaultKnownBuildRuleTypes.getDefaultKnownBuildRuleTypes(filesystem);
@@ -69,6 +70,11 @@ public class TestRepositoryBuilder {
 
   public TestRepositoryBuilder setRootPath(Path path) {
     this.rootPath = path;
+    return this;
+  }
+
+  public TestRepositoryBuilder setAndroidDirectoryResolver(AndroidDirectoryResolver resolver) {
+    this.androidDirectoryResolver = resolver;
     return this;
   }
 

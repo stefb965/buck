@@ -16,21 +16,20 @@
 
 package com.facebook.buck.cli;
 
+import com.facebook.buck.android.AndroidDirectoryResolver;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.event.listener.FileSerializationEventBusListener;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.BuildTargetParser;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.parser.ParseContext;
+import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.BuildEngine;
 import com.facebook.buck.rules.Repository;
 import com.facebook.buck.step.ExecutionContext;
-import com.facebook.buck.util.AndroidDirectoryResolver;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ProcessManager;
 import com.facebook.buck.util.environment.Platform;
@@ -177,15 +176,16 @@ abstract class AbstractCommandRunner<T extends AbstractCommandOptions> implement
   /**
    * @return A set of {@link BuildTarget}s for the input buildTargetNames.
    */
-  protected ImmutableSet<BuildTarget> getBuildTargets(ImmutableSet<String> buildTargetNames)
-      throws NoSuchBuildTargetException, IOException {
+  protected ImmutableSet<BuildTarget> getBuildTargets(ImmutableSet<String> buildTargetNames) {
     ImmutableSet.Builder<BuildTarget> buildTargets = ImmutableSet.builder();
 
     // Parse all of the build targets specified by the user.
     BuildTargetParser buildTargetParser = getParser().getBuildTargetParser();
 
     for (String buildTargetName : buildTargetNames) {
-      buildTargets.add(buildTargetParser.parse(buildTargetName, ParseContext.fullyQualified()));
+      buildTargets.add(buildTargetParser.parse(
+              buildTargetName,
+              BuildTargetPatternParser.fullyQualified(buildTargetParser)));
     }
 
     return buildTargets.build();

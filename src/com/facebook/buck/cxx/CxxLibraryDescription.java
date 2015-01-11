@@ -19,6 +19,7 @@ package com.facebook.buck.cxx;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
+import com.facebook.buck.model.Flavored;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.FlavorDomainException;
 import com.facebook.buck.rules.BuildRule;
@@ -30,6 +31,7 @@ import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SymlinkTree;
+import com.facebook.buck.model.Pair;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Optional;
@@ -45,8 +47,8 @@ import java.util.Set;
 
 public class CxxLibraryDescription implements
     Description<CxxLibraryDescription.Arg>,
-    ImplicitDepsInferringDescription<CxxLibraryDescription.Arg> {
-
+    ImplicitDepsInferringDescription<CxxLibraryDescription.Arg>,
+    Flavored {
   private static enum Type {
     HEADERS,
     SHARED,
@@ -71,6 +73,11 @@ public class CxxLibraryDescription implements
       FlavorDomain<CxxPlatform> cxxPlatforms) {
     this.cxxBuckConfig = cxxBuckConfig;
     this.cxxPlatforms = cxxPlatforms;
+  }
+
+  @Override
+  public boolean hasFlavors(ImmutableSet<Flavor> flavors) {
+    return cxxPlatforms.containsAnyOf(flavors);
   }
 
   private static final Flavor LEX_YACC_SOURCE_FLAVOR = new Flavor("lex_yacc_sources");
@@ -330,9 +337,10 @@ public class CxxLibraryDescription implements
       ImmutableMap<Path, SourcePath> headers,
       ImmutableList<String> compilerFlags,
       ImmutableMap<String, CxxSource> sources,
+      ImmutableList<String> linkerFlags,
       Optional<String> soname) {
 
-    // Create rules for compiling the non-PIC object files.
+    // Create rules for compiling the PIC object files.
     ImmutableList<SourcePath> objects = requireObjects(
         params,
         ruleResolver,
@@ -362,14 +370,14 @@ public class CxxLibraryDescription implements
             cxxPlatform,
             params,
             pathResolver,
-            ImmutableList.<String>of(),
-            ImmutableList.<String>of(),
+            /* extraCxxLdFlags */ ImmutableList.<String>of(),
+            /* extraLdFlags */ linkerFlags,
             sharedTarget,
-            CxxLinkableEnhancer.LinkType.SHARED,
+            Linker.LinkType.SHARED,
             Optional.of(sharedLibrarySoname),
             sharedLibraryPath,
             objects,
-            NativeLinkable.Type.SHARED,
+            Linker.LinkableDepType.SHARED,
             params.getDeps());
 
     return sharedLibraryBuildRule;
@@ -386,10 +394,12 @@ public class CxxLibraryDescription implements
     arg.srcs = Optional.absent();
     arg.headers = Optional.absent();
     arg.compilerFlags = Optional.absent();
-    arg.propagatedPpFlags = Optional.absent();
-    arg.propagatedLangPpFlags = Optional.absent();
+    arg.exportedPreprocessorFlags = Optional.absent();
+    arg.exportedLangPreprocessorFlags = Optional.absent();
     arg.preprocessorFlags = Optional.absent();
     arg.langPreprocessorFlags = Optional.absent();
+    arg.linkerFlags = Optional.absent();
+    arg.platformLinkerFlags = Optional.of(ImmutableList.<Pair<String, ImmutableList<String>>>of());
     arg.linkWhole = Optional.absent();
     arg.lexSrcs = Optional.absent();
     arg.yaccSrcs = Optional.absent();
@@ -431,9 +441,16 @@ public class CxxLibraryDescription implements
         cxxPlatform,
         CxxDescriptionEnhancer.parseLexSources(params, resolver, args),
         CxxDescriptionEnhancer.parseYaccSources(params, resolver, args),
-        CxxPreprocessorFlags.fromArgs(
-            args.preprocessorFlags,
-            args.langPreprocessorFlags),
+        ImmutableMultimap.<CxxSource.Type, String>builder()
+            .putAll(
+                CxxPreprocessorFlags.fromArgs(
+                    args.preprocessorFlags,
+                    args.langPreprocessorFlags))
+            .putAll(
+                CxxPreprocessorFlags.fromArgs(
+                    args.exportedPreprocessorFlags,
+                    args.exportedLangPreprocessorFlags))
+            .build(),
         CxxDescriptionEnhancer.parseHeaders(params, resolver, args),
         args.compilerFlags.or(ImmutableList.<String>of()),
         CxxDescriptionEnhancer.parseCxxSources(params, resolver, args));
@@ -454,12 +471,26 @@ public class CxxLibraryDescription implements
         cxxPlatform,
         CxxDescriptionEnhancer.parseLexSources(params, resolver, args),
         CxxDescriptionEnhancer.parseYaccSources(params, resolver, args),
-        CxxPreprocessorFlags.fromArgs(
-            args.preprocessorFlags,
-            args.langPreprocessorFlags),
+        ImmutableMultimap.<CxxSource.Type, String>builder()
+            .putAll(
+                CxxPreprocessorFlags.fromArgs(
+                    args.preprocessorFlags,
+                    args.langPreprocessorFlags))
+            .putAll(
+                CxxPreprocessorFlags.fromArgs(
+                    args.exportedPreprocessorFlags,
+                    args.exportedLangPreprocessorFlags))
+            .build(),
         CxxDescriptionEnhancer.parseHeaders(params, resolver, args),
         args.compilerFlags.or(ImmutableList.<String>of()),
         CxxDescriptionEnhancer.parseCxxSources(params, resolver, args),
+        ImmutableList.<String>builder()
+            .addAll(args.linkerFlags.or(ImmutableList.<String>of()))
+            .addAll(
+                CxxDescriptionEnhancer.getPlatformFlags(
+                    args.platformLinkerFlags.get(),
+                    cxxPlatform.asFlavor().toString()))
+            .build(),
         args.soname);
   }
 
@@ -524,8 +555,10 @@ public class CxxLibraryDescription implements
         resolver,
         pathResolver,
         CxxPreprocessorFlags.fromArgs(
-            args.propagatedPpFlags,
-            args.propagatedLangPpFlags),
+            args.exportedPreprocessorFlags,
+            args.exportedLangPreprocessorFlags),
+        args.linkerFlags.or(ImmutableList.<String>of()),
+        args.platformLinkerFlags.get(),
         args.linkWhole.or(false),
         args.soname);
   }
@@ -550,8 +583,9 @@ public class CxxLibraryDescription implements
 
   @SuppressFieldNotInitialized
   public static class Arg extends CxxConstructorArg {
-    public Optional<ImmutableList<String>> propagatedPpFlags;
-    public Optional<ImmutableMap<CxxSource.Type, ImmutableList<String>>> propagatedLangPpFlags;
+    public Optional<ImmutableList<String>> exportedPreprocessorFlags;
+    public Optional<ImmutableMap<CxxSource.Type, ImmutableList<String>>>
+        exportedLangPreprocessorFlags;
     public Optional<String> soname;
     public Optional<Boolean> linkWhole;
   }

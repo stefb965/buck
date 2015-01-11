@@ -21,7 +21,7 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.parser.BuildTargetParser;
-import com.facebook.buck.util.AndroidDirectoryResolver;
+import com.facebook.buck.android.AndroidDirectoryResolver;
 import com.facebook.buck.util.BuckConstant;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
@@ -30,6 +30,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
 import java.nio.file.Path;
+import java.util.Objects;
 
 import javax.annotation.Nullable;
 
@@ -153,8 +154,10 @@ public class Repository {
     }
 
     Repository that = (Repository) obj;
-    return this.getFilesystem().equals(that.getFilesystem()) &&
-        this.getBuckConfig().equals(that.getBuckConfig());
+    return
+        Objects.equals(getFilesystem(), that.getFilesystem()) &&
+        Objects.equals(getBuckConfig(), that.getBuckConfig()) &&
+        Objects.equals(androidDirectoryResolver, that.androidDirectoryResolver);
   }
 
   public Path getAbsolutePathToBuildFile(BuildTarget target)

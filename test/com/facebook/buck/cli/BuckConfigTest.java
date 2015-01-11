@@ -295,7 +295,8 @@ public class BuckConfigTest {
       assertEquals(
           "Throw an exception if there are duplicate definitions for an alias, " +
               "even if the values are the same.",
-          "Duplicate definition for foo in [alias].",
+          "Duplicate definition for foo in the [alias] section of your .buckconfig or " +
+              ".buckconfig.local.",
           e.getHumanReadableErrorMessage());
     }
   }
@@ -574,6 +575,29 @@ public class BuckConfigTest {
         ImmutableMap.<String, String>of());
     config.getPythonInterpreter();
     fail("Should throw an exception when Python isn't found.");
+  }
+
+  @Test
+  public void whenMultiplePythonExecutablesOnPathFirstIsUsed() throws IOException {
+    File pythonA = temporaryFolder.newFile("python");
+    assertTrue("Should be able to set file executable", pythonA.setExecutable(true));
+    DebuggableTemporaryFolder temporaryFolder2 = new DebuggableTemporaryFolder();
+    temporaryFolder2.create();
+    File pythonB = temporaryFolder2.newFile("python");
+    assertTrue("Should be able to set file executable", pythonB.setExecutable(true));
+    String path = temporaryFolder.getRoot().getAbsolutePath() +
+        File.pathSeparator +
+        temporaryFolder2.getRoot().getAbsolutePath();
+    FakeBuckConfig config = new FakeBuckEnvironment(ImmutableMap.<String, Map<String, String>>of(),
+        ImmutableMap.<String, String>builder()
+            .put("PATH", path)
+            .put("PATHEXT", "")
+            .build(),
+        ImmutableMap.<String, String>of());
+    assertEquals(
+        "Should return the first path",
+        config.getPythonInterpreter(),
+        pythonA.getAbsolutePath());
   }
 
   @Test

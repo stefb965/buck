@@ -19,6 +19,7 @@ package com.facebook.buck.cxx;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.android.AssumeAndroidPlatform;
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.model.BuildTarget;
@@ -28,6 +29,7 @@ import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.BuckConstant;
+import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableSet;
 
 import org.hamcrest.Matchers;
@@ -459,6 +461,7 @@ public class CxxBinaryIntegrationTest {
 
   @Test
   public void ndkCxxPlatforms() throws IOException {
+    AssumeAndroidPlatform.assumeNdkIsAvailable();
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "simple", tmp);
     workspace.setUp();
@@ -466,6 +469,61 @@ public class CxxBinaryIntegrationTest {
     workspace.runBuckCommand("build", "//foo:simple#android-arm").assertSuccess();
     workspace.runBuckCommand("build", "//foo:simple#android-armv7").assertSuccess();
     workspace.runBuckCommand("build", "//foo:simple#android-x86").assertSuccess();
+  }
+
+  @Test
+  public void linkerFlags() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "linker_flags", tmp);
+    workspace.setUp();
+
+    workspace.runBuckBuild("//:binary_with_linker_flag").assertFailure("--bad-flag");
+    workspace.runBuckBuild("//:binary_with_library_dep").assertFailure("--bad-flag");
+    workspace.runBuckBuild("//:binary_with_prebuilt_library_dep").assertFailure("--bad-flag");
+
+    // Build binary that has unresolved symbols.  Normally this would fail, but should work
+    // with the proper linker flag.
+    switch (Platform.detect()) {
+      case MACOS:
+        workspace.runBuckBuild("//:binary_with_unresolved_symbols_macos").assertSuccess();
+        break;
+      case LINUX:
+        workspace.runBuckBuild("//:binary_with_unresolved_symbols_linux").assertSuccess();
+        break;
+      // $CASES-OMITTED$
+      default:
+        break;
+    }
+  }
+
+  private void platformLinkerFlags(ProjectWorkspace workspace, String target) throws IOException {
+    workspace.runBuckBuild("//:binary_matches_default_exactly_" + target).assertSuccess();
+    workspace.runBuckBuild("//:binary_matches_default_" + target).assertSuccess();
+    workspace.runBuckBuild("//:binary_no_match_" + target).assertFailure("unresolved");
+    workspace.runBuckBuild("//:binary_with_library_matches_default_" + target).assertSuccess();
+    workspace.runBuckBuild("//:binary_with_prebuilt_library_matches_default_" + target)
+        .assertSuccess();
+  }
+
+  @Test
+  public void platformLinkerFlags() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "platform_linker_flags", tmp);
+    workspace.setUp();
+
+    // Build binary that has unresolved symbols.  Normally this would fail, but should work
+    // with the proper linker flag.
+    switch (Platform.detect()) {
+      case MACOS:
+        platformLinkerFlags(workspace, "macos");
+        break;
+      case LINUX:
+        platformLinkerFlags(workspace, "linux");
+        break;
+      // $CASES-OMITTED$
+      default:
+        break;
+    }
   }
 
 }

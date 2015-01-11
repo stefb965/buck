@@ -23,16 +23,19 @@ import com.facebook.buck.android.FilterResourcesStep.ResourceFilter;
 import com.facebook.buck.android.ResourcesFilter.ResourceCompressionMode;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.java.JavaLibrary;
+import com.facebook.buck.java.JavaNativeLinkable;
 import com.facebook.buck.java.JavacOptions;
 import com.facebook.buck.java.Keystore;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.HasBuildTarget;
+import com.facebook.buck.model.Pair;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildRules;
+import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
@@ -49,7 +52,6 @@ import com.google.common.collect.ImmutableSortedSet;
 import org.immutables.value.Value;
 
 import java.nio.file.Path;
-import java.util.AbstractMap;
 import java.util.Collection;
 import java.util.EnumSet;
 import java.util.Map;
@@ -90,7 +92,7 @@ public class AndroidBinaryGraphEnhancer {
    * Maps a {@link TargetCpuType} to the {@link CxxPlatform} we need to use to build C/C++
    * libraries for it.
    */
-  private final ImmutableMap<TargetCpuType, CxxPlatform> nativePlatforms;
+  private final ImmutableMap<TargetCpuType, NdkCxxPlatform> nativePlatforms;
 
   AndroidBinaryGraphEnhancer(
       BuildRuleParams originalParams,
@@ -111,7 +113,7 @@ public class AndroidBinaryGraphEnhancer {
       Keystore keystore,
       BuildConfigFields buildConfigValues,
       Optional<SourcePath> buildConfigValuesFile,
-      ImmutableMap<TargetCpuType, CxxPlatform> nativePlatforms) {
+      ImmutableMap<TargetCpuType, NdkCxxPlatform> nativePlatforms) {
     this.buildRuleParams = originalParams;
     this.originalBuildTarget = originalParams.getBuildTarget();
     this.originalDeps = originalParams.getDeps();
@@ -266,27 +268,38 @@ public class AndroidBinaryGraphEnhancer {
     // libraries for all the {@link TargetCpuType}s that we care about.  We deposit them into a map
     // of CPU type and SONAME to the shared library path, which the {@link CopyNativeLibraries}
     // rule will use to compose the destination name.
-    ImmutableMap.Builder<Map.Entry<TargetCpuType, String>, SourcePath> nativeLinkableLibsBuilder =
+    ImmutableMap.Builder<Pair<TargetCpuType, String>, SourcePath> nativeLinkableLibsBuilder =
         ImmutableMap.builder();
-    for (AndroidNativeLinkable nativeLinkable : packageableCollection.nativeLinkables()) {
 
-      // TODO(agallagher): We currently treat an empty set of filters to mean to allow everything.
-      // We should fix this by assigning a default list of CPU filters in the descriptions, but
-      // until we doIf the set of filters is empty, just build for all available platforms.
-      ImmutableSet<TargetCpuType> filters =
-          cpuFilters.isEmpty() ? nativePlatforms.keySet() : cpuFilters;
+    // TODO(agallagher): We currently treat an empty set of filters to mean to allow everything.
+    // We should fix this by assigning a default list of CPU filters in the descriptions, but
+    // until we doIf the set of filters is empty, just build for all available platforms.
+    ImmutableSet<TargetCpuType> filters =
+        cpuFilters.isEmpty() ? nativePlatforms.keySet() : cpuFilters;
+    for (TargetCpuType targetCpuType : filters) {
+      NdkCxxPlatform platform = Preconditions.checkNotNull(nativePlatforms.get(targetCpuType));
 
-      for (TargetCpuType targetCpuType : filters) {
-        CxxPlatform cxxPlatform = nativePlatforms.get(targetCpuType);
-        ImmutableMap<String, SourcePath> solibs = nativeLinkable.getSharedLibraries(cxxPlatform);
+      for (JavaNativeLinkable nativeLinkable : packageableCollection.nativeLinkables()) {
+        ImmutableMap<String, SourcePath> solibs = nativeLinkable.getSharedLibraries(platform);
         for (Map.Entry<String, SourcePath> entry : solibs.entrySet()) {
           nativeLinkableLibsBuilder.put(
-              new AbstractMap.SimpleEntry<>(targetCpuType, entry.getKey()),
+              new Pair<>(targetCpuType, entry.getKey()),
               entry.getValue());
         }
       }
+
+      // If we're using a C/C++ runtime other than the system one, add it to the APK.
+      NdkCxxPlatform.CxxRuntime cxxRuntime = platform.getCxxRuntime();
+      if (!packageableCollection.nativeLinkables().isEmpty() &&
+          !cxxRuntime.equals(NdkCxxPlatform.CxxRuntime.SYSTEM)) {
+        nativeLinkableLibsBuilder.put(
+            new Pair<>(
+                targetCpuType,
+                cxxRuntime.getSoname()),
+            new PathSourcePath(platform.getCxxSharedRuntimePath()));
+      }
     }
-    ImmutableMap<Map.Entry<TargetCpuType, String>, SourcePath> nativeLinkableLibs =
+    ImmutableMap<Pair<TargetCpuType, String>, SourcePath> nativeLinkableLibs =
         nativeLinkableLibsBuilder.build();
 
     Optional<CopyNativeLibraries> copyNativeLibraries = Optional.absent();
@@ -306,7 +319,8 @@ public class AndroidBinaryGraphEnhancer {
               pathResolver,
               packageableCollection.nativeLibsDirectories(),
               cpuFilters,
-              pathResolver.getMappedPaths(nativeLinkableLibs)));
+              nativePlatforms,
+              nativeLinkableLibs));
       ruleResolver.addToIndex(copyNativeLibraries.get());
       enhancedDeps.add(copyNativeLibraries.get());
     }

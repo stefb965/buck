@@ -21,12 +21,14 @@ import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.model.HasBuildTarget;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleSuccess;
+import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TargetGraphToActionGraph;
+import com.facebook.buck.rules.TargetGraphTransformer;
 import com.facebook.buck.step.StepFailedException;
 import com.facebook.buck.step.TargetDevice;
 import com.facebook.buck.util.Ansi;
@@ -66,12 +68,15 @@ import javax.annotation.Nullable;
 
 public class BuildCommand extends AbstractCommandRunner<BuildCommandOptions> {
 
+  private final TargetGraphTransformer<ActionGraph> targetGraphTransformer;
   @Nullable private Build build;
 
   private ImmutableSet<BuildTarget> buildTargets = ImmutableSet.of();
 
   public BuildCommand(CommandRunnerParams params) {
     super(params);
+
+    this.targetGraphTransformer = new TargetGraphToActionGraph(params.getBuckEventBus());
   }
 
   @Override
@@ -87,12 +92,7 @@ public class BuildCommand extends AbstractCommandRunner<BuildCommandOptions> {
     ArtifactCache artifactCache = getArtifactCache();
 
 
-    try {
-      buildTargets = getBuildTargets(options.getArgumentsFormattedAsBuildTargets());
-    } catch (NoSuchBuildTargetException e) {
-      console.printBuildFailureWithoutStacktrace(e);
-      return 1;
-    }
+    buildTargets = getBuildTargets(options.getArgumentsFormattedAsBuildTargets());
 
     if (buildTargets.isEmpty()) {
       console.printBuildFailure("Must specify at least one build target.");
@@ -120,13 +120,14 @@ public class BuildCommand extends AbstractCommandRunner<BuildCommandOptions> {
     // Parse the build files to create a ActionGraph.
     ActionGraph actionGraph;
     try {
-      actionGraph = getParser().buildTargetGraphForBuildTargets(
+      TargetGraph targetGraph = getParser().buildTargetGraphForBuildTargets(
           buildTargets,
           options.getDefaultIncludes(),
           getBuckEventBus(),
           console,
           environment,
-          options.getEnableProfiling()).getActionGraph();
+          options.getEnableProfiling());
+      actionGraph = targetGraphTransformer.apply(targetGraph);
     } catch (BuildTargetException | BuildFileParseException e) {
       console.printBuildFailureWithoutStacktrace(e);
       return 1;

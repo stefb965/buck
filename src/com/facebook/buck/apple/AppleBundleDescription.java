@@ -17,10 +17,12 @@
 package com.facebook.buck.apple;
 
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.HasTests;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.Hint;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.coercer.AppleBundleDestination;
@@ -57,27 +59,28 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
   }
 
   @SuppressFieldNotInitialized
-  public static class Arg {
+  public static class Arg implements HasAppleBundleFields, HasTests {
     public Either<AppleBundleExtension, String> extension;
     public BuildTarget binary;
     public Optional<SourcePath> infoPlist;
     public Optional<ImmutableMap<String, SourcePath>> headers;
     public Optional<ImmutableMap<AppleBundleDestination, SourcePath>> files;
     public Optional<ImmutableSortedSet<BuildTarget>> deps;
+    @Hint(isDep = false) public Optional<ImmutableSortedSet<BuildTarget>> tests;
 
-    public Optional<AppleBundleExtension> getExtensionValue() {
-      return extension.isLeft() ?
-          Optional.of(extension.getLeft()) : Optional.<AppleBundleExtension>absent();
+    @Override
+    public Either<AppleBundleExtension, String> getExtension() {
+      return extension;
     }
 
-    public String getExtensionString() {
-      return extension.isLeft() ? extension.getLeft().toFileExtension() : extension.getRight();
+    @Override
+    public Optional<SourcePath> getInfoPlist() {
+      return infoPlist;
     }
 
-    public boolean isTestBundle() {
-      return extension.isLeft() &&
-          AppleBuildRules.isXcodeTargetTestBundleExtension(extension.getLeft());
+    @Override
+    public ImmutableSortedSet<BuildTarget> getTests() {
+      return tests.get();
     }
-
   }
 }

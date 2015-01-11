@@ -1,3 +1,19 @@
+java_library(
+  name = 'testutil',
+  srcs = glob(['*Builder.java']),
+  deps = [
+    '//src/com/facebook/buck/cli:config',
+    '//src/com/facebook/buck/cxx:platform',
+    '//src/com/facebook/buck/cxx:rules',
+    '//src/com/facebook/buck/model:model',
+    '//src/com/facebook/buck/rules:build_rule',
+    '//test/com/facebook/buck/cli:FakeBuckConfig',
+    '//test/com/facebook/buck/rules:testutil',
+    '//third-party/java/guava:guava',
+    '//third-party/java/jsr:jsr305',
+  ],
+)
+
 java_test(
   name = 'cpp',
   srcs = glob(['*Test.java']),
@@ -5,6 +21,7 @@ java_test(
     '//src/com/facebook/buck/cxx:rules',
   ],
   deps = [
+    ':testutil',
     '//src/com/facebook/buck/android:packageable',
     '//src/com/facebook/buck/cli:config',
     '//src/com/facebook/buck/cxx:platform',
@@ -12,6 +29,7 @@ java_test(
     '//src/com/facebook/buck/event:event',
     '//src/com/facebook/buck/graph:graph',
     '//src/com/facebook/buck/io:io',
+    '//src/com/facebook/buck/java:nativelinkable',
     '//src/com/facebook/buck/model:model',
     '//src/com/facebook/buck/parser:rule_pattern',
     '//src/com/facebook/buck/python:rules',
@@ -28,6 +46,7 @@ java_test(
     '//src/com/facebook/buck/util:io',
     '//src/com/facebook/buck/util:util',
     '//src/com/facebook/buck/util/environment:platform',
+    '//test/com/facebook/buck/android:testutil',
     '//test/com/facebook/buck/cli:FakeBuckConfig',
     '//test/com/facebook/buck/event:testutil',
     '//test/com/facebook/buck/model:BuildTargetFactory',

@@ -19,21 +19,21 @@ package com.facebook.buck.android.agent.util;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.facebook.buck.util.AndroidManifestReader;
-import com.facebook.buck.util.DefaultAndroidManifestReader;
+import com.facebook.buck.android.AndroidManifestReader;
+import com.facebook.buck.android.DefaultAndroidManifestReader;
 import com.google.common.io.ByteStreams;
 
 import org.junit.Test;
 
-import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
 
 public class AgentUtilTest {
   @Test
   public void testGetJarSignature() throws Exception {
-    File testDataDir = TestDataHelper.getTestDataDirectory(this);
-    File testJar = new File(testDataDir, "example.jar");
-    String jarSignature = AgentUtil.getJarSignature(testJar.getAbsolutePath());
+    Path testDataDir = TestDataHelper.getTestDataDirectory(this);
+    Path testJar = testDataDir.resolve("example.jar");
+    String jarSignature = AgentUtil.getJarSignature(testJar.toAbsolutePath().toString());
     assertEquals("JB2+Jt7N6wdguWfvzaM3cJiisTM=", jarSignature);
   }
 

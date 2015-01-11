@@ -19,10 +19,10 @@ package com.facebook.buck.cli;
 import static org.easymock.EasyMock.capture;
 import static org.junit.Assert.assertEquals;
 
-import com.facebook.buck.command.Project;
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.java.FakeJavaPackageFinder;
+import com.facebook.buck.java.intellij.Project;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.CachingBuildEngine;
@@ -32,7 +32,7 @@ import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.timing.DefaultClock;
 import com.facebook.buck.util.BuckConstant;
-import com.facebook.buck.util.FakeAndroidDirectoryResolver;
+import com.facebook.buck.android.FakeAndroidDirectoryResolver;
 import com.facebook.buck.util.ProcessManager;
 import com.facebook.buck.util.environment.Platform;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -109,7 +109,7 @@ public class CleanCommandTest extends EasyMockSupport {
     return options;
   }
 
-  private CleanCommand createCommand() throws InterruptedException {
+  private CleanCommand createCommand() throws InterruptedException, IOException {
     projectFilesystem = createMock(ProjectFilesystem.class);
     Repository repository = new TestRepositoryBuilder().setFilesystem(projectFilesystem).build();
 

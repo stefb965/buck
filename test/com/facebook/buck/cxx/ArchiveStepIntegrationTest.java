@@ -17,7 +17,6 @@
 package com.facebook.buck.cxx;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.io.ProjectFilesystem;
@@ -27,6 +26,7 @@ import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import org.apache.commons.compress.archivers.ar.ArArchiveEntry;
@@ -36,7 +36,6 @@ import org.junit.Test;
 
 import java.io.FileInputStream;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
@@ -46,16 +45,19 @@ public class ArchiveStepIntegrationTest {
   public DebuggableTemporaryFolder tmp = new DebuggableTemporaryFolder();
 
   @Test
+  @SuppressWarnings("PMD.AvoidUsingOctalValues")
   public void thatGeneratedArchivesAreDeterministic() throws IOException, InterruptedException {
     ProjectFilesystem filesystem = new ProjectFilesystem(tmp.getRoot().toPath());
     CxxPlatform platform = new DefaultCxxPlatform(new FakeBuckConfig());
 
     // Build up the paths to various files the archive step will use.
-    Path archiver = new SourcePathResolver(new BuildRuleResolver()).getPath(platform.getAr());
+    ImmutableList<String> archiver =
+        platform.getAr().getCommandPrefix(new SourcePathResolver(new BuildRuleResolver()));
     Path output = filesystem.resolve(Paths.get("output.a"));
     Path relativeInput = Paths.get("input.dat");
     Path input = filesystem.resolve(relativeInput);
     filesystem.writeContentsToPath("blah", relativeInput);
+    Preconditions.checkState(input.toFile().setExecutable(true));
 
     // Build an archive step.
     ArchiveStep archiveStep = new ArchiveStep(
@@ -65,7 +67,6 @@ public class ArchiveStepIntegrationTest {
     ArchiveScrubberStep archiveScrubberStep = new ArchiveScrubberStep(output);
 
     // Execute the archive step and verify it ran successfully.
-    assumeTrue(Files.exists(archiver));
     ExecutionContext executionContext =
         TestExecutionContext.newBuilder()
             .setProjectFilesystem(new ProjectFilesystem(tmp.getRoot().toPath()))
@@ -84,6 +85,7 @@ public class ArchiveStepIntegrationTest {
       assertEquals(0, entry.getLastModified());
       assertEquals(0, entry.getUserId());
       assertEquals(0, entry.getGroupId());
+      assertEquals(String.format("0%o", entry.getMode()), 0100644, entry.getMode());
     }
   }
 
