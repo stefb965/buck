@@ -29,7 +29,6 @@ import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.rules.AbiRule;
 import com.facebook.buck.rules.AbstractBuildRule;
-import com.facebook.buck.rules.AnnotationProcessingData;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildDependencies;
 import com.facebook.buck.rules.BuildOutputInitializer;
@@ -38,6 +37,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.ExportDependencies;
+import com.facebook.buck.rules.ImmutableSha1HashCode;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.RuleKey;
@@ -253,7 +253,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
       ImmutableSet<Path> declaredClasspathEntries,
       JavacOptions javacOptions,
       BuildDependencies buildDependencies,
-      Optional<JavacInMemoryStep.SuggestBuildRules> suggestBuildRules,
+      Optional<JavacStep.SuggestBuildRules> suggestBuildRules,
       ImmutableList.Builder<Step> commands,
       BuildTarget target) {
     // Make sure that this directory exists because ABI information will be written here.
@@ -261,38 +261,31 @@ public class DefaultJavaLibrary extends AbstractBuildRule
     commands.add(mkdir);
 
     // Only run javac if there are .java files to compile.
-    final JavacStep javacStep;
     if (!getJavaSrcs().isEmpty()) {
       Path pathToSrcsList = BuildTargets.getGenPath(getBuildTarget(), "__%s__srcs");
       commands.add(new MkdirStep(pathToSrcsList.getParent()));
 
-      if (javacOptions.getJavaCompilerEnvironment().getJavacPath().isPresent()) {
-        Path workingDirectory = BuildTargets.getGenPath(target, "lib__%s____working_directory");
-        commands.add(new MakeCleanDirectoryStep(workingDirectory));
-        javacStep = new ExternalJavacStep(
-            outputDirectory,
-            getJavaSrcs(),
-            transitiveClasspathEntries,
-            declaredClasspathEntries,
-            javacOptions,
-            Optional.of(target),
-            buildDependencies,
-            suggestBuildRules,
-            Optional.of(pathToSrcsList),
-            target,
-            Optional.of(workingDirectory));
+      Optional<Path> workingDirectory;
+      if (getJavac().isUsingWorkspace()) {
+        Path scratchDir = BuildTargets.getGenPath(target, "lib__%s____working_directory");
+        commands.add(new MakeCleanDirectoryStep(scratchDir));
+        workingDirectory = Optional.of(scratchDir);
       } else {
-        javacStep = new JavacInMemoryStep(
-            outputDirectory,
-            getJavaSrcs(),
-            transitiveClasspathEntries,
-            declaredClasspathEntries,
-            javacOptions,
-            Optional.of(target),
-            buildDependencies,
-            suggestBuildRules,
-            Optional.of(pathToSrcsList));
+        workingDirectory = Optional.absent();
       }
+
+      JavacStep javacStep = new JavacStep(
+          outputDirectory,
+          workingDirectory,
+          getJavaSrcs(),
+          Optional.of(pathToSrcsList),
+          transitiveClasspathEntries,
+          declaredClasspathEntries,
+          javacOptions,
+          target,
+          buildDependencies,
+          suggestBuildRules);
+
       commands.add(javacStep);
     }
   }
@@ -314,7 +307,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
     // Hash the ABI keys of all dependencies together with ABI key for the current rule.
     Hasher hasher = createHasherWithAbiKeyForDeps(depsForAbiKey);
     hasher.putUnencodedChars(abiKey.getHash());
-    return new Sha1HashCode(hasher.hash().toString());
+    return ImmutableSha1HashCode.of(hasher.hash().toString());
   }
 
   private Path getPathToAbiOutputDir() {
@@ -330,7 +323,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
         String.format(
             "%s/%s.jar",
             getOutputJarDirPath(target),
-            target.getShortName()));
+            target.getShortNameAndFlavorPostfix()));
   }
 
   /**
@@ -346,7 +339,8 @@ public class DefaultJavaLibrary extends AbstractBuildRule
    */
   @Override
   public Sha1HashCode getAbiKeyForDeps() {
-    return new Sha1HashCode(createHasherWithAbiKeyForDeps(getDepsForAbiKey()).hash().toString());
+    return ImmutableSha1HashCode.of(
+        createHasherWithAbiKeyForDeps(getDepsForAbiKey()).hash().toString());
   }
 
   /**
@@ -412,7 +406,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
         // out as "provided" because changing a dep from provided to transtitive should result in a
         // re-build (otherwise, we'd get a rule key match).
         .setReflectively("provided_deps", providedDeps);
-    return javacOptions.appendToRuleKey(builder);
+    return javacOptions.appendToRuleKey(builder, "javacOptions");
   }
 
   @Override
@@ -446,8 +440,8 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   }
 
   @Override
-  public AnnotationProcessingData getAnnotationProcessingData() {
-    return javacOptions.getAnnotationProcessingData();
+  public AnnotationProcessingParams getAnnotationProcessingParams() {
+    return javacOptions.getAnnotationProcessingParams();
   }
 
   public Optional<Path> getProguardConfig() {
@@ -504,7 +498,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
 
     // Javac requires that the root directory for generated sources already exist.
     Path annotationGenFolder =
-        javacOptions.getAnnotationProcessingData().getGeneratedSourceFolderName();
+        javacOptions.getAnnotationProcessingParams().getGeneratedSourceFolderName();
     if (annotationGenFolder != null) {
       MakeCleanDirectoryStep mkdirGeneratedSources =
           new MakeCleanDirectoryStep(annotationGenFolder);
@@ -518,7 +512,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
     Path outputDirectory = getClassesDir(target);
     steps.add(new MakeCleanDirectoryStep(outputDirectory));
 
-    Optional<JavacInMemoryStep.SuggestBuildRules> suggestBuildRule =
+    Optional<JavacStep.SuggestBuildRules> suggestBuildRule =
         createSuggestBuildFunction(context,
             transitiveClasspathEntries,
             declaredClasspathEntries,
@@ -576,7 +570,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
     steps.add(new MakeCleanDirectoryStep(getOutputJarDirPath(target)));
 
     Path abiJar = getOutputJarDirPath(target)
-        .resolve(String.format("%s-abi.jar", target.getShortName()));
+        .resolve(String.format("%s-abi.jar", target.getShortNameAndFlavorPostfix()));
     steps.add(new MkdirStep(abiJar.getParent()));
 
     if (outputJar.isPresent()) {
@@ -595,7 +589,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
     } else {
       Path scratch = BuildTargets.getBinPath(
           target,
-          String.format("%%s/%s-temp-abi.jar", target.getShortName()));
+          String.format("%%s/%s-temp-abi.jar", target.getShortNameAndFlavorPostfix()));
       steps.add(new MakeCleanDirectoryStep(scratch.getParent()));
       steps.add(new TouchStep(scratch));
       steps.add(new CalculateAbiStep(buildableContext, scratch, abiJar));
@@ -652,7 +646,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
    *    set of rules to suggest that the developer import to satisfy those imports.
    */
   @VisibleForTesting
-  Optional<JavacInMemoryStep.SuggestBuildRules> createSuggestBuildFunction(
+  Optional<JavacStep.SuggestBuildRules> createSuggestBuildFunction(
       BuildContext context,
       ImmutableSetMultimap<JavaLibrary, Path> transitiveClasspathEntries,
       ImmutableSetMultimap<JavaLibrary, Path> declaredClasspathEntries,
@@ -672,8 +666,8 @@ public class DefaultJavaLibrary extends AbstractBuildRule
         .toList()
         .reverse();
 
-    JavacInMemoryStep.SuggestBuildRules suggestBuildRuleFn =
-        new JavacInMemoryStep.SuggestBuildRules() {
+    JavacStep.SuggestBuildRules suggestBuildRuleFn =
+        new JavacStep.SuggestBuildRules() {
       @Override
       public ImmutableSet<String> suggest(ProjectFilesystem filesystem,
           ImmutableSet<String> failedImports) {
@@ -749,13 +743,8 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   }
 
   @VisibleForTesting
-  public Optional<Path> getJavac() {
-    return javacOptions.getJavaCompilerEnvironment().getJavacPath();
-  }
-
-  @VisibleForTesting
-  public Optional<JavacVersion> getJavacVersion() {
-    return javacOptions.getJavaCompilerEnvironment().getJavacVersion();
+  public Javac getJavac() {
+    return javacOptions.getJavac();
   }
 
   @Override

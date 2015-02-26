@@ -96,9 +96,9 @@ public class JsBinary extends AbstractBuildRule implements
   @Override
   public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
     return builder
-        .set("defines", defines.or(ImmutableList.<String>of()))
-        .setInputs("externs", externs.or(ImmutableList.<Path>of()).iterator())
-        .setSourcePaths("srcs", srcs);
+        .setReflectively("defines", defines.or(ImmutableList.<String>of()))
+        .setReflectively("externs", externs.or(ImmutableList.<Path>of()).iterator())
+        .setReflectively("srcs", srcs);
   }
 
   @Override

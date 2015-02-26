@@ -24,6 +24,7 @@ import com.facebook.buck.graph.MutableDirectedGraph;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.json.DefaultProjectBuildFileParserFactory;
+import com.facebook.buck.json.JsonObjectHashing;
 import com.facebook.buck.json.ProjectBuildFileParser;
 import com.facebook.buck.json.ProjectBuildFileParserFactory;
 import com.facebook.buck.log.Logger;
@@ -46,7 +47,6 @@ import com.facebook.buck.rules.RepositoryFactory;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.VisibleForTesting;
@@ -54,6 +54,9 @@ import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.base.Supplier;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -66,6 +69,9 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.eventbus.Subscribe;
+import com.google.common.hash.HashCode;
+import com.google.common.hash.Hasher;
+import com.google.common.hash.Hashing;
 
 import java.io.IOException;
 import java.nio.file.NoSuchFileException;
@@ -187,33 +193,30 @@ public class Parser {
 
   public static Parser createParser(
       final RepositoryFactory repositoryFactory,
-      String pythonInterpreter,
-      boolean allowEmptyGlobs,
-      boolean enforceBuckPackageBoundary,
-      ImmutableSet<Pattern> tempFilePatterns,
+      final ParserConfig parserConfig,
       RuleKeyBuilderFactory ruleKeyBuilderFactory)
       throws IOException, InterruptedException {
     final Repository rootRepository = repositoryFactory.getRootRepository();
-    return new Parser(repositoryFactory,
+    return new Parser(
+        repositoryFactory,
+        parserConfig,
         /* Calls to get() will reconstruct the build file tree by calling constructBuildFileTree. */
         // TODO(simons): Consider momoizing the suppler.
         new Supplier<BuildFileTree>() {
           @Override
           public BuildFileTree get() {
             return new FilesystemBackedBuildFileTree(
-                rootRepository.getFilesystem());
+                rootRepository.getFilesystem(),
+                parserConfig.getBuildFileName());
           }
         },
         // TODO(jacko): Get rid of this global BuildTargetParser completely.
         rootRepository.getBuildTargetParser(),
         new DefaultProjectBuildFileParserFactory(
             rootRepository.getFilesystem(),
-            pythonInterpreter,
-            allowEmptyGlobs,
+            parserConfig,
             rootRepository.getAllDescriptions()),
-        tempFilePatterns,
-        ruleKeyBuilderFactory,
-        enforceBuckPackageBoundary);
+        ruleKeyBuilderFactory);
   }
 
   /**
@@ -222,12 +225,11 @@ public class Parser {
   @VisibleForTesting
   Parser(
       RepositoryFactory repositoryFactory,
+      ParserConfig parserConfig,
       Supplier<BuildFileTree> buildFileTreeSupplier,
       BuildTargetParser buildTargetParser,
       ProjectBuildFileParserFactory buildFileParserFactory,
-      ImmutableSet<Pattern> tempFilePatterns,
-      RuleKeyBuilderFactory ruleKeyBuilderFactory,
-      boolean enforceBuckPackageBoundary)
+      RuleKeyBuilderFactory ruleKeyBuilderFactory)
       throws IOException, InterruptedException {
     this.repositoryFactory = repositoryFactory;
     this.repository = repositoryFactory.getRootRepository();
@@ -235,10 +237,10 @@ public class Parser {
     this.buildTargetParser = buildTargetParser;
     this.buildFileParserFactory = buildFileParserFactory;
     this.ruleKeyBuilderFactory = ruleKeyBuilderFactory;
-    this.enforceBuckPackageBoundary = enforceBuckPackageBoundary;
+    this.enforceBuckPackageBoundary = parserConfig.getEnforceBuckPackageBoundary();
     this.buildFileDependents = ArrayListMultimap.create();
-    this.tempFilePatterns = tempFilePatterns;
-    this.state = new CachedState();
+    this.tempFilePatterns = parserConfig.getTempFilePatterns();
+    this.state = new CachedState(parserConfig.getBuildFileName());
   }
 
   public BuildTargetParser getBuildTargetParser() {
@@ -269,6 +271,10 @@ public class Parser {
     return !includesChanged && !environmentChanged && fileParsed;
   }
 
+  public RuleKeyBuilderFactory getRuleKeyBuilderFactory() {
+    return ruleKeyBuilderFactory;
+  }
+
   private synchronized void invalidateCache() {
     state.invalidateAll();
   }
@@ -281,12 +287,16 @@ public class Parser {
     state.cleanCache();
   }
 
+  public LoadingCache<BuildTarget, HashCode> getBuildTargetHashCodeCache() {
+    return state.getBuildTargetHashCodeCache();
+  }
+
   /**
    * @return a set of {@link BuildTarget} objects that this {@link TargetNodeSpec} refers to.
    */
   private ImmutableSet<BuildTarget> resolveTargetSpec(
       TargetNodeSpec spec,
-      Iterable<String> defaultIncludes,
+      ParserConfig parserConfig,
       ProjectBuildFileParser buildFileParser,
       ImmutableMap<String, String> environment)
       throws BuildFileParseException, BuildTargetException, IOException, InterruptedException {
@@ -294,7 +304,9 @@ public class Parser {
     ImmutableSet.Builder<BuildTarget> targets = ImmutableSet.builder();
 
     // Iterate over the build files the given target node spec returns.
-    for (Path buildFile : spec.getBuildFileSpec().findBuildFiles(repository.getFilesystem())) {
+    for (Path buildFile : spec.getBuildFileSpec().findBuildFiles(
+        repository.getFilesystem(),
+        parserConfig.getBuildFileName())) {
 
       // Format a proper error message for non-existent build files.
       if (!repository.getFilesystem().isFile(buildFile)) {
@@ -304,7 +316,7 @@ public class Parser {
       // Build up a list of all target nodes from the build file.
       List<Map<String, Object>> parsed = parseBuildFile(
           repository.getFilesystem().resolve(buildFile),
-          defaultIncludes,
+          parserConfig,
           buildFileParser,
           environment);
       List<TargetNode<?>> nodes = Lists.newArrayListWithCapacity(parsed.size());
@@ -323,7 +335,7 @@ public class Parser {
 
   private ImmutableSet<BuildTarget> resolveTargetSpecs(
       Iterable<? extends TargetNodeSpec> specs,
-      Iterable<String> defaultIncludes,
+      ParserConfig parserConfig,
       ProjectBuildFileParser buildFileParser,
       ImmutableMap<String, String> environment)
       throws BuildFileParseException, BuildTargetException, IOException, InterruptedException {
@@ -334,7 +346,7 @@ public class Parser {
       targets.addAll(
           resolveTargetSpec(
               spec,
-              defaultIncludes,
+              parserConfig,
               buildFileParser,
               environment));
     }
@@ -344,13 +356,12 @@ public class Parser {
 
   /**
    * @param targetNodeSpecs the specs representing the build targets to generate a target graph for.
-   * @param defaultIncludes the files to include before executing build files.
    * @param eventBus used to log events while parsing.
    * @return the target graph containing the build targets and their related targets.
    */
   public synchronized TargetGraph buildTargetGraphForTargetNodeSpecs(
       Iterable<? extends TargetNodeSpec> targetNodeSpecs,
-      Iterable<String> defaultIncludes,
+      ParserConfig parserConfig,
       BuckEventBus eventBus,
       Console console,
       ImmutableMap<String, String> environment,
@@ -360,18 +371,16 @@ public class Parser {
     TargetGraph graph = null;
     // TODO(jacko): Instantiating one ProjectBuildFileParser here isn't enough. We a collection of
     //              repo-specific parsers.
-    try (ProjectBuildFileParser buildFileParser =
-             buildFileParserFactory.createParser(
-                 defaultIncludes,
-                 console,
-                 environment,
-                 eventBus)) {
+    try (ProjectBuildFileParser buildFileParser = buildFileParserFactory.createParser(
+        console,
+        environment,
+        eventBus)) {
       buildFileParser.setEnableProfiling(enableProfiling);
 
       // Resolve the target node specs to the build targets the represent.
       ImmutableSet<BuildTarget> buildTargets = resolveTargetSpecs(
           targetNodeSpecs,
-          defaultIncludes,
+          parserConfig,
           buildFileParser,
           environment);
 
@@ -380,10 +389,9 @@ public class Parser {
       try {
         graph = buildTargetGraph(
             buildTargets,
-            defaultIncludes,
+            parserConfig,
             buildFileParser,
-            environment,
-            eventBus);
+            environment);
         return graph;
       } finally {
         eventBus.post(ParseEvent.finished(buildTargets, Optional.fromNullable(graph)));
@@ -393,21 +401,22 @@ public class Parser {
 
   /**
    * @param buildTargets the build targets to generate a target graph for.
-   * @param defaultIncludes the files to include before executing build files.
    * @param eventBus used to log events while parsing.
    * @return the target graph containing the build targets and their related targets.
    */
   public TargetGraph buildTargetGraphForBuildTargets(
       Iterable<BuildTarget> buildTargets,
-      Iterable<String> defaultIncludes,
+      ParserConfig parserConfig,
       BuckEventBus eventBus,
       Console console,
       ImmutableMap<String, String> environment,
       boolean enableProfiling)
       throws BuildFileParseException, BuildTargetException, IOException, InterruptedException {
     return buildTargetGraphForTargetNodeSpecs(
-        Iterables.transform(buildTargets, BuildTargetSpec.TO_BUILD_TARGET_SPEC),
-        defaultIncludes,
+        Iterables.transform(
+            buildTargets,
+            BuildTargetSpec.TO_BUILD_TARGET_SPEC),
+        parserConfig,
         eventBus,
         console,
         environment,
@@ -428,16 +437,14 @@ public class Parser {
    * between modules.
    *
    * @param toExplore the {@link BuildTarget}s that {@link TargetGraph} is calculated for.
-   * @param defaultIncludes the files to include before executing build files.
    * @param buildFileParser the parser for build files.
    * @return a {@link TargetGraph} containing all the nodes from {@code toExplore}.
    */
   private synchronized TargetGraph buildTargetGraph(
       Iterable<BuildTarget> toExplore,
-      final Iterable<String> defaultIncludes,
+      final ParserConfig parserConfig,
       final ProjectBuildFileParser buildFileParser,
-      final ImmutableMap<String, String> environment,
-      BuckEventBus buckEventBus) throws IOException, InterruptedException {
+      final ImmutableMap<String, String> environment) throws IOException, InterruptedException {
 
     final MutableDirectedGraph<TargetNode<?>> graph = new MutableDirectedGraph<>();
 
@@ -454,8 +461,10 @@ public class Parser {
             TargetNode<?> targetNode = getTargetNode(buildTarget);
             if (targetNode == null) {
               throw new HumanReadableException(
-                  NoSuchBuildTargetException.createForMissingBuildRule(buildTarget,
-                      buildTargetPatternParser));
+                  NoSuchBuildTargetException.createForMissingBuildRule(
+                      buildTarget,
+                      buildTargetPatternParser,
+                      parserConfig.getBuildFileName()));
             }
 
             Set<BuildTarget> deps = Sets.newHashSet();
@@ -465,7 +474,7 @@ public class Parser {
                 if (depTargetNode == null) {
                   parseBuildFileContainingTarget(
                       buildTargetForDep,
-                      defaultIncludes,
+                      parserConfig,
                       buildFileParser,
                       environment);
                   depTargetNode = getTargetNode(buildTargetForDep);
@@ -475,7 +484,8 @@ public class Parser {
                             buildTargetForDep,
                             BuildTargetPatternParser.forBaseName(
                                 buildTargetParser,
-                                buildTargetForDep.getBaseName())));
+                                buildTargetForDep.getBaseName()),
+                            parserConfig.getBuildFileName()));
                   }
                 }
                 depTargetNode.checkVisibility(buildTarget);
@@ -515,7 +525,7 @@ public class Parser {
       throw new HumanReadableException(e.getMessage());
     }
 
-    return new TargetGraph(graph, Optional.of(buckEventBus));
+    return new TargetGraph(graph);
   }
 
   /**
@@ -524,7 +534,7 @@ public class Parser {
    */
   private synchronized void parseBuildFileContainingTarget(
       BuildTarget buildTarget,
-      Iterable<String> defaultIncludes,
+      ParserConfig parserConfig,
       ProjectBuildFileParser buildFileParser,
       ImmutableMap<String, String> environment)
       throws BuildFileParseException, BuildTargetException, IOException, InterruptedException {
@@ -532,7 +542,7 @@ public class Parser {
     Repository targetRepo =
         repositoryFactory.getRepositoryByCanonicalName(buildTarget.getRepository());
     Path buildFile = targetRepo.getAbsolutePathToBuildFile(buildTarget);
-    if (isCached(buildFile, defaultIncludes, environment)) {
+    if (isCached(buildFile, parserConfig.getDefaultIncludes(), environment)) {
       throw new HumanReadableException(
           "The build file that should contain %s has already been parsed (%s), " +
               "but %s was not found. Please make sure that %s is defined in %s.",
@@ -543,44 +553,41 @@ public class Parser {
           buildFile);
     }
 
-    parseBuildFile(buildFile, defaultIncludes, buildFileParser, environment);
+    parseBuildFile(buildFile, parserConfig, buildFileParser, environment);
   }
 
   public synchronized List<Map<String, Object>> parseBuildFile(
       Path buildFile,
-      Iterable<String> defaultIncludes,
+      ParserConfig parserConfig,
       ImmutableMap<String, String> environment,
       Console console,
       BuckEventBus buckEventBus)
       throws BuildFileParseException, BuildTargetException, IOException, InterruptedException {
-    try (ProjectBuildFileParser projectBuildFileParser =
-        buildFileParserFactory.createParser(
-            defaultIncludes,
-            console,
-            environment,
-            buckEventBus)) {
-      return parseBuildFile(buildFile, defaultIncludes, projectBuildFileParser, environment);
+    try (ProjectBuildFileParser projectBuildFileParser = buildFileParserFactory.createParser(
+        console,
+        environment,
+        buckEventBus)) {
+      return parseBuildFile(buildFile, parserConfig, projectBuildFileParser, environment);
     }
   }
 
   /**
    * @param buildFile the build file to execute to generate build rules if they are not cached.
-   * @param defaultIncludes the files to include before executing the build file.
    * @param environment the environment to execute the build file in.
    * @return a list of raw build rules generated by executing the build file.
    */
   public synchronized List<Map<String, Object>> parseBuildFile(
       Path buildFile,
-      Iterable<String> defaultIncludes,
+      ParserConfig parserConfig,
       ProjectBuildFileParser buildFileParser,
       ImmutableMap<String, String> environment)
       throws BuildFileParseException, BuildTargetException, IOException {
 
-    if (!isCached(buildFile, defaultIncludes, environment)) {
-      LOG.debug("Parsing %s file: %s", BuckConstant.BUILD_RULES_FILE_NAME, buildFile);
+    if (!isCached(buildFile, parserConfig.getDefaultIncludes(), environment)) {
+      LOG.debug("Parsing %s file: %s", parserConfig.getBuildFileName(), buildFile);
       parseRawRulesInternal(buildFileParser.getAllRulesAndMetaRules(buildFile));
     } else {
-      LOG.debug("Not parsing %s file (already in cache)", BuckConstant.BUILD_RULES_FILE_NAME);
+      LOG.debug("Not parsing %s file (already in cache)", parserConfig.getBuildFileName());
     }
     return state.getRawRules(buildFile);
   }
@@ -665,15 +672,14 @@ public class Parser {
    * filtered set of build targets.
    *
    * @param filesystem The project filesystem.
-   * @param includes A list of files that should be included by each build file.
    * @param filter if specified, applied to each rule in rules. All matching rules will be included
    *     in the List returned by this method. If filter is null, then this method returns null.
    * @return The build targets in the project filtered by the given filter.
    */
   public synchronized ImmutableSet<BuildTarget> filterAllTargetsInProject(
       ProjectFilesystem filesystem,
-      final Iterable<String> includes,
-      final Predicate<TargetNode<?>> filter,
+      ParserConfig parserConfig,
+      Predicate<TargetNode<?>> filter,
       Console console,
       ImmutableMap<String, String> environment,
       BuckEventBus buckEventBus,
@@ -687,8 +693,11 @@ public class Parser {
     return FluentIterable
         .from(
             buildTargetGraphForTargetNodeSpecs(
-                ImmutableList.of(new TargetNodePredicateSpec(filter, filesystem.getIgnorePaths())),
-                includes,
+                ImmutableList.of(
+                    new TargetNodePredicateSpec(
+                        filter,
+                        filesystem.getIgnorePaths())),
+                parserConfig,
                 buckEventBus,
                 console,
                 environment,
@@ -733,7 +742,7 @@ public class Parser {
 
       if (isPathCreateOrDeleteEvent(event)) {
 
-        if (path.endsWith(BuckConstant.BUILD_RULES_FILE_NAME)) {
+        if (path.endsWith(new ParserConfig(repository.getBuckConfig()).getBuildFileName())) {
 
           // If a build file has been added or removed, reconstruct the build file tree.
           buildFileTreeCache.invalidateIfStale();
@@ -787,7 +796,8 @@ public class Parser {
     }
     state.invalidateDependents(
         repository.getFilesystem().getPathForRelativePath(
-            packageBuildFile.get().resolve(BuckConstant.BUILD_RULES_FILE_NAME)));
+            packageBuildFile.get().resolve(
+                new ParserConfig(repository.getBuckConfig()).getBuildFileName())));
   }
 
   private boolean isPathCreateOrDeleteEvent(WatchEvent<?> event) {
@@ -904,13 +914,25 @@ public class Parser {
 
     private final Map<BuildTarget, Path> targetsToFile;
 
-    public CachedState() {
+    private final LoadingCache<BuildTarget, HashCode> buildTargetHashCodeCache;
+
+    private final String buildFileName;
+
+    public CachedState(String buildFileName) {
       this.memoizedTargetNodes = Maps.newHashMap();
       this.symlinkExistenceCache = Maps.newHashMap();
       this.buildInputPathsUnderSymlink = Sets.newHashSet();
       this.parsedBuildFiles = ArrayListMultimap.create();
       this.targetsToFile = Maps.newHashMap();
       this.pathsToBuildTargets = ArrayListMultimap.create();
+      this.buildTargetHashCodeCache = CacheBuilder.newBuilder().build(
+          new CacheLoader<BuildTarget, HashCode>() {
+            @Override
+            public HashCode load(BuildTarget buildTarget) throws IOException, InterruptedException {
+              return loadHashCodeForBuildTarget(buildTarget);
+            }
+          });
+      this.buildFileName = buildFileName;
     }
 
     public void invalidateAll() {
@@ -921,20 +943,22 @@ public class Parser {
       memoizedTargetNodes.clear();
       targetsToFile.clear();
       pathsToBuildTargets.clear();
+      buildTargetHashCodeCache.invalidateAll();
     }
 
     @Override
     public String toString() {
       return String.format(
           "%s memoized=%s symlinks=%s build files under symlink=%s parsed=%s targets-to-files=%s " +
-          "paths-to-targets=%s",
+          "paths-to-targets=%s build-target-hash-code-cache=%s",
           super.toString(),
           memoizedTargetNodes,
           symlinkExistenceCache,
           buildInputPathsUnderSymlink,
           parsedBuildFiles,
           targetsToFile,
-          pathsToBuildTargets);
+          pathsToBuildTargets,
+          buildTargetHashCodeCache);
     }
 
     /**
@@ -948,7 +972,12 @@ public class Parser {
     private synchronized boolean invalidateCacheOnEnvironmentChange(
         ImmutableMap<String, String> environment) {
       if (!environment.equals(cacheEnvironment)) {
-        LOG.debug("Parser invalidating entire cache on environment change.");
+        if (cacheEnvironment != null) {
+          LOG.warn(
+              "Environment variables changed (%s). Discarding cache to avoid effects on build. " +
+              "This will make builds very slow.",
+              Maps.difference(cacheEnvironment, environment));
+        }
         invalidateCache();
         this.cacheEnvironment = environment;
         return true;
@@ -1005,6 +1034,7 @@ public class Parser {
       for (BuildTarget target : targetsToRemove) {
         memoizedTargetNodes.remove(target);
       }
+      buildTargetHashCodeCache.invalidateAll(targetsToRemove);
       pathsToBuildTargets.removeAll(path);
 
       List<Path> dependents = buildFileDependents.get(path);
@@ -1031,14 +1061,14 @@ public class Parser {
     }
 
     public void put(BuildTarget target, Map<String, Object> rawRules) {
-      Path normalized = normalize(target.getBuildFilePath());
+      Path normalized = normalize(target.getBasePath().resolve(buildFileName));
       LOG.verbose("Adding rules for parsed build file %s", normalized);
       parsedBuildFiles.put(normalized, rawRules);
 
       targetsToFile.put(
           target,
           normalize(Paths.get((String) rawRules.get("buck.base_path")))
-              .resolve("BUCK").toAbsolutePath());
+              .resolve(buildFileName).toAbsolutePath());
     }
 
     @Nullable
@@ -1062,7 +1092,7 @@ public class Parser {
       List<Map<String, Object>> rules = state.getRawRules(buildFilePath);
       for (Map<String, Object> map : rules) {
 
-        if (!buildTarget.getShortNameOnly().equals(map.get("name"))) {
+        if (!buildTarget.getShortName().equals(map.get("name"))) {
           continue;
         }
 
@@ -1070,23 +1100,23 @@ public class Parser {
         targetsToFile.put(
             unflavored,
             normalize(Paths.get((String) map.get("buck.base_path")))
-                .resolve("BUCK").toAbsolutePath());
+                .resolve(buildFileName).toAbsolutePath());
 
         Description<?> description = repository.getDescription(buildRuleType);
         if (description == null) {
           throw new HumanReadableException("Unrecognized rule %s while parsing %s%s.",
               buildRuleType,
               BuildTarget.BUILD_TARGET_PREFIX,
-              unflavored.getBuildFilePath());
+              unflavored.getBasePath().resolve(buildFileName));
         }
 
         if (buildTarget.isFlavored() &&
             (!(description instanceof Flavored) ||
-            !((Flavored) description).hasFlavors(buildTarget.getFlavors()))) {
+            !((Flavored) description).hasFlavors(ImmutableSet.copyOf(buildTarget.getFlavors())))) {
           throw new HumanReadableException("Unrecognized flavor in target %s while parsing %s%s.",
               buildTarget,
               BuildTarget.BUILD_TARGET_PREFIX,
-              buildTarget.getBuildFilePath());
+              buildTarget.getBasePath().resolve(buildFileName));
         }
 
         this.pathsToBuildTargets.put(buildFilePath, buildTarget);
@@ -1158,6 +1188,31 @@ public class Parser {
       for (Path buildFilePath : buildInputPathsUnderSymlinkCopy) {
         invalidateDependents(buildFilePath);
       }
+    }
+
+    private synchronized HashCode loadHashCodeForBuildTarget(BuildTarget buildTarget)
+        throws IOException, InterruptedException{
+      // Warm up the cache.
+      get(buildTarget);
+
+      Path buildTargetPath = targetsToFile.get(buildTarget.getUnflavoredTarget());
+      if (buildTargetPath == null) {
+        throw new HumanReadableException("Couldn't find build target %s", buildTarget);
+      }
+      List<Map<String, Object>> rules = getRawRules(buildTargetPath);
+      Hasher hasher = Hashing.sha1().newHasher();
+      for (Map<String, Object> map : rules) {
+        if (!buildTarget.getShortName().equals(map.get("name"))) {
+          continue;
+        }
+
+        JsonObjectHashing.hashJsonObject(hasher, map);
+      }
+      return hasher.hash();
+    }
+
+    public LoadingCache<BuildTarget, HashCode> getBuildTargetHashCodeCache() {
+      return buildTargetHashCodeCache;
     }
   }
 

@@ -45,8 +45,6 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableMultimap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import org.hamcrest.Matchers;
@@ -59,7 +57,7 @@ import java.util.Map;
 
 public class CxxPreprocessablesTest {
 
-  private static final CxxPlatform CXX_PLATFORM = new DefaultCxxPlatform(new FakeBuckConfig());
+  private static final CxxPlatform CXX_PLATFORM = DefaultCxxPlatforms.build(new FakeBuckConfig());
 
   private static <T> void assertContains(ImmutableList<T> container, Iterable<T> items) {
     for (T item : items) {
@@ -141,18 +139,16 @@ public class CxxPreprocessablesTest {
   @Test
   public void getTransitiveCxxPreprocessorInput() {
     SourcePathResolver pathResolver = new SourcePathResolver(new BuildRuleResolver());
-    CxxPlatform cxxPlatform = new DefaultCxxPlatform(new FakeBuckConfig());
+    CxxPlatform cxxPlatform = DefaultCxxPlatforms.build(new FakeBuckConfig());
 
     // Setup a simple CxxPreprocessorDep which contributes components to preprocessing.
     BuildTarget cppDepTarget1 = BuildTargetFactory.newInstance("//:cpp1");
     CxxPreprocessorInput input1 = CxxPreprocessorInput.builder()
-        .setRules(ImmutableSet.of(cppDepTarget1))
-        .setPreprocessorFlags(
-            ImmutableMultimap.of(
-                CxxSource.Type.C, "-Dtest=yes",
-                CxxSource.Type.CXX, "-Dtest=yes"))
-        .setIncludeRoots(ImmutableList.of(Paths.get("foo/bar"), Paths.get("hello")))
-        .setSystemIncludeRoots(ImmutableList.of(Paths.get("/usr/include")))
+        .addRules(cppDepTarget1)
+        .putPreprocessorFlags(CxxSource.Type.C, "-Dtest=yes")
+        .putPreprocessorFlags(CxxSource.Type.CXX, "-Dtest=yes")
+        .addIncludeRoots(Paths.get("foo/bar"), Paths.get("hello"))
+        .addSystemIncludeRoots(Paths.get("/usr/include"))
         .build();
     BuildTarget depTarget1 = BuildTargetFactory.newInstance("//:dep1");
     FakeCxxPreprocessorDep dep1 = createFakeCxxPreprocessorDep(depTarget1, pathResolver, input1);
@@ -160,13 +156,11 @@ public class CxxPreprocessablesTest {
     // Setup another simple CxxPreprocessorDep which contributes components to preprocessing.
     BuildTarget cppDepTarget2 = BuildTargetFactory.newInstance("//:cpp2");
     CxxPreprocessorInput input2 = CxxPreprocessorInput.builder()
-        .setRules(ImmutableSet.of(cppDepTarget2))
-        .setPreprocessorFlags(
-            ImmutableMultimap.of(
-                CxxSource.Type.C, "-DBLAH",
-                CxxSource.Type.CXX, "-DBLAH"))
-        .setIncludeRoots(ImmutableList.of(Paths.get("goodbye")))
-        .setSystemIncludeRoots(ImmutableList.of(Paths.get("test")))
+        .addRules(cppDepTarget2)
+        .putPreprocessorFlags(CxxSource.Type.C, "-DBLAH")
+        .putPreprocessorFlags(CxxSource.Type.CXX, "-DBLAH")
+        .addIncludeRoots(Paths.get("goodbye"))
+        .addSystemIncludeRoots(Paths.get("test"))
         .build();
     BuildTarget depTarget2 = BuildTargetFactory.newInstance("//:dep2");
     FakeCxxPreprocessorDep dep2 = createFakeCxxPreprocessorDep(depTarget2, pathResolver, input2);
@@ -233,12 +227,12 @@ public class CxxPreprocessablesTest {
   @Test
   public void getTransitiveNativeLinkableInputDoesNotTraversePastNonNativeLinkables() {
     SourcePathResolver pathResolver = new SourcePathResolver(new BuildRuleResolver());
-    CxxPlatform cxxPlatform = new DefaultCxxPlatform(new FakeBuckConfig());
+    CxxPlatform cxxPlatform = DefaultCxxPlatforms.build(new FakeBuckConfig());
 
     // Create a native linkable that sits at the bottom of the dep chain.
     String sentinal = "bottom";
     CxxPreprocessorInput bottomInput = CxxPreprocessorInput.builder()
-        .setPreprocessorFlags(ImmutableMultimap.of(CxxSource.Type.C, sentinal))
+        .putPreprocessorFlags(CxxSource.Type.C, sentinal)
         .build();
     BuildRule bottom = createFakeCxxPreprocessorDep("//:bottom", pathResolver, bottomInput);
 
@@ -274,12 +268,12 @@ public class CxxPreprocessablesTest {
 
     CxxPreprocessorInput cxxPreprocessorInput =
         CxxPreprocessorInput.builder()
-            .setRules(ImmutableList.of(dep.getBuildTarget()))
+            .addRules(dep.getBuildTarget())
             .build();
 
     String name = "foo/bar.cpp";
     SourcePath input = new PathSourcePath(target.getBasePath().resolve(name));
-    CxxSource cxxSource = new CxxSource(CxxSource.Type.CXX, input);
+    CxxSource cxxSource = ImmutableCxxSource.of(CxxSource.Type.CXX, input);
 
     Map.Entry<String, CxxSource> entry =
         CxxPreprocessables.createPreprocessBuildRule(
@@ -304,10 +298,10 @@ public class CxxPreprocessablesTest {
     CxxPreprocessorInput cxxPreprocessorInput = CxxPreprocessorInput.EMPTY;
 
     String name = "source.cpp";
-    CxxSource cxxSource = new CxxSource(CxxSource.Type.CXX, new TestSourcePath(name));
+    CxxSource cxxSource = ImmutableCxxSource.of(CxxSource.Type.CXX, new TestSourcePath(name));
 
     ImmutableList<String> platformFlags = ImmutableList.of("-some", "-flags");
-    CxxPlatform platform = new DefaultCxxPlatform(
+    CxxPlatform platform = DefaultCxxPlatforms.build(
         new FakeBuckConfig(
             ImmutableMap.<String, Map<String, String>>of(
                 "cxx", ImmutableMap.of("cxxppflags", Joiner.on(" ").join(platformFlags)))));
@@ -342,11 +336,8 @@ public class CxxPreprocessablesTest {
     ImmutableList<String> explicitCxxppflags = ImmutableList.of("-explicit-cxxppflag");
     CxxPreprocessorInput cxxPreprocessorInput =
         CxxPreprocessorInput.builder()
-            .setPreprocessorFlags(
-                ImmutableMultimap.<CxxSource.Type, String>builder()
-                    .putAll(CxxSource.Type.C, explicitCppflags)
-                    .putAll(CxxSource.Type.CXX, explicitCxxppflags)
-                    .build())
+            .putAllPreprocessorFlags(CxxSource.Type.C, explicitCppflags)
+            .putAllPreprocessorFlags(CxxSource.Type.CXX, explicitCxxppflags)
             .build();
 
     ImmutableList<String> asppflags = ImmutableList.of("-asppflag", "-asppflag");
@@ -367,10 +358,10 @@ public class CxxPreprocessablesTest {
                 .put("cxxppflags", space.join(cxxppflags))
                 .build()),
         filesystem);
-    DefaultCxxPlatform platform = new DefaultCxxPlatform(buckConfig);
+    CxxPlatform platform = DefaultCxxPlatforms.build(buckConfig);
 
     String cSourceName = "test.c";
-    CxxSource cSource = new CxxSource(CxxSource.Type.C, new TestSourcePath(cSourceName));
+    CxxSource cSource = ImmutableCxxSource.of(CxxSource.Type.C, new TestSourcePath(cSourceName));
     Map.Entry<String, CxxSource> cPreprocessEntry =
         CxxPreprocessables.createPreprocessBuildRule(
             params,
@@ -386,7 +377,9 @@ public class CxxPreprocessablesTest {
     assertContains(cPreprocess.getFlags(), cppflags);
 
     String cxxSourceName = "test.cpp";
-    CxxSource cxxSource = new CxxSource(CxxSource.Type.CXX, new TestSourcePath(cxxSourceName));
+    CxxSource cxxSource = ImmutableCxxSource.of(
+        CxxSource.Type.CXX,
+        new TestSourcePath(cxxSourceName));
     Map.Entry<String, CxxSource> cxxPreprocessEntry =
         CxxPreprocessables.createPreprocessBuildRule(
             params,
@@ -402,7 +395,7 @@ public class CxxPreprocessablesTest {
     assertContains(cxxPreprocess.getFlags(), cxxppflags);
 
     String assemblerWithCppSourceName = "test.S";
-    CxxSource assemblerWithCppSource = new CxxSource(
+    CxxSource assemblerWithCppSource = ImmutableCxxSource.of(
         CxxSource.Type.ASSEMBLER_WITH_CPP,
         new TestSourcePath(assemblerWithCppSourceName));
     Map.Entry<String, CxxSource> assemblerWithCppCompileEntry =
@@ -429,7 +422,7 @@ public class CxxPreprocessablesTest {
 
     String name = "foo/bar.cpp";
     SourcePath input = new PathSourcePath(target.getBasePath().resolve(name));
-    CxxSource cxxSource = new CxxSource(CxxSource.Type.CXX, input);
+    CxxSource cxxSource = ImmutableCxxSource.of(CxxSource.Type.CXX, input);
 
     Map.Entry<String, CxxSource> cxxPreprocessEntry =
         CxxPreprocessables.createPreprocessBuildRule(
@@ -447,7 +440,7 @@ public class CxxPreprocessablesTest {
 
     name = "foo/bar.m";
     input = new PathSourcePath(target.getBasePath().resolve(name));
-    cxxSource = new CxxSource(CxxSource.Type.OBJC, input);
+    cxxSource = ImmutableCxxSource.of(CxxSource.Type.OBJC, input);
 
     cxxPreprocessEntry =
         CxxPreprocessables.createPreprocessBuildRule(
@@ -465,7 +458,7 @@ public class CxxPreprocessablesTest {
 
     name = "foo/bar.mm";
     input = new PathSourcePath(target.getBasePath().resolve(name));
-    cxxSource = new CxxSource(CxxSource.Type.OBJCXX, input);
+    cxxSource = ImmutableCxxSource.of(CxxSource.Type.OBJCXX, input);
 
     cxxPreprocessEntry =
         CxxPreprocessables.createPreprocessBuildRule(
@@ -483,7 +476,7 @@ public class CxxPreprocessablesTest {
 
     name = "foo/bar.c";
     input = new PathSourcePath(target.getBasePath().resolve(name));
-    cxxSource = new CxxSource(CxxSource.Type.C, input);
+    cxxSource = ImmutableCxxSource.of(CxxSource.Type.C, input);
 
     cxxPreprocessEntry =
         CxxPreprocessables.createPreprocessBuildRule(

@@ -26,6 +26,7 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.FlavorDomain;
+import com.facebook.buck.python.ImmutablePythonPackageComponents;
 import com.facebook.buck.python.PythonPackageComponents;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -145,10 +146,10 @@ public class CxxPythonExtensionDescriptionTest {
           CxxPlatform cxxPlatform,
           Linker.LinkableDepType type) {
         return type == Linker.LinkableDepType.STATIC ?
-            new NativeLinkableInput(
+            ImmutableNativeLinkableInput.of(
                 ImmutableList.<SourcePath>of(),
                 ImmutableList.<String>of()) :
-            new NativeLinkableInput(
+            ImmutableNativeLinkableInput.of(
                 ImmutableList.<SourcePath>of(
                     new BuildTargetSourcePath(
                         sharedLibraryDep.getBuildTarget(),
@@ -158,7 +159,7 @@ public class CxxPythonExtensionDescriptionTest {
 
       @Override
       public PythonPackageComponents getPythonPackageComponents(CxxPlatform cxxPlatform) {
-        return new PythonPackageComponents(
+        return ImmutablePythonPackageComponents.of(
             ImmutableMap.<Path, SourcePath>of(),
             ImmutableMap.<Path, SourcePath>of(),
             ImmutableMap.<Path, SourcePath>of(
@@ -197,7 +198,7 @@ public class CxxPythonExtensionDescriptionTest {
 
     // Verify that the shared library dep propagated to the link rule.
     extension.getPythonPackageComponents(cxxPlatform);
-    BuildRule rule = resolver.getRule(desc.getExtensionTarget(target, cxxPlatform.asFlavor()));
+    BuildRule rule = resolver.getRule(desc.getExtensionTarget(target, cxxPlatform.getFlavor()));
     assertEquals(
         ImmutableSortedSet.of(sharedLibraryDep),
         rule.getDeps());
@@ -220,8 +221,8 @@ public class CxxPythonExtensionDescriptionTest {
 
     // Verify that we get the expected view from the python packageable interface.
     PythonPackageComponents actualComponent = extension.getPythonPackageComponents(cxxPlatform);
-    BuildRule rule = resolver.getRule(desc.getExtensionTarget(target, cxxPlatform.asFlavor()));
-    PythonPackageComponents expectedComponents = new PythonPackageComponents(
+    BuildRule rule = resolver.getRule(desc.getExtensionTarget(target, cxxPlatform.getFlavor()));
+    PythonPackageComponents expectedComponents = ImmutablePythonPackageComponents.of(
         ImmutableMap.<Path, SourcePath>of(
             target.getBasePath().resolve(desc.getExtensionName(target)),
             new BuildTargetSourcePath(rule.getBuildTarget())),
@@ -239,10 +240,10 @@ public class CxxPythonExtensionDescriptionTest {
         (CxxPythonExtensionDescription) getBuilder(target).build().getDescription();
     CxxPythonExtensionDescription.Arg constructorArg = desc.createUnpopulatedConstructorArg();
     constructorArg.lexSrcs = Optional.of(ImmutableList.<SourcePath>of());
-    Iterable<String> res = desc.findDepsForTargetFromConstructorArgs(
+    Iterable<BuildTarget> res = desc.findDepsForTargetFromConstructorArgs(
         BuildTargetFactory.newInstance("//foo:bar"),
         constructorArg);
-    assertTrue(Iterables.contains(res, PYTHON_DEP_TARGET.toString()));
+    assertTrue(Iterables.contains(res, PYTHON_DEP_TARGET));
   }
 
 }

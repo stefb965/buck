@@ -284,7 +284,10 @@ public class ProjectFilesystem {
         fileVisitor);
   }
 
-  private void walkRelativeFileTree(
+  /**
+   * Walks a project-root relative file tree with a visitor and visit options.
+   */
+  public void walkRelativeFileTree(
       Path pathRelativeToProjectRoot,
       EnumSet<FileVisitOption> visitOptions,
       final FileVisitor<Path> fileVisitor) throws IOException {
@@ -344,7 +347,7 @@ public class ProjectFilesystem {
       EnumSet<FileVisitOption> visitOptions) throws IOException {
     final ImmutableSet.Builder<Path> paths = ImmutableSet.builder();
     walkRelativeFileTree(
-        getPathForRelativePath(pathRelativeToProjectRoot),
+        pathRelativeToProjectRoot,
         visitOptions,
         new SimpleFileVisitor<Path>() {
           @Override
@@ -715,13 +718,19 @@ public class ProjectFilesystem {
     Preconditions.checkState(!Iterables.isEmpty(pathsToIncludeInZip));
     try (CustomZipOutputStream zip = ZipOutputStreams.newOutputStream(out)) {
       for (Path path : pathsToIncludeInZip) {
-        CustomZipEntry entry = new CustomZipEntry(path.toString());
+        Path full = getPathForRelativePath(path);
+        File file = full.toFile();
+        boolean isDirectory = isDirectory(full);
+
+        String entryName = path.toString();
+        if (isDirectory) {
+          entryName += "/";
+        }
+        CustomZipEntry entry = new CustomZipEntry(entryName);
 
         // Support executable files.  If we detect this file is executable, store this
         // information as 0100 in the field typically used in zip implementations for
         // POSIX file permissions.  We'll use this information when unzipping.
-        Path full = getPathForRelativePath(path);
-        File file = full.toFile();
         if (file.canExecute()) {
           entry.setExternalAttributes(
               MorePosixFilePermissions.toMode(
@@ -729,8 +738,10 @@ public class ProjectFilesystem {
         }
 
         zip.putNextEntry(entry);
-        try (InputStream input = Files.newInputStream(getPathForRelativePath(path))) {
-          ByteStreams.copy(input, zip);
+        if (!isDirectory) {
+          try (InputStream input = Files.newInputStream(getPathForRelativePath(path))) {
+            ByteStreams.copy(input, zip);
+          }
         }
         zip.closeEntry();
       }

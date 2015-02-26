@@ -21,15 +21,16 @@ import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.FlavorDomainException;
+import com.facebook.buck.model.Pair;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.ImmutableBuildRuleType;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.model.Pair;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Function;
@@ -38,6 +39,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
@@ -56,7 +58,7 @@ public class PrebuiltCxxLibraryDescription
           ImmutableMap.of(
               CxxDescriptionEnhancer.SHARED_FLAVOR, Type.SHARED));
 
-  public static final BuildRuleType TYPE = new BuildRuleType("prebuilt_cxx_library");
+  public static final BuildRuleType TYPE = ImmutableBuildRuleType.of("prebuilt_cxx_library");
 
   private final FlavorDomain<CxxPlatform> cxxPlatforms;
 
@@ -84,7 +86,7 @@ public class PrebuiltCxxLibraryDescription
 
     BuildTarget target = params.getBuildTarget();
     String libDir = args.libDir.or("lib");
-    String libName = args.libName.or(target.getShortNameOnly());
+    String libName = args.libName.or(target.getShortName());
     String soname = args.soname.or(String.format("lib%s.so", libName));
     Path staticLibraryPath =
         target.getBasePath()
@@ -92,10 +94,10 @@ public class PrebuiltCxxLibraryDescription
             .resolve(String.format("lib%s.a", libName));
 
     // Otherwise, we need to build it from the static lib.
-    BuildTarget sharedTarget =
-        BuildTargets.extendFlavoredBuildTarget(
-            params.getBuildTarget(),
-            CxxDescriptionEnhancer.SHARED_FLAVOR);
+    BuildTarget sharedTarget = BuildTarget
+        .builder(params.getBuildTarget())
+        .addFlavors(CxxDescriptionEnhancer.SHARED_FLAVOR)
+        .build();
 
     // If not, setup a single link rule to link it from the static lib.
     Path builtSharedLibraryPath = BuildTargets.getBinPath(sharedTarget, "%s").resolve(soname);
@@ -125,8 +127,10 @@ public class PrebuiltCxxLibraryDescription
     Optional<Map.Entry<Flavor, Type>> type;
     Optional<Map.Entry<Flavor, CxxPlatform>> platform;
     try {
-      type = LIBRARY_TYPE.getFlavorAndValue(params.getBuildTarget().getFlavors());
-      platform = cxxPlatforms.getFlavorAndValue(params.getBuildTarget().getFlavors());
+      type = LIBRARY_TYPE.getFlavorAndValue(
+          ImmutableSet.copyOf(params.getBuildTarget().getFlavors()));
+      platform = cxxPlatforms.getFlavorAndValue(
+          ImmutableSet.copyOf(params.getBuildTarget().getFlavors()));
     } catch (FlavorDomainException e) {
       throw new HumanReadableException("%s: %s", params.getBuildTarget(), e.getMessage());
     }
@@ -148,7 +152,7 @@ public class PrebuiltCxxLibraryDescription
     boolean provided = args.provided.or(false);
     boolean linkWhole = args.linkWhole.or(false);
     String libDir = args.libDir.or("lib");
-    String libName = args.libName.or(target.getShortNameOnly());
+    String libName = args.libName.or(target.getShortName());
     String soname = args.soname.or(String.format("lib%s.so", libName));
 
     Path staticLibraryPath =

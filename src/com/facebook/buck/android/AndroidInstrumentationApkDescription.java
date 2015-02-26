@@ -31,6 +31,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.ImmutableBuildRuleType;
 import com.facebook.buck.rules.InstallableApk;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -38,6 +39,7 @@ import com.facebook.buck.rules.coercer.BuildConfigFields;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Optional;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -50,16 +52,19 @@ import java.util.EnumSet;
 public class AndroidInstrumentationApkDescription
     implements Description<AndroidInstrumentationApkDescription.Arg> {
 
-  public static final BuildRuleType TYPE = new BuildRuleType("android_instrumentation_apk");
+  public static final BuildRuleType TYPE = ImmutableBuildRuleType.of("android_instrumentation_apk");
 
   private final ProGuardConfig proGuardConfig;
   private final JavacOptions javacOptions;
+  private final ImmutableMap<AndroidBinary.TargetCpuType, NdkCxxPlatform> nativePlatforms;
 
   public AndroidInstrumentationApkDescription(
       ProGuardConfig proGuardConfig,
-      JavacOptions androidJavacOptions) {
+      JavacOptions androidJavacOptions,
+      ImmutableMap<AndroidBinary.TargetCpuType, NdkCxxPlatform> nativePlatforms) {
     this.proGuardConfig = proGuardConfig;
     this.javacOptions = androidJavacOptions;
+    this.nativePlatforms = nativePlatforms;
   }
 
   @Override
@@ -97,11 +102,11 @@ public class AndroidInstrumentationApkDescription
     // TODO(natthu): Instrumentation APKs should also exclude native libraries and assets from the
     // apk under test.
     AndroidPackageableCollection.ResourceDetails resourceDetails =
-        apkUnderTest.getAndroidPackageableCollection().resourceDetails();
+        apkUnderTest.getAndroidPackageableCollection().getResourceDetails();
     ImmutableSet<BuildTarget> resourcesToExclude = ImmutableSet.copyOf(
         Iterables.concat(
-            resourceDetails.resourcesWithNonEmptyResDir(),
-            resourceDetails.resourcesWithEmptyResButNonEmptyAssetsDir()));
+            resourceDetails.getResourcesWithNonEmptyResDir(),
+            resourceDetails.getResourcesWithEmptyResButNonEmptyAssetsDir()));
 
     Path primaryDexPath = AndroidBinary.getPrimaryDexPath(params.getBuildTarget());
     AndroidBinaryGraphEnhancer graphEnhancer = new AndroidBinaryGraphEnhancer(
@@ -109,6 +114,7 @@ public class AndroidInstrumentationApkDescription
         resolver,
         ResourceCompressionMode.DISABLED,
         FilterResourcesStep.ResourceFilter.EMPTY_FILTER,
+        /* locales */ ImmutableSet.<String>of(),
         args.manifest,
         PackageType.INSTRUMENTED,
         apkUnderTest.getCpuFilters(),
@@ -123,13 +129,13 @@ public class AndroidInstrumentationApkDescription
         apkUnderTest.getKeystore(),
         /* buildConfigValues */ BuildConfigFields.empty(),
         /* buildConfigValuesFile */ Optional.<SourcePath>absent(),
-        ImmutableMap.<AndroidBinary.TargetCpuType, NdkCxxPlatform>of());
+        nativePlatforms);
 
-    AndroidBinaryGraphEnhancer.EnhancementResult enhancementResult =
+    AndroidGraphEnhancementResult enhancementResult =
         graphEnhancer.createAdditionalBuildables();
 
     return new AndroidInstrumentationApk(
-        params.copyWithExtraDeps(enhancementResult.finalDeps()),
+        params.copyWithExtraDeps(Suppliers.ofInstance(enhancementResult.getFinalDeps())),
         new SourcePathResolver(resolver),
         proGuardConfig.getProguardJarOverride(),
         proGuardConfig.getProguardMaxHeapSize(),

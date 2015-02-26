@@ -74,7 +74,7 @@ public class ApkGenrule extends Genrule implements InstallableApk {
         cmd,
         bash,
         cmdExe,
-        /* out */ params.getBuildTarget().getShortName() + ".apk",
+        /* out */ params.getBuildTarget().getShortNameAndFlavorPostfix() + ".apk",
         relativeToAbsolutePathFunction);
 
     this.apk = apk;
@@ -89,7 +89,7 @@ public class ApkGenrule extends Genrule implements InstallableApk {
   @Override
   public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
     return super.appendDetailsToRuleKey(builder)
-        .setInput("apk", apk.getApkPath());
+        .setReflectively("apk", apk.getApkPath());
   }
 
   public InstallableApk getInstallableApk() {

@@ -78,15 +78,10 @@ public class TargetNode<T> implements Comparable<TargetNode<?>>, HasBuildTarget 
     }
 
     if (description instanceof ImplicitDepsInferringDescription) {
-      Iterable<String> rawTargets =
-          ((ImplicitDepsInferringDescription<T>) description).findDepsForTargetFromConstructorArgs(
-              params.target,
-              constructorArg);
-      for (String rawTarget : rawTargets) {
-        if (isPossiblyATarget(rawTarget)) {
-          extraDeps.add(params.resolveBuildTarget(rawTarget));
-        }
-      }
+      extraDeps
+          .addAll(
+              ((ImplicitDepsInferringDescription<T>) description)
+                  .findDepsForTargetFromConstructorArgs(params.target, constructorArg));
     }
 
     this.extraDeps = ImmutableSortedSet.copyOf(Sets.difference(extraDeps.build(), declaredDeps));
@@ -231,10 +226,6 @@ public class TargetNode<T> implements Comparable<TargetNode<?>>, HasBuildTarget 
     return paths;
   }
 
-  private boolean isPossiblyATarget(String param) {
-    return param.startsWith(":") || param.startsWith(BuildTarget.BUILD_TARGET_PREFIX);
-  }
-
   @Override
   public int compareTo(TargetNode<?> o) {
     return getBuildTarget().compareTo(o.getBuildTarget());
@@ -257,6 +248,58 @@ public class TargetNode<T> implements Comparable<TargetNode<?>>, HasBuildTarget 
   @Override
   public final String toString() {
     return getBuildTarget().getFullyQualifiedName();
+  }
+
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  public TargetNode<T> with(
+      Description<T> description,
+      T constructorArg,
+      BuildRuleFactoryParams ruleFactoryParams,
+      ImmutableSet declaredDeps,
+      ImmutableSet<BuildTargetPattern> visibilityPatterns) {
+    try {
+      return new TargetNode(
+          description,
+          constructorArg,
+          ruleFactoryParams,
+          declaredDeps,
+          visibilityPatterns);
+    } catch (InvalidSourcePathInputException | NoSuchBuildTargetException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  /**
+   * Return a copy of the current TargetNode, with the {@link Description} used for creating
+   * {@link BuildRule} instances switched out.
+   */
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  public TargetNode<?> withDescription(Description<?> description) {
+    try {
+      return new TargetNode(
+          description,
+          constructorArg,
+          ruleFactoryParams,
+          declaredDeps,
+          visibilityPatterns);
+    } catch (InvalidSourcePathInputException | NoSuchBuildTargetException e) {
+      // This is extremely unlikely to happen --- we've already created a TargetNode with these
+      // values before.
+      throw new RuntimeException(e);
+    }
+  }
+
+  public TargetNode<T> withConstructorArg(T constructorArg) {
+    return with(description, constructorArg, ruleFactoryParams, declaredDeps, visibilityPatterns);
+  }
+
+  public TargetNode<T> withBuildTarget(BuildTarget buildTarget) {
+    return with(
+        description,
+        constructorArg,
+        ruleFactoryParams.withBuildTarget(buildTarget),
+        declaredDeps,
+        visibilityPatterns);
   }
 
   @SuppressWarnings("serial")

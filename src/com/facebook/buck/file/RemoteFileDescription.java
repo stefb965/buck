@@ -21,6 +21,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.ImmutableBuildRuleType;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Optional;
@@ -30,14 +31,10 @@ import java.net.URI;
 
 public class RemoteFileDescription implements Description<RemoteFileDescription.Arg> {
 
-  public static final BuildRuleType TYPE = new BuildRuleType("remote_file");
-  private final boolean isBuildTimeDownloadingOk;
+  public static final BuildRuleType TYPE = ImmutableBuildRuleType.of("remote_file");
   private final Downloader downloader;
 
-  public RemoteFileDescription(
-      boolean isBuildTimeDownloadingOk,
-      Downloader downloader) {
-    this.isBuildTimeDownloadingOk = isBuildTimeDownloadingOk;
+  public RemoteFileDescription(Downloader downloader) {
     this.downloader = downloader;
   }
 
@@ -58,12 +55,11 @@ public class RemoteFileDescription implements Description<RemoteFileDescription.
       A args) {
     HashCode sha1 = HashCode.fromString(args.sha1);
 
-    String out = args.out.or(params.getBuildTarget().getShortName());
+    String out = args.out.or(params.getBuildTarget().getShortNameAndFlavorPostfix());
 
     return new RemoteFile(
         params,
         new SourcePathResolver(resolver),
-        isBuildTimeDownloadingOk,
         downloader,
         args.url,
         sha1,

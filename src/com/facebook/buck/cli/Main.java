@@ -34,15 +34,13 @@ import com.facebook.buck.log.LogConfig;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.parser.Parser;
-import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.rules.CachingBuildEngine;
+import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
 import com.facebook.buck.rules.KnownBuildRuleTypes;
 import com.facebook.buck.rules.Repository;
 import com.facebook.buck.rules.RepositoryFactory;
-import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.RuleKey.Builder;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.timing.DefaultClock;
 import com.facebook.buck.timing.NanosAdjustedClock;
@@ -66,6 +64,7 @@ import com.facebook.buck.util.environment.DefaultExecutionEnvironment;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.facebook.buck.util.environment.Platform;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jdk7.Jdk7Module;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -112,8 +111,6 @@ public final class Main {
    */
   public static final int BUSY_EXIT_CODE = 2;
 
-  private static final String BUCK_VERSION_UID_KEY = "buck.version_uid";
-  private static final String BUCK_VERSION_UID = System.getProperty(BUCK_VERSION_UID_KEY, "N/A");
   private static final Optional<String> BUCKD_LAUNCH_TIME_NANOS =
     Optional.fromNullable(System.getProperty("buck.buckd_launch_time_nanos"));
   private static final String BUCK_BUILD_ID_ENV_VAR = "BUCK_BUILD_ID";
@@ -179,10 +176,7 @@ public final class Main {
       this.hashCache = new DefaultFileHashCache(repository.getFilesystem());
       this.parser = Parser.createParser(
           repositoryFactory,
-          repository.getBuckConfig().getPythonInterpreter(),
-          repository.getBuckConfig().getAllowEmptyGlobs(),
-          repository.getBuckConfig().enforceBuckPackageBoundary(),
-          repository.getBuckConfig().getTempFilePatterns(),
+          new ParserConfig(repository.getBuckConfig()),
           createRuleKeyBuilderFactory(hashCache));
 
       this.fileEventBus = new EventBus("file-change-events");
@@ -404,6 +398,8 @@ public final class Main {
     this.stdErr = stdErr;
     this.platform = Platform.detect();
     this.objectMapper = new ObjectMapper();
+    // Add support for serializing Path and other JDK 7 objects.
+    this.objectMapper.registerModule(new Jdk7Module());
     this.externalEventsListener = externalEventsListener;
   }
 
@@ -625,10 +621,7 @@ public final class Main {
       if (parser == null) {
         parser = Parser.createParser(
             repositoryFactory,
-            rootRepository.getBuckConfig().getPythonInterpreter(),
-            rootRepository.getBuckConfig().getAllowEmptyGlobs(),
-            rootRepository.getBuckConfig().enforceBuckPackageBoundary(),
-            rootRepository.getBuckConfig().getTempFilePatterns(),
+            new ParserConfig(rootRepository.getBuckConfig()),
             createRuleKeyBuilderFactory(fileHashCache));
       }
       JavaUtilsLoggingBuildListener.ensureLogFileIsWritten(rootRepository.getFilesystem());
@@ -645,7 +638,7 @@ public final class Main {
           new CommandRunnerParams(
               console,
               rootRepository,
-              rootRepository.androidDirectoryResolver,
+              rootRepository.getAndroidDirectoryResolver(),
               buildEngine,
               artifactCacheFactory,
               buildEventBus,
@@ -709,7 +702,7 @@ public final class Main {
     } else {
       env = ImmutableMap.copyOf(System.getenv());
     }
-    return EnvironmentFilter.filteredEnvironment(env);
+    return EnvironmentFilter.filteredEnvironment(env, Platform.detect());
   }
 
   private static void closeCreatedArtifactCaches(
@@ -811,7 +804,11 @@ public final class Main {
     ImmutableList.Builder<BuckEventListener> eventListenersBuilder =
         ImmutableList.<BuckEventListener>builder()
             .add(new JavaUtilsLoggingBuildListener())
-            .add(new ChromeTraceBuildListener(projectFilesystem, clock, config.getMaxTraces()))
+            .add(new ChromeTraceBuildListener(
+                projectFilesystem,
+                clock,
+                objectMapper,
+                config.getMaxTraces()))
             .add(consoleEventBusListener)
             .add(new LoggingBuildListener());
 
@@ -823,9 +820,8 @@ public final class Main {
 
 
 
-    JavacOptions javacOptions = new JavaBuckConfig(config).getDefaultJavacOptions(
-        new ProcessExecutor(
-            console));
+    JavacOptions javacOptions = new JavaBuckConfig(config)
+        .getDefaultJavacOptions(new ProcessExecutor(console));
 
     eventListenersBuilder.add(MissingSymbolsHandler.createListener(
             projectFilesystem,
@@ -878,14 +874,7 @@ public final class Main {
    * @param hashCache A cache of file content hashes, used to avoid reading and hashing input files.
    */
   private static RuleKeyBuilderFactory createRuleKeyBuilderFactory(final FileHashCache hashCache) {
-    return new RuleKeyBuilderFactory() {
-      @Override
-      public Builder newInstance(BuildRule buildRule, SourcePathResolver resolver) {
-        RuleKey.Builder builder = RuleKey.builder(buildRule, resolver, hashCache);
-        builder.set("buckVersionUid", BUCK_VERSION_UID);
-        return builder;
-      }
-    };
+    return new DefaultRuleKeyBuilderFactory(hashCache);
   }
 
   @VisibleForTesting
@@ -1089,4 +1078,5 @@ public final class Main {
           slayerTimeout.getUnit());
     }
   }
+
 }

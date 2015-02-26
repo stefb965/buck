@@ -60,8 +60,8 @@ public class Xpt extends AbstractBuildRule {
   @Override
   public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
     return builder
-        .setInputs("src", ImmutableSet.of(src).iterator())
-        .setSourcePaths("fallback", ImmutableSortedSet.of(fallback));
+        .setReflectively("src", ImmutableSet.of(src).iterator())
+        .setReflectively("fallback", ImmutableSortedSet.of(fallback));
   }
 
   @Override

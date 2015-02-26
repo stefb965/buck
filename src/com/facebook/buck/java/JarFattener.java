@@ -76,7 +76,7 @@ public class JarFattener extends AbstractBuildRule implements BinaryBuildRule {
     this.innerJar = innerJar;
     this.nativeLibraries = nativeLibraries;
     this.output = BuildTargets.getBinPath(getBuildTarget(), "%s")
-        .resolve(getBuildTarget().getShortNameOnly() + ".jar");
+        .resolve(getBuildTarget().getShortName() + ".jar");
   }
 
   @Override
@@ -87,7 +87,7 @@ public class JarFattener extends AbstractBuildRule implements BinaryBuildRule {
   @Override
   protected RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
     for (Map.Entry<String, SourcePath> entry : nativeLibraries.entrySet()) {
-      builder.setInput("nativelib:" + entry.getKey(), entry.getValue());
+      builder.setReflectively("nativelib:" + entry.getKey(), entry.getValue());
     }
     return builder;
   }
@@ -126,17 +126,19 @@ public class JarFattener extends AbstractBuildRule implements BinaryBuildRule {
     steps.add(writeFromResource(fatJarSource, FAT_JAR_SRC_RESOURCE));
     Path fatJarMainSource = outputDir.resolve(Paths.get(FAT_JAR_MAIN_SRC_RESOURCE).getFileName());
     steps.add(writeFromResource(fatJarMainSource, FAT_JAR_MAIN_SRC_RESOURCE));
+
     steps.add(
-        new JavacInMemoryStep(
+        new JavacStep(
             fatJarDir,
+            Optional.<Path>absent(),
             ImmutableSet.of(fatJarSource, fatJarMainSource),
-            ImmutableSet.<Path>of(),
-            ImmutableSet.<Path>of(),
+            Optional.<Path>absent(),
+            /* transitive classpath */ ImmutableSet.<Path>of(),
+            /* declared classpath */ ImmutableSet.<Path>of(),
             javacOptions,
-            Optional.of(getBuildTarget()),
+            getBuildTarget(),
             BuildDependencies.FIRST_ORDER_ONLY,
-            Optional.<JavacStep.SuggestBuildRules>absent(),
-            Optional.<Path>absent()));
+            Optional.<JavacStep.SuggestBuildRules>absent()));
 
     // Symlink the inner JAR into it's place in the fat JAR.
     steps.add(new MkdirStep(fatJarDir.resolve(FAT_JAR_INNER_JAR).getParent()));

@@ -21,6 +21,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.ImmutableBuildRuleType;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.google.common.base.Optional;
@@ -28,7 +29,7 @@ import com.google.common.collect.ImmutableSortedSet;
 
 public class ZipDescription implements Description<ZipDescription.Arg> {
 
-  public static final BuildRuleType TYPE = new BuildRuleType("zip");
+  public static final BuildRuleType TYPE = ImmutableBuildRuleType.of("zip");
 
   @Override
   public BuildRuleType getBuildRuleType() {

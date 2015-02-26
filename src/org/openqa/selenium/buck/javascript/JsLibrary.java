@@ -77,7 +77,7 @@ public class JsLibrary extends AbstractBuildRule implements
   @Override
   public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
     return builder
-        .setSourcePaths("srcs", srcs);
+        .setReflectively("srcs", srcs);
   }
 
   @Override

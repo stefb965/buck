@@ -16,7 +16,6 @@
 
 package com.facebook.buck.java;
 
-import static com.facebook.buck.java.JavaCompilationConstants.DEFAULT_JAVAC_ENV;
 import static com.facebook.buck.java.JavaCompilationConstants.DEFAULT_JAVAC_OPTIONS;
 import static com.facebook.buck.util.BuckConstant.BIN_PATH;
 import static org.easymock.EasyMock.createNiceMock;
@@ -33,6 +32,7 @@ import static org.junit.Assert.fail;
 import com.facebook.buck.android.AndroidLibrary;
 import com.facebook.buck.android.AndroidLibraryBuilder;
 import com.facebook.buck.android.AndroidLibraryDescription;
+import com.facebook.buck.android.AndroidPlatformTarget;
 import com.facebook.buck.android.AndroidResourceDescription;
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.io.MorePaths;
@@ -54,6 +54,8 @@ import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeRuleKeyBuilderFactory;
+import com.facebook.buck.rules.ImmutableBuildContext;
+import com.facebook.buck.rules.ImmutableSha1HashCode;
 import com.facebook.buck.rules.NoopArtifactCache;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
@@ -73,7 +75,6 @@ import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.testutil.RuleMap;
 import com.facebook.buck.timing.DefaultClock;
-import com.facebook.buck.android.AndroidPlatformTarget;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.Console;
@@ -159,15 +160,15 @@ public class DefaultJavaLibraryTest {
 
     List<Step> steps = javaLibrary.getBuildSteps(context, new FakeBuildableContext());
 
-    // Find the JavacInMemoryCommand and verify its bootclasspath.
+    // Find the JavacStep and verify its bootclasspath.
     Step step = Iterables.find(steps, new Predicate<Step>() {
       @Override
       public boolean apply(Step command) {
-        return command instanceof JavacInMemoryStep;
+        return command instanceof JavacStep;
       }
     });
-    assertNotNull("Expected a JavacInMemoryCommand in the command list.", step);
-    JavacInMemoryStep javac = (JavacInMemoryStep) step;
+    assertNotNull("Expected a JavacStep in the steplist.", step);
+    JavacStep javac = (JavacStep) step;
     assertEquals("Should compile Main.java rather than generated R.java.",
         ImmutableSet.of(src),
         javac.getSrcs());
@@ -364,7 +365,7 @@ public class DefaultJavaLibraryTest {
         new SourcePathResolver(new BuildRuleResolver())) {
       @Override
       public Sha1HashCode getAbiKey() {
-        return new Sha1HashCode(Strings.repeat("cafebabe", 5));
+        return ImmutableSha1HashCode.of(Strings.repeat("cafebabe", 5));
       }
 
       @Override
@@ -410,12 +411,12 @@ public class DefaultJavaLibraryTest {
 
     EasyMock.verify(buildContext, javaPackageFinder);
 
-    ImmutableList<JavacInMemoryStep> javacSteps = FluentIterable
+    ImmutableList<JavacStep> javacSteps = FluentIterable
         .from(steps)
-        .filter(JavacInMemoryStep.class)
+        .filter(JavacStep.class)
         .toList();
     assertEquals("There should be only one javac step.", 1, javacSteps.size());
-    JavacInMemoryStep javacStep = javacSteps.get(0);
+    JavacStep javacStep = javacSteps.get(0);
     assertEquals(
         "The classpath to use when compiling //:libtwo according to getDeclaredClasspathEntries()" +
             " should contain only bar.jar.",
@@ -659,7 +660,7 @@ public class DefaultJavaLibraryTest {
     hasher.putUnencodedChars(javaAbiRuleKeyHash);
 
     assertEquals(
-        new Sha1HashCode(hasher.hash().toString()),
+        ImmutableSha1HashCode.of(hasher.hash().toString()),
         ((AbiRule) defaultJavaLibary).getAbiKeyForDeps());
   }
 
@@ -726,7 +727,7 @@ public class DefaultJavaLibraryTest {
 
     // This differs from the EMPTY_ABI_KEY in that the value of that comes from the SHA1 of an empty
     // jar file, whereas this is constructed from the empty set of values.
-    Sha1HashCode noAbiDeps = new Sha1HashCode(Hashing.sha1().newHasher().hash().toString());
+    Sha1HashCode noAbiDeps = ImmutableSha1HashCode.of(Hashing.sha1().newHasher().hash().toString());
     assertEquals(
         "The ABI of the deps of //:consumer_no_export should be the empty ABI.",
         noAbiDeps,
@@ -975,7 +976,7 @@ public class DefaultJavaLibraryTest {
         if (partialAbiHash == null) {
           return super.getAbiKey();
         } else {
-          return createTotalAbiKey(new Sha1HashCode(partialAbiHash));
+          return createTotalAbiKey(ImmutableSha1HashCode.of(partialAbiHash));
         }
       }
     };
@@ -998,7 +999,7 @@ public class DefaultJavaLibraryTest {
         libraryOne.getTransitiveClasspathEntries();
 
     assertEquals(
-        Optional.<JavacInMemoryStep.SuggestBuildRules>absent(),
+        Optional.<JavacStep.SuggestBuildRules>absent(),
         ((DefaultJavaLibrary) libraryOne).createSuggestBuildFunction(
             context,
             classpathEntries,
@@ -1054,7 +1055,7 @@ public class DefaultJavaLibraryTest {
         Iterables.getFirst(transitive.get((JavaLibrary) libraryTwo), null),
         "com.facebook.Foo");
 
-    Optional<JavacInMemoryStep.SuggestBuildRules> suggestFn =
+    Optional<JavacStep.SuggestBuildRules> suggestFn =
         ((DefaultJavaLibrary) grandparent).createSuggestBuildFunction(
             context,
             transitive,
@@ -1157,42 +1158,39 @@ public class DefaultJavaLibraryTest {
 
     List<Step> steps = stepsBuilder.build();
     assertEquals(steps.size(), 3);
-    assertTrue(steps.get(2) instanceof JavacInMemoryStep);
+    assertTrue(((JavacStep) steps.get(2)).getJavac() instanceof Jsr199Javac);
   }
 
   @Test
-  public void testWhenJavacIsProvidedAnExternalJavacStepIsAdded() {
+  public void testWhenJavacJarIsProvidedAJavacInMemoryStepIsAdded() {
     BuildRuleResolver ruleResolver = new BuildRuleResolver();
 
     BuildTarget libraryOneTarget = BuildTargetFactory.newInstance("//:libone");
+    Path javacJarPath = Paths.get("java/src/com/libone/JavacJar.jar");
     BuildRule rule = JavaLibraryBuilder
         .createBuilder(libraryOneTarget)
         .addSrc(Paths.get("java/src/com/libone/Bar.java"))
+        .setJavacJar(javacJarPath)
         .build(ruleResolver);
+    DefaultJavaLibrary buildable = (DefaultJavaLibrary) rule;
 
     ImmutableList.Builder<Step> stepsBuilder = ImmutableList.builder();
-    JavacOptions javacOptions = JavacOptions.builder(DEFAULT_JAVAC_OPTIONS)
-        .setJavaCompilerEnvironment(
-            new JavaCompilerEnvironment(
-                Optional.of(Paths.get("javac")),
-                Optional.<JavacVersion>absent()))
-        .build();
-    ((DefaultJavaLibrary) rule).createCommandsForJavac(
-        rule.getPathToOutputFile(),
-        ImmutableSet.copyOf(
-            ((HasClasspathEntries) rule).getTransitiveClasspathEntries().values()),
-        ImmutableSet.copyOf(
-            ((JavaLibrary) rule).getDeclaredClasspathEntries().values()),
-        javacOptions,
+    buildable.createCommandsForJavac(
+        buildable.getPathToOutputFile(),
+        ImmutableSet.copyOf(buildable.getTransitiveClasspathEntries().values()),
+        ImmutableSet.copyOf(buildable.getDeclaredClasspathEntries().values()),
+        buildable.getJavacOptions(),
         BuildDependencies.FIRST_ORDER_ONLY,
         Optional.<JavacStep.SuggestBuildRules>absent(),
         stepsBuilder,
-        libraryOneTarget
-    );
+        libraryOneTarget);
 
     List<Step> steps = stepsBuilder.build();
-    assertEquals(steps.size(), 4);
-    assertTrue(steps.get(3) instanceof ExternalJavacStep);
+    assertEquals(steps.size(), 3);
+    assertTrue(((JavacStep) steps.get(2)).getJavac() instanceof Jsr199Javac);
+    Jsr199Javac jsrJavac = ((Jsr199Javac) (((JavacStep) steps.get(2)).getJavac()));
+    assertTrue(jsrJavac.getJavacJar().isPresent());
+    assertEquals(jsrJavac.getJavacJar().get(), javacJarPath);
   }
 
   @Test
@@ -1285,7 +1283,7 @@ public class DefaultJavaLibraryTest {
     }
 
     // TODO(mbolin): Create a utility that populates a BuildContext.Builder with fakes.
-    return BuildContext.builder()
+    return ImmutableBuildContext.builder()
         .setActionGraph(RuleMap.createGraphFromSingleRule(javaLibrary))
         .setStepRunner(EasyMock.createMock(StepRunner.class))
         .setProjectFilesystem(projectFilesystem)
@@ -1294,7 +1292,9 @@ public class DefaultJavaLibraryTest {
         .setArtifactCache(new NoopArtifactCache())
         .setBuildDependencies(BuildDependencies.TRANSITIVE)
         .setJavaPackageFinder(EasyMock.createMock(JavaPackageFinder.class))
-        .setAndroidBootclasspathForAndroidPlatformTarget(Optional.of(platformTarget))
+        .setAndroidBootclasspathSupplier(
+            BuildContext.getAndroidBootclasspathSupplierForAndroidPlatformTarget(
+                Optional.of(platformTarget)))
         .setEventBus(BuckEventBusFactory.newInstance())
         .build();
   }
@@ -1369,7 +1369,7 @@ public class DefaultJavaLibraryTest {
       buildContext = createBuildContext(javaLibrary, /* bootclasspath */ null, projectFilesystem);
       List<Step> steps = javaLibrary.getBuildSteps(
           buildContext, new FakeBuildableContext());
-      JavacInMemoryStep javacCommand = lastJavacCommand(steps);
+      JavacStep javacCommand = lastJavacCommand(steps);
 
       executionContext = TestExecutionContext.newBuilder()
           .setProjectFilesystem(projectFilesystem)
@@ -1395,9 +1395,8 @@ public class DefaultJavaLibraryTest {
       tmp.newFile(src);
 
       AnnotationProcessingParams params = annotationProcessingParamsBuilder.build();
-      JavacOptions.Builder options = JavacOptions.builder(DEFAULT_JAVAC_OPTIONS)
-          .setJavaCompilerEnvironment(DEFAULT_JAVAC_ENV)
-          .setAnnotationProcessingData(params);
+      ImmutableJavacOptions.Builder options = JavacOptions.builder(DEFAULT_JAVAC_OPTIONS)
+          .setAnnotationProcessingParams(params);
 
       BuildRuleParams buildRuleParams = new FakeBuildRuleParamsBuilder(buildTarget)
           .setProjectFilesystem(projectFilesystem)
@@ -1420,16 +1419,16 @@ public class DefaultJavaLibraryTest {
           /* isPrebuiltAar */ false);
     }
 
-    private JavacInMemoryStep lastJavacCommand(Iterable<Step> commands) {
+    private JavacStep lastJavacCommand(Iterable<Step> commands) {
       Step javac = null;
       for (Step step : commands) {
-        if (step instanceof JavacInMemoryStep) {
+        if (step instanceof JavacStep) {
           javac = step;
           // Intentionally no break here, since we want the last one.
         }
       }
-      assertNotNull("Expected a JavacInMemoryCommand in command list", javac);
-      return (JavacInMemoryStep) javac;
+      assertNotNull("Expected a JavacStep in step list", javac);
+      return (JavacStep) javac;
     }
   }
 
@@ -1443,7 +1442,7 @@ public class DefaultJavaLibraryTest {
 
     @Override
     public Sha1HashCode getAbiKey() {
-      return new Sha1HashCode(abiKeyHash);
+      return ImmutableSha1HashCode.of(abiKeyHash);
     }
   }
 }

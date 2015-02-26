@@ -15,6 +15,9 @@ java_library(
 
 java_library(
   name = 'fat-jar-main',
+  # Maximum compatibility
+  source = '6',
+  target = '6',
   srcs = [
     'FatJar.java',
     'FatJarMain.java',
@@ -53,9 +56,11 @@ java_library(
     'JavaBuckConfig.java',
   ],
   deps = [
+    ':javac',
     ':support',
     '//third-party/java/guava:guava',
     '//src/com/facebook/buck/cli:config',
+    '//src/com/facebook/buck/rules:build_rule',
     '//src/com/facebook/buck/util:exceptions',
     '//src/com/facebook/buck/util:io',
   ],
@@ -74,28 +79,58 @@ java_library(
   visibility = ['PUBLIC'],
 )
 
-java_library(
+java_immutables_library(
+  name = 'javac',
+  srcs = [
+    'ExternalJavac.java',
+    'Javac.java',
+    'JavacErrorParser.java',
+    'JavacVersion.java',
+    'Jsr199Javac.java',
+    'ZipEntryJavaFileObject.java',
+  ],
+  deps = [
+    ':packagefinder',
+    '//src/com/facebook/buck/event:event',
+    '//src/com/facebook/buck/io:io',
+    '//src/com/facebook/buck/log:log',
+    '//src/com/facebook/buck/model:model',
+    '//src/com/facebook/buck/rules:build_rule',
+    '//src/com/facebook/buck/step:step',
+    '//src/com/facebook/buck/util:exceptions',
+    '//src/com/facebook/buck/util:io',
+    '//src/com/facebook/buck/util:util',
+    '//src/com/facebook/buck/zip:unzip',
+    '//third-party/java/guava:guava',
+    '//third-party/java/jsr:jsr305',
+  ],
+  visibility = ['PUBLIC'],
+)
+
+java_immutables_library(
   name = 'support',
   srcs = [
-    'AnnotationProcessingDataDecorator.java',
-    'AnnotationProcessingDataDecorators.java',
     'AnnotationProcessingParams.java',
+    'BuildsAnnotationProcessor.java',
     'HasClasspathEntries.java',
     'HasJavaAbi.java',
+    'Javac.java',
     'JavaLibrary.java',
-    'JavacVersion.java',
     'JavacOptions.java',
-    'JavaCompilerEnvironment.java',
   ],
   deps = [
     ':classhash',
+    ':javac',
     '//src/com/facebook/buck/io:io',
     '//src/com/facebook/buck/java/abi:protocol',
     '//src/com/facebook/buck/model:model',
     '//src/com/facebook/buck/rules:build_rule',
     '//src/com/facebook/buck/rules:rules',
+    '//src/com/facebook/buck/step:step',
     '//src/com/facebook/buck/util:constants',
     '//src/com/facebook/buck/util:exceptions',
+    '//src/com/facebook/buck/util:io',
+    '//src/com/facebook/buck/util:util',
     '//third-party/java/guava:guava',
     '//third-party/java/jsr:jsr305',
   ],
@@ -141,6 +176,7 @@ java_library(
     'FatJarMain.java',
   ],
   deps = [
+    ':javac',
     ':classhash',
     ':fat-jar-main',
     ':nativelinkable',
@@ -181,19 +217,15 @@ java_library(
     'AccumulateClassNamesStep.java',
     'CalculateAbiStep.java',
     'CopyResourcesStep.java',
-    'ExternalJavacStep.java',
     'GenerateCodeCoverageReportStep.java',
     'JarDirectoryStep.java',
     'JarDirectoryStepHelper.java',
-    'JavacErrorParser.java',
-    'JavacInMemoryStep.java',
     'JavacStep.java',
-    'JavacStepUtil.java',
     'JUnitStep.java',
     'TestType.java',
-    'ZipEntryJavaFileObject.java',
   ],
   deps = [
+    ':javac',
     ':packagefinder',
     ':report-generator',
     ':support',
@@ -240,6 +272,7 @@ java_library(
     '//src/com/facebook/buck/io:io',
     '//src/com/facebook/buck/json:json',
     '//src/com/facebook/buck/model:model',
+    '//src/com/facebook/buck/parser:config',
     '//src/com/facebook/buck/rules:build_rule',
     '//src/com/facebook/buck/util:constants',
     '//src/com/facebook/buck/util:io',

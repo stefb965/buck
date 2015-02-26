@@ -33,8 +33,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Ordering;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Ordering;
 import com.google.common.collect.Sets;
 import com.google.common.hash.Hashing;
 import com.google.common.io.ByteStreams;
@@ -51,6 +51,7 @@ import java.io.StringReader;
 import java.nio.file.CopyOption;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileSystems;
+import java.nio.file.FileVisitOption;
 import java.nio.file.FileVisitor;
 import java.nio.file.LinkOption;
 import java.nio.file.NoSuchFileException;
@@ -61,6 +62,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileAttribute;
 import java.nio.file.attribute.FileTime;
 import java.util.Collection;
+import java.util.EnumSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -132,21 +134,28 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   private final Clock clock;
 
   public FakeProjectFilesystem() {
-    this(new FakeClock(0), Paths.get(".").toFile());
+    this(new FakeClock(0), Paths.get(".").toFile(), ImmutableSet.<Path>of());
   }
 
   // We accept a File here since that's what's returned by TemporaryFolder.
   public FakeProjectFilesystem(File root) {
-    this(new FakeClock(0), root);
+    this(new FakeClock(0), root, ImmutableSet.<Path>of());
   }
 
   public FakeProjectFilesystem(Clock clock) {
-    this(clock, Paths.get(".").toFile());
+    this(clock, Paths.get(".").toFile(), ImmutableSet.<Path>of());
   }
 
-  public FakeProjectFilesystem(Clock clock, File root) {
+  public FakeProjectFilesystem(Set<Path> files) {
+    this(new FakeClock(0), Paths.get(".").toFile(), files);
+  }
+
+  public FakeProjectFilesystem(Clock clock, File root, Set<Path> files) {
     super(root.toPath());
     fileContents = Maps.newHashMap();
+    for (Path file : files) {
+      fileContents.put(file, new byte[0]);
+    }
     fileAttributes = Maps.newHashMap();
     fileLastModifiedTimes = Maps.newHashMap();
     symLinks = Maps.newHashMap();
@@ -278,11 +287,6 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   @Override
   public void walkFileTree(Path root, FileVisitor<Path> fileVisitor) throws IOException {
     throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public ImmutableSet<Path> getFilesUnderPath(Path pathRelativeToProjectRoot) throws IOException {
-    return ImmutableSet.of();
   }
 
   @Override
@@ -465,11 +469,11 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
    * {@code fileVisitor}.
    */
   @Override
-  public void walkRelativeFileTree(Path path, FileVisitor<Path> fileVisitor) throws IOException {
-    Preconditions.checkArgument(
-        !fileContents.containsKey(path),
-        "FakeProjectFilesystem only supports walkRelativeFileTree over directories.");
-    for (Path file : getFilesUnderDir(path)) {
+  public void walkRelativeFileTree(
+      Path path,
+      EnumSet<FileVisitOption> visitOptions,
+      FileVisitor<Path> fileVisitor) throws IOException {
+    for (Path file : filesUnderPath(path)) {
       fileVisitor.visitFile(file, DEFAULT_FILE_ATTRIBUTES);
     }
   }
@@ -478,7 +482,7 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
     writeContentsToPath("", path);
   }
 
-  private Collection<Path> getFilesUnderDir(final Path dirPath) {
+  private Collection<Path> filesUnderPath(final Path dirPath) {
     return Collections2.filter(fileContents.keySet(), new Predicate<Path>() {
           @Override
           public boolean apply(Path input) {

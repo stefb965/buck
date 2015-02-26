@@ -16,6 +16,7 @@
 
 package com.facebook.buck.shell;
 
+import com.facebook.buck.android.AndroidPlatformTarget;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.HasOutputName;
@@ -34,7 +35,6 @@ import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirAndSymlinkFileStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
-import com.facebook.buck.android.AndroidPlatformTarget;
 import com.facebook.buck.util.BuckConstant;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
@@ -159,14 +159,14 @@ public class Genrule extends AbstractBuildRule implements HasOutputName {
     this.pathToTmpDirectory = Paths.get(
         BuckConstant.GEN_DIR,
         target.getBasePathWithSlash(),
-        String.format("%s__tmp", target.getShortName()));
+        String.format("%s__tmp", target.getShortNameAndFlavorPostfix()));
     // TODO(simons): pathToTmpDirectory.toAbsolutePath() should be enough
     this.absolutePathToTmpDirectory = relativeToAbsolutePathFunction.apply(pathToTmpDirectory);
 
     this.pathToSrcDirectory = Paths.get(
         BuckConstant.GEN_DIR,
         target.getBasePathWithSlash(),
-        String.format("%s__srcs", target.getShortName()));
+        String.format("%s__srcs", target.getShortNameAndFlavorPostfix()));
     // TODO(simons): And here.
     this.absolutePathToSrcDirectory = relativeToAbsolutePathFunction.apply(pathToSrcDirectory);
 
@@ -191,10 +191,10 @@ public class Genrule extends AbstractBuildRule implements HasOutputName {
   @Override
   public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
     return builder
-        .set("cmd", cmd)
-        .set("bash", bash)
-        .set("cmd_exe", cmdExe)
-        .set("out", out);
+        .setReflectively("cmd", cmd)
+        .setReflectively("bash", bash)
+        .setReflectively("cmd_exe", cmdExe)
+        .setReflectively("out", out);
   }
 
   public ImmutableList<Path> getSrcs() {

@@ -18,19 +18,20 @@ package com.facebook.buck.apple;
 
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxLibraryDescription;
+import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxSource;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
+import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.Flavored;
+import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.ImmutableBuildRuleType;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.coercer.Either;
-import com.facebook.buck.model.Pair;
 import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
 import com.google.common.collect.FluentIterable;
@@ -38,20 +39,20 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.Map;
 import java.util.Set;
 
 public class AppleLibraryDescription implements
     Description<AppleNativeTargetDescriptionArg>, Flavored {
-  public static final BuildRuleType TYPE = new BuildRuleType("apple_library");
+  public static final BuildRuleType TYPE = ImmutableBuildRuleType.of("apple_library");
 
   private static final Set<Flavor> SUPPORTED_FLAVORS = ImmutableSet.of(
       CompilationDatabase.COMPILATION_DATABASE,
-      Flavor.DEFAULT,
-      AbstractAppleNativeTargetBuildRuleDescriptions.HEADERS,
+      AppleDescriptions.HEADERS,
       CxxDescriptionEnhancer.HEADER_SYMLINK_TREE_FLAVOR,
       CxxDescriptionEnhancer.STATIC_FLAVOR,
       CxxDescriptionEnhancer.SHARED_FLAVOR,
-      new Flavor("default"));
+      ImmutableFlavor.of("default"));
 
   private static final Predicate<Flavor> IS_SUPPORTED_FLAVOR = new Predicate<Flavor>() {
     @Override
@@ -62,10 +63,18 @@ public class AppleLibraryDescription implements
 
   private final AppleConfig appleConfig;
   private final CxxLibraryDescription delegate;
+  private final FlavorDomain<CxxPlatform> cxxPlatformFlavorDomain;
+  private final ImmutableMap<CxxPlatform, AppleSdkPaths> appleCxxPlatformsToAppleSdkPaths;
 
-  public AppleLibraryDescription(AppleConfig appleConfig, CxxLibraryDescription delegate) {
+  public AppleLibraryDescription(
+      AppleConfig appleConfig,
+      CxxLibraryDescription delegate,
+      FlavorDomain<CxxPlatform> cxxPlatformFlavorDomain,
+      Map<CxxPlatform, AppleSdkPaths> appleCxxPlatformsToAppleSdkPaths) {
     this.appleConfig = appleConfig;
     this.delegate = delegate;
+    this.cxxPlatformFlavorDomain = cxxPlatformFlavorDomain;
+    this.appleCxxPlatformsToAppleSdkPaths = ImmutableMap.copyOf(appleCxxPlatformsToAppleSdkPaths);
   }
 
   @Override
@@ -91,7 +100,7 @@ public class AppleLibraryDescription implements
       A args) {
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
     TargetSources targetSources = TargetSources.ofAppleSources(pathResolver, args.srcs.get());
-    Optional<BuildRule> flavoredRule = AbstractAppleNativeTargetBuildRuleDescriptions
+    Optional<BuildRule> flavoredRule = AppleDescriptions
         .createFlavoredRule(
             params,
             resolver,
@@ -104,31 +113,25 @@ public class AppleLibraryDescription implements
     }
 
     CxxLibraryDescription.Arg delegateArg = delegate.createUnpopulatedConstructorArg();
-    delegateArg.srcs = Optional.of(
-        Either.<ImmutableList<SourcePath>, ImmutableMap<String, SourcePath>>ofLeft(
-            ImmutableList.copyOf(targetSources.srcPaths)));
-    delegateArg.headers = Optional.of(
-        Either.<ImmutableList<SourcePath>, ImmutableMap<String, SourcePath>>ofLeft(
-            ImmutableList.copyOf(targetSources.headerPaths)));
-    delegateArg.compilerFlags = Optional.of(ImmutableList.<String>of());
-    delegateArg.preprocessorFlags = Optional.of(ImmutableList.<String>of());
-    delegateArg.langPreprocessorFlags = Optional.of(
-        ImmutableMap.<CxxSource.Type, ImmutableList<String>>of());
-    delegateArg.lexSrcs = Optional.of(ImmutableList.<SourcePath>of());
-    delegateArg.yaccSrcs = Optional.of(ImmutableList.<SourcePath>of());
-    delegateArg.deps = args.deps;
-    delegateArg.headerNamespace = args.headerPathPrefix.or(
-        Optional.of(params.getBuildTarget().getShortNameOnly()));
+    CxxLibraryDescription.TypeAndPlatform typeAndPlatform =
+        CxxLibraryDescription.getTypeAndPlatform(
+            params.getBuildTarget(),
+            cxxPlatformFlavorDomain);
+    Optional<AppleSdkPaths> appleSdkPaths = Optional.fromNullable(
+        appleCxxPlatformsToAppleSdkPaths.get(typeAndPlatform.getPlatform()));
+    AppleDescriptions.populateCxxConstructorArg(
+        delegateArg,
+        args,
+        params.getBuildTarget(),
+        targetSources,
+        appleSdkPaths);
     delegateArg.exportedPreprocessorFlags = Optional.of(ImmutableList.<String>of());
     delegateArg.exportedLangPreprocessorFlags = Optional.of(
         ImmutableMap.<CxxSource.Type, ImmutableList<String>>of());
-    delegateArg.linkerFlags = Optional.of(ImmutableList.<String>of());
-    delegateArg.platformLinkerFlags =
-        Optional.of(ImmutableList.<Pair<String, ImmutableList<String>>>of());
     delegateArg.soname = Optional.absent();
     delegateArg.linkWhole = Optional.of(!isSharedLibraryTarget(params.getBuildTarget()));
 
-    return delegate.createBuildRule(params, resolver, delegateArg);
+    return delegate.createBuildRule(params, resolver, delegateArg, typeAndPlatform);
   }
 
   public static boolean isSharedLibraryTarget(BuildTarget target) {

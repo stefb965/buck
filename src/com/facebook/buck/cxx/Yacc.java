@@ -64,17 +64,17 @@ public class Yacc extends AbstractBuildRule {
 
   @Override
   protected ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return getResolver().filterInputsToCompareToOutput(ImmutableList.of(input));
+    return getResolver().filterInputsToCompareToOutput(input);
   }
 
   @Override
   protected RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
     return builder
-        .setInput("yacc", yacc)
-        .set("flags", flags)
-        .set("outputPrefix", outputPrefix.toString())
+        .setReflectively("yacc", yacc)
+        .setReflectively("flags", flags)
+        .setReflectively("outputPrefix", outputPrefix.toString())
         // The input name gets baked into line markers.
-        .set("input", input.toString());
+        .setReflectively("input", input.toString());
   }
 
   @Override

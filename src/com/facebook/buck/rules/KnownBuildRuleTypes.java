@@ -16,9 +16,11 @@
 
 package com.facebook.buck.rules;
 
+import com.facebook.buck.android.AndroidAarDescription;
 import com.facebook.buck.android.AndroidBinary;
 import com.facebook.buck.android.AndroidBinaryDescription;
 import com.facebook.buck.android.AndroidBuildConfigDescription;
+import com.facebook.buck.android.AndroidDirectoryResolver;
 import com.facebook.buck.android.AndroidInstrumentationApkDescription;
 import com.facebook.buck.android.AndroidLibraryDescription;
 import com.facebook.buck.android.AndroidManifestDescription;
@@ -27,6 +29,7 @@ import com.facebook.buck.android.AndroidResourceDescription;
 import com.facebook.buck.android.ApkGenruleDescription;
 import com.facebook.buck.android.GenAidlDescription;
 import com.facebook.buck.android.NdkCxxPlatform;
+import com.facebook.buck.android.NdkCxxPlatforms;
 import com.facebook.buck.android.NdkLibraryDescription;
 import com.facebook.buck.android.PrebuiltNativeLibraryDescription;
 import com.facebook.buck.android.ProGuardConfig;
@@ -35,7 +38,7 @@ import com.facebook.buck.apple.AppleAssetCatalogDescription;
 import com.facebook.buck.apple.AppleBinaryDescription;
 import com.facebook.buck.apple.AppleBundleDescription;
 import com.facebook.buck.apple.AppleConfig;
-import com.facebook.buck.apple.AppleCxxPlatform;
+import com.facebook.buck.apple.AppleCxxPlatforms;
 import com.facebook.buck.apple.AppleLibraryDescription;
 import com.facebook.buck.apple.AppleResourceDescription;
 import com.facebook.buck.apple.AppleSdk;
@@ -47,6 +50,8 @@ import com.facebook.buck.apple.CoreDataModelDescription;
 import com.facebook.buck.apple.IosPostprocessResourcesDescription;
 import com.facebook.buck.apple.XcodeProjectConfigDescription;
 import com.facebook.buck.apple.XcodeWorkspaceConfigDescription;
+import com.facebook.buck.apple.graphql.GraphQLConfig;
+import com.facebook.buck.apple.graphql.GraphQLDataDescription;
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.cxx.CxxBinaryDescription;
 import com.facebook.buck.cxx.CxxBuckConfig;
@@ -54,10 +59,11 @@ import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPythonExtensionDescription;
 import com.facebook.buck.cxx.CxxTestDescription;
-import com.facebook.buck.cxx.DefaultCxxPlatform;
+import com.facebook.buck.cxx.DefaultCxxPlatforms;
 import com.facebook.buck.cxx.PrebuiltCxxLibraryDescription;
 import com.facebook.buck.extension.BuckExtensionDescription;
 import com.facebook.buck.file.Downloader;
+import com.facebook.buck.file.ExplodingDownloader;
 import com.facebook.buck.file.HttpDownloader;
 import com.facebook.buck.file.RemoteFileDescription;
 import com.facebook.buck.gwt.GwtBinaryDescription;
@@ -70,6 +76,7 @@ import com.facebook.buck.java.KeystoreDescription;
 import com.facebook.buck.java.PrebuiltJarDescription;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
+import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.ocaml.OCamlBinaryDescription;
 import com.facebook.buck.ocaml.OCamlBuckConfig;
 import com.facebook.buck.ocaml.OCamlLibraryDescription;
@@ -89,7 +96,6 @@ import com.facebook.buck.thrift.ThriftCxxEnhancer;
 import com.facebook.buck.thrift.ThriftJavaEnhancer;
 import com.facebook.buck.thrift.ThriftLibraryDescription;
 import com.facebook.buck.thrift.ThriftPythonEnhancer;
-import com.facebook.buck.android.AndroidDirectoryResolver;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.environment.Platform;
@@ -175,15 +181,15 @@ public class KnownBuildRuleTypes {
         ImmutableMap.builder();
 
     NdkCxxPlatform armeabi =
-        new NdkCxxPlatform(
-            new Flavor("android-arm"),
+        NdkCxxPlatforms.build(
+            ImmutableFlavor.of("android-arm"),
             platform,
             ndkRoot,
-            new NdkCxxPlatform.TargetConfiguration(
-                NdkCxxPlatform.Toolchain.ARM_LINUX_ADNROIDEABI_4_8,
-                NdkCxxPlatform.ToolchainPrefix.ARM_LINUX_ANDROIDEABI,
-                NdkCxxPlatform.TargetArch.ARM,
-                NdkCxxPlatform.TargetArchAbi.ARMEABI,
+            new NdkCxxPlatforms.TargetConfiguration(
+                NdkCxxPlatforms.Toolchain.ARM_LINUX_ADNROIDEABI_4_8,
+                NdkCxxPlatforms.ToolchainPrefix.ARM_LINUX_ANDROIDEABI,
+                NdkCxxPlatforms.TargetArch.ARM,
+                NdkCxxPlatforms.TargetArchAbi.ARMEABI,
                 /* androidPlatform */ "android-9",
                 /* compilerVersion */ "4.8",
                 /* compilerFlags */ ImmutableList.of(
@@ -192,18 +198,18 @@ public class KnownBuildRuleTypes {
                     "-msoft-float",
                     "-mthumb",
                     "-Os")),
-            NdkCxxPlatform.CxxRuntime.GNUSTL);
+            NdkCxxPlatforms.CxxRuntime.GNUSTL);
     ndkCxxPlatformBuilder.put(AndroidBinary.TargetCpuType.ARM, armeabi);
     NdkCxxPlatform armeabiv7 =
-        new NdkCxxPlatform(
-            new Flavor("android-armv7"),
+        NdkCxxPlatforms.build(
+            ImmutableFlavor.of("android-armv7"),
             platform,
             ndkRoot,
-            new NdkCxxPlatform.TargetConfiguration(
-                NdkCxxPlatform.Toolchain.ARM_LINUX_ADNROIDEABI_4_8,
-                NdkCxxPlatform.ToolchainPrefix.ARM_LINUX_ANDROIDEABI,
-                NdkCxxPlatform.TargetArch.ARM,
-                NdkCxxPlatform.TargetArchAbi.ARMEABI_V7A,
+            new NdkCxxPlatforms.TargetConfiguration(
+                NdkCxxPlatforms.Toolchain.ARM_LINUX_ADNROIDEABI_4_8,
+                NdkCxxPlatforms.ToolchainPrefix.ARM_LINUX_ANDROIDEABI,
+                NdkCxxPlatforms.TargetArch.ARM,
+                NdkCxxPlatforms.TargetArchAbi.ARMEABI_V7A,
                 /* androidPlatform */ "android-9",
                 /* compilerVersion */ "4.8",
                 /* compilerFlags */ ImmutableList.of(
@@ -213,25 +219,25 @@ public class KnownBuildRuleTypes {
                     "-mfloat-abi=softfp",
                     "-mthumb",
                     "-Os")),
-            NdkCxxPlatform.CxxRuntime.GNUSTL);
+            NdkCxxPlatforms.CxxRuntime.GNUSTL);
     ndkCxxPlatformBuilder.put(AndroidBinary.TargetCpuType.ARMV7, armeabiv7);
     NdkCxxPlatform x86 =
-        new NdkCxxPlatform(
-            new Flavor("android-x86"),
+        NdkCxxPlatforms.build(
+            ImmutableFlavor.of("android-x86"),
             platform,
             ndkRoot,
-            new NdkCxxPlatform.TargetConfiguration(
-                NdkCxxPlatform.Toolchain.X86_4_8,
-                NdkCxxPlatform.ToolchainPrefix.I686_LINUX_ANDROID,
-                NdkCxxPlatform.TargetArch.X86,
-                NdkCxxPlatform.TargetArchAbi.X86,
+            new NdkCxxPlatforms.TargetConfiguration(
+                NdkCxxPlatforms.Toolchain.X86_4_8,
+                NdkCxxPlatforms.ToolchainPrefix.I686_LINUX_ANDROID,
+                NdkCxxPlatforms.TargetArch.X86,
+                NdkCxxPlatforms.TargetArchAbi.X86,
                 /* androidPlatform */ "android-9",
                 /* compilerVersion */ "4.8",
                 /* compilerFlags */ ImmutableList.of(
                     "-funswitch-loops",
                     "-finline-limit=300",
                     "-O2")),
-            NdkCxxPlatform.CxxRuntime.GNUSTL);
+            NdkCxxPlatforms.CxxRuntime.GNUSTL);
     ndkCxxPlatformBuilder.put(AndroidBinary.TargetCpuType.X86, x86);
 
     return ndkCxxPlatformBuilder.build();
@@ -240,7 +246,7 @@ public class KnownBuildRuleTypes {
   private static void buildAppleCxxPlatforms(
       Supplier<Path> appleDeveloperDirectorySupplier,
       Platform buildPlatform,
-      ImmutableSet.Builder<CxxPlatform> appleCxxPlatformsBuilder)
+      ImmutableMap.Builder<CxxPlatform, AppleSdkPaths> appleCxxPlatformsToAppleSdkPathsBuilder)
       throws IOException {
     if (!buildPlatform.equals(Platform.MACOS)) {
       return;
@@ -262,17 +268,17 @@ public class KnownBuildRuleTypes {
 
     for (Map.Entry<AppleSdk, AppleSdkPaths> entry : sdkPaths.entrySet()) {
       AppleSdk sdk = entry.getKey();
-      for (String architecture : sdk.architectures()) {
-        CxxPlatform appleCxxPlatform = new AppleCxxPlatform(
-            buildPlatform,
-            sdk.applePlatform(),
-            sdk.name(),
+      AppleSdkPaths appleSdkPaths = entry.getValue();
+      for (String architecture : sdk.getArchitectures()) {
+        CxxPlatform appleCxxPlatform = AppleCxxPlatforms.build(
+            sdk.getApplePlatform(),
+            sdk.getName(),
             // TODO(user): Support targeting earlier OS versions; this
             // targets the exact version of the SDK.
-            sdk.version(),
+            sdk.getVersion(),
             architecture,
-            entry.getValue());
-        appleCxxPlatformsBuilder.add(appleCxxPlatform);
+            appleSdkPaths);
+        appleCxxPlatformsToAppleSdkPathsBuilder.put(appleCxxPlatform, appleSdkPaths);
       }
     }
   }
@@ -294,13 +300,14 @@ public class KnownBuildRuleTypes {
     }
 
     AppleConfig appleConfig = new AppleConfig(config);
-    ImmutableSet.Builder<CxxPlatform> appleCxxPlatformsBuilder =
-        ImmutableSet.builder();
+    ImmutableMap.Builder<CxxPlatform, AppleSdkPaths> appleCxxPlatformsToAppleSdkPathsBuilder =
+        ImmutableMap.builder();
     buildAppleCxxPlatforms(
         appleConfig.getAppleDeveloperDirectorySupplier(processExecutor),
         platform,
-        appleCxxPlatformsBuilder);
-    ImmutableSet<CxxPlatform> appleCxxPlatforms = appleCxxPlatformsBuilder.build();
+        appleCxxPlatformsToAppleSdkPathsBuilder);
+    ImmutableMap<CxxPlatform, AppleSdkPaths> appleCxxPlatformsToAppleSdkPaths =
+        appleCxxPlatformsToAppleSdkPathsBuilder.build();
 
     // Construct the thrift config wrapping the buck config.
     ThriftBuckConfig thriftBuckConfig = new ThriftBuckConfig(config);
@@ -323,17 +330,19 @@ public class KnownBuildRuleTypes {
     ImmutableMap.Builder<Flavor, CxxPlatform> cxxPlatformsBuilder = ImmutableMap.builder();
 
     // Add the default, config-defined C/C++ platform.
-    DefaultCxxPlatform defaultCxxPlatform = new DefaultCxxPlatform(platform, config);
-    cxxPlatformsBuilder.put(defaultCxxPlatform.asFlavor(), defaultCxxPlatform);
+    CxxPlatform defaultCxxPlatform = DefaultCxxPlatforms.build(platform, config);
+    cxxPlatformsBuilder.put(defaultCxxPlatform.getFlavor(), defaultCxxPlatform);
 
     // If an Android NDK is present, add platforms for that.  This is mostly useful for
     // testing our Android NDK support for right now.
-    for (CxxPlatform ndkCxxPlatform : ndkCxxPlatforms.values()) {
-      cxxPlatformsBuilder.put(ndkCxxPlatform.asFlavor(), ndkCxxPlatform);
+    for (NdkCxxPlatform ndkCxxPlatform : ndkCxxPlatforms.values()) {
+      cxxPlatformsBuilder.put(
+          ndkCxxPlatform.getCxxPlatform().getFlavor(),
+          ndkCxxPlatform.getCxxPlatform());
     }
 
-    for (CxxPlatform appleCxxPlatform : appleCxxPlatforms) {
-      cxxPlatformsBuilder.put(appleCxxPlatform.asFlavor(), appleCxxPlatform);
+    for (CxxPlatform appleCxxPlatform : appleCxxPlatformsToAppleSdkPaths.keySet()) {
+      cxxPlatformsBuilder.put(appleCxxPlatform.getFlavor(), appleCxxPlatform);
     }
 
     // Build up the final list of C/C++ platforms.
@@ -356,8 +365,12 @@ public class KnownBuildRuleTypes {
     // Default maven repo, if set
     Optional<String> defaultMavenRepo = config.getValue("download", "maven_repo");
     boolean downloadAtRuntimeOk = config.getBooleanValue("download", "in_build", false);
-    Downloader downloader = new HttpDownloader(Optional.<Proxy>absent(), defaultMavenRepo);
-
+    Downloader downloader;
+    if (downloadAtRuntimeOk) {
+      downloader = new HttpDownloader(Optional.<Proxy>absent(), defaultMavenRepo);
+    } else {
+      downloader = new ExplodingDownloader();
+    }
 
     Builder builder = builder();
 
@@ -376,9 +389,16 @@ public class KnownBuildRuleTypes {
         cxxPlatforms);
 
     AppleLibraryDescription appleLibraryDescription =
-        new AppleLibraryDescription(appleConfig, cxxLibraryDescription);
+        new AppleLibraryDescription(
+            appleConfig,
+            cxxLibraryDescription,
+            cxxPlatforms,
+            appleCxxPlatformsToAppleSdkPaths);
     builder.register(appleLibraryDescription);
 
+    builder.register(new AndroidAarDescription(
+            new AndroidManifestDescription(),
+            new JavaBinaryDescription(defaultJavacOptions, defaultCxxPlatform)));
     builder.register(
         new AndroidBinaryDescription(
             androidBinaryOptions,
@@ -387,16 +407,21 @@ public class KnownBuildRuleTypes {
     builder.register(new AndroidBuildConfigDescription(androidBinaryOptions));
     builder.register(new AndroidInstrumentationApkDescription(
             proGuardConfig,
-            androidBinaryOptions));
+            androidBinaryOptions,
+            ndkCxxPlatforms));
     builder.register(new AndroidLibraryDescription(androidBinaryOptions));
     builder.register(new AndroidManifestDescription());
     builder.register(new AndroidPrebuiltAarDescription(androidBinaryOptions));
     builder.register(new AndroidResourceDescription());
     builder.register(new ApkGenruleDescription());
     builder.register(new AppleAssetCatalogDescription());
-    builder.register(new AppleBinaryDescription(appleConfig, cxxBinaryDescription));
+    builder.register(
+        new AppleBinaryDescription(
+            appleConfig,
+            cxxBinaryDescription,
+            cxxPlatforms,
+            appleCxxPlatformsToAppleSdkPaths));
     builder.register(new AppleBundleDescription());
-    builder.register(new AppleLibraryDescription(appleConfig, cxxLibraryDescription));
     builder.register(new AppleResourceDescription());
     builder.register(new AppleTestDescription(appleLibraryDescription));
     builder.register(new BuckExtensionDescription(defaultJavacOptions));
@@ -409,6 +434,7 @@ public class KnownBuildRuleTypes {
     builder.register(new GenruleDescription());
     builder.register(new GenAidlDescription());
     builder.register(new GenParcelableDescription());
+    builder.register(new GraphQLDataDescription(new GraphQLConfig(config)));
     builder.register(new GwtBinaryDescription());
     builder.register(new IosPostprocessResourcesDescription());
     builder.register(new JavaBinaryDescription(defaultJavacOptions, defaultCxxPlatform));
@@ -437,8 +463,10 @@ public class KnownBuildRuleTypes {
             pythonEnv,
             defaultCxxPlatform,
             cxxPlatforms));
-    builder.register(new RemoteFileDescription(downloadAtRuntimeOk, downloader));
-    builder.register(new RobolectricTestDescription(androidBinaryOptions, testRuleTimeoutMs));
+    builder.register(new RemoteFileDescription(downloader));
+    builder.register(new RobolectricTestDescription(
+            androidBinaryOptions,
+            testRuleTimeoutMs));
     builder.register(new ShBinaryDescription());
     builder.register(new ShTestDescription());
     builder.register(

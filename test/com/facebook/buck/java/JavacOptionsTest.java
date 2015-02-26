@@ -16,24 +16,32 @@
 
 package com.facebook.buck.java;
 
-import static com.facebook.buck.java.JavaCompilationConstants.DEFAULT_JAVAC_ENV;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.testutil.IdentityPathAbsolutifier;
+import com.facebook.buck.testutil.TestConsole;
+import com.facebook.buck.util.ProcessExecutor;
+import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
+import com.google.common.base.Optional;
 import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 
+import org.junit.Assume;
 import org.junit.Test;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Collections;
 
 public class JavacOptionsTest {
@@ -48,7 +56,7 @@ public class JavacOptionsTest {
   @Test
   public void productionBuildsCanBeEnabled() {
     JavacOptions options = createStandardBuilder()
-        .setProductionBuild()
+        .setProductionBuild(true)
         .build();
 
     assertOptionsDoesNotContain(options, "-g");
@@ -78,7 +86,7 @@ public class JavacOptionsTest {
         .build();
 
     JavacOptions options = createStandardBuilder()
-        .setAnnotationProcessingData(params)
+        .setAnnotationProcessingParams(params)
         .build();
 
     assertOptionsContains(options, "-proc:only");
@@ -92,17 +100,30 @@ public class JavacOptionsTest {
         .build();
 
     JavacOptions options = createStandardBuilder()
-        .setAnnotationProcessingData(params)
+        .setAnnotationProcessingParams(params)
         .build();
 
     assertOptionsContains(options, "-processor myproc,theirproc");
   }
 
   @Test
+  public void shouldSetSourceAndTargetLevels() {
+    JavacOptions original = createStandardBuilder()
+        .setSourceLevel("7")
+        .setTargetLevel("5")
+        .build();
+
+    JavacOptions copy = JavacOptions.builder(original).build();
+
+    assertOptionsContains(copy, "-source 7");
+    assertOptionsContains(copy, "-target 5");
+  }
+
+  @Test
   public void shouldAddABootClasspathIfTheMapContainsOne() {
     JavacOptions options = createStandardBuilder()
         .setSourceLevel("5")
-        .setBootclasspathMap(ImmutableMap.of("5", "some-magic.jar:also.jar"))
+        .putSourceToBootclasspath("5", "some-magic.jar:also.jar")
         .build();
 
     ImmutableList.Builder<String> allArgs = ImmutableList.builder();
@@ -117,7 +138,7 @@ public class JavacOptionsTest {
     JavacOptions options = createStandardBuilder()
         .setBootclasspath(expectedBootClasspath)
         .setSourceLevel("5")
-        .setBootclasspathMap(ImmutableMap.of("5", "not-the-right-path.jar"))
+        .putSourceToBootclasspath("5", "not-the-right-path.jar")
         .build();
 
     ImmutableList.Builder<String> allArgs = ImmutableList.builder();
@@ -134,7 +155,7 @@ public class JavacOptionsTest {
     JavacOptions options = createStandardBuilder()
         .setBootclasspath("cake.jar")
         .setSourceLevel("6")
-        .setBootclasspathMap(ImmutableMap.of("5", "some-magic.jar:also.jar"))
+        .putSourceToBootclasspath("5", "some-magic.jar:also.jar")
         .build();
 
     ImmutableList.Builder<String> allArgs = ImmutableList.builder();
@@ -150,12 +171,56 @@ public class JavacOptionsTest {
   public void shouldCopyMapOfSourceLevelToBootclassPathWhenBuildingNewJavacOptions() {
     JavacOptions original = createStandardBuilder()
         .setSourceLevel("5")
-        .setBootclasspathMap(ImmutableMap.of("5", "some-magic.jar:also.jar"))
+        .putSourceToBootclasspath("5", "some-magic.jar:also.jar")
         .build();
 
     JavacOptions copy = JavacOptions.builder(original).build();
 
     assertOptionsContains(copy, "-bootclasspath some-magic.jar:also.jar");
+  }
+
+  @Test
+  public void shouldIncoporateExtraOptionsInOutput() {
+    JavacOptions options = createStandardBuilder()
+        .addExtraArguments("-Xfoobar")
+        .build();
+
+    assertOptionsContains(options, "-Xfoobar");
+  }
+
+  @Test(expected = RuntimeException.class)
+  public void settingTheExternalJavacButNotTheProcessExecutorIsATerribleMistake() {
+    JavacOptions options = createStandardBuilder()
+        .setJavacPath(Paths.get("/example/javac"))
+        .setProcessExecutor(Optional.<ProcessExecutor>absent())
+        .build();
+
+    options.getJavac();
+  }
+
+  @Test
+  public void externalJavacVersionIsReadFromStderrBecauseThatIsWhereJavacWritesIt()
+      throws IOException {
+    Platform current = Platform.detect();
+    Assume.assumeTrue(current != Platform.WINDOWS && current != Platform.UNKNOWN);
+
+    Path tempPath = Files.createTempFile("javac", "spoof");
+    File tempFile = tempPath.toFile();
+    tempFile.deleteOnExit();
+    assertTrue(tempFile.setExecutable(true));
+    // We could use the "-n" syntax, but that doesn't work on all variants of echo. Play it safe.
+    Files.write(tempPath, "echo \"cover-version\" 1>&2".getBytes(UTF_8));
+
+    ImmutableJavacOptions options = createStandardBuilder()
+        .setJavacPath(tempPath)
+        .setProcessExecutor(new ProcessExecutor(new TestConsole()))
+        .build();
+
+    Javac javac = options.getJavac();
+    assertTrue(javac instanceof ExternalJavac);
+
+    JavacVersion seen = javac.getVersion();
+    assertEquals(ImmutableJavacVersion.of("cover-version\n"), seen);
   }
 
   private void assertOptionsContains(JavacOptions options, String param) {
@@ -183,11 +248,9 @@ public class JavacOptionsTest {
     return " " + Joiner.on(" ").join(params) + " ";
   }
 
-  private JavacOptions.Builder createStandardBuilder() {
+  private ImmutableJavacOptions.Builder createStandardBuilder() {
     return JavacOptions.builderForUseInJavaBuckConfig()
         .setSourceLevel("5")
-        .setTargetLevel("5")
-        .setBootclasspathMap(ImmutableMap.<String, String>of())
-        .setJavaCompilerEnvironment(DEFAULT_JAVAC_ENV);
+        .setTargetLevel("5");
   }
 }

@@ -19,7 +19,6 @@ package com.facebook.buck.extension;
 import com.facebook.buck.java.Classpaths;
 import com.facebook.buck.java.CopyResourcesStep;
 import com.facebook.buck.java.JarDirectoryStep;
-import com.facebook.buck.java.JavacInMemoryStep;
 import com.facebook.buck.java.JavacOptions;
 import com.facebook.buck.java.JavacStep;
 import com.facebook.buck.model.BuildTarget;
@@ -100,16 +99,19 @@ public class BuckExtension extends AbstractBuildRule {
 
     steps.add(new MakeCleanDirectoryStep(working));
     steps.add(new MkdirStep(output.getParent()));
-    steps.add(new JavacInMemoryStep(
+
+    steps.add(
+        new JavacStep(
             working,
+            Optional.<Path>absent(),
             ImmutableSet.copyOf(getResolver().getAllPaths(srcs)),
+            Optional.<Path>absent(),
             /* transitive classpath */ ImmutableSortedSet.<Path>of(),
             declaredClasspath,
             javacOptions,
-            Optional.of(getBuildTarget()),
+            getBuildTarget(),
             BuildDependencies.FIRST_ORDER_ONLY,
-            Optional.<JavacStep.SuggestBuildRules>absent(),
-            /* path to sources list */ Optional.<Path>absent()));
+            Optional.<JavacStep.SuggestBuildRules>absent()));
     steps.add(new CopyResourcesStep(
             getResolver(),
             getBuildTarget(),

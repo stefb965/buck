@@ -16,7 +16,7 @@
 
 package org.openqa.selenium.buck.file;
 
-import com.facebook.buck.java.JavacStep;
+import com.facebook.buck.java.Javac;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -55,7 +55,7 @@ public class SrcZipAwareFileBundler {
     for (SourcePath sourcePath : toCopy) {
       Path resolved = resolver.getPath(sourcePath);
 
-      if (resolved.toString().endsWith(JavacStep.SRC_ZIP)) {
+      if (resolved.toString().endsWith(Javac.SRC_ZIP)) {
         steps.add(new UnzipStep(resolved, destinationDir));
         continue;
       }

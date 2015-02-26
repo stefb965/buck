@@ -65,24 +65,24 @@ public class CxxCompile extends AbstractBuildRule {
 
   @Override
   protected ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return ImmutableList.of(getResolver().getPath(input));
+    return getResolver().filterInputsToCompareToOutput(input);
   }
 
   @Override
   protected RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
     builder
-        .set("compiler", compiler)
-        .set("flags", flags)
-        .set("output", output.toString());
+        .setReflectively("compiler", compiler)
+        .setReflectively("flags", flags)
+        .setReflectively("output", output.toString());
 
     if (sanitizer.isPresent()) {
-      builder.set("compilationDirectory", sanitizer.get().getCompilationDirectory());
+      builder.setReflectively("compilationDirectory", sanitizer.get().getCompilationDirectory());
     }
 
     if (plugin.isPresent()) {
       Plugin p = plugin.get();
-      builder.setInput("plugin-" + p.getName(), p.getPath());
-      builder.set("plugin-" + p.getName() + "-flags", p.getFlags());
+      builder.setReflectively("plugin-" + p.getName(), p.getPath());
+      builder.setReflectively("plugin-" + p.getName() + "-flags", p.getFlags());
     }
 
     return builder;

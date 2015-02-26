@@ -190,10 +190,30 @@ public class ProjectWorkspace {
         .add(jar.toString())
         .addAll(ImmutableList.copyOf(args))
         .build();
+    return doRunCommand(command);
+  }
+
+  public ProcessExecutor.Result runCommand(String exe, String... args)
+      throws IOException, InterruptedException {
+    List<String> command = ImmutableList.<String>builder()
+        .add(exe)
+        .addAll(ImmutableList.copyOf(args))
+        .build();
+    return doRunCommand(command);
+  }
+
+  private ProcessExecutor.Result doRunCommand(List<String> command)
+      throws IOException, InterruptedException {
     String[] commandArray = command.toArray(new String[command.size()]);
     Process process = Runtime.getRuntime().exec(commandArray);
     ProcessExecutor executor = new ProcessExecutor(new TestConsole());
-    return executor.execute(process);
+    String currentDir = System.getProperty("user.dir");
+    try {
+      System.setProperty("user.dir", destPath.toAbsolutePath().toString());
+      return executor.execute(process);
+    } finally {
+      System.setProperty("user.dir", currentDir);
+    }
   }
 
   /**
@@ -257,7 +277,8 @@ public class ProjectWorkspace {
         "ANDROID_NDK",
         "ANDROID_NDK_REPOSITORY",
         "ANDROID_SDK",
-        "PATH");
+        "PATH",
+        "PATHEXT");
     ImmutableMap.Builder<String, String> envBuilder = ImmutableMap.builder();
     for (String variable : inheritedEnvVars) {
       String value = System.getenv(variable);

@@ -133,12 +133,12 @@ public class Xpi extends AbstractBuildRule {
   @Override
   public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
     return builder
-        .setInputs("chrome", ImmutableSet.of(chrome).iterator())
-        .setSourcePaths("components", components)
-        .setSourcePaths("content", content)
-        .setInputs("install", ImmutableSet.of(install).iterator())
-        .setSourcePaths("platforms", platforms)
-        .setSourcePaths("resources", resources)
+        .setReflectively("chrome", ImmutableSet.of(chrome).iterator())
+        .setReflectively("components", components)
+        .setReflectively("content", content)
+        .setReflectively("install", ImmutableSet.of(install).iterator())
+        .setReflectively("platforms", platforms)
+        .setReflectively("resources", resources)
         ;
   }
 

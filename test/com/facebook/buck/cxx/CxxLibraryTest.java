@@ -25,6 +25,7 @@ import com.facebook.buck.android.AndroidPackageableCollector;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.python.ImmutablePythonPackageComponents;
 import com.facebook.buck.python.PythonPackageComponents;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -38,7 +39,6 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 
 import org.junit.Test;
 
@@ -52,7 +52,7 @@ public class CxxLibraryTest {
     SourcePathResolver pathResolver = new SourcePathResolver(new BuildRuleResolver());
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     BuildRuleParams params = BuildRuleParamsFactory.createTrivialBuildRuleParams(target);
-    CxxPlatform cxxPlatform = new DefaultCxxPlatform(new FakeBuckConfig());
+    CxxPlatform cxxPlatform = DefaultCxxPlatforms.build(new FakeBuckConfig());
 
     // Setup some dummy values for the header info.
     final BuildTarget headerTarget = BuildTargetFactory.newInstance("//:header");
@@ -74,8 +74,8 @@ public class CxxLibraryTest {
       @Override
       public CxxPreprocessorInput getCxxPreprocessorInput(CxxPlatform cxxPlatform) {
         return CxxPreprocessorInput.builder()
-            .setRules(ImmutableSet.of(headerTarget, headerSymlinkTreeTarget))
-            .setIncludeRoots(headerSymlinkTreeRoot)
+            .addRules(headerTarget, headerSymlinkTreeTarget)
+            .addIncludeRoots(headerSymlinkTreeRoot)
             .build();
       }
 
@@ -84,10 +84,10 @@ public class CxxLibraryTest {
           CxxPlatform cxxPlatform,
           Linker.LinkableDepType type) {
         return type == Linker.LinkableDepType.STATIC ?
-            new NativeLinkableInput(
+            ImmutableNativeLinkableInput.of(
                 ImmutableList.<SourcePath>of(new BuildTargetSourcePath(archive.getBuildTarget())),
                 ImmutableList.of(archiveOutput.toString())) :
-            new NativeLinkableInput(
+            ImmutableNativeLinkableInput.of(
                 ImmutableList.<SourcePath>of(
                     new BuildTargetSourcePath(sharedLibrary.getBuildTarget())),
                 ImmutableList.of(sharedLibraryOutput.toString()));
@@ -95,7 +95,7 @@ public class CxxLibraryTest {
 
       @Override
       public PythonPackageComponents getPythonPackageComponents(CxxPlatform cxxPlatform) {
-        return new PythonPackageComponents(
+        return ImmutablePythonPackageComponents.of(
             ImmutableMap.<Path, SourcePath>of(),
             ImmutableMap.<Path, SourcePath>of(),
             ImmutableMap.<Path, SourcePath>of(
@@ -121,14 +121,14 @@ public class CxxLibraryTest {
     // Verify that we get the header/symlink targets and root via the CxxPreprocessorDep
     // interface.
     CxxPreprocessorInput expectedCxxPreprocessorInput = CxxPreprocessorInput.builder()
-        .setRules(ImmutableSet.of(headerTarget, headerSymlinkTreeTarget))
-        .setIncludeRoots(headerSymlinkTreeRoot)
+        .addRules(headerTarget, headerSymlinkTreeTarget)
+        .addIncludeRoots(headerSymlinkTreeRoot)
         .build();
     assertEquals(expectedCxxPreprocessorInput, cxxLibrary.getCxxPreprocessorInput(cxxPlatform));
 
     // Verify that we get the static archive and it's build target via the NativeLinkable
     // interface.
-    NativeLinkableInput expectedStaticNativeLinkableInput = new NativeLinkableInput(
+    NativeLinkableInput expectedStaticNativeLinkableInput = ImmutableNativeLinkableInput.of(
         ImmutableList.<SourcePath>of(new BuildTargetSourcePath(archive.getBuildTarget())),
         ImmutableList.of(archiveOutput.toString()));
     assertEquals(
@@ -139,7 +139,7 @@ public class CxxLibraryTest {
 
     // Verify that we get the static archive and it's build target via the NativeLinkable
     // interface.
-    NativeLinkableInput expectedSharedNativeLinkableInput = new NativeLinkableInput(
+    NativeLinkableInput expectedSharedNativeLinkableInput = ImmutableNativeLinkableInput.of(
         ImmutableList.<SourcePath>of(new BuildTargetSourcePath(sharedLibrary.getBuildTarget())),
         ImmutableList.of(sharedLibraryOutput.toString()));
     assertEquals(
@@ -149,7 +149,7 @@ public class CxxLibraryTest {
             Linker.LinkableDepType.SHARED));
 
     // Verify that we return the expected output for python packages.
-    PythonPackageComponents expectedPythonPackageComponents = new PythonPackageComponents(
+    PythonPackageComponents expectedPythonPackageComponents = ImmutablePythonPackageComponents.of(
         ImmutableMap.<Path, SourcePath>of(),
         ImmutableMap.<Path, SourcePath>of(),
         ImmutableMap.<Path, SourcePath>of(

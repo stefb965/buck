@@ -26,6 +26,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
+import com.facebook.buck.rules.coercer.ImmutableBuildConfigFields;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -45,10 +46,10 @@ public class AndroidBuildConfigJavaLibraryTest {
         .createBuildRule(
             params,
             "com.example.buck",
-          /* values */ BuildConfigFields.fromFieldDeclarations(
+            /* values */ BuildConfigFields.fromFieldDeclarations(
                 Collections.singleton("String foo = \"bar\"")),
-          /* valuesFile */ Optional.<SourcePath>absent(),
-          /* useConstantExpressions */ false,
+            /* valuesFile */ Optional.<SourcePath>absent(),
+            /* useConstantExpressions */ false,
             DEFAULT_JAVAC_OPTIONS,
             buildRuleResolver);
 
@@ -59,9 +60,9 @@ public class AndroidBuildConfigJavaLibraryTest {
         ImmutableMap.of(
             "com.example.buck",
             BuildConfigFields.fromFields(
-                ImmutableList.of(
-                    new BuildConfigFields.Field("String", "foo", "\"bar\"")))),
-        collection.buildConfigs());
+                ImmutableList.<BuildConfigFields.Field>of(
+                    ImmutableBuildConfigFields.Field.of("String", "foo", "\"bar\"")))),
+        collection.getBuildConfigs());
   }
 
   @Test
@@ -74,9 +75,9 @@ public class AndroidBuildConfigJavaLibraryTest {
         .createBuildRule(
             params,
             "com.example.buck",
-          /* values */ fields,
-          /* valuesFile */ Optional.<SourcePath>absent(),
-          /* useConstantExpressions */ false,
+            /* values */ fields,
+            /* valuesFile */ Optional.<SourcePath>absent(),
+            /* useConstantExpressions */ false,
             DEFAULT_JAVAC_OPTIONS,
             buildRuleResolver);
     AndroidBuildConfig buildConfig = buildConfigJavaLibrary.getAndroidBuildConfig();

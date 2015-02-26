@@ -30,10 +30,12 @@ public class EnvironmentFilter {
 
   // Always exclude environment variables with these names.
   private static final ImmutableSet<String> ENV_TO_REMOVE = ImmutableSet.of(
-      // UUID added to environment by OS X.
-      "TERM_SESSION_ID",
-      // Build ID passed in from Python.
-      "BUCK_BUILD_ID");
+      "BUCK_BUILD_ID",  // Build ID passed in from Python.
+      "BUCK_CLASSPATH", // Main classpath; set in Python
+      "CLASSPATH",      // Bootstrap classpath; set in Python.
+      "TERM_SESSION_ID", // UUID added to environment by OS X.
+      "CMD_DURATION"    // Added to environment by 'fish' shell.
+  );
 
   // Utility class, do not instantiate.
   private EnvironmentFilter() { }
@@ -48,12 +50,12 @@ public class EnvironmentFilter {
    * changes.
    */
   public static ImmutableMap<String, String> filteredEnvironment(
-      ImmutableMap<String, String> environment) {
+      ImmutableMap<String, String> environment, Platform platform) {
     ImmutableMap.Builder<String, String> filteredEnvironmentBuilder = ImmutableMap.builder();
     for (Map.Entry<String, String> envEntry : environment.entrySet()) {
       String key = envEntry.getKey();
       if (!ENV_TO_REMOVE.contains(key)) {
-        if (Platform.detect() == Platform.WINDOWS) {
+        if (platform == Platform.WINDOWS) {
           // Windows environment variables are case insensitive.  While an ImmutableMap will throw
           // if we get duplicate key, we don't have to worry about this for Windows.
           filteredEnvironmentBuilder.put(key.toUpperCase(Locale.US), envEntry.getValue());

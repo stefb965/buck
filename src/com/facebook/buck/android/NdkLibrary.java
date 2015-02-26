@@ -93,7 +93,7 @@ public class NdkLibrary extends AbstractBuildRule
     BuildTarget buildTarget = params.getBuildTarget();
     this.root = buildTarget.getBasePath();
     this.makefile = Preconditions.checkNotNull(makefile);
-    this.lastPathComponent = "__lib" + buildTarget.getShortName();
+    this.lastPathComponent = "__lib" + buildTarget.getShortNameAndFlavorPostfix();
     this.buildArtifactsDirectory = getBuildArtifactsDirectory(buildTarget, true /* isScratchDir */);
     this.genDirectory = getBuildArtifactsDirectory(buildTarget, false /* isScratchDir */);
 
@@ -193,9 +193,9 @@ public class NdkLibrary extends AbstractBuildRule
   @Override
   public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
     return builder
-        .set("ndk_version", ndkVersion.or("NONE"))
-        .set("flags", flags)
-        .set("is_asset", isAsset());
+        .setReflectively("ndk_version", ndkVersion.or("NONE"))
+        .setReflectively("flags", flags)
+        .setReflectively("is_asset", isAsset());
   }
 
   @Override

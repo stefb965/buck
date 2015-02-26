@@ -103,13 +103,13 @@ public class OCamlBuildContext {
   private static Path getArchiveOutputPath(BuildTarget target) {
     return BuildTargets.getGenPath(
         target,
-        "%s/lib" + target.getShortNameOnly() + OCamlCompilables.OCAML_CMXA);
+        "%s/lib" + target.getShortName() + OCamlCompilables.OCAML_CMXA);
   }
 
   private static Path getArchiveBytecodeOutputPath(BuildTarget target) {
     return BuildTargets.getGenPath(
         target,
-        "%s/lib" + target.getShortNameOnly() + OCamlCompilables.OCAML_CMA);
+        "%s/lib" + target.getShortName() + OCamlCompilables.OCAML_CMA);
   }
 
   public static Path getOutputPath(BuildTarget target, boolean isLibrary) {
@@ -117,7 +117,9 @@ public class OCamlBuildContext {
     if (isLibrary) {
       return getArchiveOutputPath(plainTarget);
     } else {
-      return BuildTargets.getBinPath(plainTarget, "%s/" + plainTarget.getShortName() + ".opt");
+      return BuildTargets.getBinPath(
+          plainTarget,
+          "%s/" + plainTarget.getShortNameAndFlavorPostfix() + ".opt");
     }
   }
 
@@ -126,7 +128,9 @@ public class OCamlBuildContext {
     if (isLibrary) {
       return getArchiveBytecodeOutputPath(plainTarget);
     } else {
-      return BuildTargets.getBinPath(plainTarget, "%s/" + plainTarget.getShortName());
+      return BuildTargets.getBinPath(
+          plainTarget,
+          "%s/" + plainTarget.getShortNameAndFlavorPostfix());
     }
   }
 
@@ -331,13 +335,13 @@ public class OCamlBuildContext {
 
   public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
     return builder
-        .setInput("ocamlDepTool", getOcamlDepTool())
-        .setInput("ocamlCompiler", getOcamlCompiler())
-        .setInput("ocamlBytecodeCompiler", getOcamlBytecodeCompiler())
-        .setInput("ocamlDebug", getOcamlDebug())
-        .setInput("yaccCompiler", getYaccCompiler())
-        .setInput("lexCompiler", getLexCompiler())
-        .set("flags", getFlags());
+        .setReflectively("ocamlDepTool", getOcamlDepTool())
+        .setReflectively("ocamlCompiler", getOcamlCompiler())
+        .setReflectively("ocamlBytecodeCompiler", getOcamlBytecodeCompiler())
+        .setReflectively("ocamlDebug", getOcamlDebug())
+        .setReflectively("yaccCompiler", getYaccCompiler())
+        .setReflectively("lexCompiler", getLexCompiler())
+        .setReflectively("flags", getFlags());
   }
 
   public ImmutableList<String> getBytecodeIncludes() {

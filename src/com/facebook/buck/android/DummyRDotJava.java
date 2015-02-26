@@ -104,10 +104,9 @@ public class DummyRDotJava extends AbstractBuildRule
           emptyRDotJava));
       javaSourceFilePaths = ImmutableSet.of(emptyRDotJava);
     } else {
-      MergeAndroidResourcesStep mergeStep = new MergeAndroidResourcesStep(
-              androidResourceDeps,
-              /* uberRDotTxt */ Optional.<Path>absent(),
-              rDotJavaSrcFolder);
+      MergeAndroidResourcesStep mergeStep = MergeAndroidResourcesStep.createStepForDummyRDotJava(
+          androidResourceDeps,
+          rDotJavaSrcFolder);
       steps.add(mergeStep);
       javaSourceFilePaths =
           ImmutableSet.copyOf(getResolver().getAllPaths(mergeStep.getRDotJavaFiles()));
@@ -143,7 +142,7 @@ public class DummyRDotJava extends AbstractBuildRule
 
   @Override
   public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
-    return javacOptions.appendToRuleKey(builder);
+    return javacOptions.appendToRuleKey(builder, "javacOptions");
   }
 
   private static Path getRDotJavaSrcFolder(BuildTarget buildTarget) {

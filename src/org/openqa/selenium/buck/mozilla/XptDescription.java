@@ -20,6 +20,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.ImmutableBuildRuleType;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 
@@ -27,7 +28,7 @@ import java.nio.file.Path;
 
 public class XptDescription implements Description<XptDescription.Arg> {
 
-  private static final BuildRuleType TYPE = new BuildRuleType("mozilla_xpt");
+  private static final BuildRuleType TYPE = ImmutableBuildRuleType.of("mozilla_xpt");
 
   @Override
   public BuildRuleType getBuildRuleType() {

@@ -21,6 +21,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.ImmutableBuildRuleType;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -39,7 +40,7 @@ import java.nio.file.Path;
 public class PrebuiltOCamlLibraryDescription
     implements Description<PrebuiltOCamlLibraryDescription.Arg> {
 
-  public static final BuildRuleType TYPE = new BuildRuleType("prebuilt_ocaml_library");
+  public static final BuildRuleType TYPE = ImmutableBuildRuleType.of("prebuilt_ocaml_library");
 
   @Override
   public BuildRuleType getBuildRuleType() {
@@ -61,7 +62,7 @@ public class PrebuiltOCamlLibraryDescription
 
     final String libDir = args.libDir.or("lib");
 
-    final String libName = args.libName.or(target.getShortNameOnly());
+    final String libName = args.libName.or(target.getShortName());
 
     final String nativeLib = args.nativeLib.or(String.format("%s.cmxa", libName));
     final String bytecodeLib = args.bytecodeLib.or(String.format("%s.cma", libName));

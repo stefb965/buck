@@ -70,6 +70,7 @@ java_test(
     '//src/com/facebook/buck/rules:types',
   ],
   deps = [
+    ':testutil',
     '//src/com/facebook/buck/android:packageable',
     '//src/com/facebook/buck/android:rules',
     '//src/com/facebook/buck/android:steps',
@@ -82,6 +83,7 @@ java_test(
     '//src/com/facebook/buck/io:io',
     '//src/com/facebook/buck/java:classhash',
     '//src/com/facebook/buck/java:config',
+    '//src/com/facebook/buck/java:javac',
     '//src/com/facebook/buck/java:rules',
     '//src/com/facebook/buck/java:support',
     '//src/com/facebook/buck/model:model',
@@ -136,6 +138,5 @@ java_test(
     '//third-party/java/hamcrest:hamcrest-library',
     '//third-party/java/jsr:jsr305',
     '//third-party/java/junit:junit',
-    ':testutil',
   ],
 )

@@ -53,15 +53,15 @@ public class CxxLink extends AbstractBuildRule {
 
   @Override
   protected ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return getResolver().getAllPaths(inputs);
+    return getResolver().filterInputsToCompareToOutput(inputs);
   }
 
   @Override
   protected RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
     return builder
-        .set("linker", linker)
-        .set("output", output.toString())
-        .set("args", args);
+        .setReflectively("linker", linker)
+        .setReflectively("output", output.toString())
+        .setReflectively("args", args);
   }
 
   @Override

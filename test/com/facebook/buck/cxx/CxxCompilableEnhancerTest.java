@@ -50,7 +50,7 @@ import java.util.Map;
 
 public class CxxCompilableEnhancerTest {
 
-  private static final CxxPlatform CXX_PLATFORM = new DefaultCxxPlatform(new FakeBuckConfig());
+  private static final CxxPlatform CXX_PLATFORM = DefaultCxxPlatforms.build(new FakeBuckConfig());
 
   private static <T> void assertContains(ImmutableList<T> container, Iterable<T> items) {
     for (T item : items) {
@@ -79,7 +79,7 @@ public class CxxCompilableEnhancerTest {
     FakeBuildRule dep = createFakeBuildRule("//:test", new SourcePathResolver(resolver));
     resolver.addToIndex(dep);
     SourcePath input = new BuildTargetSourcePath(dep.getBuildTarget());
-    CxxSource cxxSource = new CxxSource(CxxSource.Type.CXX_CPP_OUTPUT, input);
+    CxxSource cxxSource = ImmutableCxxSource.of(CxxSource.Type.CXX_CPP_OUTPUT, input);
 
     CxxCompile cxxCompile = CxxCompilableEnhancer.createCompileBuildRule(
         params,
@@ -101,7 +101,9 @@ public class CxxCompilableEnhancerTest {
     BuildRuleResolver resolver = new BuildRuleResolver();
 
     String name = "foo/bar.ii";
-    CxxSource cxxSource = new CxxSource(CxxSource.Type.CXX_CPP_OUTPUT, new TestSourcePath(name));
+    CxxSource cxxSource = ImmutableCxxSource.of(
+        CxxSource.Type.CXX_CPP_OUTPUT,
+        new TestSourcePath(name));
 
     // Verify building a non-PIC compile rule does *not* have the "-fPIC" flag and has the
     // expected compile target.
@@ -117,7 +119,7 @@ public class CxxCompilableEnhancerTest {
     assertEquals(
         CxxCompilableEnhancer.createCompileBuildTarget(
             target,
-            CXX_PLATFORM.asFlavor(),
+            CXX_PLATFORM.getFlavor(),
             name,
             /* pic */ false),
         noPic.getBuildTarget());
@@ -136,7 +138,7 @@ public class CxxCompilableEnhancerTest {
     assertEquals(
         CxxCompilableEnhancer.createCompileBuildTarget(
             target,
-            CXX_PLATFORM.asFlavor(),
+            CXX_PLATFORM.getFlavor(),
             name,
             /* pic */ true),
         pic.getBuildTarget());
@@ -149,10 +151,12 @@ public class CxxCompilableEnhancerTest {
     BuildRuleResolver resolver = new BuildRuleResolver();
 
     String name = "source.ii";
-    CxxSource cxxSource = new CxxSource(CxxSource.Type.CXX_CPP_OUTPUT, new TestSourcePath(name));
+    CxxSource cxxSource = ImmutableCxxSource.of(
+        CxxSource.Type.CXX_CPP_OUTPUT,
+        new TestSourcePath(name));
 
     ImmutableList<String> platformFlags = ImmutableList.of("-some", "-flags");
-    CxxPlatform platform = new DefaultCxxPlatform(
+    CxxPlatform platform = DefaultCxxPlatforms.build(
         new FakeBuckConfig(
             ImmutableMap.<String, Map<String, String>>of(
                 "cxx", ImmutableMap.of("cxxflags", Joiner.on(" ").join(platformFlags)))));
@@ -202,10 +206,12 @@ public class CxxCompilableEnhancerTest {
                 .put("cxxflags", space.join(cxxflags))
                 .build()),
         filesystem);
-    DefaultCxxPlatform platform = new DefaultCxxPlatform(buckConfig);
+    CxxPlatform platform = DefaultCxxPlatforms.build(buckConfig);
 
     String cSourceName = "test.i";
-    CxxSource cSource = new CxxSource(CxxSource.Type.C_CPP_OUTPUT, new TestSourcePath(cSourceName));
+    CxxSource cSource = ImmutableCxxSource.of(
+        CxxSource.Type.C_CPP_OUTPUT,
+        new TestSourcePath(cSourceName));
     CxxCompile cCompile = CxxCompilableEnhancer.createCompileBuildRule(
         params,
         buildRuleResolver,
@@ -220,7 +226,7 @@ public class CxxCompilableEnhancerTest {
 
     String cxxSourceName = "test.ii";
     CxxSource cxxSource =
-        new CxxSource(CxxSource.Type.CXX_CPP_OUTPUT, new TestSourcePath(cxxSourceName));
+        ImmutableCxxSource.of(CxxSource.Type.CXX_CPP_OUTPUT, new TestSourcePath(cxxSourceName));
     CxxCompile cxxCompile = CxxCompilableEnhancer.createCompileBuildRule(
         params,
         buildRuleResolver,
@@ -234,7 +240,7 @@ public class CxxCompilableEnhancerTest {
     assertContains(cxxCompile.getFlags(), asflags);
 
     String cCppOutputSourceName = "test.i";
-    CxxSource cCppOutputSource = new CxxSource(
+    CxxSource cCppOutputSource = ImmutableCxxSource.of(
         CxxSource.Type.C_CPP_OUTPUT,
         new TestSourcePath(cCppOutputSourceName));
     CxxCompile cCppOutputCompile = CxxCompilableEnhancer.createCompileBuildRule(
@@ -250,7 +256,7 @@ public class CxxCompilableEnhancerTest {
     assertContains(cCppOutputCompile.getFlags(), asflags);
 
     String assemblerSourceName = "test.s";
-    CxxSource assemblerSource = new CxxSource(
+    CxxSource assemblerSource = ImmutableCxxSource.of(
         CxxSource.Type.ASSEMBLER,
         new TestSourcePath(assemblerSourceName));
     CxxCompile assemblerCompile = CxxCompilableEnhancer.createCompileBuildRule(

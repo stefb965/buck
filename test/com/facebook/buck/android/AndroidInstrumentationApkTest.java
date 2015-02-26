@@ -31,6 +31,7 @@ import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TestSourcePath;
 import com.google.common.base.Optional;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -123,8 +124,10 @@ public class AndroidInstrumentationApkTest {
         .build();
     AndroidInstrumentationApk androidInstrumentationApk = (AndroidInstrumentationApk)
         new AndroidInstrumentationApkDescription(
-            new ProGuardConfig(new FakeBuckConfig()), DEFAULT_JAVAC_OPTIONS)
-            .createBuildRule(params, ruleResolver, arg);
+            new ProGuardConfig(new FakeBuckConfig()),
+            DEFAULT_JAVAC_OPTIONS,
+            ImmutableMap.<AndroidBinary.TargetCpuType, NdkCxxPlatform>of())
+                .createBuildRule(params, ruleResolver, arg);
 
     assertEquals(
         "//apps:app should have three JAR files to dex.",
@@ -132,10 +135,10 @@ public class AndroidInstrumentationApkTest {
             Paths.get("buck-out/gen/java/com/example/lib1.jar"),
             Paths.get("buck-out/gen/java/com/example/lib2.jar"),
             Paths.get("buck-out/gen/java/com/example/lib3.jar")),
-        androidBinary.getAndroidPackageableCollection().classpathEntriesToDex());
+        androidBinary.getAndroidPackageableCollection().getClasspathEntriesToDex());
     assertEquals(
         "//apps:instrumentation should have one JAR file to dex.",
         ImmutableSet.of(Paths.get("buck-out/gen/java/com/example/lib4.jar")),
-        androidInstrumentationApk.getAndroidPackageableCollection().classpathEntriesToDex());
+        androidInstrumentationApk.getAndroidPackageableCollection().getClasspathEntriesToDex());
   }
 }

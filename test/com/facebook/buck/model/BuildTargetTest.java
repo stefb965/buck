@@ -28,7 +28,6 @@ import com.google.common.collect.ImmutableSortedSet;
 
 import org.junit.Test;
 
-import java.io.IOException;
 import java.nio.file.Paths;
 
 public class BuildTargetTest {
@@ -36,7 +35,7 @@ public class BuildTargetTest {
   @Test
   public void testRootBuildTarget() {
     BuildTarget rootTarget = BuildTarget.builder("//", "fb4a").build();
-    assertEquals("fb4a", rootTarget.getShortName());
+    assertEquals("fb4a", rootTarget.getShortNameAndFlavorPostfix());
     assertEquals("//", rootTarget.getBaseName());
     assertEquals("//", rootTarget.getBaseNameWithSlash());
     assertEquals(Paths.get(""), rootTarget.getBasePath());
@@ -48,21 +47,13 @@ public class BuildTargetTest {
   @Test
   public void testBuildTargetTwoLevelsDeep() {
     BuildTarget rootTarget = BuildTarget.builder("//java/com/facebook", "fb4a").build();
-    assertEquals("fb4a", rootTarget.getShortName());
+    assertEquals("fb4a", rootTarget.getShortNameAndFlavorPostfix());
     assertEquals("//java/com/facebook", rootTarget.getBaseName());
     assertEquals("//java/com/facebook/", rootTarget.getBaseNameWithSlash());
     assertEquals(Paths.get("java/com/facebook"), rootTarget.getBasePath());
     assertEquals("java/com/facebook/", rootTarget.getBasePathWithSlash());
     assertEquals("//java/com/facebook:fb4a", rootTarget.getFullyQualifiedName());
     assertEquals("//java/com/facebook:fb4a", rootTarget.toString());
-  }
-
-  @Test
-  public void testBuildTargetWithBackslash() throws IOException {
-    BuildTarget rootTargetWithBackslash = BuildTarget.builder(
-        "//com\\microsoft\\windows",
-        "something").build();
-    assertEquals("//com/microsoft/windows", rootTargetWithBackslash.getBaseName());
   }
 
   @Test
@@ -89,24 +80,27 @@ public class BuildTargetTest {
 
   @Test
   public void testBuildTargetWithFlavor() {
-    BuildTarget target = BuildTarget.builder("//foo/bar", "baz").setFlavor("dex").build();
-    assertEquals("baz#dex", target.getShortName());
-    assertEquals(ImmutableSortedSet.of(new Flavor("dex")), target.getFlavors());
+    BuildTarget target = BuildTarget
+        .builder("//foo/bar", "baz")
+        .addFlavors(ImmutableFlavor.of("dex"))
+        .build();
+    assertEquals("baz#dex", target.getShortNameAndFlavorPostfix());
+    assertEquals(ImmutableSortedSet.of(ImmutableFlavor.of("dex")), target.getFlavors());
     assertTrue(target.isFlavored());
   }
 
   @Test
   public void testBuildTargetWithoutFlavor() {
     BuildTarget target = BuildTarget.builder("//foo/bar", "baz").build();
-    assertEquals(target.getShortName(), "baz");
-    assertEquals(ImmutableSortedSet.of(Flavor.DEFAULT), target.getFlavors());
+    assertEquals(target.getShortNameAndFlavorPostfix(), "baz");
+    assertEquals(ImmutableSortedSet.<Flavor>of(), target.getFlavors());
     assertFalse(target.isFlavored());
   }
 
   @Test
   public void testFlavorIsValid() {
     try {
-      BuildTarget.builder("//foo/bar", "baz").addFlavor("d!x").build();
+      BuildTarget.builder("//foo/bar", "baz").addFlavors(ImmutableFlavor.of("d!x")).build();
       fail("Should have thrown IllegalArgumentException.");
     } catch (IllegalArgumentException e) {
       assertEquals("Invalid flavor: d!x", e.getMessage());
@@ -116,7 +110,7 @@ public class BuildTargetTest {
   @Test
   public void testShortNameCannotContainHashWhenFlavorSet() {
     try {
-      BuildTarget.builder("//foo/bar", "baz#dex").addFlavor("src-jar").build();
+      BuildTarget.builder("//foo/bar", "baz#dex").addFlavors(ImmutableFlavor.of("src-jar")).build();
       fail("Should have thrown IllegalArgumentException.");
     } catch (IllegalArgumentException e) {
       assertEquals("Build target name cannot contain '#' but was: baz#dex.", e.getMessage());
@@ -129,9 +123,9 @@ public class BuildTargetTest {
   }
 
   @Test
-  public void testFlavorDefaultsToTheEmptyStringIfNotSet() {
+  public void testFlavorDefaultsToNoneIfNotSet() {
     assertEquals(
-        ImmutableSet.of(Flavor.DEFAULT),
+        ImmutableSet.<Flavor>of(),
         BuildTarget.builder("//foo/bar", "baz").build().getFlavors());
   }
 
@@ -140,26 +134,17 @@ public class BuildTargetTest {
     BuildTarget unflavoredTarget = BuildTarget.builder("//foo/bar", "baz").build();
     assertSame(unflavoredTarget, unflavoredTarget.getUnflavoredTarget());
 
-    BuildTarget flavoredTarget = BuildTarget.builder("//foo/bar", "baz").addFlavor("biz").build();
-    assertEquals(unflavoredTarget, flavoredTarget.getUnflavoredTarget());
-  }
-
-  @Test
-  public void testCanUnflavorATarget() {
-    BuildTarget flavored = BuildTarget.builder("//foo", "bar")
-        .addFlavor(new Flavor("cake"))
+    BuildTarget flavoredTarget = BuildTarget
+        .builder("//foo/bar", "baz")
+        .addFlavors(ImmutableFlavor.of("biz"))
         .build();
-
-    // This might throw an exception if it fails to parse
-    BuildTarget unflavored = BuildTarget.builder(flavored).setFlavor(Flavor.DEFAULT).build();
-
-    assertEquals(ImmutableSet.of(Flavor.DEFAULT), unflavored.getFlavors());
+    assertEquals(unflavoredTarget, flavoredTarget.getUnflavoredTarget());
   }
 
   @Test
   public void testNumbersAreValidFlavors() {
     BuildTarget.builder("//foo", "bar")
-        .addFlavor(new Flavor("1234"))
+        .addFlavors(ImmutableFlavor.of("1234"))
         .build();
   }
 

@@ -55,14 +55,14 @@ public class Archive extends AbstractBuildRule {
 
   @Override
   protected ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return getResolver().getAllPaths(inputs);
+    return getResolver().filterInputsToCompareToOutput(inputs);
   }
 
   @Override
   protected RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
     return builder
-        .set("archiver", archiver)
-        .set("output", output.toString());
+        .setReflectively("archiver", archiver)
+        .setReflectively("output", output.toString());
   }
 
   @Override

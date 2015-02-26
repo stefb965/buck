@@ -27,6 +27,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.Map;
@@ -68,15 +69,6 @@ public final class MutableDirectedGraph<T> implements TraversableGraph<T> {
     this.incomingEdges = HashMultimap.create();
   }
 
-  /**
-   * Creates a mutable copy of the specified graph.
-   */
-  public MutableDirectedGraph(MutableDirectedGraph<T> graph) {
-    this.nodes = Sets.newHashSet(graph.nodes);
-    this.outgoingEdges = HashMultimap.create(graph.outgoingEdges);
-    this.incomingEdges = HashMultimap.create(graph.incomingEdges);
-  }
-
   /** @return the number of nodes in the graph */
   public int getNodeCount() {
     return nodes.size();
@@ -102,6 +94,10 @@ public final class MutableDirectedGraph<T> implements TraversableGraph<T> {
    */
   public boolean addNode(T node) {
     return nodes.add(node);
+  }
+
+  public boolean addAllNodes(Collection<? extends T> nodesToAdd) {
+    return nodes.addAll(nodesToAdd);
   }
 
   /**

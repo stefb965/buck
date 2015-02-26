@@ -18,6 +18,7 @@ package com.facebook.buck.parser;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.cli.BuckConfig;
+import com.facebook.buck.cli.BuildTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.json.BuildFileParseException;
@@ -36,7 +37,6 @@ import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.io.Files;
 
 import org.junit.Rule;
@@ -44,7 +44,6 @@ import org.junit.Test;
 
 import java.io.IOException;
 import java.nio.charset.Charset;
-import java.util.regex.Pattern;
 
 public class CrossRepoTargetsIntegrationTest {
 
@@ -74,10 +73,7 @@ public class CrossRepoTargetsIntegrationTest {
 
     Parser parser = Parser.createParser(
         repositoryFactory,
-        config.getPythonInterpreter(),
-        config.getAllowEmptyGlobs(),
-        config.enforceBuckPackageBoundary(),
-        ImmutableSet.<Pattern>of(),
+        new ParserConfig(config),
         new FakeRuleKeyBuilderFactory());
 
     BuildTarget mainTarget = BuildTarget.builder("//", "main").build();
@@ -87,12 +83,14 @@ public class CrossRepoTargetsIntegrationTest {
     BuckEventBus eventBus = BuckEventBusFactory.newInstance();
     TargetGraph targetGraph = parser.buildTargetGraphForBuildTargets(
         ImmutableList.of(mainTarget),
-        ImmutableList.<String>of(),
+        new ParserConfig(config),
         eventBus,
         new TestConsole(),
         ImmutableMap.<String, String>of(),
         /* enableProfiling */ false);
-    ActionGraph graph = new TargetGraphToActionGraph(eventBus).apply(targetGraph);
+    ActionGraph graph = new TargetGraphToActionGraph(
+        eventBus, new BuildTargetNodeToBuildRuleTransformer())
+        .apply(targetGraph);
 
     BuildRule mainRule = graph.findBuildRuleByTarget(mainTarget);
     assertEquals(mainTarget, mainRule.getBuildTarget());

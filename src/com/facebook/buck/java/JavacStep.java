@@ -22,9 +22,7 @@ import com.facebook.buck.rules.BuildDependencies;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.util.CapturingPrintStream;
-import com.facebook.buck.util.Escaper;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.CharMatcher;
 import com.google.common.base.Charsets;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
@@ -36,6 +34,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -54,32 +53,33 @@ import java.util.regex.Pattern;
  * {@code transitiveClasspathEntries} but warn the developer about which dependencies were in
  * the transitive classpath but not in the declared classpath.
  */
-public abstract class JavacStep implements Step {
+public class JavacStep implements Step {
 
-  public static final String SRC_ZIP = ".src.zip";
-  // TODO(user) s/protected/get...()/g
-  protected final Path outputDirectory;
+  private final Path outputDirectory;
 
-  protected final Set<Path> javaSourceFilePaths;
+  private final Optional<Path> workingDirectory;
 
-  protected final JavacOptions javacOptions;
+  private final ImmutableSet<Path> javaSourceFilePaths;
 
-  protected final ImmutableSet<Path> transitiveClasspathEntries;
+  private final Optional<Path> pathToSrcsList;
 
-  protected final ImmutableSet<Path> declaredClasspathEntries;
+  private final JavacOptions javacOptions;
 
-  protected final Optional<BuildTarget> invokingRule;
+  private final ImmutableSet<Path> transitiveClasspathEntries;
 
-  protected final BuildDependencies buildDependencies;
+  private final ImmutableSet<Path> declaredClasspathEntries;
 
-  protected final Optional<SuggestBuildRules> suggestBuildRules;
+  private final BuildTarget invokingRule;
 
-  protected final Optional<Path> pathToSrcsList;
+  private final BuildDependencies buildDependencies;
+
+  private final Optional<SuggestBuildRules> suggestBuildRules;
 
   /**
-   * Will be {@code true} once {@link #buildWithClasspath(ExecutionContext, Set)} has been invoked.
+   * Will be {@code true} once {@link Javac#buildWithClasspath(ExecutionContext, BuildTarget,
+   * ImmutableList, ImmutableSet, Optional, Optional)} has been invoked.
    */
-  protected AtomicBoolean isExecuted = new AtomicBoolean(false);
+  private AtomicBoolean isExecuted = new AtomicBoolean(false);
 
   private static final Pattern IMPORT_FAILURE =
       Pattern.compile("import ([\\w\\.\\*]*);");
@@ -97,21 +97,14 @@ public abstract class JavacStep implements Step {
       Pattern.compile(".*?symbol:\\s*class\\s*([\\w\\.\\*]*)");
 
   private static final ImmutableList<Pattern> MISSING_IMPORT_PATTERNS =
-      ImmutableList.of(IMPORT_FAILURE,
+      ImmutableList.of(
+          IMPORT_FAILURE,
           PACKAGE_FAILURE,
           ACCESS_FAILURE,
           CLASS_NOT_FOUND,
           CLASS_SYMBOL_NOT_FOUND);
 
   private static final String LINE_SEPARATOR = System.getProperty("line.separator");
-
-  /**
-   * An escaper for arguments written to @argfiles.
-   */
-  protected static final Function<String, String> ARGFILES_ESCAPER =
-      Escaper.escaper(
-          Escaper.Quoter.DOUBLE,
-          CharMatcher.anyOf("#\"'").or(CharMatcher.WHITESPACE));
 
   public static interface SuggestBuildRules {
     public ImmutableSet<String> suggest(ProjectFilesystem filesystem,
@@ -120,16 +113,19 @@ public abstract class JavacStep implements Step {
 
   public JavacStep(
       Path outputDirectory,
+      Optional<Path> workingDirectory,
       Set<Path> javaSourceFilePaths,
+      Optional<Path> pathToSrcsList,
       Set<Path> transitiveClasspathEntries,
       Set<Path> declaredClasspathEntries,
       JavacOptions javacOptions,
-      Optional<BuildTarget> invokingRule,
+      BuildTarget invokingRule,
       BuildDependencies buildDependencies,
-      Optional<SuggestBuildRules> suggestBuildRules,
-      Optional<Path> pathToSrcsList) {
+      Optional<SuggestBuildRules> suggestBuildRules) {
     this.outputDirectory = outputDirectory;
+    this.workingDirectory = workingDirectory;
     this.javaSourceFilePaths = ImmutableSet.copyOf(javaSourceFilePaths);
+    this.pathToSrcsList = pathToSrcsList;
     this.transitiveClasspathEntries = ImmutableSet.copyOf(transitiveClasspathEntries);
     this.javacOptions = javacOptions;
 
@@ -137,11 +133,10 @@ public abstract class JavacStep implements Step {
     this.invokingRule = invokingRule;
     this.buildDependencies = buildDependencies;
     this.suggestBuildRules = suggestBuildRules;
-    this.pathToSrcsList = pathToSrcsList;
   }
 
   @Override
-  public final int execute(ExecutionContext context) throws InterruptedException {
+  public final int execute(ExecutionContext context) throws IOException, InterruptedException {
     try {
       return executeBuild(context);
     } finally {
@@ -149,63 +144,103 @@ public abstract class JavacStep implements Step {
     }
   }
 
-  public int executeBuild(ExecutionContext context) throws InterruptedException {
+  public int executeBuild(ExecutionContext context) throws IOException, InterruptedException {
     // Build up the compilation task.
     if (buildDependencies == BuildDependencies.FIRST_ORDER_ONLY) {
-      return buildWithClasspath(context,
-          ImmutableSet.copyOf(declaredClasspathEntries));
+      return getJavac().buildWithClasspath(
+          context,
+          invokingRule,
+          getOptions(context, declaredClasspathEntries),
+          javaSourceFilePaths,
+          pathToSrcsList,
+          workingDirectory);
     } else if (buildDependencies == BuildDependencies.WARN_ON_TRANSITIVE) {
       return tryBuildWithFirstOrderDeps(context);
     } else {
-      return buildWithClasspath(context, getClasspathEntries());
+      return getJavac().buildWithClasspath(
+          context,
+          invokingRule,
+          getOptions(context, transitiveClasspathEntries),
+          javaSourceFilePaths,
+          pathToSrcsList,
+          workingDirectory);
     }
   }
 
-  private int tryBuildWithFirstOrderDeps(ExecutionContext context) throws InterruptedException {
+  private int tryBuildWithFirstOrderDeps(ExecutionContext context)
+      throws InterruptedException, IOException {
     CapturingPrintStream stdout = new CapturingPrintStream();
     CapturingPrintStream stderr = new CapturingPrintStream();
-    ExecutionContext firstOrderContext = context.createSubContext(stdout, stderr);
+    try (ExecutionContext firstOrderContext = context.createSubContext(stdout, stderr)) {
 
-    int declaredDepsResult = buildWithClasspath(firstOrderContext,
-        ImmutableSet.copyOf(declaredClasspathEntries));
+      Javac javac = getJavac();
 
-    String firstOrderStdout = stdout.getContentsAsString(Charsets.UTF_8);
-    String firstOrderStderr = stderr.getContentsAsString(Charsets.UTF_8);
+      int declaredDepsResult = javac.buildWithClasspath(
+          firstOrderContext,
+          invokingRule,
+          getOptions(context, declaredClasspathEntries),
+          javaSourceFilePaths,
+          pathToSrcsList,
+          workingDirectory);
 
-    if (declaredDepsResult != 0) {
-      int transitiveResult = buildWithClasspath(context,
-          ImmutableSet.copyOf(transitiveClasspathEntries));
-      if (transitiveResult == 0) {
-        ImmutableSet<String> failedImports = findFailedImports(firstOrderStderr);
-        ImmutableList.Builder<String> errorMessage = ImmutableList.builder();
+      String firstOrderStdout = stdout.getContentsAsString(Charsets.UTF_8);
+      String firstOrderStderr = stderr.getContentsAsString(Charsets.UTF_8);
 
-        String invoker = invokingRule.isPresent() ? invokingRule.get().toString() : "";
-        errorMessage.add(String.format("Rule %s builds with its transitive " +
-            "dependencies but not with its first order dependencies.", invoker));
-        errorMessage.add("The following packages were missing:");
-        errorMessage.add(Joiner.on(LINE_SEPARATOR).join(failedImports));
-        if (suggestBuildRules.isPresent()) {
-          errorMessage.add("Try adding the following deps:");
-          errorMessage.add(Joiner.on(LINE_SEPARATOR)
-              .join(suggestBuildRules.get().suggest(context.getProjectFilesystem(),
-                  failedImports)));
+      if (declaredDepsResult != 0) {
+        int transitiveResult = javac.buildWithClasspath(
+            context,
+            invokingRule,
+            getOptions(context, transitiveClasspathEntries),
+            javaSourceFilePaths,
+            pathToSrcsList,
+            workingDirectory);
+        if (transitiveResult == 0) {
+          ImmutableSet<String> failedImports = findFailedImports(firstOrderStderr);
+          ImmutableList.Builder<String> errorMessage = ImmutableList.builder();
+
+          String invoker = invokingRule.toString();
+          errorMessage.add(String.format("Rule %s builds with its transitive " +
+                  "dependencies but not with its first order dependencies.", invoker));
+          errorMessage.add("The following packages were missing:");
+          errorMessage.add(Joiner.on(LINE_SEPARATOR).join(failedImports));
+          if (suggestBuildRules.isPresent()) {
+            errorMessage.add("Try adding the following deps:");
+            errorMessage.add(Joiner.on(LINE_SEPARATOR)
+                .join(suggestBuildRules.get().suggest(context.getProjectFilesystem(),
+                        failedImports)));
+          }
+          errorMessage.add("");
+          errorMessage.add("");
+          context.getStdErr().println(Joiner.on("\n").join(errorMessage.build()));
         }
-        errorMessage.add("");
-        errorMessage.add("");
-        context.getStdErr().println(Joiner.on("\n").join(errorMessage.build()));
+        return transitiveResult;
+      } else {
+        context.getStdOut().print(firstOrderStdout);
+        context.getStdErr().print(firstOrderStderr);
       }
-      return transitiveResult;
-    } else {
-      context.getStdOut().print(firstOrderStdout);
-      context.getStdErr().print(firstOrderStderr);
-    }
 
-    return declaredDepsResult;
+      return declaredDepsResult;
+    }
   }
 
-  protected abstract int buildWithClasspath(
-      ExecutionContext context,
-      Set<Path> buildClasspathEntries) throws InterruptedException;
+  @VisibleForTesting
+  Javac getJavac() {
+    return javacOptions.getJavac();
+  }
+
+  @Override
+  public String getDescription(ExecutionContext context) {
+    return getJavac().getDescription(
+        context,
+        getOptions(context, getClasspathEntries()),
+        javaSourceFilePaths,
+        pathToSrcsList);
+  }
+
+  @Override
+  public String getShortName() {
+    return getJavac().getShortName();
+  }
 
   @VisibleForTesting
   static ImmutableSet<String> findFailedImports(String output) {
@@ -231,15 +266,13 @@ public abstract class JavacStep implements Step {
    * @return list of String command-line options.
    */
   @VisibleForTesting
-  protected ImmutableList<String> getOptions(ExecutionContext context,
-                                             Set<Path> buildClasspathEntries) {
+  ImmutableList<String> getOptions(
+      ExecutionContext context,
+      Set<Path> buildClasspathEntries) {
     ImmutableList.Builder<String> builder = ImmutableList.builder();
 
     ProjectFilesystem filesystem = context.getProjectFilesystem();
-    AnnotationProcessingDataDecorator decorator = AnnotationProcessingDataDecorators.identity();
-    javacOptions.appendOptionsToList(builder,
-        context.getProjectFilesystem().getAbsolutifier(),
-        decorator);
+    javacOptions.appendOptionsToList(builder, context.getProjectFilesystem().getAbsolutifier());
 
     // verbose flag, if appropriate.
     if (context.getVerbosity().shouldUseVerbosityFlagIfAvailable()) {
@@ -266,7 +299,8 @@ public abstract class JavacStep implements Step {
   /**
    * @return The classpath entries used to invoke javac.
    */
-  protected ImmutableSet<Path> getClasspathEntries() {
+  @VisibleForTesting
+  ImmutableSet<Path> getClasspathEntries() {
     if (buildDependencies == BuildDependencies.TRANSITIVE) {
       return transitiveClasspathEntries;
     } else {

@@ -17,6 +17,7 @@
 package com.facebook.buck.ocaml;
 
 import com.facebook.buck.cxx.CxxPlatform;
+import com.facebook.buck.cxx.ImmutableNativeLinkableInput;
 import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.cxx.NativeLinkableInput;
 import com.facebook.buck.rules.AbstractBuildRule;
@@ -79,9 +80,9 @@ class PrebuiltOCamlLibrary extends AbstractBuildRule implements OCamlLibrary {
 
   @Override
   protected RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
-    return builder.set("nativeLib", nativeLib)
-                  .set("bytecodeLib", bytecodeLib)
-                  .set("libPath", libPath.toString());
+    return builder.setReflectively("nativeLib", nativeLib)
+        .setReflectively("bytecodeLib", bytecodeLib)
+        .setReflectively("libPath", libPath.toString());
   }
 
   @Override
@@ -123,7 +124,7 @@ class PrebuiltOCamlLibrary extends AbstractBuildRule implements OCamlLibrary {
             .transform(Functions.toStringFunction()));
     final ImmutableList<String> linkerArgs = linkerArgsBuilder.build();
 
-    return new NativeLinkableInput(
+    return ImmutableNativeLinkableInput.of(
         /* inputs */ libraries,
         /* args */ linkerArgs);
   }

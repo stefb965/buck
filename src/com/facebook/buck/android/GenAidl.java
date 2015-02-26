@@ -16,7 +16,7 @@
 
 package com.facebook.buck.android;
 
-import static com.facebook.buck.java.JavacStep.SRC_ZIP;
+import static com.facebook.buck.java.Javac.SRC_ZIP;
 import static com.facebook.buck.rules.BuildableProperties.Kind.ANDROID;
 
 import com.facebook.buck.event.ConsoleEvent;
@@ -78,7 +78,8 @@ public class GenAidl extends AbstractBuildRule {
     this.importPath = importPath;
     BuildTarget buildTarget = params.getBuildTarget();
     this.genPath = BuildTargets.getGenPath(buildTarget, "%s");
-    this.output = genPath.resolve(String.format("lib%s%s", buildTarget.getShortName(), SRC_ZIP));
+    this.output = genPath.resolve(
+        String.format("lib%s%s", buildTarget.getShortNameAndFlavorPostfix(), SRC_ZIP));
   }
 
   @Override
@@ -96,7 +97,7 @@ public class GenAidl extends AbstractBuildRule {
     // TODO(#2493457): This rule uses the aidl binary (part of the Android SDK), so the RuleKey
     // should incorporate which version of aidl is used.
     return builder
-        .set("importPath", importPath);
+        .setReflectively("importPath", importPath);
   }
 
   @Override

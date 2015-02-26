@@ -21,6 +21,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.ImmutableBuildRuleType;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
@@ -35,7 +36,7 @@ import java.util.Map;
 @Beta
 public class XcodeWorkspaceConfigDescription
     implements Description<XcodeWorkspaceConfigDescription.Arg> {
-  public static final BuildRuleType TYPE = new BuildRuleType("xcode_workspace_config");
+  public static final BuildRuleType TYPE = ImmutableBuildRuleType.of("xcode_workspace_config");
 
   @Override
   public BuildRuleType getBuildRuleType() {
@@ -65,7 +66,7 @@ public class XcodeWorkspaceConfigDescription
     if (arg.workspaceName.isPresent()) {
       return arg.workspaceName.get();
     } else if (arg.srcTarget.isPresent()) {
-      return arg.srcTarget.get().getShortName();
+      return arg.srcTarget.get().getShortNameAndFlavorPostfix();
     } else {
       throw new HumanReadableException(
           "Either workspace_name or src_target is required for xcode_workspace_config");

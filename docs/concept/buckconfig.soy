@@ -131,6 +131,10 @@ directory-based and Cassandra caching.
     # is buck-cache.
     dir = buck-cache
 
+    # The maximum cache size for directory-based caching. The default size
+    # is unlimited.
+    dir_max_size = 10GB
+
     # Comma-separated set of known Cassandra cache nodes, for example:
     #
     #   hosts = artifactcache1.example.com, artifactcache2.example.com
@@ -207,7 +211,12 @@ project.
 where resources from a <code>java_library()</code> should be placed within the
 generated JAR file. Hopefully <code>src_roots</code> will be removed at some
 point.
-
+<p>
+This section may also contain an "extra_arguments" property, which provides
+a comma-separated list of options to give to the Java compiler.
+<p>
+"source_level" and "target_level" specify the version of Java for source files
+and generated code, respectively.  Both default to "7".
 
 {call .section}{param title: 'httpserver' /}{/call}
 
@@ -372,12 +381,27 @@ The value given is in milliseconds.
 
 {literal}<pre class="prettyprint lang-ini">
 [test]
-  # This specifies a maximum timeout of 5 minutes (300000 
-  # milliseconds) per test. A JUnit test can override this 
+  # This specifies a maximum timeout of 5 minutes (300000
+  # milliseconds) per test. A JUnit test can override this
   # via its `@Test` annotation.
   timeout = 300000
 </pre>{/literal}
 
     {/param}
   {/call}
+
+{call .section}{param title: 'tools' /}{/call}
+This section tells Buck how to find certain tools.
+<p>
+
+The "javac" option is a path to a program that acts like Java javac.
+When set, buck uses this program instead of the system Java compiler.
+
+The "javac_jar" option is like "javac", except that it points to a JAR
+containing a javac-like compiler.
+
+When "javac_jar" is set, Buck loads the referenced compiler in-memory.
+When neither option is set, Buck defaults to using the system compiler
+in-memory.
+
 {/template}

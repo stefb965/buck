@@ -93,6 +93,7 @@ public class AaptPackageResources extends AbstractBuildRule
   private final JavacOptions javacOptions;
   private final boolean rDotJavaNeedsDexing;
   private final boolean shouldBuildStringSourceMap;
+  private final boolean shouldWarnIfMissingResource;
   private final BuildOutputInitializer<BuildOutput> buildOutputInitializer;
 
   AaptPackageResources(
@@ -106,7 +107,8 @@ public class AaptPackageResources extends AbstractBuildRule
       ImmutableSet<TargetCpuType> cpuFilters,
       JavacOptions javacOptions,
       boolean rDotJavaNeedsDexing,
-      boolean shouldBuildStringSourceMap) {
+      boolean shouldBuildStringSourceMap,
+      boolean shouldWarnIfMissingResources) {
     super(params, resolver);
     this.manifest = manifest;
     this.filteredResourcesProvider = filteredResourcesProvider;
@@ -117,6 +119,7 @@ public class AaptPackageResources extends AbstractBuildRule
     this.javacOptions = javacOptions;
     this.rDotJavaNeedsDexing = rDotJavaNeedsDexing;
     this.shouldBuildStringSourceMap = shouldBuildStringSourceMap;
+    this.shouldWarnIfMissingResource = shouldWarnIfMissingResources;
     this.buildOutputInitializer = new BuildOutputInitializer<>(params.getBuildTarget(), this);
   }
 
@@ -128,10 +131,10 @@ public class AaptPackageResources extends AbstractBuildRule
   @Override
   public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
     return builder
-        .set("packageType", packageType.toString())
-        .set("cpuFilters", ImmutableSortedSet.copyOf(cpuFilters).toString())
-        .set("rDotJavaNeedsDexing", rDotJavaNeedsDexing)
-        .set("shouldBuildStringSourceMap", shouldBuildStringSourceMap);
+        .setReflectively("packageType", packageType.toString())
+        .setReflectively("cpuFilters", ImmutableSortedSet.copyOf(cpuFilters).toString())
+        .setReflectively("rDotJavaNeedsDexing", rDotJavaNeedsDexing)
+        .setReflectively("shouldBuildStringSourceMap", shouldBuildStringSourceMap);
   }
 
   @Override
@@ -210,7 +213,7 @@ public class AaptPackageResources extends AbstractBuildRule
     // eliminate this now.
     Step collectAssets = new Step() {
       @Override
-      public int execute(ExecutionContext context) throws InterruptedException {
+      public int execute(ExecutionContext context) throws IOException, InterruptedException {
         // This must be done in a Command because the files and directories that are specified may
         // not exist at the time this Command is created because the previous Commands have not run
         // yet.
@@ -324,9 +327,10 @@ public class AaptPackageResources extends AbstractBuildRule
     steps.add(new MakeCleanDirectoryStep(rDotJavaSrc));
 
     Path rDotTxtDir = getPathToRDotTxtDir();
-    MergeAndroidResourcesStep mergeStep = new MergeAndroidResourcesStep(
+    MergeAndroidResourcesStep mergeStep = MergeAndroidResourcesStep.createStepForUberRDotJava(
         resourceDeps,
-        Optional.of(rDotTxtDir.resolve("R.txt")),
+        rDotTxtDir.resolve("R.txt"),
+        shouldWarnIfMissingResource,
         rDotJavaSrc);
     steps.add(mergeStep);
 
@@ -351,12 +355,12 @@ public class AaptPackageResources extends AbstractBuildRule
     Path rDotJavaBin = getPathToCompiledRDotJavaFiles();
     steps.add(new MakeCleanDirectoryStep(rDotJavaBin));
 
-    JavacStep javac = RDotJava.createJavacStepForUberRDotJavaFiles(
+    JavacStep javacStep = RDotJava.createJavacStepForUberRDotJavaFiles(
         ImmutableSet.copyOf(getResolver().getAllPaths(mergeStep.getRDotJavaFiles())),
         rDotJavaBin,
         javacOptions,
         getBuildTarget());
-    steps.add(javac);
+    steps.add(javacStep);
 
     Path rDotJavaClassesTxt = getPathToRDotJavaClassesTxt();
     steps.add(new MakeCleanDirectoryStep(rDotJavaClassesTxt.getParent()));
