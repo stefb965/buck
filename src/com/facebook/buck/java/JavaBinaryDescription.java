@@ -28,7 +28,6 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.ImmutableBuildRuleType;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
@@ -39,13 +38,14 @@ import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
 
 public class JavaBinaryDescription implements Description<JavaBinaryDescription.Args> {
 
-  public static final BuildRuleType TYPE = ImmutableBuildRuleType.of("java_binary");
+  public static final BuildRuleType TYPE = BuildRuleType.of("java_binary");
 
   private static final Flavor FAT_JAR_INNER_JAR_FLAVOR = ImmutableFlavor.of("inner-jar");
 
@@ -116,22 +116,27 @@ public class JavaBinaryDescription implements Description<JavaBinaryDescription.
     }
 
     // Construct the build rule to build the binary JAR.
+    ImmutableSetMultimap<JavaLibrary, Path> transitiveClasspathEntries =
+        Classpaths.getClasspathEntries(binaryParams.getDeps());
     BuildRule rule = new JavaBinary(
-        binaryParams,
+        binaryParams.appendExtraDeps(transitiveClasspathEntries.keys()),
         pathResolver,
         args.mainClass.orNull(),
         args.manifestFile.orNull(),
         args.mergeManifests.or(true),
         args.metaInfDirectory.orNull(),
         args.blacklist.or(ImmutableSortedSet.<String>of()),
-        new DefaultDirectoryTraverser());
+        new DefaultDirectoryTraverser(),
+        transitiveClasspathEntries);
 
     // If we're packaging native libraries, construct the rule to build the fat JAR, which packages
     // up the original binary JAR and any required native libraries.
     if (!nativeLibraries.isEmpty()) {
       BuildRule innerJarRule = rule;
       resolver.addToIndex(innerJarRule);
-      SourcePath innerJar = new BuildTargetSourcePath(innerJarRule.getBuildTarget());
+      SourcePath innerJar = new BuildTargetSourcePath(
+          innerJarRule.getProjectFilesystem(),
+          innerJarRule.getBuildTarget());
       rule = new JarFattener(
           params.appendExtraDeps(
               Suppliers.<Iterable<BuildRule>>ofInstance(

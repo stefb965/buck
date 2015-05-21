@@ -103,7 +103,7 @@ public class ProGuardObfuscateStepTest extends EasyMockSupport {
         ProGuardObfuscateStep.SdkProguardType.DEFAULT,
         /* optimizationPasses */ Optional.<Integer>absent(),
         /* inputAndOutputEntries */ ImmutableMap.<Path, Path>of(),
-        /* additionalLibraryJarsForProguard */ ImmutableSet.<Path>of(
+        /* additionalLibraryJarsForProguard */ ImmutableSet.of(
             Paths.get("myfavorite.jar"), Paths.get("another.jar")),
         Paths.get("proguard-directory"),
         new FakeBuildableContext(),
@@ -112,7 +112,8 @@ public class ProGuardObfuscateStepTest extends EasyMockSupport {
         (ProGuardObfuscateStep.CommandLineHelperStep) steps.build().get(0);
     ImmutableList<String> parameters = commandLineHelperStep.getParameters(context);
     int libraryJarsArgIndex = parameters.indexOf("-libraryjars");
-    int libraryJarsValueIndex = parameters.indexOf("myfavorite.jar:another.jar");
+    int libraryJarsValueIndex = parameters.indexOf(
+        "myfavorite.jar" + File.pathSeparatorChar + "another.jar");
     assertNotEquals(-1, libraryJarsArgIndex);
     assertEquals(libraryJarsValueIndex, libraryJarsArgIndex + 1);
   }

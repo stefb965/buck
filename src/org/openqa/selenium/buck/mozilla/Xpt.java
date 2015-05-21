@@ -19,27 +19,28 @@ package org.openqa.selenium.buck.mozilla;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.io.Files;
 
 import java.nio.file.Path;
 
 public class Xpt extends AbstractBuildRule {
 
+  @AddToRuleKey
   private final SourcePath fallback;
+
+  @SuppressWarnings("PMD.UnusedPrivateField")
+  @AddToRuleKey
   private final Path src;
   private final Path out;
 
@@ -50,18 +51,6 @@ public class Xpt extends AbstractBuildRule {
     this.src = Preconditions.checkNotNull(src);
     String name = Files.getNameWithoutExtension(src.getFileName().toString()) + ".xpt";
     this.out = BuildTargets.getGenPath(getBuildTarget(), name);
-  }
-
-  @Override
-  public ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return ImmutableSortedSet.of(src);
-  }
-
-  @Override
-  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
-    return builder
-        .setReflectively("src", ImmutableSet.of(src).iterator())
-        .setReflectively("fallback", ImmutableSortedSet.of(fallback));
   }
 
   @Override

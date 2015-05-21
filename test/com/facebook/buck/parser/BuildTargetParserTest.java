@@ -22,25 +22,31 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.fail;
 
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.ImmutableFlavor;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableMap;
 
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ExpectedException;
 
 import java.nio.file.Paths;
 
 public class BuildTargetParserTest {
 
-  private BuildTargetPatternParser fullyQualifiedParser;
+  private BuildTargetPatternParser<BuildTargetPattern> fullyQualifiedParser;
 
   @Before
   public void setUpFullyQualifiedBuildTargetPatternParser() {
     BuildTargetParser targetParser = new BuildTargetParser();
     fullyQualifiedParser = BuildTargetPatternParser.fullyQualified(targetParser);
   }
+
+  @Rule
+  public ExpectedException exception = ExpectedException.none();
 
   @Test
   public void testParseRootRule() {
@@ -71,22 +77,41 @@ public class BuildTargetParserTest {
   }
 
   @Test
-  public void testParseInvalidSubstrings() {
-    try {
-      BuildTargetParser parser = new BuildTargetParser();
-      parser.parse("//facebook..orca:assets", fullyQualifiedParser);
-      fail("parse() should throw an exception");
-    } catch (BuildTargetParseException e) {
-      assertEquals("//facebook..orca:assets cannot contain ..", e.getMessage());
-    }
+  public void testParseValidTargetWithDots() {
+    BuildTargetParser parser = new BuildTargetParser();
+    BuildTarget buildTarget = parser.parse("//..a/b../a...b:assets", fullyQualifiedParser);
+    assertEquals("assets", buildTarget.getShortNameAndFlavorPostfix());
+    assertEquals("//..a/b../a...b", buildTarget.getBaseName());
+    assertEquals(Paths.get("..a", "b..", "a...b"), buildTarget.getBasePath());
+    assertEquals("..a/b../a...b/", buildTarget.getBasePathWithSlash());
+    assertEquals("//..a/b../a...b:assets", buildTarget.getFullyQualifiedName());
+  }
 
-    try {
-      BuildTargetParser parser = new BuildTargetParser();
-      parser.parse("//./facebookorca:assets", fullyQualifiedParser);
-      fail("parse() should throw an exception");
-    } catch (BuildTargetParseException e) {
-      assertEquals("//./facebookorca:assets cannot contain ./", e.getMessage());
-    }
+  @Test
+  public void testParsePathWithDot() {
+    exception.expect(BuildTargetParseException.class);
+    exception.expectMessage("Build target path cannot be absolute or contain . or .. " +
+            "(found //.:assets)");
+    BuildTargetParser parser = new BuildTargetParser();
+    parser.parse("//.:assets", fullyQualifiedParser);
+  }
+
+  @Test
+  public void testParsePathWithDotDot() {
+    exception.expect(BuildTargetParseException.class);
+    exception.expectMessage("Build target path cannot be absolute or contain . or .. " +
+            "(found //../facebookorca:assets)");
+    BuildTargetParser parser = new BuildTargetParser();
+    parser.parse("//../facebookorca:assets", fullyQualifiedParser);
+  }
+
+  @Test
+  public void testParseAbsolutePath() {
+    exception.expect(BuildTargetParseException.class);
+    exception.expectMessage("Build target path cannot be absolute or contain . or .. " +
+            "(found ///facebookorca:assets)");
+    BuildTargetParser parser = new BuildTargetParser();
+    parser.parse("///facebookorca:assets", fullyQualifiedParser);
   }
 
   @Test
@@ -146,7 +171,7 @@ public class BuildTargetParserTest {
   public void testParseWithVisibilityContext() {
     // Invoke the BuildTargetParser using the VISIBILITY context.
     BuildTargetParser parser = new BuildTargetParser();
-    BuildTargetPatternParser buildTargetPatternParser =
+    BuildTargetPatternParser<BuildTargetPattern> buildTargetPatternParser =
         BuildTargetPatternParser.forVisibilityArgument(new BuildTargetParser());
     BuildTarget target = parser.parse("//java/com/example:", buildTargetPatternParser);
     assertEquals(

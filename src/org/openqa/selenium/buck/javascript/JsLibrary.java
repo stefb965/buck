@@ -18,6 +18,7 @@ package org.openqa.selenium.buck.javascript;
 
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildOutputInitializer;
 import com.facebook.buck.rules.BuildRule;
@@ -25,7 +26,6 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
@@ -34,7 +34,6 @@ import com.facebook.buck.step.fs.WriteFileStep;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Sets;
@@ -50,7 +49,9 @@ public class JsLibrary extends AbstractBuildRule implements
     InitializableFromDisk<JavascriptDependencies>, HasJavascriptDependencies {
 
   private final Path output;
+  @AddToRuleKey
   private final ImmutableSortedSet<BuildRule> deps;
+  @AddToRuleKey
   private final ImmutableSortedSet<SourcePath> srcs;
   private JavascriptDependencies joy;
   private final BuildOutputInitializer<JavascriptDependencies> buildOutputInitializer;
@@ -67,17 +68,6 @@ public class JsLibrary extends AbstractBuildRule implements
     this.output = BuildTargets.getGenPath(getBuildTarget(), "/%s-library.deps");
 
     buildOutputInitializer = new BuildOutputInitializer<>(getBuildTarget(), this);
-  }
-
-  @Override
-  public ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return getResolver().filterInputsToCompareToOutput(srcs);
-  }
-
-  @Override
-  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
-    return builder
-        .setReflectively("srcs", srcs);
   }
 
   @Override

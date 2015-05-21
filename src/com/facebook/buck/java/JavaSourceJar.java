@@ -21,12 +21,11 @@ import static com.facebook.buck.zip.ZipStep.DEFAULT_COMPRESSION_LEVEL;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.ImmutableBuildRuleType;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
@@ -35,7 +34,6 @@ import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.zip.ZipStep;
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -46,8 +44,9 @@ import java.util.Set;
 
 
 public class JavaSourceJar extends AbstractBuildRule {
-  public static final BuildRuleType TYPE = ImmutableBuildRuleType.of("source_jar");
+  public static final BuildRuleType TYPE = BuildRuleType.of("source_jar");
 
+  @AddToRuleKey
   private final ImmutableSortedSet<SourcePath> sources;
   private final Path output;
   private final Path temp;
@@ -60,17 +59,7 @@ public class JavaSourceJar extends AbstractBuildRule {
     this.sources = sources;
     BuildTarget target = params.getBuildTarget();
     this.output = BuildTargets.getGenPath(target, String.format("%%s%s", Javac.SRC_ZIP));
-    this.temp = BuildTargets.getBinPath(target, "%s-srcs");
-  }
-
-  @Override
-  protected ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return getResolver().filterInputsToCompareToOutput(sources);
-  }
-
-  @Override
-  protected RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
-    return builder;
+    this.temp = BuildTargets.getScratchPath(target, "%s-srcs");
   }
 
   @Override
@@ -90,7 +79,7 @@ public class JavaSourceJar extends AbstractBuildRule {
     // smarts to read the "package" line from a source file.
 
     for (Path source : getResolver().filterInputsToCompareToOutput(sources)) {
-      String packageFolder = packageFinder.findJavaPackageFolderForPath(source.toString());
+      Path packageFolder = packageFinder.findJavaPackageFolder(source);
       Path packageDir = temp.resolve(packageFolder);
       if (seenPackages.add(packageDir)) {
         steps.add(new MkdirStep(packageDir));
@@ -107,6 +96,10 @@ public class JavaSourceJar extends AbstractBuildRule {
     buildableContext.recordArtifact(output);
 
     return steps.build();
+  }
+
+  public ImmutableSortedSet<SourcePath> getSources() {
+    return sources;
   }
 
   @Override

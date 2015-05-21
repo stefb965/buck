@@ -25,9 +25,9 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.Hint;
-import com.facebook.buck.rules.ImmutableBuildRuleType;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
@@ -49,7 +49,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 
 public class AndroidResourceDescription implements Description<AndroidResourceDescription.Arg> {
 
-  public static final BuildRuleType TYPE = ImmutableBuildRuleType.of("android_resource");
+  public static final BuildRuleType TYPE = BuildRuleType.of("android_resource");
 
   private static final ImmutableSet<String> NON_ASSET_FILENAMES =
       ImmutableSet.of(".svn", ".git", ".ds_store", ".scc", "cvs", "thumbs.db", "picasa.ini");
@@ -94,10 +94,10 @@ public class AndroidResourceDescription implements Description<AndroidResourceDe
             Suppliers.ofInstance(AndroidResourceHelper.androidResOnly(params.getExtraDeps()))),
         new SourcePathResolver(resolver),
         resolver.getAllRules(args.deps.get()),
-        args.res.orNull(),
+        args.res.transform(SourcePaths.toSourcePath(params.getProjectFilesystem())).orNull(),
         collectInputFiles(filesystem, args.res),
         args.rDotJavaPackage.orNull(),
-        args.assets.orNull(),
+        args.assets.transform(SourcePaths.toSourcePath(params.getProjectFilesystem())).orNull(),
         collectInputFiles(filesystem, args.assets),
         args.manifest.orNull(),
         args.hasWhitelistedStrings.or(false));

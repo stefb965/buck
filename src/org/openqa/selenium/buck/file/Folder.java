@@ -20,10 +20,10 @@ import static com.facebook.buck.zip.ZipStep.DEFAULT_COMPRESSION_LEVEL;
 
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
@@ -32,7 +32,6 @@ import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.zip.ZipStep;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -41,8 +40,10 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 
 public class Folder extends AbstractBuildRule {
+  @AddToRuleKey
   private final Path folderName;
   private final Path output;
+  @AddToRuleKey
   private final ImmutableSortedSet<SourcePath> srcs;
 
   protected Folder(
@@ -65,7 +66,7 @@ public class Folder extends AbstractBuildRule {
     steps.add(new RmStep(output, true));
     steps.add(new MkdirStep(output.getParent()));
 
-    Path scratch = BuildTargets.getBinPath(getBuildTarget(), "%s-scratch/" + folderName);
+    Path scratch = BuildTargets.getScratchPath(getBuildTarget(), "%s-scratch/" + folderName);
     steps.add(new MakeCleanDirectoryStep(scratch));
 
     SrcZipAwareFileBundler bundler = new SrcZipAwareFileBundler(getBuildTarget());
@@ -85,15 +86,5 @@ public class Folder extends AbstractBuildRule {
   @Override
   public Path getPathToOutputFile() {
     return output;
-  }
-
-  @Override
-  protected ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return getResolver().filterInputsToCompareToOutput(srcs);
-  }
-
-  @Override
-  protected RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
-    return builder;
   }
 }

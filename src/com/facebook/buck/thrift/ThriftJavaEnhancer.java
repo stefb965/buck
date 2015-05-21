@@ -28,7 +28,7 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
-import com.facebook.buck.rules.ImmutableBuildRuleType;
+import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePaths;
@@ -48,7 +48,7 @@ public class ThriftJavaEnhancer implements ThriftLanguageSpecificEnhancer {
 
   private static final Flavor JAVA_FLAVOR = ImmutableFlavor.of("java");
   private static final BuildRuleType SOURCE_ZIP_TYPE =
-      ImmutableBuildRuleType.of("thrift-java-source-zip");
+      BuildRuleType.of("thrift-java-source-zip");
 
   private final ThriftBuckConfig thriftBuckConfig;
   private final JavacOptions templateOptions;
@@ -73,7 +73,7 @@ public class ThriftJavaEnhancer implements ThriftLanguageSpecificEnhancer {
   @VisibleForTesting
   protected BuildTarget getSourceZipBuildTarget(BuildTarget target, String name) {
     return BuildTargets.createFlavoredBuildTarget(
-        target.getUnflavoredTarget(),
+        target.getUnflavoredBuildTarget(),
         ImmutableFlavor.of(
             String.format(
                 "thrift-java-source-zip-%s",
@@ -82,7 +82,7 @@ public class ThriftJavaEnhancer implements ThriftLanguageSpecificEnhancer {
 
   private Path getSourceZipOutputPath(BuildTarget target, String name) {
     BuildTarget flavoredTarget = getSourceZipBuildTarget(target, name);
-    return BuildTargets.getBinPath(flavoredTarget, "%s" + Javac.SRC_ZIP);
+    return BuildTargets.getScratchPath(flavoredTarget, "%s" + Javac.SRC_ZIP);
   }
 
   @Override
@@ -123,22 +123,24 @@ public class ThriftJavaEnhancer implements ThriftLanguageSpecificEnhancer {
     BuildRuleParams javaParams = params.copyWithChanges(
         JavaLibraryDescription.TYPE,
         BuildTargets.createFlavoredBuildTarget(
-            params.getBuildTarget().getUnflavoredTarget(),
+            params.getBuildTarget().getUnflavoredBuildTarget(),
             getFlavor()),
         Suppliers.ofInstance(
             ImmutableSortedSet.<BuildRule>naturalOrder()
                 .addAll(sourceZips)
                 .addAll(deps)
+                .addAll(BuildRules.getExportedRules(deps))
+                .addAll(pathResolver.filterBuildRuleInputs(templateOptions.getInputs()))
                 .build()),
         Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
     return new DefaultJavaLibrary(
         javaParams,
         pathResolver,
         FluentIterable.from(sourceZips)
-            .transform(SourcePaths.TO_BUILD_TARGET_SOURCE_PATH)
+            .transform(SourcePaths.getToBuildTargetSourcePath(params.getProjectFilesystem()))
             .toSortedSet(Ordering.natural()),
         /* resources */ ImmutableSet.<SourcePath>of(),
-        /* proguardConfig */ Optional.<Path>absent(),
+        /* proguardConfig */ Optional.<SourcePath>absent(),
         /* postprocessClassesCommands */ ImmutableList.<String>of(),
         /* exportedDeps */ ImmutableSortedSet.<BuildRule>of(),
         /* providedDeps */ ImmutableSortedSet.<BuildRule>of(),

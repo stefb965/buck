@@ -16,8 +16,9 @@
 
 package com.facebook.buck.command;
 
+import com.facebook.buck.rules.BuildResult;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleSuccess;
+import com.facebook.buck.rules.BuildRuleSuccessType;
 import com.facebook.buck.util.Ansi;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -33,29 +34,35 @@ import java.util.Map;
 @VisibleForTesting
 public class BuildReport {
 
-  private final LinkedHashMap<BuildRule, Optional<BuildRuleSuccess>> ruleToResult;
+  @SuppressWarnings("PMD.LooseCoupling")
+  private final LinkedHashMap<BuildRule, Optional<BuildResult>> ruleToResult;
 
   /**
    * @param ruleToResult Keys are build rules built during this invocation of Buck. Values reflect
    *     the success of each build rule, if it succeeded. ({@link Optional#absent()} represents a
    *     failed build rule.)
    */
-  public BuildReport(LinkedHashMap<BuildRule, Optional<BuildRuleSuccess>> ruleToResult) {
+  public BuildReport(@SuppressWarnings("PMD.LooseCoupling") LinkedHashMap<
+      BuildRule, Optional<BuildResult>> ruleToResult) {
     this.ruleToResult = ruleToResult;
   }
 
   public String generateForConsole(Ansi ansi) {
     StringBuilder report = new StringBuilder();
-    for (Map.Entry<BuildRule, Optional<BuildRuleSuccess>> entry : ruleToResult.entrySet()) {
+    for (Map.Entry<BuildRule, Optional<BuildResult>> entry : ruleToResult.entrySet()) {
       BuildRule rule = entry.getKey();
-      Optional<BuildRuleSuccess> success = entry.getValue();
+      Optional<BuildRuleSuccessType> success = Optional.absent();
+      Optional<BuildResult> result = entry.getValue();
+      if (result.isPresent()) {
+        success = Optional.fromNullable(result.get().getSuccess());
+      }
 
       String successIndicator;
       String successType;
       Path outputFile;
       if (success.isPresent()) {
         successIndicator = ansi.asHighlightedSuccessText("OK  ");
-        successType = success.get().getType().name();
+        successType = success.get().name();
         outputFile = rule.getPathToOutputFile();
       } else {
         successIndicator = ansi.asHighlightedFailureText("FAIL");
@@ -76,22 +83,32 @@ public class BuildReport {
 
   public String generateJsonBuildReport() throws IOException {
     LinkedHashMap<String, Object> results = Maps.newLinkedHashMap();
-    for (Map.Entry<BuildRule, Optional<BuildRuleSuccess>> entry : ruleToResult.entrySet()) {
+    boolean isOverallSuccess = true;
+    for (Map.Entry<BuildRule, Optional<BuildResult>> entry : ruleToResult.entrySet()) {
       BuildRule rule = entry.getKey();
-      Optional<BuildRuleSuccess> success = entry.getValue();
+      Optional<BuildRuleSuccessType> success = Optional.absent();
+      Optional<BuildResult> result = entry.getValue();
+      if (result.isPresent()) {
+        success = Optional.fromNullable(result.get().getSuccess());
+      }
       Map<String, Object> value = Maps.newLinkedHashMap();
-      if (success.isPresent()) {
-        value.put("success", true);
-        value.put("type", success.get().getType().name());
+
+      boolean isSuccess = success.isPresent();
+      value.put("success", isSuccess);
+      if (!isSuccess) {
+        isOverallSuccess = false;
+      }
+
+      if (isSuccess) {
+        value.put("type", success.get().name());
         Path outputFile = rule.getPathToOutputFile();
         value.put("output", outputFile != null ? outputFile.toString() : null);
-      } else {
-        value.put("success", false);
       }
       results.put(rule.getFullyQualifiedName(), value);
     }
 
-    Map<String, Object> report = Maps.newHashMap();
+    Map<String, Object> report = Maps.newLinkedHashMap();
+    report.put("success", isOverallSuccess);
     report.put("results", results);
     ObjectMapper objectMapper = new ObjectMapper();
     objectMapper.enable(SerializationFeature.INDENT_OUTPUT);

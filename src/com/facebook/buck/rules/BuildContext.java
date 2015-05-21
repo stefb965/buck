@@ -27,9 +27,9 @@ import com.facebook.buck.model.BuildId;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.step.StepRunner;
 import com.facebook.buck.timing.Clock;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.util.immutables.DeprecatedBuckStyleImmutable;
+import com.google.common.base.Function;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
@@ -43,8 +43,21 @@ import java.util.List;
 import java.util.Map;
 
 @Value.Immutable
-@BuckStyleImmutable
+@DeprecatedBuckStyleImmutable
+@SuppressWarnings("deprecation")
 public abstract class BuildContext {
+
+  private static final Function<AndroidPlatformTarget, String>
+      BOOTCLASSPATH_FOR_ANDROID_PLATFORM_TARGET = new Function<AndroidPlatformTarget, String>() {
+    @Override
+    public String apply(AndroidPlatformTarget androidPlatformTarget) {
+      List<Path> bootclasspathEntries = androidPlatformTarget.getBootclasspathEntries();
+      Preconditions.checkState(
+          !bootclasspathEntries.isEmpty(),
+          "There should be entries for the bootclasspath");
+      return Joiner.on(File.pathSeparator).join(bootclasspathEntries);
+    }
+  };
 
   private static final Supplier<String> DEFAULT_ANDROID_BOOTCLASSPATH_SUPPLIER =
       new Supplier<String>() {
@@ -133,24 +146,9 @@ public abstract class BuildContext {
     getEventBus().post(ConsoleEvent.severe(msg, formatArgs));
   }
 
-  public static Supplier<String> getAndroidBootclasspathSupplierForAndroidPlatformTarget(
-      Optional<AndroidPlatformTarget> maybeAndroidPlatformTarget
-  ) {
-    if (maybeAndroidPlatformTarget.isPresent()) {
-      final AndroidPlatformTarget androidPlatformTarget = maybeAndroidPlatformTarget.get();
-      return Suppliers.memoize(
-          new Supplier<String>() {
-            @Override
-            public String get() {
-              List<Path> bootclasspathEntries = androidPlatformTarget.getBootclasspathEntries();
-              Preconditions.checkState(
-                  !bootclasspathEntries.isEmpty(),
-                  "There should be entries for the bootclasspath");
-              return Joiner.on(File.pathSeparator).join(bootclasspathEntries);
-            }
-          });
-    } else {
-      return DEFAULT_ANDROID_BOOTCLASSPATH_SUPPLIER;
-    }
+  public static Supplier<String> createBootclasspathSupplier(
+      Supplier<AndroidPlatformTarget> androidPlatformTarget) {
+    return Suppliers.memoize(
+        Suppliers.compose(BOOTCLASSPATH_FOR_ANDROID_PLATFORM_TARGET, androidPlatformTarget));
   }
 }

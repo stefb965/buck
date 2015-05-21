@@ -17,15 +17,16 @@
 package com.facebook.buck.shell;
 
 import com.facebook.buck.android.AndroidPlatformTarget;
+import com.facebook.buck.android.NoAndroidSdkException;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.HasOutputName;
 import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.shell.AbstractGenruleStep.CommandString;
@@ -105,15 +106,20 @@ public class Genrule extends AbstractBuildRule implements HasOutputName {
   /**
    * The order in which elements are specified in the {@code srcs} attribute of a genrule matters.
    */
+  @AddToRuleKey
   protected final ImmutableList<SourcePath> srcs;
 
   protected final Function<String, String> macroExpander;
+  @AddToRuleKey
   protected final Optional<String> cmd;
+  @AddToRuleKey
   protected final Optional<String> bash;
+  @AddToRuleKey
   protected final Optional<String> cmdExe;
 
   protected final Map<Path, Path> srcsToAbsolutePaths;
 
+  @AddToRuleKey
   private final String out;
   protected final Path pathToOutDirectory;
   protected final Path pathToOutFile;
@@ -178,27 +184,14 @@ public class Genrule extends AbstractBuildRule implements HasOutputName {
     return relativeToAbsolutePathFunction.apply(getPathToOutputFile()).toString();
   }
 
-  @Override
-  public ImmutableCollection<Path> getInputsToCompareToOutput() {
+  @VisibleForTesting
+  public ImmutableCollection<Path> getSrcs() {
     return getResolver().filterInputsToCompareToOutput(srcs);
   }
 
   @Override
   public Path getPathToOutputFile() {
     return pathToOutFile;
-  }
-
-  @Override
-  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
-    return builder
-        .setReflectively("cmd", cmd)
-        .setReflectively("bash", bash)
-        .setReflectively("cmd_exe", cmdExe)
-        .setReflectively("out", out);
-  }
-
-  public ImmutableList<Path> getSrcs() {
-    return getResolver().getAllPaths(srcs);
   }
 
   protected void addEnvironmentVariables(ExecutionContext context,
@@ -218,15 +211,20 @@ public class Genrule extends AbstractBuildRule implements HasOutputName {
     environmentVariablesBuilder.put("SRCDIR", absolutePathToSrcDirectory.toString());
     environmentVariablesBuilder.put("TMP", absolutePathToTmpDirectory.toString());
 
-    Optional<AndroidPlatformTarget> optionalAndroid = context.getAndroidPlatformTargetOptional();
-    if (optionalAndroid.isPresent()) {
-      AndroidPlatformTarget android = optionalAndroid.get();
-
+    // TODO(mbolin): This entire hack needs to be removed. The [tools] section of .buckconfig
+    // should be generalized to specify local paths to tools that can be used in genrules.
+    AndroidPlatformTarget android;
+    try {
+      android = context.getAndroidPlatformTarget();
+    } catch (NoAndroidSdkException e) {
+      android = null;
+    }
+    if (android != null) {
       environmentVariablesBuilder.put("DX", android.getDxExecutable().toString());
       environmentVariablesBuilder.put("ZIPALIGN", android.getZipalignExecutable().toString());
     }
 
-    // TODO(user): This shouldn't be necessary. Speculatively disabling.
+    // TODO(t5302074): This shouldn't be necessary. Speculatively disabling.
     environmentVariablesBuilder.put("NO_BUCKD", "1");
   }
 
@@ -240,7 +238,7 @@ public class Genrule extends AbstractBuildRule implements HasOutputName {
 
     Path output = rule.getPathToOutputFile();
     if (output != null) {
-      // TODO(mbolin): This is a giant hack and we should do away with $DEPS altogether.
+      // TODO(t6405518): This is a giant hack and we should do away with $DEPS altogether.
       // There can be a lot of paths here and the filesystem location can be arbitrarily long.
       // We can easily hit the shell command character limit. What this does is find
       // BuckConstant.GEN_DIR (which should be the same for every path) and replaces
@@ -319,7 +317,7 @@ public class Genrule extends AbstractBuildRule implements HasOutputName {
 
     // Symlink all sources into the temp directory so that they can be used in the genrule.
     for (Map.Entry<Path, Path> entry : srcsToAbsolutePaths.entrySet()) {
-      String localPath = entry.getKey().toString();
+      String localPath = MorePaths.pathWithUnixSeparators(entry.getKey());
 
       Path canonicalPath;
       canonicalPath = MorePaths.absolutify(entry.getValue());

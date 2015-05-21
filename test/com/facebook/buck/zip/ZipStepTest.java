@@ -33,16 +33,23 @@ import com.google.common.io.Files;
 
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
 import org.apache.commons.compress.archivers.zip.ZipFile;
+import org.apache.commons.compress.archivers.zip.ZipUtil;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Date;
 import java.util.Enumeration;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 public class ZipStepTest {
 
@@ -258,4 +265,61 @@ public class ZipStepTest {
     }
   }
 
+  @Test
+  public void timesAreSanitized() throws IOException {
+    File parent = tmp.newFolder("zipstep");
+
+    // Create a zip file with a file and a directory.
+    File toZip = tmp.newFolder("zipdir");
+    assertTrue(new File(toZip, "child").mkdir());
+    Files.touch(new File(toZip, "child/file.txt"));
+    Path outputZip = parent.toPath().resolve("output.zip");
+    ZipStep step = new ZipStep(
+        outputZip,
+        ImmutableSet.<Path>of(),
+        false,
+        ZipStep.DEFAULT_COMPRESSION_LEVEL,
+        Paths.get("zipdir"));
+    assertEquals(0, step.execute(executionContext));
+
+    // Iterate over each of the entries, expecting to see all zeros in the time fields.
+    assertTrue(java.nio.file.Files.exists(outputZip));
+    Date dosEpoch = new Date(ZipUtil.dosToJavaTime((1 << 21) | (1 << 16)));
+    try (ZipInputStream is = new ZipInputStream(new FileInputStream(outputZip.toFile()))) {
+      for (ZipEntry entry = is.getNextEntry(); entry != null; entry = is.getNextEntry()) {
+        assertEquals(entry.getName(), dosEpoch, new Date(entry.getTime()));
+      }
+    }
+  }
+
+  @Test
+  public void zipMaintainsPosixPermissions() throws IOException {
+    assumeTrue(Platform.detect() != Platform.WINDOWS);
+
+    Path parent = tmp.newFolder("zipstep").toPath();
+    Path toZip = tmp.newFolder("zipdir").toPath();
+    Path file = toZip.resolve("foo.sh");
+    ImmutableSet<PosixFilePermission> filePermissions =
+        ImmutableSet.of(
+            PosixFilePermission.OWNER_READ,
+            PosixFilePermission.OWNER_WRITE,
+            PosixFilePermission.OWNER_EXECUTE,
+            PosixFilePermission.GROUP_READ,
+            PosixFilePermission.OTHERS_READ);
+    java.nio.file.Files.createFile(
+        file,
+        PosixFilePermissions.asFileAttribute(filePermissions));
+    Path outputZip = parent.resolve("output.zip");
+    ZipStep step = new ZipStep(
+        outputZip,
+        ImmutableSet.<Path>of(),
+        false,
+        ZipStep.MIN_COMPRESSION_LEVEL,
+        Paths.get("zipdir"));
+    assertEquals(0, step.execute(executionContext));
+
+    Path destination = tmp.newFolder("output").toPath();
+    Unzip.extractZipFile(outputZip, destination, false);
+    assertTrue(java.nio.file.Files.isExecutable(destination.resolve("foo.sh")));
+  }
 }

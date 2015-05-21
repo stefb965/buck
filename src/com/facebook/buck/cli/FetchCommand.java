@@ -23,9 +23,11 @@ import com.facebook.buck.file.RemoteFileDescription;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
+import com.facebook.buck.model.Pair;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildEvent;
+import com.facebook.buck.rules.CachingBuildEngine;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphToActionGraph;
@@ -36,90 +38,89 @@ import com.google.common.collect.ImmutableSet;
 import java.io.IOException;
 import java.net.Proxy;
 
-public class FetchCommand extends AbstractCommandRunner<BuildCommandOptions> {
-
-  public FetchCommand(CommandRunnerParams params) {
-    super(params);
-  }
+public class FetchCommand extends BuildCommand {
 
   @Override
-  BuildCommandOptions createOptions(BuckConfig buckConfig) {
-    return new BuildCommandOptions(buckConfig);
-  }
+  public int runWithoutHelp(CommandRunnerParams params) throws IOException, InterruptedException {
 
-  @Override
-  int runCommandWithOptionsInternal(BuildCommandOptions options)
-      throws IOException, InterruptedException {
-
-    ImmutableSet<BuildTarget> buildTargets =
-        getBuildTargets(options.getArgumentsFormattedAsBuildTargets());
-
-    if (buildTargets.isEmpty()) {
-      console.printBuildFailure("Must specify at least one build target to fetch.");
+    if (getArguments().isEmpty()) {
+      params.getConsole().printBuildFailure("Must specify at least one build target to fetch.");
       return 1;
     }
 
     // Post the build started event, setting it to the Parser recorded start time if appropriate.
-    if (getParser().getParseStartTime().isPresent()) {
-      getBuckEventBus().post(
-          BuildEvent.started(buildTargets),
-          getParser().getParseStartTime().get());
+    if (params.getParser().getParseStartTime().isPresent()) {
+      params.getBuckEventBus().post(
+          BuildEvent.started(getArguments()),
+          params.getParser().getParseStartTime().get());
     } else {
-      getBuckEventBus().post(BuildEvent.started(buildTargets));
+      params.getBuckEventBus().post(BuildEvent.started(getArguments()));
     }
 
-    FetchTargetNodeToBuildRuleTransformer ruleGenerator = createFetchTransformer(options);
+    FetchTargetNodeToBuildRuleTransformer ruleGenerator = createFetchTransformer(params);
     TargetGraphToActionGraph transformer = new TargetGraphToActionGraph(
-        getBuckEventBus(),
+        params.getBuckEventBus(),
         ruleGenerator);
 
     ActionGraph actionGraph;
+    ImmutableSet<BuildTarget> buildTargets;
     try {
-      TargetGraph targetGraph = getParser().buildTargetGraphForBuildTargets(
-          buildTargets,
-          new ParserConfig(options.getBuckConfig()),
-          getBuckEventBus(),
-          console,
-          environment,
-          options.getEnableProfiling());
-
-      actionGraph = transformer.apply(targetGraph);
+      Pair<ImmutableSet<BuildTarget>, TargetGraph> result = params.getParser()
+          .buildTargetGraphForTargetNodeSpecs(
+              parseArgumentsAsTargetNodeSpecs(
+                  params.getBuckConfig(),
+                  params.getRepository().getFilesystem().getIgnorePaths(),
+                  getArguments()),
+              new ParserConfig(params.getBuckConfig()),
+              params.getBuckEventBus(),
+              params.getConsole(),
+              params.getEnvironment(),
+              getEnableProfiling());
+      actionGraph = transformer.apply(result.getSecond());
       buildTargets = ruleGenerator.getDownloadableTargets();
     } catch (BuildTargetException | BuildFileParseException e) {
-      console.printBuildFailureWithoutStacktrace(e);
+      params.getConsole().printBuildFailureWithoutStacktrace(e);
       return 1;
     }
 
     int exitCode;
-    try (Build build = options.createBuild(
-        options.getBuckConfig(),
-        actionGraph,
-        getProjectFilesystem(),
-        getAndroidDirectoryResolver(),
-        getBuildEngine(),
-        getArtifactCache(),
-        console,
-        getBuckEventBus(),
-        Optional.<TargetDevice>absent(),
-        getCommandRunnerParams().getPlatform(),
-        getCommandRunnerParams().getEnvironment(),
-        getCommandRunnerParams().getObjectMapper(),
-        getCommandRunnerParams().getClock())) {
+    try (CommandThreadManager pool =
+             new CommandThreadManager("Fetch", getConcurrencyLimit(params.getBuckConfig()));
+         Build build = createBuild(
+             params.getBuckConfig(),
+             actionGraph,
+             params.getRepository().getFilesystem(),
+             params.getAndroidPlatformTargetSupplier(),
+             new CachingBuildEngine(
+                 pool.getExecutor(),
+                 params.getBuckConfig().getSkipLocalBuildChainDepth().or(1L)),
+             getArtifactCache(params),
+             params.getConsole(),
+             params.getBuckEventBus(),
+             Optional.<TargetDevice>absent(),
+             params.getPlatform(),
+             params.getEnvironment(),
+             params.getObjectMapper(),
+             params.getClock())) {
       exitCode = build.executeAndPrintFailuresToConsole(
           buildTargets,
-          options.isKeepGoing(),
-          console,
-          options.getPathToBuildReport());
+          isKeepGoing(),
+          params.getConsole(),
+          getPathToBuildReport(params.getBuckConfig()));
     }
 
-    getBuckEventBus().post(BuildEvent.finished(buildTargets, exitCode));
+    params.getBuckEventBus().post(BuildEvent.finished(getArguments(), exitCode));
 
     return exitCode;
   }
 
-  private FetchTargetNodeToBuildRuleTransformer createFetchTransformer(
-      BuildCommandOptions options) {
-    Optional<String> defaultMavenRepo = options.getBuckConfig().getValue("download", "maven_repo");
+  @Override
+  public boolean isReadOnly() {
+    return false;
+  }
+
+  private FetchTargetNodeToBuildRuleTransformer createFetchTransformer(CommandRunnerParams params) {
+    Optional<String> defaultMavenRepo = params.getBuckConfig().getValue("download", "maven_repo");
     Downloader downloader = new HttpDownloader(Optional.<Proxy>absent(), defaultMavenRepo);
     Description<?> description = new RemoteFileDescription(downloader);
     return new FetchTargetNodeToBuildRuleTransformer(
@@ -128,7 +129,8 @@ public class FetchCommand extends AbstractCommandRunner<BuildCommandOptions> {
   }
 
   @Override
-  String getUsageIntro() {
-    return "fetch remote resources";
+  public String getShortDescription() {
+    return "downloads remote resources to your local machine";
   }
+
 }

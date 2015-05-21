@@ -16,57 +16,35 @@
 
 package com.facebook.buck.apple;
 
-import com.facebook.buck.apple.graphql.GraphQLDataDescription;
 import com.facebook.buck.cxx.CxxConstructorArg;
+import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.cxx.CxxSource;
-import com.facebook.buck.graph.AbstractAcyclicDepthFirstPostOrderTraversal;
-import com.facebook.buck.graph.AbstractAcyclicDepthFirstPostOrderTraversal.CycleException;
-import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
-import com.facebook.buck.graph.MutableDirectedGraph;
+import com.facebook.buck.cxx.HeaderVisibility;
+import com.facebook.buck.cxx.Tool;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.HasBuildTarget;
-import com.facebook.buck.model.ImmutableBuildTarget;
-import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
-import com.facebook.buck.rules.ImmutableBuildRuleType;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SymlinkTree;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.coercer.Either;
-import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.rules.coercer.FrameworkPath;
+import com.facebook.buck.rules.coercer.SourceWithFlags;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
-import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
-import com.google.common.base.Predicates;
-import com.google.common.base.Splitter;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Iterables;
-import com.google.common.collect.Maps;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.Map;
 import java.util.Set;
 
 /**
@@ -74,541 +52,364 @@ import java.util.Set;
  */
 public class AppleDescriptions {
 
-  public static final Flavor HEADERS = ImmutableFlavor.of("headers");
+  private static final Either<ImmutableSortedSet<SourcePath>, ImmutableMap<String, SourcePath>>
+      EMPTY_HEADERS = Either.ofLeft(ImmutableSortedSet.<SourcePath>of());
 
-  private static final BuildRuleType HEADERS_RULE_TYPE = ImmutableBuildRuleType.of("headers");
+  static final String XCASSETS_DIRECTORY_EXTENSION = ".xcassets";
+  private static final String MERGED_ASSET_CATALOG_NAME = "Merged";
 
   /** Utility class: do not instantiate. */
   private AppleDescriptions() {}
 
-  /**
-   * Tries to create a {@link BuildRule} based on the flavors of {@code params.getBuildTarget()} and
-   * the specified args.
-   * If this method does not know how to handle the specified flavors, it returns {@code null}.
-   */
-  static <A extends AppleNativeTargetDescriptionArg> Optional<BuildRule> createFlavoredRule(
-      BuildRuleParams params,
-      BuildRuleResolver resolver,
-      A args,
-      AppleConfig appleConfig,
-      SourcePathResolver pathResolver,
-      TargetSources targetSources) {
-    BuildTarget target = params.getBuildTarget();
-    if (target.getFlavors().contains(CompilationDatabase.COMPILATION_DATABASE)) {
-      BuildRule compilationDatabase = createCompilationDatabase(
-          params,
-          resolver,
-          args,
-          appleConfig,
-          pathResolver,
-          targetSources);
-      return Optional.of(compilationDatabase);
-    } else if (target.getFlavors().contains(HEADERS)) {
-      return Optional.of(createHeadersFlavor(params, pathResolver, args));
-    } else {
-      return Optional.absent();
-    }
-  }
-
-  /**
-   * @return A rule for making the headers of an Apple target available to other targets.
-   */
-  static BuildRule createHeadersFlavor(
-      BuildRuleParams params,
-      SourcePathResolver resolver,
-      AppleNativeTargetDescriptionArg args) {
-    BuildTarget targetForOriginalRule = params.getBuildTarget();
-    if (targetForOriginalRule.isFlavored()) {
-      targetForOriginalRule = targetForOriginalRule.getUnflavoredTarget();
-    }
-    BuildTarget headersTarget = BuildTargets.createFlavoredBuildTarget(
-        targetForOriginalRule,
-        AppleDescriptions.HEADERS);
-
-    BuildRuleParams headerRuleParams = params.copyWithChanges(
-        HEADERS_RULE_TYPE,
-        headersTarget,
-        /* declaredDeps */ Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
-        Suppliers.ofInstance(params.getExtraDeps()));
-
-    TargetSources targetSources = TargetSources.ofAppleSources(resolver, args.srcs.get());
-    ImmutableSortedMap<SourcePath, String> perFileFlags =
-        ImmutableSortedMap.copyOf(targetSources.getPerFileFlags());
-    boolean useBuckHeaderMaps = args.useBuckHeaderMaps.or(Boolean.FALSE);
-    return createSymlinkTree(
-        headerRuleParams,
-        resolver,
-        perFileFlags,
-        useBuckHeaderMaps);
-  }
-
-  public static Path getPathToHeaders(BuildTarget buildTarget) {
-    return BuildTargets.getBinPath(buildTarget, "__%s_public_headers__");
-  }
-
-  private static SymlinkTree createSymlinkTree(
-      BuildRuleParams params,
-      SourcePathResolver pathResolver,
-      ImmutableSortedMap<SourcePath, String> perFileFlags,
-      boolean useBuckHeaderMaps) {
-    // Note that the set of headersToCopy may be empty. If so, the returned rule will be a no-op.
-    // TODO(mbolin): Make headersToCopy an ImmutableSortedMap once we clean up the iOS codebase and
-    // can guarantee that the keys are unique.
-    Map<Path, SourcePath> headersToCopy;
-    if (useBuckHeaderMaps) {
-      // No need to copy headers because header maps are used.
-      headersToCopy = ImmutableSortedMap.of();
-    } else {
-      // This is a heuristic to get the right header path prefix. Note that ProjectGenerator uses a
-      // slightly different heuristic, which is buildTarget.getShortName(), though that is only
-      // a fallback when an apple_library() does not specify a header_path_prefix when
-      // use_buck_header_maps is True.
-      Path headerPathPrefix = params.getBuildTarget().getBasePath().getFileName();
-
-      headersToCopy = Maps.newHashMap();
-      Splitter spaceSplitter = Splitter.on(' ').trimResults().omitEmptyStrings();
-      Predicate<String> isPublicHeaderFlag = Predicates.equalTo("public");
-      for (Map.Entry<SourcePath, String> entry : perFileFlags.entrySet()) {
-        String flags = entry.getValue();
-        if (Iterables.any(spaceSplitter.split(flags), isPublicHeaderFlag)) {
-          SourcePath sourcePath = entry.getKey();
-          Path sourcePathName = pathResolver.getPath(sourcePath).getFileName();
-          headersToCopy.put(headerPathPrefix.resolve(sourcePathName), sourcePath);
-        }
-      }
-    }
-
-    BuildRuleParams headerParams = params.copyWithDeps(
-        /* declaredDeps */ Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
-        Suppliers.ofInstance(params.getExtraDeps()));
-    Path root = getPathToHeaders(params.getBuildTarget());
-    return new SymlinkTree(headerParams, pathResolver, root, ImmutableMap.copyOf(headersToCopy));
-  }
-
-  /**
-   * @return A compilation database with entries for the files in the specified
-   *     {@code targetSources}.
-   */
-  private static CompilationDatabase createCompilationDatabase(
-      BuildRuleParams params,
-      BuildRuleResolver buildRuleResolver,
-      AppleNativeTargetDescriptionArg args,
-      AppleConfig appleConfig,
-      SourcePathResolver pathResolver,
-      TargetSources targetSources) {
-    CompilationDatabaseTraversal traversal = new CompilationDatabaseTraversal(
-        params.getTargetGraph(),
-        buildRuleResolver);
-    Iterable<TargetNode<AppleNativeTargetDescriptionArg>> startNodes = filterAppleNativeTargetNodes(
-        FluentIterable
-            .from(params.getDeclaredDeps())
-            .transform(HasBuildTarget.TO_TARGET)
-            .transform(params.getTargetGraph().get())
-            .append(params.getTargetGraph().get(params.getBuildTarget())));
-    try {
-      traversal.traverse(startNodes);
-    } catch (CycleException | IOException | InterruptedException e) {
-      throw new RuntimeException(e);
-    }
-
-    BuildRuleParams compilationDatabaseParams = params.copyWithDeps(
-        /* declaredDeps */ Suppliers.ofInstance(traversal.deps.build()),
-        Suppliers.ofInstance(params.getExtraDeps()));
-
-    return new CompilationDatabase(
-        compilationDatabaseParams,
-        pathResolver,
-        appleConfig,
-        targetSources,
-        args.frameworks.get(),
-        traversal.includePaths.build(),
-        args.prefixHeader);
-  }
-
-  private static FluentIterable<TargetNode<AppleNativeTargetDescriptionArg>>
-      filterAppleNativeTargetNodes(FluentIterable<TargetNode<?>> fluentIterable) {
-    return fluentIterable
-        .filter(
-            new Predicate<TargetNode<?>>() {
-              @Override
-              public boolean apply(TargetNode<?> input) {
-                return ImmutableSet
-                    .of(AppleBinaryDescription.TYPE, AppleLibraryDescription.TYPE)
-                    .contains(input.getType());
-              }
-            })
-        .transform(
-            new Function<TargetNode<?>, TargetNode<AppleNativeTargetDescriptionArg>>() {
-              @Override
-              @SuppressWarnings("unchecked")
-              public TargetNode<AppleNativeTargetDescriptionArg> apply(TargetNode<?> input) {
-                return (TargetNode<AppleNativeTargetDescriptionArg>) input;
-              }
-            });
-  }
-
-  public static ImmutableMap<
-      BuildTarget,
-      ImmutableSet<TargetNode<GraphQLDataDescription.Arg>>> getTargetsToTransitiveModelDependencies(
-      TargetGraph targetGraph) {
-    Map<
-        BuildTarget,
-        Set<TargetNode<GraphQLDataDescription.Arg>>> targetsToTransitiveModelDependencies =
-        new HashMap<>();
-
-    for (TargetNode<?> node : targetGraph.getNodes()) {
-      if (node.getType().equals(GraphQLDataDescription.TYPE)) {
-        TargetNode<GraphQLDataDescription.Arg> model =
-            node.castArg(GraphQLDataDescription.Arg.class).get();
-        Set<TargetNode<?>> visited = new HashSet<>();
-        for (TargetNode<?> dependent : targetGraph.getIncomingNodesFor(model)) {
-          addAllTransitiveDependents(
-              targetGraph,
-              targetsToTransitiveModelDependencies,
-              dependent,
-              model,
-              visited);
-        }
-      }
-    }
-
-    return ImmutableMap.copyOf(
-        Maps.transformValues(
-            targetsToTransitiveModelDependencies,
-            new Function<
-                Set<TargetNode<GraphQLDataDescription.Arg>>,
-                ImmutableSet<TargetNode<GraphQLDataDescription.Arg>>>() {
-              @Override
-              public ImmutableSet<TargetNode<GraphQLDataDescription.Arg>> apply(
-                  Set<TargetNode<GraphQLDataDescription.Arg>> input) {
-                return ImmutableSet.copyOf(input);
-              }
-            }
-        ));
-  }
-
-  private static void addAllTransitiveDependents(
-      TargetGraph targetGraph,
-      Map<
-          BuildTarget,
-          Set<TargetNode<GraphQLDataDescription.Arg>>> targetsToTransitiveModelDependencies,
-      TargetNode<?> node,
-      TargetNode<GraphQLDataDescription.Arg> model,
-      Set<TargetNode<?>> visited) {
-    if (visited.contains(node)) {
-      return;
-    }
-    visited.add(node);
-    if (node.getType() != AppleLibraryDescription.TYPE &&
-        node.getType() != AppleBinaryDescription.TYPE) {
-      return;
-    }
-    Set<TargetNode<GraphQLDataDescription.Arg>> models =
-        targetsToTransitiveModelDependencies.get(node.getBuildTarget());
-    if (models == null) {
-      models = new HashSet<>();
-      targetsToTransitiveModelDependencies.put(node.getBuildTarget(), models);
-    }
-    models.add(model);
-
-    for (TargetNode<?> dependent : targetGraph.getIncomingNodesFor(node)) {
-      addAllTransitiveDependents(
-          targetGraph,
-          targetsToTransitiveModelDependencies, dependent, model, visited);
-    }
-  }
-
-  public static BuildTarget getMergedBuildTarget(
-      Iterable<? extends HasBuildTarget> targets) {
-    ImmutableSortedSet<BuildTarget> sortedTargets = ImmutableSortedSet.copyOf(
-        Iterables.transform(targets, HasBuildTarget.TO_TARGET));
-    return ImmutableBuildTarget.of(
-        Optional.<String>absent(),
-        "//buck/synthesized/ios",
-        Joiner
-            .on('-')
-            .join(
-                Iterables.transform(
-                    sortedTargets,
-                    new Function<BuildTarget, String>() {
-                      @Override
-                      public String apply(BuildTarget input) {
-                        return input
-                            .getFullyQualifiedName()
-                            .replace('/', '-')
-                            .replace('.', '-')
-                            .replace('+', '-')
-                            .replace(' ', '-')
-                            .replace(':', '-');
-                      }
-                    })),
-        ImmutableSortedSet.<Flavor>of());
-  }
-
-  public static ImmutableMap<
-      BuildTarget,
-      TargetNode<GraphQLDataDescription.Arg>> mergeGraphQLModels(
-      ImmutableMap<
-          BuildTarget,
-          ImmutableSet<
-              TargetNode<GraphQLDataDescription.Arg>>> targetsToTransitiveModelDependencies) {
-    ImmutableMap.Builder<BuildTarget, TargetNode<GraphQLDataDescription.Arg>> modelsBuilder =
-        ImmutableMap.builder();
-    Map<Set<TargetNode<GraphQLDataDescription.Arg>>, TargetNode<GraphQLDataDescription.Arg>>
-        mergedNodes = new HashMap<>();
-    for (Map.Entry<BuildTarget, ImmutableSet<TargetNode<GraphQLDataDescription.Arg>>> entry :
-        targetsToTransitiveModelDependencies.entrySet()) {
-      TargetNode<GraphQLDataDescription.Arg> mergedNode = mergedNodes.get(entry.getValue());
-      if (mergedNode != null) {
-        modelsBuilder.put(entry.getKey(), mergedNode);
-        continue;
-      }
-      mergedNode = mergeGraphQLModels(entry.getValue());
-      mergedNodes.put(entry.getValue(), mergedNode);
-      modelsBuilder.put(entry.getKey(), mergedNode);
-    }
-
-    return modelsBuilder.build();
-  }
-
-  public static TargetGraph getSubgraphWithMergedModels(
-      final TargetGraph targetGraph,
-      ImmutableSet<TargetNode<GraphQLDataDescription.Arg>> mergedModels) {
-    final ImmutableSet<TargetNode<?>> unmergedModels = FluentIterable
-        .from(targetGraph.getNodes())
-        .filter(
-            new Predicate<TargetNode<?>>() {
-              @Override
-              public boolean apply(TargetNode<?> input) {
-                return input.getType().equals(GraphQLDataDescription.TYPE);
-              }
-            })
-        .toSet();
-    final MutableDirectedGraph<TargetNode<?>> subgraph = new MutableDirectedGraph<>();
-
-    new AbstractBreadthFirstTraversal<TargetNode<?>>(unmergedModels) {
-      @Override
-      public ImmutableSet<TargetNode<?>> visit(TargetNode<?> node) {
-        ImmutableSet<TargetNode<?>> dependencies =
-            ImmutableSet.copyOf(targetGraph.getAll(node.getDeps()));
-        if (unmergedModels.contains(node)) {
-          return dependencies;
-        }
-        subgraph.addNode(node);
-        for (TargetNode<?> dependency : dependencies) {
-          subgraph.addEdge(node, dependency);
-        }
-        return dependencies;
-      }
-    }.start();
-
-    for (TargetNode<?> mergedModel : mergedModels) {
-      subgraph.addNode(mergedModel);
-      for (TargetNode<?> dependency : targetGraph.getAll(mergedModel.getDeps())) {
-        Preconditions.checkNotNull(targetGraph.get(dependency.getBuildTarget()));
-        subgraph.addEdge(mergedModel, dependency);
-      }
-    }
-
-    return new TargetGraph(subgraph);
-  }
-
-  @VisibleForTesting
-  static TargetNode<GraphQLDataDescription.Arg> mergeGraphQLModels(
-      Set<TargetNode<GraphQLDataDescription.Arg>> models) {
-    TargetNode<GraphQLDataDescription.Arg> mergedModel = null;
-    for (TargetNode<GraphQLDataDescription.Arg> model : models) {
-      if (mergedModel == null) {
-        mergedModel = model.withConstructorArg(copyGraphQLArg(model));
-        continue;
-      }
-
-      GraphQLDataDescription.Arg mergedArg = mergedModel.getConstructorArg();
-      GraphQLDataDescription.Arg nextArg = model.getConstructorArg();
-      if (!mergedArg.isMergeableWith(nextArg)) {
-        throw new HumanReadableException(
-            "Attempting to merge two GraphQL models with incompatible args.");
-      }
-
-      mergedModel = mergedModel.withConstructorArg(mergedArg.mergeWith(nextArg));
-    }
-    return Preconditions.checkNotNull(mergedModel).withBuildTarget(getMergedBuildTarget(models));
-  }
-
-  @VisibleForTesting
-  static GraphQLDataDescription.Arg copyGraphQLArg(TargetNode<GraphQLDataDescription.Arg> node) {
-    GraphQLDataDescription.Arg arg = node.getDescription().createUnpopulatedConstructorArg();
-    arg.queries = node.getConstructorArg().queries;
-    arg.consistencyConfig = node.getConstructorArg().consistencyConfig;
-    arg.clientSchemaConfig = node.getConstructorArg().clientSchemaConfig;
-    arg.schema = node.getConstructorArg().schema;
-    arg.mutations = node.getConstructorArg().mutations;
-    arg.modelTags = node.getConstructorArg().modelTags;
-    arg.knownIssuesFile = node.getConstructorArg().knownIssuesFile;
-    arg.persistIds = node.getConstructorArg().persistIds;
-    arg.configs = node.getConstructorArg().configs;
-    arg.srcs = node.getConstructorArg().srcs;
-    arg.frameworks = node.getConstructorArg().frameworks;
-    arg.deps = node.getConstructorArg().deps;
-    arg.gid = node.getConstructorArg().gid;
-    arg.headerPathPrefix = node.getConstructorArg().headerPathPrefix;
-    arg.useBuckHeaderMaps = node.getConstructorArg().useBuckHeaderMaps;
-    arg.prefixHeader = node.getConstructorArg().prefixHeader;
-    arg.tests = node.getConstructorArg().tests;
-    return arg;
-  }
-
-  private static class CompilationDatabaseTraversal
-      extends AbstractAcyclicDepthFirstPostOrderTraversal<
-      TargetNode<AppleNativeTargetDescriptionArg>> {
-
-    private final TargetGraph targetGraph;
-    private final BuildRuleResolver buildRuleResolver;
-    private final ImmutableSet.Builder<Path> includePaths;
-    private final ImmutableSortedSet.Builder<BuildRule> deps;
-
-    private CompilationDatabaseTraversal(
-        TargetGraph targetGraph,
-        BuildRuleResolver buildRuleResolver) {
-      this.targetGraph = targetGraph;
-      this.buildRuleResolver = buildRuleResolver;
-      this.includePaths = ImmutableSet.builder();
-      this.deps = ImmutableSortedSet.naturalOrder();
-    }
-
-    @Override
-    protected Iterator<TargetNode<AppleNativeTargetDescriptionArg>> findChildren(
-        TargetNode<AppleNativeTargetDescriptionArg> node)
-        throws IOException, InterruptedException {
-      return filterAppleNativeTargetNodes(
-          FluentIterable.from(node.getDeclaredDeps()).transform(targetGraph.get())).iterator();
-    }
-
-    @Override
-    protected void onNodeExplored(TargetNode<AppleNativeTargetDescriptionArg> node)
-        throws IOException, InterruptedException {
-      if (node.getConstructorArg().getUseBuckHeaderMaps()) {
-        // TODO(user): Currently, header maps are created by `buck project`. Eventually they
-        // should become build dependencies. When that happens, rule should be added to this.deps.
-        Path headerMap = getPathToHeaderMap(node, HeaderMapType.PUBLIC_HEADER_MAP).get();
-        includePaths.add(headerMap);
-      } else {
-        // In this case, we need the #headers flavor of node so the path to its public headers
-        // directory can be included. First, we perform a defensive check to make sure that node is
-        // an unflavored node because it may not be safe to request the #headers of a flavored node.
-        BuildTarget buildTarget = node.getBuildTarget();
-        if (buildTarget.isFlavored()) {
-          return;
-        }
-
-        // Next, we get the #headers flavor of the rule.
-        BuildTarget targetForHeaders = BuildTargets.createFlavoredBuildTarget(
-            buildTarget,
-            AppleDescriptions.HEADERS);
-        Optional<BuildRule> buildRule = buildRuleResolver.getRuleOptional(targetForHeaders);
-        if (!buildRule.isPresent()) {
-          BuildRule newBuildRule = node.getDescription().createBuildRule(
-              new BuildRuleParams(
-                  targetForHeaders,
-                  Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
-                  Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
-                  node.getRuleFactoryParams().getProjectFilesystem(),
-                  node.getRuleFactoryParams().getRuleKeyBuilderFactory(),
-                  node.getType(),
-                  targetGraph),
-              buildRuleResolver,
-              node.getConstructorArg());
-          buildRuleResolver.addToIndex(newBuildRule);
-          buildRule = Optional.of(newBuildRule);
-        }
-        SymlinkTree headersRule = (SymlinkTree) buildRule.get();
-
-        // Finally, we make sure the rule has public headers before adding it to includePaths.
-        Optional<Path> headersDirectory = headersRule.getRootOfSymlinksDirectory();
-        if (headersDirectory.isPresent()) {
-          includePaths.add(headersDirectory.get());
-          deps.add(headersRule);
-        }
-      }
-    }
-
-    @Override
-    protected void onTraversalComplete(
-        Iterable<TargetNode<AppleNativeTargetDescriptionArg>> nodesInExplorationOrder) {
-      // Nothing to do: work is done in onNodeExplored.
-    }
-  }
-
-  public static Optional<Path> getPathToHeaderMap(
+  public static Optional<Path> getPathToHeaderSymlinkTree(
       TargetNode<? extends AppleNativeTargetDescriptionArg> targetNode,
-      HeaderMapType headerMapType) {
-    if (!targetNode.getConstructorArg().useBuckHeaderMaps.get()) {
+      HeaderVisibility headerVisibility) {
+    if (!targetNode.getConstructorArg().getUseBuckHeaderMaps()) {
       return Optional.absent();
     }
 
     return Optional.of(
         BuildTargets.getGenPath(
-          targetNode.getBuildTarget().getUnflavoredTarget(),
-          "%s" + headerMapType.getSuffix()));
+            targetNode.getBuildTarget().getUnflavoredBuildTarget(),
+            "%s" + AppleHeaderVisibilities.getHeaderSymlinkTreeSuffix(headerVisibility)));
   }
 
-  private static Path translateAppleSdkPaths(
-      Path path,
-      AppleSdkPaths appleSdkPaths) {
-    if (path.startsWith("$SDKROOT")) {
-      path = appleSdkPaths.getSdkPath().resolve(
-          path.subpath(1, path.getNameCount()));
-    } else if (path.startsWith("$DEVELOPER_DIR")) {
-      path = appleSdkPaths.getDeveloperPath().resolve(
-          path.subpath(1, path.getNameCount()));
-    }
+  public static Path getHeaderPathPrefix(
+      AppleNativeTargetDescriptionArg arg,
+      BuildTarget buildTarget) {
+    return Paths.get(arg.headerPathPrefix.or(buildTarget.getShortName()));
+  }
 
-    return path;
+  public static ImmutableMap<String, SourcePath> convertAppleHeadersToPublicCxxHeaders(
+      Function<SourcePath, Path> pathResolver,
+      Path headerPathPrefix,
+      AppleNativeTargetDescriptionArg arg) {
+    // The exported headers in the populated cxx constructor arg will contain exported headers from
+    // the apple constructor arg with the public include style.
+    return AppleDescriptions.parseAppleHeadersForUseFromOtherTargets(
+                pathResolver,
+                headerPathPrefix,
+                arg.exportedHeaders.or(EMPTY_HEADERS));
+  }
+
+  public static ImmutableMap<String, SourcePath> convertAppleHeadersToPrivateCxxHeaders(
+      Function<SourcePath, Path> pathResolver,
+      Path headerPathPrefix,
+      AppleNativeTargetDescriptionArg arg) {
+    // The private headers will contain exported headers with the private include style and private
+    // headers with both styles.
+    return ImmutableMap.<String, SourcePath>builder()
+        .putAll(
+            AppleDescriptions.parseAppleHeadersForUseFromTheSameTarget(
+                pathResolver,
+                arg.headers.or(EMPTY_HEADERS)))
+        .putAll(
+            AppleDescriptions.parseAppleHeadersForUseFromOtherTargets(
+                pathResolver,
+                headerPathPrefix,
+                arg.headers.or(EMPTY_HEADERS)))
+        .putAll(
+            AppleDescriptions.parseAppleHeadersForUseFromTheSameTarget(
+                pathResolver,
+                arg.exportedHeaders.or(EMPTY_HEADERS)))
+        .build();
+  }
+
+  @VisibleForTesting
+  static ImmutableMap<String, SourcePath> parseAppleHeadersForUseFromOtherTargets(
+      Function<SourcePath, Path> pathResolver,
+      Path headerPathPrefix,
+      Either<ImmutableSortedSet<SourcePath>, ImmutableMap<String, SourcePath>> headers) {
+    if (headers.isLeft()) {
+      // The user specified a set of header files. For use from other targets, prepend their names
+      // with the header path prefix.
+      return convertToFlatCxxHeaders(headerPathPrefix, pathResolver, headers.getLeft());
+    } else {
+      // The user specified a map from include paths to header files. Just use the specified map.
+      return headers.getRight();
+    }
+  }
+
+  @VisibleForTesting
+  static ImmutableMap<String, SourcePath> parseAppleHeadersForUseFromTheSameTarget(
+      Function<SourcePath, Path> pathResolver,
+      Either<ImmutableSortedSet<SourcePath>, ImmutableMap<String, SourcePath>> headers) {
+    if (headers.isLeft()) {
+      // The user specified a set of header files. Headers can be included from the same target
+      // using only their file name without a prefix.
+      return convertToFlatCxxHeaders(Paths.get(""), pathResolver, headers.getLeft());
+    } else {
+      // The user specified a map from include paths to header files. There is nothing we need to
+      // add on top of the exported headers.
+      return ImmutableMap.of();
+    }
+  }
+
+  @VisibleForTesting
+  static ImmutableMap<String, SourcePath> convertToFlatCxxHeaders(
+      Path headerPathPrefix,
+      Function<SourcePath, Path> sourcePathResolver,
+      Set<SourcePath> headerPaths) {
+    ImmutableMap.Builder<String, SourcePath> cxxHeaders = ImmutableMap.builder();
+    for (SourcePath headerPath : headerPaths) {
+      Path fileName = sourcePathResolver.apply(headerPath).getFileName();
+      String key = headerPathPrefix.resolve(fileName).toString();
+      cxxHeaders.put(key, headerPath);
+    }
+    return cxxHeaders.build();
   }
 
   public static void populateCxxConstructorArg(
+      SourcePathResolver resolver,
       CxxConstructorArg output,
       AppleNativeTargetDescriptionArg arg,
       BuildTarget buildTarget,
-      TargetSources targetSources,
       final Optional<AppleSdkPaths> appleSdkPaths) {
+    Path headerPathPrefix = AppleDescriptions.getHeaderPathPrefix(arg, buildTarget);
+    // The resulting cxx constructor arg will have no exported headers and both headers and exported
+    // headers specified in the apple arg will be available with both public and private include
+    // styles.
+    ImmutableMap<String, SourcePath> headerMap = ImmutableMap.<String, SourcePath>builder()
+        .putAll(
+            convertAppleHeadersToPublicCxxHeaders(
+                resolver.getPathFunction(),
+                headerPathPrefix,
+                arg))
+        .putAll(
+            convertAppleHeadersToPrivateCxxHeaders(
+                resolver.getPathFunction(),
+                headerPathPrefix,
+                arg))
+        .build();
+
     output.srcs = Optional.of(
-        Either.<ImmutableList<SourcePath>, ImmutableMap<String, SourcePath>>ofLeft(
-            ImmutableList.copyOf(targetSources.getSrcPaths())));
+        Either.<ImmutableList<SourceWithFlags>, ImmutableMap<String, SourceWithFlags>>ofLeft(
+            arg.srcs.get()));
     output.headers = Optional.of(
-        Either.<ImmutableList<SourcePath>, ImmutableMap<String, SourcePath>>ofLeft(
-            ImmutableList.copyOf(targetSources.getHeaderPaths())));
-    output.compilerFlags = Optional.of(ImmutableList.<String>of());
-    output.linkerFlags = Optional.of(ImmutableList.<String>of());
+        Either.<ImmutableList<SourcePath>, ImmutableMap<String, SourcePath>>ofRight(
+            headerMap));
+    output.prefixHeaders = Optional.of(ImmutableList.copyOf(arg.prefixHeader.asSet()));
+    output.compilerFlags = arg.compilerFlags;
+    output.platformCompilerFlags =
+        Optional.of(ImmutableList.<Pair<String, ImmutableList<String>>>of());
+    output.linkerFlags = Optional.of(
+        FluentIterable
+            .from(arg.frameworks.transform(frameworksToLinkerFlagsFunction(resolver)).get())
+            .append(arg.linkerFlags.get())
+            .toList());
     output.platformLinkerFlags = Optional.of(
         ImmutableList.<Pair<String, ImmutableList<String>>>of());
-    output.preprocessorFlags = Optional.of(ImmutableList.<String>of());
+    output.preprocessorFlags = arg.preprocessorFlags;
+    output.platformPreprocessorFlags =
+        Optional.of(ImmutableList.<Pair<String, ImmutableList<String>>>of());
     output.langPreprocessorFlags = Optional.of(
         ImmutableMap.<CxxSource.Type, ImmutableList<String>>of());
     if (appleSdkPaths.isPresent()) {
       output.frameworkSearchPaths = arg.frameworks.transform(
-          new Function<ImmutableSortedSet<String>, ImmutableList<Path>>() {
-            @Override
-            public ImmutableList<Path> apply(ImmutableSortedSet<String> frameworkPaths) {
-                ImmutableSet.Builder<Path> frameworksSearchPathsBuilder = ImmutableSet.builder();
-                for (String frameworkPath : frameworkPaths) {
-                  Path parentDirectory = Paths.get(frameworkPath).getParent();
-                  if (parentDirectory != null) {
-                    frameworksSearchPathsBuilder.add(
-                        translateAppleSdkPaths(parentDirectory, appleSdkPaths.get()));
-                  }
-                }
-                return ImmutableList.copyOf(frameworksSearchPathsBuilder.build());
-            }
-          });
+          frameworksToSearchPathsFunction(resolver, appleSdkPaths.get()));
     } else {
       output.frameworkSearchPaths = Optional.of(ImmutableList.<Path>of());
     }
     output.lexSrcs = Optional.of(ImmutableList.<SourcePath>of());
     output.yaccSrcs = Optional.of(ImmutableList.<SourcePath>of());
     output.deps = arg.deps;
-    output.headerNamespace = arg.headerPathPrefix.or(
-        Optional.of(buildTarget.getShortName()));
+    // This is intentionally an empty string; we put all prefixes into
+    // the header map itself.
+    output.headerNamespace = Optional.of("");
+    output.tests = arg.tests;
+    output.cxxRuntimeType = Optional.absent();
+  }
+
+  public static void populateCxxLibraryDescriptionArg(
+      SourcePathResolver resolver,
+      CxxLibraryDescription.Arg output,
+      AppleNativeTargetDescriptionArg arg,
+      BuildTarget buildTarget,
+      final Optional<AppleSdkPaths> appleSdkPaths,
+      boolean linkWhole) {
+    populateCxxConstructorArg(
+        resolver,
+        output,
+        arg,
+        buildTarget,
+        appleSdkPaths);
+    Path headerPathPrefix = AppleDescriptions.getHeaderPathPrefix(arg, buildTarget);
+
+    output.headers = Optional.of(
+        Either.<ImmutableList<SourcePath>, ImmutableMap<String, SourcePath>>ofRight(
+            convertAppleHeadersToPrivateCxxHeaders(
+                resolver.getPathFunction(),
+                headerPathPrefix,
+                arg)));
+    output.exportedPreprocessorFlags = arg.exportedPreprocessorFlags;
+    output.exportedHeaders = Optional.of(
+        Either.<ImmutableList<SourcePath>, ImmutableMap<String, SourcePath>>ofRight(
+            convertAppleHeadersToPublicCxxHeaders(
+                resolver.getPathFunction(),
+                headerPathPrefix,
+                arg)));
+    output.exportedPreprocessorFlags = Optional.of(ImmutableList.<String>of());
+    output.exportedPlatformPreprocessorFlags =
+        Optional.of(ImmutableList.<Pair<String, ImmutableList<String>>>of());
+    output.exportedLangPreprocessorFlags = Optional.of(
+        ImmutableMap.<CxxSource.Type, ImmutableList<String>>of());
+    output.exportedLinkerFlags = Optional.of(
+        FluentIterable
+            .from(arg.frameworks.transform(frameworksToLinkerFlagsFunction(resolver)).get())
+            .append(arg.exportedLinkerFlags.get())
+            .toList());
+    output.exportedPlatformLinkerFlags =
+        Optional.of(ImmutableList.<Pair<String, ImmutableList<String>>>of());
+    output.soname = Optional.absent();
+    output.forceStatic = Optional.of(false);
+    output.linkWhole = Optional.of(linkWhole);
+  }
+
+  @VisibleForTesting
+  static Function<
+      ImmutableSortedSet<FrameworkPath>,
+      ImmutableList<String>> frameworksToLinkerFlagsFunction(final SourcePathResolver resolver) {
+    return new Function<ImmutableSortedSet<FrameworkPath>, ImmutableList<String>>() {
+      @Override
+      public ImmutableList<String> apply(ImmutableSortedSet<FrameworkPath> input) {
+        return FluentIterable
+            .from(input)
+            .transformAndConcat(linkerFlagsForFrameworkPathFunction(resolver.getPathFunction()))
+            .toList();
+      }
+    };
+  }
+
+  @VisibleForTesting
+  static Function<
+      ImmutableSortedSet<FrameworkPath>,
+      ImmutableList<Path>> frameworksToSearchPathsFunction(
+      final SourcePathResolver resolver,
+      final AppleSdkPaths appleSdkPaths) {
+    return new Function<ImmutableSortedSet<FrameworkPath>, ImmutableList<Path>>() {
+      @Override
+      public ImmutableList<Path> apply(ImmutableSortedSet<FrameworkPath> frameworkPaths) {
+        return FluentIterable
+            .from(frameworkPaths)
+            .transform(
+                FrameworkPath.getExpandedSearchPathFunction(
+                    resolver.getPathFunction(),
+                    appleSdkPaths.resolveFunction()))
+            .toList();
+      }
+    };
+  }
+
+  private static Function<FrameworkPath, Iterable<String>> linkerFlagsForFrameworkPathFunction(
+      final Function<SourcePath, Path> resolver) {
+    return new Function<FrameworkPath, Iterable<String>>() {
+      @Override
+      public Iterable<String> apply(FrameworkPath input) {
+        FrameworkPath.FrameworkType frameworkType = input.getFrameworkType(resolver);
+        switch (frameworkType) {
+          case FRAMEWORK:
+            return ImmutableList.of("-framework", input.getName(resolver));
+          case LIBRARY:
+            return ImmutableList.of("-l" + input.getName(resolver));
+          default:
+            throw new RuntimeException("Unsupported framework type: " + frameworkType);
+        }
+      }
+    };
+  }
+
+  public static CollectedAssetCatalogs createBuildRulesForTransitiveAssetCatalogDependencies(
+      BuildRuleParams params,
+      SourcePathResolver sourcePathResolver,
+      ApplePlatform applePlatform,
+      Tool actool) {
+    TargetNode<?> targetNode = Preconditions.checkNotNull(
+        params.getTargetGraph().get(params.getBuildTarget()));
+
+    ImmutableSet<AppleAssetCatalogDescription.Arg> assetCatalogArgs =
+        AppleBuildRules.collectRecursiveAssetCatalogs(
+            params.getTargetGraph(),
+            ImmutableList.of(targetNode));
+
+    ImmutableSortedSet.Builder<Path> mergeableAssetCatalogDirsBuilder =
+        ImmutableSortedSet.naturalOrder();
+    ImmutableSortedSet.Builder<Path> unmergeableAssetCatalogDirsBuilder =
+        ImmutableSortedSet.naturalOrder();
+
+    for (AppleAssetCatalogDescription.Arg arg : assetCatalogArgs) {
+      if (arg.getCopyToBundles()) {
+        unmergeableAssetCatalogDirsBuilder.addAll(arg.dirs);
+      } else {
+        mergeableAssetCatalogDirsBuilder.addAll(arg.dirs);
+      }
+    }
+
+    ImmutableSortedSet<Path> mergeableAssetCatalogDirs =
+        mergeableAssetCatalogDirsBuilder.build();
+    ImmutableSortedSet<Path> unmergeableAssetCatalogDirs =
+        unmergeableAssetCatalogDirsBuilder.build();
+
+    Optional<AppleAssetCatalog> mergedAssetCatalog = Optional.absent();
+    if (!mergeableAssetCatalogDirs.isEmpty()) {
+      BuildRuleParams assetCatalogParams = params.copyWithChanges(
+          params.getBuildRuleType(),
+          BuildTarget.builder(params.getBuildTarget())
+              .addFlavors(AppleAssetCatalog.getFlavor(
+                      ActoolStep.BundlingMode.MERGE_BUNDLES,
+                      MERGED_ASSET_CATALOG_NAME))
+              .build(),
+          Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
+          Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
+      mergedAssetCatalog = Optional.of(
+          new AppleAssetCatalog(
+              assetCatalogParams,
+              sourcePathResolver,
+              applePlatform.getName(),
+              actool,
+              mergeableAssetCatalogDirs,
+              ActoolStep.BundlingMode.MERGE_BUNDLES,
+              MERGED_ASSET_CATALOG_NAME));
+    }
+
+    ImmutableSet.Builder<AppleAssetCatalog> bundledAssetCatalogsBuilder =
+        ImmutableSet.builder();
+    for (Path assetDir : unmergeableAssetCatalogDirs) {
+      String bundleName = getCatalogNameFromPath(assetDir);
+      BuildRuleParams assetCatalogParams = params.copyWithChanges(
+          params.getBuildRuleType(),
+          BuildTarget.builder(params.getBuildTarget())
+              .addFlavors(AppleAssetCatalog.getFlavor(
+                      ActoolStep.BundlingMode.SEPARATE_BUNDLES,
+                      bundleName))
+              .build(),
+          Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
+          Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
+      bundledAssetCatalogsBuilder.add(
+          new AppleAssetCatalog(
+              assetCatalogParams,
+              sourcePathResolver,
+              applePlatform.getName(),
+              actool,
+              ImmutableSortedSet.of(assetDir),
+              ActoolStep.BundlingMode.SEPARATE_BUNDLES,
+              bundleName));
+    }
+    ImmutableSet<AppleAssetCatalog> bundledAssetCatalogs =
+        bundledAssetCatalogsBuilder.build();
+
+    return CollectedAssetCatalogs.of(
+        mergedAssetCatalog,
+        bundledAssetCatalogs);
+  }
+
+  private static String getCatalogNameFromPath(Path assetCatalogDir) {
+    String name = assetCatalogDir.getFileName().toString();
+    if (name.endsWith(AppleDescriptions.XCASSETS_DIRECTORY_EXTENSION)) {
+      name = name.substring(
+          0,
+          name.length() - AppleDescriptions.XCASSETS_DIRECTORY_EXTENSION.length());
+    }
+    return name;
   }
 
 }

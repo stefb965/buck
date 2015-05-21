@@ -19,14 +19,17 @@ package com.facebook.buck.android;
 import com.android.common.SdkConstants;
 import com.facebook.buck.android.AndroidBinary.TargetCpuType;
 import com.facebook.buck.cxx.ObjcopyStep;
+import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.AbstractExecutionStep;
@@ -38,7 +41,6 @@ import com.facebook.buck.step.fs.MkdirStep;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -60,9 +62,10 @@ import javax.annotation.Nullable;
  * the shared objects collected and stores this metadata in a text file, to be used later by
  * {@link com.facebook.buck.cli.ExopackageInstaller}.
  */
-public class CopyNativeLibraries extends AbstractBuildRule {
+public class CopyNativeLibraries extends AbstractBuildRule implements RuleKeyAppendable {
 
   private final ImmutableSet<Path> nativeLibDirectories;
+  @AddToRuleKey
   private final ImmutableSet<TargetCpuType> cpuFilters;
 
   /**
@@ -99,27 +102,21 @@ public class CopyNativeLibraries extends AbstractBuildRule {
   }
 
   private Path getBinPath() {
-    return BuildTargets.getBinPath(getBuildTarget(), "__native_libs_%s__");
+    return BuildTargets.getScratchPath(getBuildTarget(), "__native_libs_%s__");
   }
 
   @Override
-  protected ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return ImmutableList.of();
-  }
-
-  @Override
-  protected RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
-    builder.setReflectively("cpuFilters", cpuFilters);
-
+  public RuleKey.Builder appendToRuleKey(RuleKey.Builder builder, String key) {
     // Hash in the pre-filtered native libraries we're pulling in.
     ImmutableSortedMap<Pair<TargetCpuType, String>, SourcePath> sortedLibs =
         ImmutableSortedMap.<Pair<TargetCpuType, String>, SourcePath>orderedBy(
-                Pair.<TargetCpuType, String>comparator())
+            Pair.<TargetCpuType, String>comparator())
             .putAll(filteredNativeLibraries)
             .build();
     for (Map.Entry<Pair<TargetCpuType, String>, SourcePath> entry : sortedLibs.entrySet()) {
+      Pair<TargetCpuType, String> entryKey = entry.getKey();
       builder.setReflectively(
-          String.format("lib(%s, %s)", entry.getKey().getFirst(), entry.getKey().getSecond()),
+          String.format(key + ".lib(%s, %s)", entryKey.getFirst(), entryKey.getSecond()),
           entry.getValue());
     }
 
@@ -150,7 +147,7 @@ public class CopyNativeLibraries extends AbstractBuildRule {
               .resolve(entry.getKey().getSecond());
       NdkCxxPlatform platform =
           Preconditions.checkNotNull(nativePlatforms.get(entry.getKey().getFirst()));
-      Path objcopy = getResolver().getPath(platform.getObjcopy());
+      Path objcopy = platform.getObjcopy();
       steps.add(new MkdirStep(destination.getParent()));
       steps.add(
           new ObjcopyStep(
@@ -271,7 +268,8 @@ public class CopyNativeLibraries extends AbstractBuildRule {
                   });
               for (Path exePath : executablesBuilder.build()) {
                 Path fakeSoPath = Paths.get(
-                    exePath.toString().replaceAll("/([^/]+)-disguised-exe$", "/lib$1.so"));
+                    MorePaths.pathWithUnixSeparators(exePath)
+                        .replaceAll("/([^/]+)-disguised-exe$", "/lib$1.so"));
                 filesystem.move(exePath, fakeSoPath);
               }
             } catch (IOException e) {

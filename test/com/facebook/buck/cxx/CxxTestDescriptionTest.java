@@ -31,8 +31,6 @@ import com.google.common.collect.Iterables;
 
 import org.junit.Test;
 
-import java.util.Map;
-
 public class CxxTestDescriptionTest {
 
   @Test
@@ -40,11 +38,11 @@ public class CxxTestDescriptionTest {
     BuildTarget gtest = BuildTargetFactory.newInstance("//:gtest");
 
     FakeBuckConfig buckConfig = new FakeBuckConfig(
-        ImmutableMap.<String, Map<String, String>>of(
+        ImmutableMap.of(
             "cxx",
             ImmutableMap.of("gtest_dep", gtest.toString())));
     CxxBuckConfig cxxBuckConfig = new CxxBuckConfig(buckConfig);
-    CxxPlatform cxxPlatform = DefaultCxxPlatforms.build(buckConfig);
+    CxxPlatform cxxPlatform = DefaultCxxPlatforms.build(new CxxBuckConfig(buckConfig));
     CxxTestDescription desc = new CxxTestDescription(
         cxxBuckConfig,
         cxxPlatform,

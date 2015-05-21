@@ -19,8 +19,8 @@ package com.facebook.buck.cli;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphAndTargets;
-
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 
 public class ProjectCommandTests {
   // Utility class, do not instantiate.
@@ -28,20 +28,20 @@ public class ProjectCommandTests {
 
   public static TargetGraphAndTargets createTargetGraph(
       TargetGraph projectGraph,
-      ProjectCommandOptions.Ide targetIde,
+      ProjectCommand.Ide targetIde,
       ImmutableSet<BuildTarget> passedInTargetsSet,
-      ImmutableSet<String> defaultExcludePaths,
       boolean withTests
   ) {
-    ProjectCommand.ProjectPredicates projectPredicates =
-        ProjectCommand.getProjectPredicates(
-            targetIde,
-            passedInTargetsSet,
-            defaultExcludePaths);
+    ProjectPredicates projectPredicates = ProjectPredicates.forIde(targetIde);
 
     ImmutableSet<BuildTarget> graphRoots;
     if (!passedInTargetsSet.isEmpty()) {
-      graphRoots = passedInTargetsSet;
+      ImmutableSet<BuildTarget> supplementalGrapRoots =
+          ProjectCommand.getRootBuildTargetsForIntelliJ(
+              targetIde,
+              projectGraph,
+              projectPredicates);
+      graphRoots = Sets.union(passedInTargetsSet, supplementalGrapRoots).immutableCopy();
     } else {
       graphRoots = ProjectCommand.getRootsFromPredicate(
           projectGraph,

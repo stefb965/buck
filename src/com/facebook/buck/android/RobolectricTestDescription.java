@@ -18,7 +18,6 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.android.AndroidLibraryGraphEnhancer.ResourceDependencyMode;
 import com.facebook.buck.java.AnnotationProcessingParams;
-import com.facebook.buck.java.ImmutableJavacOptions;
 import com.facebook.buck.java.JavaLibraryDescription;
 import com.facebook.buck.java.JavaTestDescription;
 import com.facebook.buck.java.JavacOptions;
@@ -27,11 +26,12 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.ImmutableBuildRuleType;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePaths;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Optional;
 import com.google.common.base.Suppliers;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
@@ -39,7 +39,7 @@ import java.nio.file.Path;
 
 public class RobolectricTestDescription implements Description<RobolectricTestDescription.Arg> {
 
-  public static final BuildRuleType TYPE = ImmutableBuildRuleType.of("robolectric_test");
+  public static final BuildRuleType TYPE = BuildRuleType.of("robolectric_test");
 
   private final JavacOptions templateOptions;
   private final Optional<Long> testRuleTimeoutMs;
@@ -67,9 +67,10 @@ public class RobolectricTestDescription implements Description<RobolectricTestDe
       BuildRuleResolver resolver,
       A args) {
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    ImmutableList<String> vmArgs = args.vmArgs.get();
 
-    ImmutableJavacOptions.Builder javacOptions = JavaLibraryDescription.getJavacOptions(
-        pathResolver,
+    JavacOptions.Builder javacOptions = JavaLibraryDescription.getJavacOptions(
+        resolver,
         args,
         templateOptions);
 
@@ -85,7 +86,7 @@ public class RobolectricTestDescription implements Description<RobolectricTestDe
             Suppliers.ofInstance(resolver.getAllRules(args.exportedDeps.get()))),
         javacOptions.build(),
         ResourceDependencyMode.TRANSITIVE);
-    Optional<DummyRDotJava> dummyRDotJava = graphEnhancer.createBuildableForAndroidResources(
+    Optional<DummyRDotJava> dummyRDotJava = graphEnhancer.getBuildableForAndroidResources(
         resolver,
         /* createBuildableIfEmpty */ true);
 
@@ -108,17 +109,18 @@ public class RobolectricTestDescription implements Description<RobolectricTestDe
             args, params.getProjectFilesystem()),
         args.labels.get(),
         args.contacts.get(),
-        args.proguardConfig,
+        args.proguardConfig.transform(SourcePaths.toSourcePath(params.getProjectFilesystem())),
         additionalClasspathEntries,
         javacOptions.build(),
-        args.vmArgs.get(),
+        vmArgs,
         JavaTestDescription.validateAndGetSourcesUnderTest(
             args.sourceUnderTest.get(),
             params.getBuildTarget(),
             resolver),
         args.resourcesRoot,
         dummyRDotJava,
-        testRuleTimeoutMs);
+        testRuleTimeoutMs,
+        args.getRunTestSeparately());
   }
 
   @SuppressFieldNotInitialized

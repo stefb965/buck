@@ -11,6 +11,7 @@ import time
 
 from timing import monotonic_time_nanos
 from tracing import Tracing
+from subprocutils import check_output, CalledProcessError
 
 MAX_BUCKD_RUN_COUNT = 64
 BUCKD_CLIENT_TIMEOUT_MILLIS = 60000
@@ -44,11 +45,9 @@ EXPORTED_RESOURCES = [
     Resource("abi_processor_classes"),
     Resource("path_to_asm_jar"),
     Resource("logging_config_file"),
-    Resource("path_to_buck_py"),
     Resource("path_to_pathlib_py", basename='pathlib.py'),
     Resource("path_to_compile_asset_catalogs_py"),
     Resource("path_to_compile_asset_catalogs_build_phase_sh"),
-    Resource("path_to_graphql_batch_template"),
     Resource("path_to_intellij_py"),
     Resource("path_to_python_test_main"),
     Resource("path_to_sh_binary_template"),
@@ -148,7 +147,7 @@ class BuckTool(object):
                         exit_code = subprocess.call(command, cwd=self._buck_project.root, env=env)
                         if exit_code == 2:
                             print('Daemon is busy, please wait',
-                                  'or run "buckd --kill" to terminate it.',
+                                  'or run "buck kill" to terminate it.',
                                   file=sys.stderr)
                         return exit_code
 
@@ -184,7 +183,6 @@ class BuckTool(object):
             command = ["buckd"]
             command.extend(self._get_java_args(buck_version_uid))
             command.append("-Dbuck.buckd_launch_time_nanos={0}".format(monotonic_time_nanos()))
-            command.append("-Dbuck.buckd_watcher=Watchman")
             command.append("-XX:MaxGCPauseMillis={0}".format(GC_MAX_PAUSE_TARGET))
             command.append("-XX:SoftRefLRUPolicyMSPerMB=0")
             command.append("-Djava.io.tmpdir={0}".format(buckd_tmp_dir))
@@ -240,11 +238,18 @@ class BuckTool(object):
                 print(
                     "nailgun server did not respond after 10s. Aborting buckd.",
                     file=sys.stderr)
-                return
+                return 1
 
             self._buck_project.save_buckd_port(buckd_port)
             self._buck_project.save_buckd_version(buck_version_uid)
             self._buck_project.update_buckd_run_count(0)
+
+            returncode = process.poll()
+            # If the process hasn't exited yet, everything is working as expected
+            if returncode is None:
+                return 0
+
+            return returncode
 
     def kill_autobuild(self):
         autobuild_pid = self._buck_project.get_autobuild_pid()
@@ -291,7 +296,7 @@ class BuckTool(object):
                     Watchman not found, please install when using buckd.
                     See https://github.com/facebook/watchman for details.""")
                 if sys.platform == "darwin":
-                    message += "\n(brew install --HEAD watchman on OS X)"
+                    message += "\n(brew install watchman on OS X)"
                 # Bail if watchman isn't installed as we know java's
                 # FileSystemWatcher will take too long to process events.
                 raise BuckToolException(message)
@@ -354,6 +359,7 @@ class BuckTool(object):
             "-Dbuck.buckd_dir={0}".format(self._buck_project.buckd_dir),
             "-Dlog4j.configuration=file:{0}".format(
                 self._get_resource(LOG4J_CONFIG)),
+            "-Dorg.eclipse.jetty.util.log.class=org.eclipse.jetty.util.log.JavaUtilLog",
         ])
         for resource in EXPORTED_RESOURCES:
             if self._has_resource(resource):
@@ -448,33 +454,6 @@ def which(cmd, mode=os.F_OK | os.X_OK, path=None):
                 if _access_check(name, mode):
                     return name
     return None
-
-
-# Backport of the Python 2.7 subprocess.CalledProcessError, including
-# an `output` attribute.
-class CalledProcessError(subprocess.CalledProcessError):
-    def __init__(self, returncode, cmd, output=None):
-        super(CalledProcessError, self).__init__(returncode, cmd)
-        self.output = output
-
-
-# Backport of the Python 2.7 subprocess.check_output. Taken from
-# http://hg.python.org/cpython/file/71cb8f605f77/Lib/subprocess.py
-# Copyright (c) 2003-2005 by Peter Astrand <astrand@lysator.liu.se>
-# Licensed to PSF under a Contributor Agreement.
-# See http://www.python.org/2.4/license for licensing details.
-def check_output(*popenargs, **kwargs):
-    if 'stdout' in kwargs:
-        raise ValueError('stdout argument not allowed, it will be overridden.')
-    process = subprocess.Popen(stdout=subprocess.PIPE, *popenargs, **kwargs)
-    output, unused_err = process.communicate()
-    retcode = process.poll()
-    if retcode:
-        cmd = kwargs.get("args")
-        if cmd is None:
-            cmd = popenargs[0]
-        raise CalledProcessError(retcode, cmd, output=output)
-    return output
 
 
 def is_java8():

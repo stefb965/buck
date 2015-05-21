@@ -32,16 +32,13 @@ public class RunCommandTest extends EasyMockSupport {
   public void testRunCommandWithNoArguments()
       throws IOException, InterruptedException {
     TestConsole console = new TestConsole();
-    CommandRunnerParamsForTesting commandRunnerParams = CommandRunnerParamsForTesting
+    CommandRunnerParams commandRunnerParams = CommandRunnerParamsForTesting
         .builder()
         .setConsole(console)
         .build();
 
-    RunCommand runCommand = new RunCommand(commandRunnerParams);
-    BuckConfig buckConfig = new FakeBuckConfig();
-
-    RunCommandOptions options = new RunCommandOptions(buckConfig);
-    int exitCode = runCommand.runCommandWithOptionsInternal(options);
+    RunCommand runCommand = new RunCommand();
+    int exitCode = runCommand.run(commandRunnerParams);
     assertEquals("buck run <target> <arg1> <arg2>...\n", console.getTextWrittenToStdOut());
     assertEquals("BUILD FAILED: No target given to run\n", console.getTextWrittenToStdErr());
     assertEquals(1, exitCode);
@@ -51,17 +48,14 @@ public class RunCommandTest extends EasyMockSupport {
   public void testRunCommandWithNonExistentTarget()
       throws IOException, InterruptedException {
     TestConsole console = new TestConsole();
-    CommandRunnerParamsForTesting commandRunnerParams = CommandRunnerParamsForTesting
+    CommandRunnerParams commandRunnerParams = CommandRunnerParamsForTesting
         .builder()
         .setConsole(console)
         .build();
 
-    RunCommand runCommand = new RunCommand(commandRunnerParams);
-    BuckConfig buckConfig = new FakeBuckConfig();
-
-    RunCommandOptions options = new RunCommandOptions(buckConfig);
-    options.setArguments(ImmutableList.of("//does/not/exist"));
-    int exitCode = runCommand.runCommandWithOptionsInternal(options);
+    RunCommand runCommand = new RunCommand();
+    runCommand.setArguments(ImmutableList.of("//does/not/exist"));
+    int exitCode = runCommand.run(commandRunnerParams);
     assertEquals("", console.getTextWrittenToStdOut());
     String stderrText = console.getTextWrittenToStdErr();
     assertEquals(

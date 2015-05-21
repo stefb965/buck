@@ -27,12 +27,13 @@ import com.facebook.buck.rules.BuildRuleParamsFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
-import com.facebook.buck.rules.FakeRuleKeyBuilderFactory;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
+import com.facebook.buck.rules.RuleKeyPair;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TestSourcePath;
+import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.testutil.FakeFileHashCache;
@@ -61,13 +62,12 @@ public class ThriftCompilerTest {
           Paths.get("something.thrift"),
           new TestSourcePath("blah/something.thrift"));
 
-  private RuleKey.Builder.RuleKeyPair generateRuleKey(
+  private RuleKeyPair generateRuleKey(
       RuleKeyBuilderFactory factory,
       SourcePathResolver resolver,
       AbstractBuildRule rule) {
 
     RuleKey.Builder builder = factory.newInstance(rule, resolver);
-    rule.appendToRuleKey(builder);
     return builder.build();
   }
 
@@ -75,19 +75,19 @@ public class ThriftCompilerTest {
   public void testThatInputChangesCauseRuleKeyChanges() {
     SourcePathResolver resolver = new SourcePathResolver(new BuildRuleResolver());
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
-    BuildRuleParams params = BuildRuleParamsFactory.createTrivialBuildRuleParams(target);
     RuleKeyBuilderFactory ruleKeyBuilderFactory =
-        new FakeRuleKeyBuilderFactory(
+        new DefaultRuleKeyBuilderFactory(
             FakeFileHashCache.createFromStrings(
                 ImmutableMap.of(
-                    "thrift", Strings.repeat("a", 40),
-                    "test.thrift", Strings.repeat("b", 40),
+                    "blah/something.thrift", Strings.repeat("e", 40),
                     "different", Strings.repeat("c", 40),
                     "something.thrift", Strings.repeat("d", 40),
-                    "blah/something.thrift", Strings.repeat("e", 40))));
+                    "thrift", Strings.repeat("a", 40),
+                    "test.thrift", Strings.repeat("b", 40))));
+    BuildRuleParams params = BuildRuleParamsFactory.createTrivialBuildRuleParams(target);
 
     // Generate a rule key for the defaults.
-    RuleKey.Builder.RuleKeyPair defaultRuleKey = generateRuleKey(
+    RuleKeyPair defaultRuleKey = generateRuleKey(
         ruleKeyBuilderFactory,
         resolver,
         new ThriftCompiler(
@@ -103,7 +103,7 @@ public class ThriftCompilerTest {
             DEFAULT_INCLUDES));
 
     // Verify that changing the compiler causes a rulekey change.
-    RuleKey.Builder.RuleKeyPair compilerChange = generateRuleKey(
+    RuleKeyPair compilerChange = generateRuleKey(
         ruleKeyBuilderFactory,
         resolver,
         new ThriftCompiler(
@@ -120,7 +120,7 @@ public class ThriftCompilerTest {
     assertNotEquals(defaultRuleKey.getTotalRuleKey(), compilerChange.getTotalRuleKey());
 
     // Verify that changing the flags causes a rulekey change.
-    RuleKey.Builder.RuleKeyPair flagsChange = generateRuleKey(
+    RuleKeyPair flagsChange = generateRuleKey(
         ruleKeyBuilderFactory,
         resolver,
         new ThriftCompiler(
@@ -137,7 +137,7 @@ public class ThriftCompilerTest {
     assertNotEquals(defaultRuleKey.getTotalRuleKey(), flagsChange.getTotalRuleKey());
 
     // Verify that changing the flags causes a rulekey change.
-    RuleKey.Builder.RuleKeyPair outputDirChange = generateRuleKey(
+    RuleKeyPair outputDirChange = generateRuleKey(
         ruleKeyBuilderFactory,
         resolver,
         new ThriftCompiler(
@@ -154,7 +154,7 @@ public class ThriftCompilerTest {
     assertNotEquals(defaultRuleKey.getTotalRuleKey(), outputDirChange.getTotalRuleKey());
 
     // Verify that changing the input causes a rulekey change.
-    RuleKey.Builder.RuleKeyPair inputChange = generateRuleKey(
+    RuleKeyPair inputChange = generateRuleKey(
         ruleKeyBuilderFactory,
         resolver,
         new ThriftCompiler(
@@ -171,7 +171,7 @@ public class ThriftCompilerTest {
     assertNotEquals(defaultRuleKey.getTotalRuleKey(), inputChange.getTotalRuleKey());
 
     // Verify that changing the input causes a rulekey change.
-    RuleKey.Builder.RuleKeyPair languageChange = generateRuleKey(
+    RuleKeyPair languageChange = generateRuleKey(
         ruleKeyBuilderFactory,
         resolver,
         new ThriftCompiler(
@@ -188,7 +188,7 @@ public class ThriftCompilerTest {
     assertNotEquals(defaultRuleKey.getTotalRuleKey(), languageChange.getTotalRuleKey());
 
     // Verify that changing the input causes a rulekey change.
-    RuleKey.Builder.RuleKeyPair optionsChange = generateRuleKey(
+    RuleKeyPair optionsChange = generateRuleKey(
         ruleKeyBuilderFactory,
         resolver,
         new ThriftCompiler(
@@ -206,7 +206,7 @@ public class ThriftCompilerTest {
 
     // Verify that changing the includes does *not* cause a rulekey change, since we use a
     // different mechanism to track header changes.
-    RuleKey.Builder.RuleKeyPair includeRootsChange = generateRuleKey(
+    RuleKeyPair includeRootsChange = generateRuleKey(
         ruleKeyBuilderFactory,
         resolver,
         new ThriftCompiler(
@@ -223,7 +223,7 @@ public class ThriftCompilerTest {
     assertEquals(defaultRuleKey.getTotalRuleKey(), includeRootsChange.getTotalRuleKey());
 
     // Verify that changing the name of the include causes a rulekey change.
-    RuleKey.Builder.RuleKeyPair includesKeyChange = generateRuleKey(
+    RuleKeyPair includesKeyChange = generateRuleKey(
         ruleKeyBuilderFactory,
         resolver,
         new ThriftCompiler(
@@ -242,7 +242,7 @@ public class ThriftCompilerTest {
     assertNotEquals(defaultRuleKey.getTotalRuleKey(), includesKeyChange.getTotalRuleKey());
 
     // Verify that changing the contents of an include causes a rulekey change.
-    RuleKey.Builder.RuleKeyPair includesValueChange = generateRuleKey(
+    RuleKeyPair includesValueChange = generateRuleKey(
         ruleKeyBuilderFactory,
         resolver,
         new ThriftCompiler(

@@ -31,11 +31,11 @@ public class PkillProcessManagerTest {
   @Test
   public void processIsRunningIfPkill0Succeeds() throws IOException, InterruptedException {
     ProcessExecutorParams pkill0Params =
-        ImmutableProcessExecutorParams.builder()
+        ProcessExecutorParams.builder()
             .setCommand(ImmutableList.of("pkill", "-0", "processName"))
             .build();
     FakeProcessExecutor processExecutor = new FakeProcessExecutor(
-        ImmutableMap.<ProcessExecutorParams, FakeProcess>of(
+        ImmutableMap.of(
             pkill0Params,
             new FakeProcess(0)));
     PkillProcessManager processManager = new PkillProcessManager(
@@ -47,11 +47,11 @@ public class PkillProcessManagerTest {
   @Test
   public void processIsNotRunningIfPkill0Fails() throws IOException, InterruptedException {
     ProcessExecutorParams pkill0Params =
-        ImmutableProcessExecutorParams.builder()
+        ProcessExecutorParams.builder()
             .setCommand(ImmutableList.of("pkill", "-0", "processName"))
             .build();
     FakeProcessExecutor processExecutor = new FakeProcessExecutor(
-        ImmutableMap.<ProcessExecutorParams, FakeProcess>of(
+        ImmutableMap.of(
             pkill0Params,
             new FakeProcess(1)));
     PkillProcessManager processManager = new PkillProcessManager(
@@ -64,11 +64,11 @@ public class PkillProcessManagerTest {
   public void isProcessRunningThrowsOnUnexpectedExitCode()
       throws IOException, InterruptedException {
     ProcessExecutorParams pkill0Params =
-        ImmutableProcessExecutorParams.builder()
+        ProcessExecutorParams.builder()
             .setCommand(ImmutableList.of("pkill", "-0", "processName"))
             .build();
     FakeProcessExecutor processExecutor = new FakeProcessExecutor(
-        ImmutableMap.<ProcessExecutorParams, FakeProcess>of(
+        ImmutableMap.of(
             pkill0Params,
             new FakeProcess(49152)));
     PkillProcessManager processManager = new PkillProcessManager(processExecutor);
@@ -78,11 +78,11 @@ public class PkillProcessManagerTest {
   @Test
   public void killProcessLaunchesProcessWithSuccess() throws IOException, InterruptedException {
     ProcessExecutorParams pkillParams =
-        ImmutableProcessExecutorParams.builder()
+        ProcessExecutorParams.builder()
             .setCommand(ImmutableList.of("pkill", "processName"))
             .build();
     FakeProcessExecutor processExecutor = new FakeProcessExecutor(
-        ImmutableMap.<ProcessExecutorParams, FakeProcess>of(
+        ImmutableMap.of(
             pkillParams,
             new FakeProcess(0)));
     PkillProcessManager processManager = new PkillProcessManager(processExecutor);
@@ -93,11 +93,11 @@ public class PkillProcessManagerTest {
   @Test
   public void killProcessLaunchesProcessWithFailure() throws IOException, InterruptedException {
     ProcessExecutorParams pkillParams =
-        ImmutableProcessExecutorParams.builder()
+        ProcessExecutorParams.builder()
             .setCommand(ImmutableList.of("pkill", "processName"))
             .build();
     FakeProcessExecutor processExecutor = new FakeProcessExecutor(
-        ImmutableMap.<ProcessExecutorParams, FakeProcess>of(
+        ImmutableMap.of(
             pkillParams,
             new FakeProcess(1)));
     PkillProcessManager processManager = new PkillProcessManager(processExecutor);
@@ -109,11 +109,11 @@ public class PkillProcessManagerTest {
   public void killProcessThrowsWithUnexpectedExitCode()
       throws IOException, InterruptedException {
     ProcessExecutorParams pkillParams =
-        ImmutableProcessExecutorParams.builder()
+        ProcessExecutorParams.builder()
             .setCommand(ImmutableList.of("pkill", "processName"))
             .build();
     FakeProcessExecutor processExecutor = new FakeProcessExecutor(
-        ImmutableMap.<ProcessExecutorParams, FakeProcess>of(
+        ImmutableMap.of(
             pkillParams,
             new FakeProcess(64738)));
     PkillProcessManager processManager = new PkillProcessManager(processExecutor);

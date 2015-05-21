@@ -19,11 +19,11 @@ package com.facebook.buck.java;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTargets;
+import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.Label;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TestRule;
@@ -40,9 +40,11 @@ import com.facebook.buck.test.selectors.TestSelectorList;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.ZipFileTraversal;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Functions;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
+import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -66,6 +68,7 @@ import javax.annotation.Nullable;
 @SuppressWarnings("PMD.TestClassWithoutTestCases")
 public class JavaTest extends DefaultJavaLibrary implements TestRule {
 
+  @AddToRuleKey
   private final ImmutableList<String> vmArgs;
 
   @Nullable
@@ -75,10 +78,12 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule {
 
   private final ImmutableSet<String> contacts;
 
+  @AddToRuleKey
   private ImmutableSet<BuildRule> sourceUnderTest;
 
   private final ImmutableSet<Path> additionalClasspathEntries;
 
+  @AddToRuleKey
   private final TestType testType;
 
   private final Optional<Long> testRuleTimeoutMs;
@@ -90,6 +95,9 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule {
   @Nullable
   private JUnitStep junit;
 
+  @AddToRuleKey
+  private final boolean runTestSeparately;
+
   protected JavaTest(
       BuildRuleParams params,
       SourcePathResolver resolver,
@@ -97,14 +105,15 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule {
       Set<SourcePath> resources,
       Set<Label> labels,
       Set<String> contacts,
-      Optional<Path> proguardConfig,
+      Optional<SourcePath> proguardConfig,
       ImmutableSet<Path> addtionalClasspathEntries,
       TestType testType,
       JavacOptions javacOptions,
       List<String> vmArgs,
       ImmutableSet<BuildRule> sourceUnderTest,
       Optional<Path> resourcesRoot,
-      Optional<Long> testRuleTimeoutMs) {
+      Optional<Long> testRuleTimeoutMs,
+      boolean runTestSeparately) {
     super(
         params,
         resolver,
@@ -124,6 +133,7 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule {
     this.additionalClasspathEntries = addtionalClasspathEntries;
     this.testType = testType;
     this.testRuleTimeoutMs = testRuleTimeoutMs;
+    this.runTestSeparately = runTestSeparately;
   }
 
   @Override
@@ -136,26 +146,12 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule {
     return contacts;
   }
 
-  @Override
-  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
-    ImmutableSortedSet<? extends BuildRule> srcUnderTest = ImmutableSortedSet.copyOf(
-        sourceUnderTest);
-    super.appendDetailsToRuleKey(builder)
-        .setReflectively("vmArgs", vmArgs)
-        .setReflectively("sourceUnderTest", srcUnderTest);
-    return builder;
-  }
-
   /**
    * @return A set of rules that this test rule will be testing.
    */
   @Override
   public ImmutableSet<BuildRule> getSourceUnderTest() {
     return sourceUnderTest;
-  }
-
-  public ImmutableList<String> getVmArgs() {
-    return vmArgs;
   }
 
   /**
@@ -205,6 +201,7 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule {
         reorderedTestClasses,
         amendVmArgs(vmArgs, executionContext.getTargetDeviceOptional()),
         pathToTestOutput,
+        getBuildTarget().getBasePath(),
         tmpDirectory,
         executionContext.isCodeCoverageEnabled(),
         executionContext.isDebugEnabled(),
@@ -307,7 +304,7 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule {
   }
 
   private Path getPathToTmpDirectory() {
-    Path base = BuildTargets.getBinPath(getBuildTarget(), "__java_test_%s_tmp__").toAbsolutePath();
+    Path base = BuildTargets.getScratchPath(getBuildTarget(), "__java_test_%s_tmp__");
     String subdir = BuckConstant.oneTimeTestSubdirectory;
     if (subdir != null && !subdir.isEmpty()) {
       base = base.resolve(subdir);
@@ -347,7 +344,11 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule {
         // were run by its deps. In this case, return an empty TestResults.
         Set<String> testClassNames = getClassNamesForSources(context);
         if (testClassNames.isEmpty()) {
-          return new TestResults(getBuildTarget(), ImmutableList.<TestCaseSummary>of(), contacts);
+          return new TestResults(
+              getBuildTarget(),
+              ImmutableList.<TestCaseSummary>of(),
+              contacts,
+              FluentIterable.from(labels).transform(Functions.toStringFunction()).toSet());
         }
 
         List<TestCaseSummary> summaries = Lists.newArrayListWithCapacity(testClassNames.size());
@@ -384,7 +385,11 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule {
           }
         }
 
-        return new TestResults(getBuildTarget(), summaries, contacts);
+        return new TestResults(
+            getBuildTarget(),
+            summaries,
+            contacts,
+            FluentIterable.from(labels).transform(Functions.toStringFunction()).toSet());
       }
 
     };
@@ -496,5 +501,10 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule {
 
       return testClassNames.build();
     }
+  }
+
+  @Override
+  public boolean runTestSeparately() {
+    return runTestSeparately;
   }
 }

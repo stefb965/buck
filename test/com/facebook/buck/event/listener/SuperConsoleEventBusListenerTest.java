@@ -22,6 +22,7 @@ import com.facebook.buck.cli.InstallEvent;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.httpserver.WebServer;
 import com.facebook.buck.json.ProjectBuildFileParseEvents;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
@@ -32,13 +33,12 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleEvent;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleStatus;
-import com.facebook.buck.rules.BuildRuleSuccess;
+import com.facebook.buck.rules.BuildRuleSuccessType;
 import com.facebook.buck.rules.CacheResult;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.shell.GenruleDescription;
-import com.facebook.buck.step.FakeStep;
 import com.facebook.buck.step.StepEvent;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.timing.Clock;
@@ -46,17 +46,20 @@ import com.facebook.buck.timing.IncrementingFakeClock;
 import com.facebook.buck.util.FakeProcessExecutor;
 import com.facebook.buck.util.environment.DefaultExecutionEnvironment;
 import com.google.common.base.Function;
+import com.google.common.base.Functions;
 import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Iterables;
 import com.google.common.eventbus.EventBus;
 
 import org.junit.Test;
 
 import java.text.DecimalFormat;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 public class SuperConsoleEventBusListenerTest {
@@ -89,6 +92,7 @@ public class SuperConsoleEventBusListenerTest {
     BuildTarget fakeTarget = BuildTargetFactory.newInstance("//banana:stand");
     BuildTarget cachedTarget = BuildTargetFactory.newInstance("//chicken:dance");
     ImmutableSet<BuildTarget> buildTargets = ImmutableSet.of(fakeTarget, cachedTarget);
+    Iterable<String> buildArgs = Iterables.transform(buildTargets, Functions.toStringFunction());
     FakeBuildRule fakeRule = new FakeBuildRule(
         GenruleDescription.TYPE,
         fakeTarget,
@@ -110,27 +114,32 @@ public class SuperConsoleEventBusListenerTest {
                 new FakeProcessExecutor(),
                 ImmutableMap.copyOf(System.getenv()),
                 System.getProperties()),
-            /* isTreatingAssumptionsAsErrors */ false);
+        Optional.<WebServer>absent());
     eventBus.register(listener);
 
-    rawEventBus.post(configureTestEventAtTime(
-        new ProjectBuildFileParseEvents.Started(),
-        0L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    rawEventBus.post(
+        configureTestEventAtTime(
+            new ProjectBuildFileParseEvents.Started(),
+            0L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
     validateConsole(console, listener, 0L, ImmutableList.of(
         formatConsoleTimes("[+] PARSING BUCK FILES...%s", 0.0)));
 
-    validateConsole(console, listener, 100L, ImmutableList.of(
-        formatConsoleTimes("[+] PARSING BUCK FILES...%s", 0.1)));
+    validateConsole(
+        console, listener, 100L, ImmutableList.of(
+            formatConsoleTimes("[+] PARSING BUCK FILES...%s", 0.1)));
 
-    rawEventBus.post(configureTestEventAtTime(
-        new ProjectBuildFileParseEvents.Finished(),
-        200L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
-    validateConsole(console, listener, 200L, ImmutableList.of(
-        formatConsoleTimes("[-] PARSING BUCK FILES...FINISHED %s", 0.2)));
+    rawEventBus.post(
+        configureTestEventAtTime(
+            new ProjectBuildFileParseEvents.Finished(),
+            200L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    validateConsole(
+        console, listener, 200L, ImmutableList.of(
+            formatConsoleTimes("[-] PARSING BUCK FILES...FINISHED %s", 0.2)));
 
-    rawEventBus.post(configureTestEventAtTime(
-        BuildEvent.started(buildTargets),
-        200L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    rawEventBus.post(
+        configureTestEventAtTime(
+            BuildEvent.started(buildArgs),
+            200L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
     rawEventBus.post(configureTestEventAtTime(
         ParseEvent.started(buildTargets),
         200L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
@@ -163,9 +172,11 @@ public class SuperConsoleEventBusListenerTest {
         formatConsoleTimes("[+] BUILDING...%s", 0.4),
         formatConsoleTimes(" |=> //banana:stand...  %s (checking local cache)", 0.2)));
 
-    FakeStep fakeStep = new FakeStep("doing_something", "working hard", 0);
+    String stepShortName = "doing_something";
+    String stepDescription = "working hard";
+    UUID stepUuid = UUID.randomUUID();
     rawEventBus.post(configureTestEventAtTime(
-        StepEvent.started(fakeStep, "working hard"),
+        StepEvent.started(stepShortName, stepDescription, stepUuid),
           800L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
 
     validateConsole(console, listener, 900L, ImmutableList.of(parsingLine,
@@ -173,14 +184,14 @@ public class SuperConsoleEventBusListenerTest {
         formatConsoleTimes(" |=> //banana:stand...  %s (running doing_something[%s])", 0.3, 0.1)));
 
     rawEventBus.post(configureTestEventAtTime(
-        StepEvent.finished(fakeStep, "working hard", 0),
+        StepEvent.finished(stepShortName, stepDescription, stepUuid, 0),
         900L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
     rawEventBus.post(configureTestEventAtTime(
         BuildRuleEvent.finished(
           fakeRule,
           BuildRuleStatus.SUCCESS,
-          CacheResult.MISS,
-          Optional.of(BuildRuleSuccess.Type.BUILT_LOCALLY)),
+          CacheResult.miss(),
+          Optional.of(BuildRuleSuccessType.BUILT_LOCALLY)),
         1000L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
 
     validateConsole(console, listener, 1000L, ImmutableList.of(parsingLine,
@@ -200,12 +211,12 @@ public class SuperConsoleEventBusListenerTest {
         BuildRuleEvent.finished(
           cachedRule,
           BuildRuleStatus.SUCCESS,
-          CacheResult.MISS,
-          Optional.of(BuildRuleSuccess.Type.BUILT_LOCALLY)),
+          CacheResult.miss(),
+          Optional.of(BuildRuleSuccessType.BUILT_LOCALLY)),
         1120L, TimeUnit.MILLISECONDS, /* threadId */ 2L));
 
     rawEventBus.post(configureTestEventAtTime(
-        BuildEvent.finished(buildTargets, 0),
+        BuildEvent.finished(buildArgs, 0),
         1234L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
 
     final String buildingLine = formatConsoleTimes("[-] BUILDING...FINISHED %s", 0.8);
@@ -248,6 +259,176 @@ public class SuperConsoleEventBusListenerTest {
     assertEquals("After stderr is written to by someone other than SuperConsole, rendering " +
         "should be a noop.",
         beforeStderrWrite + "ROFLCOPTER", console.getTextWrittenToStdErr());
+  }
+
+  @Test
+  public void testBuildRuleSuspendResumeEvents() {
+    SourcePathResolver pathResolver = new SourcePathResolver(new BuildRuleResolver());
+    Clock fakeClock = new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1));
+    BuckEventBus eventBus = BuckEventBusFactory.newInstance(fakeClock);
+    EventBus rawEventBus = BuckEventBusFactory.getEventBusFor(eventBus);
+    TestConsole console = new TestConsole();
+
+    BuildTarget fakeTarget = BuildTargetFactory.newInstance("//banana:stand");
+    ImmutableSet<BuildTarget> buildTargets = ImmutableSet.of(fakeTarget);
+    Iterable<String> buildArgs = Iterables.transform(buildTargets, Functions.toStringFunction());
+    FakeBuildRule fakeRule = new FakeBuildRule(
+        GenruleDescription.TYPE,
+        fakeTarget,
+        pathResolver,
+        ImmutableSortedSet.<BuildRule>of()
+    );
+    String stepShortName = "doing_something";
+    String stepDescription = "working hard";
+    UUID stepUuid = UUID.randomUUID();
+
+    SuperConsoleEventBusListener listener =
+        new SuperConsoleEventBusListener(
+            console,
+            fakeClock,
+            new DefaultExecutionEnvironment(
+                new FakeProcessExecutor(),
+                ImmutableMap.copyOf(System.getenv()),
+                System.getProperties()),
+            Optional.<WebServer>absent());
+    eventBus.register(listener);
+
+    // Start the build.
+    rawEventBus.post(
+        configureTestEventAtTime(
+            BuildEvent.started(buildArgs),
+            0L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
+
+    // Start and stop parsing.
+    String parsingLine = formatConsoleTimes("[-] PROCESSING BUCK FILES...FINISHED 0.0s");
+    rawEventBus.post(
+        configureTestEventAtTime(
+            ParseEvent.started(buildTargets),
+            0L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
+    rawEventBus.post(
+        configureTestEventAtTime(
+            ParseEvent.finished(buildTargets, Optional.<TargetGraph>absent()),
+            0L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
+    rawEventBus.post(
+        configureTestEventAtTime(
+            ActionGraphEvent.finished(),
+            0L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
+
+    // Start the rule.
+    rawEventBus.post(
+        configureTestEventAtTime(
+            BuildRuleEvent.started(fakeRule),
+            0L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
+
+    // Post events that run a step for 100ms.
+    rawEventBus.post(
+        configureTestEventAtTime(
+            StepEvent.started(stepShortName, stepDescription, stepUuid),
+            0L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
+    rawEventBus.post(
+        configureTestEventAtTime(
+            StepEvent.finished(stepShortName, stepDescription, stepUuid, /* exitCode */ 0),
+            100L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
+
+    // Suspend the rule.
+    rawEventBus.post(
+        configureTestEventAtTime(
+            BuildRuleEvent.suspended(fakeRule),
+            100L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
+
+    // Verify that the rule isn't printed now that it's suspended.
+    validateConsole(
+        console,
+        listener,
+        200L,
+        ImmutableList.of(
+            parsingLine,
+            formatConsoleTimes("[+] BUILDING...%s", 0.2),
+            " |=> IDLE"));
+
+    // Resume the rule.
+    rawEventBus.post(
+        configureTestEventAtTime(
+            BuildRuleEvent.resumed(fakeRule),
+            300L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
+
+    // Verify that we print "checking local..." now that we've resumed, and that we're accounting
+    // for previous running time.
+    validateConsole(
+        console,
+        listener,
+        300L,
+        ImmutableList.of(
+            parsingLine,
+            formatConsoleTimes("[+] BUILDING...%s", 0.3),
+            formatConsoleTimes(" |=> //banana:stand...  %s (checking local cache)", 0.1)));
+
+    // Post events that run another step.
+    rawEventBus.post(
+        configureTestEventAtTime(
+            StepEvent.started(stepShortName, stepDescription, stepUuid),
+            400L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
+
+    // Verify the current console now accounts for the step.
+    validateConsole(
+        console,
+        listener,
+        500L,
+        ImmutableList.of(
+            parsingLine,
+            formatConsoleTimes("[+] BUILDING...%s", 0.5),
+            formatConsoleTimes(
+                " |=> //banana:stand...  %s (running doing_something[%s])",
+                0.3,
+                0.1)));
+
+    // Finish the step and rule.
+    rawEventBus.post(
+        configureTestEventAtTime(
+            StepEvent.finished(stepShortName, stepDescription, stepUuid, /* exitCode */ 0),
+            600L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
+    rawEventBus.post(
+        configureTestEventAtTime(
+            BuildRuleEvent.finished(
+                fakeRule,
+                BuildRuleStatus.SUCCESS,
+                CacheResult.miss(),
+                Optional.of(BuildRuleSuccessType.BUILT_LOCALLY)),
+            600L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
+
+    // Verify that the rule isn't printed now that it's finally finished..
+    validateConsole(
+        console,
+        listener,
+        700L,
+        ImmutableList.of(
+            parsingLine,
+            formatConsoleTimes("[+] BUILDING...%s", 0.7),
+            " |=> IDLE"));
   }
 
   private void validateConsole(TestConsole console,

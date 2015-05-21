@@ -21,7 +21,6 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.ImmutableBuildRuleType;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.google.common.base.Optional;
@@ -32,7 +31,7 @@ import java.util.List;
 
 public class JsBinaryDescription implements Description<JsBinaryDescription.Arg> {
 
-  private static final BuildRuleType TYPE = ImmutableBuildRuleType.of("js_binary");
+  private static final BuildRuleType TYPE = BuildRuleType.of("js_binary");
   private final JavascriptConfig config;
 
   public JsBinaryDescription(JavascriptConfig config) {

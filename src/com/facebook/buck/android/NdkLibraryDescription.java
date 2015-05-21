@@ -24,30 +24,29 @@ import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.cxx.NativeLinkable;
 import com.facebook.buck.cxx.NativeLinkableInput;
 import com.facebook.buck.cxx.NativeLinkables;
+import com.facebook.buck.file.WriteFile;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.ImmutableFlavor;
-import com.facebook.buck.rules.AbstractBuildRule;
-import com.facebook.buck.rules.BuildContext;
+import com.facebook.buck.model.Pair;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
-import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.ImmutableBuildRuleType;
 import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.step.Step;
-import com.facebook.buck.step.fs.MkdirStep;
-import com.facebook.buck.step.fs.WriteFileStep;
+import com.facebook.buck.rules.macros.EnvironmentVariableMacroExpander;
+import com.facebook.buck.rules.macros.MacroExpander;
+import com.facebook.buck.rules.macros.MacroHandler;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.MoreIterables;
 import com.facebook.buck.util.MoreStrings;
+import com.facebook.buck.util.environment.Platform;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Functions;
@@ -57,7 +56,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -76,16 +74,22 @@ import java.util.regex.Pattern;
 
 public class NdkLibraryDescription implements Description<NdkLibraryDescription.Arg> {
 
-  public static final BuildRuleType TYPE = ImmutableBuildRuleType.of("ndk_library");
+  public static final BuildRuleType TYPE = BuildRuleType.of("ndk_library");
 
   private static final BuildRuleType MAKEFILE_TYPE =
-      ImmutableBuildRuleType.of("ndk_library_makefile");
+      BuildRuleType.of("ndk_library_makefile");
   private static final Flavor MAKEFILE_FLAVOR = ImmutableFlavor.of("makefile");
 
   private static final Pattern EXTENSIONS_REGEX =
       Pattern.compile(
               ".*\\." +
               MoreStrings.regexPatternForAny("mk", "h", "hpp", "c", "cpp", "cc", "cxx") + "$");
+
+  public static final MacroHandler MACRO_HANDLER = new MacroHandler(
+      ImmutableMap.<String, MacroExpander>of(
+          "env", new EnvironmentVariableMacroExpander(Platform.detect())
+      )
+  );
 
   private final Optional<String> ndkVersion;
   private final ImmutableMap<AndroidBinary.TargetCpuType, NdkCxxPlatform> cxxPlatforms;
@@ -119,7 +123,7 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescription.
       // including the initial escaping.  Since the makefiles eventually hand-off these values
       // to the shell, we first perform bash escaping.
       //
-      escapedArg = Escaper.escapeAsBashString(escapedArg);
+      escapedArg = Escaper.escapeAsShellString(escapedArg);
       for (int i = 0; i < 4; i++) {
         escapedArg = Escaper.escapeAsMakefileValueString(escapedArg);
       }
@@ -160,7 +164,7 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescription.
    * @return a {@link BuildRule} which generates a Android.mk which pulls in the local Android.mk
    *     file and also appends relevant preprocessor and linker flags to use C/C++ library deps.
    */
-  private BuildRule generateMakefile(
+  private Pair<BuildRule, Iterable<BuildRule>> generateMakefile(
       final BuildRuleParams params,
       BuildRuleResolver resolver) {
 
@@ -170,22 +174,28 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescription.
     ImmutableSortedSet.Builder<BuildRule> deps = ImmutableSortedSet.naturalOrder();
 
     for (Map.Entry<AndroidBinary.TargetCpuType, NdkCxxPlatform> entry : cxxPlatforms.entrySet()) {
-      AndroidBinary.TargetCpuType targetCpuType = entry.getKey();
-      String targetArchAbi = getTargetArchAbi(targetCpuType);
       CxxPlatform cxxPlatform = entry.getValue().getCxxPlatform();
 
-      // Collect the preprocessor input for all C/C++ library deps.  We search *through* other
-      // NDK library rules.
-      CxxPreprocessorInput cxxPreprocessorInput =
-          CxxPreprocessables.getTransitiveCxxPreprocessorInput(
-              cxxPlatform,
-              params.getDeps(),
-              Predicates.or(
-                  Predicates.instanceOf(CxxPreprocessorDep.class),
-                  Predicates.instanceOf(NdkLibrary.class)));
+      CxxPreprocessorInput cxxPreprocessorInput;
+      try {
+        // Collect the preprocessor input for all C/C++ library deps.  We search *through* other
+        // NDK library rules.
+        cxxPreprocessorInput =
+            CxxPreprocessables.getTransitiveCxxPreprocessorInput(
+                cxxPlatform,
+                params.getDeps(),
+                Predicates.or(
+                    Predicates.instanceOf(CxxPreprocessorDep.class),
+                    Predicates.instanceOf(NdkLibrary.class)));
+      } catch (CxxPreprocessorInput.ConflictingHeadersException e) {
+        throw e.getHumanReadableExceptionForBuildTarget(params.getBuildTarget());
+      }
 
       // We add any dependencies from the C/C++ preprocessor input to this rule, even though
       // it technically should be added to the top-level rule.
+      deps.addAll(
+          pathResolver.filterBuildRuleInputs(
+              cxxPreprocessorInput.getIncludes().getPrefixHeaders()));
       deps.addAll(
           pathResolver.filterBuildRuleInputs(
               cxxPreprocessorInput.getIncludes().getNameToPathMap().values()));
@@ -227,6 +237,9 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescription.
 
       // Write the relevant lines to the generated makefile.
       if (!localCflags.isEmpty() || !localLdflags.isEmpty()) {
+        AndroidBinary.TargetCpuType targetCpuType = entry.getKey();
+        String targetArchAbi = getTargetArchAbi(targetCpuType);
+
         outputLinesBuilder.add(String.format("ifeq ($(TARGET_ARCH_ABI),%s)", targetArchAbi));
         if (!localCflags.isEmpty()) {
           outputLinesBuilder.add("BUCK_DEP_CFLAGS=" + localCflags);
@@ -248,58 +261,24 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescription.
     BuildRuleParams makefileParams = params.copyWithChanges(
         MAKEFILE_TYPE,
         makefileTarget,
-        Suppliers.ofInstance(deps.build()),
+        Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
         Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
     final Path makefilePath = getGeneratedMakefilePath(params.getBuildTarget());
     final String contents = Joiner.on(System.lineSeparator()).join(outputLinesBuilder.build());
 
-    return new AbstractBuildRule(makefileParams, pathResolver) {
-
-      @Override
-      protected ImmutableCollection<Path> getInputsToCompareToOutput() {
-        return ImmutableList.of();
-      }
-
-      @Override
-      protected RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
-        return builder
-            .setReflectively("contents", contents)
-            .setReflectively("output", makefilePath.toString());
-      }
-
-      @Override
-      public ImmutableList<Step> getBuildSteps(
-          BuildContext context,
-          BuildableContext buildableContext) {
-        buildableContext.recordArtifact(makefilePath);
-        return ImmutableList.of(
-            new MkdirStep(makefilePath.getParent()),
-            new WriteFileStep(contents, makefilePath));
-      }
-
-      @Override
-      public Path getPathToOutputFile() {
-        return makefilePath;
-      }
-
-    };
-
+    return new Pair<BuildRule, Iterable<BuildRule>>(
+        new WriteFile(makefileParams, pathResolver, contents, makefilePath),
+        deps.build());
   }
 
-  @Override
-  public <A extends Arg> NdkLibrary createBuildRule(
-      BuildRuleParams params,
-      BuildRuleResolver resolver,
-      A args) {
-
-    BuildRule makefile = generateMakefile(params, resolver);
-    resolver.addToIndex(makefile);
-
+  @VisibleForTesting
+  protected ImmutableSortedSet<SourcePath> findSources(
+      final ProjectFilesystem filesystem,
+      final Path buildRulePath) {
     final ImmutableSortedSet.Builder<SourcePath> srcs = ImmutableSortedSet.naturalOrder();
 
     try {
-      final Path buildRulePath = params.getBuildTarget().getBasePath();
-      final Path rootDirectory = params.getProjectFilesystem().resolve(buildRulePath);
+      final Path rootDirectory = filesystem.resolve(buildRulePath);
       Files.walkFileTree(
           rootDirectory,
           EnumSet.of(FileVisitOption.FOLLOW_LINKS),
@@ -311,6 +290,7 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescription.
               if (EXTENSIONS_REGEX.matcher(file.toString()).matches()) {
                 srcs.add(
                     new PathSourcePath(
+                        filesystem,
                         buildRulePath.resolve(rootDirectory.relativize(file))));
               }
 
@@ -321,19 +301,33 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescription.
       throw new RuntimeException(e);
     }
 
+    return srcs.build();
+  }
+
+  @Override
+  public <A extends Arg> NdkLibrary createBuildRule(
+      final BuildRuleParams params,
+      BuildRuleResolver resolver,
+      A args) {
+
+    Pair<BuildRule, Iterable<BuildRule>> makefilePair = generateMakefile(params, resolver);
+    resolver.addToIndex(makefilePair.getFirst());
     return new NdkLibrary(
-        params.copyWithExtraDeps(
-            Suppliers.ofInstance(
-                ImmutableSortedSet.<BuildRule>naturalOrder()
-                    .addAll(params.getExtraDeps())
-                    .add(makefile)
-                    .build())),
+        params.appendExtraDeps(
+            ImmutableSortedSet.<BuildRule>naturalOrder()
+                .add(makefilePair.getFirst())
+                .addAll(makefilePair.getSecond())
+                .build()),
         new SourcePathResolver(resolver),
         getGeneratedMakefilePath(params.getBuildTarget()),
-        srcs.build(),
+        findSources(params.getProjectFilesystem(), params.getBuildTarget().getBasePath()),
         args.flags.get(),
         args.isAsset.or(false),
-        ndkVersion);
+        ndkVersion,
+        MACRO_HANDLER.getExpander(
+            params.getBuildTarget(),
+            resolver,
+            params.getProjectFilesystem()));
   }
 
   @SuppressFieldNotInitialized

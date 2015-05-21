@@ -18,9 +18,12 @@ package com.facebook.buck.event.listener;
 
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.LeafEvent;
+import com.facebook.buck.httpserver.WebServer;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.ArtifactCacheEvent;
 import com.facebook.buck.rules.BuildRuleEvent;
+import com.facebook.buck.rules.CacheResult;
 import com.facebook.buck.rules.IndividualTestEvent;
 import com.facebook.buck.rules.TestRunEvent;
 import com.facebook.buck.step.StepEvent;
@@ -30,13 +33,17 @@ import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Predicates;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.common.eventbus.Subscribe;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 import java.io.IOException;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -45,6 +52,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Console that provides rich, updating ansi output about the current build.
@@ -62,9 +70,19 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
 
   private static final Logger LOG = Logger.get(SuperConsoleEventBusListener.class);
 
+  private final Optional<WebServer> webServer;
   private final ConcurrentMap<Long, Optional<? extends BuildRuleEvent>> threadsToRunningEvent;
   private final ConcurrentMap<Long, Optional<? extends LeafEvent>> threadsToRunningStep;
-  private final AtomicInteger numRulesCompleted = new AtomicInteger();
+
+  // Time previously suspended runs of this rule.
+  private final ConcurrentMap<BuildTarget, AtomicLong> accumulatedBuildRuleTime;
+
+  // Counts the rules that have updated rule keys.
+  private final AtomicInteger updated = new AtomicInteger(0);
+
+  // Counts the number of cache hits and errors, respectively.
+  private final AtomicInteger cacheHits = new AtomicInteger(0);
+  private final AtomicInteger cacheErrors = new AtomicInteger(0);
 
   private final ConcurrentLinkedQueue<ConsoleEvent> logEvents;
 
@@ -78,17 +96,18 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
       Console console,
       Clock clock,
       ExecutionEnvironment executionEnvironment,
-      boolean isTreatingAssumptionsAsErrors) {
+      Optional<WebServer> webServer) {
     super(console, clock);
-
+    this.webServer = webServer;
     this.threadsToRunningEvent = new ConcurrentHashMap<>(executionEnvironment.getAvailableCores());
     this.threadsToRunningStep = new ConcurrentHashMap<>(executionEnvironment.getAvailableCores());
+    this.accumulatedBuildRuleTime = new ConcurrentHashMap<>();
 
     this.logEvents = new ConcurrentLinkedQueue<>();
 
     this.renderScheduler = Executors.newScheduledThreadPool(1,
         new ThreadFactoryBuilder().setNameFormat(getClass().getSimpleName() + "-%d").build());
-    this.testFormatter = new TestResultFormatter(console.getAnsi(), isTreatingAssumptionsAsErrors);
+    this.testFormatter = new TestResultFormatter(console.getAnsi(), console.getVerbosity());
   }
 
   /**
@@ -168,15 +187,46 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     // If parsing has not finished, then there is no build rule information to print yet.
     if (parseTime != UNFINISHED_EVENT_PAIR) {
       // Log build time, excluding time spent in parsing.
-      Optional<String> suffix = Optional.absent();
+      String jobSummary = null;
       if (ruleCount.isPresent()) {
-        suffix = Optional.of(String.format(
-                "(%d/%d JOBS)",
-                numRulesCompleted.get(),
-                ruleCount.get()));
+        List<String> columns = Lists.newArrayList();
+        columns.add(String.format("%d/%d JOBS", numRulesCompleted.get(), ruleCount.get()));
+        columns.add(String.format("%d UPDATED", updated.get()));
+        if (updated.get() > 0) {
+          columns.add(
+              String.format(
+                  "%.1f%% CACHE HITS",
+                  100 * (double) cacheHits.get() / updated.get()));
+          if (cacheErrors.get() > 0) {
+            columns.add(
+                String.format(
+                    "%.1f%% CACHE ERRORS",
+                    100 * (double) cacheErrors.get() / updated.get()));
+          }
+        }
+        jobSummary = "(" + Joiner.on(", ").join(columns) + ")";
       }
+
+      // If the Daemon is running and serving web traffic, print the URL to the Chrome Trace.
+      String buildTrace = null;
+      if (buildFinished != null && webServer.isPresent()) {
+        Optional<Integer> port = webServer.get().getPort();
+        if (port.isPresent()) {
+          buildTrace = String.format(
+               "Details: http://localhost:%s/trace/%s",
+               port.get(),
+               buildFinished.getBuildId());
+        }
+      }
+
+      String suffix = Joiner.on(" ")
+          .join(FluentIterable.of(new String[] {jobSummary, buildTrace})
+              .filter(Predicates.notNull()));
+      Optional<String> suffixOptional =
+          suffix.isEmpty() ? Optional.<String>absent() : Optional.of(suffix);
+
       long buildTime = logEventPair("BUILDING",
-          suffix,
+          suffixOptional,
           currentTimeMillis,
           parseTime,
           buildStarted,
@@ -240,7 +290,11 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
         threadLine += "IDLE";
         threadLine = ansi.asSubtleText(threadLine);
       } else {
-        long elapsedTimeMs = currentMillis - startedEvent.get().getTimestamp();
+        AtomicLong accumulatedTime = accumulatedBuildRuleTime.get(
+            startedEvent.get().getBuildRule().getBuildTarget());
+        long elapsedTimeMs =
+            (currentMillis - startedEvent.get().getTimestamp()) +
+            (accumulatedTime != null ? accumulatedTime.get() : 0);
         Optional<? extends LeafEvent> leafEvent = threadsToRunningStep.get(entry.getKey());
 
         threadLine += String.format("%s...  %s",
@@ -287,12 +341,42 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   @Subscribe
   public void buildRuleStarted(BuildRuleEvent.Started started) {
     threadsToRunningEvent.put(started.getThreadId(), Optional.of(started));
+    accumulatedBuildRuleTime.put(started.getBuildRule().getBuildTarget(), new AtomicLong(0));
   }
 
   @Subscribe
   public void buildRuleFinished(BuildRuleEvent.Finished finished) {
     threadsToRunningEvent.put(finished.getThreadId(), Optional.<BuildRuleEvent>absent());
-    numRulesCompleted.getAndIncrement();
+    accumulatedBuildRuleTime.remove(finished.getBuildRule().getBuildTarget());
+    CacheResult cacheResult = finished.getCacheResult();
+    if (cacheResult.getType() != CacheResult.Type.LOCAL_KEY_UNCHANGED_HIT) {
+      updated.incrementAndGet();
+      if (cacheResult.getType() == CacheResult.Type.HIT) {
+        cacheHits.incrementAndGet();
+      } else if (cacheResult.getType() == CacheResult.Type.ERROR) {
+        cacheErrors.incrementAndGet();
+      }
+    }
+  }
+
+  @Subscribe
+  public void buildRuleSuspended(BuildRuleEvent.Suspended suspended) {
+    Optional<? extends BuildRuleEvent> started =
+        Preconditions.checkNotNull(
+            threadsToRunningEvent.put(suspended.getThreadId(), Optional.<BuildRuleEvent>absent()));
+    Preconditions.checkState(started.isPresent());
+    Preconditions.checkState(suspended.getBuildRule().equals(started.get().getBuildRule()));
+    AtomicLong current = accumulatedBuildRuleTime.get(suspended.getBuildRule().getBuildTarget());
+    // It's technically possible that another thread receives resumed and finished events
+    // while we're processing this one, so we have to check that the current counter exists.
+    if (current != null) {
+      current.getAndAdd(suspended.getTimestamp() - started.get().getTimestamp());
+    }
+  }
+
+  @Subscribe
+  public void buildRuleResumed(BuildRuleEvent.Resumed resumed) {
+    threadsToRunningEvent.put(resumed.getThreadId(), Optional.of(resumed));
   }
 
   @Subscribe

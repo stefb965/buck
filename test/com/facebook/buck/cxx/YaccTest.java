@@ -24,12 +24,13 @@ import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleParamsFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.FakeRuleKeyBuilderFactory;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
+import com.facebook.buck.rules.RuleKeyPair;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TestSourcePath;
+import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -42,18 +43,17 @@ import java.nio.file.Paths;
 
 public class YaccTest {
 
-  private static final SourcePath DEFAULT_YACC = new TestSourcePath("yacc");
+  private static final Tool DEFAULT_YACC = new HashedFileTool(Paths.get("yacc"));
   private static final ImmutableList<String> DEFAULT_FLAGS = ImmutableList.of("-flag");
   private static final Path DEFAULT_OUTPUT_PREFIX = Paths.get("output.prefix");
   private static final SourcePath DEFAULT_INPUT = new TestSourcePath("input");
 
-  private RuleKey.Builder.RuleKeyPair generateRuleKey(
+  private RuleKeyPair generateRuleKey(
       RuleKeyBuilderFactory factory,
       SourcePathResolver resolver,
       AbstractBuildRule rule) {
 
     RuleKey.Builder builder = factory.newInstance(rule, resolver);
-    rule.appendToRuleKey(builder);
     return builder.build();
   }
 
@@ -63,7 +63,7 @@ public class YaccTest {
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     BuildRuleParams params = BuildRuleParamsFactory.createTrivialBuildRuleParams(target);
     RuleKeyBuilderFactory ruleKeyBuilderFactory =
-        new FakeRuleKeyBuilderFactory(
+        new DefaultRuleKeyBuilderFactory(
             FakeFileHashCache.createFromStrings(
                 ImmutableMap.of(
                     "yacc", Strings.repeat("a", 40),
@@ -71,7 +71,7 @@ public class YaccTest {
                     "different", Strings.repeat("c", 40))));
 
     // Generate a rule key for the defaults.
-    RuleKey.Builder.RuleKeyPair defaultRuleKey = generateRuleKey(
+    RuleKeyPair defaultRuleKey = generateRuleKey(
         ruleKeyBuilderFactory,
         pathResolver,
         new Yacc(
@@ -83,20 +83,20 @@ public class YaccTest {
             DEFAULT_INPUT));
 
     // Verify that changing the archiver causes a rulekey change.
-    RuleKey.Builder.RuleKeyPair yaccChange = generateRuleKey(
+    RuleKeyPair yaccChange = generateRuleKey(
         ruleKeyBuilderFactory,
         pathResolver,
         new Yacc(
             params,
             pathResolver,
-            new TestSourcePath("different"),
+            new HashedFileTool(Paths.get("different")),
             DEFAULT_FLAGS,
             DEFAULT_OUTPUT_PREFIX,
             DEFAULT_INPUT));
     assertNotEquals(defaultRuleKey.getTotalRuleKey(), yaccChange.getTotalRuleKey());
 
     // Verify that changing the flags causes a rulekey change.
-    RuleKey.Builder.RuleKeyPair flagsChange = generateRuleKey(
+    RuleKeyPair flagsChange = generateRuleKey(
         ruleKeyBuilderFactory,
         pathResolver,
         new Yacc(
@@ -109,7 +109,7 @@ public class YaccTest {
     assertNotEquals(defaultRuleKey.getTotalRuleKey(), flagsChange.getTotalRuleKey());
 
     // Verify that changing the output prefix causes a rulekey change.
-    RuleKey.Builder.RuleKeyPair outputPrefixChange = generateRuleKey(
+    RuleKeyPair outputPrefixChange = generateRuleKey(
         ruleKeyBuilderFactory,
         pathResolver,
         new Yacc(
@@ -122,7 +122,7 @@ public class YaccTest {
     assertNotEquals(defaultRuleKey.getTotalRuleKey(), outputPrefixChange.getTotalRuleKey());
 
     // Verify that changing the inputs causes a rulekey change.
-    RuleKey.Builder.RuleKeyPair inputChange = generateRuleKey(
+    RuleKeyPair inputChange = generateRuleKey(
         ruleKeyBuilderFactory,
         pathResolver,
         new Yacc(

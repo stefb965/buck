@@ -17,14 +17,15 @@
 package com.facebook.buck.io;
 
 import com.facebook.buck.util.BuckConstant;
+import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.base.Throwables;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.io.ByteSource;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -36,23 +37,10 @@ import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
-import java.util.Collection;
 
 import javax.annotation.Nullable;
 
 public class MorePaths {
-
-  /**
-   * Returns true iff a path on the filesystem exists, is a regular file, and is executable.
-   */
-  public static final Function<Path, Boolean> DEFAULT_PATH_IS_EXECUTABLE_CHECKER =
-      new Function<Path, Boolean>() {
-        @Override
-        public Boolean apply(Path path) {
-          return Files.isRegularFile(path) &&
-              Files.isExecutable(path);
-        }
-      };
 
   /** Utility class: do not instantiate. */
   private MorePaths() {}
@@ -64,6 +52,8 @@ public class MorePaths {
     }
   };
 
+  private static final Path EMPTY_PATH = Paths.get("");
+
   public static String pathWithUnixSeparators(String path) {
     return pathWithUnixSeparators(Paths.get(path));
   }
@@ -72,12 +62,36 @@ public class MorePaths {
     return path.toString().replace("\\", "/");
   }
 
+  public static String pathWithPlatformSeparators(String path) {
+    return pathWithPlatformSeparators(Paths.get(path));
+  }
+
+  public static String pathWithPlatformSeparators(Path path) {
+    if (Platform.detect() == Platform.WINDOWS) {
+      return path.toString().replace("/", "\\");
+    } else {
+      return pathWithUnixSeparators(path);
+    }
+  }
+
+  public static String pathWithUnixSeparatorsAndTrailingSlash(Path path) {
+    return pathWithUnixSeparators(path) + "/";
+  }
+
   /**
    * @param toMakeAbsolute The {@link Path} to act upon.
    * @return The Path, made absolute and normalized.
    */
   public static Path absolutify(Path toMakeAbsolute) {
     return toMakeAbsolute.toAbsolutePath().normalize();
+  }
+
+  public static Path getParentOrEmpty(Path path) {
+    Path parent = path.getParent();
+    if (parent == null) {
+      parent = EMPTY_PATH;
+    }
+    return parent;
   }
 
   /**
@@ -92,7 +106,7 @@ public class MorePaths {
     if (baseDir == null) {
       // This allows callers to use this method with "file.parent()" for files from the project
       // root dir.
-      baseDir = Paths.get("");
+      baseDir = EMPTY_PATH;
     }
     Preconditions.checkArgument(!path.isAbsolute(),
         "Path must be relative: %s.", path);
@@ -108,8 +122,6 @@ public class MorePaths {
    * returns incorrect result if path contains "." or "..").
    */
   public static Path relativize(Path path1, Path path2) {
-    Path emptyPath = Paths.get("");
-
     Preconditions.checkArgument(
         path1.isAbsolute() == path2.isAbsolute(),
         "Both paths must be absolute or both paths must be relative. (%s is %s, %s is %s)",
@@ -118,19 +130,27 @@ public class MorePaths {
         path2,
         path2.isAbsolute() ? "absolute" : "relative");
 
-    // Work around JDK-8037945 (Paths.get("").normalize() throws ArrayIndexOutOfBoundsException).
-    if (!path1.equals(emptyPath)) {
-      path1 = path1.normalize();
-    }
-    if (!path2.equals(emptyPath)) {
-      path2 = path2.normalize();
-    }
+    path1 = normalize(path1);
+    path2 = normalize(path2);
 
     // On Windows, if path1 is "" then Path.relativize returns ../path2 instead of path2 or ./path2
-    if (path1.equals(emptyPath)) {
+    if (EMPTY_PATH.equals(path1)) {
       return path2;
     }
     return path1.relativize(path2);
+  }
+
+  /**
+   * Get a path without unnecessary path parts.
+   *
+   * This method is a workaround for JDK-8037945 (Paths.get("").normalize() throws
+   * ArrayIndexOutOfBoundsException).
+   */
+  public static Path normalize(Path path) {
+    if (!EMPTY_PATH.equals(path)) {
+      path = path.normalize();
+    }
+    return path;
   }
 
   /**
@@ -258,83 +278,13 @@ public class MorePaths {
     }
   }
 
-  /**
-   * Looks for {@code executableToFind} under each entry of {@code pathsToSearch} and returns
-   * the full path ({@code pathToSearch/executableToFind)}) to the first one which
-   * exists on disk as an executable file.
-   *
-   * This is similar to the {@code which} command in Unix, but handles the various extensions
-   * that are configured by Windows (when supplied with valid {@code extensions}).
-   *
-   * {@code executableToFind} must be a relative path.
-   *
-   * If none are found, returns {@link Optional#absent()}.
-   */
-  public static Optional<Path> searchPathsForExecutable(
-      Path executableToFind,
-      Collection<Path> pathsToSearch,
-      Collection<String> extensions) {
-    return searchPathsForExecutable(
-        executableToFind,
-        pathsToSearch,
-        extensions,
-        DEFAULT_PATH_IS_EXECUTABLE_CHECKER);
-  }
-
-  /**
-   * Looks for {@code executableToFind} under each entry of {@code pathsToSearch} and returns
-   * the full path ({@code pathToSearch/executableToFind)}) to the first one for which
-   * {@code pathIsExecutableChecker(path)} returns true.
-   *
-   * This is similar to the {@code which} command in Unix, but handles the various extensions
-   * that are configured by Windows (when supplied with valid {@code extensions}).
-   *
-   * {@code executableToFind} must be a relative path.
-   *
-   * If none are found, returns {@link Optional#absent()}.
-   */
-  public static Optional<Path> searchPathsForExecutable(
-      Path executableToFind,
-      Collection<Path> pathsToSearch,
-      Collection<String> extensions,
-      Function<Path, Boolean> pathIsExecutableChecker) {
-    Preconditions.checkArgument(
-        !executableToFind.isAbsolute(),
-        "Path %s must be relative",
-        executableToFind);
-
-    for (Path pathToSearch : pathsToSearch) {
-      Optional<Path> maybeResolved = resolveExecutable(
-          pathToSearch,
-          executableToFind,
-          extensions,
-          pathIsExecutableChecker);
-      if (maybeResolved.isPresent()) {
-        return maybeResolved;
+  public static ByteSource asByteSource(final Path path) {
+    return new ByteSource() {
+      @Override
+      public InputStream openStream() throws IOException {
+        return Files.newInputStream(path);
       }
-    }
-    return Optional.<Path>absent();
-  }
-
-  private static Optional<Path> resolveExecutable(
-      Path base,
-      Path executableToFind,
-      Collection<String> extensions,
-      Function<Path, Boolean> pathIsExecutableChecker) {
-    if (extensions.isEmpty()) {
-      Path resolved = base.resolve(executableToFind);
-      if (pathIsExecutableChecker.apply(resolved)) {
-        return Optional.of(resolved);
-      }
-      return Optional.absent();
-    }
-    for (String pathExt : extensions) {
-      Path resolved = base.resolve(executableToFind + pathExt);
-      if (pathIsExecutableChecker.apply(resolved)) {
-        return Optional.of(resolved);
-      }
-    }
-    return Optional.absent();
+    };
   }
 
   private static byte[] inputStreamDigest(InputStream inputStream, MessageDigest messageDigest)
@@ -350,4 +300,5 @@ public class MorePaths {
       return dis.getMessageDigest().digest();
     }
   }
+
 }

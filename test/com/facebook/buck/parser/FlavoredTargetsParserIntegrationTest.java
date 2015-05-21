@@ -42,7 +42,6 @@ public class FlavoredTargetsParserIntegrationTest {
 
   @Test
   public void canBuildAnUnflavoredTarget() throws IOException {
-    tempFolder.create();
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this,
         "unflavored_build",
@@ -59,7 +58,6 @@ public class FlavoredTargetsParserIntegrationTest {
 
   @Test
   public void canBuildAFlavoredTarget() throws IOException {
-    tempFolder.create();
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this,
         "unflavored_build",
@@ -75,7 +73,6 @@ public class FlavoredTargetsParserIntegrationTest {
   @Test
   public void canBuildBothAFlavoredAndUnflavoredVersionOfTheSameTargetInTheSameBuild()
       throws IOException {
-    tempFolder.create();
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this,
         "unflavored_build",
@@ -86,7 +83,7 @@ public class FlavoredTargetsParserIntegrationTest {
     result.assertSuccess();
 
     // Verify that both the src zip and the jar were created.
-    result = workspace.runBuckCommand("targets", "--show_output", "//:example", "//:example#src");
+    result = workspace.runBuckCommand("targets", "--show-output", "//:example", "//:example#src");
     result.assertSuccess();
     String stdout = result.getStdout();
     List<String> paths = Splitter.on('\n').omitEmptyStrings().trimResults().splitToList(stdout);
@@ -105,7 +102,6 @@ public class FlavoredTargetsParserIntegrationTest {
 
   @Test
   public void canReferToFlavorsInBuildFiles() throws IOException {
-    tempFolder.create();
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this,
         "flavored_build",   // NB: this is not the same as the other tests in this file!

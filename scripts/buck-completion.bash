@@ -185,10 +185,10 @@ function _buck_completion_try_targets() {
       --json
       --no-cache
       --num-threads
-      --referenced_file
-      --resolvealias
-      --show_output
-      --show_rulekey
+      --referenced-file
+      --resolve-alias
+      --show-output
+      --show-rulekey
       --type
       --verbose" \
     || _buck_completion_try_build_dependencies "$@" \

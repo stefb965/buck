@@ -18,7 +18,6 @@ package com.facebook.buck.log;
 
 import com.facebook.buck.io.PathListing;
 import com.facebook.buck.util.BuckConstant;
-
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterators;
@@ -53,7 +52,7 @@ import java.util.logging.Logger;
 public class LogConfig {
 
   private static final byte[] NEWLINE = {'\n'};
-  private static final long MAX_LOG_SIZE = 25 * 1024 * 1024;
+  private static final long MAX_LOG_SIZE = 100 * 1024 * 1024;
 
   /**
    * Default constructor, called by LogManager.
@@ -70,7 +69,14 @@ public class LogConfig {
     // Bug JDK-6244047: The default FileHandler does not handle the directory not existing,
     // so we have to create it before any log statements actually run.
     Files.createDirectories(BuckConstant.LOG_PATH);
-    deleteOldLogFiles();
+
+    try {
+      deleteOldLogFiles();
+    } catch (IOException e) {
+      System.err.format(
+          "Error deleting old log files (ignored): %s\n",
+          e.getMessage());
+    }
 
     ImmutableList.Builder<InputStream> inputStreamsBuilder = ImmutableList.builder();
     if (!LogConfigPaths.MAIN_PATH.isPresent()) {

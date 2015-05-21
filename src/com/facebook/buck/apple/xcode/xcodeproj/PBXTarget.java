@@ -17,50 +17,16 @@
 package com.facebook.buck.apple.xcode.xcodeproj;
 
 import com.facebook.buck.apple.xcode.XcodeprojSerializer;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.Lists;
 
 import java.util.List;
 
 import javax.annotation.Nullable;
 
-import org.immutables.value.Value;
-
 /**
  * Information for building a specific artifact (a library, binary, or test).
  */
 public abstract class PBXTarget extends PBXProjectItem {
-  @Value.Immutable
-  @BuckStyleImmutable
-  public abstract static class ProductType {
-    public static final ProductType STATIC_LIBRARY = ImmutableProductType.of(
-        "com.apple.product-type.library.static");
-    public static final ProductType DYNAMIC_LIBRARY = ImmutableProductType.of(
-        "com.apple.product-type.library.dynamic");
-    public static final ProductType TOOL = ImmutableProductType.of(
-        "com.apple.product-type.tool");
-    public static final ProductType BUNDLE = ImmutableProductType.of(
-        "com.apple.product-type.bundle");
-    public static final ProductType FRAMEWORK = ImmutableProductType.of(
-        "com.apple.product-type.framework");
-    public static final ProductType STATIC_FRAMEWORK = ImmutableProductType.of(
-        "com.apple.product-type.framework.static");
-    public static final ProductType APPLICATION = ImmutableProductType.of(
-        "com.apple.product-type.application");
-    public static final ProductType UNIT_TEST = ImmutableProductType.of(
-        "com.apple.product-type.bundle.unit-test");
-    public static final ProductType APP_EXTENSION = ImmutableProductType.of(
-        "com.apple.product-type.app-extension");
-
-    @Value.Parameter
-    public abstract String getIdentifier();
-
-    @Override
-    public String toString() {
-      return getIdentifier();
-    }
-  }
-
   private final String name;
   private final ProductType productType;
   private final List<PBXTargetDependency> dependencies;

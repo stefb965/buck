@@ -18,17 +18,15 @@ package com.facebook.buck.file;
 
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.HashCode;
 
 import java.net.URI;
@@ -40,8 +38,11 @@ import java.nio.file.Path;
  * build.
  */
 public class RemoteFile extends AbstractBuildRule {
+  @AddToRuleKey(stringify = true)
   private final URI uri;
+  @AddToRuleKey(stringify = true)
   private final HashCode sha1;
+  @AddToRuleKey(stringify = true)
   private final Path output;
   private final Downloader downloader;
 
@@ -64,24 +65,11 @@ public class RemoteFile extends AbstractBuildRule {
   }
 
   @Override
-  protected ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return ImmutableSet.of();
-  }
-
-  @Override
-  protected RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
-    return builder
-        .setReflectively("sha1", sha1.toString())
-        .setReflectively("out", output.toString())
-        .setReflectively("url", uri.toString());
-  }
-
-  @Override
   public ImmutableList<Step> getBuildSteps(
       BuildContext context, BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
-    Path tempFile = BuildTargets.getBinPath(
+    Path tempFile = BuildTargets.getScratchPath(
         getBuildTarget(), String.format("%%s/%s", output.getFileName()));
 
     steps.add(new MakeCleanDirectoryStep(tempFile.getParent()));

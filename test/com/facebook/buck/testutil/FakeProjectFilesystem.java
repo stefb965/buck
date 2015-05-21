@@ -16,6 +16,7 @@
 
 package com.facebook.buck.testutil;
 
+import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.timing.FakeClock;
@@ -26,16 +27,13 @@ import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.base.Splitter;
-import com.google.common.collect.Collections2;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Ordering;
-import com.google.common.collect.Sets;
 import com.google.common.hash.Hashing;
 import com.google.common.io.ByteStreams;
 
@@ -48,31 +46,38 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.Reader;
 import java.io.StringReader;
+import java.math.BigInteger;
 import java.nio.file.CopyOption;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileSystems;
 import java.nio.file.FileVisitOption;
+import java.nio.file.FileVisitResult;
 import java.nio.file.FileVisitor;
 import java.nio.file.LinkOption;
 import java.nio.file.NoSuchFileException;
+import java.nio.file.NotLinkException;
 import java.nio.file.Path;
 import java.nio.file.PathMatcher;
 import java.nio.file.Paths;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileAttribute;
 import java.nio.file.attribute.FileTime;
-import java.util.Collection;
 import java.util.EnumSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Random;
 import java.util.Set;
 
 import javax.annotation.Nullable;
 
 // TODO(natthu): Implement methods that throw UnsupportedOperationException.
 public class FakeProjectFilesystem extends ProjectFilesystem {
+
+  private static final Random RANDOM = new Random();
 
   private static final BasicFileAttributes DEFAULT_FILE_ATTRIBUTES =
       new BasicFileAttributes() {
@@ -126,6 +131,58 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
         }
       };
 
+  private static final BasicFileAttributes DEFAULT_DIR_ATTRIBUTES =
+      new BasicFileAttributes() {
+        @Override
+        @Nullable
+        public FileTime lastModifiedTime() {
+          return null;
+        }
+
+        @Override
+        @Nullable
+        public FileTime lastAccessTime() {
+          return null;
+        }
+
+        @Override
+        @Nullable
+        public FileTime creationTime() {
+          return null;
+        }
+
+        @Override
+        public boolean isRegularFile() {
+          return false;
+        }
+
+        @Override
+        public boolean isDirectory() {
+          return true;
+        }
+
+        @Override
+        public boolean isSymbolicLink() {
+          return false;
+        }
+
+        @Override
+        public boolean isOther() {
+          return false;
+        }
+
+        @Override
+        public long size() {
+          return 0;
+        }
+
+        @Override
+        @Nullable
+        public Object fileKey() {
+          return null;
+        }
+      };
+
   private final Map<Path, byte[]> fileContents;
   private final Map<Path, ImmutableSet<FileAttribute<?>>> fileAttributes;
   private final Map<Path, FileTime> fileLastModifiedTimes;
@@ -152,14 +209,28 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
 
   public FakeProjectFilesystem(Clock clock, File root, Set<Path> files) {
     super(root.toPath());
-    fileContents = Maps.newHashMap();
+    // We use LinkedHashMap to preserve insertion order, so the
+    // behavior of this test is consistent across versions. (It also lets
+    // us write tests which explicitly test iterating over entries in
+    // different orders.)
+    fileContents = new LinkedHashMap<>();
+    fileLastModifiedTimes = new LinkedHashMap<>();
+    FileTime modifiedTime = FileTime.fromMillis(clock.currentTimeMillis());
     for (Path file : files) {
       fileContents.put(file, new byte[0]);
+      fileLastModifiedTimes.put(file, modifiedTime);
     }
-    fileAttributes = Maps.newHashMap();
-    fileLastModifiedTimes = Maps.newHashMap();
-    symLinks = Maps.newHashMap();
-    directories = Sets.newHashSet();
+    fileAttributes = new LinkedHashMap<>();
+    symLinks = new LinkedHashMap<>();
+    directories = new LinkedHashSet<>();
+    directories.add(Paths.get(""));
+    for (Path file : files) {
+      Path dir = file.getParent();
+      while (dir != null) {
+        directories.add(dir);
+        dir = dir.getParent();
+      }
+    }
     this.clock = Preconditions.checkNotNull(clock);
 
     // Generally, tests don't care whether files exist.
@@ -172,13 +243,13 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   }
 
   private byte[] getFileBytes(Path path) {
-    return Preconditions.checkNotNull(fileContents.get(path.normalize()));
+    return Preconditions.checkNotNull(fileContents.get(MorePaths.normalize(path)));
   }
 
   private void rmFile(Path path) {
-    fileContents.remove(path.normalize());
-    fileAttributes.remove(path.normalize());
-    fileLastModifiedTimes.remove(path.normalize());
+    fileContents.remove(MorePaths.normalize(path));
+    fileAttributes.remove(MorePaths.normalize(path));
+    fileLastModifiedTimes.remove(MorePaths.normalize(path));
   }
 
   public ImmutableSet<FileAttribute<?>> getFileAttributesAtPath(Path path) {
@@ -223,7 +294,7 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
 
   @Override
   public boolean isFile(Path path) {
-    return fileContents.containsKey(path.normalize());
+    return fileContents.containsKey(MorePaths.normalize(path));
   }
 
   @Override
@@ -233,7 +304,12 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
 
   @Override
   public boolean isDirectory(Path path, LinkOption... linkOptions) {
-    return directories.contains(path.normalize());
+    return directories.contains(MorePaths.normalize(path));
+  }
+
+  @Override
+  public boolean isExecutable(Path child) {
+    return false;
   }
 
   /**
@@ -243,13 +319,19 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   public ImmutableCollection<Path> getDirectoryContents(final Path pathRelativeToProjectRoot)
       throws IOException {
     Preconditions.checkState(isDirectory(pathRelativeToProjectRoot));
-    return FluentIterable.from(fileContents.keySet()).filter(
-        new Predicate<Path>() {
-          @Override
-          public boolean apply(Path input) {
-            return input.getParent().equals(pathRelativeToProjectRoot);
-          }
-        })
+    return FluentIterable
+        .from(fileContents.keySet())
+        .append(directories)
+        .filter(
+            new Predicate<Path>() {
+              @Override
+              public boolean apply(Path input) {
+                if (input.equals(Paths.get(""))) {
+                  return false;
+                }
+                return MorePaths.getParentOrEmpty(input).equals(pathRelativeToProjectRoot);
+              }
+            })
         .toList();
   }
 
@@ -268,20 +350,22 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
                 pathMatcher.matches(input.getFileName());
           }
         })
-        .toSortedSet(Ordering
-            .natural()
-            .onResultOf(new Function<Path, FileTime>() {
-                @Override
-                public FileTime apply(Path path) {
-                  try {
-                    return getLastModifiedTimeFetcher().getLastModifiedTime(path);
-                  } catch (IOException e) {
-                    throw new RuntimeException(e);
-                  }
-                }
-            })
-            .compound(Ordering.natural())
-            .reverse());
+        .toSortedSet(
+            Ordering
+                .natural()
+                .onResultOf(
+                    new Function<Path, FileTime>() {
+                      @Override
+                      public FileTime apply(Path path) {
+                        try {
+                          return getLastModifiedTimeFetcher().getLastModifiedTime(path);
+                        } catch (IOException e) {
+                          throw new RuntimeException(e);
+                        }
+                      }
+                    })
+                .compound(Ordering.natural())
+                .reverse());
   }
 
   @Override
@@ -291,7 +375,7 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
 
   @Override
   public long getLastModifiedTime(Path path) throws IOException {
-    Path normalizedPath = path.normalize();
+    Path normalizedPath = MorePaths.normalize(path);
     if (!exists(normalizedPath)) {
       throw new NoSuchFileException(path.toString());
     }
@@ -299,13 +383,29 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   }
 
   @Override
+  public Path setLastModifiedTime(Path path, FileTime time) throws IOException {
+    Path normalizedPath = MorePaths.normalize(path);
+    if (!exists(normalizedPath)) {
+      throw new NoSuchFileException(path.toString());
+    }
+    fileLastModifiedTimes.put(normalizedPath, time);
+    return normalizedPath;
+  }
+
+  @Override
   public void rmdir(Path path) throws IOException {
-    Path normalizedPath = path.normalize();
+    Path normalizedPath = MorePaths.normalize(path);
     for (Iterator<Path> iterator = fileContents.keySet().iterator(); iterator.hasNext();) {
       Path subPath = iterator.next();
       if (subPath.startsWith(normalizedPath)) {
-        fileAttributes.remove(subPath.normalize());
-        fileLastModifiedTimes.remove(subPath.normalize());
+        fileAttributes.remove(MorePaths.normalize(subPath));
+        fileLastModifiedTimes.remove(MorePaths.normalize(subPath));
+        iterator.remove();
+      }
+    }
+    for (Iterator<Path> iterator = symLinks.keySet().iterator(); iterator.hasNext();) {
+      Path subPath = iterator.next();
+      if (subPath.startsWith(normalizedPath)) {
         iterator.remove();
       }
     }
@@ -320,6 +420,12 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
       directories.add(subpath);
       fileLastModifiedTimes.put(subpath, FileTime.fromMillis(clock.currentTimeMillis()));
     }
+  }
+
+  @Override
+  public Path createNewFile(Path path) throws IOException {
+    writeBytesToPath(new byte[0], path);
+    return path;
   }
 
   @Override
@@ -348,7 +454,7 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
       byte[] bytes,
       Path path,
       FileAttribute<?>... attrs) throws IOException {
-    Path normalizedPath = path.normalize();
+    Path normalizedPath = MorePaths.normalize(path);
     fileContents.put(normalizedPath, Preconditions.checkNotNull(bytes));
     fileAttributes.put(normalizedPath, ImmutableSet.copyOf(attrs));
 
@@ -392,7 +498,8 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
     if (!exists(pathRelativeToProjectRoot)) {
       throw new NoSuchFileException(pathRelativeToProjectRoot.toString());
     }
-    return new ByteArrayInputStream(fileContents.get(pathRelativeToProjectRoot.normalize()));
+    Path normalizedPathToProjectRoot = MorePaths.normalize(pathRelativeToProjectRoot);
+    return new ByteArrayInputStream(fileContents.get(normalizedPathToProjectRoot));
   }
 
   @Override
@@ -473,22 +580,30 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
       Path path,
       EnumSet<FileVisitOption> visitOptions,
       FileVisitor<Path> fileVisitor) throws IOException {
-    for (Path file : filesUnderPath(path)) {
-      fileVisitor.visitFile(file, DEFAULT_FILE_ATTRIBUTES);
+
+    if (!isDirectory(path)) {
+      fileVisitor.visitFile(path, DEFAULT_FILE_ATTRIBUTES);
+      return;
     }
-  }
 
-  public void touch(Path path) throws IOException {
-    writeContentsToPath("", path);
-  }
-
-  private Collection<Path> filesUnderPath(final Path dirPath) {
-    return Collections2.filter(fileContents.keySet(), new Predicate<Path>() {
-          @Override
-          public boolean apply(Path input) {
-            return input.startsWith(dirPath);
-          }
-        });
+    ImmutableCollection<Path> ents = getDirectoryContents(path);
+    for (Path ent : ents) {
+      if (!isDirectory(ent)) {
+        FileVisitResult result = fileVisitor.visitFile(ent, DEFAULT_FILE_ATTRIBUTES);
+        if (result == FileVisitResult.SKIP_SIBLINGS) {
+          return;
+        }
+      } else {
+        FileVisitResult result = fileVisitor.preVisitDirectory(ent, DEFAULT_DIR_ATTRIBUTES);
+        if (result == FileVisitResult.SKIP_SIBLINGS) {
+          return;
+        }
+        if (result != FileVisitResult.SKIP_SUBTREE) {
+          walkRelativeFileTree(ent, fileVisitor);
+          fileVisitor.postVisitDirectory(ent, null);
+        }
+      }
+    }
   }
 
   @Override
@@ -502,16 +617,16 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   }
 
   @Override
-  public void createSymLink(Path source, Path target, boolean force) throws IOException {
+  public void createSymLink(Path symLink, Path realFile, boolean force) throws IOException {
     if (!force) {
-      if (fileContents.containsKey(source) || directories.contains(source)) {
-        throw new FileAlreadyExistsException(source.toString());
+      if (fileContents.containsKey(symLink) || directories.contains(symLink)) {
+        throw new FileAlreadyExistsException(symLink.toString());
       }
     } else {
-      rmFile(source);
-      rmdir(source);
+      rmFile(symLink);
+      rmdir(symLink);
     }
-    symLinks.put(source, target);
+    symLinks.put(symLink, realFile);
   }
 
   @Override
@@ -520,7 +635,45 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   }
 
   @Override
-  public void createZip(Collection<Path> pathsToIncludeInZip, File out) throws IOException {
-    throw new UnsupportedOperationException();
+  public Path readSymLink(Path path) throws IOException {
+    Path target = symLinks.get(path);
+    if (target == null) {
+      throw new NotLinkException(path.toString());
+    }
+    return target;
   }
+
+  @Override
+  public void touch(Path fileToTouch) throws IOException {
+    if (exists(fileToTouch)) {
+      setLastModifiedTime(fileToTouch, FileTime.fromMillis(clock.currentTimeMillis()));
+    } else {
+      createNewFile(fileToTouch);
+    }
+  }
+
+  @Override
+  public Path createTempFile(
+      Path directory,
+      String prefix,
+      String suffix,
+      FileAttribute<?>... attrs) throws IOException {
+    Path path;
+    do {
+      String str = new BigInteger(130, RANDOM).toString(32);
+      path = directory.resolve(prefix + str + suffix);
+    } while (exists(path));
+    touch(path);
+    return path;
+  }
+
+  @Override
+  public void move(Path source, Path target, CopyOption... options) throws IOException {
+    fileContents.put(MorePaths.normalize(target), fileContents.remove(MorePaths.normalize(source)));
+    fileAttributes.put(MorePaths.normalize(target),
+        fileAttributes.remove(MorePaths.normalize(source)));
+    fileLastModifiedTimes.put(MorePaths.normalize(target),
+        fileLastModifiedTimes.remove(MorePaths.normalize(source)));
+  }
+
 }

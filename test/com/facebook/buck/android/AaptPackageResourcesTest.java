@@ -17,20 +17,21 @@
 package com.facebook.buck.android;
 
 import static com.facebook.buck.java.JavaCompilationConstants.DEFAULT_JAVAC_OPTIONS;
-import static com.facebook.buck.util.BuckConstant.BIN_DIR;
-import static com.facebook.buck.util.BuckConstant.BIN_PATH;
+import static com.facebook.buck.util.BuckConstant.SCRATCH_DIR;
+import static com.facebook.buck.util.BuckConstant.SCRATCH_PATH;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.android.AndroidBinary.PackageType;
-import com.facebook.buck.android.AndroidBinary.TargetCpuType;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
+import com.facebook.buck.rules.FakeOnDiskBuildInfo;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TestSourcePath;
 import com.facebook.buck.step.Step;
@@ -75,13 +76,13 @@ public class AaptPackageResourcesTest {
         /* manifest */ new TestSourcePath("java/src/com/facebook/base/AndroidManifest.xml"),
         resourcesFilter,
         ImmutableList.<HasAndroidResourceDeps>of(),
-        ImmutableSet.<Path>of(),
+        ImmutableSet.<SourcePath>of(),
         PackageType.DEBUG,
-        /* cpuFilters */ ImmutableSet.<TargetCpuType>of(),
         DEFAULT_JAVAC_OPTIONS,
         /* rDotJavaNeedsDexing */ false,
         /* shouldBuildStringSourceMap */ false,
-        /* shouldWarnIfMissingResources */ false);
+        /* shouldWarnIfMissingResources */ false,
+        /* skipCrunchPngs */ false);
 
     // Build up the parameters needed to invoke createAllAssetsDirectory().
     ImmutableList.Builder<Step> commands = ImmutableList.builder();
@@ -107,6 +108,7 @@ public class AaptPackageResourcesTest {
   @Test
   public void testCreateAllAssetsDirectoryWithOneAssetsDirectory() throws IOException {
     BuildRuleResolver ruleResolver = new BuildRuleResolver();
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleResolver);
 
     // Two android_library deps, one of which has an assets directory.
     AndroidBinaryTest.createAndroidLibraryRule(
@@ -139,16 +141,16 @@ public class AaptPackageResourcesTest {
         /* manifest */ new TestSourcePath("java/src/com/facebook/base/AndroidManifest.xml"),
         resourcesFilter,
         ImmutableList.<HasAndroidResourceDeps>of(),
-        ImmutableSet.<Path>of(),
+        ImmutableSet.<SourcePath>of(),
         PackageType.DEBUG,
-        /* cpuFilters */ ImmutableSet.<TargetCpuType>of(),
         DEFAULT_JAVAC_OPTIONS,
         /* rDotJavaNeedsDexing */ false,
         /* shouldBuildStringSourceMap */ false,
-        /* shouldWarnIfMissingResources */ false);
+        /* shouldWarnIfMissingResources */ false,
+        /* skipCrunchPngs */ false);
 
     // Build up the parameters needed to invoke createAllAssetsDirectory().
-    Set<Path> assetsDirectories = ImmutableSet.of(resourceOne.getAssets());
+    Set<SourcePath> assetsDirectories = ImmutableSet.of(resourceOne.getAssets());
     ImmutableList.Builder<Step> commands = ImmutableList.builder();
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
     filesystem.touch(Paths.get("java/src/com/facebook/base/assets2/fonts/Theinhardt-Medium.otf"));
@@ -165,15 +167,18 @@ public class AaptPackageResourcesTest {
     filesystem.touch(Paths.get("facebook/base/assets2/fonts/something~"));
 
     // Invoke createAllAssetsDirectory(), the method under test.
-    Optional<Path> allAssetsDirectory = aaptPackageResources.createAllAssetsDirectory(
-        assetsDirectories, commands, filesystem);
+    Optional<Path> allAssetsDirectory =
+        aaptPackageResources.createAllAssetsDirectory(
+            ImmutableSet.copyOf(pathResolver.getAllPaths(assetsDirectories)),
+            commands,
+            filesystem);
     EasyMock.verify(resourcesFilter);
 
     // Verify that the existing assets/ directory will be passed to aapt.
     assertTrue(allAssetsDirectory.isPresent());
     assertEquals(
         "Even though there is only one assets directory, the one in " +
-            BIN_DIR +
+            SCRATCH_DIR +
             " should be used.",
         aaptPackageResources.getPathToAllAssetsDirectory(),
         allAssetsDirectory.get());
@@ -186,6 +191,7 @@ public class AaptPackageResourcesTest {
   @Test
   public void testCreateAllAssetsDirectoryWithMultipleAssetsDirectories() throws IOException {
     BuildRuleResolver ruleResolver = new BuildRuleResolver();
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleResolver);
 
     // Two android_library deps, each with an assets directory.
     AndroidBinaryTest.createAndroidLibraryRule(
@@ -216,13 +222,13 @@ public class AaptPackageResourcesTest {
         /* manifest */ new TestSourcePath("facebook/base/AndroidManifest.xml"),
         resourcesFilter,
         ImmutableList.<HasAndroidResourceDeps>of(),
-        ImmutableSet.<Path>of(),
+        ImmutableSet.<SourcePath>of(),
         PackageType.DEBUG,
-        /* cpuFilters */ ImmutableSet.<TargetCpuType>of(),
         DEFAULT_JAVAC_OPTIONS,
         /* rDotJavaNeedsDexing */ false,
         /* shouldBuildStringSourceMap */ false,
-        /* shouldWarnIfMissingResources */ false);
+        /* shouldWarnIfMissingResources */ false,
+        /* skipCrunchPngs */ false);
 
     AndroidResource resourceOne = (AndroidResource) ruleResolver.getRule(
         BuildTargetFactory.newInstance("//facebook/base:libraryOne_resources"));
@@ -230,7 +236,7 @@ public class AaptPackageResourcesTest {
         BuildTargetFactory.newInstance("//facebook/base:libraryTwo_resources"));
 
     // Build up the parameters needed to invoke createAllAssetsDirectory().
-    Set<Path> assetsDirectories = ImmutableSet.of(
+    Set<SourcePath> assetsDirectories = ImmutableSet.of(
         resourceOne.getAssets(),
         resourceTwo.getAssets());
     ImmutableList.Builder<Step> commands = ImmutableList.builder();
@@ -260,19 +266,24 @@ public class AaptPackageResourcesTest {
     filesystem.touch(Paths.get("facebook/base/assets2/fonts/something~"));
 
     // Invoke createAllAssetsDirectory(), the method under test.
-    Optional<Path> allAssetsDirectory = aaptPackageResources.createAllAssetsDirectory(
-        assetsDirectories, commands, filesystem);
+    Optional<Path> allAssetsDirectory =
+        aaptPackageResources.createAllAssetsDirectory(
+            ImmutableSet.copyOf(pathResolver.getAllPaths(assetsDirectories)),
+            commands,
+            filesystem);
     EasyMock.verify(resourcesFilter);
 
     // Verify that an assets/ directory will be created and passed to aapt.
     assertTrue(allAssetsDirectory.isPresent());
-    assertEquals(BIN_PATH.resolve("facebook/base/__assets_apk#aapt_package__"),
+    assertEquals(
+        SCRATCH_PATH.resolve("facebook/base/__assets_apk#aapt_package__"),
         allAssetsDirectory.get());
 
     List<? extends Step> observedCommands = commands.build();
     assertEquals(4, observedCommands.size());
     assertEquals(
-        new MakeCleanDirectoryStep(BIN_PATH.resolve("facebook/base/__assets_apk#aapt_package__")),
+        new MakeCleanDirectoryStep(
+            SCRATCH_PATH.resolve("facebook/base/__assets_apk#aapt_package__")),
         observedCommands.get(0));
 
     ImmutableSet<Step> remainingCommands = ImmutableSet.copyOf(observedCommands.subList(1, 4));
@@ -280,16 +291,63 @@ public class AaptPackageResourcesTest {
         ImmutableSet.<Step>of(
             new MkdirAndSymlinkFileStep(
                 Paths.get("facebook/base/assets1/guava-10.0.1-fork.dex.1.jar"),
-                BIN_PATH.resolve(
+                SCRATCH_PATH.resolve(
                     "facebook/base/__assets_apk#aapt_package__/guava-10.0.1-fork.dex.1.jar")),
             new MkdirAndSymlinkFileStep(
                 Paths.get("facebook/base/assets2/fonts/Theinhardt-Medium.otf"),
-                BIN_PATH.resolve(
+                SCRATCH_PATH.resolve(
                     "facebook/base/__assets_apk#aapt_package__/fonts/Theinhardt-Medium.otf")),
             new MkdirAndSymlinkFileStep(
                 Paths.get("facebook/base/assets2/fonts/Theinhardt-Regular.otf"),
-                BIN_PATH.resolve(
+                SCRATCH_PATH.resolve(
                     "facebook/base/__assets_apk#aapt_package__/fonts/Theinhardt-Regular.otf"))),
         remainingCommands);
   }
+
+  @Test
+  public void initializeFromDiskDoesNotAccessOutputFromDeps() throws IOException {
+    BuildRuleResolver ruleResolver = new BuildRuleResolver();
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleResolver);
+
+    FilteredResourcesProvider resourcesProvider =
+        new FilteredResourcesProvider() {
+          @Override
+          public ImmutableList<SourcePath> getResDirectories() {
+            throw new AssertionError("unexpected call to getResDirectories");
+          }
+          @Override
+          public ImmutableSet<SourcePath> getNonEnglishStringFiles() {
+            throw new AssertionError("unexpected call to getNonEnglishStringFiles");
+          }
+        };
+
+    BuildRuleParams params =
+        new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance("//:target"))
+            .build();
+    AaptPackageResources aaptPackageResources =
+        new AaptPackageResources(
+            params,
+            pathResolver,
+            /* manifest */ new TestSourcePath("facebook/base/AndroidManifest.xml"),
+            resourcesProvider,
+            ImmutableList.<HasAndroidResourceDeps>of(),
+            ImmutableSet.<SourcePath>of(),
+            PackageType.DEBUG,
+            DEFAULT_JAVAC_OPTIONS,
+            /* rDotJavaNeedsDexing */ false,
+            /* shouldBuildStringSourceMap */ false,
+            /* shouldWarnIfMissingResources */ false,
+            /* skipCrunchPngs */ false);
+
+    FakeOnDiskBuildInfo onDiskBuildInfo =
+        new FakeOnDiskBuildInfo()
+            .putMetadata(
+                AaptPackageResources.RESOURCE_PACKAGE_HASH_KEY,
+                "0123456789012345678901234567890123456789")
+            .putMetadata(
+                AaptPackageResources.FILTERED_RESOURCE_DIRS_KEY,
+                ImmutableList.<String>of());
+    aaptPackageResources.initializeFromDisk(onDiskBuildInfo);
+  }
+
 }

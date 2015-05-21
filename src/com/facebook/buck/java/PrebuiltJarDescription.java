@@ -19,7 +19,9 @@ package com.facebook.buck.java;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
+import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -28,8 +30,6 @@ import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.FlavorableDescription;
-import com.facebook.buck.rules.ImmutableBuildRuleType;
-import com.facebook.buck.rules.RuleKey.Builder;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -41,10 +41,10 @@ import com.google.common.base.Optional;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
-import java.util.Collections;
 
 public class PrebuiltJarDescription implements Description<PrebuiltJarDescription.Arg>,
     FlavorableDescription<PrebuiltJarDescription.Arg>{
@@ -59,7 +59,7 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
     public Optional<ImmutableSortedSet<BuildTarget>> deps;
   }
 
-  public static final BuildRuleType TYPE = ImmutableBuildRuleType.of("prebuilt_jar");
+  public static final BuildRuleType TYPE = BuildRuleType.of("prebuilt_jar");
 
   @Override
   public BuildRuleType getBuildRuleType() {
@@ -93,7 +93,7 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
       RuleKeyBuilderFactory ruleKeyBuilderFactory,
       TargetGraph targetGraph,
       BuildRuleResolver ruleResolver) {
-    BuildTarget prebuiltJarBuildTarget = buildRule.getBuildTarget();
+    UnflavoredBuildTarget prebuiltJarBuildTarget = buildRule.getBuildTarget().checkUnflavored();
     BuildTarget flavoredBuildTarget = BuildTargets.createFlavoredBuildTarget(
         prebuiltJarBuildTarget, JavaLibrary.GWT_MODULE_FLAVOR);
     BuildRuleParams params = new BuildRuleParams(
@@ -122,19 +122,20 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
     } else {
       inputToCompareToOutput = arg.binaryJar;
     }
-    final ImmutableCollection<Path> inputsToCompareToOutput =
-        resolver.filterInputsToCompareToOutput(Collections.singleton(inputToCompareToOutput));
+    ImmutableCollection<SourcePath> inputsToCompareToOutput =
+        ImmutableSet.of(inputToCompareToOutput);
     final Path pathToExistingJarFile = resolver.getPath(inputToCompareToOutput);
 
-    BuildRule buildRule = new AbstractBuildRule(params, resolver) {
-      @Override
-      protected ImmutableCollection<Path> getInputsToCompareToOutput() {
-        return inputsToCompareToOutput;
-      }
+    class ExistingOuputs extends AbstractBuildRule {
+      @AddToRuleKey
+      private final ImmutableCollection<SourcePath> inputs;
 
-      @Override
-      protected Builder appendDetailsToRuleKey(Builder builder) {
-        return builder;
+      protected ExistingOuputs(
+          BuildRuleParams buildRuleParams,
+          SourcePathResolver resolver,
+          ImmutableCollection<SourcePath> inputs) {
+        super(buildRuleParams, resolver);
+        this.inputs = inputs;
       }
 
       @Override
@@ -150,6 +151,6 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
         return pathToExistingJarFile;
       }
     };
-    return buildRule;
+    return new ExistingOuputs(params, resolver, inputsToCompareToOutput);
   }
 }

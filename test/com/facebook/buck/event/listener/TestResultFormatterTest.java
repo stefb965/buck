@@ -25,6 +25,7 @@ import com.facebook.buck.test.TestResults;
 import com.facebook.buck.test.result.type.ResultType;
 import com.facebook.buck.test.selectors.TestSelectorList;
 import com.facebook.buck.util.Ansi;
+import com.facebook.buck.util.Verbosity;
 import com.google.common.base.Joiner;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
@@ -42,9 +43,7 @@ public class TestResultFormatterTest {
 
   @Before
   public void createFormatter() {
-    formatter = new TestResultFormatter(
-        new Ansi(false),
-        /* isAnAssumptionViolationAnError) */ false);
+    formatter = new TestResultFormatter(new Ansi(false), Verbosity.COMMANDS);
   }
 
   @Before
@@ -161,7 +160,8 @@ public class TestResultFormatterTest {
     TestResults results = new TestResults(
         BuildTargetFactory.newInstance("//foo:bar"),
         ImmutableList.of(summary),
-        /* contacts */ ImmutableSet.<String>of());
+        /* contacts */ ImmutableSet.<String>of(),
+        /* labels */ ImmutableSet.<String>of());
     ImmutableList.Builder<String> builder = ImmutableList.builder();
 
     formatter.runComplete(builder, ImmutableList.of(results));

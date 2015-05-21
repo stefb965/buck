@@ -17,31 +17,24 @@
 package com.facebook.buck.ocaml;
 
 import com.facebook.buck.cxx.CxxPlatform;
-import com.facebook.buck.cxx.ImmutableNativeLinkableInput;
 import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.cxx.NativeLinkableInput;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractBuildRule;
-import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildTargetSourcePath;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.step.Step;
 import com.google.common.base.Functions;
+import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 
 import java.nio.file.Path;
 
-import javax.annotation.Nullable;
-
-class OCamlStaticLibrary extends AbstractBuildRule implements OCamlLibrary {
+class OCamlStaticLibrary extends NoopBuildRule implements OCamlLibrary {
   private final BuildTarget staticLibraryTarget;
   private final ImmutableList<String> linkerFlags;
   private final FluentIterable<Path> srcPaths;
@@ -91,10 +84,17 @@ class OCamlStaticLibrary extends AbstractBuildRule implements OCamlLibrary {
 
     final ImmutableList<String> linkerArgs = linkerArgsBuilder.build();
 
-    return ImmutableNativeLinkableInput.of(
+    return NativeLinkableInput.of(
         ImmutableList.<SourcePath>of(
-            new BuildTargetSourcePath(ocamlLibraryBuild.getBuildTarget())),
+            new BuildTargetSourcePath(
+                ocamlLibraryBuild.getProjectFilesystem(),
+                ocamlLibraryBuild.getBuildTarget())),
         linkerArgs);
+  }
+
+  @Override
+  public Optional<Linker.LinkableDepType> getPreferredLinkage(CxxPlatform cxxPlatform) {
+    return Optional.absent();
   }
 
   @Override
@@ -105,28 +105,6 @@ class OCamlStaticLibrary extends AbstractBuildRule implements OCamlLibrary {
   @Override
   public Iterable<String> getBytecodeIncludeDirs() {
     return ocamlContext.getBytecodeIncludeDirectories();
-  }
-
-  @Override
-  protected ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return ImmutableList.of();
-  }
-
-  @Override
-  protected RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
-    return builder;
-  }
-
-  @Override
-  public ImmutableList<Step> getBuildSteps(
-      BuildContext context, BuildableContext buildableContext) {
-    return ImmutableList.of();
-  }
-
-  @Nullable
-  @Override
-  public Path getPathToOutputFile() {
-    return null;
   }
 
 }

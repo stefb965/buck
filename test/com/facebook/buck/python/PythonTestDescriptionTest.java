@@ -21,8 +21,11 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.cli.FakeBuckConfig;
+import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.DefaultCxxPlatforms;
+import com.facebook.buck.io.MorePathsForTests;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.Flavor;
@@ -34,6 +37,7 @@ import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TestSourcePath;
 import com.facebook.buck.rules.coercer.Either;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -46,8 +50,11 @@ import java.nio.file.Paths;
 public class PythonTestDescriptionTest {
 
   private static final Path PEX_PATH = Paths.get("pex");
+  private static final Path PEX_EXECUTER_PATH = MorePathsForTests.rootRelativePath("/not/python2");
   private static final Optional<Path> TEST_MAIN = Optional.of(Paths.get("main"));
-  private static final CxxPlatform CXX_PLATFORM = DefaultCxxPlatforms.build(new FakeBuckConfig());
+  private static final ProjectFilesystem PROJECT_FILESYSTEM = new FakeProjectFilesystem();
+  private static final CxxPlatform CXX_PLATFORM = DefaultCxxPlatforms.build(
+      new CxxBuckConfig(new FakeBuckConfig()));
   private static final FlavorDomain<CxxPlatform> CXX_PLATFORMS =
       new FlavorDomain<>("platform", ImmutableMap.<Flavor, CxxPlatform>of());
 
@@ -58,9 +65,11 @@ public class PythonTestDescriptionTest {
         new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance("//:bin"))
             .build();
     PythonTestDescription desc = new PythonTestDescription(
+        PROJECT_FILESYSTEM,
         PEX_PATH,
+        PEX_EXECUTER_PATH,
         TEST_MAIN,
-        new PythonEnvironment(Paths.get("fake_python"), ImmutablePythonVersion.of("Python 2.7")),
+        new PythonEnvironment(Paths.get("fake_python"), PythonVersion.of("Python 2.7")),
         CXX_PLATFORM,
         CXX_PLATFORMS);
     PythonTestDescription.Arg arg = desc.createUnpopulatedConstructorArg();
@@ -73,6 +82,7 @@ public class PythonTestDescriptionTest {
     arg.contacts = Optional.absent();
     arg.labels = Optional.absent();
     arg.sourceUnderTest = Optional.absent();
+    arg.zipSafe = Optional.absent();
     PythonTest testRule = desc.createBuildRule(params, resolver, arg);
 
     PythonBinary binRule = (PythonBinary) resolver.getRule(
@@ -82,7 +92,11 @@ public class PythonTestDescriptionTest {
     PythonPackageComponents components = binRule.getComponents();
     assertTrue(components.getModules().containsKey(desc.getTestModulesListName()));
     assertTrue(components.getModules().containsKey(desc.getTestMainName()));
-    assertEquals(binRule.getMain(), desc.getTestMainName());
+    assertEquals(
+        binRule.getMainModule(),
+        PythonUtil.toModuleName(
+            params.getBuildTarget(),
+            desc.getTestMainName().toString()));
   }
 
   @Test
@@ -93,9 +107,11 @@ public class PythonTestDescriptionTest {
     String sourceName = "main.py";
     SourcePath source = new TestSourcePath("foo/" + sourceName);
     PythonTestDescription desc = new PythonTestDescription(
+        PROJECT_FILESYSTEM,
         PEX_PATH,
+        PEX_EXECUTER_PATH,
         TEST_MAIN,
-        new PythonEnvironment(Paths.get("python"), ImmutablePythonVersion.of("2.5")),
+        new PythonEnvironment(Paths.get("python"), PythonVersion.of("2.5")),
         CXX_PLATFORM,
         CXX_PLATFORMS);
     PythonTestDescription.Arg arg = desc.createUnpopulatedConstructorArg();
@@ -107,6 +123,7 @@ public class PythonTestDescriptionTest {
     arg.srcs = Optional.of(
         Either.<ImmutableSortedSet<SourcePath>, ImmutableMap<String, SourcePath>>ofLeft(
             ImmutableSortedSet.of(source)));
+    arg.zipSafe = Optional.absent();
 
     // Run without a base module set and verify it defaults to using the build target
     // base name.

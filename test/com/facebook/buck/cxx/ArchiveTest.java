@@ -24,13 +24,15 @@ import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleParamsFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.FakeRuleKeyBuilderFactory;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
+import com.facebook.buck.rules.RuleKeyPair;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TestSourcePath;
+import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
+import com.google.common.base.Charsets;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -42,7 +44,9 @@ import java.nio.file.Paths;
 
 public class ArchiveTest {
 
-  private static final Tool DEFAULT_ARCHIVER = new SourcePathTool(new TestSourcePath("ar"));
+  private static final Tool DEFAULT_ARCHIVER = new HashedFileTool(Paths.get("ar"));
+  private static final byte[] DEFAULT_EXPECTED_GLOBAL_HEADER =
+      "test_expected_global_header".getBytes(Charsets.US_ASCII);
   private static final Path DEFAULT_OUTPUT = Paths.get("foo/libblah.a");
   private static final ImmutableList<SourcePath> DEFAULT_INPUTS =
       ImmutableList.<SourcePath>of(
@@ -50,13 +54,12 @@ public class ArchiveTest {
           new TestSourcePath("b.o"),
           new TestSourcePath("c.o"));
 
-  private RuleKey.Builder.RuleKeyPair generateRuleKey(
+  private RuleKeyPair generateRuleKey(
       RuleKeyBuilderFactory factory,
       SourcePathResolver resolver,
       AbstractBuildRule rule) {
 
     RuleKey.Builder builder = factory.newInstance(rule, resolver);
-    rule.appendToRuleKey(builder);
     return builder.build();
   }
 
@@ -66,7 +69,7 @@ public class ArchiveTest {
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     BuildRuleParams params = BuildRuleParamsFactory.createTrivialBuildRuleParams(target);
     RuleKeyBuilderFactory ruleKeyBuilderFactory =
-        new FakeRuleKeyBuilderFactory(
+        new DefaultRuleKeyBuilderFactory(
             FakeFileHashCache.createFromStrings(
               ImmutableMap.of(
                   "ar", Strings.repeat("0", 40),
@@ -76,48 +79,52 @@ public class ArchiveTest {
                   "different", Strings.repeat("d", 40))));
 
     // Generate a rule key for the defaults.
-    RuleKey.Builder.RuleKeyPair defaultRuleKey = generateRuleKey(
+    RuleKeyPair defaultRuleKey = generateRuleKey(
         ruleKeyBuilderFactory,
         pathResolver,
         new Archive(
             params,
             pathResolver,
             DEFAULT_ARCHIVER,
+            DEFAULT_EXPECTED_GLOBAL_HEADER,
             DEFAULT_OUTPUT,
             DEFAULT_INPUTS));
 
     // Verify that changing the archiver causes a rulekey change.
-    RuleKey.Builder.RuleKeyPair archiverChange = generateRuleKey(
+    RuleKeyPair archiverChange = generateRuleKey(
         ruleKeyBuilderFactory,
         pathResolver,
         new Archive(
             params,
             pathResolver,
-            new SourcePathTool(new TestSourcePath("different")),
+            new HashedFileTool(Paths.get("different")),
+            DEFAULT_EXPECTED_GLOBAL_HEADER,
             DEFAULT_OUTPUT,
             DEFAULT_INPUTS));
     assertNotEquals(defaultRuleKey, archiverChange);
 
     // Verify that changing the output path causes a rulekey change.
-    RuleKey.Builder.RuleKeyPair outputChange = generateRuleKey(
+    RuleKeyPair outputChange = generateRuleKey(
         ruleKeyBuilderFactory,
         pathResolver,
         new Archive(
             params,
             pathResolver,
             DEFAULT_ARCHIVER,
+            DEFAULT_EXPECTED_GLOBAL_HEADER,
             Paths.get("different"),
             DEFAULT_INPUTS));
     assertNotEquals(defaultRuleKey, outputChange);
 
     // Verify that changing the inputs causes a rulekey change.
-    RuleKey.Builder.RuleKeyPair inputChange = generateRuleKey(
+    RuleKeyPair inputChange = generateRuleKey(
         ruleKeyBuilderFactory,
         pathResolver,
         new Archive(
             params,
             pathResolver,
             DEFAULT_ARCHIVER,
+            DEFAULT_EXPECTED_GLOBAL_HEADER,
             DEFAULT_OUTPUT,
             ImmutableList.<SourcePath>of(new TestSourcePath("different"))));
     assertNotEquals(defaultRuleKey, inputChange);

@@ -18,220 +18,203 @@ package com.facebook.buck.apple;
 
 import static org.junit.Assert.assertEquals;
 
-import com.facebook.buck.apple.graphql.GraphQLDataBuilder;
-import com.facebook.buck.apple.graphql.GraphQLDataDescription;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.apple.xcode.xcodeproj.PBXReference;
+import com.facebook.buck.apple.xcode.xcodeproj.SourceTreePath;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.shell.GenruleBuilder;
-import com.facebook.buck.shell.GenruleDescription;
-import com.facebook.buck.testutil.TargetGraphFactory;
-import com.google.common.base.Optional;
+import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.TestSourcePath;
+import com.facebook.buck.rules.coercer.Either;
+import com.facebook.buck.rules.coercer.FrameworkPath;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.google.common.base.Function;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import org.junit.Test;
 
+import java.nio.file.Path;
 import java.nio.file.Paths;
 
 public class AppleDescriptionsTest {
 
   @Test
-  public void populateModelDependenciesShouldAddEntries() {
-    BuildTarget binaryTarget = BuildTargetFactory.newInstance("//:binary");
-    BuildTarget libraryTarget = BuildTargetFactory.newInstance("//:library");
-    BuildTarget resourceTarget = BuildTargetFactory.newInstance("//:resource");
-    BuildTarget modelTarget = BuildTargetFactory.newInstance("//:model");
-
-    TargetNode<AppleNativeTargetDescriptionArg> binary = AppleBinaryBuilder
-        .createBuilder(binaryTarget)
-        .setDeps(Optional.of(ImmutableSortedSet.of(libraryTarget)))
-        .build();
-    TargetNode<AppleNativeTargetDescriptionArg> library = AppleLibraryBuilder
-        .createBuilder(libraryTarget)
-        .setDeps(Optional.of(ImmutableSortedSet.of(resourceTarget, modelTarget)))
-        .build();
-    TargetNode<AppleResourceDescription.Arg> resource = AppleResourceBuilder
-        .createBuilder(resourceTarget)
-        .build();
-    TargetNode<GraphQLDataDescription.Arg> model = GraphQLDataBuilder
-        .createBuilder(modelTarget)
-        .build();
-
-    TargetGraph graph =
-        TargetGraphFactory.newInstance(ImmutableSet.of(binary, library, resource, model));
-
+  public void parseAppleHeadersForUseFromOtherTargetsFromSet() {
     assertEquals(
-        ImmutableMap.of(
-            binaryTarget, ImmutableSet.of(model),
-            libraryTarget, ImmutableSet.of(model)),
-        AppleDescriptions.getTargetsToTransitiveModelDependencies(graph));
+        ImmutableMap.<String, SourcePath>of(
+            "prefix/some_file.h", new TestSourcePath("path/to/some_file.h"),
+            "prefix/another_file.h", new TestSourcePath("path/to/another_file.h"),
+            "prefix/a_file.h", new TestSourcePath("different/path/to/a_file.h"),
+            "prefix/file.h", new TestSourcePath("file.h")),
+        AppleDescriptions.parseAppleHeadersForUseFromOtherTargets(
+            new SourcePathResolver(new BuildRuleResolver()).getPathFunction(),
+            Paths.get("prefix"),
+            Either.<ImmutableSortedSet<SourcePath>, ImmutableMap<String, SourcePath>>ofLeft(
+                ImmutableSortedSet.<SourcePath>of(
+                    new TestSourcePath("path/to/some_file.h"),
+                    new TestSourcePath("path/to/another_file.h"),
+                    new TestSourcePath("different/path/to/a_file.h"),
+                    new TestSourcePath("file.h")))));
   }
 
   @Test
-  public void populateModelDependenciesShouldListMultipleModels() {
-    BuildTarget binaryTarget = BuildTargetFactory.newInstance("//:binary");
-    BuildTarget libraryTargetA = BuildTargetFactory.newInstance("//:libraryA");
-    BuildTarget modelTargetA = BuildTargetFactory.newInstance("//:modelA");
-    BuildTarget libraryTargetB = BuildTargetFactory.newInstance("//:libraryB");
-    BuildTarget modelTargetB = BuildTargetFactory.newInstance("//:modelB");
-    BuildTarget modelTargetC = BuildTargetFactory.newInstance("//:modelC");
-    BuildTarget modelTargetD = BuildTargetFactory.newInstance("//:modelD");
-
-    TargetNode<AppleNativeTargetDescriptionArg> binary = AppleBinaryBuilder
-        .createBuilder(binaryTarget)
-        .setDeps(Optional.of(ImmutableSortedSet.of(libraryTargetA, libraryTargetB, modelTargetD)))
-        .build();
-    TargetNode<AppleNativeTargetDescriptionArg> libraryA = AppleLibraryBuilder
-        .createBuilder(libraryTargetA)
-        .setDeps(Optional.of(ImmutableSortedSet.of(modelTargetA, modelTargetC)))
-        .build();
-    TargetNode<AppleNativeTargetDescriptionArg> libraryB = AppleLibraryBuilder
-        .createBuilder(libraryTargetB)
-        .setDeps(Optional.of(ImmutableSortedSet.of(modelTargetB, modelTargetC)))
-        .build();
-    TargetNode<GraphQLDataDescription.Arg> modelA = GraphQLDataBuilder
-        .createBuilder(modelTargetA)
-        .build();
-    TargetNode<GraphQLDataDescription.Arg> modelB = GraphQLDataBuilder
-        .createBuilder(modelTargetB)
-        .build();
-    TargetNode<GraphQLDataDescription.Arg> modelC = GraphQLDataBuilder
-        .createBuilder(modelTargetC)
-        .build();
-    TargetNode<GraphQLDataDescription.Arg> modelD = GraphQLDataBuilder
-        .createBuilder(modelTargetD)
-        .build();
-
-    TargetGraph graph = TargetGraphFactory.newInstance(
-        ImmutableSet.<TargetNode<?>>of(binary, libraryA, libraryB, modelA, modelB, modelC, modelD));
-
+  public void parseAppleHeadersForUseFromTheSameFromSet() {
     assertEquals(
-        ImmutableMap.of(
-            binaryTarget, ImmutableSet.of(modelA, modelB, modelC, modelD),
-            libraryTargetA, ImmutableSet.of(modelA, modelC),
-            libraryTargetB, ImmutableSet.of(modelB, modelC)),
-        AppleDescriptions.getTargetsToTransitiveModelDependencies(graph));
+        ImmutableMap.<String, SourcePath>of(
+            "some_file.h", new TestSourcePath("path/to/some_file.h"),
+            "another_file.h", new TestSourcePath("path/to/another_file.h"),
+            "a_file.h", new TestSourcePath("different/path/to/a_file.h"),
+            "file.h", new TestSourcePath("file.h")),
+        AppleDescriptions.parseAppleHeadersForUseFromTheSameTarget(
+            new SourcePathResolver(new BuildRuleResolver()).getPathFunction(),
+            Either.<ImmutableSortedSet<SourcePath>, ImmutableMap<String, SourcePath>>ofLeft(
+                ImmutableSortedSet.<SourcePath>of(
+                    new TestSourcePath("path/to/some_file.h"),
+                    new TestSourcePath("path/to/another_file.h"),
+                    new TestSourcePath("different/path/to/a_file.h"),
+                    new TestSourcePath("file.h")))));
   }
 
   @Test
-  public void testMergedBuildTarget() {
-    BuildTarget modelTargetA = BuildTargetFactory.newInstance("//:modelA.1");
-    BuildTarget modelTargetB = BuildTargetFactory.newInstance("//path/to:model-B");
-    BuildTarget modelTargetC = BuildTargetFactory.newInstance("//:modelC");
-    BuildTarget modelTargetD = BuildTargetFactory.newInstance("//path:modelD");
-
+  public void parseAppleHeadersForUseFromOtherTargetsFromMap() {
+    ImmutableMap<String, SourcePath> headerMap = ImmutableMap.<String, SourcePath>of(
+        "virtual/path.h", new TestSourcePath("path/to/some_file.h"),
+        "another/path.h", new TestSourcePath("path/to/another_file.h"),
+        "another/file.h", new TestSourcePath("different/path/to/a_file.h"),
+        "file.h", new TestSourcePath("file.h"));
     assertEquals(
-        BuildTargetFactory.newInstance(
-            "//buck/synthesized/ios:---modelA-1----modelC---path-to-model-B---path-modelD"),
-        AppleDescriptions.getMergedBuildTarget(
-            ImmutableSet.of(modelTargetA, modelTargetB, modelTargetC, modelTargetD)));
+        headerMap,
+        AppleDescriptions.parseAppleHeadersForUseFromOtherTargets(
+            new SourcePathResolver(new BuildRuleResolver()).getPathFunction(),
+            Paths.get("prefix"),
+            Either.<ImmutableSortedSet<SourcePath>, ImmutableMap<String, SourcePath>>ofRight(
+                headerMap)));
   }
 
   @Test
-  public void testMergedModels() {
-    BuildTarget binaryTarget = BuildTargetFactory.newInstance("//:binary");
-    BuildTarget libraryTargetA = BuildTargetFactory.newInstance("//:libraryA");
-    BuildTarget modelTargetA = BuildTargetFactory.newInstance("//:modelA");
-    BuildTarget libraryTargetB = BuildTargetFactory.newInstance("//:libraryB");
-    BuildTarget modelTargetB = BuildTargetFactory.newInstance("//:modelB");
-    BuildTarget modelTargetC = BuildTargetFactory.newInstance("//:modelC");
-    BuildTarget modelTargetD = BuildTargetFactory.newInstance("//:modelD");
-
-    SourcePath queryA = new PathSourcePath(Paths.get("queryA.graphql"));
-    SourcePath queryB = new PathSourcePath(Paths.get("queryB.graphql"));
-    SourcePath queryC = new PathSourcePath(Paths.get("queryC.graphql"));
-    SourcePath queryD = new PathSourcePath(Paths.get("queryD.graphql"));
-
-    TargetNode<GraphQLDataDescription.Arg> modelA = GraphQLDataBuilder
-        .createBuilder(modelTargetA)
-        .setQueries(ImmutableSortedSet.of(queryA))
-        .build();
-    TargetNode<GraphQLDataDescription.Arg> modelB = GraphQLDataBuilder
-        .createBuilder(modelTargetB)
-        .setQueries(ImmutableSortedSet.of(queryB))
-        .build();
-    TargetNode<GraphQLDataDescription.Arg> modelC = GraphQLDataBuilder
-        .createBuilder(modelTargetC)
-        .setQueries(ImmutableSortedSet.of(queryA, queryB, queryC))
-        .build();
-    TargetNode<GraphQLDataDescription.Arg> modelD = GraphQLDataBuilder
-        .createBuilder(modelTargetD)
-        .setQueries(ImmutableSortedSet.of(queryD))
-        .build();
-
-    ImmutableMap<BuildTarget, TargetNode<GraphQLDataDescription.Arg>> mergedGraphQLModels =
-        AppleDescriptions.mergeGraphQLModels(
-            ImmutableMap.of(
-                binaryTarget, ImmutableSet.of(modelA, modelB, modelC, modelD),
-                libraryTargetA, ImmutableSet.of(modelA, modelC),
-                libraryTargetB, ImmutableSet.of(modelB, modelC)));
-
+  public void parseAppleHeadersForUseFromTheSameTargetFromMap() {
+    ImmutableMap<String, SourcePath> headerMap = ImmutableMap.<String, SourcePath>of(
+        "virtual/path.h", new TestSourcePath("path/to/some_file.h"),
+        "another/path.h", new TestSourcePath("path/to/another_file.h"),
+        "another/file.h", new TestSourcePath("different/path/to/a_file.h"),
+        "file.h", new TestSourcePath("file.h"));
     assertEquals(
-        ImmutableMap.of(
-            binaryTarget,
-            GraphQLDataBuilder
-                .createBuilder(
-                    AppleDescriptions.getMergedBuildTarget(
-                        ImmutableSet.of(modelA, modelB, modelC, modelD)))
-                .setQueries(ImmutableSortedSet.of(queryA, queryB, queryC, queryD))
-                .build(),
-            libraryTargetA,
-            GraphQLDataBuilder
-                .createBuilder(
-                    AppleDescriptions.getMergedBuildTarget(ImmutableSet.of(modelA, modelC)))
-                .setQueries(ImmutableSortedSet.of(queryA, queryC))
-                .build(),
-            libraryTargetB,
-            GraphQLDataBuilder
-                .createBuilder(
-                    AppleDescriptions.getMergedBuildTarget(ImmutableSet.of(modelB, modelC)))
-                .setQueries(ImmutableSortedSet.of(queryB, queryC))
-                .build())
-        ,
-        mergedGraphQLModels);
+        ImmutableMap.of(),
+        AppleDescriptions.parseAppleHeadersForUseFromTheSameTarget(
+            new SourcePathResolver(new BuildRuleResolver()).getPathFunction(),
+            Either.<ImmutableSortedSet<SourcePath>, ImmutableMap<String, SourcePath>>ofRight(
+                headerMap)));
   }
 
   @Test
-  public void getSubgraphWithMergedModelsPicksUpDependencies() {
-    BuildTarget binaryTarget = BuildTargetFactory.newInstance("//:binary");
-    BuildTarget libraryTarget = BuildTargetFactory.newInstance("//:library");
-    BuildTarget modelTarget = BuildTargetFactory.newInstance("//:model");
-    BuildTarget genruleTarget = BuildTargetFactory.newInstance("//:genrule");
+  public void convertToFlatCxxHeadersWithPrefix() {
+    assertEquals(
+        ImmutableMap.<String, SourcePath>of(
+            "prefix/some_file.h", new TestSourcePath("path/to/some_file.h"),
+            "prefix/another_file.h", new TestSourcePath("path/to/another_file.h"),
+            "prefix/a_file.h", new TestSourcePath("different/path/to/a_file.h"),
+            "prefix/file.h", new TestSourcePath("file.h")),
+        AppleDescriptions.convertToFlatCxxHeaders(
+            Paths.get("prefix"),
+            new SourcePathResolver(new BuildRuleResolver()).getPathFunction(),
+            ImmutableSet.<SourcePath>of(
+                new TestSourcePath("path/to/some_file.h"),
+                new TestSourcePath("path/to/another_file.h"),
+                new TestSourcePath("different/path/to/a_file.h"),
+                new TestSourcePath("file.h"))));
+  }
 
-    TargetNode<AppleNativeTargetDescriptionArg> binary = AppleBinaryBuilder
-        .createBuilder(binaryTarget)
-        .setDeps(Optional.of(ImmutableSortedSet.of(libraryTarget)))
-        .build();
-    TargetNode<AppleNativeTargetDescriptionArg> library = AppleLibraryBuilder
-        .createBuilder(libraryTarget)
-        .setDeps(Optional.of(ImmutableSortedSet.of(modelTarget)))
-        .build();
-    TargetNode<GraphQLDataDescription.Arg> model = GraphQLDataBuilder
-        .createBuilder(modelTarget)
-        .setQueries(ImmutableSortedSet.<SourcePath>of(new BuildTargetSourcePath(genruleTarget)))
-        .build();
-    TargetNode<GenruleDescription.Arg> genrule = GenruleBuilder
-        .newGenruleBuilder(genruleTarget)
-        .build();
+  @Test
+  public void convertToFlatCxxHeadersWithoutPrefix() {
+    assertEquals(
+        ImmutableMap.<String, SourcePath>of(
+            "some_file.h", new TestSourcePath("path/to/some_file.h"),
+            "another_file.h", new TestSourcePath("path/to/another_file.h"),
+            "a_file.h", new TestSourcePath("different/path/to/a_file.h"),
+            "file.h", new TestSourcePath("file.h")),
+        AppleDescriptions.convertToFlatCxxHeaders(
+            Paths.get(""),
+            new SourcePathResolver(new BuildRuleResolver()).getPathFunction(),
+            ImmutableSet.<SourcePath>of(
+                new TestSourcePath("path/to/some_file.h"),
+                new TestSourcePath("path/to/another_file.h"),
+                new TestSourcePath("different/path/to/a_file.h"),
+                new TestSourcePath("file.h"))));
+  }
 
-    TargetGraph graph =
-        TargetGraphFactory.newInstance(ImmutableSet.of(binary, library, model, genrule));
+  @Test
+  public void frameworksToLinkerFlagsTransformer() {
+    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
+    SourcePathResolver resolver = new SourcePathResolver(new BuildRuleResolver());
+    Function<
+        ImmutableSortedSet<FrameworkPath>,
+        ImmutableList<String>> frameworksToLinkerFlagsTransformer =
+        AppleDescriptions.frameworksToLinkerFlagsFunction(resolver);
 
-    TargetNode<GraphQLDataDescription.Arg> mergedModel = AppleDescriptions
-        .mergeGraphQLModels(ImmutableSet.of(model));
-
-    TargetGraph subgraph = AppleDescriptions
-        .getSubgraphWithMergedModels(graph, ImmutableSet.of(mergedModel));
+    ImmutableList<String> linkerFlags = frameworksToLinkerFlagsTransformer.apply(
+        ImmutableSortedSet.of(
+            FrameworkPath.ofSourceTreePath(
+                new SourceTreePath(
+                    PBXReference.SourceTree.SDKROOT,
+                    Paths.get("usr/lib/libz.dylib"))),
+            FrameworkPath.ofSourcePath(
+                new PathSourcePath(projectFilesystem, Paths.get("Vendor/Foo/libFoo.a"))),
+            FrameworkPath.ofSourceTreePath(
+                new SourceTreePath(
+                    PBXReference.SourceTree.DEVELOPER_DIR,
+                    Paths.get("Library/Frameworks/XCTest.framework"))),
+            FrameworkPath.ofSourcePath(
+                new PathSourcePath(projectFilesystem, Paths.get("Vendor/Bar/Bar.framework")))));
 
     assertEquals(
-        TargetGraphFactory.newInstance(ImmutableSet.of(mergedModel, genrule)),
-        subgraph);
+        ImmutableList.of("-lz", "-framework", "XCTest", "-framework", "Bar", "-lFoo"),
+        linkerFlags);
+  }
+
+  @Test
+  public void frameworksToSearchPathsTransformer() {
+    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
+    SourcePathResolver resolver = new SourcePathResolver(new BuildRuleResolver());
+    Path appleSdkRoot = Paths.get("Root");
+    AppleSdkPaths appleSdkPaths =
+        AppleSdkPaths.builder()
+            .setDeveloperPath(appleSdkRoot)
+            .addToolchainPaths(appleSdkRoot.resolve("Toolchain"))
+            .setPlatformPath(appleSdkRoot.resolve("Platform"))
+            .setSdkPath(appleSdkRoot.resolve("SDK"))
+            .build();
+
+    Function<
+        ImmutableSortedSet<FrameworkPath>,
+        ImmutableList<Path>> frameworksToSearchPathsTransformer =
+        AppleDescriptions.frameworksToSearchPathsFunction(resolver, appleSdkPaths);
+
+    ImmutableList<Path> searchPaths = frameworksToSearchPathsTransformer.apply(
+        ImmutableSortedSet.of(
+            FrameworkPath.ofSourceTreePath(
+                new SourceTreePath(
+                    PBXReference.SourceTree.SDKROOT,
+                    Paths.get("usr/lib/libz.dylib"))),
+            FrameworkPath.ofSourcePath(
+                new PathSourcePath(projectFilesystem, Paths.get("Vendor/Foo/libFoo.a"))),
+            FrameworkPath.ofSourceTreePath(
+                new SourceTreePath(
+                    PBXReference.SourceTree.DEVELOPER_DIR,
+                    Paths.get("Library/Frameworks/XCTest.framework"))),
+            FrameworkPath.ofSourcePath(
+                new PathSourcePath(projectFilesystem, Paths.get("Vendor/Bar/Bar.framework")))));
+
+    assertEquals(
+        ImmutableList.of(
+            Paths.get("Root/SDK/usr/lib"),
+            Paths.get("Root/Library/Frameworks"),
+            Paths.get("Vendor/Bar"),
+            Paths.get("Vendor/Foo")),
+        searchPaths);
   }
 
 }

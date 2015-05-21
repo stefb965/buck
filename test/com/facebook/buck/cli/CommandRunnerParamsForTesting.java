@@ -20,57 +20,86 @@ import com.facebook.buck.android.AndroidDirectoryResolver;
 import com.facebook.buck.android.FakeAndroidDirectoryResolver;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
+import com.facebook.buck.httpserver.WebServer;
+import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.java.FakeJavaPackageFinder;
 import com.facebook.buck.java.JavaPackageFinder;
+import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
-import com.facebook.buck.rules.FakeRepositoryFactory;
+import com.facebook.buck.python.PythonBuckConfig;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.NoopArtifactCache;
 import com.facebook.buck.rules.Repository;
-import com.facebook.buck.rules.RepositoryFactory;
+import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.rules.RuleKeyBuilderFactory;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TestRepositoryBuilder;
-import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.TestConsole;
+import com.facebook.buck.timing.DefaultClock;
 import com.facebook.buck.util.Console;
-import com.facebook.buck.util.FileHashCache;
+import com.facebook.buck.util.NullFileHashCache;
+import com.facebook.buck.util.ProcessManager;
 import com.facebook.buck.util.environment.Platform;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableMap;
 
 import java.io.IOException;
 
-public class CommandRunnerParamsForTesting extends CommandRunnerParams {
+public class CommandRunnerParamsForTesting {
 
-  private CommandRunnerParamsForTesting(
+  /** Utility class: do not instantiate. */
+  private CommandRunnerParamsForTesting() {}
+
+  public static CommandRunnerParams createCommandRunnerParamsForTesting(
       Console console,
-      RepositoryFactory repositoryFactory,
       Repository repository,
       AndroidDirectoryResolver androidDirectoryResolver,
       ArtifactCacheFactory artifactCacheFactory,
       BuckEventBus eventBus,
-      ParserConfig parserConfig,
+      BuckConfig config,
       Platform platform,
       ImmutableMap<String, String> environment,
       JavaPackageFinder javaPackageFinder,
       ObjectMapper objectMapper,
-      FileHashCache fileHashCache)
-      throws IOException, InterruptedException{
-    super(
+      Optional<WebServer> webServer)
+      throws IOException, InterruptedException {
+    ParserConfig parserConfig = new ParserConfig(config);
+    PythonBuckConfig pythonBuckConfig = new PythonBuckConfig(
+        config,
+        new ExecutableFinder());
+    return new CommandRunnerParams(
         console,
-        repositoryFactory,
         repository,
-        androidDirectoryResolver,
+        Main.createAndroidPlatformTargetSupplier(
+            androidDirectoryResolver,
+            new FakeBuckConfig(),
+            eventBus),
         artifactCacheFactory,
         eventBus,
-        parserConfig,
+        Parser.createParser(
+            repository,
+            pythonBuckConfig.getPythonInterpreter(),
+            parserConfig.getAllowEmptyGlobs(),
+            parserConfig.getEnforceBuckPackageBoundary(),
+            parserConfig.getTempFilePatterns(),
+            parserConfig.getBuildFileName(),
+            parserConfig.getDefaultIncludes(),
+            new RuleKeyBuilderFactory() {
+              @Override
+              public RuleKey.Builder newInstance(BuildRule buildRule, SourcePathResolver resolver) {
+                return RuleKey.builder(buildRule, resolver, new NullFileHashCache());
+              }
+            }),
         platform,
         environment,
         javaPackageFinder,
         objectMapper,
-        fileHashCache);
+        new DefaultClock(),
+        Optional.<ProcessManager>absent(),
+        webServer,
+        config);
   }
-
-  // Admittedly, this class has no additional methods beyond its superclass today, but we will
-  // likely add additional observer methods at some point in the future.
 
   public static Builder builder() {
     return new Builder();
@@ -82,29 +111,28 @@ public class CommandRunnerParamsForTesting extends CommandRunnerParams {
     private ArtifactCacheFactory artifactCacheFactory = new InstanceArtifactCacheFactory(
         new NoopArtifactCache());
     private Console console = new TestConsole();
-    private ParserConfig parserConfig = new ParserConfig(new FakeBuckConfig());
+    private BuckConfig config = new FakeBuckConfig();
     private BuckEventBus eventBus = BuckEventBusFactory.newInstance();
     private Platform platform = Platform.detect();
     private ImmutableMap<String, String> environment = ImmutableMap.copyOf(System.getenv());
     private JavaPackageFinder javaPackageFinder = new FakeJavaPackageFinder();
     private ObjectMapper objectMapper = new ObjectMapper();
-    private FileHashCache fileHashCache = FakeFileHashCache.EMPTY_CACHE;
+    private Optional<WebServer> webServer = Optional.absent();
 
-    public CommandRunnerParamsForTesting build()
+    public CommandRunnerParams build()
         throws IOException, InterruptedException{
-      return new CommandRunnerParamsForTesting(
+      return createCommandRunnerParamsForTesting(
           console,
-          new FakeRepositoryFactory(),
           new TestRepositoryBuilder().build(),
           androidDirectoryResolver,
           artifactCacheFactory,
           eventBus,
-          parserConfig,
+          config,
           platform,
           environment,
           javaPackageFinder,
           objectMapper,
-          fileHashCache);
+          webServer);
     }
 
     public Builder setConsole(Console console) {
@@ -112,8 +140,18 @@ public class CommandRunnerParamsForTesting extends CommandRunnerParams {
       return this;
     }
 
+    public Builder setWebserver(Optional<WebServer> webServer) {
+      this.webServer = webServer;
+      return this;
+    }
+
     public Builder setArtifactCacheFactory(ArtifactCacheFactory factory) {
       this.artifactCacheFactory = factory;
+      return this;
+    }
+
+    public Builder setBuckConfig(BuckConfig buckConfig) {
+      this.config = buckConfig;
       return this;
     }
 

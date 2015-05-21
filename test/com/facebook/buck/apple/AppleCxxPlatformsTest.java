@@ -18,18 +18,21 @@ package com.facebook.buck.apple;
 
 import static com.facebook.buck.testutil.HasConsecutiveItemsMatcher.hasConsecutiveItems;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.hasItems;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.cxx.CxxPlatform;
+import com.facebook.buck.io.FakeExecutableFinder;
 import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.util.HumanReadableException;
-
-import com.google.common.base.Functions;
-import com.google.common.base.Predicates;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 
 import org.junit.Rule;
 import org.junit.Test;
@@ -49,57 +52,186 @@ public class AppleCxxPlatformsTest {
   @Test
   public void appleSdkPathsBuiltFromDirectory() throws Exception {
     AppleSdkPaths appleSdkPaths =
-        ImmutableAppleSdkPaths.builder()
+        AppleSdkPaths.builder()
             .setDeveloperPath(Paths.get("."))
             .addToolchainPaths(Paths.get("Toolchains/XcodeDefault.xctoolchain"))
-            .setPlatformDeveloperPath(Paths.get("Platforms/iPhoneOS.platform/Developer"))
+            .setPlatformPath(Paths.get("Platforms/iPhoneOS.platform"))
             .setSdkPath(Paths.get("Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS8.0.sdk"))
             .build();
 
-    ImmutableMap<Path, Boolean> paths = ImmutableMap.<Path, Boolean>builder()
-        .put(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/clang"), true)
-        .put(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++"), true)
-        .put(Paths.get("Platforms/iPhoneOS.platform/Developer/usr/bin/libtool"), true)
-        .put(Paths.get("Platforms/iPhoneOS.platform/Developer/usr/bin/ar"), true)
+    AppleToolchain toolchain = AppleToolchain.builder()
+        .setIdentifier("com.apple.dt.XcodeDefault")
+        .setPath(Paths.get("Toolchains/XcodeDefault.xctoolchain"))
+        .setVersion("1")
         .build();
 
-    CxxPlatform appleCxxPlatform =
+    AppleSdk targetSdk = AppleSdk.builder()
+        .setApplePlatform(
+            ApplePlatform.builder().setName(ApplePlatform.Name.IPHONEOS).build())
+        .setName("iphoneos8.0")
+        .setVersion("8.0")
+        .setToolchains(ImmutableList.of(toolchain))
+        .build();
+
+    ImmutableSet<Path> paths = ImmutableSet.<Path>builder()
+        .add(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/clang"))
+        .add(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++"))
+        .add(Paths.get("Platforms/iPhoneOS.platform/Developer/usr/bin/libtool"))
+        .add(Paths.get("Platforms/iPhoneOS.platform/Developer/usr/bin/ar"))
+        .add(Paths.get("usr/bin/actool"))
+        .build();
+
+    AppleCxxPlatform appleCxxPlatform =
         AppleCxxPlatforms.buildWithExecutableChecker(
-            ApplePlatform.IPHONEOS,
-            "iphoneos8.0",
+            targetSdk,
             "7.0",
             "armv7",
             appleSdkPaths,
-            Functions.forMap(paths, false)
-        );
+            new FakeBuckConfig(),
+            new FakeExecutableFinder(paths));
+
+    CxxPlatform cxxPlatform = appleCxxPlatform.getCxxPlatform();
 
     SourcePathResolver resolver = new SourcePathResolver(new BuildRuleResolver());
 
     assertEquals(
+        ImmutableList.of("usr/bin/actool"),
+        appleCxxPlatform.getActool().getCommandPrefix(resolver));
+
+    assertEquals(
         ImmutableFlavor.of("iphoneos8.0-armv7"),
-        appleCxxPlatform.getFlavor());
+        cxxPlatform.getFlavor());
     assertEquals(
         Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/clang").toString(),
-        appleCxxPlatform.getCc().getCommandPrefix(resolver).get(0));
+        cxxPlatform.getCc().getCommandPrefix(resolver).get(0));
     assertThat(
-        appleCxxPlatform.getCflags(),
+        cxxPlatform.getCc().getCommandPrefix(resolver),
         hasConsecutiveItems(
             "-isysroot",
             Paths.get("Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS8.0.sdk").toString()));
     assertThat(
-        appleCxxPlatform.getCflags(),
+        cxxPlatform.getCc().getCommandPrefix(resolver),
         hasConsecutiveItems("-arch", "armv7"));
     assertThat(
-        appleCxxPlatform.getCflags(),
+        cxxPlatform.getCc().getCommandPrefix(resolver),
         hasConsecutiveItems("-mios-version-min=7.0"));
 
     assertEquals(
         Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++").toString(),
-        appleCxxPlatform.getCxx().getCommandPrefix(resolver).get(0));
+        cxxPlatform.getCxx().getCommandPrefix(resolver).get(0));
     assertEquals(
         Paths.get("Platforms/iPhoneOS.platform/Developer/usr/bin/ar")
             .toString(),
-        appleCxxPlatform.getAr().getCommandPrefix(resolver).get(0));
+        cxxPlatform.getAr().getCommandPrefix(resolver).get(0));
+  }
+
+  @Test
+  public void invalidFlavorCharactersInSdkAreEscaped() throws Exception {
+    AppleSdkPaths appleSdkPaths =
+        AppleSdkPaths.builder()
+            .setDeveloperPath(Paths.get("."))
+            .addToolchainPaths(Paths.get("Toolchains/XcodeDefault.xctoolchain"))
+            .setPlatformPath(Paths.get("Platforms/iPhoneOS.platform"))
+            .setSdkPath(Paths.get("Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS8.0.sdk"))
+            .build();
+
+    ImmutableSet<Path> paths = ImmutableSet.<Path>builder()
+        .add(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/clang"))
+        .add(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++"))
+        .add(Paths.get("Platforms/iPhoneOS.platform/Developer/usr/bin/libtool"))
+        .add(Paths.get("Platforms/iPhoneOS.platform/Developer/usr/bin/ar"))
+        .add(Paths.get("usr/bin/actool"))
+        .build();
+
+    AppleToolchain toolchain = AppleToolchain.builder()
+        .setIdentifier("com.apple.dt.XcodeDefault")
+        .setPath(Paths.get("Toolchains/XcodeDefault.xctoolchain"))
+        .setVersion("1")
+        .build();
+
+    AppleSdk targetSdk = AppleSdk.builder()
+        .setApplePlatform(
+            ApplePlatform.builder().setName(ApplePlatform.Name.IPHONEOS).build())
+        .setName("_(in)+va|id_")
+        .setVersion("8.0")
+        .setToolchains(ImmutableList.of(toolchain))
+        .build();
+
+    AppleCxxPlatform appleCxxPlatform =
+        AppleCxxPlatforms.buildWithExecutableChecker(
+            targetSdk,
+            "7.0",
+            "cha+rs",
+            appleSdkPaths,
+            new FakeBuckConfig(),
+            new FakeExecutableFinder(paths));
+
+    assertEquals(
+        ImmutableFlavor.of("__in__va_id_-cha_rs"),
+        appleCxxPlatform.getCxxPlatform().getFlavor());
+  }
+
+  @Test
+  public void cxxToolParamsReadFromBuckConfig() throws Exception {
+    AppleSdkPaths appleSdkPaths =
+        AppleSdkPaths.builder()
+            .setDeveloperPath(Paths.get("."))
+            .addToolchainPaths(Paths.get("Toolchains/XcodeDefault.xctoolchain"))
+            .setPlatformPath(Paths.get("Platforms/iPhoneOS.platform"))
+            .setSdkPath(Paths.get("Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS8.0.sdk"))
+            .build();
+
+    ImmutableSet<Path> paths = ImmutableSet.<Path>builder()
+        .add(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/clang"))
+        .add(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++"))
+        .add(Paths.get("Platforms/iPhoneOS.platform/Developer/usr/bin/libtool"))
+        .add(Paths.get("Platforms/iPhoneOS.platform/Developer/usr/bin/ar"))
+        .add(Paths.get("usr/bin/actool"))
+        .build();
+
+    AppleToolchain toolchain = AppleToolchain.builder()
+        .setIdentifier("com.apple.dt.XcodeDefault")
+        .setPath(Paths.get("Toolchains/XcodeDefault.xctoolchain"))
+        .setVersion("1")
+        .build();
+
+    AppleSdk targetSdk = AppleSdk.builder()
+        .setApplePlatform(
+            ApplePlatform.builder().setName(ApplePlatform.Name.IPHONEOS).build())
+        .setName("iphoneos8.0")
+        .setVersion("8.0")
+        .setToolchains(ImmutableList.of(toolchain))
+        .build();
+
+    AppleCxxPlatform appleCxxPlatform =
+        AppleCxxPlatforms.buildWithExecutableChecker(
+            targetSdk,
+            "7.0",
+            "armv7",
+            appleSdkPaths,
+            new FakeBuckConfig(
+                ImmutableMap.of(
+                    "cxx", ImmutableMap.of(
+                        "cflags", "-std=gnu11",
+                        "cppflags", "-DCTHING",
+                        "cxxflags", "-std=c++11",
+                        "cxxppflags", "-DCXXTHING"))),
+            new FakeExecutableFinder(paths));
+
+    CxxPlatform cxxPlatform = appleCxxPlatform.getCxxPlatform();
+
+    assertThat(
+        cxxPlatform.getCflags(),
+        hasItem("-std=gnu11"));
+    assertThat(
+        cxxPlatform.getCppflags(),
+        hasItems("-std=gnu11", "-DCTHING"));
+    assertThat(
+        cxxPlatform.getCxxflags(),
+        hasItem("-std=c++11"));
+    assertThat(
+        cxxPlatform.getCxxppflags(),
+        hasItems("-std=c++11", "-DCXXTHING"));
   }
 
   @Test
@@ -107,19 +239,84 @@ public class AppleCxxPlatformsTest {
     thrown.expect(HumanReadableException.class);
     thrown.expectMessage(containsString("Cannot find tool"));
     AppleSdkPaths appleSdkPaths =
-        ImmutableAppleSdkPaths.builder()
+        AppleSdkPaths.builder()
             .setDeveloperPath(Paths.get("."))
             .addToolchainPaths(Paths.get("Toolchains/XcodeDefault.xctoolchain"))
-            .setPlatformDeveloperPath(Paths.get("Platforms/iPhoneOS.platform/Developer"))
+            .setPlatformPath(Paths.get("Platforms/iPhoneOS.platform"))
             .setSdkPath(Paths.get("Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS8.0.sdk"))
             .build();
 
+    AppleToolchain toolchain = AppleToolchain.builder()
+        .setIdentifier("com.apple.dt.XcodeDefault")
+        .setPath(Paths.get("Toolchains/XcodeDefault.xctoolchain"))
+        .setVersion("1")
+        .build();
+
+    AppleSdk targetSdk = AppleSdk.builder()
+        .setApplePlatform(
+            ApplePlatform.builder().setName(ApplePlatform.Name.IPHONEOS).build())
+        .setName("iphoneos8.0")
+        .setVersion("8.0")
+        .setToolchains(ImmutableList.of(toolchain))
+        .build();
+
     AppleCxxPlatforms.buildWithExecutableChecker(
-        ApplePlatform.IPHONEOS,
-        "iphoneos8.0",
+        targetSdk,
         "7.0",
         "armv7",
         appleSdkPaths,
-        Functions.<Path>forPredicate(Predicates.<Path>alwaysFalse()));
+        new FakeBuckConfig(),
+        new FakeExecutableFinder(ImmutableSet.<Path>of()));
+  }
+
+  @Test
+  public void simulatorPlatformSetsLinkerFlags() throws Exception {
+    AppleSdkPaths appleSdkPaths = AppleSdkPaths.builder()
+        .setDeveloperPath(Paths.get("."))
+        .addToolchainPaths(Paths.get("Toolchains/XcodeDefault.xctoolchain"))
+        .setPlatformPath(Paths.get("Platforms/iPhoneOS.platform"))
+        .setSdkPath(Paths.get("Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneSimulator8.0.sdk"))
+        .build();
+
+    ImmutableSet<Path> paths = ImmutableSet.<Path>builder()
+        .add(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/clang"))
+        .add(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++"))
+        .add(Paths.get("Platforms/iPhoneSimulator.platform/Developer/usr/bin/libtool"))
+        .add(Paths.get("Platforms/iPhoneSimulator.platform/Developer/usr/bin/ar"))
+        .add(Paths.get("usr/bin/actool"))
+        .build();
+
+    AppleToolchain toolchain = AppleToolchain.builder()
+        .setIdentifier("com.apple.dt.XcodeDefault")
+        .setPath(Paths.get("Toolchains/XcodeDefault.xctoolchain"))
+        .setVersion("1")
+        .build();
+
+    AppleSdk targetSdk = AppleSdk.builder()
+        .setApplePlatform(
+            ApplePlatform.builder().setName(ApplePlatform.Name.IPHONESIMULATOR).build())
+        .setName("iphonesimulator8.0")
+        .setVersion("8.0")
+        .setToolchains(ImmutableList.of(toolchain))
+        .build();
+
+    AppleCxxPlatform appleCxxPlatform =
+        AppleCxxPlatforms.buildWithExecutableChecker(
+            targetSdk,
+            "7.0",
+            "armv7",
+            appleSdkPaths,
+            new FakeBuckConfig(),
+            new FakeExecutableFinder(paths));
+
+    CxxPlatform cxxPlatform = appleCxxPlatform.getCxxPlatform();
+
+    SourcePathResolver resolver = new SourcePathResolver(new BuildRuleResolver());
+    assertThat(
+        cxxPlatform.getCc().getCommandPrefix(resolver),
+        hasItem("-mios-simulator-version-min=7.0"));
+    assertThat(
+        cxxPlatform.getCxxld().getCommandPrefix(resolver),
+        hasItem("-mios-simulator-version-min=7.0"));
   }
 }

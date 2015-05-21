@@ -51,9 +51,10 @@ public class MultiArtifactCache implements ArtifactCache {
   @Override
   public CacheResult fetch(RuleKey ruleKey, File output)
       throws InterruptedException {
+    CacheResult cacheResult = CacheResult.miss();
     for (ArtifactCache artifactCache : artifactCaches) {
-      CacheResult cacheResult = artifactCache.fetch(ruleKey, output);
-      if (cacheResult.isSuccess()) {
+      cacheResult = artifactCache.fetch(ruleKey, output);
+      if (cacheResult.getType().isSuccess()) {
         // Success; terminate search for a cached artifact, and propagate artifact to caches
         // earlier in the search order so that subsequent searches terminate earlier.
         for (ArtifactCache priorArtifactCache : artifactCaches) {
@@ -65,7 +66,7 @@ public class MultiArtifactCache implements ArtifactCache {
         return cacheResult;
       }
     }
-    return CacheResult.MISS;
+    return cacheResult;
   }
 
   /**

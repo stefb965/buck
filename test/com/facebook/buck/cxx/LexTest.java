@@ -24,12 +24,13 @@ import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleParamsFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.FakeRuleKeyBuilderFactory;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
+import com.facebook.buck.rules.RuleKeyPair;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TestSourcePath;
+import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -42,19 +43,18 @@ import java.nio.file.Paths;
 
 public class LexTest {
 
-  private static final SourcePath DEFAULT_LEX = new TestSourcePath("lex");
+  private static final Tool DEFAULT_LEX = new HashedFileTool(Paths.get("lex"));
   private static final ImmutableList<String> DEFAULT_FLAGS = ImmutableList.of("-flag");
   private static final Path DEFAULT_OUTPUT_SOURCE = Paths.get("output.source");
   private static final Path DEFAULT_OUTPUT_HEADER = Paths.get("output.header");
   private static final SourcePath DEFAULT_INPUT = new TestSourcePath("input");
 
-  private RuleKey.Builder.RuleKeyPair generateRuleKey(
+  private RuleKeyPair generateRuleKey(
       RuleKeyBuilderFactory factory,
       SourcePathResolver resolver,
       AbstractBuildRule rule) {
 
     RuleKey.Builder builder = factory.newInstance(rule, resolver);
-    rule.appendToRuleKey(builder);
     return builder.build();
   }
 
@@ -64,7 +64,7 @@ public class LexTest {
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     BuildRuleParams params = BuildRuleParamsFactory.createTrivialBuildRuleParams(target);
     RuleKeyBuilderFactory ruleKeyBuilderFactory =
-        new FakeRuleKeyBuilderFactory(
+        new DefaultRuleKeyBuilderFactory(
             FakeFileHashCache.createFromStrings(
                 ImmutableMap.of(
                     "lex", Strings.repeat("a", 40),
@@ -72,7 +72,7 @@ public class LexTest {
                     "different", Strings.repeat("c", 40))));
 
     // Generate a rule key for the defaults.
-    RuleKey.Builder.RuleKeyPair defaultRuleKey = generateRuleKey(
+    RuleKeyPair defaultRuleKey = generateRuleKey(
         ruleKeyBuilderFactory,
         pathResolver,
         new Lex(
@@ -85,13 +85,13 @@ public class LexTest {
             DEFAULT_INPUT));
 
     // Verify that changing the archiver causes a rulekey change.
-    RuleKey.Builder.RuleKeyPair lexChange = generateRuleKey(
+    RuleKeyPair lexChange = generateRuleKey(
         ruleKeyBuilderFactory,
         pathResolver,
         new Lex(
             params,
             pathResolver,
-            new TestSourcePath("different"),
+            new HashedFileTool(Paths.get("different")),
             DEFAULT_FLAGS,
             DEFAULT_OUTPUT_SOURCE,
             DEFAULT_OUTPUT_HEADER,
@@ -99,7 +99,7 @@ public class LexTest {
     assertNotEquals(defaultRuleKey.getTotalRuleKey(), lexChange.getTotalRuleKey());
 
     // Verify that changing the flags causes a rulekey change.
-    RuleKey.Builder.RuleKeyPair flagsChange = generateRuleKey(
+    RuleKeyPair flagsChange = generateRuleKey(
         ruleKeyBuilderFactory,
         pathResolver,
         new Lex(
@@ -113,7 +113,7 @@ public class LexTest {
     assertNotEquals(defaultRuleKey.getTotalRuleKey(), flagsChange.getTotalRuleKey());
 
     // Verify that changing the output source causes a rulekey change.
-    RuleKey.Builder.RuleKeyPair outputSourceChange = generateRuleKey(
+    RuleKeyPair outputSourceChange = generateRuleKey(
         ruleKeyBuilderFactory,
         pathResolver,
         new Lex(
@@ -127,7 +127,7 @@ public class LexTest {
     assertNotEquals(defaultRuleKey.getTotalRuleKey(), outputSourceChange.getTotalRuleKey());
 
     // Verify that changing the output header causes a rulekey change.
-    RuleKey.Builder.RuleKeyPair outputHeaderChange = generateRuleKey(
+    RuleKeyPair outputHeaderChange = generateRuleKey(
         ruleKeyBuilderFactory,
         pathResolver,
         new Lex(
@@ -141,7 +141,7 @@ public class LexTest {
     assertNotEquals(defaultRuleKey.getTotalRuleKey(), outputHeaderChange.getTotalRuleKey());
 
     // Verify that changing the inputs causes a rulekey change.
-    RuleKey.Builder.RuleKeyPair inputChange = generateRuleKey(
+    RuleKeyPair inputChange = generateRuleKey(
         ruleKeyBuilderFactory,
         pathResolver,
         new Lex(

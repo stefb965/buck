@@ -17,28 +17,40 @@
 package com.facebook.buck.ocaml;
 
 import com.facebook.buck.cli.BuckConfig;
+import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.DefaultCxxPlatforms;
 import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.cxx.Tool;
+import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Optional;
 
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 
 public class OCamlBuckConfig {
 
+  private static final Path DEFAULT_OCAML_COMPILER = Paths.get("ocamlopt.opt");
+  private static final Path DEFAULT_OCAML_BYTECODE_COMPILER = Paths.get("ocamlc.opt");
+  private static final Path DEFAULT_OCAML_DEP_TOOL = Paths.get("ocamldep.opt");
+  private static final Path DEFAULT_OCAML_YACC_COMPILER = Paths.get("ocamlyacc");
+  private static final Path DEFAULT_OCAML_DEBUG = Paths.get("ocamldebug");
+  private static final Path DEFAULT_OCAML_LEX_COMPILER = Paths.get("ocamllex.opt");
+
   private final BuckConfig delegate;
   private final CxxPlatform cxxPlatform;
 
-  public OCamlBuckConfig(Platform platform, BuckConfig delegate) {
+  public OCamlBuckConfig(
+      Platform platform,
+      BuckConfig delegate) {
     this.delegate = delegate;
-    cxxPlatform = DefaultCxxPlatforms.build(platform, delegate);
+    cxxPlatform = DefaultCxxPlatforms.build(platform, new CxxBuckConfig(delegate));
   }
 
   public Optional<Path> getOCamlCompiler() {
-    return delegate.getPath("ocaml", "ocaml.compiler");
+    return getExecutable("ocaml", "ocaml.compiler", DEFAULT_OCAML_COMPILER);
   }
 
   public Tool getCCompiler() {
@@ -46,15 +58,15 @@ public class OCamlBuckConfig {
   }
 
   public Optional<Path> getOCamlDepTool() {
-    return delegate.getPath("ocaml", "dep.tool");
+    return getExecutable("ocaml", "dep.tool", DEFAULT_OCAML_DEP_TOOL);
   }
 
   public Optional<Path> getYaccCompiler() {
-    return delegate.getPath("ocaml", "yacc.compiler");
+    return getExecutable("ocaml", "yacc.compiler", DEFAULT_OCAML_YACC_COMPILER);
   }
 
   public Optional<Path> getLexCompiler() {
-    return delegate.getPath("ocaml", "lex.compiler");
+    return getExecutable("ocaml", "lex.compiler", DEFAULT_OCAML_LEX_COMPILER);
   }
 
   public Optional<String> getOCamlInteropIncludesDir() {
@@ -62,7 +74,7 @@ public class OCamlBuckConfig {
   }
 
   public Optional<Path> getOCamlBytecodeCompiler() {
-    return delegate.getPath("ocaml", "ocaml.bytecode.compiler");
+    return getExecutable("ocaml", "ocaml.bytecode.compiler", DEFAULT_OCAML_BYTECODE_COMPILER);
   }
 
   public Tool getCxxCompiler() {
@@ -86,11 +98,16 @@ public class OCamlBuckConfig {
   }
 
   public Optional<Path> getOCamlDebug() {
-    return delegate.getPath("ocaml", "debug");
+    return getExecutable("ocaml", "debug", DEFAULT_OCAML_DEBUG);
   }
 
   public CxxPlatform getCxxPlatform() {
     return cxxPlatform;
   }
 
+  private Optional<Path> getExecutable(String section, String label, Path defaultValue) {
+    return new ExecutableFinder().getOptionalExecutable(
+        delegate.getPath(section, label).or(defaultValue),
+        delegate.getEnvironment());
+  }
 }

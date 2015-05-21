@@ -20,6 +20,8 @@ import com.facebook.buck.event.MissingSymbolEvent;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.ClassLoaderCache;
 import com.facebook.buck.util.HumanReadableException;
@@ -78,31 +80,26 @@ import javax.tools.ToolProvider;
 public class Jsr199Javac implements Javac {
 
   private static final Logger LOG = Logger.get(Jsr199Javac.class);
-  private static final JavacVersion VERSION = new JavacVersion() {
-    @Override
-    public String getVersionString() {
-      return "in memory";
-    }
-  };
+  private static final JavacVersion VERSION = JavacVersion.of("in memory");
 
   @Override
   public JavacVersion getVersion() {
     return VERSION;
   }
 
-  private Optional<Path> javacJar;
+  private final Optional<SourcePath> javacJar;
 
   /**
    * @param javacJar If absent, use the system compiler.  Otherwise, load the compiler from this
    *                 path.
    */
-  Jsr199Javac(Optional<Path> javacJar) {
+  Jsr199Javac(Optional<SourcePath> javacJar) {
     // XXX: maybe we can accept a Provider<JavaCompiler> or just a JavaCompiler instance.
     this.javacJar = javacJar;
   }
 
   @VisibleForTesting
-  public Optional<Path> getJavacJar() {
+  public Optional<SourcePath> getJavacJar() {
     return javacJar;
   }
 
@@ -145,6 +142,7 @@ public class Jsr199Javac implements Javac {
   @Override
   public int buildWithClasspath(
       ExecutionContext context,
+      SourcePathResolver resolver,
       BuildTarget invokingRule,
       ImmutableList<String> options,
       ImmutableSet<Path> javaSourceFilePaths,
@@ -156,7 +154,7 @@ public class Jsr199Javac implements Javac {
       ClassLoaderCache classLoaderCache = context.getClassLoaderCache();
       ClassLoader compilerClassLoader = classLoaderCache.getClassLoaderForClassPath(
           ClassLoader.getSystemClassLoader(),
-          ImmutableList.of(javacJar.get()));
+          ImmutableList.of(resolver.getPath(javacJar.get())));
       try {
         compiler = (JavaCompiler)
             compilerClassLoader.loadClass("com.sun.tools.javac.api.JavacTool")

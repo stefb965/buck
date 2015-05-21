@@ -22,7 +22,6 @@ import com.facebook.buck.util.Escaper;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 
 /**
  * Command that runs equivalent command of {@code mkdir -p} on the specified directory.
@@ -30,10 +29,6 @@ import java.nio.file.Paths;
 public class MkdirStep implements Step {
 
   private final Path pathRelativeToProjectRoot;
-
-  public MkdirStep(String pathRelativeToProjectRoot) {
-    this(Paths.get(pathRelativeToProjectRoot));
-  }
 
   public MkdirStep(Path pathRelativeToProjectRoot) {
     this.pathRelativeToProjectRoot = pathRelativeToProjectRoot;
@@ -58,7 +53,7 @@ public class MkdirStep implements Step {
   @Override
   public String getDescription(ExecutionContext context) {
     return String.format("mkdir -p %s",
-        Escaper.escapeAsBashString(getPath(context)));
+        Escaper.escapeAsShellString(getPath(context).toString()));
   }
 
   /**

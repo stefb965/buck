@@ -17,6 +17,7 @@
 package com.facebook.buck.gwt;
 
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
+import com.facebook.buck.gwt.GwtBinary.Style;
 import com.facebook.buck.java.JavaLibrary;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
@@ -25,7 +26,6 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.ImmutableBuildRuleType;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Optional;
@@ -39,10 +39,10 @@ import java.nio.file.Path;
 
 public class GwtBinaryDescription implements Description<GwtBinaryDescription.Arg> {
 
-  public static final BuildRuleType TYPE = ImmutableBuildRuleType.of("gwt_binary");
+  public static final BuildRuleType TYPE = BuildRuleType.of("gwt_binary");
 
   /** Default value for {@link Arg#style}. */
-  private static final String DEFAULT_STYLE = GwtBinary.Style.OBF.name();
+  private static final Style DEFAULT_STYLE = Style.OBF;
 
   /** Default value for {@link Arg#localWorkers}. */
   private static final Integer DEFAULT_NUM_LOCAL_WORKERS = Integer.valueOf(2);
@@ -57,40 +57,6 @@ public class GwtBinaryDescription implements Description<GwtBinaryDescription.Ar
    * This value is taken from GWT's source code: http://bit.ly/1nZtmMv
    */
   private static final Integer DEFAULT_OPTIMIZE = Integer.valueOf(9);
-
-  @SuppressFieldNotInitialized
-  public static class Arg {
-    public Optional<ImmutableSortedSet<String>> modules;
-    public Optional<ImmutableSortedSet<BuildTarget>> moduleDeps;
-    public Optional<ImmutableSortedSet<BuildTarget>> deps;
-
-    /**
-     * In practice, these may be values such as {@code -Xmx512m}.
-     */
-    public Optional<ImmutableList<String>> vmArgs;
-
-    /** This will be passed to the GWT Compiler's {@code -style} flag. */
-    // TODO(simons): t4058780 Introduce an EnumTypeCoercer so we can make this Optional<Style>.
-    public Optional<String> style;
-
-    /** If {@code true}, the GWT Compiler's {@code -draftCompile} flag will be set. */
-    public Optional<Boolean> draftCompile;
-
-    /** This will be passed to the GWT Compiler's {@code -optimize} flag. */
-    public Optional<Integer> optimize;
-
-    /** This will be passed to the GWT Compiler's {@code -localWorkers} flag. */
-    public Optional<Integer> localWorkers;
-
-    /** If {@code true}, the GWT Compiler's {@code -strict} flag will be set. */
-    public Optional<Boolean> strict;
-
-    /**
-     * In practice, these may be values such as {@code -XenableClosureCompiler},
-     * {@code -XdisableClassMetadata}, {@code -XdisableCastChecking}, or {@code -XfragmentMerge}.
-     */
-    public Optional<ImmutableList<String>> experimentalArgs;
-  }
 
   @Override
   public BuildRuleType getBuildRuleType() {
@@ -123,7 +89,8 @@ public class GwtBinaryDescription implements Description<GwtBinaryDescription.Ar
 
         JavaLibrary javaLibrary = (JavaLibrary) rule;
         BuildTarget gwtModuleTarget = BuildTargets.createFlavoredBuildTarget(
-            javaLibrary, JavaLibrary.GWT_MODULE_FLAVOR);
+            javaLibrary.getBuildTarget().checkUnflavored(),
+            JavaLibrary.GWT_MODULE_FLAVOR);
         Optional<BuildRule> gwtModule = resolver.getRuleOptional(gwtModuleTarget);
 
         // Note that gwtModule could be absent if javaLibrary is a rule with no srcs of its own,
@@ -144,13 +111,45 @@ public class GwtBinaryDescription implements Description<GwtBinaryDescription.Ar
         new SourcePathResolver(resolver),
         args.modules.get(),
         args.vmArgs.get(),
-        GwtBinary.Style.valueOf(args.style.or(DEFAULT_STYLE)),
+        args.style.or(DEFAULT_STYLE),
         args.draftCompile.or(DEFAULT_DRAFT_COMPILE),
         args.optimize.or(DEFAULT_OPTIMIZE),
         args.localWorkers.or(DEFAULT_NUM_LOCAL_WORKERS),
         args.strict.or(DEFAULT_STRICT),
         args.experimentalArgs.get(),
-        moduleDependencies,
         gwtModuleJarsBuilder.build());
+  }
+
+  @SuppressFieldNotInitialized
+  public static class Arg {
+    public Optional<ImmutableSortedSet<String>> modules;
+    public Optional<ImmutableSortedSet<BuildTarget>> moduleDeps;
+    public Optional<ImmutableSortedSet<BuildTarget>> deps;
+
+    /**
+     * In practice, these may be values such as {@code -Xmx512m}.
+     */
+    public Optional<ImmutableList<String>> vmArgs;
+
+    /** This will be passed to the GWT Compiler's {@code -style} flag. */
+    public Optional<Style> style;
+
+    /** If {@code true}, the GWT Compiler's {@code -draftCompile} flag will be set. */
+    public Optional<Boolean> draftCompile;
+
+    /** This will be passed to the GWT Compiler's {@code -optimize} flag. */
+    public Optional<Integer> optimize;
+
+    /** This will be passed to the GWT Compiler's {@code -localWorkers} flag. */
+    public Optional<Integer> localWorkers;
+
+    /** If {@code true}, the GWT Compiler's {@code -strict} flag will be set. */
+    public Optional<Boolean> strict;
+
+    /**
+     * In practice, these may be values such as {@code -XenableClosureCompiler},
+     * {@code -XdisableClassMetadata}, {@code -XdisableCastChecking}, or {@code -XfragmentMerge}.
+     */
+    public Optional<ImmutableList<String>> experimentalArgs;
   }
 }

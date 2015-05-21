@@ -74,7 +74,8 @@ public class BuildRuleParams {
     return copyWithDeps(declaredDeps, extraDeps);
   }
 
-  public BuildRuleParams appendExtraDeps(final Supplier<Iterable<BuildRule>> additional) {
+  public BuildRuleParams appendExtraDeps(
+      final Supplier<? extends Iterable<? extends BuildRule>> additional) {
     return copyWithDeps(
         declaredDeps,
         new Supplier<ImmutableSortedSet<BuildRule>>() {
@@ -89,10 +90,18 @@ public class BuildRuleParams {
         });
   }
 
+  public BuildRuleParams appendExtraDeps(Iterable<? extends BuildRule> additional) {
+    return appendExtraDeps(Suppliers.ofInstance(additional));
+  }
+
   public BuildRuleParams copyWithDeps(
       Supplier<ImmutableSortedSet<BuildRule>> declaredDeps,
       Supplier<ImmutableSortedSet<BuildRule>> extraDeps) {
     return copyWithChanges(buildRuleType, buildTarget, declaredDeps, extraDeps);
+  }
+
+  public BuildRuleParams copyWithBuildTarget(BuildTarget target) {
+    return copyWithChanges(buildRuleType, target, declaredDeps, extraDeps);
   }
 
   public BuildRuleParams copyWithChanges(

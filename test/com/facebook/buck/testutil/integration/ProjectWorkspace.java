@@ -21,7 +21,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import com.facebook.buck.cli.Main;
-import com.facebook.buck.cli.TestCommand;
+import com.facebook.buck.cli.TestRunning;
 import com.facebook.buck.event.BuckEvent;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.io.MoreFiles;
@@ -175,7 +175,7 @@ public class ProjectWorkspace {
     // TODO(jacko): This is going to overwrite the build.log. Maybe stash that and return it?
     ProjectWorkspace.ProcessResult outputFileResult = runBuckCommand(
         "targets",
-        "--show_output",
+        "--show-output",
         target.toString());
     outputFileResult.assertSuccess();
     String pathToGeneratedJarFile = outputFileResult.getStdout().split(" ")[1].trim();
@@ -226,6 +226,7 @@ public class ProjectWorkspace {
       throws IOException {
     return runBuckCommandWithEnvironmentAndContext(
         Optional.<NGContext>absent(),
+        Optional.<BuckEventListener>absent(),
         args);
   }
 
@@ -244,12 +245,27 @@ public class ProjectWorkspace {
 
   public ProcessResult runBuckdCommand(NGContext context, String... args)
       throws IOException {
-    return runBuckCommandWithEnvironmentAndContext(Optional.of(context), args);
+    return runBuckCommandWithEnvironmentAndContext(
+        Optional.of(context),
+        Optional.<BuckEventListener>absent(),
+        args);
+  }
+
+  public ProcessResult runBuckdCommand(
+      NGContext context,
+      BuckEventListener eventListener,
+      String... args)
+      throws IOException {
+    return runBuckCommandWithEnvironmentAndContext(
+        Optional.of(context),
+        Optional.of(eventListener),
+        args);
   }
 
   private ProcessResult runBuckCommandWithEnvironmentAndContext(
-        Optional<NGContext> context,
-        String... args)
+      Optional<NGContext> context,
+      Optional<BuckEventListener> eventListener,
+      String... args)
     throws IOException {
     assertTrue("setUp() must be run before this method is invoked", isSetUp);
     CapturingPrintStream stdout = new CapturingPrintStream();
@@ -268,6 +284,11 @@ public class ProjectWorkspace {
         // empty
       }
     };
+    ImmutableList.Builder<BuckEventListener> eventListeners = ImmutableList.builder();
+    eventListeners.add(capturingEventListener);
+    if (eventListener.isPresent()) {
+      eventListeners.add(eventListener.get());
+    }
 
     // Construct a limited view of the parent environment for the child.
     //
@@ -278,7 +299,15 @@ public class ProjectWorkspace {
         "ANDROID_NDK_REPOSITORY",
         "ANDROID_SDK",
         "PATH",
-        "PATHEXT");
+        "PATHEXT",
+
+        // Needed by ndk-build on Windows
+        "OS",
+        "ProgramW6432",
+        "ProgramFiles(x86)",
+
+        // TODO(#6586154): set TMP variable for ShellSteps
+        "TMP");
     ImmutableMap.Builder<String, String> envBuilder = ImmutableMap.builder();
     for (String variable : inheritedEnvVars) {
       String value = System.getenv(variable);
@@ -288,7 +317,7 @@ public class ProjectWorkspace {
     }
     ImmutableMap<String, String> env = envBuilder.build();
 
-    Main main = new Main(stdout, stderr, Optional.of(capturingEventListener));
+    Main main = new Main(stdout, stderr, eventListeners.build());
     int exitCode = 0;
     try {
       exitCode = main.runMainWithExitCode(
@@ -330,6 +359,10 @@ public class ProjectWorkspace {
 
   public void copyFile(String source, String dest) throws IOException {
     Files.copy(getFile(source), getFile(dest));
+  }
+
+  public void copyRecursively(Path source, Path pathRelativeToProjectRoot) throws IOException {
+    MoreFiles.copyRecursively(source, destPath.resolve(pathRelativeToProjectRoot));
   }
 
   public void move(String source, String dest) throws IOException {
@@ -424,11 +457,11 @@ public class ProjectWorkspace {
     }
 
     public ProcessResult assertTestFailure() {
-      return assertExitCode(null, TestCommand.TEST_FAILURES_EXIT_CODE);
+      return assertExitCode(null, TestRunning.TEST_FAILURES_EXIT_CODE);
     }
 
     public ProcessResult assertTestFailure(String message) {
-      return assertExitCode(message, TestCommand.TEST_FAILURES_EXIT_CODE);
+      return assertExitCode(message, TestRunning.TEST_FAILURES_EXIT_CODE);
     }
 
     public ProcessResult assertFailure(String message) {
@@ -480,6 +513,10 @@ public class ProjectWorkspace {
           }
           String expectedFileContent = Files.toString(file.toFile(), Charsets.UTF_8);
           String observedFileContent = Files.toString(observedFile, Charsets.UTF_8);
+          // It is possible, on Windows, to have Git keep "\n"-style newlines, or convert them to
+          // "\r\n"-style newlines.  Support both ways by normalizing to "\n"-style newlines.
+          // See https://help.github.com/articles/dealing-with-line-endings/ for more information.
+          expectedFileContent = expectedFileContent.replace("\r\n", "\n");
           observedFileContent = observedFileContent.replace("\r\n", "\n");
           String cleanPathToObservedFile = MoreStrings.withoutSuffix(
               templatePath.relativize(file).toString(), EXPECTED_SUFFIX);

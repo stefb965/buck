@@ -15,15 +15,16 @@ java_library(
   ],
 )
 
-java_library(
+java_immutables_library(
   name = 'parser',
   srcs = [
-    'BuildFileSpec.java',
-    'BuildTargetSpec.java',
+    'AbstractBuildFileSpec.java',
+    'AbstractBuildTargetSpec.java',
+    'AbstractTargetNodePredicateSpec.java',
+    'BuildTargetPatternTargetNodeParser.java',
     'MissingBuildFileException.java',
     'ParseEvent.java',
     'Parser.java',
-    'TargetNodePredicateSpec.java',
     'TargetNodeSpec.java',
   ],
   deps = [
@@ -34,7 +35,7 @@ java_library(
     '//src/com/facebook/buck/json:json',
     '//src/com/facebook/buck/graph:graph',
     '//src/com/facebook/buck/io:io',
-    '//src/com/facebook/buck/log:log',
+    '//src/com/facebook/buck/log:api',
     '//src/com/facebook/buck/model:model',
     '//src/com/facebook/buck/rules:build_rule',
     '//src/com/facebook/buck/rules:rules',
@@ -74,31 +75,3 @@ java_library(
   ],
 )
 
-python_library(
-  name = 'buck',
-  srcs = [
-    'buck.py',
-  ],
-  deps = [
-    '//third-party/py/pathlib:pathlib',
-  ]
-)
-
-python_test(
-  name = 'buck_test',
-  srcs = [
-    'processor_test.py',
-    'buck_test.py',
-  ],
-  deps = [
-    ':buck',
-    '//third-party/py/pathlib:pathlib',
-  ],
-)
-
-export_file(
-  name = 'buck.py',
-  visibility = [
-    'PUBLIC',
-  ],
-)

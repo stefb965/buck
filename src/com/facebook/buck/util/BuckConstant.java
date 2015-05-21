@@ -16,7 +16,6 @@
 
 package com.facebook.buck.util;
 
-
 import com.google.common.base.Preconditions;
 
 import java.nio.file.Path;
@@ -40,8 +39,8 @@ public class BuckConstant {
   public static final String GEN_DIR = BUCK_OUTPUT_DIRECTORY + "/gen";
   public static final Path GEN_PATH = BUCK_OUTPUT_PATH.resolve("gen");
 
-  public static final String BIN_DIR = BUCK_OUTPUT_DIRECTORY + "/bin";
-  public static final Path BIN_PATH = BUCK_OUTPUT_PATH.resolve("bin");
+  public static final String SCRATCH_DIR = BUCK_OUTPUT_DIRECTORY + "/bin";
+  public static final Path SCRATCH_PATH = BUCK_OUTPUT_PATH.resolve("bin");
 
   public static final String ANNOTATION_DIR = BUCK_OUTPUT_DIRECTORY + "/annotation";
   public static final Path ANNOTATION_PATH = BUCK_OUTPUT_PATH.resolve("annotation");
@@ -55,8 +54,7 @@ public class BuckConstant {
   /**
    * An optional path-component for the directory where test-results are written.
    * <p>
-   * See the --one-time-directory command line option in
-   * {@link com.facebook.buck.cli.TestCommandOptions} and {@link com.facebook.buck.cli.TestCommand}
+   * See the --one-time-directory command line option in {@link com.facebook.buck.cli.TestCommand}
    * where this is used to give each parallel buck processes a unique test-results-directory
    * thereby stopping the parallel processes from interfering with each others results.
    * <p>

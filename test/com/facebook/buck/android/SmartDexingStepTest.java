@@ -26,7 +26,6 @@ import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.android.SmartDexingStep.DxPseudoRule;
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.rules.ImmutableSha1HashCode;
 import com.facebook.buck.rules.Sha1HashCode;
 import com.facebook.buck.step.CompositeStep;
 import com.facebook.buck.step.ExecutionContext;
@@ -34,8 +33,8 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.google.common.base.Charsets;
-import com.google.common.base.Optional;
 import com.google.common.base.Strings;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -86,7 +85,7 @@ public class SmartDexingStepTest extends EasyMockSupport {
 
     ProjectFilesystem filesystem = new ProjectFilesystem(tmpDir.getRoot().toPath());
 
-    Sha1HashCode actualHashCode = ImmutableSha1HashCode.of(Strings.repeat("a", 40));
+    Sha1HashCode actualHashCode = Sha1HashCode.of(Strings.repeat("a", 40));
     DxPseudoRule rule = new DxPseudoRule(
         filesystem,
         ImmutableMap.of(testIn.toPath(), actualHashCode),
@@ -119,7 +118,8 @@ public class SmartDexingStepTest extends EasyMockSupport {
     MoreAsserts.assertSteps(
         "Steps should repack zip entries and then compress using xz.",
         ImmutableList.of(
-            "/usr/bin/dx " + xmx + "--dex --output classes.dex.tmp.jar foo.dex.jar bar.dex.jar",
+            Paths.get("/usr/bin/dx") + " " + xmx +
+                "--dex --output classes.dex.tmp.jar foo.dex.jar bar.dex.jar",
             "repack classes.dex.tmp.jar in classes.dex.jar",
             "rm -f classes.dex.tmp.jar",
             "dex_meta dexPath:classes.dex.jar dexMetaPath:classes.dex.jar.meta",
@@ -140,7 +140,8 @@ public class SmartDexingStepTest extends EasyMockSupport {
 
     String xmx = DxStep.XMX_OVERRIDE.isEmpty() ? "" : DxStep.XMX_OVERRIDE + " ";
     assertEquals(
-        "/usr/bin/dx " + xmx + "--dex --output classes.dex foo.dex.jar bar.dex.jar",
+        Paths.get("/usr/bin/dx") + " " + xmx +
+            "--dex --output classes.dex foo.dex.jar bar.dex.jar",
         dxStep.getDescription(createMockedExecutionContext()));
     verifyAll();
   }
@@ -155,7 +156,7 @@ public class SmartDexingStepTest extends EasyMockSupport {
 
     String xmx = DxStep.XMX_OVERRIDE.isEmpty() ? "" : DxStep.XMX_OVERRIDE + " ";
     assertEquals(
-        "/usr/bin/dx " + xmx + "--dex --output classes.dex.jar " +
+        Paths.get("/usr/bin/dx") + " " + xmx + "--dex --output classes.dex.jar " +
         "foo.dex.jar bar.dex.jar && dex_meta dexPath:classes.dex.jar " +
         "dexMetaPath:classes.dex.jar.meta",
         dxStep.getDescription(createMockedExecutionContext()));
@@ -185,7 +186,7 @@ public class SmartDexingStepTest extends EasyMockSupport {
     replayAll();
 
     return TestExecutionContext.newBuilder()
-        .setAndroidPlatformTarget(Optional.of(androidPlatformTarget))
+        .setAndroidPlatformTargetSupplier(Suppliers.ofInstance(androidPlatformTarget))
         .setProjectFilesystem(projectFilesystem)
         .build();
   }

@@ -24,11 +24,11 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Ordering;
 
 import java.io.IOException;
-import java.nio.file.attribute.FileTime;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 
 /**
  * Utility class to list files which match a pattern, applying ordering
@@ -137,6 +137,7 @@ public class PathListing {
     return paths;
   }
 
+  @SuppressWarnings("PMD.EmptyCatchBlock")
   private static ImmutableSortedSet<Path> applyTotalSizeFilter(
       ImmutableSortedSet<Path> paths,
       FilterMode filterMode,
@@ -146,7 +147,12 @@ public class PathListing {
       int limitIndex = 0;
       long totalSize = 0;
       for (Path path : paths) {
-        totalSize += Files.size(path);
+        try {
+          totalSize += Files.size(path);
+        } catch (NoSuchFileException e) {
+          // Path was deleted; ignore it.
+        }
+
         if (totalSize < totalSizeFilter.get()) {
           limitIndex++;
         } else {
@@ -177,7 +183,7 @@ public class PathListing {
       case EXCLUDE:
         if (fullSet) {
           // Make sure we don't call pathsList.get(pathsList.size()).
-          paths = ImmutableSortedSet.<Path>of();
+          paths = ImmutableSortedSet.of();
         } else {
           paths = paths.tailSet(pathsList.get(limitIndex));
         }

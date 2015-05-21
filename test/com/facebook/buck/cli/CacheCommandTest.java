@@ -19,6 +19,8 @@ package com.facebook.buck.cli;
 import static org.easymock.EasyMock.capture;
 import static org.easymock.EasyMock.eq;
 import static org.easymock.EasyMock.expect;
+import static org.easymock.EasyMock.isA;
+import static org.easymock.EasyMock.newCapture;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.startsWith;
 import static org.junit.Assert.assertEquals;
@@ -39,24 +41,16 @@ import java.io.IOException;
 public class CacheCommandTest extends EasyMockSupport {
 
   @Test
-  public void testRunCommandWithNoArguments()
-      throws IOException, InterruptedException {
+  public void testRunCommandWithNoArguments() throws IOException, InterruptedException {
     Console console = createMock(Console.class);
     console.printErrorText("No cache keys specified.");
-    CommandRunnerParamsForTesting commandRunnerParams = CommandRunnerParamsForTesting
+    CommandRunnerParams commandRunnerParams = CommandRunnerParamsForTesting
         .builder()
         .setConsole(console)
         .build();
-    CacheCommand cacheCommand = new CacheCommand(commandRunnerParams);
-    BuckConfig buckConfig = createMock(BuckConfig.class);
-
-    replayAll();
-
-    CacheCommandOptions options = new CacheCommandOptions(buckConfig);
-    int exitCode = cacheCommand.runCommandWithOptions(options);
+    CacheCommand cacheCommand = new CacheCommand();
+    int exitCode = cacheCommand.run(commandRunnerParams);
     assertEquals(1, exitCode);
-
-    verifyAll();
   }
 
   @Test
@@ -68,33 +62,28 @@ public class CacheCommandTest extends EasyMockSupport {
     expect(
         cache.fetch(
             eq(new RuleKey(ruleKeyHash)),
-            capture(new Capture<File>())))
-        .andReturn(CacheResult.CASSANDRA_HIT);
+            isA(File.class)))
+        .andReturn(CacheResult.hit("cassandra"));
     ArtifactCacheFactory artifactCacheFactory = new InstanceArtifactCacheFactory(cache);
 
     Console console = createMock(Console.class);
-    Capture<String> successMessage = new Capture<>();
+    Capture<String> successMessage = newCapture();
     console.printSuccess(capture(successMessage));
 
-    CommandRunnerParamsForTesting commandRunnerParams = CommandRunnerParamsForTesting.builder()
+    CommandRunnerParams commandRunnerParams = CommandRunnerParamsForTesting.builder()
         .setConsole(console)
         .setArtifactCacheFactory(artifactCacheFactory)
         .build();
 
-    CacheCommand cacheCommand = new CacheCommand(commandRunnerParams);
-
-    BuckConfig buckConfig = createMock(BuckConfig.class);
-
     replayAll();
 
-    CacheCommandOptions options = new CacheCommandOptions(buckConfig);
-    options.setArguments(ImmutableList.of(ruleKeyHash));
-    int exitCode = cacheCommand.runCommandWithOptions(options);
+    CacheCommand cacheCommand = new CacheCommand();
+    cacheCommand.setArguments(ImmutableList.of(ruleKeyHash));
+    int exitCode = cacheCommand.run(commandRunnerParams);
     assertEquals(0, exitCode);
-    assertThat(successMessage.getValue(),
+    assertThat(
+        successMessage.getValue(),
         startsWith("Successfully downloaded artifact with id " + ruleKeyHash + " at "));
-
-    verifyAll();
   }
 
   @Test
@@ -106,29 +95,23 @@ public class CacheCommandTest extends EasyMockSupport {
     expect(
         cache.fetch(
             eq(new RuleKey(ruleKeyHash)),
-            capture(new Capture<File>())))
-        .andReturn(CacheResult.MISS);
+            isA(File.class)))
+        .andReturn(CacheResult.miss());
     ArtifactCacheFactory artifactCacheFactory = new InstanceArtifactCacheFactory(cache);
 
     Console console = createMock(Console.class);
     console.printErrorText("Failed to retrieve an artifact with id " + ruleKeyHash + ".");
 
-    CommandRunnerParamsForTesting commandRunnerParams = CommandRunnerParamsForTesting.builder()
+    CommandRunnerParams commandRunnerParams = CommandRunnerParamsForTesting.builder()
         .setConsole(console)
         .setArtifactCacheFactory(artifactCacheFactory)
         .build();
 
-    CacheCommand cacheCommand = new CacheCommand(commandRunnerParams);
-
-    BuckConfig buckConfig = createMock(BuckConfig.class);
-
     replayAll();
 
-    CacheCommandOptions options = new CacheCommandOptions(buckConfig);
-    options.setArguments(ImmutableList.of(ruleKeyHash));
-    int exitCode = cacheCommand.runCommandWithOptions(options);
+    CacheCommand cacheCommand = new CacheCommand();
+    cacheCommand.setArguments(ImmutableList.of(ruleKeyHash));
+    int exitCode = cacheCommand.run(commandRunnerParams);
     assertEquals(1, exitCode);
-
-    verifyAll();
   }
 }

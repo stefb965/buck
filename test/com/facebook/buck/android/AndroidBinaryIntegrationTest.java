@@ -29,6 +29,7 @@ import com.facebook.buck.testutil.integration.ZipInspector;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
+import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 
@@ -38,6 +39,7 @@ import java.nio.file.Path;
 
 public class AndroidBinaryIntegrationTest {
 
+  @ClassRule
   public static DebuggableTemporaryFolder projectFolderWithPrebuiltTargets =
       new DebuggableTemporaryFolder();
 
@@ -53,7 +55,6 @@ public class AndroidBinaryIntegrationTest {
   public static void setUpOnce() throws IOException {
     AssumeAndroidPlatform.assumeSdkIsAvailable();
     AssumeAndroidPlatform.assumeNdkIsAvailable();
-    projectFolderWithPrebuiltTargets.create();
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         new AndroidBinaryIntegrationTest(),
         "android_project",
@@ -69,7 +70,6 @@ public class AndroidBinaryIntegrationTest {
 
   @Before
   public void setUp() throws IOException {
-    tmpFolder.create();
     workspace = new ProjectWorkspace(projectFolderWithPrebuiltTargets.getRoot(), tmpFolder);
     workspace.setUp();
   }
@@ -208,6 +208,39 @@ public class AndroidBinaryIntegrationTest {
         "buck-out/gen/apps/sample/__app_proguard_dontobfuscate#aapt_package__proguard__/" +
             ".proguard/mapping.txt");
     assertTrue(Files.exists(mapping));
+  }
+
+  @Test
+  public void testStaticCxxLibraryDep() throws IOException {
+    workspace.runBuckCommand("build", "//apps/sample:app_static_cxx_lib_dep").assertSuccess();
+
+    ZipInspector zipInspector = new ZipInspector(
+        workspace.getFile(
+            "buck-out/gen/apps/sample/app_static_cxx_lib_dep.apk"));
+    zipInspector.assertFileExists("lib/x86/libnative_cxx_foo1.so");
+    zipInspector.assertFileExists("lib/x86/libnative_cxx_foo2.so");
+    zipInspector.assertFileDoesNotExist("lib/x86/libnative_cxx_bar.so");
+  }
+
+  @Test
+  public void testHeaderOnlyCxxLibrary() throws IOException {
+    workspace.runBuckCommand("build", "//apps/sample:app_header_only_cxx_lib_dep").assertSuccess();
+    ZipInspector zipInspector = new ZipInspector(
+        workspace.getFile(
+            "buck-out/gen/apps/sample/app_header_only_cxx_lib_dep.apk"));
+    zipInspector.assertFileDoesNotExist("lib/x86/libnative_cxx_headeronly.so");
+  }
+
+  @Test
+  public void testX86OnlyCxxLibrary() throws IOException {
+    workspace.runBuckCommand("build", "//apps/sample:app_with_x86_lib").assertSuccess();
+    ZipInspector zipInspector = new ZipInspector(
+        workspace.getFile(
+            "buck-out/gen/apps/sample/app_with_x86_lib.apk"));
+    zipInspector.assertFileExists("lib/armeabi-v7a/libnative_cxx_lib.so");
+    zipInspector.assertFileExists("lib/x86/libnative_cxx_lib.so");
+    zipInspector.assertFileDoesNotExist("lib/armeabi-v7a/libnative_cxx_x86-only.so");
+    zipInspector.assertFileExists("lib/x86/libnative_cxx_x86-only.so");
   }
 
 }

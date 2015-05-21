@@ -28,8 +28,8 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.collect.Collections2;
+import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -199,6 +199,25 @@ public class ProjectFilesystem {
   }
 
   /**
+   * @param path Absolute path or path relative to the project root.
+   * @return If {@code path} is relative, it is returned. If it is absolute and is inside the
+   *         project root, it is relativized to the project root and returned. Otherwise an absent
+   *         value is returned.
+   */
+  public Optional<Path> getPathRelativeToProjectRoot(Path path) {
+    path = path.normalize();
+    if (path.isAbsolute()) {
+      if (path.startsWith(projectRoot)) {
+        return Optional.of(MorePaths.relativize(projectRoot, path));
+      } else {
+        return Optional.absent();
+      }
+    } else {
+      return Optional.of(path);
+    }
+  }
+
+  /**
    * As {@link #getFileForRelativePath(java.nio.file.Path)}, but with the added twist that the
    * existence of the path is checked before returning.
    */
@@ -365,7 +384,14 @@ public class ProjectFilesystem {
    * Allows {@link Files#isDirectory} to be faked in tests.
    */
   public boolean isDirectory(Path child, LinkOption... linkOptions) {
-    return Files.isDirectory(child, linkOptions);
+    return Files.isDirectory(resolve(child), linkOptions);
+  }
+
+  /**
+   * Allows {@link Files#isExecutable} to be faked in tests.
+   */
+  public boolean isExecutable(Path child) {
+    return Files.isExecutable(resolve(child));
   }
 
   /**
@@ -387,9 +413,18 @@ public class ProjectFilesystem {
 
   public ImmutableCollection<Path> getDirectoryContents(Path pathRelativeToProjectRoot)
       throws IOException {
+    Preconditions.checkArgument(!pathRelativeToProjectRoot.isAbsolute());
     Path path = getPathForRelativePath(pathRelativeToProjectRoot);
     try (DirectoryStream<Path> stream = Files.newDirectoryStream(path)) {
-      return ImmutableList.copyOf(stream);
+      return FluentIterable.from(stream)
+          .transform(
+              new Function<Path, Path>() {
+                @Override
+                public Path apply(Path absolutePath) {
+                  return MorePaths.relativize(projectRoot, absolutePath);
+                }
+              })
+          .toList();
     }
   }
 
@@ -424,6 +459,15 @@ public class ProjectFilesystem {
   }
 
   /**
+   * Sets the last modified time for the given path.
+   */
+  public Path setLastModifiedTime(Path pathRelativeToProjectRoot, FileTime time)
+      throws IOException {
+    Path path = getPathForRelativePath(pathRelativeToProjectRoot);
+    return Files.setLastModifiedTime(path, time);
+  }
+
+  /**
    * Recursively delete everything under the specified path.
    */
   public void rmdir(Path pathRelativeToProjectRoot) throws IOException {
@@ -437,6 +481,14 @@ public class ProjectFilesystem {
    */
   public void mkdirs(Path pathRelativeToProjectRoot) throws IOException {
     Files.createDirectories(resolve(pathRelativeToProjectRoot));
+  }
+
+  /**
+   * Creates a new file relative to the project root.
+   */
+  public Path createNewFile(Path pathRelativeToProjectRoot) throws IOException {
+    Path path = getPathForRelativePath(pathRelativeToProjectRoot);
+    return Files.createFile(path);
   }
 
   /**
@@ -470,7 +522,9 @@ public class ProjectFilesystem {
       throws IOException {
     try (Writer writer =
          new BufferedWriter(
-             new OutputStreamWriter(newFileOutputStream(pathRelativeToProjectRoot, attrs)))) {
+             new OutputStreamWriter(
+                 newFileOutputStream(pathRelativeToProjectRoot, attrs),
+                 Charsets.UTF_8))) {
       for (String line : lines) {
         writer.write(line);
         writer.write('\n');
@@ -673,21 +727,24 @@ public class ProjectFilesystem {
     copy(source, target, CopySourceMode.FILE);
   }
 
-  public void createSymLink(Path sourcePath, Path targetPath, boolean force)
+  public void createSymLink(Path symLink, Path realFile, boolean force)
       throws IOException {
     if (force) {
-      Files.deleteIfExists(targetPath);
+      Files.deleteIfExists(symLink);
     }
     if (Platform.detect() == Platform.WINDOWS) {
-      if (isDirectory(sourcePath)) {
+      if (isDirectory(realFile)) {
         // Creating symlinks to directories on Windows requires escalated privileges. We're just
         // going to have to copy things recursively.
-        MoreFiles.copyRecursively(sourcePath, targetPath);
+        MoreFiles.copyRecursively(realFile, symLink);
       } else {
-        Files.createLink(targetPath, sourcePath);
+        // When sourcePath is relative, resolve it from the targetPath. We're creating a hard link
+        // anyway.
+        realFile = symLink.getParent().resolve(realFile).normalize();
+        Files.createLink(symLink, realFile);
       }
     } else {
-      Files.createSymbolicLink(targetPath, sourcePath);
+      Files.createSymbolicLink(symLink, realFile);
     }
   }
 
@@ -697,6 +754,13 @@ public class ProjectFilesystem {
    */
   public boolean isSymLink(Path path) throws IOException {
     return Files.isSymbolicLink(getPathForRelativePath(path));
+  }
+
+  /**
+   * Returns the target of the specified symbolic link.
+   */
+  public Path readSymLink(Path path) throws IOException {
+    return Files.readSymbolicLink(getPathForRelativePath(path));
   }
 
   /**
@@ -718,9 +782,7 @@ public class ProjectFilesystem {
     Preconditions.checkState(!Iterables.isEmpty(pathsToIncludeInZip));
     try (CustomZipOutputStream zip = ZipOutputStreams.newOutputStream(out)) {
       for (Path path : pathsToIncludeInZip) {
-        Path full = getPathForRelativePath(path);
-        File file = full.toFile();
-        boolean isDirectory = isDirectory(full);
+        boolean isDirectory = isDirectory(path);
 
         String entryName = path.toString();
         if (isDirectory) {
@@ -731,7 +793,7 @@ public class ProjectFilesystem {
         // Support executable files.  If we detect this file is executable, store this
         // information as 0100 in the field typically used in zip implementations for
         // POSIX file permissions.  We'll use this information when unzipping.
-        if (file.canExecute()) {
+        if (isExecutable(path)) {
           entry.setExternalAttributes(
               MorePosixFilePermissions.toMode(
                   EnumSet.of(PosixFilePermission.OWNER_EXECUTE)) << 16);
@@ -739,7 +801,7 @@ public class ProjectFilesystem {
 
         zip.putNextEntry(entry);
         if (!isDirectory) {
-          try (InputStream input = Files.newInputStream(getPathForRelativePath(path))) {
+          try (InputStream input = newFileInputStream(path)) {
             ByteStreams.copy(input, zip);
           }
         }
@@ -798,6 +860,7 @@ public class ProjectFilesystem {
    * @return whether ignoredPaths contains path or any of its ancestors.
    */
   public boolean isIgnored(Path path) {
+    Preconditions.checkArgument(!path.isAbsolute());
     for (Path ignoredPath : getIgnorePaths()) {
       if (path.startsWith(ignoredPath)) {
         return true;
@@ -815,4 +878,11 @@ public class ProjectFilesystem {
     return Files.createTempFile(directory, prefix, suffix, attrs);
   }
 
+  public void touch(Path fileToTouch) throws IOException {
+    if (exists(fileToTouch)) {
+      setLastModifiedTime(fileToTouch, FileTime.fromMillis(System.currentTimeMillis()));
+    } else {
+      createNewFile(fileToTouch);
+    }
+  }
 }

@@ -16,6 +16,7 @@
 
 package com.facebook.buck.android;
 
+import static com.facebook.buck.util.Verbosity.COMMANDS_AND_SPECIAL_OUTPUT;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.android.DxStep.Option;
@@ -28,8 +29,8 @@ import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.Verbosity;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
@@ -39,16 +40,15 @@ import org.easymock.EasyMockSupport;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.EnumSet;
 
-import java.io.IOException;
-
 public class DxStepTest extends EasyMockSupport {
 
   private static final String EXPECTED_DX_PREFIX =
-      "/usr/bin/dx" +
+      Paths.get("/usr/bin/dx") +
           " --dex";
 
   private static final Path SAMPLE_OUTPUT_PATH =
@@ -58,13 +58,12 @@ public class DxStepTest extends EasyMockSupport {
       Paths.get("buck-out/gen/foo.dex.jar"),
       Paths.get("buck-out/gen/bar.dex.jar"));
 
-  private Optional<AndroidPlatformTarget> androidPlatformTargetOptional;
+  private AndroidPlatformTarget androidPlatformTarget;
 
   @Before
   public void setUp() {
-    AndroidPlatformTarget androidPlatformTarget = createMock(AndroidPlatformTarget.class);
+    androidPlatformTarget = createMock(AndroidPlatformTarget.class);
     EasyMock.expect(androidPlatformTarget.getDxExecutable()).andReturn(Paths.get("/usr/bin/dx"));
-    androidPlatformTargetOptional = Optional.of(androidPlatformTarget);
     replayAll();
   }
 
@@ -139,7 +138,7 @@ public class DxStepTest extends EasyMockSupport {
   @Test
   public void testVerbose3AddsStatisticsFlag() throws IOException {
     // Context with --verbose 3.
-    try (ExecutionContext context = createExecutionContext(3)) {
+    try (ExecutionContext context = createExecutionContext(COMMANDS_AND_SPECIAL_OUTPUT.ordinal())) {
       Function<Path, Path> pathAbsolutifier = context.getProjectFilesystem().getAbsolutifier();
 
       DxStep dx = new DxStep(SAMPLE_OUTPUT_PATH, SAMPLE_FILES_TO_DEX);
@@ -206,7 +205,7 @@ public class DxStepTest extends EasyMockSupport {
           });
 
       String expected = String.format("%s --output %s %s",
-          EXPECTED_DX_PREFIX.replace("/usr/bin/dx", "/home/mbolin/dx"),
+          EXPECTED_DX_PREFIX.replace(Paths.get("/usr/bin/dx").toString(), "/home/mbolin/dx"),
           SAMPLE_OUTPUT_PATH,
           Joiner.on(' ').join(Iterables.transform(SAMPLE_FILES_TO_DEX, pathAbsolutifier)));
       MoreAsserts.assertShellCommands(
@@ -252,7 +251,7 @@ public class DxStepTest extends EasyMockSupport {
     TestConsole console = new TestConsole(verbosity);
     return TestExecutionContext.newBuilder()
         .setConsole(console)
-        .setAndroidPlatformTarget(androidPlatformTargetOptional)
+        .setAndroidPlatformTargetSupplier(Suppliers.ofInstance(androidPlatformTarget))
         .build();
   }
 }

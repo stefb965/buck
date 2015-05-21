@@ -34,18 +34,16 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
-import com.facebook.buck.rules.ImmutableSha1HashCode;
 import com.facebook.buck.rules.Sha1HashCode;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.MoreAsserts;
-import com.google.common.base.Optional;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
-import com.google.common.collect.Iterables;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
 
@@ -70,7 +68,7 @@ public class DexProducedFromJavaLibraryThatContainsClassFilesTest extends EasyMo
 
       @Override
       public Sha1HashCode getAbiKey() {
-        return ImmutableSha1HashCode.of("f7f34ed13b881c6c6f663533cde4a436ea84435e");
+        return Sha1HashCode.of("f7f34ed13b881c6c6f663533cde4a436ea84435e");
       }
     };
     javaLibraryRule.setOutputFile("buck-out/gen/foo/bar.jar");
@@ -106,17 +104,19 @@ public class DexProducedFromJavaLibraryThatContainsClassFilesTest extends EasyMo
 
     ExecutionContext executionContext = TestExecutionContext
         .newBuilder()
-        .setAndroidPlatformTarget(Optional.of(androidPlatformTarget))
+        .setAndroidPlatformTargetSupplier(Suppliers.ofInstance(androidPlatformTarget))
         .setProjectFilesystem(projectFilesystem)
         .build();
 
-    String expectedDxCommand = "/usr/bin/dx" +
-        " --dex --no-optimize --force-jumbo --output /home/user/buck-out/gen/foo/bar#dex.dex.jar " +
-        "/home/user/buck-out/gen/foo/bar.jar";
+    String expectedDxCommand = String.format(
+        "%s --dex --no-optimize --force-jumbo --output %s %s",
+        Paths.get("/usr/bin/dx"),
+        Paths.get("/home/user/buck-out/gen/foo/bar#dex.dex.jar"),
+        Paths.get("/home/user/buck-out/gen/foo/bar.jar"));
     MoreAsserts.assertSteps("Generate bar.dex.jar.",
         ImmutableList.of(
-          "rm -f /home/user/buck-out/gen/foo/bar#dex.dex.jar",
-          "mkdir -p /home/user/buck-out/gen/foo",
+          String.format("rm -f %s", Paths.get("/home/user/buck-out/gen/foo/bar#dex.dex.jar")),
+          String.format("mkdir -p %s", Paths.get("/home/user/buck-out/gen/foo")),
           "estimate_linear_alloc",
           expectedDxCommand,
           "record_dx_success"),
@@ -180,8 +180,8 @@ public class DexProducedFromJavaLibraryThatContainsClassFilesTest extends EasyMo
 
     MoreAsserts.assertSteps("Do not generate a .dex.jar file.",
         ImmutableList.of(
-          "rm -f /home/user/buck-out/gen/foo/bar.dex.jar",
-          "mkdir -p /home/user/buck-out/gen/foo",
+          String.format("rm -f %s", Paths.get("/home/user/buck-out/gen/foo/bar.dex.jar")),
+          String.format("mkdir -p %s", Paths.get("/home/user/buck-out/gen/foo")),
           "record_empty_dx"),
         steps,
         executionContext);
@@ -216,7 +216,6 @@ public class DexProducedFromJavaLibraryThatContainsClassFilesTest extends EasyMo
             new SourcePathResolver(new BuildRuleResolver()),
             accumulateClassNames);
     assertNull(preDexWithClasses.getPathToOutputFile());
-    assertTrue(Iterables.isEmpty(preDexWithClasses.getInputsToCompareToOutput()));
     assertEquals(Paths.get("buck-out/gen/foo/bar.dex.jar"), preDexWithClasses.getPathToDex());
     assertTrue(preDexWithClasses.hasOutput());
 

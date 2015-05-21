@@ -47,16 +47,16 @@ public class JavaUtilsLoggingBuildListener implements BuckEventListener {
 
   public static void ensureLogFileIsWritten(ProjectFilesystem filesystem) {
     try {
-      filesystem.mkdirs(BuckConstant.BIN_PATH);
+      filesystem.mkdirs(BuckConstant.SCRATCH_PATH);
     } catch (IOException e) {
       throw new HumanReadableException(e,
           "Unable to create output directory: %s",
-          BuckConstant.BIN_DIR);
+          BuckConstant.SCRATCH_DIR);
     }
 
     try {
       FileHandler handler = new FileHandler(
-          filesystem.resolve(BuckConstant.BIN_PATH.resolve("build.log")).toString(),
+          filesystem.resolve(BuckConstant.SCRATCH_PATH.resolve("build.log")).toString(),
           /* append */ false);
       Formatter formatter = new BuildEventFormatter();
       handler.setFormatter(formatter);
@@ -96,6 +96,20 @@ public class JavaUtilsLoggingBuildListener implements BuckEventListener {
   public void ruleFinished(BuildRuleEvent.Finished finished) {
     LogRecord record = new LogRecord(LEVEL, finished.toLogMessage());
     record.setMillis(finished.getTimestamp());
+    LOG.log(record);
+  }
+
+  @Subscribe
+  public void ruleResumed(BuildRuleEvent.Resumed resumed) {
+    LogRecord record = new LogRecord(LEVEL, resumed.toString());
+    record.setMillis(resumed.getTimestamp());
+    LOG.log(record);
+  }
+
+  @Subscribe
+  public void ruleSuspended(BuildRuleEvent.Suspended suspended) {
+    LogRecord record = new LogRecord(LEVEL, suspended.toString());
+    record.setMillis(suspended.getTimestamp());
     LOG.log(record);
   }
 

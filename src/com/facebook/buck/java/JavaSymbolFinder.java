@@ -20,12 +20,14 @@ import com.facebook.buck.android.AndroidLibraryDescription;
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ThrowableConsoleEvent;
+import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.json.ProjectBuildFileParser;
 import com.facebook.buck.json.ProjectBuildFileParserFactory;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.ParserConfig;
+import com.facebook.buck.rules.BuckPyFunction;
 import com.facebook.buck.util.Console;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.HashMultimap;
@@ -160,13 +162,14 @@ public class JavaSymbolFinder {
           }
 
           for (Map<String, Object> ruleMap : rules) {
-            String type = (String) ruleMap.get("type");
+            String type = (String) ruleMap.get(BuckPyFunction.TYPE_PROPERTY_NAME);
             if (javaRuleTypes.contains(type)) {
               @SuppressWarnings("unchecked")
               List<String> srcs = (List<String>) Preconditions.checkNotNull(ruleMap.get("srcs"));
               if (isSourceFilePathInSrcsList(sourceFile, srcs, buckFile.getParent())) {
                 Path buckFileDir = buckFile.getParent();
-                String baseName = "//" + (buckFileDir != null ? buckFileDir : "");
+                String baseName = "//" + (buckFileDir != null ?
+                    MorePaths.pathWithUnixSeparators(buckFileDir) : "");
                 String shortName = (String) ruleMap.get("name");
                 sourceFileTargetsMultimap.put(
                     sourceFile,

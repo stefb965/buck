@@ -22,6 +22,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.event.BuckEventBusFactory;
+import com.facebook.buck.io.MorePathsForTests;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.java.JavaLibraryBuilder;
 import com.facebook.buck.java.JavaPackageFinder;
@@ -59,6 +60,7 @@ import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirAndSymlinkFileStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.util.environment.Platform;
@@ -88,7 +90,7 @@ public class ApkGenruleTest {
       new Function<Path, Path>() {
         @Override
         public Path apply(Path path) {
-          return Paths.get("/opt/local/fbandroid").resolve(path);
+          return MorePathsForTests.rootRelativePath("/opt/local/fbandroid").resolve(path);
         }
       };
 
@@ -108,7 +110,6 @@ public class ApkGenruleTest {
 
     AndroidBinaryBuilder.createBuilder(BuildTargetFactory.newInstance("//:fb4a"))
         .setManifest(new TestSourcePath("AndroidManifest.xml"))
-        .setTarget("Google Inc.:Google APIs:16")
         .setOriginalDeps(ImmutableSortedSet.of(androidLibRule.getBuildTarget()))
         .setKeystore(keystore.getBuildTarget())
         .build(ruleResolver);
@@ -117,6 +118,7 @@ public class ApkGenruleTest {
   @Test
   @SuppressWarnings("PMD.AvoidUsingHardCodedIP")
   public void testCreateAndRunApkGenrule() throws IOException, NoSuchBuildTargetException {
+    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     BuildRuleResolver ruleResolver = new BuildRuleResolver();
     createSampleAndroidBinaryRule(ruleResolver);
 
@@ -142,8 +144,8 @@ public class ApkGenruleTest {
     arg.cmdExe = Optional.of("");
     arg.out = "signed_fb4a.apk";
     arg.srcs = Optional.of(ImmutableList.<SourcePath>of(
-        new PathSourcePath(Paths.get("src/com/facebook/signer.py")),
-        new PathSourcePath(Paths.get("src/com/facebook/key.properties"))));
+        new PathSourcePath(projectFilesystem, Paths.get("src/com/facebook/signer.py")),
+        new PathSourcePath(projectFilesystem, Paths.get("src/com/facebook/key.properties"))));
     BuildRuleParams params = new FakeBuildRuleParamsBuilder(buildTarget)
         .setProjectFilesystem(
             new ProjectFilesystem(Paths.get(".")) {
@@ -157,7 +159,8 @@ public class ApkGenruleTest {
 
     // Verify all of the observers of the Genrule.
     String expectedApkOutput =
-        "/opt/local/fbandroid/" + GEN_DIR + "/src/com/facebook/sign_fb4a.apk";
+        MorePathsForTests.rootRelativePath(
+            "/opt/local/fbandroid/" + GEN_DIR + "/src/com/facebook/sign_fb4a.apk").toString();
     assertEquals(expectedApkOutput,
         apkGenrule.getAbsoluteOutputFilePath());
     assertEquals(
@@ -177,12 +180,12 @@ public class ApkGenruleTest {
         .setJavaPackageFinder(EasyMock.createNiceMock(JavaPackageFinder.class))
         .setEventBus(BuckEventBusFactory.newInstance())
         .build();
-    Iterable<Path> expectedInputsToCompareToOutputs = ImmutableList.<Path>of(
+    Iterable<Path> expectedInputsToCompareToOutputs = ImmutableList.of(
         Paths.get("src/com/facebook/signer.py"),
         Paths.get("src/com/facebook/key.properties"));
     MoreAsserts.assertIterablesEquals(
         expectedInputsToCompareToOutputs,
-        apkGenrule.getInputsToCompareToOutput());
+        apkGenrule.getSrcs());
 
     // Verify that the shell commands that the genrule produces are correct.
     List<Step> steps = apkGenrule.getBuildSteps(buildContext, new FakeBuildableContext());

@@ -38,7 +38,6 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
@@ -62,11 +61,11 @@ public class RobolectricTest extends JavaTest {
   static final String LIST_OF_RESOURCE_DIRECTORIES_PROPERTY_NAME =
       "buck.robolectric_res_directories";
 
-  private static final Function<HasAndroidResourceDeps, Path> RESOURCE_DIRECTORY_FUNCTION =
-      new Function<HasAndroidResourceDeps, Path>() {
+  private static final Function<HasAndroidResourceDeps, SourcePath> RESOURCE_DIRECTORY_FUNCTION =
+      new Function<HasAndroidResourceDeps, SourcePath>() {
     @Override
     @Nullable
-    public Path apply(HasAndroidResourceDeps input) {
+    public SourcePath apply(HasAndroidResourceDeps input) {
       return input.getRes();
     }
   };
@@ -78,14 +77,15 @@ public class RobolectricTest extends JavaTest {
       Set<SourcePath> resources,
       Set<Label> labels,
       Set<String> contacts,
-      Optional<Path> proguardConfig,
+      Optional<SourcePath> proguardConfig,
       ImmutableSet<Path> additionalClasspathEntries,
       JavacOptions javacOptions,
       List<String> vmArgs,
       ImmutableSet<BuildRule> sourceTargetsUnderTest,
       Optional<Path> resourcesRoot,
       Optional<DummyRDotJava> optionalDummyRDotJava,
-      Optional<Long> testRuleTimeoutMs) {
+      Optional<Long> testRuleTimeoutMs,
+      boolean runTestSeparately) {
     super(
         buildRuleParams,
         resolver,
@@ -100,7 +100,8 @@ public class RobolectricTest extends JavaTest {
         vmArgs,
         sourceTargetsUnderTest,
         resourcesRoot,
-        testRuleTimeoutMs);
+        testRuleTimeoutMs,
+        runTestSeparately);
     this.optionalDummyRDotJava = optionalDummyRDotJava;
   }
 
@@ -110,17 +111,9 @@ public class RobolectricTest extends JavaTest {
   }
 
   @Override
-  public ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return super.getInputsToCompareToOutput();
-  }
-
-  @Override
-  protected Set<Path> getBootClasspathEntries(ExecutionContext context) {
-    if (context.getAndroidPlatformTargetOptional().isPresent()) {
-      return FluentIterable.from(context.getAndroidPlatformTarget().getBootclasspathEntries())
-          .toSet();
-    }
-    return ImmutableSet.of();
+  protected ImmutableSet<Path> getBootClasspathEntries(ExecutionContext context) {
+    return FluentIterable.from(context.getAndroidPlatformTarget().getBootclasspathEntries())
+        .toSet();
   }
 
   @Override
@@ -131,6 +124,9 @@ public class RobolectricTest extends JavaTest {
         "DummyRDotJava must have been created!");
     vmArgsBuilder.add(getRobolectricResourceDirectories(
         optionalDummyRDotJava.get().getAndroidResourceDeps()));
+
+    // Force robolectric to only use local dependency resolution.
+    vmArgsBuilder.add("-Drobolectric.offline=true");
   }
 
   @VisibleForTesting

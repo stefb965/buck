@@ -19,9 +19,9 @@ package com.facebook.buck.event.listener;
 import com.facebook.buck.test.TestCaseSummary;
 import com.facebook.buck.test.TestResultSummary;
 import com.facebook.buck.test.TestResults;
-import com.facebook.buck.test.result.type.ResultType;
 import com.facebook.buck.test.selectors.TestSelectorList;
 import com.facebook.buck.util.Ansi;
+import com.facebook.buck.util.Verbosity;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ArrayListMultimap;
@@ -34,11 +34,13 @@ import java.util.List;
 public class TestResultFormatter {
 
   private final Ansi ansi;
-  private final boolean isTreatingAssumptionsAsErrors;
+  private final Verbosity verbosity;
 
-  public TestResultFormatter(Ansi ansi, boolean isTreatingAssumptionsAsErrors) {
-    this.isTreatingAssumptionsAsErrors = isTreatingAssumptionsAsErrors;
+  public TestResultFormatter(
+      Ansi ansi,
+      Verbosity verbosity) {
     this.ansi = ansi;
+    this.verbosity = verbosity;
   }
 
   public void runStarted(
@@ -61,13 +63,22 @@ public class TestResultFormatter {
 
   /** Writes a detailed summary that ends with a trailing newline. */
   public void reportResult(ImmutableList.Builder<String> addTo, TestResults results) {
+    if (
+        verbosity.shouldPrintBinaryRunInformation() &&
+            results.getTotalNumberOfTests() > 1) {
+      addTo.add("");
+      addTo.add(String.format(
+              "Results for %s (%d/%d) %s",
+              results.getBuildTarget().getFullyQualifiedName(),
+              results.getSequenceNumber(),
+              results.getTotalNumberOfTests(), verbosity));
+    }
     for (TestCaseSummary testCase : results.getTestCases()) {
       addTo.add(testCase.getOneLineSummary(results.getDependenciesPassTheirTests(), ansi));
 
-      // Don't print the full error if success and either (a) we aren't treating assumptions as
-      // errors, or (b) we *are*, and there were no assumption-violations...
-      if (testCase.isSuccess() &&
-          (!isTreatingAssumptionsAsErrors || !testCase.hasAssumptionViolations())) {
+      // Don't print the full error if there were no failures (so only successes and assumption
+      // violations)
+      if (testCase.isSuccess()) {
         continue;
       }
 
@@ -76,11 +87,8 @@ public class TestResultFormatter {
           continue;
         }
 
-        // Report on either (a) explicit failure or (b) assumption-violation, if we are treating
-        // assumptions as errors.
-        if (!testResult.isSuccess() || (
-            isTreatingAssumptionsAsErrors &&
-            testResult.getType().equals(ResultType.ASSUMPTION_VIOLATION))) {
+        // Report on either explicit failure
+        if (!testResult.isSuccess()) {
           reportResultSummary(addTo, testResult);
         }
       }

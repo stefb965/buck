@@ -18,10 +18,10 @@ package org.openqa.selenium.buck.mozilla;
 
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
@@ -30,27 +30,29 @@ import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.zip.ZipStep;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Iterables;
 
 import org.openqa.selenium.buck.file.SrcZipAwareFileBundler;
 
 import java.nio.file.Path;
 
-import javax.annotation.Nullable;
-
 public class Xpi extends AbstractBuildRule {
 
   private final Path scratch;
   private final Path output;
+  @AddToRuleKey
   private final Path chrome;
+  @AddToRuleKey
   private final ImmutableSortedSet<SourcePath> components;
+  @AddToRuleKey
   private final ImmutableSortedSet<SourcePath> content;
+  @AddToRuleKey
   private final Path install;
+  @AddToRuleKey
   private final ImmutableSortedSet<SourcePath> resources;
+  @AddToRuleKey
   private final ImmutableSortedSet<SourcePath> platforms;
 
   public Xpi(
@@ -75,17 +77,7 @@ public class Xpi extends AbstractBuildRule {
         getBuildTarget(),
         String.format("%%s/%s.xpi", getBuildTarget().getShortName()));
 
-    this.scratch = BuildTargets.getBinPath(getBuildTarget(), "%s-xpi");
-  }
-
-  @Override
-  public ImmutableCollection<Path> getInputsToCompareToOutput() {
-    Iterable<SourcePath> sourcePaths = Iterables.concat(content, components, resources, platforms);
-
-    return ImmutableSortedSet.<Path>naturalOrder()
-        .add(chrome, install)
-        .addAll(getResolver().filterInputsToCompareToOutput(sourcePaths))
-        .build();
+    this.scratch = BuildTargets.getScratchPath(getBuildTarget(), "%s-xpi");
   }
 
   @Override
@@ -130,19 +122,6 @@ public class Xpi extends AbstractBuildRule {
     return steps.build();
   }
 
-  @Override
-  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
-    return builder
-        .setReflectively("chrome", ImmutableSet.of(chrome).iterator())
-        .setReflectively("components", components)
-        .setReflectively("content", content)
-        .setReflectively("install", ImmutableSet.of(install).iterator())
-        .setReflectively("platforms", platforms)
-        .setReflectively("resources", resources)
-        ;
-  }
-
-  @Nullable
   @Override
   public Path getPathToOutputFile() {
     return output;

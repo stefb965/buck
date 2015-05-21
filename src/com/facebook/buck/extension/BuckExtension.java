@@ -24,11 +24,11 @@ import com.facebook.buck.java.JavacStep;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildDependencies;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
@@ -41,7 +41,6 @@ import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Iterables;
 
 import java.io.File;
 import java.net.URISyntaxException;
@@ -55,9 +54,11 @@ import java.util.Collection;
  * have the classpath of buck itself added to its dependencies.
  */
 public class BuckExtension extends AbstractBuildRule {
-
+  @AddToRuleKey
   private final JavacOptions javacOptions;
+  @AddToRuleKey
   private final ImmutableSortedSet<? extends SourcePath> srcs;
+  @AddToRuleKey
   private final ImmutableSortedSet<? extends SourcePath> resources;
   private final Path output;
   private final Path working;
@@ -76,12 +77,7 @@ public class BuckExtension extends AbstractBuildRule {
 
     BuildTarget target = params.getBuildTarget();
     this.output = BuildTargets.getGenPath(target, "%s-buck.jar");
-    this.working = BuildTargets.getBinPath(target, "__%s__");
-  }
-
-  @Override
-  public ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return getResolver().filterInputsToCompareToOutput(Iterables.concat(srcs, resources));
+    this.working = BuildTargets.getScratchPath(target, "__%s__");
   }
 
   @Override
@@ -111,7 +107,8 @@ public class BuckExtension extends AbstractBuildRule {
             javacOptions,
             getBuildTarget(),
             BuildDependencies.FIRST_ORDER_ONLY,
-            Optional.<JavacStep.SuggestBuildRules>absent()));
+            Optional.<JavacStep.SuggestBuildRules>absent(),
+            getResolver()));
     steps.add(new CopyResourcesStep(
             getResolver(),
             getBuildTarget(),
@@ -150,11 +147,6 @@ public class BuckExtension extends AbstractBuildRule {
     }
 
     return builder.build();
-  }
-
-  @Override
-  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
-    return builder;
   }
 
   @Override

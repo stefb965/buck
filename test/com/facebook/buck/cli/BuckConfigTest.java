@@ -24,6 +24,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import com.facebook.buck.io.MorePaths;
+import com.facebook.buck.io.MorePathsForTests;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
@@ -51,63 +52,11 @@ import java.io.Reader;
 import java.io.StringReader;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Iterator;
-import java.util.Map;
 
 public class BuckConfigTest {
 
   @Rule
   public DebuggableTemporaryFolder temporaryFolder = new DebuggableTemporaryFolder();
-
-  @Test
-  public void testSortOrder() throws IOException {
-    Reader reader = new StringReader(Joiner.on('\n').join(
-        "[alias]",
-        "one =   //foo:one",
-        "two =   //foo:two",
-        "three = //foo:three",
-        "four  = //foo:four"));
-    Map<String, Map<String, String>> sectionsToEntries = BuckConfig.createFromReaders(
-        ImmutableList.of(reader));
-    Map<String, String> aliases = sectionsToEntries.get("alias");
-
-    // Verify that entries are sorted in the order that they appear in the file, rather than in
-    // alphabetical order, or some sort of hashed-key order.
-    Iterator<Map.Entry<String, String>> entries = aliases.entrySet().iterator();
-
-    Map.Entry<String, String> first = entries.next();
-    assertEquals("one", first.getKey());
-
-    Map.Entry<String, String> second = entries.next();
-    assertEquals("two", second.getKey());
-
-    Map.Entry<String, String> third = entries.next();
-    assertEquals("three", third.getKey());
-
-    Map.Entry<String, String> fourth = entries.next();
-    assertEquals("four", fourth.getKey());
-
-    assertFalse(entries.hasNext());
-  }
-
-  @Test
-  public void shouldGetBooleanValues() throws IOException {
-    assertTrue(
-        "a.b is true when 'yes'",
-        createFromText("[a]", "  b = yes").getBooleanValue("a", "b", true));
-    assertTrue(
-        "a.b is true when literally 'true'",
-        createFromText("[a]", "  b = true").getBooleanValue("a", "b", true));
-    assertTrue(
-        "a.b is true when 'YES' (capitalized)",
-        createFromText("[a]", "  b = YES").getBooleanValue("a", "b", true));
-    assertFalse(
-        "a.b is false by default",
-        createFromText("[x]", "  y = COWS").getBooleanValue("a", "b", false));
-    assertFalse(
-        "a.b is true when 'no'",
-        createFromText("[a]", "  b = no").getBooleanValue("a", "b", true));
-  }
 
   /**
    * Ensure that whichever alias is listed first in the file is the one used in the reverse map if
@@ -172,7 +121,7 @@ public class BuckConfigTest {
       BuckConfigTestUtils.createWithDefaultFilesystem(temporaryFolder, reader, parser);
       fail("Should have thrown HumanReadableException.");
     } catch (HumanReadableException e) {
-      assertEquals(":fb4a must start with //", e.getHumanReadableErrorMessage());
+      assertEquals("Path in :fb4a must start with //", e.getHumanReadableErrorMessage());
     }
 
     EasyMock.verify(projectFilesystem);
@@ -390,6 +339,22 @@ public class BuckConfigTest {
   }
 
   @Test
+  public void testWifiBlacklist() throws IOException {
+    BuckConfig config = createFromText(
+        "[cache]",
+        "dir = cassandra,http",
+        "blacklisted_wifi_ssids = yolocoaster");
+    assertFalse(config.isWifiUsableForDistributedCache(Optional.of("yolocoaster")));
+    assertTrue(config.isWifiUsableForDistributedCache(Optional.of("swagtastic")));
+
+    config = createFromText(
+        "[cache]",
+        "dir = cassandra,http");
+
+    assertTrue(config.isWifiUsableForDistributedCache(Optional.of("yolocoaster")));
+  }
+
+  @Test
   public void testExpandUserHomeCacheDir() throws IOException {
     BuckConfig config = createFromText(
         "[cache]",
@@ -410,15 +375,16 @@ public class BuckConfigTest {
   public void testResolveAbsolutePathThatMayBeOutsideTheProjectFilesystem() throws IOException {
     BuckConfig config = createFromText("");
     assertEquals(
-        Paths.get("/foo/bar"),
-        config.resolvePathThatMayBeOutsideTheProjectFilesystem(Paths.get("/foo/bar")));
+        MorePathsForTests.rootRelativePath("foo/bar"),
+        config.resolvePathThatMayBeOutsideTheProjectFilesystem(
+            MorePathsForTests.rootRelativePath("foo/bar")));
   }
 
   @Test
   public void testResolveRelativePathThatMayBeOutsideTheProjectFilesystem() throws IOException {
     BuckConfig config = createFromText("");
     assertEquals(
-        Paths.get("/project/foo/bar"),
+        MorePathsForTests.rootRelativePath("project/foo/bar"),
         config.resolvePathThatMayBeOutsideTheProjectFilesystem(Paths.get("../foo/bar")));
   }
 
@@ -461,15 +427,13 @@ public class BuckConfigTest {
   }
 
   @Test
-  public void testOverride() throws IOException {
-    Reader readerA = new StringReader(Joiner.on('\n').join(
-        "[cache]",
-        "    mode = dir,cassandra"));
-    Reader readerB = new StringReader(Joiner.on('\n').join(
-        "[cache]",
-        "    mode ="));
-    // Verify that no exception is thrown when a definition is overridden.
-    BuckConfig.createFromReaders(ImmutableList.of(readerA, readerB));
+  public void testGetAndroidTargetSdkWithSpaces() throws IOException {
+    BuckConfig config = createFromText(
+        "[android]",
+        "target = Google Inc.:Google APIs:16");
+    assertEquals(
+        "Google Inc.:Google APIs:16",
+        config.getValue("android", "target").get());
   }
 
   @Test
@@ -491,47 +455,18 @@ public class BuckConfigTest {
   public void getEnvUsesSuppliedEnvironment() {
     String name = "SOME_ENVIRONMENT_VARIABLE";
     String value = "SOME_VALUE";
-    FakeBuckConfig config = new FakeBuckConfig(ImmutableMap.of(name, value));
+    FakeBuckConfig config = new FakeBuckConfig(
+        ImmutableMap.<String, ImmutableMap<String, String>>of(),
+        ImmutableMap.of(name, value));
     String[] expected = {value};
     assertArrayEquals("Should match value in environment.", expected, config.getEnv(name, ":"));
-  }
-
-  private static enum TestEnum {
-    A,
-    B
-  }
-
-  @Test
-  public void getEnum() {
-    FakeBuckConfig config = new FakeBuckConfig(
-        ImmutableMap.<String, Map<String, String>>of("section",
-            ImmutableMap.of("field", "A")));
-    Optional<TestEnum> value = config.getEnum("section", "field", TestEnum.class);
-    assertEquals(Optional.of(TestEnum.A), value);
-  }
-
-  @Test
-  public void getEnumLowerCase() {
-    FakeBuckConfig config = new FakeBuckConfig(
-        ImmutableMap.<String, Map<String, String>>of("section",
-            ImmutableMap.of("field", "a")));
-    Optional<TestEnum> value = config.getEnum("section", "field", TestEnum.class);
-    assertEquals(Optional.of(TestEnum.A), value);
-  }
-
-  @Test(expected = HumanReadableException.class)
-  public void getEnumInvalidValue() {
-    FakeBuckConfig config = new FakeBuckConfig(
-        ImmutableMap.<String, Map<String, String>>of("section",
-            ImmutableMap.of("field", "C")));
-    config.getEnum("section", "field", TestEnum.class);
   }
 
   private BuckConfig createFromText(String... lines) throws IOException {
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem() {
       @Override
       public Path getRootPath() {
-        return Paths.get("/project/root");
+        return MorePathsForTests.rootRelativePath("project/root");
       }
     };
     BuildTargetParser parser = new BuildTargetParser();

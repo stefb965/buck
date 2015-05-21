@@ -46,7 +46,7 @@ public class BuckPyFunctionTest {
     class NoName { public String random; }
 
     String definition = buckPyFunction.toPythonFunction(
-        ImmutableBuildRuleType.of("bad"),
+        BuildRuleType.of("bad"),
         new NoName());
 
     assertTrue(definition.contains("name"));
@@ -57,7 +57,7 @@ public class BuckPyFunctionTest {
     class NoVis { public String random; }
 
     String definition = buckPyFunction.toPythonFunction(
-        ImmutableBuildRuleType.of("bad"),
+        BuildRuleType.of("bad"),
         new NoVis());
 
     assertTrue(definition.contains("visibility=[]"));
@@ -68,14 +68,14 @@ public class BuckPyFunctionTest {
     class Named { public String name; }
 
     String definition = buckPyFunction.toPythonFunction(
-        ImmutableBuildRuleType.of("named"),
+        BuildRuleType.of("named"),
         new Named());
 
     assertEquals(Joiner.on("\n").join(
         "@provide_for_build",
         "def named(name, visibility=[], build_env=None):",
         "  add_rule({",
-        "    'type' : 'named',",
+        "    'buck.type' : 'named',",
         "    'name' : name,",
         "    'visibility' : visibility,",
         "  }, build_env)",
@@ -90,14 +90,14 @@ public class BuckPyFunctionTest {
     class NoName { public String foobar; }
 
     String definition = buckPyFunction.toPythonFunction(
-        ImmutableBuildRuleType.of("noname"),
+        BuildRuleType.of("noname"),
         new NoName());
 
     assertEquals(Joiner.on("\n").join(
             "@provide_for_build",
             "def noname(foobar, visibility=[], build_env=None):",
             "  add_rule({",
-            "    'type' : 'noname',",
+            "    'buck.type' : 'noname',",
             "    'name' : 'lollerskates',",
             "    'foobar' : foobar,",
             "    'visibility' : visibility,",
@@ -111,7 +111,7 @@ public class BuckPyFunctionTest {
   public void theNameFieldMustBeAString() {
     class BadName { public int name; }
 
-    buckPyFunction.toPythonFunction(ImmutableBuildRuleType.of("nope"), new BadName());
+    buckPyFunction.toPythonFunction(BuildRuleType.of("nope"), new BadName());
   }
 
   @Test
@@ -123,7 +123,7 @@ public class BuckPyFunctionTest {
     }
 
     String definition = buckPyFunction.toPythonFunction(
-        ImmutableBuildRuleType.of("optional"), new LotsOfOptions());
+        BuildRuleType.of("optional"), new LotsOfOptions());
 
     assertTrue(definition, definition.contains("targets=[], thing=None, version=None"));
   }
@@ -139,14 +139,14 @@ public class BuckPyFunctionTest {
     }
 
     String definition = buckPyFunction.toPythonFunction(
-        ImmutableBuildRuleType.of("either"),
+        BuildRuleType.of("either"),
         new Either());
 
     assertEquals(Joiner.on("\n").join(
         "@provide_for_build",
         "def either(name, dog, fake, cat=None, egg=None, visibility=[], build_env=None):",
         "  add_rule({",
-        "    'type' : 'either',",
+        "    'buck.type' : 'either',",
         "    'name' : name,",
         "    'dog' : dog,",
         "    'fake' : fake,",
@@ -165,7 +165,7 @@ public class BuckPyFunctionTest {
       public Set<BuildTargetPattern> visibility;
     }
 
-    buckPyFunction.toPythonFunction(ImmutableBuildRuleType.of("nope"), new Visible());
+    buckPyFunction.toPythonFunction(BuildRuleType.of("nope"), new Visible());
   }
 
   @Test
@@ -178,14 +178,14 @@ public class BuckPyFunctionTest {
     }
 
     String definition = buckPyFunction.toPythonFunction(
-        ImmutableBuildRuleType.of("case"),
+        BuildRuleType.of("case"),
         new Dto());
 
     assertEquals(Joiner.on("\n").join(
         "@provide_for_build",
         "def case(name, all_this_was_fields, some_field, visibility=[], build_env=None):",
         "  add_rule({",
-        "    'type' : 'case',",
+        "    'buck.type' : 'case',",
         "    'name' : name,",
         "    'hintedField' : all_this_was_fields,",
         "    'someField' : some_field,",
@@ -203,7 +203,7 @@ public class BuckPyFunctionTest {
     }
 
     String definition = buckPyFunction.toPythonFunction(
-        ImmutableBuildRuleType.of("boolean"),
+        BuildRuleType.of("boolean"),
         new Dto());
 
     assertTrue(definition, definition.contains(", field=None,"));

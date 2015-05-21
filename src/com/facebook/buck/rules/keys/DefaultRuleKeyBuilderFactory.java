@@ -16,8 +16,10 @@
 
 package com.facebook.buck.rules.keys;
 
+import com.facebook.buck.model.BuckVersion;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.util.FileHashCache;
@@ -29,9 +31,6 @@ import java.util.concurrent.ExecutionException;
 
 
 public class DefaultRuleKeyBuilderFactory implements RuleKeyBuilderFactory {
-  private static final String BUCK_VERSION_UID_KEY = "buck.version_uid";
-  private static final String BUCK_VERSION_UID = System.getProperty(BUCK_VERSION_UID_KEY, "N/A");
-
   private final FileHashCache hashCache;
   private LoadingCache<Class<? extends BuildRule>, ImmutableCollection<AlterRuleKey>> knownFields;
 
@@ -44,7 +43,13 @@ public class DefaultRuleKeyBuilderFactory implements RuleKeyBuilderFactory {
   @Override
   public RuleKey.Builder newInstance(BuildRule buildRule, SourcePathResolver resolver) {
     RuleKey.Builder builder = RuleKey.builder(buildRule, resolver, hashCache);
-    builder.setReflectively("buckVersionUid", BUCK_VERSION_UID);
+    builder.setReflectively("buckVersionUid", BuckVersion.getVersion());
+
+    if (buildRule instanceof RuleKeyAppendable) {
+      // "." is not a valid first character for a field name, and so will never be seen in the
+      // reflective rule key setting
+      ((RuleKeyAppendable) buildRule).appendToRuleKey(builder, ".buck");
+    }
 
     try {
       for (AlterRuleKey alterRuleKey : knownFields.get(buildRule.getClass())) {

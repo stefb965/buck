@@ -16,6 +16,7 @@
 
 package com.facebook.buck.android.aapt;
 
+import com.facebook.buck.android.AaptStep;
 import com.facebook.buck.android.aapt.RDotTxtEntry.IdType;
 import com.facebook.buck.android.aapt.RDotTxtEntry.RType;
 import com.facebook.buck.event.BuckEventBus;
@@ -204,7 +205,9 @@ public class MiniAapt implements Step {
     Collection<Path> contents = filesystem.getDirectoryContents(resDirectory);
     for (Path dir : contents) {
       if (!filesystem.isDirectory(dir) && !filesystem.isIgnored(dir)) {
-        eventBus.post(ConsoleEvent.warning("MiniAapt [warning]: ignoring file '%s'.", dir));
+        if (!shouldIgnoreFile(dir, filesystem)) {
+          eventBus.post(ConsoleEvent.warning("MiniAapt [warning]: ignoring file '%s'.", dir));
+        }
         continue;
       }
 
@@ -443,7 +446,8 @@ public class MiniAapt implements Step {
       throws IOException{
     return filesystem.isHidden(path) ||
         IGNORED_FILE_EXTENSIONS.contains(
-            com.google.common.io.Files.getFileExtension(path.getFileName().toString()));
+            com.google.common.io.Files.getFileExtension(path.getFileName().toString())) ||
+        AaptStep.isSilentlyIgnored(path);
   }
 
   @VisibleForTesting

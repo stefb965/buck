@@ -30,7 +30,7 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleEvent;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleStatus;
-import com.facebook.buck.rules.BuildRuleSuccess;
+import com.facebook.buck.rules.BuildRuleSuccessType;
 import com.facebook.buck.rules.CacheResult;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -39,9 +39,11 @@ import com.facebook.buck.shell.GenruleDescription;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.timing.IncrementingFakeClock;
+import com.google.common.base.Functions;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Iterables;
 import com.google.common.eventbus.EventBus;
 
 import org.junit.Test;
@@ -58,6 +60,7 @@ public class SimpleConsoleEventBusListenerTest {
 
     BuildTarget fakeTarget = BuildTargetFactory.newInstance("//banana:stand");
     ImmutableSet<BuildTarget> buildTargets = ImmutableSet.of(fakeTarget);
+    Iterable<String> buildArgs = Iterables.transform(buildTargets, Functions.toStringFunction());
     FakeBuildRule fakeRule = new FakeBuildRule(
         GenruleDescription.TYPE,
         fakeTarget,
@@ -65,16 +68,17 @@ public class SimpleConsoleEventBusListenerTest {
         ImmutableSortedSet.<BuildRule>of()
     );
 
-    SimpleConsoleEventBusListener listener = new SimpleConsoleEventBusListener(
-        console,
-        fakeClock,
-        /* isAnAssumptionViolationAnError */ false);
+    SimpleConsoleEventBusListener listener = new SimpleConsoleEventBusListener(console, fakeClock);
     eventBus.register(listener);
 
     final long threadId = 0;
 
-    rawEventBus.post(configureTestEventAtTime(
-        BuildEvent.started(buildTargets), 0L, TimeUnit.MILLISECONDS, threadId));
+    rawEventBus.post(
+        configureTestEventAtTime(
+            BuildEvent.started(buildArgs),
+            0L,
+            TimeUnit.MILLISECONDS,
+            threadId));
     rawEventBus.post(configureTestEventAtTime(
         ParseEvent.started(buildTargets), 0L, TimeUnit.MILLISECONDS, threadId));
 
@@ -100,13 +104,13 @@ public class SimpleConsoleEventBusListenerTest {
     rawEventBus.post(configureTestEventAtTime(BuildRuleEvent.finished(
         fakeRule,
         BuildRuleStatus.SUCCESS,
-        CacheResult.MISS,
-        Optional.of(BuildRuleSuccess.Type.BUILT_LOCALLY)),
+        CacheResult.miss(),
+        Optional.of(BuildRuleSuccessType.BUILT_LOCALLY)),
         1000L, TimeUnit.MILLISECONDS, threadId));
     rawEventBus.post(configureTestEventAtTime(
-        BuildEvent.finished(buildTargets, 0), 1234L, TimeUnit.MILLISECONDS, threadId));
+        BuildEvent.finished(buildArgs, 0), 1234L, TimeUnit.MILLISECONDS, threadId));
 
-    final String buildingLine = "[-] BUILDING...FINISHED 0.8s\n";
+    final String buildingLine = "BUILT //banana:stand\n[-] BUILDING...FINISHED 0.8s\n";
 
     assertEquals("", console.getTextWrittenToStdOut());
     assertEquals(parsingLine + buildingLine,

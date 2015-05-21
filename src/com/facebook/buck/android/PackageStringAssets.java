@@ -25,13 +25,11 @@ import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.RecordFileSha1Step;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.Sha1HashCode;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.zip.ZipStep;
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.Hashing;
@@ -67,11 +65,6 @@ public class PackageStringAssets extends AbstractBuildRule
   }
 
   @Override
-  public ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return ImmutableSet.of();
-  }
-
-  @Override
   public ImmutableList<Step> getBuildSteps(
       BuildContext context,
       BuildableContext buildableContext) {
@@ -95,7 +88,8 @@ public class PackageStringAssets extends AbstractBuildRule
     Path pathToStringAssetsZip = getPathToStringAssetsZip();
     steps.add(new MakeCleanDirectoryStep(pathToStrings));
     steps.add(new CompileStringsStep(
-            filteredResourcesProvider.getNonEnglishStringFiles(),
+            ImmutableSet.copyOf(
+                getResolver().getAllPaths(filteredResourcesProvider.getNonEnglishStringFiles())),
             aaptPackageResources.getPathToRDotTxtDir(),
             pathToStrings));
     steps.add(new ZipStep(
@@ -136,18 +130,13 @@ public class PackageStringAssets extends AbstractBuildRule
     }
   }
 
-  @Override
-  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
-    return builder;
-  }
-
   @Nullable
   @Override
   public Path getPathToOutputFile() {
-    return null;
+    return getPathToStringAssetsZip();
   }
 
   private Path getPathToStringAssetsDir() {
-    return BuildTargets.getBinPath(getBuildTarget(), "__strings_%s__");
+    return BuildTargets.getScratchPath(getBuildTarget(), "__strings_%s__");
   }
 }

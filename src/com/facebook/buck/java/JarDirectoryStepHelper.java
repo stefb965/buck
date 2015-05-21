@@ -121,6 +121,7 @@ public class JarDirectoryStepHelper {
       }
 
       JarEntry manifestEntry = new JarEntry(JarFile.MANIFEST_NAME);
+      manifestEntry.setTime(0);  // We want deterministic JARs, so avoid mtimes.
       outputFile.putNextEntry(manifestEntry);
       manifest.write(outputFile);
     }
@@ -202,7 +203,7 @@ public class JarDirectoryStepHelper {
   private static Manifest readManifest(ZipFile zip, ZipEntry manifestMfEntry) throws IOException {
     try (
         ByteArrayOutputStream output = new ByteArrayOutputStream((int) manifestMfEntry.getSize());
-        InputStream stream = zip.getInputStream(manifestMfEntry);
+        InputStream stream = zip.getInputStream(manifestMfEntry)
     ) {
       ByteStreams.copy(stream, output);
       ByteArrayInputStream rawManifest = new ByteArrayInputStream(output.toByteArray());
@@ -224,7 +225,7 @@ public class JarDirectoryStepHelper {
       public void visit(File file, String relativePath) {
         JarEntry entry = new JarEntry(relativePath.replace('\\', '/'));
         String entryName = entry.getName();
-        entry.setTime(file.lastModified());
+        entry.setTime(0);  // We want deterministic JARs, so avoid mtimes.
         try {
           // We expect there to be many duplicate entries for things like directories. Creating
           // those repeatedly would be lame, so don't do that.
@@ -255,7 +256,7 @@ public class JarDirectoryStepHelper {
           return;
         }
         JarEntry entry = new JarEntry(entryName);
-        entry.setTime(directory.lastModified());
+        entry.setTime(0);  // We want deterministic JARs, so avoid mtimes.
         jar.putNextEntry(entry);
         jar.closeEntry();
       }

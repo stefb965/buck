@@ -22,7 +22,7 @@ import static org.junit.Assert.assertTrue;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.python.ImmutablePythonPackageComponents;
+import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.python.PythonPackageComponents;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
@@ -33,6 +33,7 @@ import com.facebook.buck.testutil.AllExistingProjectFilesystem;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.google.common.base.Function;
+import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -58,12 +59,13 @@ public class PrebuiltCxxLibraryDescriptionTest {
     String libDir = arg.libDir.or("lib");
     String libName = arg.libName.or(TARGET.getShortName());
     return TARGET.getBasePath().resolve(libDir).resolve(
-        String.format("lib%s.so", libName));
+        String.format("lib%s.%s", libName, CXX_PLATFORM.getSharedLibraryExtension()));
   }
 
   private static String getSharedLibrarySoname(PrebuiltCxxLibraryDescription.Arg arg) {
     String libName = arg.libName.or(TARGET.getShortName());
-    return arg.soname.or(String.format("lib%s.so", libName));
+    return arg.soname.or(
+        String.format("lib%s.%s", libName, CXX_PLATFORM.getSharedLibraryExtension()));
   }
 
   private static ImmutableList<Path> getIncludeDirs(PrebuiltCxxLibraryDescription.Arg arg) {
@@ -93,31 +95,34 @@ public class PrebuiltCxxLibraryDescriptionTest {
         .build();
     assertEquals(
         expectedCxxPreprocessorInput,
-        lib.getCxxPreprocessorInput(CXX_PLATFORM));
+        lib.getCxxPreprocessorInput(
+            CXX_PLATFORM,
+            HeaderVisibility.PUBLIC));
 
     // Verify static native linkable input.
-    NativeLinkableInput expectedStaticLinkableInput = ImmutableNativeLinkableInput.of(
-        ImmutableList.<SourcePath>of(new PathSourcePath(getStaticLibraryPath(arg))),
+    NativeLinkableInput expectedStaticLinkableInput = NativeLinkableInput.of(
+        ImmutableList.<SourcePath>of(new PathSourcePath(filesystem, getStaticLibraryPath(arg))),
         ImmutableList.of(getStaticLibraryPath(arg).toString()));
     assertEquals(
         expectedStaticLinkableInput,
         lib.getNativeLinkableInput(CXX_PLATFORM, Linker.LinkableDepType.STATIC));
 
     // Verify shared native linkable input.
-    NativeLinkableInput expectedSharedLinkableInput = ImmutableNativeLinkableInput.of(
-        ImmutableList.<SourcePath>of(new PathSourcePath(getSharedLibraryPath(arg))),
+    NativeLinkableInput expectedSharedLinkableInput = NativeLinkableInput.of(
+        ImmutableList.<SourcePath>of(new PathSourcePath(filesystem, getSharedLibraryPath(arg))),
         ImmutableList.of(getSharedLibraryPath(arg).toString()));
     assertEquals(
         expectedSharedLinkableInput,
         lib.getNativeLinkableInput(CXX_PLATFORM, Linker.LinkableDepType.SHARED));
 
     // Verify the python packageable components are correct.
-    PythonPackageComponents expectedComponents = ImmutablePythonPackageComponents.of(
+    PythonPackageComponents expectedComponents = PythonPackageComponents.of(
         ImmutableMap.<Path, SourcePath>of(),
         ImmutableMap.<Path, SourcePath>of(),
         ImmutableMap.<Path, SourcePath>of(
             Paths.get(getSharedLibrarySoname(arg)),
-            new PathSourcePath(getSharedLibraryPath(arg))));
+            new PathSourcePath(filesystem, getSharedLibraryPath(arg))),
+        Optional.<Boolean>absent());
     assertEquals(
         expectedComponents,
         lib.getPythonPackageComponents(CXX_PLATFORM));
@@ -138,10 +143,12 @@ public class PrebuiltCxxLibraryDescriptionTest {
         .build();
     assertEquals(
         expectedCxxPreprocessorInput,
-        lib.getCxxPreprocessorInput(CXX_PLATFORM));
+        lib.getCxxPreprocessorInput(
+            CXX_PLATFORM,
+            HeaderVisibility.PUBLIC));
 
     // Verify static native linkable input.
-    NativeLinkableInput expectedStaticLinkableInput = ImmutableNativeLinkableInput.of(
+    NativeLinkableInput expectedStaticLinkableInput = NativeLinkableInput.of(
         ImmutableList.<SourcePath>of(),
         ImmutableList.<String>of());
     assertEquals(
@@ -149,7 +156,7 @@ public class PrebuiltCxxLibraryDescriptionTest {
         lib.getNativeLinkableInput(CXX_PLATFORM, Linker.LinkableDepType.STATIC));
 
     // Verify shared native linkable input.
-    NativeLinkableInput expectedSharedLinkableInput = ImmutableNativeLinkableInput.of(
+    NativeLinkableInput expectedSharedLinkableInput = NativeLinkableInput.of(
         ImmutableList.<SourcePath>of(),
         ImmutableList.<String>of());
     assertEquals(
@@ -157,10 +164,11 @@ public class PrebuiltCxxLibraryDescriptionTest {
         lib.getNativeLinkableInput(CXX_PLATFORM, Linker.LinkableDepType.SHARED));
 
     // Verify the python packageable components are correct.
-    PythonPackageComponents expectedComponents = ImmutablePythonPackageComponents.of(
+    PythonPackageComponents expectedComponents = PythonPackageComponents.of(
         ImmutableMap.<Path, SourcePath>of(),
         ImmutableMap.<Path, SourcePath>of(),
-        ImmutableMap.<Path, SourcePath>of());
+        ImmutableMap.<Path, SourcePath>of(),
+        Optional.<Boolean>absent());
     assertEquals(
         expectedComponents,
         lib.getPythonPackageComponents(CXX_PLATFORM));
@@ -181,29 +189,32 @@ public class PrebuiltCxxLibraryDescriptionTest {
         .build();
     assertEquals(
         expectedCxxPreprocessorInput,
-        lib.getCxxPreprocessorInput(CXX_PLATFORM));
+        lib.getCxxPreprocessorInput(
+            CXX_PLATFORM,
+            HeaderVisibility.PUBLIC));
 
     // Verify static native linkable input.
-    NativeLinkableInput expectedStaticLinkableInput = ImmutableNativeLinkableInput.of(
-        ImmutableList.<SourcePath>of(new PathSourcePath(getSharedLibraryPath(arg))),
+    NativeLinkableInput expectedStaticLinkableInput = NativeLinkableInput.of(
+        ImmutableList.<SourcePath>of(new PathSourcePath(filesystem, getSharedLibraryPath(arg))),
         ImmutableList.of(getSharedLibraryPath(arg).toString()));
     assertEquals(
         expectedStaticLinkableInput,
         lib.getNativeLinkableInput(CXX_PLATFORM, Linker.LinkableDepType.STATIC));
 
     // Verify shared native linkable input.
-    NativeLinkableInput expectedSharedLinkableInput = ImmutableNativeLinkableInput.of(
-        ImmutableList.<SourcePath>of(new PathSourcePath(getSharedLibraryPath(arg))),
+    NativeLinkableInput expectedSharedLinkableInput = NativeLinkableInput.of(
+        ImmutableList.<SourcePath>of(new PathSourcePath(filesystem, getSharedLibraryPath(arg))),
         ImmutableList.of(getSharedLibraryPath(arg).toString()));
     assertEquals(
         expectedSharedLinkableInput,
         lib.getNativeLinkableInput(CXX_PLATFORM, Linker.LinkableDepType.SHARED));
 
     // Verify the python packageable components are correct.
-    PythonPackageComponents expectedComponents = ImmutablePythonPackageComponents.of(
+    PythonPackageComponents expectedComponents = PythonPackageComponents.of(
         ImmutableMap.<Path, SourcePath>of(),
         ImmutableMap.<Path, SourcePath>of(),
-        ImmutableMap.<Path, SourcePath>of());
+        ImmutableMap.<Path, SourcePath>of(),
+        Optional.<Boolean>absent());
     assertEquals(
         expectedComponents,
         lib.getPythonPackageComponents(CXX_PLATFORM));
@@ -224,31 +235,34 @@ public class PrebuiltCxxLibraryDescriptionTest {
         .build();
     assertEquals(
         expectedCxxPreprocessorInput,
-        lib.getCxxPreprocessorInput(CXX_PLATFORM));
+        lib.getCxxPreprocessorInput(
+            CXX_PLATFORM,
+            HeaderVisibility.PUBLIC));
 
     // Verify static native linkable input.
-    NativeLinkableInput expectedStaticLinkableInput = ImmutableNativeLinkableInput.of(
-        ImmutableList.<SourcePath>of(new PathSourcePath(getStaticLibraryPath(arg))),
+    NativeLinkableInput expectedStaticLinkableInput = NativeLinkableInput.of(
+        ImmutableList.<SourcePath>of(new PathSourcePath(filesystem, getStaticLibraryPath(arg))),
         ImmutableList.of(getStaticLibraryPath(arg).toString()));
     assertEquals(
         expectedStaticLinkableInput,
         lib.getNativeLinkableInput(CXX_PLATFORM, Linker.LinkableDepType.STATIC));
 
     // Verify shared native linkable input.
-    NativeLinkableInput expectedSharedLinkableInput = ImmutableNativeLinkableInput.of(
-        ImmutableList.<SourcePath>of(new PathSourcePath(getSharedLibraryPath(arg))),
+    NativeLinkableInput expectedSharedLinkableInput = NativeLinkableInput.of(
+        ImmutableList.<SourcePath>of(new PathSourcePath(filesystem, getSharedLibraryPath(arg))),
         ImmutableList.of(getSharedLibraryPath(arg).toString()));
     assertEquals(
         expectedSharedLinkableInput,
         lib.getNativeLinkableInput(CXX_PLATFORM, Linker.LinkableDepType.SHARED));
 
     // Verify the python packageable components are correct.
-    PythonPackageComponents expectedComponents = ImmutablePythonPackageComponents.of(
+    PythonPackageComponents expectedComponents = PythonPackageComponents.of(
         ImmutableMap.<Path, SourcePath>of(),
         ImmutableMap.<Path, SourcePath>of(),
         ImmutableMap.<Path, SourcePath>of(
             Paths.get(getSharedLibrarySoname(arg)),
-            new PathSourcePath(getSharedLibraryPath(arg))));
+            new PathSourcePath(filesystem, getSharedLibraryPath(arg))),
+        Optional.<Boolean>absent());
     assertEquals(
         expectedComponents,
         lib.getPythonPackageComponents(CXX_PLATFORM));
@@ -300,8 +314,57 @@ public class PrebuiltCxxLibraryDescriptionTest {
     assertEquals(
         ImmutableMap.<String, SourcePath>of(
             getSharedLibrarySoname(arg),
-            new PathSourcePath(getSharedLibraryPath(arg))),
+            new PathSourcePath(filesystem, getSharedLibraryPath(arg))),
         lib.getSharedLibraries(CXX_PLATFORM));
+  }
+
+  @Test
+  public void platformMacro() {
+    Optional<String> libDir = Optional.of("libs/$(platform)");
+    Optional<String> libName = Optional.of("test-$(platform)");
+    Optional<String> soname = Optional.absent();
+
+    CxxPlatform platform1 =
+        CxxPlatformUtils.DEFAULT_PLATFORM
+            .withFlavor(ImmutableFlavor.of("PLATFORM1"));
+    CxxPlatform platform2 =
+        CxxPlatformUtils.DEFAULT_PLATFORM
+            .withFlavor(ImmutableFlavor.of("PLATFORM2"));
+
+    assertEquals(
+        String.format("libtest-PLATFORM1.%s", platform1.getSharedLibraryExtension()),
+        PrebuiltCxxLibraryDescription.getSoname(
+            TARGET,
+            platform1, soname, libName));
+    assertEquals(
+        String.format("libtest-PLATFORM2.%s", platform2.getSharedLibraryExtension()),
+        PrebuiltCxxLibraryDescription.getSoname(
+            TARGET,
+            platform2, soname, libName));
+
+    assertEquals(
+        TARGET.getBasePath()
+            .resolve(
+                String.format(
+                    "libs/PLATFORM1/libtest-PLATFORM1.%s",
+                    platform1.getSharedLibraryExtension())),
+        PrebuiltCxxLibraryDescription.getSharedLibraryPath(TARGET, platform1, libDir, libName));
+    assertEquals(
+        TARGET.getBasePath()
+            .resolve("libs/PLATFORM1/libtest-PLATFORM1.a"),
+        PrebuiltCxxLibraryDescription.getStaticLibraryPath(TARGET, platform1, libDir, libName));
+
+    assertEquals(
+        TARGET.getBasePath()
+            .resolve(
+                String.format(
+                    "libs/PLATFORM2/libtest-PLATFORM2.%s",
+                    platform2.getSharedLibraryExtension())),
+        PrebuiltCxxLibraryDescription.getSharedLibraryPath(TARGET, platform2, libDir, libName));
+    assertEquals(
+        TARGET.getBasePath()
+            .resolve("libs/PLATFORM2/libtest-PLATFORM2.a"),
+        PrebuiltCxxLibraryDescription.getStaticLibraryPath(TARGET, platform2, libDir, libName));
   }
 
 }

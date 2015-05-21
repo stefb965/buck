@@ -17,7 +17,7 @@
 package com.facebook.buck.python;
 
 import com.facebook.buck.cli.BuckConfig;
-import com.facebook.buck.io.MorePaths;
+import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
 import com.google.common.annotations.VisibleForTesting;
@@ -38,16 +38,26 @@ public class PythonBuckConfig {
   private static final String SECTION = "python";
 
   private static final Pattern PYTHON_VERSION_REGEX =
-      Pattern.compile(".*?(\\wython \\d+\\.\\d+).*");
+      Pattern.compile(".*?(\\wy(thon|run) \\d+\\.\\d+).*");
 
   // Prefer "python2" where available (Linux), but fall back to "python" (Mac).
   private static final ImmutableList<String> PYTHON_INTERPRETER_NAMES =
       ImmutableList.of("python2", "python");
 
-  private final BuckConfig delegate;
+  private static final Path DEFAULT_PATH_TO_PEX =
+      Paths.get(
+          System.getProperty(
+              "buck.path_to_pex",
+              "src/com/facebook/buck/python/pex.py"))
+          .toAbsolutePath();
 
-  public PythonBuckConfig(BuckConfig config) {
+
+  private final BuckConfig delegate;
+  private final ExecutableFinder exeFinder;
+
+  public PythonBuckConfig(BuckConfig config, ExecutableFinder exeFinder) {
     this.delegate = config;
+    this.exeFinder = exeFinder;
   }
 
   /**
@@ -77,15 +87,10 @@ public class PythonBuckConfig {
       pythonInterpreterNames = ImmutableList.of(configPath.get());
     }
 
-    ImmutableList.Builder<Path> paths = ImmutableList.builder();
-    for (String path : delegate.getEnv("PATH", File.pathSeparator)) {
-      paths.add(Paths.get(path));
-    }
     for (String interpreterName : pythonInterpreterNames) {
-      Optional<Path> python = MorePaths.searchPathsForExecutable(
+      Optional<Path> python = exeFinder.getOptionalExecutable(
           Paths.get(interpreterName),
-          paths.build(),
-          ImmutableList.copyOf(delegate.getEnv("PATHEXT", File.pathSeparator)));
+          delegate.getEnvironment());
       if (python.isPresent()) {
         return python.get().toAbsolutePath().toString();
       }
@@ -121,16 +126,28 @@ public class PythonBuckConfig {
     return Optional.of(Paths.get(rawPath));
   }
 
-  public Optional<Path> getPathToPex() {
-    return delegate.getPath(SECTION, "path_to_pex");
+  public Path getPathToPex() {
+    return delegate.getPath(SECTION, "path_to_pex").or(DEFAULT_PATH_TO_PEX);
   }
 
+  public Path getPathToPexExecuter() {
+    Optional<Path> path = delegate.getPath(SECTION, "path_to_pex_executer");
+    if (!path.isPresent()) {
+      return Paths.get(getPythonInterpreter());
+    }
+    if (!isExecutableFile(path.get().toFile())) {
+      throw new HumanReadableException(
+          "%s is not executable (set in python.path_to_pex_executer in your config",
+          path.get().toString());
+    }
+    return path.get();
+  }
 
   private static PythonVersion getPythonVersion(ProcessExecutor processExecutor, Path pythonPath)
       throws InterruptedException {
     try {
       ProcessExecutor.Result versionResult = processExecutor.execute(
-          Runtime.getRuntime().exec(new String[]{pythonPath.toString(), "--version"}),
+          Runtime.getRuntime().exec(new String[]{pythonPath.toString(), "-V"}),
           EnumSet.of(ProcessExecutor.Option.EXPECTING_STD_ERR),
           /* stdin */ Optional.<String>absent(),
           /* timeOutMs */ Optional.<Long>absent());
@@ -149,15 +166,18 @@ public class PythonBuckConfig {
       Path pythonPath,
       ProcessExecutor.Result versionResult) {
     if (versionResult.getExitCode() == 0) {
-      String versionString = CharMatcher.WHITESPACE.trimFrom(versionResult.getStderr().get());
+      String versionString = CharMatcher.WHITESPACE.trimFrom(
+          CharMatcher.WHITESPACE.trimFrom(versionResult.getStderr().get()) +
+          CharMatcher.WHITESPACE.trimFrom(versionResult.getStdout().get())
+              .replaceAll("\u001B\\[[;\\d]*m", ""));
       Matcher matcher = PYTHON_VERSION_REGEX.matcher(versionString);
       if (!matcher.matches()) {
         throw new HumanReadableException(
-            "`%s --version` returned an invalid version string %s",
+            "`%s -V` returned an invalid version string %s",
             pythonPath,
             versionString);
       }
-      return ImmutablePythonVersion.of(matcher.group(1));
+      return PythonVersion.of(matcher.group(1));
     } else {
       throw new HumanReadableException(versionResult.getStderr().get());
     }

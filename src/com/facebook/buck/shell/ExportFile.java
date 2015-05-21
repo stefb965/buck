@@ -24,7 +24,6 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
@@ -36,7 +35,6 @@ import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 
 import java.nio.file.Path;
-import java.util.Collections;
 
 /**
  * Export a file so that it can be easily referenced by other
@@ -81,6 +79,7 @@ public class ExportFile extends AbstractBuildRule implements HasOutputName {
 
   @AddToRuleKey
   private final String name;
+  @AddToRuleKey
   private final SourcePath src;
   @AddToRuleKey(stringify = true)
   private final Path out;
@@ -96,20 +95,16 @@ public class ExportFile extends AbstractBuildRule implements HasOutputName {
       this.src = args.src.get();
     } else {
       this.src = new PathSourcePath(
+          params.getProjectFilesystem(),
           target.getBasePath().resolve(target.getShortNameAndFlavorPostfix()));
     }
 
     this.out = BuckConstant.GEN_PATH.resolve(target.getBasePath()).resolve(this.name);
   }
 
-  @Override
-  public ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return getResolver().filterInputsToCompareToOutput(Collections.singleton(src));
-  }
-
-  @Override
-  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
-    return builder;
+  @VisibleForTesting
+  ImmutableCollection<Path> getSource() {
+    return getResolver().filterInputsToCompareToOutput(src);
   }
 
   @Override
@@ -121,7 +116,7 @@ public class ExportFile extends AbstractBuildRule implements HasOutputName {
     // unpacked on another machine, it is an ordinary file in both scenarios.
     ImmutableList.Builder<Step> builder = ImmutableList.<Step>builder()
         .add(new MkdirStep(out.getParent()))
-        .add(CopyStep.forFile(getResolver().getPath(src), out));
+        .add(CopyStep.forFile(getProjectFilesystem().resolve(getResolver().getPath(src)), out));
 
     buildableContext.recordArtifact(out);
     return builder.build();

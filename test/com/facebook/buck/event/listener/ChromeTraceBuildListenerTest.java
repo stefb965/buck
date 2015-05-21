@@ -22,6 +22,7 @@ import static org.easymock.EasyMock.verify;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.cli.CommandEvent;
 import com.facebook.buck.event.BuckEventBus;
@@ -40,14 +41,13 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleEvent;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleStatus;
-import com.facebook.buck.rules.BuildRuleSuccess;
+import com.facebook.buck.rules.BuildRuleSuccessType;
+import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.CacheResult;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.ImmutableBuildRuleType;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.ExecutionContext;
-import com.facebook.buck.step.FakeStep;
 import com.facebook.buck.step.StepEvent;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.timing.FakeClock;
@@ -57,12 +57,14 @@ import com.facebook.buck.util.HumanReadableException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Function;
+import com.google.common.base.Functions;
 import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Iterables;
 
 import org.junit.Rule;
 import org.junit.Test;
@@ -75,6 +77,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.TimeZone;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 
@@ -142,19 +145,22 @@ public class ChromeTraceBuildListenerTest {
     BuildTarget target = BuildTargetFactory.newInstance("//fake:rule");
 
     FakeBuildRule rule = new FakeBuildRule(
-        ImmutableBuildRuleType.of("fake_rule"),
+        BuildRuleType.of("fake_rule"),
         target,
         new SourcePathResolver(new BuildRuleResolver()),
         ImmutableSortedSet.<BuildRule>of()
     );
     RuleKey ruleKey = new RuleKey("abc123");
     rule.setRuleKey(ruleKey);
-    FakeStep step = new FakeStep("fakeStep", "I'm a Fake Step!", 0);
+    String stepShortName = "fakeStep";
+    String stepDescription = "I'm a Fake Step!";
+    UUID stepUuid = UUID.randomUUID();
 
     ExecutionContext context = createMock(ExecutionContext.class);
     replay(context);
 
     ImmutableSet<BuildTarget> buildTargets = ImmutableSet.of(target);
+    Iterable<String> buildArgs = Iterables.transform(buildTargets, Functions.toStringFunction());
     Clock fakeClock = new IncrementingFakeClock(TimeUnit.MILLISECONDS.toNanos(1));
     BuckEventBus eventBus = BuckEventBusFactory.newInstance(fakeClock,
         new BuildId("ChromeTraceBuildListenerTestBuildId"));
@@ -165,30 +171,30 @@ public class ChromeTraceBuildListenerTest {
         /* isDaemon */ true));
     eventBus.post(ArtifactCacheConnectEvent.started());
     eventBus.post(ArtifactCacheConnectEvent.finished());
-    eventBus.post(BuildEvent.started(buildTargets));
+    eventBus.post(BuildEvent.started(buildArgs));
     eventBus.post(ArtifactCacheEvent.started(ArtifactCacheEvent.Operation.FETCH, ruleKey));
     eventBus.post(ArtifactCacheEvent.finished(ArtifactCacheEvent.Operation.FETCH,
         ruleKey,
-        CacheResult.CASSANDRA_HIT));
+        CacheResult.hit("cassandra")));
     eventBus.post(BuildRuleEvent.started(rule));
-    eventBus.post(StepEvent.started(step, "I'm a Fake Step!"));
+    eventBus.post(StepEvent.started(stepShortName, stepDescription, stepUuid));
 
-    eventBus.post(StepEvent.finished(step, "I'm a Fake Step!", 0));
+    eventBus.post(StepEvent.finished(stepShortName, stepDescription, stepUuid, 0));
     eventBus.post(BuildRuleEvent.finished(
         rule,
         BuildRuleStatus.SUCCESS,
-        CacheResult.MISS,
-        Optional.of(BuildRuleSuccess.Type.BUILT_LOCALLY)));
+        CacheResult.miss(),
+        Optional.of(BuildRuleSuccessType.BUILT_LOCALLY)));
 
     try (TraceEventLogger ignored = TraceEventLogger.start(
         eventBus, "planning", ImmutableMap.of("nefarious", "true")
     )) {
       eventBus.post(new TraceEvent("scheming", ChromeTraceEvent.Phase.BEGIN));
       eventBus.post(new TraceEvent("scheming", ChromeTraceEvent.Phase.END,
-          ImmutableMap.<String, String>of("success", "false")));
+          ImmutableMap.of("success", "false")));
     }
 
-    eventBus.post(BuildEvent.finished(buildTargets, 0));
+    eventBus.post(BuildEvent.finished(buildArgs, 0));
     eventBus.post(CommandEvent.finished("party",
         ImmutableList.of("arg1", "arg2"),
         /* isDaemon */ true,
@@ -302,7 +308,7 @@ public class ChromeTraceBuildListenerTest {
         TimeZone.getTimeZone("America/Los_Angeles"),
         /* tracesToKeep */ 3);
     try {
-      tmpDir.getRoot().setReadOnly();
+      assumeTrue("Can make the root directory read-only", tmpDir.getRoot().setReadOnly());
       listener.outputTrace(new BuildId("BUILD_ID"));
       fail("Expected an exception.");
     } catch (HumanReadableException e) {

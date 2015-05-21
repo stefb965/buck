@@ -24,12 +24,15 @@ import com.facebook.buck.rules.coercer.Either;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
+import java.nio.file.Path;
 
 public class AppleBundleBuilder
     extends AbstractNodeBuilder<AppleBundleDescription.Arg> {
 
   protected AppleBundleBuilder(BuildTarget target) {
-    super(new AppleBundleDescription(), target);
+    super(
+        FakeAppleRuleDescriptions.BUNDLE_DESCRIPTION,
+        target);
   }
 
   public static AppleBundleBuilder createBuilder(BuildTarget target) {
@@ -61,8 +64,14 @@ public class AppleBundleBuilder
     return this;
   }
 
+  public AppleBundleBuilder setDirs(
+      Optional<ImmutableMap<Path, AppleBundleDestination>> dirs) {
+    arg.dirs = dirs;
+    return this;
+  }
+
   public AppleBundleBuilder setFiles(
-      Optional<ImmutableMap<AppleBundleDestination, SourcePath>> files) {
+      Optional<ImmutableMap<SourcePath, AppleBundleDestination>> files) {
     arg.files = files;
     return this;
   }

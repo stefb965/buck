@@ -43,7 +43,6 @@ import org.junit.Test;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Map;
 
 public class ThriftPythonEnhancerTest {
 
@@ -165,7 +164,7 @@ public class ThriftPythonEnhancerTest {
       strConfig.put(ent.getKey(), ent.getValue().toString());
     }
     FakeBuckConfig buckConfig = new FakeBuckConfig(
-        ImmutableMap.<String, Map<String, String>>of("thrift", strConfig.build()));
+        ImmutableMap.of("thrift", strConfig.build()));
     ThriftBuckConfig thriftBuckConfig = new ThriftBuckConfig(buckConfig);
     ThriftPythonEnhancer enhancer = new ThriftPythonEnhancer(
         thriftBuckConfig,
@@ -270,6 +269,50 @@ public class ThriftPythonEnhancerTest {
         ImmutableSortedSet.<BuildRule>of());
     for (ImmutableMap.Entry<Path, SourcePath> ent : baseModule.getSrcs().entrySet()) {
       assertTrue(ent.getKey().startsWith(Paths.get(arg.pyBaseModule.get())));
+    }
+  }
+
+  @Test
+  public void twistedBaseModule() {
+    BuildTarget target = BuildTargetFactory.newInstance("//test:test");
+    BuildRuleResolver resolver = new BuildRuleResolver();
+    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    BuildRuleParams flavoredParams =
+        BuildRuleParamsFactory.createTrivialBuildRuleParams(target);
+
+    // Add a dummy dependency to the constructor arg to make sure it gets through.
+    ThriftConstructorArg arg = new ThriftConstructorArg();
+    arg.pyOptions = Optional.absent();
+
+    // Setup up some thrift inputs to pass to the createBuildRule method.
+    ImmutableMap<String, ThriftSource> sources = ImmutableMap.of(
+        "test.thrift", new ThriftSource(
+            createFakeThriftCompiler("//:thrift_source", pathResolver),
+            ImmutableList.<String>of(),
+            Paths.get("output")));
+
+    // Verify that not setting the base module parameter defaults to the build target base path.
+    arg.pyTwistedBaseModule = Optional.absent();
+    PythonLibrary normal = TWISTED_ENHANCER.createBuildRule(
+        flavoredParams,
+        resolver,
+        arg,
+        sources,
+        ImmutableSortedSet.<BuildRule>of());
+    for (ImmutableMap.Entry<Path, SourcePath> ent : normal.getSrcs().entrySet()) {
+      assertTrue(ent.getKey().toString(), ent.getKey().startsWith(target.getBasePath()));
+    }
+
+    // Verify that setting the base module uses it correctly.
+    arg.pyTwistedBaseModule = Optional.of("blah");
+    PythonLibrary baseModule = TWISTED_ENHANCER.createBuildRule(
+        flavoredParams,
+        resolver,
+        arg,
+        sources,
+        ImmutableSortedSet.<BuildRule>of());
+    for (ImmutableMap.Entry<Path, SourcePath> ent : baseModule.getSrcs().entrySet()) {
+      assertTrue(ent.getKey().startsWith(Paths.get(arg.pyTwistedBaseModule.get())));
     }
   }
 

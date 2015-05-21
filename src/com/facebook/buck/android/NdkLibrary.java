@@ -21,11 +21,11 @@ import static com.facebook.buck.rules.BuildableProperties.Kind.LIBRARY;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableProperties;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.AbstractExecutionStep;
@@ -34,10 +34,10 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.util.BuckConstant;
+import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 
@@ -66,6 +66,7 @@ public class NdkLibrary extends AbstractBuildRule
   private static final BuildableProperties PROPERTIES = new BuildableProperties(ANDROID, LIBRARY);
 
   /** @see NativeLibraryBuildRule#isAsset() */
+  @AddToRuleKey
   private final boolean isAsset;
 
   /** The directory containing the Android.mk file to use. This value includes a trailing slash. */
@@ -75,9 +76,15 @@ public class NdkLibrary extends AbstractBuildRule
   private final Path buildArtifactsDirectory;
   private final Path genDirectory;
 
+  @SuppressWarnings("PMD.UnusedPrivateField")
+  @AddToRuleKey
   private final ImmutableSortedSet<SourcePath> sources;
+  @AddToRuleKey
   private final ImmutableList<String> flags;
+  @SuppressWarnings("PMD.UnusedPrivateField")
+  @AddToRuleKey
   private final Optional<String> ndkVersion;
+  private final Function<String, String> macroExpander;
 
   protected NdkLibrary(
       BuildRuleParams params,
@@ -86,7 +93,8 @@ public class NdkLibrary extends AbstractBuildRule
       Set<SourcePath> sources,
       List<String> flags,
       boolean isAsset,
-      Optional<String> ndkVersion) {
+      Optional<String> ndkVersion,
+      Function<String, String> macroExpander) {
     super(params, resolver);
     this.isAsset = isAsset;
 
@@ -103,6 +111,7 @@ public class NdkLibrary extends AbstractBuildRule
     this.flags = ImmutableList.copyOf(flags);
 
     this.ndkVersion = ndkVersion;
+    this.macroExpander = macroExpander;
   }
 
   @Override
@@ -135,7 +144,8 @@ public class NdkLibrary extends AbstractBuildRule
         makefile,
         buildArtifactsDirectory,
         binDirectory,
-        flags);
+        flags,
+        macroExpander);
 
     Step mkDirStep = new MakeCleanDirectoryStep(genDirectory);
     Step copyStep = CopyStep.forDirectory(
@@ -181,26 +191,13 @@ public class NdkLibrary extends AbstractBuildRule
    *     can be referenced via a {@link com.facebook.buck.rules.BuildTargetSourcePath} or somesuch.
    */
   private Path getBuildArtifactsDirectory(BuildTarget target, boolean isScratchDir) {
-    Path base = isScratchDir ? BuckConstant.BIN_PATH : BuckConstant.GEN_PATH;
+    Path base = isScratchDir ? BuckConstant.SCRATCH_PATH : BuckConstant.GEN_PATH;
     return base.resolve(target.getBasePath()).resolve(lastPathComponent);
   }
 
   @Override
   public BuildableProperties getProperties() {
     return PROPERTIES;
-  }
-
-  @Override
-  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
-    return builder
-        .setReflectively("ndk_version", ndkVersion.or("NONE"))
-        .setReflectively("flags", flags)
-        .setReflectively("is_asset", isAsset());
-  }
-
-  @Override
-  public ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return getResolver().filterInputsToCompareToOutput(sources);
   }
 
   @Override
@@ -211,7 +208,7 @@ public class NdkLibrary extends AbstractBuildRule
   @Override
   public void addToCollector(AndroidPackageableCollector collector) {
     if (isAsset) {
-      collector.addNativeLibAssetsDirectory(getLibraryPath());
+      collector.addNativeLibAssetsDirectory(getBuildTarget(), getLibraryPath());
     } else {
       collector.addNativeLibsDirectory(getBuildTarget(), getLibraryPath());
     }

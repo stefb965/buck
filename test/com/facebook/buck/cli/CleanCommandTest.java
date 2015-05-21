@@ -17,26 +17,27 @@
 package com.facebook.buck.cli;
 
 import static org.easymock.EasyMock.capture;
+import static org.easymock.EasyMock.newCapture;
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.android.AndroidPlatformTarget;
 import com.facebook.buck.event.BuckEventBusFactory;
+import com.facebook.buck.httpserver.WebServer;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.java.FakeJavaPackageFinder;
 import com.facebook.buck.java.intellij.Project;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.rules.ArtifactCache;
-import com.facebook.buck.rules.CachingBuildEngine;
 import com.facebook.buck.rules.Repository;
 import com.facebook.buck.rules.TestRepositoryBuilder;
-import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.timing.DefaultClock;
 import com.facebook.buck.util.BuckConstant;
-import com.facebook.buck.android.FakeAndroidDirectoryResolver;
 import com.facebook.buck.util.ProcessManager;
 import com.facebook.buck.util.environment.Platform;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Optional;
+import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableMap;
 
 import org.easymock.Capture;
@@ -62,19 +63,19 @@ public class CleanCommandTest extends EasyMockSupport {
   public void testCleanCommandNoArguments()
       throws CmdLineException, IOException, InterruptedException {
     // Set up mocks.
-    CleanCommand cleanCommand = createCommand();
-    Capture<Path> binDir = new Capture<>();
+    CommandRunnerParams params = createCommandRunnerParams();
+    Capture<Path> binDir = newCapture();
     projectFilesystem.rmdir(capture(binDir));
-    Capture<Path> genDir = new Capture<>();
+    Capture<Path> genDir = newCapture();
     projectFilesystem.rmdir(capture(genDir));
 
     replayAll();
 
     // Simulate `buck clean`.
-    CleanCommandOptions options = createOptionsFromArgs();
-    int exitCode = cleanCommand.runCommandWithOptions(options);
+    CleanCommand cleanCommand = createCommandFromArgs();
+    int exitCode = cleanCommand.run(params);
     assertEquals(0, exitCode);
-    assertEquals(BuckConstant.BIN_PATH, binDir.getValue());
+    assertEquals(BuckConstant.SCRATCH_PATH, binDir.getValue());
     assertEquals(BuckConstant.GEN_PATH, genDir.getValue());
 
     verifyAll();
@@ -84,17 +85,17 @@ public class CleanCommandTest extends EasyMockSupport {
   public void testCleanCommandWithProjectArgument()
       throws CmdLineException, IOException, InterruptedException {
     // Set up mocks.
-    CleanCommand cleanCommand = createCommand();
-    Capture<Path> androidGenDir = new Capture<>();
+    CommandRunnerParams params = createCommandRunnerParams();
+    Capture<Path> androidGenDir = newCapture();
     projectFilesystem.rmdir(capture(androidGenDir));
-    Capture<Path> annotationDir = new Capture<>();
+    Capture<Path> annotationDir = newCapture();
     projectFilesystem.rmdir(capture(annotationDir));
 
     replayAll();
 
     // Simulate `buck clean --project`.
-    CleanCommandOptions options = createOptionsFromArgs("--project");
-    int exitCode = cleanCommand.runCommandWithOptions(options);
+    CleanCommand cleanCommand = createCommandFromArgs("--project");
+    int exitCode = cleanCommand.run(params);
     assertEquals(0, exitCode);
     assertEquals(Project.ANDROID_GEN_PATH, androidGenDir.getValue());
     assertEquals(BuckConstant.ANNOTATION_PATH, annotationDir.getValue());
@@ -102,22 +103,22 @@ public class CleanCommandTest extends EasyMockSupport {
     verifyAll();
   }
 
-  private CleanCommandOptions createOptionsFromArgs(String...args) throws CmdLineException {
-    BuckConfig buckConfig = new FakeBuckConfig();
-    CleanCommandOptions options = new CleanCommandOptions(buckConfig);
-    new CmdLineParserAdditionalOptions(options).parseArgument(args);
-    return options;
+  private CleanCommand createCommandFromArgs(String... args) throws CmdLineException {
+    CleanCommand command = new CleanCommand();
+    new AdditionalOptionsCmdLineParser(command).parseArgument(args);
+    return command;
   }
 
-  private CleanCommand createCommand() throws InterruptedException, IOException {
+  private CommandRunnerParams createCommandRunnerParams() throws InterruptedException, IOException {
     projectFilesystem = createMock(ProjectFilesystem.class);
     Repository repository = new TestRepositoryBuilder().setFilesystem(projectFilesystem).build();
 
-    CommandRunnerParams params = new CommandRunnerParams(
+    Supplier<AndroidPlatformTarget> androidPlatformTargetSupplier =
+        AndroidPlatformTarget.explodingAndroidPlatformTargetSupplier;
+    return new CommandRunnerParams(
         new TestConsole(),
         repository,
-        new FakeAndroidDirectoryResolver(),
-        new CachingBuildEngine(),
+        androidPlatformTargetSupplier,
         new InstanceArtifactCacheFactory(createMock(ArtifactCache.class)),
         BuckEventBusFactory.newInstance(),
         createMock(Parser.class),
@@ -125,10 +126,10 @@ public class CleanCommandTest extends EasyMockSupport {
         ImmutableMap.copyOf(System.getenv()),
         new FakeJavaPackageFinder(),
         new ObjectMapper(),
-        FakeFileHashCache.EMPTY_CACHE,
         new DefaultClock(),
-        Optional.<ProcessManager>absent());
-    return new CleanCommand(params);
+        Optional.<ProcessManager>absent(),
+        Optional.<WebServer>absent(),
+        new FakeBuckConfig());
   }
 
 }

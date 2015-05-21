@@ -38,7 +38,6 @@ import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.util.BuckConstant;
-import com.google.common.collect.ImmutableList;
 
 import org.junit.Test;
 
@@ -54,7 +53,7 @@ public class GenAidlTest {
     BuildContext context = null;
 
     Path pathToAidl = Paths.get("java/com/example/base/IWhateverService.aidl");
-    String importPath = "java/com/example/base";
+    String importPath = Paths.get("java/com/example/base").toString();
 
     BuildTarget target = BuildTargetFactory.newInstance("//java/com/example/base:IWhateverService");
     BuildRuleParams params = new FakeBuildRuleParamsBuilder(target).build();
@@ -68,12 +67,11 @@ public class GenAidlTest {
     assertEquals(GenAidlDescription.TYPE, description.getBuildRuleType());
     assertTrue(genAidlRule.getProperties().is(ANDROID));
 
-    assertEquals(ImmutableList.of(pathToAidl), genAidlRule.getInputsToCompareToOutput());
-
     List<Step> steps = genAidlRule.getBuildSteps(context, new FakeBuildableContext());
 
-    final String pathToAidlExecutable = "/usr/local/bin/aidl";
-    final String pathToFrameworkAidl = "/home/root/android/platforms/android-16/framework.aidl";
+    final String pathToAidlExecutable = Paths.get("/usr/local/bin/aidl").toString();
+    final String pathToFrameworkAidl = Paths.get(
+        "/home/root/android/platforms/android-16/framework.aidl").toString();
     AndroidPlatformTarget androidPlatformTarget = createMock(AndroidPlatformTarget.class);
     expect(androidPlatformTarget.getAidlExecutable()).andReturn(Paths.get(pathToAidlExecutable));
     expect(androidPlatformTarget.getAndroidFrameworkIdlFile())
@@ -96,7 +94,7 @@ public class GenAidlTest {
     replay(androidPlatformTarget, executionContext);
 
     Path outputDirectory = Paths.get(
-        BuckConstant.BIN_DIR,
+        BuckConstant.SCRATCH_DIR,
         "/java/com/example/base/__IWhateverService.aidl");
     MakeCleanDirectoryStep mkdirStep = (MakeCleanDirectoryStep) steps.get(1);
     assertEquals("gen_aidl() should make a directory at " + outputDirectory,

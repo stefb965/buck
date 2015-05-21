@@ -18,10 +18,12 @@ package com.facebook.buck.java;
 
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.java.runner.FileClassPathRunner;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.test.selectors.TestSelectorList;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.Verbosity;
@@ -34,6 +36,7 @@ import org.easymock.EasyMock;
 import org.junit.Test;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
@@ -42,7 +45,7 @@ import java.util.Set;
 public class JUnitStepTest {
 
   @Test
-  public void testGetShellCommand() {
+  public void testGetShellCommand() throws IOException {
     Set<Path> classpathEntries = ImmutableSet.of(
         Paths.get("foo"),
         Paths.get("bar/baz"));
@@ -58,17 +61,25 @@ public class JUnitStepTest {
     BuildId pretendBuildId = new BuildId("pretend-build-id");
     String buildIdArg = String.format("-D%s=%s", JUnitStep.BUILD_ID_PROPERTY, pretendBuildId);
 
+    Path modulePath = Paths.get("module/submodule");
+    String modulePathArg = String.format(
+        "-D%s=%s",
+        JUnitStep.MODULE_BASE_PATH_PROPERTY,
+        modulePath);
+
     Path directoryForTestResults = Paths.get("buck-out/gen/theresults/");
     Path directoryForTemp = Paths.get("buck-out/gen/thetmp/");
     boolean isCodeCoverageEnabled = false;
     boolean isDebugEnabled = false;
     Path testRunnerClasspath = Paths.get("build/classes/junit");
+    FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     JUnitStep junit = new JUnitStep(
         classpathEntries,
         testClassNames,
         vmArgs,
         directoryForTestResults,
+        modulePath,
         directoryForTemp,
         isCodeCoverageEnabled,
         isDebugEnabled,
@@ -80,6 +91,7 @@ public class JUnitStepTest {
         /* testRuleTimeoutMs*/ Optional.<Long>absent());
 
     ExecutionContext executionContext = EasyMock.createMock(ExecutionContext.class);
+    EasyMock.expect(executionContext.getProjectFilesystem()).andReturn(filesystem).anyTimes();
     EasyMock.expect(executionContext.getVerbosity()).andReturn(Verbosity.ALL);
     EasyMock.expect(executionContext.getDefaultTestTimeoutMillis()).andReturn(5000L);
     EasyMock.replay(executionContext);
@@ -88,14 +100,18 @@ public class JUnitStepTest {
     MoreAsserts.assertListEquals(
         ImmutableList.of(
             "java",
-            "-Djava.io.tmpdir=" + directoryForTemp,
+            "-Djava.io.tmpdir=" + filesystem.resolve(directoryForTemp),
             "-Dbuck.testrunner_classes=" + testRunnerClasspath,
             buildIdArg,
+            modulePathArg,
             vmArg1,
             vmArg2,
             "-verbose",
             "-classpath",
-            Joiner.on(File.pathSeparator).join("foo", "bar/baz", "build/classes/junit"),
+            Joiner.on(File.pathSeparator).join(
+                "@" + filesystem.resolve(junit.getClassPathFile()),
+                Paths.get("build/classes/junit")),
+            FileClassPathRunner.class.getName(),
             JUnitStep.JUNIT_TEST_RUNNER_CLASS_NAME,
             directoryForTestResults.toString(),
             "5000",
@@ -125,6 +141,12 @@ public class JUnitStepTest {
     BuildId pretendBuildId = new BuildId("pretend-build-id");
     String buildIdArg = String.format("-D%s=%s", JUnitStep.BUILD_ID_PROPERTY, pretendBuildId);
 
+    Path modulePath = Paths.get("module/submodule");
+    String modulePathArg = String.format(
+        "-D%s=%s",
+        JUnitStep.MODULE_BASE_PATH_PROPERTY,
+        modulePath);
+
     Path directoryForTestResults = Paths.get("buck-out/gen/theresults/");
     Path directoryForTemp = Paths.get("buck-out/gen/thetmp/");
     boolean isCodeCoverageEnabled = false;
@@ -136,6 +158,7 @@ public class JUnitStepTest {
         testClassNames,
         vmArgs,
         directoryForTestResults,
+        modulePath,
         directoryForTemp,
         isCodeCoverageEnabled,
         isDebugEnabled,
@@ -159,12 +182,16 @@ public class JUnitStepTest {
             "-Djava.io.tmpdir=" + directoryForTemp,
             "-Dbuck.testrunner_classes=" + testRunnerClasspath,
             buildIdArg,
+            modulePathArg,
             "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005",
             vmArg1,
             vmArg2,
             "-verbose",
             "-classpath",
-            Joiner.on(File.pathSeparator).join("foo", "bar/baz", "build/classes/junit"),
+            Joiner.on(File.pathSeparator).join(
+                "@" + junit.getClassPathFile(),
+                Paths.get("build/classes/junit")),
+            FileClassPathRunner.class.getName(),
             JUnitStep.JUNIT_TEST_RUNNER_CLASS_NAME,
             directoryForTestResults.toString(),
             "0",

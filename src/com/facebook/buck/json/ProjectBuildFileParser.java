@@ -19,14 +19,13 @@ package com.facebook.buck.json;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.rules.BuckPyFunction;
 import com.facebook.buck.rules.ConstructorArgMarshaller;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.InputStreamConsumer;
+import com.facebook.buck.util.MoreThrowables;
 import com.facebook.buck.util.NamedTemporaryFile;
 import com.facebook.buck.util.Threads;
 import com.google.common.annotations.VisibleForTesting;
@@ -37,7 +36,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.io.CharStreams;
+import com.google.common.io.Resources;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -48,6 +47,7 @@ import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.Reader;
 import java.io.Writer;
+import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -64,8 +64,7 @@ import javax.annotation.Nullable;
 public class ProjectBuildFileParser implements AutoCloseable {
 
   /** Path to the buck.py script that is used to evaluate a build file. */
-  private static final String PATH_TO_BUCK_PY = System.getProperty("buck.path_to_buck_py",
-      "src/com/facebook/buck/parser/buck.py");
+  private static final String BUCK_PY_RESOURCE = "com/facebook/buck/json/buck.py";
 
   private static final Path PATH_TO_PATHLIB_PY = Paths.get(
       System.getProperty(
@@ -83,7 +82,10 @@ public class ProjectBuildFileParser implements AutoCloseable {
   @Nullable private BufferedWriter buckPyStdinWriter;
 
   private final Path projectRoot;
-  private final ParserConfig parserConfig;
+  private final String pythonInterpreter;
+  private final boolean allowEmptyGlobs;
+  private final String buildFileName;
+  private final Iterable<String> defaultIncludes;
   private final ImmutableSet<Description<?>> descriptions;
   private final Console console;
   private final BuckEventBus buckEventBus;
@@ -96,14 +98,20 @@ public class ProjectBuildFileParser implements AutoCloseable {
   @Nullable private Thread stderrConsumer;
 
   protected ProjectBuildFileParser(
-      ProjectFilesystem projectFilesystem,
-      ParserConfig parserConfig,
+      Path projectRoot,
+      String pythonInterpreter,
+      boolean allowEmptyGlobs,
+      String buildFileName,
+      Iterable<String> defaultIncludes,
       ImmutableSet<Description<?>> descriptions,
       Console console,
       ImmutableMap<String, String> environment,
       BuckEventBus buckEventBus) {
-    this.projectRoot = projectFilesystem.getRootPath();
-    this.parserConfig = parserConfig;
+    this.projectRoot = projectRoot;
+    this.pythonInterpreter = pythonInterpreter;
+    this.allowEmptyGlobs = allowEmptyGlobs;
+    this.buildFileName = buildFileName;
+    this.defaultIncludes = defaultIncludes;
     this.descriptions = descriptions;
     this.pathToBuckPy = Optional.absent();
     this.console = console;
@@ -191,7 +199,7 @@ public class ProjectBuildFileParser implements AutoCloseable {
     // Invoking buck.py and read JSON-formatted build rules from its stdout.
     ImmutableList.Builder<String> argBuilder = ImmutableList.builder();
 
-    argBuilder.add(parserConfig.getPythonInterpreter());
+    argBuilder.add(pythonInterpreter);
 
     // Ask python to unbuffer stdout so that we can coordinate based on the output as it is
     // produced.
@@ -207,15 +215,15 @@ public class ProjectBuildFileParser implements AutoCloseable {
 
     argBuilder.add(getPathToBuckPy(descriptions).toString());
 
-    if (parserConfig.getAllowEmptyGlobs()) {
+    if (allowEmptyGlobs) {
       argBuilder.add("--allow_empty_globs");
     }
 
     argBuilder.add("--project_root", projectRoot.toAbsolutePath().toString());
-    argBuilder.add("--build_file_name", parserConfig.getBuildFileName());
+    argBuilder.add("--build_file_name", buildFileName);
 
     // Add the --include flags.
-    for (String include : parserConfig.getDefaultIncludes()) {
+    for (String include : defaultIncludes) {
       argBuilder.add("--include");
       argBuilder.add(include);
     }
@@ -229,7 +237,7 @@ public class ProjectBuildFileParser implements AutoCloseable {
    * @param buildFile should be an absolute path to a build file. Must have rootPath as its prefix.
    */
   public List<Map<String, Object>> getAll(Path buildFile)
-      throws BuildFileParseException {
+      throws BuildFileParseException, InterruptedException {
     List<Map<String, Object>> result = getAllRulesAndMetaRules(buildFile);
 
     // Strip out the __includes meta rule, which is the last rule.
@@ -243,10 +251,11 @@ public class ProjectBuildFileParser implements AutoCloseable {
    * @param buildFile should be an absolute path to a build file. Must have rootPath as its prefix.
    */
   public List<Map<String, Object>> getAllRulesAndMetaRules(Path buildFile)
-      throws BuildFileParseException {
+      throws BuildFileParseException, InterruptedException {
     try {
       return getAllRulesInternal(buildFile);
     } catch (IOException e) {
+      MoreThrowables.propagateIfInterrupt(e);
       throw BuildFileParseException.createForBuildFileParseError(buildFile, e);
     }
   }
@@ -390,8 +399,8 @@ public class ProjectBuildFileParser implements AutoCloseable {
     Files.createDirectories(buckDotPy.getParent());
 
     try (Writer out = Files.newBufferedWriter(buckDotPy, UTF_8)) {
-      Path original = Paths.get(PATH_TO_BUCK_PY);
-      CharStreams.copy(Files.newBufferedReader(original, UTF_8), out);
+      URL resource = Resources.getResource(BUCK_PY_RESOURCE);
+      Resources.asCharSource(resource, UTF_8).copyTo(out);
       out.write("\n\n");
 
       ConstructorArgMarshaller inspector = new ConstructorArgMarshaller();

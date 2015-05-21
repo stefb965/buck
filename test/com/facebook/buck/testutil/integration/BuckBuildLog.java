@@ -22,9 +22,8 @@ import static org.junit.Assert.fail;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRuleStatus;
-import com.facebook.buck.rules.BuildRuleSuccess;
+import com.facebook.buck.rules.BuildRuleSuccessType;
 import com.facebook.buck.rules.CacheResult;
-import com.facebook.buck.rules.ImmutableSha1HashCode;
 import com.facebook.buck.rules.Sha1HashCode;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -45,14 +44,14 @@ public class BuckBuildLog {
 
   static class BuildLogEntry {
     private final BuildRuleStatus status;
-    private final Optional<BuildRuleSuccess.Type> successType;
+    private final Optional<BuildRuleSuccessType> successType;
     @SuppressWarnings("unused")
     private final Optional<CacheResult> cacheResult;
     private final Sha1HashCode ruleKey;
 
     private BuildLogEntry(
         BuildRuleStatus status,
-        Optional<BuildRuleSuccess.Type> successType,
+        Optional<BuildRuleSuccessType> successType,
         Optional<CacheResult> cacheResult,
         Sha1HashCode ruleKey) {
       this.status = Preconditions.checkNotNull(status);
@@ -70,19 +69,19 @@ public class BuckBuildLog {
 
   public void assertTargetBuiltLocally(String buildTargetRaw) {
     BuildLogEntry logEntry = getLogEntryOrFail(buildTargetRaw);
-    assertEquals(BuildRuleSuccess.Type.BUILT_LOCALLY, logEntry.successType.get());
+    assertEquals(BuildRuleSuccessType.BUILT_LOCALLY, logEntry.successType.get());
   }
 
   public void assertTargetHadMatchingDepsAbi(String buildTargetRaw) {
     BuildLogEntry logEntry = getLogEntryOrFail(buildTargetRaw);
     assertEquals(
-        BuildRuleSuccess.Type.MATCHING_DEPS_ABI_AND_RULE_KEY_NO_DEPS,
+        BuildRuleSuccessType.MATCHING_DEPS_ABI_AND_RULE_KEY_NO_DEPS,
         logEntry.successType.get());
   }
 
   public void assertTargetHadMatchingRuleKey(String buildTargetRaw) {
     BuildLogEntry logEntry = getLogEntryOrFail(buildTargetRaw);
-    assertEquals(BuildRuleSuccess.Type.MATCHING_RULE_KEY, logEntry.successType.get());
+    assertEquals(BuildRuleSuccessType.MATCHING_RULE_KEY, logEntry.successType.get());
   }
 
   public void assertTargetFailed(String buildTargetRaw) {
@@ -115,17 +114,17 @@ public class BuckBuildLog {
       BuildRuleStatus status = BuildRuleStatus.valueOf(statusRaw);
 
       String ruleKeyRaw = matcher.group("RuleKey");
-      Sha1HashCode ruleKey = ImmutableSha1HashCode.of(ruleKeyRaw);
+      Sha1HashCode ruleKey = Sha1HashCode.of(ruleKeyRaw);
 
       CacheResult cacheResult = null;
-      BuildRuleSuccess.Type successType = null;
+      BuildRuleSuccessType successType = null;
 
       if (status == BuildRuleStatus.SUCCESS) {
         String cacheResultRaw = matcher.group("CacheResult");
         cacheResult = CacheResult.valueOf(cacheResultRaw);
 
         String successTypeRaw = matcher.group("SuccessType");
-        successType = BuildRuleSuccess.Type.valueOf(successTypeRaw);
+        successType = BuildRuleSuccessType.valueOf(successTypeRaw);
       }
 
       builder.put(buildTarget, new BuildLogEntry(

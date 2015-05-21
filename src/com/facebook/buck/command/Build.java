@@ -16,16 +16,9 @@
 
 package com.facebook.buck.command;
 
-import static com.facebook.buck.rules.BuildableProperties.Kind.ANDROID;
-
-import com.facebook.buck.android.AndroidDirectoryResolver;
 import com.facebook.buck.android.AndroidPlatformTarget;
-import com.facebook.buck.android.HasAndroidPlatformTarget;
-import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.graph.AbstractBottomUpTraversal;
-import com.facebook.buck.graph.TraversableGraph;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.java.JavaPackageFinder;
 import com.facebook.buck.model.BuildTarget;
@@ -36,8 +29,8 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildDependencies;
 import com.facebook.buck.rules.BuildEngine;
 import com.facebook.buck.rules.BuildEvent;
+import com.facebook.buck.rules.BuildResult;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleSuccess;
 import com.facebook.buck.rules.ImmutableBuildContext;
 import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.step.ExecutionContext;
@@ -47,6 +40,7 @@ import com.facebook.buck.timing.Clock;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ExceptionWithHumanReadableMessage;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.concurrent.ConcurrencyLimit;
 import com.facebook.buck.util.environment.Platform;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Charsets;
@@ -54,6 +48,7 @@ import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
+import com.google.common.base.Supplier;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -78,11 +73,11 @@ import javax.annotation.Nullable;
 
 public class Build implements Closeable {
 
-  private static final Predicate<Optional<BuildRuleSuccess>> RULES_FAILED_PREDICATE =
-      new Predicate<Optional<BuildRuleSuccess>>() {
+  private static final Predicate<Optional<BuildResult>> RULES_FAILED_PREDICATE =
+      new Predicate<Optional<BuildResult>>() {
         @Override
-        public boolean apply(Optional<BuildRuleSuccess> input) {
-          return !input.isPresent();
+        public boolean apply(Optional<BuildResult> input) {
+          return !input.isPresent() || input.get().getSuccess() == null;
         }
       };
 
@@ -113,10 +108,9 @@ public class Build implements Closeable {
       ActionGraph actionGraph,
       Optional<TargetDevice> targetDevice,
       ProjectFilesystem projectFilesystem,
-      AndroidDirectoryResolver androidDirectoryResolver,
+      Supplier<AndroidPlatformTarget> androidPlatformTargetSupplier,
       BuildEngine buildEngine,
       ArtifactCache artifactCache,
-      int numThreads,
       JavaPackageFinder javaPackageFinder,
       Console console,
       long defaultTestTimeoutMillis,
@@ -126,20 +120,15 @@ public class Build implements Closeable {
       BuckEventBus eventBus,
       Platform platform,
       ImmutableMap<String, String> environment,
-      BuckConfig buckConfig,
       ObjectMapper objectMapper,
-      Clock clock) {
+      Clock clock,
+      ConcurrencyLimit concurrencyLimit) {
     this.actionGraph = actionGraph;
 
-    Optional<AndroidPlatformTarget> androidPlatformTarget = findAndroidPlatformTarget(
-        actionGraph,
-        androidDirectoryResolver,
-        eventBus,
-        buckConfig);
     this.executionContext = ExecutionContext.builder()
         .setProjectFilesystem(projectFilesystem)
         .setConsole(console)
-        .setAndroidPlatformTarget(androidPlatformTarget)
+        .setAndroidPlatformTargetSupplier(androidPlatformTargetSupplier)
         .setTargetDevice(targetDevice)
         .setDefaultTestTimeoutMillis(defaultTestTimeoutMillis)
         .setCodeCoverageEnabled(isCodeCoverageEnabled)
@@ -149,10 +138,11 @@ public class Build implements Closeable {
         .setEnvironment(environment)
         .setJavaPackageFinder(javaPackageFinder)
         .setObjectMapper(objectMapper)
+        .setConcurrencyLimit(concurrencyLimit)
         .build();
     this.artifactCache = artifactCache;
     this.buildEngine = buildEngine;
-    this.stepRunner = new DefaultStepRunner(executionContext, numThreads);
+    this.stepRunner = new DefaultStepRunner(executionContext);
     this.javaPackageFinder = javaPackageFinder;
     this.buildDependencies = buildDependencies;
     this.clock = clock;
@@ -172,87 +162,6 @@ public class Build implements Closeable {
     return buildContext;
   }
 
-  public static Optional<AndroidPlatformTarget> findAndroidPlatformTarget(
-      final ActionGraph actionGraph,
-      final AndroidDirectoryResolver androidDirectoryResolver,
-      final BuckEventBus eventBus,
-      final BuckConfig buckConfig) {
-    Optional<Path> androidSdkDirOption =
-        androidDirectoryResolver.findAndroidSdkDirSafe();
-    if (!androidSdkDirOption.isPresent()) {
-      return Optional.absent();
-    }
-
-    // Traverse the action graph to determine androidPlatformTarget.
-    TraversableGraph<BuildRule> graph = actionGraph;
-    AbstractBottomUpTraversal<BuildRule, Optional<AndroidPlatformTarget>> traversal =
-        new AbstractBottomUpTraversal<BuildRule, Optional<AndroidPlatformTarget>>(graph) {
-
-      @Nullable
-      private String androidPlatformTargetId = null;
-
-      @Nullable
-      private String androidPlatformTargetIdRuleName = null;
-
-      private boolean isEncounteredAndroidRuleInTraversal = false;
-
-      @Override
-      public void visit(BuildRule rule) {
-        if (rule.getProperties().is(ANDROID)) {
-          isEncounteredAndroidRuleInTraversal = true;
-        }
-
-        if (rule instanceof HasAndroidPlatformTarget) {
-          String target = ((HasAndroidPlatformTarget) rule).getAndroidPlatformTarget();
-          if (androidPlatformTargetId == null) {
-            androidPlatformTargetId = target;
-            androidPlatformTargetIdRuleName = rule.getFullyQualifiedName();
-          } else if (!target.equals(androidPlatformTargetId)) {
-            throw new HumanReadableException(
-                "More than one android platform targeted: '%s' and '%s'\n" +
-                "Target originally set by %s, conflicting with %s",
-                target,
-                androidPlatformTargetId,
-                androidPlatformTargetIdRuleName,
-                rule.getFullyQualifiedName());
-          }
-        }
-      }
-
-      @Override
-      public Optional<AndroidPlatformTarget> getResult() {
-        // Find an appropriate AndroidPlatformTarget for the target attribute specified in one of
-        // the transitively included android_binary() build rules. If no such target has been
-        // specified, then use a default AndroidPlatformTarget so that it is possible to build
-        // non-Android Java code, as well.
-        Optional<AndroidPlatformTarget> result;
-        if (androidPlatformTargetId != null) {
-          Optional<AndroidPlatformTarget> target = AndroidPlatformTarget.getTargetForId(
-              androidPlatformTargetId,
-              androidDirectoryResolver,
-              buckConfig.getAaptOverride());
-          if (target.isPresent()) {
-            result = target;
-          } else {
-            throw new RuntimeException("No target found with id: " + androidPlatformTargetId);
-          }
-        } else if (isEncounteredAndroidRuleInTraversal) {
-          AndroidPlatformTarget androidPlatformTarget = AndroidPlatformTarget
-              .getDefaultPlatformTarget(androidDirectoryResolver, buckConfig.getAaptOverride());
-          eventBus.post(
-              ConsoleEvent.warning("No Android platform target specified. Using default: %s",
-                  androidPlatformTarget.getName()));
-          result = Optional.of(androidPlatformTarget);
-        } else {
-          result = Optional.absent();
-        }
-        return result;
-      }
-    };
-    traversal.traverse();
-    return traversal.getResult();
-  }
-
   /**
    * If {@code isKeepGoing} is false, then this returns a future that succeeds only if all of
    * {@code rulesToBuild} build successfully. Otherwise, this returns a future that should always
@@ -262,7 +171,7 @@ public class Build implements Closeable {
    * @param targetish The targets to build. All targets in this iterable must be unique.
    */
   @SuppressWarnings("PMD.EmptyCatchBlock")
-  public LinkedHashMap<BuildRule, Optional<BuildRuleSuccess>> executeBuild(
+  public LinkedHashMap<BuildRule, Optional<BuildResult>> executeBuild(
       Iterable<? extends HasBuildTarget> targetish,
       boolean isKeepGoing)
       throws IOException, StepFailedException, ExecutionException, InterruptedException {
@@ -274,9 +183,8 @@ public class Build implements Closeable {
         .setArtifactCache(artifactCache)
         .setJavaPackageFinder(javaPackageFinder)
         .setEventBus(executionContext.getBuckEventBus())
-        .setAndroidBootclasspathSupplier(
-            BuildContext.getAndroidBootclasspathSupplierForAndroidPlatformTarget(
-                executionContext.getAndroidPlatformTargetOptional()))
+        .setAndroidBootclasspathSupplier(BuildContext.createBootclasspathSupplier(
+            executionContext.getAndroidPlatformTargetSupplier()))
         .setBuildDependencies(buildDependencies)
         .setBuildId(executionContext.getBuildId())
         .putAllEnvironment(executionContext.getEnvironment())
@@ -309,24 +217,24 @@ public class Build implements Closeable {
             numRules));
 
 
-    List<ListenableFuture<BuildRuleSuccess>> futures = FluentIterable.from(rulesToBuild)
+    List<ListenableFuture<BuildResult>> futures = FluentIterable.from(rulesToBuild)
         .transform(
-        new Function<BuildRule, ListenableFuture<BuildRuleSuccess>>() {
+        new Function<BuildRule, ListenableFuture<BuildResult>>() {
           @Override
-          public ListenableFuture<BuildRuleSuccess> apply(BuildRule rule) {
+          public ListenableFuture<BuildResult> apply(BuildRule rule) {
             return buildEngine.build(buildContext, rule);
           }
         }).toList();
 
     // Get the Future representing the build and then block until everything is built.
-    ListenableFuture<List<BuildRuleSuccess>> buildFuture;
+    ListenableFuture<List<BuildResult>> buildFuture;
     if (isKeepGoing) {
       buildFuture = Futures.successfulAsList(futures);
     } else {
       buildFuture = Futures.allAsList(futures);
     }
 
-    List<BuildRuleSuccess> results;
+    List<BuildResult> results;
     try {
       results = buildFuture.get();
     } catch (InterruptedException e) {
@@ -340,13 +248,12 @@ public class Build implements Closeable {
     }
 
     // Insertion order matters
-    LinkedHashMap<BuildRule, Optional<BuildRuleSuccess>> resultBuilder = new LinkedHashMap<>();
+    LinkedHashMap<BuildRule, Optional<BuildResult>> resultBuilder = new LinkedHashMap<>();
 
     Preconditions.checkState(rulesToBuild.size() == results.size());
     for (int i = 0, len = rulesToBuild.size(); i < len; i++) {
       BuildRule rule = rulesToBuild.get(i);
-      BuildRuleSuccess success = results.get(i);
-      resultBuilder.put(rule, Optional.fromNullable(success));
+      resultBuilder.put(rule, Optional.fromNullable(results.get(i)));
     }
 
     return resultBuilder;
@@ -360,15 +267,17 @@ public class Build implements Closeable {
     int exitCode;
 
     try {
-      LinkedHashMap<BuildRule, Optional<BuildRuleSuccess>> ruleToResult = executeBuild(
+      LinkedHashMap<BuildRule, Optional<BuildResult>> ruleToResult = executeBuild(
           targetsish,
           isKeepGoing);
 
       BuildReport buildReport = new BuildReport(ruleToResult);
 
       if (isKeepGoing) {
-        String buildReportForConsole = buildReport.generateForConsole(console.getAnsi());
-        console.getStdErr().print(buildReportForConsole);
+        String buildReportText = buildReport.generateForConsole(console.getAnsi());
+        // Remove trailing newline from build report.
+        buildReportText = buildReportText.substring(0, buildReportText.length() - 1);
+        executionContext.getBuckEventBus().post(ConsoleEvent.info(buildReportText));
         exitCode = Iterables.any(ruleToResult.values(), RULES_FAILED_PREDICATE) ? 1 : 0;
         if (exitCode != 0) {
           console.printBuildFailure("Not all rules succeeded.");
@@ -416,7 +325,6 @@ public class Build implements Closeable {
 
   @Override
   public void close() throws IOException {
-    stepRunner.close();
     executionContext.close();
   }
 

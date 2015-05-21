@@ -25,13 +25,16 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
+import com.facebook.buck.rules.BuildRules;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.FlavorableDescription;
-import com.facebook.buck.rules.ImmutableBuildRuleType;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.coercer.Either;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
@@ -40,13 +43,14 @@ import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Iterables;
 
 import java.nio.file.Path;
 
 public class JavaLibraryDescription implements Description<JavaLibraryDescription.Arg>,
     FlavorableDescription<JavaLibraryDescription.Arg>, Flavored {
 
-  public static final BuildRuleType TYPE = ImmutableBuildRuleType.of("java_library");
+  public static final BuildRuleType TYPE = BuildRuleType.of("java_library");
 
   @VisibleForTesting
   final JavacOptions defaultOptions;
@@ -85,26 +89,35 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
       return new JavaSourceJar(params, pathResolver, args.srcs.get());
     }
 
-    ImmutableJavacOptions.Builder javacOptions = JavaLibraryDescription.getJavacOptions(
-        pathResolver,
-        args,
-        defaultOptions);
-
+    JavacOptions.Builder javacOptionsBuilder =
+        JavaLibraryDescription.getJavacOptions(
+            resolver,
+            args,
+            defaultOptions);
     AnnotationProcessingParams annotationParams =
         args.buildAnnotationProcessingParams(target, params.getProjectFilesystem(), resolver);
-    javacOptions.setAnnotationProcessingParams(annotationParams);
+    javacOptionsBuilder.setAnnotationProcessingParams(annotationParams);
+    JavacOptions javacOptions = javacOptionsBuilder.build();
 
+    ImmutableSortedSet<BuildRule> exportedDeps = resolver.getAllRules(args.exportedDeps.get());
     return new DefaultJavaLibrary(
-        params,
+        params.appendExtraDeps(
+            Iterables.concat(
+                BuildRules.getExportedRules(
+                    Iterables.concat(
+                        params.getDeclaredDeps(),
+                        exportedDeps,
+                        resolver.getAllRules(args.providedDeps.get()))),
+                pathResolver.filterBuildRuleInputs(javacOptions.getInputs()))),
         pathResolver,
         args.srcs.get(),
         validateResources(pathResolver, args, params.getProjectFilesystem()),
-        args.proguardConfig,
+        args.proguardConfig.transform(SourcePaths.toSourcePath(params.getProjectFilesystem())),
         args.postprocessClassesCommands.get(),
-        resolver.getAllRules(args.exportedDeps.get()),
+        exportedDeps,
         resolver.getAllRules(args.providedDeps.get()),
         /* additionalClasspathEntries */ ImmutableSet.<Path>of(),
-        javacOptions.build(),
+        javacOptions,
         args.resourcesRoot);
   }
 
@@ -126,11 +139,11 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
     return arg.resources.get();
   }
 
-  public static ImmutableJavacOptions.Builder getJavacOptions(
-      SourcePathResolver resolver,
+  public static JavacOptions.Builder getJavacOptions(
+      BuildRuleResolver ruleResolver,
       Arg args,
       JavacOptions defaultOptions) {
-    ImmutableJavacOptions.Builder builder = JavacOptions.builder(defaultOptions);
+    JavacOptions.Builder builder = JavacOptions.builder(defaultOptions);
 
     if (args.source.isPresent()) {
       builder.setSourceLevel(args.source.get());
@@ -144,66 +157,34 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
       builder.addAllExtraArguments(args.extraArguments.get());
     }
 
-    if (args.javac.isPresent() || args.javacJar.isPresent()) {
-      if (args.javac.isPresent() && args.javacJar.isPresent()) {
-        throw new HumanReadableException("Cannot set both javac and javacjar");
+    if (args.compiler.isPresent()) {
+      Either<BuiltInJavac, Either<BuildTarget, Path>> left = args.compiler.get();
+      // Until we have more than one value for BuiltInJavac, left has nothing to do.
+      if (left.isRight()) {
+        Either<BuildTarget, Path> right = left.getRight();
+        if (right.isLeft()) {
+          BuildRule rule = ruleResolver.getRule(right.getLeft());
+          if (rule instanceof PrebuiltJar) {
+            builder.setJavacJarPath(
+                new BuildTargetSourcePath(rule.getProjectFilesystem(), rule.getBuildTarget()));
+          } else {
+            throw new HumanReadableException("Only prebuilt_jar targets can be used as a javac");
+          }
+        } else {
+          builder.setJavacPath(right.getRight());
+        }
       }
-
-      builder.setJavacPath(args.javac.transform(resolver.getPathFunction()));
-      builder.setJavacJarPath(args.javacJar.transform(resolver.getPathFunction()));
+    } else {
+      if (args.javac.isPresent() || args.javacJar.isPresent()) {
+        if (args.javac.isPresent() && args.javacJar.isPresent()) {
+          throw new HumanReadableException("Cannot set both javac and javacjar");
+        }
+        builder.setJavacPath(args.javac);
+        builder.setJavacJarPath(args.javacJar);
+      }
     }
 
     return builder;
-  }
-
-  @SuppressFieldNotInitialized
-  public static class Arg {
-    public Optional<ImmutableSortedSet<SourcePath>> srcs;
-    public Optional<ImmutableSortedSet<SourcePath>> resources;
-    public Optional<String> source;
-    public Optional<String> target;
-    public Optional<SourcePath> javac;
-    public Optional<SourcePath> javacJar;
-    public Optional<ImmutableList<String>> extraArguments;
-    public Optional<Path> proguardConfig;
-    public Optional<ImmutableSortedSet<BuildTarget>> annotationProcessorDeps;
-    public Optional<ImmutableList<String>> annotationProcessorParams;
-    public Optional<ImmutableSet<String>> annotationProcessors;
-    public Optional<Boolean> annotationProcessorOnly;
-    public Optional<ImmutableList<String>> postprocessClassesCommands;
-    public Optional<Path> resourcesRoot;
-
-    public Optional<ImmutableSortedSet<BuildTarget>> providedDeps;
-    public Optional<ImmutableSortedSet<BuildTarget>> exportedDeps;
-    public Optional<ImmutableSortedSet<BuildTarget>> deps;
-
-    public AnnotationProcessingParams buildAnnotationProcessingParams(
-        BuildTarget owner,
-        ProjectFilesystem filesystem,
-        BuildRuleResolver resolver) {
-      ImmutableSet<String> annotationProcessors =
-          this.annotationProcessors.or(ImmutableSet.<String>of());
-
-      if (annotationProcessors.isEmpty()) {
-        return AnnotationProcessingParams.EMPTY;
-      }
-
-      AnnotationProcessingParams.Builder builder = new AnnotationProcessingParams.Builder();
-      builder.setOwnerTarget(owner);
-      builder.addAllProcessors(annotationProcessors);
-      builder.setProjectFilesystem(filesystem);
-      ImmutableSortedSet<BuildRule> processorDeps =
-          resolver.getAllRules(annotationProcessorDeps.or(ImmutableSortedSet.<BuildTarget>of()));
-      for (BuildRule processorDep : processorDeps) {
-        builder.addProcessorBuildTarget(processorDep);
-      }
-      for (String processorParam : annotationProcessorParams.or(ImmutableList.<String>of())) {
-        builder.addParameter(processorParam);
-      }
-      builder.setProcessOnly(annotationProcessorOnly.or(Boolean.FALSE));
-
-      return builder.build();
-    }
   }
 
   /**
@@ -256,7 +237,7 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
     }
 
     BuildTarget gwtModuleBuildTarget = BuildTargets.createFlavoredBuildTarget(
-        originalBuildTarget.getUnflavoredTarget(),
+        originalBuildTarget.getUnflavoredBuildTarget(),
         JavaLibrary.GWT_MODULE_FLAVOR);
     ImmutableSortedSet<SourcePath> filesForGwtModule = ImmutableSortedSet
         .<SourcePath>naturalOrder()
@@ -280,5 +261,57 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
         resolver,
         filesForGwtModule);
     return Optional.of(gwtModule);
+  }
+
+  @SuppressFieldNotInitialized
+  public static class Arg {
+    public Optional<ImmutableSortedSet<SourcePath>> srcs;
+    public Optional<ImmutableSortedSet<SourcePath>> resources;
+    public Optional<String> source;
+    public Optional<String> target;
+    public Optional<Path> javac;
+    public Optional<SourcePath> javacJar;
+    // I am not proud of this.
+    public Optional<Either<BuiltInJavac, Either<BuildTarget, Path>>> compiler;
+    public Optional<ImmutableList<String>> extraArguments;
+    public Optional<Path> proguardConfig;
+    public Optional<ImmutableSortedSet<BuildTarget>> annotationProcessorDeps;
+    public Optional<ImmutableList<String>> annotationProcessorParams;
+    public Optional<ImmutableSet<String>> annotationProcessors;
+    public Optional<Boolean> annotationProcessorOnly;
+    public Optional<ImmutableList<String>> postprocessClassesCommands;
+    public Optional<Path> resourcesRoot;
+
+    public Optional<ImmutableSortedSet<BuildTarget>> providedDeps;
+    public Optional<ImmutableSortedSet<BuildTarget>> exportedDeps;
+    public Optional<ImmutableSortedSet<BuildTarget>> deps;
+
+    public AnnotationProcessingParams buildAnnotationProcessingParams(
+        BuildTarget owner,
+        ProjectFilesystem filesystem,
+        BuildRuleResolver resolver) {
+      ImmutableSet<String> annotationProcessors =
+          this.annotationProcessors.or(ImmutableSet.<String>of());
+
+      if (annotationProcessors.isEmpty()) {
+        return AnnotationProcessingParams.EMPTY;
+      }
+
+      AnnotationProcessingParams.Builder builder = new AnnotationProcessingParams.Builder();
+      builder.setOwnerTarget(owner);
+      builder.addAllProcessors(annotationProcessors);
+      builder.setProjectFilesystem(filesystem);
+      ImmutableSortedSet<BuildRule> processorDeps =
+          resolver.getAllRules(annotationProcessorDeps.or(ImmutableSortedSet.<BuildTarget>of()));
+      for (BuildRule processorDep : processorDeps) {
+        builder.addProcessorBuildTarget(processorDep);
+      }
+      for (String processorParam : annotationProcessorParams.or(ImmutableList.<String>of())) {
+        builder.addParameter(processorParam);
+      }
+      builder.setProcessOnly(annotationProcessorOnly.or(Boolean.FALSE));
+
+      return builder.build();
+    }
   }
 }

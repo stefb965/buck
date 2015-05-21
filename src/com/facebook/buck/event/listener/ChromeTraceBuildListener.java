@@ -24,8 +24,8 @@ import com.facebook.buck.event.BuckEvent;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.event.ChromeTraceEvent;
 import com.facebook.buck.event.TraceEvent;
-import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.io.PathListing;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.parser.ParseEvent;
@@ -156,8 +156,9 @@ public class ChromeTraceBuildListener implements BuckEventListener {
       String symlinkPath = String.format("%s/build.trace",
           BuckConstant.BUCK_TRACE_DIR);
       File symlinkFile = projectFilesystem.getFileForRelativePath(symlinkPath);
-      projectFilesystem.createSymLink(Paths.get(traceOutput.toURI()),
+      projectFilesystem.createSymLink(
           Paths.get(symlinkFile.toURI()),
+          Paths.get(traceOutput.toURI()),
           true);
 
       deleteOldTraces();
@@ -171,9 +172,9 @@ public class ChromeTraceBuildListener implements BuckEventListener {
     writeChromeTraceEvent("buck",
         started.getCommandName(),
         ChromeTraceEvent.Phase.BEGIN,
-        ImmutableMap.<String, String>of(
+        ImmutableMap.of(
             "command_args", Joiner.on(' ').join(started.getArgs())
-            ),
+        ),
         started);
   }
 
@@ -182,7 +183,7 @@ public class ChromeTraceBuildListener implements BuckEventListener {
     writeChromeTraceEvent("buck",
         finished.getCommandName(),
         ChromeTraceEvent.Phase.END,
-        ImmutableMap.<String, String>of(
+        ImmutableMap.of(
             "command_args", Joiner.on(' ').join(finished.getArgs()),
             "daemon", Boolean.toString(finished.isDaemon())),
         finished);
@@ -209,11 +210,10 @@ public class ChromeTraceBuildListener implements BuckEventListener {
   @Subscribe
   public void ruleStarted(BuildRuleEvent.Started started) {
     BuildRule buildRule = started.getBuildRule();
-
     writeChromeTraceEvent("buck",
         buildRule.getFullyQualifiedName(),
         ChromeTraceEvent.Phase.BEGIN,
-        ImmutableMap.<String, String>of("rule_key", started.getRuleKeySafe()),
+        ImmutableMap.of("rule_key", started.getRuleKeySafe()),
         started);
   }
 
@@ -222,18 +222,39 @@ public class ChromeTraceBuildListener implements BuckEventListener {
     writeChromeTraceEvent("buck",
         finished.getBuildRule().getFullyQualifiedName(),
         ChromeTraceEvent.Phase.END,
-        ImmutableMap.<String, String>of(
+        ImmutableMap.of(
             "cache_result", finished.getCacheResult().toString().toLowerCase(),
             "success_type",
-                finished.getSuccessType().transform(Functions.toStringFunction()).or("failed")
+            finished.getSuccessType().transform(Functions.toStringFunction()).or("failed")
         ),
         finished);
   }
 
   @Subscribe
+  public void ruleResumed(BuildRuleEvent.Resumed resumed) {
+    BuildRule buildRule = resumed.getBuildRule();
+    writeChromeTraceEvent(
+        "buck",
+        buildRule.getFullyQualifiedName(),
+        ChromeTraceEvent.Phase.BEGIN,
+        ImmutableMap.of("rule_key", resumed.getRuleKeySafe()),
+        resumed);
+  }
+
+  @Subscribe
+  public void ruleSuspended(BuildRuleEvent.Suspended suspended) {
+    BuildRule buildRule = suspended.getBuildRule();
+    writeChromeTraceEvent("buck",
+        buildRule.getFullyQualifiedName(),
+        ChromeTraceEvent.Phase.END,
+        ImmutableMap.of("rule_key", suspended.getRuleKeySafe()),
+        suspended);
+  }
+
+  @Subscribe
   public void stepStarted(StepEvent.Started started) {
     writeChromeTraceEvent("buck",
-        started.getStep().getShortName(),
+        started.getShortStepName(),
         ChromeTraceEvent.Phase.BEGIN,
         ImmutableMap.<String, String>of(),
         started);
@@ -242,7 +263,7 @@ public class ChromeTraceBuildListener implements BuckEventListener {
   @Subscribe
   public void stepFinished(StepEvent.Finished finished) {
     writeChromeTraceEvent("buck",
-        finished.getStep().getShortName(),
+        finished.getShortStepName(),
         ChromeTraceEvent.Phase.END,
         ImmutableMap.of(
             "description", finished.getDescription(),
@@ -264,7 +285,8 @@ public class ChromeTraceBuildListener implements BuckEventListener {
     writeChromeTraceEvent("buck",
         "parse",
         ChromeTraceEvent.Phase.END,
-        ImmutableMap.<String, String>of("targets",
+        ImmutableMap.of(
+            "targets",
             Joiner.on(",").join(finished.getBuildTargets())),
         finished);
   }
@@ -303,7 +325,7 @@ public class ChromeTraceBuildListener implements BuckEventListener {
     writeChromeTraceEvent("buck",
         "install",
         ChromeTraceEvent.Phase.END,
-        ImmutableMap.<String, String>of(
+        ImmutableMap.of(
             "target", finished.getBuildTarget().getFullyQualifiedName(),
             "success", Boolean.toString(finished.isSuccess())),
         finished);
@@ -323,7 +345,7 @@ public class ChromeTraceBuildListener implements BuckEventListener {
     writeChromeTraceEvent("buck",
         "start_activity",
         ChromeTraceEvent.Phase.END,
-        ImmutableMap.<String, String>of(
+        ImmutableMap.of(
             "target", finished.getBuildTarget().getFullyQualifiedName(),
             "activity_name", finished.getActivityName(),
             "success", Boolean.toString(finished.isSuccess())),
@@ -344,7 +366,7 @@ public class ChromeTraceBuildListener implements BuckEventListener {
     writeChromeTraceEvent("buck",
         "uninstall",
         ChromeTraceEvent.Phase.END,
-        ImmutableMap.<String, String>of(
+        ImmutableMap.of(
             "package_name", finished.getPackageName(),
             "success", Boolean.toString(finished.isSuccess())),
         finished);
@@ -355,7 +377,7 @@ public class ChromeTraceBuildListener implements BuckEventListener {
     writeChromeTraceEvent("buck",
         started.getCategory(),
         ChromeTraceEvent.Phase.BEGIN,
-        ImmutableMap.<String, String>of(
+        ImmutableMap.of(
             "rule_key", started.getRuleKey().toString()),
         started);
   }

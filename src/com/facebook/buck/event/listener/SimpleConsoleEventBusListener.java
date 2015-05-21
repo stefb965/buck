@@ -19,6 +19,7 @@ import com.facebook.buck.cli.InstallEvent;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.parser.ParseEvent;
 import com.facebook.buck.rules.BuildEvent;
+import com.facebook.buck.rules.BuildRuleEvent;
 import com.facebook.buck.rules.IndividualTestEvent;
 import com.facebook.buck.rules.TestRunEvent;
 import com.facebook.buck.timing.Clock;
@@ -37,14 +38,11 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
   private final AtomicLong parseTime;
   private final TestResultFormatter testFormatter;
 
-  public SimpleConsoleEventBusListener(
-      Console console,
-      Clock clock,
-      boolean isTreatingAssumptionsAsErrors) {
+  public SimpleConsoleEventBusListener(Console console, Clock clock) {
     super(console, clock);
 
     this.parseTime = new AtomicLong(0);
-    this.testFormatter = new TestResultFormatter(console.getAnsi(), isTreatingAssumptionsAsErrors);
+    this.testFormatter = new TestResultFormatter(console.getAnsi(), console.getVerbosity());
   }
 
   @Override
@@ -122,6 +120,18 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
     ImmutableList.Builder<String> lines = ImmutableList.builder();
     testFormatter.reportResult(lines, event.getResults());
     printLines(lines);
+  }
+
+  @Subscribe
+  public void buildRuleFinished(BuildRuleEvent.Finished finished) {
+    String line = String.format("BUILT %s", finished.getBuildRule().getFullyQualifiedName());
+    if (ruleCount.isPresent()) {
+      line += String.format(
+          " (%d/%d JOBS)",
+          numRulesCompleted.get(),
+          ruleCount.get());
+    }
+    console.getStdErr().println(line);
   }
 
   private void printLines(ImmutableList.Builder<String> lines) {

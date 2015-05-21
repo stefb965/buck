@@ -35,6 +35,7 @@ import org.junit.Test;
 
 public class ProjectCommandIntellijTest {
 
+  private TargetNode<?> dummyRootBinNode;
   private TargetNode<?> barLibNode;
   private TargetNode<?> fooLibNode;
   private TargetNode<?> fooBinNode;
@@ -45,6 +46,7 @@ public class ProjectCommandIntellijTest {
   private TargetNode<?> quxBinNode;
   private TargetNode<?> fooProjectNode;
   private TargetNode<?> bazProjectNode;
+  private TargetNode<?> dummyProjectNode;
 
   TargetGraph targetGraph;
 
@@ -62,6 +64,10 @@ public class ProjectCommandIntellijTest {
     // ^
     // |
     // QuxBin
+
+    BuildTarget dummyRootBinTarget = BuildTarget.builder("//", "bindummy").build();
+    dummyRootBinNode = new JavaBinaryRuleBuilder(dummyRootBinTarget)
+        .build();
 
     BuildTarget barLibTarget = BuildTarget.builder("//bar", "lib").build();
     barLibNode = JavaLibraryBuilder
@@ -110,17 +116,24 @@ public class ProjectCommandIntellijTest {
 
     BuildTarget fooProjectTarget = BuildTarget.builder("//foo", "foo").build();
     fooProjectNode = ProjectConfigBuilder
-        .newProjectConfigRuleBuilder(fooProjectTarget)
+        .createBuilder(fooProjectTarget)
         .setSrcRule(fooBinTarget)
         .build();
 
     BuildTarget bazProjectTarget = BuildTarget.builder("//baz", "baz").build();
     bazProjectNode = ProjectConfigBuilder
-        .newProjectConfigRuleBuilder(bazProjectTarget)
+        .createBuilder(bazProjectTarget)
         .setSrcRule(bazLibTarget)
         .build();
 
+    BuildTarget dummyProjectTarget = BuildTarget.builder("//", "dummy").build();
+    dummyProjectNode = ProjectConfigBuilder
+        .createBuilder(dummyProjectTarget)
+        .setSrcRule(dummyRootBinTarget)
+        .build();
+
     targetGraph = TargetGraphFactory.newInstance(
+        dummyRootBinNode,
         barLibNode,
         fooLibNode,
         fooBinNode,
@@ -130,20 +143,22 @@ public class ProjectCommandIntellijTest {
         fooBinTestNode,
         quxBinNode,
         fooProjectNode,
-        bazProjectNode);
+        bazProjectNode,
+        dummyProjectNode);
   }
 
   @Test
   public void testCreateTargetGraphWithoutTests() {
     TargetGraphAndTargets targetGraphAndTargets = ProjectCommandTests.createTargetGraph(
         targetGraph,
-        ProjectCommandOptions.Ide.INTELLIJ,
+        ProjectCommand.Ide.INTELLIJ,
         ImmutableSet.<BuildTarget>of(),
-        ImmutableSet.<String>of(),
         /* withTests = */ false);
 
     assertEquals(
         ImmutableSortedSet.<TargetNode<?>>of(
+            dummyRootBinNode,
+            dummyProjectNode,
             fooProjectNode,
             fooBinNode,
             fooLibNode,
@@ -158,13 +173,14 @@ public class ProjectCommandIntellijTest {
   public void testCreateTargetGraphWithTests() {
     TargetGraphAndTargets targetGraphAndTargets = ProjectCommandTests.createTargetGraph(
         targetGraph,
-        ProjectCommandOptions.Ide.INTELLIJ,
+        ProjectCommand.Ide.INTELLIJ,
         ImmutableSet.<BuildTarget>of(),
-        ImmutableSet.<String>of(),
         /* withTests = */ true);
 
     assertEquals(
         ImmutableSortedSet.<TargetNode<?>>of(
+            dummyRootBinNode,
+            dummyProjectNode,
             fooProjectNode,
             fooBinNode,
             fooLibNode,
@@ -182,13 +198,14 @@ public class ProjectCommandIntellijTest {
   public void testCreateTargetGraphForSliceWithoutTests() {
     TargetGraphAndTargets targetGraphAndTargets = ProjectCommandTests.createTargetGraph(
         targetGraph,
-        ProjectCommandOptions.Ide.INTELLIJ,
+        ProjectCommand.Ide.INTELLIJ,
         ImmutableSet.of(fooProjectNode.getBuildTarget()),
-        ImmutableSet.<String>of(),
         /* withTests = */ false);
 
     assertEquals(
         ImmutableSortedSet.<TargetNode<?>>of(
+            dummyRootBinNode,
+            dummyProjectNode,
             fooProjectNode,
             fooBinNode,
             fooLibNode,
@@ -201,13 +218,14 @@ public class ProjectCommandIntellijTest {
   public void testCreateTargetGraphForSliceWithTests() {
     TargetGraphAndTargets targetGraphAndTargets = ProjectCommandTests.createTargetGraph(
         targetGraph,
-        ProjectCommandOptions.Ide.INTELLIJ,
+        ProjectCommand.Ide.INTELLIJ,
         ImmutableSet.of(fooProjectNode.getBuildTarget()),
-        ImmutableSet.<String>of(),
         /* withTests = */ true);
 
     assertEquals(
         ImmutableSortedSet.<TargetNode<?>>of(
+            dummyRootBinNode,
+            dummyProjectNode,
             fooProjectNode,
             fooBinNode,
             fooLibNode,
@@ -224,13 +242,14 @@ public class ProjectCommandIntellijTest {
   public void testCreateTargetGraphForSmallSliceWithoutTests() {
     TargetGraphAndTargets targetGraphAndTargets = ProjectCommandTests.createTargetGraph(
         targetGraph,
-        ProjectCommandOptions.Ide.INTELLIJ,
+        ProjectCommand.Ide.INTELLIJ,
         ImmutableSet.of(bazProjectNode.getBuildTarget()),
-        ImmutableSet.<String>of(),
         /* withTests = */ false);
 
     assertEquals(
         ImmutableSortedSet.<TargetNode<?>>of(
+            dummyRootBinNode,
+            dummyProjectNode,
             bazProjectNode,
             bazLibNode),
         ImmutableSortedSet.copyOf(
@@ -241,13 +260,14 @@ public class ProjectCommandIntellijTest {
   public void testCreateTargetGraphForSmallSliceWithTests() {
     TargetGraphAndTargets targetGraphAndTargets = ProjectCommandTests.createTargetGraph(
         targetGraph,
-        ProjectCommandOptions.Ide.INTELLIJ,
+        ProjectCommand.Ide.INTELLIJ,
         ImmutableSet.of(bazProjectNode.getBuildTarget()),
-        ImmutableSet.<String>of(),
         /* withTests = */ true);
 
     assertEquals(
         ImmutableSortedSet.<TargetNode<?>>of(
+            dummyRootBinNode,
+            dummyProjectNode,
             bazProjectNode,
             bazLibNode,
             bazTestNode),

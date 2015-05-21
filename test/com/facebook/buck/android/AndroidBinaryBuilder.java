@@ -16,10 +16,10 @@
 
 package com.facebook.buck.android;
 
-import static com.facebook.buck.android.FilterResourcesStep.ResourceFilter;
-import static com.facebook.buck.android.ResourcesFilter.ResourceCompressionMode;
 import static com.facebook.buck.java.JavaCompilationConstants.ANDROID_JAVAC_OPTIONS;
 
+import com.facebook.buck.android.FilterResourcesStep.ResourceFilter;
+import com.facebook.buck.android.ResourcesFilter.ResourceCompressionMode;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractNodeBuilder;
@@ -28,6 +28,7 @@ import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.util.concurrent.MoreExecutors;
 
 import java.util.List;
 import java.util.Set;
@@ -39,7 +40,8 @@ public class AndroidBinaryBuilder extends AbstractNodeBuilder<AndroidBinaryDescr
         new AndroidBinaryDescription(
             ANDROID_JAVAC_OPTIONS,
             new ProGuardConfig(new FakeBuckConfig()),
-            ImmutableMap.<AndroidBinary.TargetCpuType, NdkCxxPlatform>of()),
+            ImmutableMap.<AndroidBinary.TargetCpuType, NdkCxxPlatform>of(),
+            MoreExecutors.newDirectExecutorService()),
         target);
   }
 
@@ -49,11 +51,6 @@ public class AndroidBinaryBuilder extends AbstractNodeBuilder<AndroidBinaryDescr
 
   public AndroidBinaryBuilder setManifest(SourcePath manifest) {
     arg.manifest = manifest;
-    return this;
-  }
-
-  public AndroidBinaryBuilder setTarget(String target) {
-    arg.target = target;
     return this;
   }
 
@@ -110,4 +107,19 @@ public class AndroidBinaryBuilder extends AbstractNodeBuilder<AndroidBinaryDescr
     arg.resourceFilter = Optional.of(rawFilters);
     return this;
   }
+
+  public AndroidBinaryBuilder setIntraDexReorderResources(boolean enableReorder,
+      SourcePath reorderTool,
+      SourcePath reorderData) {
+    arg.reorderClassesIntraDex = Optional.of(enableReorder);
+    arg.dexReorderToolFile = Optional.of(reorderTool);
+    arg.dexReorderDataDumpFile = Optional.of(reorderData);
+    return this;
+  }
+
+  public AndroidBinaryBuilder setNoDx(Set<BuildTarget> noDx) {
+    arg.noDx = Optional.of(noDx);
+    return this;
+  }
+
 }

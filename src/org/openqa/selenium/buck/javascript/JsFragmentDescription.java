@@ -22,14 +22,13 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.ImmutableBuildRuleType;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSortedSet;
 
 public class JsFragmentDescription implements Description<JsFragmentDescription.Arg> {
 
-  public static final BuildRuleType TYPE = ImmutableBuildRuleType.of("js_fragment");
+  public static final BuildRuleType TYPE = BuildRuleType.of("js_fragment");
   private final JavascriptConfig config;
 
   public JsFragmentDescription(JavascriptConfig config) {

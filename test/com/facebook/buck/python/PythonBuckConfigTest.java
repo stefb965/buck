@@ -19,26 +19,37 @@ package com.facebook.buck.python;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.cli.FakeBuckEnvironment;
+import com.facebook.buck.io.ExecutableFinder;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
+import com.facebook.buck.timing.FakeClock;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
+import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 
 import org.junit.Rule;
 import org.junit.Test;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Map;
 
 public class PythonBuckConfigTest {
 
   @Rule
   public DebuggableTemporaryFolder temporaryFolder = new DebuggableTemporaryFolder();
+
+  @Rule
+  public DebuggableTemporaryFolder temporaryFolder2 = new DebuggableTemporaryFolder();
 
   @Test
   public void testGetPythonVersion() throws Exception {
@@ -49,7 +60,6 @@ public class PythonBuckConfigTest {
     assertEquals("Python 2.7", version.toString());
   }
 
-
   @Test
   public void whenToolsPythonIsExecutableFileThenItIsUsed() throws IOException {
     File configPythonFile = temporaryFolder.newFile("python");
@@ -57,11 +67,10 @@ public class PythonBuckConfigTest {
     PythonBuckConfig config =
         new PythonBuckConfig(
             new FakeBuckConfig(
-                ImmutableMap.<String, Map<String, String>>builder()
-                    .put(
-                        "python",
-                        ImmutableMap.of("interpreter", configPythonFile.getAbsolutePath()))
-                    .build()));
+                ImmutableMap.of(
+                    "python",
+                    ImmutableMap.of("interpreter", configPythonFile.getAbsolutePath()))),
+            new ExecutableFinder());
     assertEquals(
         "Should return path to temp file.",
         configPythonFile.getAbsolutePath(), config.getPythonInterpreter());
@@ -73,9 +82,8 @@ public class PythonBuckConfigTest {
     PythonBuckConfig config =
         new PythonBuckConfig(
             new FakeBuckConfig(
-                ImmutableMap.<String, Map<String, String>>builder()
-                    .put("python", ImmutableMap.of("interpreter", invalidPath))
-                    .build()));
+                ImmutableMap.of("python", ImmutableMap.of("interpreter", invalidPath))),
+            new ExecutableFinder());
     config.getPythonInterpreter();
     fail("Should throw exception as python config is invalid.");
   }
@@ -83,15 +91,14 @@ public class PythonBuckConfigTest {
   @Test(expected = HumanReadableException.class)
   public void whenToolsPythonIsNonExecutableFileThenItIsNotUsed() throws IOException {
     File configPythonFile = temporaryFolder.newFile("python");
-    assertTrue("Should be able to set file non-executable", configPythonFile.setExecutable(false));
+    assumeTrue("Should be able to set file non-executable", configPythonFile.setExecutable(false));
     PythonBuckConfig config =
         new PythonBuckConfig(
             new FakeBuckConfig(
-                ImmutableMap.<String, Map<String, String>>builder()
-                    .put(
-                        "python",
-                        ImmutableMap.of("interpreter", configPythonFile.getAbsolutePath()))
-                    .build()));
+                ImmutableMap.of(
+                    "python",
+                    ImmutableMap.of("interpreter", configPythonFile.getAbsolutePath()))),
+            new ExecutableFinder());
     config.getPythonInterpreter();
     fail("Should throw exception as python config is invalid.");
   }
@@ -103,11 +110,10 @@ public class PythonBuckConfigTest {
     PythonBuckConfig config =
         new PythonBuckConfig(
             new FakeBuckConfig(
-                ImmutableMap.<String, Map<String, String>>builder()
-                    .put(
-                        "python",
-                        ImmutableMap.of("interpreter", configPythonFile.getAbsolutePath()))
-                    .build()));
+                ImmutableMap.of(
+                    "python",
+                    ImmutableMap.of("interpreter", configPythonFile.getAbsolutePath()))),
+            new ExecutableFinder());
     config.getPythonInterpreter();
     fail("Should throw exception as python config is invalid.");
   }
@@ -119,28 +125,28 @@ public class PythonBuckConfigTest {
     PythonBuckConfig config =
         new PythonBuckConfig(
             new FakeBuckEnvironment(
-                ImmutableMap.<String, Map<String, String>>of(),
+                ImmutableMap.<String, ImmutableMap<String, String>>of(),
                 ImmutableMap.<String, String>builder()
                     .put("PATH", temporaryFolder.getRoot().getAbsolutePath())
                     .put("PATHEXT", "")
-                    .build(),
-                ImmutableMap.<String, String>of()));
+                    .build()),
+            new ExecutableFinder());
     config.getPythonInterpreter();
   }
 
   @Test
   public void whenPythonPlusExtensionOnPathIsExecutableFileThenItIsUsed() throws IOException {
-    File python = temporaryFolder.newFile("python.exe");
+    File python = temporaryFolder.newFile("my-py.exe");
     assertTrue("Should be able to set file executable", python.setExecutable(true));
     PythonBuckConfig config =
         new PythonBuckConfig(
             new FakeBuckEnvironment(
-                ImmutableMap.<String, Map<String, String>>of(),
+                ImmutableMap.of("python", ImmutableMap.of("interpreter", "my-py")),
                 ImmutableMap.<String, String>builder()
                     .put("PATH", temporaryFolder.getRoot().getAbsolutePath())
                     .put("PATHEXT", ".exe")
-                    .build(),
-                ImmutableMap.<String, String>of()));
+                    .build()),
+            new ExecutableFinder(Platform.WINDOWS));
     config.getPythonInterpreter();
   }
 
@@ -153,12 +159,12 @@ public class PythonBuckConfigTest {
     PythonBuckConfig config =
         new PythonBuckConfig(
             new FakeBuckEnvironment(
-                ImmutableMap.<String, Map<String, String>>of(),
+                ImmutableMap.<String, ImmutableMap<String, String>>of(),
                 ImmutableMap.<String, String>builder()
                     .put("PATH", temporaryFolder.getRoot().getAbsolutePath())
                     .put("PATHEXT", "")
-                    .build(),
-                ImmutableMap.<String, String>of()));
+                    .build()),
+            new ExecutableFinder());
     assertEquals(
         "Should return path to python2.",
         python2.getAbsolutePath(),
@@ -170,12 +176,13 @@ public class PythonBuckConfigTest {
     PythonBuckConfig config =
         new PythonBuckConfig(
             new FakeBuckEnvironment(
-                ImmutableMap.<String, Map<String, String>>of(),
+                ImmutableMap.of(
+                    "python", ImmutableMap.of("interpreter", "does-not-exist")),
                 ImmutableMap.<String, String>builder()
                     .put("PATH", temporaryFolder.getRoot().getAbsolutePath())
                     .put("PATHEXT", "")
-                    .build(),
-                ImmutableMap.<String, String>of()));
+                    .build()),
+            new ExecutableFinder());
     config.getPythonInterpreter();
     fail("Should throw an exception when Python isn't found.");
   }
@@ -184,8 +191,6 @@ public class PythonBuckConfigTest {
   public void whenMultiplePythonExecutablesOnPathFirstIsUsed() throws IOException {
     File pythonA = temporaryFolder.newFile("python");
     assertTrue("Should be able to set file executable", pythonA.setExecutable(true));
-    DebuggableTemporaryFolder temporaryFolder2 = new DebuggableTemporaryFolder();
-    temporaryFolder2.create();
     File pythonB = temporaryFolder2.newFile("python");
     assertTrue("Should be able to set file executable", pythonB.setExecutable(true));
     String path = temporaryFolder.getRoot().getAbsolutePath() +
@@ -194,16 +199,92 @@ public class PythonBuckConfigTest {
     PythonBuckConfig config =
         new PythonBuckConfig(
             new FakeBuckEnvironment(
-                ImmutableMap.<String, Map<String, String>>of(),
+                ImmutableMap.<String, ImmutableMap<String, String>>of(),
                 ImmutableMap.<String, String>builder()
                     .put("PATH", path)
                     .put("PATHEXT", "")
-                    .build(),
-                ImmutableMap.<String, String>of()));
+                    .build()),
+            new ExecutableFinder());
     assertEquals(
         "Should return the first path",
         config.getPythonInterpreter(),
         pythonA.getAbsolutePath());
   }
 
+  @Test
+  public void testPathToPexExecuterDefaultsToPython() throws IOException {
+    File python2 = temporaryFolder.newFile("python2");
+    assertTrue("Should be able to set file executable", python2.setExecutable(true));
+    PythonBuckConfig config =
+        new PythonBuckConfig(
+            new FakeBuckEnvironment(
+                ImmutableMap.<String, ImmutableMap<String, String>>of(),
+                ImmutableMap.<String, String>builder()
+                    .put("PATH", temporaryFolder.getRoot().getAbsolutePath())
+                    .put("PATHEXT", "")
+                    .build()),
+            new ExecutableFinder());
+    assertEquals(config.getPathToPexExecuter().toString(), config.getPythonInterpreter());
+  }
+
+  @Test
+  public void testPathToPexExecuterUsesConfigSetting() throws IOException {
+    DebuggableTemporaryFolder projectDir = new DebuggableTemporaryFolder();
+    projectDir.create();
+    Path pexExecuter = Paths.get("pex-exectuter");
+    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem(
+        new FakeClock(0),
+        projectDir.getRoot(),
+        ImmutableSet.of(pexExecuter));
+    Files.createFile(projectFilesystem.resolve(pexExecuter));
+    assertTrue(
+        "Should be able to set file executable",
+        projectFilesystem.resolve(pexExecuter).toFile().setExecutable(true));
+    PythonBuckConfig config =
+        new PythonBuckConfig(
+            new FakeBuckConfig(
+                ImmutableMap.of(
+                    "python",
+                    ImmutableMap.of(
+                        "path_to_pex_executer",
+                        pexExecuter.toString())),
+                projectFilesystem),
+            new ExecutableFinder());
+    assertEquals(config.getPathToPexExecuter(), projectFilesystem.resolve(pexExecuter));
+  }
+
+  @Test(expected = HumanReadableException.class)
+  public void testPathToPexExecuterNotExecutableThrows() throws IOException {
+    DebuggableTemporaryFolder projectDir = new DebuggableTemporaryFolder();
+    projectDir.create();
+    Path pexExecuter = Paths.get("pex-executer");
+    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem(
+        new FakeClock(0),
+        projectDir.getRoot(),
+        ImmutableSet.of(pexExecuter));
+    Files.createFile(projectFilesystem.resolve(pexExecuter));
+    assumeTrue(
+        "Should be able to set file non-executable",
+        projectFilesystem.resolve(pexExecuter).toFile().setExecutable(false));
+    PythonBuckConfig config =
+        new PythonBuckConfig(
+            new FakeBuckConfig(
+                ImmutableMap.of(
+                    "python",
+                    ImmutableMap.of(
+                        "path_to_pex_executer",
+                        pexExecuter.toString())),
+                projectFilesystem),
+            new ExecutableFinder());
+    config.getPathToPexExecuter();
+  }
+
+  @Test
+  public void testGetPyrunVersion() throws Exception {
+    PythonVersion version =
+        PythonBuckConfig.extractPythonVersion(
+            Paths.get("non", "important", "path"),
+            new ProcessExecutor.Result(0, "", "pyrun 2.7.6 (release 2.0.0)\n"));
+    assertEquals("pyrun 2.7", version.toString());
+  }
 }

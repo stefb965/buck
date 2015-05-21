@@ -16,12 +16,12 @@
 
 package com.facebook.buck.rules;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.step.Step;
 import com.fasterxml.jackson.annotation.JsonAutoDetect;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 
@@ -63,11 +63,6 @@ public interface BuildRule extends Comparable<HasBuildTarget>, HasBuildTarget {
   public ImmutableSortedSet<BuildRule> getDeps();
 
   /**
-   * @return the inputs needed to build this build rule
-   */
-  public ImmutableCollection<Path> getInputs();
-
-  /**
    * @return key based on the BuildRule's state, including the transitive closure of its
    *     dependencies' keys.
    */
@@ -91,6 +86,6 @@ public interface BuildRule extends Comparable<HasBuildTarget>, HasBuildTarget {
   @Nullable
   public Path getPathToOutputFile();
 
-  public CacheMode getCacheMode();
+  public ProjectFilesystem getProjectFilesystem();
 
 }

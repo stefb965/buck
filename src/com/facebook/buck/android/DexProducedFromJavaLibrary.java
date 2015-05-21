@@ -28,10 +28,8 @@ import com.facebook.buck.rules.BuildOutputInitializer;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.ImmutableSha1HashCode;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.Sha1HashCode;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.AbstractExecutionStep;
@@ -42,7 +40,6 @@ import com.facebook.buck.step.fs.RmStep;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.hash.HashCode;
@@ -84,17 +81,6 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRule
     super(params, resolver);
     this.javaLibrary = javaLibrary;
     this.buildOutputInitializer = new BuildOutputInitializer<>(params.getBuildTarget(), this);
-  }
-
-  @Override
-  public ImmutableCollection<Path> getInputsToCompareToOutput() {
-    // The deps of this rule already capture all of the inputs that should affect the cache key.
-    return ImmutableList.of();
-  }
-
-  @Override
-  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
-    return builder;
   }
 
   @Override
@@ -213,6 +199,6 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRule
       hasher.putUnencodedChars(entry.getValue().toString());
       hasher.putByte((byte) 0);
     }
-    return ImmutableSha1HashCode.of(hasher.hash().toString());
+    return Sha1HashCode.of(hasher.hash().toString());
   }
 }

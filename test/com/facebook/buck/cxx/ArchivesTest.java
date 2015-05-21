@@ -18,6 +18,7 @@ package com.facebook.buck.cxx;
 
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
@@ -32,8 +33,9 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TestSourcePath;
 import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.shell.GenruleBuilder;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import org.junit.Test;
@@ -43,7 +45,9 @@ import java.nio.file.Paths;
 
 public class ArchivesTest {
 
-  private static final Tool DEFAULT_ARCHIVER = new SourcePathTool(new TestSourcePath("ar"));
+  private static final Tool DEFAULT_ARCHIVER = new HashedFileTool(Paths.get("ar"));
+  private static final byte[] DEFAULT_EXPECTED_GLOBAL_HEADER =
+      "some-arbitrary-test-header".getBytes(Charsets.US_ASCII);
   private static final Path DEFAULT_OUTPUT = Paths.get("libblah.a");
   private static final ImmutableList<SourcePath> DEFAULT_INPUTS = ImmutableList.<SourcePath>of(
       new TestSourcePath("a.o"),
@@ -52,6 +56,7 @@ public class ArchivesTest {
 
   @Test
   public void testThatBuildTargetSourcePathDepsAndPathsArePropagated() {
+    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     BuildRuleResolver resolver = new BuildRuleResolver();
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     BuildRuleParams params = BuildRuleParamsFactory.createTrivialBuildRuleParams(target);
@@ -72,22 +77,18 @@ public class ArchivesTest {
         target,
         params,
         DEFAULT_ARCHIVER,
+        DEFAULT_EXPECTED_GLOBAL_HEADER,
         DEFAULT_OUTPUT,
         ImmutableList.<SourcePath>of(
             new TestSourcePath("simple.o"),
-            new BuildTargetSourcePath(genrule1.getBuildTarget()),
-            new BuildTargetSourcePath(genrule2.getBuildTarget())));
+            new BuildTargetSourcePath(projectFilesystem, genrule1.getBuildTarget()),
+            new BuildTargetSourcePath(projectFilesystem, genrule2.getBuildTarget())));
 
     // Verify that the archive dependencies include the genrules providing the
     // SourcePath inputs.
     assertEquals(
         ImmutableSortedSet.<BuildRule>of(genrule1, genrule2),
         archive.getDeps());
-
-    // Verify that the archive inputs are the outputs of the genrules.
-    assertEquals(
-        ImmutableSet.of(Paths.get("simple.o")),
-        ImmutableSet.copyOf(archive.getInputsToCompareToOutput()));
   }
 
   @Test
@@ -111,6 +112,7 @@ public class ArchivesTest {
         target,
         params,
         DEFAULT_ARCHIVER,
+        DEFAULT_EXPECTED_GLOBAL_HEADER,
         DEFAULT_OUTPUT,
         DEFAULT_INPUTS);
 

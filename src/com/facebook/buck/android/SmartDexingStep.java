@@ -17,6 +17,7 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.android.DxStep.Option;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.Sha1HashCode;
 import com.facebook.buck.step.CompositeStep;
 import com.facebook.buck.step.DefaultStepRunner;
@@ -46,6 +47,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
+import com.google.common.util.concurrent.ListeningExecutorService;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -69,6 +71,8 @@ import javax.annotation.Nullable;
  */
 public class SmartDexingStep implements Step {
 
+  public static final String SHORT_NAME = "smart_dex";
+
   public static interface DexInputHashesProvider {
     ImmutableMap<Path, Sha1HashCode> getDexInputHashes();
   }
@@ -77,8 +81,8 @@ public class SmartDexingStep implements Step {
   private final Optional<Path> secondaryOutputDir;
   private final DexInputHashesProvider dexInputHashesProvider;
   private final Path successDir;
-  private final Optional<Integer> numThreads;
   private final EnumSet<DxStep.Option> dxOptions;
+  private final ListeningExecutorService executorService;
 
   /**
    * @param primaryOutputPath Path for the primary dex artifact.
@@ -91,8 +95,7 @@ public class SmartDexingStep implements Step {
    *     Note that for each output file (key), a separate dx invocation will be started with the
    *     corresponding jar files (value) as the input.
    * @param successDir Directory where success artifacts are written.
-   * @param numThreads Number of threads to use when invoking dx commands.  If absent, a
-   *     reasonable default will be selected based on the number of available processors.
+   * @param executorService The thread pool to execute the dx command on.
    */
   public SmartDexingStep(
       final Path primaryOutputPath,
@@ -101,8 +104,8 @@ public class SmartDexingStep implements Step {
       final Optional<Supplier<Multimap<Path, Path>>> secondaryInputsToDex,
       DexInputHashesProvider dexInputHashesProvider,
       Path successDir,
-      Optional<Integer> numThreads,
-      EnumSet<Option> dxOptions) {
+      EnumSet<Option> dxOptions,
+      ListeningExecutorService executorService) {
     this.outputToInputsSupplier = Suppliers.memoize(
         new Supplier<Multimap<Path, Path>>() {
           @Override
@@ -118,11 +121,11 @@ public class SmartDexingStep implements Step {
     this.secondaryOutputDir = secondaryOutputDir;
     this.dexInputHashesProvider = dexInputHashesProvider;
     this.successDir = successDir;
-    this.numThreads = numThreads;
     this.dxOptions = dxOptions;
+    this.executorService = executorService;
   }
 
-  static int determineOptimalThreadCount() {
+  public static int determineOptimalThreadCount() {
     return (int) (1.25 * Runtime.getRuntime().availableProcessors());
   }
 
@@ -148,13 +151,11 @@ public class SmartDexingStep implements Step {
 
   private void runDxCommands(ExecutionContext context, Multimap<Path, Path> outputToInputs)
       throws StepFailedException, IOException, InterruptedException {
-    try (DefaultStepRunner stepRunner =
-             new DefaultStepRunner(context, numThreads.or(determineOptimalThreadCount()))) {
-      // Invoke dx commands in parallel for maximum thread utilization.  In testing, dx revealed
-      // itself to be CPU (and not I/O) bound making it a good candidate for parallelization.
-      List<Step> dxSteps = generateDxCommands(context.getProjectFilesystem(), outputToInputs);
-      stepRunner.runStepsInParallelAndWait(dxSteps);
-    }
+    DefaultStepRunner stepRunner = new DefaultStepRunner(context);
+    // Invoke dx commands in parallel for maximum thread utilization.  In testing, dx revealed
+    // itself to be CPU (and not I/O) bound making it a good candidate for parallelization.
+    List<Step> dxSteps = generateDxCommands(context.getProjectFilesystem(), outputToInputs);
+    stepRunner.runStepsInParallelAndWait(dxSteps, Optional.<BuildTarget>absent(), executorService);
   }
 
   /**
@@ -169,10 +170,9 @@ public class SmartDexingStep implements Step {
       Path secondaryOutputDir,
       Set<Path> producedArtifacts,
       ProjectFilesystem projectFilesystem) throws IOException {
-    Path normalizedRoot = projectFilesystem.getRootPath().normalize();
+    secondaryOutputDir = secondaryOutputDir.normalize();
     for (Path secondaryOutput : projectFilesystem.getDirectoryContents(secondaryOutputDir)) {
-      Path relativePath = normalizedRoot.relativize(secondaryOutput.normalize());
-      if (!producedArtifacts.contains(relativePath) &&
+      if (!producedArtifacts.contains(secondaryOutput) &&
           !secondaryOutput.getFileName().toString().endsWith(".meta")) {
         projectFilesystem.rmdir(secondaryOutput);
       }
@@ -181,7 +181,7 @@ public class SmartDexingStep implements Step {
 
   @Override
   public String getShortName() {
-    return "smart_dex";
+    return SHORT_NAME;
   }
 
   @Override

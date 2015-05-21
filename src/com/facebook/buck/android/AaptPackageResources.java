@@ -18,7 +18,6 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.android.AaptPackageResources.BuildOutput;
 import com.facebook.buck.android.AndroidBinary.PackageType;
-import com.facebook.buck.android.AndroidBinary.TargetCpuType;
 import com.facebook.buck.dalvik.EstimateLinearAllocStep;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.java.AccumulateClassNamesStep;
@@ -28,6 +27,7 @@ import com.facebook.buck.java.JavacStep;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildOutputInitializer;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -35,7 +35,6 @@ import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.RecordFileSha1Step;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.Sha1HashCode;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -47,14 +46,15 @@ import com.facebook.buck.step.fs.MkdirAndSymlinkFileStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Functions;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableCollection;
+import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
-import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Ordering;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
 
@@ -77,6 +77,7 @@ public class AaptPackageResources extends AbstractBuildRule
 
   public static final String RESOURCE_PACKAGE_HASH_KEY = "resource_package_hash";
   public static final String R_DOT_JAVA_LINEAR_ALLOC_SIZE = "r_dot_java_linear_alloc_size";
+  public static final String FILTERED_RESOURCE_DIRS_KEY = "filtered_resource_dirs";
 
   /** Options to use with {@link com.facebook.buck.android.DxStep} when dexing R.java. */
   public static final EnumSet<DxStep.Option> DX_OPTIONS = EnumSet.of(
@@ -84,16 +85,21 @@ public class AaptPackageResources extends AbstractBuildRule
       DxStep.Option.RUN_IN_PROCESS,
       DxStep.Option.NO_OPTIMIZE);
 
+  @AddToRuleKey
   private final SourcePath manifest;
   private final FilteredResourcesProvider filteredResourcesProvider;
-  private final ImmutableSet<Path> assetsDirectories;
+  private final ImmutableSet<SourcePath> assetsDirectories;
+  @AddToRuleKey
   private final PackageType packageType;
-  private final ImmutableSet<TargetCpuType> cpuFilters;
   private final ImmutableList<HasAndroidResourceDeps> resourceDeps;
   private final JavacOptions javacOptions;
+  @AddToRuleKey
   private final boolean rDotJavaNeedsDexing;
+  @AddToRuleKey
   private final boolean shouldBuildStringSourceMap;
   private final boolean shouldWarnIfMissingResource;
+  @AddToRuleKey
+  private final boolean skipCrunchPngs;
   private final BuildOutputInitializer<BuildOutput> buildOutputInitializer;
 
   AaptPackageResources(
@@ -102,39 +108,25 @@ public class AaptPackageResources extends AbstractBuildRule
       SourcePath manifest,
       FilteredResourcesProvider filteredResourcesProvider,
       ImmutableList<HasAndroidResourceDeps> resourceDeps,
-      ImmutableSet<Path> assetsDirectories,
+      ImmutableSet<SourcePath> assetsDirectories,
       PackageType packageType,
-      ImmutableSet<TargetCpuType> cpuFilters,
       JavacOptions javacOptions,
       boolean rDotJavaNeedsDexing,
       boolean shouldBuildStringSourceMap,
-      boolean shouldWarnIfMissingResources) {
+      boolean shouldWarnIfMissingResources,
+      boolean skipCrunchPngs) {
     super(params, resolver);
     this.manifest = manifest;
     this.filteredResourcesProvider = filteredResourcesProvider;
     this.resourceDeps = resourceDeps;
     this.assetsDirectories = assetsDirectories;
     this.packageType = packageType;
-    this.cpuFilters = cpuFilters;
     this.javacOptions = javacOptions;
     this.rDotJavaNeedsDexing = rDotJavaNeedsDexing;
     this.shouldBuildStringSourceMap = shouldBuildStringSourceMap;
     this.shouldWarnIfMissingResource = shouldWarnIfMissingResources;
+    this.skipCrunchPngs = skipCrunchPngs;
     this.buildOutputInitializer = new BuildOutputInitializer<>(params.getBuildTarget(), this);
-  }
-
-  @Override
-  public ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return getResolver().filterInputsToCompareToOutput(Collections.singleton(manifest));
-  }
-
-  @Override
-  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
-    return builder
-        .setReflectively("packageType", packageType.toString())
-        .setReflectively("cpuFilters", ImmutableSortedSet.copyOf(cpuFilters).toString())
-        .setReflectively("rDotJavaNeedsDexing", rDotJavaNeedsDexing)
-        .setReflectively("shouldBuildStringSourceMap", shouldBuildStringSourceMap);
   }
 
   @Override
@@ -189,11 +181,11 @@ public class AaptPackageResources extends AbstractBuildRule
    *     built.
    */
   public Path getPathToCompiledRDotJavaFiles() {
-    return BuildTargets.getBinPath(getBuildTarget(), "__%s_rdotjava_bin__");
+    return BuildTargets.getScratchPath(getBuildTarget(), "__%s_rdotjava_bin__");
   }
 
   public Path getPathToRDotTxtDir() {
-    return BuildTargets.getBinPath(getBuildTarget(), "__%s_res_symbols__");
+    return BuildTargets.getScratchPath(getBuildTarget(), "__%s_res_symbols__");
   }
 
   @Override
@@ -220,7 +212,7 @@ public class AaptPackageResources extends AbstractBuildRule
         ImmutableList.Builder<Step> commands = ImmutableList.builder();
         try {
           createAllAssetsDirectory(
-              assetsDirectories,
+              ImmutableSet.copyOf(getResolver().getAllPaths(assetsDirectories)),
               commands,
               context.getProjectFilesystem());
         } catch (IOException e) {
@@ -270,14 +262,24 @@ public class AaptPackageResources extends AbstractBuildRule
       buildableContext.recordArtifactsInDirectory(proguardConfigDir);
     }
 
-    steps.add(new AaptStep(
-        getAndroidManifestXml(),
-        filteredResourcesProvider.getResDirectories(),
-        assetsDirectory,
-        getResourceApkPath(),
-        rDotTxtDir,
-        pathToGeneratedProguardConfig,
-        packageType.isCrunchPngFiles()));
+    steps.add(
+        new AaptStep(
+            getAndroidManifestXml(),
+            getResolver().getAllPaths(filteredResourcesProvider.getResDirectories()),
+            assetsDirectory,
+            getResourceApkPath(),
+            rDotTxtDir,
+            pathToGeneratedProguardConfig,
+            /*
+             * In practice, it appears that if --no-crunch is used, resources will occasionally
+             * appear distorted in the APK produced by this command (and what's worse, a clean
+             * reinstall does not make the problem go away). This is not reliably reproducible, so
+             * for now, we categorically outlaw the use of --no-crunch so that developers do not get
+             * stuck in the distorted image state. One would expect the use of --no-crunch to allow
+             * for faster build times, so it would be nice to figure out a way to leverage it in
+             * debug mode that never results in distorted images.
+             */
+            !skipCrunchPngs /* && packageType.isCrunchPngFiles() */));
 
     if (!filteredResourcesProvider.getResDirectories().isEmpty()) {
       generateAndCompileRDotJavaFiles(steps, buildableContext);
@@ -307,6 +309,15 @@ public class AaptPackageResources extends AbstractBuildRule
       }
     }
 
+    // Record the filtered resources dirs, since when we initialize ourselves from disk, we'll
+    // need to test whether this is empty or not without requiring the `ResourcesFilter` rule to
+    // be available.
+    buildableContext.addMetadata(
+        FILTERED_RESOURCE_DIRS_KEY,
+        FluentIterable.from(filteredResourcesProvider.getResDirectories())
+            .transform(getResolver().getPathFunction())
+            .transform(Functions.toStringFunction())
+            .toSortedList(Ordering.natural()));
 
     buildableContext.recordArtifact(getAndroidManifestXml());
     buildableContext.recordArtifact(getResourceApkPath());
@@ -343,7 +354,7 @@ public class AaptPackageResources extends AbstractBuildRule
       // produces a JSON with android resource id's and xml paths for each string resource.
       GenStringSourceMapStep genNativeStringInfo = new GenStringSourceMapStep(
           rDotTxtDir,
-          filteredResourcesProvider.getResDirectories(),
+          getResolver().getAllPaths(filteredResourcesProvider.getResDirectories()),
           outputDirPath);
       steps.add(genNativeStringInfo);
 
@@ -356,10 +367,11 @@ public class AaptPackageResources extends AbstractBuildRule
     steps.add(new MakeCleanDirectoryStep(rDotJavaBin));
 
     JavacStep javacStep = RDotJava.createJavacStepForUberRDotJavaFiles(
-        ImmutableSet.copyOf(getResolver().getAllPaths(mergeStep.getRDotJavaFiles())),
+        ImmutableSet.copyOf(mergeStep.getRDotJavaFiles()),
         rDotJavaBin,
         javacOptions,
-        getBuildTarget());
+        getBuildTarget(),
+        getResolver());
     steps.add(javacStep);
 
     Path rDotJavaClassesTxt = getPathToRDotJavaClassesTxt();
@@ -382,7 +394,7 @@ public class AaptPackageResources extends AbstractBuildRule
    * {@link #manifest}.
    */
   Path getAndroidManifestXml() {
-    return BuildTargets.getBinPath(getBuildTarget(), "__manifest_%s__/AndroidManifest.xml");
+    return BuildTargets.getScratchPath(getBuildTarget(), "__manifest_%s__/AndroidManifest.xml");
   }
 
   /**
@@ -443,7 +455,7 @@ public class AaptPackageResources extends AbstractBuildRule
 
   @VisibleForTesting
   Path getPathToAllAssetsDirectory() {
-    return BuildTargets.getBinPath(getBuildTarget(), "__assets_%s__");
+    return BuildTargets.getScratchPath(getBuildTarget(), "__assets_%s__");
   }
 
   public Sha1HashCode getResourcePackageHash() {
@@ -466,21 +478,24 @@ public class AaptPackageResources extends AbstractBuildRule
   }
 
   @Override
-  public BuildOutput initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) {
+  public BuildOutput initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) throws IOException {
     Optional<Sha1HashCode> resourcePackageHash = onDiskBuildInfo.getHash(RESOURCE_PACKAGE_HASH_KEY);
     Preconditions.checkState(
         resourcePackageHash.isPresent(),
         "Should not be initializing %s from disk if the resource hash is not written.",
         getBuildTarget());
 
+    Optional<ImmutableList<String>> filteredResourceDirs =
+        onDiskBuildInfo.getValues(FILTERED_RESOURCE_DIRS_KEY);
+    Preconditions.checkState(
+        filteredResourceDirs.isPresent(),
+        "Should not be initializing %s from disk if the filtered resources dirs are not written.",
+        getBuildTarget());
+
     ImmutableSortedMap<String, HashCode> classesHash = ImmutableSortedMap.of();
-    if (!filteredResourcesProvider.getResDirectories().isEmpty()) {
-      List<String> lines;
-      try {
-        lines = onDiskBuildInfo.getOutputFileContentsByLine(getPathToRDotJavaClassesTxt());
-      } catch (IOException e) {
-        throw new RuntimeException(e);
-      }
+    if (!filteredResourceDirs.get().isEmpty()) {
+      List<String> lines =
+          onDiskBuildInfo.getOutputFileContentsByLine(getPathToRDotJavaClassesTxt());
       classesHash = AccumulateClassNamesStep.parseClassHashes(lines);
     }
 
@@ -498,11 +513,11 @@ public class AaptPackageResources extends AbstractBuildRule
   }
 
   private Path getPathToRDotJavaDexFiles() {
-    return BuildTargets.getBinPath(getBuildTarget(), "__%s_rdotjava_dex__");
+    return BuildTargets.getScratchPath(getBuildTarget(), "__%s_rdotjava_dex__");
   }
 
   private Path getPathToRDotJavaClassesTxt() {
-    return BuildTargets.getBinPath(getBuildTarget(), "__%s_rdotjava_classes__")
+    return BuildTargets.getScratchPath(getBuildTarget(), "__%s_rdotjava_classes__")
         .resolve("classes.txt");
   }
 
@@ -519,7 +534,7 @@ public class AaptPackageResources extends AbstractBuildRule
   }
 
   private Path getPathForNativeStringInfoDirectory() {
-    return BuildTargets.getBinPath(getBuildTarget(), "__%s_string_source_map__");
+    return BuildTargets.getScratchPath(getBuildTarget(), "__%s_string_source_map__");
   }
 
   /**
@@ -541,7 +556,7 @@ public class AaptPackageResources extends AbstractBuildRule
 
   @VisibleForTesting
   static Path getPathToGeneratedRDotJavaSrcFiles(BuildTarget buildTarget) {
-    return BuildTargets.getBinPath(buildTarget, "__%s_rdotjava_src__");
+    return BuildTargets.getScratchPath(buildTarget, "__%s_rdotjava_src__");
   }
 
   @VisibleForTesting

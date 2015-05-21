@@ -71,13 +71,9 @@ public class AndroidPackageableCollectorTest {
         .build(ruleResolver);
 
     BuildRule ndkLibrary =
-        NdkLibraryBuilder
-            .createNdkLibrary(BuildTargetFactory.newInstance(
-                "//java/com/facebook/native_library:library"),
-                pathResolver)
-            .addSrc(Paths.get("Android.mk"))
-            .setIsAsset(false).build();
-    ruleResolver.addToIndex(ndkLibrary);
+        new NdkLibraryBuilder(
+                BuildTargetFactory.newInstance("//java/com/facebook/native_library:library"))
+            .build(ruleResolver, projectFilesystem);
 
     BuildTarget prebuiltNativeLibraryTarget =
         BuildTargetFactory.newInstance("//java/com/facebook/prebuilt_native_library:library");
@@ -105,8 +101,10 @@ public class AndroidPackageableCollectorTest {
         .setResolver(pathResolver)
         .setBuildTarget(manifestTarget)
         .setManifest(
-            new PathSourcePath(Paths.get("java/src/com/facebook/module/AndroidManifest.xml")))
-        .setAssets(Paths.get("assets"))
+            new PathSourcePath(
+                projectFilesystem,
+                Paths.get("java/src/com/facebook/module/AndroidManifest.xml")))
+        .setAssets(new TestSourcePath("assets"))
         .build();
     ruleResolver.addToIndex(manifestRule);
 
@@ -125,7 +123,6 @@ public class AndroidPackageableCollectorTest {
         .setBuildTargetsToExcludeFromDex(
             ImmutableSet.of(BuildTargetFactory.newInstance("//third_party/guava:guava")))
         .setManifest(new TestSourcePath("java/src/com/facebook/AndroidManifest.xml"))
-        .setTarget("Google Inc.:Google APIs:16")
         .setKeystore(keystoreTarget)
         .build(ruleResolver);
 
@@ -135,10 +132,12 @@ public class AndroidPackageableCollectorTest {
     assertEquals(
         "Because guava was passed to no_dx, it should not be in the classpathEntriesToDex list",
         ImmutableSet.of(
-            Paths.get("third_party/jsr-305/jsr305.jar"),
+            Paths.get("buck-out/gen/third_party/jsr-305/jsr-305.jar"),
             BuckConstant.GEN_PATH.resolve(
                 "java/src/com/facebook/lib__example__output/example.jar")),
-        packageableCollection.getClasspathEntriesToDex());
+        FluentIterable.from(packageableCollection.getClasspathEntriesToDex())
+            .transform(pathResolver.getPathFunction())
+            .toSet());
     assertEquals(
         "Because guava was passed to no_dx, it should not be treated as a third-party JAR whose " +
             "resources need to be extracted and repacked in the APK. If this is done, then code " +
@@ -148,18 +147,15 @@ public class AndroidPackageableCollectorTest {
             "longer. Specifically, this was observed to take over one second longer to load " +
             "the resource in fb4a. Because the resource was loaded on startup, this introduced a " +
             "substantial regression in the startup time for the fb4a app.",
-        ImmutableSet.of(Paths.get("third_party/jsr-305/jsr305.jar")),
-        packageableCollection.getPathsToThirdPartyJars());
+        ImmutableSet.of(Paths.get("buck-out/gen/third_party/jsr-305/jsr-305.jar")),
+        FluentIterable.from(packageableCollection.getPathsToThirdPartyJars())
+            .transform(pathResolver.getPathFunction())
+            .toSet());
     assertEquals(
         "Because assets directory was passed an AndroidResourceRule it should be added to the " +
             "transitive dependencies",
-        ImmutableSet.of(Paths.get("assets")),
+        ImmutableSet.of(new TestSourcePath("assets")),
         packageableCollection.getAssetsDirectories());
-    assertEquals(
-        "Because manifest file was passed an AndroidResourceRule it should be added to the " +
-            "transitive dependencies",
-        ImmutableSet.of(Paths.get("java/src/com/facebook/module/AndroidManifest.xml")),
-        packageableCollection.getManifestFiles());
     assertEquals(
         "Because a native library was declared as a dependency, it should be added to the " +
             "transitive dependencies.",
@@ -172,7 +168,7 @@ public class AndroidPackageableCollectorTest {
             .getLibraryPath()),
         packageableCollection.getNativeLibAssetsDirectories());
     assertEquals(
-        ImmutableSet.of(Paths.get("debug.pro")),
+        ImmutableSet.of(new TestSourcePath("debug.pro")),
         packageableCollection.getProguardConfigs());
   }
 
@@ -203,7 +199,7 @@ public class AndroidPackageableCollectorTest {
         AndroidResourceRuleBuilder.newBuilder()
             .setResolver(pathResolver)
             .setBuildTarget(BuildTargetFactory.newInstance("//:c"))
-            .setRes(Paths.get("res_c"))
+            .setRes(new TestSourcePath("res_c"))
             .setRDotJavaPackage("com.facebook")
             .build());
 
@@ -211,7 +207,7 @@ public class AndroidPackageableCollectorTest {
         AndroidResourceRuleBuilder.newBuilder()
             .setResolver(pathResolver)
             .setBuildTarget(BuildTargetFactory.newInstance("//:b"))
-            .setRes(Paths.get("res_b"))
+            .setRes(new TestSourcePath("res_b"))
             .setRDotJavaPackage("com.facebook")
             .setDeps(ImmutableSortedSet.of(c))
             .build());
@@ -220,7 +216,7 @@ public class AndroidPackageableCollectorTest {
         AndroidResourceRuleBuilder.newBuilder()
             .setResolver(pathResolver)
             .setBuildTarget(BuildTargetFactory.newInstance("//:d"))
-            .setRes(Paths.get("res_d"))
+            .setRes(new TestSourcePath("res_d"))
             .setRDotJavaPackage("com.facebook")
             .setDeps(ImmutableSortedSet.of(c))
             .build());
@@ -229,7 +225,7 @@ public class AndroidPackageableCollectorTest {
         AndroidResourceRuleBuilder.newBuilder()
             .setResolver(pathResolver)
             .setBuildTarget(BuildTargetFactory.newInstance("//:a"))
-            .setRes(Paths.get("res_a"))
+            .setRes(new TestSourcePath("res_a"))
             .setRDotJavaPackage("com.facebook")
             .setDeps(ImmutableSortedSet.of(b, c, d))
             .build());
@@ -262,7 +258,6 @@ public class AndroidPackageableCollectorTest {
     AndroidBinary androidBinary = (AndroidBinary) AndroidBinaryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//:e"))
         .setManifest(new TestSourcePath("AndroidManfiest.xml"))
-        .setTarget("Google Inc.:Google APIs:16")
         .setKeystore(keystoreTarget)
         .setOriginalDeps(declaredDepsTargets)
         .build(ruleResolver);
@@ -283,6 +278,7 @@ public class AndroidPackageableCollectorTest {
   @Test
   public void testGraphForAndroidBinaryExcludesKeystoreDeps() {
     BuildRuleResolver ruleResolver = new BuildRuleResolver();
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleResolver);
 
     BuildTarget androidLibraryKeystoreTarget =
         BuildTarget.builder("//java/com/keystore/base", "base").build();
@@ -309,7 +305,6 @@ public class AndroidPackageableCollectorTest {
     AndroidBinary androidBinary = (AndroidBinary) AndroidBinaryBuilder.createBuilder(
         BuildTarget.builder("//apps/sample", "app").build())
         .setManifest(new TestSourcePath("apps/sample/AndroidManifest.xml"))
-        .setTarget("Google Inc.:Google APIs:16")
         .setOriginalDeps(originalDepsTargets)
         .setKeystore(keystoreTarget)
         .build(ruleResolver);
@@ -320,6 +315,8 @@ public class AndroidPackageableCollectorTest {
         "Classpath entries should include facebook/base but not keystore/base.",
         ImmutableSet.of(
             BuckConstant.GEN_PATH.resolve("java/com/facebook/base/lib__base__output/base.jar")),
-        packageableCollection.getClasspathEntriesToDex());
+        FluentIterable.from(packageableCollection.getClasspathEntriesToDex())
+            .transform(pathResolver.getPathFunction())
+            .toSet());
   }
 }

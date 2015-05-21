@@ -26,7 +26,6 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.FlavorDomain;
-import com.facebook.buck.python.ImmutablePythonPackageComponents;
 import com.facebook.buck.python.PythonPackageComponents;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -52,7 +51,6 @@ import org.junit.Test;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Map;
 
 public class CxxPythonExtensionDescriptionTest {
 
@@ -71,7 +69,7 @@ public class CxxPythonExtensionDescriptionTest {
 
   public CxxPythonExtensionBuilder getBuilder(BuildTarget target) {
     FakeBuckConfig buckConfig = new FakeBuckConfig(
-        ImmutableMap.<String, Map<String, String>>of(
+        ImmutableMap.of(
             "cxx", ImmutableMap.of(
                 "python_dep", PYTHON_DEP_TARGET.toString())));
     CxxBuckConfig cxxBuckConfig = new CxxBuckConfig(buckConfig);
@@ -137,7 +135,9 @@ public class CxxPythonExtensionDescriptionTest {
     AbstractCxxLibrary dep = new AbstractCxxLibrary(depParams, pathResolver) {
 
       @Override
-      public CxxPreprocessorInput getCxxPreprocessorInput(CxxPlatform cxxPlatform) {
+      public CxxPreprocessorInput getCxxPreprocessorInput(
+          CxxPlatform cxxPlatform,
+          HeaderVisibility headerVisibility) {
         return CxxPreprocessorInput.EMPTY;
       }
 
@@ -146,25 +146,32 @@ public class CxxPythonExtensionDescriptionTest {
           CxxPlatform cxxPlatform,
           Linker.LinkableDepType type) {
         return type == Linker.LinkableDepType.STATIC ?
-            ImmutableNativeLinkableInput.of(
+            NativeLinkableInput.of(
                 ImmutableList.<SourcePath>of(),
                 ImmutableList.<String>of()) :
-            ImmutableNativeLinkableInput.of(
+            NativeLinkableInput.of(
                 ImmutableList.<SourcePath>of(
                     new BuildTargetSourcePath(
+                        getProjectFilesystem(),
                         sharedLibraryDep.getBuildTarget(),
                         sharedLibraryOutput)),
                 ImmutableList.of(sharedLibraryOutput.toString()));
       }
 
       @Override
+      public Optional<Linker.LinkableDepType> getPreferredLinkage(CxxPlatform cxxPlatform) {
+        return Optional.absent();
+      }
+
+      @Override
       public PythonPackageComponents getPythonPackageComponents(CxxPlatform cxxPlatform) {
-        return ImmutablePythonPackageComponents.of(
+        return PythonPackageComponents.of(
             ImmutableMap.<Path, SourcePath>of(),
             ImmutableMap.<Path, SourcePath>of(),
             ImmutableMap.<Path, SourcePath>of(
                 Paths.get(sharedLibrarySoname),
-                new PathSourcePath(sharedLibraryOutput)));
+                new PathSourcePath(getProjectFilesystem(), sharedLibraryOutput)),
+            Optional.<Boolean>absent());
       }
 
       @Override
@@ -206,6 +213,7 @@ public class CxxPythonExtensionDescriptionTest {
 
   @Test
   public void createBuildRulePythonPackageable() {
+    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     BuildTarget target = BuildTargetFactory.newInstance("//:target");
     BuildRuleResolver resolver = new BuildRuleResolver();
     CxxPlatform cxxPlatform = CxxPythonExtensionBuilder.createDefaultPlatform();
@@ -214,7 +222,7 @@ public class CxxPythonExtensionDescriptionTest {
         (CxxPythonExtensionDescription) extensionBuilder.build().getDescription();
     CxxPythonExtension extension = (CxxPythonExtension) extensionBuilder.build(
         resolver,
-        new FakeProjectFilesystem(),
+        projectFilesystem,
         TargetGraphFactory.newInstance(
             extensionBuilder.build(),
             GenruleBuilder.newGenruleBuilder(PYTHON_DEP_TARGET).build()));
@@ -222,12 +230,13 @@ public class CxxPythonExtensionDescriptionTest {
     // Verify that we get the expected view from the python packageable interface.
     PythonPackageComponents actualComponent = extension.getPythonPackageComponents(cxxPlatform);
     BuildRule rule = resolver.getRule(desc.getExtensionTarget(target, cxxPlatform.getFlavor()));
-    PythonPackageComponents expectedComponents = ImmutablePythonPackageComponents.of(
+    PythonPackageComponents expectedComponents = PythonPackageComponents.of(
         ImmutableMap.<Path, SourcePath>of(
             target.getBasePath().resolve(desc.getExtensionName(target)),
-            new BuildTargetSourcePath(rule.getBuildTarget())),
+            new BuildTargetSourcePath(projectFilesystem, rule.getBuildTarget())),
         ImmutableMap.<Path, SourcePath>of(),
-        ImmutableMap.<Path, SourcePath>of());
+        ImmutableMap.<Path, SourcePath>of(),
+        Optional.of(false));
     assertEquals(
         expectedComponents,
         actualComponent);

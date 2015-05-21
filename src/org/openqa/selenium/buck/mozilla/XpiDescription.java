@@ -20,7 +20,6 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.ImmutableBuildRuleType;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.google.common.base.Optional;
@@ -30,7 +29,7 @@ import java.nio.file.Path;
 
 public class XpiDescription implements Description<XpiDescription.Arg> {
 
-  private static final BuildRuleType TYPE = ImmutableBuildRuleType.of("mozilla_extension");
+  private static final BuildRuleType TYPE = BuildRuleType.of("mozilla_extension");
 
   @Override
   public BuildRuleType getBuildRuleType() {

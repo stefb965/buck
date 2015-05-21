@@ -22,23 +22,25 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
+import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.Hint;
-import com.facebook.buck.rules.ImmutableBuildRuleType;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Iterables;
 
 import java.nio.file.Path;
 
 public class JavaTestDescription implements Description<JavaTestDescription.Arg> {
 
-  public static final BuildRuleType TYPE = ImmutableBuildRuleType.of("java_test");
+  public static final BuildRuleType TYPE = BuildRuleType.of("java_test");
 
   private final JavacOptions templateOptions;
   private final Optional<Long> testRuleTimeoutMs;
@@ -67,19 +69,27 @@ public class JavaTestDescription implements Description<JavaTestDescription.Arg>
       A args) {
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
 
-    ImmutableJavacOptions.Builder javacOptions = JavaLibraryDescription.getJavacOptions(
-        pathResolver,
-        args,
-        templateOptions);
-
-    AnnotationProcessingParams annotationParams = args.buildAnnotationProcessingParams(
-        params.getBuildTarget(),
-        params.getProjectFilesystem(),
-        resolver);
-    javacOptions.setAnnotationProcessingParams(annotationParams);
+    JavacOptions.Builder javacOptionsBuilder =
+        JavaLibraryDescription.getJavacOptions(
+            resolver,
+            args,
+            templateOptions);
+    AnnotationProcessingParams annotationParams =
+        args.buildAnnotationProcessingParams(
+            params.getBuildTarget(),
+            params.getProjectFilesystem(),
+            resolver);
+    javacOptionsBuilder.setAnnotationProcessingParams(annotationParams);
+    JavacOptions javacOptions = javacOptionsBuilder.build();
 
     return new JavaTest(
-        params,
+        params.appendExtraDeps(
+            Iterables.concat(
+                BuildRules.getExportedRules(
+                    Iterables.concat(
+                        params.getDeclaredDeps(),
+                        resolver.getAllRules(args.providedDeps.get()))),
+                pathResolver.filterBuildRuleInputs(javacOptions.getInputs()))),
         pathResolver,
         args.srcs.get(),
         JavaLibraryDescription.validateResources(
@@ -87,17 +97,18 @@ public class JavaTestDescription implements Description<JavaTestDescription.Arg>
             args, params.getProjectFilesystem()),
         args.labels.get(),
         args.contacts.get(),
-        args.proguardConfig,
+        args.proguardConfig.transform(SourcePaths.toSourcePath(params.getProjectFilesystem())),
         /* additionalClasspathEntries */ ImmutableSet.<Path>of(),
         args.testType.or(TestType.JUNIT),
-        javacOptions.build(),
+        javacOptions,
         args.vmArgs.get(),
         validateAndGetSourcesUnderTest(
             args.sourceUnderTest.get(),
             params.getBuildTarget(),
             resolver),
         args.resourcesRoot,
-        testRuleTimeoutMs);
+        testRuleTimeoutMs,
+        args.getRunTestSeparately());
   }
 
   public static ImmutableSet<BuildRule> validateAndGetSourcesUnderTest(
@@ -129,10 +140,15 @@ public class JavaTestDescription implements Description<JavaTestDescription.Arg>
     @Hint(isDep = false) public Optional<ImmutableSortedSet<BuildTarget>> sourceUnderTest;
     public Optional<ImmutableList<String>> vmArgs;
     public Optional<TestType> testType;
+    public Optional<Boolean> runTestSeparately;
 
     @Override
     public ImmutableSortedSet<BuildTarget> getSourceUnderTest() {
       return sourceUnderTest.get();
+    }
+
+    public boolean getRunTestSeparately() {
+      return runTestSeparately.or(false);
     }
   }
 }

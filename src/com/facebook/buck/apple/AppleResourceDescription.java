@@ -16,12 +16,12 @@
 
 package com.facebook.buck.apple;
 
-import com.facebook.buck.io.DefaultDirectoryTraverser;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.ImmutableBuildRuleType;
+import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
@@ -36,7 +36,7 @@ import java.util.Set;
  */
 public class AppleResourceDescription implements Description<AppleResourceDescription.Arg> {
 
-  public static final BuildRuleType TYPE = ImmutableBuildRuleType.of("apple_resource");
+  public static final BuildRuleType TYPE = BuildRuleType.of("apple_resource");
 
   @Override
   public BuildRuleType getBuildRuleType() {
@@ -49,15 +49,11 @@ public class AppleResourceDescription implements Description<AppleResourceDescri
   }
 
   @Override
-  public <A extends Arg> AppleResource createBuildRule(
+  public <A extends Arg> BuildRule createBuildRule(
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) {
-    return new AppleResource(
-        params,
-        new SourcePathResolver(resolver),
-        new DefaultDirectoryTraverser(),
-        args);
+    return new NoopBuildRule(params, new SourcePathResolver(resolver));
   }
 
   @SuppressFieldNotInitialized

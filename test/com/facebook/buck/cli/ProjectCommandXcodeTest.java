@@ -163,9 +163,8 @@ public class ProjectCommandXcodeTest {
   public void testCreateTargetGraphWithoutTests() {
     TargetGraphAndTargets targetGraphAndTargets = ProjectCommandTests.createTargetGraph(
         targetGraph,
-        ProjectCommandOptions.Ide.XCODE,
+        ProjectCommand.Ide.XCODE,
         ImmutableSet.<BuildTarget>of(),
-        ImmutableSet.<String>of(),
         /* withTests = */ false);
 
     assertEquals(
@@ -185,9 +184,8 @@ public class ProjectCommandXcodeTest {
   public void testCreateTargetGraphWithTests() {
     TargetGraphAndTargets targetGraphAndTargets = ProjectCommandTests.createTargetGraph(
         targetGraph,
-        ProjectCommandOptions.Ide.XCODE,
+        ProjectCommand.Ide.XCODE,
         ImmutableSet.<BuildTarget>of(),
-        ImmutableSet.<String>of(),
         /* withTests = */ true);
 
     assertEquals(
@@ -210,9 +208,8 @@ public class ProjectCommandXcodeTest {
   public void testCreateTargetGraphForSliceWithoutTests() {
     TargetGraphAndTargets targetGraphAndTargets = ProjectCommandTests.createTargetGraph(
         targetGraph,
-        ProjectCommandOptions.Ide.XCODE,
+        ProjectCommand.Ide.XCODE,
         ImmutableSet.of(workspaceNode.getBuildTarget()),
-        ImmutableSet.<String>of(),
         /* withTests = */ false);
 
     assertEquals(
@@ -230,9 +227,8 @@ public class ProjectCommandXcodeTest {
   public void testCreateTargetGraphForSliceWithTests() {
     TargetGraphAndTargets targetGraphAndTargets = ProjectCommandTests.createTargetGraph(
         targetGraph,
-        ProjectCommandOptions.Ide.XCODE,
+        ProjectCommand.Ide.XCODE,
         ImmutableSet.of(workspaceNode.getBuildTarget()),
-        ImmutableSet.<String>of(),
         /* withTests = */ true);
 
     assertEquals(
@@ -253,9 +249,8 @@ public class ProjectCommandXcodeTest {
   public void testCreateTargetGraphForSmallSliceWithoutTests() {
     TargetGraphAndTargets targetGraphAndTargets = ProjectCommandTests.createTargetGraph(
         targetGraph,
-        ProjectCommandOptions.Ide.XCODE,
+        ProjectCommand.Ide.XCODE,
         ImmutableSet.of(smallWorkspaceNode.getBuildTarget()),
-        ImmutableSet.<String>of(),
         /* withTests = */ false);
 
     assertEquals(
@@ -270,9 +265,8 @@ public class ProjectCommandXcodeTest {
   public void testCreateTargetGraphForSmallSliceWithTests() {
     TargetGraphAndTargets targetGraphAndTargets = ProjectCommandTests.createTargetGraph(
         targetGraph,
-        ProjectCommandOptions.Ide.XCODE,
+        ProjectCommand.Ide.XCODE,
         ImmutableSet.of(smallWorkspaceNode.getBuildTarget()),
-        ImmutableSet.<String>of(),
         /* withTests = */ true);
 
     assertEquals(

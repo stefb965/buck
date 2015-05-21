@@ -50,6 +50,10 @@ public interface Linker {
     // Link as shared library, which can be loaded into a process image.
     SHARED,
 
+    // Mach-O only: Link as a bundle, which can be loaded into a process image and
+    // use that image's symbols.
+    MACH_O_BUNDLE,
+
   }
 
   /**
@@ -67,4 +71,16 @@ public interface Linker {
 
   }
 
+  /**
+   * The various styles of runtime library to which we can link shared objects.  In some cases, it's
+   * useful to link against a static version of the usual dynamic support library.
+   */
+  public static enum CxxRuntimeType {
+    // Link in the C++ runtime library dynamically
+    DYNAMIC,
+
+    // Link in the C++ runtime statically
+    STATIC,
+
+  }
 }

@@ -72,8 +72,16 @@ public abstract class BuildRuleEvent extends AbstractBuckEvent {
   public static Finished finished(BuildRule rule,
       BuildRuleStatus status,
       CacheResult cacheResult,
-      Optional<BuildRuleSuccess.Type> successType) {
+      Optional<BuildRuleSuccessType> successType) {
     return new Finished(rule, status, cacheResult, successType);
+  }
+
+  public static Suspended suspended(BuildRule rule) {
+    return new Suspended(rule);
+  }
+
+  public static Resumed resumed(BuildRule rule) {
+    return new Resumed(rule);
   }
 
   public static class Started extends BuildRuleEvent {
@@ -90,12 +98,12 @@ public abstract class BuildRuleEvent extends AbstractBuckEvent {
   public static class Finished extends BuildRuleEvent {
     private final BuildRuleStatus status;
     private final CacheResult cacheResult;
-    private final Optional<BuildRuleSuccess.Type> successType;
+    private final Optional<BuildRuleSuccessType> successType;
 
     protected Finished(BuildRule rule,
         BuildRuleStatus status,
         CacheResult cacheResult,
-        Optional<BuildRuleSuccess.Type> successType) {
+        Optional<BuildRuleSuccessType> successType) {
       super(rule);
       this.status = status;
       this.cacheResult = cacheResult;
@@ -111,7 +119,7 @@ public abstract class BuildRuleEvent extends AbstractBuckEvent {
     }
 
     @JsonIgnore
-    public Optional<BuildRuleSuccess.Type> getSuccessType() {
+    public Optional<BuildRuleSuccessType> getSuccessType() {
       return successType;
     }
 
@@ -153,6 +161,32 @@ public abstract class BuildRuleEvent extends AbstractBuckEvent {
     public String getEventName() {
       return "BuildRuleFinished";
     }
+  }
+
+  public static class Suspended extends BuildRuleEvent {
+
+    protected Suspended(BuildRule rule) {
+      super(rule);
+    }
+
+    @Override
+    public String getEventName() {
+      return "BuildRuleSuspended";
+    }
+
+  }
+
+  public static class Resumed extends BuildRuleEvent {
+
+    protected Resumed(BuildRule rule) {
+      super(rule);
+    }
+
+    @Override
+    public String getEventName() {
+      return "BuildRuleResumed";
+    }
+
   }
 
 }

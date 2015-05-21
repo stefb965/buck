@@ -16,11 +16,12 @@
 
 package com.facebook.buck.android;
 
-import com.facebook.buck.android.ImmutableAndroidPackageableCollection.ResourceDetails;
+import com.facebook.buck.android.AndroidPackageableCollection.ResourceDetails;
 import com.facebook.buck.java.HasJavaClassHashes;
 import com.facebook.buck.java.JavaNativeLinkable;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.VisibleForTesting;
@@ -40,15 +41,15 @@ import java.util.Set;
 
 public class AndroidPackageableCollector {
 
-  private final ImmutableAndroidPackageableCollection.Builder collectionBuilder =
-      ImmutableAndroidPackageableCollection.builder();
+  private final AndroidPackageableCollection.Builder collectionBuilder =
+      AndroidPackageableCollection.builder();
 
   private final ResourceDetails.Builder resourceDetailsBuilder = ResourceDetails.builder();
 
   private final ImmutableList.Builder<BuildTarget> resourcesWithNonEmptyResDir =
       ImmutableList.builder();
   private final ImmutableList.Builder<BuildTarget> resourcesWithAssets = ImmutableList.builder();
-  private final ImmutableList.Builder<Path> resourceDirectories = ImmutableList.builder();
+  private final ImmutableList.Builder<SourcePath> resourceDirectories = ImmutableList.builder();
 
   // Map is used instead of ImmutableMap.Builder for its containsKey() method.
   private final Map<String, BuildConfigFields> buildConfigs = Maps.newHashMap();
@@ -114,7 +115,7 @@ public class AndroidPackageableCollector {
 
   public AndroidPackageableCollector addStringWhitelistedResourceDirectory(
       BuildTarget owner,
-      Path resourceDir) {
+      SourcePath resourceDir) {
     if (resourcesToExclude.contains(owner)) {
       return this;
     }
@@ -124,7 +125,9 @@ public class AndroidPackageableCollector {
     return this;
   }
 
-  public AndroidPackageableCollector addResourceDirectory(BuildTarget owner, Path resourceDir) {
+  public AndroidPackageableCollector addResourceDirectory(
+      BuildTarget owner,
+      SourcePath resourceDir) {
     if (resourcesToExclude.contains(owner)) {
       return this;
     }
@@ -133,7 +136,7 @@ public class AndroidPackageableCollector {
     return this;
   }
 
-  private void doAddResourceDirectory(BuildTarget owner, Path resourceDir) {
+  private void doAddResourceDirectory(BuildTarget owner, SourcePath resourceDir) {
     resourcesWithNonEmptyResDir.add(owner);
     resourceDirectories.add(resourceDir);
   }
@@ -151,12 +154,18 @@ public class AndroidPackageableCollector {
     return this;
   }
 
-  public AndroidPackageableCollector addNativeLibAssetsDirectory(Path nativeLibAssetsDir) {
-    collectionBuilder.addNativeLibAssetsDirectories(nativeLibAssetsDir);
+  public AndroidPackageableCollector addNativeLibAssetsDirectory(
+      BuildTarget owner,
+      Path assetsDir) {
+    // We need to build the native target in order to have the assets available still.
+    collectionBuilder.addNativeLibsTargets(owner);
+    collectionBuilder.addNativeLibAssetsDirectories(assetsDir);
     return this;
   }
 
-  public AndroidPackageableCollector addAssetsDirectory(BuildTarget owner, Path assetsDirectory) {
+  public AndroidPackageableCollector addAssetsDirectory(
+      BuildTarget owner,
+      SourcePath assetsDirectory) {
     if (resourcesToExclude.contains(owner)) {
       return this;
     }
@@ -166,15 +175,9 @@ public class AndroidPackageableCollector {
     return this;
   }
 
-  public AndroidPackageableCollector addManifestFile(BuildTarget owner, Path manifestFile) {
-    if (!buildTargetsToExcludeFromDex.contains(owner) &&
-        !resourcesToExclude.contains(owner)) {
-      collectionBuilder.addManifestFiles(manifestFile);
-    }
-    return this;
-  }
-
-  public AndroidPackageableCollector addProguardConfig(BuildTarget owner, Path proguardConfig) {
+  public AndroidPackageableCollector addProguardConfig(
+      BuildTarget owner,
+      SourcePath proguardConfig) {
     if (!buildTargetsToExcludeFromDex.contains(owner)) {
       collectionBuilder.addProguardConfigs(proguardConfig);
     }
@@ -183,7 +186,7 @@ public class AndroidPackageableCollector {
 
   public AndroidPackageableCollector addClasspathEntry(
       HasJavaClassHashes hasJavaClassHashes,
-      Path classpathEntry) {
+      SourcePath classpathEntry) {
     if (buildTargetsToExcludeFromDex.contains(hasJavaClassHashes.getBuildTarget())) {
       collectionBuilder.addNoDxClasspathEntries(classpathEntry);
     } else {
@@ -195,7 +198,7 @@ public class AndroidPackageableCollector {
 
   public AndroidPackageableCollector addPathToThirdPartyJar(
       BuildTarget owner,
-      Path pathToThirdPartyJar) {
+      SourcePath pathToThirdPartyJar) {
     if (buildTargetsToExcludeFromDex.contains(owner)) {
       collectionBuilder.addNoDxClasspathEntries(pathToThirdPartyJar);
     } else {
@@ -215,7 +218,7 @@ public class AndroidPackageableCollector {
     buildConfigs.put(javaPackage, constants);
   }
 
-  public ImmutableAndroidPackageableCollection build() {
+  public AndroidPackageableCollection build() {
     collectionBuilder.setBuildConfigs(ImmutableMap.copyOf(buildConfigs));
     final ImmutableSet<HasJavaClassHashes> javaClassProviders = javaClassHashesProviders.build();
     collectionBuilder.addAllJavaLibrariesToDex(

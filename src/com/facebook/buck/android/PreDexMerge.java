@@ -21,6 +21,7 @@ import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildOutputInitializer;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -28,7 +29,6 @@ import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.RecordFileSha1Step;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.Sha1HashCode;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.AbstractExecutionStep;
@@ -43,11 +43,11 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
+import com.google.common.util.concurrent.ListeningExecutorService;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -57,7 +57,6 @@ import java.util.List;
 import java.util.Map;
 
 import javax.annotation.Nullable;
-
 /**
  * Buildable that is responsible for:
  * <ul>
@@ -88,9 +87,11 @@ public class PreDexMerge extends AbstractBuildRule implements InitializableFromD
   private static final String SECONDARY_DEX_DIRECTORIES_KEY = "secondary_dex_directories";
 
   private final Path primaryDexPath;
+  @AddToRuleKey
   private final DexSplitMode dexSplitMode;
   private final ImmutableSet<DexProducedFromJavaLibrary> preDexDeps;
   private final AaptPackageResources aaptPackageResources;
+  private final ListeningExecutorService dxExecutorService;
   private final BuildOutputInitializer<BuildOutput> buildOutputInitializer;
 
   public PreDexMerge(
@@ -99,18 +100,15 @@ public class PreDexMerge extends AbstractBuildRule implements InitializableFromD
       Path primaryDexPath,
       DexSplitMode dexSplitMode,
       ImmutableSet<DexProducedFromJavaLibrary> preDexDeps,
-      AaptPackageResources aaptPackageResources) {
+      AaptPackageResources aaptPackageResources,
+      ListeningExecutorService dxExecutorService) {
     super(params, resolver);
     this.primaryDexPath = primaryDexPath;
     this.dexSplitMode = dexSplitMode;
     this.preDexDeps = preDexDeps;
     this.aaptPackageResources = aaptPackageResources;
+    this.dxExecutorService = dxExecutorService;
     this.buildOutputInitializer = new BuildOutputInitializer<>(params.getBuildTarget(), this);
-  }
-
-  @Override
-  public ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return getResolver().filterInputsToCompareToOutput(dexSplitMode.getSourcePaths());
   }
 
   @Override
@@ -142,7 +140,7 @@ public class PreDexMerge extends AbstractBuildRule implements InitializableFromD
     private final Path metadataFile;
 
     private SplitDexPaths() {
-      Path workDir = BuildTargets.getBinPath(getBuildTarget(), "_%s_output");
+      Path workDir = BuildTargets.getScratchPath(getBuildTarget(), "_%s_output");
 
       metadataDir = workDir.resolve("metadata");
       jarfilesDir = workDir.resolve("jarfiles");
@@ -213,8 +211,8 @@ public class PreDexMerge extends AbstractBuildRule implements InitializableFromD
         Optional.of(Suppliers.ofInstance(sortResult.secondaryOutputToInputs)),
         sortResult.dexInputHashesProvider,
         paths.successDir,
-        /* numThreads */ Optional.<Integer>absent(),
-        DX_MERGE_OPTIONS));
+        DX_MERGE_OPTIONS,
+        dxExecutorService));
 
     // Record the primary dex SHA1 so exopackage apks can use it to compute their ABI keys.
     // Single dex apks cannot be exopackages, so they will never need ABI keys.
@@ -298,12 +296,6 @@ public class PreDexMerge extends AbstractBuildRule implements InitializableFromD
   public Path getDexDirectory() {
     Preconditions.checkState(dexSplitMode.isShouldSplitDex());
     return new SplitDexPaths().jarfilesSubdir;
-  }
-
-  @Override
-  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
-    dexSplitMode.appendToRuleKey(builder, "dexSplitMode");
-    return builder;
   }
 
   @Nullable

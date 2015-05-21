@@ -24,6 +24,7 @@ import com.facebook.buck.model.BuildId;
 import com.facebook.buck.parser.ParseEvent;
 import com.facebook.buck.rules.ActionGraphEvent;
 import com.facebook.buck.rules.BuildEvent;
+import com.facebook.buck.rules.BuildRuleEvent;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.Console;
@@ -34,8 +35,8 @@ import com.google.common.eventbus.Subscribe;
 
 import java.io.Closeable;
 import java.io.IOException;
-import java.io.PrintStream;
 import java.text.DecimalFormat;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 
 import javax.annotation.Nullable;
@@ -50,7 +51,6 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
   protected final Console console;
   protected final Clock clock;
   protected final Ansi ansi;
-  protected final PrintStream stdErr;
 
   @Nullable
   protected volatile ProjectBuildFileParseEvents.Started projectBuildFileParseStarted;
@@ -79,6 +79,8 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
 
   protected volatile Optional<Integer> ruleCount = Optional.absent();
 
+  protected final AtomicInteger numRulesCompleted = new AtomicInteger();
+
   public AbstractConsoleEventBusListener(Console console, Clock clock) {
     this.console = console;
     this.clock = clock;
@@ -98,8 +100,6 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
 
     this.installStarted = null;
     this.installFinished = null;
-
-    this.stdErr = console.getStdErr().getRawStream();
   }
 
   protected String formatElapsedTime(long elapsedTimeMs) {
@@ -209,6 +209,12 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
   @Subscribe
   public void ruleCountCalculated(BuildEvent.RuleCountCalculated calculated) {
     ruleCount = Optional.of(calculated.getNumRules());
+  }
+
+  @Subscribe
+  public void incrementNumRulesCompleted(
+      @SuppressWarnings("unused") BuildRuleEvent.Finished finished) {
+    numRulesCompleted.getAndIncrement();
   }
 
   @Subscribe

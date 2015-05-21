@@ -20,9 +20,14 @@ import static com.facebook.buck.java.JavaCompilationConstants.DEFAULT_JAVAC_OPTI
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractNodeBuilder;
+import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.coercer.Either;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.base.Optional;
+import com.google.common.collect.ImmutableSet;
 
 import java.nio.file.Path;
 
@@ -46,13 +51,23 @@ public class JavaLibraryBuilder extends AbstractNodeBuilder<JavaLibraryDescripti
     return this;
   }
 
+  public JavaLibraryBuilder addProvidedDep(BuildTarget rule) {
+    arg.providedDeps = amend(arg.providedDeps, rule);
+    return this;
+  }
+
   public JavaLibraryBuilder addResource(SourcePath sourcePath) {
     arg.resources = amend(arg.resources, sourcePath);
     return this;
   }
 
   public JavaLibraryBuilder addSrc(Path path) {
-    arg.srcs = amend(arg.srcs, new PathSourcePath(path));
+    arg.srcs = amend(arg.srcs, new PathSourcePath(new FakeProjectFilesystem(), path));
+    return this;
+  }
+
+  public JavaLibraryBuilder addSrcTarget(BuildTarget target) {
+    arg.srcs = amend(arg.srcs, new BuildTargetSourcePath(new FakeProjectFilesystem(), target));
     return this;
   }
 
@@ -61,8 +76,16 @@ public class JavaLibraryBuilder extends AbstractNodeBuilder<JavaLibraryDescripti
     return this;
   }
 
-  public JavaLibraryBuilder setJavacJar(Path javacJar) {
-    arg.javacJar = Optional.<SourcePath>of(new PathSourcePath(javacJar));
+  public JavaLibraryBuilder setCompiler(BuildRule javac) {
+    Either<BuildTarget, Path> right = Either.ofLeft(javac.getBuildTarget());
+    Either<BuiltInJavac, Either<BuildTarget, Path>> value = Either.ofRight(right);
+
+    arg.compiler = Optional.of(value);
+    return this;
+  }
+
+  public JavaLibraryBuilder setAnnotationProcessors(ImmutableSet<String> annotationProcessors) {
+    arg.annotationProcessors = Optional.of(annotationProcessors);
     return this;
   }
 }

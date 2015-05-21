@@ -20,7 +20,10 @@ import static org.easymock.EasyMock.createMock;
 import static org.easymock.EasyMock.expect;
 import static org.easymock.EasyMock.replay;
 import static org.easymock.EasyMock.verify;
+import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.containsString;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.android.AndroidPlatformTarget;
 import com.facebook.buck.event.BuckEventBus;
@@ -33,12 +36,13 @@ import com.facebook.buck.model.BuildId;
 import com.facebook.buck.step.StepRunner;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.util.HumanReadableException;
-import com.google.common.base.Optional;
 import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 
 import org.junit.Test;
 
+import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
@@ -68,9 +72,8 @@ public class BuildContextTest {
 
     replay(androidPlatformTarget);
 
-    builder.setAndroidBootclasspathSupplier(
-        BuildContext.getAndroidBootclasspathSupplierForAndroidPlatformTarget(
-            Optional.of(androidPlatformTarget)));
+    builder.setAndroidBootclasspathSupplier(BuildContext.createBootclasspathSupplier(
+        Suppliers.ofInstance(androidPlatformTarget)));
 
     BuildContext context = builder.build();
     Supplier<String> androidBootclasspathSupplier = context.getAndroidBootclasspathSupplier();
@@ -78,8 +81,8 @@ public class BuildContextTest {
     String androidBootclasspath = MorePaths.pathWithUnixSeparators(
         androidBootclasspathSupplier.get());
     assertEquals(
-        "add-ons/addon-google_apis-google-15/libs/effects.jar:" +
-        "add-ons/addon-google_apis-google-15/libs/maps.jar:" +
+        "add-ons/addon-google_apis-google-15/libs/effects.jar" + File.pathSeparatorChar +
+        "add-ons/addon-google_apis-google-15/libs/maps.jar" + File.pathSeparatorChar +
         "add-ons/addon-google_apis-google-15/libs/usb.jar",
         androidBootclasspath);
 
@@ -126,10 +129,10 @@ public class BuildContextTest {
     builder.setClock(createMock(Clock.class));
     builder.setBuildId(createMock(BuildId.class));
 
-    // Set to absent value.
+    // Set to value that throws if executed.
     builder.setAndroidBootclasspathSupplier(
-        BuildContext.getAndroidBootclasspathSupplierForAndroidPlatformTarget(
-            Optional.<AndroidPlatformTarget>absent()));
+        BuildContext.createBootclasspathSupplier(
+            AndroidPlatformTarget.explodingAndroidPlatformTargetSupplier));
 
     BuildContext context = builder.build();
     Supplier<String> androidBootclasspathSupplier = context.getAndroidBootclasspathSupplier();
@@ -156,8 +159,6 @@ public class BuildContextTest {
         .build();
 
     buildContext.logError(new RuntimeException(), "Error detail: %s", "BUILD_ID");
-    assertEquals(
-        ImmutableList.of("Error detail: BUILD_ID\njava.lang.RuntimeException"),
-        listener.getLogMessages());
+    assertThat(listener.getLogMessages(), contains(containsString("Error detail: BUILD_ID")));
   }
 }

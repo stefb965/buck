@@ -25,17 +25,19 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
+import com.facebook.buck.util.MockClassLoader;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.io.Files;
-import com.facebook.buck.util.MockClassLoader;
 
 import org.junit.Before;
 import org.junit.Rule;
@@ -43,23 +45,26 @@ import org.junit.Test;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-
-import javax.tools.JavaCompiler;
-import javax.tools.StandardJavaFileManager;
-import javax.tools.JavaFileManager;
-import javax.tools.DiagnosticListener;
-import javax.tools.JavaFileObject;
-import javax.lang.model.SourceVersion;
-import java.nio.charset.Charset;
-import java.io.Writer;
-import java.util.Locale;
-import java.util.Set;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.Writer;
+import java.nio.charset.Charset;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Locale;
+import java.util.Set;
+
+import javax.lang.model.SourceVersion;
+import javax.tools.DiagnosticListener;
+import javax.tools.JavaCompiler;
+import javax.tools.JavaFileManager;
+import javax.tools.JavaFileObject;
+import javax.tools.StandardJavaFileManager;
 
 public class Jsr199JavacIntegrationTest {
+
+  private static final SourcePathResolver PATH_RESOLVER =
+      new SourcePathResolver(new BuildRuleResolver());
   public static final ImmutableSet<Path> SOURCE_PATHS = ImmutableSet.of(Paths.get("Example.java"));
   @Rule
   public DebuggableTemporaryFolder tmp = new DebuggableTemporaryFolder();
@@ -109,6 +114,7 @@ public class Jsr199JavacIntegrationTest {
     ExecutionContext executionContext = createExecutionContext();
     int exitCode = javac.buildWithClasspath(
         executionContext,
+        PATH_RESOLVER,
         BuildTargetFactory.newInstance("//some:example"),
         ImmutableList.<String>of(),
         SOURCE_PATHS,
@@ -139,6 +145,7 @@ public class Jsr199JavacIntegrationTest {
     ExecutionContext executionContext = createExecutionContext();
     int exitCode = javac.buildWithClasspath(
         executionContext,
+        PATH_RESOLVER,
         BuildTargetFactory.newInstance("//some:example"),
         ImmutableList.<String>of(),
         SOURCE_PATHS,
@@ -225,6 +232,7 @@ public class Jsr199JavacIntegrationTest {
     try {
       javac.buildWithClasspath(
           executionContext,
+          PATH_RESOLVER,
           BuildTargetFactory.newInstance("//some:example"),
           ImmutableList.<String>of(),
           SOURCE_PATHS,
@@ -255,7 +263,8 @@ public class Jsr199JavacIntegrationTest {
 
     Path pathToOutputDirectory = Paths.get("out");
     tmp.newFolder(pathToOutputDirectory.toString());
-    return new Jsr199Javac(javacJar);
+    return new Jsr199Javac(
+        javacJar.transform(SourcePaths.toSourcePath(new FakeProjectFilesystem())));
   }
 
   private Jsr199Javac createJavac(boolean withSyntaxError) throws IOException {

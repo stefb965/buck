@@ -29,18 +29,18 @@ import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.rules.AbiRule;
 import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildDependencies;
 import com.facebook.buck.rules.BuildOutputInitializer;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.ExportDependencies;
-import com.facebook.buck.rules.ImmutableSha1HashCode;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.Sha1HashCode;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -50,7 +50,6 @@ import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.TouchStep;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.Optionals;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
@@ -58,7 +57,6 @@ import com.google.common.base.Predicates;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSetMultimap;
@@ -107,12 +105,20 @@ public class DefaultJavaLibrary extends AbstractBuildRule
 
   private static final BuildableProperties OUTPUT_TYPE = new BuildableProperties(LIBRARY);
 
+  @AddToRuleKey
   private final ImmutableSortedSet<SourcePath> srcs;
+  @AddToRuleKey
   private final ImmutableSortedSet<SourcePath> resources;
+  @AddToRuleKey(stringify = true)
+  private final Optional<Path> resourcesRoot;
   private final Optional<Path> outputJar;
-  private final Optional<Path> proguardConfig;
+  @AddToRuleKey
+  private final Optional<SourcePath> proguardConfig;
+  @AddToRuleKey
   private final ImmutableList<String> postprocessClassesCommands;
+  @AddToRuleKey
   private final ImmutableSortedSet<BuildRule> exportedDeps;
+  @AddToRuleKey
   private final ImmutableSortedSet<BuildRule> providedDeps;
   // Some classes need to override this when enhancing deps (see AndroidLibrary).
   private final ImmutableSet<Path> additionalClasspathEntries;
@@ -123,10 +129,11 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   private final Supplier<ImmutableSetMultimap<JavaLibrary, Path>>
       declaredClasspathEntriesSupplier;
   private final BuildOutputInitializer<Data> buildOutputInitializer;
-  private final Optional<Path> resourcesRoot;
+
 
   // TODO(jacko): This really should be final, but we need to refactor how we get the
   // AndroidPlatformTarget first before it can be.
+  @AddToRuleKey
   private JavacOptions javacOptions;
 
   /**
@@ -170,7 +177,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
       SourcePathResolver resolver,
       Set<? extends SourcePath> srcs,
       Set<? extends SourcePath> resources,
-      Optional<Path> proguardConfig,
+      Optional<SourcePath> proguardConfig,
       ImmutableList<String> postprocessClassesCommands,
       ImmutableSortedSet<BuildRule> exportedDeps,
       ImmutableSortedSet<BuildRule> providedDeps,
@@ -284,7 +291,8 @@ public class DefaultJavaLibrary extends AbstractBuildRule
           javacOptions,
           target,
           buildDependencies,
-          suggestBuildRules);
+          suggestBuildRules,
+          getResolver());
 
       commands.add(javacStep);
     }
@@ -307,7 +315,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
     // Hash the ABI keys of all dependencies together with ABI key for the current rule.
     Hasher hasher = createHasherWithAbiKeyForDeps(depsForAbiKey);
     hasher.putUnencodedChars(abiKey.getHash());
-    return ImmutableSha1HashCode.of(hasher.hash().toString());
+    return Sha1HashCode.of(hasher.hash().toString());
   }
 
   private Path getPathToAbiOutputDir() {
@@ -331,7 +339,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
    *     The return value does not end with a slash.
    */
   private static Path getClassesDir(BuildTarget target) {
-    return BuildTargets.getBinPath(target, "lib__%s__classes");
+    return BuildTargets.getScratchPath(target, "lib__%s__classes");
   }
 
   /**
@@ -339,7 +347,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
    */
   @Override
   public Sha1HashCode getAbiKeyForDeps() {
-    return ImmutableSha1HashCode.of(
+    return Sha1HashCode.of(
         createHasherWithAbiKeyForDeps(getDepsForAbiKey()).hash().toString());
   }
 
@@ -397,19 +405,6 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   }
 
   @Override
-  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
-    builder
-        .setReflectively("postprocessClassesCommands", postprocessClassesCommands)
-        .setReflectively("resources", resources)
-        .setReflectively("resources_root", resourcesRoot.toString())
-        // provided_deps are already included in the rule key, but we need to explicitly call them
-        // out as "provided" because changing a dep from provided to transtitive should result in a
-        // re-build (otherwise, we'd get a rule key match).
-        .setReflectively("provided_deps", providedDeps);
-    return javacOptions.appendToRuleKey(builder, "javacOptions");
-  }
-
-  @Override
   public BuildableProperties getProperties() {
     return OUTPUT_TYPE;
   }
@@ -444,19 +439,6 @@ public class DefaultJavaLibrary extends AbstractBuildRule
     return javacOptions.getAnnotationProcessingParams();
   }
 
-  public Optional<Path> getProguardConfig() {
-    return proguardConfig;
-  }
-
-  @Override
-  public ImmutableCollection<Path> getInputsToCompareToOutput() {
-    ImmutableList.Builder<Path> builder = ImmutableList.builder();
-    builder.addAll(getResolver().filterInputsToCompareToOutput(this.srcs));
-    builder.addAll(getResolver().filterInputsToCompareToOutput(this.resources));
-    Optionals.addIfPresent(this.proguardConfig, builder);
-    return builder.build();
-  }
-
   @Override
   public ImmutableSortedSet<BuildRule> getExportedDeps() {
     return exportedDeps;
@@ -469,7 +451,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   /**
    * Building a java_library() rule entails compiling the .java files specified in the srcs
    * attribute. They are compiled into a directory under
-   * {@link com.facebook.buck.util.BuckConstant#BIN_DIR}.
+   * {@link com.facebook.buck.util.BuckConstant#SCRATCH_DIR}.
    */
   @Override
   public final ImmutableList<Step> getBuildSteps(
@@ -587,7 +569,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
 
       steps.add(new CalculateAbiStep(buildableContext, output, abiJar));
     } else {
-      Path scratch = BuildTargets.getBinPath(
+      Path scratch = BuildTargets.getScratchPath(
           target,
           String.format("%%s/%s-temp-abi.jar", target.getShortNameAndFlavorPostfix()));
       steps.add(new MakeCleanDirectoryStep(scratch.getParent()));
@@ -697,7 +679,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
    * Instructs this rule to report the ABI it has on disk as its current ABI.
    */
   @Override
-  public JavaLibrary.Data initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) {
+  public JavaLibrary.Data initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) throws IOException {
     return JavaLibraryRules.initializeFromDisk(getBuildTarget(), onDiskBuildInfo);
   }
 
@@ -764,7 +746,9 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   @Override
   public void addToCollector(AndroidPackageableCollector collector) {
     if (outputJar.isPresent()) {
-      collector.addClasspathEntry(this, outputJar.get());
+      collector.addClasspathEntry(
+          this,
+          new BuildTargetSourcePath(getProjectFilesystem(), getBuildTarget(), outputJar.get()));
     }
     if (proguardConfig.isPresent()) {
       collector.addProguardConfig(getBuildTarget(), proguardConfig.get());

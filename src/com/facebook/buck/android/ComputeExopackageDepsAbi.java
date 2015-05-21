@@ -28,15 +28,14 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.Sha1HashCode;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.hash.Hasher;
@@ -50,7 +49,7 @@ import java.util.Map;
 import javax.annotation.Nullable;
 
 /**
- * A buildable that hashes all of the files that go into an exopackage APK.
+ * A build rule that hashes all of the files that go into an exopackage APK.
  * This is used by AndroidBinaryRule to compute the ABI hash of its deps.
  */
 public class ComputeExopackageDepsAbi extends AbstractBuildRule
@@ -88,11 +87,6 @@ public class ComputeExopackageDepsAbi extends AbstractBuildRule
     this.preDexMerge = preDexMerge;
     this.keystore = keystore;
     this.buildOutputInitializer = new BuildOutputInitializer<>(params.getBuildTarget(), this);
-  }
-
-  @Override
-  public ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return ImmutableList.of();
   }
 
   @Override
@@ -162,8 +156,8 @@ public class ComputeExopackageDepsAbi extends AbstractBuildRule
               }
 
               // Resources get copied from third-party JARs, so hash them.
-              for (Path jar : packageableCollection.getPathsToThirdPartyJars()) {
-                filesToHash.put(jar, "third-party jar");
+              for (SourcePath jar : packageableCollection.getPathsToThirdPartyJars()) {
+                filesToHash.put(getResolver().getPath(jar), "third-party jar");
               }
 
               // The last input is the keystore.
@@ -192,11 +186,6 @@ public class ComputeExopackageDepsAbi extends AbstractBuildRule
             }
           }
         });
-  }
-
-  @Override
-  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
-    return builder;
   }
 
   @Nullable

@@ -25,13 +25,13 @@ import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.rules.AbiRule;
 import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildOutputInitializer;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.Sha1HashCode;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
@@ -40,7 +40,6 @@ import com.facebook.buck.step.fs.WriteFileStep;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
@@ -59,6 +58,7 @@ public class DummyRDotJava extends AbstractBuildRule
     implements AbiRule, HasJavaAbi, InitializableFromDisk<DummyRDotJava.BuildOutput> {
 
   private final ImmutableList<HasAndroidResourceDeps> androidResourceDeps;
+  @AddToRuleKey
   private final JavacOptions javacOptions;
   private final BuildOutputInitializer<BuildOutput> buildOutputInitializer;
 
@@ -73,11 +73,6 @@ public class DummyRDotJava extends AbstractBuildRule
         .toSortedList(HasBuildTarget.BUILD_TARGET_COMPARATOR);
     this.javacOptions = javacOptions;
     this.buildOutputInitializer = new BuildOutputInitializer<>(params.getBuildTarget(), this);
-  }
-
-  @Override
-  public ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return ImmutableSet.of();
   }
 
   @Override
@@ -109,7 +104,7 @@ public class DummyRDotJava extends AbstractBuildRule
           rDotJavaSrcFolder);
       steps.add(mergeStep);
       javaSourceFilePaths =
-          ImmutableSet.copyOf(getResolver().getAllPaths(mergeStep.getRDotJavaFiles()));
+          ImmutableSet.copyOf(mergeStep.getRDotJavaFiles());
     }
 
     // Clear out the directory where the .class files will be generated.
@@ -126,7 +121,8 @@ public class DummyRDotJava extends AbstractBuildRule
             javaSourceFilePaths,
             rDotJavaClassesFolder,
             javacOptions,
-            getBuildTarget());
+            getBuildTarget(),
+            getResolver());
     steps.add(javacStep);
     buildableContext.recordArtifactsInDirectory(rDotJavaClassesFolder);
 
@@ -140,17 +136,12 @@ public class DummyRDotJava extends AbstractBuildRule
     return HasAndroidResourceDeps.ABI_HASHER.apply(androidResourceDeps);
   }
 
-  @Override
-  public RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
-    return javacOptions.appendToRuleKey(builder, "javacOptions");
+  public static Path getRDotJavaSrcFolder(BuildTarget buildTarget) {
+    return BuildTargets.getScratchPath(buildTarget, "__%s_rdotjava_src__");
   }
 
-  private static Path getRDotJavaSrcFolder(BuildTarget buildTarget) {
-    return BuildTargets.getBinPath(buildTarget, "__%s_rdotjava_src__");
-  }
-
-  private static Path getRDotJavaBinFolder(BuildTarget buildTarget) {
-    return BuildTargets.getBinPath(buildTarget, "__%s_rdotjava_bin__");
+  public static Path getRDotJavaBinFolder(BuildTarget buildTarget) {
+    return BuildTargets.getScratchPath(buildTarget, "__%s_rdotjava_bin__");
   }
 
   private static Path getPathToAbiOutputDir(BuildTarget buildTarget) {

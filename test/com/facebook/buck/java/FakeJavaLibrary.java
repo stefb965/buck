@@ -24,12 +24,15 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleType;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.Sha1HashCode;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableSetMultimap;
@@ -91,7 +94,9 @@ public class FakeJavaLibrary extends FakeBuildRule implements JavaLibrary, Andro
 
   @Override
   public ImmutableSetMultimap<JavaLibrary, Path> getTransitiveClasspathEntries() {
-    return ImmutableSetMultimap.of((JavaLibrary) this, getPathToOutputFile());
+    return JavaLibraryClasspathProvider.getTransitiveClasspathEntries(
+        this,
+        Optional.fromNullable(getPathToOutputFile()));
   }
 
   @Override
@@ -107,7 +112,7 @@ public class FakeJavaLibrary extends FakeBuildRule implements JavaLibrary, Andro
   public FakeJavaLibrary setJavaSrcs(ImmutableSortedSet<Path> srcs) {
     Preconditions.checkNotNull(srcs);
     this.srcs = FluentIterable.from(srcs)
-        .transform(SourcePaths.TO_SOURCE_PATH)
+        .transform(SourcePaths.toSourcePath(new FakeProjectFilesystem()))
         .toSortedSet(Ordering.natural());
     return this;
   }
@@ -134,7 +139,9 @@ public class FakeJavaLibrary extends FakeBuildRule implements JavaLibrary, Andro
 
   @Override
   public void addToCollector(AndroidPackageableCollector collector) {
-    collector.addClasspathEntry(this, getPathToOutputFile());
+    collector.addClasspathEntry(
+        this,
+        new BuildTargetSourcePath(getProjectFilesystem(), getBuildTarget()));
   }
 
 }

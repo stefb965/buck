@@ -17,16 +17,15 @@
 package com.facebook.buck.cxx;
 
 import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 
 import java.nio.file.Path;
@@ -35,16 +34,21 @@ import javax.annotation.Nullable;
 
 public class Lex extends AbstractBuildRule {
 
-  private final SourcePath lex;
+  @AddToRuleKey
+  private final Tool lex;
+  @AddToRuleKey
   private final ImmutableList<String> flags;
+  @AddToRuleKey(stringify = true)
   private final Path outputSource;
+  @AddToRuleKey(stringify = true)
   private final Path outputHeader;
+  @AddToRuleKey(stringify = true)
   private final SourcePath input;
 
   public Lex(
       BuildRuleParams params,
       SourcePathResolver resolver,
-      SourcePath lex,
+      Tool lex,
       ImmutableList<String> flags,
       Path outputSource,
       Path outputHeader,
@@ -57,22 +61,6 @@ public class Lex extends AbstractBuildRule {
     this.outputSource = outputSource;
     this.outputHeader = outputHeader;
     this.input = input;
-  }
-
-  @Override
-  protected ImmutableCollection<Path> getInputsToCompareToOutput() {
-    return getResolver().filterInputsToCompareToOutput(input);
-  }
-
-  @Override
-  protected RuleKey.Builder appendDetailsToRuleKey(RuleKey.Builder builder) {
-    return builder
-        .setReflectively("lex", lex)
-        .setReflectively("flags", flags)
-        .setReflectively("outputSource", outputSource.toString())
-        .setReflectively("outputHeader", outputHeader.toString())
-        // The input name gets baked into line markers.
-        .setReflectively("input", input.toString());
   }
 
   @Override
@@ -90,7 +78,7 @@ public class Lex extends AbstractBuildRule {
         new MkdirStep(outputHeader.getParent()),
         new RmStep(outputHeader, /* shouldForceDeletion */ true),
         new LexStep(
-            getResolver().getPath(lex),
+            lex.getCommandPrefix(getResolver()),
             flags,
             outputSource,
             outputHeader,

@@ -31,7 +31,6 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.ImmutableBuildRuleType;
 import com.facebook.buck.rules.InstallableApk;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -45,6 +44,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
+import com.google.common.util.concurrent.ListeningExecutorService;
 
 import java.nio.file.Path;
 import java.util.EnumSet;
@@ -52,19 +52,22 @@ import java.util.EnumSet;
 public class AndroidInstrumentationApkDescription
     implements Description<AndroidInstrumentationApkDescription.Arg> {
 
-  public static final BuildRuleType TYPE = ImmutableBuildRuleType.of("android_instrumentation_apk");
+  public static final BuildRuleType TYPE = BuildRuleType.of("android_instrumentation_apk");
 
   private final ProGuardConfig proGuardConfig;
   private final JavacOptions javacOptions;
   private final ImmutableMap<AndroidBinary.TargetCpuType, NdkCxxPlatform> nativePlatforms;
+  private final ListeningExecutorService dxExecutorService;
 
   public AndroidInstrumentationApkDescription(
       ProGuardConfig proGuardConfig,
       JavacOptions androidJavacOptions,
-      ImmutableMap<AndroidBinary.TargetCpuType, NdkCxxPlatform> nativePlatforms) {
+      ImmutableMap<AndroidBinary.TargetCpuType, NdkCxxPlatform> nativePlatforms,
+      ListeningExecutorService dxExecutorService) {
     this.proGuardConfig = proGuardConfig;
     this.javacOptions = androidJavacOptions;
     this.nativePlatforms = nativePlatforms;
+    this.dxExecutorService = dxExecutorService;
   }
 
   @Override
@@ -124,25 +127,29 @@ public class AndroidInstrumentationApkDescription
         DexSplitMode.NO_SPLIT,
         FluentIterable.from(rulesToExcludeFromDex).transform(TO_TARGET).toSet(),
         resourcesToExclude,
+        /* skipCrunchPngs */ false,
         javacOptions,
         EnumSet.noneOf(ExopackageMode.class),
         apkUnderTest.getKeystore(),
         /* buildConfigValues */ BuildConfigFields.empty(),
         /* buildConfigValuesFile */ Optional.<SourcePath>absent(),
-        nativePlatforms);
+        nativePlatforms,
+        dxExecutorService);
 
     AndroidGraphEnhancementResult enhancementResult =
         graphEnhancer.createAdditionalBuildables();
 
     return new AndroidInstrumentationApk(
-        params.copyWithExtraDeps(Suppliers.ofInstance(enhancementResult.getFinalDeps())),
+        params
+            .copyWithExtraDeps(Suppliers.ofInstance(enhancementResult.getFinalDeps()))
+            .appendExtraDeps(rulesToExcludeFromDex),
         new SourcePathResolver(resolver),
         proGuardConfig.getProguardJarOverride(),
         proGuardConfig.getProguardMaxHeapSize(),
-        args.manifest,
         apkUnderTest,
         rulesToExcludeFromDex,
-        enhancementResult);
+        enhancementResult,
+        dxExecutorService);
 
   }
 
