@@ -18,6 +18,7 @@ package org.openqa.selenium.buck.file;
 
 import static com.facebook.buck.zip.ZipStep.DEFAULT_COMPRESSION_LEVEL;
 
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
@@ -28,8 +29,6 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
-import com.facebook.buck.step.fs.MkdirStep;
-import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.zip.ZipStep;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -40,7 +39,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 
 public class Folder extends AbstractBuildRule {
-  @AddToRuleKey
+  @AddToRuleKey(stringify = true)
   private final Path folderName;
   private final Path output;
   @AddToRuleKey
@@ -53,8 +52,11 @@ public class Folder extends AbstractBuildRule {
       ImmutableSortedSet<SourcePath> srcs) {
     super(buildRuleParams, resolver);
 
+    BuildTarget target = getBuildTarget();
     this.folderName = Preconditions.checkNotNull(Paths.get(folderName));
-    this.output = BuildTargets.getGenPath(getBuildTarget(),  "%s.src.zip");
+    this.output = BuildTargets.getGenPath(
+        target,
+        String.format("%s/%%s.src.zip", target.getShortName()));
     this.srcs = Preconditions.checkNotNull(srcs);
   }
 
@@ -63,8 +65,7 @@ public class Folder extends AbstractBuildRule {
       BuildContext context, BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
-    steps.add(new RmStep(output, true));
-    steps.add(new MkdirStep(output.getParent()));
+    steps.add(new MakeCleanDirectoryStep(output.getParent()));
 
     Path scratch = BuildTargets.getScratchPath(getBuildTarget(), "%s-scratch/" + folderName);
     steps.add(new MakeCleanDirectoryStep(scratch));

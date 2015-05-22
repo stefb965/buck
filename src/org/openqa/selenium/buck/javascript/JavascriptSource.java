@@ -30,10 +30,29 @@ import java.util.regex.Pattern;
 
 public class JavascriptSource {
 
+//  private static final Pattern ADD_DEP = Pattern.compile(
+//    Joiner.on("").join(
+//        "^goog.addDependency\\s*\\(\\s*",
+//        "['\"]([^'\"]+)['\"]",     // Relative path from Closure's base.js
+//        "\\s*,\\s*",
+//        "\\[([^\\]]+)?\\]",        // Provided symbols
+//        "\\s*,\\s*",
+//        "\\[([^\\]]+)?\\]",        // Required symbols
+//        "\\s*",
+//        "(?:,\\s*(true|false))?",  // Module flag.
+//        "\\s*\\)"
+//    ));
+
+  private static final Pattern MODULE = Pattern.compile(
+      "^goog\\.module\\s*\\(\\s*['\"]([^'\"]+)['\"]\\s*\\)");
+
+  // goog.require statement may have a LHS assignment if inside a goog.module
+  // file. This is a simplified version of:
+  // https://github.com/google/closure-compiler/blob/master/src/com/google/javascript/jscomp/deps/JsFileParser.java#L41
   private static final Pattern REQUIRE = Pattern.compile(
-      "^goog\\.require\\s*\\(\\s*[\\'\\\"]([^\\)]+)[\\'\\\"]\\s*\\)");
+      "^\\s*(?:(?:var|let|const)\\s+[a-zA-Z_$][a-zA-Z0-9$_]*\\s*=\\s*)?goog\\.require\\s*\\(\\s*['\"]([^'\"]+)['\"]\\s*\\)");
   private static final Pattern PROVIDE = Pattern.compile(
-      "^goog\\.provide\\s*\\(\\s*[\\'\\\"]([^\\)]+)[\\'\\\"]\\s*\\)");
+      "^goog\\.provide\\s*\\(\\s*['\"]([^'\"]+)['\"]\\s*\\)");
 
 
   private final Path path;
@@ -48,6 +67,11 @@ public class JavascriptSource {
 
     try {
       for (String line : Files.readAllLines(path, StandardCharsets.UTF_8)) {
+        Matcher moduleMatcher = MODULE.matcher(line);
+        if (moduleMatcher.find()) {
+          toProvide.add(moduleMatcher.group(1));
+        }
+
         Matcher requireMatcher = REQUIRE.matcher(line);
         if (requireMatcher.find()) {
           toRequire.add(requireMatcher.group(1));
