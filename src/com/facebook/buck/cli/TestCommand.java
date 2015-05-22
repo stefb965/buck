@@ -177,8 +177,10 @@ public class TestCommand extends BuildCommand {
     return testLabelOptions.isMatchedByLabelOptions(buckConfig, labels);
   }
 
-  public boolean shouldExcludeTransitiveTests() {
-    return shouldExcludeTransitiveTests;
+  public boolean shouldExcludeTransitiveTests(BuckConfig config) {
+    // Phrasing things in the negative is always hard to grok.
+    boolean runTransitive = config.getBooleanValue("test", "run_transitive", true);
+    return shouldExcludeTransitiveTests || !runTransitive;
   }
 
   public boolean shouldExcludeWin() {
@@ -406,7 +408,7 @@ public class TestCommand extends BuildCommand {
 
       // The testRules Iterable contains transitive deps of the arguments given on the command line,
       // filter those out if such is the user's will.
-      if (shouldExcludeTransitiveTests() && !explicitArgument) {
+      if (shouldExcludeTransitiveTests(buckConfig) && !explicitArgument) {
         continue;
       }
 
