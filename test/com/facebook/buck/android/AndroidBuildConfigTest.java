@@ -52,11 +52,11 @@ import java.util.List;
 public class AndroidBuildConfigTest {
 
   @Test
-  public void testGetPathToOutputFile() {
+  public void testGetPathToOutput() {
     AndroidBuildConfig buildConfig = createSimpleBuildConfigRule();
     assertEquals(
         BuckConstant.GEN_PATH.resolve("java/com/example/__build_config__/BuildConfig.java"),
-        buildConfig.getPathToOutputFile());
+        buildConfig.getPathToOutput());
   }
 
   @Test
@@ -108,9 +108,7 @@ public class AndroidBuildConfigTest {
   private static AndroidBuildConfig createSimpleBuildConfigRule() {
     // First, create the BuildConfig object.
     BuildTarget buildTarget = BuildTarget.builder("//java/com/example", "build_config").build();
-    BuildRuleParams params = new FakeBuildRuleParamsBuilder(buildTarget)
-        .setType(AndroidBuildConfigDescription.TYPE)
-        .build();
+    BuildRuleParams params = new FakeBuildRuleParamsBuilder(buildTarget).build();
     return new AndroidBuildConfig(
         params,
         new SourcePathResolver(new BuildRuleResolver()),

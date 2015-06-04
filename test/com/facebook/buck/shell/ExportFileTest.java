@@ -100,7 +100,7 @@ public class ExportFileTest {
             "cp " + projectFilesystem.resolve("example.html") + " buck-out/gen/example.html"),
         steps,
         TestExecutionContext.newInstance());
-    assertEquals(Paths.get("buck-out/gen/example.html"), exportFile.getPathToOutputFile());
+    assertEquals(Paths.get("buck-out/gen/example.html"), exportFile.getPathToOutput());
   }
 
   @Test
@@ -119,7 +119,7 @@ public class ExportFileTest {
             "cp " + projectFilesystem.resolve("example.html") + " buck-out/gen/fish"),
         steps,
         TestExecutionContext.newInstance());
-    assertEquals(Paths.get("buck-out/gen/fish"), exportFile.getPathToOutputFile());
+    assertEquals(Paths.get("buck-out/gen/fish"), exportFile.getPathToOutput());
   }
 
   @Test
@@ -139,7 +139,7 @@ public class ExportFileTest {
             "cp " + projectFilesystem.resolve("chips") + " buck-out/gen/fish"),
         steps,
         TestExecutionContext.newInstance());
-    assertEquals(Paths.get("buck-out/gen/fish"), exportFile.getPathToOutputFile());
+    assertEquals(Paths.get("buck-out/gen/fish"), exportFile.getPathToOutput());
   }
 
   @Test
@@ -156,7 +156,6 @@ public class ExportFileTest {
 
     BuildRuleResolver ruleResolver = new BuildRuleResolver();
     FakeBuildRule rule = new FakeBuildRule(
-        ExportFileDescription.TYPE,
         BuildTargetFactory.newInstance("//example:one"),
         new SourcePathResolver(ruleResolver));
 
@@ -187,7 +186,8 @@ public class ExportFileTest {
     temp.toFile().deleteOnExit();
 
     FileHashCache hashCache = new DefaultFileHashCache(filesystem);
-    RuleKeyBuilderFactory ruleKeyFactory = new DefaultRuleKeyBuilderFactory(hashCache);
+    SourcePathResolver resolver = new SourcePathResolver(new BuildRuleResolver());
+    RuleKeyBuilderFactory ruleKeyFactory = new DefaultRuleKeyBuilderFactory(hashCache, resolver);
 
     Files.write(temp, "I like cheese".getBytes(UTF_8));
 
@@ -198,7 +198,7 @@ public class ExportFileTest {
     ExportFile rule = (ExportFile) builder.build(new BuildRuleResolver(), filesystem);
 
     RuleKey original = ruleKeyFactory
-            .newInstance(rule, new SourcePathResolver(new BuildRuleResolver()))
+            .newInstance(rule)
             .build()
             .getTotalRuleKey();
 
@@ -209,9 +209,10 @@ public class ExportFileTest {
     rule = (ExportFile) builder.build(new BuildRuleResolver(), filesystem);
 
     hashCache = new DefaultFileHashCache(filesystem);
-    ruleKeyFactory = new DefaultRuleKeyBuilderFactory(hashCache);
+    resolver = new SourcePathResolver(new BuildRuleResolver());
+    ruleKeyFactory = new DefaultRuleKeyBuilderFactory(hashCache, resolver);
     RuleKey refreshed = ruleKeyFactory
-        .newInstance(rule, new SourcePathResolver(new BuildRuleResolver()))
+        .newInstance(rule)
         .build()
         .getTotalRuleKey();
 

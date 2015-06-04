@@ -28,9 +28,9 @@ import com.facebook.buck.io.FakeExecutableFinder;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.util.environment.Platform;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableList;
 
 import java.nio.file.Paths;
 
@@ -68,9 +68,13 @@ public class FakeAppleRuleDescriptions {
           new FakeExecutableFinder(ImmutableSet.of(
               Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/clang"),
               Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++"),
+              Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/dsymutil"),
               Paths.get("Platforms/iPhoneOS.platform/Developer/usr/bin/libtool"),
               Paths.get("Platforms/iPhoneOS.platform/Developer/usr/bin/ar"),
-              Paths.get("usr/bin/actool"))));
+              Paths.get("usr/bin/actool"),
+              Paths.get("usr/bin/ibtool"),
+              Paths.get("Tools/otest"),
+              Paths.get("usr/bin/xctest"))));
 
   private static final BuckConfig DEFAULT_BUCK_CONFIG = new FakeBuckConfig();
 

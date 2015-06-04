@@ -130,7 +130,7 @@ public class AaptPackageResources extends AbstractBuildRule
   }
 
   @Override
-  public Path getPathToOutputFile() {
+  public Path getPathToOutput() {
     return getResourceApkPath();
   }
 
@@ -259,7 +259,7 @@ public class AaptPackageResources extends AbstractBuildRule
       Path proguardConfigDir = getPathToGeneratedProguardConfigDir();
       steps.add(new MakeCleanDirectoryStep(proguardConfigDir));
       pathToGeneratedProguardConfig = Optional.of(proguardConfigDir.resolve("proguard.txt"));
-      buildableContext.recordArtifactsInDirectory(proguardConfigDir);
+      buildableContext.recordArtifact(proguardConfigDir);
     }
 
     steps.add(
@@ -315,7 +315,6 @@ public class AaptPackageResources extends AbstractBuildRule
     buildableContext.addMetadata(
         FILTERED_RESOURCE_DIRS_KEY,
         FluentIterable.from(filteredResourcesProvider.getResDirectories())
-            .transform(getResolver().getPathFunction())
             .transform(Functions.toStringFunction())
             .toSortedList(Ordering.natural()));
 
@@ -359,7 +358,7 @@ public class AaptPackageResources extends AbstractBuildRule
       steps.add(genNativeStringInfo);
 
       // Cache the generated strings.json file, it will be stored inside outputDirPath
-      buildableContext.recordArtifactsInDirectory(outputDirPath);
+      buildableContext.recordArtifact(outputDirPath);
     }
 
     // Create the path where the R.java files will be compiled.
@@ -379,9 +378,9 @@ public class AaptPackageResources extends AbstractBuildRule
     steps.add(new AccumulateClassNamesStep(Optional.of(rDotJavaBin), rDotJavaClassesTxt));
 
     // Ensure the generated R.txt, R.java, and R.class files are also recorded.
-    buildableContext.recordArtifactsInDirectory(rDotTxtDir);
-    buildableContext.recordArtifactsInDirectory(rDotJavaSrc);
-    buildableContext.recordArtifactsInDirectory(rDotJavaBin);
+    buildableContext.recordArtifact(rDotTxtDir);
+    buildableContext.recordArtifact(rDotJavaSrc);
+    buildableContext.recordArtifact(rDotJavaBin);
     buildableContext.recordArtifact(rDotJavaClassesTxt);
   }
 

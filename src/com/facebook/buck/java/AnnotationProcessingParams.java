@@ -120,15 +120,15 @@ public class AnnotationProcessingParams implements RuleKeyAppendable {
   }
 
   @Override
-  public RuleKey.Builder appendToRuleKey(RuleKey.Builder builder, String key) {
+  public RuleKey.Builder appendToRuleKey(RuleKey.Builder builder) {
     if (!isEmpty()) {
       // searchPathElements is not needed here since it comes from rules, which is appended below.
       String owner = (ownerTarget == null) ? null : ownerTarget.getFullyQualifiedName();
-      builder.setReflectively(key + ".owner", owner)
-          .setReflectively(key + ".names", names)
-          .setReflectively(key + ".parameters", parameters)
-          .setReflectively(key + ".processOnly", processOnly)
-          .setReflectively(key + ".inputs", inputs);
+      builder.setReflectively("owner", owner)
+          .setReflectively("names", names)
+          .setReflectively("parameters", parameters)
+          .setReflectively("processOnly", processOnly)
+          .setReflectively("inputs", inputs);
     }
 
     return builder;
@@ -197,7 +197,7 @@ public class AnnotationProcessingParams implements RuleKeyAppendable {
 
       for (BuildRule rule : this.rules) {
         if (rule.getClass().isAnnotationPresent(BuildsAnnotationProcessor.class)) {
-          Path pathToOutput = rule.getPathToOutputFile();
+          Path pathToOutput = rule.getPathToOutput();
           if (pathToOutput != null) {
             inputs.add(new BuildTargetSourcePath(filesystem, rule.getBuildTarget()));
             searchPathElements.add(pathToOutput);

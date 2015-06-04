@@ -16,11 +16,15 @@
 
 package com.facebook.buck.apple;
 
+import static com.facebook.buck.apple.ProjectGeneratorTestUtils.assertHasSingletonCopyFilesPhaseWithFileEntries;
 import static com.facebook.buck.apple.ProjectGeneratorTestUtils.assertHasSingletonFrameworksPhaseWithFrameworkEntries;
 import static com.facebook.buck.apple.ProjectGeneratorTestUtils.assertTargetExistsAndReturnTarget;
+import static com.facebook.buck.apple.ProjectGeneratorTestUtils.getSingletonPhaseByType;
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.hasItem;
 import static org.hamcrest.CoreMatchers.instanceOf;
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.CoreMatchers.notNullValue;
 import static org.hamcrest.Matchers.hasKey;
 import static org.hamcrest.collection.IsCollectionWithSize.hasSize;
 import static org.junit.Assert.assertEquals;
@@ -49,6 +53,7 @@ import com.facebook.buck.apple.xcode.xcodeproj.XCBuildConfiguration;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
@@ -60,12 +65,14 @@ import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.SourceWithFlags;
 import com.facebook.buck.shell.ExportFileBuilder;
 import com.facebook.buck.shell.ExportFileDescription;
+import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.timing.SettableFakeClock;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Function;
+import com.google.common.base.Functions;
 import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
 import com.google.common.collect.FluentIterable;
@@ -1470,7 +1477,7 @@ public class ProjectGeneratorTest {
         target,
         ImmutableMap.of("fooTest.m", Optional.<String>absent()));
 
-    ProjectGeneratorTestUtils.assertHasSingletonFrameworksPhaseWithFrameworkEntries(
+    assertHasSingletonFrameworksPhaseWithFrameworkEntries(
         target,
         ImmutableList.of("$SDKROOT/Library.framework"));
   }
@@ -1536,7 +1543,7 @@ public class ProjectGeneratorTest {
         target,
         ImmutableMap.of("fooTest.m", Optional.<String>absent()));
 
-    ProjectGeneratorTestUtils.assertHasSingletonFrameworksPhaseWithFrameworkEntries(
+    assertHasSingletonFrameworksPhaseWithFrameworkEntries(
         target,
         ImmutableList.of("$SDKROOT/Library.framework"));
   }
@@ -1621,7 +1628,7 @@ public class ProjectGeneratorTest {
         ImmutableMap.of(
             "foo.m", Optional.of("-foo"),
             "libsomething.a", Optional.<String>absent()));
-    ProjectGeneratorTestUtils.assertHasSingletonFrameworksPhaseWithFrameworkEntries(
+    assertHasSingletonFrameworksPhaseWithFrameworkEntries(
         target,
         ImmutableList.of(
             "$SDKROOT/Foo.framework",
@@ -1645,7 +1652,7 @@ public class ProjectGeneratorTest {
     TargetNode<?> resourceNode = AppleResourceBuilder
         .createBuilder(resourceTarget)
         .setFiles(ImmutableSet.<SourcePath>of(new TestSourcePath("bar.png")))
-        .setDirs(ImmutableSet.<Path>of())
+        .setDirs(ImmutableSet.<SourcePath>of())
         .build();
 
     BuildTarget sharedLibraryTarget = BuildTarget
@@ -1671,13 +1678,13 @@ public class ProjectGeneratorTest {
     projectGenerator.createXcodeProjects();
 
     PBXProject project = projectGenerator.getGeneratedProject();
-    PBXTarget target = ProjectGeneratorTestUtils.assertTargetExistsAndReturnTarget(
+    PBXTarget target = assertTargetExistsAndReturnTarget(
         project, "//foo:bundle");
     assertThat(target.getName(), equalTo("//foo:bundle"));
     assertThat(target.isa(), equalTo("PBXNativeTarget"));
 
     PBXShellScriptBuildPhase shellScriptBuildPhase =
-        ProjectGeneratorTestUtils.getSingletonPhaseByType(
+        getSingletonPhaseByType(
             target,
             PBXShellScriptBuildPhase.class);
 
@@ -1742,7 +1749,7 @@ public class ProjectGeneratorTest {
     TargetNode<?> resourceNode = AppleResourceBuilder
         .createBuilder(resourceTarget)
         .setFiles(ImmutableSet.<SourcePath>of())
-        .setDirs(ImmutableSet.<Path>of())
+        .setDirs(ImmutableSet.<SourcePath>of())
         .setVariants(
             Optional.<Map<String, Map<String, SourcePath>>>of(
                 ImmutableMap.<String, Map<String, SourcePath>>of(
@@ -1968,7 +1975,7 @@ public class ProjectGeneratorTest {
         "//foo:final");
     assertEquals(target.getProductType(), ProductType.BUNDLE);
     assertEquals("Should have exact number of build phases ", 2, target.getBuildPhases().size());
-    ProjectGeneratorTestUtils.assertHasSingletonFrameworksPhaseWithFrameworkEntries(
+    assertHasSingletonFrameworksPhaseWithFrameworkEntries(
         target,
         ImmutableList.of(
             "$BUILT_PRODUCTS_DIR/F4XWIZLQHJZWQYLSMVSCG43IMFZGKZA/libshared.dylib"));
@@ -2028,7 +2035,7 @@ public class ProjectGeneratorTest {
         "//foo:final");
     assertEquals(target.getProductType(), ProductType.BUNDLE);
     assertEquals("Should have exact number of build phases ", 2, target.getBuildPhases().size());
-    ProjectGeneratorTestUtils.assertHasSingletonFrameworksPhaseWithFrameworkEntries(
+    assertHasSingletonFrameworksPhaseWithFrameworkEntries(
         target,
         ImmutableList.of("$BUILT_PRODUCTS_DIR/F4XWIZLQHJTHEYLNMV3W64TL/framework.framework"));
   }
@@ -2098,7 +2105,7 @@ public class ProjectGeneratorTest {
         "//foo:final");
     assertEquals(target.getProductType(), ProductType.BUNDLE);
     assertEquals("Should have exact number of build phases ", 2, target.getBuildPhases().size());
-    ProjectGeneratorTestUtils.assertHasSingletonCopyFilesPhaseWithFileEntries(
+    assertHasSingletonCopyFilesPhaseWithFileEntries(
         target,
         ImmutableList.of("$BUILT_PRODUCTS_DIR/F4XWIZLQHJTHEYLNMV3W64TL/framework.framework"));
   }
@@ -2137,7 +2144,7 @@ public class ProjectGeneratorTest {
     TargetNode<?> resourceNode = AppleResourceBuilder
         .createBuilder(resourceTarget)
         .setFiles(ImmutableSet.<SourcePath>of(new TestSourcePath("bar.png")))
-        .setDirs(ImmutableSet.of(Paths.get("foodir")))
+        .setDirs(ImmutableSet.<SourcePath>of(new TestSourcePath("foodir")))
         .build();
 
     BuildTarget libraryTarget = BuildTarget.builder("//foo", "lib").build();
@@ -2494,7 +2501,7 @@ public class ProjectGeneratorTest {
   public void nonexistentResourceDirectoryShouldThrow() throws IOException {
     ImmutableSet<TargetNode<?>> nodes = setupSimpleLibraryWithResources(
         ImmutableSet.<SourcePath>of(),
-        ImmutableSet.of(Paths.get("nonexistent-directory")));
+        ImmutableSet.<SourcePath>of(new TestSourcePath("nonexistent-directory")));
 
     thrown.expect(HumanReadableException.class);
     thrown.expectMessage(
@@ -2508,7 +2515,7 @@ public class ProjectGeneratorTest {
   public void nonexistentResourceFileShouldThrow() throws IOException {
     ImmutableSet<TargetNode<?>> nodes = setupSimpleLibraryWithResources(
         ImmutableSet.<SourcePath>of(new TestSourcePath("nonexistent-file.png")),
-        ImmutableSet.<Path>of());
+        ImmutableSet.<SourcePath>of());
 
     thrown.expect(HumanReadableException.class);
     thrown.expectMessage(
@@ -2522,7 +2529,7 @@ public class ProjectGeneratorTest {
   public void usingFileAsResourceDirectoryShouldThrow() throws IOException {
     ImmutableSet<TargetNode<?>> nodes = setupSimpleLibraryWithResources(
         ImmutableSet.<SourcePath>of(),
-        ImmutableSet.of(Paths.get("bar.png")));
+        ImmutableSet.<SourcePath>of(new TestSourcePath("bar.png")));
 
     thrown.expect(HumanReadableException.class);
     thrown.expectMessage(
@@ -2536,11 +2543,30 @@ public class ProjectGeneratorTest {
   public void usingDirectoryAsResourceFileShouldThrow() throws IOException {
     ImmutableSet<TargetNode<?>> nodes = setupSimpleLibraryWithResources(
         ImmutableSet.<SourcePath>of(new TestSourcePath("foodir")),
-        ImmutableSet.<Path>of());
+        ImmutableSet.<SourcePath>of());
 
     thrown.expect(HumanReadableException.class);
     thrown.expectMessage(
         "foodir specified in the files parameter of //foo:res is not a regular file");
+
+    ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(nodes);
+    projectGenerator.createXcodeProjects();
+  }
+
+  @Test
+  public void usingBuildTargetSourcePathInResourceDirsOrFilesDoesNotThrow() throws IOException {
+    BuildTarget buildTarget = BuildTargetFactory.newInstance("//some:rule");
+    SourcePath sourcePath = new BuildTargetSourcePath(fakeProjectFilesystem, buildTarget);
+    TargetNode<?> generatingTarget = GenruleBuilder.newGenruleBuilder(buildTarget)
+        .setCmd("echo HI")
+        .build();
+
+    ImmutableSet<TargetNode<?>> nodes = FluentIterable.from(
+        setupSimpleLibraryWithResources(
+            ImmutableSet.of(sourcePath),
+            ImmutableSet.of(sourcePath)))
+        .append(generatingTarget)
+        .toSet();
 
     ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(nodes);
     projectGenerator.createXcodeProjects();
@@ -2581,7 +2607,7 @@ public class ProjectGeneratorTest {
     TargetNode<AppleResourceDescription.Arg> testLibDepResource =
         AppleResourceBuilder.createBuilder(BuildTarget.builder("//lib", "deplibresource").build())
             .setFiles(ImmutableSet.<SourcePath>of(new TestSourcePath("bar.png")))
-            .setDirs(ImmutableSet.<Path>of())
+            .setDirs(ImmutableSet.<SourcePath>of())
             .build();
     TargetNode<AppleNativeTargetDescriptionArg> testLibDepLib =
         AppleLibraryBuilder.createBuilder(BuildTarget.builder("//libs", "deplib").build())
@@ -2643,6 +2669,8 @@ public class ProjectGeneratorTest {
         PROJECT_NAME,
         "BUCK",
         ProjectGenerator.SEPARATED_PROJECT_OPTIONS,
+        Optional.<BuildTarget>absent(),
+        ImmutableList.<String>of(),
         new Function<TargetNode<?>, Path>() {
           @Nullable
           @Override
@@ -2805,6 +2833,59 @@ public class ProjectGeneratorTest {
     assertEquals("$(BUNDLE_LOADER)", settings.get("TEST_HOST"));
   }
 
+  @Test
+  public void aggregateTargetForBuildWithBuck() throws IOException {
+    BuildTarget binaryTarget = BuildTarget.builder("//foo", "binary").build();
+    TargetNode<?> binaryNode = AppleBinaryBuilder
+        .createBuilder(binaryTarget)
+        .setConfigs(
+            Optional.of(
+                ImmutableSortedMap.of(
+                    "Debug",
+                    ImmutableMap.<String, String>of())))
+        .setSrcs(
+            Optional.of(
+                ImmutableList.of(
+                    SourceWithFlags.of(
+                        new TestSourcePath("foo.m"), ImmutableList.of("-foo")))))
+        .build();
+
+    ImmutableSet<TargetNode<?>> nodes = ImmutableSet.<TargetNode<?>>of(binaryNode);
+    ProjectGenerator projectGenerator = new ProjectGenerator(
+        TargetGraphFactory.newInstance(nodes),
+        FluentIterable.from(nodes).transform(HasBuildTarget.TO_TARGET).toSet(),
+        projectFilesystem,
+        OUTPUT_DIRECTORY,
+        PROJECT_NAME,
+        "BUCK",
+        ImmutableSet.<ProjectGenerator.Option>of(),
+        Optional.of(binaryTarget),
+        ImmutableList.of("--flag", "value with spaces"),
+        Functions.<Path>constant(null));
+    projectGenerator.createXcodeProjects();
+
+    PBXTarget buildWithBuckTarget = null;
+    for (PBXTarget target : projectGenerator.getGeneratedProject().getTargets()) {
+      if (target.getProductName() != null &&
+          target.getProductName().endsWith("-Buck")) {
+        buildWithBuckTarget = target;
+      }
+    }
+    assertThat(buildWithBuckTarget, is(notNullValue()));
+
+    assertHasConfigurations(buildWithBuckTarget, "Debug");
+    assertEquals(
+        "Should have exact number of build phases",
+        1,
+        buildWithBuckTarget.getBuildPhases().size());
+    PBXBuildPhase buildPhase = Iterables.getOnlyElement(buildWithBuckTarget.getBuildPhases());
+    assertThat(buildPhase, instanceOf(PBXShellScriptBuildPhase.class));
+    PBXShellScriptBuildPhase shellScriptBuildPhase = (PBXShellScriptBuildPhase) buildPhase;
+    assertThat(
+        shellScriptBuildPhase.getShellScript(),
+        equalTo("buck build --flag 'value with spaces' " + binaryTarget.getFullyQualifiedName()));
+  }
+
   private ProjectGenerator createProjectGeneratorForCombinedProject(
       Iterable<TargetNode<?>> nodes) {
     return createProjectGeneratorForCombinedProject(
@@ -2828,18 +2909,14 @@ public class ProjectGeneratorTest {
         PROJECT_NAME,
         "BUCK",
         projectGeneratorOptions,
-        new Function<TargetNode<?>, Path>() {
-          @Nullable
-          @Override
-          public Path apply(TargetNode<?> input) {
-            return null;
-          }
-        });
+        Optional.<BuildTarget>absent(),
+        ImmutableList.<String>of(),
+        Functions.<Path>constant(null));
   }
 
   private ImmutableSet<TargetNode<?>> setupSimpleLibraryWithResources(
       ImmutableSet<SourcePath> resourceFiles,
-      ImmutableSet<Path> resourceDirectories) {
+      ImmutableSet<SourcePath> resourceDirectories) {
     BuildTarget resourceTarget = BuildTarget.builder("//foo", "res").build();
     TargetNode<?> resourceNode = AppleResourceBuilder
         .createBuilder(resourceTarget)
@@ -2889,7 +2966,7 @@ public class ProjectGeneratorTest {
       ImmutableMap<String, Optional<String>> sourcesAndFlags) {
 
     PBXSourcesBuildPhase sourcesBuildPhase =
-        ProjectGeneratorTestUtils.getSingletonPhaseByType(target, PBXSourcesBuildPhase.class);
+        getSingletonPhaseByType(target, PBXSourcesBuildPhase.class);
 
     assertEquals(
         "Sources build phase should have correct number of sources",
@@ -2929,7 +3006,7 @@ public class ProjectGeneratorTest {
 
   private void assertHasSingletonResourcesPhaseWithEntries(PBXTarget target, String... resources) {
     PBXResourcesBuildPhase buildPhase =
-        ProjectGeneratorTestUtils.getSingletonPhaseByType(target, PBXResourcesBuildPhase.class);
+        getSingletonPhaseByType(target, PBXResourcesBuildPhase.class);
     assertEquals("Resources phase should have right number of elements",
         resources.length, buildPhase.getFiles().size());
 

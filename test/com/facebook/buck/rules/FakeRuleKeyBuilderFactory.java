@@ -32,18 +32,22 @@ import com.facebook.buck.util.NullFileHashCache;
 public class FakeRuleKeyBuilderFactory implements RuleKeyBuilderFactory {
 
   private final FileHashCache fileHashCache;
+  private final SourcePathResolver resolver;
+  private final AppendableRuleKeyCache appendableRuleKeyCache;
 
-  public FakeRuleKeyBuilderFactory() {
-    this(new NullFileHashCache());
+  public FakeRuleKeyBuilderFactory(SourcePathResolver resolver) {
+    this(new NullFileHashCache(), resolver);
   }
 
-  public FakeRuleKeyBuilderFactory(FileHashCache fileHashCache) {
+  public FakeRuleKeyBuilderFactory(FileHashCache fileHashCache, SourcePathResolver resolver) {
     this.fileHashCache = fileHashCache;
+    this.resolver = resolver;
+    this.appendableRuleKeyCache = new AppendableRuleKeyCache(resolver, fileHashCache);
   }
 
   @Override
-  public Builder newInstance(BuildRule buildRule, SourcePathResolver resolver) {
-    return RuleKey.builder(buildRule, resolver, fileHashCache);
+  public Builder newInstance(BuildRule buildRule) {
+    return RuleKey.builder(buildRule, resolver, fileHashCache, appendableRuleKeyCache);
   }
 
 }

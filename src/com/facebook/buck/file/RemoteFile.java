@@ -78,11 +78,13 @@ public class RemoteFile extends AbstractBuildRule {
     steps.add(new MakeCleanDirectoryStep(output.getParent()));
     steps.add(CopyStep.forFile(tempFile, output));
 
+    buildableContext.recordArtifact(output);
+
     return steps.build();
   }
 
   @Override
-  public Path getPathToOutputFile() {
+  public Path getPathToOutput() {
     return output;
   }
 }

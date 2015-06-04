@@ -16,6 +16,7 @@
 package com.facebook.buck.rules;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.fail;
 
 import com.facebook.buck.io.ProjectFilesystem;
@@ -38,7 +39,7 @@ public class BuildTargetSourcePathTest {
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     BuildRuleResolver resolver = new BuildRuleResolver();
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
-    BuildRule rule = new FakeBuildRule(BuildRuleType.of("example"), target, pathResolver);
+    BuildRule rule = new FakeBuildRule(target, pathResolver);
     resolver.addToIndex(rule);
     BuildTargetSourcePath path = new BuildTargetSourcePath(
         projectFilesystem,
@@ -57,9 +58,9 @@ public class BuildTargetSourcePathTest {
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     BuildRuleResolver resolver = new BuildRuleResolver();
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
-    BuildRule rule = new FakeBuildRule(BuildRuleType.of("example"), target, pathResolver) {
+    BuildRule rule = new FakeBuildRule(target, pathResolver) {
       @Override
-      public Path getPathToOutputFile() {
+      public Path getPathToOutput() {
         return Paths.get("cheese");
       }
     };
@@ -88,10 +89,7 @@ public class BuildTargetSourcePathTest {
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     SourcePathResolver pathResolver = new SourcePathResolver(new BuildRuleResolver());
     BuildTarget target = BuildTargetFactory.newInstance("//foo/bar:baz");
-    FakeBuildRule rule = new FakeBuildRule(
-        BuildRuleType.of("example"),
-        target,
-        pathResolver);
+    FakeBuildRule rule = new FakeBuildRule(target, pathResolver);
     Path path = Paths.get("blah");
     BuildTargetSourcePath buildTargetSourcePath = new BuildTargetSourcePath(
         projectFilesystem,
@@ -99,6 +97,26 @@ public class BuildTargetSourcePathTest {
         path);
     assertEquals(target, buildTargetSourcePath.getTarget());
     assertEquals(path, pathResolver.getPath(buildTargetSourcePath));
+  }
+
+  @Test
+  public void sameBuildTargetsWithDifferentPathsAreDifferent() {
+    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
+    SourcePathResolver pathResolver = new SourcePathResolver(new BuildRuleResolver());
+    BuildTarget target = BuildTargetFactory.newInstance("//foo/bar:baz");
+    FakeBuildRule rule = new FakeBuildRule(target, pathResolver);
+    BuildTargetSourcePath path1 =
+        new BuildTargetSourcePath(
+            projectFilesystem,
+            rule.getBuildTarget(),
+            Paths.get("something"));
+    BuildTargetSourcePath path2 =
+        new BuildTargetSourcePath(
+            projectFilesystem,
+            rule.getBuildTarget(),
+            Paths.get("something else"));
+    assertNotEquals(path1, path2);
+    assertNotEquals(path1.hashCode(), path2.hashCode());
   }
 
 }

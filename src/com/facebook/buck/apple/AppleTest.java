@@ -16,11 +16,13 @@
 
 package com.facebook.buck.apple;
 
+import com.facebook.buck.cxx.Tool;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -35,34 +37,45 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.zip.UnzipStep;
 import com.google.common.base.Functions;
 import com.google.common.base.Optional;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 
 import java.io.BufferedReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.concurrent.Callable;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Callable;
 
 @SuppressWarnings("PMD.TestClassWithoutTestCases")
-public class AppleTest extends NoopBuildRule implements TestRule {
+public class AppleTest extends NoopBuildRule implements TestRule, HasRuntimeDeps {
 
   @AddToRuleKey
   private final Optional<Path> xctoolPath;
 
   @AddToRuleKey
-  private final String sdkName;
+  private final Optional<BuildRule> xctoolZipRule;
 
   @AddToRuleKey
-  private final String simulatorName;
+  private final Tool xctest;
 
   @AddToRuleKey
-  private final String arch;
+  private final Tool otest;
+
+  @AddToRuleKey
+  private final boolean useXctest;
+
+  @AddToRuleKey
+  private final String platformName;
+
+  @AddToRuleKey
+  private final Optional<String> simulatorName;
 
   @AddToRuleKey
   private final BuildRule testBundle;
@@ -73,15 +86,19 @@ public class AppleTest extends NoopBuildRule implements TestRule {
   private final ImmutableSet<String> contacts;
   private final ImmutableSet<Label> labels;
 
-  private final Path testBundleDirectory;
-  private final Path testHostAppDirectory;
+  private final Path xctoolUnzipDirectory;
   private final Path testOutputPath;
+
+  private final String testBundleExtension;
 
   AppleTest(
       Optional<Path> xctoolPath,
-      String sdkName,
-      String arch,
-      String simulatorName,
+      Optional<BuildRule> xctoolZipRule,
+      Tool xctest,
+      Tool otest,
+      Boolean useXctest,
+      String platformName,
+      Optional<String> simulatorName,
       BuildRuleParams params,
       SourcePathResolver resolver,
       BuildRule testBundle,
@@ -91,20 +108,20 @@ public class AppleTest extends NoopBuildRule implements TestRule {
       ImmutableSet<Label> labels) {
     super(params, resolver);
     this.xctoolPath = xctoolPath;
-    this.sdkName = sdkName;
+    this.xctoolZipRule = xctoolZipRule;
+    this.useXctest = useXctest;
+    this.xctest = xctest;
+    this.otest = otest;
+    this.platformName = platformName;
     this.simulatorName = simulatorName;
-    this.arch = arch;
     this.testBundle = testBundle;
     this.testHostApp = testHostApp;
     this.contacts = contacts;
     this.labels = labels;
-    // xctool requires the extension to be present to determine whether the test is ocunit or xctest
-    this.testBundleDirectory = BuildTargets.getScratchPath(
+    this.testBundleExtension = testBundleExtension;
+    this.xctoolUnzipDirectory = BuildTargets.getScratchPath(
         params.getBuildTarget(),
-        "__test_bundle_%s__." + testBundleExtension);
-    this.testHostAppDirectory = BuildTargets.getScratchPath(
-        params.getBuildTarget(),
-        "__test_host_app_%s__.app");
+        "__xctool_%s__");
     this.testOutputPath = getPathToTestOutputDirectory().resolve("test-output.json");
   }
 
@@ -144,16 +161,9 @@ public class AppleTest extends NoopBuildRule implements TestRule {
       boolean isDryRun,
       boolean isShufflingTests,
       TestSelectorList testSelectorList) {
-    if (!xctoolPath.isPresent()) {
-      throw new HumanReadableException(
-          "Set xctool_path = /path/to/xctool in the [apple] section of .buckconfig " +
-          "to run this test");
-    }
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
     Path resolvedTestBundleDirectory = executionContext.getProjectFilesystem().resolve(
-        testBundleDirectory);
-    steps.add(new MakeCleanDirectoryStep(resolvedTestBundleDirectory));
-    steps.add(new UnzipStep(testBundle.getPathToOutputFile(), resolvedTestBundleDirectory));
+        Preconditions.checkNotNull(testBundle.getPathToOutput()));
 
     Path pathToTestOutput = executionContext.getProjectFilesystem().resolve(
         getPathToTestOutputDirectory());
@@ -162,32 +172,66 @@ public class AppleTest extends NoopBuildRule implements TestRule {
     Path resolvedTestOutputPath = executionContext.getProjectFilesystem().resolve(
         testOutputPath);
 
-    ImmutableSet.Builder<Path> logicTestPathsBuilder = ImmutableSet.builder();
-    ImmutableMap.Builder<Path, Path> appTestPathsToHostAppsBuilder = ImmutableMap.builder();
+    Optional<Path> testHostAppPath = Optional.absent();
     if (testHostApp.isPresent()) {
       Path resolvedTestHostAppDirectory = executionContext.getProjectFilesystem().resolve(
-          testHostAppDirectory);
-      steps.add(new MakeCleanDirectoryStep(resolvedTestHostAppDirectory));
-      steps.add(
-          new UnzipStep(testHostApp.get().getPathToOutputFile(), resolvedTestHostAppDirectory));
-
-      appTestPathsToHostAppsBuilder.put(
-          resolvedTestBundleDirectory,
+          Preconditions.checkNotNull(testHostApp.get().getPathToOutput()));
+      testHostAppPath = Optional.of(
           resolvedTestHostAppDirectory.resolve(
               testHostApp.get().getUnzippedOutputFilePathToBinary()));
-    } else {
-      logicTestPathsBuilder.add(resolvedTestBundleDirectory);
     }
 
-    steps.add(
-        new XctoolRunTestsStep(
-            xctoolPath.get(),
-            arch,
-            sdkName,
-            simulatorName,
-            logicTestPathsBuilder.build(),
-            appTestPathsToHostAppsBuilder.build(),
-            resolvedTestOutputPath));
+    if (!useXctest) {
+      if (!xctoolPath.isPresent() && !xctoolZipRule.isPresent()) {
+        throw new HumanReadableException(
+            "Set xctool_path = /path/to/xctool or xctool_zip_target = //path/to:xctool-zip " +
+            "in the [apple] section of .buckconfig to run this test");
+      }
+
+      ImmutableSet.Builder<Path> logicTestPathsBuilder = ImmutableSet.builder();
+      ImmutableMap.Builder<Path, Path> appTestPathsToHostAppsBuilder = ImmutableMap.builder();
+
+      if (testHostAppPath.isPresent()) {
+        appTestPathsToHostAppsBuilder.put(
+            resolvedTestBundleDirectory,
+            testHostAppPath.get());
+      } else {
+        logicTestPathsBuilder.add(resolvedTestBundleDirectory);
+      }
+
+      Path xctoolBinaryPath;
+
+      if (xctoolZipRule.isPresent()) {
+        Path resolvedXctoolUnzipDirectory = executionContext.getProjectFilesystem().resolve(
+            xctoolUnzipDirectory);
+        steps.add(new MakeCleanDirectoryStep(resolvedXctoolUnzipDirectory));
+        steps.add(
+            new UnzipStep(
+                // This is added as a runtime dependency via getRuntimeDeps() earlier.
+                xctoolZipRule.get().getPathToOutput(),
+                resolvedXctoolUnzipDirectory));
+        xctoolBinaryPath = resolvedXctoolUnzipDirectory.resolve("bin/xctool");
+      } else {
+        xctoolBinaryPath = xctoolPath.get();
+      }
+
+      steps.add(
+          new XctoolRunTestsStep(
+              xctoolBinaryPath,
+              platformName,
+              simulatorName,
+              logicTestPathsBuilder.build(),
+              appTestPathsToHostAppsBuilder.build(),
+              resolvedTestOutputPath));
+    } else {
+      steps.add(
+          new XctestRunTestsStep(
+              (testBundleExtension == "xctest" ? xctest : otest)
+                  .getCommandPrefix(getResolver()),
+              (testBundleExtension == "xctest" ? "-XCTest" : "-SenTest"),
+              resolvedTestBundleDirectory,
+              resolvedTestOutputPath));
+    }
 
     return steps.build();
   }
@@ -202,10 +246,12 @@ public class AppleTest extends NoopBuildRule implements TestRule {
       public TestResults call() throws Exception {
         Path resolvedOutputPath = executionContext.getProjectFilesystem().resolve(testOutputPath);
         try (BufferedReader reader =
-               Files.newBufferedReader(resolvedOutputPath, StandardCharsets.UTF_8)) {
+            Files.newBufferedReader(resolvedOutputPath, StandardCharsets.UTF_8)) {
           return new TestResults(
             getBuildTarget(),
-            XctoolOutputParsing.parseOutputFromReader(reader),
+            useXctest ?
+                XctestOutputParsing.parseOutputFromReader(reader) :
+                XctoolOutputParsing.parseOutputFromReader(reader),
             contacts,
             FluentIterable.from(labels).transform(Functions.toStringFunction()).toSet());
         }
@@ -240,4 +286,20 @@ public class AppleTest extends NoopBuildRule implements TestRule {
     // is hit any time the host is overloaded.
     return testHostApp.isPresent();
   }
+
+  // This test rule just executes the test bundle, so we need it available locally.
+  @Override
+  public ImmutableSortedSet<BuildRule> getRuntimeDeps() {
+    ImmutableSortedSet.Builder<BuildRule> runtimeDepsBuilder =
+        ImmutableSortedSet.<BuildRule>naturalOrder()
+            .add(testBundle)
+            .addAll(testHostApp.asSet());
+
+    if (xctoolZipRule.isPresent()) {
+      runtimeDepsBuilder.add(xctoolZipRule.get());
+    }
+
+    return runtimeDepsBuilder.build();
+  }
+
 }

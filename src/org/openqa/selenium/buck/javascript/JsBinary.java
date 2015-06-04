@@ -173,7 +173,7 @@ public class JsBinary extends AbstractBuildRule implements
 
   @Nullable
   @Override
-  public Path getPathToOutputFile() {
+  public Path getPathToOutput() {
     return output;
   }
 

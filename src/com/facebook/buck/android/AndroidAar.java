@@ -19,7 +19,7 @@ package com.facebook.buck.android;
 import static com.facebook.buck.rules.BuildableProperties.Kind.ANDROID;
 import static com.facebook.buck.rules.BuildableProperties.Kind.PACKAGING;
 
-import com.facebook.buck.android.AndroidBinary.TargetCpuType;
+import com.facebook.buck.android.NdkCxxPlatforms.TargetCpuType;
 import com.facebook.buck.java.Classpaths;
 import com.facebook.buck.java.HasClasspathEntries;
 import com.facebook.buck.java.JarDirectoryStep;
@@ -31,6 +31,7 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableProperties;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
@@ -53,8 +54,8 @@ public class AndroidAar extends AbstractBuildRule implements HasClasspathEntries
   private final AndroidResource androidResource;
   private final AssembleDirectories assembleResourceDirectories;
   private final AssembleDirectories assembleAssetsDirectories;
-  private final ImmutableSet<Path> nativeLibAssetsDirectories;
-  private final ImmutableSet<Path> nativeLibsDirectories;
+  private final ImmutableSet<SourcePath> nativeLibAssetsDirectories;
+  private final ImmutableSet<SourcePath> nativeLibsDirectories;
 
   public AndroidAar(
       BuildRuleParams params,
@@ -63,8 +64,8 @@ public class AndroidAar extends AbstractBuildRule implements HasClasspathEntries
       AndroidResource androidResource,
       AssembleDirectories assembleResourceDirectories,
       AssembleDirectories assembleAssetsDirectories,
-      ImmutableSet<Path> nativeLibAssetsDirectories,
-      ImmutableSet<Path> nativeLibsDirectories) {
+      ImmutableSet<SourcePath> nativeLibAssetsDirectories,
+      ImmutableSet<SourcePath> nativeLibsDirectories) {
     super(params, resolver);
     BuildTarget buildTarget = params.getBuildTarget();
     this.pathToOutputFile = BuildTargets.getGenPath(buildTarget, "%s.aar");
@@ -92,19 +93,19 @@ public class AndroidAar extends AbstractBuildRule implements HasClasspathEntries
     // put manifest into tmp folder
     commands.add(
         CopyStep.forFile(
-            manifest.getPathToOutputFile(),
+            manifest.getPathToOutput(),
             temp.resolve("AndroidManifest.xml")));
 
     // put R.txt into tmp folder
-    commands.add(CopyStep.forFile(androidResource.getPathToOutputFile(), temp.resolve("R.txt")));
+    commands.add(CopyStep.forFile(androidResource.getPathToOutput(), temp.resolve("R.txt")));
 
     // put res/ and assets/ into tmp folder
     commands.add(CopyStep.forDirectory(
-            assembleResourceDirectories.getPathToOutputFile(),
+            assembleResourceDirectories.getPathToOutput(),
             temp.resolve("res"),
             CopyStep.DirectoryMode.CONTENTS_ONLY));
     commands.add(CopyStep.forDirectory(
-            assembleAssetsDirectories.getPathToOutputFile(),
+            assembleAssetsDirectories.getPathToOutput(),
             temp.resolve("assets"),
             CopyStep.DirectoryMode.CONTENTS_ONLY));
 
@@ -116,15 +117,20 @@ public class AndroidAar extends AbstractBuildRule implements HasClasspathEntries
             null));
 
     // move native libs into tmp folder under jni/
-    for (Path dir : nativeLibsDirectories) {
-      commands.add(CopyStep.forDirectory(dir, temp.resolve("jni"),
+    for (SourcePath dir : nativeLibsDirectories) {
+      commands.add(
+          CopyStep.forDirectory(
+              getResolver().getPath(dir),
+              temp.resolve("jni"),
               CopyStep.DirectoryMode.CONTENTS_ONLY));
     }
 
     // move native assets into tmp folder under assets/lib/
-    for (Path dir : nativeLibAssetsDirectories) {
+    for (SourcePath dir : nativeLibAssetsDirectories) {
       CopyNativeLibraries.copyNativeLibrary(
-          dir, temp.resolve("assets").resolve("lib"), ImmutableSet.<TargetCpuType>of(), commands);
+          getResolver().getPath(dir),
+          temp.resolve("assets").resolve("lib"),
+          ImmutableSet.<TargetCpuType>of(), commands);
     }
 
     // do the zipping
@@ -140,7 +146,7 @@ public class AndroidAar extends AbstractBuildRule implements HasClasspathEntries
   }
 
   @Override
-  public Path getPathToOutputFile() {
+  public Path getPathToOutput() {
     return pathToOutputFile;
   }
 

@@ -26,6 +26,7 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableProperties;
+import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.AbstractExecutionStep;
@@ -126,7 +127,7 @@ public class NdkLibrary extends AbstractBuildRule
 
   @Override
   @Nullable
-  public Path getPathToOutputFile() {
+  public Path getPathToOutput() {
     // An ndk_library() does not have a "primary output" at this time.
     return null;
   }
@@ -153,7 +154,7 @@ public class NdkLibrary extends AbstractBuildRule
         genDirectory,
         CopyStep.DirectoryMode.CONTENTS_ONLY);
 
-    buildableContext.recordArtifactsInDirectory(genDirectory);
+    buildableContext.recordArtifact(genDirectory);
     // Some tools need to inspect .so files whose symbols haven't been stripped, so cache these too.
     // However, the intermediate object files are huge and we have no interest in them, so filter
     // them out.
@@ -208,9 +209,13 @@ public class NdkLibrary extends AbstractBuildRule
   @Override
   public void addToCollector(AndroidPackageableCollector collector) {
     if (isAsset) {
-      collector.addNativeLibAssetsDirectory(getBuildTarget(), getLibraryPath());
+      collector.addNativeLibAssetsDirectory(
+          getBuildTarget(),
+          new PathSourcePath(getProjectFilesystem(), getLibraryPath()));
     } else {
-      collector.addNativeLibsDirectory(getBuildTarget(), getLibraryPath());
+      collector.addNativeLibsDirectory(
+          getBuildTarget(),
+          new PathSourcePath(getProjectFilesystem(), getLibraryPath()));
     }
   }
 }

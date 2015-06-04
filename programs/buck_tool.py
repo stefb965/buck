@@ -24,6 +24,7 @@ NAILGUN_CONNECTION_REFUSED_CODE = 230
 NAILGUN_UNEXPECTED_CHUNK_TYPE = 229
 NAILGUN_CONNECTION_BROKEN_CODE = 227
 
+JAVA_MAX_HEAP_SIZE_MB = 1000
 
 # Describes a resource used by this driver.
 #  - name: logical name of the resources
@@ -37,7 +38,6 @@ class Resource(object):
 
 
 CLIENT = Resource("buck_client", executable=True, basename='ng')
-LOG4J_CONFIG = Resource("log4j_config_file")
 
 # Resource that get propagated to buck via system properties.
 EXPORTED_RESOURCES = [
@@ -58,6 +58,7 @@ EXPORTED_RESOURCES = [
     Resource("quickstart_origin_dir"),
     Resource("dx"),
     Resource("android_agent_path"),
+    Resource("native_exopackage_fake_path"),
 ]
 
 
@@ -351,14 +352,12 @@ class BuckTool(object):
     def _get_java_args(self, version_uid):
         java_args = [] if is_java8() else ["-XX:MaxPermSize=256m"]
         java_args.extend([
-            "-Xmx1000m",
+            "-Xmx{0}m".format(JAVA_MAX_HEAP_SIZE_MB),
             "-Djava.awt.headless=true",
             "-Djava.util.logging.config.class=com.facebook.buck.cli.bootstrapper.LogConfig",
             "-Dbuck.test_util_no_tests_dir=true",
             "-Dbuck.version_uid={0}".format(version_uid),
             "-Dbuck.buckd_dir={0}".format(self._buck_project.buckd_dir),
-            "-Dlog4j.configuration=file:{0}".format(
-                self._get_resource(LOG4J_CONFIG)),
             "-Dorg.eclipse.jetty.util.log.class=org.eclipse.jetty.util.log.JavaUtilLog",
         ])
         for resource in EXPORTED_RESOURCES:
@@ -457,6 +456,10 @@ def which(cmd, mode=os.F_OK | os.X_OK, path=None):
 
 
 def is_java8():
-    output = check_output(['java', '-version'], stderr=subprocess.STDOUT)
-    version_line = output.strip().splitlines()[0]
-    return re.compile('java version "1\.8\..*').match(version_line)
+    try:
+        output = check_output(['java', '-version'], stderr=subprocess.STDOUT)
+        version_line = output.strip().splitlines()[0]
+        return re.compile('(openjdk|java) version "1\.8\..*').match(version_line)
+    except CalledProcessError as e:
+        print(e.output, file=sys.stderr)
+        raise e

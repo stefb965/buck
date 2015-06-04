@@ -22,6 +22,7 @@ import com.facebook.buck.cxx.NativeLinkableInput;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.UnflavoredBuildTarget;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.util.MoreIterables;
@@ -31,6 +32,7 @@ import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 
 import org.immutables.value.Value;
@@ -57,6 +59,9 @@ abstract class AbstractOCamlBuildContext implements RuleKeyAppendable {
   public abstract List<OCamlLibrary> getOCamlInput();
   public abstract CxxPreprocessorInput getCxxPreprocessorInput();
   public abstract List<String> getBytecodeIncludes();
+  public abstract ImmutableSortedSet<BuildRule> getCompileDeps();
+  public abstract ImmutableSortedSet<BuildRule> getBytecodeCompileDeps();
+  public abstract ImmutableSortedSet<BuildRule> getBytecodeLinkDeps();
 
   public abstract Optional<Path> getOcamlDepTool();
   public abstract Optional<Path> getOcamlCompiler();
@@ -245,16 +250,16 @@ abstract class AbstractOCamlBuildContext implements RuleKeyAppendable {
   }
 
   @Override
-  public RuleKey.Builder appendToRuleKey(RuleKey.Builder builder, String key) {
+  public RuleKey.Builder appendToRuleKey(RuleKey.Builder builder) {
     return builder
-        .setReflectively(key + ".flags", getFlags())
-        .setReflectively(key + ".input", getInput())
-        .setReflectively(key + ".lexCompiler", getLexCompiler())
-        .setReflectively(key + ".ocamlBytecodeCompiler", getOcamlBytecodeCompiler())
-        .setReflectively(key + ".ocamlCompiler", getOcamlCompiler())
-        .setReflectively(key + ".ocamlDebug", getOcamlDebug())
-        .setReflectively(key + ".ocamlDepTool", getOcamlDepTool())
-        .setReflectively(key + ".yaccCompiler", getYaccCompiler());
+        .setReflectively("flags", getFlags())
+        .setReflectively("input", getInput())
+        .setReflectively("lexCompiler", getLexCompiler())
+        .setReflectively("ocamlBytecodeCompiler", getOcamlBytecodeCompiler())
+        .setReflectively("ocamlCompiler", getOcamlCompiler())
+        .setReflectively("ocamlDebug", getOcamlDebug())
+        .setReflectively("ocamlDepTool", getOcamlDepTool())
+        .setReflectively("yaccCompiler", getYaccCompiler());
   }
 
   public ImmutableList<String> getCCompileFlags() {

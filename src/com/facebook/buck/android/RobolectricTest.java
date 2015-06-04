@@ -40,6 +40,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 
 import java.io.File;
@@ -138,4 +139,20 @@ public class RobolectricTest extends JavaTest {
         LIST_OF_RESOURCE_DIRECTORIES_PROPERTY_NAME,
         resourceDirectories);
   }
+
+  @Override
+  public ImmutableSortedSet<BuildRule> getRuntimeDeps() {
+    return ImmutableSortedSet.<BuildRule>naturalOrder()
+        // Inherit any runtime deps from `JavaTest`.
+        .addAll(super.getRuntimeDeps())
+        // On top of the runtime dependencies of a normal {@link JavaTest}, we need to make the
+        // {@link DummyRDotJava} is available locally, if it exists, to run this test.
+        .addAll(Optional.presentInstances(ImmutableList.of(optionalDummyRDotJava)))
+        // It's possible that the user added some tool as a dependency, so make sure we promote
+        // this rules first-order deps to runtime deps, so that these potential tools are available
+        // when this test runs.
+        .addAll(getDeps())
+        .build();
+  }
+
 }

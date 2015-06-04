@@ -76,9 +76,13 @@ public class AppleCxxPlatformsTest {
     ImmutableSet<Path> paths = ImmutableSet.<Path>builder()
         .add(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/clang"))
         .add(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++"))
+        .add(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/dsymutil"))
         .add(Paths.get("Platforms/iPhoneOS.platform/Developer/usr/bin/libtool"))
         .add(Paths.get("Platforms/iPhoneOS.platform/Developer/usr/bin/ar"))
         .add(Paths.get("usr/bin/actool"))
+        .add(Paths.get("usr/bin/ibtool"))
+        .add(Paths.get("usr/bin/xctest"))
+        .add(Paths.get("Tools/otest"))
         .build();
 
     AppleCxxPlatform appleCxxPlatform =
@@ -97,6 +101,19 @@ public class AppleCxxPlatformsTest {
     assertEquals(
         ImmutableList.of("usr/bin/actool"),
         appleCxxPlatform.getActool().getCommandPrefix(resolver));
+    assertEquals(
+        ImmutableList.of("usr/bin/ibtool"),
+        appleCxxPlatform.getIbtool().getCommandPrefix(resolver));
+    assertEquals(
+        ImmutableList.of("Toolchains/XcodeDefault.xctoolchain/usr/bin/dsymutil"),
+        appleCxxPlatform.getDsymutil().getCommandPrefix(resolver));
+
+    assertEquals(
+        ImmutableList.of("usr/bin/xctest"),
+        appleCxxPlatform.getXctest().getCommandPrefix(resolver));
+    assertEquals(
+        ImmutableList.of("Tools/otest"),
+        appleCxxPlatform.getOtest().getCommandPrefix(resolver));
 
     assertEquals(
         ImmutableFlavor.of("iphoneos8.0-armv7"),
@@ -138,9 +155,13 @@ public class AppleCxxPlatformsTest {
     ImmutableSet<Path> paths = ImmutableSet.<Path>builder()
         .add(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/clang"))
         .add(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++"))
+        .add(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/dsymutil"))
         .add(Paths.get("Platforms/iPhoneOS.platform/Developer/usr/bin/libtool"))
         .add(Paths.get("Platforms/iPhoneOS.platform/Developer/usr/bin/ar"))
         .add(Paths.get("usr/bin/actool"))
+        .add(Paths.get("usr/bin/ibtool"))
+        .add(Paths.get("usr/bin/xctest"))
+        .add(Paths.get("Tools/otest"))
         .build();
 
     AppleToolchain toolchain = AppleToolchain.builder()
@@ -184,9 +205,13 @@ public class AppleCxxPlatformsTest {
     ImmutableSet<Path> paths = ImmutableSet.<Path>builder()
         .add(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/clang"))
         .add(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++"))
+        .add(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/dsymutil"))
         .add(Paths.get("Platforms/iPhoneOS.platform/Developer/usr/bin/libtool"))
         .add(Paths.get("Platforms/iPhoneOS.platform/Developer/usr/bin/ar"))
         .add(Paths.get("usr/bin/actool"))
+        .add(Paths.get("usr/bin/ibtool"))
+        .add(Paths.get("usr/bin/xctest"))
+        .add(Paths.get("Tools/otest"))
         .build();
 
     AppleToolchain toolchain = AppleToolchain.builder()
@@ -281,9 +306,13 @@ public class AppleCxxPlatformsTest {
     ImmutableSet<Path> paths = ImmutableSet.<Path>builder()
         .add(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/clang"))
         .add(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++"))
+        .add(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/dsymutil"))
         .add(Paths.get("Platforms/iPhoneSimulator.platform/Developer/usr/bin/libtool"))
         .add(Paths.get("Platforms/iPhoneSimulator.platform/Developer/usr/bin/ar"))
         .add(Paths.get("usr/bin/actool"))
+        .add(Paths.get("usr/bin/ibtool"))
+        .add(Paths.get("usr/bin/xctest"))
+        .add(Paths.get("Tools/otest"))
         .build();
 
     AppleToolchain toolchain = AppleToolchain.builder()

@@ -34,11 +34,12 @@ import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.rules.coercer.AppleBundleDestination;
 import com.facebook.buck.rules.coercer.Either;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
@@ -51,14 +52,16 @@ import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
-
-import java.nio.file.Path;
 
 import java.util.Map;
 import java.util.Set;
 
-public class AppleTestDescription implements Description<AppleTestDescription.Arg>, Flavored {
+public class AppleTestDescription implements
+    Description<AppleTestDescription.Arg>,
+    Flavored,
+    ImplicitDepsInferringDescription<AppleTestDescription.Arg> {
 
   public static final BuildRuleType TYPE = BuildRuleType.of("apple_test");
 
@@ -171,7 +174,6 @@ public class AppleTestDescription implements Description<AppleTestDescription.Ar
       testHostApp = Optional.of(
           appleBundleDescription.createBuildRule(
               params.copyWithChanges(
-                  AppleBundleDescription.TYPE,
                   BuildTarget.builder(args.testHostApp.get())
                       .addAllFlavors(nonLibraryFlavors)
                       .build(),
@@ -198,7 +200,6 @@ public class AppleTestDescription implements Description<AppleTestDescription.Ar
 
     BuildRule library = appleLibraryDescription.createBuildRule(
         params.copyWithChanges(
-            AppleLibraryDescription.TYPE,
             BuildTarget.builder(params.getBuildTarget())
                 .addAllFlavors(extraFlavorsBuilder.build())
                 .build(),
@@ -231,29 +232,29 @@ public class AppleTestDescription implements Description<AppleTestDescription.Ar
           cxxPlatform.getFlavor().getName());
     }
 
+    AppleBundleDestinations destinations =
+        AppleBundleDestinations.platformDestinations(
+            appleCxxPlatform.getAppleSdk().getApplePlatform());
+
     SourcePathResolver sourcePathResolver = new SourcePathResolver(resolver);
     ImmutableSet<AppleResourceDescription.Arg> resourceDescriptions =
         AppleResources.collectRecursiveResources(
             params.getTargetGraph(),
             ImmutableSet.of(params.getTargetGraph().get(params.getBuildTarget())));
     LOG.debug("Got resource nodes %s", resourceDescriptions);
-    ImmutableMap.Builder<Path, AppleBundleDestination> resourceDirsBuilder =
-        ImmutableMap.builder();
-    resourceDirsBuilder.putAll(args.dirs.get());
+    ImmutableSet.Builder<SourcePath> resourceDirsBuilder = ImmutableSet.builder();
     AppleResources.addResourceDirsToBuilder(resourceDirsBuilder, resourceDescriptions);
-    ImmutableMap<Path, AppleBundleDestination> resourceDirs = resourceDirsBuilder.build();
+    ImmutableSet<SourcePath> resourceDirs = resourceDirsBuilder.build();
 
-    ImmutableMap.Builder<SourcePath, AppleBundleDestination> resourceFilesBuilder =
-        ImmutableMap.builder();
-    resourceFilesBuilder.putAll(args.files.get());
+    ImmutableSet.Builder<SourcePath> resourceFilesBuilder = ImmutableSet.builder();
     AppleResources.addResourceFilesToBuilder(resourceFilesBuilder, resourceDescriptions);
-    ImmutableMap<SourcePath, AppleBundleDestination> resourceFiles = resourceFilesBuilder.build();
+    ImmutableSet<SourcePath> resourceFiles = resourceFilesBuilder.build();
 
     CollectedAssetCatalogs collectedAssetCatalogs =
         AppleDescriptions.createBuildRulesForTransitiveAssetCatalogDependencies(
             params,
             sourcePathResolver,
-            appleCxxPlatform.getApplePlatform(),
+            appleCxxPlatform.getAppleSdk().getApplePlatform(),
             appleCxxPlatform.getActool());
 
     Optional<AppleAssetCatalog> mergedAssetCatalog = collectedAssetCatalogs.getMergedAssetCatalog();
@@ -262,7 +263,6 @@ public class AppleTestDescription implements Description<AppleTestDescription.Ar
 
     AppleBundle bundle = new AppleBundle(
         params.copyWithChanges(
-            AppleBundleDescription.TYPE,
             BuildTarget.builder(params.getBuildTarget()).addFlavors(BUNDLE_FLAVOR).build(),
             // We have to add back the original deps here, since they're likely
             // stripped from the library link above (it doesn't actually depend on them).
@@ -272,6 +272,12 @@ public class AppleTestDescription implements Description<AppleTestDescription.Ar
                     .addAll(mergedAssetCatalog.asSet())
                     .addAll(bundledAssetCatalogs)
                     .addAll(params.getDeclaredDeps())
+                    .addAll(
+                        BuildRules.toBuildRulesFor(
+                            params.getBuildTarget(),
+                            resolver,
+                            SourcePaths.filterBuildTargetSourcePaths(
+                                Iterables.concat(resourceFiles, resourceDirs))))
                     .build()),
             Suppliers.ofInstance(params.getExtraDeps())),
         sourcePathResolver,
@@ -279,18 +285,33 @@ public class AppleTestDescription implements Description<AppleTestDescription.Ar
         args.infoPlist,
         args.infoPlistSubstitutions.get(),
         Optional.of(library),
-        // TODO(user): Use flavors to switch between iOS and OSX layout
-        AppleBundleDescription.IOS_APP_SUBFOLDER_SPEC_MAP,
+        destinations,
         resourceDirs,
         resourceFiles,
+        appleCxxPlatform.getIbtool(),
+        appleCxxPlatform.getDsymutil(),
         bundledAssetCatalogs,
-        mergedAssetCatalog);
+        mergedAssetCatalog,
+        ImmutableSortedSet.<BuildTarget>of());
 
+
+    Optional<BuildRule> xctoolZipBuildRule;
+    if (appleConfig.getXctoolZipTarget().isPresent()) {
+      xctoolZipBuildRule = Optional.of(
+          resolver.getRule(appleConfig.getXctoolZipTarget().get()));
+    } else {
+      xctoolZipBuildRule = Optional.absent();
+    }
+
+    String platformName = appleCxxPlatform.getAppleSdk().getApplePlatform().getName();
     return new AppleTest(
         appleConfig.getXctoolPath(),
-        "iphonesimulator", // TODO(user): Get this from the CxxPlatform.
-        "x86_64", // TODO(user): Get this from the CxxPlatform.
-        "iPhone 5s", // TODO(user): Get this from the CxxPlatform.
+        xctoolZipBuildRule,
+        appleCxxPlatform.getXctest(),
+        appleCxxPlatform.getOtest(),
+        appleConfig.getXctestPlatformNames().contains(platformName),
+        platformName,
+        Optional.<String>absent(),
         params.copyWithDeps(
             Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of(bundle)),
             Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
@@ -300,6 +321,21 @@ public class AppleTestDescription implements Description<AppleTestDescription.Ar
         extension,
         args.contacts.get(),
         args.labels.get());
+  }
+
+  @Override
+  public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
+      BuildTarget buildTarget,
+      AppleTestDescription.Arg constructorArg) {
+    // TODO(user, coneko): This should technically only be a runtime dependency;
+    // doing this adds it to the extra deps in BuildRuleParams passed to
+    // the bundle and test rule.
+    ImmutableSet.Builder<BuildTarget> deps = ImmutableSet.builder();
+    Optional<BuildTarget> xctoolZipTarget = appleConfig.getXctoolZipTarget();
+    if (xctoolZipTarget.isPresent()) {
+      deps.add(xctoolZipTarget.get());
+    }
+    return deps.build();
   }
 
   @SuppressFieldNotInitialized
@@ -315,8 +351,6 @@ public class AppleTestDescription implements Description<AppleTestDescription.Ar
     public Optional<ImmutableMap<String, String>> infoPlistSubstitutions;
     public Optional<String> xcodeProductType;
     public Optional<String> resourcePrefixDir;
-    public Optional<ImmutableMap<Path, AppleBundleDestination>> dirs;
-    public Optional<ImmutableMap<SourcePath, AppleBundleDestination>> files;
 
     @Override
     public Either<AppleBundleExtension, String> getExtension() {
@@ -335,16 +369,6 @@ public class AppleTestDescription implements Description<AppleTestDescription.Ar
 
     public boolean canGroup() {
       return canGroup.or(false);
-    }
-
-    @Override
-    public ImmutableMap<Path, AppleBundleDestination> getDirs() {
-      return dirs.get();
-    }
-
-    @Override
-    public ImmutableMap<SourcePath, AppleBundleDestination> getFiles() {
-      return files.get();
     }
   }
 }

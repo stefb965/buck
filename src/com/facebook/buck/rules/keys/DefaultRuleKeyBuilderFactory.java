@@ -17,6 +17,7 @@
 package com.facebook.buck.rules.keys;
 
 import com.facebook.buck.model.BuckVersion;
+import com.facebook.buck.rules.AppendableRuleKeyCache;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKeyAppendable;
@@ -32,23 +33,34 @@ import java.util.concurrent.ExecutionException;
 
 public class DefaultRuleKeyBuilderFactory implements RuleKeyBuilderFactory {
   private final FileHashCache hashCache;
-  private LoadingCache<Class<? extends BuildRule>, ImmutableCollection<AlterRuleKey>> knownFields;
+  private final SourcePathResolver pathResolver;
+  private final LoadingCache<Class<? extends BuildRule>, ImmutableCollection<AlterRuleKey>>
+      knownFields;
+  private final AppendableRuleKeyCache appendableRuleKeyCache;
 
-  public DefaultRuleKeyBuilderFactory(FileHashCache hashCache) {
+  public DefaultRuleKeyBuilderFactory(FileHashCache hashCache, SourcePathResolver pathResolver) {
     this.hashCache = hashCache;
+    this.pathResolver = pathResolver;
 
     knownFields = CacheBuilder.newBuilder().build(new ReflectiveAlterKeyLoader());
+    appendableRuleKeyCache = new AppendableRuleKeyCache(pathResolver, hashCache);
   }
 
   @Override
-  public RuleKey.Builder newInstance(BuildRule buildRule, SourcePathResolver resolver) {
-    RuleKey.Builder builder = RuleKey.builder(buildRule, resolver, hashCache);
+  public RuleKey.Builder newInstance(BuildRule buildRule) {
+    RuleKey.Builder builder = RuleKey.builder(
+        buildRule,
+        pathResolver,
+        hashCache,
+        appendableRuleKeyCache);
     builder.setReflectively("buckVersionUid", BuckVersion.getVersion());
 
     if (buildRule instanceof RuleKeyAppendable) {
       // "." is not a valid first character for a field name, and so will never be seen in the
-      // reflective rule key setting
-      ((RuleKeyAppendable) buildRule).appendToRuleKey(builder, ".buck");
+      // reflective rule key setting.
+      builder.setReflectively(
+          ".buck",
+          appendableRuleKeyCache.get((RuleKeyAppendable) buildRule));
     }
 
     try {

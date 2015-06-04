@@ -106,14 +106,14 @@ public class AppleAssetCatalog extends AbstractBuildRule {
             getProjectFilesystem().resolve(outputDir),
             bundlingMode));
 
-    buildableContext.recordArtifactsInDirectory(getOutputDir());
+    buildableContext.recordArtifact(getOutputDir());
 
     return stepsBuilder.build();
   }
 
   @Nullable
   @Override
-  public Path getPathToOutputFile() {
+  public Path getPathToOutput() {
     return null;
   }
 

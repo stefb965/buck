@@ -97,12 +97,12 @@ public class JavaBinary extends AbstractBuildRule
   }
 
   @Override
-  public RuleKey.Builder appendToRuleKey(RuleKey.Builder builder, String key) {
+  public RuleKey.Builder appendToRuleKey(RuleKey.Builder builder) {
     // Build a sorted set so that metaInfDirectory contents are listed in a canonical order.
     ImmutableSortedSet.Builder<Path> paths = ImmutableSortedSet.naturalOrder();
     BuildRules.addInputsToSortedSet(metaInfDirectory, paths, directoryTraverser);
 
-    return builder.setReflectively(key + ".metaInfDirectory", paths.build());
+    return builder.setReflectively("metaInfDirectory", paths.build());
   }
 
   @Override
@@ -136,7 +136,7 @@ public class JavaBinary extends AbstractBuildRule
       includePaths = ImmutableSet.copyOf(getTransitiveClasspathEntries().values());
     }
 
-    Path outputFile = getPathToOutputFile();
+    Path outputFile = getPathToOutput();
     Path manifestPath = manifestFile == null ? null : getResolver().getPath(manifestFile);
     Step jar = new JarDirectoryStep(
         outputFile,
@@ -161,7 +161,7 @@ public class JavaBinary extends AbstractBuildRule
   }
 
   @Override
-  public Path getPathToOutputFile() {
+  public Path getPathToOutput() {
     return Paths.get(
         String.format(
             "%s/%s.jar",
@@ -177,6 +177,6 @@ public class JavaBinary extends AbstractBuildRule
         getBuildTarget());
 
     return ImmutableList.of("java", "-jar",
-        projectFilesystem.getAbsolutifier().apply(getPathToOutputFile()).toString());
+        projectFilesystem.getAbsolutifier().apply(getPathToOutput()).toString());
   }
 }

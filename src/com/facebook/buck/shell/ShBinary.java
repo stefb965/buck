@@ -23,11 +23,10 @@ import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildOutputInitializer;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.InitializableFromDisk;
-import com.facebook.buck.rules.OnDiskBuildInfo;
+import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
@@ -41,16 +40,15 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 
 import org.stringtemplate.v4.ST;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collections;
 
-public class ShBinary extends AbstractBuildRule
-    implements BinaryBuildRule, InitializableFromDisk<Object> {
+public class ShBinary extends AbstractBuildRule implements BinaryBuildRule, HasRuntimeDeps {
 
   private static final Path TEMPLATE = Paths.get(
       System.getProperty(
@@ -65,8 +63,6 @@ public class ShBinary extends AbstractBuildRule
   /** The path where the output will be written. */
   private final Path output;
 
-  private final BuildOutputInitializer<Object> buildOutputInitializer;
-
   protected ShBinary(
       BuildRuleParams params,
       SourcePathResolver resolver,
@@ -80,7 +76,6 @@ public class ShBinary extends AbstractBuildRule
     this.output = BuildTargets.getGenPath(
         target,
         String.format("__%%s__/%s.sh", target.getShortNameAndFlavorPostfix()));
-    this.buildOutputInitializer = new BuildOutputInitializer<>(target, this);
   }
 
   @Override
@@ -123,32 +118,20 @@ public class ShBinary extends AbstractBuildRule
   }
 
   @Override
-  public Path getPathToOutputFile() {
+  public Path getPathToOutput() {
     return output;
   }
 
   @Override
   public ImmutableList<String> getExecutableCommand(ProjectFilesystem projectFilesystem) {
-    return ImmutableList.of(projectFilesystem
-          .getFileForRelativePath(output.toString())
-          .getAbsolutePath()
-          .toString());
+    return ImmutableList.of(projectFilesystem.resolve(output).toAbsolutePath().toString());
   }
 
-  /*
-   * This method implements InitializableFromDisk so that it can make the output file
-   * executable when this rule is populated from cache. The buildOutput Object is meaningless:
-   * it is created only to satisfy InitializableFromDisk contract.
-   * TODO(task #3321496): Delete this entire interface implementation after we fix zipping exe's.
-   */
+  // If the script is generated from another build rule, it needs to be available on disk
+  // for this rule to be usable.
   @Override
-  public Object initializeFromDisk(OnDiskBuildInfo info) throws IOException {
-    info.makeOutputFileExecutable(this);
-    return new Object();
+  public ImmutableSortedSet<BuildRule> getRuntimeDeps() {
+    return ImmutableSortedSet.copyOf(getResolver().filterBuildRuleInputs(main));
   }
 
-  @Override
-  public BuildOutputInitializer<Object> getBuildOutputInitializer() {
-    return buildOutputInitializer;
-  }
 }

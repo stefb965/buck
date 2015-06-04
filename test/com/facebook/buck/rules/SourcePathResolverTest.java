@@ -186,7 +186,6 @@ public class SourcePathResolverTest {
     BuildRuleResolver resolver = new BuildRuleResolver();
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
     FakeBuildRule rule = new FakeBuildRule(
-        BuildRuleType.of("example"),
         BuildTargetFactory.newInstance("//java/com/facebook:facebook"),
         pathResolver);
     resolver.addToIndex(rule);
@@ -210,12 +209,10 @@ public class SourcePathResolverTest {
     BuildRuleResolver resolver = new BuildRuleResolver();
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
     FakeBuildRule rule = new FakeBuildRule(
-        BuildRuleType.of("example"),
         BuildTargetFactory.newInstance("//java/com/facebook:facebook"),
         pathResolver);
     resolver.addToIndex(rule);
     FakeBuildRule rule2 = new FakeBuildRule(
-        BuildRuleType.of("foo"),
         BuildTargetFactory.newInstance("//bar:foo"),
         pathResolver);
     resolver.addToIndex(rule2);
@@ -324,7 +321,7 @@ public class SourcePathResolverTest {
     }
 
     @Override
-    public Path getPathToOutputFile() {
+    public Path getPathToOutput() {
       return source;
     }
   }

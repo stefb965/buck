@@ -60,7 +60,8 @@ public class FetchCommand extends BuildCommand {
     FetchTargetNodeToBuildRuleTransformer ruleGenerator = createFetchTransformer(params);
     TargetGraphToActionGraph transformer = new TargetGraphToActionGraph(
         params.getBuckEventBus(),
-        ruleGenerator);
+        ruleGenerator,
+        params.getFileHashCache());
 
     ActionGraph actionGraph;
     ImmutableSet<BuildTarget> buildTargets;
@@ -93,7 +94,7 @@ public class FetchCommand extends BuildCommand {
              params.getAndroidPlatformTargetSupplier(),
              new CachingBuildEngine(
                  pool.getExecutor(),
-                 params.getBuckConfig().getSkipLocalBuildChainDepth().or(1L)),
+                 getBuildEngineMode().or(params.getBuckConfig().getBuildEngineMode())),
              getArtifactCache(params),
              params.getConsole(),
              params.getBuckEventBus(),

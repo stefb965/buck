@@ -17,8 +17,8 @@
 package com.facebook.buck.rules;
 
 import com.facebook.buck.android.AndroidAarDescription;
-import com.facebook.buck.android.AndroidBinary;
 import com.facebook.buck.android.AndroidBinaryDescription;
+import com.facebook.buck.android.AndroidBuckConfig;
 import com.facebook.buck.android.AndroidBuildConfigDescription;
 import com.facebook.buck.android.AndroidDirectoryResolver;
 import com.facebook.buck.android.AndroidInstrumentationApkDescription;
@@ -46,8 +46,8 @@ import com.facebook.buck.apple.AppleResourceDescription;
 import com.facebook.buck.apple.AppleSdk;
 import com.facebook.buck.apple.AppleSdkDiscovery;
 import com.facebook.buck.apple.AppleSdkPaths;
-import com.facebook.buck.apple.AppleToolchain;
 import com.facebook.buck.apple.AppleTestDescription;
+import com.facebook.buck.apple.AppleToolchain;
 import com.facebook.buck.apple.AppleToolchainDiscovery;
 import com.facebook.buck.apple.CoreDataModelDescription;
 import com.facebook.buck.apple.IosPostprocessResourcesDescription;
@@ -67,7 +67,6 @@ import com.facebook.buck.d.DBinaryDescription;
 import com.facebook.buck.d.DBuckConfig;
 import com.facebook.buck.d.DLibraryDescription;
 import com.facebook.buck.d.DTestDescription;
-import com.facebook.buck.extension.BuckExtensionDescription;
 import com.facebook.buck.file.Downloader;
 import com.facebook.buck.file.ExplodingDownloader;
 import com.facebook.buck.file.HttpDownloader;
@@ -86,7 +85,6 @@ import com.facebook.buck.log.CommandThreadFactory;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
-import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.ocaml.OCamlBinaryDescription;
 import com.facebook.buck.ocaml.OCamlBuckConfig;
 import com.facebook.buck.ocaml.OCamlLibraryDescription;
@@ -189,85 +187,6 @@ public class KnownBuildRuleTypes {
         pythonEnv).build();
   }
 
-  /**
-   * @return the map holding the available {@link NdkCxxPlatform}s.
-   */
-  private static ImmutableMap<AndroidBinary.TargetCpuType, NdkCxxPlatform> getNdkCxxPlatforms(
-      Path ndkRoot,
-      String androidPlatform,
-      Platform platform) {
-
-    ImmutableMap.Builder<AndroidBinary.TargetCpuType, NdkCxxPlatform> ndkCxxPlatformBuilder =
-        ImmutableMap.builder();
-
-    NdkCxxPlatform armeabi =
-        NdkCxxPlatforms.build(
-            ImmutableFlavor.of("android-arm"),
-            platform,
-            ndkRoot,
-            new NdkCxxPlatforms.TargetConfiguration(
-                NdkCxxPlatforms.Toolchain.ARM_LINUX_ADNROIDEABI_4_8,
-                NdkCxxPlatforms.ToolchainPrefix.ARM_LINUX_ANDROIDEABI,
-                NdkCxxPlatforms.TargetArch.ARM,
-                NdkCxxPlatforms.TargetArchAbi.ARMEABI,
-                androidPlatform,
-                /* compilerVersion */ "4.8",
-                /* compilerFlags */ ImmutableList.of(
-                    "-march=armv5te",
-                    "-mtune=xscale",
-                    "-msoft-float",
-                    "-mthumb",
-                    "-Os"),
-                /* linkerFlags */ ImmutableList.of(
-                    "-march=armv5te",
-                    "-Wl,--fix-cortex-a8")),
-            NdkCxxPlatforms.CxxRuntime.GNUSTL);
-    ndkCxxPlatformBuilder.put(AndroidBinary.TargetCpuType.ARM, armeabi);
-    NdkCxxPlatform armeabiv7 =
-        NdkCxxPlatforms.build(
-            ImmutableFlavor.of("android-armv7"),
-            platform,
-            ndkRoot,
-            new NdkCxxPlatforms.TargetConfiguration(
-                NdkCxxPlatforms.Toolchain.ARM_LINUX_ADNROIDEABI_4_8,
-                NdkCxxPlatforms.ToolchainPrefix.ARM_LINUX_ANDROIDEABI,
-                NdkCxxPlatforms.TargetArch.ARM,
-                NdkCxxPlatforms.TargetArchAbi.ARMEABI_V7A,
-                androidPlatform,
-                /* compilerVersion */ "4.8",
-                /* compilerFlags */ ImmutableList.of(
-                    "-finline-limit=64",
-                    "-march=armv7-a",
-                    "-mfpu=vfpv3-d16",
-                    "-mfloat-abi=softfp",
-                    "-mthumb",
-                    "-Os"),
-                /* linkerFlags */ ImmutableList.<String>of()),
-            NdkCxxPlatforms.CxxRuntime.GNUSTL);
-    ndkCxxPlatformBuilder.put(AndroidBinary.TargetCpuType.ARMV7, armeabiv7);
-    NdkCxxPlatform x86 =
-        NdkCxxPlatforms.build(
-            ImmutableFlavor.of("android-x86"),
-            platform,
-            ndkRoot,
-            new NdkCxxPlatforms.TargetConfiguration(
-                NdkCxxPlatforms.Toolchain.X86_4_8,
-                NdkCxxPlatforms.ToolchainPrefix.I686_LINUX_ANDROID,
-                NdkCxxPlatforms.TargetArch.X86,
-                NdkCxxPlatforms.TargetArchAbi.X86,
-                androidPlatform,
-                /* compilerVersion */ "4.8",
-                /* compilerFlags */ ImmutableList.of(
-                    "-funswitch-loops",
-                    "-finline-limit=300",
-                    "-O2"),
-                /* linkerFlags */ ImmutableList.<String>of()),
-            NdkCxxPlatforms.CxxRuntime.GNUSTL);
-    ndkCxxPlatformBuilder.put(AndroidBinary.TargetCpuType.X86, x86);
-
-    return ndkCxxPlatformBuilder.build();
-  }
-
   private static void buildAppleCxxPlatforms(
       Supplier<Optional<Path>> appleDeveloperDirectorySupplier,
       ImmutableList<Path> extraToolchainPaths,
@@ -325,7 +244,8 @@ public class KnownBuildRuleTypes {
 
     Platform platform = Platform.detect();
 
-    Optional<String> ndkVersion = config.getNdkVersion();
+    AndroidBuckConfig androidConfig = new AndroidBuckConfig(config, platform);
+    Optional<String> ndkVersion = androidConfig.getNdkVersion();
     // If a NDK version isn't specified, we've got to reach into the runtime environment to find
     // out which one we will end up using.
     if (!ndkVersion.isPresent()) {
@@ -346,16 +266,17 @@ public class KnownBuildRuleTypes {
         platformFlavorsToAppleCxxPlatformsBuilder.build();
 
     // Setup the NDK C/C++ platforms.
-    ImmutableMap.Builder<AndroidBinary.TargetCpuType, NdkCxxPlatform> ndkCxxPlatformsBuilder =
+    ImmutableMap.Builder<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform> ndkCxxPlatformsBuilder =
         ImmutableMap.builder();
     Optional<Path> ndkRoot = androidDirectoryResolver.findAndroidNdkDir();
     if (ndkRoot.isPresent()) {
-      ndkCxxPlatformsBuilder.putAll(getNdkCxxPlatforms(
+      ndkCxxPlatformsBuilder.putAll(
+          NdkCxxPlatforms.getPlatforms(
               ndkRoot.get(),
-              config.getNdkAppPlatform().or("android-9"),
+              androidConfig.getNdkAppPlatform().or("android-9"),
               platform));
     }
-    ImmutableMap<AndroidBinary.TargetCpuType, NdkCxxPlatform> ndkCxxPlatforms =
+    ImmutableMap<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform> ndkCxxPlatforms =
         ndkCxxPlatformsBuilder.build();
 
     // Construct the C/C++ config wrapping the buck config.
@@ -493,7 +414,6 @@ public class KnownBuildRuleTypes {
             cxxPlatforms,
             platformFlavorsToAppleCxxPlatforms,
             defaultCxxPlatform));
-    builder.register(new BuckExtensionDescription(defaultJavacOptions));
     builder.register(new CoreDataModelDescription());
     builder.register(cxxBinaryDescription);
     builder.register(cxxLibraryDescription);

@@ -18,22 +18,23 @@ package com.facebook.buck.cli;
 
 import com.facebook.buck.command.Build;
 import com.facebook.buck.json.BuildFileParseException;
+import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.parser.BuildFileSpec;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.TargetNodePredicateSpec;
-import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.rules.ActionGraph;
-import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.CachingBuildEngine;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphToActionGraph;
 import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.rules.TargetNodes;
 import com.facebook.buck.rules.TestRule;
+import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.step.TargetDevice;
 import com.facebook.buck.test.CoverageReportFormat;
 import com.facebook.buck.util.Console;
@@ -62,6 +63,8 @@ import javax.annotation.Nullable;
 public class TestCommand extends BuildCommand {
 
   public static final String USE_RESULTS_CACHE = "use_results_cache";
+
+  private static final Logger LOG = Logger.get(TestCommand.class);
 
   @Option(name = "--all",
           usage =
@@ -202,6 +205,7 @@ public class TestCommand extends BuildCommand {
 
   @Override
   public int runWithoutHelp(CommandRunnerParams params) throws IOException, InterruptedException {
+    LOG.debug("Running with arguments %s", getArguments());
 
     // Post the build started event, setting it to the Parser recorded start time if appropriate.
     if (params.getParser().getParseStartTime().isPresent()) {
@@ -245,6 +249,7 @@ public class TestCommand extends BuildCommand {
         // Otherwise, the user specified specific test targets to build and run, so build a graph
         // around these.
       } else {
+        LOG.debug("Parsing graph for arguments %s", getArguments());
         Pair<ImmutableSet<BuildTarget>, TargetGraph> result = params.getParser()
             .buildTargetGraphForTargetNodeSpecs(
                 parseArgumentsAsTargetNodeSpecs(
@@ -258,6 +263,30 @@ public class TestCommand extends BuildCommand {
                 getEnableProfiling());
         targetGraph = result.getSecond();
         explicitBuildTargets = result.getFirst();
+
+        LOG.debug("Got explicit build targets %s", explicitBuildTargets);
+        ImmutableSet.Builder<BuildTarget> testTargetsBuilder = ImmutableSet.builder();
+        for (TargetNode<?> node : targetGraph.getAll(explicitBuildTargets)) {
+          ImmutableSortedSet<BuildTarget> nodeTests = TargetNodes.getTestTargetsForNode(node);
+          if (!nodeTests.isEmpty()) {
+            LOG.debug("Got tests for target %s: %s", node.getBuildTarget(), nodeTests);
+            testTargetsBuilder.addAll(nodeTests);
+          }
+        }
+        ImmutableSet<BuildTarget> testTargets = testTargetsBuilder.build();
+        if (!testTargets.isEmpty()) {
+          LOG.debug("Got related test targets %s, building new target graph...", testTargets);
+          targetGraph = params.getParser().buildTargetGraphForBuildTargets(
+              Iterables.concat(
+                  explicitBuildTargets,
+                  testTargets),
+              parserConfig,
+              params.getBuckEventBus(),
+              params.getConsole(),
+              params.getEnvironment(),
+              getEnableProfiling());
+          LOG.debug("Finished building new target graph with tests.");
+        }
       }
 
     } catch (BuildTargetException | BuildFileParseException e) {
@@ -267,7 +296,8 @@ public class TestCommand extends BuildCommand {
 
     ActionGraph graph = new TargetGraphToActionGraph(
         params.getBuckEventBus(),
-        new BuildTargetNodeToBuildRuleTransformer()).apply(targetGraph);
+        new BuildTargetNodeToBuildRuleTransformer(),
+        params.getFileHashCache()).apply(targetGraph);
 
     // Look up all of the test rules in the action graph.
     Iterable<TestRule> testRules = Iterables.filter(graph.getNodes(), TestRule.class);
@@ -282,22 +312,19 @@ public class TestCommand extends BuildCommand {
       printMatchingTestRules(params.getConsole(), testRules);
     }
 
-    // Create artifact cache to initialize Cassandra connection, if appropriate.
-    ArtifactCache artifactCache = getArtifactCache(params);
-
     try (CommandThreadManager pool =
              new CommandThreadManager("Test", getConcurrencyLimit(params.getBuckConfig()))) {
       CachingBuildEngine cachingBuildEngine =
           new CachingBuildEngine(
               pool.getExecutor(),
-              params.getBuckConfig().getSkipLocalBuildChainDepth().or(1L));
+              getBuildEngineMode().or(params.getBuckConfig().getBuildEngineMode()));
       try (Build build = createBuild(
           params.getBuckConfig(),
           graph,
           params.getRepository().getFilesystem(),
           params.getAndroidPlatformTargetSupplier(),
           cachingBuildEngine,
-          artifactCache,
+          getArtifactCache(params),
           params.getConsole(),
           params.getBuckEventBus(),
           getTargetDeviceOptional(),

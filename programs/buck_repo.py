@@ -8,10 +8,9 @@ import textwrap
 
 from timing import monotonic_time_nanos
 from tracing import Tracing
-from buck_tool import BuckTool, which, check_output
+from buck_tool import BuckTool, which, check_output, JAVA_MAX_HEAP_SIZE_MB
 from buck_tool import BuckToolException, RestartBuck
 import buck_version
-
 
 JAVA_CLASSPATHS = [
     "build/abi_processor/classes",
@@ -22,17 +21,8 @@ JAVA_CLASSPATHS = [
     "third-party/java/aopalliance/aopalliance.jar",
     "third-party/java/args4j/args4j-2.0.30.jar",
     "third-party/java/asm/asm-debug-all-5.0.3.jar",
-    "third-party/java/astyanax/astyanax-cassandra-1.56.38.jar",
-    "third-party/java/astyanax/astyanax-core-1.56.38.jar",
-    "third-party/java/astyanax/astyanax-thrift-1.56.38.jar",
-    "third-party/java/astyanax/cassandra-1.2.3.jar",
-    "third-party/java/astyanax/cassandra-thrift-1.2.3.jar",
-    "third-party/java/astyanax/high-scale-lib-1.1.2.jar",
     "third-party/java/closure-templates/soy-excluding-deps.jar",
-    "third-party/java/commons-cli/commons-cli-1.1.jar",
-    "third-party/java/commons-codec/commons-codec-1.2.jar",
     "third-party/java/commons-compress/commons-compress-1.8.1.jar",
-    "third-party/java/commons-lang/commons-lang-2.6.jar",
     "third-party/java/dd-plist/dd-plist.jar",
     "third-party/java/ddmlib/ddmlib-22.5.3.jar",
     "third-party/java/eclipse/org.eclipse.core.contenttype_3.4.200.v20140207-1251.jar",
@@ -56,10 +46,8 @@ JAVA_CLASSPATHS = [
     "third-party/java/jackson/jackson-databind-2.0.5.jar",
     "third-party/java/jackson/jackson-datatype-jdk7-2.5.0.jar",
     "third-party/java/jetty/jetty-all-9.2.10.v20150310.jar",
-    "third-party/java/joda-time/joda-time-2.2.jar",
     "third-party/java/jsr/javax.inject-1.jar",
     "third-party/java/jsr/jsr305.jar",
-    "third-party/java/log4j/log4j-1.2.16.jar",
     "third-party/java/nailgun/nailgun-server-0.9.2-SNAPSHOT.jar",
     "third-party/java/okhttp/okhttp-2.2.0.jar",
     "third-party/java/okio/okio-1.2.0.jar",
@@ -67,7 +55,6 @@ JAVA_CLASSPATHS = [
     "third-party/java/slf4j/slf4j-api-1.7.2.jar",
     "third-party/java/slf4j/slf4j-log4j12-1.7.2.jar",
     "third-party/java/stringtemplate/ST-4.0.8.jar",
-    "third-party/java/thrift/libthrift-0.7.0.jar",
     "third-party/java/xz-java-1.3/xz-1.3.jar",
 ]
 
@@ -78,8 +65,8 @@ RESOURCES = {
     "buck_server": "bin/buck",
     "dx": "third-party/java/dx-from-kitkat/etc/dx",
     "jacoco_agent_jar": "third-party/java/jacoco/jacocoagent.jar",
-    "log4j_config_file": "config/log4j.properties",
     "logging_config_file": "config/logging.properties",
+    "native_exopackage_fake_path": "assets/android/native-exopackage-fakes.apk",
     "path_to_asm_jar": "third-party/java/asm/asm-debug-all-5.0.3.jar",
     "path_to_buck_py": "src/com/facebook/buck/parser/buck.py",
     "path_to_compile_asset_catalogs_build_phase_sh": (
@@ -96,6 +83,19 @@ RESOURCES = {
     "report_generator_jar": "build/report-generator.jar",
     "testrunner_classes": "build/testrunner/classes",
 }
+
+
+def get_ant_env(max_heap_size_mb):
+    ant_env = os.environ.copy()
+    ant_opts = ant_env.get('ANT_OPTS', '')
+    if ant_opts.find('-Xmx') == -1:
+        # Adjust the max heap size if it's not already specified.
+        ant_max_heap_arg = '-Xmx{0}m'.format(max_heap_size_mb)
+        if ant_opts:
+            ant_opts += ' '
+        ant_opts += ant_max_heap_arg
+        ant_env['ANT_OPTS'] = ant_opts
+    return ant_env
 
 
 class BuckRepo(BuckTool):
@@ -235,7 +235,7 @@ class BuckRepo(BuckTool):
         clean_log_path = os.path.join(self._buck_project.get_buck_out_log_dir(), 'ant-clean.log')
         with open(clean_log_path, 'w') as clean_log:
             exitcode = subprocess.call([ant, 'clean'], stdout=clean_log,
-                                       cwd=self._buck_dir)
+                                       cwd=self._buck_dir, env=get_ant_env(JAVA_MAX_HEAP_SIZE_MB))
             if exitcode is not 0:
                 self._print_ant_failure_and_exit(clean_log_path)
 
@@ -243,7 +243,7 @@ class BuckRepo(BuckTool):
         ant_log_path = os.path.join(self._buck_project.get_buck_out_log_dir(), 'ant.log')
         with open(ant_log_path, 'w') as ant_log:
             exitcode = subprocess.call([ant], stdout=ant_log,
-                                       cwd=self._buck_dir)
+                                       cwd=self._buck_dir, env=get_ant_env(JAVA_MAX_HEAP_SIZE_MB))
             if exitcode is not 0:
                 self._print_ant_failure_and_exit(ant_log_path)
 

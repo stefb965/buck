@@ -22,6 +22,7 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.shell.GenruleDescription;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
@@ -53,8 +54,13 @@ public final class AppleBuildRules {
           AppleBundleDescription.TYPE,
           AppleTestDescription.TYPE);
 
-  private static final ImmutableSet<BuildRuleType> XCODE_TARGET_BUILD_RULE_TEST_TYPES =
-      ImmutableSet.of(AppleTestDescription.TYPE);
+  private static final ImmutableSet<Class<? extends BuildRule>> XCODE_TARGET_BUILD_RULE_TEST_TYPES =
+      ImmutableSet.<Class<? extends BuildRule>>of(AppleTest.class);
+
+  private static final ImmutableSet<BuildRuleType> RECURSIVE_DEPENDENCIES_STOP_AT_TYPES =
+      ImmutableSet.of(
+          AppleBundleDescription.TYPE,
+          GenruleDescription.TYPE);
 
   private static final ImmutableSet<AppleBundleExtension> XCODE_TARGET_TEST_BUNDLE_EXTENSIONS =
       ImmutableSet.of(AppleBundleExtension.OCTEST, AppleBundleExtension.XCTEST);
@@ -70,7 +76,7 @@ public final class AppleBuildRules {
    * Whether the build rule type is a test target.
    */
   public static boolean isXcodeTargetTestBuildRule(BuildRule rule) {
-    return XCODE_TARGET_BUILD_RULE_TEST_TYPES.contains(rule.getType());
+    return XCODE_TARGET_BUILD_RULE_TEST_TYPES.contains(rule.getClass());
   }
 
   /**
@@ -119,6 +125,7 @@ public final class AppleBuildRules {
           @Override
           protected Iterator<TargetNode<?>> findChildren(TargetNode<?> node) throws IOException {
             LOG.verbose("Finding children of node: %s", node);
+
             ImmutableSortedSet.Builder<TargetNode<?>> defaultDepsBuilder =
               ImmutableSortedSet.naturalOrder();
             ImmutableSortedSet.Builder<TargetNode<?>> exportedDepsBuilder =
@@ -176,14 +183,14 @@ public final class AppleBuildRules {
                     } else {
                       deps = defaultDeps;
                     }
-                  } else if (node.getType().equals(AppleBundleDescription.TYPE)) {
+                  } else if (RECURSIVE_DEPENDENCIES_STOP_AT_TYPES.contains(node.getType())) {
                     deps = exportedDeps;
                   } else {
                     deps = defaultDeps;
                   }
                   break;
                 case COPYING:
-                  if (node.getType().equals(AppleBundleDescription.TYPE)) {
+                  if (RECURSIVE_DEPENDENCIES_STOP_AT_TYPES.contains(node.getType())) {
                     deps = exportedDeps;
                   } else {
                     deps = defaultDeps;

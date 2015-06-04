@@ -90,7 +90,6 @@ public class CxxCompilationDatabase extends AbstractBuildRule {
         .build();
 
     return params.copyWithChanges(
-        params.getBuildRuleType(),
         target,
         Suppliers.ofInstance(params.getDeclaredDeps()),
         Suppliers.ofInstance(params.getExtraDeps()));
@@ -119,7 +118,7 @@ public class CxxCompilationDatabase extends AbstractBuildRule {
   }
 
   @Override
-  public Path getPathToOutputFile() {
+  public Path getPathToOutput() {
     return outputJsonFile;
   }
 
@@ -183,7 +182,7 @@ public class CxxCompilationDatabase extends AbstractBuildRule {
       Gson gson = new Gson();
       try {
         OutputStream outputStream = context.getProjectFilesystem().newFileOutputStream(
-            getPathToOutputFile());
+            getPathToOutput());
         outputStream.write(gson.toJson(entries).getBytes());
         outputStream.close();
       } catch (IOException e) {
@@ -198,7 +197,7 @@ public class CxxCompilationDatabase extends AbstractBuildRule {
       context.logError(
           throwable,
           "Failed writing to %s in %s.",
-          getPathToOutputFile(),
+          getPathToOutput(),
           getBuildTarget());
     }
   }

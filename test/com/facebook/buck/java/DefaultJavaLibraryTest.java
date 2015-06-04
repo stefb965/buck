@@ -31,9 +31,7 @@ import static org.junit.Assert.fail;
 
 import com.facebook.buck.android.AndroidLibrary;
 import com.facebook.buck.android.AndroidLibraryBuilder;
-import com.facebook.buck.android.AndroidLibraryDescription;
 import com.facebook.buck.android.AndroidPlatformTarget;
-import com.facebook.buck.android.AndroidResourceDescription;
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
@@ -48,7 +46,6 @@ import com.facebook.buck.rules.BuildDependencies;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
@@ -616,7 +613,6 @@ public class DefaultJavaLibraryTest {
 
     String javaAbiRuleKeyHash = Strings.repeat("b", 40);
     FakeJavaAbiRule fakeJavaAbiRule = new FakeJavaAbiRule(
-        AndroidResourceDescription.TYPE,
         BuildTargetFactory.newInstance("//:tinylibfakejavaabi"),
         javaAbiRuleKeyHash);
 
@@ -929,7 +925,6 @@ public class DefaultJavaLibraryTest {
 
     BuildRuleParams buildRuleParams = new FakeBuildRuleParamsBuilder(buildTarget)
         .setDeps(ImmutableSortedSet.copyOf(deps))
-        .setType(JavaLibraryDescription.TYPE)
         .build();
 
     return new DefaultJavaLibrary(
@@ -1090,11 +1085,17 @@ public class DefaultJavaLibraryTest {
         "becgkaifhjd.txt", "bkhajdifcge.txt", "cabfghjekid.txt", "chkdbafijge.txt")) {
       fileHashes.put(filename, Hashing.sha1().hashString(filename, Charsets.UTF_8).toString());
     }
-    RuleKeyBuilderFactory ruleKeyBuilderFactory =
-        new FakeRuleKeyBuilderFactory(FakeFileHashCache.createFromStrings(fileHashes.build()));
+    RuleKeyBuilderFactory ruleKeyBuilderFactory1 =
+        new FakeRuleKeyBuilderFactory(
+            FakeFileHashCache.createFromStrings(fileHashes.build()),
+            pathResolver1);
+    RuleKeyBuilderFactory ruleKeyBuilderFactory2 =
+        new FakeRuleKeyBuilderFactory(
+            FakeFileHashCache.createFromStrings(fileHashes.build()),
+            pathResolver2);
 
-    RuleKey.Builder builder1 = ruleKeyBuilderFactory.newInstance(rule1, pathResolver1);
-    RuleKey.Builder builder2 = ruleKeyBuilderFactory.newInstance(rule2, pathResolver2);
+    RuleKey.Builder builder1 = ruleKeyBuilderFactory1.newInstance(rule1);
+    RuleKey.Builder builder2 = ruleKeyBuilderFactory2.newInstance(rule2);
     RuleKeyPair pair1 = builder1.build();
     RuleKeyPair pair2 = builder2.build();
     assertEquals(pair1.getTotalRuleKey(), pair2.getTotalRuleKey());
@@ -1114,7 +1115,7 @@ public class DefaultJavaLibraryTest {
 
     ImmutableList.Builder<Step> stepsBuilder = ImmutableList.builder();
     buildable.createCommandsForJavac(
-        buildable.getPathToOutputFile(),
+        buildable.getPathToOutput(),
         ImmutableSet.copyOf(buildable.getTransitiveClasspathEntries().values()),
         ImmutableSet.copyOf(buildable.getDeclaredClasspathEntries().values()),
         DEFAULT_JAVAC_OPTIONS,
@@ -1146,7 +1147,7 @@ public class DefaultJavaLibraryTest {
 
     ImmutableList.Builder<Step> stepsBuilder = ImmutableList.builder();
     buildable.createCommandsForJavac(
-        buildable.getPathToOutputFile(),
+        buildable.getPathToOutput(),
         ImmutableSet.copyOf(buildable.getTransitiveClasspathEntries().values()),
         ImmutableSet.copyOf(buildable.getDeclaredClasspathEntries().values()),
         buildable.getJavacOptions(),
@@ -1371,7 +1372,6 @@ public class DefaultJavaLibraryTest {
 
       BuildRuleParams buildRuleParams = new FakeBuildRuleParamsBuilder(buildTarget)
           .setProjectFilesystem(projectFilesystem)
-          .setType(AndroidLibraryDescription.TYPE)
           .build();
 
       return new AndroidLibrary(
@@ -1406,8 +1406,8 @@ public class DefaultJavaLibraryTest {
   private static class FakeJavaAbiRule extends FakeBuildRule implements HasJavaAbi {
     private final String abiKeyHash;
 
-    public FakeJavaAbiRule(BuildRuleType type, BuildTarget buildTarget, String abiKeyHash) {
-      super(type, buildTarget, new SourcePathResolver(new BuildRuleResolver()));
+    public FakeJavaAbiRule(BuildTarget buildTarget, String abiKeyHash) {
+      super(buildTarget, new SourcePathResolver(new BuildRuleResolver()));
       this.abiKeyHash = abiKeyHash;
     }
 

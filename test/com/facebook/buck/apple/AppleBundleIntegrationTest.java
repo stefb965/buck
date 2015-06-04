@@ -16,9 +16,9 @@
 
 package com.facebook.buck.apple;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.assertEquals;
 import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
@@ -32,6 +32,7 @@ import org.junit.Test;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 
 public class AppleBundleIntegrationTest {
 
@@ -70,15 +71,15 @@ public class AppleBundleIntegrationTest {
     ProjectWorkspace.ProcessResult result = workspace
         .runBuckCommand("targets", "--show-output", "//:DemoApp");
     result.assertSuccess();
-    assertEquals("//:DemoApp buck-out/gen/DemoApp.zip", result.getStdout().trim());
+    assertEquals("//:DemoApp buck-out/gen/DemoApp/DemoApp.app", result.getStdout().trim());
   }
 
   @Test
-  public void appBundleWithDirsAndFiles() throws IOException {
+  public void bundleBinaryHasDsymBundle() throws IOException, InterruptedException {
     assumeTrue(Platform.detect() == Platform.MACOS);
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this,
-        "app_bundle_with_dirs_and_files",
+        "simple_application_bundle",
         tmp);
     workspace.setUp();
 
@@ -86,11 +87,16 @@ public class AppleBundleIntegrationTest {
 
     workspace.verify();
 
-    assertTrue(
-        Files.exists(
-            tmp.getRootPath()
-                .resolve(BuckConstant.GEN_DIR)
-                .resolve("DemoApp#iphonesimulator-x86_64/DemoApp.app/DemoApp")));
+    Path dwarfPath = tmp.getRootPath()
+        .resolve(BuckConstant.GEN_DIR)
+        .resolve("DemoApp#iphonesimulator-x86_64/DemoApp.app")
+        .resolve("DemoApp.dSYM/Contents/Resources/DWARF/DemoApp");
+    assertTrue(Files.exists(dwarfPath));
+    String dwarfdumpMainStdout =
+        workspace.runCommand("dwarfdump", "-n", "main", dwarfPath.toString()).getStdout().or("");
+    assertTrue(dwarfdumpMainStdout.contains("AT_name"));
+    assertTrue(dwarfdumpMainStdout.contains("AT_decl_file"));
+    assertTrue(dwarfdumpMainStdout.contains("AT_decl_line"));
   }
 
   @Test
@@ -217,4 +223,22 @@ public class AppleBundleIntegrationTest {
 
     workspace.runBuckCommand("build", "//:DemoApp#iphonesimulator-x86_64").assertFailure();
   }
+
+  @Test
+  public void xibIsCompiledToNib() throws IOException {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this,
+        "app_bundle_with_xib",
+        tmp);
+    workspace.setUp();
+    workspace.runBuckCommand("build", "//:DemoApp#iphonesimulator-x86_64").assertSuccess();
+
+    assertTrue(
+        Files.exists(
+            tmp.getRootPath()
+                .resolve(BuckConstant.GEN_DIR)
+                .resolve("DemoApp#iphonesimulator-x86_64/DemoApp.app/AppViewController.nib")));
+  }
+
 }

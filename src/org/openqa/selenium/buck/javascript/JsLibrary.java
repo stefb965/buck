@@ -140,7 +140,7 @@ public class JsLibrary extends AbstractBuildRule implements
   }
 
   @Override
-  public Path getPathToOutputFile() {
+  public Path getPathToOutput() {
     return output;
   }
 

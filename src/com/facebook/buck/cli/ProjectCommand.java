@@ -143,6 +143,11 @@ public class ProjectCommand extends BuildCommand {
       usage = "Generate an xcode project of a target and its dependencies.")
   private boolean combinedProject;
 
+  @Option(
+      name = "--build-with-buck",
+      usage = "Use Buck to build the generated project instead of delegating the build to the IDE.")
+  private boolean buildWithBuck;
+
   @Option(name = "--process-annotations", usage = "Enable annotation processing")
   private boolean processAnnotations;
 
@@ -411,7 +416,8 @@ public class ProjectCommand extends BuildCommand {
       final TargetGraphAndTargets targetGraphAndTargets) throws IOException, InterruptedException {
     ActionGraph actionGraph = new TargetGraphToActionGraph(
         params.getBuckEventBus(),
-        new BuildTargetNodeToBuildRuleTransformer()).apply(targetGraphAndTargets.getTargetGraph());
+        new BuildTargetNodeToBuildRuleTransformer(),
+        params.getFileHashCache()).apply(targetGraphAndTargets.getTargetGraph());
     BuildRuleResolver buildRuleResolver = new BuildRuleResolver(actionGraph.getNodes());
     SourcePathResolver sourcePathResolver = new SourcePathResolver(buildRuleResolver);
 
@@ -452,7 +458,8 @@ public class ProjectCommand extends BuildCommand {
     // configuration files.
     ActionGraph actionGraph = new TargetGraphToActionGraph(
         params.getBuckEventBus(),
-        new BuildTargetNodeToBuildRuleTransformer()).apply(targetGraphAndTargets.getTargetGraph());
+        new BuildTargetNodeToBuildRuleTransformer(),
+        params.getFileHashCache()).apply(targetGraphAndTargets.getTargetGraph());
 
     try (ExecutionContext executionContext = createExecutionContext(params)) {
       Project project = new Project(
@@ -623,6 +630,8 @@ public class ProjectCommand extends BuildCommand {
           inputTarget,
           optionsBuilder.build(),
           combinedProject,
+          buildWithBuck,
+          super.getOptions(),
           new ParserConfig(params.getBuckConfig()).getBuildFileName(),
           new Function<TargetNode<?>, Path>() {
             @Nullable
@@ -630,7 +639,8 @@ public class ProjectCommand extends BuildCommand {
             public Path apply(TargetNode<?> input) {
               TargetGraphToActionGraph targetGraphToActionGraph = new TargetGraphToActionGraph(
                   params.getBuckEventBus(),
-                  new BuildTargetNodeToBuildRuleTransformer());
+                  new BuildTargetNodeToBuildRuleTransformer(),
+                  params.getFileHashCache());
               TargetGraph subgraph = targetGraphAndTargets.getTargetGraph().getSubgraph(
                   ImmutableSet.of(
                       input));
@@ -638,7 +648,7 @@ public class ProjectCommand extends BuildCommand {
                   targetGraphToActionGraph.apply(subgraph));
               BuildRule rule = Preconditions.checkNotNull(
                   actionGraph.findBuildRuleByTarget(input.getBuildTarget()));
-              return rule.getPathToOutputFile();
+              return rule.getPathToOutput();
             }
           });
       generator.setGroupableTests(groupableTests);

@@ -18,6 +18,7 @@ package com.facebook.buck.apple;
 
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.google.common.base.Function;
@@ -146,6 +147,12 @@ public class AppleConfig {
     return delegate.getValue("apple", platform.getName() + "_target_sdk_version");
   }
 
+  public ImmutableList<String> getXctestPlatformNames() {
+    return delegate.getListWithoutComments(
+        "apple",
+        "xctest_platforms");
+  }
+
   public Optional<Path> getXctoolPath() {
     Optional<String> xctoolPath = delegate.getValue("apple", "xctool_path");
     if (xctoolPath.isPresent()) {
@@ -153,5 +160,9 @@ public class AppleConfig {
     } else {
       return Optional.absent();
     }
+  }
+
+  public Optional<BuildTarget> getXctoolZipTarget() {
+    return delegate.getBuildTarget("apple", "xctool_zip_target");
   }
 }

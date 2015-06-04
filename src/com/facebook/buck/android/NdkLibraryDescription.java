@@ -76,8 +76,6 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescription.
 
   public static final BuildRuleType TYPE = BuildRuleType.of("ndk_library");
 
-  private static final BuildRuleType MAKEFILE_TYPE =
-      BuildRuleType.of("ndk_library_makefile");
   private static final Flavor MAKEFILE_FLAVOR = ImmutableFlavor.of("makefile");
 
   private static final Pattern EXTENSIONS_REGEX =
@@ -92,11 +90,11 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescription.
   );
 
   private final Optional<String> ndkVersion;
-  private final ImmutableMap<AndroidBinary.TargetCpuType, NdkCxxPlatform> cxxPlatforms;
+  private final ImmutableMap<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform> cxxPlatforms;
 
   public NdkLibraryDescription(
       Optional<String> ndkVersion,
-      ImmutableMap<AndroidBinary.TargetCpuType, NdkCxxPlatform> cxxPlatforms) {
+      ImmutableMap<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform> cxxPlatforms) {
     this.ndkVersion = ndkVersion;
     this.cxxPlatforms = Preconditions.checkNotNull(cxxPlatforms);
   }
@@ -140,7 +138,7 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescription.
     return escapedArgs.build();
   }
 
-  private String getTargetArchAbi(AndroidBinary.TargetCpuType cpuType) {
+  private String getTargetArchAbi(NdkCxxPlatforms.TargetCpuType cpuType) {
     switch (cpuType) {
       case ARM:
         return "armeabi";
@@ -173,20 +171,20 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescription.
     ImmutableList.Builder<String> outputLinesBuilder = ImmutableList.builder();
     ImmutableSortedSet.Builder<BuildRule> deps = ImmutableSortedSet.naturalOrder();
 
-    for (Map.Entry<AndroidBinary.TargetCpuType, NdkCxxPlatform> entry : cxxPlatforms.entrySet()) {
+    for (Map.Entry<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform> entry : cxxPlatforms.entrySet()) {
       CxxPlatform cxxPlatform = entry.getValue().getCxxPlatform();
 
       CxxPreprocessorInput cxxPreprocessorInput;
       try {
         // Collect the preprocessor input for all C/C++ library deps.  We search *through* other
         // NDK library rules.
-        cxxPreprocessorInput =
+        cxxPreprocessorInput = CxxPreprocessorInput.concat(
             CxxPreprocessables.getTransitiveCxxPreprocessorInput(
                 cxxPlatform,
                 params.getDeps(),
                 Predicates.or(
                     Predicates.instanceOf(CxxPreprocessorDep.class),
-                    Predicates.instanceOf(NdkLibrary.class)));
+                    Predicates.instanceOf(NdkLibrary.class))));
       } catch (CxxPreprocessorInput.ConflictingHeadersException e) {
         throw e.getHumanReadableExceptionForBuildTarget(params.getBuildTarget());
       }
@@ -237,7 +235,7 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescription.
 
       // Write the relevant lines to the generated makefile.
       if (!localCflags.isEmpty() || !localLdflags.isEmpty()) {
-        AndroidBinary.TargetCpuType targetCpuType = entry.getKey();
+        NdkCxxPlatforms.TargetCpuType targetCpuType = entry.getKey();
         String targetArchAbi = getTargetArchAbi(targetCpuType);
 
         outputLinesBuilder.add(String.format("ifeq ($(TARGET_ARCH_ABI),%s)", targetArchAbi));
@@ -259,7 +257,6 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescription.
         .addFlavors(MAKEFILE_FLAVOR)
         .build();
     BuildRuleParams makefileParams = params.copyWithChanges(
-        MAKEFILE_TYPE,
         makefileTarget,
         Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
         Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));

@@ -48,6 +48,7 @@ import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
+import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -466,7 +467,8 @@ public class TargetsCommand extends AbstractCommand {
     Iterator<TargetNode<?>> valueIterator = buildIndex.values().iterator();
 
     while (valueIterator.hasNext()) {
-      BuildTarget buildTarget = valueIterator.next().getBuildTarget();
+      TargetNode<?> targetNode = valueIterator.next();
+      BuildTarget buildTarget = targetNode.getBuildTarget();
 
       List<Map<String, Object>> rules;
       try {
@@ -498,6 +500,11 @@ public class TargetsCommand extends AbstractCommand {
             "unable to find rule for target " + buildTarget.getFullyQualifiedName());
         continue;
       }
+
+      targetRule.put(
+          "buck.direct_dependencies",
+          ImmutableList.copyOf((Iterables.transform(targetNode.getDeps(),
+          Functions.toStringFunction()))));
 
       // Sort the rule items, both so we have a stable order for unit tests and
       // to improve readability of the output.
@@ -601,7 +608,8 @@ public class TargetsCommand extends AbstractCommand {
       if (isShowRuleKey() || isShowOutput()) {
         TargetGraphTransformer<ActionGraph> targetGraphTransformer = new TargetGraphToActionGraph(
             params.getBuckEventBus(),
-            new BuildTargetNodeToBuildRuleTransformer());
+            new BuildTargetNodeToBuildRuleTransformer(),
+            params.getFileHashCache());
         actionGraph = Optional.of(targetGraphTransformer.apply(targetGraph));
       } else {
         actionGraph = Optional.absent();
@@ -617,7 +625,7 @@ public class TargetsCommand extends AbstractCommand {
             builder.add(rule.getRuleKey().toString());
           }
           if (isShowOutput()) {
-            Path outputPath = rule.getPathToOutputFile();
+            Path outputPath = rule.getPathToOutput();
             if (outputPath != null) {
               builder.add(outputPath.toString());
             }

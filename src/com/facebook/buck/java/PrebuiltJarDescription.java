@@ -102,7 +102,6 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
         /* inferredDeps */ Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
         projectFilesystem,
         ruleKeyBuilderFactory,
-        BuildRuleType.GWT_MODULE,
         targetGraph);
     BuildRule gwtModule = createGwtModule(params, new SourcePathResolver(ruleResolver), arg);
     ruleResolver.addToIndex(gwtModule);
@@ -142,12 +141,12 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
       public ImmutableList<Step> getBuildSteps(
           BuildContext context,
           BuildableContext buildableContext) {
-        buildableContext.recordArtifact(getPathToOutputFile());
+        buildableContext.recordArtifact(getPathToOutput());
         return ImmutableList.of();
       }
 
       @Override
-      public Path getPathToOutputFile() {
+      public Path getPathToOutput() {
         return pathToExistingJarFile;
       }
     };

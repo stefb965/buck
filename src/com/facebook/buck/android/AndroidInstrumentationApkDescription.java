@@ -56,13 +56,13 @@ public class AndroidInstrumentationApkDescription
 
   private final ProGuardConfig proGuardConfig;
   private final JavacOptions javacOptions;
-  private final ImmutableMap<AndroidBinary.TargetCpuType, NdkCxxPlatform> nativePlatforms;
+  private final ImmutableMap<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform> nativePlatforms;
   private final ListeningExecutorService dxExecutorService;
 
   public AndroidInstrumentationApkDescription(
       ProGuardConfig proGuardConfig,
       JavacOptions androidJavacOptions,
-      ImmutableMap<AndroidBinary.TargetCpuType, NdkCxxPlatform> nativePlatforms,
+      ImmutableMap<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform> nativePlatforms,
       ListeningExecutorService dxExecutorService) {
     this.proGuardConfig = proGuardConfig;
     this.javacOptions = androidJavacOptions;
@@ -91,7 +91,7 @@ public class AndroidInstrumentationApkDescription
           "In %s, apk='%s' must be an android_binary() or apk_genrule() but was %s().",
           params.getBuildTarget(),
           installableApk.getFullyQualifiedName(),
-          installableApk.getType().getName());
+          installableApk.getType());
     }
     AndroidBinary apkUnderTest = getUnderlyingApk((InstallableApk) installableApk);
 

@@ -27,8 +27,8 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.java.JavaLibraryBuilder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.FileHashCache;
 import com.facebook.buck.util.NullFileHashCache;
 import com.google.common.collect.ImmutableList;
@@ -284,8 +284,29 @@ public class RuleKeyTest {
     resolver.addToIndex(fake1);
     resolver.addToIndex(fake2);
 
-    // Verify that just changing the path of the build rule doesn't affect the rule key.
+    // Verify that two BuildTargetSourcePaths with the same rule and path are equal.
     assertEquals(
+        createEmptyRuleKey(
+            pathResolver)
+            .setReflectively(
+                "key",
+                new BuildTargetSourcePath(
+                    projectFilesystem,
+                    fake1.getBuildTarget(),
+                    Paths.get("location")))
+            .build(),
+        createEmptyRuleKey(
+            pathResolver)
+            .setReflectively(
+                "key",
+                new BuildTargetSourcePath(
+                    projectFilesystem,
+                    fake1.getBuildTarget(),
+                    Paths.get("location")))
+            .build());
+
+    // Verify that just changing the path of the build rule changes the rule key.
+    assertNotEquals(
         createEmptyRuleKey(
             pathResolver)
             .setReflectively(
@@ -428,9 +449,9 @@ public class RuleKeyTest {
         "xyzzy");
 
     DefaultRuleKeyBuilderFactory factory =
-        new DefaultRuleKeyBuilderFactory(new NullFileHashCache());
-    RuleKeyPair ruleKey1 = factory.newInstance(buildRule1, pathResolver).build();
-    RuleKeyPair ruleKey2 = factory.newInstance(buildRule2, pathResolver).build();
+        new DefaultRuleKeyBuilderFactory(new NullFileHashCache(), pathResolver);
+    RuleKeyPair ruleKey1 = factory.newInstance(buildRule1).build();
+    RuleKeyPair ruleKey2 = factory.newInstance(buildRule2).build();
 
     assertNotEquals(ruleKey1, ruleKey2);
   }
@@ -463,9 +484,9 @@ public class RuleKeyTest {
     BuildRule parentRule2 = new NoopBuildRule(parentParams2, pathResolver);
 
     DefaultRuleKeyBuilderFactory factory =
-        new DefaultRuleKeyBuilderFactory(new NullFileHashCache());
-    RuleKeyPair ruleKey1 = factory.newInstance(parentRule1, pathResolver).build();
-    RuleKeyPair ruleKey2 = factory.newInstance(parentRule2, pathResolver).build();
+        new DefaultRuleKeyBuilderFactory(new NullFileHashCache(), pathResolver);
+    RuleKeyPair ruleKey1 = factory.newInstance(parentRule1).build();
+    RuleKeyPair ruleKey2 = factory.newInstance(parentRule2).build();
 
     assertNotEquals(ruleKey1, ruleKey2);
   }
@@ -478,11 +499,11 @@ public class RuleKeyTest {
     }
 
     @Override
-    public RuleKey.Builder appendToRuleKey(RuleKey.Builder builder, String key) {
+    public RuleKey.Builder appendToRuleKey(RuleKey.Builder builder) {
       return builder
-          .setReflectively(key + ".value", value)
-          .setReflectively(key + ".foo", "foo")
-          .setReflectively(key + ".bar", "bar");
+          .setReflectively("value", value)
+          .setReflectively("foo", "foo")
+          .setReflectively("bar", "bar");
     }
   }
 
@@ -505,19 +526,14 @@ public class RuleKeyTest {
     }
 
     @Override
-    public RuleKey.Builder appendToRuleKey(RuleKey.Builder builder, String key) {
+    public RuleKey.Builder appendToRuleKey(RuleKey.Builder builder) {
       return builder
-          .setReflectively(key + ".foo", foo);
+          .setReflectively("foo", foo);
     }
   }
 
   private RuleKey.Builder createEmptyRuleKey(SourcePathResolver resolver) {
-    return RuleKey.builder(
-        BuildTargetFactory.newInstance("//some:example"),
-        BuildRuleType.of("example"),
-        resolver,
-        ImmutableSortedSet.<BuildRule>of(),
-        ImmutableSortedSet.<BuildRule>of(), new FileHashCache() {
+    FileHashCache fileHashCache = new FileHashCache() {
           @Override
           public boolean contains(Path path) {
             return true;
@@ -527,6 +543,9 @@ public class RuleKeyTest {
           public HashCode get(Path path) {
             return HashCode.fromString("deadbeef");
           }
-        });
+        };
+    BuildTarget buildTarget = BuildTargetFactory.newInstance("//some:example");
+    BuildRule buildRule = new FakeBuildRule(buildTarget, resolver);
+    return new FakeRuleKeyBuilderFactory(fileHashCache, resolver).newInstance(buildRule);
   }
 }

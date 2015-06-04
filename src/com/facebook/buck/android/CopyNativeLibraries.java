@@ -17,7 +17,7 @@
 package com.facebook.buck.android;
 
 import com.android.common.SdkConstants;
-import com.facebook.buck.android.AndroidBinary.TargetCpuType;
+import com.facebook.buck.android.NdkCxxPlatforms.TargetCpuType;
 import com.facebook.buck.cxx.ObjcopyStep;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
@@ -64,7 +64,7 @@ import javax.annotation.Nullable;
  */
 public class CopyNativeLibraries extends AbstractBuildRule implements RuleKeyAppendable {
 
-  private final ImmutableSet<Path> nativeLibDirectories;
+  private final ImmutableSet<SourcePath> nativeLibDirectories;
   @AddToRuleKey
   private final ImmutableSet<TargetCpuType> cpuFilters;
 
@@ -79,7 +79,7 @@ public class CopyNativeLibraries extends AbstractBuildRule implements RuleKeyApp
   protected CopyNativeLibraries(
       BuildRuleParams buildRuleParams,
       SourcePathResolver resolver,
-      ImmutableSet<Path> nativeLibDirectories,
+      ImmutableSet<SourcePath> nativeLibDirectories,
       ImmutableSet<TargetCpuType> cpuFilters,
       ImmutableMap<TargetCpuType, NdkCxxPlatform> nativePlatforms,
       ImmutableMap<Pair<TargetCpuType, String>, SourcePath> filteredNativeLibraries) {
@@ -106,7 +106,7 @@ public class CopyNativeLibraries extends AbstractBuildRule implements RuleKeyApp
   }
 
   @Override
-  public RuleKey.Builder appendToRuleKey(RuleKey.Builder builder, String key) {
+  public RuleKey.Builder appendToRuleKey(RuleKey.Builder builder) {
     // Hash in the pre-filtered native libraries we're pulling in.
     ImmutableSortedMap<Pair<TargetCpuType, String>, SourcePath> sortedLibs =
         ImmutableSortedMap.<Pair<TargetCpuType, String>, SourcePath>orderedBy(
@@ -116,7 +116,7 @@ public class CopyNativeLibraries extends AbstractBuildRule implements RuleKeyApp
     for (Map.Entry<Pair<TargetCpuType, String>, SourcePath> entry : sortedLibs.entrySet()) {
       Pair<TargetCpuType, String> entryKey = entry.getKey();
       builder.setReflectively(
-          String.format(key + ".lib(%s, %s)", entryKey.getFirst(), entryKey.getSecond()),
+          String.format("lib(%s, %s)", entryKey.getFirst(), entryKey.getSecond()),
           entry.getValue());
     }
 
@@ -132,8 +132,8 @@ public class CopyNativeLibraries extends AbstractBuildRule implements RuleKeyApp
     final Path pathToNativeLibs = getPathToNativeLibsDir();
     steps.add(new MakeCleanDirectoryStep(pathToNativeLibs));
 
-    for (Path nativeLibDir : nativeLibDirectories.asList().reverse()) {
-      copyNativeLibrary(nativeLibDir, pathToNativeLibs, cpuFilters, steps);
+    for (SourcePath nativeLibDir : nativeLibDirectories.asList().reverse()) {
+      copyNativeLibrary(getResolver().getPath(nativeLibDir), pathToNativeLibs, cpuFilters, steps);
     }
 
     // Copy in the pre-filtered native libraries.
@@ -179,7 +179,7 @@ public class CopyNativeLibraries extends AbstractBuildRule implements RuleKeyApp
           }
         });
 
-    buildableContext.recordArtifactsInDirectory(pathToNativeLibs);
+    buildableContext.recordArtifact(pathToNativeLibs);
     buildableContext.recordArtifact(pathToMetadataTxt);
 
     return steps.build();
@@ -187,7 +187,7 @@ public class CopyNativeLibraries extends AbstractBuildRule implements RuleKeyApp
 
   @Nullable
   @Override
-  public Path getPathToOutputFile() {
+  public Path getPathToOutput() {
     return null;
   }
 
@@ -289,13 +289,13 @@ public class CopyNativeLibraries extends AbstractBuildRule implements RuleKeyApp
    */
   private static Optional<String> getAbiDirectoryComponent(TargetCpuType cpuType) {
     String component = null;
-    if (cpuType.equals(TargetCpuType.ARM)) {
+    if (cpuType.equals(NdkCxxPlatforms.TargetCpuType.ARM)) {
       component = SdkConstants.ABI_ARMEABI;
-    } else if (cpuType.equals(TargetCpuType.ARMV7)) {
+    } else if (cpuType.equals(NdkCxxPlatforms.TargetCpuType.ARMV7)) {
       component = SdkConstants.ABI_ARMEABI_V7A;
-    } else if (cpuType.equals(TargetCpuType.X86)) {
+    } else if (cpuType.equals(NdkCxxPlatforms.TargetCpuType.X86)) {
       component = SdkConstants.ABI_INTEL_ATOM;
-    } else if (cpuType.equals(TargetCpuType.MIPS)) {
+    } else if (cpuType.equals(NdkCxxPlatforms.TargetCpuType.MIPS)) {
       component = SdkConstants.ABI_MIPS;
     }
     return Optional.fromNullable(component);

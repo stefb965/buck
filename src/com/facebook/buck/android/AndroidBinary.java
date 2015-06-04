@@ -37,6 +37,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.ExopackageInfo;
+import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.InstallableApk;
 import com.facebook.buck.rules.Sha1HashCode;
 import com.facebook.buck.rules.SourcePath;
@@ -47,6 +48,7 @@ import com.facebook.buck.shell.SymlinkFilesIntoDirectoryStep;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
+import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.zip.RepackZipEntriesStep;
@@ -87,8 +89,9 @@ import java.util.Set;
  * )
  * </pre>
  */
-public class AndroidBinary extends AbstractBuildRule implements
-    AbiRule, HasClasspathEntries, InstallableApk {
+public class AndroidBinary
+    extends AbstractBuildRule
+    implements AbiRule, HasClasspathEntries, HasRuntimeDeps, InstallableApk {
 
   private static final BuildableProperties PROPERTIES = new BuildableProperties(ANDROID, PACKAGING);
 
@@ -123,13 +126,6 @@ public class AndroidBinary extends AbstractBuildRule implements
     final boolean isCrunchPngFiles() {
       return this == RELEASE;
     }
-  }
-
-  public static enum TargetCpuType {
-    ARM,
-    ARMV7,
-    X86,
-    MIPS,
   }
 
   static enum ExopackageMode {
@@ -179,7 +175,7 @@ public class AndroidBinary extends AbstractBuildRule implements
   @AddToRuleKey
   private final ResourceCompressionMode resourceCompressionMode;
   @AddToRuleKey
-  private final ImmutableSet<TargetCpuType> cpuFilters;
+  private final ImmutableSet<NdkCxxPlatforms.TargetCpuType> cpuFilters;
   private final ResourceFilter resourceFilter;
   private final Path primaryDexPath;
   @AddToRuleKey
@@ -208,7 +204,7 @@ public class AndroidBinary extends AbstractBuildRule implements
       Optional<Integer> proguardOptimizationPasses,
       Optional<SourcePath> proguardConfig,
       ResourceCompressionMode resourceCompressionMode,
-      Set<TargetCpuType> cpuFilters,
+      Set<NdkCxxPlatforms.TargetCpuType> cpuFilters,
       ResourceFilter resourceFilter,
       EnumSet<ExopackageMode> exopackageModes,
       Function<String, String> macroExpander,
@@ -285,7 +281,7 @@ public class AndroidBinary extends AbstractBuildRule implements
     return resourceCompressionMode;
   }
 
-  public ImmutableSet<TargetCpuType> getCpuFilters() {
+  public ImmutableSet<NdkCxxPlatforms.TargetCpuType> getCpuFilters() {
     return this.cpuFilters;
   }
 
@@ -317,16 +313,26 @@ public class AndroidBinary extends AbstractBuildRule implements
   }
 
   @Override
-  public Path getPathToOutputFile() {
+  public Path getPathToOutput() {
     return getApkPath();
   }
 
+  @SuppressWarnings("PMD.PrematureDeclaration")
   @Override
   public ImmutableList<Step> getBuildSteps(
       BuildContext context,
       BuildableContext buildableContext) {
 
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
+
+    // The `InstallableApk` interface needs access to the manifest, so make sure we create our
+    // own copy of this so that we don't have a runtime dep on the `AaptPackageResources` step.
+    steps.add(new MkdirStep(getManifestPath().getParent()));
+    steps.add(
+        CopyStep.forFile(
+            enhancementResult.getAaptPackageResources().getAndroidManifestXml(),
+            getManifestPath()));
+    buildableContext.recordArtifact(getManifestPath());
 
     // Create the .dex files if we aren't doing pre-dexing.
     Path signedApkPath = getSignedApkPath();
@@ -352,8 +358,12 @@ public class AndroidBinary extends AbstractBuildRule implements
       Path pathForNativeLibsAsAssets = getPathForNativeLibsAsAssets();
       Path libSubdirectory = pathForNativeLibsAsAssets.resolve("assets").resolve("lib");
       steps.add(new MakeCleanDirectoryStep(libSubdirectory));
-      for (Path nativeLibDir : packageableCollection.getNativeLibAssetsDirectories()) {
-        CopyNativeLibraries.copyNativeLibrary(nativeLibDir, libSubdirectory, cpuFilters, steps);
+      for (SourcePath nativeLibDir : packageableCollection.getNativeLibAssetsDirectories()) {
+        CopyNativeLibraries.copyNativeLibrary(
+            getResolver().getPath(nativeLibDir),
+            libSubdirectory,
+            cpuFilters,
+            steps);
       }
       nativeLibraryAsAssetDirectories = ImmutableSet.of(pathForNativeLibsAsAssets);
     } else {
@@ -366,6 +376,20 @@ public class AndroidBinary extends AbstractBuildRule implements
     if (packageStringAssets.isPresent()) {
       final Path pathToStringAssetsZip = packageStringAssets.get().getPathToStringAssetsZip();
       zipFiles.add(pathToStringAssetsZip);
+    }
+
+    if (ExopackageMode.enabledForNativeLibraries(exopackageModes)) {
+      // We need to include a few dummy native libraries with our application so that Android knows
+      // to run it as 32-bit.  Android defaults to 64-bit when no libraries are provided at all,
+      // causing us to fail to load our 32-bit exopackage native libraries later.
+      String fakeNativeLibraryBundle =
+          System.getProperty("buck.native_exopackage_fake_path");
+
+      if (fakeNativeLibraryBundle == null) {
+        throw new RuntimeException("fake native bundle not specified in properties");
+      }
+
+      zipFiles.add(Paths.get(fakeNativeLibraryBundle));
     }
 
     ImmutableSet<Path> allAssetDirectories = ImmutableSet.<Path>builder()
@@ -865,7 +889,7 @@ public class AndroidBinary extends AbstractBuildRule implements
 
   @Override
   public Path getManifestPath() {
-    return enhancementResult.getAaptPackageResources().getAndroidManifestXml();
+    return BuildTargets.getGenPath(getBuildTarget(), "%s/AndroidManifest.xml");
   }
 
   boolean shouldSplitDex() {
@@ -912,6 +936,18 @@ public class AndroidBinary extends AbstractBuildRule implements
   public ImmutableSetMultimap<JavaLibrary, Path> getTransitiveClasspathEntries() {
     // This is used primarily for buck audit classpath.
     return Classpaths.getClasspathEntries(getClasspathDeps());
+  }
+
+  @Override
+  public ImmutableSortedSet<BuildRule> getRuntimeDeps() {
+    ImmutableSortedSet.Builder<BuildRule> deps = ImmutableSortedSet.naturalOrder();
+    if (ExopackageMode.enabledForNativeLibraries(exopackageModes)) {
+      deps.addAll(enhancementResult.getCopyNativeLibraries().asSet());
+    }
+    if (ExopackageMode.enabledForSecondaryDexes(exopackageModes)) {
+      deps.addAll(enhancementResult.getPreDexMerge().asSet());
+    }
+    return deps.build();
   }
 
   /**

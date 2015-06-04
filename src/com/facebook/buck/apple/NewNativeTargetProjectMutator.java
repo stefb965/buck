@@ -85,6 +85,7 @@ public class NewNativeTargetProjectMutator {
   private ImmutableSet<SourcePath> extraXcodeSources = ImmutableSet.of();
   private ImmutableSet<SourcePath> publicHeaders = ImmutableSet.of();
   private ImmutableSet<SourcePath> privateHeaders = ImmutableSet.of();
+  private Optional<SourcePath> prefixHeader = Optional.absent();
   private boolean shouldGenerateCopyHeadersPhase = true;
   private ImmutableSet<FrameworkPath> frameworks = ImmutableSet.of();
   private ImmutableSet<PBXFileReference> archives = ImmutableSet.of();
@@ -157,6 +158,11 @@ public class NewNativeTargetProjectMutator {
     return this;
   }
 
+  public NewNativeTargetProjectMutator setPrefixHeader(Optional<SourcePath> prefixHeader) {
+    this.prefixHeader = prefixHeader;
+    return this;
+  }
+
   public NewNativeTargetProjectMutator setShouldGenerateCopyHeadersPhase(boolean value) {
     this.shouldGenerateCopyHeadersPhase = value;
     return this;
@@ -201,12 +207,9 @@ public class NewNativeTargetProjectMutator {
 
   public Result buildTargetAndAddToProject(PBXProject project)
       throws NoSuchBuildTargetException {
-    PBXNativeTarget target = new PBXNativeTarget(targetName, productType);
+    PBXNativeTarget target = new PBXNativeTarget(targetName);
 
-    PBXGroup targetGroup = project.getMainGroup();
-    for (String groupPathPart : targetGroupPath) {
-      targetGroup = targetGroup.getOrCreateChildGroupByName(groupPathPart);
-    }
+    PBXGroup targetGroup = project.getMainGroup().getOrCreateDescendantGroupByPath(targetGroupPath);
     targetGroup = targetGroup.getOrCreateChildGroupByName(targetName);
 
     if (gid.isPresent()) {
@@ -228,6 +231,7 @@ public class NewNativeTargetProjectMutator {
         new SourceTreePath(PBXReference.SourceTree.BUILT_PRODUCTS_DIR, productOutputPath));
     target.setProductName(productName);
     target.setProductReference(productReference);
+    target.setProductType(productType);
 
     project.getTargets().add(target);
     return new Result(target, targetGroup);
@@ -259,6 +263,14 @@ public class NewNativeTargetProjectMutator {
             extraXcodeSources,
             publicHeaders,
             privateHeaders));
+
+    if (prefixHeader.isPresent()) {
+      SourceTreePath prefixHeaderSourceTreePath = new SourceTreePath(
+          PBXReference.SourceTree.GROUP,
+          pathRelativizer.outputPathToSourcePath(prefixHeader.get())
+      );
+      sourcesGroup.getOrCreateFileReferenceBySourceTreePath(prefixHeaderSourceTreePath);
+    }
 
     if (!sourcesBuildPhase.getFiles().isEmpty()) {
       target.getBuildPhases().add(sourcesBuildPhase);
@@ -422,9 +434,9 @@ public class NewNativeTargetProjectMutator {
     PBXBuildPhase phase = new PBXResourcesBuildPhase();
     target.getBuildPhases().add(phase);
     for (AppleResourceDescription.Arg resource : resources) {
-      Iterable<Path> paths = Iterables.concat(
-          Iterables.transform(resource.files, sourcePathResolver),
-          resource.dirs);
+      Iterable<Path> paths = Iterables.transform(
+          Iterables.concat(resource.files, resource.dirs),
+          sourcePathResolver);
       for (Path path : paths) {
         PBXFileReference fileReference = resourcesGroup.getOrCreateFileReferenceBySourceTreePath(
             new SourceTreePath(

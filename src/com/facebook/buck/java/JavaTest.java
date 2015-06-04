@@ -23,6 +23,7 @@ import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -43,6 +44,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Functions;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Predicates;
 import com.google.common.base.Throwables;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -66,7 +68,7 @@ import java.util.zip.ZipFile;
 import javax.annotation.Nullable;
 
 @SuppressWarnings("PMD.TestClassWithoutTestCases")
-public class JavaTest extends DefaultJavaLibrary implements TestRule {
+public class JavaTest extends DefaultJavaLibrary implements TestRule, HasRuntimeDeps {
 
   @AddToRuleKey
   private final ImmutableList<String> vmArgs;
@@ -409,7 +411,7 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule {
 
     CompiledClassFileFinder(JavaTest rule, ExecutionContext context) {
       Path outputPath;
-      Path relativeOutputPath = rule.getPathToOutputFile();
+      Path relativeOutputPath = rule.getPathToOutput();
       if (relativeOutputPath != null) {
         outputPath = context.getProjectFilesystem().getAbsolutifier().apply(relativeOutputPath);
       } else {
@@ -507,4 +509,21 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule {
   public boolean runTestSeparately() {
     return runTestSeparately;
   }
+
+  @Override
+  public ImmutableSortedSet<BuildRule> getRuntimeDeps() {
+    return ImmutableSortedSet.<BuildRule>naturalOrder()
+        // By the end of the build, all the transitive Java library dependencies *must* be available
+        // on disk, so signal this requirement via the {@link HasRuntimeDeps} interface.
+        .addAll(
+            FluentIterable.from(getTransitiveClasspathEntries().keySet())
+                .filter(BuildRule.class)
+                .filter(Predicates.not(Predicates.<BuildRule>equalTo(this))))
+        // It's possible that the user added some tool as a dependency, so make sure we promote
+        // this rules first-order deps to runtime deps, so that these potential tools are available
+        // when this test runs.
+        .addAll(getDeps())
+        .build();
+  }
+
 }

@@ -37,8 +37,6 @@ public class FakeBuildRuleParamsBuilder {
   private Optional<FileHashCache> fileHashCache = Optional.absent();
   private TargetGraph targetGraph = TargetGraph.EMPTY;
 
-  private BuildRuleType buildRuleType = BuildRuleType.of("fake_build_rule");
-
   public FakeBuildRuleParamsBuilder(BuildTarget buildTarget) {
     this.buildTarget = buildTarget;
   }
@@ -67,11 +65,6 @@ public class FakeBuildRuleParamsBuilder {
     return this;
   }
 
-  public FakeBuildRuleParamsBuilder setType(BuildRuleType type) {
-    this.buildRuleType = type;
-    return this;
-  }
-
   public FakeBuildRuleParamsBuilder setTargetGraph(TargetGraph targetGraph) {
     this.targetGraph = targetGraph;
     return this;
@@ -89,8 +82,9 @@ public class FakeBuildRuleParamsBuilder {
         Suppliers.ofInstance(deps),
         Suppliers.ofInstance(extraDeps),
         filesystem,
-        new DefaultRuleKeyBuilderFactory(hashCache),
-        buildRuleType,
+        new DefaultRuleKeyBuilderFactory(
+            hashCache,
+            new SourcePathResolver(new BuildRuleResolver())),
         targetGraph);
   }
 }

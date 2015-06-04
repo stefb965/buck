@@ -16,6 +16,7 @@
 
 package com.facebook.buck.cli;
 
+import com.facebook.buck.android.AndroidBuckConfig;
 import com.facebook.buck.android.AndroidDirectoryResolver;
 import com.facebook.buck.android.AndroidPlatformTarget;
 import com.facebook.buck.android.DefaultAndroidDirectoryResolver;
@@ -44,8 +45,6 @@ import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.python.PythonBuckConfig;
 import com.facebook.buck.rules.KnownBuildRuleTypes;
 import com.facebook.buck.rules.Repository;
-import com.facebook.buck.rules.RuleKeyBuilderFactory;
-import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.timing.DefaultClock;
 import com.facebook.buck.timing.NanosAdjustedClock;
@@ -54,7 +53,6 @@ import com.facebook.buck.util.AnsiEnvironmentChecking;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultFileHashCache;
 import com.facebook.buck.util.DefaultPropertyFinder;
-import com.facebook.buck.util.FileHashCache;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.InterruptionFailedException;
 import com.facebook.buck.util.PkillProcessManager;
@@ -194,8 +192,7 @@ public final class Main {
           parserConfig.getEnforceBuckPackageBoundary(),
           parserConfig.getTempFilePatterns(),
           parserConfig.getBuildFileName(),
-          parserConfig.getDefaultIncludes(),
-          createRuleKeyBuilderFactory(hashCache));
+          parserConfig.getDefaultIncludes());
 
       this.fileEventBus = new EventBus("file-change-events");
       this.filesystemWatcher = createWatcher(repository.getFilesystem());
@@ -265,6 +262,10 @@ public final class Main {
       return parser;
     }
 
+    private final DefaultFileHashCache getFileHashCache() {
+      return hashCache;
+    }
+
     private void watchClient(final NGContext context) {
       context.addClientListener(new NGClientListener() {
         @Override
@@ -296,7 +297,7 @@ public final class Main {
       synchronized (parser) {
         parser.recordParseStartTime(eventBus);
         fileEventBus.post(commandEvent);
-        filesystemWatcher.postEvents();
+        filesystemWatcher.postEvents(eventBus);
       }
     }
 
@@ -389,9 +390,9 @@ public final class Main {
   }
 
   @VisibleForTesting
-  static void watchFilesystem() throws IOException, InterruptedException {
+  static void watchFilesystem(BuckEventBus buckEventBus) throws IOException, InterruptedException {
     Preconditions.checkNotNull(daemon);
-    daemon.filesystemWatcher.postEvents();
+    daemon.filesystemWatcher.postEvents(buckEventBus);
   }
 
   @VisibleForTesting
@@ -497,10 +498,11 @@ public final class Main {
     PropertyFinder propertyFinder = new DefaultPropertyFinder(
         filesystem,
         clientEnvironment);
+    AndroidBuckConfig androidBuckConfig = new AndroidBuckConfig(buckConfig, platform);
     AndroidDirectoryResolver androidDirectoryResolver =
         new DefaultAndroidDirectoryResolver(
             filesystem,
-            buckConfig.getNdkVersion(),
+            androidBuckConfig.getNdkVersion(),
             propertyFinder);
 
     ProcessExecutor processExecutor = new ProcessExecutor(console);
@@ -538,7 +540,12 @@ public final class Main {
         // TODO(user): Thread through properties from client environment.
         System.getProperties());
 
-    DefaultFileHashCache fileHashCache = new DefaultFileHashCache(rootRepository.getFilesystem());
+    DefaultFileHashCache fileHashCache;
+    if (isDaemon) {
+      fileHashCache = getFileHashCacheFromDaemon(rootRepository, clock);
+    } else {
+      fileHashCache = new DefaultFileHashCache(rootRepository.getFilesystem());
+    }
 
     @Nullable ArtifactCacheFactory artifactCacheFactory = null;
     Optional<WebServer> webServer = getWebServerIfDaemon(
@@ -563,12 +570,7 @@ public final class Main {
                  executionEnvironment,
                  webServer);
          BuckEventBus buildEventBus = new BuckEventBus(clock, buildId)) {
-      // The ArtifactCache is constructed lazily so that we do not try to connect to Cassandra when
-      // running commands such as `buck clean`.
-      artifactCacheFactory = new LoggingArtifactCacheFactory(
-          executionEnvironment,
-          buildEventBus,
-          fileHashCache);
+      artifactCacheFactory = new LoggingArtifactCacheFactory(executionEnvironment, buildEventBus);
 
       eventListeners = addEventListeners(buildEventBus,
           rootRepository.getFilesystem(),
@@ -621,8 +623,7 @@ public final class Main {
             parserConfig.getEnforceBuckPackageBoundary(),
             parserConfig.getTempFilePatterns(),
             parserConfig.getBuildFileName(),
-            parserConfig.getDefaultIncludes(),
-            createRuleKeyBuilderFactory(fileHashCache));
+            parserConfig.getDefaultIncludes());
       }
       JavaUtilsLoggingBuildListener.ensureLogFileIsWritten(rootRepository.getFilesystem());
 
@@ -635,7 +636,7 @@ public final class Main {
       Supplier<AndroidPlatformTarget> androidPlatformTargetSupplier =
           createAndroidPlatformTargetSupplier(
               rootRepository.getAndroidDirectoryResolver(),
-              buckConfig,
+              androidBuckConfig,
               buildEventBus);
 
       // At this point, we have parsed options but haven't started running the command yet.  This is
@@ -665,7 +666,8 @@ public final class Main {
               clock,
               processManager,
               webServer,
-              buckConfig));
+              buckConfig,
+              fileHashCache));
       parser.cleanCache();
       buildEventBus.post(
           CommandEvent.finished(
@@ -702,7 +704,7 @@ public final class Main {
   @VisibleForTesting
   static Supplier<AndroidPlatformTarget> createAndroidPlatformTargetSupplier(
       final AndroidDirectoryResolver androidDirectoryResolver,
-      final BuckConfig buckConfig,
+      final AndroidBuckConfig androidBuckConfig,
       final BuckEventBus eventBus) {
     // TODO(mbolin): Only one such Supplier should be created per Repository per Buck execution.
     // Currently, only one Supplier is created per Buck execution because Main creates the Supplier
@@ -735,7 +737,7 @@ public final class Main {
         }
 
         String androidPlatformTargetId;
-        Optional<String> target = buckConfig.getAndroidTarget();
+        Optional<String> target = androidBuckConfig.getAndroidTarget();
         if (target.isPresent()) {
           androidPlatformTargetId = target.get();
         } else {
@@ -749,7 +751,7 @@ public final class Main {
             .getTargetForId(
                 androidPlatformTargetId,
                 androidDirectoryResolver,
-                buckConfig.getAaptOverride());
+                androidBuckConfig.getAaptOverride());
         if (androidPlatformTargetOptional.isPresent()) {
           androidPlatformTarget = androidPlatformTargetOptional.get();
           return androidPlatformTarget;
@@ -799,6 +801,14 @@ public final class Main {
     daemon.watchFileSystem(commandEvent, eventBus);
     daemon.initWebServer();
     return daemon.getParser();
+  }
+
+  private DefaultFileHashCache getFileHashCacheFromDaemon(
+      Repository repository,
+      Clock clock)
+      throws IOException, InterruptedException {
+    Daemon daemon = getDaemon(repository, clock, objectMapper);
+    return daemon.getFileHashCache();
   }
 
   private Optional<WebServer> getWebServerIfDaemon(
@@ -878,11 +888,13 @@ public final class Main {
     ImmutableList.Builder<BuckEventListener> eventListenersBuilder =
         ImmutableList.<BuckEventListener>builder()
             .add(new JavaUtilsLoggingBuildListener())
-            .add(new ChromeTraceBuildListener(
-                projectFilesystem,
-                clock,
-                objectMapper,
-                config.getMaxTraces()))
+            .add(
+                new ChromeTraceBuildListener(
+                    projectFilesystem,
+                    clock,
+                    objectMapper,
+                    config.getMaxTraces(),
+                    config.getCompressTraces()))
             .add(consoleEventBusListener)
             .add(new LoggingBuildListener());
 
@@ -938,13 +950,6 @@ public final class Main {
       return superConsole;
     }
     return new SimpleConsoleEventBusListener(console, clock);
-  }
-
-  /**
-   * @param hashCache A cache of file content hashes, used to avoid reading and hashing input files.
-   */
-  private static RuleKeyBuilderFactory createRuleKeyBuilderFactory(final FileHashCache hashCache) {
-    return new DefaultRuleKeyBuilderFactory(hashCache);
   }
 
   @VisibleForTesting

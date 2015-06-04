@@ -116,7 +116,6 @@ public class CxxBinaryDescription implements
           .build();
       BuildRuleParams typeParams =
           params.copyWithChanges(
-              params.getBuildRuleType(),
               target,
               Suppliers.ofInstance(params.getDeclaredDeps()),
               Suppliers.ofInstance(params.getExtraDeps()));
@@ -172,9 +171,12 @@ public class CxxBinaryDescription implements
                     .add(cxxLink)
                     .build()),
             Suppliers.ofInstance(params.getExtraDeps())),
+        resolver,
         new SourcePathResolver(resolver),
         cxxLink.getOutput(),
-        cxxLink);
+        cxxLink,
+        args.frameworkSearchPaths.get(),
+        args.tests.get());
   }
 
   @Override

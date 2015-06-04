@@ -17,6 +17,7 @@
 package com.facebook.buck.cxx;
 
 import com.facebook.buck.io.MorePaths;
+import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
@@ -26,7 +27,6 @@ import com.facebook.buck.model.Pair;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
@@ -54,10 +54,14 @@ import com.google.common.collect.Iterables;
 import com.google.common.io.Files;
 
 import java.nio.file.Path;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class CxxDescriptionEnhancer {
+
+  private static final Logger LOG = Logger.get(CxxDescriptionEnhancer.class);
 
   public static final Flavor HEADER_SYMLINK_TREE_FLAVOR = ImmutableFlavor.of("header-symlink-tree");
   public static final Flavor EXPORTED_HEADER_SYMLINK_TREE_FLAVOR =
@@ -69,9 +73,6 @@ public class CxxDescriptionEnhancer {
 
   public static final Flavor CXX_LINK_BINARY_FLAVOR = ImmutableFlavor.of("binary");
   public static final Flavor LEX_YACC_SOURCE_FLAVOR = ImmutableFlavor.of("lex_yacc_sources");
-
-  public static final BuildRuleType LEX_TYPE = BuildRuleType.of("lex");
-  public static final BuildRuleType YACC_TYPE = BuildRuleType.of("yacc");
 
   private CxxDescriptionEnhancer() {}
 
@@ -439,7 +440,6 @@ public class CxxDescriptionEnhancer {
       // Create the build rule to run lex on this source and add it to the resolver.
       Lex lex = new Lex(
           params.copyWithChanges(
-              LEX_TYPE,
               target,
               Suppliers.ofInstance(
                   ImmutableSortedSet.copyOf(
@@ -486,7 +486,6 @@ public class CxxDescriptionEnhancer {
       // Create the build rule to run yacc on this source and add it to the resolver.
       Yacc yacc = new Yacc(
           params.copyWithChanges(
-              YACC_TYPE,
               target,
               Suppliers.ofInstance(
                   ImmutableSortedSet.copyOf(
@@ -534,38 +533,40 @@ public class CxxDescriptionEnhancer {
       ImmutableList<SymlinkTree> headerSymlinkTrees,
       ImmutableList<Path> frameworkSearchPaths) {
 
-    CxxPreprocessorInput cxxPreprocessorInputFromDeps;
-    try {
-      // Write the compile rules for all C/C++ sources in this rule.
-      cxxPreprocessorInputFromDeps =
-          CxxPreprocessables.getTransitiveCxxPreprocessorInput(
-              cxxPlatform,
-              FluentIterable.from(params.getDeps())
-                  .filter(Predicates.instanceOf(CxxPreprocessorDep.class)));
+    // Write the compile rules for all C/C++ sources in this rule.
+    Collection<CxxPreprocessorInput> cxxPreprocessorInputFromDeps =
+        CxxPreprocessables.getTransitiveCxxPreprocessorInput(
+            cxxPlatform,
+            FluentIterable.from(params.getDeps())
+                .filter(Predicates.instanceOf(CxxPreprocessorDep.class)));
 
-      // Add the private includes of any libraries which list this
-      // rule as a test.
-      BuildTarget targetWithoutFlavor = BuildTarget.of(
-          params.getBuildTarget().getUnflavoredBuildTarget());
-      ImmutableSet.Builder<AbstractCxxLibrary> librariesTestedByTargetBuilder =
-          ImmutableSet.builder();
-      for (BuildRule rule : params.getDeps()) {
-        if (rule instanceof AbstractCxxLibrary) {
-          AbstractCxxLibrary libraryRule = (AbstractCxxLibrary) rule;
-          if (libraryRule.getTests().contains(targetWithoutFlavor)) {
-            librariesTestedByTargetBuilder.add(libraryRule);
-          }
+    // Add the private includes of any rules which list this rule as a test.
+    BuildTarget targetWithoutFlavor = BuildTarget.of(
+        params.getBuildTarget().getUnflavoredBuildTarget());
+    ImmutableList.Builder<CxxPreprocessorInput> cxxPreprocessorInputFromTestedRulesBuilder =
+        ImmutableList.builder();
+    for (BuildRule rule : params.getDeps()) {
+      if (rule instanceof NativeTestable) {
+        NativeTestable testable = (NativeTestable) rule;
+        if (testable.isTestedBy(targetWithoutFlavor)) {
+          LOG.debug(
+              "Adding private includes of tested rule %s to testing rule %s",
+              rule.getBuildTarget(),
+              params.getBuildTarget());
+          cxxPreprocessorInputFromTestedRulesBuilder.add(
+              testable.getCxxPreprocessorInput(
+                  cxxPlatform,
+                  HeaderVisibility.PRIVATE));
         }
       }
-      cxxPreprocessorInputFromDeps = CxxPreprocessorInput.concat(
-          ImmutableList.of(
-              cxxPreprocessorInputFromDeps,
-              getPrivateCxxPreprocessorInputFromLibraries(
-                  cxxPlatform,
-                  librariesTestedByTargetBuilder.build())));
-    } catch (CxxPreprocessorInput.ConflictingHeadersException e) {
-      throw e.getHumanReadableExceptionForBuildTarget(params.getBuildTarget());
     }
+
+    ImmutableList<CxxPreprocessorInput> cxxPreprocessorInputFromTestedRules =
+        cxxPreprocessorInputFromTestedRulesBuilder.build();
+    LOG.verbose(
+        "Rules tested by target %s added private includes %s",
+        params.getBuildTarget(),
+        cxxPreprocessorInputFromTestedRules);
 
     ImmutableMap.Builder<Path, SourcePath> allLinks = ImmutableMap.builder();
     ImmutableMap.Builder<Path, SourcePath> allFullLinks = ImmutableMap.builder();
@@ -592,9 +593,10 @@ public class CxxDescriptionEnhancer {
 
     try {
       return CxxPreprocessorInput.concat(
-          ImmutableList.of(
-              localPreprocessorInput,
-              cxxPreprocessorInputFromDeps));
+          Iterables.concat(
+              Collections.singleton(localPreprocessorInput),
+              cxxPreprocessorInputFromDeps,
+              cxxPreprocessorInputFromTestedRules));
     } catch (CxxPreprocessorInput.ConflictingHeadersException e) {
       throw e.getHumanReadableExceptionForBuildTarget(params.getBuildTarget());
     }
@@ -633,7 +635,10 @@ public class CxxDescriptionEnhancer {
                     FluentIterable.from(target.getBasePath())
                         .transform(Functions.toStringFunction())
                         .filter(Predicates.not(Predicates.equalTo(""))))
-                .add(target.getShortName())
+                .add(
+                    target
+                        .withoutFlavors(ImmutableSet.of(platform.getFlavor()))
+                        .getShortNameAndFlavorPostfix())
                 .build());
     String extension = platform.getSharedLibraryExtension();
     return String.format("lib%s.%s", libName, extension);
@@ -779,7 +784,6 @@ public class CxxDescriptionEnhancer {
     T args = node.getConstructorArg();
     return description.createBuildRule(
         params.copyWithChanges(
-            params.getBuildRuleType(),
             target,
             Suppliers.ofInstance(params.getDeclaredDeps()),
             Suppliers.ofInstance(params.getExtraDeps())),
@@ -859,21 +863,5 @@ public class CxxDescriptionEnhancer {
     }
 
     return platformFlagsBuilder.build();
-  }
-
-  private static CxxPreprocessorInput getPrivateCxxPreprocessorInputFromLibraries(
-      CxxPlatform cxxPlatform,
-      Iterable<? extends AbstractCxxLibrary> libraries)
-    throws CxxPreprocessorInput.ConflictingHeadersException {
-    ImmutableList.Builder<CxxPreprocessorInput> libraryInputsBuilder = ImmutableList.builder();
-
-    for (AbstractCxxLibrary library : libraries) {
-      libraryInputsBuilder.add(
-          library.getCxxPreprocessorInput(
-              cxxPlatform,
-              HeaderVisibility.PRIVATE));
-    }
-
-    return CxxPreprocessorInput.concat(libraryInputsBuilder.build());
   }
 }

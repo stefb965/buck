@@ -68,29 +68,38 @@ import javax.annotation.Nullable;
 
 public class BuildCommand extends AbstractCommand {
 
-  @Option(name = "--num-threads", aliases = "-j", usage = "Default is 1.25 * num processors.")
+  private static final String NUM_THREADS_LONG_ARG = "--num-threads";
+  private static final String KEEP_GOING_LONG_ARG = "--keep-going";
+  private static final String BUILD_REPORT_LONG_ARG = "--build-report";
+  private static final String BUILD_DEPENDENCIES_LONG_ARG = "--build-dependencies";
+  private static final String LOAD_LIMIT_LONG_ARG = "--load-limit";
+  private static final String JUST_BUILD_LONG_ARG = "--just-build";
+  private static final String DEEP_LONG_ARG = "--deep";
+  private static final String SHALLOW_LONG_ARG = "--shallow";
+
+  @Option(name = NUM_THREADS_LONG_ARG, aliases = "-j", usage = "Default is 1.25 * num processors.")
   @Nullable
   private Integer numThreads = null;
 
   @Option(
-      name = "--keep-going",
+      name = KEEP_GOING_LONG_ARG,
       usage = "Keep going when some targets can't be made.")
   private boolean keepGoing = false;
 
   @Option(
-      name = "--build-report",
+      name = BUILD_REPORT_LONG_ARG,
       usage = "File where build report will be written.")
   @Nullable
   private Path buildReport = null;
 
-  @Option(name = "--build-dependencies",
+  @Option(name = BUILD_DEPENDENCIES_LONG_ARG,
       aliases = "-b",
       usage = "How to handle including dependencies")
   @Nullable
   private BuildDependencies buildDependencies = null;
 
   @Nullable
-  @Option(name = "--load-limit",
+  @Option(name = LOAD_LIMIT_LONG_ARG,
       aliases = "-L",
       usage = "[Float] Do not start new jobs when system load is above this level." +
       " See uptime(1).")
@@ -98,10 +107,26 @@ public class BuildCommand extends AbstractCommand {
 
   @Nullable
   @Option(
-      name = "--just-build",
+      name = JUST_BUILD_LONG_ARG,
       usage = "For debugging, limits the build to a specific target in the action graph.",
       hidden = true)
   private String justBuildTarget = null;
+
+  @Option(
+      name = DEEP_LONG_ARG,
+      usage =
+          "Perform a \"deep\" build, which makes the output of all transitive dependencies" +
+          " available.",
+      forbids = SHALLOW_LONG_ARG)
+  private boolean deepBuild = false;
+
+  @Option(
+      name = SHALLOW_LONG_ARG,
+      usage =
+          "Perform a \"shallow\" build, which only makes the output of all explicitly listed" +
+          " targets available.",
+      forbids = DEEP_LONG_ARG)
+  private boolean shallowBuild = false;
 
   @Argument
   private List<String> arguments = Lists.newArrayList();
@@ -122,6 +147,17 @@ public class BuildCommand extends AbstractCommand {
 
   public boolean isDebugEnabled() {
     return false;
+  }
+
+  public Optional<CachingBuildEngine.BuildMode> getBuildEngineMode() {
+    Optional<CachingBuildEngine.BuildMode> mode = Optional.absent();
+    if (deepBuild) {
+      mode = Optional.of(CachingBuildEngine.BuildMode.DEEP);
+    }
+    if (shallowBuild) {
+      mode = Optional.of(CachingBuildEngine.BuildMode.SHALLOW);
+    }
+    return mode;
   }
 
 
@@ -234,9 +270,7 @@ public class BuildCommand extends AbstractCommand {
   @Override
   @SuppressWarnings("PMD.PrematureDeclaration")
   public int runWithoutHelp(CommandRunnerParams params) throws IOException, InterruptedException {
-    // Create artifact cache to initialize Cassandra connection, if appropriate.
     ArtifactCache artifactCache = getArtifactCache(params);
-
 
     if (getArguments().isEmpty()) {
       params.getConsole().printBuildFailure("Must specify at least one build target.");
@@ -278,7 +312,8 @@ public class BuildCommand extends AbstractCommand {
       buildTargets = result.getFirst();
       actionGraph = new TargetGraphToActionGraph(
           params.getBuckEventBus(),
-          new BuildTargetNodeToBuildRuleTransformer()).apply(result.getSecond());
+          new BuildTargetNodeToBuildRuleTransformer(),
+          params.getFileHashCache()).apply(result.getSecond());
     } catch (BuildTargetException | BuildFileParseException e) {
       params.getConsole().printBuildFailureWithoutStacktrace(e);
       return 1;
@@ -310,7 +345,7 @@ public class BuildCommand extends AbstractCommand {
              params.getAndroidPlatformTargetSupplier(),
              new CachingBuildEngine(
                  pool.getExecutor(),
-                 params.getBuckConfig().getSkipLocalBuildChainDepth().or(1L)),
+                 getBuildEngineMode().or(params.getBuckConfig().getBuildEngineMode())),
              artifactCache,
              params.getConsole(),
              params.getBuckEventBus(),
@@ -349,4 +384,33 @@ public class BuildCommand extends AbstractCommand {
     return "builds the specified target";
   }
 
+  @Override
+  protected ImmutableList<String> getOptions() {
+    ImmutableList.Builder<String> builder = ImmutableList.builder();
+    builder.addAll(super.getOptions());
+    if (numThreads != null) {
+      builder.add(NUM_THREADS_LONG_ARG);
+      builder.add(numThreads.toString());
+    }
+    if (keepGoing) {
+      builder.add(KEEP_GOING_LONG_ARG);
+    }
+    if (buildReport != null) {
+      builder.add(BUILD_REPORT_LONG_ARG);
+      builder.add(buildReport.toString());
+    }
+    if (buildDependencies != null) {
+      builder.add(BUILD_DEPENDENCIES_LONG_ARG);
+      builder.add(buildDependencies.toString());
+    }
+    if (loadLimit != null) {
+      builder.add(LOAD_LIMIT_LONG_ARG);
+      builder.add(loadLimit.toString());
+    }
+    if (justBuildTarget != null) {
+      builder.add(JUST_BUILD_LONG_ARG);
+      builder.add(justBuildTarget);
+    }
+    return builder.build();
+  }
 }

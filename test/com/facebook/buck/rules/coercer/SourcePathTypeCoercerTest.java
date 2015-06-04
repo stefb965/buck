@@ -19,8 +19,8 @@ package com.facebook.buck.rules.coercer;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.io.MorePathsForTests;
-import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.rules.BuildTargetSourcePath;
@@ -28,7 +28,6 @@ import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.base.Optional;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 
 import org.junit.Before;
@@ -111,8 +110,7 @@ public class SourcePathTypeCoercerTest {
 
   @Test
   public void coerceCrossRepoBuildTarget() throws CoerceFailedException, IOException {
-    BuildTargetParser buildTargetParser = new BuildTargetParser(
-        ImmutableMap.of(Optional.of("hello"), Optional.of("hello")));
+    BuildTargetParser buildTargetParser = new BuildTargetParser();
 
     SourcePath sourcePath = sourcePathTypeCoercer.coerce(
         buildTargetParser,

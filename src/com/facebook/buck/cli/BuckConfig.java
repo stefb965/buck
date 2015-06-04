@@ -17,7 +17,6 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.event.ThrowableConsoleEvent;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.java.DefaultJavaPackageFinder;
@@ -28,7 +27,7 @@ import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.BuildDependencies;
 import com.facebook.buck.rules.BuildTargetSourcePath;
-import com.facebook.buck.rules.CassandraArtifactCache;
+import com.facebook.buck.rules.CachingBuildEngine;
 import com.facebook.buck.rules.DirArtifactCache;
 import com.facebook.buck.rules.HttpArtifactCache;
 import com.facebook.buck.rules.MultiArtifactCache;
@@ -39,7 +38,6 @@ import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.AnsiEnvironmentChecking;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.Config;
-import com.facebook.buck.util.FileHashCache;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.Inis;
 import com.facebook.buck.util.environment.Platform;
@@ -60,7 +58,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.hash.Hashing;
 import com.google.common.io.Files;
-import com.netflix.astyanax.connectionpool.exceptions.ConnectionException;
 import com.squareup.okhttp.ConnectionPool;
 import com.squareup.okhttp.Interceptor;
 import com.squareup.okhttp.OkHttpClient;
@@ -75,6 +72,7 @@ import java.net.URL;
 import java.net.UnknownHostException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
@@ -93,6 +91,7 @@ public class BuckConfig {
 
   private static final String DEFAULT_BUCK_CONFIG_FILE_NAME = ".buckconfig";
   public static final String DEFAULT_BUCK_CONFIG_OVERRIDE_FILE_NAME = ".buckconfig.local";
+  private static final String DEFAULT_BUCK_CONFIG_DIRECTORY_NAME = ".buckconfig.d";
 
   private static final String ALIAS_SECTION_HEADER = "alias";
 
@@ -107,9 +106,6 @@ public class BuckConfig {
 
   private static final String DEFAULT_CACHE_DIR = "buck-cache";
   private static final String DEFAULT_DIR_CACHE_MODE = CacheMode.readwrite.name();
-  private static final String DEFAULT_CASSANDRA_PORT = "9160";
-  private static final String DEFAULT_CASSANDRA_MODE = CacheMode.readwrite.name();
-  private static final String DEFAULT_CASSANDRA_TIMEOUT_SECONDS = "10";
   private static final String DEFAULT_MAX_TRACES = "25";
 
   private static final String DEFAULT_HTTP_URL = "http://localhost:8080";
@@ -130,7 +126,6 @@ public class BuckConfig {
 
   private enum ArtifactCacheNames {
     dir,
-    cassandra,
     http
   }
 
@@ -450,6 +445,10 @@ public class BuckConfig {
     return Integer.parseInt(getValue("log", "max_traces").or(DEFAULT_MAX_TRACES));
   }
 
+  public boolean getCompressTraces() {
+    return getBooleanValue("log", "compress_traces", false);
+  }
+
   public boolean getRestartAdbOnFailure() {
     return Boolean.parseBoolean(getValue("adb", "adb_restart_on_failure").or("true"));
   }
@@ -522,8 +521,7 @@ public class BuckConfig {
 
   public ArtifactCache createArtifactCache(
       Optional<String> currentWifiSsid,
-      BuckEventBus buckEventBus,
-      FileHashCache fileHashCache) {
+      BuckEventBus buckEventBus) {
     ImmutableList<String> modes = getArtifactCacheModes();
     if (modes.isEmpty()) {
       return new NoopArtifactCache();
@@ -537,16 +535,6 @@ public class BuckConfig {
           ArtifactCache dirArtifactCache = createDirArtifactCache();
           buckEventBus.register(dirArtifactCache);
           builder.add(dirArtifactCache);
-          break;
-        case cassandra:
-          if (useDistributedCache) {
-            ArtifactCache cassandraArtifactCache = createCassandraArtifactCache(
-                buckEventBus,
-                fileHashCache);
-            if (cassandraArtifactCache != null) {
-              builder.add(cassandraArtifactCache);
-            }
-          }
           break;
         case http:
           if (useDistributedCache) {
@@ -618,40 +606,6 @@ public class BuckConfig {
       return new DirArtifactCache("dir", dir, doStore, getCacheDirMaxSizeBytes());
     } catch (IOException e) {
       throw new HumanReadableException("Failure initializing artifact cache directory: %s", dir);
-    }
-  }
-
-  /**
-   * Clients should use {@link #createArtifactCache(Optional, BuckEventBus, FileHashCache)} unless
-   * it is expected that the user has defined a {@code cassandra} cache, and that it should be used
-   * exclusively.
-   */
-  @Nullable
-  CassandraArtifactCache createCassandraArtifactCache(
-      BuckEventBus buckEventBus,
-      FileHashCache fileHashCache) {
-    // cache.cassandra_mode
-    final boolean doStore = readCacheMode("cassandra_mode", DEFAULT_CASSANDRA_MODE);
-    // cache.hosts
-    String cacheHosts = getValue("cache", "hosts").or("");
-    // cache.port
-    int port = Integer.parseInt(getValue("cache", "port").or(DEFAULT_CASSANDRA_PORT));
-    // cache.connection_timeout_seconds
-    int timeoutSeconds = Integer.parseInt(
-        getValue("cache", "connection_timeout_seconds").or(DEFAULT_CASSANDRA_TIMEOUT_SECONDS));
-
-    try {
-      return new CassandraArtifactCache(
-          "cassandra",
-          cacheHosts,
-          port,
-          timeoutSeconds,
-          doStore,
-          buckEventBus,
-          fileHashCache);
-    } catch (ConnectionException e) {
-      buckEventBus.post(ThrowableConsoleEvent.create(e, "Cassandra cache connection failure."));
-      return null;
     }
   }
 
@@ -741,18 +695,6 @@ public class BuckConfig {
     return doStore;
   }
 
-  public Optional<String> getAndroidTarget() {
-    return getValue("android", "target");
-  }
-
-  public Optional<String> getNdkVersion() {
-    return getValue("ndk", "ndk_version");
-  }
-
-  public Optional<String> getNdkAppPlatform() {
-    return getValue("ndk", "app_platform");
-  }
-
   public Optional<String> getValue(String sectionName, String propertyName) {
     return config.getValue(sectionName, propertyName);
   }
@@ -804,28 +746,11 @@ public class BuckConfig {
   }
 
   /**
-   * Returns the path to the platform specific aapt executable that is overridden by the current
-   * project. If not specified, the Android platform aapt will be used.
+   * @return the mode with which to run the build engine.
    */
-  public Optional<Path> getAaptOverride() {
-    Optional<String> pathString = getValue("tools", "aapt");
-    if (!pathString.isPresent()) {
-      return Optional.absent();
-    }
-
-    String platformDir;
-    if (platform == Platform.LINUX) {
-      platformDir = "linux";
-    } else if (platform == Platform.MACOS) {
-      platformDir = "mac";
-    } else if (platform == Platform.WINDOWS) {
-      platformDir = "windows";
-    } else {
-      return Optional.absent();
-    }
-
-    Path pathToAapt = Paths.get(pathString.get(), platformDir, "aapt");
-    return checkPathExists(pathToAapt.toString(), "Overridden aapt path not found: ");
+  public CachingBuildEngine.BuildMode getBuildEngineMode() {
+    return getEnum("build", "engine", CachingBuildEngine.BuildMode.class)
+        .or(CachingBuildEngine.BuildMode.SHALLOW);
   }
 
   /**
@@ -865,6 +790,19 @@ public class BuckConfig {
       ImmutableMap<String, ImmutableMap<String, String>>... configOverrides)
       throws IOException {
     ImmutableList.Builder<File> configFileBuilder = ImmutableList.builder();
+    Path homeDirectory = Paths.get(System.getProperty("user.home"));
+    File userConfigDir = homeDirectory.resolve(DEFAULT_BUCK_CONFIG_DIRECTORY_NAME).toFile();
+    if (userConfigDir.isDirectory()) {
+      File userConfigFiles[] = userConfigDir.listFiles();
+      Arrays.sort(userConfigFiles);
+      for (File userConfigFile : userConfigFiles) {
+        configFileBuilder.add(userConfigFile);
+      }
+    }
+    File userConfigFile = homeDirectory.resolve(DEFAULT_BUCK_CONFIG_FILE_NAME).toFile();
+    if (userConfigFile.isFile()) {
+      configFileBuilder.add(userConfigFile);
+    }
     File configFile = projectFilesystem.getFileForRelativePath(DEFAULT_BUCK_CONFIG_FILE_NAME);
     if (configFile.isFile()) {
       configFileBuilder.add(configFile);

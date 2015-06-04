@@ -124,20 +124,15 @@ public class RuleKey {
   public static Builder builder(
       BuildRule rule,
       SourcePathResolver resolver,
-      FileHashCache hashCache) {
-    ImmutableSortedSet<BuildRule> exportedDeps;
-    if (rule instanceof ExportDependencies) {
-      exportedDeps = ((ExportDependencies) rule).getExportedDeps();
-    } else {
-      exportedDeps = ImmutableSortedSet.of();
-    }
+      FileHashCache hashCache,
+      AppendableRuleKeyCache appendableRuleKeyCache) {
     return builder(
         rule.getBuildTarget(),
         rule.getType(),
         resolver,
         rule.getDeps(),
-        exportedDeps,
-        hashCache);
+        hashCache,
+        appendableRuleKeyCache);
   }
 
   /**
@@ -145,15 +140,24 @@ public class RuleKey {
    */
   public static Builder builder(
       BuildTarget name,
-      BuildRuleType type,
+      String type,
       SourcePathResolver resolver,
       ImmutableSortedSet<BuildRule> deps,
-      ImmutableSortedSet<BuildRule> exportedDeps,
-      FileHashCache hashCache) {
-    return new Builder(resolver, deps, exportedDeps, hashCache)
+      FileHashCache hashCache,
+      AppendableRuleKeyCache appendableRuleKeyCache) {
+    return new Builder(resolver, deps, hashCache, appendableRuleKeyCache)
         .setReflectively("name", name.getFullyQualifiedName())
         // Keyed as "buck.type" rather than "type" in case a build rule has its own "type" argument.
-        .setReflectively("buck.type", type.getName());
+        .setReflectively("buck.type", type);
+  }
+
+  @VisibleForTesting
+  static Builder emptyBuilder(
+      SourcePathResolver resolver,
+      FileHashCache hashCache,
+      AppendableRuleKeyCache appendableRuleKeyCache) {
+    ImmutableSortedSet<BuildRule> noDeps = ImmutableSortedSet.of();
+    return new Builder(resolver, noDeps, hashCache, appendableRuleKeyCache);
   }
 
   public static class Builder {
@@ -165,22 +169,22 @@ public class RuleKey {
 
     private final SourcePathResolver resolver;
     private final ImmutableSortedSet<BuildRule> deps;
-    private final ImmutableSortedSet<BuildRule> exportedDeps;
     private final Hasher hasher;
     private final FileHashCache hashCache;
+    private final AppendableRuleKeyCache appendableRuleKeyCache;
 
     @Nullable private List<String> logElms;
 
     private Builder(
         SourcePathResolver resolver,
         ImmutableSortedSet<BuildRule> deps,
-        ImmutableSortedSet<BuildRule> exportedDeps,
-        FileHashCache hashCache) {
+        FileHashCache hashCache,
+        AppendableRuleKeyCache appendableRuleKeyCache) {
       this.resolver = resolver;
       this.deps = deps;
-      this.exportedDeps = exportedDeps;
       this.hasher = new AppendingHasher(Hashing.sha1(), /* numHashers */ 2);
       this.hashCache = hashCache;
+      this.appendableRuleKeyCache = appendableRuleKeyCache;
       if (logger.isVerboseEnabled()) {
         this.logElms = Lists.newArrayList();
       }
@@ -205,7 +209,9 @@ public class RuleKey {
 
     public Builder setReflectively(String key, @Nullable Object val) {
       if (val instanceof RuleKeyAppendable) {
-        ((RuleKeyAppendable) val).appendToRuleKey(this, key);
+        setReflectively(
+            key + ".appendableSubKey",
+            appendableRuleKeyCache.get((RuleKeyAppendable) val));
         if (!(val instanceof BuildRule)) {
           return this;
         }
@@ -386,22 +392,26 @@ public class RuleKey {
     interface AbstractRuleKeyPair {
 
       @Value.Parameter
-      public RuleKey getTotalRuleKey();
+      RuleKey getTotalRuleKey();
 
       @Value.Parameter
-      public RuleKey getRuleKeyWithoutDeps();
+      RuleKey getRuleKeyWithoutDeps();
 
     }
 
     public RuleKeyPair build() {
       RuleKey ruleKeyWithoutDeps = new RuleKey(hasher.hash());
 
+      if (logElms != null) {
+        logger.verbose(
+            "RuleKey (without deps) %s=%s",
+            ruleKeyWithoutDeps,
+            Joiner.on("").join(logElms));
+      }
+
       // Now introduce the deps into the RuleKey.
       setReflectively("deps", deps);
 
-      if (!exportedDeps.isEmpty()) {
-        setReflectively("exported_deps", exportedDeps);
-      }
       RuleKey totalRuleKey = new RuleKey(hasher.hash());
 
       if (logElms != null) {

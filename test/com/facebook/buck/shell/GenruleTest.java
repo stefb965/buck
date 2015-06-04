@@ -26,7 +26,6 @@ import com.facebook.buck.android.AndroidPlatformTarget;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.java.JavaBinaryRuleBuilder;
 import com.facebook.buck.java.JavaLibraryBuilder;
-import com.facebook.buck.java.JavaLibraryDescription;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.BuildTargetParser;
@@ -91,10 +90,9 @@ public class GenruleTest {
 
   private RuleKeyPair generateRuleKey(
       RuleKeyBuilderFactory factory,
-      SourcePathResolver resolver,
       AbstractBuildRule rule) {
 
-    RuleKey.Builder builder = factory.newInstance(rule, resolver);
+    RuleKey.Builder builder = factory.newInstance(rule);
     return builder.build();
   }
 
@@ -157,7 +155,7 @@ public class GenruleTest {
 
     // Verify all of the observers of the Genrule.
     assertEquals(GEN_PATH.resolve("src/com/facebook/katana/AndroidManifest.xml"),
-        genrule.getPathToOutputFile());
+        genrule.getPathToOutput());
     assertEquals(
         getAbsolutePathInBase(GEN_DIR + "/src/com/facebook/katana/AndroidManifest.xml").toString(),
         ((Genrule) genrule).getAbsoluteOutputFilePath());
@@ -245,12 +243,9 @@ public class GenruleTest {
   public void testDepsEnvironmentVariableIsComplete() {
     BuildRuleResolver resolver = new BuildRuleResolver();
     BuildTarget depTarget = BuildTarget.builder("//foo", "bar").build();
-    BuildRule dep = new FakeBuildRule(
-        JavaLibraryDescription.TYPE,
-        depTarget,
-        new SourcePathResolver(new BuildRuleResolver())) {
+    BuildRule dep = new FakeBuildRule(depTarget, new SourcePathResolver(new BuildRuleResolver())) {
       @Override
-      public Path getPathToOutputFile() {
+      public Path getPathToOutput() {
         return Paths.get("buck-out/gen/foo/bar.jar");
       }
     };
@@ -473,20 +468,18 @@ public class GenruleTest {
   public void thatChangingOutChangesRuleKey() {
     BuildRuleResolver resolver = new BuildRuleResolver();
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
-    RuleKeyBuilderFactory ruleKeyBuilderFactory = new FakeRuleKeyBuilderFactory();
+    RuleKeyBuilderFactory ruleKeyBuilderFactory = new FakeRuleKeyBuilderFactory(pathResolver);
 
     // Get a rule key for two genrules using two different output names, but are otherwise the
     // same.
     RuleKeyPair key1 = generateRuleKey(
         ruleKeyBuilderFactory,
-        pathResolver,
         (Genrule) GenruleBuilder
             .newGenruleBuilder(BuildTargetFactory.newInstance("//:genrule1"))
             .setOut("foo")
             .build(resolver));
     RuleKeyPair key2 = generateRuleKey(
         ruleKeyBuilderFactory,
-        pathResolver,
         (Genrule) GenruleBuilder
             .newGenruleBuilder(BuildTargetFactory.newInstance("//:genrule2"))
             .setOut("bar")

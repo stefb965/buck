@@ -39,7 +39,6 @@ import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.testutil.TargetGraphFactory;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -89,7 +88,7 @@ public class CxxCompilationDatabaseTest {
         ImmutableList.<Path>of(),
         ImmutableList.<Path>of(),
         CxxHeaders.builder().build(),
-        Optional.<DebugPathSanitizer>absent());
+        CxxPlatforms.DEFAULT_DEBUG_PATH_SANITIZER);
 
     CxxCompilationDatabase compilationDatabase = CxxCompilationDatabase.createCompilationDatabase(
         testBuildRuleParams,
@@ -98,9 +97,9 @@ public class CxxCompilationDatabaseTest {
         ImmutableSortedSet.of(testCompileRule));
 
     assertEquals(
-        "getPathToOutputFile() should be a function of the build target.",
+        "getPathToOutput() should be a function of the build target.",
         Paths.get("buck-out/gen/foo/__baz#compilation-database.json"),
-        compilationDatabase.getPathToOutputFile());
+        compilationDatabase.getPathToOutput());
 
     BuildContext buildContext = FakeBuildContext.NOOP_CONTEXT;
     BuildableContext buildableContext = new FakeBuildableContext();
@@ -181,7 +180,7 @@ public class CxxCompilationDatabaseTest {
         ImmutableList.<Path>of(),
         ImmutableList.<Path>of(),
         CxxHeaders.builder().build(),
-        Optional.<DebugPathSanitizer>absent());
+        CxxPlatforms.DEFAULT_DEBUG_PATH_SANITIZER);
 
     BuildTarget compileTarget = BuildTarget
         .builder(testBuildRuleParams.getBuildTarget().getUnflavoredBuildTarget())
@@ -203,7 +202,7 @@ public class CxxCompilationDatabaseTest {
         ImmutableList.<Path>of(),
         ImmutableList.<Path>of(),
         CxxHeaders.builder().build(),
-        Optional.<DebugPathSanitizer>absent());
+        CxxPlatforms.DEFAULT_DEBUG_PATH_SANITIZER);
 
     CxxCompilationDatabase compilationDatabase = CxxCompilationDatabase.createCompilationDatabase(
         testBuildRuleParams,
@@ -212,9 +211,9 @@ public class CxxCompilationDatabaseTest {
         ImmutableSortedSet.of(testPreprocessRule, testCompileRule));
 
     assertEquals(
-        "getPathToOutputFile() should be a function of the build target.",
+        "getPathToOutput() should be a function of the build target.",
         Paths.get("buck-out/gen/foo/__baz#compilation-database.json"),
-        compilationDatabase.getPathToOutputFile());
+        compilationDatabase.getPathToOutput());
 
     BuildContext buildContext = FakeBuildContext.NOOP_CONTEXT;
     BuildableContext buildableContext = new FakeBuildableContext();
