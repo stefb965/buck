@@ -36,6 +36,9 @@ import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -45,6 +48,8 @@ import com.google.common.collect.Iterables;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Set;
+
+import javax.annotation.Nonnull;
 
 public class CxxSourceRuleFactory {
 
@@ -56,39 +61,103 @@ public class CxxSourceRuleFactory {
   private final BuildRuleResolver resolver;
   private final SourcePathResolver pathResolver;
   private final CxxPlatform cxxPlatform;
-  private final CxxPreprocessorInput cxxPreprocessorInput;
+  private final ImmutableList<CxxPreprocessorInput> cxxPreprocessorInput;
   private final ImmutableList<String> compilerFlags;
 
   private final Supplier<ImmutableList<BuildRule>> preprocessDeps = Suppliers.memoize(
       new Supplier<ImmutableList<BuildRule>>() {
         @Override
         public ImmutableList<BuildRule> get() {
-          return ImmutableList.<BuildRule>builder()
-              // Depend on the rule that generates the sources and headers we're compiling.
-              .addAll(
-                  pathResolver.filterBuildRuleInputs(
-                      ImmutableList.<SourcePath>builder()
-                          .addAll(cxxPreprocessorInput.getIncludes().getPrefixHeaders())
-                          .addAll(cxxPreprocessorInput.getIncludes().getNameToPathMap().values())
-                          .build()))
-              // Also add in extra deps from the preprocessor input, such as the symlink tree
-              // rules.
-              .addAll(
-                  BuildRules.toBuildRulesFor(
-                      params.getBuildTarget(),
-                      resolver,
-                      cxxPreprocessorInput.getRules()))
-              .build();
+          ImmutableList.Builder<BuildRule> builder = ImmutableList.builder();
+
+          for (CxxPreprocessorInput input : cxxPreprocessorInput) {
+
+            // Depend on the rules that generate the sources and headers we're compiling.
+            builder.addAll(
+                pathResolver.filterBuildRuleInputs(
+                    ImmutableList.<SourcePath>builder()
+                        .addAll(input.getIncludes().getPrefixHeaders())
+                        .addAll(input.getIncludes().getNameToPathMap().values())
+                        .build()));
+
+            // Also add in extra deps from the preprocessor input, such as the symlink tree
+            // rules.
+            builder.addAll(
+                BuildRules.toBuildRulesFor(
+                    params.getBuildTarget(),
+                    resolver,
+                    input.getRules()));
+          }
+
+          return builder.build();
         }
       });
 
+  private final Supplier<ImmutableList<Path>> includeRoots =
+      Suppliers.memoize(
+          new Supplier<ImmutableList<Path>>() {
+            @Override
+            public ImmutableList<Path> get() {
+              return FluentIterable.from(cxxPreprocessorInput)
+                  .transformAndConcat(CxxPreprocessorInput.GET_INCLUDE_ROOTS)
+                  .toList();
+            }
+          });
+
+  private final Supplier<ImmutableList<Path>> systemIncludeRoots =
+      Suppliers.memoize(
+          new Supplier<ImmutableList<Path>>() {
+            @Override
+            public ImmutableList<Path> get() {
+              return FluentIterable.from(cxxPreprocessorInput)
+                  .transformAndConcat(CxxPreprocessorInput.GET_SYSTEM_INCLUDE_ROOTS)
+                  .toList();
+            }
+          });
+
+  private final Supplier<ImmutableList<Path>> frameworkRoots =
+      Suppliers.memoize(
+          new Supplier<ImmutableList<Path>>() {
+            @Override
+            public ImmutableList<Path> get() {
+              return FluentIterable.from(cxxPreprocessorInput)
+                  .transformAndConcat(CxxPreprocessorInput.GET_FRAMEWORK_ROOTS)
+                  .toList();
+            }
+          });
+
+  private final Supplier<ImmutableList<CxxHeaders>> includes =
+      Suppliers.memoize(
+          new Supplier<ImmutableList<CxxHeaders>>() {
+            @Override
+            public ImmutableList<CxxHeaders> get() {
+              return FluentIterable.from(cxxPreprocessorInput)
+                  .transform(CxxPreprocessorInput.GET_INCLUDES)
+                  .toList();
+            }
+          });
+
+  private final LoadingCache<CxxSource.Type, ImmutableList<String>> preprocessorFlags =
+      CacheBuilder.newBuilder()
+          .build(
+              new CacheLoader<CxxSource.Type, ImmutableList<String>>() {
+                @Override
+                public ImmutableList<String> load(@Nonnull CxxSource.Type type) {
+                  ImmutableList.Builder<String> builder = ImmutableList.builder();
+                  for (CxxPreprocessorInput input : cxxPreprocessorInput) {
+                    builder.addAll(input.getPreprocessorFlags().get(type));
+                  }
+                  return builder.build();
+                }
+              });
+
   @VisibleForTesting
-  CxxSourceRuleFactory(
+  public CxxSourceRuleFactory(
       BuildRuleParams params,
       BuildRuleResolver resolver,
       SourcePathResolver pathResolver,
       CxxPlatform cxxPlatform,
-      CxxPreprocessorInput cxxPreprocessorInput,
+      ImmutableList<CxxPreprocessorInput> cxxPreprocessorInput,
       ImmutableList<String> compilerFlags) {
     this.params = params;
     this.resolver = resolver;
@@ -112,13 +181,6 @@ public class CxxSourceRuleFactory {
     return MoreIterables.zipAndConcat(
         Iterables.cycle("-Xassembler"),
         args);
-  }
-
-  private ImmutableList<String> getPreprocessFlags(CxxSource.Type type) {
-    return ImmutableList.<String>builder()
-        .addAll(CxxSourceTypes.getPlatformPreprocessFlags(cxxPlatform, type))
-        .addAll(cxxPreprocessorInput.getPreprocessorFlags().get(type))
-        .build();
   }
 
   /**
@@ -170,7 +232,7 @@ public class CxxSourceRuleFactory {
   }
 
   @VisibleForTesting
-  CxxPreprocessAndCompile requirePreprocessBuildRule(
+  public CxxPreprocessAndCompile createPreprocessBuildRule(
       BuildRuleResolver resolver,
       String name,
       CxxSource source,
@@ -179,12 +241,6 @@ public class CxxSourceRuleFactory {
     Preconditions.checkArgument(CxxSourceTypes.isPreprocessableType(source.getType()));
 
     BuildTarget target = createPreprocessBuildTarget(name, source.getType(), pic);
-    Optional<CxxPreprocessAndCompile> existingRule = resolver.getRuleOptionalWithType(
-        target, CxxPreprocessAndCompile.class);
-    if (existingRule.isPresent()) {
-      return existingRule.get();
-    }
-
     Tool tool = CxxSourceTypes.getPreprocessor(cxxPlatform, source.getType());
 
     // Build up the list of dependencies for this rule.
@@ -199,17 +255,25 @@ public class CxxSourceRuleFactory {
             .build();
 
     // Build up the list of extra preprocessor flags for this rule.
-    ImmutableList<String> args =
+    ImmutableList<String> platformFlags =
         ImmutableList.<String>builder()
-            // We explicitly identify our source rather then let the compiler guess based on the
-            // extension.
-            .add("-x", source.getType().getLanguage())
             // If we're using pic, add in the appropriate flag.
             .addAll(pic.getFlags())
-            // Add in the source and platform specific preprocessor flags.
-            .addAll(getPreprocessFlags(source.getType()))
+            // Add in platform specific preprocessor flags.
+            .addAll(CxxSourceTypes.getPlatformPreprocessFlags(cxxPlatform, source.getType()))
+            // Add in the platform specific compiler flags.
+            .addAll(getPlatformCompileFlags(
+              CxxSourceTypes.getPreprocessorOutputType(source.getType())))
+            .build();
+
+    ImmutableList<String> ruleFlags =
+        ImmutableList.<String>builder()
+            // Add custom preprocessor flags.
+            .addAll(preprocessorFlags.getUnchecked(source.getType()))
             // Add custom per-file flags.
             .addAll(source.getFlags())
+            // Add custom compiler flags.
+            .addAll(getRuleCompileFlags(CxxSourceTypes.getPreprocessorOutputType(source.getType())))
             .build();
 
     // Build the CxxCompile rule and add it to our sorted set of build rules.
@@ -220,16 +284,35 @@ public class CxxSourceRuleFactory {
             Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
         pathResolver,
         tool,
-        args,
+        platformFlags,
+        ruleFlags,
         getPreprocessOutputPath(target, source.getType(), name),
         source.getPath(),
-        ImmutableList.copyOf(cxxPreprocessorInput.getIncludeRoots()),
-        ImmutableList.copyOf(cxxPreprocessorInput.getSystemIncludeRoots()),
-        ImmutableList.copyOf(cxxPreprocessorInput.getFrameworkRoots()),
-        cxxPreprocessorInput.getIncludes(),
+        source.getType(),
+        includeRoots.get(),
+        systemIncludeRoots.get(),
+        frameworkRoots.get(),
+        includes.get(),
         cxxPlatform.getDebugPathSanitizer());
     resolver.addToIndex(result);
     return result;
+  }
+
+  @VisibleForTesting
+  CxxPreprocessAndCompile requirePreprocessBuildRule(
+      BuildRuleResolver resolver,
+      String name,
+      CxxSource source,
+      PicType pic) {
+
+    BuildTarget target = createPreprocessBuildTarget(name, source.getType(), pic);
+    Optional<CxxPreprocessAndCompile> existingRule = resolver.getRuleOptionalWithType(
+        target, CxxPreprocessAndCompile.class);
+    if (existingRule.isPresent()) {
+      return existingRule.get();
+    }
+
+    return createPreprocessBuildRule(resolver, name, source, pic);
   }
 
   /**
@@ -286,15 +369,8 @@ public class CxxSourceRuleFactory {
       cxxPlatform.getCc();
   }
 
-  private ImmutableList<String> getCompileFlags(CxxSource.Type type) {
+  private ImmutableList<String> getPlatformCompileFlags(CxxSource.Type type) {
     ImmutableList.Builder<String> args = ImmutableList.builder();
-
-    // TODO(#5393669): We need to handle compiler drivers that don't support certain language
-    // options (e.g. the android NDK compilers don't support "c-cpp-output", although they can
-    // auto-detect via the extension).  For the time being, we just fall back to the default
-    // of letting the compiler driver auto-detecting the language type via the extensions which
-    // should work, since we require proper extensions in the descriptions.
-    //args.add("-x", source.getType().getLanguage());
 
     // If we're dealing with a C source that can be compiled, add the platform C compiler flags.
     if (type == CxxSource.Type.C_CPP_OUTPUT ||
@@ -309,6 +385,15 @@ public class CxxSourceRuleFactory {
       args.addAll(cxxPlatform.getCxxflags());
     }
 
+    // All source types require assembling, so add in platform-specific assembler flags.
+    args.addAll(iXassembler(cxxPlatform.getAsflags()));
+
+    return args.build();
+  }
+
+  private ImmutableList<String> getRuleCompileFlags(CxxSource.Type type) {
+    ImmutableList.Builder<String> args = ImmutableList.builder();
+
     // Add in explicit additional compiler flags, if we're compiling.
     if (type == CxxSource.Type.C_CPP_OUTPUT ||
         type == CxxSource.Type.OBJC_CPP_OUTPUT ||
@@ -316,9 +401,6 @@ public class CxxSourceRuleFactory {
         type == CxxSource.Type.OBJCXX_CPP_OUTPUT) {
       args.addAll(compilerFlags);
     }
-
-    // All source types require assembling, so add in platform-specific assembler flags.
-    args.addAll(iXassembler(cxxPlatform.getAsflags()));
 
     return args.build();
   }
@@ -328,7 +410,7 @@ public class CxxSourceRuleFactory {
    *    given {@link CxxSource}.
    */
   @VisibleForTesting
-  CxxPreprocessAndCompile requireCompileBuildRule(
+  public CxxPreprocessAndCompile createCompileBuildRule(
       BuildRuleResolver resolver,
       String name,
       CxxSource source,
@@ -337,12 +419,6 @@ public class CxxSourceRuleFactory {
     Preconditions.checkArgument(CxxSourceTypes.isCompilableType(source.getType()));
 
     BuildTarget target = createCompileBuildTarget(name, pic);
-    Optional<CxxPreprocessAndCompile> existingRule = resolver.getRuleOptionalWithType(
-        target, CxxPreprocessAndCompile.class);
-    if (existingRule.isPresent()) {
-      return existingRule.get();
-    }
-
     Tool tool = getCompiler(source.getType());
 
     ImmutableSortedSet<BuildRule> dependencies =
@@ -354,13 +430,19 @@ public class CxxSourceRuleFactory {
             .build();
 
     // Build up the list of compiler flags.
-    ImmutableList<String> args =
+    ImmutableList<String> platformFlags =
         ImmutableList.<String>builder()
             // If we're using pic, add in the appropriate flag.
             .addAll(pic.getFlags())
-            // Add in the platform and source specific compiler flags.
-            .addAll(getCompileFlags(source.getType()))
-            // Add in per-source flags.
+            // Add in the platform specific compiler flags.
+            .addAll(getPlatformCompileFlags(source.getType()))
+            .build();
+
+    ImmutableList<String> ruleFlags =
+        ImmutableList.<String>builder()
+            // Add custom compiler flags.
+            .addAll(getRuleCompileFlags(source.getType()))
+            // Add custom per-file flags.
             .addAll(source.getFlags())
             .build();
 
@@ -372,26 +454,22 @@ public class CxxSourceRuleFactory {
             Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
         pathResolver,
         tool,
-        args,
+        platformFlags,
+        ruleFlags,
         getCompileOutputPath(target, name),
         source.getPath(),
+        source.getType(),
         cxxPlatform.getDebugPathSanitizer());
     resolver.addToIndex(result);
     return result;
   }
 
-  /**
-   * @return a {@link CxxPreprocessAndCompile} rule that preprocesses, compiles, and assembles the
-   *    given {@link CxxSource}.
-   */
   @VisibleForTesting
-  CxxPreprocessAndCompile requirePreprocessAndCompileBuildRule(
+  CxxPreprocessAndCompile requireCompileBuildRule(
       BuildRuleResolver resolver,
       String name,
       CxxSource source,
       PicType pic) {
-
-    Preconditions.checkArgument(CxxSourceTypes.isPreprocessableType(source.getType()));
 
     BuildTarget target = createCompileBuildTarget(name, pic);
     Optional<CxxPreprocessAndCompile> existingRule = resolver.getRuleOptionalWithType(
@@ -400,6 +478,24 @@ public class CxxSourceRuleFactory {
       return existingRule.get();
     }
 
+    return createCompileBuildRule(resolver, name, source, pic);
+  }
+
+  /**
+   * @return a {@link CxxPreprocessAndCompile} rule that preprocesses, compiles, and assembles the
+   *    given {@link CxxSource}.
+   */
+  @VisibleForTesting
+  public CxxPreprocessAndCompile createPreprocessAndCompileBuildRule(
+      BuildRuleResolver resolver,
+      String name,
+      CxxSource source,
+      PicType pic,
+      CxxPreprocessMode strategy) {
+
+    Preconditions.checkArgument(CxxSourceTypes.isPreprocessableType(source.getType()));
+
+    BuildTarget target = createCompileBuildTarget(name, pic);
     Tool tool = getCompiler(source.getType());
 
     ImmutableSortedSet<BuildRule> dependencies =
@@ -413,20 +509,19 @@ public class CxxSourceRuleFactory {
             .build();
 
     // Build up the list of compiler flags.
-    ImmutableList<String> args =
-        ImmutableList.<String>builder()
-            // We explicitly identify our source rather then let the compiler guess based on the
-            // extension.
-            .add("-x", source.getType().getLanguage())
-            // If we're using pic, add in the appropriate flag.
-            .addAll(pic.getFlags())
-            // Add in preprocessor flags.
-            .addAll(getPreprocessFlags(source.getType()))
-            // Add in the platform and source specific compiler flags.
-            .addAll(getCompileFlags(CxxSourceTypes.getPreprocessorOutputType(source.getType())))
-            // Add in per-source flags.
-            .addAll(source.getFlags())
-            .build();
+    ImmutableList<String> platformCompilerFlags = ImmutableList.<String>builder()
+        // If we're using pic, add in the appropriate flag.
+        .addAll(pic.getFlags())
+        // Add in the platform specific compiler flags.
+        .addAll(getPlatformCompileFlags(CxxSourceTypes.getPreprocessorOutputType(source.getType())))
+        .build();
+
+    ImmutableList<String> ruleCompilerFlags = ImmutableList.<String>builder()
+        // Add custom compiler flags.
+        .addAll(getRuleCompileFlags(CxxSourceTypes.getPreprocessorOutputType(source.getType())))
+        // Add custom per-file flags.
+        .addAll(source.getFlags())
+        .build();
 
     LOG.verbose("Creating preprocess and compile %s for %s", target, source);
 
@@ -438,21 +533,45 @@ public class CxxSourceRuleFactory {
             Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
         pathResolver,
         tool,
-        args,
+        CxxSourceTypes.getPlatformPreprocessFlags(cxxPlatform, source.getType()),
+        preprocessorFlags.getUnchecked(source.getType()),
+        tool,
+        platformCompilerFlags,
+        ruleCompilerFlags,
         getCompileOutputPath(target, name),
         source.getPath(),
-        ImmutableList.copyOf(cxxPreprocessorInput.getIncludeRoots()),
-        ImmutableList.copyOf(cxxPreprocessorInput.getSystemIncludeRoots()),
-        ImmutableList.copyOf(cxxPreprocessorInput.getFrameworkRoots()),
-        cxxPreprocessorInput.getIncludes(),
-        cxxPlatform.getDebugPathSanitizer());
+        source.getType(),
+        includeRoots.get(),
+        systemIncludeRoots.get(),
+        frameworkRoots.get(),
+        includes.get(),
+        cxxPlatform.getDebugPathSanitizer(),
+        strategy);
     resolver.addToIndex(result);
     return result;
   }
 
+  @VisibleForTesting
+  CxxPreprocessAndCompile requirePreprocessAndCompileBuildRule(
+      BuildRuleResolver resolver,
+      String name,
+      CxxSource source,
+      PicType pic,
+      CxxPreprocessMode strategy) {
+
+    BuildTarget target = createCompileBuildTarget(name, pic);
+    Optional<CxxPreprocessAndCompile> existingRule = resolver.getRuleOptionalWithType(
+        target, CxxPreprocessAndCompile.class);
+    if (existingRule.isPresent()) {
+      return existingRule.get();
+    }
+
+    return createPreprocessAndCompileBuildRule(resolver, name, source, pic, strategy);
+  }
+
   private ImmutableMap<CxxPreprocessAndCompile, SourcePath> requirePreprocessAndCompileRules(
       BuildRuleResolver resolver,
-      Strategy strategy,
+      CxxPreprocessMode strategy,
       ImmutableMap<String, CxxSource> sources,
       PicType pic) {
 
@@ -468,13 +587,14 @@ public class CxxSourceRuleFactory {
 
       switch (strategy) {
 
-        case COMBINED_PREPROCESS_AND_COMPILE: {
+        case PIPED:
+        case COMBINED: {
           CxxPreprocessAndCompile rule;
 
           // If it's a preprocessable source, use a combine preprocess-and-compile build rule.
           // Otherwise, use a regular compile rule.
           if (CxxSourceTypes.isPreprocessableType(source.getType())) {
-            rule = requirePreprocessAndCompileBuildRule(resolver, name, source, pic);
+            rule = requirePreprocessAndCompileBuildRule(resolver, name, source, pic, strategy);
           } else {
             rule = requireCompileBuildRule(resolver, name, source, pic);
           }
@@ -483,7 +603,7 @@ public class CxxSourceRuleFactory {
           break;
         }
 
-        case SEPARATE_PREPROCESS_AND_COMPILE: {
+        case SEPARATE: {
 
           // If this is a preprocessable source, first create the preprocess build rule and
           // update the source and name to represent its compilable output.
@@ -526,9 +646,9 @@ public class CxxSourceRuleFactory {
       BuildRuleResolver resolver,
       SourcePathResolver pathResolver,
       CxxPlatform cxxPlatform,
-      CxxPreprocessorInput cxxPreprocessorInput,
+      ImmutableList<CxxPreprocessorInput> cxxPreprocessorInput,
       ImmutableList<String> compilerFlags,
-      Strategy strategy,
+      CxxPreprocessMode strategy,
       ImmutableMap<String, CxxSource> sources,
       PicType pic) {
     CxxSourceRuleFactory factory =
@@ -542,19 +662,7 @@ public class CxxSourceRuleFactory {
     return factory.requirePreprocessAndCompileRules(resolver, strategy, sources, pic);
   }
 
-  public static enum Strategy {
-
-    // Preprocess and compile sources in a single rule.
-    COMBINED_PREPROCESS_AND_COMPILE,
-
-    // Preprocess and compile sources in separate build rules.
-    SEPARATE_PREPROCESS_AND_COMPILE,
-
-    ;
-
-  }
-
-  public static enum PicType {
+  public enum PicType {
 
     // Generate position-independent code (e.g. for use in shared libraries).
     PIC("-fPIC"),
@@ -564,7 +672,7 @@ public class CxxSourceRuleFactory {
 
     private final ImmutableList<String> flags;
 
-    private PicType(String... flags) {
+    PicType(String... flags) {
       this.flags = ImmutableList.copyOf(flags);
     }
 

@@ -19,9 +19,12 @@ package com.facebook.buck.rules;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.HasBuildTarget;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.annotations.Beta;
 import com.google.common.base.CaseFormat;
 import com.google.common.collect.ImmutableSortedSet;
+
+import org.immutables.value.Value;
 
 import javax.annotation.Nullable;
 
@@ -35,6 +38,7 @@ public abstract class AbstractBuildRule implements BuildRule {
 
   private final BuildTarget buildTarget;
   private final ImmutableSortedSet<BuildRule> declaredDeps;
+  private final ImmutableSortedSet<BuildRule> extraDeps;
   private final ImmutableSortedSet<BuildRule> deps;
   private final RuleKeyBuilderFactory ruleKeyBuilderFactory;
   private final SourcePathResolver resolver;
@@ -44,6 +48,7 @@ public abstract class AbstractBuildRule implements BuildRule {
   protected AbstractBuildRule(BuildRuleParams buildRuleParams, SourcePathResolver resolver) {
     this.buildTarget = buildRuleParams.getBuildTarget();
     this.declaredDeps = buildRuleParams.getDeclaredDeps();
+    this.extraDeps = buildRuleParams.getExtraDeps();
     this.deps = buildRuleParams.getDeps();
     this.ruleKeyBuilderFactory = buildRuleParams.getRuleKeyBuilderFactory();
     this.resolver = resolver;
@@ -72,6 +77,10 @@ public abstract class AbstractBuildRule implements BuildRule {
 
   public final ImmutableSortedSet<BuildRule> getDeclaredDeps() {
     return declaredDeps;
+  }
+
+  private ImmutableSortedSet<BuildRule> getExtraDeps() {
+    return extraDeps;
   }
 
   @Override
@@ -136,11 +145,28 @@ public abstract class AbstractBuildRule implements BuildRule {
       synchronized (this) {
         if (ruleKeyPair == null) {
           RuleKey.Builder builder = ruleKeyBuilderFactory.newInstance(this);
-          ruleKeyPair = builder.build();
+          RuleKey ruleKeyWithoutDeps = builder.build();
+          // Now introduce the deps into the RuleKey.
+          builder.setReflectively("deps", getDeclaredDeps());
+          builder.setReflectively("buck.extraDeps", getExtraDeps());
+          RuleKey totalRuleKey = builder.build();
+          ruleKeyPair = RuleKeyPair.of(totalRuleKey, ruleKeyWithoutDeps);
         }
       }
     }
     return ruleKeyPair;
+  }
+
+  @BuckStyleImmutable
+  @Value.Immutable
+  public interface AbstractRuleKeyPair {
+
+    @Value.Parameter
+    RuleKey getTotalRuleKey();
+
+    @Value.Parameter
+    RuleKey getRuleKeyWithoutDeps();
+
   }
 
 }

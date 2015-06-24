@@ -20,6 +20,7 @@ import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.util.Escaper;
 import com.google.common.base.Function;
+import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -41,22 +42,15 @@ public class CxxPreprocessAndCompileStepTest {
 
     // Setup some dummy values for inputs to the CxxPreprocessAndCompileStep
     ImmutableList<String> compiler = ImmutableList.of("compiler");
-    ImmutableList<String> flags = ImmutableList.of("-Dtest=blah");
     Path output = Paths.get("test.ii");
     Path input = Paths.get("test.cpp");
-
-    ImmutableList.Builder<String> cmd = ImmutableList.builder();
-    cmd.addAll(compiler);
-    cmd.add(CxxPreprocessAndCompileStep.Operation.PREPROCESS.getFlag());
-    cmd.addAll(flags);
-    cmd.add(input.toString());
 
     Path compilationDirectory = Paths.get("compDir");
     DebugPathSanitizer sanitizer = new DebugPathSanitizer(
         9,
         File.separatorChar,
-        "PWD",
-        ImmutableBiMap.of(Paths.get("hello"), "SANITIZED"));
+        Paths.get("PWD"),
+        ImmutableBiMap.of(Paths.get("hello"), Paths.get("SANITIZED")));
 
     // Create our CxxPreprocessAndCompileStep to test.
     CxxPreprocessAndCompileStep cxxPreprocessStep =
@@ -64,7 +58,9 @@ public class CxxPreprocessAndCompileStepTest {
             CxxPreprocessAndCompileStep.Operation.PREPROCESS,
             output,
             input,
-            cmd.build(),
+            CxxSource.Type.CXX,
+            Optional.of(compiler),
+            Optional.<ImmutableList<String>>absent(),
             replacementPaths,
             sanitizer);
 
@@ -96,12 +92,6 @@ public class CxxPreprocessAndCompileStepTest {
     Path output = Paths.get("test.ii");
     Path input = Paths.get("test.cpp");
 
-    ImmutableList.Builder<String> cmd = ImmutableList.builder();
-    cmd.addAll(compiler);
-    cmd.add(CxxPreprocessAndCompileStep.Operation.COMPILE.getFlag());
-    cmd.add("-o", output.toString());
-    cmd.add(input.toString());
-
     ImmutableMap<Path, Path> replacementPaths = ImmutableMap.of(original, replacement);
 
     Path compilationDirectory = Paths.get("compDir");
@@ -119,7 +109,9 @@ public class CxxPreprocessAndCompileStepTest {
             CxxPreprocessAndCompileStep.Operation.COMPILE,
             output,
             input,
-            cmd.build(),
+            CxxSource.Type.CXX,
+            Optional.<ImmutableList<String>>absent(),
+            Optional.of(compiler),
             replacementPaths,
             sanitizer);
 

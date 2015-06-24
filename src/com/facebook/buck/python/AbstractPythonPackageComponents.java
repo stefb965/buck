@@ -24,6 +24,7 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import org.immutables.value.Value;
@@ -31,10 +32,19 @@ import org.immutables.value.Value;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 @Value.Immutable(builder = false)
 @BuckStyleImmutable
 abstract class AbstractPythonPackageComponents implements RuleKeyAppendable {
+
+  private static final PythonPackageComponents EMPTY =
+      PythonPackageComponents.of(
+        /* modules */ ImmutableMap.<Path, SourcePath>of(),
+        /* resources */ ImmutableMap.<Path, SourcePath>of(),
+        /* nativeLibraries */ ImmutableMap.<Path, SourcePath>of(),
+        /* prebuiltLibraries */ ImmutableSet.<SourcePath>of(),
+        /* zipSafe */ Optional.<Boolean>absent());
 
   // Python modules as map of their module name to location of the source.
   @Value.Parameter
@@ -47,6 +57,11 @@ abstract class AbstractPythonPackageComponents implements RuleKeyAppendable {
   // Native libraries to include in the package.
   @Value.Parameter
   public abstract Map<Path, SourcePath> getNativeLibraries();
+
+  // Pre-built python libraries (eggs, wheels). Note that source distributions
+  // will not work!
+  @Value.Parameter
+  public abstract Set<SourcePath> getPrebuiltLibraries();
 
   @Value.Parameter
   public abstract Optional<Boolean> isZipSafe();
@@ -70,6 +85,10 @@ abstract class AbstractPythonPackageComponents implements RuleKeyAppendable {
     return builder;
   }
 
+  public static PythonPackageComponents of() {
+    return EMPTY;
+  }
+
   /**
    * A helper class to construct a PythonPackageComponents instance which
    * throws human readable error messages on duplicates.
@@ -83,6 +102,7 @@ abstract class AbstractPythonPackageComponents implements RuleKeyAppendable {
     private final ImmutableMap.Builder<Path, SourcePath> modules = ImmutableMap.builder();
     private final ImmutableMap.Builder<Path, SourcePath> resources = ImmutableMap.builder();
     private final ImmutableMap.Builder<Path, SourcePath> nativeLibraries = ImmutableMap.builder();
+    private final ImmutableSet.Builder<SourcePath> prebuiltLibraries = ImmutableSet.builder();
     private Optional<Boolean> zipSafe = Optional.absent();
 
     // Bookkeeping used to for error handling in the presence of duplicate
@@ -150,10 +170,16 @@ abstract class AbstractPythonPackageComponents implements RuleKeyAppendable {
       return add("native library", nativeLibraries, nativeLibrarySources, sources, from);
     }
 
+    public Builder addPrebuiltLibraries(Set<SourcePath> sources) {
+      prebuiltLibraries.addAll(sources);
+      return this;
+    }
+
     public Builder addComponent(PythonPackageComponents other, BuildTarget from) {
       addModules(other.getModules(), from);
       addResources(other.getResources(), from);
       addNativeLibraries(other.getNativeLibraries(), from);
+      addPrebuiltLibraries(other.getPrebuiltLibraries());
       addZipSafe(other.isZipSafe());
       return this;
     }
@@ -172,6 +198,7 @@ abstract class AbstractPythonPackageComponents implements RuleKeyAppendable {
           modules.build(),
           resources.build(),
           nativeLibraries.build(),
+          prebuiltLibraries.build(),
           zipSafe);
     }
 

@@ -19,6 +19,8 @@ package com.facebook.buck.cxx;
 import com.facebook.buck.android.AndroidPackageable;
 import com.facebook.buck.android.AndroidPackageableCollector;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.Flavor;
+import com.facebook.buck.model.Pair;
 import com.facebook.buck.python.PythonPackageComponents;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -28,14 +30,18 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
+import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Maps;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * An action graph representation of a C/C++ library from the target graph, providing the
@@ -45,26 +51,29 @@ public class CxxLibrary extends AbstractCxxLibrary {
 
   private final BuildRuleParams params;
   private final BuildRuleResolver ruleResolver;
-  private final boolean headerOnly;
+  private final Predicate<CxxPlatform> headerOnly;
   private final Function<? super CxxPlatform, ImmutableMultimap<CxxSource.Type, String>>
       exportedPreprocessorFlags;
   private final Function<? super CxxPlatform, ImmutableList<String>> exportedLinkerFlags;
-  private final Optional<String> supportedPlatformsRegex;
+  private final Optional<Pattern> supportedPlatformsRegex;
   private final ImmutableList<Path> frameworkSearchPaths;
   private final Linkage linkage;
   private final boolean linkWhole;
   private final Optional<String> soname;
   private final ImmutableSortedSet<BuildTarget> tests;
 
+  private final Map<Pair<Flavor, HeaderVisibility>, ImmutableMap<BuildTarget, CxxPreprocessorInput>>
+      cxxPreprocessorInputCache = Maps.newHashMap();
+
   public CxxLibrary(
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
-      boolean headerOnly,
+      Predicate<CxxPlatform> headerOnly,
       Function<? super CxxPlatform, ImmutableMultimap<CxxSource.Type, String>>
           exportedPreprocessorFlags,
       Function<? super CxxPlatform, ImmutableList<String>> exportedLinkerFlags,
-      Optional<String> supportedPlatformsRegex,
+      Optional<Pattern> supportedPlatformsRegex,
       ImmutableList<Path> frameworkSearchPaths,
       Linkage linkage,
       boolean linkWhole,
@@ -84,6 +93,13 @@ public class CxxLibrary extends AbstractCxxLibrary {
     this.tests = tests;
   }
 
+  private boolean isPlatformSupported(CxxPlatform cxxPlatform) {
+    return !supportedPlatformsRegex.isPresent() ||
+        supportedPlatformsRegex.get()
+            .matcher(cxxPlatform.getFlavor().toString())
+            .find();
+  }
+
   @Override
   public CxxPreprocessorInput getCxxPreprocessorInput(
       CxxPlatform cxxPlatform,
@@ -98,12 +114,40 @@ public class CxxLibrary extends AbstractCxxLibrary {
   }
 
   @Override
+  public ImmutableMap<BuildTarget, CxxPreprocessorInput>
+      getTransitiveCxxPreprocessorInput(
+          CxxPlatform cxxPlatform,
+          HeaderVisibility headerVisibility) {
+    Pair<Flavor, HeaderVisibility> key = new Pair<>(cxxPlatform.getFlavor(), headerVisibility);
+    ImmutableMap<BuildTarget, CxxPreprocessorInput> result = cxxPreprocessorInputCache.get(key);
+    if (result == null) {
+      Map<BuildTarget, CxxPreprocessorInput> builder = Maps.newLinkedHashMap();
+      builder.put(getBuildTarget(), getCxxPreprocessorInput(cxxPlatform, headerVisibility));
+      for (BuildRule dep : getDeps()) {
+        if (dep instanceof CxxPreprocessorDep) {
+          builder.putAll(
+              ((CxxPreprocessorDep) dep).getTransitiveCxxPreprocessorInput(
+                  cxxPlatform,
+                  headerVisibility));
+        }
+      }
+      result = ImmutableMap.copyOf(builder);
+      cxxPreprocessorInputCache.put(key, result);
+    }
+    return result;
+  }
+
+  @Override
   public NativeLinkableInput getNativeLinkableInput(
       CxxPlatform cxxPlatform,
       Linker.LinkableDepType type) {
 
-    if (headerOnly) {
-      return NativeLinkableInput.of(ImmutableSet.<SourcePath>of(), ImmutableList.<String>of());
+    if (headerOnly.apply(cxxPlatform)) {
+      return NativeLinkableInput.of();
+    }
+
+    if (!isPlatformSupported(cxxPlatform)) {
+      return NativeLinkableInput.of();
     }
 
     // Build up the arguments used to link this library.  If we're linking the
@@ -133,9 +177,13 @@ public class CxxLibrary extends AbstractCxxLibrary {
         linkerArgsBuilder.add(staticLibraryPath.toString());
       }
     } else {
+      String sharedLibrarySoname =
+          soname.or(
+              CxxDescriptionEnhancer.getDefaultSharedLibrarySoname(
+                  params.getBuildTarget(), cxxPlatform));
       Path sharedLibraryPath = CxxDescriptionEnhancer.getSharedLibraryPath(
           getBuildTarget(),
-          soname,
+          sharedLibrarySoname,
           cxxPlatform);
       libraryRule = CxxDescriptionEnhancer.requireBuildRule(
           params,
@@ -164,25 +212,36 @@ public class CxxLibrary extends AbstractCxxLibrary {
 
   @Override
   public PythonPackageComponents getPythonPackageComponents(CxxPlatform cxxPlatform) {
-    ImmutableMap.Builder<Path, SourcePath> libs = ImmutableMap.builder();
-    if (!headerOnly && linkage != Linkage.STATIC) {
-      String sharedLibrarySoname =
-          soname.or(CxxDescriptionEnhancer.getSharedLibrarySoname(getBuildTarget(), cxxPlatform));
-      BuildRule sharedLibraryBuildRule = CxxDescriptionEnhancer.requireBuildRule(
-          params,
-          ruleResolver,
-          cxxPlatform.getFlavor(),
-          CxxDescriptionEnhancer.SHARED_FLAVOR);
-      libs.put(
-          Paths.get(sharedLibrarySoname),
-          new BuildTargetSourcePath(
-              sharedLibraryBuildRule.getProjectFilesystem(),
-              sharedLibraryBuildRule.getBuildTarget()));
+    if (headerOnly.apply(cxxPlatform)) {
+      return PythonPackageComponents.of();
     }
+    if (linkage == Linkage.STATIC) {
+      return PythonPackageComponents.of();
+    }
+    if (!isPlatformSupported(cxxPlatform)) {
+      return PythonPackageComponents.of();
+    }
+    ImmutableMap.Builder<Path, SourcePath> libs = ImmutableMap.builder();
+    String sharedLibrarySoname =
+        soname.or(
+            CxxDescriptionEnhancer.getDefaultSharedLibrarySoname(
+                getBuildTarget(),
+                cxxPlatform));
+    BuildRule sharedLibraryBuildRule = CxxDescriptionEnhancer.requireBuildRule(
+        params,
+        ruleResolver,
+        cxxPlatform.getFlavor(),
+        CxxDescriptionEnhancer.SHARED_FLAVOR);
+    libs.put(
+        Paths.get(sharedLibrarySoname),
+        new BuildTargetSourcePath(
+            sharedLibraryBuildRule.getProjectFilesystem(),
+            sharedLibraryBuildRule.getBuildTarget()));
     return PythonPackageComponents.of(
         /* modules */ ImmutableMap.<Path, SourcePath>of(),
         /* resources */ ImmutableMap.<Path, SourcePath>of(),
         /* nativeLibraries */ libs.build(),
+        /* prebuiltLibraries */ ImmutableSet.<SourcePath>of(),
         /* zipSafe */ Optional.<Boolean>absent());
   }
 
@@ -198,21 +257,21 @@ public class CxxLibrary extends AbstractCxxLibrary {
 
   @Override
   public ImmutableMap<String, SourcePath> getSharedLibraries(CxxPlatform cxxPlatform) {
-    if (headerOnly) {
+    if (headerOnly.apply(cxxPlatform)) {
       return ImmutableMap.of();
     }
     if (linkage == Linkage.STATIC) {
       return ImmutableMap.of();
     }
-    if (supportedPlatformsRegex.isPresent() &&
-        !CxxFlags.compilePlatformRegex(supportedPlatformsRegex.get())
-            .matcher(cxxPlatform.getFlavor().toString())
-            .find()) {
+    if (!isPlatformSupported(cxxPlatform)) {
       return ImmutableMap.of();
     }
     ImmutableMap.Builder<String, SourcePath> libs = ImmutableMap.builder();
     String sharedLibrarySoname =
-        soname.or(CxxDescriptionEnhancer.getSharedLibrarySoname(getBuildTarget(), cxxPlatform));
+        soname.or(
+            CxxDescriptionEnhancer.getDefaultSharedLibrarySoname(
+                getBuildTarget(),
+                cxxPlatform));
     BuildRule sharedLibraryBuildRule = CxxDescriptionEnhancer.requireBuildRule(
         params,
         ruleResolver,

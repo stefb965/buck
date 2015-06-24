@@ -23,7 +23,6 @@ import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.model.ImmutableFlavor;
-import com.facebook.buck.model.Pair;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -33,8 +32,9 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.rules.coercer.Either;
+import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.rules.coercer.SourceWithFlags;
+import com.facebook.buck.rules.coercer.SourceWithFlagsList;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
@@ -54,8 +54,6 @@ import com.google.common.collect.Iterables;
 import com.google.common.io.Files;
 
 import java.nio.file.Path;
-import java.util.Collection;
-import java.util.Collections;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -242,29 +240,6 @@ public class CxxDescriptionEnhancer {
     }
   }
 
-  private static ImmutableMap<Path, SourcePath> getHeaderMapFromArgParameter(
-      SourcePathResolver pathResolver,
-      BuildTarget buildTarget,
-      Optional<String> headerNamespace,
-      String parameterName,
-      Optional<Either<ImmutableList<SourcePath>, ImmutableMap<String, SourcePath>>> parameter) {
-    ImmutableMap<String, SourcePath> headers;
-    if (!parameter.isPresent()) {
-      headers = ImmutableMap.of();
-    } else if (parameter.get().isRight()) {
-      headers = parameter.get().getRight();
-    } else {
-      headers = pathResolver.getSourcePathNames(
-          buildTarget,
-          parameterName,
-          parameter.get().getLeft());
-    }
-    return CxxPreprocessables.resolveHeaderMap(
-        headerNamespace.transform(MorePaths.TO_PATH)
-            .or(buildTarget.getBasePath()),
-        headers);
-  }
-
   /**
    * @return a map of header locations to input {@link SourcePath} objects formed by parsing the
    *    input {@link SourcePath} objects for the "headers" parameter.
@@ -272,13 +247,24 @@ public class CxxDescriptionEnhancer {
   public static ImmutableMap<Path, SourcePath> parseHeaders(
       BuildRuleParams params,
       BuildRuleResolver resolver,
+      CxxPlatform cxxPlatform,
       CxxConstructorArg args) {
-    return getHeaderMapFromArgParameter(
-        new SourcePathResolver(resolver),
-        params.getBuildTarget(),
-        args.headerNamespace,
-        "headers",
-        args.headers);
+    ImmutableMap.Builder<String, SourcePath> headers = ImmutableMap.builder();
+    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    putAllHeaders(args.headers.get(), headers, pathResolver, "headers", params.getBuildTarget());
+    for (SourceList sourceList :
+        args.platformHeaders.get().getMatchingValues(cxxPlatform.getFlavor().toString())) {
+      putAllHeaders(
+          sourceList,
+          headers,
+          pathResolver,
+          "platform_headers",
+          params.getBuildTarget());
+    }
+    return CxxPreprocessables.resolveHeaderMap(
+        args.headerNamespace.transform(MorePaths.TO_PATH)
+            .or(params.getBuildTarget().getBasePath()),
+        headers.build());
   }
 
   /**
@@ -288,13 +274,49 @@ public class CxxDescriptionEnhancer {
   public static ImmutableMap<Path, SourcePath> parseExportedHeaders(
       BuildRuleParams params,
       BuildRuleResolver resolver,
+      CxxPlatform cxxPlatform,
       CxxLibraryDescription.Arg args) {
-    return getHeaderMapFromArgParameter(
-        new SourcePathResolver(resolver),
-        params.getBuildTarget(),
-        args.headerNamespace,
-        "exportedHeaders",
-        args.exportedHeaders);
+    ImmutableMap.Builder<String, SourcePath> headers = ImmutableMap.builder();
+    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    putAllHeaders(
+        args.exportedHeaders.get(),
+        headers,
+        pathResolver,
+        "exported_headers",
+        params.getBuildTarget());
+    for (SourceList sourceList :
+        args.exportedPlatformHeaders.get().getMatchingValues(cxxPlatform.getFlavor().toString())) {
+      putAllHeaders(
+          sourceList,
+          headers,
+          pathResolver,
+          "exported_platform_headers",
+          params.getBuildTarget());
+    }
+    return CxxPreprocessables.resolveHeaderMap(
+        args.headerNamespace.transform(MorePaths.TO_PATH)
+            .or(params.getBuildTarget().getBasePath()),
+        headers.build());
+  }
+
+  private static void putAllHeaders(
+      SourceList sourceList,
+      ImmutableMap.Builder<String, SourcePath> sources,
+      SourcePathResolver pathResolver,
+      String parameterName,
+      BuildTarget buildTarget) {
+    switch (sourceList.getType()) {
+      case NAMED:
+        sources.putAll(sourceList.getNamedSources().get());
+        break;
+      case UNNAMED:
+        sources.putAll(
+            pathResolver.getSourcePathNames(
+                buildTarget,
+                parameterName,
+                sourceList.getUnnamedSources().get()));
+        break;
+    }
   }
 
   /**
@@ -304,21 +326,36 @@ public class CxxDescriptionEnhancer {
   public static ImmutableMap<String, CxxSource> parseCxxSources(
       BuildRuleParams params,
       BuildRuleResolver resolver,
+      CxxPlatform cxxPlatform,
       CxxConstructorArg args) {
-    ImmutableMap<String, SourceWithFlags> sources;
-    if (!args.srcs.isPresent()) {
-      sources = ImmutableMap.of();
-    } else if (args.srcs.get().isRight()) {
-      sources = args.srcs.get().getRight();
-    } else {
-      SourcePathResolver pathResolver = new SourcePathResolver(resolver);
-      sources = pathResolver.getSourcePathNames(
-          params.getBuildTarget(),
-          "srcs",
-          args.srcs.get().getLeft(),
-          SourceWithFlags.TO_SOURCE_PATH);
+    ImmutableMap.Builder<String, SourceWithFlags> sources = ImmutableMap.builder();
+    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    putAllSources(args.srcs.get(), sources, pathResolver, params.getBuildTarget());
+    for (SourceWithFlagsList sourceWithFlagsList :
+        args.platformSrcs.get().getMatchingValues(cxxPlatform.getFlavor().toString())) {
+      putAllSources(sourceWithFlagsList, sources, pathResolver, params.getBuildTarget());
     }
-    return CxxCompilableEnhancer.resolveCxxSources(sources);
+    return CxxCompilableEnhancer.resolveCxxSources(sources.build());
+  }
+
+  private static void putAllSources(
+      SourceWithFlagsList sourceWithFlagsList,
+      ImmutableMap.Builder<String, SourceWithFlags> sources,
+      SourcePathResolver pathResolver,
+      BuildTarget buildTarget) {
+    switch (sourceWithFlagsList.getType()) {
+      case NAMED:
+        sources.putAll(sourceWithFlagsList.getNamedSources().get());
+        break;
+      case UNNAMED:
+        sources.putAll(
+            pathResolver.getSourcePathNames(
+                buildTarget,
+                "srcs",
+                sourceWithFlagsList.getUnnamedSources().get(),
+                SourceWithFlags.TO_SOURCE_PATH));
+        break;
+    }
   }
 
   public static ImmutableMap<String, SourcePath> parseLexSources(
@@ -525,20 +562,14 @@ public class CxxDescriptionEnhancer {
         lexYaccCxxSourcesBuilder.build());
   }
 
-  public static CxxPreprocessorInput combineCxxPreprocessorInput(
+  public static ImmutableList<CxxPreprocessorInput> collectCxxPreprocessorInput(
       BuildRuleParams params,
       CxxPlatform cxxPlatform,
       ImmutableMultimap<CxxSource.Type, String> preprocessorFlags,
       ImmutableList<SourcePath> prefixHeaders,
       ImmutableList<SymlinkTree> headerSymlinkTrees,
-      ImmutableList<Path> frameworkSearchPaths) {
-
-    // Write the compile rules for all C/C++ sources in this rule.
-    Collection<CxxPreprocessorInput> cxxPreprocessorInputFromDeps =
-        CxxPreprocessables.getTransitiveCxxPreprocessorInput(
-            cxxPlatform,
-            FluentIterable.from(params.getDeps())
-                .filter(Predicates.instanceOf(CxxPreprocessorDep.class)));
+      ImmutableList<Path> frameworkSearchPaths,
+      Iterable<CxxPreprocessorInput> cxxPreprocessorInputFromDeps) {
 
     // Add the private includes of any rules which list this rule as a test.
     BuildTarget targetWithoutFlavor = BuildTarget.of(
@@ -591,15 +622,11 @@ public class CxxDescriptionEnhancer {
             .addAllFrameworkRoots(frameworkSearchPaths)
             .build();
 
-    try {
-      return CxxPreprocessorInput.concat(
-          Iterables.concat(
-              Collections.singleton(localPreprocessorInput),
-              cxxPreprocessorInputFromDeps,
-              cxxPreprocessorInputFromTestedRules));
-    } catch (CxxPreprocessorInput.ConflictingHeadersException e) {
-      throw e.getHumanReadableExceptionForBuildTarget(params.getBuildTarget());
-    }
+    return ImmutableList.<CxxPreprocessorInput>builder()
+        .add(localPreprocessorInput)
+        .addAll(cxxPreprocessorInputFromDeps)
+        .addAll(cxxPreprocessorInputFromTestedRules)
+        .build();
   }
 
   public static BuildTarget createStaticLibraryBuildTarget(
@@ -627,7 +654,7 @@ public class CxxDescriptionEnhancer {
         .resolve(name);
   }
 
-  public static String getSharedLibrarySoname(BuildTarget target, CxxPlatform platform) {
+  public static String getDefaultSharedLibrarySoname(BuildTarget target, CxxPlatform platform) {
     String libName =
         Joiner.on('_').join(
             ImmutableList.builder()
@@ -646,13 +673,11 @@ public class CxxDescriptionEnhancer {
 
   public static Path getSharedLibraryPath(
       BuildTarget target,
-      Optional<String> soname,
+      String soname,
       CxxPlatform platform) {
-    String extension = platform.getSharedLibraryExtension();
-    String name = soname.or(String.format("lib%s.%s", target.getShortName(), extension));
     return BuildTargets.getGenPath(
         createSharedLibraryBuildTarget(target, platform.getFlavor()),
-        "%s/" + name);
+        "%s/" + soname);
   }
 
   @VisibleForTesting
@@ -681,10 +706,10 @@ public class CxxDescriptionEnhancer {
       BuildRuleResolver resolver,
       CxxPlatform cxxPlatform,
       CxxBinaryDescription.Arg args,
-      CxxSourceRuleFactory.Strategy compileStrategy) {
+      CxxPreprocessMode preprocessMode) {
 
-    ImmutableMap<String, CxxSource> srcs = parseCxxSources(params, resolver, args);
-    ImmutableMap<Path, SourcePath> headers = parseHeaders(params, resolver, args);
+    ImmutableMap<String, CxxSource> srcs = parseCxxSources(params, resolver, cxxPlatform, args);
+    ImmutableMap<Path, SourcePath> headers = parseHeaders(params, resolver, cxxPlatform, args);
     ImmutableMap<String, SourcePath> lexSrcs = parseLexSources(params, resolver, args);
     ImmutableMap<String, SourcePath> yaccSrcs = parseYaccSources(params, resolver, args);
 
@@ -712,17 +737,22 @@ public class CxxDescriptionEnhancer {
         yaccSrcs,
         headers,
         HeaderVisibility.PRIVATE);
-    CxxPreprocessorInput cxxPreprocessorInput = combineCxxPreprocessorInput(
-        params,
-        cxxPlatform,
-        CxxFlags.getLanguageFlags(
-            args.preprocessorFlags,
-            args.platformPreprocessorFlags,
-            args.langPreprocessorFlags,
-            cxxPlatform.getFlavor()),
-        args.prefixHeaders.get(),
-        ImmutableList.of(headerSymlinkTree),
-        args.frameworkSearchPaths.get());
+    ImmutableList<CxxPreprocessorInput> cxxPreprocessorInput =
+        collectCxxPreprocessorInput(
+            params,
+            cxxPlatform,
+            CxxFlags.getLanguageFlags(
+                args.preprocessorFlags,
+                args.platformPreprocessorFlags,
+                args.langPreprocessorFlags,
+                cxxPlatform.getFlavor()),
+            args.prefixHeaders.get(),
+            ImmutableList.of(headerSymlinkTree),
+            args.frameworkSearchPaths.get(),
+            CxxPreprocessables.getTransitiveCxxPreprocessorInput(
+                cxxPlatform,
+                FluentIterable.from(params.getDeps())
+                    .filter(Predicates.instanceOf(CxxPreprocessorDep.class))));
 
     // The complete list of input sources.
     ImmutableMap<String, CxxSource> sources =
@@ -744,7 +774,7 @@ public class CxxDescriptionEnhancer {
                 args.compilerFlags,
                 args.platformCompilerFlags,
                 cxxPlatform.getFlavor()),
-            compileStrategy,
+            preprocessMode,
             sources,
             CxxSourceRuleFactory.PicType.PDC);
 
@@ -765,7 +795,10 @@ public class CxxDescriptionEnhancer {
         Optional.<String>absent(),
         output,
         objects.values(),
-        Linker.LinkableDepType.STATIC,
+        (args.linkStyle.or(CxxBinaryDescription.LinkStyle.STATIC) ==
+            CxxBinaryDescription.LinkStyle.STATIC)
+        ? Linker.LinkableDepType.STATIC
+        : Linker.LinkableDepType.SHARED,
         params.getDeps(),
         args.cxxRuntimeType,
         Optional.<SourcePath>absent());
@@ -847,21 +880,4 @@ public class CxxDescriptionEnhancer {
     };
   }
 
-  public static ImmutableList<String> getPlatformFlags(
-      ImmutableList<Pair<String, ImmutableList<String>>> platformFlags,
-      String platform) {
-
-    ImmutableList.Builder<String> platformFlagsBuilder = ImmutableList.builder();
-
-    for (Pair<String, ImmutableList<String>> pair : platformFlags) {
-      Pattern pattern = Pattern.compile(pair.getFirst());
-      Matcher matcher = pattern.matcher(platform);
-      if (matcher.find()) {
-        platformFlagsBuilder.addAll(pair.getSecond());
-        break;
-      }
-    }
-
-    return platformFlagsBuilder.build();
-  }
 }

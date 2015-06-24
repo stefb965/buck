@@ -20,8 +20,10 @@ import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
+import com.facebook.buck.util.ProcessExecutorParams;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.CharMatcher;
+import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 
@@ -51,6 +53,12 @@ public class PythonBuckConfig {
               "src/com/facebook/buck/python/pex.py"))
           .toAbsolutePath();
 
+  private static final Path DEFAULT_PATH_TO_TEST_MAIN =
+      Paths.get(
+          System.getProperty(
+              "buck.path_to_python_test_main",
+              "src/com/facebook/buck/python/__test_main__.py"))
+          .toAbsolutePath();
 
   private final BuckConfig delegate;
   private final ExecutableFinder exeFinder;
@@ -110,20 +118,8 @@ public class PythonBuckConfig {
     return new PythonEnvironment(pythonPath, pythonVersion);
   }
 
-  public Optional<Path> getPathToTestMain() {
-    Optional <Path> testMain = delegate.getPath(SECTION, "path_to_python_test_main");
-     if (testMain.isPresent()) {
-       return testMain;
-    }
-
-    // In some configs (particularly tests) it's possible that this variable will not be set.
-
-    String rawPath = System.getProperty("buck.path_to_python_test_main");
-    if (rawPath == null) {
-      return Optional.absent();
-    }
-
-    return Optional.of(Paths.get(rawPath));
+  public Path getPathToTestMain() {
+    return delegate.getPath(SECTION, "path_to_python_test_main").or(DEFAULT_PATH_TO_TEST_MAIN);
   }
 
   public Path getPathToPex() {
@@ -146,11 +142,12 @@ public class PythonBuckConfig {
   private static PythonVersion getPythonVersion(ProcessExecutor processExecutor, Path pythonPath)
       throws InterruptedException {
     try {
-      ProcessExecutor.Result versionResult = processExecutor.execute(
-          Runtime.getRuntime().exec(new String[]{pythonPath.toString(), "-V"}),
+      ProcessExecutor.Result versionResult = processExecutor.launchAndExecute(
+          ProcessExecutorParams.builder().addCommand(pythonPath.toString(), "-V").build(),
           EnumSet.of(ProcessExecutor.Option.EXPECTING_STD_ERR),
           /* stdin */ Optional.<String>absent(),
-          /* timeOutMs */ Optional.<Long>absent());
+          /* timeOutMs */ Optional.<Long>absent(),
+          /* timeoutHandler */ Optional.<Function<Process, Void>>absent());
       return extractPythonVersion(pythonPath, versionResult);
     } catch (IOException e) {
       throw new HumanReadableException(

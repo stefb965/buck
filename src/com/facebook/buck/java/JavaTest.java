@@ -173,7 +173,8 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule, HasRuntime
       ExecutionContext executionContext,
       boolean isDryRun,
       boolean isShufflingTests,
-      TestSelectorList testSelectorList) {
+      TestSelectorList testSelectorList,
+      TestRule.TestReportingCallback testReportingCallback) {
     // If no classes were generated, then this is probably a java_test() that declares a number of
     // other java_test() rules as deps, functioning as a test suite. In this case, simply return an
     // empty list of commands.
@@ -198,10 +199,14 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule, HasRuntime
         .addAll(getBootClasspathEntries(executionContext))
         .build();
 
+    ImmutableList<String> properVmArgs = amendVmArgs(
+        this.vmArgs,
+        executionContext.getTargetDeviceOptional());
+
     junit = new JUnitStep(
         classpathEntries,
         reorderedTestClasses,
-        amendVmArgs(vmArgs, executionContext.getTargetDeviceOptional()),
+        properVmArgs,
         pathToTestOutput,
         getBuildTarget().getBasePath(),
         tmpDirectory,

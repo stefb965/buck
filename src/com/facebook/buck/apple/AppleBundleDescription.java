@@ -39,6 +39,7 @@ import com.facebook.buck.rules.coercer.Either;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Optional;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.base.Suppliers;
@@ -119,14 +120,17 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
             appleCxxPlatform.getAppleSdk().getApplePlatform());
 
     ImmutableSet.Builder<SourcePath> bundleDirsBuilder = ImmutableSet.builder();
+    ImmutableSet.Builder<SourcePath> dirsContainingResourceDirsBuilder = ImmutableSet.builder();
     ImmutableSet.Builder<SourcePath> bundleFilesBuilder = ImmutableSet.builder();
-    ImmutableSet<AppleResourceDescription.Arg> resourceDescriptions =
-        AppleResources.collectRecursiveResources(
-            params.getTargetGraph(),
-            ImmutableSet.of(params.getTargetGraph().get(params.getBuildTarget())));
-    AppleResources.addResourceDirsToBuilder(bundleDirsBuilder, resourceDescriptions);
-    AppleResources.addResourceFilesToBuilder(bundleFilesBuilder, resourceDescriptions);
+    AppleResources.collectResourceDirsAndFiles(
+        params.getTargetGraph(),
+        Preconditions.checkNotNull(params.getTargetGraph().get(params.getBuildTarget())),
+        params.getProjectFilesystem(),
+        bundleDirsBuilder,
+        dirsContainingResourceDirsBuilder,
+        bundleFilesBuilder);
     ImmutableSet<SourcePath> bundleDirs = bundleDirsBuilder.build();
+    ImmutableSet<SourcePath> dirsContainingResourceDirs = dirsContainingResourceDirsBuilder.build();
     ImmutableSet<SourcePath> bundleFiles = bundleFilesBuilder.build();
 
     SourcePathResolver sourcePathResolver = new SourcePathResolver(resolver);
@@ -157,7 +161,10 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
                     params.getBuildTarget(),
                     resolver,
                     SourcePaths.filterBuildTargetSourcePaths(
-                        Iterables.concat(bundleFiles, bundleDirs))))
+                        Iterables.concat(
+                            bundleFiles,
+                            bundleDirs,
+                            dirsContainingResourceDirs))))
             .build());
 
     return new AppleBundle(
@@ -170,18 +177,22 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
         destinations,
         bundleDirs,
         bundleFiles,
+        dirsContainingResourceDirs,
         appleCxxPlatform.getIbtool(),
         appleCxxPlatform.getDsymutil(),
         bundledAssetCatalogs,
         mergedAssetCatalog,
-        args.getTests());
+        args.getTests(),
+        appleCxxPlatform.getAppleSdk().getApplePlatform().getName(),
+        appleCxxPlatform.getAppleSdk().getName());
   }
 
   private static <A extends Arg> BuildRule getFlavoredBinaryRule(
       final BuildRuleParams params,
       final BuildRuleResolver resolver,
       final A args) {
-    final TargetNode<?> binaryTargetNode = params.getTargetGraph().get(args.binary);
+    final TargetNode<?> binaryTargetNode = Preconditions.checkNotNull(
+        params.getTargetGraph().get(args.binary));
     BuildRuleParams binaryRuleParams = new BuildRuleParams(
         args.binary,
         Suppliers.ofInstance(

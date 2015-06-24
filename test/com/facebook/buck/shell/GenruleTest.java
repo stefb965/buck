@@ -37,11 +37,10 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildableContext;
-import com.facebook.buck.rules.FakeRuleKeyBuilderFactory;
+import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
-import com.facebook.buck.rules.RuleKeyPair;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.ExecutionContext;
@@ -55,6 +54,7 @@ import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.NullFileHashCache;
 import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Function;
@@ -88,7 +88,7 @@ public class GenruleTest {
 
   private ProjectFilesystem fakeFilesystem;
 
-  private RuleKeyPair generateRuleKey(
+  private RuleKey generateRuleKey(
       RuleKeyBuilderFactory factory,
       AbstractBuildRule rule) {
 
@@ -180,6 +180,7 @@ public class GenruleTest {
         "First command should delete the output file to be written by the genrule.",
         ImmutableList.of(
             "rm",
+            "-r",
             "-f",
             GEN_DIR + "/src/com/facebook/katana/AndroidManifest.xml"),
         rmCommand.getShellCommand(executionContext));
@@ -354,8 +355,8 @@ public class GenruleTest {
     BuildTarget target = BuildTargetFactory.newInstance("//example:genrule");
     Genrule genrule = (Genrule) GenruleBuilder
         .newGenruleBuilder(target)
-        .setBash("true")
-        .setOut("/dev/null")
+        .setBash("echo something > $OUT")
+        .setOut("file")
         .build(resolver);
 
     ExecutionContext context = TestExecutionContext.newBuilder()
@@ -377,8 +378,8 @@ public class GenruleTest {
     BuildRuleResolver resolver = new BuildRuleResolver();
     BuildTarget target = BuildTargetFactory.newInstance("//example:genrule");
     Genrule genrule = (Genrule) GenruleBuilder.newGenruleBuilder(target)
-        .setBash("true")
-        .setOut("/dev/null")
+        .setBash("echo something > $OUT")
+        .setOut("file")
         .build(resolver);
 
     ImmutableMap.Builder<String, String> builder = ImmutableMap.builder();
@@ -468,17 +469,18 @@ public class GenruleTest {
   public void thatChangingOutChangesRuleKey() {
     BuildRuleResolver resolver = new BuildRuleResolver();
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
-    RuleKeyBuilderFactory ruleKeyBuilderFactory = new FakeRuleKeyBuilderFactory(pathResolver);
+    RuleKeyBuilderFactory ruleKeyBuilderFactory =
+        new DefaultRuleKeyBuilderFactory(new NullFileHashCache(), pathResolver);
 
     // Get a rule key for two genrules using two different output names, but are otherwise the
     // same.
-    RuleKeyPair key1 = generateRuleKey(
+    RuleKey key1 = generateRuleKey(
         ruleKeyBuilderFactory,
         (Genrule) GenruleBuilder
             .newGenruleBuilder(BuildTargetFactory.newInstance("//:genrule1"))
             .setOut("foo")
             .build(resolver));
-    RuleKeyPair key2 = generateRuleKey(
+    RuleKey key2 = generateRuleKey(
         ruleKeyBuilderFactory,
         (Genrule) GenruleBuilder
             .newGenruleBuilder(BuildTargetFactory.newInstance("//:genrule2"))
@@ -486,7 +488,7 @@ public class GenruleTest {
             .build(resolver));
 
     // Verify that just the difference in output name is enough to make the rule key different.
-    assertNotEquals(key1.getTotalRuleKey(), key2.getTotalRuleKey());
+    assertNotEquals(key1, key2);
   }
 
   private static String getAbsolutePathFor(String path) {

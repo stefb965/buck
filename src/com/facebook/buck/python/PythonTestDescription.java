@@ -58,7 +58,7 @@ public class PythonTestDescription implements Description<PythonTestDescription.
   private final ProjectFilesystem projectFilesystem;
   private final Path pathToPex;
   private final Path pathToPexExecuter;
-  private final Optional<Path> pathToPythonTestMain;
+  private final Path pathToPythonTestMain;
   private final PythonEnvironment pythonEnvironment;
   private final CxxPlatform defaultCxxPlatform;
   private final FlavorDomain<CxxPlatform> cxxPlatforms;
@@ -67,7 +67,7 @@ public class PythonTestDescription implements Description<PythonTestDescription.
       ProjectFilesystem projectFilesystem,
       Path pathToPex,
       Path pathToPexExecuter,
-      Optional<Path> pathToPythonTestMain,
+      Path pathToPythonTestMain,
       PythonEnvironment pythonEnvironment,
       CxxPlatform defaultCxxPlatform,
       FlavorDomain<CxxPlatform> cxxPlatforms) {
@@ -154,11 +154,6 @@ public class PythonTestDescription implements Description<PythonTestDescription.
       BuildRuleResolver resolver,
       A args) {
 
-    if (!pathToPythonTestMain.isPresent()) {
-      throw new HumanReadableException(
-          "Please configure python -> path_to_python_test_main in your .buckconfig");
-    }
-
     // Extract the platform from the flavor, falling back to the default platform if none are
     // found.
     CxxPlatform cxxPlatform;
@@ -177,13 +172,15 @@ public class PythonTestDescription implements Description<PythonTestDescription.
         params.getBuildTarget(),
         pathResolver,
         "srcs",
-        baseModule, args.srcs);
+        baseModule,
+        args.srcs);
 
     ImmutableMap<Path, SourcePath> resources = PythonUtil.toModuleMap(
         params.getBuildTarget(),
         pathResolver,
         "resources",
-        baseModule, args.resources);
+        baseModule,
+        args.resources);
 
     // Convert the passed in module paths into test module names.
     ImmutableSet.Builder<String> testModulesBuilder = ImmutableSet.builder();
@@ -213,11 +210,12 @@ public class PythonTestDescription implements Description<PythonTestDescription.
                     testModulesBuildRule.getBuildTarget()))
             .put(
                 getTestMainName(),
-                new PathSourcePath(projectFilesystem, pathToPythonTestMain.get()))
+                new PathSourcePath(projectFilesystem, pathToPythonTestMain))
             .putAll(srcs)
             .build(),
         resources,
         ImmutableMap.<Path, SourcePath>of(),
+        ImmutableSet.<SourcePath>of(),
         args.zipSafe);
     PythonPackageComponents allComponents =
         PythonUtil.getAllComponents(params, testComponents, cxxPlatform);

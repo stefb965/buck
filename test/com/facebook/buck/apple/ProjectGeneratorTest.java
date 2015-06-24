@@ -35,6 +35,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.dd.plist.NSDictionary;
 import com.dd.plist.NSString;
+import com.facebook.buck.apple.clang.HeaderMap;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXBuildFile;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXBuildPhase;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXFileReference;
@@ -51,6 +52,7 @@ import com.facebook.buck.apple.xcode.xcodeproj.ProductType;
 import com.facebook.buck.apple.xcode.xcodeproj.SourceTreePath;
 import com.facebook.buck.apple.xcode.xcodeproj.XCBuildConfiguration;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
+import com.facebook.buck.cxx.CxxSource;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
@@ -83,6 +85,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
+import com.google.common.io.ByteStreams;
 
 import org.hamcrest.FeatureMatcher;
 import org.hamcrest.Matcher;
@@ -92,6 +95,7 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.FileAttribute;
@@ -555,10 +559,10 @@ public class ProjectGeneratorTest {
         "test binary should use header symlink trees for both public and non-public headers " +
             "of the tested library in HEADER_SEARCH_PATHS",
         "$(inherited) " +
-            "../buck-out/gen/foo/test-private-header-symlink-tree " +
-            "../buck-out/gen/foo/test-public-header-symlink-tree " +
-            "../buck-out/gen/foo/lib-public-header-symlink-tree " +
-            "../buck-out/gen/foo/lib-private-header-symlink-tree",
+            "../buck-out/gen/foo/test-private-header-symlink-tree/.tree.hmap " +
+            "../buck-out/gen/foo/test-public-header-symlink-tree/.tree.hmap " +
+            "../buck-out/gen/foo/lib-public-header-symlink-tree/.tree.hmap " +
+            "../buck-out/gen/foo/lib-private-header-symlink-tree/.tree.hmap",
         buildSettings.get("HEADER_SEARCH_PATHS"));
     assertEquals(
         "USER_HEADER_SEARCH_PATHS should not be set",
@@ -619,10 +623,10 @@ public class ProjectGeneratorTest {
         "test binary should use header symlink trees for both public and non-public headers " +
             "of the tested library in HEADER_SEARCH_PATHS",
         "$(inherited) " +
-            "../buck-out/gen/foo/test-private-header-symlink-tree " +
-            "../buck-out/gen/foo/test-public-header-symlink-tree " +
-            "../buck-out/gen/foo/lib-public-header-symlink-tree " +
-            "../buck-out/gen/foo/lib-private-header-symlink-tree",
+            "../buck-out/gen/foo/test-private-header-symlink-tree/.tree.hmap " +
+            "../buck-out/gen/foo/test-public-header-symlink-tree/.tree.hmap " +
+            "../buck-out/gen/foo/lib-public-header-symlink-tree/.tree.hmap " +
+            "../buck-out/gen/foo/lib-private-header-symlink-tree/.tree.hmap",
         buildSettings.get("HEADER_SEARCH_PATHS"));
     assertEquals(
         "USER_HEADER_SEARCH_PATHS should not be set",
@@ -683,10 +687,10 @@ public class ProjectGeneratorTest {
         "test binary should use header symlink trees for both public and non-public headers " +
             "of the tested binary in HEADER_SEARCH_PATHS",
         "$(inherited) " +
-            "../buck-out/gen/foo/test-private-header-symlink-tree " +
-            "../buck-out/gen/foo/test-public-header-symlink-tree " +
-            "../buck-out/gen/foo/bin-public-header-symlink-tree " +
-            "../buck-out/gen/foo/bin-private-header-symlink-tree",
+            "../buck-out/gen/foo/test-private-header-symlink-tree/.tree.hmap " +
+            "../buck-out/gen/foo/test-public-header-symlink-tree/.tree.hmap " +
+            "../buck-out/gen/foo/bin-public-header-symlink-tree/.tree.hmap " +
+            "../buck-out/gen/foo/bin-private-header-symlink-tree/.tree.hmap",
         buildSettings.get("HEADER_SEARCH_PATHS"));
     assertEquals(
         "USER_HEADER_SEARCH_PATHS should not be set",
@@ -703,6 +707,21 @@ public class ProjectGeneratorTest {
       assertEquals(
           target,
           projectFilesystem.readSymLink(link));
+    }
+
+    // Check the tree's header map.
+    byte[] headerMapBytes;
+    try (InputStream headerMapInputStream =
+             projectFilesystem.newFileInputStream(root.resolve(".tree.hmap"))) {
+      headerMapBytes = ByteStreams.toByteArray(headerMapInputStream);
+    }
+    HeaderMap headerMap = HeaderMap.deserialize(headerMapBytes);
+    assertNotNull(headerMap);
+    assertThat(headerMap.getNumEntries(), equalTo(content.size()));
+    for (String key : content.keySet()) {
+      assertThat(
+          headerMap.lookup(key),
+          equalTo(projectFilesystem.resolve(root).resolve(key).toString()));
     }
   }
 
@@ -1641,11 +1660,73 @@ public class ProjectGeneratorTest {
   }
 
   @Test
+  public void testAppleBundleRuleWithPreBuildScriptDependency() throws IOException {
+    BuildTarget scriptTarget = BuildTarget.builder("//foo", "pre_build_script").build();
+    TargetNode<?> scriptNode = XcodePrebuildScriptBuilder
+        .createBuilder(scriptTarget)
+        .setCmd("script.sh")
+        .build();
+
+    BuildTarget resourceTarget = BuildTarget.builder("//foo", "resource").build();
+    TargetNode<?> resourceNode = AppleResourceBuilder
+        .createBuilder(resourceTarget)
+        .setFiles(ImmutableSet.<SourcePath>of(new TestSourcePath("bar.png")))
+        .setDirs(ImmutableSet.<SourcePath>of())
+        .build();
+
+    BuildTarget sharedLibraryTarget = BuildTarget
+        .builder("//dep", "shared")
+        .addFlavors(CxxDescriptionEnhancer.SHARED_FLAVOR)
+        .build();
+    TargetNode<?> sharedLibraryNode = AppleLibraryBuilder
+        .createBuilder(sharedLibraryTarget)
+        .setDeps(Optional.of(ImmutableSortedSet.of(resourceTarget)))
+        .build();
+
+    BuildTarget bundleTarget = BuildTarget.builder("//foo", "bundle").build();
+    TargetNode<?> bundleNode = AppleBundleBuilder
+        .createBuilder(bundleTarget)
+        .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.BUNDLE))
+        .setBinary(sharedLibraryTarget)
+        .setDeps(Optional.of(ImmutableSortedSet.of(scriptTarget)))
+        .build();
+
+    ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
+        ImmutableSet.of(scriptNode, resourceNode, sharedLibraryNode, bundleNode));
+
+    projectGenerator.createXcodeProjects();
+
+    PBXProject project = projectGenerator.getGeneratedProject();
+    PBXTarget target = assertTargetExistsAndReturnTarget(
+        project, "//foo:bundle");
+    assertThat(target.getName(), equalTo("//foo:bundle"));
+    assertThat(target.isa(), equalTo("PBXNativeTarget"));
+
+    PBXShellScriptBuildPhase shellScriptBuildPhase =
+        getSingletonPhaseByType(
+            target,
+            PBXShellScriptBuildPhase.class);
+
+    assertThat(
+        shellScriptBuildPhase.getShellScript(),
+        equalTo("script.sh"));
+
+    // Assert that the pre-build script phase comes before resources are copied.
+    assertThat(
+        target.getBuildPhases().get(0),
+        instanceOf(PBXShellScriptBuildPhase.class));
+
+    assertThat(
+        target.getBuildPhases().get(1),
+        instanceOf(PBXResourcesBuildPhase.class));
+  }
+
+  @Test
   public void testAppleBundleRuleWithPostBuildScriptDependency() throws IOException {
     BuildTarget scriptTarget = BuildTarget.builder("//foo", "post_build_script").build();
-    TargetNode<?> scriptNode = IosPostprocessResourcesBuilder
+    TargetNode<?> scriptNode = XcodePostbuildScriptBuilder
         .createBuilder(scriptTarget)
-        .setCmd(Optional.of("script.sh"))
+        .setCmd("script.sh")
         .build();
 
     BuildTarget resourceTarget = BuildTarget.builder("//foo", "resource").build();
@@ -2884,6 +2965,69 @@ public class ProjectGeneratorTest {
     assertThat(
         shellScriptBuildPhase.getShellScript(),
         equalTo("buck build --flag 'value with spaces' " + binaryTarget.getFullyQualifiedName()));
+  }
+
+  @Test
+  public void cxxFlagsPropagatedToConfig() throws IOException {
+    BuildTarget buildTarget = BuildTarget.builder("//foo", "lib").build();
+    TargetNode<?> node = AppleLibraryBuilder
+        .createBuilder(buildTarget)
+        .setLangPreprocessorFlags(
+            Optional.of(
+                ImmutableMap.of(
+                    CxxSource.Type.CXX, ImmutableList.of("-std=c++11", "-stdlib=libc++"),
+                    CxxSource.Type.OBJCXX, ImmutableList.of("-std=c++11", "-stdlib=libc++"))))
+        .setConfigs(
+            Optional.of(
+                ImmutableSortedMap.of(
+                    "Debug",
+                    ImmutableMap.<String, String>of())))
+        .setSrcs(
+            Optional.of(
+                ImmutableList.of(SourceWithFlags.of(new TestSourcePath("foo.mm")))))
+        .build();
+
+    ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
+        ImmutableSet.<TargetNode<?>>of(node));
+
+    projectGenerator.createXcodeProjects();
+
+    PBXTarget target = assertTargetExistsAndReturnTarget(
+        projectGenerator.getGeneratedProject(),
+        "//foo:lib");
+
+    ImmutableMap<String, String> settings = getBuildSettings(buildTarget, target, "Debug");
+    assertEquals("$(inherited) -std=c++11 -stdlib=libc++", settings.get("OTHER_CPLUSPLUSFLAGS"));
+  }
+
+  @Test
+  public void unsupportedLangPreprocessorFlagsThrows() throws IOException {
+    thrown.expect(HumanReadableException.class);
+    thrown.expectMessage(
+        "//foo:lib: Xcode project generation does not support specified lang_preprocessor_flags " +
+        "keys: [ASSEMBLER]");
+
+    BuildTarget buildTarget = BuildTarget.builder("//foo", "lib").build();
+    TargetNode<?> node = AppleLibraryBuilder
+        .createBuilder(buildTarget)
+        .setLangPreprocessorFlags(
+            Optional.of(
+                ImmutableMap.of(
+                    CxxSource.Type.ASSEMBLER, ImmutableList.of("-Xawesome"))))
+        .setConfigs(
+            Optional.of(
+                ImmutableSortedMap.of(
+                    "Debug",
+                    ImmutableMap.<String, String>of())))
+        .setSrcs(
+            Optional.of(
+                ImmutableList.of(SourceWithFlags.of(new TestSourcePath("foo.mm")))))
+        .build();
+
+    ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
+        ImmutableSet.<TargetNode<?>>of(node));
+
+    projectGenerator.createXcodeProjects();
   }
 
   private ProjectGenerator createProjectGeneratorForCombinedProject(

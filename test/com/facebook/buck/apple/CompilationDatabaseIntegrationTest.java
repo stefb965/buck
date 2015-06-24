@@ -186,26 +186,26 @@ public class CompilationDatabaseIntegrationTest {
       languageStandard = "-std=c++11";
       clang += "++";
     }
-    List<String> commandArgs = Lists.newArrayList(
-        clang,
-        "-isysroot",
-        sdkRoot,
-        "-arch",
-        "x86_64",
-        "'-mios-simulator-version-min=8.0'",
-        "-c",
-        "-x",
-        language);
-    if (isLibrary) {
-      commandArgs.add("-fPIC");
-    }
-
+    List<String> commandArgs = Lists.newArrayList();
+    commandArgs.add(clang);
     commandArgs.add("'" + languageStandard + "'");
     commandArgs.add("-Wno-deprecated");
     commandArgs.add("-Wno-conversion");
 
+    if (isLibrary) {
+      commandArgs.add("-fPIC");
+    }
+
+    commandArgs.add("-isysroot");
+    commandArgs.add(sdkRoot);
+    commandArgs.add("-arch");
+    commandArgs.add("x86_64");
+    commandArgs.add("'-mios-simulator-version-min=8.0'");
+
     // TODO(user, jakubzika): It seems like a bug that this set of flags gets inserted twice.
     // Perhaps this has something to do with how the [cxx] section in .buckconfig is processed.
+    // (Err, it's probably adding both the preprocessor and regular rule command suffixes. Should
+    // be harmless.)
     commandArgs.add("'" + languageStandard + "'");
     commandArgs.add("-Wno-deprecated");
     commandArgs.add("-Wno-conversion");
@@ -220,9 +220,12 @@ public class CompilationDatabaseIntegrationTest {
       commandArgs.add(sdkRoot + framework);
     }
 
+    commandArgs.add("-x");
+    commandArgs.add(language);
+    commandArgs.add("-c");
+    commandArgs.add(source);
     commandArgs.add("-o");
     commandArgs.add(output);
-    commandArgs.add(source);
     MoreAsserts.assertIterablesEquals(commandArgs, ImmutableList.copyOf(entry.command.split(" ")));
   }
 }

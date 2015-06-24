@@ -100,12 +100,12 @@ public class CxxPythonExtensionDescription implements
 
     // Extract all C/C++ sources from the constructor arg.
     ImmutableMap<String, CxxSource> srcs =
-        CxxDescriptionEnhancer.parseCxxSources(params, ruleResolver, args);
+        CxxDescriptionEnhancer.parseCxxSources(params, ruleResolver, cxxPlatform, args);
     ImmutableMap<Path, SourcePath> headers =
         CxxDescriptionEnhancer.parseHeaders(
             params,
             ruleResolver,
-            args);
+            cxxPlatform, args);
     ImmutableMap<String, SourcePath> lexSrcs =
         CxxDescriptionEnhancer.parseLexSources(params, ruleResolver, args);
     ImmutableMap<String, SourcePath> yaccSrcs =
@@ -133,17 +133,21 @@ public class CxxPythonExtensionDescription implements
         yaccSrcs,
         headers,
         HeaderVisibility.PRIVATE);
-    CxxPreprocessorInput cxxPreprocessorInput = CxxDescriptionEnhancer.combineCxxPreprocessorInput(
-        params,
-        cxxPlatform,
-        CxxFlags.getLanguageFlags(
-            args.preprocessorFlags,
-            args.platformPreprocessorFlags,
-            args.langPreprocessorFlags,
-            cxxPlatform.getFlavor()),
-        args.prefixHeaders.get(),
-        ImmutableList.of(headerSymlinkTree),
-        ImmutableList.<Path>of());
+    ImmutableList<CxxPreprocessorInput> cxxPreprocessorInput =
+        CxxDescriptionEnhancer.collectCxxPreprocessorInput(
+            params,
+            cxxPlatform,
+            CxxFlags.getLanguageFlags(
+                args.preprocessorFlags,
+                args.platformPreprocessorFlags,
+                args.langPreprocessorFlags,
+                cxxPlatform.getFlavor()),
+            args.prefixHeaders.get(),
+            ImmutableList.of(headerSymlinkTree),
+            ImmutableList.<Path>of(),
+            CxxPreprocessables.getTransitiveCxxPreprocessorInput(
+                cxxPlatform,
+                params.getDeps()));
 
     ImmutableMap<String, CxxSource> allSources =
         ImmutableMap.<String, CxxSource>builder()
@@ -163,9 +167,7 @@ public class CxxPythonExtensionDescription implements
                 args.compilerFlags,
                 args.platformCompilerFlags,
                 cxxPlatform.getFlavor()),
-            cxxBuckConfig.useCombinedPreprocessAndCompile() ?
-                CxxSourceRuleFactory.Strategy.COMBINED_PREPROCESS_AND_COMPILE :
-                CxxSourceRuleFactory.Strategy.SEPARATE_PREPROCESS_AND_COMPILE,
+            cxxBuckConfig.getPreprocessMode(),
             allSources,
             CxxSourceRuleFactory.PicType.PIC);
 

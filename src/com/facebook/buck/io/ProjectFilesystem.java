@@ -109,6 +109,7 @@ public class ProjectFilesystem {
   private final Path projectRoot;
 
   private final Function<Path, Path> pathAbsolutifier;
+  private final Function<Path, Path> pathRelativizer;
 
   private final ImmutableSet<Path> ignorePaths;
 
@@ -132,7 +133,10 @@ public class ProjectFilesystem {
     this(projectRoot.getFileSystem(), projectRoot, ignorePaths);
   }
 
-  protected ProjectFilesystem(FileSystem vfs, Path projectRoot, ImmutableSet<Path> ignorePaths) {
+  protected ProjectFilesystem(
+      FileSystem vfs,
+      final Path projectRoot,
+      ImmutableSet<Path> ignorePaths) {
     Preconditions.checkArgument(Files.isDirectory(projectRoot));
     Preconditions.checkState(vfs.equals(projectRoot.getFileSystem()));
     this.projectRoot = projectRoot;
@@ -140,6 +144,12 @@ public class ProjectFilesystem {
       @Override
       public Path apply(Path path) {
         return resolve(path);
+      }
+    };
+    this.pathRelativizer = new Function<Path, Path>() {
+      @Override
+      public Path apply(Path input) {
+        return projectRoot.relativize(input);
       }
     };
     this.ignorePaths = MorePaths.filterForSubpaths(ignorePaths, this.projectRoot);
@@ -166,6 +176,10 @@ public class ProjectFilesystem {
    */
   public Function<Path, Path> getAbsolutifier() {
     return pathAbsolutifier;
+  }
+
+  public Function<Path, Path> getRelativizer() {
+    return pathRelativizer;
   }
 
   /**
@@ -255,16 +269,21 @@ public class ProjectFilesystem {
 
   /**
    * Deletes a file specified by its path relative to the project root.
+   *
+   * Ignores the failure if the file does not exist.
    * @param pathRelativeToProjectRoot path to the file
-   * @return true if the file was successfully deleted, false otherwise
+   * @return {@code true} if the file was deleted, {@code false} if it did not exist
    */
-  public boolean deleteFileAtPath(Path pathRelativeToProjectRoot) {
-    try {
-      Files.delete(getPathForRelativePath(pathRelativeToProjectRoot));
-      return true;
-    } catch (IOException e) {
-      return false;
-    }
+  public boolean deleteFileAtPathIfExists(Path pathRelativeToProjectRoot) throws IOException {
+    return Files.deleteIfExists(getPathForRelativePath(pathRelativeToProjectRoot));
+  }
+
+  /**
+   * Deletes a file specified by its path relative to the project root.
+   * @param pathRelativeToProjectRoot path to the file
+   */
+  public void deleteFileAtPath(Path pathRelativeToProjectRoot) throws IOException {
+    Files.delete(getPathForRelativePath(pathRelativeToProjectRoot));
   }
 
   public Properties readPropertiesFile(Path pathToPropertiesFileRelativeToProjectRoot)
@@ -470,8 +489,16 @@ public class ProjectFilesystem {
   /**
    * Recursively delete everything under the specified path.
    */
-  public void rmdir(Path pathRelativeToProjectRoot) throws IOException {
-    MoreFiles.rmdir(resolve(pathRelativeToProjectRoot));
+  public void deleteRecursively(Path pathRelativeToProjectRoot) throws IOException {
+    MoreFiles.deleteRecursively(resolve(pathRelativeToProjectRoot));
+  }
+
+  /**
+   * Recursively delete everything under the specified path. Ignore the failure if the file at the
+   * specified path does not exist.
+   */
+  public void deleteRecursivelyIfExists(Path pathRelativeToProjectRoot) throws IOException {
+    MoreFiles.deleteRecursivelyIfExists(resolve(pathRelativeToProjectRoot));
   }
 
   /**
@@ -790,6 +817,9 @@ public class ProjectFilesystem {
         }
         CustomZipEntry entry = new CustomZipEntry(entryName);
 
+        // We want deterministic ZIPs, so avoid mtimes.
+        entry.setTime(0);
+
         // Support executable files.  If we detect this file is executable, store this
         // information as 0100 in the field typically used in zip implementations for
         // POSIX file permissions.  We'll use this information when unzipping.
@@ -810,6 +840,8 @@ public class ProjectFilesystem {
 
       for (Map.Entry<Path, String> fileContentsEntry : additionalFileContents.entrySet()) {
         CustomZipEntry entry = new CustomZipEntry(fileContentsEntry.getKey().toString());
+        // We want deterministic ZIPs, so avoid mtimes.
+        entry.setTime(0);
         zip.putNextEntry(entry);
         try (InputStream stream =
                  new ByteArrayInputStream(fileContentsEntry.getValue().getBytes(Charsets.UTF_8))) {

@@ -55,7 +55,7 @@ public class AnnotationProcessingParams implements RuleKeyAppendable {
       ImmutableSet.<Path>of(),
       ImmutableSet.<String>of(),
       ImmutableSet.<String>of(),
-      ImmutableSet.<SourcePath>of(),
+      ImmutableSortedSet.<SourcePath>of(),
       false);
 
   @Nullable
@@ -65,7 +65,7 @@ public class AnnotationProcessingParams implements RuleKeyAppendable {
   private final ImmutableSortedSet<Path> searchPathElements;
   private final ImmutableSortedSet<String> names;
   private final ImmutableSortedSet<String> parameters;
-  private final ImmutableSet<SourcePath> inputs;
+  private final ImmutableSortedSet<SourcePath> inputs;
   private final boolean processOnly;
 
   private AnnotationProcessingParams(
@@ -74,7 +74,7 @@ public class AnnotationProcessingParams implements RuleKeyAppendable {
       Set<Path> searchPathElements,
       Set<String> names,
       Set<String> parameters,
-      ImmutableSet<SourcePath> inputs,
+      ImmutableSortedSet<SourcePath> inputs,
       boolean processOnly) {
     this.ownerTarget = ownerTarget;
     this.filesystem = filesystem;
@@ -115,7 +115,7 @@ public class AnnotationProcessingParams implements RuleKeyAppendable {
     return parameters;
   }
 
-  public ImmutableSet<SourcePath> getInputs() {
+  public ImmutableSortedSet<SourcePath> getInputs() {
     return inputs;
   }
 
@@ -192,14 +192,17 @@ public class AnnotationProcessingParams implements RuleKeyAppendable {
         return EMPTY;
       }
 
-      ImmutableSet.Builder<SourcePath> inputs = ImmutableSet.builder();
+      ImmutableSortedSet.Builder<SourcePath> inputs = ImmutableSortedSet.naturalOrder();
       Set<Path> searchPathElements = Sets.newHashSet();
 
       for (BuildRule rule : this.rules) {
         if (rule.getClass().isAnnotationPresent(BuildsAnnotationProcessor.class)) {
           Path pathToOutput = rule.getPathToOutput();
           if (pathToOutput != null) {
-            inputs.add(new BuildTargetSourcePath(filesystem, rule.getBuildTarget()));
+            inputs.add(
+                new BuildTargetSourcePath(
+                    Preconditions.checkNotNull(filesystem),
+                    rule.getBuildTarget()));
             searchPathElements.add(pathToOutput);
           }
         } else if (rule instanceof HasClasspathEntries) {

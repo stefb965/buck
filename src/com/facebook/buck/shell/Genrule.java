@@ -37,6 +37,7 @@ import com.facebook.buck.step.fs.MkdirAndSymlinkFileStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.util.BuckConstant;
+import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
@@ -161,6 +162,12 @@ public class Genrule extends AbstractBuildRule implements HasOutputName {
         BuckConstant.GEN_DIR,
         target.getBasePathWithSlash());
     this.pathToOutFile = this.pathToOutDirectory.resolve(out);
+    if (!pathToOutFile.startsWith(pathToOutDirectory) || pathToOutFile.equals(pathToOutDirectory)) {
+      throw new HumanReadableException(
+          "The 'out' parameter of genrule %s is '%s', which is not a valid file name.",
+          params.getBuildTarget(),
+          out);
+    }
 
     this.pathToTmpDirectory = Paths.get(
         BuckConstant.GEN_DIR,
@@ -224,7 +231,7 @@ public class Genrule extends AbstractBuildRule implements HasOutputName {
       environmentVariablesBuilder.put("ZIPALIGN", android.getZipalignExecutable().toString());
     }
 
-    // TODO(t5302074): This shouldn't be necessary. Speculatively disabling.
+    // TODO(user): This shouldn't be necessary. Speculatively disabling.
     environmentVariablesBuilder.put("NO_BUCKD", "1");
   }
 
@@ -238,7 +245,7 @@ public class Genrule extends AbstractBuildRule implements HasOutputName {
 
     Path output = rule.getPathToOutput();
     if (output != null) {
-      // TODO(t6405518): This is a giant hack and we should do away with $DEPS altogether.
+      // TODO(user): This is a giant hack and we should do away with $DEPS altogether.
       // There can be a lot of paths here and the filesystem location can be arbitrarily long.
       // We can easily hit the shell command character limit. What this does is find
       // BuckConstant.GEN_DIR (which should be the same for every path) and replaces
@@ -290,7 +297,11 @@ public class Genrule extends AbstractBuildRule implements HasOutputName {
     ImmutableList.Builder<Step> commands = ImmutableList.builder();
 
     // Delete the old output for this rule, if it exists.
-    commands.add(new RmStep(getPathToOutput(), true /* shouldForceDeletion */));
+    commands.add(
+        new RmStep(
+            getPathToOutput(),
+            /* shouldForceDeletion */ true,
+            /* shouldRecurse */ true));
 
     // Make sure that the directory to contain the output file exists. Rules get output to a
     // directory named after the base path, so we don't want to nuke the entire directory.

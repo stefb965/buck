@@ -113,6 +113,15 @@ public class CxxBinaryDescriptionTest {
       }
 
       @Override
+      public ImmutableMap<BuildTarget, CxxPreprocessorInput> getTransitiveCxxPreprocessorInput(
+          CxxPlatform cxxPlatform,
+          HeaderVisibility headerVisibility) {
+        return ImmutableMap.of(
+            getBuildTarget(),
+            getCxxPreprocessorInput(cxxPlatform, headerVisibility));
+      }
+
+      @Override
       public NativeLinkableInput getNativeLinkableInput(
           CxxPlatform cxxPlatform,
           Linker.LinkableDepType type) {
@@ -133,6 +142,7 @@ public class CxxBinaryDescriptionTest {
             ImmutableMap.<Path, SourcePath>of(),
             ImmutableMap.<Path, SourcePath>of(),
             ImmutableMap.<Path, SourcePath>of(),
+            ImmutableSet.<SourcePath>of(),
             Optional.<Boolean>absent());
       }
 
@@ -168,7 +178,7 @@ public class CxxBinaryDescriptionTest {
                               projectFilesystem,
                               genSource.getBuildTarget()))))
               .setHeaders(
-                  ImmutableList.<SourcePath>of(
+                  ImmutableSortedSet.<SourcePath>of(
                       new TestSourcePath("test/bar.h"),
                       new BuildTargetSourcePath(projectFilesystem, genHeader.getBuildTarget())))
               .setDeps(ImmutableSortedSet.of(dep.getBuildTarget()));
@@ -180,7 +190,7 @@ public class CxxBinaryDescriptionTest {
             resolver,
             pathResolver,
             cxxPlatform,
-            CxxPreprocessorInput.EMPTY,
+            ImmutableList.<CxxPreprocessorInput>of(),
             ImmutableList.<String>of());
 
     // Check that link rule has the expected deps: the object files for our sources and the

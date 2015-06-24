@@ -46,9 +46,13 @@ public class AppendableRuleKeyCache {
 
   private RuleKey getAppendableRuleKey(
       RuleKeyAppendable appendable) {
-    RuleKey.Builder subKeyBuilder = RuleKey.emptyBuilder(pathResolver, fileHashCache, this);
+    RuleKey.Builder subKeyBuilder =
+        new RuleKey.Builder(
+            pathResolver,
+            fileHashCache,
+            this);
     appendable.appendToRuleKey(subKeyBuilder);
-    return subKeyBuilder.build().getRuleKeyWithoutDeps();
+    return subKeyBuilder.build();
   }
 
 }

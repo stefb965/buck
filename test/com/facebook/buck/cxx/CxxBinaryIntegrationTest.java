@@ -44,12 +44,15 @@ public class CxxBinaryIntegrationTest {
   @Rule
   public DebuggableTemporaryFolder tmp = new DebuggableTemporaryFolder();
 
-  @Test
-  public void testSimpleCxxBinaryBuilds() throws IOException {
+  public void doTestSimpleCxxBinaryBuilds(
+      String preprocessMode,
+      boolean expectPreprocessorOutput) throws IOException {
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "simple", tmp);
     workspace.setUp();
-
+    workspace.writeContentsToPath(
+        String.format("[cxx]\npreprocess_mode = %s\n", preprocessMode),
+        ".buckconfig");
     CxxPlatform cxxPlatform = DefaultCxxPlatforms.build(new CxxBuckConfig(new FakeBuckConfig()));
     BuildTarget target = BuildTargetFactory.newInstance("//foo:simple");
     CxxSourceRuleFactory cxxSourceRuleFactory = CxxSourceRuleFactoryHelper.of(target, cxxPlatform);
@@ -75,16 +78,22 @@ public class CxxBinaryIntegrationTest {
     // successfully.
     workspace.runBuckCommand("build", target.toString()).assertSuccess();
     BuckBuildLog buildLog = workspace.getBuildLog();
-    assertEquals(
-        ImmutableSet.of(
-            headerSymlinkTreeTarget,
-            preprocessTarget,
-            compileTarget,
-            binaryTarget,
-            target),
-        buildLog.getAllTargets());
+    ImmutableSet<BuildTarget> expectedTargets = ImmutableSet.<BuildTarget>builder()
+        .addAll(ImmutableSet.of(
+                headerSymlinkTreeTarget,
+                compileTarget,
+                binaryTarget,
+                target))
+        .addAll((expectPreprocessorOutput
+                ? ImmutableSet.of(preprocessTarget)
+                : ImmutableSet.<BuildTarget>of()))
+        .build();
+
+    assertEquals(expectedTargets, buildLog.getAllTargets());
     buildLog.assertTargetBuiltLocally(headerSymlinkTreeTarget.toString());
-    buildLog.assertTargetBuiltLocally(preprocessTarget.toString());
+    if (expectPreprocessorOutput) {
+      buildLog.assertTargetBuiltLocally(preprocessTarget.toString());
+    }
     buildLog.assertTargetBuiltLocally(compileTarget.toString());
     buildLog.assertTargetBuiltLocally(binaryTarget.toString());
     buildLog.assertTargetBuiltLocally(target.toString());
@@ -112,16 +121,11 @@ public class CxxBinaryIntegrationTest {
     // re-linked, but does not cause the header rules to re-run.
     workspace.runBuckCommand("build", target.toString()).assertSuccess();
     buildLog = workspace.getBuildLog();
-    assertEquals(
-        ImmutableSet.of(
-            headerSymlinkTreeTarget,
-            preprocessTarget,
-            compileTarget,
-            binaryTarget,
-            target),
-        buildLog.getAllTargets());
+    assertEquals(expectedTargets, buildLog.getAllTargets());
     buildLog.assertTargetHadMatchingRuleKey(headerSymlinkTreeTarget.toString());
-    buildLog.assertTargetBuiltLocally(preprocessTarget.toString());
+    if (expectPreprocessorOutput) {
+      buildLog.assertTargetBuiltLocally(preprocessTarget.toString());
+    }
     buildLog.assertTargetBuiltLocally(compileTarget.toString());
     buildLog.assertTargetBuiltLocally(binaryTarget.toString());
     buildLog.assertTargetBuiltLocally(target.toString());
@@ -136,19 +140,29 @@ public class CxxBinaryIntegrationTest {
     // re-linked, but does not cause the header rules to re-run.
     workspace.runBuckCommand("build", target.toString()).assertFailure();
     buildLog = workspace.getBuildLog();
-    assertEquals(
-        ImmutableSet.of(
-            headerSymlinkTreeTarget,
-            preprocessTarget,
-            compileTarget,
-            binaryTarget,
-            target),
-        buildLog.getAllTargets());
+    assertEquals(expectedTargets, buildLog.getAllTargets());
     buildLog.assertTargetHadMatchingRuleKey(headerSymlinkTreeTarget.toString());
-    buildLog.assertTargetBuiltLocally(preprocessTarget.toString());
+    if (expectPreprocessorOutput) {
+      buildLog.assertTargetBuiltLocally(preprocessTarget.toString());
+    }
     buildLog.assertTargetFailed(compileTarget.toString());
     buildLog.assertTargetFailed(binaryTarget.toString());
     buildLog.assertTargetFailed(target.toString());
+  }
+
+  @Test
+  public void testSimpleCxxBinaryBuildsInSeparateMode() throws IOException {
+    doTestSimpleCxxBinaryBuilds("separate", true /* expectPreprocessorOutput */);
+  }
+
+  @Test
+  public void testSimpleCxxBinaryBuildsInPipedMode() throws IOException {
+    doTestSimpleCxxBinaryBuilds("piped", false /* expectPreprocessorOutput */);
+  }
+
+  @Test
+  public void testSimpleCxxBinaryBuildsInCombinedMode() throws IOException {
+    doTestSimpleCxxBinaryBuilds("combined", false /* expectPreprocessorOutput */);
   }
 
   @Test
@@ -602,6 +616,34 @@ public class CxxBinaryIntegrationTest {
   }
 
   @Test
+  public void platformHeaders() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "platform_headers", tmp);
+    workspace.setUp();
+    workspace.writeContentsToPath("[cxx]\n  cxxflags = -Wall -Werror", ".buckconfig");
+    workspace.runBuckBuild("//:binary_matches_default_exactly").assertSuccess();
+    workspace.runBuckBuild("//:binary_matches_default").assertSuccess();
+    ProjectWorkspace.ProcessResult result = workspace.runBuckBuild("//:binary_no_match");
+    result.assertFailure();
+    assertThat(result.getStderr(), Matchers.containsString("header.hpp"));
+    workspace.runBuckBuild("//:binary_with_library_matches_default").assertSuccess();
+  }
+
+  @Test
+  public void platformSources() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "platform_sources", tmp);
+    workspace.setUp();
+    workspace.writeContentsToPath("[cxx]\n  cxxflags = -Wall -Werror", ".buckconfig");
+    workspace.runBuckBuild("//:binary_matches_default_exactly").assertSuccess();
+    workspace.runBuckBuild("//:binary_matches_default").assertSuccess();
+    ProjectWorkspace.ProcessResult result = workspace.runBuckBuild("//:binary_no_match");
+    result.assertFailure();
+    assertThat(result.getStderr(), Matchers.containsString("answer()"));
+    workspace.runBuckBuild("//:binary_with_library_matches_default").assertSuccess();
+  }
+
+  @Test
   public void buildABinaryIfACxxLibraryDepOnlyDeclaresHeaders() throws IOException {
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "cxx_binary_headers_only", tmp);
@@ -622,6 +664,15 @@ public class CxxBinaryIntegrationTest {
     System.out.println(result.getStdout());
     System.err.println(result.getStderr());
 
+    result.assertSuccess();
+  }
+
+  @Test
+  public void buildBinaryWithSharedDependencies() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "shared_library", tmp);
+    workspace.setUp();
+    ProjectWorkspace.ProcessResult result = workspace.runBuckBuild("//:binary");
     result.assertSuccess();
   }
 }

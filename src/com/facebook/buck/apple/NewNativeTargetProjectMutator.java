@@ -574,12 +574,14 @@ public class NewNativeTargetProjectMutator {
         if (!arg.out.isEmpty()) {
           shellScriptBuildPhase.getOutputPaths().add(arg.out);
         }
-      } else if (IosPostprocessResourcesDescription.TYPE.equals(node.getType())) {
-        IosPostprocessResourcesDescription.Arg arg =
-            (IosPostprocessResourcesDescription.Arg) node.getConstructorArg();
-        if (arg.cmd.isPresent()) {
-          shellScriptBuildPhase.setShellScript(arg.cmd.get());
-        }
+      } else if (XcodePrebuildScriptDescription.TYPE.equals(node.getType())) {
+        XcodePrebuildScriptDescription.Arg arg =
+            (XcodePrebuildScriptDescription.Arg) node.getConstructorArg();
+        shellScriptBuildPhase.setShellScript(arg.cmd);
+      } else if (XcodePostbuildScriptDescription.TYPE.equals(node.getType())) {
+        XcodePostbuildScriptDescription.Arg arg =
+            (XcodePostbuildScriptDescription.Arg) node.getConstructorArg();
+        shellScriptBuildPhase.setShellScript(arg.cmd);
       } else {
         // unreachable
         throw new IllegalStateException("Invalid rule type for shell script build phase");

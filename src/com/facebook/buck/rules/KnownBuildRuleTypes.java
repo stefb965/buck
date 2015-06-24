@@ -28,6 +28,7 @@ import com.facebook.buck.android.AndroidPrebuiltAarDescription;
 import com.facebook.buck.android.AndroidResourceDescription;
 import com.facebook.buck.android.ApkGenruleDescription;
 import com.facebook.buck.android.GenAidlDescription;
+import com.facebook.buck.android.ImmutableNdkCxxPlatforms;
 import com.facebook.buck.android.NdkCxxPlatform;
 import com.facebook.buck.android.NdkCxxPlatforms;
 import com.facebook.buck.android.NdkLibraryDescription;
@@ -50,7 +51,8 @@ import com.facebook.buck.apple.AppleTestDescription;
 import com.facebook.buck.apple.AppleToolchain;
 import com.facebook.buck.apple.AppleToolchainDiscovery;
 import com.facebook.buck.apple.CoreDataModelDescription;
-import com.facebook.buck.apple.IosPostprocessResourcesDescription;
+import com.facebook.buck.apple.XcodePrebuildScriptDescription;
+import com.facebook.buck.apple.XcodePostbuildScriptDescription;
 import com.facebook.buck.apple.XcodeWorkspaceConfigDescription;
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.cxx.CxxBinaryDescription;
@@ -59,7 +61,6 @@ import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPlatforms;
 import com.facebook.buck.cxx.CxxPythonExtensionDescription;
-import com.facebook.buck.cxx.CxxSourceRuleFactory;
 import com.facebook.buck.cxx.CxxTestDescription;
 import com.facebook.buck.cxx.DefaultCxxPlatforms;
 import com.facebook.buck.cxx.PrebuiltCxxLibraryDescription;
@@ -81,6 +82,9 @@ import com.facebook.buck.java.JavaTestDescription;
 import com.facebook.buck.java.JavacOptions;
 import com.facebook.buck.java.KeystoreDescription;
 import com.facebook.buck.java.PrebuiltJarDescription;
+import com.facebook.buck.js.AndroidReactNativeLibraryDescription;
+import com.facebook.buck.js.IosReactNativeLibraryDescription;
+import com.facebook.buck.js.ReactNativeBuckConfig;
 import com.facebook.buck.log.CommandThreadFactory;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.Flavor;
@@ -89,6 +93,7 @@ import com.facebook.buck.ocaml.OCamlBinaryDescription;
 import com.facebook.buck.ocaml.OCamlBuckConfig;
 import com.facebook.buck.ocaml.OCamlLibraryDescription;
 import com.facebook.buck.ocaml.PrebuiltOCamlLibraryDescription;
+import com.facebook.buck.python.PrebuiltPythonLibraryDescription;
 import com.facebook.buck.python.PythonBinaryDescription;
 import com.facebook.buck.python.PythonBuckConfig;
 import com.facebook.buck.python.PythonEnvironment;
@@ -266,14 +271,28 @@ public class KnownBuildRuleTypes {
         platformFlavorsToAppleCxxPlatformsBuilder.build();
 
     // Setup the NDK C/C++ platforms.
+    Optional<Path> ndkRoot = androidDirectoryResolver.findAndroidNdkDir();
     ImmutableMap.Builder<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform> ndkCxxPlatformsBuilder =
         ImmutableMap.builder();
-    Optional<Path> ndkRoot = androidDirectoryResolver.findAndroidNdkDir();
     if (ndkRoot.isPresent()) {
+      NdkCxxPlatforms.Compiler.Type compilerType =
+          androidConfig.getNdkCompiler().or(NdkCxxPlatforms.DEFAULT_COMPILER_TYPE);
+      String gccVersion = androidConfig.getNdkGccVersion().or(NdkCxxPlatforms.DEFAULT_GCC_VERSION);
+      NdkCxxPlatforms.Compiler compiler =
+          ImmutableNdkCxxPlatforms.Compiler.builder()
+              .setType(compilerType)
+              .setVersion(
+                  compilerType == NdkCxxPlatforms.Compiler.Type.GCC ?
+                      gccVersion :
+                      androidConfig.getNdkClangVersion().or(NdkCxxPlatforms.DEFAULT_CLANG_VERSION))
+              .setGccVersion(gccVersion)
+              .build();
       ndkCxxPlatformsBuilder.putAll(
           NdkCxxPlatforms.getPlatforms(
-              ndkRoot.get(),
-              androidConfig.getNdkAppPlatform().or("android-9"),
+              new ProjectFilesystem(ndkRoot.get()),
+              compiler,
+              androidConfig.getNdkCxxRuntime().or(NdkCxxPlatforms.DEFAULT_CXX_RUNTIME),
+              androidConfig.getNdkAppPlatform().or(NdkCxxPlatforms.DEFAULT_TARGET_APP_PLATFORM),
               platform));
     }
     ImmutableMap<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform> ndkCxxPlatforms =
@@ -307,6 +326,24 @@ public class KnownBuildRuleTypes {
         cxxPlatformsMap,
         systemDefaultCxxPlatform);
 
+    // Add platforms for each cxx flavor obtained from the buck config files
+    // from sections of the form cxx#{flavor name}
+    ImmutableSet<Flavor> cxxFlavors = CxxBuckConfig.getCxxFlavors(config);
+    for (Flavor flavor: cxxFlavors) {
+      CxxBuckConfig flavoredCxxBuckConfig =  new CxxBuckConfig(config, flavor);
+      CxxPlatform defaultPlatformForFlavor = CxxPlatforms.getConfigDefaultCxxPlatform(
+          flavoredCxxBuckConfig,
+          cxxPlatformsMap,
+          systemDefaultCxxPlatform);
+      cxxPlatformsBuilder.put(flavor, CxxPlatforms.copyPlatformWithFlavorAndConfig(
+          defaultPlatformForFlavor,
+          flavoredCxxBuckConfig,
+          flavor));
+    }
+
+    cxxPlatformsMap = cxxPlatformsBuilder.build();
+
+
     // Build up the final list of C/C++ platforms.
     FlavorDomain<CxxPlatform> cxxPlatforms = new FlavorDomain<>(
         "C/C++ platform",
@@ -314,12 +351,14 @@ public class KnownBuildRuleTypes {
 
     DBuckConfig dBuckConfig = new DBuckConfig(config);
 
+    ReactNativeBuckConfig reactNativeBuckConfig = new ReactNativeBuckConfig(config);
+
     ProGuardConfig proGuardConfig = new ProGuardConfig(config);
 
     PythonBuckConfig pyConfig = new PythonBuckConfig(config, new ExecutableFinder());
 
     // Look up the path to the main module we use for python tests.
-    Optional<Path> pythonPathToPythonTestMain = pyConfig.getPathToTestMain();
+    Path pythonPathToPythonTestMain = pyConfig.getPathToTestMain();
 
     // Look up the timeout to apply to entire test rules.
     Optional<Long> testRuleTimeoutMs = config.getLong("test", "rule_timeout");
@@ -341,22 +380,17 @@ public class KnownBuildRuleTypes {
     JavacOptions androidBinaryOptions = JavacOptions.builder(defaultJavacOptions)
         .build();
 
-    CxxSourceRuleFactory.Strategy compileStrategy =
-        cxxBuckConfig.useCombinedPreprocessAndCompile() ?
-            CxxSourceRuleFactory.Strategy.COMBINED_PREPROCESS_AND_COMPILE :
-            CxxSourceRuleFactory.Strategy.SEPARATE_PREPROCESS_AND_COMPILE;
-
     CxxBinaryDescription cxxBinaryDescription =
         new CxxBinaryDescription(
             cxxBuckConfig,
             defaultCxxPlatform,
             cxxPlatforms,
-            compileStrategy);
+            cxxBuckConfig.getPreprocessMode());
 
     CxxLibraryDescription cxxLibraryDescription = new CxxLibraryDescription(
         cxxBuckConfig,
         cxxPlatforms,
-        compileStrategy);
+        cxxBuckConfig.getPreprocessMode());
 
     AppleLibraryDescription appleLibraryDescription =
         new AppleLibraryDescription(
@@ -394,6 +428,7 @@ public class KnownBuildRuleTypes {
     builder.register(new AndroidLibraryDescription(androidBinaryOptions));
     builder.register(new AndroidManifestDescription());
     builder.register(new AndroidPrebuiltAarDescription(androidBinaryOptions));
+    builder.register(new AndroidReactNativeLibraryDescription(reactNativeBuckConfig));
     builder.register(new AndroidResourceDescription());
     builder.register(new ApkGenruleDescription());
     builder.register(new AppleAssetCatalogDescription());
@@ -426,10 +461,14 @@ public class KnownBuildRuleTypes {
     builder.register(new GenruleDescription());
     builder.register(new GenAidlDescription());
     builder.register(new GwtBinaryDescription());
-    builder.register(new IosPostprocessResourcesDescription());
+    builder.register(new IosReactNativeLibraryDescription(reactNativeBuckConfig));
     builder.register(new JavaBinaryDescription(defaultJavacOptions, defaultCxxPlatform));
     builder.register(new JavaLibraryDescription(defaultJavacOptions));
-    builder.register(new JavaTestDescription(defaultJavacOptions, testRuleTimeoutMs));
+    builder.register(
+        new JavaTestDescription(
+            defaultJavacOptions,
+            testRuleTimeoutMs,
+            defaultCxxPlatform));
     builder.register(new KeystoreDescription());
     builder.register(new NdkLibraryDescription(ndkVersion, ndkCxxPlatforms));
     OCamlBuckConfig ocamlBuckConfig = new OCamlBuckConfig(platform, config);
@@ -439,6 +478,7 @@ public class KnownBuildRuleTypes {
     builder.register(new PrebuiltJarDescription());
     builder.register(new PrebuiltNativeLibraryDescription());
     builder.register(new PrebuiltOCamlLibraryDescription());
+    builder.register(new PrebuiltPythonLibraryDescription());
     builder.register(new ProjectConfigDescription());
     builder.register(
         new PythonBinaryDescription(
@@ -460,7 +500,8 @@ public class KnownBuildRuleTypes {
     builder.register(new RemoteFileDescription(downloader));
     builder.register(new RobolectricTestDescription(
             androidBinaryOptions,
-            testRuleTimeoutMs));
+            testRuleTimeoutMs,
+            defaultCxxPlatform));
     builder.register(new ShBinaryDescription());
     builder.register(new ShTestDescription());
     ThriftBuckConfig thriftBuckConfig = new ThriftBuckConfig(config);
@@ -479,6 +520,8 @@ public class KnownBuildRuleTypes {
                     /* cpp2 */ true),
                 new ThriftPythonEnhancer(thriftBuckConfig, ThriftPythonEnhancer.Type.NORMAL),
                 new ThriftPythonEnhancer(thriftBuckConfig, ThriftPythonEnhancer.Type.TWISTED))));
+    builder.register(new XcodePostbuildScriptDescription());
+    builder.register(new XcodePrebuildScriptDescription());
     builder.register(new XcodeWorkspaceConfigDescription());
 
     // TODO(simons): Added for selenium. Move to that project once the plugin API works.

@@ -23,10 +23,11 @@
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/gwt/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/java/intellij/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/java/testdata" />
+      <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/js/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/parser/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/shell/testdata" />
     </content>
-    <orderEntry type="jdk" jdkName="1.8" jdkType="JavaSDK" />
+    <orderEntry type="jdk" jdkName="1.7" jdkType="JavaSDK" />
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="library" name="buck-lib" level="project" />
     <orderEntry type="library" scope="TEST" name="test-lib" level="project" />

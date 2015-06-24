@@ -32,6 +32,7 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
+import com.google.common.base.Optional;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -49,17 +50,17 @@ public class CxxBinaryDescription implements
   private final CxxBuckConfig cxxBuckConfig;
   private final CxxPlatform defaultCxxPlatform;
   private final FlavorDomain<CxxPlatform> cxxPlatforms;
-  private final CxxSourceRuleFactory.Strategy compileStrategy;
+  private final CxxPreprocessMode preprocessMode;
 
   public CxxBinaryDescription(
       CxxBuckConfig cxxBuckConfig,
       CxxPlatform defaultCxxPlatform,
       FlavorDomain<CxxPlatform> cxxPlatforms,
-      CxxSourceRuleFactory.Strategy compileStrategy) {
+      CxxPreprocessMode preprocessMode) {
     this.cxxBuckConfig = cxxBuckConfig;
     this.defaultCxxPlatform = defaultCxxPlatform;
     this.cxxPlatforms = cxxPlatforms;
-    this.compileStrategy = compileStrategy;
+    this.preprocessMode = preprocessMode;
   }
 
   /**
@@ -78,7 +79,7 @@ public class CxxBinaryDescription implements
         /* includeLexYaccHeaders */ true,
         CxxDescriptionEnhancer.parseLexSources(params, resolver, args),
         CxxDescriptionEnhancer.parseYaccSources(params, resolver, args),
-        CxxDescriptionEnhancer.parseHeaders(params, resolver, args),
+        CxxDescriptionEnhancer.parseHeaders(params, resolver, cxxPlatform, args),
         HeaderVisibility.PRIVATE);
   }
 
@@ -136,11 +137,11 @@ public class CxxBinaryDescription implements
               resolver,
               cxxPlatform,
               args,
-              compileStrategy);
+              preprocessMode);
       return CxxCompilationDatabase.createCompilationDatabase(
           params,
           new SourcePathResolver(resolver),
-          compileStrategy,
+          preprocessMode,
           cxxLinkAndCompileRules.compileRules);
     }
 
@@ -150,7 +151,7 @@ public class CxxBinaryDescription implements
             resolver,
             cxxPlatform,
             args,
-            compileStrategy);
+            preprocessMode);
     CxxLink cxxLink = cxxLinkAndCompileRules.cxxLink;
 
     // Return a CxxBinary rule as our representative in the action graph, rather than the CxxLink
@@ -216,7 +217,14 @@ public class CxxBinaryDescription implements
     return flavors.isEmpty();
   }
 
+  public enum LinkStyle {
+    STATIC,
+    SHARED,
+  }
+
   @SuppressFieldNotInitialized
-  public static class Arg extends CxxConstructorArg {}
+  public static class Arg extends CxxConstructorArg {
+    public Optional<LinkStyle> linkStyle;
+  }
 
 }

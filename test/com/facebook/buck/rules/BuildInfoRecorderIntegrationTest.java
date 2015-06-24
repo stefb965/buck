@@ -29,6 +29,7 @@ import com.facebook.buck.timing.DefaultClock;
 import com.google.common.base.Optional;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 
 import org.junit.Test;
 
@@ -61,10 +62,12 @@ public class BuildInfoRecorderIntegrationTest {
     cacheDir.create();
     ArtifactCache artifactCache = new DirArtifactCache(
         "dir",
-        cacheDir.getRoot(),
+        new ProjectFilesystem(cacheDir.getRootPath()),
+        Paths.get("."),
         true,
         Optional.<Long>absent());
     buildInfoRecorder.performUploadToArtifactCache(
+        ImmutableSet.of(new RuleKey(RULE_KEY)),
         artifactCache,
         new BuckEventBus(new DefaultClock(), new BuildId()));
     assertTrue(cacheDir.getRootPath().resolve(Paths.get(RULE_KEY)).toFile().exists());

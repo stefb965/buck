@@ -16,6 +16,7 @@
 
 package com.facebook.buck.apple;
 
+import com.facebook.buck.cxx.CxxBinaryDescription;
 import com.facebook.buck.cxx.CxxConstructorArg;
 import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.cxx.CxxSource;
@@ -23,15 +24,15 @@ import com.facebook.buck.cxx.HeaderVisibility;
 import com.facebook.buck.cxx.Tool;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.Pair;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.rules.coercer.Either;
 import com.facebook.buck.rules.coercer.FrameworkPath;
-import com.facebook.buck.rules.coercer.SourceWithFlags;
+import com.facebook.buck.rules.coercer.PatternMatchedCollection;
+import com.facebook.buck.rules.coercer.SourceList;
+import com.facebook.buck.rules.coercer.SourceWithFlagsList;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Functions;
@@ -43,6 +44,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Maps;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -53,8 +55,8 @@ import java.util.Set;
  */
 public class AppleDescriptions {
 
-  private static final Either<ImmutableSortedSet<SourcePath>, ImmutableMap<String, SourcePath>>
-      EMPTY_HEADERS = Either.ofLeft(ImmutableSortedSet.<SourcePath>of());
+  private static final SourceList EMPTY_HEADERS = SourceList.ofUnnamedSources(
+      ImmutableSortedSet.<SourcePath>of());
 
   static final String XCASSETS_DIRECTORY_EXTENSION = ".xcassets";
   private static final String MERGED_ASSET_CATALOG_NAME = "Merged";
@@ -120,25 +122,31 @@ public class AppleDescriptions {
   static ImmutableMap<String, SourcePath> parseAppleHeadersForUseFromOtherTargets(
       Function<SourcePath, Path> pathResolver,
       Path headerPathPrefix,
-      Either<ImmutableSortedSet<SourcePath>, ImmutableMap<String, SourcePath>> headers) {
-    if (headers.isLeft()) {
+      SourceList headers) {
+    if (headers.getUnnamedSources().isPresent()) {
       // The user specified a set of header files. For use from other targets, prepend their names
       // with the header path prefix.
-      return convertToFlatCxxHeaders(headerPathPrefix, pathResolver, headers.getLeft());
+      return convertToFlatCxxHeaders(
+          headerPathPrefix,
+          pathResolver,
+          headers.getUnnamedSources().get());
     } else {
       // The user specified a map from include paths to header files. Just use the specified map.
-      return headers.getRight();
+      return headers.getNamedSources().get();
     }
   }
 
   @VisibleForTesting
   static ImmutableMap<String, SourcePath> parseAppleHeadersForUseFromTheSameTarget(
       Function<SourcePath, Path> pathResolver,
-      Either<ImmutableSortedSet<SourcePath>, ImmutableMap<String, SourcePath>> headers) {
-    if (headers.isLeft()) {
+      SourceList headers) {
+    if (headers.getUnnamedSources().isPresent()) {
       // The user specified a set of header files. Headers can be included from the same target
       // using only their file name without a prefix.
-      return convertToFlatCxxHeaders(Paths.get(""), pathResolver, headers.getLeft());
+      return convertToFlatCxxHeaders(
+          Paths.get(""),
+          pathResolver,
+          headers.getUnnamedSources().get());
     } else {
       // The user specified a map from include paths to header files. There is nothing we need to
       // add on top of the exported headers.
@@ -189,29 +197,28 @@ public class AppleDescriptions {
       expandSdkVariableRefs = Functions.identity();
     }
 
-    output.srcs = Optional.of(
-        Either.<ImmutableList<SourceWithFlags>, ImmutableMap<String, SourceWithFlags>>ofLeft(
-            arg.srcs.get()));
-    output.headers = Optional.of(
-        Either.<ImmutableList<SourcePath>, ImmutableMap<String, SourcePath>>ofRight(
-            headerMap));
+    output.srcs = Optional.of(SourceWithFlagsList.ofUnnamedSources(arg.srcs.get()));
+    output.platformSrcs = Optional.of(PatternMatchedCollection.<SourceWithFlagsList>of());
+    output.headers = Optional.of(SourceList.ofNamedSources(headerMap));
+    output.platformHeaders = Optional.of(PatternMatchedCollection.<SourceList>of());
     output.prefixHeaders = Optional.of(ImmutableList.copyOf(arg.prefixHeader.asSet()));
     output.compilerFlags = arg.compilerFlags.transform(expandSdkVariableRefs);
-
-    output.platformCompilerFlags =
-        Optional.of(ImmutableList.<Pair<String, ImmutableList<String>>>of());
+    output.platformCompilerFlags = Optional.of(
+        PatternMatchedCollection.<ImmutableList<String>>of());
     output.linkerFlags = Optional.of(
         FluentIterable
             .from(arg.frameworks.transform(frameworksToLinkerFlagsFunction(resolver)).get())
             .append(arg.linkerFlags.transform(expandSdkVariableRefs).get())
             .toList());
-    output.platformLinkerFlags = Optional.of(
-        ImmutableList.<Pair<String, ImmutableList<String>>>of());
+    output.platformLinkerFlags = Optional.of(PatternMatchedCollection.<ImmutableList<String>>of());
     output.preprocessorFlags = arg.preprocessorFlags.transform(expandSdkVariableRefs);
-    output.platformPreprocessorFlags =
-        Optional.of(ImmutableList.<Pair<String, ImmutableList<String>>>of());
+    output.platformPreprocessorFlags = Optional.of(
+        PatternMatchedCollection.<ImmutableList<String>>of());
     output.langPreprocessorFlags = Optional.of(
-        ImmutableMap.<CxxSource.Type, ImmutableList<String>>of());
+        ImmutableMap.copyOf(
+            Maps.transformValues(
+                arg.langPreprocessorFlags.get(),
+                expandSdkVariableRefs)));
     if (appleSdkPaths.isPresent()) {
       output.frameworkSearchPaths = arg.frameworks.transform(
           frameworksToSearchPathsFunction(resolver, appleSdkPaths.get()));
@@ -226,6 +233,21 @@ public class AppleDescriptions {
     output.headerNamespace = Optional.of("");
     output.tests = arg.tests;
     output.cxxRuntimeType = Optional.absent();
+  }
+
+  public static void populateCxxBinaryDescriptionArg(
+      SourcePathResolver resolver,
+      CxxBinaryDescription.Arg output,
+      AppleNativeTargetDescriptionArg arg,
+      BuildTarget buildTarget,
+      final Optional<AppleSdkPaths> appleSdkPaths) {
+    populateCxxConstructorArg(
+        resolver,
+        output,
+        arg,
+        buildTarget,
+        appleSdkPaths);
+    output.linkStyle = Optional.<CxxBinaryDescription.LinkStyle>absent();
   }
 
   public static void populateCxxLibraryDescriptionArg(
@@ -251,7 +273,7 @@ public class AppleDescriptions {
     }
 
     output.headers = Optional.of(
-        Either.<ImmutableList<SourcePath>, ImmutableMap<String, SourcePath>>ofRight(
+        SourceList.ofNamedSources(
             convertAppleHeadersToPrivateCxxHeaders(
                 resolver.getPathFunction(),
                 headerPathPrefix,
@@ -259,14 +281,15 @@ public class AppleDescriptions {
     output.exportedPreprocessorFlags = arg.exportedPreprocessorFlags.transform(
         expandSdkVariableRefs);
     output.exportedHeaders = Optional.of(
-        Either.<ImmutableList<SourcePath>, ImmutableMap<String, SourcePath>>ofRight(
+        SourceList.ofNamedSources(
             convertAppleHeadersToPublicCxxHeaders(
                 resolver.getPathFunction(),
                 headerPathPrefix,
                 arg)));
+    output.exportedPlatformHeaders = Optional.of(PatternMatchedCollection.<SourceList>of());
     output.exportedPreprocessorFlags = Optional.of(ImmutableList.<String>of());
-    output.exportedPlatformPreprocessorFlags =
-        Optional.of(ImmutableList.<Pair<String, ImmutableList<String>>>of());
+    output.exportedPlatformPreprocessorFlags = Optional.of(
+        PatternMatchedCollection.<ImmutableList<String>>of());
     output.exportedLangPreprocessorFlags = Optional.of(
         ImmutableMap.<CxxSource.Type, ImmutableList<String>>of());
     output.exportedLinkerFlags = Optional.of(
@@ -274,11 +297,12 @@ public class AppleDescriptions {
             .from(arg.frameworks.transform(frameworksToLinkerFlagsFunction(resolver)).get())
             .append(arg.exportedLinkerFlags.transform(expandSdkVariableRefs).get())
             .toList());
-    output.exportedPlatformLinkerFlags =
-        Optional.of(ImmutableList.<Pair<String, ImmutableList<String>>>of());
+    output.exportedPlatformLinkerFlags = Optional.of(
+        PatternMatchedCollection.<ImmutableList<String>>of());
     output.soname = Optional.absent();
     output.forceStatic = Optional.of(false);
     output.linkWhole = Optional.of(linkWhole);
+    output.supportedPlatformsRegex = Optional.absent();
   }
 
   @VisibleForTesting

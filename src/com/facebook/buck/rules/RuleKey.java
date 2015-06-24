@@ -23,7 +23,6 @@ import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.rules.coercer.SourceWithFlags;
 import com.facebook.buck.util.FileHashCache;
 import com.facebook.buck.util.hash.AppendingHasher;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
@@ -32,14 +31,11 @@ import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Lists;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
 import com.google.common.primitives.Primitives;
-
-import org.immutables.value.Value;
 
 import java.nio.file.Path;
 import java.util.Collection;
@@ -105,7 +101,7 @@ public class RuleKey {
   };
 
   @Override
-  public boolean equals(Object obj) {
+  public boolean equals(@Nullable Object obj) {
     if (!(obj instanceof RuleKey)) {
       return false;
     }
@@ -118,48 +114,6 @@ public class RuleKey {
     return this.getHashCode().hashCode();
   }
 
-  /**
-   * Builder for a {@link RuleKey} that is a function of all of a {@link BuildRule}'s inputs.
-   */
-  public static Builder builder(
-      BuildRule rule,
-      SourcePathResolver resolver,
-      FileHashCache hashCache,
-      AppendableRuleKeyCache appendableRuleKeyCache) {
-    return builder(
-        rule.getBuildTarget(),
-        rule.getType(),
-        resolver,
-        rule.getDeps(),
-        hashCache,
-        appendableRuleKeyCache);
-  }
-
-  /**
-   * Builder for a {@link RuleKey} that is a function of all of a {@link BuildRule}'s inputs.
-   */
-  public static Builder builder(
-      BuildTarget name,
-      String type,
-      SourcePathResolver resolver,
-      ImmutableSortedSet<BuildRule> deps,
-      FileHashCache hashCache,
-      AppendableRuleKeyCache appendableRuleKeyCache) {
-    return new Builder(resolver, deps, hashCache, appendableRuleKeyCache)
-        .setReflectively("name", name.getFullyQualifiedName())
-        // Keyed as "buck.type" rather than "type" in case a build rule has its own "type" argument.
-        .setReflectively("buck.type", type);
-  }
-
-  @VisibleForTesting
-  static Builder emptyBuilder(
-      SourcePathResolver resolver,
-      FileHashCache hashCache,
-      AppendableRuleKeyCache appendableRuleKeyCache) {
-    ImmutableSortedSet<BuildRule> noDeps = ImmutableSortedSet.of();
-    return new Builder(resolver, noDeps, hashCache, appendableRuleKeyCache);
-  }
-
   public static class Builder {
 
     @VisibleForTesting
@@ -168,20 +122,17 @@ public class RuleKey {
     private static final Logger logger = Logger.get(Builder.class);
 
     private final SourcePathResolver resolver;
-    private final ImmutableSortedSet<BuildRule> deps;
     private final Hasher hasher;
     private final FileHashCache hashCache;
     private final AppendableRuleKeyCache appendableRuleKeyCache;
 
     @Nullable private List<String> logElms;
 
-    private Builder(
+    public Builder(
         SourcePathResolver resolver,
-        ImmutableSortedSet<BuildRule> deps,
         FileHashCache hashCache,
         AppendableRuleKeyCache appendableRuleKeyCache) {
       this.resolver = resolver;
-      this.deps = deps;
       this.hasher = new AppendingHasher(Hashing.sha1(), /* numHashers */ 2);
       this.hashCache = hashCache;
       this.appendableRuleKeyCache = appendableRuleKeyCache;
@@ -205,6 +156,24 @@ public class RuleKey {
         logElms.add(String.format(":key(%s):", sectionLabel));
       }
       return separate().feed(sectionLabel.getBytes()).separate();
+    }
+
+    protected Builder setSourcePath(SourcePath sourcePath) {
+      // And now we need to figure out what this thing is.
+      Optional<BuildRule> buildRule = resolver.getRule(sourcePath);
+      if (buildRule.isPresent()) {
+        feed(sourcePath.toString().getBytes()).separate();
+        return setSingleValue(buildRule.get());
+      } else {
+        Optional<Path> relativePath = resolver.getRelativePath(sourcePath);
+        Preconditions.checkState(relativePath.isPresent());
+        Path path = relativePath.get();
+        return setSingleValue(path);
+      }
+    }
+
+    protected Builder setBuildRule(BuildRule rule) {
+      return setSingleValue(rule.getRuleKey());
     }
 
     public Builder setReflectively(String key, @Nullable Object val) {
@@ -276,7 +245,7 @@ public class RuleKey {
       return setSingleValue(val);
     }
 
-    private Builder setSingleValue(@Nullable Object val) {
+    protected Builder setSingleValue(@Nullable Object val) {
 
       if (val == null) { // Null value first
         return separate();
@@ -333,12 +302,8 @@ public class RuleKey {
           logElms.add(String.format("string(\"%s\"):", val));
         }
         feed(((String) val).getBytes());
-      }
-
-      // Buck types below here.
-
-      else if (val instanceof BuildRule) {
-        return setSingleValue(((BuildRule) val).getRuleKey());
+      } else if (val instanceof BuildRule) {
+        return setBuildRule((BuildRule) val);
       } else if (val instanceof BuildRuleType) {
         if (logElms != null) {
           logElms.add(String.format("ruleKeyType(%s):", val));
@@ -355,17 +320,7 @@ public class RuleKey {
         }
         feed(((HasBuildTarget) val).getBuildTarget().getFullyQualifiedName().getBytes());
       } else if (val instanceof SourcePath) {
-        // And now we need to figure out what this thing is.
-        Optional<BuildRule> buildRule = resolver.getRule((SourcePath) val);
-        if (buildRule.isPresent()) {
-          feed(val.toString().getBytes()).separate();
-          return setSingleValue(buildRule.get());
-        } else {
-          Optional<Path> relativePath = resolver.getRelativePath((SourcePath) val);
-          Preconditions.checkState(relativePath.isPresent());
-          Path path = relativePath.get();
-          return setSingleValue(path);
-        }
+        return setSourcePath((SourcePath) val);
       } else if (val instanceof SourceRoot) {
         if (logElms != null) {
           logElms.add(String.format("sourceroot(%s):", val));
@@ -387,38 +342,14 @@ public class RuleKey {
       return separate();
     }
 
-    @BuckStyleImmutable
-    @Value.Immutable
-    interface AbstractRuleKeyPair {
-
-      @Value.Parameter
-      RuleKey getTotalRuleKey();
-
-      @Value.Parameter
-      RuleKey getRuleKeyWithoutDeps();
-
+    public RuleKey build() {
+      RuleKey ruleKey = new RuleKey(hasher.hash());
+      if (logElms != null) {
+        logger.verbose("RuleKey %s=%s", ruleKey, Joiner.on("").join(logElms));
+      }
+      return ruleKey;
     }
 
-    public RuleKeyPair build() {
-      RuleKey ruleKeyWithoutDeps = new RuleKey(hasher.hash());
-
-      if (logElms != null) {
-        logger.verbose(
-            "RuleKey (without deps) %s=%s",
-            ruleKeyWithoutDeps,
-            Joiner.on("").join(logElms));
-      }
-
-      // Now introduce the deps into the RuleKey.
-      setReflectively("deps", deps);
-
-      RuleKey totalRuleKey = new RuleKey(hasher.hash());
-
-      if (logElms != null) {
-        logger.verbose("RuleKey %s=%s", totalRuleKey, Joiner.on("").join(logElms));
-      }
-
-      return RuleKeyPair.of(totalRuleKey, ruleKeyWithoutDeps);
-    }
   }
+
 }

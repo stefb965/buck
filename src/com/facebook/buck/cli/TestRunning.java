@@ -34,6 +34,7 @@ import com.facebook.buck.rules.BuildRuleSuccessType;
 import com.facebook.buck.rules.IndividualTestEvent;
 import com.facebook.buck.rules.TestRule;
 import com.facebook.buck.rules.TestRunEvent;
+import com.facebook.buck.rules.TestSummaryEvent;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepFailedException;
@@ -43,6 +44,7 @@ import com.facebook.buck.test.CoverageReportFormat;
 import com.facebook.buck.test.TestCaseSummary;
 import com.facebook.buck.test.TestResultSummary;
 import com.facebook.buck.test.TestResults;
+import com.facebook.buck.test.TestRuleEvent;
 import com.facebook.buck.test.result.groups.TestResultsGrouper;
 import com.facebook.buck.test.result.type.ResultType;
 import com.facebook.buck.util.BuckConstant;
@@ -80,6 +82,7 @@ import java.io.StringWriter;
 import java.io.Writer;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -183,7 +186,7 @@ public class TestRunning {
     final AtomicInteger lastReportedTestSequenceNumber = new AtomicInteger();
     final List<TestRun> separateTestRuns = Lists.newArrayList();
     List<TestRun> parallelTestRuns = Lists.newArrayList();
-    for (TestRule test : tests) {
+    for (final TestRule test : tests) {
       // Determine whether the test needs to be executed.
       boolean isTestRunRequired;
       isTestRunRequired = isTestRunRequiredForTest(
@@ -200,12 +203,64 @@ public class TestRunning {
         params.getBuckEventBus().post(IndividualTestEvent.started(testTargets));
         ImmutableList.Builder<Step> stepsBuilder = ImmutableList.builder();
         Preconditions.checkState(buildEngine.isRuleBuilt(test.getBuildTarget()));
+        final Map<String, UUID> testUUIDMap = new HashMap<>();
         List<Step> testSteps = test.runTests(
             buildContext,
             executionContext,
             options.isDryRun(),
             options.isShufflingTests(),
-            options.getTestSelectorList());
+            options.getTestSelectorList(),
+            new TestRule.TestReportingCallback() {
+              @Override
+              public void testsDidBegin() {
+                LOG.debug("Tests for rule %s began", test.getBuildTarget());
+              }
+
+              @Override
+              public void testDidBegin(
+                  String testCaseName,
+                  String testName) {
+                LOG.debug(
+                    "Test rule %s test case %s test name %s began",
+                    test.getBuildTarget(),
+                    testCaseName,
+                    testName);
+                UUID testUUID = UUID.randomUUID();
+                // UUID is immutable and thread-safe as of Java 7, so it's
+                // safe to stash in a map and use later:
+                //
+                // http://bugs.java.com/view_bug.do?bug_id=6611830
+                testUUIDMap.put(testCaseName + ":" + testName, testUUID);
+                params.getBuckEventBus().post(
+                    TestSummaryEvent.started(
+                        testUUID,
+                        testCaseName,
+                        testName));
+              }
+
+              @Override
+              public void testDidEnd(
+                  TestResultSummary testResultSummary) {
+                LOG.debug(
+                    "Test rule %s test did end: %s",
+                    test.getBuildTarget(),
+                    testResultSummary);
+                UUID testUUID = testUUIDMap.get(
+                    testResultSummary.getTestCaseName() + ":" + testResultSummary.getTestName());
+                Preconditions.checkNotNull(testUUID);
+                params.getBuckEventBus().post(
+                    TestSummaryEvent.finished(testUUID, testResultSummary));
+              }
+
+              @Override
+              public void testsDidEnd(
+                  List<TestCaseSummary> testCaseSummaries) {
+                LOG.debug(
+                    "Test rule %s tests did end: %s",
+                    test.getBuildTarget(),
+                    testCaseSummaries);
+              }
+            });
         if (!testSteps.isEmpty()) {
           stepsBuilder.addAll(testSteps);
           stepsBuilder.add(testRuleKeyFileHelper.createRuleKeyInDirStep(test));
@@ -237,13 +292,31 @@ public class TestRunning {
       }
     }
 
+    final StepRunner.StepRunningCallback testStepRunningCallback =
+        new StepRunner.StepRunningCallback() {
+          @Override
+          public void stepsWillRun(Optional<BuildTarget> buildTarget) {
+            Preconditions.checkState(buildTarget.isPresent());
+            LOG.debug("Test steps will run for %s", buildTarget);
+            params.getBuckEventBus().post(TestRuleEvent.started(buildTarget.get()));
+          }
+
+          @Override
+          public void stepsDidRun(Optional<BuildTarget> buildTarget) {
+            Preconditions.checkState(buildTarget.isPresent());
+            LOG.debug("Test steps did run for %s", buildTarget);
+            params.getBuckEventBus().post(TestRuleEvent.finished(buildTarget.get()));
+          }
+        };
+
     for (TestRun testRun : parallelTestRuns) {
       ListenableFuture<TestResults> testResults =
           stepRunner.runStepsAndYieldResult(
               testRun.getSteps(),
               testRun.getTestResultsCallable(),
               Optional.of(testRun.getTest().getBuildTarget()),
-              service);
+              service,
+              testStepRunningCallback);
         results.add(
             transformTestResults(
                 params,
@@ -278,7 +351,8 @@ public class TestRunning {
                           testRun.getSteps(),
                           testRun.getTestResultsCallable(),
                           Optional.of(testRun.getTest().getBuildTarget()),
-                          directExecutorService),
+                          directExecutorService,
+                          testStepRunningCallback),
                       grouper,
                       testRun.getTest(),
                       testTargets,

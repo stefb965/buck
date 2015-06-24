@@ -29,6 +29,7 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
@@ -101,6 +102,22 @@ public final class FakeCxxLibrary extends AbstractCxxLibrary {
   }
 
   @Override
+  public ImmutableMap<BuildTarget, CxxPreprocessorInput> getTransitiveCxxPreprocessorInput(
+      CxxPlatform cxxPlatform, HeaderVisibility headerVisibility) {
+    ImmutableMap.Builder<BuildTarget, CxxPreprocessorInput> builder = ImmutableMap.builder();
+    builder.put(getBuildTarget(), getCxxPreprocessorInput(cxxPlatform, headerVisibility));
+    for (BuildRule dep : getDeps()) {
+      if (dep instanceof CxxPreprocessorDep) {
+        builder.putAll(
+            ((CxxPreprocessorDep) dep).getTransitiveCxxPreprocessorInput(
+                cxxPlatform,
+                headerVisibility));
+      }
+    }
+    return builder.build();
+  }
+
+  @Override
   public NativeLinkableInput getNativeLinkableInput(
       CxxPlatform cxxPlatform,
       Linker.LinkableDepType type) {
@@ -130,6 +147,7 @@ public final class FakeCxxLibrary extends AbstractCxxLibrary {
         ImmutableMap.<Path, SourcePath>of(
             Paths.get(sharedLibrarySoname),
             new PathSourcePath(getProjectFilesystem(), sharedLibraryOutput)),
+        ImmutableSet.<SourcePath>of(),
         Optional.<Boolean>absent());
   }
 

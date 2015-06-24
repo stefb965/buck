@@ -15,9 +15,9 @@
  */
 package com.facebook.buck.android;
 
+import com.facebook.buck.cxx.CxxHeaders;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPreprocessables;
-import com.facebook.buck.cxx.CxxPreprocessorDep;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
 import com.facebook.buck.cxx.CxxSource;
 import com.facebook.buck.cxx.Linker;
@@ -182,10 +182,8 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescription.
             CxxPreprocessables.getTransitiveCxxPreprocessorInput(
                 cxxPlatform,
                 params.getDeps(),
-                Predicates.or(
-                    Predicates.instanceOf(CxxPreprocessorDep.class),
-                    Predicates.instanceOf(NdkLibrary.class))));
-      } catch (CxxPreprocessorInput.ConflictingHeadersException e) {
+                Predicates.instanceOf(NdkLibrary.class)));
+      } catch (CxxHeaders.ConflictingHeadersException e) {
         throw e.getHumanReadableExceptionForBuildTarget(params.getBuildTarget());
       }
 
@@ -249,6 +247,55 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescription.
         outputLinesBuilder.add("");
       }
     }
+
+    // GCC-only magic that rewrites non-deterministic parts of builds
+    String ndksubst = NdkCxxPlatforms.ANDROID_NDK_ROOT;
+
+    outputLinesBuilder.addAll(
+        ImmutableList.copyOf(new String[] {
+              // We're evaluated once per architecture, but want to add the cflags only once.
+              "ifeq ($(BUCK_ALREADY_HOOKED_CFLAGS),)",
+              "BUCK_ALREADY_HOOKED_CFLAGS := 1",
+              // Only GCC supports -fdebug-prefix-map
+              "ifeq ($(filter clang%,$(NDK_TOOLCHAIN_VERSION)),)",
+              // Replace absolute paths with machine-relative ones.
+              "NDK_APP_CFLAGS += -fdebug-prefix-map=$(NDK_ROOT)/=" + ndksubst + "/",
+              "NDK_APP_CFLAGS += -fdebug-prefix-map=$(abspath $(BUCK_PROJECT_DIR))/=./",
+              // Replace paths relative to the build rule with paths relative to the
+              // repository root.
+              "NDK_APP_CFLAGS += -fdebug-prefix-map=$(BUCK_PROJECT_DIR)/=./",
+              "NDK_APP_CFLAGS += -fdebug-prefix-map=./=" +
+              ".$(subst $(abspath $(BUCK_PROJECT_DIR)),,$(abspath $(CURDIR)))/",
+              "NDK_APP_CFLAGS += -fno-record-gcc-switches",
+              "ifeq ($(filter 4.6,$(TOOLCHAIN_VERSION)),)",
+              // Do not let header canonicalization undo the work we just did above.  Note that GCC
+              // 4.6 doesn't support this option, but that's okay, because it doesn't canonicalize
+              // headers either.
+              "NDK_APP_CPPFLAGS += -fno-canonical-system-headers",
+              // If we include the -fdebug-prefix-map in the switches, the "from"-parts of which
+              // contain machine-specific paths, we lose determinism.  GCC 4.6 didn't include
+              // detailed command line argument information anyway.
+              "NDK_APP_CFLAGS += -gno-record-gcc-switches",
+              "endif", // !GCC 4.6
+              "endif", // !clang
+
+              // Rewrite NDK module paths to import managed modules by relative path instead of by
+              // absolute path, but only for modules under the project root.
+              "BUCK_SAVED_IMPORTS := $(__ndk_import_dirs)",
+              "__ndk_import_dirs :=",
+              "$(foreach __dir,$(BUCK_SAVED_IMPORTS),\\",
+              "$(call import-add-path-optional,\\",
+              "$(if $(filter $(abspath $(BUCK_PROJECT_DIR))%,$(__dir)),\\",
+              "$(BUCK_PROJECT_DIR)$(patsubst $(abspath $(BUCK_PROJECT_DIR))%,%,$(__dir)),\\",
+              "$(__dir))))",
+              "endif", // !already hooked
+              // Now add a toolchain directory to replace.  GCC's debug path replacement evaluates
+              // candidate replaces last-first (because it internally pushes them all onto a stack
+              // and scans the stack first-match-wins), so only add them after the more
+              // generic paths.
+              "NDK_APP_CFLAGS += -fdebug-prefix-map=$(TOOLCHAIN_PREBUILT_ROOT)/=" +
+              "@ANDROID_NDK_ROOT@/toolchains/$(TOOLCHAIN_NAME)/prebuilt/@BUILD_HOST@/",
+            }));
 
     outputLinesBuilder.add("include Android.mk");
 

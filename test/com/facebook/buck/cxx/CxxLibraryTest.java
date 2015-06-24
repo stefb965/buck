@@ -38,9 +38,11 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.base.Functions;
 import com.google.common.base.Optional;
+import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import org.hamcrest.Matchers;
@@ -48,6 +50,7 @@ import org.junit.Test;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.regex.Pattern;
 
 public class CxxLibraryTest {
 
@@ -147,6 +150,7 @@ public class CxxLibraryTest {
         ImmutableMap.<Path, SourcePath>of(
             Paths.get(sharedLibrarySoname),
             new PathSourcePath(projectFilesystem, sharedLibraryOutput)),
+        ImmutableSet.<SourcePath>of(),
         Optional.<Boolean>absent());
     assertEquals(
         expectedPythonPackageComponents,
@@ -182,10 +186,10 @@ public class CxxLibraryTest {
         params,
         ruleResolver,
         pathResolver,
-        /* headerOnly */ false,
+        /* headerOnly */ Predicates.<CxxPlatform>alwaysFalse(),
         Functions.constant(ImmutableMultimap.<CxxSource.Type, String>of()),
         Functions.constant(ImmutableList.<String>of()),
-        /* supportedPlatformsRegex */ Optional.<String>absent(),
+        /* supportedPlatformsRegex */ Optional.<Pattern>absent(),
         ImmutableList.<Path>of(),
         CxxLibrary.Linkage.STATIC,
         /* linkWhole */ false,

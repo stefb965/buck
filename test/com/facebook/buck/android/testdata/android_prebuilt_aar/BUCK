@@ -2,6 +2,19 @@ genrule(
   name = 'gen_aar',
   cmd = '$(exe :aar_generator) $TMP $OUT',
   out = 'the.aar',
+  visibility = [
+    'PUBLIC',
+  ],
+)
+
+genrule(
+  name = 'gen_aar-with-jsr',
+  cmd = '$(exe :aar_generator) ' +
+    '--lib $(location //third-party/jsr:jsr) $TMP $OUT',
+  out = 'jsr.aar',
+  visibility = [
+    'PUBLIC',
+  ],
 )
 
 python_binary(

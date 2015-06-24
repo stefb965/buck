@@ -21,7 +21,6 @@ import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.FlavorDomainException;
 import com.facebook.buck.model.Flavored;
-import com.facebook.buck.model.Pair;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -31,26 +30,33 @@ import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SymlinkTree;
-import com.facebook.buck.rules.coercer.Either;
+import com.facebook.buck.rules.coercer.PatternMatchedCollection;
+import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.rules.coercer.SourceWithFlags;
+import com.facebook.buck.rules.coercer.SourceWithFlagsList;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreIterables;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Function;
 import com.google.common.base.Functions;
 import com.google.common.base.Optional;
+import com.google.common.base.Predicate;
+import com.google.common.base.Predicates;
 import com.google.common.base.Suppliers;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 public class CxxLibraryDescription implements
     Description<CxxLibraryDescription.Arg>,
@@ -84,21 +90,82 @@ public class CxxLibraryDescription implements
 
   private final CxxBuckConfig cxxBuckConfig;
   private final FlavorDomain<CxxPlatform> cxxPlatforms;
-  private final CxxSourceRuleFactory.Strategy compileStrategy;
+  private final CxxPreprocessMode preprocessMode;
 
   public CxxLibraryDescription(
       CxxBuckConfig cxxBuckConfig,
       FlavorDomain<CxxPlatform> cxxPlatforms,
-      CxxSourceRuleFactory.Strategy compileStrategy) {
+      CxxPreprocessMode preprocessMode) {
     this.cxxBuckConfig = cxxBuckConfig;
     this.cxxPlatforms = cxxPlatforms;
-    this.compileStrategy = compileStrategy;
+    this.preprocessMode = preprocessMode;
   }
 
   @Override
   public boolean hasFlavors(ImmutableSet<Flavor> flavors) {
     return cxxPlatforms.containsAnyOf(flavors) ||
         flavors.contains(CxxCompilationDatabase.COMPILATION_DATABASE);
+  }
+
+  private static ImmutableCollection<CxxPreprocessorInput> getTransitiveCxxPreprocessorInput(
+      BuildRuleParams params,
+      BuildRuleResolver ruleResolver,
+      SourcePathResolver pathResolver,
+      CxxPlatform cxxPlatform,
+      ImmutableMultimap<CxxSource.Type, String> exportedPreprocessorFlags,
+      ImmutableMap<Path, SourcePath> exportedHeaders,
+      ImmutableList<Path> frameworkSearchPaths) {
+
+    // Check if there is a target node representative for the library in the action graph and,
+    // if so, grab the cached transitive C/C++ preprocessor input from that.  We===
+    BuildTarget rawTarget =
+        params.getBuildTarget()
+            .withoutFlavors(
+                ImmutableSet.<Flavor>builder()
+                    .addAll(LIBRARY_TYPE.getFlavors())
+                    .add(cxxPlatform.getFlavor())
+                    .build());
+    Optional<BuildRule> rawRule = ruleResolver.getRuleOptional(rawTarget);
+    if (rawRule.isPresent()) {
+      CxxLibrary rule = (CxxLibrary) rawRule.get();
+      return rule.getTransitiveCxxPreprocessorInput(cxxPlatform, HeaderVisibility.PUBLIC).values();
+    }
+
+    // Otherwise, construct it ourselves.
+    SymlinkTree symlinkTree =
+        CxxDescriptionEnhancer.requireHeaderSymlinkTree(
+            params,
+            ruleResolver,
+            pathResolver,
+            cxxPlatform,
+            /* includeLexYaccHeaders */ false,
+            ImmutableMap.<String, SourcePath>of(),
+            ImmutableMap.<String, SourcePath>of(),
+            exportedHeaders,
+            HeaderVisibility.PUBLIC);
+    Map<BuildTarget, CxxPreprocessorInput> input = Maps.newLinkedHashMap();
+    input.put(
+        params.getBuildTarget(),
+        CxxPreprocessorInput.builder()
+            .addRules(symlinkTree.getBuildTarget())
+            .putAllPreprocessorFlags(exportedPreprocessorFlags)
+            .setIncludes(
+                CxxHeaders.builder()
+                    .putAllNameToPathMap(symlinkTree.getLinks())
+                    .putAllFullNameToPathMap(symlinkTree.getFullLinks())
+                    .build())
+            .addIncludeRoots(symlinkTree.getRoot())
+            .addAllFrameworkRoots(frameworkSearchPaths)
+            .build());
+    for (BuildRule rule : params.getDeps()) {
+      if (rule instanceof CxxPreprocessorDep) {
+        input.putAll(
+            ((CxxPreprocessorDep) rule).getTransitiveCxxPreprocessorInput(
+                cxxPlatform,
+                HeaderVisibility.PUBLIC));
+      }
+    }
+    return ImmutableList.copyOf(input.values());
   }
 
   private static ImmutableMap<CxxPreprocessAndCompile, SourcePath> requireObjects(
@@ -109,13 +176,14 @@ public class CxxLibraryDescription implements
       ImmutableMap<String, SourcePath> lexSources,
       ImmutableMap<String, SourcePath> yaccSources,
       ImmutableMultimap<CxxSource.Type, String> preprocessorFlags,
+      ImmutableMultimap<CxxSource.Type, String> exportedPreprocessorFlags,
       ImmutableList<SourcePath> prefixHeaders,
       ImmutableMap<Path, SourcePath> headers,
       ImmutableMap<Path, SourcePath> exportedHeaders,
       ImmutableList<String> compilerFlags,
       ImmutableMap<String, CxxSource> sources,
       ImmutableList<Path> frameworkSearchPaths,
-      CxxSourceRuleFactory.Strategy compileStrategy,
+      CxxPreprocessMode preprocessMode,
       CxxSourceRuleFactory.PicType pic) {
 
     CxxHeaderSourceSpec lexYaccSources =
@@ -139,28 +207,22 @@ public class CxxLibraryDescription implements
             headers,
             HeaderVisibility.PRIVATE);
 
-    SymlinkTree exportedHeaderSymlinkTree =
-        CxxDescriptionEnhancer.requireHeaderSymlinkTree(
-            params,
-            ruleResolver,
-            pathResolver,
-            cxxPlatform,
-            /* includeLexYaccHeaders */ false,
-            ImmutableMap.<String, SourcePath>of(),
-            ImmutableMap.<String, SourcePath>of(),
-            exportedHeaders,
-            HeaderVisibility.PUBLIC);
-
-    CxxPreprocessorInput cxxPreprocessorInputFromDependencies =
-        CxxDescriptionEnhancer.combineCxxPreprocessorInput(
+    ImmutableList<CxxPreprocessorInput> cxxPreprocessorInputFromDependencies =
+        CxxDescriptionEnhancer.collectCxxPreprocessorInput(
             params,
             cxxPlatform,
             preprocessorFlags,
             prefixHeaders,
-            ImmutableList.of(
-                headerSymlinkTree,
-                exportedHeaderSymlinkTree),
-            frameworkSearchPaths);
+            ImmutableList.of(headerSymlinkTree),
+            ImmutableList.<Path>of(),
+            getTransitiveCxxPreprocessorInput(
+                params,
+                ruleResolver,
+                pathResolver,
+                cxxPlatform,
+                exportedPreprocessorFlags,
+                exportedHeaders,
+                frameworkSearchPaths));
 
     ImmutableMap<String, CxxSource> allSources =
         ImmutableMap.<String, CxxSource>builder()
@@ -176,7 +238,7 @@ public class CxxLibraryDescription implements
         cxxPlatform,
         cxxPreprocessorInputFromDependencies,
         compilerFlags,
-        compileStrategy,
+        preprocessMode,
         allSources,
         pic);
   }
@@ -194,13 +256,14 @@ public class CxxLibraryDescription implements
       ImmutableMap<String, SourcePath> lexSources,
       ImmutableMap<String, SourcePath> yaccSources,
       ImmutableMultimap<CxxSource.Type, String> preprocessorFlags,
+      ImmutableMultimap<CxxSource.Type, String> exportedPreprocessorFlags,
       ImmutableList<SourcePath> prefixHeaders,
       ImmutableMap<Path, SourcePath> headers,
       ImmutableMap<Path, SourcePath> exportedHeaders,
       ImmutableList<String> compilerFlags,
       ImmutableMap<String, CxxSource> sources,
       ImmutableList<Path> frameworkSearchPaths,
-      CxxSourceRuleFactory.Strategy compileStrategy,
+      CxxPreprocessMode preprocessMode,
       CxxSourceRuleFactory.PicType pic) {
 
     // Create rules for compiling the non-PIC object files.
@@ -212,13 +275,14 @@ public class CxxLibraryDescription implements
         lexSources,
         yaccSources,
         preprocessorFlags,
+        exportedPreprocessorFlags,
         prefixHeaders,
         headers,
         exportedHeaders,
         compilerFlags,
         sources,
         frameworkSearchPaths,
-        compileStrategy,
+        preprocessMode,
         pic);
 
     // Write a build rule to create the archive for this C/C++ library.
@@ -255,6 +319,7 @@ public class CxxLibraryDescription implements
       ImmutableMap<String, SourcePath> lexSources,
       ImmutableMap<String, SourcePath> yaccSources,
       ImmutableMultimap<CxxSource.Type, String> preprocessorFlags,
+      ImmutableMultimap<CxxSource.Type, String> exportedPreprocessorFlags,
       ImmutableList<SourcePath> prefixHeaders,
       ImmutableMap<Path, SourcePath> headers,
       ImmutableMap<Path, SourcePath> exportedHeaders,
@@ -263,7 +328,7 @@ public class CxxLibraryDescription implements
       ImmutableList<String> linkerFlags,
       ImmutableList<Path> frameworkSearchPaths,
       Optional<String> soname,
-      CxxSourceRuleFactory.Strategy compileStrategy,
+      CxxPreprocessMode preprocessMode,
       Optional<Linker.CxxRuntimeType> cxxRuntimeType,
       Linker.LinkType linkType,
       Linker.LinkableDepType linkableDepType,
@@ -278,13 +343,14 @@ public class CxxLibraryDescription implements
         lexSources,
         yaccSources,
         preprocessorFlags,
+        exportedPreprocessorFlags,
         prefixHeaders,
         headers,
         exportedHeaders,
         compilerFlags,
         sources,
         frameworkSearchPaths,
-        compileStrategy,
+        preprocessMode,
         CxxSourceRuleFactory.PicType.PIC);
 
     // Setup the rules to link the shared library.
@@ -294,10 +360,11 @@ public class CxxLibraryDescription implements
             cxxPlatform.getFlavor());
     String sharedLibrarySoname =
         soname.or(
-            CxxDescriptionEnhancer.getSharedLibrarySoname(params.getBuildTarget(), cxxPlatform));
+            CxxDescriptionEnhancer.getDefaultSharedLibrarySoname(
+                params.getBuildTarget(), cxxPlatform));
     Path sharedLibraryPath = CxxDescriptionEnhancer.getSharedLibraryPath(
         params.getBuildTarget(),
-        soname,
+        sharedLibrarySoname,
         cxxPlatform);
     ImmutableList.Builder<String> extraCxxLdFlagsBuilder = ImmutableList.builder();
     extraCxxLdFlagsBuilder.addAll(
@@ -336,13 +403,14 @@ public class CxxLibraryDescription implements
       ImmutableMap<String, SourcePath> lexSources,
       ImmutableMap<String, SourcePath> yaccSources,
       ImmutableMultimap<CxxSource.Type, String> preprocessorFlags,
+      ImmutableMultimap<CxxSource.Type, String> exportedPreprocessorFlags,
       ImmutableList<SourcePath> prefixHeaders,
       ImmutableMap<Path, SourcePath> headers,
       ImmutableMap<Path, SourcePath> exportedHeaders,
       ImmutableList<String> compilerFlags,
       ImmutableMap<String, CxxSource> sources,
       ImmutableList<Path> frameworkSearchPaths,
-      CxxSourceRuleFactory.Strategy compileStrategy) {
+      CxxPreprocessMode preprocessMode) {
     BuildRuleParams paramsWithoutCompilationDatabaseFlavor = CxxCompilationDatabase
         .paramsWithoutCompilationDatabaseFlavor(params);
     // Invoking requireObjects has the side-effect of invoking
@@ -356,19 +424,20 @@ public class CxxLibraryDescription implements
         lexSources,
         yaccSources,
         preprocessorFlags,
+        exportedPreprocessorFlags,
         prefixHeaders,
         headers,
         exportedHeaders,
         compilerFlags,
         sources,
         frameworkSearchPaths,
-        compileStrategy,
+        preprocessMode,
         CxxSourceRuleFactory.PicType.PIC);
 
     return CxxCompilationDatabase.createCompilationDatabase(
         params,
         pathResolver,
-        compileStrategy,
+        preprocessMode,
         objects.keySet());
   }
 
@@ -381,33 +450,29 @@ public class CxxLibraryDescription implements
     Arg arg = new Arg();
     arg.deps = Optional.of(ImmutableSortedSet.<BuildTarget>of());
     arg.srcs = Optional.of(
-        Either.<ImmutableList<SourceWithFlags>, ImmutableMap<String, SourceWithFlags>>ofLeft(
-            ImmutableList.<SourceWithFlags>of()));
+        SourceWithFlagsList.ofUnnamedSources(ImmutableList.<SourceWithFlags>of()));
     arg.prefixHeaders = Optional.of(ImmutableList.<SourcePath>of());
-    arg.headers = Optional.of(
-        Either.<ImmutableList<SourcePath>, ImmutableMap<String, SourcePath>>ofLeft(
-            ImmutableList.<SourcePath>of()));
+    arg.headers = Optional.of(SourceList.ofUnnamedSources(ImmutableSortedSet.<SourcePath>of()));
     arg.exportedHeaders = Optional.of(
-        Either.<ImmutableList<SourcePath>, ImmutableMap<String, SourcePath>>ofLeft(
-            ImmutableList.<SourcePath>of()));
+        SourceList.ofUnnamedSources(ImmutableSortedSet.<SourcePath>of()));
     arg.compilerFlags = Optional.of(ImmutableList.<String>of());
     arg.platformCompilerFlags =
-        Optional.of(ImmutableList.<Pair<String, ImmutableList<String>>>of());
+        Optional.of(PatternMatchedCollection.<ImmutableList<String>>of());
     arg.exportedPreprocessorFlags = Optional.of(ImmutableList.<String>of());
     arg.exportedPlatformPreprocessorFlags =
-        Optional.of(ImmutableList.<Pair<String, ImmutableList<String>>>of());
+        Optional.of(PatternMatchedCollection.<ImmutableList<String>>of());
     arg.exportedLangPreprocessorFlags = Optional.of(
         ImmutableMap.<CxxSource.Type, ImmutableList<String>>of());
     arg.preprocessorFlags = Optional.of(ImmutableList.<String>of());
     arg.platformPreprocessorFlags =
-        Optional.of(ImmutableList.<Pair<String, ImmutableList<String>>>of());
+        Optional.of(PatternMatchedCollection.<ImmutableList<String>>of());
     arg.langPreprocessorFlags = Optional.of(
         ImmutableMap.<CxxSource.Type, ImmutableList<String>>of());
     arg.linkerFlags = Optional.of(ImmutableList.<String>of());
     arg.exportedLinkerFlags = Optional.of(ImmutableList.<String>of());
-    arg.platformLinkerFlags = Optional.of(ImmutableList.<Pair<String, ImmutableList<String>>>of());
+    arg.platformLinkerFlags = Optional.of(PatternMatchedCollection.<ImmutableList<String>>of());
     arg.exportedPlatformLinkerFlags = Optional.of(
-        ImmutableList.<Pair<String, ImmutableList<String>>>of());
+        PatternMatchedCollection.<ImmutableList<String>>of());
     arg.cxxRuntimeType = Optional.absent();
     arg.forceStatic = Optional.absent();
     arg.linkWhole = Optional.absent();
@@ -417,6 +482,7 @@ public class CxxLibraryDescription implements
     arg.soname = Optional.absent();
     arg.frameworkSearchPaths = Optional.of(ImmutableList.<Path>of());
     arg.tests = Optional.of(ImmutableSortedSet.<BuildTarget>of());
+    arg.supportedPlatformsRegex = Optional.absent();
     return arg;
   }
 
@@ -436,7 +502,7 @@ public class CxxLibraryDescription implements
         /* includeLexYaccHeaders */ true,
         CxxDescriptionEnhancer.parseLexSources(params, resolver, args),
         CxxDescriptionEnhancer.parseYaccSources(params, resolver, args),
-        CxxDescriptionEnhancer.parseHeaders(params, resolver, args),
+        CxxDescriptionEnhancer.parseHeaders(params, resolver, cxxPlatform, args),
         HeaderVisibility.PRIVATE);
   }
 
@@ -456,7 +522,7 @@ public class CxxLibraryDescription implements
         /* includeLexYaccHeaders */ false,
         ImmutableMap.<String, SourcePath>of(),
         ImmutableMap.<String, SourcePath>of(),
-        CxxDescriptionEnhancer.parseExportedHeaders(params, resolver, args),
+        CxxDescriptionEnhancer.parseExportedHeaders(params, resolver, cxxPlatform, args),
         HeaderVisibility.PUBLIC);
   }
 
@@ -468,7 +534,7 @@ public class CxxLibraryDescription implements
       BuildRuleResolver resolver,
       CxxPlatform cxxPlatform,
       A args,
-      CxxSourceRuleFactory.Strategy compileStrategy,
+      CxxPreprocessMode preprocessMode,
       CxxSourceRuleFactory.PicType pic) {
     return createStaticLibrary(
         params,
@@ -477,30 +543,26 @@ public class CxxLibraryDescription implements
         cxxPlatform,
         CxxDescriptionEnhancer.parseLexSources(params, resolver, args),
         CxxDescriptionEnhancer.parseYaccSources(params, resolver, args),
-        ImmutableMultimap.<CxxSource.Type, String>builder()
-            .putAll(
-                CxxFlags.getLanguageFlags(
-                    args.preprocessorFlags,
-                    args.platformPreprocessorFlags,
-                    args.langPreprocessorFlags,
-                    cxxPlatform.getFlavor()))
-            .putAll(
-                CxxFlags.getLanguageFlags(
-                    args.exportedPreprocessorFlags,
-                    args.exportedPlatformPreprocessorFlags,
-                    args.exportedLangPreprocessorFlags,
-                    cxxPlatform.getFlavor()))
-            .build(),
+        CxxFlags.getLanguageFlags(
+            args.preprocessorFlags,
+            args.platformPreprocessorFlags,
+            args.langPreprocessorFlags,
+            cxxPlatform.getFlavor()),
+        CxxFlags.getLanguageFlags(
+            args.exportedPreprocessorFlags,
+            args.exportedPlatformPreprocessorFlags,
+            args.exportedLangPreprocessorFlags,
+            cxxPlatform.getFlavor()),
         args.prefixHeaders.get(),
-        CxxDescriptionEnhancer.parseHeaders(params, resolver, args),
-        CxxDescriptionEnhancer.parseExportedHeaders(params, resolver, args),
+        CxxDescriptionEnhancer.parseHeaders(params, resolver, cxxPlatform, args),
+        CxxDescriptionEnhancer.parseExportedHeaders(params, resolver, cxxPlatform, args),
         CxxFlags.getFlags(
             args.compilerFlags,
             args.platformCompilerFlags,
             cxxPlatform.getFlavor()),
-        CxxDescriptionEnhancer.parseCxxSources(params, resolver, args),
+        CxxDescriptionEnhancer.parseCxxSources(params, resolver, cxxPlatform, args),
         args.frameworkSearchPaths.get(),
-        compileStrategy,
+        preprocessMode,
         pic);
   }
 
@@ -512,7 +574,7 @@ public class CxxLibraryDescription implements
       BuildRuleResolver resolver,
       CxxPlatform cxxPlatform,
       A args,
-      CxxSourceRuleFactory.Strategy compileStrategy,
+      CxxPreprocessMode preprocessMode,
       Linker.LinkType linkType,
       Linker.LinkableDepType linkableDepType,
       Optional<SourcePath> bundleLoader) {
@@ -537,32 +599,28 @@ public class CxxLibraryDescription implements
         cxxPlatform,
         CxxDescriptionEnhancer.parseLexSources(params, resolver, args),
         CxxDescriptionEnhancer.parseYaccSources(params, resolver, args),
-        ImmutableMultimap.<CxxSource.Type, String>builder()
-            .putAll(
-                CxxFlags.getLanguageFlags(
-                    args.preprocessorFlags,
-                    args.platformPreprocessorFlags,
-                    args.langPreprocessorFlags,
-                    cxxPlatform.getFlavor()))
-            .putAll(
-                CxxFlags.getLanguageFlags(
-                    args.exportedPreprocessorFlags,
-                    args.exportedPlatformPreprocessorFlags,
-                    args.exportedLangPreprocessorFlags,
-                    cxxPlatform.getFlavor()))
-            .build(),
+        CxxFlags.getLanguageFlags(
+            args.preprocessorFlags,
+            args.platformPreprocessorFlags,
+            args.langPreprocessorFlags,
+            cxxPlatform.getFlavor()),
+        CxxFlags.getLanguageFlags(
+            args.exportedPreprocessorFlags,
+            args.exportedPlatformPreprocessorFlags,
+            args.exportedLangPreprocessorFlags,
+            cxxPlatform.getFlavor()),
         args.prefixHeaders.get(),
-        CxxDescriptionEnhancer.parseHeaders(params, resolver, args),
-        CxxDescriptionEnhancer.parseExportedHeaders(params, resolver, args),
+        CxxDescriptionEnhancer.parseHeaders(params, resolver, cxxPlatform, args),
+        CxxDescriptionEnhancer.parseExportedHeaders(params, resolver, cxxPlatform, args),
         CxxFlags.getFlags(
             args.compilerFlags,
             args.platformCompilerFlags,
             cxxPlatform.getFlavor()),
-        CxxDescriptionEnhancer.parseCxxSources(params, resolver, args),
+        CxxDescriptionEnhancer.parseCxxSources(params, resolver, cxxPlatform, args),
         linkerFlags.build(),
         args.frameworkSearchPaths.get(),
         args.soname,
-        compileStrategy,
+        preprocessMode,
         args.cxxRuntimeType,
         linkType,
         linkableDepType,
@@ -578,7 +636,7 @@ public class CxxLibraryDescription implements
       BuildRuleResolver resolver,
       CxxPlatform cxxPlatform,
       A args,
-      CxxSourceRuleFactory.Strategy compileStrategy) {
+      CxxPreprocessMode preprocessMode) {
     return createCompilationDatabase(
         params,
         resolver,
@@ -586,30 +644,26 @@ public class CxxLibraryDescription implements
         cxxPlatform,
         CxxDescriptionEnhancer.parseLexSources(params, resolver, args),
         CxxDescriptionEnhancer.parseYaccSources(params, resolver, args),
-        ImmutableMultimap.<CxxSource.Type, String>builder()
-            .putAll(
-                CxxFlags.getLanguageFlags(
-                    args.preprocessorFlags,
-                    args.platformPreprocessorFlags,
-                    args.langPreprocessorFlags,
-                    cxxPlatform.getFlavor()))
-            .putAll(
-                CxxFlags.getLanguageFlags(
-                    args.exportedPreprocessorFlags,
-                    args.exportedPlatformPreprocessorFlags,
-                    args.exportedLangPreprocessorFlags,
-                    cxxPlatform.getFlavor()))
-            .build(),
+        CxxFlags.getLanguageFlags(
+            args.preprocessorFlags,
+            args.platformPreprocessorFlags,
+            args.langPreprocessorFlags,
+            cxxPlatform.getFlavor()),
+        CxxFlags.getLanguageFlags(
+            args.exportedPreprocessorFlags,
+            args.exportedPlatformPreprocessorFlags,
+            args.exportedLangPreprocessorFlags,
+            cxxPlatform.getFlavor()),
         args.prefixHeaders.get(),
-        CxxDescriptionEnhancer.parseHeaders(params, resolver, args),
-        CxxDescriptionEnhancer.parseExportedHeaders(params, resolver, args),
+        CxxDescriptionEnhancer.parseHeaders(params, resolver, cxxPlatform, args),
+        CxxDescriptionEnhancer.parseExportedHeaders(params, resolver, cxxPlatform, args),
         CxxFlags.getFlags(
             args.compilerFlags,
             args.platformCompilerFlags,
             cxxPlatform.getFlavor()),
-        CxxDescriptionEnhancer.parseCxxSources(params, resolver, args),
+        CxxDescriptionEnhancer.parseCxxSources(params, resolver, cxxPlatform, args),
         args.frameworkSearchPaths.get(),
-        compileStrategy);
+        preprocessMode);
   }
 
   public static TypeAndPlatform getTypeAndPlatform(
@@ -658,14 +712,15 @@ public class CxxLibraryDescription implements
 
     if (params.getBuildTarget().getFlavors()
         .contains(CxxCompilationDatabase.COMPILATION_DATABASE)) {
-
       // XXX: This needs bundleLoader for tests..
       return createCompilationDatabaseBuildRule(
           params,
           resolver,
-          platform.get().getValue(),
+          platform.isPresent()
+              ? platform.get().getValue()
+              : DefaultCxxPlatforms.build(cxxBuckConfig),
           args,
-          compileStrategy);
+          preprocessMode);
     }
 
 
@@ -703,7 +758,7 @@ public class CxxLibraryDescription implements
             resolver,
             platform.get().getValue(),
             args,
-            compileStrategy,
+            preprocessMode,
             Linker.LinkType.SHARED,
             linkableDepType.or(Linker.LinkableDepType.SHARED),
             Optional.<SourcePath>absent());
@@ -713,7 +768,7 @@ public class CxxLibraryDescription implements
             resolver,
             platform.get().getValue(),
             args,
-            compileStrategy,
+            preprocessMode,
             Linker.LinkType.MACH_O_BUNDLE,
             linkableDepType.or(Linker.LinkableDepType.SHARED),
             bundleLoader);
@@ -723,7 +778,7 @@ public class CxxLibraryDescription implements
             resolver,
             platform.get().getValue(),
             args,
-            compileStrategy,
+            preprocessMode,
             CxxSourceRuleFactory.PicType.PDC);
       } else {
         return createStaticLibraryBuildRule(
@@ -731,25 +786,40 @@ public class CxxLibraryDescription implements
             resolver,
             platform.get().getValue(),
             args,
-            compileStrategy,
+            preprocessMode,
             CxxSourceRuleFactory.PicType.PIC);
       }
     }
 
-    // I'm not proud of this.
-    boolean hasObjects = false;
-    if (args.srcs.isPresent()) {
-      Either<ImmutableList<SourceWithFlags>, ImmutableMap<String, SourceWithFlags>> either =
-          args.srcs.get();
-      if (either.isLeft()) {
-        hasObjects = !either.getLeft().isEmpty();
-      } else {
-        hasObjects = !either.getRight().isEmpty();
-      }
+    boolean hasObjectsForAnyPlatform;
+    SourceWithFlagsList sourceWithFlagsList = args.srcs.get();
+    switch (sourceWithFlagsList.getType()) {
+      case UNNAMED:
+        hasObjectsForAnyPlatform = !sourceWithFlagsList.getUnnamedSources().get().isEmpty();
+        break;
+      case NAMED:
+        hasObjectsForAnyPlatform = !sourceWithFlagsList.getNamedSources().get().isEmpty();
+        break;
+      default:
+        throw new RuntimeException(
+            String.format("Unsupported type: %s", sourceWithFlagsList.getType()));
     }
-    hasObjects |=
+    hasObjectsForAnyPlatform |=
           !args.lexSrcs.get().isEmpty() ||
           !args.yaccSrcs.get().isEmpty();
+    Predicate<CxxPlatform> hasObjects;
+    if (hasObjectsForAnyPlatform) {
+      hasObjects = Predicates.alwaysTrue();
+    } else {
+      hasObjects = new Predicate<CxxPlatform>() {
+        @Override
+        public boolean apply(CxxPlatform input) {
+          return !args.platformSrcs.get().getMatchingValues(input.getFlavor().toString()).isEmpty();
+        }
+      };
+    }
+
+
 
     // Otherwise, we return the generic placeholder of this library, that dependents can use
     // get the real build rules via querying the action graph.
@@ -758,7 +828,7 @@ public class CxxLibraryDescription implements
         params,
         resolver,
         pathResolver,
-        !hasObjects,
+        Predicates.not(hasObjects),
         new Function<CxxPlatform, ImmutableMultimap<CxxSource.Type, String>>() {
           @Override
           public ImmutableMultimap<CxxSource.Type, String> apply(CxxPlatform input) {
@@ -806,17 +876,16 @@ public class CxxLibraryDescription implements
 
   @SuppressFieldNotInitialized
   public static class Arg extends CxxConstructorArg {
-    public Optional<Either<ImmutableList<SourcePath>, ImmutableMap<String, SourcePath>>>
-        exportedHeaders;
+    public Optional<SourceList> exportedHeaders;
+    public Optional<PatternMatchedCollection<SourceList>> exportedPlatformHeaders;
     public Optional<ImmutableList<String>> exportedPreprocessorFlags;
-    public Optional<ImmutableList<Pair<String, ImmutableList<String>>>>
+    public Optional<PatternMatchedCollection<ImmutableList<String>>>
         exportedPlatformPreprocessorFlags;
     public Optional<ImmutableMap<CxxSource.Type, ImmutableList<String>>>
         exportedLangPreprocessorFlags;
     public Optional<ImmutableList<String>> exportedLinkerFlags;
-    public Optional<ImmutableList<Pair<String, ImmutableList<String>>>>
-        exportedPlatformLinkerFlags;
-    public Optional<String> supportedPlatformsRegex;
+    public Optional<PatternMatchedCollection<ImmutableList<String>>> exportedPlatformLinkerFlags;
+    public Optional<Pattern> supportedPlatformsRegex;
     public Optional<String> soname;
     public Optional<Boolean> forceStatic;
     public Optional<Boolean> linkWhole;

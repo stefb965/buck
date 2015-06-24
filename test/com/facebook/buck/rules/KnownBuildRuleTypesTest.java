@@ -62,7 +62,6 @@ import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
 
-
 public class KnownBuildRuleTypesTest {
 
   @ClassRule public static TemporaryFolder folder = new TemporaryFolder();
@@ -161,7 +160,7 @@ public class KnownBuildRuleTypesTest {
         DUMMY_PYTHON_ENVIRONMENT).build();
     DefaultJavaLibrary libraryRule = createJavaLibrary(buildRuleTypes);
 
-    Javac javac = libraryRule.getJavac();
+    Javac javac = libraryRule.getJavacOptions().getJavac();
     assertTrue(javac.getClass().toString(), javac instanceof Jsr199Javac);
   }
 
@@ -187,7 +186,9 @@ public class KnownBuildRuleTypesTest {
         .build();
 
     DefaultJavaLibrary libraryRule = createJavaLibrary(buildRuleTypes);
-    assertEquals(javac.toPath(), ((ExternalJavac) libraryRule.getJavac()).getPath());
+    assertEquals(
+        javac.toPath(),
+        ((ExternalJavac) libraryRule.getJavacOptions().getJavac()).getPath());
   }
 
   @Test
@@ -218,8 +219,8 @@ public class KnownBuildRuleTypesTest {
     SourcePathResolver resolver = new SourcePathResolver(new BuildRuleResolver());
     DefaultRuleKeyBuilderFactory factory =
         new DefaultRuleKeyBuilderFactory(new NullFileHashCache(), resolver);
-    RuleKey configuredKey = factory.newInstance(configuredRule).build().getTotalRuleKey();
-    RuleKey libraryKey = factory.newInstance(libraryRule).build().getTotalRuleKey();
+    RuleKey configuredKey = factory.newInstance(configuredRule).build();
+    RuleKey libraryKey = factory.newInstance(libraryRule).build();
 
     assertNotEquals(libraryKey, configuredKey);
   }
@@ -250,7 +251,7 @@ public class KnownBuildRuleTypesTest {
         arg);
 
 
-    Javac javac = rule.getJavac();
+    Javac javac = rule.getJavacOptions().getJavac();
     assertTrue(javac.getClass().toString(), javac instanceof Jsr199Javac);
   }
 
@@ -284,7 +285,7 @@ public class KnownBuildRuleTypesTest {
         buildRuleParams,
         new BuildRuleResolver(),
         arg);
-    assertEquals(javac.toPath(), ((ExternalJavac) rule.getJavac()).getPath());
+    assertEquals(javac.toPath(), ((ExternalJavac) rule.getJavacOptions().getJavac()).getPath());
   }
 
   @Test

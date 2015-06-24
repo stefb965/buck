@@ -26,6 +26,7 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 
 import java.nio.file.Path;
 
@@ -49,15 +50,13 @@ public class PythonLibrary extends NoopBuildRule implements PythonPackagable {
     this.zipSafe = zipSafe;
   }
 
-  /**
-   * Return the components to contribute to the top-level python package.
-   */
   @Override
   public PythonPackageComponents getPythonPackageComponents(CxxPlatform cxxPlatform) {
     return PythonPackageComponents.of(
         srcs,
         resources,
         ImmutableMap.<Path, SourcePath>of(),
+        ImmutableSet.<SourcePath>of(),
         zipSafe);
   }
 

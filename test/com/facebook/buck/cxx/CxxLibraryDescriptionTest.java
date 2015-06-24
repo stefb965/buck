@@ -59,6 +59,7 @@ import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 public class CxxLibraryDescriptionTest {
 
@@ -137,6 +138,16 @@ public class CxxLibraryDescriptionTest {
         throw new RuntimeException("Invalid header visibility: " + headerVisibility);
       }
 
+
+      @Override
+      public ImmutableMap<BuildTarget, CxxPreprocessorInput> getTransitiveCxxPreprocessorInput(
+          CxxPlatform cxxPlatform,
+          HeaderVisibility headerVisibility) {
+        return ImmutableMap.of(
+            getBuildTarget(),
+            getCxxPreprocessorInput(cxxPlatform, headerVisibility));
+      }
+
       @Override
       public NativeLinkableInput getNativeLinkableInput(
           CxxPlatform cxxPlatform,
@@ -158,6 +169,7 @@ public class CxxLibraryDescriptionTest {
             ImmutableMap.<Path, SourcePath>of(),
             ImmutableMap.<Path, SourcePath>of(),
             ImmutableMap.<Path, SourcePath>of(),
+            ImmutableSet.<SourcePath>of(),
             Optional.<Boolean>absent());
       }
 
@@ -190,12 +202,11 @@ public class CxxLibraryDescriptionTest {
     String privateHeaderName = "test/bar_private.h";
     CxxLibraryBuilder cxxLibraryBuilder = (CxxLibraryBuilder) new CxxLibraryBuilder(target)
         .setExportedHeaders(
-            ImmutableList.<SourcePath>of(
+            ImmutableSortedSet.<SourcePath>of(
                 new TestSourcePath(headerName),
                 new BuildTargetSourcePath(projectFilesystem, genHeaderTarget)))
         .setHeaders(
-            ImmutableList.<SourcePath>of(
-                new TestSourcePath(privateHeaderName)))
+            ImmutableSortedSet.<SourcePath>of(new TestSourcePath(privateHeaderName)))
         .setSrcs(
             ImmutableList.of(
                 SourceWithFlags.of(new TestSourcePath("test/bar.cpp")),
@@ -525,6 +536,16 @@ public class CxxLibraryDescriptionTest {
             .build();
       }
 
+
+      @Override
+      public ImmutableMap<BuildTarget, CxxPreprocessorInput> getTransitiveCxxPreprocessorInput(
+          CxxPlatform cxxPlatform,
+          HeaderVisibility headerVisibility) {
+        return ImmutableMap.of(
+            getBuildTarget(),
+            getCxxPreprocessorInput(cxxPlatform, headerVisibility));
+      }
+
       @Override
       public NativeLinkableInput getNativeLinkableInput(
           CxxPlatform cxxPlatform,
@@ -557,6 +578,7 @@ public class CxxLibraryDescriptionTest {
             ImmutableMap.<Path, SourcePath>of(
                 Paths.get(sharedLibrarySoname),
                 new PathSourcePath(getProjectFilesystem(), sharedLibraryOutput)),
+            ImmutableSet.<SourcePath>of(),
             Optional.<Boolean>absent());
       }
 
@@ -846,12 +868,67 @@ public class CxxLibraryDescriptionTest {
         ImmutableMap.<Path, SourcePath>of(),
         ImmutableMap.<Path, SourcePath>of(),
         ImmutableMap.<Path, SourcePath>of(
-            Paths.get(CxxDescriptionEnhancer.getSharedLibrarySoname(target, cxxPlatform)),
+            Paths.get(
+                CxxDescriptionEnhancer.getDefaultSharedLibrarySoname(
+                    target,
+                    cxxPlatform)),
             new BuildTargetSourcePath(projectFilesystem, sharedRule.getBuildTarget())),
+        ImmutableSet.<SourcePath>of(),
         Optional.<Boolean>absent());
     assertEquals(
         expectedPythonPackageComponents,
         rule.getPythonPackageComponents(cxxPlatform));
+  }
+
+  @Test
+  public void supportedPlatforms() {
+    ProjectFilesystem filesystem = new FakeProjectFilesystem();
+    BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
+
+    // First, make sure without any platform regex, we get something back for each of the interface
+    // methods.
+    CxxLibraryBuilder cxxLibraryBuilder =
+        (CxxLibraryBuilder) new CxxLibraryBuilder(target)
+            .setSrcs(ImmutableList.of(SourceWithFlags.of(new TestSourcePath("test.c"))));
+    CxxLibrary cxxLibrary =
+        (CxxLibrary) cxxLibraryBuilder
+            .build(
+                new BuildRuleResolver(),
+                filesystem,
+                TargetGraphFactory.newInstance(cxxLibraryBuilder.build()));
+    assertThat(
+        cxxLibrary.getSharedLibraries(CxxPlatformUtils.DEFAULT_PLATFORM).entrySet(),
+        Matchers.not(Matchers.empty()));
+    assertThat(
+        cxxLibrary.getPythonPackageComponents(
+            CxxPlatformUtils.DEFAULT_PLATFORM).getNativeLibraries().entrySet(),
+        Matchers.not(Matchers.empty()));
+    assertThat(
+        cxxLibrary.getNativeLinkableInput(
+            CxxPlatformUtils.DEFAULT_PLATFORM,
+            Linker.LinkableDepType.SHARED).getArgs(),
+        Matchers.not(Matchers.empty()));
+
+    // Now, verify we get nothing when the supported platform regex excludes our platform.
+    cxxLibraryBuilder.setSupportedPlatformsRegex(Pattern.compile("nothing"));
+    cxxLibrary =
+        (CxxLibrary) cxxLibraryBuilder
+            .build(
+                new BuildRuleResolver(),
+                filesystem,
+                TargetGraphFactory.newInstance(cxxLibraryBuilder.build()));
+    assertThat(
+        cxxLibrary.getSharedLibraries(CxxPlatformUtils.DEFAULT_PLATFORM).entrySet(),
+        Matchers.empty());
+    assertThat(
+        cxxLibrary.getPythonPackageComponents(
+            CxxPlatformUtils.DEFAULT_PLATFORM).getNativeLibraries().entrySet(),
+        Matchers.empty());
+    assertThat(
+        cxxLibrary.getNativeLinkableInput(
+            CxxPlatformUtils.DEFAULT_PLATFORM,
+            Linker.LinkableDepType.SHARED).getArgs(),
+        Matchers.empty());
   }
 
 }

@@ -16,11 +16,13 @@
 
 package com.facebook.buck.java;
 
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.util.ProcessExecutor;
-import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
@@ -28,15 +30,14 @@ import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 
 import org.immutables.value.Value;
 
 import java.io.File;
-import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -90,25 +91,17 @@ abstract class AbstractJavacOptions implements RuleKeyAppendable {
         throw new RuntimeException("Misconfigured JavacOptions --- no process executor");
       }
 
-      ProcessExecutorParams params = ProcessExecutorParams.builder()
-          .setCommand(ImmutableList.of(externalJavac.get().toString(), "-version"))
-          .build();
-      ProcessExecutor.Result result;
-      try {
-        result = getProcessExecutor().get().launchAndExecute(params);
-      } catch (InterruptedException | IOException e) {
-        throw new RuntimeException(e);
-      }
-      Optional<JavacVersion> version;
-      Optional<String> stderr = result.getStderr();
-      if (Strings.isNullOrEmpty(stderr.orNull())) {
-        version = Optional.absent();
-      } else {
-        version = Optional.of(JavacVersion.of(stderr.get()));
-      }
-      return new ExternalJavac(externalJavac.get(), version);
+      return ExternalJavac.createJavac(externalJavac.get(), getProcessExecutor().get());
     }
-    return new Jsr199Javac(getJavacJarPath());
+
+    Optional<SourcePath> javacJarPath = getJavacJarPath();
+    if (javacJarPath.isPresent()) {
+      return new JarBackedJavac(
+          "com.sun.tools.javac.api.JavacTool",
+          ImmutableSet.of(javacJarPath.get()));
+    }
+
+    return new JdkProvidedInMemoryJavac();
   }
 
   public void appendOptionsToList(
@@ -179,22 +172,46 @@ abstract class AbstractJavacOptions implements RuleKeyAppendable {
 
   @Override
   public RuleKey.Builder appendToRuleKey(RuleKey.Builder builder) {
-    // TODO(simons): Include bootclasspath params.
     builder.setReflectively("sourceLevel", getSourceLevel())
         .setReflectively("targetLevel", getTargetLevel())
         .setReflectively("extraArguments", Joiner.on(',').join(getExtraArguments()))
         .setReflectively("debug", isDebug())
+        .setReflectively("bootclasspath", getBootclasspath())
         .setReflectively("javac", getJavac())
         .setReflectively("annotationProcessingParams", getAnnotationProcessingParams());
 
     return builder;
   }
 
-  public ImmutableSet<SourcePath> getInputs() {
-    return ImmutableSet.<SourcePath>builder()
-        .addAll(Optional.presentInstances(ImmutableList.of(getJavacJarPath())))
-        .addAll(getAnnotationProcessingParams().getInputs())
-        .build();
+  public ImmutableSortedSet<SourcePath> getInputs(SourcePathResolver resolver) {
+    ImmutableSortedSet.Builder<SourcePath> builder = ImmutableSortedSet.<SourcePath>naturalOrder()
+        .addAll(getAnnotationProcessingParams().getInputs());
+
+    Optional<SourcePath> javacJarPath = getJavacJarPath();
+    if (javacJarPath.isPresent()) {
+      SourcePath sourcePath = javacJarPath.get();
+
+      // Add the original rule regardless of what happens next.
+      builder.add(sourcePath);
+
+      Optional<BuildRule> possibleRule = resolver.getRule(sourcePath);
+
+      if (possibleRule.isPresent()) {
+        BuildRule rule = possibleRule.get();
+
+        // And now include any transitive deps that contribute to the classpath.
+        if (rule instanceof JavaLibrary) {
+          builder.addAll(
+              FluentIterable.from(((JavaLibrary) rule).getDepsForTransitiveClasspathEntries())
+                  .transform(SourcePaths.getToBuildTargetSourcePath())
+                  .toList());
+        } else {
+          builder.add(sourcePath);
+        }
+      }
+    }
+
+    return builder.build();
   }
 
   static JavacOptions.Builder builderForUseInJavaBuckConfig() {

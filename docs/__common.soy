@@ -186,6 +186,7 @@
             'prebuilt_native_library',
         ],
         'python': [
+            'prebuilt_python_library',
             'python_binary',
             'python_library',
             'python_test',
@@ -213,6 +214,7 @@
     <li><a href="{ROOT}concept/build_file.html">Build File</a>
     <li><a href="{ROOT}concept/buckversion.html">.buckversion</a>
     <li><a href="{ROOT}concept/nobuckcheck.html">.nobuckcheck</a>
+    <li><a href="{ROOT}concept/buckjavaargs.html">.buckjavaargs</a>
     <li><a href="{ROOT}concept/buckconfig.html">.buckconfig</a>
     <li><a href="{ROOT}concept/build_target_pattern.html">Build Target Pattern</a>
     <li><a href="{ROOT}concept/visibility.html">Visibility</a>
@@ -542,6 +544,11 @@
 {/template}
 
 /***/
+{template .prebuilt_python_library}
+{call .ruleLink}{param name : 'prebuilt_python_library' /}{/call}
+{/template}
+
+/***/
 {template .python_binary}
 {call .ruleLink}{param name : 'python_binary' /}{/call}
 {/template}
@@ -559,6 +566,11 @@
 /***/
 {template .remote_file}
 {call .ruleLink}{param name : 'remote_file' /}{/call}
+{/template}
+
+/***/
+{template .cxx_library}
+{call .ruleLink}{param name : 'cxx_library' /}{/call}
 {/template}
 
 /***/

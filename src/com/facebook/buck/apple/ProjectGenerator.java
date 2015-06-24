@@ -20,6 +20,7 @@ import com.dd.plist.NSDictionary;
 import com.dd.plist.NSObject;
 import com.dd.plist.NSString;
 import com.dd.plist.PropertyListParser;
+import com.facebook.buck.apple.clang.HeaderMap;
 import com.facebook.buck.apple.xcode.GidGenerator;
 import com.facebook.buck.apple.xcode.XcodeprojSerializer;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXAggregateTarget;
@@ -38,10 +39,12 @@ import com.facebook.buck.apple.xcode.xcodeproj.XCBuildConfiguration;
 import com.facebook.buck.apple.xcode.xcodeproj.XCConfigurationList;
 import com.facebook.buck.apple.xcode.xcodeproj.XCVersionGroup;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
+import com.facebook.buck.cxx.CxxSource;
 import com.facebook.buck.cxx.HeaderVisibility;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.model.BuckVersion;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.HasTests;
@@ -54,6 +57,7 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.coercer.Either;
 import com.facebook.buck.rules.coercer.FrameworkPath;
+import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.rules.coercer.SourceWithFlags;
 import com.facebook.buck.shell.ExportFileDescription;
 import com.facebook.buck.shell.GenruleDescription;
@@ -83,7 +87,6 @@ import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Iterators;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
@@ -183,6 +186,9 @@ public class ProjectGenerator {
         }
       };
 
+  private static final ImmutableSet<CxxSource.Type> SUPPORTED_LANG_PREPROCESSOR_FLAG_TYPES =
+      ImmutableSet.of(CxxSource.Type.CXX, CxxSource.Type.OBJCXX);
+
   private final Function<SourcePath, Path> sourcePathResolver;
   private final TargetGraph targetGraph;
   private final ProjectFilesystem projectFilesystem;
@@ -210,7 +216,7 @@ public class ProjectGenerator {
   private final ImmutableMultimap.Builder<TargetNode<?>, PBXTarget>
       targetNodeToGeneratedProjectTargetBuilder;
   private boolean projectGenerated;
-  private List<Path> headerSymlinkTrees;
+  private final List<Path> headerSymlinkTrees;
   private final ImmutableSet.Builder<PBXTarget> buildableCombinedTestTargets =
       ImmutableSet.builder();
   private final ImmutableSet.Builder<BuildTarget> requiredBuildTargetsBuilder =
@@ -734,7 +740,6 @@ public class ProjectGenerator {
     } catch (NoSuchBuildTargetException e) {
       throw new HumanReadableException(e);
     }
-    PBXNativeTarget target = targetBuilderResult.target;
     PBXGroup targetGroup = targetBuilderResult.targetGroup;
 
     SourceTreePath buckFilePath = new SourceTreePath(
@@ -806,13 +811,14 @@ public class ProjectGenerator {
     }
 
     ImmutableMap.Builder<String, String> appendConfigsBuilder = ImmutableMap.builder();
+
     appendConfigsBuilder
         .put(
             "HEADER_SEARCH_PATHS",
             Joiner.on(' ').join(
-                Iterators.concat(
-                    collectRecursiveHeaderSearchPaths(targetNode).iterator(),
-                    collectRecursiveHeaderSymlinkTrees(targetNode).iterator())))
+                Iterables.concat(
+                    collectRecursiveHeaderSearchPaths(targetNode),
+                    collectRecursiveHeaderMaps(targetNode))))
         .put(
             "LIBRARY_SEARCH_PATHS",
             Joiner.on(' ').join(
@@ -840,6 +846,38 @@ public class ProjectGenerator {
                         Iterables.concat(
                             targetNode.getConstructorArg().linkerFlags.get(),
                             collectRecursiveExportedLinkerFlags(ImmutableList.of(targetNode))))));
+
+    ImmutableMap<CxxSource.Type, ImmutableList<String>> langPreprocessorFlags =
+        targetNode.getConstructorArg().langPreprocessorFlags.get();
+
+    Sets.SetView<CxxSource.Type> unsupportedLangPreprocessorFlags =
+        Sets.difference(langPreprocessorFlags.keySet(), SUPPORTED_LANG_PREPROCESSOR_FLAG_TYPES);
+
+    if (!unsupportedLangPreprocessorFlags.isEmpty()) {
+      throw new HumanReadableException(
+          "%s: Xcode project generation does not support specified lang_preprocessor_flags keys: " +
+          "%s",
+          buildTarget,
+          unsupportedLangPreprocessorFlags);
+    }
+
+    ImmutableSet.Builder<String> allCxxFlagsBuilder = ImmutableSet.builder();
+    ImmutableList<String> cxxFlags = langPreprocessorFlags.get(CxxSource.Type.CXX);
+    if (cxxFlags != null) {
+      allCxxFlagsBuilder.addAll(cxxFlags);
+    }
+    ImmutableList<String> objcxxFlags = langPreprocessorFlags.get(CxxSource.Type.OBJCXX);
+    if (objcxxFlags != null) {
+      allCxxFlagsBuilder.addAll(objcxxFlags);
+    }
+    ImmutableSet<String> allCxxFlags = allCxxFlagsBuilder.build();
+    if (!allCxxFlags.isEmpty()) {
+      appendConfigsBuilder.put(
+          "OTHER_CPLUSPLUSFLAGS",
+          Joiner.on(' ').join(allCxxFlags));
+    }
+
+    PBXNativeTarget target = targetBuilderResult.target;
 
     setTargetBuildConfigurations(
         getConfigurationNameToXcconfigPath(buildTarget),
@@ -911,13 +949,13 @@ public class ProjectGenerator {
   }
 
   private Iterable<SourcePath> getHeaderSourcePaths(
-      Optional<Either<ImmutableSortedSet<SourcePath>, ImmutableMap<String, SourcePath>>> headers) {
+      Optional<SourceList> headers) {
     if (!headers.isPresent()) {
       return ImmutableList.of();
-    } else if (headers.get().isLeft()) {
-      return headers.get().getLeft();
+    } else if (headers.get().getUnnamedSources().isPresent()) {
+      return headers.get().getUnnamedSources().get();
     } else {
-      return headers.get().getRight().values();
+      return headers.get().getNamedSources().get().values();
     }
   }
 
@@ -1112,9 +1150,11 @@ public class ProjectGenerator {
       ImmutableList.Builder<TargetNode<?>> preRules,
       ImmutableList.Builder<TargetNode<?>> postRules) {
     for (TargetNode<?> targetNode : targetNodes) {
-      if (targetNode.getType().equals(IosPostprocessResourcesDescription.TYPE)) {
+      if (targetNode.getType().equals(XcodePostbuildScriptDescription.TYPE)) {
         postRules.add(targetNode);
-      } else if (targetNode.getType().equals(GenruleDescription.TYPE)) {
+      } else if (
+          targetNode.getType().equals(XcodePrebuildScriptDescription.TYPE) ||
+          targetNode.getType().equals(GenruleDescription.TYPE)) {
         preRules.add(targetNode);
       }
     }
@@ -1137,6 +1177,8 @@ public class ProjectGenerator {
     }
     ImmutableSortedMap<Path, Path> resolvedContents = resolvedContentsBuilder.build();
 
+    Path headerMapLocation = getHeaderMapLocationFromSymlinkTreeRoot(headerSymlinkTreeRoot);
+
     Path hashCodeFilePath = headerSymlinkTreeRoot.resolve(".contents-hash");
     Optional<String> currentHashCode = projectFilesystem.readFileIfItExists(hashCodeFilePath);
     String newHashCode = getHeaderSymlinkTreeHashCode(resolvedContents).toString();
@@ -1151,7 +1193,7 @@ public class ProjectGenerator {
           headerSymlinkTreeRoot,
           currentHashCode,
           newHashCode);
-      projectFilesystem.rmdir(headerSymlinkTreeRoot);
+      projectFilesystem.deleteRecursivelyIfExists(headerSymlinkTreeRoot);
       projectFilesystem.mkdirs(headerSymlinkTreeRoot);
       for (Map.Entry<Path, Path> entry : resolvedContents.entrySet()) {
         Path link = entry.getKey();
@@ -1160,12 +1202,21 @@ public class ProjectGenerator {
         projectFilesystem.createSymLink(link, existing, /* force */ false);
       }
       projectFilesystem.writeContentsToPath(newHashCode, hashCodeFilePath);
+
+      HeaderMap.Builder headerMapBuilder = new HeaderMap.Builder();
+      for (Map.Entry<String, SourcePath> entry : contents.entrySet()) {
+        headerMapBuilder.add(
+            entry.getKey(),
+            projectFilesystem.resolve(headerSymlinkTreeRoot).resolve(entry.getKey()));
+      }
+      projectFilesystem.writeBytesToPath(headerMapBuilder.build().getBytes(), headerMapLocation);
     }
     headerSymlinkTrees.add(headerSymlinkTreeRoot);
   }
 
   private HashCode getHeaderSymlinkTreeHashCode(ImmutableSortedMap<Path, Path> contents) {
     Hasher hasher = Hashing.sha1().newHasher();
+    hasher.putBytes(BuckVersion.getVersion().getBytes(Charsets.UTF_8));
     for (Map.Entry<Path, Path> entry : contents.entrySet()) {
       byte[] key = entry.getKey().toString().getBytes(Charsets.UTF_8);
       byte[] value = entry.getValue().toString().getBytes(Charsets.UTF_8);
@@ -1366,7 +1417,7 @@ public class ProjectGenerator {
   /**
    * @param targetNode Must have a header symlink tree or an exception will be thrown.
    */
-  private String getHeaderSymlinkTreeRelativePath(
+  private Path getHeaderSymlinkTreeRelativePath(
       TargetNode<? extends AppleNativeTargetDescriptionArg> targetNode,
       HeaderVisibility headerVisibility) {
     Optional<Path> treeRoot = AppleDescriptions.getPathToHeaderSymlinkTree(
@@ -1376,7 +1427,11 @@ public class ProjectGenerator {
         treeRoot.isPresent(),
         "%s does not have a header symlink tree.",
         targetNode);
-    return pathRelativizer.outputDirToRootRelative(treeRoot.get()).toString();
+    return pathRelativizer.outputDirToRootRelative(treeRoot.get());
+  }
+
+  private Path getHeaderMapLocationFromSymlinkTreeRoot(Path headerSymlinkTreeRoot) {
+    return headerSymlinkTreeRoot.resolve(".tree.hmap");
   }
 
   private String getHeaderSearchPath(TargetNode<?> targetNode) {
@@ -1486,9 +1541,20 @@ public class ProjectGenerator {
         .toSet();
   }
 
-  private ImmutableSet<String> collectRecursiveHeaderSymlinkTrees(
+  private ImmutableSet<Path> collectRecursiveHeaderMaps(
       TargetNode<? extends AppleNativeTargetDescriptionArg> targetNode) {
-    ImmutableSet.Builder<String> builder = ImmutableSet.builder();
+    ImmutableSet.Builder<Path> builder = ImmutableSet.builder();
+
+    for (Path headerSymlinkTreePath : collectRecursiveHeaderSymlinkTrees(targetNode)) {
+      builder.add(getHeaderMapLocationFromSymlinkTreeRoot(headerSymlinkTreePath));
+    }
+
+    return builder.build();
+  }
+
+  private ImmutableSet<Path> collectRecursiveHeaderSymlinkTrees(
+      TargetNode<? extends AppleNativeTargetDescriptionArg> targetNode) {
+    ImmutableSet.Builder<Path> builder = ImmutableSet.builder();
 
     if (targetNode.getConstructorArg().getUseBuckHeaderMaps()) {
       builder.add(getHeaderSymlinkTreeRelativePath(targetNode, HeaderVisibility.PRIVATE));
@@ -1518,7 +1584,7 @@ public class ProjectGenerator {
 
   private void addHeaderSymlinkTreesForSourceUnderTest(
       TargetNode<? extends AppleNativeTargetDescriptionArg> targetNode,
-      ImmutableSet.Builder<String> headerSymlinkTreesBuilder,
+      ImmutableSet.Builder<Path> headerSymlinkTreesBuilder,
       HeaderVisibility headerVisibility) {
     ImmutableSet<TargetNode<?>> directDependencies = ImmutableSet.copyOf(
         targetGraph.getAll(targetNode.getDeps()));

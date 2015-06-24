@@ -46,6 +46,10 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.io.Files;
 
+import com.dd.plist.NSObject;
+import com.dd.plist.NSNumber;
+import com.dd.plist.NSString;
+
 import java.nio.file.Path;
 import java.util.Locale;
 import java.util.Map;
@@ -81,6 +85,9 @@ public class AppleBundle extends AbstractBuildRule implements NativeTestable {
   private final Set<SourcePath> resourceFiles;
 
   @AddToRuleKey
+  private final Set<SourcePath> dirsContainingResourceDirs;
+
+  @AddToRuleKey
   private final Tool ibtool;
 
   @AddToRuleKey
@@ -88,6 +95,12 @@ public class AppleBundle extends AbstractBuildRule implements NativeTestable {
 
   @AddToRuleKey
   private final ImmutableSortedSet<BuildTarget> tests;
+
+  @AddToRuleKey
+  private final String platformName;
+
+  @AddToRuleKey
+  private final String sdkName;
 
   private final ImmutableSet<AppleAssetCatalog> bundledAssetCatalogs;
 
@@ -107,11 +120,14 @@ public class AppleBundle extends AbstractBuildRule implements NativeTestable {
       AppleBundleDestinations destinations,
       Set<SourcePath> resourceDirs,
       Set<SourcePath> resourceFiles,
+      Set<SourcePath> dirsContainingResourceDirs,
       Tool ibtool,
       Tool dsymutil,
       Set<AppleAssetCatalog> bundledAssetCatalogs,
       Optional<AppleAssetCatalog> mergedAssetCatalog,
-      Set<BuildTarget> tests) {
+      Set<BuildTarget> tests,
+      String platformName,
+      String sdkName) {
     super(params, resolver);
     this.extension = extension.isLeft() ?
         extension.getLeft().toFileExtension() :
@@ -122,6 +138,7 @@ public class AppleBundle extends AbstractBuildRule implements NativeTestable {
     this.destinations = destinations;
     this.resourceDirs = resourceDirs;
     this.resourceFiles = resourceFiles;
+    this.dirsContainingResourceDirs = dirsContainingResourceDirs;
     this.ibtool = ibtool;
     this.dsymutil = dsymutil;
     this.bundledAssetCatalogs = ImmutableSet.copyOf(bundledAssetCatalogs);
@@ -131,6 +148,8 @@ public class AppleBundle extends AbstractBuildRule implements NativeTestable {
     this.binaryPath = this.destinations.getExecutablesPath()
         .resolve(this.binaryName);
     this.tests = ImmutableSortedSet.copyOf(tests);
+    this.platformName = platformName;
+    this.sdkName = sdkName;
   }
 
   private static String getBinaryName(BuildTarget buildTarget) {
@@ -149,8 +168,16 @@ public class AppleBundle extends AbstractBuildRule implements NativeTestable {
     return bundleRoot;
   }
 
+  public Path getInfoPlistPath() {
+    return getMetadataPath().resolve("Info.plist");
+  }
+
   public Path getUnzippedOutputFilePathToBinary() {
     return this.binaryPath;
+  }
+
+  private Path getMetadataPath() {
+    return bundleRoot.resolve(destinations.getMetadataPath());
   }
 
   @Override
@@ -159,7 +186,12 @@ public class AppleBundle extends AbstractBuildRule implements NativeTestable {
       BuildableContext buildableContext) {
     ImmutableList.Builder<Step> stepsBuilder = ImmutableList.builder();
 
-    Path metadataPath = bundleRoot.resolve(this.destinations.getMetadataPath());
+    Path metadataPath = getMetadataPath();
+
+    Path infoPlistInputPath = getResolver().getPath(infoPlist.get());
+    Path infoPlistSubstitutionTempPath =
+        BuildTargets.getScratchPath(getBuildTarget(), "%s.plist");
+    Path infoPlistOutputPath = metadataPath.resolve("Info.plist");
 
     stepsBuilder.add(
         new MakeCleanDirectoryStep(bundleRoot),
@@ -167,8 +199,8 @@ public class AppleBundle extends AbstractBuildRule implements NativeTestable {
         // TODO(user): This is only appropriate for .app bundles.
         new WriteFileStep("APPLWRUN", metadataPath.resolve("PkgInfo")),
         new FindAndReplaceStep(
-            getResolver().getPath(infoPlist.get()),
-            metadataPath.resolve("Info.plist"),
+            infoPlistInputPath,
+            infoPlistSubstitutionTempPath,
             InfoPlistSubstitution.createVariableExpansionFunction(
                 withDefaults(
                     infoPlistSubstitutions,
@@ -176,9 +208,18 @@ public class AppleBundle extends AbstractBuildRule implements NativeTestable {
                         "EXECUTABLE_NAME", binaryName,
                         "PRODUCT_NAME", binaryName
                     ))
-            )));
+            )),
+        new PlistProcessStep(
+            infoPlistSubstitutionTempPath,
+            infoPlistOutputPath,
+            getInfoPlistAdditionalKeys(platformName, sdkName),
+            getInfoPlistOverrideKeys(platformName)));
 
-    if (binary.isPresent()) {
+    // TODO(jakubzika):
+    // Checking whether the output path is not null only serves as a workaround if the binary is
+    // an unflavored CxxLibrary and does not have any output. The correct fix would be using
+    // the correctly flavored version of the rule to make sure that it always has output.
+    if (binary.isPresent() && binary.get().getPathToOutput() != null) {
       stepsBuilder.add(
           new MkdirStep(bundleRoot.resolve(this.destinations.getExecutablesPath())));
       Path bundleBinaryPath = bundleRoot.resolve(binaryPath);
@@ -194,8 +235,8 @@ public class AppleBundle extends AbstractBuildRule implements NativeTestable {
                   bundleBinaryPath.getFileName().toString() + ".dSYM")));
     }
 
+    Path bundleDestinationPath = bundleRoot.resolve(this.destinations.getResourcesPath());
     for (SourcePath dir : resourceDirs) {
-      Path bundleDestinationPath = bundleRoot.resolve(this.destinations.getResourcesPath());
       stepsBuilder.add(new MkdirStep(bundleDestinationPath));
       stepsBuilder.add(
           CopyStep.forDirectory(
@@ -203,8 +244,15 @@ public class AppleBundle extends AbstractBuildRule implements NativeTestable {
               bundleDestinationPath,
               CopyStep.DirectoryMode.DIRECTORY_AND_CONTENTS));
     }
+    for (SourcePath dir : dirsContainingResourceDirs) {
+      stepsBuilder.add(new MkdirStep(bundleDestinationPath));
+      stepsBuilder.add(
+          CopyStep.forDirectory(
+              getResolver().getPath(dir),
+              bundleDestinationPath,
+              CopyStep.DirectoryMode.CONTENTS_ONLY));
+    }
     for (SourcePath file : resourceFiles) {
-      Path bundleDestinationPath = bundleRoot.resolve(this.destinations.getResourcesPath());
       stepsBuilder.add(new MkdirStep(bundleDestinationPath));
       Path resolvedFilePath = getResolver().getPath(file);
       Path destinationPath = bundleDestinationPath.resolve(resolvedFilePath.getFileName());
@@ -235,7 +283,7 @@ public class AppleBundle extends AbstractBuildRule implements NativeTestable {
     return stepsBuilder.build();
   }
 
-  ImmutableMap<String, String> withDefaults(
+  static ImmutableMap<String, String> withDefaults(
       ImmutableMap<String, String> map,
       ImmutableMap<String, String> defaults) {
     ImmutableMap.Builder<String, String> builder = ImmutableMap.<String, String>builder()
@@ -246,6 +294,35 @@ public class AppleBundle extends AbstractBuildRule implements NativeTestable {
       }
     }
     return builder.build();
+  }
+
+  static ImmutableMap<String, NSObject> getInfoPlistOverrideKeys(
+      String platformName) {
+    ImmutableMap.Builder<String, NSObject> keys = ImmutableMap.builder();
+
+    if (platformName.contains("osx")) {
+      keys.put("LSRequiresIPhoneOS", new NSNumber(false));
+    } else {
+      keys.put("LSRequiresIPhoneOS", new NSNumber(true));
+    }
+
+    return keys.build();
+  }
+
+  static ImmutableMap<String, NSObject> getInfoPlistAdditionalKeys(
+      String platformName,
+      String sdkName) {
+    ImmutableMap.Builder<String, NSObject> keys = ImmutableMap.builder();
+
+    if (platformName.contains("osx")) {
+      keys.put("NSHighResolutionCapable", new NSNumber(true));
+      keys.put("NSSupportsAutomaticGraphicsSwitching", new NSNumber(true));
+    }
+
+    keys.put("DTPlatformName", new NSString(platformName));
+    keys.put("DTSDKName", new NSString(sdkName));
+
+    return keys.build();
   }
 
   private void addResourceProcessingSteps(

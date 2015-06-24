@@ -50,12 +50,11 @@ import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
-import com.facebook.buck.rules.FakeRuleKeyBuilderFactory;
+import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
 import com.facebook.buck.rules.ImmutableBuildContext;
 import com.facebook.buck.rules.NoopArtifactCache;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
-import com.facebook.buck.rules.RuleKeyPair;
 import com.facebook.buck.rules.Sha1HashCode;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -1086,20 +1085,19 @@ public class DefaultJavaLibraryTest {
       fileHashes.put(filename, Hashing.sha1().hashString(filename, Charsets.UTF_8).toString());
     }
     RuleKeyBuilderFactory ruleKeyBuilderFactory1 =
-        new FakeRuleKeyBuilderFactory(
+        new DefaultRuleKeyBuilderFactory(
             FakeFileHashCache.createFromStrings(fileHashes.build()),
             pathResolver1);
     RuleKeyBuilderFactory ruleKeyBuilderFactory2 =
-        new FakeRuleKeyBuilderFactory(
+        new DefaultRuleKeyBuilderFactory(
             FakeFileHashCache.createFromStrings(fileHashes.build()),
             pathResolver2);
 
     RuleKey.Builder builder1 = ruleKeyBuilderFactory1.newInstance(rule1);
     RuleKey.Builder builder2 = ruleKeyBuilderFactory2.newInstance(rule2);
-    RuleKeyPair pair1 = builder1.build();
-    RuleKeyPair pair2 = builder2.build();
-    assertEquals(pair1.getTotalRuleKey(), pair2.getTotalRuleKey());
-    assertEquals(pair1.getRuleKeyWithoutDeps(), pair2.getRuleKeyWithoutDeps());
+    RuleKey key1 = builder1.build();
+    RuleKey key2 = builder2.build();
+    assertEquals(key1, key2);
   }
 
   @Test
@@ -1159,11 +1157,11 @@ public class DefaultJavaLibraryTest {
     List<Step> steps = stepsBuilder.build();
     assertEquals(steps.size(), 3);
     assertTrue(((JavacStep) steps.get(2)).getJavac() instanceof Jsr199Javac);
-    Jsr199Javac jsrJavac = ((Jsr199Javac) (((JavacStep) steps.get(2)).getJavac()));
-    assertTrue(jsrJavac.getJavacJar().isPresent());
+    JarBackedJavac jsrJavac = ((JarBackedJavac) (((JavacStep) steps.get(2)).getJavac()));
     assertEquals(
-        jsrJavac.getJavacJar().get(),
-        new BuildTargetSourcePath(javac.getProjectFilesystem(), javac.getBuildTarget()));
+        jsrJavac.getCompilerClassPath(),
+        ImmutableSet.of(
+            new BuildTargetSourcePath(javac.getProjectFilesystem(), javac.getBuildTarget())));
   }
 
   @Test

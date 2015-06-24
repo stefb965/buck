@@ -28,7 +28,6 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonStreamParser;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
@@ -40,6 +39,8 @@ import java.util.List;
  * Such metadata is stored as key/value pairs.
  */
 public class DefaultOnDiskBuildInfo implements OnDiskBuildInfo {
+
+  private static final Logger LOG = Logger.get(DefaultOnDiskBuildInfo.class);
 
   private static final Function<String, ImmutableList<String>> TO_STRINGS =
       new Function<String, ImmutableList<String>>() {
@@ -60,12 +61,10 @@ public class DefaultOnDiskBuildInfo implements OnDiskBuildInfo {
     }
   };
 
-  private final Logger LOG;
   private final ProjectFilesystem projectFilesystem;
   private final Path metadataDirectory;
 
   public DefaultOnDiskBuildInfo(BuildTarget target, ProjectFilesystem projectFilesystem) {
-    LOG = Logger.get(DefaultOnDiskBuildInfo.class);
     this.projectFilesystem = projectFilesystem;
     this.metadataDirectory = BuildInfo.getPathToMetadataDirectory(target);
   }
@@ -106,19 +105,9 @@ public class DefaultOnDiskBuildInfo implements OnDiskBuildInfo {
   }
 
   @Override
-  public Optional<RuleKey> getRuleKey() {
+  public Optional<RuleKey> getRuleKey(String key) {
     try {
-      return getValue(BuildInfo.METADATA_KEY_FOR_RULE_KEY).transform(RuleKey.TO_RULE_KEY);
-    } catch (IllegalArgumentException ignored) {
-      return Optional.absent();
-    }
-  }
-
-  @Override
-  public Optional<RuleKey> getRuleKeyWithoutDeps() {
-    try {
-      return getValue(BuildInfo.METADATA_KEY_FOR_RULE_KEY_WITHOUT_DEPS)
-          .transform(RuleKey.TO_RULE_KEY);
+      return getValue(key).transform(RuleKey.TO_RULE_KEY);
     } catch (IllegalArgumentException ignored) {
       return Optional.absent();
     }
@@ -131,13 +120,8 @@ public class DefaultOnDiskBuildInfo implements OnDiskBuildInfo {
   }
 
   @Override
-  public void makeOutputFileExecutable(BuildRule buildRule) {
-    File file = projectFilesystem.getFileForRelativePath(buildRule.getPathToOutput());
-    file.setExecutable(true /* executable */, false /* ownerOnly */);
+  public void deleteExistingMetadata() throws IOException {
+    projectFilesystem.deleteRecursivelyIfExists(metadataDirectory);
   }
 
-  @Override
-  public void deleteExistingMetadata() throws IOException {
-    projectFilesystem.rmdir(metadataDirectory);
-  }
 }

@@ -27,7 +27,6 @@ import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 
 import java.io.File;
@@ -105,12 +104,19 @@ public class NdkBuildStep extends ShellStep {
 
     ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
     Function<Path, Path> absolutifier = projectFilesystem.getAbsolutifier();
+
+    // We want relative, not absolute, paths in the debug-info for binaries we build using
+    // ndk_library.  Absolute paths are machine-specific, but relative ones should be the
+    // same everywhere.
+
+    Path relativePathToProject = absolutifier.apply(this.root)
+        .relativize(projectFilesystem.getRootPath());
     builder.add(
         "APP_PROJECT_PATH=" + absolutifier.apply(buildArtifactsDirectory) + File.separatorChar,
         "APP_BUILD_SCRIPT=" + absolutifier.apply(makefile),
         "NDK_OUT=" + absolutifier.apply(buildArtifactsDirectory) + File.separatorChar,
         "NDK_LIBS_OUT=" + projectFilesystem.resolve(binDirectory),
-        "BUCK_PROJECT_DIR=" + projectFilesystem.getRootPath());
+        "BUCK_PROJECT_DIR=" + relativePathToProject);
 
     // Suppress the custom build step messages (e.g. "Compile++ ...").
     if (Platform.detect() == Platform.WINDOWS) {
@@ -127,17 +133,6 @@ public class NdkBuildStep extends ShellStep {
       builder.add("--silent");
     }
 
-    return builder.build();
-  }
-
-  @Override
-  public ImmutableMap<String, String> getEnvironmentVariables(ExecutionContext context) {
-    ImmutableMap<String, String> base = super.getEnvironmentVariables(context);
-    ImmutableMap.Builder<String, String> builder = ImmutableMap.builder();
-
-    // Ensure the external environment gets superceded by internal mappings.
-    builder.putAll(context.getEnvironment());
-    builder.putAll(base);
     return builder.build();
   }
 

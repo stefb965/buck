@@ -24,11 +24,13 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
+import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.zip.Unzip;
 import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
+import com.google.common.base.Strings;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -49,6 +51,26 @@ public class ExternalJavac implements Javac {
     this.version = version;
   }
 
+  public static Javac createJavac(Path pathToJavac, ProcessExecutor processExecutor) {
+    ProcessExecutorParams params = ProcessExecutorParams.builder()
+        .setCommand(ImmutableList.of(pathToJavac.toString(), "-version"))
+        .build();
+    ProcessExecutor.Result result;
+    try {
+      result = processExecutor.launchAndExecute(params);
+    } catch (InterruptedException | IOException e) {
+      throw new RuntimeException(e);
+    }
+    Optional<JavacVersion> version;
+    Optional<String> stderr = result.getStderr();
+    if (Strings.isNullOrEmpty(stderr.orNull())) {
+      version = Optional.absent();
+    } else {
+      version = Optional.of(JavacVersion.of(stderr.get()));
+    }
+    return new ExternalJavac(pathToJavac, version);
+  }
+
   @Override
   public JavacVersion getVersion() {
     return version.or(DEFAULT_VERSION);
@@ -56,7 +78,6 @@ public class ExternalJavac implements Javac {
 
   @Override
   public String getDescription(
-      ExecutionContext context,
       ImmutableList<String> options,
       ImmutableSet<Path> javaSourceFilePaths,
       Optional<Path> pathToSrcsList) {
@@ -191,7 +212,7 @@ public class ExternalJavac implements Javac {
         ImmutableList<Path> zipPaths = Unzip.extractZipFile(
             projectFilesystem.resolve(path),
             projectFilesystem.resolve(workingDirectory.get()),
-          /* overwriteExistingFiles */ true);
+            Unzip.ExistingFileMode.OVERWRITE);
         sources.addAll(
             FluentIterable.from(zipPaths)
                 .filter(

@@ -67,6 +67,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.gson.Gson;
+import com.google.common.hash.HashCode;
 
 import org.junit.Rule;
 import org.junit.Test;
@@ -178,19 +179,27 @@ public class ChromeTraceBuildListenerTest {
     eventBus.post(ArtifactCacheConnectEvent.started());
     eventBus.post(ArtifactCacheConnectEvent.finished());
     eventBus.post(BuildEvent.started(buildArgs));
-    eventBus.post(ArtifactCacheEvent.started(ArtifactCacheEvent.Operation.FETCH, ruleKey));
-    eventBus.post(ArtifactCacheEvent.finished(ArtifactCacheEvent.Operation.FETCH,
-        ruleKey,
-        CacheResult.hit("http")));
+    eventBus.post(
+        ArtifactCacheEvent.started(
+            ArtifactCacheEvent.Operation.FETCH,
+            ImmutableSet.of(ruleKey)));
+    eventBus.post(
+        ArtifactCacheEvent.finished(
+            ArtifactCacheEvent.Operation.FETCH,
+            ImmutableSet.of(ruleKey),
+            CacheResult.hit("http")));
     eventBus.post(BuildRuleEvent.started(rule));
     eventBus.post(StepEvent.started(stepShortName, stepDescription, stepUuid));
 
     eventBus.post(StepEvent.finished(stepShortName, stepDescription, stepUuid, 0));
-    eventBus.post(BuildRuleEvent.finished(
-        rule,
-        BuildRuleStatus.SUCCESS,
-        CacheResult.miss(),
-        Optional.of(BuildRuleSuccessType.BUILT_LOCALLY)));
+    eventBus.post(
+        BuildRuleEvent.finished(
+            rule,
+            BuildRuleStatus.SUCCESS,
+            CacheResult.miss(),
+            Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
+            Optional.<HashCode>absent(),
+            Optional.<Long>absent()));
 
     try (TraceEventLogger ignored = TraceEventLogger.start(
         eventBus, "planning", ImmutableMap.of("nefarious", "true")

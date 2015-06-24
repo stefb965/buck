@@ -66,9 +66,9 @@ public class CleanCommandTest extends EasyMockSupport {
     // Set up mocks.
     CommandRunnerParams params = createCommandRunnerParams();
     Capture<Path> binDir = newCapture();
-    projectFilesystem.rmdir(capture(binDir));
+    projectFilesystem.deleteRecursivelyIfExists(capture(binDir));
     Capture<Path> genDir = newCapture();
-    projectFilesystem.rmdir(capture(genDir));
+    projectFilesystem.deleteRecursivelyIfExists(capture(genDir));
 
     replayAll();
 
@@ -88,9 +88,9 @@ public class CleanCommandTest extends EasyMockSupport {
     // Set up mocks.
     CommandRunnerParams params = createCommandRunnerParams();
     Capture<Path> androidGenDir = newCapture();
-    projectFilesystem.rmdir(capture(androidGenDir));
+    projectFilesystem.deleteRecursivelyIfExists(capture(androidGenDir));
     Capture<Path> annotationDir = newCapture();
-    projectFilesystem.rmdir(capture(annotationDir));
+    projectFilesystem.deleteRecursivelyIfExists(capture(annotationDir));
 
     replayAll();
 
@@ -115,7 +115,7 @@ public class CleanCommandTest extends EasyMockSupport {
     Repository repository = new TestRepositoryBuilder().setFilesystem(projectFilesystem).build();
 
     Supplier<AndroidPlatformTarget> androidPlatformTargetSupplier =
-        AndroidPlatformTarget.explodingAndroidPlatformTargetSupplier;
+        AndroidPlatformTarget.EXPLODING_ANDROID_PLATFORM_TARGET_SUPPLIER;
     return new CommandRunnerParams(
         new TestConsole(),
         repository,

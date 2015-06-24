@@ -22,15 +22,11 @@ import com.facebook.buck.rules.AppendableRuleKeyCache;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.EmptyRuleKeyBuilder;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
-import com.facebook.buck.rules.FakeRuleKeyBuilderFactory;
 import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.RuleKeyPair;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.step.ExecutionContext;
-import com.facebook.buck.step.TestExecutionContext;
+import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
 import com.google.common.base.Optional;
@@ -64,28 +60,23 @@ public class ExternalJavacTest extends EasyMockSupport {
 
   @Test
   public void testJavacCommand() {
-    ExecutionContext context = TestExecutionContext.newInstance();
-
     ExternalJavac firstOrder = createTestStep();
     ExternalJavac warn = createTestStep();
     ExternalJavac transitive = createTestStep();
 
     assertEquals("fakeJavac -source 6 -target 6 -g -d . -classpath foo.jar @" + PATH_TO_SRCS_LIST,
         firstOrder.getDescription(
-            context,
             getArgs().add("foo.jar").build(),
             SOURCE_PATHS,
             Optional.of(PATH_TO_SRCS_LIST)));
     assertEquals("fakeJavac -source 6 -target 6 -g -d . -classpath foo.jar @" + PATH_TO_SRCS_LIST,
         warn.getDescription(
-            context,
             getArgs().add("foo.jar").build(),
             SOURCE_PATHS,
             Optional.of(PATH_TO_SRCS_LIST)));
     assertEquals("fakeJavac -source 6 -target 6 -g -d . -classpath bar.jar" + File.pathSeparator +
         "foo.jar @" + PATH_TO_SRCS_LIST,
         transitive.getDescription(
-            context,
             getArgs().add("bar.jar" + File.pathSeparator + "foo.jar").build(),
             SOURCE_PATHS,
             Optional.of(PATH_TO_SRCS_LIST)));
@@ -104,24 +95,21 @@ public class ExternalJavacTest extends EasyMockSupport {
         new AppendableRuleKeyCache(pathResolver, fileHashCache);
     BuildRuleParams params = new FakeBuildRuleParamsBuilder("//example:target").build();
     BuildRule buildRule = new NoopBuildRule(params, pathResolver);
-    FakeRuleKeyBuilderFactory fakeRuleKeyBuilderFactory =
-        new FakeRuleKeyBuilderFactory(fileHashCache, pathResolver);
+    DefaultRuleKeyBuilderFactory fakeRuleKeyBuilderFactory =
+        new DefaultRuleKeyBuilderFactory(fileHashCache, pathResolver);
 
-    RuleKey javacKey = EmptyRuleKeyBuilder.newInstance(
-        pathResolver,
-        fileHashCache,
-        appendableRuleKeyCache)
-        .setReflectively("javac", javac)
-        .build()
-        .getRuleKeyWithoutDeps();
+    RuleKey javacKey =
+        new RuleKey.Builder(pathResolver, fileHashCache, appendableRuleKeyCache)
+            .setReflectively("javac", javac)
+            .build();
     RuleKey.Builder builder = fakeRuleKeyBuilderFactory.newInstance(buildRule);
     builder.setReflectively("key.appendableSubKey", javacKey);
-    RuleKeyPair expected = builder.build();
+    RuleKey expected = builder.build();
 
     builder = fakeRuleKeyBuilderFactory.newInstance(buildRule);
     ExternalJavac compiler = new ExternalJavac(javac, Optional.<JavacVersion>absent());
     builder.setReflectively("key", compiler);
-    RuleKeyPair seen = builder.build();
+    RuleKey seen = builder.build();
 
     assertEquals(expected, seen);
   }
@@ -140,24 +128,21 @@ public class ExternalJavacTest extends EasyMockSupport {
         new AppendableRuleKeyCache(pathResolver, fileHashCache);
     BuildRuleParams params = new FakeBuildRuleParamsBuilder("//example:target").build();
     BuildRule buildRule = new NoopBuildRule(params, pathResolver);
-    FakeRuleKeyBuilderFactory fakeRuleKeyBuilderFactory =
-        new FakeRuleKeyBuilderFactory(fileHashCache, pathResolver);
+    DefaultRuleKeyBuilderFactory fakeRuleKeyBuilderFactory =
+        new DefaultRuleKeyBuilderFactory(fileHashCache, pathResolver);
 
-    RuleKey javacKey = EmptyRuleKeyBuilder.newInstance(
-        pathResolver,
-        fileHashCache,
-        appendableRuleKeyCache)
+    RuleKey javacKey =
+        new RuleKey.Builder(pathResolver, fileHashCache, appendableRuleKeyCache)
         .setReflectively("javac.version", javacVersion.toString())
-        .build()
-        .getRuleKeyWithoutDeps();
+        .build();
     RuleKey.Builder builder = fakeRuleKeyBuilderFactory.newInstance(buildRule);
     builder.setReflectively("key.appendableSubKey", javacKey);
-    RuleKeyPair expected = builder.build();
+    RuleKey expected = builder.build();
 
     builder = fakeRuleKeyBuilderFactory.newInstance(buildRule);
     ExternalJavac compiler = new ExternalJavac(javac, Optional.of(javacVersion));
     builder.setReflectively("key", compiler);
-    RuleKeyPair seen = builder.build();
+    RuleKey seen = builder.build();
 
     assertEquals(expected, seen);
   }

@@ -16,6 +16,7 @@
 
 package com.facebook.buck.ocaml;
 
+import com.facebook.buck.cxx.CxxHeaders;
 import com.facebook.buck.cxx.CxxPreprocessables;
 import com.facebook.buck.cxx.CxxPreprocessorDep;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
@@ -163,7 +164,7 @@ public class OCamlRuleBuilder {
               ocamlBuckConfig.getCxxPlatform(),
               FluentIterable.from(params.getDeps())
                   .filter(Predicates.instanceOf(CxxPreprocessorDep.class))));
-    } catch (CxxPreprocessorInput.ConflictingHeadersException e) {
+    } catch (CxxHeaders.ConflictingHeadersException e) {
       throw e.getHumanReadableExceptionForBuildTarget(params.getBuildTarget());
     }
 
@@ -295,7 +296,7 @@ public class OCamlRuleBuilder {
               ocamlBuckConfig.getCxxPlatform(),
               FluentIterable.from(params.getDeps())
                   .filter(Predicates.instanceOf(CxxPreprocessorDep.class))));
-    } catch (CxxPreprocessorInput.ConflictingHeadersException e) {
+    } catch (CxxHeaders.ConflictingHeadersException e) {
       throw e.getHumanReadableExceptionForBuildTarget(params.getBuildTarget());
     }
 
@@ -432,7 +433,7 @@ public class OCamlRuleBuilder {
         ocamlContext.getOcamlDepTool().get(),
         ocamlContext.getMLInput(),
         ocamlContext.getIncludeFlags(/* isBytecode */ false, /* excludeDeps */ true));
-    ImmutableList<String> cmd = depToolStep.getShellCommand(null);
+    ImmutableList<String> cmd = depToolStep.getShellCommandInternal(null);
     Optional<String> depsString;
     try {
       depsString = executeProcessAndGetStdout(baseDir, cmd);
@@ -492,7 +493,8 @@ public class OCamlRuleBuilder {
         processBuilder.start(),
         options.build(),
         /* stdin */ Optional.<String>absent(),
-        /* timeOutMs */ Optional.<Long>absent());
+        /* timeOutMs */ Optional.<Long>absent(),
+        /* timeOutHandler */ Optional.<Function<Process, Void>>absent());
     if (result.getExitCode() != 0) {
       throw new HumanReadableException(stderr.getContentsAsString(StandardCharsets.UTF_8));
     }
