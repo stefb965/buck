@@ -22,6 +22,7 @@ import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Function;
 import com.google.common.base.Functions;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableBiMap;
@@ -46,6 +47,7 @@ public class CxxPlatforms {
   private static final ImmutableList<String> DEFAULT_ARFLAGS = ImmutableList.of();
   private static final ImmutableList<String> DEFAULT_LEX_FLAGS = ImmutableList.of();
   private static final ImmutableList<String> DEFAULT_YACC_FLAGS = ImmutableList.of("-y");
+  private static final ImmutableList<String> DEFAULT_COMPILER_ONLY_FLAGS = ImmutableList.of();
 
   @VisibleForTesting
   static final DebugPathSanitizer DEFAULT_DEBUG_PATH_SANITIZER =
@@ -65,16 +67,15 @@ public class CxxPlatforms {
       CxxBuckConfig config,
       Tool as,
       Tool aspp,
-      Tool cc,
-      Tool cxx,
+      Compiler cc,
+      Compiler cxx,
       Tool cpp,
       Tool cxxpp,
       Tool cxxld,
       Optional<CxxPlatform.LinkerType> linkerType,
       Tool ld,
       Iterable<String> ldFlags,
-      Tool ar,
-      byte[] expectedGlobalHeader,
+      Archiver ar,
       ImmutableList<String> cflags,
       ImmutableList<String> cppflags,
       Optional<Tool> lex,
@@ -87,15 +88,16 @@ public class CxxPlatforms {
         .setFlavor(flavor)
         .setAs(getTool(flavor, "as", config).or(as))
         .setAspp(getTool(flavor, "aspp", config).or(aspp))
-        .setCc(getTool(flavor, "cc", config).or(cc))
-        .setCxx(getTool(flavor, "cxx", config).or(cxx))
+        // TODO(user): Don't assume the compiler override specifies the same type of compiler as
+        // the default one.
+        .setCc(getTool(flavor, "cc", config).transform(getCompiler(cc.getClass())).or(cc))
+        .setCxx(getTool(flavor, "cxx", config).transform(getCompiler(cxx.getClass())).or(cxx))
         .setCpp(getTool(flavor, "cpp", config).or(cpp))
         .setCxxpp(getTool(flavor, "cxxpp", config).or(cxxpp))
         .setCxxld(getTool(flavor, "cxxld", config).or(cxxld))
         .setLd(getLd(flavor, platform, config, linkerType, getTool(flavor, "ld", config).or(ld)))
         .addAllLdflags(ldFlags)
-        .setAr(getTool(flavor, "ar", config).or(ar))
-        .setArExpectedGlobalHeader(expectedGlobalHeader)
+        .setAr(getTool(flavor, "ar", config).transform(getArchiver(ar.getClass())).or(ar))
         .setLex(getTool(flavor, "lex", config).or(lex))
         .setYacc(getTool(flavor, "yacc", config).or(yacc))
         .setSharedLibraryExtension(CxxPlatforms.getSharedLibraryExtension(platform))
@@ -125,8 +127,14 @@ public class CxxPlatforms {
       .setFlavor(flavor)
       .setAs(getTool(flavor, "as", config).or(defaultPlatform.getAs()))
       .setAspp(getTool(flavor, "aspp", config).or(defaultPlatform.getAspp()))
-      .setCc(getTool(flavor, "cc", config).or(defaultPlatform.getCc()))
-      .setCxx(getTool(flavor, "cxx", config).or(defaultPlatform.getCxx()))
+      .setCc(
+          getTool(flavor, "cc", config)
+              .transform(getCompiler(defaultPlatform.getCc().getClass()))
+              .or(defaultPlatform.getCc()))
+      .setCxx(
+          getTool(flavor, "cxx", config)
+              .transform(getCompiler(defaultPlatform.getCxx().getClass()))
+              .or(defaultPlatform.getCxx()))
       .setCpp(getTool(flavor, "cpp", config).or(defaultPlatform.getCpp()))
       .setCxxpp(getTool(flavor, "cxxpp", config).or(defaultPlatform.getCxxpp()))
       .setCxxld(getTool(flavor, "cxxld", config).or(defaultPlatform.getCxxld()))
@@ -136,8 +144,7 @@ public class CxxPlatforms {
             .or(defaultPlatform.getLd().getTool())
         )
       )
-      .setAr(getTool(flavor, "ar", config).or(defaultPlatform.getAr()))
-      .setArExpectedGlobalHeader(defaultPlatform.getArExpectedGlobalHeader())
+      .setAr(new GnuArchiver(getTool(flavor, "ar", config).or(defaultPlatform.getAr())))
       .setLex(getTool(flavor, "lex", config).or(defaultPlatform.getLex()))
       .setYacc(getTool(flavor, "yacc", config).or(defaultPlatform.getYacc()))
       .setSharedLibraryExtension(CxxPlatforms.getSharedLibraryExtension(platform))
@@ -149,6 +156,32 @@ public class CxxPlatforms {
     }
     CxxPlatforms.addToolFlagsFromConfig(config, builder);
     return builder.build();
+  }
+
+  private static Function<Tool, Compiler> getCompiler(final Class<? extends Compiler> ccClass) {
+    return new Function<Tool, Compiler>() {
+      @Override
+      public Compiler apply(Tool input) {
+        try {
+          return ccClass.getConstructor(Tool.class).newInstance(input);
+        } catch (ReflectiveOperationException e) {
+          throw new RuntimeException(e);
+        }
+      }
+    };
+  }
+
+  private static Function<Tool, Archiver> getArchiver(final Class<? extends Archiver> arClass) {
+    return new Function<Tool, Archiver>() {
+      @Override
+      public Archiver apply(Tool input) {
+        try {
+          return arClass.getConstructor(Tool.class).newInstance(input);
+        } catch (ReflectiveOperationException e) {
+          throw new RuntimeException(e);
+        }
+      }
+    };
   }
 
   private static String getSharedLibraryExtension(Platform platform) {
@@ -206,12 +239,17 @@ public class CxxPlatforms {
     ImmutableList<String> asflags = config.getFlags("asflags").or(DEFAULT_ASFLAGS);
     ImmutableList<String> cflags = config.getFlags("cflags").or(DEFAULT_CFLAGS);
     ImmutableList<String> cxxflags = config.getFlags("cxxflags").or(DEFAULT_CXXFLAGS);
+    ImmutableList<String> compilerOnlyFlags = config.getFlags("compiler_only_flags")
+        .or(DEFAULT_COMPILER_ONLY_FLAGS);
+
     builder
         .addAllAsflags(asflags)
         .addAllAsppflags(config.getFlags("asppflags").or(DEFAULT_ASPPFLAGS))
         .addAllAsppflags(asflags)
         .addAllCflags(cflags)
+        .addAllCflags(compilerOnlyFlags)
         .addAllCxxflags(cxxflags)
+        .addAllCxxflags(compilerOnlyFlags)
         .addAllCppflags(config.getFlags("cppflags").or(DEFAULT_CPPFLAGS))
         .addAllCppflags(cflags)
         .addAllCxxppflags(config.getFlags("cxxppflags").or(DEFAULT_CXXPPFLAGS))

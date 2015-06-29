@@ -19,8 +19,6 @@ package com.facebook.buck.cxx;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.util.environment.Platform;
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Charsets;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 
@@ -47,9 +45,6 @@ public class DefaultCxxPlatforms {
   private static final Path DEFAULT_CXXLD = Paths.get("/usr/bin/g++");
   private static final Path DEFAULT_LD = Paths.get("/usr/bin/ld");
   private static final Path DEFAULT_AR = Paths.get("/usr/bin/ar");
-  @VisibleForTesting
-  static final byte[] DEFAULT_EXPECTED_GLOBAL_HEADER =
-      String.format("!<arch>%s", System.lineSeparator()).getBytes(Charsets.US_ASCII);
   private static final Path DEFAULT_LEX = Paths.get("/usr/bin/flex");
   private static final Path DEFAULT_YACC = Paths.get("/usr/bin/bison");
 
@@ -66,16 +61,19 @@ public class DefaultCxxPlatforms {
         config,
         new HashedFileTool(DEFAULT_AS),
         new HashedFileTool(DEFAULT_ASPP),
-        new HashedFileTool(DEFAULT_CC),
-        new HashedFileTool(DEFAULT_CXX),
+        // TODO(user): this goes horribly wrong if "gcc" is actually clang, like in a default
+        // OSX + Xcode setup. A better option might be to call it and see if it supports -Xclang
+        // Alternatively the default toolchain on OSX could be set to be clang based, as it's a
+        // safer guess
+        new GccCompiler(new HashedFileTool(DEFAULT_CC)),
+        new GccCompiler(new HashedFileTool(DEFAULT_CXX)),
         new HashedFileTool(DEFAULT_CPP),
         new HashedFileTool(DEFAULT_CXXPP),
         new HashedFileTool(DEFAULT_CXXLD),
         Optional.<CxxPlatform.LinkerType>absent(),
         new HashedFileTool(DEFAULT_LD),
         ImmutableList.<String>of(),
-        new HashedFileTool(DEFAULT_AR),
-        DEFAULT_EXPECTED_GLOBAL_HEADER,
+        new GnuArchiver(new HashedFileTool(DEFAULT_AR)),
         ImmutableList.<String>of(),
         ImmutableList.<String>of(),
         Optional.<Tool>of(new HashedFileTool(DEFAULT_LEX)),
