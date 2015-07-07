@@ -20,12 +20,12 @@ import static com.facebook.buck.java.BuiltInJavac.DEFAULT;
 import static org.hamcrest.junit.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargetPattern;
-import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleFactoryParams;
@@ -44,6 +44,7 @@ import com.facebook.buck.rules.coercer.Either;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.FakeProcess;
 import com.facebook.buck.util.FakeProcessExecutor;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.google.common.base.Optional;
 import com.google.common.base.Throwables;
@@ -80,6 +81,71 @@ public class JavaLibraryDescriptionTest {
   }
 
   @Test
+  public void javaVersionSetsBothSourceAndTargetLevels() {
+    JavaLibraryDescription.Arg arg =
+        new JavaLibraryDescription(defaults).createUnpopulatedConstructorArg();
+    populateWithDefaultValues(arg);
+
+    arg.source = Optional.absent();
+    arg.target = Optional.absent();
+    arg.javaVersion = Optional.of("1.4");  // Set in the past, so if we ever bump the default....
+
+    JavacOptions options = JavaLibraryDescription.getJavacOptions(
+        resolver,
+        arg,
+        defaults).build();
+
+    assertEquals("1.4", options.getSourceLevel());
+    assertEquals("1.4", options.getTargetLevel());
+  }
+
+  @Test
+  public void settingJavaVersionAndSourceLevelIsAnError() {
+    JavaLibraryDescription.Arg arg =
+        new JavaLibraryDescription(defaults).createUnpopulatedConstructorArg();
+    populateWithDefaultValues(arg);
+
+    arg.source = Optional.of("1.4");
+    arg.target = Optional.absent();
+    arg.javaVersion = Optional.of("1.4");
+
+    try {
+      JavaLibraryDescription.getJavacOptions(
+          resolver,
+          arg,
+          defaults).build();
+      fail();
+    } catch (HumanReadableException e) {
+      assertTrue(
+          e.getMessage(),
+          e.getHumanReadableErrorMessage().contains("either source and target or java_version"));
+    }
+  }
+
+  @Test
+  public void settingJavaVersionAndTargetLevelIsAnError() {
+    JavaLibraryDescription.Arg arg =
+        new JavaLibraryDescription(defaults).createUnpopulatedConstructorArg();
+    populateWithDefaultValues(arg);
+
+    arg.source = Optional.absent();
+    arg.target = Optional.of("1.4");
+    arg.javaVersion = Optional.of("1.4");
+
+    try {
+      JavaLibraryDescription.getJavacOptions(
+          resolver,
+          arg,
+          defaults).build();
+      fail();
+    } catch (HumanReadableException e) {
+      assertTrue(
+          e.getMessage(),
+          e.getHumanReadableErrorMessage().contains("either source and target or java_version"));
+    }
+  }
+
+  @Test
   public void compilerArgWithDefaultValueReturnsJsr199Javac() {
     Either<BuiltInJavac, SourcePath> either = Either.ofLeft(DEFAULT);
     arg.compiler = Optional.of(either);
@@ -97,13 +163,12 @@ public class JavaLibraryDescriptionTest {
 
   @Test
   public void compilerArgWithPrebuiltJarValueReturnsJsr199Javac() {
-    ProjectFilesystem filesystem = new FakeProjectFilesystem();
     Path javacJarPath = Paths.get("langtools").resolve("javac.jar");
     BuildTarget target = BuildTargetFactory.newInstance("//langtools:javac");
     PrebuiltJarBuilder.createBuilder(target)
         .setBinaryJar(javacJarPath)
         .build(ruleResolver);
-    SourcePath sourcePath = new BuildTargetSourcePath(filesystem, target);
+    SourcePath sourcePath = new BuildTargetSourcePath(target);
     Either<BuiltInJavac, SourcePath> either = Either.ofRight(sourcePath);
 
     arg.compiler = Optional.of(either);
@@ -178,13 +243,12 @@ public class JavaLibraryDescriptionTest {
 
   @Test
   public void compilerArgTakesPrecedenceOverJavacJarArg() {
-    ProjectFilesystem filesystem = new FakeProjectFilesystem();
     Path javacJarPath = Paths.get("langtools").resolve("javac.jar");
     BuildTarget target = BuildTargetFactory.newInstance("//langtools:javac");
     PrebuiltJarBuilder.createBuilder(target)
         .setBinaryJar(javacJarPath)
         .build(ruleResolver);
-    SourcePath sourcePath = new BuildTargetSourcePath(filesystem, target);
+    SourcePath sourcePath = new BuildTargetSourcePath(target);
     Either<BuiltInJavac, SourcePath> either = Either.ofRight(sourcePath);
 
     arg.compiler = Optional.of(either);
@@ -263,7 +327,6 @@ public class JavaLibraryDescriptionTest {
   private void populateWithDefaultValues(Object arg) {
     BuildRuleFactoryParams factoryParams =
         NonCheckingBuildRuleFactoryParams.createNonCheckingBuildRuleFactoryParams(
-            new BuildTargetParser(),
             BuildTargetFactory.newInstance("//example:target"));
 
     try {

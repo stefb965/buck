@@ -28,7 +28,7 @@ import com.google.common.collect.ImmutableSortedSet;
 
 public class ZipDescription implements Description<ZipDescription.Arg> {
 
-  public static final BuildRuleType TYPE = BuildRuleType.of("zip");
+  public static final BuildRuleType TYPE = BuildRuleType.of("zip_file");
 
   @Override
   public BuildRuleType getBuildRuleType() {

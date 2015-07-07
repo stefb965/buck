@@ -19,8 +19,7 @@ package com.facebook.buck.cxx;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.ImmutableFlavor;
-import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.rules.Tool;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Functions;
@@ -63,7 +62,6 @@ public class CxxPlatforms {
 
   public static CxxPlatform build(
       Flavor flavor,
-      Platform platform,
       CxxBuckConfig config,
       Tool as,
       Tool aspp,
@@ -71,15 +69,16 @@ public class CxxPlatforms {
       Compiler cxx,
       Tool cpp,
       Tool cxxpp,
-      Tool cxxld,
-      Optional<CxxPlatform.LinkerType> linkerType,
-      Tool ld,
+      Linker ld,
+      Linker cxxld,
       Iterable<String> ldFlags,
+      Tool strip,
       Archiver ar,
       ImmutableList<String> cflags,
       ImmutableList<String> cppflags,
       Optional<Tool> lex,
       Optional<Tool> yacc,
+      String sharedLibraryExtension,
       Optional<DebugPathSanitizer> debugPathSanitizer) {
     // TODO(user, agallagher): Generalize this so we don't need all these setters.
     CxxPlatform.Builder builder = CxxPlatform.builder();
@@ -94,13 +93,14 @@ public class CxxPlatforms {
         .setCxx(getTool(flavor, "cxx", config).transform(getCompiler(cxx.getClass())).or(cxx))
         .setCpp(getTool(flavor, "cpp", config).or(cpp))
         .setCxxpp(getTool(flavor, "cxxpp", config).or(cxxpp))
-        .setCxxld(getTool(flavor, "cxxld", config).or(cxxld))
-        .setLd(getLd(flavor, platform, config, linkerType, getTool(flavor, "ld", config).or(ld)))
+        .setCxxld(getTool(flavor, "cxxld", config).transform(getLinker(cxxld.getClass())).or(cxxld))
+        .setLd(getTool(flavor, "ld", config).transform(getLinker(ld.getClass())).or(ld))
         .addAllLdflags(ldFlags)
         .setAr(getTool(flavor, "ar", config).transform(getArchiver(ar.getClass())).or(ar))
+        .setStrip(getTool(flavor, "strip", config).or(strip))
         .setLex(getTool(flavor, "lex", config).or(lex))
         .setYacc(getTool(flavor, "yacc", config).or(yacc))
-        .setSharedLibraryExtension(CxxPlatforms.getSharedLibraryExtension(platform))
+        .setSharedLibraryExtension(sharedLibraryExtension)
         .setDebugPathSanitizer(debugPathSanitizer.or(CxxPlatforms.DEFAULT_DEBUG_PATH_SANITIZER));
     builder.addAllCflags(cflags);
     builder.addAllCxxflags(cflags);
@@ -120,8 +120,6 @@ public class CxxPlatforms {
     CxxBuckConfig config,
     Flavor flavor
   ) {
-    Platform platform = Platform.detect();
-    Optional<CxxPlatform.LinkerType> linkerType = Optional.absent();
     CxxPlatform.Builder builder = CxxPlatform.builder();
     builder
       .setFlavor(flavor)
@@ -137,17 +135,19 @@ public class CxxPlatforms {
               .or(defaultPlatform.getCxx()))
       .setCpp(getTool(flavor, "cpp", config).or(defaultPlatform.getCpp()))
       .setCxxpp(getTool(flavor, "cxxpp", config).or(defaultPlatform.getCxxpp()))
-      .setCxxld(getTool(flavor, "cxxld", config).or(defaultPlatform.getCxxld()))
+      .setCxxld(
+          getTool(flavor, "cxxld", config)
+              .transform(getLinker(defaultPlatform.getCxxld().getClass()))
+              .or(defaultPlatform.getCxxld()))
       .setLd(
-        getLd(
-          flavor, platform, config, linkerType, getTool(flavor, "ld", config)
-            .or(defaultPlatform.getLd().getTool())
-        )
-      )
+          getTool(flavor, "ld", config)
+              .transform(getLinker(defaultPlatform.getLd().getClass()))
+              .or(defaultPlatform.getLd()))
       .setAr(new GnuArchiver(getTool(flavor, "ar", config).or(defaultPlatform.getAr())))
+      .setStrip(getTool(flavor, "strip", config).or(defaultPlatform.getStrip()))
       .setLex(getTool(flavor, "lex", config).or(defaultPlatform.getLex()))
       .setYacc(getTool(flavor, "yacc", config).or(defaultPlatform.getYacc()))
-      .setSharedLibraryExtension(CxxPlatforms.getSharedLibraryExtension(platform))
+      .setSharedLibraryExtension(defaultPlatform.getSharedLibraryExtension())
       .setDebugPathSanitizer(defaultPlatform.getDebugPathSanitizer());
 
     if (config.getDefaultPlatform().isPresent()) {
@@ -184,53 +184,17 @@ public class CxxPlatforms {
     };
   }
 
-  private static String getSharedLibraryExtension(Platform platform) {
-    switch (platform) {
-      case MACOS:
-        return "dylib";
-      case WINDOWS:
-        return "dll";
-      // $CASES-OMITTED$
-      default:
-        return "so";
-    }
-  }
-
-  private static Linker getLd(
-      Flavor flavor,
-      Platform platform,
-      CxxBuckConfig config,
-      Optional<CxxPlatform.LinkerType> linkerType,
-      Tool tool) {
-    CxxPlatform.LinkerType type = config
-        .getLinkerType(flavor.toString(), CxxPlatform.LinkerType.class)
-        .or(linkerType)
-        .or(getLinkerTypeForPlatform(platform));
-    switch (type) {
-      case GNU:
-        return new GnuLinker(tool);
-      case DARWIN:
-        return new DarwinLinker(tool);
-      case WINDOWS:
-        return new WindowsLinker(tool);
-    }
-    throw new IllegalStateException();
-  }
-
-  private static CxxPlatform.LinkerType getLinkerTypeForPlatform(Platform platform) {
-    switch (platform) {
-      case LINUX:
-        return CxxPlatform.LinkerType.GNU;
-      case MACOS:
-        return CxxPlatform.LinkerType.DARWIN;
-      case WINDOWS:
-        return CxxPlatform.LinkerType.WINDOWS;
-      //$CASES-OMITTED$
-      default:
-        throw new HumanReadableException(
-            "cannot detect linker type, try explicitly setting it in " +
-            ".buckconfig's [cxx] ld_type section");
-    }
+  private static Function<Tool, Linker> getLinker(final Class<? extends Linker> ldClass) {
+    return new Function<Tool, Linker>() {
+      @Override
+      public Linker apply(Tool input) {
+        try {
+          return ldClass.getConstructor(Tool.class).newInstance(input);
+        } catch (ReflectiveOperationException e) {
+          throw new RuntimeException(e);
+        }
+      }
+    };
   }
 
   public static void addToolFlagsFromConfig(

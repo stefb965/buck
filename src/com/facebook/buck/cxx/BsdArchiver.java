@@ -16,11 +16,14 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.io.FileScrubber;
 import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.Tool;
 import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.ByteBuffer;
 import java.util.Arrays;
@@ -30,68 +33,68 @@ public class BsdArchiver implements Archiver {
   private static final byte[] EXPECTED_GLOBAL_HEADER = "!<arch>\n".getBytes(Charsets.US_ASCII);
   private static final byte[] LONG_NAME_MARKER = "#1/".getBytes(Charsets.US_ASCII);
 
-  private static final ArchiveScrubber SYMBOL_NAME_TABLE_PADDING_SCRUBBER = new ArchiveScrubber() {
+  private static final FileScrubber SYMBOL_NAME_TABLE_PADDING_SCRUBBER = new FileScrubber() {
     @Override
-    public void scrubArchive(ByteBuffer archive) throws ScrubException {
+    public void scrubFile(ByteBuffer file) throws ScrubException {
 
       // Grab the global header chunk and verify it's accurate.
-      byte[] globalHeader = ArchiveScrubbers.getBytes(archive, EXPECTED_GLOBAL_HEADER.length);
-      ArchiveScrubbers.checkArchive(
+      byte[] globalHeader = ObjectFileScrubbers.getBytes(file, EXPECTED_GLOBAL_HEADER.length);
+      ObjectFileScrubbers.checkArchive(
           Arrays.equals(EXPECTED_GLOBAL_HEADER, globalHeader),
           "invalid global header");
 
-      byte[] marker = ArchiveScrubbers.getBytes(archive, 3);
-      ArchiveScrubbers.checkArchive(
+      byte[] marker = ObjectFileScrubbers.getBytes(file, 3);
+      ObjectFileScrubbers.checkArchive(
           Arrays.equals(LONG_NAME_MARKER, marker),
           "unexpected short symbol table name");
 
-      int nameLength = ArchiveScrubbers.getDecimalStringAsInt(archive, 13);
+      int nameLength = ObjectFileScrubbers.getDecimalStringAsInt(file, 13);
 
-      /* File modification timestamp */ ArchiveScrubbers.getDecimalStringAsInt(archive, 12);
-      /* Owner ID */ ArchiveScrubbers.getDecimalStringAsInt(archive, 6);
-      /* Group ID */ ArchiveScrubbers.getDecimalStringAsInt(archive, 6);
+      /* File modification timestamp */ ObjectFileScrubbers.getDecimalStringAsInt(file, 12);
+      /* Owner ID */ ObjectFileScrubbers.getDecimalStringAsInt(file, 6);
+      /* Group ID */ ObjectFileScrubbers.getDecimalStringAsInt(file, 6);
 
-      /* File mode */ ArchiveScrubbers.getOctalStringAsInt(archive, 8);
-      /* File size */ ArchiveScrubbers.getDecimalStringAsInt(archive, 10);
+      /* File mode */ ObjectFileScrubbers.getOctalStringAsInt(file, 8);
+      /* File size */ ObjectFileScrubbers.getDecimalStringAsInt(file, 10);
 
       // Lastly, grab the file magic entry and verify it's accurate.
-      byte[] fileMagic = ArchiveScrubbers.getBytes(archive, 2);
-      ArchiveScrubbers.checkArchive(
-          Arrays.equals(ArchiveScrubbers.END_OF_FILE_HEADER_MARKER, fileMagic),
+      byte[] fileMagic = ObjectFileScrubbers.getBytes(file, 2);
+      ObjectFileScrubbers.checkArchive(
+          Arrays.equals(ObjectFileScrubbers.END_OF_FILE_HEADER_MARKER, fileMagic),
           "invalid file magic");
 
       // Skip the file name
-      archive.position(archive.position() + nameLength);
+      file.position(file.position() + nameLength);
 
-      int descriptorsSize = ArchiveScrubbers.getLittleEndian32BitLong(archive);
+      int descriptorsSize = ObjectFileScrubbers.getLittleEndian32BitLong(file);
 
       if (descriptorsSize > 0) {
 
         // Skip to the last descriptor if there is more than one
         if (descriptorsSize > 8) {
-          archive.position(archive.position() + descriptorsSize - 8);
+          file.position(file.position() + descriptorsSize - 8);
         }
 
-        int lastSymbolNameOffset = ArchiveScrubbers.getLittleEndian32BitLong(archive);
+        int lastSymbolNameOffset = ObjectFileScrubbers.getLittleEndian32BitLong(file);
         // Skip the corresponding object offset
-        ArchiveScrubbers.getLittleEndian32BitLong(archive);
+        ObjectFileScrubbers.getLittleEndian32BitLong(file);
 
-        int symbolNameTableSize = ArchiveScrubbers.getLittleEndian32BitLong(archive);
-        int endOfSymbolNameTableOffset = archive.position() + symbolNameTableSize;
+        int symbolNameTableSize = ObjectFileScrubbers.getLittleEndian32BitLong(file);
+        int endOfSymbolNameTableOffset = file.position() + symbolNameTableSize;
 
         // Skip to the last symbol name
-        archive.position(archive.position() + lastSymbolNameOffset);
+        file.position(file.position() + lastSymbolNameOffset);
 
         // Skip to the terminating null
-        while (archive.get() != 0x00) { // NOPMD
+        while (file.get() != 0x00) { // NOPMD
         }
 
-        while (archive.position() < endOfSymbolNameTableOffset) {
-          archive.put((byte) 0x00);
+        while (file.position() < endOfSymbolNameTableOffset) {
+          file.put((byte) 0x00);
         }
       } else {
-        int symbolNameTableSize = ArchiveScrubbers.getLittleEndian32BitLong(archive);
-        ArchiveScrubbers.checkArchive(
+        int symbolNameTableSize = ObjectFileScrubbers.getLittleEndian32BitLong(file);
+        ObjectFileScrubbers.checkArchive(
             symbolNameTableSize == 0,
             "archive has no symbol descriptors but has symbol names");
       }
@@ -105,15 +108,15 @@ public class BsdArchiver implements Archiver {
   }
 
   @Override
-  public ImmutableList<ArchiveScrubber> getScrubbers() {
+  public ImmutableList<FileScrubber> getScrubbers() {
     return ImmutableList.of(
-        ArchiveScrubbers.createDateUidGidScrubber(EXPECTED_GLOBAL_HEADER),
+        ObjectFileScrubbers.createDateUidGidScrubber(EXPECTED_GLOBAL_HEADER),
         SYMBOL_NAME_TABLE_PADDING_SCRUBBER);
   }
 
   @Override
-  public ImmutableList<BuildRule> getBuildRules(SourcePathResolver resolver) {
-    return tool.getBuildRules(resolver);
+  public ImmutableSortedSet<SourcePath> getInputs() {
+    return tool.getInputs();
   }
 
   @Override

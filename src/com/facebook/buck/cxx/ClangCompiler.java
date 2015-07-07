@@ -16,10 +16,13 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.Tool;
+import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSortedSet;
 
 public class ClangCompiler implements Compiler {
 
@@ -30,13 +33,14 @@ public class ClangCompiler implements Compiler {
   }
 
   @Override
-  public ImmutableList<String> debugCompilationDirFlags(String debugCompilationDir) {
-    return ImmutableList.of("-Xclang", "-fdebug-compilation-dir", "-Xclang", debugCompilationDir);
+  public Optional<ImmutableList<String>> debugCompilationDirFlags(String debugCompilationDir) {
+    return Optional.of(
+        ImmutableList.of("-Xclang", "-fdebug-compilation-dir", "-Xclang", debugCompilationDir));
   }
 
   @Override
-  public ImmutableList<BuildRule> getBuildRules(SourcePathResolver resolver) {
-    return tool.getBuildRules(resolver);
+  public ImmutableSortedSet<SourcePath> getInputs() {
+    return tool.getInputs();
   }
 
   @Override

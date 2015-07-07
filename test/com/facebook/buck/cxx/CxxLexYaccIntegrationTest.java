@@ -24,6 +24,7 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.Tool;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.BuckBuildLog;
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
@@ -148,7 +149,7 @@ public class CxxLexYaccIntegrationTest {
     workspace.resetBuildLogFile();
 
     // Update the source file.
-    workspace.replaceFileContents(yaccSourceFull, "expression", "somethingElse");
+    workspace.replaceFileContents(yaccSourceFull, "NUMBER", "SOMETHING_ELSE");
 
     // Check that running a build again makes the source get recompiled and the binary
     // re-linked, but does not cause the header rules to re-run.

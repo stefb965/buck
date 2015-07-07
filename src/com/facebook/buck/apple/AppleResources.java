@@ -16,11 +16,12 @@
 
 package com.facebook.buck.apple;
 
-import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.js.IosReactNativeLibraryDescription;
 import com.facebook.buck.js.ReactNativeBundle;
+import com.facebook.buck.js.ReactNativeFlavors;
 import com.facebook.buck.js.ReactNativeLibraryArgs;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetGraph;
@@ -65,18 +66,20 @@ public class AppleResources {
   public static <T> void collectResourceDirsAndFiles(
       TargetGraph targetGraph,
       TargetNode<T> targetNode,
-      ProjectFilesystem filesystem,
       ImmutableSet.Builder<SourcePath> resourceDirs,
       ImmutableSet.Builder<SourcePath> dirsContainingResourceDirs,
       ImmutableSet.Builder<SourcePath> resourceFiles) {
+    ImmutableSet<BuildRuleType> types =
+        ReactNativeFlavors.skipBundling(targetNode.getBuildTarget())
+            ? ImmutableSet.of(AppleResourceDescription.TYPE)
+            : ImmutableSet.of(AppleResourceDescription.TYPE, IosReactNativeLibraryDescription.TYPE);
+
     Iterable<TargetNode<?>> resourceNodes =
         AppleBuildRules.getRecursiveTargetNodeDependenciesOfTypes(
             targetGraph,
             AppleBuildRules.RecursiveDependenciesMode.COPYING,
             targetNode,
-            Optional.of(ImmutableSet.of(
-                    AppleResourceDescription.TYPE,
-                    IosReactNativeLibraryDescription.TYPE)));
+            Optional.of(types));
 
     for (TargetNode<?> resourceNode : resourceNodes) {
       Object constructorArg = resourceNode.getConstructorArg();
@@ -90,11 +93,9 @@ public class AppleResources {
 
         dirsContainingResourceDirs.add(
             new BuildTargetSourcePath(
-                filesystem,
                 buildTarget,
                 ReactNativeBundle.getPathToJSBundleDir(buildTarget)),
             new BuildTargetSourcePath(
-                filesystem,
                 buildTarget,
                 ReactNativeBundle.getPathToResources(buildTarget)));
       }

@@ -16,10 +16,12 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.rules.Tool;
+import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 
 public interface Compiler extends Tool {
 
-  ImmutableList<String> debugCompilationDirFlags(String debugCompilationDir);
+  Optional<ImmutableList<String>> debugCompilationDirFlags(String debugCompilationDir);
 
 }

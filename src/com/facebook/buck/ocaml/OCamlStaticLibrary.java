@@ -30,6 +30,7 @@ import com.google.common.base.Functions;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 
@@ -88,9 +89,7 @@ class OCamlStaticLibrary extends NoopBuildRule implements OCamlLibrary {
             staticLibraryTarget,
             /* isLibrary */ true);
     inputBuilder.addInputs(
-        new BuildTargetSourcePath(
-            ocamlLibraryBuild.getProjectFilesystem(),
-            ocamlLibraryBuild.getBuildTarget()));
+        new BuildTargetSourcePath(ocamlLibraryBuild.getBuildTarget()));
     inputBuilder.addArgs(staticLibraryPath.toString());
 
     // Add args and inputs for C object files.
@@ -106,6 +105,11 @@ class OCamlStaticLibrary extends NoopBuildRule implements OCamlLibrary {
   @Override
   public Optional<Linker.LinkableDepType> getPreferredLinkage(CxxPlatform cxxPlatform) {
     return Optional.absent();
+  }
+
+  @Override
+  public ImmutableMap<String, SourcePath> getSharedLibraries(CxxPlatform cxxPlatform) {
+    return ImmutableMap.of();
   }
 
   @Override

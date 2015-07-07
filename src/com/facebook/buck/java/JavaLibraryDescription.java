@@ -29,6 +29,7 @@ import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.FlavorableDescription;
+import com.facebook.buck.rules.Hint;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -144,7 +145,16 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
       SourcePathResolver resolver,
       Arg args,
       JavacOptions defaultOptions) {
+    if ((args.source.isPresent() || args.target.isPresent()) && args.javaVersion.isPresent()) {
+      throw new HumanReadableException("Please set either source and target or java_version.");
+    }
+
     JavacOptions.Builder builder = JavacOptions.builder(defaultOptions);
+
+    if (args.javaVersion.isPresent()) {
+      builder.setSourceLevel(args.javaVersion.get());
+      builder.setTargetLevel(args.javaVersion.get());
+    }
 
     if (args.source.isPresent()) {
       builder.setSourceLevel(args.source.get());
@@ -169,7 +179,7 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
           BuildRule rule = possibleRule.get();
           if (rule instanceof PrebuiltJar) {
             builder.setJavacJarPath(
-                new BuildTargetSourcePath(rule.getProjectFilesystem(), rule.getBuildTarget()));
+                new BuildTargetSourcePath(rule.getBuildTarget()));
           } else {
             throw new HumanReadableException("Only prebuilt_jar targets can be used as a javac");
           }
@@ -271,6 +281,7 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
     public Optional<ImmutableSortedSet<SourcePath>> resources;
     public Optional<String> source;
     public Optional<String> target;
+    public Optional<String> javaVersion;
     public Optional<Path> javac;
     public Optional<SourcePath> javacJar;
     // I am not proud of this.
@@ -282,6 +293,7 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
     public Optional<ImmutableSet<String>> annotationProcessors;
     public Optional<Boolean> annotationProcessorOnly;
     public Optional<ImmutableList<String>> postprocessClassesCommands;
+    @Hint(isInput = false)
     public Optional<Path> resourcesRoot;
 
     public Optional<ImmutableSortedSet<BuildTarget>> providedDeps;

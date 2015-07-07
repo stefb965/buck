@@ -17,6 +17,7 @@
 package com.facebook.buck.cxx;
 
 import com.facebook.buck.model.Flavor;
+import com.facebook.buck.rules.Tool;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Optional;
 import com.google.common.collect.Multimap;
@@ -31,12 +32,6 @@ import java.util.List;
 @Value.Immutable
 @BuckStyleImmutable
 interface AbstractCxxPlatform {
-
-  enum LinkerType {
-    DARWIN,
-    GNU,
-    WINDOWS,
-  }
 
   Flavor getFlavor();
 
@@ -58,12 +53,15 @@ interface AbstractCxxPlatform {
   Tool getCxxpp();
   List<String> getCxxppflags();
 
-  Tool getCxxld();
+  Linker getCxxld();
   List<String> getCxxldflags();
 
   Linker getLd();
   List<String> getLdflags();
   Multimap<Linker.LinkableDepType, String> getRuntimeLdflags();
+
+  Tool getStrip();
+  List<String> getStripFlags();
 
   Archiver getAr();
   List<String> getArflags();

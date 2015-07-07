@@ -19,16 +19,16 @@ package com.facebook.buck.android;
 import com.facebook.buck.cxx.ClangCompiler;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.DebugPathSanitizer;
+import com.facebook.buck.cxx.DefaultCompiler;
 import com.facebook.buck.cxx.GnuArchiver;
-import com.facebook.buck.cxx.GccCompiler;
 import com.facebook.buck.cxx.GnuLinker;
 import com.facebook.buck.cxx.Linker;
-import com.facebook.buck.cxx.Tool;
 import com.facebook.buck.cxx.VersionedTool;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.rules.Tool;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
@@ -376,6 +376,8 @@ public class NdkCxxPlatforms {
             // We always pass the runtime library on the command line, so setting this flag
             // means the resulting link will only use it if it was actually needed it.
             "--as-needed")
+        .setStrip(
+            getGccTool(ndkRoot, targetConfiguration, host, "strip", version, executableFinder))
         .setAr(
             new GnuArchiver(
                 getGccTool(ndkRoot, targetConfiguration, host, "ar", version, executableFinder)))
@@ -399,7 +401,6 @@ public class NdkCxxPlatforms {
 
     return NdkCxxPlatform.builder()
         .setCxxPlatform(cxxPlatform)
-        .setObjcopy(getGccToolPath(ndkRoot, targetConfiguration, host, "objcopy", executableFinder))
         .setCxxRuntime(cxxRuntime)
         .setCxxSharedRuntimePath(
             getCxxRuntimeLibsDirectory(ndkRoot, targetConfiguration, cxxRuntime)
@@ -634,7 +635,7 @@ public class NdkCxxPlatforms {
         .resolve(targetConfiguration.getTargetArchAbi().toString());
   }
 
-  private static Tool getCcLinkTool(
+  private static Linker getCcLinkTool(
       Path ndkRoot,
       TargetConfiguration targetConfiguration,
       Host host,
@@ -673,11 +674,12 @@ public class NdkCxxPlatforms {
     flags.add(
         "-L" + getCxxRuntimeLibsDirectory(ndkRoot, targetConfiguration, cxxRuntime).toString());
 
-    return new VersionedTool(
-        getToolPath(ndkRoot, targetConfiguration, host, tool, executableFinder),
-        flags.build(),
-        tool,
-        version);
+    return new GnuLinker(
+        new VersionedTool(
+            getToolPath(ndkRoot, targetConfiguration, host, tool, executableFinder),
+            flags.build(),
+            tool,
+            version));
   }
 
   /**
@@ -1081,7 +1083,7 @@ public class NdkCxxPlatforms {
       public com.facebook.buck.cxx.Compiler fromTool(Tool tool) {
         switch (this) {
           case GCC:
-            return new GccCompiler(tool);
+            return new DefaultCompiler(tool);
           case CLANG:
             return new ClangCompiler(tool);
         }

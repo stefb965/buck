@@ -25,7 +25,6 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.cli.FakeBuckConfig;
-import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
@@ -40,10 +39,10 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TestSourcePath;
 import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.shell.GenruleBuilder;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 
 import org.junit.Test;
@@ -54,7 +53,6 @@ import java.util.Collections;
 
 public class CxxLinkableEnhancerTest {
 
-  private static final ProjectFilesystem PROJECT_FILESYSTEM = new FakeProjectFilesystem();
   private static final Path DEFAULT_OUTPUT = Paths.get("libblah.a");
   private static final ImmutableList<SourcePath> DEFAULT_INPUTS = ImmutableList.<SourcePath>of(
       new TestSourcePath("a.o"),
@@ -90,6 +88,12 @@ public class CxxLinkableEnhancerTest {
     public Optional<Linker.LinkableDepType> getPreferredLinkage(CxxPlatform cxxPlatform) {
       return Optional.absent();
     }
+
+    @Override
+    public ImmutableMap<String, SourcePath> getSharedLibraries(CxxPlatform cxxPlatform) {
+      return ImmutableMap.of();
+    }
+
   }
 
   private static FakeNativeLinkable createNativeLinkable(
@@ -136,8 +140,8 @@ public class CxxLinkableEnhancerTest {
         DEFAULT_OUTPUT,
         ImmutableList.<SourcePath>of(
             new TestSourcePath("simple.o"),
-            new BuildTargetSourcePath(PROJECT_FILESYSTEM, genrule1.getBuildTarget()),
-            new BuildTargetSourcePath(PROJECT_FILESYSTEM, genrule2.getBuildTarget())),
+            new BuildTargetSourcePath(genrule1.getBuildTarget()),
+            new BuildTargetSourcePath(genrule2.getBuildTarget())),
         Linker.LinkableDepType.STATIC,
         EMPTY_DEPS,
         Optional.<Linker.CxxRuntimeType>absent(),
@@ -203,7 +207,7 @@ public class CxxLinkableEnhancerTest {
     // time dependency.
     NativeLinkableInput nativeLinkableInput = NativeLinkableInput.of(
         ImmutableList.<SourcePath>of(
-            new BuildTargetSourcePath(PROJECT_FILESYSTEM, fakeBuildRule.getBuildTarget())),
+            new BuildTargetSourcePath(fakeBuildRule.getBuildTarget())),
         ImmutableList.<String>of());
     FakeNativeLinkable nativeLinkable = createNativeLinkable(
         "//:dep",
@@ -515,7 +519,7 @@ public class CxxLinkableEnhancerTest {
         EMPTY_DEPS,
         Optional.<Linker.CxxRuntimeType>absent(),
         Optional.<SourcePath>of(
-            new BuildTargetSourcePath(PROJECT_FILESYSTEM, bundleLoaderRule.getBuildTarget())));
+            new BuildTargetSourcePath(bundleLoaderRule.getBuildTarget())));
 
     // Ensure the bundle depends on the bundle loader rule.
     assertThat(

@@ -121,8 +121,6 @@ public class BuckConfig {
 
   private final ProjectFilesystem projectFilesystem;
 
-  private final BuildTargetParser buildTargetParser;
-
   private final Platform platform;
 
   private final ImmutableMap<String, String> environment;
@@ -148,18 +146,15 @@ public class BuckConfig {
   BuckConfig(
       Config config,
       ProjectFilesystem projectFilesystem,
-      BuildTargetParser buildTargetParser,
       Platform platform,
       ImmutableMap<String, String> environment) {
     this.config = config;
     this.projectFilesystem = projectFilesystem;
-    this.buildTargetParser = buildTargetParser;
 
     // We could create this Map on demand; however, in practice, it is almost always needed when
     // BuckConfig is needed because CommandLineBuildTargetNormalizer needs it.
     this.aliasToBuildTargetMap = createAliasToBuildTargetMap(
-        this.getEntriesForSection(ALIAS_SECTION_HEADER),
-        buildTargetParser);
+        this.getEntriesForSection(ALIAS_SECTION_HEADER));
 
     this.platform = platform;
     this.environment = environment;
@@ -180,13 +175,10 @@ public class BuckConfig {
       ImmutableMap<String, String> environment,
       ImmutableMap<String, ImmutableMap<String, String>>... configOverrides)
       throws IOException {
-    BuildTargetParser buildTargetParser = new BuildTargetParser();
-
     if (Iterables.isEmpty(files)) {
       return new BuckConfig(
           new Config(configOverrides),
           projectFilesystem,
-          buildTargetParser,
           platform,
           environment);
     }
@@ -199,7 +191,6 @@ public class BuckConfig {
     return createFromReaders(
         readers.build(),
         projectFilesystem,
-        buildTargetParser,
         platform,
         environment,
         configOverrides);
@@ -238,7 +229,6 @@ public class BuckConfig {
   static BuckConfig createFromReaders(
       Map<Path, Reader> readers,
       ProjectFilesystem projectFilesystem,
-      BuildTargetParser buildTargetParser,
       Platform platform,
       ImmutableMap<String, String> environment,
       ImmutableMap<String, ImmutableMap<String, String>>... configOverrides)
@@ -260,7 +250,6 @@ public class BuckConfig {
     return new BuckConfig(
         config,
         projectFilesystem,
-        buildTargetParser,
         platform,
         environment);
   }
@@ -310,19 +299,26 @@ public class BuckConfig {
   }
 
   @Nullable
-  public String getBuildTargetForAlias(String alias) {
+  public String getBuildTargetForAlias(String possiblyFlavoredAlias) {
+    String alias = possiblyFlavoredAlias;
+    int poundIdx = possiblyFlavoredAlias.indexOf('#');
+    if (poundIdx != -1) {
+      alias = possiblyFlavoredAlias.substring(0, poundIdx);
+    }
+
     BuildTarget buildTarget = aliasToBuildTargetMap.get(alias);
     if (buildTarget != null) {
-      return buildTarget.getFullyQualifiedName();
+      return buildTarget.getFullyQualifiedName() +
+          (poundIdx == -1 ? "" : possiblyFlavoredAlias.substring(poundIdx));
     } else {
       return null;
     }
   }
 
   public BuildTarget getBuildTargetForFullyQualifiedTarget(String target) {
-    return buildTargetParser.parse(
+    return BuildTargetParser.INSTANCE.parse(
         target,
-        BuildTargetPatternParser.fullyQualified(buildTargetParser));
+        BuildTargetPatternParser.fullyQualified());
   }
 
   /**
@@ -363,7 +359,7 @@ public class BuckConfig {
     }
     try {
       BuildTarget target = getBuildTargetForFullyQualifiedTarget(value.get());
-      return Optional.<SourcePath>of(new BuildTargetSourcePath(projectFilesystem, target));
+      return Optional.<SourcePath>of(new BuildTargetSourcePath(target));
     } catch (BuildTargetParseException e) {
       checkPathExists(
           value.get(),
@@ -387,8 +383,7 @@ public class BuckConfig {
    * reflects the result of resolving all aliases as values in the {@code alias} section.
    */
   private static ImmutableMap<String, BuildTarget> createAliasToBuildTargetMap(
-      ImmutableMap<String, String> rawAliasMap,
-      BuildTargetParser buildTargetParser) {
+      ImmutableMap<String, String> rawAliasMap) {
     // We use a LinkedHashMap rather than an ImmutableMap.Builder because we want both (1) order to
     // be preserved, and (2) the ability to inspect the Map while building it up.
     LinkedHashMap<String, BuildTarget> aliasToBuildTarget = Maps.newLinkedHashMap();
@@ -407,9 +402,9 @@ public class BuckConfig {
       } else {
         // Here we parse the alias values with a BuildTargetParser to be strict. We could be looser
         // and just grab everything between "//" and ":" and assume it's a valid base path.
-        buildTarget = buildTargetParser.parse(
+        buildTarget = BuildTargetParser.INSTANCE.parse(
             value,
-            BuildTargetPatternParser.fullyQualified(buildTargetParser));
+            BuildTargetPatternParser.fullyQualified());
       }
       aliasToBuildTarget.put(alias, buildTarget);
     }

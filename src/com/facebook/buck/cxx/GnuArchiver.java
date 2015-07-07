@@ -16,11 +16,14 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.io.FileScrubber;
 import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.Tool;
 import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSortedSet;
 
 public class GnuArchiver implements Archiver {
 
@@ -33,13 +36,13 @@ public class GnuArchiver implements Archiver {
   }
 
   @Override
-  public ImmutableList<ArchiveScrubber> getScrubbers() {
-    return ImmutableList.of(ArchiveScrubbers.createDateUidGidScrubber(EXPECTED_GLOBAL_HEADER));
+  public ImmutableList<FileScrubber> getScrubbers() {
+    return ImmutableList.of(ObjectFileScrubbers.createDateUidGidScrubber(EXPECTED_GLOBAL_HEADER));
   }
 
   @Override
-  public ImmutableList<BuildRule> getBuildRules(SourcePathResolver resolver) {
-    return tool.getBuildRules(resolver);
+  public ImmutableSortedSet<SourcePath> getInputs() {
+    return tool.getInputs();
   }
 
   @Override

@@ -32,6 +32,7 @@ import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TestSourcePath;
+import com.facebook.buck.rules.Tool;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
@@ -130,7 +131,7 @@ public class CxxCompilationDatabaseTest {
             Optional.<Tool>of(new HashedFileTool(Paths.get("preprocessor"))),
             Optional.of(ImmutableList.<String>of()),
             Optional.of(ImmutableList.<String>of()),
-            Optional.<Compiler>of(new GccCompiler(new HashedFileTool(Paths.get("compiler")))),
+            Optional.<Compiler>of(new DefaultCompiler(new HashedFileTool(Paths.get("compiler")))),
             Optional.of(ImmutableList.<String>of()),
             Optional.of(ImmutableList.<String>of()),
             Paths.get("test.o"),
@@ -281,7 +282,7 @@ public class CxxCompilationDatabaseTest {
         Optional.<Tool>absent(),
         Optional.<ImmutableList<String>>absent(),
         Optional.<ImmutableList<String>>absent(),
-        Optional.<Compiler>of(new GccCompiler(new HashedFileTool(Paths.get("compiler")))),
+        Optional.<Compiler>of(new DefaultCompiler(new HashedFileTool(Paths.get("compiler")))),
         Optional.of(ImmutableList.<String>of()),
         Optional.of(ImmutableList.<String>of()),
         Paths.get("test.o"),

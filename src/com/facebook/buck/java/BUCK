@@ -74,6 +74,7 @@ java_immutables_library(
     'AnnotationProcessingEvent.java',
     'AnnotationProcessingParams.java',
     'BuildsAnnotationProcessor.java',
+    'DiagnosticPrettyPrinter.java',
     'ExternalJavac.java',
     'HasClasspathEntries.java',
     'HasJavaAbi.java',
@@ -105,6 +106,10 @@ java_immutables_library(
     '//src/com/facebook/buck/zip:unzip',
     '//third-party/java/guava:guava',
     '//third-party/java/jsr:jsr305',
+  ],
+  provided_deps = [
+    # Event API is loaded by the bootstrapper at runtime; don't need to depend on it strongly
+    '//src/com/facebook/buck/event/api:api',
   ],
   visibility = ['PUBLIC'],
 )
@@ -159,6 +164,7 @@ java_library(
     ':support',
     '//src/com/facebook/buck/android:packageable',
     '//src/com/facebook/buck/cxx:platform',
+    '//src/com/facebook/buck/cxx:rules',
     '//src/com/facebook/buck/event:event',
     '//src/com/facebook/buck/graph:graph',
     '//src/com/facebook/buck/io:io',
@@ -168,6 +174,7 @@ java_library(
     '//src/com/facebook/buck/parser:rule_pattern',
     '//src/com/facebook/buck/rules:build_rule',
     '//src/com/facebook/buck/rules:rules',
+    '//src/com/facebook/buck/rules/keys:keys',
     '//src/com/facebook/buck/test:test',
     '//src/com/facebook/buck/shell:steps',
     '//src/com/facebook/buck/step:step',
@@ -256,6 +263,8 @@ java_library(
   ],
   visibility = [
     '//src/com/facebook/buck/cli:cli',
+    '//src/com/facebook/buck/java/intellij:intellij',
     '//test/com/facebook/buck/java:java',
+    '//test/com/facebook/buck/java/intellij:intellij',
   ],
 )

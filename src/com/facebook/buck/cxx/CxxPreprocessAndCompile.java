@@ -25,6 +25,8 @@ import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.Tool;
+import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.util.HumanReadableException;
@@ -45,7 +47,9 @@ import java.util.Map;
 /**
  * A build rule which preprocesses and/or compiles a C/C++ source in a single step.
  */
-public class CxxPreprocessAndCompile extends AbstractBuildRule implements RuleKeyAppendable {
+public class CxxPreprocessAndCompile
+    extends AbstractBuildRule
+    implements RuleKeyAppendable, SupportsInputBasedRuleKey {
 
   @AddToRuleKey
   private final CxxPreprocessAndCompileStep.Operation operation;
@@ -179,7 +183,7 @@ public class CxxPreprocessAndCompile extends AbstractBuildRule implements RuleKe
         systemIncludeRoots,
         frameworkRoots,
         includes,
-        sanitizer.changePathSize(0));
+        sanitizer);
   }
 
   /**
@@ -222,9 +226,7 @@ public class CxxPreprocessAndCompile extends AbstractBuildRule implements RuleKe
         systemIncludeRoots,
         frameworkRoots,
         includes,
-        (strategy == CxxPreprocessMode.COMBINED
-            ? sanitizer
-            : sanitizer.changePathSize(0)));
+        sanitizer);
   }
 
   @Override
@@ -368,7 +370,10 @@ public class CxxPreprocessAndCompile extends AbstractBuildRule implements RuleKe
       suffix.addAll(getPreprocessorSuffix());
     }
     suffix.addAll(ruleCompilerFlags.get());
-    suffix.addAll(compiler.get().debugCompilationDirFlags(sanitizer.getCompilationDirectory()));
+    suffix.addAll(
+        compiler.get()
+            .debugCompilationDirFlags(sanitizer.getCompilationDirectory())
+            .or(ImmutableList.<String>of()));
     return suffix.build();
   }
 

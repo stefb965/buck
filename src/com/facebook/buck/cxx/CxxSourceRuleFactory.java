@@ -16,7 +16,6 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
@@ -29,6 +28,7 @@ import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.Tool;
 import com.facebook.buck.util.MoreIterables;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
@@ -247,7 +247,7 @@ public class CxxSourceRuleFactory {
     ImmutableSortedSet<BuildRule> dependencies =
         ImmutableSortedSet.<BuildRule>naturalOrder()
             // Add dependencies on any build rules used to create the preprocessor.
-            .addAll(tool.getBuildRules(pathResolver))
+            .addAll(pathResolver.filterBuildRuleInputs(tool.getInputs()))
             // If a build rule generates our input source, add that as a dependency.
             .addAll(pathResolver.filterBuildRuleInputs(source.getPath()))
             // Depend on the rule that generates the sources and headers we're compiling.
@@ -270,10 +270,10 @@ public class CxxSourceRuleFactory {
         ImmutableList.<String>builder()
             // Add custom preprocessor flags.
             .addAll(preprocessorFlags.getUnchecked(source.getType()))
-            // Add custom per-file flags.
-            .addAll(source.getFlags())
             // Add custom compiler flags.
             .addAll(getRuleCompileFlags(CxxSourceTypes.getPreprocessorOutputType(source.getType())))
+            // Add custom per-file flags.
+            .addAll(source.getFlags())
             .build();
 
     // Build the CxxCompile rule and add it to our sorted set of build rules.
@@ -424,7 +424,7 @@ public class CxxSourceRuleFactory {
     ImmutableSortedSet<BuildRule> dependencies =
         ImmutableSortedSet.<BuildRule>naturalOrder()
             // Add dependencies on any build rules used to create the compiler.
-            .addAll(compiler.getBuildRules(pathResolver))
+            .addAll(pathResolver.filterBuildRuleInputs(compiler.getInputs()))
             // If a build rule generates our input source, add that as a dependency.
             .addAll(pathResolver.filterBuildRuleInputs(source.getPath()))
             .build();
@@ -501,7 +501,7 @@ public class CxxSourceRuleFactory {
     ImmutableSortedSet<BuildRule> dependencies =
         ImmutableSortedSet.<BuildRule>naturalOrder()
             // Add dependencies on any build rules used to create the preprocessor.
-            .addAll(compiler.getBuildRules(pathResolver))
+            .addAll(pathResolver.filterBuildRuleInputs(compiler.getInputs()))
             // If a build rule generates our input source, add that as a dependency.
             .addAll(pathResolver.filterBuildRuleInputs(source.getPath()))
             // Add in all preprocessor deps.
@@ -612,9 +612,7 @@ public class CxxSourceRuleFactory {
             source = CxxSource.copyOf(source)
                 .withType(CxxSourceTypes.getPreprocessorOutputType(source.getType()))
                 .withPath(
-                    new BuildTargetSourcePath(
-                        params.getProjectFilesystem(),
-                        rule.getBuildTarget()));
+                    new BuildTargetSourcePath(rule.getBuildTarget()));
           }
 
           // Now build the compile build rule.
@@ -630,13 +628,12 @@ public class CxxSourceRuleFactory {
       }
     }
 
-    final ProjectFilesystem projectFilesystem = params.getProjectFilesystem();
     return FluentIterable
         .from(objects.build())
         .toMap(new Function<CxxPreprocessAndCompile, SourcePath>() {
           @Override
           public SourcePath apply(CxxPreprocessAndCompile input) {
-            return new BuildTargetSourcePath(projectFilesystem, input.getBuildTarget());
+            return new BuildTargetSourcePath(input.getBuildTarget());
           }
         });
   }

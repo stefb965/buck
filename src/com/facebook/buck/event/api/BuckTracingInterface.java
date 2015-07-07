@@ -14,20 +14,14 @@
  * under the License.
  */
 
-package com.facebook.buck.cxx;
+package com.facebook.buck.event.api;
 
-import java.nio.ByteBuffer;
+import java.util.Map;
 
-public interface ArchiveScrubber {
-
-  @SuppressWarnings("serial")
-  class ScrubException extends Exception {
-    public ScrubException(String msg) {
-      super(msg);
-    }
-  }
-
-
-  void scrubArchive(ByteBuffer archive) throws ScrubException;
-
+/**
+ * Used by Buck to supply an implementation for {@link BuckTracing}.
+ */
+public interface BuckTracingInterface {
+  void begin(String pluginName, String eventName, Map<String, String> args);
+  void end(Map<String, String> args);
 }

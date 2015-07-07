@@ -20,11 +20,13 @@ import static com.facebook.buck.apple.ProjectGeneratorTestUtils.assertHasSinglet
 import static com.facebook.buck.apple.ProjectGeneratorTestUtils.assertHasSingletonFrameworksPhaseWithFrameworkEntries;
 import static com.facebook.buck.apple.ProjectGeneratorTestUtils.assertTargetExistsAndReturnTarget;
 import static com.facebook.buck.apple.ProjectGeneratorTestUtils.getSingletonPhaseByType;
+import static org.hamcrest.CoreMatchers.endsWith;
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.hasItem;
 import static org.hamcrest.CoreMatchers.instanceOf;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.CoreMatchers.notNullValue;
+import static org.hamcrest.CoreMatchers.startsWith;
 import static org.hamcrest.Matchers.hasKey;
 import static org.hamcrest.collection.IsCollectionWithSize.hasSize;
 import static org.junit.Assert.assertEquals;
@@ -51,9 +53,13 @@ import com.facebook.buck.apple.xcode.xcodeproj.PBXVariantGroup;
 import com.facebook.buck.apple.xcode.xcodeproj.ProductType;
 import com.facebook.buck.apple.xcode.xcodeproj.SourceTreePath;
 import com.facebook.buck.apple.xcode.xcodeproj.XCBuildConfiguration;
+import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxSource;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.js.IosReactNativeLibraryBuilder;
+import com.facebook.buck.js.ReactNativeBuckConfig;
+import com.facebook.buck.js.ReactNativeFlavors;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.HasBuildTarget;
@@ -68,6 +74,7 @@ import com.facebook.buck.rules.coercer.SourceWithFlags;
 import com.facebook.buck.shell.ExportFileBuilder;
 import com.facebook.buck.shell.ExportFileDescription;
 import com.facebook.buck.shell.GenruleBuilder;
+import com.facebook.buck.testutil.AllExistingProjectFilesystem;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.timing.SettableFakeClock;
@@ -103,6 +110,7 @@ import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import javax.annotation.Nullable;
 
@@ -324,15 +332,11 @@ public class ProjectGeneratorTest {
             ImmutableMap.<String, SourcePath>of(
                 "any/name.h", new TestSourcePath("HeaderGroup1/foo.h"),
                 "different/name.h", new TestSourcePath("HeaderGroup2/baz.h"),
-                "one/more/name.h", new BuildTargetSourcePath(
-                    projectFilesystem,
-                    privateGeneratedTarget)))
+                "one/more/name.h", new BuildTargetSourcePath(privateGeneratedTarget)))
         .setExportedHeaders(
             ImmutableMap.<String, SourcePath>of(
                 "yet/another/name.h", new TestSourcePath("HeaderGroup1/bar.h"),
-                "and/one/more.h", new BuildTargetSourcePath(
-                    projectFilesystem,
-                    publicGeneratedTarget)))
+                "and/one/more.h", new BuildTargetSourcePath(publicGeneratedTarget)))
         .setUseBuckHeaderMaps(Optional.of(true))
         .build();
 
@@ -826,10 +830,62 @@ public class ProjectGeneratorTest {
         "$SYMROOT/$CONFIGURATION$EFFECTIVE_PLATFORM_NAME",
         settings.get("BUILT_PRODUCTS_DIR"));
     assertEquals(
-        "$BUILT_PRODUCTS_DIR/F4XWM33PHJWGSYQ",
+        "$BUILT_PRODUCTS_DIR",
         settings.get("CONFIGURATION_BUILD_DIR"));
     assertEquals(
-        "Headers/MyHeaderPathPrefix",
+        "F4XWM33PHJWGSYQ/Headers/MyHeaderPathPrefix",
+        settings.get("PUBLIC_HEADERS_FOLDER_PATH"));
+  }
+
+  @Test
+  public void testAppleFrameworkConfiguresPublicHeaderPaths() throws IOException {
+    BuildTarget libTarget = BuildTarget.builder("//foo", "lib")
+        .addFlavors(CxxDescriptionEnhancer.SHARED_FLAVOR)
+        .build();
+    TargetNode<?> libNode = AppleLibraryBuilder
+        .createBuilder(libTarget)
+        .setConfigs(
+            Optional.of(
+                ImmutableSortedMap.of(
+                    "Debug",
+                    ImmutableMap.<String, String>of())))
+        .setHeaderPathPrefix(Optional.of("MyHeaderPathPrefix"))
+        .setUseBuckHeaderMaps(Optional.of(false))
+        .build();
+
+    BuildTarget frameworkTarget = BuildTarget.builder("//foo", "bundle").build();
+    TargetNode<?> frameworkNode = AppleBundleBuilder
+        .createBuilder(frameworkTarget)
+        .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.FRAMEWORK))
+        .setBinary(libTarget)
+        .build();
+
+    ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
+        ImmutableSet.<TargetNode<?>>of(libNode, frameworkNode),
+        ImmutableSet.<ProjectGenerator.Option>of());
+
+    projectGenerator.createXcodeProjects();
+
+    PBXTarget frameworkPbxTarget = assertTargetExistsAndReturnTarget(
+        projectGenerator.getGeneratedProject(),
+        "//foo:bundle");
+    assertEquals(frameworkPbxTarget.getProductType(), ProductType.FRAMEWORK);
+    assertThat(frameworkPbxTarget.isa(), equalTo("PBXNativeTarget"));
+    PBXFileReference frameworkProductReference = frameworkPbxTarget.getProductReference();
+    assertEquals("bundle.framework", frameworkProductReference.getName());
+    assertEquals(Optional.of("wrapper.framework"), frameworkProductReference.getExplicitFileType());
+
+    ImmutableMap<String, String> settings = getBuildSettings(
+        frameworkTarget, frameworkPbxTarget, "Debug");
+    assertEquals("framework", settings.get("WRAPPER_EXTENSION"));
+    assertEquals(
+        "$SYMROOT/$CONFIGURATION$EFFECTIVE_PLATFORM_NAME",
+        settings.get("BUILT_PRODUCTS_DIR"));
+    assertEquals(
+        "$BUILT_PRODUCTS_DIR",
+        settings.get("CONFIGURATION_BUILD_DIR"));
+    assertEquals(
+        "F4XWM33PHJRHK3TENRSQ/Headers/MyHeaderPathPrefix",
         settings.get("PUBLIC_HEADERS_FOLDER_PATH"));
   }
 
@@ -865,10 +921,10 @@ public class ProjectGeneratorTest {
         "$SYMROOT/$CONFIGURATION$EFFECTIVE_PLATFORM_NAME",
         settings.get("BUILT_PRODUCTS_DIR"));
     assertEquals(
-        "$BUILT_PRODUCTS_DIR/F4XWQ2J2NRUWEI3TNBQXEZLE",
+        "$BUILT_PRODUCTS_DIR",
         settings.get("CONFIGURATION_BUILD_DIR"));
     assertEquals(
-        "Headers/MyHeaderPathPrefix",
+        "F4XWQ2J2NRUWEI3TNBQXEZLE/Headers/MyHeaderPathPrefix",
         settings.get("PUBLIC_HEADERS_FOLDER_PATH"));
   }
 
@@ -901,7 +957,7 @@ public class ProjectGeneratorTest {
         "$SYMROOT/$CONFIGURATION$EFFECTIVE_PLATFORM_NAME",
         settings.get("BUILT_PRODUCTS_DIR"));
     assertEquals(
-        "$BUILT_PRODUCTS_DIR/F4XWM33PHJWGSYQ",
+        "$BUILT_PRODUCTS_DIR",
         settings.get("CONFIGURATION_BUILD_DIR"));
     assertEquals(
         "FooHeaders",
@@ -1208,7 +1264,7 @@ public class ProjectGeneratorTest {
         "$SYMROOT/$CONFIGURATION$EFFECTIVE_PLATFORM_NAME",
         settings.get("BUILT_PRODUCTS_DIR"));
     assertEquals(
-        "$BUILT_PRODUCTS_DIR/F4XWM33PHJWGSYQ",
+        "$BUILT_PRODUCTS_DIR",
         settings.get("CONFIGURATION_BUILD_DIR"));
     assertEquals(
         "VALUE",
@@ -1274,10 +1330,10 @@ public class ProjectGeneratorTest {
         null,
         settings.get("USER_HEADER_SEARCH_PATHS"));
     assertEquals(
-        "$(inherited) $BUILT_PRODUCTS_DIR/F4XWM33PHJWGSYQ",
+        "$(inherited) $BUILT_PRODUCTS_DIR",
         settings.get("LIBRARY_SEARCH_PATHS"));
     assertEquals(
-        "$(inherited) $SDKROOT",
+        "$(inherited) $BUILT_PRODUCTS_DIR $SDKROOT",
         settings.get("FRAMEWORK_SEARCH_PATHS"));
   }
 
@@ -1344,10 +1400,10 @@ public class ProjectGeneratorTest {
         "user_headers",
         settings.get("USER_HEADER_SEARCH_PATHS"));
     assertEquals(
-        "libraries $BUILT_PRODUCTS_DIR/F4XWM33PHJWGSYQ",
+        "libraries $BUILT_PRODUCTS_DIR",
         settings.get("LIBRARY_SEARCH_PATHS"));
     assertEquals(
-        "frameworks $SDKROOT",
+        "frameworks $BUILT_PRODUCTS_DIR $SDKROOT",
         settings.get("FRAMEWORK_SEARCH_PATHS"));
   }
 
@@ -1429,12 +1485,11 @@ public class ProjectGeneratorTest {
         settings.get("USER_HEADER_SEARCH_PATHS"));
     assertEquals(
         "$(inherited) " +
-            "$BUILT_PRODUCTS_DIR/F4XWEYLSHJWGSYQ " +
-            "$BUILT_PRODUCTS_DIR/F4XWM33PHJWGSYQ",
+            "$BUILT_PRODUCTS_DIR",
         settings.get("LIBRARY_SEARCH_PATHS"));
     assertEquals(
         "$(inherited) " +
-            "$SDKROOT",
+            "$BUILT_PRODUCTS_DIR $SDKROOT",
         settings.get("FRAMEWORK_SEARCH_PATHS"));
   }
 
@@ -1487,7 +1542,7 @@ public class ProjectGeneratorTest {
         "headers $BUILT_PRODUCTS_DIR/F4XWM33PHJWGSYQ/Headers",
         settings.get("HEADER_SEARCH_PATHS"));
     assertEquals(
-        "libraries ",
+        "libraries $BUILT_PRODUCTS_DIR",
         settings.get("LIBRARY_SEARCH_PATHS"));
 
     assertEquals("Should have exact number of build phases", 2, target.getBuildPhases().size());
@@ -1553,7 +1608,7 @@ public class ProjectGeneratorTest {
         "headers $BUILT_PRODUCTS_DIR/F4XWM33PHJWGSYQ/Headers",
         settings.get("HEADER_SEARCH_PATHS"));
     assertEquals(
-        "libraries ",
+        "libraries $BUILT_PRODUCTS_DIR",
         settings.get("LIBRARY_SEARCH_PATHS"));
 
     assertEquals("Should have exact number of build phases", 2, target.getBuildPhases().size());
@@ -1652,7 +1707,7 @@ public class ProjectGeneratorTest {
         ImmutableList.of(
             "$SDKROOT/Foo.framework",
             // Propagated library from deps.
-            "$BUILT_PRODUCTS_DIR/F4XWIZLQHJSGK4A/libdep.a"));
+            "$BUILT_PRODUCTS_DIR/libdep.a"));
 
     // this test does not have a dependency on any asset catalogs, so verify no build phase for them
     // exists.
@@ -1784,6 +1839,110 @@ public class ProjectGeneratorTest {
   }
 
   @Test
+  public void testAppleBundleRuleWithRNLibraryDependency() throws IOException {
+    BuildTarget rnLibraryTarget = BuildTarget.builder("//foo", "rn_library").build();
+    ProjectFilesystem filesystem = new AllExistingProjectFilesystem();
+    ReactNativeBuckConfig buckConfig = new ReactNativeBuckConfig(new FakeBuckConfig(
+        ImmutableMap.of("react-native", ImmutableMap.of("packager", "react-native/packager.sh")),
+        filesystem));
+    TargetNode<?>  rnLibraryNode = IosReactNativeLibraryBuilder
+        .builder(rnLibraryTarget, buckConfig)
+        .setBundleName("Apps/Foo/FooBundle.js")
+        .setEntryPath(new PathSourcePath(filesystem, Paths.get("js/FooApp.js")))
+        .build();
+
+    BuildTarget sharedLibraryTarget = BuildTarget
+        .builder("//dep", "shared")
+        .addFlavors(CxxDescriptionEnhancer.SHARED_FLAVOR)
+        .build();
+    TargetNode<?> sharedLibraryNode = AppleLibraryBuilder
+        .createBuilder(sharedLibraryTarget)
+        .build();
+
+    BuildTarget bundleTarget = BuildTarget.builder("//foo", "bundle").build();
+    TargetNode<?> bundleNode = AppleBundleBuilder
+        .createBuilder(bundleTarget)
+        .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.BUNDLE))
+        .setBinary(sharedLibraryTarget)
+        .setDeps(Optional.of(ImmutableSortedSet.of(rnLibraryTarget)))
+        .build();
+
+    ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
+        ImmutableSet.of(rnLibraryNode, sharedLibraryNode, bundleNode));
+
+    projectGenerator.createXcodeProjects();
+
+    PBXProject project = projectGenerator.getGeneratedProject();
+    PBXTarget target = assertTargetExistsAndReturnTarget(
+        project, "//foo:bundle");
+    assertThat(target.getName(), equalTo("//foo:bundle"));
+    assertThat(target.isa(), equalTo("PBXNativeTarget"));
+
+    PBXShellScriptBuildPhase shellScriptBuildPhase =
+        getSingletonPhaseByType(
+            target,
+            PBXShellScriptBuildPhase.class);
+
+    assertThat(
+        shellScriptBuildPhase.getShellScript(),
+        startsWith("BASE_DIR="));
+  }
+
+  @Test
+  public void testNoBundleFlavoredAppleBundleRuleWithRNLibraryDependency() throws IOException {
+    BuildTarget rnLibraryTarget = BuildTarget.builder("//foo", "rn_library").build();
+    ProjectFilesystem filesystem = new AllExistingProjectFilesystem();
+    ReactNativeBuckConfig buckConfig = new ReactNativeBuckConfig(new FakeBuckConfig(
+        ImmutableMap.of("react-native", ImmutableMap.of("packager", "react-native/packager.sh")),
+        filesystem));
+    TargetNode<?>  rnLibraryNode = IosReactNativeLibraryBuilder
+        .builder(rnLibraryTarget, buckConfig)
+        .setBundleName("Apps/Foo/FooBundle.js")
+        .setEntryPath(new PathSourcePath(filesystem, Paths.get("js/FooApp.js")))
+        .build();
+
+    BuildTarget sharedLibraryTarget = BuildTarget
+        .builder("//dep", "shared")
+        .addFlavors(CxxDescriptionEnhancer.SHARED_FLAVOR)
+        .build();
+    TargetNode<?> sharedLibraryNode = AppleLibraryBuilder
+        .createBuilder(sharedLibraryTarget)
+        .build();
+
+    BuildTarget bundleTarget = BuildTarget.builder("//foo", "bundle")
+        .addFlavors(ReactNativeFlavors.DO_NOT_BUNDLE)
+        .build();
+    TargetNode<?> bundleNode = AppleBundleBuilder
+        .createBuilder(bundleTarget)
+        .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.BUNDLE))
+        .setBinary(sharedLibraryTarget)
+        .setDeps(Optional.of(ImmutableSortedSet.of(rnLibraryTarget)))
+        .build();
+
+    ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
+        ImmutableSet.of(rnLibraryNode, sharedLibraryNode, bundleNode),
+        ImmutableSet.<ProjectGenerator.Option>of(),
+        Optional.of(Paths.get("js/react-native/runServer.sh")));
+
+    projectGenerator.createXcodeProjects();
+
+    PBXProject project = projectGenerator.getGeneratedProject();
+    PBXTarget target = assertTargetExistsAndReturnTarget(
+        project, "//foo:bundle#rn_no_bundle");
+    assertThat(target.getName(), equalTo("//foo:bundle#rn_no_bundle"));
+    assertThat(target.isa(), equalTo("PBXNativeTarget"));
+
+    PBXShellScriptBuildPhase shellScriptBuildPhase =
+        getSingletonPhaseByType(
+            target,
+            PBXShellScriptBuildPhase.class);
+
+    assertThat(
+        shellScriptBuildPhase.getShellScript(),
+        endsWith("js/react-native/runServer.sh"));
+  }
+
+  @Test
   public void testAppleBundleRuleForSharedLibraryFramework() throws IOException {
     BuildTarget sharedLibraryTarget = BuildTarget
         .builder("//dep", "shared")
@@ -1832,12 +1991,9 @@ public class ProjectGeneratorTest {
         .setFiles(ImmutableSet.<SourcePath>of())
         .setDirs(ImmutableSet.<SourcePath>of())
         .setVariants(
-            Optional.<Map<String, Map<String, SourcePath>>>of(
-                ImmutableMap.<String, Map<String, SourcePath>>of(
-                    "Bar.storyboard",
-                    ImmutableMap.<String, SourcePath>of(
-                        "Base",
-                        new TestSourcePath("Base.lproj/Bar.storyboard")))))
+            Optional.<Set<SourcePath>>of(
+                ImmutableSet.<SourcePath>of(
+                    new TestSourcePath("Base.lproj/Bar.storyboard"))))
         .build();
     BuildTarget fooLibraryTarget = BuildTarget.builder("//foo", "lib").build();
     TargetNode<?> fooLibraryNode = AppleLibraryBuilder
@@ -1864,14 +2020,11 @@ public class ProjectGeneratorTest {
     PBXVariantGroup storyboardGroup = (PBXVariantGroup) Iterables.get(
         resourcesGroup.getChildren(),
         0);
-    PBXFileReference baseStoryboardReference =
-        storyboardGroup.getOrCreateVariantFileReferenceByNameAndSourceTreePath(
-            "Base",
-            new SourceTreePath(
-                PBXReference.SourceTree.SOURCE_ROOT,
-                Paths.get("Base.lproj/Bar.storyboard")));
+    List<PBXReference> storyboardGroupChildren = storyboardGroup.getChildren();
+    assertEquals(1, storyboardGroupChildren.size());
+    assertTrue(storyboardGroupChildren.get(0) instanceof PBXFileReference);
+    PBXFileReference baseStoryboardReference = (PBXFileReference) storyboardGroupChildren.get(0);
 
-    // Even though the name doesn't have an extension..
     assertEquals("Base", baseStoryboardReference.getName());
 
     // Make sure the file type is set from the path.
@@ -2059,7 +2212,7 @@ public class ProjectGeneratorTest {
     assertHasSingletonFrameworksPhaseWithFrameworkEntries(
         target,
         ImmutableList.of(
-            "$BUILT_PRODUCTS_DIR/F4XWIZLQHJZWQYLSMVSCG43IMFZGKZA/libshared.dylib"));
+            "$BUILT_PRODUCTS_DIR/libshared.dylib"));
   }
 
   @Test
@@ -2118,7 +2271,7 @@ public class ProjectGeneratorTest {
     assertEquals("Should have exact number of build phases ", 2, target.getBuildPhases().size());
     assertHasSingletonFrameworksPhaseWithFrameworkEntries(
         target,
-        ImmutableList.of("$BUILT_PRODUCTS_DIR/F4XWIZLQHJTHEYLNMV3W64TL/framework.framework"));
+        ImmutableList.of("$BUILT_PRODUCTS_DIR/framework.framework"));
   }
 
   @Test
@@ -2188,7 +2341,7 @@ public class ProjectGeneratorTest {
     assertEquals("Should have exact number of build phases ", 2, target.getBuildPhases().size());
     assertHasSingletonCopyFilesPhaseWithFileEntries(
         target,
-        ImmutableList.of("$BUILT_PRODUCTS_DIR/F4XWIZLQHJTHEYLNMV3W64TL/framework.framework"));
+        ImmutableList.of("$BUILT_PRODUCTS_DIR/framework.framework"));
   }
 
   @Test
@@ -2416,7 +2569,7 @@ public class ProjectGeneratorTest {
         "$(inherited) $BUILT_PRODUCTS_DIR $SDKROOT $SOURCE_ROOT",
         settings.get("LIBRARY_SEARCH_PATHS"));
     assertEquals(
-        "$(inherited) ",
+        "$(inherited) $BUILT_PRODUCTS_DIR",
         settings.get("FRAMEWORK_SEARCH_PATHS"));
 
   }
@@ -2637,7 +2790,7 @@ public class ProjectGeneratorTest {
   @Test
   public void usingBuildTargetSourcePathInResourceDirsOrFilesDoesNotThrow() throws IOException {
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//some:rule");
-    SourcePath sourcePath = new BuildTargetSourcePath(fakeProjectFilesystem, buildTarget);
+    SourcePath sourcePath = new BuildTargetSourcePath(buildTarget);
     TargetNode<?> generatingTarget = GenruleBuilder.newGenruleBuilder(buildTarget)
         .setCmd("echo HI")
         .build();
@@ -2746,6 +2899,7 @@ public class ProjectGeneratorTest {
             xctest2),
         ImmutableSet.<BuildTarget>of(),
         projectFilesystem,
+        /* reactNativeServer */ Optional.<Path>absent(),
         OUTPUT_DIRECTORY,
         PROJECT_NAME,
         "BUCK",
@@ -2785,9 +2939,9 @@ public class ProjectGeneratorTest {
         ImmutableList.of(
             "$BUILT_PRODUCTS_DIR/libxctest1.a",
             "$BUILT_PRODUCTS_DIR/libxctest2.a",
-            "$BUILT_PRODUCTS_DIR/F4XWY2LCOM5GIZLQNRUWE/libdeplib.a",
-            "$BUILT_PRODUCTS_DIR/F4XWM33PHJSGK4BR/libdep1.a",
-            "$BUILT_PRODUCTS_DIR/F4XWM33PHJSGK4BS/libdep2.a",
+            "$BUILT_PRODUCTS_DIR/libdeplib.a",
+            "$BUILT_PRODUCTS_DIR/libdep1.a",
+            "$BUILT_PRODUCTS_DIR/libdep2.a",
             "$SDKROOT/DeclaredInTestLib.framework",
             "$SDKROOT/DeclaredInTestLibDep.framework",
             "$SDKROOT/DeclaredInTest.framework"));
@@ -2817,7 +2971,7 @@ public class ProjectGeneratorTest {
 
     TargetNode<ExportFileDescription.Arg> source2Ref = ExportFileBuilder
         .newExportFileBuilder(source2RefTarget)
-        .setSrc(new BuildTargetSourcePath(projectFilesystem, source2Target))
+        .setSrc(new BuildTargetSourcePath(source2Target))
         .build();
 
     TargetNode<ExportFileDescription.Arg> source3 = ExportFileBuilder
@@ -2839,13 +2993,13 @@ public class ProjectGeneratorTest {
             Optional.of(
                 ImmutableList.of(
                     SourceWithFlags.of(
-                        new BuildTargetSourcePath(projectFilesystem, source1Target)),
+                        new BuildTargetSourcePath(source1Target)),
                     SourceWithFlags.of(
-                        new BuildTargetSourcePath(projectFilesystem, source2RefTarget)),
+                        new BuildTargetSourcePath(source2RefTarget)),
                     SourceWithFlags.of(
-                        new BuildTargetSourcePath(projectFilesystem, source3Target)))))
+                        new BuildTargetSourcePath(source3Target)))))
         .setPrefixHeader(
-            Optional.<SourcePath>of(new BuildTargetSourcePath(projectFilesystem, headerTarget)))
+            Optional.<SourcePath>of(new BuildTargetSourcePath(headerTarget)))
         .build();
 
     ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
@@ -2936,6 +3090,7 @@ public class ProjectGeneratorTest {
         TargetGraphFactory.newInstance(nodes),
         FluentIterable.from(nodes).transform(HasBuildTarget.TO_TARGET).toSet(),
         projectFilesystem,
+        /* reactNativeServer */ Optional.<Path>absent(),
         OUTPUT_DIRECTORY,
         PROJECT_NAME,
         "BUCK",
@@ -3040,6 +3195,16 @@ public class ProjectGeneratorTest {
   private ProjectGenerator createProjectGeneratorForCombinedProject(
       Iterable<TargetNode<?>> nodes,
       ImmutableSet<ProjectGenerator.Option> projectGeneratorOptions) {
+    return createProjectGeneratorForCombinedProject(
+        nodes,
+        projectGeneratorOptions,
+        Optional.<Path>absent());
+  }
+
+  private ProjectGenerator createProjectGeneratorForCombinedProject(
+      Iterable<TargetNode<?>> nodes,
+      ImmutableSet<ProjectGenerator.Option> projectGeneratorOptions,
+      Optional<Path> reactNativeServer) {
     ImmutableSet<BuildTarget> initialBuildTargets = FluentIterable
         .from(nodes)
         .transform(HasBuildTarget.TO_TARGET)
@@ -3049,6 +3214,7 @@ public class ProjectGeneratorTest {
         TargetGraphFactory.newInstance(ImmutableSet.copyOf(nodes)),
         initialBuildTargets,
         projectFilesystem,
+        reactNativeServer,
         OUTPUT_DIRECTORY,
         PROJECT_NAME,
         "BUCK",

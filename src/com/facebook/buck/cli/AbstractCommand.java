@@ -25,17 +25,22 @@ import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.TargetNodeSpec;
 import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.step.ExecutionContext;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreStrings;
 import com.google.common.base.Optional;
+import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
 
 import org.kohsuke.args4j.Option;
 
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.List;
+import java.util.Map;
 
 import javax.annotation.Nullable;
 
@@ -65,9 +70,29 @@ public abstract class AbstractCommand implements Command {
   @Nullable
   private String buildFileIncludes = null;
 
+  @Option(
+      name = "--config",
+      aliases = {"-c"},
+      usage = "")
+  private Map<String, String> configOverrides = Maps.newLinkedHashMap();
+
   @Override
   public ImmutableMap<String, ImmutableMap<String, String>> getConfigOverrides() {
-    ImmutableMap.Builder<String, ImmutableMap<String, String>> builder = ImmutableMap.builder();
+    ConfigOverrideBuilder builder = new ConfigOverrideBuilder();
+
+    // Parse command-line config overrides.
+    for (Map.Entry<String, String> entry : configOverrides.entrySet()) {
+      List<String> key = Splitter.on('.').limit(2).splitToList(entry.getKey());
+      if (key.size() != 2) {
+        throw new HumanReadableException(
+            "Invalid config override \"%s=%s\".  Expected \"<section>.<field>=<value>\".",
+            entry.getKey(),
+            entry.getValue());
+      }
+      builder.put(key.get(0), key.get(1), entry.getValue());
+    }
+
+    // Handle the special-case build file command-line override.
     if (buildFileIncludes != null) {
       String includes = MoreStrings
           .stripPrefix(buildFileIncludes, BUILDFILE_INCLUDES_LONG_ARG + " ")
@@ -77,10 +102,10 @@ public abstract class AbstractCommand implements Command {
           .or(includes);
       builder.put(
           ParserConfig.BUILDFILE_SECTION_NAME,
-          ImmutableMap.of(
-              ParserConfig.INCLUDES_PROPERTY_NAME,
-              UnflavoredBuildTarget.BUILD_TARGET_PREFIX + includes));
+          ParserConfig.INCLUDES_PROPERTY_NAME,
+          UnflavoredBuildTarget.BUILD_TARGET_PREFIX + includes);
     }
+
     return builder.build();
   }
 
@@ -153,7 +178,7 @@ public abstract class AbstractCommand implements Command {
     CommandLineTargetNodeSpecParser parser =
         new CommandLineTargetNodeSpecParser(
             config,
-            new BuildTargetPatternTargetNodeParser(new BuildTargetParser(), ignorePaths));
+            new BuildTargetPatternTargetNodeParser(ignorePaths));
     for (String arg : targetsAsArgs) {
       specs.add(parser.parse(arg));
     }
@@ -163,18 +188,14 @@ public abstract class AbstractCommand implements Command {
   /**
    * @return A set of {@link BuildTarget}s for the input buildTargetNames.
    */
-  protected ImmutableSet<BuildTarget> getBuildTargets(
-      CommandRunnerParams params,
-      Iterable<String> buildTargetNames) {
+  protected ImmutableSet<BuildTarget> getBuildTargets(Iterable<String> buildTargetNames) {
     ImmutableSet.Builder<BuildTarget> buildTargets = ImmutableSet.builder();
 
     // Parse all of the build targets specified by the user.
-    BuildTargetParser buildTargetParser = params.getParser().getBuildTargetParser();
-
     for (String buildTargetName : buildTargetNames) {
-      buildTargets.add(buildTargetParser.parse(
+      buildTargets.add(BuildTargetParser.INSTANCE.parse(
               buildTargetName,
-              BuildTargetPatternParser.fullyQualified(buildTargetParser)));
+              BuildTargetPatternParser.fullyQualified()));
     }
 
     return buildTargets.build();

@@ -25,6 +25,7 @@ import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleParamsFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
@@ -48,7 +49,7 @@ public class CxxPreprocessAndCompileTest {
 
   private static final Tool DEFAULT_PREPROCESSOR = new HashedFileTool(Paths.get("preprocessor"));
   private static final Compiler DEFAULT_COMPILER =
-      new GccCompiler(new HashedFileTool(Paths.get("compiler")));
+      new DefaultCompiler(new HashedFileTool(Paths.get("compiler")));
   private static final ImmutableList<String> DEFAULT_PLATFORM_FLAGS =
       ImmutableList.of("-fsanitize=address");
   private static final ImmutableList<String> DEFAULT_RULE_FLAGS =
@@ -131,7 +132,7 @@ public class CxxPreprocessAndCompileTest {
             Optional.<Tool>absent(),
             Optional.<ImmutableList<String>>absent(),
             Optional.<ImmutableList<String>>absent(),
-            Optional.<Compiler>of(new GccCompiler(new HashedFileTool(Paths.get("different")))),
+            Optional.<Compiler>of(new DefaultCompiler(new HashedFileTool(Paths.get("different")))),
             Optional.of(DEFAULT_PLATFORM_FLAGS),
             Optional.of(DEFAULT_RULE_FLAGS),
             DEFAULT_OUTPUT,
