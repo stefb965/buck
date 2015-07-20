@@ -29,7 +29,6 @@ import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.Tool;
-import com.facebook.buck.util.MoreIterables;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
@@ -42,6 +41,7 @@ import com.google.common.cache.LoadingCache;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 
@@ -93,36 +93,36 @@ public class CxxSourceRuleFactory {
         }
       });
 
-  private final Supplier<ImmutableList<Path>> includeRoots =
+  private final Supplier<ImmutableSet<Path>> includeRoots =
       Suppliers.memoize(
-          new Supplier<ImmutableList<Path>>() {
+          new Supplier<ImmutableSet<Path>>() {
             @Override
-            public ImmutableList<Path> get() {
+            public ImmutableSet<Path> get() {
               return FluentIterable.from(cxxPreprocessorInput)
                   .transformAndConcat(CxxPreprocessorInput.GET_INCLUDE_ROOTS)
-                  .toList();
+                  .toSet();
             }
           });
 
-  private final Supplier<ImmutableList<Path>> systemIncludeRoots =
+  private final Supplier<ImmutableSet<Path>> systemIncludeRoots =
       Suppliers.memoize(
-          new Supplier<ImmutableList<Path>>() {
+          new Supplier<ImmutableSet<Path>>() {
             @Override
-            public ImmutableList<Path> get() {
+            public ImmutableSet<Path> get() {
               return FluentIterable.from(cxxPreprocessorInput)
                   .transformAndConcat(CxxPreprocessorInput.GET_SYSTEM_INCLUDE_ROOTS)
-                  .toList();
+                  .toSet();
             }
           });
 
-  private final Supplier<ImmutableList<Path>> frameworkRoots =
+  private final Supplier<ImmutableSet<Path>> frameworkRoots =
       Suppliers.memoize(
-          new Supplier<ImmutableList<Path>>() {
+          new Supplier<ImmutableSet<Path>>() {
             @Override
-            public ImmutableList<Path> get() {
+            public ImmutableSet<Path> get() {
               return FluentIterable.from(cxxPreprocessorInput)
                   .transformAndConcat(CxxPreprocessorInput.GET_FRAMEWORK_ROOTS)
-                  .toList();
+                  .toSet();
             }
           });
 
@@ -165,22 +165,6 @@ public class CxxSourceRuleFactory {
     this.cxxPlatform = cxxPlatform;
     this.cxxPreprocessorInput = cxxPreprocessorInput;
     this.compilerFlags = compilerFlags;
-  }
-
-  /**
-   * Prefixes each of the given assembler arguments with "-Xassembler" so that the compiler
-   * assembler driver will pass these arguments directly down to the linker rather than
-   * interpreting them itself.
-   *
-   * e.g. ["--fatal-warnings"] -> ["-Xassembler", "--fatal-warnings"]
-   *
-   * @param args arguments for the assembler.
-   * @return arguments to be passed to the compiler assembler driver.
-   */
-  private Iterable<String> iXassembler(Iterable<String> args) {
-    return MoreIterables.zipAndConcat(
-        Iterables.cycle("-Xassembler"),
-        args);
   }
 
   /**
@@ -386,7 +370,7 @@ public class CxxSourceRuleFactory {
     }
 
     // All source types require assembling, so add in platform-specific assembler flags.
-    args.addAll(iXassembler(cxxPlatform.getAsflags()));
+    args.addAll(cxxPlatform.getAsflags());
 
     return args.build();
   }

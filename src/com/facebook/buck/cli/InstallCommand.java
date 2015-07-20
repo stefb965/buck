@@ -57,6 +57,7 @@ import java.io.InputStream;
 import java.nio.file.Path;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 import javax.annotation.Nullable;
@@ -68,6 +69,10 @@ public class InstallCommand extends BuildCommand {
 
   private static final Logger LOG = Logger.get(InstallCommand.class);
   private static final long APPLE_SIMULATOR_WAIT_MILLIS = 20000;
+  private static final ImmutableList<String> APPLE_SIMULATOR_APPS = ImmutableList.of(
+      "Simulator.app",
+      "iOS Simulator.app");
+  private static final String DEFAULT_APPLE_SIMULATOR_NAME = "iPhone 5s";
 
   @VisibleForTesting static final String RUN_LONG_ARG = "--run";
   @VisibleForTesting static final String RUN_SHORT_ARG = "-r";
@@ -300,7 +305,26 @@ public class InstallCommand extends BuildCommand {
       return 1;
     }
 
-    Path iosSimulatorPath = xcodeDeveloperPath.get().resolve("Applications/iOS Simulator.app");
+    Path iosSimulatorPath = null;
+    Path xcodeApplicationsPath = xcodeDeveloperPath.get().resolve("Applications");
+    for (String simulatorApp : APPLE_SIMULATOR_APPS) {
+      Path resolvedSimulatorPath = xcodeApplicationsPath.resolve(simulatorApp);
+      if (projectFilesystem.isDirectory(resolvedSimulatorPath)) {
+        iosSimulatorPath = resolvedSimulatorPath;
+        break;
+      }
+    }
+
+    if (iosSimulatorPath == null) {
+      params.getConsole().printBuildFailure(
+          String.format(
+              "Cannot install %s (could not find simulator under %s, checked %s)",
+              appleBundle.getFullyQualifiedName(),
+              xcodeApplicationsPath,
+              APPLE_SIMULATOR_APPS));
+      return 1;
+    }
+
     AppleSimulatorController appleSimulatorController = new AppleSimulatorController(
         processExecutor,
         simctlPath,
@@ -398,9 +422,10 @@ public class InstallCommand extends BuildCommand {
           projectFilesystem,
           appleSimulator.get());
     } else {
-      params.getConsole().printSuccess(
-          String.format(
-              "Successfully installed %s. (Use `buck install -r %s` to run.)",
+      params.getBuckEventBus().post(
+          ConsoleEvent.info(
+              params.getConsole().getAnsi().asHighlightedSuccessText(
+                  "Successfully installed %s. (Use `buck install -r %s` to run.)"),
               getArguments().get(0),
               getArguments().get(0)));
       return 0;
@@ -445,9 +470,10 @@ public class InstallCommand extends BuildCommand {
       return 1;
     }
 
-    params.getConsole().printSuccess(
-        String.format(
-            "Successfully launched %s%s. To debug, run: lldb -p %d",
+    params.getBuckEventBus().post(
+        ConsoleEvent.info(
+            params.getConsole().getAnsi().asHighlightedSuccessText(
+                "Successfully launched %s%s. To debug, run: lldb -p %d"),
             getArguments().get(0),
             waitForDebugger ? " (waiting for debugger)" : "",
             launchedPid.get()));
@@ -461,17 +487,57 @@ public class InstallCommand extends BuildCommand {
       Path simctlPath) throws IOException, InterruptedException {
     LOG.debug("Choosing simulator for %s", appleBundle);
 
+    Optional<AppleSimulator> simulatorByUdid = Optional.absent();
+    Optional<AppleSimulator> simulatorByName = Optional.absent();
+    Optional<AppleSimulator> defaultSimulator = Optional.absent();
+
+    boolean wantUdid = deviceOptions.hasSerialNumber();
+    boolean wantName = deviceOptions.getSimulatorName().isPresent();
+
     for (AppleSimulator simulator : AppleSimulatorDiscovery.discoverAppleSimulators(
              processExecutor,
              simctlPath)) {
-      // TODO(user): Choose this from the flavor and add more command-line params to
-      // switch between iPhone/iPad simulator.
-      if (simulator.getName().equals("iPhone 5s")) {
-        return Optional.of(simulator);
+      if (wantUdid &&
+          deviceOptions.getSerialNumber().toLowerCase(Locale.US).equals(
+              simulator.getUdid().toLowerCase(Locale.US))) {
+        LOG.debug("Got UDID match (%s): %s", deviceOptions.getSerialNumber(), simulator);
+        simulatorByUdid = Optional.of(simulator);
+        // We shouldn't need to keep looking.
+        break;
+      } else if (wantName &&
+                 deviceOptions.getSimulatorName().get().toLowerCase(Locale.US).equals(
+                     simulator.getName().toLowerCase(Locale.US))) {
+        LOG.debug("Got name match (%s): %s", simulator.getName(), simulator);
+        simulatorByName = Optional.of(simulator);
+        // We assume the simulators are sorted by OS version, so we'll keep
+        // looking for a more recent simulator with this name.
+      } else if (simulator.getName().equals(DEFAULT_APPLE_SIMULATOR_NAME)) {
+        LOG.debug("Got default match (%s): %s", DEFAULT_APPLE_SIMULATOR_NAME, simulator);
+        defaultSimulator = Optional.of(simulator);
       }
     }
 
-    return Optional.<AppleSimulator>absent();
+    if (wantUdid) {
+      if (simulatorByUdid.isPresent()) {
+        return simulatorByUdid;
+      } else {
+        LOG.warn(
+            "Asked to find simulator with UDID %s, but couldn't find one.",
+            deviceOptions.getSerialNumber());
+        return Optional.<AppleSimulator>absent();
+      }
+    } else if (wantName) {
+      if (simulatorByName.isPresent()) {
+        return simulatorByName;
+      } else {
+        LOG.warn(
+            "Asked to find simulator with name %s, but couldn't find one.",
+            deviceOptions.getSimulatorName().get());
+        return Optional.<AppleSimulator>absent();
+      }
+    } else {
+      return defaultSimulator;
+    }
   }
 
   private int launchReactNativeServer(

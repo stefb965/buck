@@ -22,6 +22,7 @@ import com.facebook.buck.java.JavaLibrary;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
 import com.google.common.collect.FluentIterable;
@@ -36,7 +37,9 @@ import java.nio.file.Path;
  * Used to expand the macro {@literal $(classpath //some:target)} to the transitive classpath of
  * that target, expanding all paths to be absolute.
  */
-public class ClasspathMacroExpander extends BuildTargetMacroExpander {
+public class ClasspathMacroExpander
+    extends BuildTargetMacroExpander
+    implements MacroExpanderWithCustomFileOutput {
 
   private ImmutableSetMultimap<JavaLibrary, Path> getTransitiveClasspathEntries(BuildRule rule)
       throws MacroException {
@@ -63,7 +66,22 @@ public class ClasspathMacroExpander extends BuildTargetMacroExpander {
   }
 
   @Override
-  protected String expand(ProjectFilesystem filesystem, BuildRule rule) throws MacroException {
+  public String expandForFile(
+      BuildTarget target,
+      BuildRuleResolver resolver,
+      ProjectFilesystem filesystem,
+      String input) throws MacroException {
+    // javac is the canonical reader of classpaths, and its code for reading classpaths from
+    // files is a little weird:
+    // http://hg.openjdk.java.net/jdk7/jdk7/langtools/file/ce654f4ecfd8/src/share/classes/com/sun/tools/javac/main/CommandLine.java#l74
+    // The # characters that might be present in classpaths due to flavoring would be read as
+    // comments. As a simple workaround, we quote the entire classpath.
+    return String.format("'%s'", expand(target, resolver, filesystem, input));
+  }
+
+  @Override
+  protected String expand(SourcePathResolver resolver, ProjectFilesystem filesystem, BuildRule rule)
+      throws MacroException {
     return Joiner.on(File.pathSeparator).join(
         FluentIterable.from(getTransitiveClasspathEntries(rule).values())
             .transform(filesystem.getAbsolutifier())

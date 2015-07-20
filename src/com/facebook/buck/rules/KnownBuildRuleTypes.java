@@ -395,14 +395,11 @@ public class KnownBuildRuleTypes {
     AppleLibraryDescription appleLibraryDescription =
         new AppleLibraryDescription(
             cxxLibraryDescription,
-            cxxPlatforms,
-            platformFlavorsToAppleCxxPlatforms);
+            cxxPlatforms);
     builder.register(appleLibraryDescription);
 
-    AppleBinaryDescription appleBinaryDescription = new AppleBinaryDescription(
-        cxxBinaryDescription,
-        cxxPlatforms,
-        platformFlavorsToAppleCxxPlatforms);
+    AppleBinaryDescription appleBinaryDescription =
+        new AppleBinaryDescription(cxxBinaryDescription);
     builder.register(appleBinaryDescription);
 
     // Create an executor service exclusively for the smart dexing step.
@@ -484,6 +481,7 @@ public class KnownBuildRuleTypes {
         new PythonBinaryDescription(
             pyConfig.getPathToPex(),
             pyConfig.getPathToPexExecuter(),
+            pyConfig.getPexExtension(),
             pythonEnv,
             defaultCxxPlatform,
             cxxPlatforms));
@@ -493,6 +491,7 @@ public class KnownBuildRuleTypes {
             projectFilesystem,
             pyConfig.getPathToPex(),
             pyConfig.getPathToPexExecuter(),
+            pyConfig.getPexExtension(),
             pythonPathToPythonTestMain,
             pythonEnv,
             defaultCxxPlatform,

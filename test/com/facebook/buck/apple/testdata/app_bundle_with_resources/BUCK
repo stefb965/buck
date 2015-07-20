@@ -2,6 +2,14 @@ apple_resource(
   name = 'DemoAppResources',
   files = glob(['*.png']),
   dirs = ['Images'],
+  variants = [
+    'aa.lproj/Localizable.strings',
+    'bb.lproj/Localizable.strings',
+    'cc.lproj/Localizable.strings',
+    'Strings/xx.lproj/Localizable.strings',
+    'Strings/yy.lproj/Localizable.strings',
+    'Strings/zz.lproj/Localizable.strings'
+  ],
 )
 
 apple_bundle(

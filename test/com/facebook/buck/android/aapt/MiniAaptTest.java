@@ -32,6 +32,8 @@ import com.facebook.buck.timing.FakeClock;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
+import org.hamcrest.junit.ExpectedException;
+import org.junit.Rule;
 import org.junit.Test;
 
 import java.io.IOException;
@@ -57,6 +59,9 @@ public class MiniAaptTest {
         .build();
 
   private final FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
+
+  @Rule
+  public ExpectedException thrown = ExpectedException.none();
 
   @Test
   public void testFindingResourceIdsInXml()
@@ -232,6 +237,24 @@ public class MiniAaptTest {
   }
 
   @Test
+  public void testMissingNameAttribute() throws IOException, ResourceParseException {
+    thrown.expect(ResourceParseException.class);
+    thrown.expectMessage("Error: expected a 'name' attribute in node 'string' with value 'Howdy!'");
+
+    ImmutableList<String> lines = ImmutableList.<String>builder().add(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
+        "<resources>",
+        "<string notname=\"hello\">Howdy!</string>",
+        "</resources>")
+        .build();
+
+    filesystem.writeLinesToPath(lines, Paths.get("values.xml"));
+
+    MiniAapt aapt = new MiniAapt(Paths.get("res"), Paths.get("R.txt"), ImmutableSet.<Path>of());
+    aapt.processValuesFile(filesystem, Paths.get("values.xml"));
+  }
+
+  @Test
   public void testVerifyReferences()
       throws IOException, XPathExpressionException, ResourceParseException {
     filesystem.writeLinesToPath(RESOURCES, Paths.get("resource.xml"));
@@ -254,6 +277,27 @@ public class MiniAaptTest {
         ImmutableSet.<RDotTxtEntry>of(
             new FakeRDotTxtEntry(IdType.INT, RType.DRAWABLE, "some_image")),
         missing);
+  }
+
+  @Test
+  public void testInvalidNodeId() throws
+      IOException, XPathExpressionException, ResourceParseException {
+    thrown.expect(ResourceParseException.class);
+    thrown.expectMessage("Invalid definition of a resource: '@button2'");
+
+    ImmutableList<String> lines = ImmutableList.<String>builder().add(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
+        "<LinearLayout>",
+        "<Button android:id=\"@+id/button1\" ",
+        "android:layout_toLeftOf=\"@button2\" />",
+        "</LinearLayout>")
+        .build();
+
+    Path resource = Paths.get("resource.xml");
+    filesystem.writeLinesToPath(lines, resource);
+
+    MiniAapt aapt = new MiniAapt(Paths.get("res"), Paths.get("R.txt"), ImmutableSet.<Path>of());
+    aapt.processXmlFile(filesystem, resource, ImmutableSet.<RDotTxtEntry>builder());
   }
 
   @Test

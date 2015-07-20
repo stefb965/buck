@@ -22,6 +22,7 @@ import com.facebook.buck.rules.Tool;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -73,10 +74,13 @@ public class DefaultCxxPlatforms {
           new BsdArchiver(new HashedFileTool(DEFAULT_AR)),
           ImmutableList.<String>of(),
           ImmutableList.<String>of(),
+          ImmutableList.<String>of(),
+          ImmutableList.<String>of(),
           Optional.<Tool>of(new HashedFileTool(DEFAULT_LEX)),
           Optional.<Tool>of(new HashedFileTool(DEFAULT_YACC)),
           "dylib",
-          Optional.<DebugPathSanitizer>absent());
+          Optional.<DebugPathSanitizer>absent(),
+          ImmutableMap.<String, String>of());
     }
 
     String sharedLibraryExtension;
@@ -108,10 +112,13 @@ public class DefaultCxxPlatforms {
         new GnuArchiver(new HashedFileTool(DEFAULT_AR)),
         ImmutableList.<String>of(),
         ImmutableList.<String>of(),
+        ImmutableList.<String>of(),
+        ImmutableList.<String>of(),
         Optional.<Tool>of(new HashedFileTool(DEFAULT_LEX)),
         Optional.<Tool>of(new HashedFileTool(DEFAULT_YACC)),
         sharedLibraryExtension,
-        Optional.<DebugPathSanitizer>absent());
+        Optional.<DebugPathSanitizer>absent(),
+        ImmutableMap.<String, String>of());
   }
 
 }

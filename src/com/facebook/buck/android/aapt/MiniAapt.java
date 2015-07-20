@@ -329,7 +329,7 @@ public class MiniAapt implements Step {
     }
   }
 
-  private void addToResourceCollector(Node node, RType rType) {
+  private void addToResourceCollector(Node node, RType rType) throws ResourceParseException {
     String resourceName = sanitizeName(extractNameAttribute(node));
     if (rType.equals(RType.STYLEABLE)) {
 
@@ -404,9 +404,10 @@ public class MiniAapt implements Step {
           (NodeList) ANDROID_ID_USAGE.evaluate(dom, XPathConstants.NODESET);
       for (int i = 0; i < nodesUsingIds.getLength(); i++) {
         String resourceName = nodesUsingIds.item(i).getNodeValue();
-        Preconditions.checkState(resourceName.charAt(0) == '@');
         int slashPosition = resourceName.indexOf('/');
-        Preconditions.checkState(slashPosition != -1);
+        if (resourceName.charAt(0) != '@' || slashPosition == -1) {
+          throw new ResourceParseException("Invalid definition of a resource: '%s'", resourceName);
+        }
 
         String rawRType = resourceName.substring(1, slashPosition);
         String name = resourceName.substring(slashPosition + 1);
@@ -438,8 +439,15 @@ public class MiniAapt implements Step {
     }
   }
 
-  private static String extractNameAttribute(Node node) {
-    return node.getAttributes().getNamedItem("name").getNodeValue();
+  private static String extractNameAttribute(Node node) throws ResourceParseException {
+    Node attribute = node.getAttributes().getNamedItem("name");
+    if (attribute == null) {
+      throw new ResourceParseException(
+          "Error: expected a 'name' attribute in node '%s' with value '%s'",
+          node.getNodeName(),
+          node.getTextContent());
+    }
+    return attribute.getNodeValue();
   }
 
   private static String sanitizeName(String rawName) {

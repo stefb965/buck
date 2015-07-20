@@ -21,6 +21,7 @@ import static com.facebook.buck.apple.ProjectGeneratorTestUtils.assertHasSinglet
 import static com.facebook.buck.apple.ProjectGeneratorTestUtils.assertTargetExistsAndReturnTarget;
 import static com.facebook.buck.apple.ProjectGeneratorTestUtils.createDescriptionArgWithDefaults;
 import static com.facebook.buck.apple.ProjectGeneratorTestUtils.getSingletonPhaseByType;
+import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.lessThan;
 import static org.hamcrest.Matchers.startsWith;
 import static org.hamcrest.collection.IsCollectionWithSize.hasSize;
@@ -37,11 +38,14 @@ import static org.junit.Assert.fail;
 import com.dd.plist.NSArray;
 import com.dd.plist.NSDictionary;
 import com.dd.plist.NSString;
+import com.facebook.buck.apple.xcode.xcodeproj.CopyFilePhaseDestinationSpec;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXBuildFile;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXBuildPhase;
+import com.facebook.buck.apple.xcode.xcodeproj.PBXCopyFilesBuildPhase;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXFileReference;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXGroup;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXHeadersBuildPhase;
+import com.facebook.buck.apple.xcode.xcodeproj.PBXNativeTarget;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXProject;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXReference;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXResourcesBuildPhase;
@@ -79,6 +83,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.nio.file.Paths;
+import java.util.List;
 import java.util.Set;
 
 public class NewNativeTargetProjectMutatorTest {
@@ -314,6 +319,65 @@ public class NewNativeTargetProjectMutatorTest {
   }
 
   @Test
+  public void testCopyFilesBuildPhase() throws NoSuchBuildTargetException {
+    NewNativeTargetProjectMutator mutator = mutatorWithCommonDefaults();
+
+    CopyFilePhaseDestinationSpec.Builder specBuilder = CopyFilePhaseDestinationSpec.builder();
+    specBuilder.setDestination(PBXCopyFilesBuildPhase.Destination.FRAMEWORKS);
+    specBuilder.setPath("foo.png");
+
+    PBXBuildPhase copyPhase = new PBXCopyFilesBuildPhase(specBuilder.build());
+    mutator.setCopyFilesPhases(ImmutableList.of(copyPhase));
+
+    NewNativeTargetProjectMutator.Result result =
+        mutator.buildTargetAndAddToProject(generatedProject);
+
+    PBXBuildPhase buildPhaseToTest = getSingletonPhaseByType(
+        result.target,
+        PBXCopyFilesBuildPhase.class);
+    assertThat(copyPhase, equalTo(buildPhaseToTest));
+  }
+
+  @Test
+  public void testCopyFilesBuildPhaseIsBeforePostBuildScriptBuildPhase()
+      throws NoSuchBuildTargetException {
+    NewNativeTargetProjectMutator mutator = mutatorWithCommonDefaults();
+
+    CopyFilePhaseDestinationSpec.Builder specBuilder = CopyFilePhaseDestinationSpec.builder();
+    specBuilder.setDestination(PBXCopyFilesBuildPhase.Destination.FRAMEWORKS);
+    specBuilder.setPath("script/input.png");
+
+    PBXBuildPhase copyFilesPhase = new PBXCopyFilesBuildPhase(specBuilder.build());
+    mutator.setCopyFilesPhases(ImmutableList.of(copyFilesPhase));
+
+    TargetNode<?> genruleNode = GenruleBuilder
+        .newGenruleBuilder(BuildTarget.builder("//foo", "script").build())
+        .setSrcs(ImmutableList.<SourcePath>of(new TestSourcePath("script/input.png")))
+        .setCmd("echo \"hello world!\"")
+        .setOut("helloworld.txt")
+        .build();
+    mutator.setPostBuildRunScriptPhases(ImmutableList.<TargetNode<?>>of(genruleNode));
+
+    NewNativeTargetProjectMutator.Result result =
+        mutator.buildTargetAndAddToProject(generatedProject);
+
+    PBXNativeTarget target = result.target;
+
+    List<PBXBuildPhase> buildPhases = target.getBuildPhases();
+
+    PBXBuildPhase copyBuildPhaseToTest = getSingletonPhaseByType(
+        target,
+        PBXCopyFilesBuildPhase.class);
+    PBXBuildPhase postBuildScriptPhase = getSingletonPhaseByType(
+        target,
+        PBXShellScriptBuildPhase.class);
+
+    assertThat(
+        buildPhases.indexOf(copyBuildPhaseToTest),
+        lessThan(buildPhases.indexOf(postBuildScriptPhase)));
+  }
+
+  @Test
   public void assetCatalogsBuildPhaseBuildsBothCommonAndBundledAssetCatalogs()
       throws NoSuchBuildTargetException {
     AppleAssetCatalogDescription.Arg arg1 = new AppleAssetCatalogDescription.Arg();
@@ -455,7 +519,9 @@ public class NewNativeTargetProjectMutatorTest {
     assertThat(
         shellScript,
         startsWith("BASE_DIR=${CONFIGURATION_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}" +
-        " && JS_OUT=${BASE_DIR}/Apps/Foo/FooBundle.js && mkdir -p `dirname ${JS_OUT}`"));
+        " && JS_OUT=${BASE_DIR}/Apps/Foo/FooBundle.js && SOURCE_MAP=${TEMP_DIR}/rn_source_map/" +
+            "Apps/Foo/FooBundle.js.map && mkdir -p `dirname ${JS_OUT}` " +
+            "&& mkdir -p `dirname ${SOURCE_MAP}`"));
   }
 
   private NewNativeTargetProjectMutator mutatorWithCommonDefaults() {

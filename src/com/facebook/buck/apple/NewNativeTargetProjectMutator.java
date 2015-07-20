@@ -103,7 +103,9 @@ public class NewNativeTargetProjectMutator {
   private ImmutableSet<AppleAssetCatalogDescription.Arg> assetCatalogs = ImmutableSet.of();
   private Path assetCatalogBuildScript = Paths.get("");
   private Iterable<TargetNode<?>> preBuildRunScriptPhases = ImmutableList.of();
+  private Iterable<PBXBuildPhase> copyFilesPhases = ImmutableList.of();
   private Iterable<TargetNode<?>> postBuildRunScriptPhases = ImmutableList.of();
+  private boolean skipRNBundle = false;
   private Collection<Path> additionalRunScripts = ImmutableList.of();
 
   public NewNativeTargetProjectMutator(
@@ -199,8 +201,18 @@ public class NewNativeTargetProjectMutator {
     return this;
   }
 
+  public NewNativeTargetProjectMutator setCopyFilesPhases(Iterable<PBXBuildPhase> phases) {
+    copyFilesPhases = phases;
+    return this;
+  }
+
   public NewNativeTargetProjectMutator setPostBuildRunScriptPhases(Iterable<TargetNode<?>> phases) {
     postBuildRunScriptPhases = phases;
+    return this;
+  }
+
+  public NewNativeTargetProjectMutator skipReactNativeBundle(boolean skipRNBundle) {
+    this.skipRNBundle = skipRNBundle;
     return this;
   }
 
@@ -237,6 +249,7 @@ public class NewNativeTargetProjectMutator {
     addFrameworksBuildPhase(project, target);
     addResourcesBuildPhase(target, targetGroup);
     addAssetCatalogBuildPhase(target, targetGroup);
+    target.getBuildPhases().addAll((Collection<? extends PBXBuildPhase>) copyFilesPhases);
     addRunScriptBuildPhases(target, postBuildRunScriptPhases);
     addRawScriptBuildPhases(target);
 
@@ -634,16 +647,26 @@ public class NewNativeTargetProjectMutator {
     ImmutableList.Builder<String> script = ImmutableList.builder();
     script.add("BASE_DIR=${CONFIGURATION_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}");
     script.add("JS_OUT=${BASE_DIR}/" + args.bundleName);
-    script.add("mkdir -p `dirname ${JS_OUT}`");
+    script.add("SOURCE_MAP=${TEMP_DIR}/rn_source_map/" + args.bundleName + ".map");
 
-    script.add(Joiner.on(" ").join(
-            ReactNativeBundle.getBundleScript(
-                filesystem.resolve(sourcePathResolver.apply(description.getReactNativePackager())),
-                filesystem.resolve(sourcePathResolver.apply(args.entryPath)),
-                ReactNativePlatform.IOS,
-                ReactNativeFlavors.isDevMode(targetNode.getBuildTarget()),
-                "${JS_OUT}",
-                "${BASE_DIR}")));
+    if (skipRNBundle) {
+      // Working in server mode: make sure that we clear the bundle from a previous build.
+      script.add("rm -rf ${JS_OUT}");
+    } else {
+      script.add("mkdir -p `dirname ${JS_OUT}`");
+      script.add("mkdir -p `dirname ${SOURCE_MAP}`");
+
+      script.add(Joiner.on(" ").join(
+              ReactNativeBundle.getBundleScript(
+                  filesystem.resolve(
+                      sourcePathResolver.apply(description.getReactNativePackager())),
+                  filesystem.resolve(sourcePathResolver.apply(args.entryPath)),
+                  ReactNativePlatform.IOS,
+                  ReactNativeFlavors.isDevMode(targetNode.getBuildTarget()),
+                  "${JS_OUT}",
+                  "${BASE_DIR}",
+                  "${SOURCE_MAP}")));
+    }
 
     return Joiner.on(" && ").join(script.build());
   }

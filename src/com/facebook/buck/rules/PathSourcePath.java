@@ -32,7 +32,11 @@ public class PathSourcePath extends AbstractSourcePath {
 
   @Override
   protected Object asReference() {
-    return filesystem.getRootPath().toString() + relativePath;
+    return filesystem.getRootPath().resolve(relativePath).toString();
+  }
+
+  protected ProjectFilesystem getFilesystem() {
+    return filesystem;
   }
 
   public Path getRelativePath() {

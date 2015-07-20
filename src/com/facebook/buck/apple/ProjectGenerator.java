@@ -23,8 +23,10 @@ import com.dd.plist.PropertyListParser;
 import com.facebook.buck.apple.clang.HeaderMap;
 import com.facebook.buck.apple.xcode.GidGenerator;
 import com.facebook.buck.apple.xcode.XcodeprojSerializer;
+import com.facebook.buck.apple.xcode.xcodeproj.CopyFilePhaseDestinationSpec;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXAggregateTarget;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXBuildFile;
+import com.facebook.buck.apple.xcode.xcodeproj.PBXBuildPhase;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXCopyFilesBuildPhase;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXFileReference;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXGroup;
@@ -162,11 +164,11 @@ public class ProjectGenerator {
           null);
 
   private static final FileAttribute<?> READ_ONLY_FILE_ATTRIBUTE =
-    PosixFilePermissions.asFileAttribute(
-        ImmutableSet.of(
-            PosixFilePermission.OWNER_READ,
-            PosixFilePermission.GROUP_READ,
-            PosixFilePermission.OTHERS_READ));
+      PosixFilePermissions.asFileAttribute(
+          ImmutableSet.of(
+              PosixFilePermission.OWNER_READ,
+              PosixFilePermission.GROUP_READ,
+              PosixFilePermission.OTHERS_READ));
 
   public static final Function<
       TargetNode<AppleNativeTargetDescriptionArg>,
@@ -576,6 +578,14 @@ public class ProjectGenerator {
       infoPlistPath = Optional.absent();
     }
 
+    // -- copy any binary and bundle targets into this bundle
+    Iterable<TargetNode<?>> copiedRules = AppleBuildRules.getRecursiveTargetNodeDependenciesOfTypes(
+        targetGraph,
+        AppleBuildRules.RecursiveDependenciesMode.COPYING,
+        targetNode,
+        Optional.of(AppleBuildRules.XCODE_TARGET_BUILD_RULE_TYPES));
+    ImmutableList<PBXBuildPhase> copyFilesBuildPhases = getCopyFilesBuildPhases(copiedRules);
+
     PBXNativeTarget target = generateBinaryTarget(
         project,
         Optional.of(targetNode),
@@ -586,15 +596,8 @@ public class ProjectGenerator {
         /* includeFrameworks */ true,
         AppleResources.collectRecursiveResources(targetGraph, ImmutableList.of(targetNode)),
         AppleBuildRules.collectRecursiveAssetCatalogs(targetGraph, ImmutableList.of(targetNode)),
+        Optional.<Iterable<PBXBuildPhase>>of(copyFilesBuildPhases),
         bundleLoaderNode);
-
-    // -- copy any binary and bundle targets into this bundle
-    Iterable<TargetNode<?>> copiedRules = AppleBuildRules.getRecursiveTargetNodeDependenciesOfTypes(
-        targetGraph,
-        AppleBuildRules.RecursiveDependenciesMode.COPYING,
-        targetNode,
-        Optional.of(AppleBuildRules.XCODE_TARGET_BUILD_RULE_TYPES));
-    generateCopyFilesBuildPhases(target, copiedRules);
 
     LOG.debug("Generated iOS bundle target %s", target);
     return target;
@@ -614,6 +617,7 @@ public class ProjectGenerator {
         /* includeFrameworks */ true,
         ImmutableSet.<AppleResourceDescription.Arg>of(),
         ImmutableSet.<AppleAssetCatalogDescription.Arg>of(),
+        Optional.<Iterable<PBXBuildPhase>>absent(),
         Optional.<TargetNode<AppleBundleDescription.Arg>>absent());
     LOG.debug("Generated Apple binary target %s", target);
     return target;
@@ -641,6 +645,7 @@ public class ProjectGenerator {
         /* includeFrameworks */ isShared,
         ImmutableSet.<AppleResourceDescription.Arg>of(),
         ImmutableSet.<AppleAssetCatalogDescription.Arg>of(),
+        Optional.<Iterable<PBXBuildPhase>>absent(),
         bundleLoaderNode);
     LOG.debug("Generated iOS library target %s", target);
     return target;
@@ -656,6 +661,7 @@ public class ProjectGenerator {
       boolean includeFrameworks,
       ImmutableSet<AppleResourceDescription.Arg> resources,
       ImmutableSet<AppleAssetCatalogDescription.Arg> assetCatalogs,
+      Optional<Iterable<PBXBuildPhase>> copyFilesPhases,
       Optional<TargetNode<AppleBundleDescription.Arg>> bundleLoaderNode)
       throws IOException {
     Optional<String> targetGid = targetNode.getConstructorArg().gid;
@@ -726,21 +732,23 @@ public class ProjectGenerator {
     // and add any shell script rules here
     ImmutableList.Builder<TargetNode<?>> preScriptPhases = ImmutableList.builder();
     ImmutableList.Builder<TargetNode<?>> postScriptPhases = ImmutableList.builder();
-    boolean skipRNBundle = ReactNativeFlavors.skipBundling(buildTargetNode.getBuildTarget());
     if (bundle.isPresent() && targetNode != bundle.get()) {
       collectBuildScriptDependencies(
           targetGraph.getAll(bundle.get().getDeclaredDeps()),
-          skipRNBundle,
           preScriptPhases,
           postScriptPhases);
     }
     collectBuildScriptDependencies(
         targetGraph.getAll(targetNode.getDeclaredDeps()),
-        skipRNBundle,
         preScriptPhases,
         postScriptPhases);
     mutator.setPreBuildRunScriptPhases(preScriptPhases.build());
+    if (copyFilesPhases.isPresent()) {
+      mutator.setCopyFilesPhases(copyFilesPhases.get());
+    }
     mutator.setPostBuildRunScriptPhases(postScriptPhases.build());
+    boolean skipRNBundle = ReactNativeFlavors.skipBundling(buildTargetNode.getBuildTarget());
+    mutator.skipReactNativeBundle(skipRNBundle);
 
     if (skipRNBundle && reactNativeServer.isPresent()) {
       mutator.setAdditionalRunScripts(
@@ -787,10 +795,10 @@ public class ProjectGenerator {
     }
     Optional<SourcePath> prefixHeaderOptional = targetNode.getConstructorArg().prefixHeader;
     if (prefixHeaderOptional.isPresent()) {
-        Path prefixHeaderRelative = sourcePathResolver.apply(prefixHeaderOptional.get());
-        Path prefixHeaderPath = pathRelativizer.outputDirToRootRelative(prefixHeaderRelative);
-        extraSettingsBuilder.put("GCC_PREFIX_HEADER", prefixHeaderPath.toString());
-        extraSettingsBuilder.put("GCC_PRECOMPILE_PREFIX_HEADER", "YES");
+      Path prefixHeaderRelative = sourcePathResolver.apply(prefixHeaderOptional.get());
+      Path prefixHeaderPath = pathRelativizer.outputDirToRootRelative(prefixHeaderRelative);
+      extraSettingsBuilder.put("GCC_PREFIX_HEADER", prefixHeaderPath.toString());
+      extraSettingsBuilder.put("GCC_PRECOMPILE_PREFIX_HEADER", "YES");
     }
     if (targetNode.getConstructorArg().getUseBuckHeaderMaps()) {
       extraSettingsBuilder.put("USE_HEADERMAP", "NO");
@@ -870,7 +878,7 @@ public class ProjectGenerator {
     if (!unsupportedLangPreprocessorFlags.isEmpty()) {
       throw new HumanReadableException(
           "%s: Xcode project generation does not support specified lang_preprocessor_flags keys: " +
-          "%s",
+              "%s",
           buildTarget,
           unsupportedLangPreprocessorFlags);
     }
@@ -1023,7 +1031,7 @@ public class ProjectGenerator {
       overrideBuildSettingsBuilder.put(
           "INFOPLIST_FILE",
           pathRelativizer.outputDirToRootRelative(
-                sourcePathResolver.apply(key.getInfoPlist().get())).toString());
+              sourcePathResolver.apply(key.getInfoPlist().get())).toString());
     }
     setTargetBuildConfigurations(
         new Function<String, Path>() {
@@ -1161,17 +1169,16 @@ public class ProjectGenerator {
 
   private void collectBuildScriptDependencies(
       Iterable<TargetNode<?>> targetNodes,
-      boolean skipRNBundle,
       ImmutableList.Builder<TargetNode<?>> preRules,
       ImmutableList.Builder<TargetNode<?>> postRules) {
     for (TargetNode<?> targetNode : targetNodes) {
       BuildRuleType type = targetNode.getType();
       if (type.equals(XcodePostbuildScriptDescription.TYPE) ||
-          (type.equals(IosReactNativeLibraryDescription.TYPE) && !skipRNBundle)) {
+          type.equals(IosReactNativeLibraryDescription.TYPE)) {
         postRules.add(targetNode);
       } else if (
           type.equals(XcodePrebuildScriptDescription.TYPE) ||
-          type.equals(GenruleDescription.TYPE)) {
+              type.equals(GenruleDescription.TYPE)) {
         preRules.add(targetNode);
       }
     }
@@ -1324,7 +1331,7 @@ public class ProjectGenerator {
     }
   }
 
-  private Optional<PBXCopyFilesBuildPhase.Destination> getDestination(TargetNode<?> targetNode) {
+  private Optional<CopyFilePhaseDestinationSpec> getDestinationSpec(TargetNode<?> targetNode) {
     if (targetNode.getType().equals(AppleBundleDescription.TYPE)) {
       AppleBundleDescription.Arg arg = (AppleBundleDescription.Arg) targetNode.getConstructorArg();
       AppleBundleExtension extension = arg.extension.isLeft() ?
@@ -1332,65 +1339,97 @@ public class ProjectGenerator {
           AppleBundleExtension.BUNDLE;
       switch (extension) {
         case FRAMEWORK:
-          return Optional.of(PBXCopyFilesBuildPhase.Destination.FRAMEWORKS);
+          return Optional.of(
+              CopyFilePhaseDestinationSpec.of(PBXCopyFilesBuildPhase.Destination.FRAMEWORKS)
+          );
         case APPEX:
         case PLUGIN:
-          return Optional.of(PBXCopyFilesBuildPhase.Destination.PLUGINS);
+          return Optional.of(
+              CopyFilePhaseDestinationSpec.of(PBXCopyFilesBuildPhase.Destination.PLUGINS)
+          );
         case APP:
-          return Optional.of(PBXCopyFilesBuildPhase.Destination.EXECUTABLES);
-        //$CASES-OMITTED$
-      default:
-          return Optional.of(PBXCopyFilesBuildPhase.Destination.PRODUCTS);
+          if (isWatchApplicationNode(targetNode)) {
+            return Optional.of(
+                CopyFilePhaseDestinationSpec.builder()
+                    .setDestination(PBXCopyFilesBuildPhase.Destination.PRODUCTS)
+                    .setPath("$(CONTENTS_FOLDER_PATH)/Watch")
+                    .build()
+            );
+          } else {
+            return Optional.of(
+                CopyFilePhaseDestinationSpec.of(PBXCopyFilesBuildPhase.Destination.EXECUTABLES)
+            );
+          }
+          //$CASES-OMITTED$
+        default:
+          return Optional.of(
+              CopyFilePhaseDestinationSpec.of(PBXCopyFilesBuildPhase.Destination.PRODUCTS)
+          );
       }
     } else if (targetNode.getType().equals(AppleLibraryDescription.TYPE)) {
       if (targetNode
           .getBuildTarget()
           .getFlavors()
           .contains(CxxDescriptionEnhancer.SHARED_FLAVOR)) {
-        return Optional.of(PBXCopyFilesBuildPhase.Destination.FRAMEWORKS);
+        return Optional.of(
+            CopyFilePhaseDestinationSpec.of(PBXCopyFilesBuildPhase.Destination.FRAMEWORKS)
+        );
       } else {
         return Optional.absent();
       }
     } else if (targetNode.getType().equals(AppleBinaryDescription.TYPE)) {
-      return Optional.of(PBXCopyFilesBuildPhase.Destination.EXECUTABLES);
+      return Optional.of(
+          CopyFilePhaseDestinationSpec.of(PBXCopyFilesBuildPhase.Destination.EXECUTABLES)
+      );
     } else {
       throw new RuntimeException("Unexpected type: " + targetNode.getType());
     }
   }
 
-  private void generateCopyFilesBuildPhases(
-      PBXNativeTarget target,
+  private ImmutableList<PBXBuildPhase> getCopyFilesBuildPhases(
       Iterable<TargetNode<?>> copiedNodes) {
 
     // Bucket build rules into bins by their destinations
-    ImmutableSetMultimap.Builder<PBXCopyFilesBuildPhase.Destination, TargetNode<?>>
-        ruleByDestinationBuilder = ImmutableSetMultimap.builder();
+    ImmutableSetMultimap.Builder<CopyFilePhaseDestinationSpec, TargetNode<?>>
+        ruleByDestinationSpecBuilder = ImmutableSetMultimap.builder();
     for (TargetNode<?> copiedNode : copiedNodes) {
-      Optional<PBXCopyFilesBuildPhase.Destination> optionalDestination =
-          getDestination(copiedNode);
-      if (optionalDestination.isPresent()) {
-        ruleByDestinationBuilder.put(optionalDestination.get(), copiedNode);
+      Optional<CopyFilePhaseDestinationSpec> optionalDestinationSpec =
+          getDestinationSpec(copiedNode);
+      if (optionalDestinationSpec.isPresent()) {
+        ruleByDestinationSpecBuilder.put(optionalDestinationSpec.get(), copiedNode);
       }
     }
-    ImmutableSetMultimap<PBXCopyFilesBuildPhase.Destination, TargetNode<?>> ruleByDestination =
-        ruleByDestinationBuilder.build();
+
+    ImmutableList.Builder<PBXBuildPhase> phases = ImmutableList.builder();
+
+    ImmutableSetMultimap<CopyFilePhaseDestinationSpec, TargetNode<?>> ruleByDestinationSpec =
+        ruleByDestinationSpecBuilder.build();
 
     // Emit a copy files phase for each destination.
-    for (PBXCopyFilesBuildPhase.Destination destination : ruleByDestination.keySet()) {
-      PBXCopyFilesBuildPhase copyFilesBuildPhase = new PBXCopyFilesBuildPhase(destination, "");
-      target.getBuildPhases().add(copyFilesBuildPhase);
-      for (TargetNode<?> targetNode : ruleByDestination.get(destination)) {
-        PBXFileReference fileReference = getLibraryFileReference(targetNode);
-        copyFilesBuildPhase.getFiles().add(new PBXBuildFile(fileReference));
-      }
+    for (CopyFilePhaseDestinationSpec destinationSpec : ruleByDestinationSpec.keySet()) {
+      Iterable<TargetNode<?>> targetNodes = ruleByDestinationSpec.get(destinationSpec);
+      phases.add(getSingleCopyFilesBuildPhase(destinationSpec, targetNodes));
     }
+
+    return phases.build();
+  }
+
+  private PBXCopyFilesBuildPhase getSingleCopyFilesBuildPhase(
+      CopyFilePhaseDestinationSpec destinationSpec,
+      Iterable<TargetNode<?>> targetNodes) {
+    PBXCopyFilesBuildPhase copyFilesBuildPhase = new PBXCopyFilesBuildPhase(destinationSpec);
+    for (TargetNode<?> targetNode : targetNodes) {
+      PBXFileReference fileReference = getLibraryFileReference(targetNode);
+      copyFilesBuildPhase.getFiles().add(new PBXBuildFile(fileReference));
+    }
+    return copyFilesBuildPhase;
   }
 
   /**
    * Create the project bundle structure and write {@code project.pbxproj}.
    */
   private Path writeProjectFile(PBXProject project) throws IOException {
-    XcodeprojSerializer serializer = new XcodeprojSerializer(
+  XcodeprojSerializer serializer = new XcodeprojSerializer(
         new GidGenerator(ImmutableSet.copyOf(gidsToTargetNames.keySet())),
         project);
     NSDictionary rootObject = serializer.toPlist();
@@ -1400,9 +1439,9 @@ public class ProjectGenerator {
     String contentsToWrite = rootObject.toXMLPropertyList();
     // Before we write any files, check if the file contents have changed.
     if (MorePaths.fileContentsDiffer(
-            new ByteArrayInputStream(contentsToWrite.getBytes(Charsets.UTF_8)),
-            serializedProject,
-            projectFilesystem)) {
+        new ByteArrayInputStream(contentsToWrite.getBytes(Charsets.UTF_8)),
+        serializedProject,
+        projectFilesystem)) {
       LOG.debug("Regenerating project at %s", serializedProject);
       if (shouldGenerateReadOnlyFiles()) {
         projectFilesystem.writeContentsToPath(
@@ -1833,7 +1872,11 @@ public class ProjectGenerator {
     // File references set as a productReference don't work with custom paths.
     SourceTreePath productsPath = getProductsSourceTreePath(targetNode);
 
-    if (targetNode.getType().equals(AppleLibraryDescription.TYPE) ||
+    if (isWatchApplicationNode(targetNode)) {
+      return project.getMainGroup()
+          .getOrCreateChildGroupByName("Products")
+          .getOrCreateFileReferenceBySourceTreePath(productsPath);
+    } else if (targetNode.getType().equals(AppleLibraryDescription.TYPE) ||
         targetNode.getType().equals(AppleBundleDescription.TYPE)) {
       return project.getMainGroup()
           .getOrCreateChildGroupByName("Frameworks")
@@ -2022,5 +2065,20 @@ public class ProjectGenerator {
       default:
         return Optional.absent();
     }
+  }
+
+  /**
+   * Determines if a target node is for watchOS2 application
+   * @param targetNode A target node
+   * @return If the given target node is for an watchOS2 application
+   */
+  private static boolean isWatchApplicationNode(TargetNode<?> targetNode) {
+    if (targetNode.getType().equals(AppleBundleDescription.TYPE)) {
+      AppleBundleDescription.Arg arg = (AppleBundleDescription.Arg) targetNode.getConstructorArg();
+      return arg.getXcodeProductType().equals(
+          Optional.of(ProductType.WATCH_APPLICATION.getIdentifier())
+      );
+    }
+    return false;
   }
 }
