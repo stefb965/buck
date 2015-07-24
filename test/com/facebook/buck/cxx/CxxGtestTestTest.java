@@ -24,6 +24,7 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParamsFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TestSourcePath;
@@ -36,6 +37,7 @@ import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
@@ -71,7 +73,10 @@ public class CxxGtestTestTest {
     CxxGtestTest test = new CxxGtestTest(
         BuildRuleParamsFactory.createTrivialBuildRuleParams(target),
         new SourcePathResolver(new BuildRuleResolver()),
-        new TestSourcePath(""),
+        new CommandTool.Builder()
+            .addArg(new TestSourcePath(""))
+            .build(),
+        ImmutableMap.<String, String>of(),
         ImmutableSortedSet.<BuildRule>of(),
         ImmutableSet.<Label>of(),
         ImmutableSet.<String>of(),

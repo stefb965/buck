@@ -58,6 +58,7 @@ import com.facebook.buck.util.FileHashCache;
 import com.facebook.buck.util.NullFileHashCache;
 import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.concurrent.MoreFutures;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Optional;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
@@ -192,7 +193,8 @@ public class CachingBuildEngineTest extends EasyMockSupport {
 
     BuildResult result = cachingBuildEngine.build(context, ruleToTest).get();
     assertEquals(BuildRuleSuccessType.BUILT_LOCALLY, result.getSuccess());
-    buckEventBus.post(CommandEvent.finished("build", ImmutableList.<String>of(), false, 0));
+    buckEventBus.post(
+        CommandEvent.finished(CommandEvent.started("build", ImmutableList.<String>of(), false), 0));
     verifyAll();
 
     assertTrue(cache.hasArtifact(ruleToTest.getRuleKey()));
@@ -273,6 +275,11 @@ public class CachingBuildEngineTest extends EasyMockSupport {
         BuildInfo.getPathToMetadataDirectory(buildTarget)
             .resolve(AbiRule.ABI_KEY_ON_DISK_METADATA));
 
+    filesystem.writeContentsToPath(
+        new ObjectMapper().writeValueAsString(ImmutableList.of()),
+        BuildInfo.getPathToMetadataDirectory(buildTarget)
+            .resolve(BuildInfo.METADATA_KEY_FOR_RECORDED_PATHS));
+
     CachingBuildEngine cachingBuildEngine =
         new CachingBuildEngine(
             MoreExecutors.newDirectExecutorService(),
@@ -284,7 +291,8 @@ public class CachingBuildEngineTest extends EasyMockSupport {
     //    "We expect build() to be synchronous in this case, " +
     //        "so the future should already be resolved.",
     //    MoreFutures.isSuccess(buildResult));
-    buckEventBus.post(CommandEvent.finished("build", ImmutableList.<String>of(), false, 0));
+    buckEventBus.post(
+        CommandEvent.finished(CommandEvent.started("build", ImmutableList.<String>of(), false), 0));
 
     BuildResult result = buildResult.get();
     assertEquals(BuildRuleSuccessType.MATCHING_DEPS_ABI_AND_RULE_KEY_NO_DEPS, result.getSuccess());
@@ -367,7 +375,8 @@ public class CachingBuildEngineTest extends EasyMockSupport {
             CachingBuildEngine.BuildMode.SHALLOW,
             NOOP_RULE_KEY_FACTORY);
     ListenableFuture<BuildResult> buildResult = cachingBuildEngine.build(buildContext, buildRule);
-    buckEventBus.post(CommandEvent.finished("build", ImmutableList.<String>of(), false, 0));
+    buckEventBus.post(
+        CommandEvent.finished(CommandEvent.started("build", ImmutableList.<String>of(), false), 0));
 
     OnDiskBuildInfo onDiskBuildInfo =
         buildContext.createOnDiskBuildInfoFor(buildTarget.getBuildTarget());
@@ -536,6 +545,11 @@ public class CachingBuildEngineTest extends EasyMockSupport {
         .setEventBus(buckEventBus)
         .build();
 
+    filesystem.writeContentsToPath(
+        new ObjectMapper().writeValueAsString(ImmutableList.of()),
+        BuildInfo.getPathToMetadataDirectory(buildRule.getBuildTarget())
+            .resolve(BuildInfo.METADATA_KEY_FOR_RECORDED_PATHS));
+
     // Build the rule!
     replayAll();
     CachingBuildEngine cachingBuildEngine =
@@ -544,7 +558,8 @@ public class CachingBuildEngineTest extends EasyMockSupport {
             CachingBuildEngine.BuildMode.SHALLOW,
             NOOP_RULE_KEY_FACTORY);
     ListenableFuture<BuildResult> buildResult = cachingBuildEngine.build(buildContext, buildRule);
-    buckEventBus.post(CommandEvent.finished("build", ImmutableList.<String>of(), false, 0));
+    buckEventBus.post(
+        CommandEvent.finished(CommandEvent.started("build", ImmutableList.<String>of(), false), 0));
     verifyAll();
 
     assertTrue(
@@ -606,6 +621,11 @@ public class CachingBuildEngineTest extends EasyMockSupport {
         .setEventBus(buckEventBus)
         .build();
 
+    filesystem.writeContentsToPath(
+        new ObjectMapper().writeValueAsString(ImmutableList.of()),
+        BuildInfo.getPathToMetadataDirectory(buildRule.getBuildTarget())
+            .resolve(BuildInfo.METADATA_KEY_FOR_RECORDED_PATHS));
+
     // Build the rule!
     replayAll();
     CachingBuildEngine cachingBuildEngine =
@@ -614,7 +634,8 @@ public class CachingBuildEngineTest extends EasyMockSupport {
             CachingBuildEngine.BuildMode.SHALLOW,
             NOOP_RULE_KEY_FACTORY);
     ListenableFuture<BuildResult> buildResult = cachingBuildEngine.build(buildContext, buildRule);
-    buckEventBus.post(CommandEvent.finished("build", ImmutableList.<String>of(), false, 0));
+    buckEventBus.post(
+        CommandEvent.finished(CommandEvent.started("build", ImmutableList.<String>of(), false), 0));
     verifyAll();
 
     BuildResult result = buildResult.get();
@@ -647,6 +668,10 @@ public class CachingBuildEngineTest extends EasyMockSupport {
         ruleToTest.getRuleKey().toString(),
         BuildInfo.getPathToMetadataDirectory(buildTarget)
             .resolve(BuildInfo.METADATA_KEY_FOR_RULE_KEY));
+    filesystem.writeContentsToPath(
+        new ObjectMapper().writeValueAsString(ImmutableList.of()),
+        BuildInfo.getPathToMetadataDirectory(buildTarget)
+            .resolve(BuildInfo.METADATA_KEY_FOR_RECORDED_PATHS));
 
     // The BuildContext that will be used by the rule's build() method.
     BuildContext context =
@@ -722,12 +747,20 @@ public class CachingBuildEngineTest extends EasyMockSupport {
         dep.getRuleKey().toString(),
         BuildInfo.getPathToMetadataDirectory(depTarget)
             .resolve(BuildInfo.METADATA_KEY_FOR_RULE_KEY));
+    filesystem.writeContentsToPath(
+        new ObjectMapper().writeValueAsString(ImmutableList.of()),
+        BuildInfo.getPathToMetadataDirectory(depTarget)
+            .resolve(BuildInfo.METADATA_KEY_FOR_RECORDED_PATHS));
     FakeBuildRule ruleToTest = new FakeBuildRule(buildTarget, pathResolver, dep);
     ruleToTest.setRuleKey(new RuleKey("bbbb"));
     filesystem.writeContentsToPath(
         ruleToTest.getRuleKey().toString(),
         BuildInfo.getPathToMetadataDirectory(buildTarget)
             .resolve(BuildInfo.METADATA_KEY_FOR_RULE_KEY));
+    filesystem.writeContentsToPath(
+        new ObjectMapper().writeValueAsString(ImmutableList.of()),
+        BuildInfo.getPathToMetadataDirectory(buildTarget)
+            .resolve(BuildInfo.METADATA_KEY_FOR_RECORDED_PATHS));
 
     // The BuildContext that will be used by the rule's build() method.
     BuildContext context =
@@ -817,6 +850,10 @@ public class CachingBuildEngineTest extends EasyMockSupport {
         transitiveRuntimeDep.getRuleKey().toString(),
         BuildInfo.getPathToMetadataDirectory(transitiveRuntimeDep.getBuildTarget())
             .resolve(BuildInfo.METADATA_KEY_FOR_RULE_KEY));
+    filesystem.writeContentsToPath(
+        new ObjectMapper().writeValueAsString(ImmutableList.of()),
+        BuildInfo.getPathToMetadataDirectory(transitiveRuntimeDep.getBuildTarget())
+            .resolve(BuildInfo.METADATA_KEY_FOR_RECORDED_PATHS));
 
     // Setup a runtime dependency that is referenced directly by the top-level rule.
     FakeBuildRule runtimeDep =
@@ -829,6 +866,10 @@ public class CachingBuildEngineTest extends EasyMockSupport {
         runtimeDep.getRuleKey().toString(),
         BuildInfo.getPathToMetadataDirectory(runtimeDep.getBuildTarget())
             .resolve(BuildInfo.METADATA_KEY_FOR_RULE_KEY));
+    filesystem.writeContentsToPath(
+        new ObjectMapper().writeValueAsString(ImmutableList.of()),
+        BuildInfo.getPathToMetadataDirectory(runtimeDep.getBuildTarget())
+            .resolve(BuildInfo.METADATA_KEY_FOR_RECORDED_PATHS));
 
     // Create a dep for the build rule.
     FakeBuildRule ruleToTest = new FakeHasRuntimeDeps(buildTarget, pathResolver, runtimeDep);
@@ -837,6 +878,10 @@ public class CachingBuildEngineTest extends EasyMockSupport {
         ruleToTest.getRuleKey().toString(),
         BuildInfo.getPathToMetadataDirectory(ruleToTest.getBuildTarget())
             .resolve(BuildInfo.METADATA_KEY_FOR_RULE_KEY));
+    filesystem.writeContentsToPath(
+        new ObjectMapper().writeValueAsString(ImmutableList.of()),
+        BuildInfo.getPathToMetadataDirectory(ruleToTest.getBuildTarget())
+            .resolve(BuildInfo.METADATA_KEY_FOR_RECORDED_PATHS));
 
     // The BuildContext that will be used by the rule's build() method.
     BuildContext context =
@@ -952,6 +997,10 @@ public class CachingBuildEngineTest extends EasyMockSupport {
         ruleToTest.getRuleKey().toString(),
         BuildInfo.getPathToMetadataDirectory(ruleToTest.getBuildTarget())
             .resolve(BuildInfo.METADATA_KEY_FOR_RULE_KEY));
+    filesystem.writeContentsToPath(
+        new ObjectMapper().writeValueAsString(ImmutableList.of()),
+        BuildInfo.getPathToMetadataDirectory(ruleToTest.getBuildTarget())
+            .resolve(BuildInfo.METADATA_KEY_FOR_RECORDED_PATHS));
 
     // The BuildContext that will be used by the rule's build() method.
     BuildContext context =
@@ -1109,6 +1158,15 @@ public class CachingBuildEngineTest extends EasyMockSupport {
           }
         };
 
+    // Create the output file.
+    filesystem.writeContentsToPath("stuff", output);
+
+    // Prepopulate the recorded paths metadata.
+    filesystem.writeContentsToPath(
+        new ObjectMapper().writeValueAsString(ImmutableList.of(output.toString())),
+        BuildInfo.getPathToMetadataDirectory(target)
+            .resolve(BuildInfo.METADATA_KEY_FOR_RECORDED_PATHS));
+
     // Prepopulate the input rule key on disk, so that we avoid a rebuild.
     filesystem.writeContentsToPath(
         inputRuleKey.toString(),
@@ -1131,6 +1189,13 @@ public class CachingBuildEngineTest extends EasyMockSupport {
     assertThat(
         onDiskBuildInfo.getRuleKey(BuildInfo.METADATA_KEY_FOR_RULE_KEY),
         Matchers.equalTo(Optional.of(rule.getRuleKey())));
+
+    // Verify that the artifact is re-cached correctly under the main rule key.
+    File fetchedArtifact = tmp.newFile("fetched_artifact.zip");
+    assertThat(
+        cache.fetch(rule.getRuleKey(), fetchedArtifact).getType(),
+        Matchers.equalTo(CacheResult.Type.HIT));
+    new ZipInspector(fetchedArtifact).assertFileExists(output.toString());
   }
 
   @Test
@@ -1173,6 +1238,12 @@ public class CachingBuildEngineTest extends EasyMockSupport {
             return output;
           }
         };
+
+    // Prepopulate the recorded paths metadata.
+    filesystem.writeContentsToPath(
+        new ObjectMapper().writeValueAsString(ImmutableList.of(output.toString())),
+        BuildInfo.getPathToMetadataDirectory(target)
+            .resolve(BuildInfo.METADATA_KEY_FOR_RECORDED_PATHS));
 
     // Prepopulate the cache with an artifact indexed by the input-based rule key.
     File artifact = tmp.newFile("artifact.zip");

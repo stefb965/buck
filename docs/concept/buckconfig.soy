@@ -64,6 +64,7 @@ The following sections are recognized by Buck:
     'log',
     'ndk',
     'project',
+    'rust',
     'test',
     'thrift',
     'tools',
@@ -232,17 +233,14 @@ This section configures the paths to the C++ toolchain's binaries.
   # Path to the C compiler
   cc = /usr/bin/gcc
 
-  # Path to the C linker
-  ld = /usr/bin/ld
+  # Path to the C/C++ linker driver
+  ld = /usr/bin/g++
 
   # Path to the C++ preprocessor
   cxxpp = /usr/bin/g++
 
   # Path to the C++ compiler
   cxx = /usr/bin/g++
-
-  # Path to the c++ linker
-  cxxld = /usr/bin/g++
 
   # Path to the assembly preprocessor
   aspp = /usr/bin/gcc
@@ -270,7 +268,7 @@ It also configures configures the default flags to pass to all invocations of sa
   # Flags to pass to the C compiler and preprocessor
   cflags =
 
-  # Flags to pass to the C linker
+  # Flags to pass to the C/C++ linker driver
   ldflags =
 
   # Flags to pass to the C++ preprocessor
@@ -278,9 +276,6 @@ It also configures configures the default flags to pass to all invocations of sa
 
   # Flags to pass to the C++ compiler and preprocessor
   cxxflags =
-
-  # Flags to pass to the c++ linker
-  cxxldflags =
 
   # Flags to pass to the assembly preprocessor
   asppflags =
@@ -402,6 +397,20 @@ inspection.
 </pre>{/literal}
 
 <p>Will compress the traces with GZIP.</p>
+
+{literal}<pre class="prettyprint lang-ini">
+[log]
+  remote_log_url = http://all.your.logs:500/are/belong/to/us
+
+</pre>{/literal}
+
+<p>Will stream the build logs to the indicated address. Currently{sp}
+<code>http</code> and <code>https</code> scheme URLs are supported.
+The events are sent in batches using PUT requests. Each batch contains a
+JSON array composing of the long entries.</p>
+
+<p>The format of the individual log entries is not yet finalized and may
+change without warning between Buck versions.</p>
 
 {call .section}{param title: 'ndk' /}{/call}
 
@@ -528,6 +537,17 @@ on the generated files.
 {literal}<pre class="prettyprint lang-ini">
 [project]
   post_process = ./scripts/post_process_buck_project.sh
+</pre>{/literal}
+
+
+{call .section}{param title: 'rust' /}{/call}
+
+This section may define a <code>compiler</code> that is used by <code>rust_</code> rules.
+
+{literal}<pre class="prettyprint lang-ini">
+[rust]
+  # The path to rustc that Buck should use to compile Rust files.
+  compiler = /usr/local/bin/rustc
 </pre>{/literal}
 
 

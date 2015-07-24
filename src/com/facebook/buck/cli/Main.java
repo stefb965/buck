@@ -29,6 +29,7 @@ import com.facebook.buck.event.listener.ChromeTraceBuildListener;
 import com.facebook.buck.event.listener.FileSerializationEventBusListener;
 import com.facebook.buck.event.listener.JavaUtilsLoggingBuildListener;
 import com.facebook.buck.event.listener.LoggingBuildListener;
+import com.facebook.buck.event.listener.RemoteLogUploaderEventListener;
 import com.facebook.buck.event.listener.SimpleConsoleEventBusListener;
 import com.facebook.buck.event.listener.SuperConsoleEventBusListener;
 import com.facebook.buck.httpserver.WebServer;
@@ -65,10 +66,12 @@ import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.WatchmanWatcher;
 import com.facebook.buck.util.WatchmanWatcherException;
 import com.facebook.buck.util.concurrent.TimeSpan;
+import com.facebook.buck.util.environment.BuildEnvironmentDescription;
 import com.facebook.buck.util.environment.DefaultExecutionEnvironment;
 import com.facebook.buck.util.environment.EnvironmentFilter;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.util.network.RemoteLoggerFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jdk7.Jdk7Module;
 import com.google.common.annotations.VisibleForTesting;
@@ -92,6 +95,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.io.PrintStream;
 import java.net.MalformedURLException;
+import java.net.URI;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Path;
@@ -585,6 +589,7 @@ public final class Main {
           rootRepository.getBuckConfig(),
           webServer,
           clock,
+          executionEnvironment,
           console,
           consoleListener,
           rootRepository.getKnownBuildRuleTypes(),
@@ -594,11 +599,11 @@ public final class Main {
           ? ImmutableList.copyOf(Arrays.copyOfRange(args, 1, args.length))
           : ImmutableList.<String>of();
 
-      CommandEvent commandEvent = CommandEvent.started(
+      CommandEvent.Started startedEvent = CommandEvent.started(
           args.length > 0 ? args[0] : "",
           remainingArgs,
           isDaemon);
-      buildEventBus.post(commandEvent);
+      buildEventBus.post(startedEvent);
 
       // Create or get Parser and invalidate cached command parameters.
       Parser parser = null;
@@ -608,7 +613,7 @@ public final class Main {
           parser = getParserFromDaemon(
               context,
               rootRepository,
-              commandEvent,
+              startedEvent,
               buildEventBus,
               clock);
         } catch (WatchmanWatcherException | IOException e) {
@@ -677,12 +682,7 @@ public final class Main {
               buckConfig,
               fileHashCache));
       parser.cleanCache();
-      buildEventBus.post(
-          CommandEvent.finished(
-              args.length > 0 ? args[0] : "",
-              remainingArgs,
-              isDaemon,
-              exitCode));
+      buildEventBus.post(CommandEvent.finished(startedEvent, exitCode));
     } catch (Throwable t) {
       LOG.debug(t, "Failing build on exception.");
       closeCreatedArtifactCaches(artifactCacheFactory); // Close cache before exit on exception.
@@ -889,6 +889,7 @@ public final class Main {
       BuckConfig config,
       Optional<WebServer> webServer,
       Clock clock,
+      ExecutionEnvironment executionEnvironment,
       Console console,
       AbstractConsoleEventBusListener consoleEventBusListener,
       KnownBuildRuleTypes knownBuildRuleTypes,
@@ -913,9 +914,23 @@ public final class Main {
     loadListenersFromBuckConfig(eventListenersBuilder, projectFilesystem, config);
 
 
+    Optional<URI> remoteLogUrl = config.getRemoteLogUrl();
+    ImmutableMap<String, String> environmentExtraData = ImmutableMap.of();
+    if (remoteLogUrl.isPresent()) {
+      eventListenersBuilder.add(
+          new RemoteLogUploaderEventListener(
+              objectMapper,
+              RemoteLoggerFactory.create(remoteLogUrl.get(), objectMapper),
+              BuildEnvironmentDescription.of(
+                  executionEnvironment,
+                  config.getArtifactCacheModes(),
+                  environmentExtraData)
+          ));
+    }
+
 
     JavacOptions javacOptions = new JavaBuckConfig(config)
-        .getDefaultJavacOptions(new ProcessExecutor(console));
+        .getDefaultJavacOptions();
 
     eventListenersBuilder.add(MissingSymbolsHandler.createListener(
             projectFilesystem,

@@ -27,6 +27,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Multimaps;
@@ -79,28 +80,19 @@ public class AuditTestsCommand extends AbstractCommand {
     ImmutableSet<BuildTarget> targets = getBuildTargets(
         ImmutableSet.copyOf(getArgumentsFormattedAsBuildTargets(params.getBuckConfig())));
 
-    TargetGraph graph;
     try {
-      graph = params.getParser().buildTargetGraphForBuildTargets(
-          targets,
-          new ParserConfig(params.getBuckConfig()),
-          params.getBuckEventBus(),
-          params.getConsole(),
-          params.getEnvironment(),
-          getEnableProfiling());
+      TreeMultimap<BuildTarget, BuildTarget> targetsToPrint =
+          getTestsForTargets(params, targets, getEnableProfiling());
+      LOG.debug("Printing out the following targets: " + targetsToPrint);
+
+      if (shouldGenerateJsonOutput()) {
+        printJSON(params, targetsToPrint);
+      } else {
+        printToConsole(params, targetsToPrint);
+      }
     } catch (BuildTargetException | BuildFileParseException e) {
       params.getConsole().printBuildFailureWithoutStacktrace(e);
       return 1;
-    }
-
-    TreeMultimap<BuildTarget, BuildTarget> targetsToPrint =
-        getTestsForTargets(targets, graph);
-    LOG.debug("Printing out the following targets: " + targetsToPrint);
-
-    if (shouldGenerateJsonOutput()) {
-      printJSON(params, targetsToPrint);
-    } else {
-      printToConsole(params, targetsToPrint);
     }
 
     return 0;
@@ -111,9 +103,19 @@ public class AuditTestsCommand extends AbstractCommand {
     return true;
   }
 
-  TreeMultimap<BuildTarget, BuildTarget> getTestsForTargets(
+  public static TreeMultimap<BuildTarget, BuildTarget> getTestsForTargets(
+      final CommandRunnerParams params,
       final ImmutableSet<BuildTarget> targets,
-      final TargetGraph graph) {
+      boolean enableProfiling)
+      throws IOException, InterruptedException, BuildFileParseException, BuildTargetException {
+    TargetGraph graph = params.getParser().buildTargetGraphForBuildTargets(
+        targets,
+        new ParserConfig(params.getBuckConfig()),
+        params.getBuckEventBus(),
+        params.getConsole(),
+        params.getEnvironment(),
+        enableProfiling);
+
     TreeMultimap<BuildTarget, BuildTarget> multimap = TreeMultimap.create();
     for (BuildTarget target : targets) {
       multimap.putAll(
@@ -143,7 +145,7 @@ public class AuditTestsCommand extends AbstractCommand {
   private void printToConsole(
       CommandRunnerParams params,
       Multimap<BuildTarget, BuildTarget> targetsAndTests) {
-    for (BuildTarget target : targetsAndTests.values()) {
+    for (BuildTarget target : ImmutableSortedSet.copyOf(targetsAndTests.values())) {
       params.getConsole().getStdOut().println(target.getFullyQualifiedName());
     }
   }

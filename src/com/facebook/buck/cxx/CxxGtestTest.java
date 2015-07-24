@@ -16,13 +16,12 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.Label;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.Tool;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.test.TestResultSummary;
 import com.facebook.buck.test.result.type.ResultType;
@@ -30,6 +29,7 @@ import com.facebook.buck.util.XmlDomParser;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Lists;
@@ -52,19 +52,20 @@ public class CxxGtestTest extends CxxTest implements HasRuntimeDeps {
   private static final Pattern START = Pattern.compile("^\\[\\s*RUN\\s*\\] (.*)$");
   private static final Pattern END = Pattern.compile("^\\[\\s*(FAILED|OK)\\s*\\] .*");
 
-  private final SourcePath binary;
+  private final Tool executable;
   private final ImmutableSortedSet<BuildRule> additionalDeps;
 
   public CxxGtestTest(
       BuildRuleParams params,
       SourcePathResolver resolver,
-      SourcePath binary,
+      Tool executable,
+      ImmutableMap<String, String> env,
       ImmutableSortedSet<BuildRule> additionalDeps,
       ImmutableSet<Label> labels,
       ImmutableSet<String> contacts,
       ImmutableSet<BuildRule> sourceUnderTest) {
-    super(params, resolver, labels, contacts, sourceUnderTest);
-    this.binary = binary;
+    super(params, resolver, env, labels, contacts, sourceUnderTest);
+    this.executable = executable;
     this.additionalDeps = additionalDeps;
   }
 
@@ -72,13 +73,11 @@ public class CxxGtestTest extends CxxTest implements HasRuntimeDeps {
   protected ImmutableList<String> getShellCommand(
       ExecutionContext context,
       Path output) {
-    ProjectFilesystem filesystem = context.getProjectFilesystem();
-    String resolvedBinary = filesystem.resolve(getResolver().getPath(binary)).toString();
-    String resolvedOutput = filesystem.resolve(output).toString();
-    return ImmutableList.of(
-        resolvedBinary,
-        "--gtest_color=no",
-        "--gtest_output=xml:" + resolvedOutput);
+    return ImmutableList.<String>builder()
+        .addAll(executable.getCommandPrefix(getResolver()))
+        .add("--gtest_color=no")
+        .add("--gtest_output=xml:" + context.getProjectFilesystem().resolve(output).toString())
+        .build();
   }
 
   @Override
@@ -145,7 +144,7 @@ public class CxxGtestTest extends CxxTest implements HasRuntimeDeps {
   @Override
   public ImmutableSortedSet<BuildRule> getRuntimeDeps() {
     return ImmutableSortedSet.<BuildRule>naturalOrder()
-        .addAll(getResolver().getRule(binary).asSet())
+        .addAll(getResolver().filterBuildRuleInputs(executable.getInputs()))
         .addAll(additionalDeps)
         .build();
   }

@@ -26,7 +26,6 @@ import com.facebook.buck.parser.BuildTargetParseException;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.rules.ArtifactCache;
-import com.facebook.buck.rules.BuildDependencies;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CachingBuildEngine;
 import com.facebook.buck.rules.DirArtifactCache;
@@ -47,7 +46,6 @@ import com.google.common.annotations.Beta;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.base.Function;
-import com.google.common.base.Joiner;
 import com.google.common.base.Objects;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -69,6 +67,7 @@ import java.io.IOException;
 import java.io.Reader;
 import java.net.InetAddress;
 import java.net.MalformedURLException;
+import java.net.URI;
 import java.net.URL;
 import java.net.UnknownHostException;
 import java.nio.file.Path;
@@ -117,6 +116,13 @@ public class BuckConfig {
   private static final String DEFAULT_HTTP_URL = "http://localhost:8080";
   private static final String DEFAULT_HTTP_CACHE_MODE = CacheMode.readwrite.name();
   private static final String DEFAULT_HTTP_CACHE_TIMEOUT_SECONDS = "3";
+
+  private static final Function<String, URI> TO_URI = new Function<String, URI>() {
+    @Override
+    public URI apply(String input) {
+      return URI.create(input);
+    }
+  };
 
   private final Config config;
 
@@ -484,23 +490,6 @@ public class BuckConfig {
     return getListWithoutComments("test", "excluded_labels");
   }
 
-  @Beta
-  Optional<BuildDependencies> getBuildDependencies() {
-    Optional<String> buildDependenciesOptional = getValue("build", "build_dependencies");
-    if (buildDependenciesOptional.isPresent()) {
-      try {
-        return Optional.of(BuildDependencies.valueOf(buildDependenciesOptional.get()));
-      } catch (IllegalArgumentException e) {
-        throw new HumanReadableException(
-            "%s is not a valid value for build_dependencies.  Must be one of: %s",
-            buildDependenciesOptional.get(),
-            Joiner.on(", ").join(BuildDependencies.values()));
-      }
-    } else {
-      return Optional.absent();
-    }
-  }
-
   /**
    * Create an Ansi object appropriate for the current output. First respect the user's
    * preferences, if set. Next, respect any default provided by the caller. (This is used by buckd
@@ -705,6 +694,10 @@ public class BuckConfig {
       throw new HumanReadableException("Unusable cache.%s: '%s'", fieldName, cacheMode);
     }
     return doStore;
+  }
+
+  public Optional<URI> getRemoteLogUrl() {
+    return getValue("log", "remote_log_url").transform(TO_URI);
   }
 
   public Optional<String> getValue(String sectionName, String propertyName) {

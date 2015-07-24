@@ -507,7 +507,8 @@ public class AdbHelper {
           installableApk)
           .install();
     }
-    getBuckEventBus().post(InstallEvent.started(installableApk.getBuildTarget()));
+    InstallEvent.Started started = InstallEvent.started(installableApk.getBuildTarget());
+    getBuckEventBus().post(started);
 
     final File apk = installableApk.getApkPath().toFile();
     boolean success = adbCall(
@@ -522,7 +523,10 @@ public class AdbHelper {
             return "install apk";
           }
         });
-    getBuckEventBus().post(InstallEvent.finished(installableApk.getBuildTarget(), success));
+    getBuckEventBus().post(InstallEvent.finished(
+            started,
+            success,
+            Optional.<Long>absent()));
 
     return success;
   }
@@ -720,8 +724,10 @@ public class AdbHelper {
     PrintStream stdOut = console.getStdOut();
     stdOut.println(String.format("Starting activity %s...", activityToRun));
 
-    getBuckEventBus().post(StartActivityEvent.started(installableApk.getBuildTarget(),
-        activityToRun));
+    StartActivityEvent.Started started = StartActivityEvent.started(
+        installableApk.getBuildTarget(),
+        activityToRun);
+    getBuckEventBus().post(started);
     boolean success = adbCall(
         new AdbHelper.AdbCallable() {
           @Override
@@ -740,9 +746,7 @@ public class AdbHelper {
             return "start activity";
           }
         });
-    getBuckEventBus().post(StartActivityEvent.finished(installableApk.getBuildTarget(),
-        activityToRun,
-        success));
+    getBuckEventBus().post(StartActivityEvent.finished(started, success));
 
     return success ? 0 : 1;
 
@@ -782,7 +786,8 @@ public class AdbHelper {
       final boolean shouldKeepUserData) throws InterruptedException {
     Preconditions.checkArgument(AdbHelper.PACKAGE_NAME_PATTERN.matcher(packageName).matches());
 
-    getBuckEventBus().post(UninstallEvent.started(packageName));
+    UninstallEvent.Started started = UninstallEvent.started(packageName);
+    getBuckEventBus().post(started);
     boolean success = adbCall(
         new AdbHelper.AdbCallable() {
       @Override
@@ -798,7 +803,7 @@ public class AdbHelper {
         return "uninstall apk";
       }
     });
-    getBuckEventBus().post(UninstallEvent.finished(packageName, success));
+    getBuckEventBus().post(UninstallEvent.finished(started, success));
     return success;
   }
 

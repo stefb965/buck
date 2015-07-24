@@ -13,21 +13,34 @@
       <sourceFolder url="file://$MODULE_DIR$/third-party/java/dx/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/build-ij/immutables" isTestSource="false" generated="true" />
       <sourceFolder url="file://$MODULE_DIR$/build-ij/immutables-test" isTestSource="true" generated="true" />
+      <sourceFolder url="file://$MODULE_DIR$/third-party/java/bazel/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/buck-out" />
       <excludeFolder url="file://$MODULE_DIR$/build" />
       <excludeFolder url="file://$MODULE_DIR$/src/com/facebook/buck/android/support" />
       <excludeFolder url="file://$MODULE_DIR$/src/com/facebook/buck/cli/quickstart" />
       <excludeFolder url="file://$MODULE_DIR$/src/com/facebook/buck/junit" />
-      <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/android/agent/util/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/android/testdata" />
+      <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/apple/testdata" />
+      <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/apple/xcode/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/cli/bootstrapper/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/cli/testdata" />
+      <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/cxx/testdata" />
+      <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/d/testdata" />
+      <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/event/listener/integration/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/gwt/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/java/intellij/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/java/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/js/testdata" />
+      <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/junit/testdata" />
+      <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/ocaml/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/parser/testdata" />
+      <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/python/testdata" />
+      <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/rust/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/shell/testdata" />
+      <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/test/cache/testdata" />
+      <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/test/labels/testdata" />
+      <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/test/result/groups/testdata" />
+      <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/thrift/testdata" />
     </content>
     <orderEntry type="jdk" jdkName="1.7" jdkType="JavaSDK" />
     <orderEntry type="sourceFolder" forTests="false" />
@@ -39,7 +52,6 @@
     <orderEntry type="library" name="infer-annotations" level="project" />
     <orderEntry type="library" name="jetty" level="project" />
     <orderEntry type="library" name="slf4j-api-1.7.2" level="project" />
-    <orderEntry type="library" name="slf4j-log4j12-1.7.2" level="project" />
     <orderEntry type="library" name="soy-no-guava" level="project" />
     <orderEntry type="library" name="xz-java-1.3" level="project" />
     <orderEntry type="library" name="eclipse" level="project" />
@@ -47,5 +59,6 @@
     <orderEntry type="library" name="infer-annotations" level="project" />
     <orderEntry type="library" name="jacoco" level="project" />
     <orderEntry type="library" name="immutables-annotations" level="project" />
+    <orderEntry type="library" name="maven-lib" level="project" />
   </component>
 </module>

@@ -26,17 +26,15 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.Label;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Suppliers;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Sets;
@@ -89,42 +87,38 @@ public class CxxTestDescription implements
       throw new HumanReadableException("%s: %s", params.getBuildTarget(), e.getMessage());
     }
 
+    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+
     // Generate the link rule that builds the test binary.
-    CxxLink cxxLink = CxxDescriptionEnhancer.createBuildRulesForCxxBinaryDescriptionArg(
-        params,
-        resolver,
-        cxxPlatform,
-        args,
-        cxxBuckConfig.getPreprocessMode())
-        .cxxLink;
+    CxxDescriptionEnhancer.CxxLinkAndCompileRules cxxLinkAndCompileRules =
+        CxxDescriptionEnhancer.createBuildRulesForCxxBinaryDescriptionArg(
+            params,
+            resolver,
+            cxxPlatform,
+            args,
+            cxxBuckConfig.getPreprocessMode());
 
     // Construct the actual build params we'll use, notably with an added dependency on the
     // CxxLink rule above which builds the test binary.
     BuildRuleParams testParams =
-        params.copyWithDeps(
-            Suppliers.ofInstance(
-                ImmutableSortedSet.<BuildRule>naturalOrder()
-                    .addAll(params.getDeclaredDeps())
-                    .add(cxxLink)
-                    .build()),
-            Suppliers.ofInstance(params.getExtraDeps()));
+        params.appendExtraDeps(
+            pathResolver.filterBuildRuleInputs(cxxLinkAndCompileRules.executable.getInputs()));
 
     CxxTest test;
 
     CxxTestType type = args.framework.or(getDefaultTestType());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
-    SourcePath binary =
-        new BuildTargetSourcePath(cxxLink.getBuildTarget());
     // It's not uncommon for users to add dependencies onto other binaries that they run during
     // the test, so make sure to add them as runtime deps.
     ImmutableSortedSet<BuildRule> additionalDeps =
-        ImmutableSortedSet.copyOf(Sets.difference(params.getDeps(), cxxLink.getDeps()));
+        ImmutableSortedSet.copyOf(
+            Sets.difference(params.getDeps(), cxxLinkAndCompileRules.cxxLink.getDeps()));
     switch (type) {
       case GTEST: {
         test = new CxxGtestTest(
             testParams,
             pathResolver,
-            binary,
+            cxxLinkAndCompileRules.executable,
+            args.env.or(ImmutableMap.<String, String>of()),
             additionalDeps,
             args.labels.get(),
             args.contacts.get(),
@@ -135,7 +129,8 @@ public class CxxTestDescription implements
         test = new CxxBoostTest(
             testParams,
             pathResolver,
-            binary,
+            cxxLinkAndCompileRules.executable,
+            args.env.or(ImmutableMap.<String, String>of()),
             additionalDeps,
             args.labels.get(),
             args.contacts.get(),
@@ -206,6 +201,7 @@ public class CxxTestDescription implements
     public Optional<ImmutableSet<Label>> labels;
     public Optional<ImmutableSortedSet<BuildTarget>> sourceUnderTest;
     public Optional<CxxTestType> framework;
+    public Optional<ImmutableMap<String, String>> env;
 
     @Override
     public ImmutableSortedSet<BuildTarget> getSourceUnderTest() {

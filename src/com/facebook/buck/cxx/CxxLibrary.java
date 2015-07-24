@@ -160,7 +160,7 @@ public class CxxLibrary extends AbstractCxxLibrary {
     final BuildRule libraryRule;
     ImmutableList.Builder<String> linkerArgsBuilder = ImmutableList.builder();
     linkerArgsBuilder.addAll(exportedLinkerFlags.apply(cxxPlatform));
-    if (type == Linker.LinkableDepType.STATIC || linkage == Linkage.STATIC) {
+    if (type != Linker.LinkableDepType.SHARED || linkage == Linkage.STATIC) {
       libraryRule = CxxDescriptionEnhancer.requireBuildRule(
           params,
           ruleResolver,
@@ -206,11 +206,8 @@ public class CxxLibrary extends AbstractCxxLibrary {
   }
 
   @Override
-  public Optional<Linker.LinkableDepType> getPreferredLinkage(CxxPlatform cxxPlatform) {
-    if (linkage == Linkage.STATIC) {
-      return Optional.of(Linker.LinkableDepType.STATIC);
-    }
-    return Optional.absent();
+  public NativeLinkable.Linkage getPreferredLinkage(CxxPlatform cxxPlatform) {
+    return linkage;
   }
 
   @Override
@@ -287,11 +284,6 @@ public class CxxLibrary extends AbstractCxxLibrary {
   @Override
   public boolean isTestedBy(BuildTarget testTarget) {
     return tests.contains(testTarget);
-  }
-
-  public enum Linkage {
-    ANY,
-    STATIC,
   }
 
 }

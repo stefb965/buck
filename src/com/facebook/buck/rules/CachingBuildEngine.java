@@ -37,7 +37,6 @@ import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.collect.FluentIterable;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Lists;
@@ -56,6 +55,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -338,6 +338,15 @@ public class CachingBuildEngine implements BuildEngine {
                   context);
             }
 
+            // If we didn't build the rule locally, reload the recorded paths from the build
+            // metadata.
+            if (success != BuildRuleSuccessType.BUILT_LOCALLY) {
+              for (String str :
+                   onDiskBuildInfo.getValues(BuildInfo.METADATA_KEY_FOR_RECORDED_PATHS).get()) {
+                buildInfoRecorder.recordArtifact(Paths.get(str));
+              }
+            }
+
             // Make sure that all of the local files have the same values they would as if the
             // rule had been built locally.
             buildInfoRecorder.addBuildMetadata(
@@ -348,7 +357,7 @@ public class CachingBuildEngine implements BuildEngine {
                 FluentIterable.from(rule.getDeps())
                     .transform(HasBuildTarget.TO_TARGET)
                     .transform(Functions.toStringFunction()));
-            if (success != null && success.shouldWriteRecordedMetadataToDiskAfterBuilding()) {
+            if (success.shouldWriteRecordedMetadataToDiskAfterBuilding()) {
               try {
                 boolean clearExistingMetadata = success.shouldClearAndOverwriteMetadataOnDisk();
                 buildInfoRecorder.writeMetadataToDisk(clearExistingMetadata);
@@ -642,16 +651,15 @@ public class CachingBuildEngine implements BuildEngine {
     //
     // Unfortunately, this does not appear to work, in practice, because MoreFiles fails when trying
     // to resolve a Path for a zip entry against a file Path on disk.
-    buildContext.getEventBus().post(
-        ArtifactCacheEvent.started(
-            ArtifactCacheEvent.Operation.DECOMPRESS,
-            ImmutableSet.of(ruleKey)));
+    ArtifactCacheEvent.Started started = ArtifactCacheEvent.started(
+        ArtifactCacheEvent.Operation.DECOMPRESS,
+        ImmutableSet.of(ruleKey));
+    buildContext.getEventBus().post(started);
     try {
-      ImmutableList<Path> unpacked =
-          Unzip.extractZipFile(
-              zipFile.toPath().toAbsolutePath(),
-              filesystem,
-              Unzip.ExistingFileMode.OVERWRITE_AND_CLEAN_DIRECTORIES);
+      Unzip.extractZipFile(
+          zipFile.toPath().toAbsolutePath(),
+          filesystem,
+          Unzip.ExistingFileMode.OVERWRITE_AND_CLEAN_DIRECTORIES);
 
       // We only delete the ZIP file when it has been unzipped successfully. Otherwise, we leave it
       // around for debugging purposes.
@@ -665,12 +673,6 @@ public class CachingBuildEngine implements BuildEngine {
           Path dest = metadataDir.resolve(ent.getKey());
           filesystem.createParentDirs(dest);
           filesystem.writeContentsToPath(ent.getValue(), dest);
-        }
-
-        // Record the items we fetched from the cache, as we may need to re-cache these under a
-        // different rule key.
-        for (Path input : unpacked) {
-          buildInfoRecorder.recordArtifact(input);
         }
       }
 
@@ -687,10 +689,7 @@ public class CachingBuildEngine implements BuildEngine {
               Throwables.getStackTraceAsString(e)));
       return CacheResult.miss();
     } finally {
-      buildContext.getEventBus().post(
-          ArtifactCacheEvent.finished(
-              ArtifactCacheEvent.Operation.DECOMPRESS,
-              ImmutableSet.of(rule.getRuleKey())));
+      buildContext.getEventBus().post(ArtifactCacheEvent.finished(started));
     }
 
     return cacheResult;
