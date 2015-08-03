@@ -22,6 +22,7 @@ import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.TargetGraph;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSortedSet;
 
@@ -43,7 +44,10 @@ public class XpiDescription implements Description<XpiDescription.Arg> {
 
   @Override
   public <A extends Arg> Xpi createBuildRule(
-      BuildRuleParams params, BuildRuleResolver resolver, A args) {
+      TargetGraph targetGraph,
+      BuildRuleParams params,
+      BuildRuleResolver resolver,
+      A args) {
     return new Xpi(
         params,
         new SourcePathResolver(resolver),

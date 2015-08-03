@@ -23,6 +23,7 @@ import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.TargetGraph;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSortedSet;
 
@@ -42,7 +43,10 @@ public class JsLibraryDescription implements Description<JsLibraryDescription.Ar
 
   @Override
   public <A extends Arg> JsLibrary createBuildRule(
-      BuildRuleParams params, BuildRuleResolver resolver, A args) {
+      TargetGraph targetGraph,
+      BuildRuleParams params,
+      BuildRuleResolver resolver,
+      A args) {
     return new JsLibrary(
         params,
         new SourcePathResolver(resolver),

@@ -23,6 +23,7 @@ import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.TargetGraph;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSortedSet;
 
@@ -50,7 +51,10 @@ public class JsBinaryDescription implements Description<JsBinaryDescription.Arg>
 
   @Override
   public <A extends Arg> JsBinary createBuildRule(
-      BuildRuleParams params, BuildRuleResolver resolver, A args) {
+      TargetGraph targetGraph,
+      BuildRuleParams params,
+      BuildRuleResolver resolver,
+      A args) {
     return new JsBinary(
         params,
         new SourcePathResolver(resolver),
