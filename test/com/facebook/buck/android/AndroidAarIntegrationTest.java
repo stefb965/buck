@@ -61,13 +61,18 @@ public class AndroidAarIntegrationTest {
     zipInspector.assertFileExists("assets/a.txt");
     zipInspector.assertFileExists("assets/b.txt");
     zipInspector.assertFileExists("res/raw/helloworld.txt");
-    zipInspector.assertFileExists("res/values/A.xml");
+    zipInspector.assertFileExists("res/values/values.xml");
+    zipInspector.assertFileContents(
+        "res/values/values.xml",
+        workspace.getFileContents("res/values/A.xml").trim()
+    );
 
     Path contents = tmp.getRootPath().resolve("aar-contents");
     Unzip.extractZipFile(aar.toPath(), contents, Unzip.ExistingFileMode.OVERWRITE);
     try (JarFile classes = new JarFile(contents.resolve("classes.jar").toFile())) {
       assertThat(classes.getJarEntry("com/example/HelloWorld.class"), Matchers.notNullValue());
     }
+
   }
 
   @Test
@@ -85,7 +90,14 @@ public class AndroidAarIntegrationTest {
     zipInspector.assertFileExists("R.txt");
     zipInspector.assertFileExists("res/");
     zipInspector.assertFileExists("res/values/");
-    zipInspector.assertFileExists("res/values/strings.xml");
+    zipInspector.assertFileExists("res/values/values.xml");
+
+    zipInspector.assertFileContents(
+        "res/values/values.xml",
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n" +
+        "<resources>\n" +
+        "    <string name=\"app_name\">Hello World</string>\n" +
+        "</resources>");
   }
 
   @Test
@@ -103,6 +115,12 @@ public class AndroidAarIntegrationTest {
     zipInspector.assertFileExists("classes.jar");
     zipInspector.assertFileExists("R.txt");
     zipInspector.assertFileExists("res/");
+    zipInspector.assertFileExists("jni/armeabi/libdep.so");
+    zipInspector.assertFileExists("jni/armeabi/libnative.so");
+    zipInspector.assertFileExists("jni/armeabi-v7a/libdep.so");
+    zipInspector.assertFileExists("jni/armeabi-v7a/libnative.so");
+    zipInspector.assertFileExists("jni/x86/libdep.so");
+    zipInspector.assertFileExists("jni/x86/libnative.so");
   }
 
   @Test
