@@ -45,6 +45,8 @@
 
   <property name="pathlib.dir" value="${third-party.dir}/py/pathlib" />
   <property name="unittest2.dir" value="${third-party.dir}/py/unittest2" />
+  <property name="pywatchman.dir" value="${third-party.dir}/py/pywatchman" />
+  <property name="pywatchman.install.dir" value="${build.dir}/pywatchman" />
 
   <property name="immutables-value-standalone.jar" value="${third-party.dir}/java/immutables/value-2.0.11.jar" />
   <property name="immutables.gensrc.dir" value="${build.dir}/immutables" />
@@ -62,9 +64,6 @@
   </condition>
 
   <fileset dir="${third-party.dir}/java" id="buck.jars">
-    <include name="android/sdk-common-24.2.3.jar" />
-    <include name="android/common-24.2.3.jar" />
-    <include name="android/layoutlib-api-24.2.3.jar" />
     <include name="args4j/args4j-2.0.30.jar" />
     <include name="ddmlib/ddmlib-22.5.3.jar" />
     <include name="guava/guava-18.0.jar" />
@@ -79,6 +78,9 @@
   </fileset>
 
   <fileset dir="${third-party.dir}/java" id="third-party.jars">
+    <include name="android/sdk-common-24.2.3.jar" />
+    <include name="android/common-24.2.3.jar" />
+    <include name="android/layoutlib-api-24.2.3.jar" />
     <include name="aopalliance/aopalliance.jar" />
     <include name="asm/asm-debug-all-5.0.3.jar" />
     <include name="closure-templates/soy-excluding-deps.jar" />
@@ -105,6 +107,7 @@
     <include name="jimfs/jimfs-1.0.jar" />
     <include name="jsr/javax.inject-1.jar" />
     <include name="okhttp/okhttp-2.2.0.jar" />
+    <include name="jparsec/jparsec-2.2.1.jar" />
     <include name="okio/okio-1.2.0.jar" />
     <include name="servlet-api/javax.servlet-api-3.1.0.jar" />
     <include name="slf4j/slf4j-api-1.7.2.jar" />
@@ -169,6 +172,23 @@
     <!-- The nio Files class was only introduced in Java 7. -->
     <available property="jdk7" classname="java.nio.file.Files"/>
     <fail message="Require JDK 7 or higher" unless="jdk7"/>
+  </target>
+
+  <target name="pywatchman-check-build">
+    <uptodate property="pywatchman-build-not-required" targetfile="${pywatchman.install.dir}/pywatchman/__init__.pyc">
+      <srcfiles dir="${pywatchman.dir}" includes="**/*.py,**/*.c" />
+    </uptodate>
+  </target>
+
+  <target name="compile-pywatchman" depends="pywatchman-check-build" unless="pywatchman-build-not-required">
+    <mkdir dir="${pywatchman.install.dir}" />
+    <exec executable="python" failonerror="true" dir="${pywatchman.dir}">
+      <env key="CFLAGS" value="-Wno-unused-const-variable" />
+      <arg value="setup.py" />
+      <arg value="--quiet" />
+      <arg value="install" />
+      <arg value="--install-lib=${pywatchman.install.dir}" />
+    </exec>
   </target>
 
   <target name="compile-testrunner" depends="checkversion">

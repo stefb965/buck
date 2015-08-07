@@ -23,6 +23,7 @@ import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
+import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Joiner;
@@ -33,9 +34,9 @@ import com.google.common.collect.Iterables;
 import org.junit.Rule;
 import org.junit.Test;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
@@ -52,6 +53,12 @@ public class CxxCompilationDatabaseIntegrationTest {
               "-Xclang",
               "." + Strings.repeat("/", 249)) :
           ImmutableList.<String>of();
+  private static final boolean PREPROCESSOR_SUPPORTS_HEADER_MAPS =
+      Platform.detect() == Platform.MACOS;
+  private static final ImmutableList<String> EXTRA_FLAGS_FOR_HEADER_MAPS =
+      PREPROCESSOR_SUPPORTS_HEADER_MAPS ?
+          ImmutableList.of("-I", BuckConstant.BUCK_OUTPUT_DIRECTORY) :
+          ImmutableList.<String>of();
 
   @Rule
   public DebuggableTemporaryFolder tmp = new DebuggableTemporaryFolder();
@@ -61,13 +68,13 @@ public class CxxCompilationDatabaseIntegrationTest {
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "compilation_database", tmp);
     workspace.setUp();
-    File compilationDatabase = workspace.buildAndReturnOutput(
+    Path compilationDatabase = workspace.buildAndReturnOutput(
         "//:binary_with_dep#compilation-database");
 
     assertEquals(
         Paths.get(
             "buck-out/gen/__binary_with_dep#compilation-database.json"),
-        tmp.getRootPath().relativize(compilationDatabase.toPath()));
+        tmp.getRootPath().relativize(compilationDatabase));
 
     String binaryHeaderSymlinkTreeFolder =
         "buck-out/gen/binary_with_dep#default,header-symlink-tree";
@@ -94,9 +101,10 @@ public class CxxCompilationDatabaseIntegrationTest {
         new ImmutableList.Builder<String>()
             .add(COMPILER_PATH)
             .add("-I")
-            .add(binaryHeaderSymlinkTreeFolder)
+            .add(headerSymlinkTreeIncludePath(binaryHeaderSymlinkTreeFolder))
             .add("-I")
-            .add(binaryExportedHeaderSymlinkTreeFoler)
+            .add(headerSymlinkTreeIncludePath(binaryExportedHeaderSymlinkTreeFoler))
+            .addAll(EXTRA_FLAGS_FOR_HEADER_MAPS)
             .addAll(COMPILER_SPECIFIC_FLAGS)
             .add("-x")
             .add("c++")
@@ -112,12 +120,12 @@ public class CxxCompilationDatabaseIntegrationTest {
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "compilation_database", tmp);
     workspace.setUp();
-    File compilationDatabase = workspace.buildAndReturnOutput(
+    Path compilationDatabase = workspace.buildAndReturnOutput(
         "//:library_with_header#default,compilation-database");
     assertEquals(
         Paths.get(
             "buck-out/gen/__library_with_header#compilation-database,default.json"),
-        tmp.getRootPath().relativize(compilationDatabase.toPath()));
+        tmp.getRootPath().relativize(compilationDatabase));
 
     String headerSymlinkTreeFolder = "buck-out/gen/library_with_header#default,header-symlink-tree";
     String exportedHeaderSymlinkTreeFoler =
@@ -138,9 +146,10 @@ public class CxxCompilationDatabaseIntegrationTest {
             .add("-fPIC")
             .add("-fPIC")
             .add("-I")
-            .add(headerSymlinkTreeFolder)
+            .add(headerSymlinkTreeIncludePath(headerSymlinkTreeFolder))
             .add("-I")
-            .add(exportedHeaderSymlinkTreeFoler)
+            .add(headerSymlinkTreeIncludePath(exportedHeaderSymlinkTreeFoler))
+            .addAll(EXTRA_FLAGS_FOR_HEADER_MAPS)
             .addAll(COMPILER_SPECIFIC_FLAGS)
             .add("-x")
             .add("c++")
@@ -149,6 +158,14 @@ public class CxxCompilationDatabaseIntegrationTest {
             .add("buck-out/gen/library_with_header#compile-pic-bar.cpp.o,default/bar.cpp.o")
             .add("bar.cpp")
             .build());
+  }
+
+  private static String headerSymlinkTreeIncludePath(String headerSymlinkTreePath) {
+    if (PREPROCESSOR_SUPPORTS_HEADER_MAPS) {
+      return headerSymlinkTreePath + ".hmap";
+    } else {
+      return headerSymlinkTreePath;
+    }
   }
 
   private void assertHasEntry(

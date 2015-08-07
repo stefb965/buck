@@ -149,6 +149,12 @@ This section includes settings that control build engine behavior.
   #
   # The default is shallow.
   engine_mode = shallow
+
+  # Enable/disable use of dependency files for rules that support them.
+  # This is an optimization useful when dependencies are overspecified
+  # and the rule can dynamically determine a subset of dependencies it
+  # actually needs.  Enabled by default.
+  depfiles = true
 </pre>{/literal}
 
 
@@ -236,6 +242,10 @@ This section configures the paths to the C++ toolchain's binaries.
   # Path to the C/C++ linker driver
   ld = /usr/bin/g++
 
+  # Platform for the linker which is one of {MACOS, LINUX, WINDOWS, UNKNOWN}
+  # Note that the platform is normally auto-detected
+  linker_platform = MACOS
+
   # Path to the C++ preprocessor
   cxxpp = /usr/bin/g++
 
@@ -250,6 +260,10 @@ This section configures the paths to the C++ toolchain's binaries.
 
   # Path to the archiver
   ar = /usr/bin/ar
+
+  # Platform for the archiver which is one of {MACOS, LINUX, WINDOWS, UNKNOWN}
+  # Note that the platform is normally auto-detected
+  archiver_platform = MACOS
 
   # Path to the lexer
   lex = /usr/bin/flex

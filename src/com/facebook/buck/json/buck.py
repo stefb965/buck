@@ -2,6 +2,7 @@
 #
 # from __future__ import with_statement
 # import sys
+# sys.path.insert(0, "/path/to/build/pywatchman")
 # sys.path.insert(0, "/path/to/pathlib")
 
 import __builtin__
@@ -32,7 +33,18 @@ import subprocess
 BUILD_FUNCTIONS = []
 
 
+class SyncCookieState(object):
+    """
+    Process-wide state used to enable Watchman sync cookies only on
+    the first query issued.
+    """
+
+    def __init__(self):
+        self.use_sync_cookies = True
+
+
 class BuildContextType(object):
+
     """
     Identifies the type of input file to the processor.
     """
@@ -48,12 +60,16 @@ class BuildFileContext(object):
 
     type = BuildContextType.BUILD_FILE
 
-    def __init__(self, base_path, dirname, allow_empty_globs):
+    def __init__(self, base_path, dirname, allow_empty_globs, watchman_client,
+                 project_root, sync_cookie_state):
         self.globals = {}
         self.includes = set()
         self.base_path = base_path
         self.dirname = dirname
         self.allow_empty_globs = allow_empty_globs
+        self.watchman_client = watchman_client
+        self.project_root = project_root
+        self.sync_cookie_state = sync_cookie_state
         self.rules = {}
 
 
@@ -115,26 +131,119 @@ def add_rule(rule, build_env):
     build_env.rules[rule_name] = rule
 
 
+class memoized(object):
+    '''Decorator. Caches a function's return value each time it is called.
+    If called later with the same arguments, the cached value is returned
+    (not reevaluated).
+    '''
+    def __init__(self, func):
+        self.func = func
+        self.cache = {}
+
+    def __call__(self, *args):
+        args_key = repr(args)
+        if args_key in self.cache:
+            return self.cache[args_key]
+        else:
+            value = self.func(*args)
+            self.cache[args_key] = value
+            return value
+
+    def __repr__(self):
+        '''Return the function's docstring.'''
+        return self.func.__doc__
+
+    def __get__(self, obj, objtype):
+        '''Support instance methods.'''
+        return functools.partial(self.__call__, obj)
+
+
 @provide_for_build
 def glob(includes, excludes=[], include_dotfiles=False, build_env=None):
     assert build_env.type == BuildContextType.BUILD_FILE, (
         "Cannot use `glob()` at the top-level of an included file.")
-
-    search_base = Path(build_env.dirname)
-    return glob_internal(
-        includes,
-        excludes,
-        include_dotfiles,
-        build_env.allow_empty_globs,
-        search_base)
-
-
-def glob_internal(includes, excludes, include_dotfiles, allow_empty, search_base):
     # Ensure the user passes lists of strings rather than just a string.
     assert not isinstance(includes, basestring), \
         "The first argument to glob() must be a list of strings."
     assert not isinstance(excludes, basestring), \
         "The excludes argument must be a list of strings."
+
+    if not includes:
+        results = []
+    elif build_env.watchman_client:
+        results = glob_watchman(
+            includes,
+            excludes,
+            include_dotfiles,
+            build_env.base_path,
+            build_env.project_root,
+            build_env.sync_cookie_state,
+            build_env.watchman_client)
+    else:
+        search_base = Path(build_env.dirname)
+        results = glob_internal(
+            includes,
+            excludes,
+            include_dotfiles,
+            search_base)
+    assert build_env.allow_empty_globs or results, (
+        "glob(includes={includes}, excludes={excludes}, include_dotfiles={include_dotfiles}) " +
+        "returned no results.  (allow_empty_globs is set to false in the Buck " +
+        "configuration)").format(
+            includes=includes,
+            excludes=excludes,
+            include_dotfiles=include_dotfiles)
+
+    return results
+
+
+@memoized
+def glob_watchman(includes, excludes, include_dotfiles, base_path, project_root,
+                  sync_cookie_state, watchman_client):
+    assert includes, "The includes argument must be a non-empty list of strings."
+    match_exprs = ["allof", "exists"]
+    match_flags = {}
+    if include_dotfiles:
+        match_flags["includedotfiles"] = True
+    if includes:
+        match_exprs.append(
+            ["anyof"] + [["match", i, "wholename", match_flags] for i in includes])
+    if excludes:
+        match_exprs.append(
+            ["not",
+                ["anyof"] + [["match", x, "wholename", match_flags] for x in excludes]])
+
+    query_params = {
+        "relative_root": base_path,
+        # Explicitly pass an empty path so Watchman queries only the tree of files
+        # starting at base_path.
+        "path": [''],
+        "fields": ["name"],
+        "expression": match_exprs,
+    }
+    # Sync cookies cause a massive overhead when issuing thousands of
+    # glob queries.  Only enable them (by not setting sync_timeout to 0)
+    # for the very first request issued by this process.
+    if sync_cookie_state.use_sync_cookies:
+        sync_cookie_state.use_sync_cookies = False
+    else:
+        query_params["sync_timeout"] = 0
+
+    query = ["query", project_root, query_params]
+    res = watchman_client.query(*query)
+    if res.get('error'):
+        raise RuntimeError('Error from Watchman query {}: {}'.format(
+            query,
+            res.get('error')))
+    if res.get('warning'):
+        print >> sys.stderr, 'Watchman warning from query {}: {}'.format(
+            query,
+            res.get('warning'))
+    result = res.get('files', [])
+    return sorted(result)
+
+
+def glob_internal(includes, excludes, include_dotfiles, search_base):
 
     def includes_iterator():
         for pattern in includes:
@@ -163,16 +272,7 @@ def glob_internal(includes, excludes, include_dotfiles, allow_empty, search_base
                 return True
         return False
 
-    results = sorted(set([str(p) for p in includes_iterator() if not exclusion(p)]))
-    assert allow_empty or results, (
-        "glob(includes={includes}, excludes={excludes}, include_dotfiles={include_dotfiles}) " +
-        "returned no results.  (allow_empty_globs is set to false in the Buck " +
-        "configuration)").format(
-            includes=includes,
-            excludes=excludes,
-            include_dotfiles=include_dotfiles)
-
-    return results
+    return sorted(set([str(p) for p in includes_iterator() if not exclusion(p)]))
 
 
 @provide_for_build
@@ -212,14 +312,17 @@ def add_deps(name, deps=[], build_env=None):
 
 class BuildFileProcessor(object):
 
-    def __init__(self, project_root, build_file_name, allow_empty_globs, implicit_includes=[]):
+    def __init__(self, project_root, build_file_name, allow_empty_globs, watchman_client,
+                 implicit_includes=[]):
         self._cache = {}
         self._build_env_stack = []
+        self._sync_cookie_state = SyncCookieState()
 
         self._project_root = project_root
         self._build_file_name = build_file_name
         self._implicit_includes = implicit_includes
         self._allow_empty_globs = allow_empty_globs
+        self._watchman_client = watchman_client
 
         lazy_functions = {}
         for func in BUILD_FUNCTIONS:
@@ -394,7 +497,13 @@ class BuildFileProcessor(object):
         len_suffix = -len('/' + self._build_file_name)
         base_path = relative_path_to_build_file[:len_suffix]
         dirname = os.path.dirname(path)
-        build_env = BuildFileContext(base_path, dirname, self._allow_empty_globs)
+        build_env = BuildFileContext(
+            base_path,
+            dirname,
+            self._allow_empty_globs,
+            self._watchman_client,
+            self._project_root,
+            self._sync_cookie_state)
 
         return self._process(
             build_env,
@@ -463,6 +572,11 @@ def main():
         dest='allow_empty_globs',
         help='Tells the parser not to raise an error when glob returns no results.')
     parser.add_option(
+        '--use_watchman_glob',
+        action='store_true',
+        dest='use_watchman_glob',
+        help='Invokes `watchman query` to get lists of files instead of globbing in-process.')
+    parser.add_option(
         '--include',
         action='append',
         dest='include')
@@ -478,25 +592,48 @@ def main():
     options.project_root = cygwin_adjusted_path(options.project_root)
     project_root = os.path.abspath(options.project_root)
 
+    watchman_client = None
+    output_format = 'JSON'
+    output_encode = lambda val: json.dumps(val, sort_keys=True)
+    if options.use_watchman_glob:
+        try:
+            # pywatchman may not be built, so fall back to non-watchman
+            # in that case.
+            import pywatchman
+            watchman_client = pywatchman.client()
+            output_format = 'BSER'
+            output_encode = lambda val: pywatchman.bser.dumps(val)
+        except ImportError, e:
+            # TODO(agallagher): Restore this when the PEX builds pywatchman.
+            # print >> sys.stderr, \
+            #     'Could not import pywatchman (sys.path {}): {}'.format(
+            #         sys.path,
+            #         repr(e))
+            pass
+
     buildFileProcessor = BuildFileProcessor(
         project_root,
         options.build_file_name,
         options.allow_empty_globs,
+        watchman_client,
         implicit_includes=options.include or [])
 
     buildFileProcessor.install_builtins(__builtin__.__dict__)
 
+    to_parent.write(output_format + '\n')
+    to_parent.flush()
+
     for build_file in args:
         build_file = cygwin_adjusted_path(build_file)
         values = buildFileProcessor.process(build_file)
-        to_parent.write(json.dumps(values, sort_keys=True))
+        to_parent.write(output_encode(values))
         to_parent.flush()
 
     # "for ... in sys.stdin" in Python 2.x hangs until stdin is closed.
     for build_file in iter(sys.stdin.readline, ''):
         build_file = cygwin_adjusted_path(build_file)
         values = buildFileProcessor.process(build_file.rstrip())
-        to_parent.write(json.dumps(values, sort_keys=True))
+        to_parent.write(output_encode(values))
         to_parent.flush()
 
     # Python tries to flush/close stdout when it quits, and if there's a dead

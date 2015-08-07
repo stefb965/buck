@@ -55,18 +55,21 @@ import com.facebook.buck.timing.NanosAdjustedClock;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.AnsiEnvironmentChecking;
 import com.facebook.buck.util.Console;
-import com.facebook.buck.util.DefaultFileHashCache;
+import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.DefaultPropertyFinder;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.InterruptionFailedException;
 import com.facebook.buck.util.PkillProcessManager;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessManager;
-import com.facebook.buck.util.ProjectFilesystemWatcher;
 import com.facebook.buck.util.PropertyFinder;
 import com.facebook.buck.util.Verbosity;
+import com.facebook.buck.util.VersionStringComparator;
 import com.facebook.buck.util.WatchmanWatcher;
 import com.facebook.buck.util.WatchmanWatcherException;
+import com.facebook.buck.util.cache.FileHashCache;
+import com.facebook.buck.util.cache.MultiProjectFileHashCache;
+import com.facebook.buck.util.cache.ProjectFileHashCache;
 import com.facebook.buck.util.concurrent.TimeSpan;
 import com.facebook.buck.util.environment.BuildEnvironmentDescription;
 import com.facebook.buck.util.environment.DefaultExecutionEnvironment;
@@ -144,6 +147,8 @@ public final class Main {
   private static final String STATIC_CONTENT_DIRECTORY = System.getProperty(
       "buck.path_to_static_content", "webserver/static");
 
+  private static final String WATCHMAN_GLOB_MIN_VERSION = "3.6.0";
+
   private final PrintStream stdOut;
   private final PrintStream stdErr;
   private final ImmutableList<BuckEventListener> externalEventsListeners;
@@ -173,8 +178,9 @@ public final class Main {
     private final Repository repository;
     private final Parser parser;
     private final DefaultFileHashCache hashCache;
+    private final ProcessExecutor processExecutor;
     private final EventBus fileEventBus;
-    private final ProjectFilesystemWatcher filesystemWatcher;
+    private final WatchmanWatcher watchmanWatcher;
     private final Optional<WebServer> webServer;
     private final Clock clock;
     private final ObjectMapper objectMapper;
@@ -182,16 +188,32 @@ public final class Main {
     public Daemon(
         Repository repository,
         Clock clock,
-        ObjectMapper objectMapper)
+        ObjectMapper objectMapper,
+        ProcessExecutor processExecutor)
         throws IOException, InterruptedException  {
       this.repository = repository;
       this.clock = clock;
       this.objectMapper = objectMapper;
       this.hashCache = new DefaultFileHashCache(repository.getFilesystem());
+      this.processExecutor = processExecutor;
       ParserConfig parserConfig = new ParserConfig(repository.getBuckConfig());
       PythonBuckConfig pythonBuckConfig = new PythonBuckConfig(
           repository.getBuckConfig(),
           new ExecutableFinder());
+      this.fileEventBus = new EventBus("file-change-events");
+      this.watchmanWatcher = createWatcher(repository.getFilesystem());
+      Optional<String> watchmanVersion = watchmanWatcher.getWatchmanVersion();
+      boolean useWatchmanGlob;
+      if (watchmanVersion.isPresent()) {
+        useWatchmanGlob = new VersionStringComparator()
+            .compare(watchmanVersion.get(), WATCHMAN_GLOB_MIN_VERSION) >= 0;
+      } else {
+        useWatchmanGlob = false;
+      }
+      LOG.debug(
+          "Got watchman version: %s, using watchman glob %s",
+          watchmanVersion,
+          useWatchmanGlob);
       this.parser = Parser.createParser(
           repository,
           pythonBuckConfig.getPythonInterpreter(),
@@ -199,17 +221,16 @@ public final class Main {
           parserConfig.getEnforceBuckPackageBoundary(),
           parserConfig.getTempFilePatterns(),
           parserConfig.getBuildFileName(),
-          parserConfig.getDefaultIncludes());
-
-      this.fileEventBus = new EventBus("file-change-events");
-      this.filesystemWatcher = createWatcher(repository.getFilesystem());
+          parserConfig.getDefaultIncludes(),
+          useWatchmanGlob);
       fileEventBus.register(parser);
       fileEventBus.register(hashCache);
+
       webServer = createWebServer(repository.getBuckConfig(), repository.getFilesystem());
       JavaUtilsLoggingBuildListener.ensureLogFileIsWritten(repository.getFilesystem());
     }
 
-    private ProjectFilesystemWatcher createWatcher(ProjectFilesystem projectFilesystem)
+    private WatchmanWatcher createWatcher(ProjectFilesystem projectFilesystem)
         throws IOException {
       LOG.debug("Using watchman to watch for file changes.");
 
@@ -224,6 +245,7 @@ public final class Main {
           fileEventBus,
           clock,
           objectMapper,
+          processExecutor,
           repository.getBuckConfig().getIgnorePaths(),
           DEFAULT_IGNORE_GLOBS);
     }
@@ -311,7 +333,7 @@ public final class Main {
       synchronized (parser) {
         parser.recordParseStartTime(eventBus);
         fileEventBus.post(commandEvent);
-        filesystemWatcher.postEvents(eventBus);
+        watchmanWatcher.postEvents(eventBus);
       }
     }
 
@@ -330,7 +352,7 @@ public final class Main {
 
     @Override
     public void close() throws IOException {
-      filesystemWatcher.close();
+      watchmanWatcher.close();
       shutdownWebServer();
     }
 
@@ -354,12 +376,13 @@ public final class Main {
   static Daemon getDaemon(
       Repository repository,
       Clock clock,
-      ObjectMapper objectMapper)
+      ObjectMapper objectMapper,
+      ProcessExecutor processExecutor)
       throws IOException, InterruptedException  {
     Path rootPath = repository.getFilesystem().getRootPath();
     if (daemon == null) {
       LOG.debug("Starting up daemon for project root [%s]", rootPath);
-      daemon = new Daemon(repository, clock, objectMapper);
+      daemon = new Daemon(repository, clock, objectMapper, processExecutor);
     } else {
       // Buck daemons cache build files within a single project root, changing to a different
       // project root is not supported and will likely result in incorrect builds. The buck and
@@ -377,7 +400,7 @@ public final class Main {
       if (!daemon.repository.equals(repository)) {
         LOG.info("Shutting down and restarting daemon on config or directory resolver change.");
         daemon.close();
-        daemon = new Daemon(repository, clock, objectMapper);
+        daemon = new Daemon(repository, clock, objectMapper, processExecutor);
       }
     }
     return daemon;
@@ -406,7 +429,7 @@ public final class Main {
   @VisibleForTesting
   static void watchFilesystem(BuckEventBus buckEventBus) throws IOException, InterruptedException {
     Preconditions.checkNotNull(daemon);
-    daemon.filesystemWatcher.postEvents(buckEventBus);
+    daemon.watchmanWatcher.postEvents(buckEventBus);
   }
 
   @VisibleForTesting
@@ -554,18 +577,35 @@ public final class Main {
         // TODO(user): Thread through properties from client environment.
         System.getProperties());
 
-    DefaultFileHashCache fileHashCache;
+    ProjectFileHashCache repoHashCache;
     if (isDaemon) {
-      fileHashCache = getFileHashCacheFromDaemon(rootRepository, clock);
+      repoHashCache = getFileHashCacheFromDaemon(rootRepository, clock, processExecutor);
     } else {
-      fileHashCache = new DefaultFileHashCache(rootRepository.getFilesystem());
+      repoHashCache = new DefaultFileHashCache(rootRepository.getFilesystem());
     }
+
+    // Build up the hash cache, which is a collection of the stateful repo cache and some per-run
+    // caches.
+    FileHashCache fileHashCache =
+        new MultiProjectFileHashCache(
+            ImmutableList.of(
+                repoHashCache,
+                // A cache which caches hashes of repo-relative paths which may have been ignore by
+                // the main repo cache, and only serves to prevent rehashing the same file multiple
+                // times in a single run.
+                new DefaultFileHashCache(
+                    new ProjectFilesystem(rootRepository.getFilesystem().getRootPath())),
+                // A cache which caches hashes of absolute paths which my be accessed by certain
+                // rules (e.g. /usr/bin/gcc), and only serves to prevent rehashing the same file
+                // multiple times in a single run.
+                new DefaultFileHashCache(new ProjectFilesystem(Paths.get("/")))));
 
     @Nullable ArtifactCacheFactory artifactCacheFactory = null;
     Optional<WebServer> webServer = getWebServerIfDaemon(
         context,
         rootRepository,
-        clock);
+        clock,
+        processExecutor);
 
     TestConfig testConfig = new TestConfig(buckConfig);
 
@@ -591,6 +631,7 @@ public final class Main {
 
       eventListeners = addEventListeners(buildEventBus,
           rootRepository.getFilesystem(),
+          buildId,
           rootRepository.getBuckConfig(),
           webServer,
           clock,
@@ -620,7 +661,8 @@ public final class Main {
               rootRepository,
               startedEvent,
               buildEventBus,
-              clock);
+              clock,
+              processExecutor);
         } catch (WatchmanWatcherException | IOException e) {
           buildEventBus.post(
               ConsoleEvent.warning(
@@ -641,7 +683,8 @@ public final class Main {
             parserConfig.getEnforceBuckPackageBoundary(),
             parserConfig.getTempFilePatterns(),
             parserConfig.getBuildFileName(),
-            parserConfig.getDefaultIncludes());
+            parserConfig.getDefaultIncludes(),
+            /* useWatchmanGlob */ false);
       }
       JavaUtilsLoggingBuildListener.ensureLogFileIsWritten(rootRepository.getFilesystem());
 
@@ -807,9 +850,10 @@ public final class Main {
       Repository repository,
       CommandEvent commandEvent,
       BuckEventBus eventBus,
-      Clock clock) throws IOException, InterruptedException {
+      Clock clock,
+      ProcessExecutor processExecutor) throws IOException, InterruptedException {
     // Wire up daemon to new client and get cached Parser.
-    Daemon daemon = getDaemon(repository, clock, objectMapper);
+    Daemon daemon = getDaemon(repository, clock, objectMapper, processExecutor);
     daemon.watchClient(context.get());
     daemon.watchFileSystem(commandEvent, eventBus);
     daemon.initWebServer();
@@ -818,19 +862,21 @@ public final class Main {
 
   private DefaultFileHashCache getFileHashCacheFromDaemon(
       Repository repository,
-      Clock clock)
+      Clock clock,
+      ProcessExecutor processExecutor)
       throws IOException, InterruptedException {
-    Daemon daemon = getDaemon(repository, clock, objectMapper);
+    Daemon daemon = getDaemon(repository, clock, objectMapper, processExecutor);
     return daemon.getFileHashCache();
   }
 
   private Optional<WebServer> getWebServerIfDaemon(
       Optional<NGContext> context,
       Repository repository,
-      Clock clock)
+      Clock clock,
+      ProcessExecutor processExecutor)
       throws IOException, InterruptedException  {
     if (context.isPresent()) {
-      Daemon daemon = getDaemon(repository, clock, objectMapper);
+      Daemon daemon = getDaemon(repository, clock, objectMapper, processExecutor);
       return daemon.getWebServer();
     }
     return Optional.absent();
@@ -891,6 +937,7 @@ public final class Main {
   private ImmutableList<BuckEventListener> addEventListeners(
       BuckEventBus buckEvents,
       ProjectFilesystem projectFilesystem,
+      BuildId buildId,
       BuckConfig config,
       Optional<WebServer> webServer,
       Clock clock,
@@ -902,16 +949,19 @@ public final class Main {
     ImmutableList.Builder<BuckEventListener> eventListenersBuilder =
         ImmutableList.<BuckEventListener>builder()
             .add(new JavaUtilsLoggingBuildListener())
-            .add(
-                new ChromeTraceBuildListener(
-                    projectFilesystem,
-                    clock,
-                    objectMapper,
-                    config.getMaxTraces(),
-                    config.getCompressTraces()))
             .add(consoleEventBusListener)
             .add(new LoggingBuildListener());
-
+    try {
+      eventListenersBuilder.add(new ChromeTraceBuildListener(
+          projectFilesystem,
+          buildId,
+          clock,
+          objectMapper,
+          config.getMaxTraces(),
+          config.getCompressTraces()));
+    } catch (IOException e) {
+      LOG.error("Unable to create ChromeTrace listener!");
+    }
     if (webServer.isPresent()) {
       eventListenersBuilder.add(webServer.get().createListener());
     }

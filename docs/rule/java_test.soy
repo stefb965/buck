@@ -52,19 +52,7 @@ A <code>java_test()</code> rule is used to define a set of
   {/param}
 {/call}
 
-{call buck.arg}
-  {param name: 'labels' /}
-  {param default: '[]' /}
-  {param desc}
-  A list of labels to be applied to these tests. These labels are
-  arbitrary text strings and have no meaning within buck itself. They
-  can, however, have meaning for you as a test author
-  (e.g., <code>smoke</code> or <code>fast</code>). A label can be
-  used to filter or include a specific <code>java_test()</code> rule
-  when executing <a href="{ROOT}command/test.html"><code>buck
-  test</code></a>.
-  {/param}
-{/call}
+{call buck.test_label_arg /}
 
 {call buck.arg}
   {param name: 'source_under_test' /}
@@ -116,15 +104,23 @@ A <code>java_test()</code> rule is used to define a set of
   {/param}
 {/call}
 
+{call buck.run_test_separately_arg /}
+
 {call buck.arg}
-  {param name: 'run_test_separately' /}
-  {param default : 'false' /}
+  {param name: 'std_out_log_level' /}
+  {param default : 'FINE' /}
   {param desc}
-  If set to <code>true</code>, the test(s) in this rule are run separately
-  from all other tests. (This is useful
-  for integration tests which access a physical device or other limited
-  resource.)
-  <p>If unset, the test(s) in this rule in parallel with all other tests.</p>
+  Log level for messages from the source under test that buck will output to
+  std out.
+  <p>Value must be a valid <code>java.util.logging.Level</code> value.</p>
+  {/param}
+{/call}
+
+{call buck.arg}
+  {param name: 'std_err_log_level' /}
+  {param default : 'WARNING' /}
+  {param desc}
+  Same as <code>std_out_log_level</code>, but for std err.
   {/param}
 {/call}
 

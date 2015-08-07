@@ -26,6 +26,7 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.TargetGraph;
+import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
@@ -126,26 +127,39 @@ public class CxxPreprocessables {
   }
 
   /**
-   * Build the {@link SymlinkTree} rule using the original build params from a target node.
+   * Build the {@link HeaderSymlinkTree} rule using the original build params from a target node.
    * In particular, make sure to drop all dependencies from the original build rule params,
    * as these are modeled via {@link CxxPreprocessAndCompile}.
    */
-  public static SymlinkTree createHeaderSymlinkTreeBuildRule(
+  public static HeaderSymlinkTree createHeaderSymlinkTreeBuildRule(
       SourcePathResolver resolver,
       BuildTarget target,
       BuildRuleParams params,
       Path root,
+      Optional<Path> headerMapPath,
       ImmutableMap<Path, SourcePath> links) {
+    // Symlink trees never need to depend on anything.
+    BuildRuleParams paramsWithoutDeps =
+        params.copyWithChanges(
+            target,
+            Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
+            Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
+
     try {
-      return new SymlinkTree(
-          params.copyWithChanges(
-              target,
-              // Symlink trees never need to depend on anything.
-              Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
-              Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
-          resolver,
-          root,
-          links);
+      if (headerMapPath.isPresent()) {
+        return new HeaderSymlinkTreeWithHeaderMap(
+            paramsWithoutDeps,
+            resolver,
+            root,
+            headerMapPath.get(),
+            links);
+      } else {
+        return new HeaderSymlinkTree(
+            paramsWithoutDeps,
+            resolver,
+            root,
+            links);
+      }
     } catch (SymlinkTree.InvalidSymlinkTreeException e) {
       throw e.getHumanReadableExceptionForBuildTarget(target);
     }
@@ -169,8 +183,8 @@ public class CxxPreprocessables {
         ruleResolver,
         flavor,
         CxxDescriptionEnhancer.getHeaderSymlinkTreeFlavor(headerVisibility));
-    Preconditions.checkState(rule instanceof SymlinkTree);
-    SymlinkTree symlinkTree = (SymlinkTree) rule;
+    Preconditions.checkState(rule instanceof HeaderSymlinkTree);
+    HeaderSymlinkTree symlinkTree = (HeaderSymlinkTree) rule;
     CxxPreprocessorInput.Builder builder = CxxPreprocessorInput.builder()
         .addRules(symlinkTree.getBuildTarget())
         .putAllPreprocessorFlags(exportedPreprocessorFlags)
@@ -183,10 +197,11 @@ public class CxxPreprocessables {
         .addAllFrameworkRoots(frameworkSearchPaths);
     switch(includeType) {
       case LOCAL:
-        builder.addIncludeRoots(symlinkTree.getRoot());
+        builder.addIncludeRoots(symlinkTree.getIncludePath());
+        builder.addAllHeaderMaps(symlinkTree.getHeaderMap().asSet());
         break;
       case SYSTEM:
-        builder.addSystemIncludeRoots(symlinkTree.getRoot());
+        builder.addSystemIncludeRoots(symlinkTree.getSystemIncludePath());
         break;
     }
     return builder.build();

@@ -40,7 +40,6 @@ import com.facebook.buck.js.IosReactNativeLibraryDescription;
 import com.facebook.buck.js.ReactNativeBundle;
 import com.facebook.buck.js.ReactNativeFlavors;
 import com.facebook.buck.js.ReactNativeLibraryArgs;
-import com.facebook.buck.js.ReactNativePlatform;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.SourcePath;
@@ -50,6 +49,7 @@ import com.facebook.buck.rules.coercer.SourceWithFlags;
 import com.facebook.buck.shell.GenruleDescription;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Function;
+import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -99,7 +99,8 @@ public class NewNativeTargetProjectMutator {
   private boolean shouldGenerateCopyHeadersPhase = true;
   private ImmutableSet<FrameworkPath> frameworks = ImmutableSet.of();
   private ImmutableSet<PBXFileReference> archives = ImmutableSet.of();
-  private ImmutableSet<AppleResourceDescription.Arg> resources = ImmutableSet.of();
+  private ImmutableSet<AppleResourceDescription.Arg> recursiveResources = ImmutableSet.of();
+  private ImmutableSet<AppleResourceDescription.Arg> directResources = ImmutableSet.of();
   private ImmutableSet<AppleAssetCatalogDescription.Arg> recursiveAssetCatalogs = ImmutableSet.of();
   private ImmutableSet<AppleAssetCatalogDescription.Arg> directAssetCatalogs = ImmutableSet.of();
   private Path assetCatalogBuildScript = Paths.get("");
@@ -192,8 +193,15 @@ public class NewNativeTargetProjectMutator {
     return this;
   }
 
-  public NewNativeTargetProjectMutator setResources(Set<AppleResourceDescription.Arg> resources) {
-    this.resources = ImmutableSet.copyOf(resources);
+  public NewNativeTargetProjectMutator setRecursiveResources(
+      Set<AppleResourceDescription.Arg> recursiveResources) {
+    this.recursiveResources = ImmutableSet.copyOf(recursiveResources);
+    return this;
+  }
+
+  public NewNativeTargetProjectMutator setDirectResources(
+      ImmutableSet<AppleResourceDescription.Arg> directResources) {
+    this.directResources = directResources;
     return this;
   }
 
@@ -258,6 +266,7 @@ public class NewNativeTargetProjectMutator {
     addRunScriptBuildPhases(target, preBuildRunScriptPhases);
     addPhasesAndGroupsForSources(target, targetGroup);
     addFrameworksBuildPhase(project, target);
+    addResourcesFileReference(targetGroup);
     addResourcesBuildPhase(target, targetGroup);
     addAssetCatalogFileReference(targetGroup);
     addAssetCatalogBuildPhase(target);
@@ -466,14 +475,52 @@ public class NewNativeTargetProjectMutator {
     }
   }
 
-  private void addResourcesBuildPhase(PBXNativeTarget target, PBXGroup targetGroup) {
+  private void addResourcesFileReference(PBXGroup targetGroup) {
+    addResourcesFileReference(
+        targetGroup,
+        directResources,
+        Functions.<Void>constant(null),
+        Functions.<Void>constant(null));
+  }
+
+  private PBXBuildPhase addResourcesBuildPhase(PBXNativeTarget target, PBXGroup targetGroup) {
+    final PBXBuildPhase phase = new PBXResourcesBuildPhase();
+    addResourcesFileReference(
+        targetGroup,
+        recursiveResources,
+        new Function<PBXFileReference, Void>() {
+          @Override
+          public Void apply(PBXFileReference input) {
+            PBXBuildFile buildFile = new PBXBuildFile(input);
+            phase.getFiles().add(buildFile);
+            return null;
+          }
+        },
+        new Function<PBXVariantGroup, Void>() {
+          @Override
+          public Void apply(PBXVariantGroup input) {
+            PBXBuildFile buildFile = new PBXBuildFile(input);
+            phase.getFiles().add(buildFile);
+            return null;
+          }
+        });
+    if (!phase.getFiles().isEmpty()) {
+      target.getBuildPhases().add(phase);
+      LOG.debug("Added resources build phase %s", phase);
+    }
+    return phase;
+  }
+
+  private void addResourcesFileReference(
+      PBXGroup targetGroup,
+      ImmutableSet<AppleResourceDescription.Arg> resources,
+      Function<? super PBXFileReference, Void> resourceCallback,
+      Function<? super PBXVariantGroup, Void> variantGroupCallback) {
     if (resources.isEmpty()) {
       return;
     }
 
     PBXGroup resourcesGroup = targetGroup.getOrCreateChildGroupByName("Resources");
-    PBXBuildPhase phase = new PBXResourcesBuildPhase();
-    target.getBuildPhases().add(phase);
     for (AppleResourceDescription.Arg resource : resources) {
       Iterable<Path> paths = Iterables.transform(
           Iterables.concat(resource.files, resource.dirs),
@@ -483,8 +530,7 @@ public class NewNativeTargetProjectMutator {
             new SourceTreePath(
                 PBXReference.SourceTree.SOURCE_ROOT,
                 pathRelativizer.outputDirToRootRelative(path)));
-        PBXBuildFile buildFile = new PBXBuildFile(fileReference);
-        phase.getFiles().add(buildFile);
+        resourceCallback.apply(fileReference);
       }
 
       Map<String, PBXVariantGroup> variantGroups = Maps.newHashMap();
@@ -505,8 +551,7 @@ public class NewNativeTargetProjectMutator {
         PBXVariantGroup variantGroup = variantGroups.get(variantFileName);
         if (variantGroup == null) {
           variantGroup = resourcesGroup.getOrCreateChildVariantGroupByName(variantFileName);
-          PBXBuildFile buildFile = new PBXBuildFile(variantGroup);
-          phase.getFiles().add(buildFile);
+          variantGroupCallback.apply(variantGroup);
           variantGroups.put(variantFileName, variantGroup);
         }
         SourceTreePath sourceTreePath = new SourceTreePath(
@@ -517,7 +562,6 @@ public class NewNativeTargetProjectMutator {
             sourceTreePath);
       }
     }
-    LOG.debug("Added resources build phase %s", phase);
   }
 
   private void addAssetCatalogFileReference(PBXGroup targetGroup) {
@@ -687,7 +731,6 @@ public class NewNativeTargetProjectMutator {
                   filesystem.resolve(
                       sourcePathResolver.apply(description.getReactNativePackager())),
                   filesystem.resolve(sourcePathResolver.apply(args.entryPath)),
-                  ReactNativePlatform.IOS,
                   ReactNativeFlavors.isDevMode(targetNode.getBuildTarget()),
                   "${JS_OUT}",
                   "${BASE_DIR}",

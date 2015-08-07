@@ -72,8 +72,9 @@ public class CxxGtestTest extends CxxTest implements HasRuntimeDeps {
       ImmutableSortedSet<BuildRule> additionalDeps,
       ImmutableSet<Label> labels,
       ImmutableSet<String> contacts,
-      ImmutableSet<BuildRule> sourceUnderTest) {
-    super(params, resolver, env, labels, contacts, sourceUnderTest);
+      ImmutableSet<BuildRule> sourceUnderTest,
+      boolean runTestSeparately) {
+    super(params, resolver, env, labels, contacts, sourceUnderTest, runTestSeparately);
     this.executable = executable;
     this.additionalDeps = additionalDeps;
   }
@@ -122,7 +123,7 @@ public class CxxGtestTest extends CxxTest implements HasRuntimeDeps {
       }
     }
 
-    Document doc = XmlDomParser.parse(results.toFile());
+    Document doc = XmlDomParser.parse(results);
     NodeList testcases = doc.getElementsByTagName("testcase");
     for (int index = 0; index < testcases.getLength(); index++) {
       Node testcase = testcases.item(index);

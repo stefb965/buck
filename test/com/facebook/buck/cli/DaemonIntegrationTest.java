@@ -45,17 +45,19 @@ import com.facebook.buck.testutil.integration.TestContext;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.timing.FakeClock;
 import com.facebook.buck.util.CapturingPrintStream;
+import com.facebook.buck.util.FakeProcess;
+import com.facebook.buck.util.FakeProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.environment.Platform;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Charsets;
+import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.eventbus.Subscribe;
-import com.google.common.io.Files;
 import com.google.gson.Gson;
 import com.martiansoftware.nailgun.NGClientListener;
 import com.martiansoftware.nailgun.NGContext;
@@ -66,8 +68,8 @@ import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 
-import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardWatchEventKinds;
@@ -399,7 +401,7 @@ public class DaemonIntegrationTest {
     result.assertSuccess();
 
     String fileName = "apps/myapp/BUCK";
-    assertTrue("Should delete BUCK file successfully", workspace.getFile(fileName).delete());
+    Files.delete(workspace.getPath(fileName));
     waitForChange(Paths.get(fileName));
 
     workspace.runBuckdCommand("build", "app").assertFailure();
@@ -416,7 +418,7 @@ public class DaemonIntegrationTest {
     workspace.runBuckdCommand("build", "//java/com/example/activity:activity").assertSuccess();
 
     String fileName = "java/com/example/activity/BUCK";
-    assertTrue("Should delete BUCK file successfully.", workspace.getFile(fileName).delete());
+    Files.delete(workspace.getPath(fileName));
     waitForChange(Paths.get(fileName));
 
     workspace.runBuckdCommand("build", "//java/com/example/activity:activity").assertFailure();
@@ -433,7 +435,7 @@ public class DaemonIntegrationTest {
     workspace.runBuckdCommand("build", "//java/com/example/activity:activity").assertSuccess();
 
     String fileName = "java/com/example/activity/MyFirstActivity.java";
-    assertTrue("Should delete BUCK file successfully.", workspace.getFile(fileName).delete());
+    Files.delete(workspace.getPath(fileName));
     waitForChange(Paths.get(fileName));
 
     try {
@@ -456,7 +458,7 @@ public class DaemonIntegrationTest {
     workspace.runBuckdCommand("build", "//java/com/example/activity:activity").assertSuccess();
 
     String fileName = "java/com/example/activity/MyFirstActivity.java";
-    Files.write("Some Illegal Java".getBytes(Charsets.US_ASCII), workspace.getFile(fileName));
+    Files.delete(workspace.getPath(fileName));
     waitForChange(Paths.get(fileName));
 
     workspace.runBuckdCommand("build", "//java/com/example/activity:activity").assertFailure();
@@ -473,7 +475,7 @@ public class DaemonIntegrationTest {
     workspace.runBuckdCommand("build", "app").assertSuccess();
 
     String fileName = "apps/myapp/BUCK";
-    Files.write("Some Illegal Python".getBytes(Charsets.US_ASCII), workspace.getFile(fileName));
+    Files.write(workspace.getPath(fileName), "Some Illegal Python".getBytes(Charsets.US_ASCII));
     waitForChange(Paths.get(fileName));
 
     ProcessResult result = workspace.runBuckdCommand("build", "app");
@@ -490,6 +492,15 @@ public class DaemonIntegrationTest {
     ProjectFilesystem filesystem = new ProjectFilesystem(tmp.getRoot().toPath());
     ObjectMapper objectMapper = new ObjectMapper();
 
+    ProcessExecutor fakeProcessExecutor = new FakeProcessExecutor(
+        new Function<ProcessExecutorParams, FakeProcess>() {
+          @Override
+          public FakeProcess apply(ProcessExecutorParams params) {
+            return new FakeProcess(0);
+          }
+        },
+        new TestConsole());
+
     Object daemon = Main.getDaemon(
         new TestRepositoryBuilder().setBuckConfig(
             new FakeBuckConfig(
@@ -497,7 +508,8 @@ public class DaemonIntegrationTest {
             .setFilesystem(filesystem)
             .build(),
         new FakeClock(0),
-        objectMapper);
+        objectMapper,
+        fakeProcessExecutor);
 
     assertEquals(
         "Daemon should not be replaced when config equal.", daemon,
@@ -508,7 +520,8 @@ public class DaemonIntegrationTest {
                 .setFilesystem(filesystem)
                 .build(),
             new FakeClock(0),
-            objectMapper));
+            objectMapper,
+            fakeProcessExecutor));
 
     assertNotEquals(
         "Daemon should be replaced when config not equal.", daemon,
@@ -521,7 +534,8 @@ public class DaemonIntegrationTest {
                 .setFilesystem(filesystem)
                 .build(),
             new FakeClock(0),
-            objectMapper));
+            objectMapper,
+            fakeProcessExecutor));
   }
 
   @Test
@@ -534,17 +548,17 @@ public class DaemonIntegrationTest {
 
     workspace.runBuckdCommand("build", "//java/com/example/activity:activity").assertSuccess();
 
-    File buildLogFile = workspace.getFile("buck-out/bin/build.log");
+    Path buildLogFile = workspace.getPath("buck-out/bin/build.log");
 
-    assertTrue(buildLogFile.isFile());
-    assertTrue(buildLogFile.delete());
+    assertTrue(Files.isRegularFile(buildLogFile));
+    Files.delete(buildLogFile);
 
     ProcessResult rebuild =
         workspace.runBuckdCommand("build", "//java/com/example/activity:activity");
     rebuild.assertSuccess();
 
-    buildLogFile = workspace.getFile("buck-out/bin/build.log");
-    assertTrue(buildLogFile.isFile());
+    buildLogFile = workspace.getPath("buck-out/bin/build.log");
+    assertTrue(Files.isRegularFile(buildLogFile));
   }
 
   @Test
@@ -552,6 +566,14 @@ public class DaemonIntegrationTest {
       throws IOException, InterruptedException {
     ProjectFilesystem filesystem = new ProjectFilesystem(tmp.getRoot().toPath());
     ObjectMapper objectMapper = new ObjectMapper();
+    ProcessExecutor fakeProcessExecutor = new FakeProcessExecutor(
+        new Function<ProcessExecutorParams, FakeProcess>() {
+          @Override
+          public FakeProcess apply(ProcessExecutorParams params) {
+            return new FakeProcess(0);
+          }
+        },
+        new TestConsole());
 
     Object daemon = Main.getDaemon(
         new TestRepositoryBuilder()
@@ -563,7 +585,8 @@ public class DaemonIntegrationTest {
             .setFilesystem(filesystem)
             .build(),
         new FakeClock(0),
-        objectMapper);
+        objectMapper,
+        fakeProcessExecutor);
 
     assertNotEquals(
         "Daemon should be replaced when not equal.", daemon,
@@ -577,7 +600,8 @@ public class DaemonIntegrationTest {
                 .setFilesystem(filesystem)
                 .build(),
             new FakeClock(0),
-            objectMapper));
+            objectMapper,
+            fakeProcessExecutor));
   }
 
   private void waitForChange(final Path path) throws IOException, InterruptedException {

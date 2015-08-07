@@ -651,10 +651,10 @@ public class ProjectGenerator {
         infoPlistPath,
         /* includeFrameworks */ true,
         AppleResources.collectRecursiveResources(targetGraph, ImmutableList.of(targetNode)),
+        AppleResources.collectDirectResources(targetGraph, targetNode),
         AppleBuildRules.collectRecursiveAssetCatalogs(targetGraph, ImmutableList.of(targetNode)),
         AppleBuildRules.collectDirectAssetCatalogs(targetGraph, targetNode),
-        Optional.<Iterable<PBXBuildPhase>>of(copyFilesBuildPhases),
-        bundleLoaderNode);
+        Optional.<Iterable<PBXBuildPhase>>of(copyFilesBuildPhases), bundleLoaderNode);
 
     LOG.debug("Generated iOS bundle target %s", target);
     return target;
@@ -673,6 +673,7 @@ public class ProjectGenerator {
         Optional.<Path>absent(),
         /* includeFrameworks */ true,
         ImmutableSet.<AppleResourceDescription.Arg>of(),
+        AppleResources.collectDirectResources(targetGraph, targetNode),
         ImmutableSet.<AppleAssetCatalogDescription.Arg>of(),
         AppleBuildRules.collectDirectAssetCatalogs(targetGraph, targetNode),
         Optional.<Iterable<PBXBuildPhase>>absent(),
@@ -702,10 +703,10 @@ public class ProjectGenerator {
         Optional.<Path>absent(),
         /* includeFrameworks */ isShared,
         ImmutableSet.<AppleResourceDescription.Arg>of(),
+        AppleResources.collectDirectResources(targetGraph, targetNode),
         ImmutableSet.<AppleAssetCatalogDescription.Arg>of(),
         AppleBuildRules.collectDirectAssetCatalogs(targetGraph, targetNode),
-        Optional.<Iterable<PBXBuildPhase>>absent(),
-        bundleLoaderNode);
+        Optional.<Iterable<PBXBuildPhase>>absent(), bundleLoaderNode);
     LOG.debug("Generated iOS library target %s", target);
     return target;
   }
@@ -718,7 +719,8 @@ public class ProjectGenerator {
       String productOutputFormat,
       Optional<Path> infoPlistOptional,
       boolean includeFrameworks,
-      ImmutableSet<AppleResourceDescription.Arg> resources,
+      ImmutableSet<AppleResourceDescription.Arg> recursiveResources,
+      ImmutableSet<AppleResourceDescription.Arg> directResources,
       ImmutableSet<AppleAssetCatalogDescription.Arg> recursiveAssetCatalogs,
       ImmutableSet<AppleAssetCatalogDescription.Arg> directAssetCatalogs,
       Optional<Iterable<PBXBuildPhase>> copyFilesPhases,
@@ -765,7 +767,8 @@ public class ProjectGenerator {
         .setPublicHeaders(exportedHeaders)
         .setPrivateHeaders(headers)
         .setPrefixHeader(arg.prefixHeader)
-        .setResources(resources);
+        .setRecursiveResources(recursiveResources)
+        .setDirectResources(directResources);
 
     if (options.contains(Option.CREATE_DIRECTORY_STRUCTURE)) {
       mutator.setTargetGroupPath(
@@ -900,13 +903,19 @@ public class ProjectGenerator {
 
     ImmutableMap.Builder<String, String> appendConfigsBuilder = ImmutableMap.builder();
 
+    ImmutableSet<Path> recursiveHeaderMaps = collectRecursiveHeaderMaps(targetNode);
+    ImmutableSet<Path> headerMapBases = recursiveHeaderMaps.isEmpty() ?
+        ImmutableSet.<Path>of() :
+        ImmutableSet.of(pathRelativizer.outputDirToRootRelative(BuckConstant.BUCK_OUTPUT_PATH));
+
     appendConfigsBuilder
         .put(
             "HEADER_SEARCH_PATHS",
             Joiner.on(' ').join(
                 Iterables.concat(
                     collectRecursiveHeaderSearchPaths(targetNode),
-                    collectRecursiveHeaderMaps(targetNode))))
+                    recursiveHeaderMaps,
+                    headerMapBases)))
         .put(
             "LIBRARY_SEARCH_PATHS",
             Joiner.on(' ').join(
@@ -970,7 +979,7 @@ public class ProjectGenerator {
     setTargetBuildConfigurations(
         getConfigurationNameToXcconfigPath(buildTarget),
         target,
-        targetGroup,
+        project.getMainGroup(),
         targetNode.getConstructorArg().configs.get(),
         extraSettingsBuilder.build(),
         defaultSettingsBuilder.build(),
@@ -1070,7 +1079,7 @@ public class ProjectGenerator {
                 SourceWithFlags.of(
                     new PathSourcePath(projectFilesystem, emptyFileWithExtension("c")))))
         .setArchives(Sets.union(collectRecursiveLibraryDependencies(tests), testLibs.build()))
-        .setResources(AppleResources.collectRecursiveResources(targetGraph, tests))
+        .setRecursiveResources(AppleResources.collectRecursiveResources(targetGraph, tests))
         .setRecursiveAssetCatalogs(
             getAndMarkAssetCatalogBuildScript(),
             AppleBuildRules.collectRecursiveAssetCatalogs(targetGraph, tests));
@@ -1108,7 +1117,7 @@ public class ProjectGenerator {
           }
         },
         result.target,
-        result.targetGroup,
+        project.getMainGroup(),
         key.getConfigs().get(),
         overrideBuildSettingsBuilder.build(),
         ImmutableMap.of(
@@ -1227,6 +1236,7 @@ public class ProjectGenerator {
   private PBXFileReference getConfigurationFileReference(PBXGroup targetGroup, Path xcconfigPath) {
     return targetGroup
         .getOrCreateChildGroupByName("Configurations")
+        .getOrCreateChildGroupByName("Buck (Do Not Modify)")
         .getOrCreateFileReferenceBySourceTreePath(
             new SourceTreePath(
                 PBXReference.SourceTree.SOURCE_ROOT,
@@ -1297,7 +1307,9 @@ public class ProjectGenerator {
       for (Map.Entry<String, SourcePath> entry : contents.entrySet()) {
         headerMapBuilder.add(
             entry.getKey(),
-            projectFilesystem.resolve(headerSymlinkTreeRoot).resolve(entry.getKey()));
+            BuckConstant.BUCK_OUTPUT_PATH
+                .relativize(headerSymlinkTreeRoot)
+                .resolve(entry.getKey()));
       }
       projectFilesystem.writeBytesToPath(headerMapBuilder.build().getBytes(), headerMapLocation);
     }

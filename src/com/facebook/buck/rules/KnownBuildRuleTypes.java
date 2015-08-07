@@ -22,6 +22,7 @@ import com.facebook.buck.android.AndroidBuckConfig;
 import com.facebook.buck.android.AndroidBuildConfigDescription;
 import com.facebook.buck.android.AndroidDirectoryResolver;
 import com.facebook.buck.android.AndroidInstrumentationApkDescription;
+import com.facebook.buck.android.AndroidInstrumentationTestDescription;
 import com.facebook.buck.android.AndroidLibraryDescription;
 import com.facebook.buck.android.AndroidManifestDescription;
 import com.facebook.buck.android.AndroidPrebuiltAarDescription;
@@ -50,6 +51,7 @@ import com.facebook.buck.apple.AppleSdkPaths;
 import com.facebook.buck.apple.AppleTestDescription;
 import com.facebook.buck.apple.AppleToolchain;
 import com.facebook.buck.apple.AppleToolchainDiscovery;
+import com.facebook.buck.apple.CodeSignIdentity;
 import com.facebook.buck.apple.CoreDataModelDescription;
 import com.facebook.buck.apple.XcodePostbuildScriptDescription;
 import com.facebook.buck.apple.XcodePrebuildScriptDescription;
@@ -431,6 +433,9 @@ public class KnownBuildRuleTypes {
                 SmartDexingStep.determineOptimalThreadCount(),
                 new CommandThreadFactory("SmartDexing")));
 
+    Supplier<ImmutableSet<CodeSignIdentity>> codeSignIdentitiesSupplier =
+        AppleConfig.createCodeSignIdentitiesSupplier(processExecutor);
+
     builder.register(new AndroidAarDescription(new AndroidManifestDescription(), ndkCxxPlatforms));
     builder.register(
         new AndroidBinaryDescription(
@@ -444,6 +449,7 @@ public class KnownBuildRuleTypes {
             androidBinaryOptions,
             ndkCxxPlatforms,
             dxExecutorService));
+    builder.register(new AndroidInstrumentationTestDescription(testRuleTimeoutMs));
     builder.register(new AndroidLibraryDescription(androidBinaryOptions));
     builder.register(new AndroidManifestDescription());
     builder.register(new AndroidPrebuiltAarDescription(androidBinaryOptions));
@@ -457,7 +463,8 @@ public class KnownBuildRuleTypes {
             appleLibraryDescription,
             cxxPlatforms,
             platformFlavorsToAppleCxxPlatforms,
-            defaultCxxPlatform);
+            defaultCxxPlatform,
+            codeSignIdentitiesSupplier.get());
     builder.register(appleBundleDescription);
     builder.register(new AppleResourceDescription());
     builder.register(
@@ -467,7 +474,8 @@ public class KnownBuildRuleTypes {
             appleLibraryDescription,
             cxxPlatforms,
             platformFlavorsToAppleCxxPlatforms,
-            defaultCxxPlatform));
+            defaultCxxPlatform,
+            codeSignIdentitiesSupplier.get()));
     builder.register(new CoreDataModelDescription());
     builder.register(cxxBinaryDescription);
     builder.register(cxxLibraryDescription);

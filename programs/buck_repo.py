@@ -18,6 +18,9 @@ JAVA_CLASSPATHS = [
     "build/dx_classes",
     "src",
     "third-party/java/android/sdklib.jar",
+    "third-party/java/android/sdk-common-24.2.3.jar",
+    "third-party/java/android/common-24.2.3.jar",
+    "third-party/java/android/layoutlib-api-24.2.3.jar",
     "third-party/java/aopalliance/aopalliance.jar",
     "third-party/java/args4j/args4j-2.0.30.jar",
     "third-party/java/asm/asm-debug-all-5.0.3.jar",
@@ -47,8 +50,10 @@ JAVA_CLASSPATHS = [
     "third-party/java/jackson/jackson-databind-2.0.5.jar",
     "third-party/java/jackson/jackson-datatype-jdk7-2.5.0.jar",
     "third-party/java/jetty/jetty-all-9.2.10.v20150310.jar",
+    "third-party/java/jparsec/jparsec-2.2.1.jar",
     "third-party/java/jsr/javax.inject-1.jar",
     "third-party/java/jsr/jsr305.jar",
+    "third-party/java/kxml2/kxml2-2.3.0.jar",
     "third-party/java/nailgun/nailgun-server-0.9.2-SNAPSHOT.jar",
     "third-party/java/okhttp/okhttp-2.2.0.jar",
     "third-party/java/okio/okio-1.2.0.jar",
@@ -336,3 +341,6 @@ class BuckRepo(BuckTool):
 
     def _get_java_classpath(self):
         return self._pathsep.join([self._join_buck_dir(p) for p in JAVA_CLASSPATHS])
+
+    def _get_pywatchman_path(self):
+        return self._join_buck_dir("build/pywatchman")

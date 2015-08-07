@@ -80,7 +80,6 @@ import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.SourceWithFlags;
 import com.facebook.buck.shell.ExportFileBuilder;
 import com.facebook.buck.shell.ExportFileDescription;
-import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.testutil.AllExistingProjectFilesystem;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
@@ -577,7 +576,8 @@ public class ProjectGeneratorTest {
             "../buck-out/gen/foo/test-private-header-symlink-tree/.tree.hmap " +
             "../buck-out/gen/foo/test-public-header-symlink-tree/.tree.hmap " +
             "../buck-out/gen/foo/lib-public-header-symlink-tree/.tree.hmap " +
-            "../buck-out/gen/foo/lib-private-header-symlink-tree/.tree.hmap",
+            "../buck-out/gen/foo/lib-private-header-symlink-tree/.tree.hmap " +
+            "../buck-out",
         buildSettings.get("HEADER_SEARCH_PATHS"));
     assertEquals(
         "USER_HEADER_SEARCH_PATHS should not be set",
@@ -641,7 +641,8 @@ public class ProjectGeneratorTest {
             "../buck-out/gen/foo/test-private-header-symlink-tree/.tree.hmap " +
             "../buck-out/gen/foo/test-public-header-symlink-tree/.tree.hmap " +
             "../buck-out/gen/foo/lib-public-header-symlink-tree/.tree.hmap " +
-            "../buck-out/gen/foo/lib-private-header-symlink-tree/.tree.hmap",
+            "../buck-out/gen/foo/lib-private-header-symlink-tree/.tree.hmap " +
+            "../buck-out",
         buildSettings.get("HEADER_SEARCH_PATHS"));
     assertEquals(
         "USER_HEADER_SEARCH_PATHS should not be set",
@@ -705,7 +706,8 @@ public class ProjectGeneratorTest {
             "../buck-out/gen/foo/test-private-header-symlink-tree/.tree.hmap " +
             "../buck-out/gen/foo/test-public-header-symlink-tree/.tree.hmap " +
             "../buck-out/gen/foo/bin-public-header-symlink-tree/.tree.hmap " +
-            "../buck-out/gen/foo/bin-private-header-symlink-tree/.tree.hmap",
+            "../buck-out/gen/foo/bin-private-header-symlink-tree/.tree.hmap " +
+            "../buck-out",
         buildSettings.get("HEADER_SEARCH_PATHS"));
     assertEquals(
         "USER_HEADER_SEARCH_PATHS should not be set",
@@ -736,7 +738,7 @@ public class ProjectGeneratorTest {
     for (String key : content.keySet()) {
       assertThat(
           headerMap.lookup(key),
-          equalTo(projectFilesystem.resolve(root).resolve(key).toString()));
+          equalTo(BuckConstant.BUCK_OUTPUT_PATH.relativize(root).resolve(key).toString()));
     }
   }
 
@@ -1262,6 +1264,7 @@ public class ProjectGeneratorTest {
     assertThat(target.getProductType(), equalTo(ProductType.STATIC_LIBRARY));
 
     assertHasConfigurations(target, "Debug");
+    assertKeepsConfigurationsInMainGroup(projectGenerator.getGeneratedProject(), target);
     XCBuildConfiguration configuration = target
         .getBuildConfigurationList().getBuildConfigurationsByName().asMap().get("Debug");
     assertEquals(configuration.getBuildSettings().count(), 0);
@@ -2865,9 +2868,7 @@ public class ProjectGeneratorTest {
   public void usingBuildTargetSourcePathInResourceDirsOrFilesDoesNotThrow() throws IOException {
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//some:rule");
     SourcePath sourcePath = new BuildTargetSourcePath(buildTarget);
-    TargetNode<?> generatingTarget = GenruleBuilder.newGenruleBuilder(buildTarget)
-        .setCmd("echo HI")
-        .build();
+    TargetNode<?> generatingTarget = ExportFileBuilder.newExportFileBuilder(buildTarget).build();
 
     ImmutableSet<TargetNode<?>> nodes = FluentIterable.from(
         setupSimpleLibraryWithResources(
@@ -3191,6 +3192,10 @@ public class ProjectGeneratorTest {
     assertThat(buildWithBuckTarget, is(notNullValue()));
 
     assertHasConfigurations(buildWithBuckTarget, "Debug");
+    assertKeepsConfigurationsInMainGroup(
+        projectGenerator.getGeneratedProject(),
+        buildWithBuckTarget);
+
     assertEquals(
         "Should have exact number of build phases",
         1,
@@ -3331,6 +3336,38 @@ public class ProjectGeneratorTest {
     assertFalse(hasAssetCatalog);
   }
 
+  @Test
+  public void testResourcesUnderLibrary() throws IOException {
+    BuildTarget fileTarget = BuildTarget.builder("//foo", "file").build();
+    BuildTarget resourceTarget = BuildTarget.builder("//foo", "res").build();
+    BuildTarget libraryTarget = BuildTarget.builder("//foo", "lib").build();
+
+    TargetNode<?> fileNode = ExportFileBuilder.newExportFileBuilder(fileTarget).build();
+    TargetNode<?> resourceNode = AppleResourceBuilder
+        .createBuilder(resourceTarget)
+        .setDirs(ImmutableSet.<SourcePath>of())
+        .setFiles(ImmutableSet.<SourcePath>of(new BuildTargetSourcePath(fileTarget)))
+        .build();
+    TargetNode<?> libraryNode = AppleLibraryBuilder
+        .createBuilder(libraryTarget)
+        .setDeps(Optional.of(ImmutableSortedSet.of(resourceTarget)))
+        .build();
+
+    ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
+        ImmutableSet.of(fileNode, resourceNode, libraryNode));
+
+    projectGenerator.createXcodeProjects();
+
+    PBXProject project = projectGenerator.getGeneratedProject();
+    PBXGroup mainGroup = project.getMainGroup();
+
+    PBXGroup resourcesGroup = mainGroup.getOrCreateDescendantGroupByPath(
+        ImmutableList.of("//foo:lib", "Resources"));
+    PBXFileReference resource = (PBXFileReference) Iterables.get(
+        resourcesGroup.getChildren(), 0);
+    assertThat(resource.getName(), equalTo("file"));
+  }
+
   private ProjectGenerator createProjectGeneratorForCombinedProject(
       Iterable<TargetNode<?>> nodes) {
     return createProjectGeneratorForCombinedProject(
@@ -3416,6 +3453,41 @@ public class ProjectGeneratorTest {
       assertTrue(
           "Configuration has xcconfig file",
           configuration.getBaseConfigurationReference().getPath().endsWith(".xcconfig"));
+    }
+  }
+
+  private void assertKeepsConfigurationsInMainGroup(PBXProject project, PBXTarget target) {
+    Map<String, XCBuildConfiguration> buildConfigurationMap =
+        target.getBuildConfigurationList().getBuildConfigurationsByName().asMap();
+
+    PBXGroup configsGroup = project
+        .getMainGroup()
+        .getOrCreateChildGroupByName("Configurations")
+        .getOrCreateChildGroupByName("Buck (Do Not Modify)");
+
+    assertNotNull("Configuration group exists", configsGroup);
+
+    List<PBXReference> configReferences = configsGroup.getChildren();
+    assertFalse("Configuration file references exist", configReferences.isEmpty());
+
+    for (XCBuildConfiguration configuration : buildConfigurationMap.values()) {
+      String path = configuration.getBaseConfigurationReference().getPath();
+
+      PBXReference foundReference = null;
+      for (PBXReference reference : configReferences) {
+        assertTrue(
+            "References in the configuration group should point to xcconfigs",
+            reference.getPath().endsWith(".xcconfig"));
+
+        if (reference.getPath().equals(path)) {
+          foundReference = reference;
+          break;
+        }
+      }
+
+      assertNotNull(
+          "File reference for configuration " + path + " should be in main group",
+          foundReference);
     }
   }
 
