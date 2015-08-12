@@ -16,6 +16,7 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -43,6 +44,7 @@ import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.logging.Level;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -229,13 +231,14 @@ public class CxxPreprocessAndCompileStep implements Step {
 
   private ImmutableList<String> makeCompileCommand(
       String inputFileName,
-      String inputLanguage) {
+      String inputLanguage,
+      boolean preprocessable) {
     return ImmutableList.<String>builder()
         .addAll(compilerCommand.get())
         .add("-x", inputLanguage)
         .add("-c")
         .addAll(
-            inputType.isPreprocessable() ?
+            preprocessable ?
                 getDepFileArgs(getDepTemp()) :
                 ImmutableList.<String>of())
         .add(inputFileName)
@@ -267,7 +270,8 @@ public class CxxPreprocessAndCompileStep implements Step {
     compileBuilder.command(
         makeCompileCommand(
             "-",
-            inputType.getPreprocessedLanguage()));
+            inputType.getPreprocessedLanguage(),
+            /* preprocessable */ false));
     compileBuilder.redirectInput(ProcessBuilder.Redirect.PIPE);
 
     Process preprocess = null;
@@ -314,12 +318,18 @@ public class CxxPreprocessAndCompileStep implements Step {
 
       String preprocessErr = new String(preprocessError.toByteArray());
       if (!preprocessErr.isEmpty()) {
-        context.getConsole().printErrorText(preprocessErr);
+        context.getBuckEventBus().post(
+            ConsoleEvent.create(
+                preprocessStatus == 0 ? Level.WARNING : Level.SEVERE,
+                preprocessErr));
       }
 
       String compileErr = new String(compileError.toByteArray());
       if (!compileErr.isEmpty()) {
-        context.getConsole().printErrorText(compileErr);
+        context.getBuckEventBus().post(
+            ConsoleEvent.create(
+                compileStatus == 0 ? Level.WARNING : Level.SEVERE,
+                compileErr));
       }
 
       if (preprocessStatus != 0) {
@@ -369,7 +379,8 @@ public class CxxPreprocessAndCompileStep implements Step {
       builder.command(
           makeCompileCommand(
               input.toString(),
-              inputType.getLanguage()));
+              inputType.getLanguage(),
+              inputType.isPreprocessable()));
     }
 
     LOG.debug(
@@ -425,7 +436,10 @@ public class CxxPreprocessAndCompileStep implements Step {
     // If we generated any error output, print that to the console.
     String err = new String(error.toByteArray());
     if (!err.isEmpty()) {
-      context.getConsole().printErrorText(err);
+      context.getBuckEventBus().post(
+          ConsoleEvent.create(
+              exitCode == 0 ? Level.WARNING : Level.SEVERE,
+              err));
     }
 
     return exitCode;
@@ -445,7 +459,7 @@ public class CxxPreprocessAndCompileStep implements Step {
       }
 
       // Process the dependency file, fixing up the paths, and write it out to it's final location.
-      if (operation.isPreprocess()) {
+      if (operation.isPreprocess() && exitCode == 0) {
         try (InputStream input = context.getProjectFilesystem().newFileInputStream(getDepTemp());
              BufferedReader reader = new BufferedReader(new InputStreamReader(input));
              OutputStream output = context.getProjectFilesystem().newFileOutputStream(depFile);
@@ -483,7 +497,7 @@ public class CxxPreprocessAndCompileStep implements Step {
 
     } catch (Exception e) {
       MoreThrowables.propagateIfInterrupt(e);
-      context.getConsole().printBuildFailureWithStacktrace(e);
+      context.logError(e, "Build error caused by exception");
       return 1;
     }
   }
@@ -494,7 +508,8 @@ public class CxxPreprocessAndCompileStep implements Step {
       case COMPILE_MUNGE_DEBUGINFO:
         return makeCompileCommand(
             input.toString(),
-            inputType.getLanguage());
+            inputType.getLanguage(),
+            inputType.isPreprocessable());
       case PREPROCESS:
         return makePreprocessCommand();
       // $CASES-OMITTED$
@@ -514,7 +529,8 @@ public class CxxPreprocessAndCompileStep implements Step {
                 FluentIterable.from(
                     makeCompileCommand(
                         "-",
-                        inputType.getPreprocessedLanguage()))
+                        inputType.getPreprocessedLanguage(),
+                        /* preprocessable */ false))
                 .transform(Escaper.SHELL_ESCAPER));
 
       }

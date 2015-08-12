@@ -190,7 +190,7 @@ public final class Main {
         Clock clock,
         ObjectMapper objectMapper,
         ProcessExecutor processExecutor)
-        throws IOException, InterruptedException  {
+        throws IOException, InterruptedException {
       this.repository = repository;
       this.clock = clock;
       this.objectMapper = objectMapper;
@@ -202,18 +202,20 @@ public final class Main {
           new ExecutableFinder());
       this.fileEventBus = new EventBus("file-change-events");
       this.watchmanWatcher = createWatcher(repository.getFilesystem());
-      Optional<String> watchmanVersion = watchmanWatcher.getWatchmanVersion();
-      boolean useWatchmanGlob;
-      if (watchmanVersion.isPresent()) {
-        useWatchmanGlob = new VersionStringComparator()
-            .compare(watchmanVersion.get(), WATCHMAN_GLOB_MIN_VERSION) >= 0;
-      } else {
-        useWatchmanGlob = false;
+      boolean useWatchmanGlob = parserConfig.getGlobHandler() == ParserConfig.GlobHandler.WATCHMAN;
+      if (useWatchmanGlob) {
+        Optional<String> watchmanVersion = watchmanWatcher.getWatchmanVersion();
+        if (watchmanVersion.isPresent()) {
+          useWatchmanGlob = new VersionStringComparator()
+              .compare(watchmanVersion.get(), WATCHMAN_GLOB_MIN_VERSION) >= 0;
+        } else {
+          useWatchmanGlob = false;
+        }
+        LOG.debug(
+            "Got watchman version: %s, using watchman glob %s",
+            watchmanVersion,
+            useWatchmanGlob);
       }
-      LOG.debug(
-          "Got watchman version: %s, using watchman glob %s",
-          watchmanVersion,
-          useWatchmanGlob);
       this.parser = Parser.createParser(
           repository,
           pythonBuckConfig.getPythonInterpreter(),
@@ -451,6 +453,22 @@ public final class Main {
     this.externalEventsListeners = ImmutableList.copyOf(externalEventsListeners);
   }
 
+  private void flushEventListeners(
+      Console console,
+      BuildId buildId,
+      ImmutableList<BuckEventListener> eventListeners)
+      throws InterruptedException {
+    for (BuckEventListener eventListener : eventListeners) {
+      try {
+        eventListener.outputTrace(buildId);
+      } catch (RuntimeException e) {
+        PrintStream stdErr = console.getStdErr();
+        stdErr.println("Skipping over non-fatal error");
+        e.printStackTrace(stdErr);
+      }
+    }
+  }
+
   /**
    *
    * @param buildId an identifier for this command execution.
@@ -547,7 +565,6 @@ public final class Main {
     KnownBuildRuleTypes buildRuleTypes =
         KnownBuildRuleTypes.createInstance(
             buckConfig,
-            filesystem,
             processExecutor,
             androidDirectoryResolver,
             new PythonBuckConfig(buckConfig, new ExecutableFinder()).getPythonEnvironment(
@@ -734,19 +751,11 @@ public final class Main {
     } catch (Throwable t) {
       LOG.debug(t, "Failing build on exception.");
       closeCreatedArtifactCaches(artifactCacheFactory); // Close cache before exit on exception.
+      flushEventListeners(console, buildId, eventListeners);
       throw t;
     } finally {
       if (commandSemaphoreAcquired) {
         commandSemaphore.release(); // Allow another command to execute while outputting traces.
-      }
-      for (BuckEventListener eventListener : eventListeners) {
-        try {
-          eventListener.outputTrace(buildId);
-        } catch (RuntimeException e) {
-          PrintStream stdErr = console.getStdErr();
-          stdErr.println("Skipping over non-fatal error");
-          e.printStackTrace(stdErr);
-        }
       }
     }
     if (isDaemon && !rootRepository.getBuckConfig().getFlushEventsBeforeExit()) {
@@ -754,6 +763,7 @@ public final class Main {
       context.get().exit(exitCode); // Allow nailgun client to exit while outputting traces.
     }
     closeCreatedArtifactCaches(artifactCacheFactory); // Wait for cache close after client exit.
+    flushEventListeners(console, buildId, eventListeners);
     return exitCode;
   }
 

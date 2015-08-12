@@ -40,6 +40,7 @@ import com.facebook.buck.js.IosReactNativeLibraryDescription;
 import com.facebook.buck.js.ReactNativeBundle;
 import com.facebook.buck.js.ReactNativeFlavors;
 import com.facebook.buck.js.ReactNativeLibraryArgs;
+import com.facebook.buck.js.ReactNativePlatform;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.SourcePath;
@@ -278,7 +279,10 @@ public class NewNativeTargetProjectMutator {
 
     PBXGroup productsGroup = project.getMainGroup().getOrCreateChildGroupByName("Products");
     PBXFileReference productReference = productsGroup.getOrCreateFileReferenceBySourceTreePath(
-        new SourceTreePath(PBXReference.SourceTree.BUILT_PRODUCTS_DIR, productOutputPath));
+        new SourceTreePath(
+            PBXReference.SourceTree.BUILT_PRODUCTS_DIR,
+            productOutputPath,
+            Optional.<String>absent()));
     target.setProductName(productName);
     target.setProductReference(productReference);
     target.setProductType(productType);
@@ -317,8 +321,8 @@ public class NewNativeTargetProjectMutator {
     if (prefixHeader.isPresent()) {
       SourceTreePath prefixHeaderSourceTreePath = new SourceTreePath(
           PBXReference.SourceTree.GROUP,
-          pathRelativizer.outputPathToSourcePath(prefixHeader.get())
-      );
+          pathRelativizer.outputPathToSourcePath(prefixHeader.get()),
+          Optional.<String>absent());
       sourcesGroup.getOrCreateFileReferenceBySourceTreePath(prefixHeaderSourceTreePath);
     }
 
@@ -392,7 +396,8 @@ public class NewNativeTargetProjectMutator {
         new SourceTreePath(
             PBXReference.SourceTree.SOURCE_ROOT,
             pathRelativizer.outputDirToRootRelative(
-                sourcePathResolver.apply(sourceWithFlags.getSourcePath()))));
+                sourcePathResolver.apply(sourceWithFlags.getSourcePath())),
+            Optional.<String>absent()));
     PBXBuildFile buildFile = new PBXBuildFile(fileReference);
     sourcesBuildPhase.getFiles().add(buildFile);
     List<String> customFlags = sourceWithFlags.getFlags();
@@ -417,7 +422,8 @@ public class NewNativeTargetProjectMutator {
     PBXFileReference fileReference = headersGroup.getOrCreateFileReferenceBySourceTreePath(
         new SourceTreePath(
             PBXReference.SourceTree.SOURCE_ROOT,
-            pathRelativizer.outputPathToSourcePath(headerPath)));
+            pathRelativizer.outputPathToSourcePath(headerPath),
+            Optional.<String>absent()));
     PBXBuildFile buildFile = new PBXBuildFile(fileReference);
     if (visibility != HeaderVisibility.PRIVATE) {
       NSDictionary settings = new NSDictionary();
@@ -461,7 +467,8 @@ public class NewNativeTargetProjectMutator {
       } else if (framework.getSourcePath().isPresent()) {
         sourceTreePath = new SourceTreePath(
             PBXReference.SourceTree.SOURCE_ROOT,
-            pathRelativizer.outputPathToSourcePath(framework.getSourcePath().get()));
+            pathRelativizer.outputPathToSourcePath(framework.getSourcePath().get()),
+            Optional.<String>absent());
       } else {
         throw new RuntimeException();
       }
@@ -522,14 +529,20 @@ public class NewNativeTargetProjectMutator {
 
     PBXGroup resourcesGroup = targetGroup.getOrCreateChildGroupByName("Resources");
     for (AppleResourceDescription.Arg resource : resources) {
-      Iterable<Path> paths = Iterables.transform(
-          Iterables.concat(resource.files, resource.dirs),
-          sourcePathResolver);
-      for (Path path : paths) {
+      for (Path path : Iterables.transform(resource.files, sourcePathResolver)) {
         PBXFileReference fileReference = resourcesGroup.getOrCreateFileReferenceBySourceTreePath(
             new SourceTreePath(
                 PBXReference.SourceTree.SOURCE_ROOT,
-                pathRelativizer.outputDirToRootRelative(path)));
+                pathRelativizer.outputDirToRootRelative(path),
+                Optional.<String>absent()));
+        resourceCallback.apply(fileReference);
+      }
+      for (Path path : Iterables.transform(resource.dirs, sourcePathResolver)) {
+        PBXFileReference fileReference = resourcesGroup.getOrCreateFileReferenceBySourceTreePath(
+            new SourceTreePath(
+                PBXReference.SourceTree.SOURCE_ROOT,
+                pathRelativizer.outputDirToRootRelative(path),
+                Optional.of("folder")));
         resourceCallback.apply(fileReference);
       }
 
@@ -556,7 +569,8 @@ public class NewNativeTargetProjectMutator {
         }
         SourceTreePath sourceTreePath = new SourceTreePath(
             PBXReference.SourceTree.SOURCE_ROOT,
-            pathRelativizer.outputPathToSourcePath(variantSourcePath));
+            pathRelativizer.outputPathToSourcePath(variantSourcePath),
+            Optional.<String>absent());
         variantGroup.getOrCreateVariantFileReferenceByNameAndSourceTreePath(
             variantLocalization,
             sourceTreePath);
@@ -579,7 +593,8 @@ public class NewNativeTargetProjectMutator {
         resourcesGroup.getOrCreateFileReferenceBySourceTreePath(
             new SourceTreePath(
                 PBXReference.SourceTree.SOURCE_ROOT,
-                pathRelativeToProjectRoot));
+                pathRelativeToProjectRoot,
+                Optional.<String>absent()));
 
         LOG.debug("Resolved asset catalog path %s, result %s", dir, pathRelativeToProjectRoot);
       }
@@ -731,6 +746,7 @@ public class NewNativeTargetProjectMutator {
                   filesystem.resolve(
                       sourcePathResolver.apply(description.getReactNativePackager())),
                   filesystem.resolve(sourcePathResolver.apply(args.entryPath)),
+                  ReactNativePlatform.IOS,
                   ReactNativeFlavors.isDevMode(targetNode.getBuildTarget()),
                   "${JS_OUT}",
                   "${BASE_DIR}",
