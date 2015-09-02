@@ -21,6 +21,7 @@ import com.dd.plist.NSDictionary;
 import com.dd.plist.NSObject;
 import com.dd.plist.PropertyListParser;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.io.ProjectFilesystem.CopySourceMode;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.Pair;
@@ -55,6 +56,7 @@ public class ProvisioningProfileCopyStep implements Step {
   private static final String APPLICATION_IDENTIFIER = "application-identifier";
   private static final Logger LOG = Logger.get(ProvisioningProfileCopyStep.class);
 
+  private final ProjectFilesystem filesystem;
   private final Optional<Path> entitlementsPlist;
   private final Optional<String> provisioningProfileUUID;
   private final Path provisioningProfileDestination;
@@ -75,13 +77,14 @@ public class ProvisioningProfileCopyStep implements Step {
    *                                        normally a scratch directory.
    */
   public ProvisioningProfileCopyStep(
+      ProjectFilesystem filesystem,
       Path infoPlist,
       Optional<String> provisioningProfileUUID,
       Optional<Path> entitlementsPlist,
       ImmutableSet<ProvisioningProfileMetadata> profiles,
       Path provisioningProfileDestination,
-      Path signingEntitlementsTempPath
-  ) {
+      Path signingEntitlementsTempPath) {
+    this.filesystem = filesystem;
     this.provisioningProfileDestination = provisioningProfileDestination;
     this.infoPlist = infoPlist;
     this.provisioningProfileUUID = provisioningProfileUUID;
@@ -90,15 +93,16 @@ public class ProvisioningProfileCopyStep implements Step {
     this.signingEntitlementsTempPath = signingEntitlementsTempPath;
   }
 
-  public static ImmutableSet<ProvisioningProfileMetadata> findProfilesInPath(Path searchPath) {
+  public static ImmutableSet<ProvisioningProfileMetadata> findProfilesInPath(Path searchPath)
+   throws InterruptedException {
     final ImmutableSet.Builder<ProvisioningProfileMetadata> profilesBuilder =
         ImmutableSet.builder();
-
     try {
       Files.walkFileTree(
           searchPath.toAbsolutePath(), new SimpleFileVisitor<Path>() {
             @Override
-            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
+                throws IOException {
               if (file.toString().endsWith(".mobileprovision")) {
                 try {
                   ProvisioningProfileMetadata profile =
@@ -106,6 +110,8 @@ public class ProvisioningProfileCopyStep implements Step {
                   profilesBuilder.add(profile);
                 } catch (IOException | IllegalArgumentException e) {
                   LOG.error(e, "Ignoring invalid or malformed .mobileprovision file");
+                } catch (InterruptedException e) {
+                  throw new IOException(e);
                 }
               }
 
@@ -113,6 +119,9 @@ public class ProvisioningProfileCopyStep implements Step {
             }
           });
     } catch (IOException e) {
+      if (e.getCause() instanceof InterruptedException) {
+        throw ((InterruptedException) e.getCause());
+      }
       LOG.error(e, "Error while searching for mobileprovision files");
     }
 
@@ -243,6 +252,7 @@ public class ProvisioningProfileCopyStep implements Step {
       entitlements.put(APPLICATION_IDENTIFIER, appID);
       entitlements.put(KEYCHAIN_ACCESS_GROUPS, new String[]{appID});
       return (new WriteFileStep(
+          filesystem,
           entitlements.toXMLPropertyList(),
           signingEntitlementsTempPath,
           /* executable */ false)).execute(context);

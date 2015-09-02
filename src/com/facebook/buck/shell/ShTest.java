@@ -16,7 +16,6 @@
 
 package com.facebook.buck.shell;
 
-import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
@@ -91,8 +90,7 @@ public class ShTest extends NoopBuildRule implements TestRule, HasRuntimeDeps {
   @Override
   public boolean hasTestResultFiles(ExecutionContext executionContext) {
     // If result.json was not written, then the test needs to be run.
-    ProjectFilesystem filesystem = executionContext.getProjectFilesystem();
-    return filesystem.isFile(getPathToTestOutputResult());
+    return getProjectFilesystem().isFile(getPathToTestOutputResult());
   }
 
   @Override
@@ -112,6 +110,7 @@ public class ShTest extends NoopBuildRule implements TestRule, HasRuntimeDeps {
 
     // Return a single command that runs an .sh file with no arguments.
     Step runTest = new RunShTestAndRecordResultStep(
+        getProjectFilesystem().getRootPath(),
         getResolver().getPath(test),
         args,
         getPathToTestOutputResult());
@@ -137,7 +136,6 @@ public class ShTest extends NoopBuildRule implements TestRule, HasRuntimeDeps {
       boolean isUsingTestSelectors,
       boolean isDryRun) {
     final ImmutableSet<String> contacts = getContacts();
-    final ProjectFilesystem filesystem = context.getProjectFilesystem();
 
     if (isDryRun) {
       // Again, shortcut to returning no results, because sh-tests have no concept of a dry-run.
@@ -157,7 +155,7 @@ public class ShTest extends NoopBuildRule implements TestRule, HasRuntimeDeps {
         @Override
         public TestResults call() throws Exception {
           Optional<String> resultsFileContents =
-              filesystem.readFileIfItExists(getPathToTestOutputResult());
+              getProjectFilesystem().readFileIfItExists(getPathToTestOutputResult());
           ObjectMapper mapper = new ObjectMapper();
           TestResultSummary testResultSummary = mapper.readValue(resultsFileContents.get(),
               TestResultSummary.class);

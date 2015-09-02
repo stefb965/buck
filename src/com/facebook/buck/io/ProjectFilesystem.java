@@ -16,6 +16,10 @@
 
 package com.facebook.buck.io;
 
+import static com.facebook.buck.io.MorePaths.TO_PATH;
+
+import com.facebook.buck.cli.Config;
+import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.zip.CustomZipEntry;
 import com.facebook.buck.zip.CustomZipOutputStream;
@@ -27,12 +31,14 @@ import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
+import com.google.common.base.Strings;
 import com.google.common.collect.Collections2;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Lists;
 import com.google.common.hash.Hashing;
 import com.google.common.io.ByteStreams;
 
@@ -61,6 +67,7 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
@@ -107,6 +114,11 @@ public class ProjectFilesystem {
       DIRECTORY_AND_CONTENTS,
   }
 
+  @VisibleForTesting
+  static final String BUCK_BUCKD_DIR_KEY = "buck.buckd_dir";
+  @VisibleForTesting
+  static final String DEFAULT_CACHE_DIR = "buck-cache";
+
   private final Path projectRoot;
 
   private final Function<Path, Path> pathAbsolutifier;
@@ -134,13 +146,17 @@ public class ProjectFilesystem {
     this(projectRoot.getFileSystem(), projectRoot, ignorePaths);
   }
 
+  public ProjectFilesystem(Path root, Config config) {
+    this(root.getFileSystem(), root, extractIgnorePaths(root, config));
+  }
+
   protected ProjectFilesystem(
       FileSystem vfs,
       final Path projectRoot,
       ImmutableSet<Path> ignorePaths) {
     Preconditions.checkArgument(Files.isDirectory(projectRoot));
     Preconditions.checkState(vfs.equals(projectRoot.getFileSystem()));
-    this.projectRoot = projectRoot;
+    this.projectRoot = projectRoot.toAbsolutePath();
     this.pathAbsolutifier = new Function<Path, Path>() {
       @Override
       public Path apply(Path path) {
@@ -157,6 +173,33 @@ public class ProjectFilesystem {
     this.ignoreValidityOfPaths = false;
   }
 
+  @VisibleForTesting
+  static ImmutableSet<Path> extractIgnorePaths(Path root, Config config) {
+    ImmutableSet.Builder<Path> builder = ImmutableSet.builder();
+
+    builder.add(Paths.get(BuckConstant.BUCK_OUTPUT_DIRECTORY));
+    builder.add(Paths.get(".idea"));
+
+    final String projectKey = "project";
+    final String ignoreKey = "ignore";
+
+    String buckdDirProperty = System.getProperty(BUCK_BUCKD_DIR_KEY, ".buckd");
+    if (!Strings.isNullOrEmpty(buckdDirProperty)) {
+      builder.add(Paths.get(buckdDirProperty));
+    }
+
+    String cacheDir = config.getValue("cache", "dir")
+        .or(root.resolve(DEFAULT_CACHE_DIR).toString());
+    if (!Strings.isNullOrEmpty(cacheDir)) {
+      Path cacheDirPath = MorePaths.expandHomeDir(Paths.get(cacheDir)).normalize().toAbsolutePath();
+      builder.add(cacheDirPath);
+    }
+
+    builder.addAll(Lists.transform(config.getListWithoutComments(projectKey, ignoreKey), TO_PATH));
+
+    return builder.build();
+  }
+
   public Path getRootPath() {
     return projectRoot;
   }
@@ -165,11 +208,22 @@ public class ProjectFilesystem {
    * @return the specified {@code path} resolved against {@link #getRootPath()} to an absolute path.
    */
   public Path resolve(Path path) {
-    return getRootPath().resolve(path).toAbsolutePath().normalize();
+    return resolvePathFromOtherVfs(path).toAbsolutePath().normalize();
   }
 
   public Path resolve(String path) {
     return getRootPath().resolve(path).toAbsolutePath().normalize();
+  }
+
+  /**
+   * We often create {@link Path} instances using {@link Paths#get(String, String...)}, but there's
+   * no guarantee that the underlying {@link FileSystem} is the default one.
+   */
+  protected Path resolvePathFromOtherVfs(Path path) {
+    if (path.getFileSystem().equals(getRootPath().getFileSystem())) {
+      return getRootPath().resolve(path);
+    }
+    return getRootPath().resolve(path.toString());
   }
 
   /**
@@ -202,7 +256,7 @@ public class ProjectFilesystem {
   }
 
   public Path getPathForRelativePath(Path pathRelativeToProjectRoot) {
-    return projectRoot.resolve(pathRelativeToProjectRoot);
+    return resolvePathFromOtherVfs(pathRelativeToProjectRoot);
   }
 
   public Path getPathForRelativePath(String pathRelativeToProjectRoot) {
@@ -620,6 +674,16 @@ public class ProjectFilesystem {
         options);
   }
 
+  /**
+   * Copies a file to an output stream.
+   */
+  public void copyToOutputStream(
+      Path pathRelativeToProjectRoot,
+      OutputStream out)
+      throws IOException {
+    Files.copy(getPathForRelativePath(pathRelativeToProjectRoot), out);
+  }
+
   public Optional<String> readFileIfItExists(Path pathRelativeToProjectRoot) {
     Path fileToRead = getPathForRelativePath(pathRelativeToProjectRoot);
     return readFileIfItExists(fileToRead, pathRelativeToProjectRoot.toString());
@@ -714,6 +778,11 @@ public class ProjectFilesystem {
   public String computeSha1(Path pathRelativeToProjectRoot) throws IOException {
     Path fileToHash = getPathForRelativePath(pathRelativeToProjectRoot);
     return Hashing.sha1().hashBytes(Files.readAllBytes(fileToHash)).toString();
+  }
+
+  public String computeSha256(Path pathRelativeToProjectRoot) throws IOException {
+    Path fileToHash = getPathForRelativePath(pathRelativeToProjectRoot);
+    return Hashing.sha256().hashBytes(Files.readAllBytes(fileToHash)).toString();
   }
 
   /**

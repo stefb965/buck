@@ -62,6 +62,28 @@
         implementation="com.facebook.buck.intellij.plugin.config.BuckColorSettingsPage"/>
     <lang.commenter language="Buck"
                     implementationClass="com.facebook.buck.intellij.plugin.commenter.BuckCommenter"/>
+    <lang.braceMatcher
+        language="Buck"
+        implementationClass="com.facebook.buck.intellij.plugin.format.BuckBraceMatcher"/>
+    <quoteHandler
+        fileType="Buck"
+        className="com.facebook.buck.intellij.plugin.format.BuckQuoteHandler"/>
+    <copyPastePreProcessor
+        implementation="com.facebook.buck.intellij.plugin.format.BuckCopyPasteProcessor"/>
+    <toolWindow
+        id="Buck"
+        anchor="bottom"
+        icon="BuckIcons.BUCK_TOOL_WINDOW_ICON"
+        factoryClass="com.facebook.buck.intellij.plugin.ui.BuckToolWindowFactory"/>
+    <applicationConfigurable
+        groupId="tools"
+        displayName="Buck"
+        id="buck.settings"
+        instance="com.facebook.buck.intellij.plugin.config.BuckSettingsConfigurable"/>
+    <projectService
+        serviceImplementation="com.facebook.buck.intellij.plugin.build.BuckBuildManager"/>
+    <projectService
+        serviceImplementation="com.facebook.buck.intellij.plugin.ui.BuckUIManager"/>
   </extensions>
 
   <actions>
@@ -76,5 +98,31 @@
       <add-to-group anchor="first" group-id="BuildMenu"/>
       <add-to-group anchor="first" group-id="EditorPopupMenu"/>
     </group>
+
+    <group id="buck.BuildGroup">
+      <action class="com.facebook.buck.intellij.plugin.actions.ChooseTargetAction" id="buck.ChooseTarget">
+        <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift D"/>
+      </action>
+      <action class="com.facebook.buck.intellij.plugin.actions.BuckInstallAction" id="buck.Install">
+        <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift X"/>
+      </action>
+      <action class="com.facebook.buck.intellij.plugin.actions.BuckBuildAction" id="buck.Build">
+        <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift S"/>
+      </action>
+      <action class="com.facebook.buck.intellij.plugin.actions.BuckKillAction" id="buck.Kill">
+        <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift L"/>
+      </action>
+      <action class="com.facebook.buck.intellij.plugin.actions.BuckUninstallAction" id="buck.Uninstall">
+        <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift M"/>
+      </action>
+    </group>
   </actions>
+
+  <application-components>
+    <component>
+      <implementation-class>com.facebook.buck.intellij.plugin.config.BuckSettingsProvider
+      </implementation-class>
+    </component>
+  </application-components>
+
 </idea-plugin>

@@ -20,6 +20,7 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -28,21 +29,19 @@ import com.facebook.buck.io.MorePathsForTests;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.IdentityPathAbsolutifier;
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.ProjectWorkspace.ProcessResult;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 
 import org.easymock.EasyMock;
+import org.hamcrest.Matchers;
 import org.junit.Rule;
 import org.junit.Test;
 
@@ -267,62 +266,6 @@ public class BuckConfigTest {
   }
 
   @Test
-  public void testIgnorePaths() throws IOException {
-    ProjectFilesystem filesystem = EasyMock.createMock(ProjectFilesystem.class);
-    EasyMock.expect(filesystem.getAbsolutifier())
-        .andReturn(IdentityPathAbsolutifier.getIdentityAbsolutifier())
-        .times(2);
-    EasyMock.replay(filesystem);
-
-    Reader reader = new StringReader(Joiner.on('\n').join(
-        "[project]",
-        "ignore = .git, foo, bar/, baz//, a/b/c"));
-    BuckConfig config = BuckConfigTestUtils.createFromReader(
-        reader,
-        filesystem,
-        Platform.detect(),
-        ImmutableMap.copyOf(System.getenv()));
-
-    ImmutableSet<Path> ignorePaths = config.getIgnorePaths();
-    assertEquals("Should ignore paths, sans trailing slashes", ignorePaths,
-        MorePaths.asPaths(ImmutableSet.of(
-          BuckConstant.BUCK_OUTPUT_DIRECTORY,
-          ".idea",
-          System.getProperty(BuckConfig.BUCK_BUCKD_DIR_KEY, ".buckd"),
-          config.getCacheDir().toString(),
-          ".git",
-          "foo",
-          "bar",
-          "baz",
-          "a/b/c")));
-
-    EasyMock.verify(filesystem);
-  }
-
-  @Test
-  public void testIgnorePathsWithRelativeCacheDir() throws IOException {
-    ProjectFilesystem filesystem = EasyMock.createMock(ProjectFilesystem.class);
-    EasyMock.expect(filesystem.getAbsolutifier())
-        .andReturn(IdentityPathAbsolutifier.getIdentityAbsolutifier());
-    EasyMock.replay(filesystem);
-
-    Reader reader = new StringReader(Joiner.on('\n').join(
-        "[cache]",
-        "dir = cache_dir"));
-    BuckConfig config = BuckConfigTestUtils.createFromReader(
-        reader,
-        filesystem,
-        Platform.detect(),
-        ImmutableMap.copyOf(System.getenv()));
-
-    ImmutableSet<Path> ignorePaths = config.getIgnorePaths();
-    assertTrue("Relative cache directory should be in set of ignored paths",
-        ignorePaths.contains(Paths.get("cache_dir")));
-
-    EasyMock.verify(filesystem);
-  }
-
-  @Test
   public void testWifiBlacklist() throws IOException {
     BuckConfig config = createFromText(
         "[cache]",
@@ -459,4 +402,25 @@ public class BuckConfigTest {
         ImmutableMap.copyOf(System.getenv()));
   }
 
+  @Test
+  public void testShouldSetNumberOfThreadsFromBuckConfig() {
+    BuckConfig buckConfig = new FakeBuckConfig(ImmutableMap.of(
+        "build",
+        ImmutableMap.of("threads", "3")));
+    assertThat(buckConfig.getNumThreads(), Matchers.equalTo(3));
+  }
+
+  @Test
+  public void testDefaultsNumberOfBuildThreadsToOneAndAQuarterTheNumberOfAvailableProcessors() {
+    BuckConfig buckConfig = new FakeBuckConfig();
+    assertThat(
+        buckConfig.getNumThreads(),
+        Matchers.equalTo((int) (Runtime.getRuntime().availableProcessors() * 1.25)));
+  }
+
+  @Test
+  public void testDefaultsNumberOfBuildThreadsSpecified() {
+    BuckConfig buckConfig = new FakeBuckConfig();
+    assertThat(buckConfig.getNumThreads(42), Matchers.equalTo(42));
+  }
 }

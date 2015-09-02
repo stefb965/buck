@@ -38,17 +38,16 @@ import com.facebook.buck.cxx.HeaderVisibility;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.js.IosReactNativeLibraryDescription;
 import com.facebook.buck.js.ReactNativeBundle;
-import com.facebook.buck.js.ReactNativeFlavors;
 import com.facebook.buck.js.ReactNativeLibraryArgs;
-import com.facebook.buck.js.ReactNativePlatform;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.SourceWithFlags;
-import com.facebook.buck.shell.GenruleDescription;
 import com.facebook.buck.util.HumanReadableException;
+import com.google.common.base.Charsets;
 import com.google.common.base.Function;
 import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
@@ -58,7 +57,11 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
+import com.google.common.io.Resources;
 
+import org.stringtemplate.v4.ST;
+
+import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collection;
@@ -72,6 +75,7 @@ import java.util.Set;
  */
 public class NewNativeTargetProjectMutator {
   private static final Logger LOG = Logger.get(NewNativeTargetProjectMutator.class);
+  private static final String REACT_NATIVE_PACKAGE_TEMPLATE = "rn-package.st";
 
   public static class Result {
     public final PBXNativeTarget target;
@@ -91,13 +95,11 @@ public class NewNativeTargetProjectMutator {
   private String productName = "";
   private String targetName = "";
   private ImmutableList<String> targetGroupPath = ImmutableList.of();
-  private Optional<String> gid = Optional.absent();
   private ImmutableSet<SourceWithFlags> sourcesWithFlags = ImmutableSet.of();
   private ImmutableSet<SourcePath> extraXcodeSources = ImmutableSet.of();
   private ImmutableSet<SourcePath> publicHeaders = ImmutableSet.of();
   private ImmutableSet<SourcePath> privateHeaders = ImmutableSet.of();
   private Optional<SourcePath> prefixHeader = Optional.absent();
-  private boolean shouldGenerateCopyHeadersPhase = true;
   private ImmutableSet<FrameworkPath> frameworks = ImmutableSet.of();
   private ImmutableSet<PBXFileReference> archives = ImmutableSet.of();
   private ImmutableSet<AppleResourceDescription.Arg> recursiveResources = ImmutableSet.of();
@@ -132,11 +134,6 @@ public class NewNativeTargetProjectMutator {
     this.productName = productName;
     this.productType = productType;
     this.productOutputPath = productOutputPath;
-    return this;
-  }
-
-  public NewNativeTargetProjectMutator setGid(Optional<String> gid) {
-    this.gid = gid;
     return this;
   }
 
@@ -176,11 +173,6 @@ public class NewNativeTargetProjectMutator {
 
   public NewNativeTargetProjectMutator setPrefixHeader(Optional<SourcePath> prefixHeader) {
     this.prefixHeader = prefixHeader;
-    return this;
-  }
-
-  public NewNativeTargetProjectMutator setShouldGenerateCopyHeadersPhase(boolean value) {
-    this.shouldGenerateCopyHeadersPhase = value;
     return this;
   }
 
@@ -259,10 +251,6 @@ public class NewNativeTargetProjectMutator {
     PBXGroup targetGroup = project.getMainGroup().getOrCreateDescendantGroupByPath(targetGroupPath);
     targetGroup = targetGroup.getOrCreateChildGroupByName(targetName);
 
-    if (gid.isPresent()) {
-      target.setGlobalID(gid.get());
-    }
-
     // Phases
     addRunScriptBuildPhases(target, preBuildRunScriptPhases);
     addPhasesAndGroupsForSources(target, targetGroup);
@@ -301,11 +289,6 @@ public class NewNativeTargetProjectMutator {
     traverseGroupsTreeAndHandleSources(
         sourcesGroup,
         sourcesBuildPhase,
-        // We still want to create groups for header files even if header build phases
-        // are replaced with header maps.
-        !shouldGenerateCopyHeadersPhase
-            ? Optional.<PBXHeadersBuildPhase>absent()
-            : Optional.of(headersBuildPhase),
         RuleUtils.createGroupsFromSourcePaths(
             new Function<SourcePath, Path>() {
               @Override
@@ -337,7 +320,6 @@ public class NewNativeTargetProjectMutator {
   private void traverseGroupsTreeAndHandleSources(
       final PBXGroup sourcesGroup,
       final PBXSourcesBuildPhase sourcesBuildPhase,
-      final Optional<PBXHeadersBuildPhase> headersBuildPhase,
       Iterable<GroupedSource> groupedSources) {
     GroupedSource.Visitor visitor = new GroupedSource.Visitor() {
       @Override
@@ -353,7 +335,6 @@ public class NewNativeTargetProjectMutator {
         addSourcePathToHeadersBuildPhase(
             publicHeader,
             sourcesGroup,
-            headersBuildPhase,
             HeaderVisibility.PUBLIC);
       }
 
@@ -362,7 +343,6 @@ public class NewNativeTargetProjectMutator {
         addSourcePathToHeadersBuildPhase(
             privateHeader,
             sourcesGroup,
-            headersBuildPhase,
             HeaderVisibility.PRIVATE);
       }
 
@@ -379,7 +359,6 @@ public class NewNativeTargetProjectMutator {
         traverseGroupsTreeAndHandleSources(
             newSourceGroup,
             sourcesBuildPhase,
-            headersBuildPhase,
             sourceGroup);
       }
     };
@@ -417,7 +396,6 @@ public class NewNativeTargetProjectMutator {
   private void addSourcePathToHeadersBuildPhase(
       SourcePath headerPath,
       PBXGroup headersGroup,
-      Optional<PBXHeadersBuildPhase> headersBuildPhase,
       HeaderVisibility visibility) {
     PBXFileReference fileReference = headersGroup.getOrCreateFileReferenceBySourceTreePath(
         new SourceTreePath(
@@ -433,20 +411,6 @@ public class NewNativeTargetProjectMutator {
       buildFile.setSettings(Optional.of(settings));
     } else {
       buildFile.setSettings(Optional.<NSDictionary>absent());
-    }
-    if (headersBuildPhase.isPresent()) {
-      headersBuildPhase.get().getFiles().add(buildFile);
-      LOG.verbose(
-          "Added header path %s to headers group %s, PBXFileReference %s",
-          headerPath,
-          headersGroup.getName(),
-          fileReference);
-    } else {
-      LOG.verbose(
-          "Skipped header path %s to headers group %s, PBXFileReference %s",
-          headerPath,
-          headersGroup.getName(),
-          fileReference);
     }
   }
 
@@ -606,13 +570,7 @@ public class NewNativeTargetProjectMutator {
       return;
     }
 
-    // Some asset catalogs should be copied to their sibling bundles, while others use the default
-    // output format (which may be to copy individual files to the root resource output path or to
-    // be archived in Assets.car if it is supported by the target platform version).
-
-    ImmutableList.Builder<String> commonAssetCatalogsBuilder = ImmutableList.builder();
-    ImmutableList.Builder<String> assetCatalogsToSplitIntoBundlesBuilder =
-        ImmutableList.builder();
+    ImmutableList.Builder<String> assetCatalogsBuilder = ImmutableList.builder();
     for (AppleAssetCatalogDescription.Arg assetCatalog : recursiveAssetCatalogs) {
       for (Path dir : assetCatalog.dirs) {
         Path pathRelativeToProjectRoot = pathRelativizer.outputDirToRootRelative(dir);
@@ -620,17 +578,11 @@ public class NewNativeTargetProjectMutator {
         LOG.debug("Resolved asset catalog path %s, result %s", dir, pathRelativeToProjectRoot);
 
         String bundlePath = "$PROJECT_DIR/" + pathRelativeToProjectRoot.toString();
-        if (assetCatalog.getCopyToBundles()) {
-          assetCatalogsToSplitIntoBundlesBuilder.add(bundlePath);
-        } else {
-          commonAssetCatalogsBuilder.add(bundlePath);
-        }
+        assetCatalogsBuilder.add(bundlePath);
       }
     }
 
-    ImmutableList<String> commonAssetCatalogs = commonAssetCatalogsBuilder.build();
-    ImmutableList<String> assetCatalogsToSplitIntoBundles =
-        assetCatalogsToSplitIntoBundlesBuilder.build();
+    ImmutableList<String> assetCatalogs = assetCatalogsBuilder.build();
 
     // Map asset catalog paths to their shell script arguments relative to the project's root
     Path buildScript = pathRelativizer.outputDirToRootRelative(assetCatalogBuildScript);
@@ -638,12 +590,12 @@ public class NewNativeTargetProjectMutator {
     scriptBuilder
         .append("TMPDIR=`mktemp -d -t buckAssetCatalogs.XXXXXX`\n")
         .append("trap \"rm -rf '${TMPDIR}'\" exit\n");
-    if (commonAssetCatalogs.size() != 0) {
+    if (assetCatalogs.size() != 0) {
       scriptBuilder
           .append("COMMON_ARGS_FILE=\"${TMPDIR}\"/common_args\n")
           .append("cat <<EOT >\"${COMMON_ARGS_FILE}\"\n");
 
-      Joiner.on('\n').appendTo(scriptBuilder, commonAssetCatalogs);
+      Joiner.on('\n').appendTo(scriptBuilder, assetCatalogs);
 
       scriptBuilder
           .append("\n")
@@ -651,21 +603,6 @@ public class NewNativeTargetProjectMutator {
           .append("\"${PROJECT_DIR}/\"")
           .append(buildScript.toString())
           .append(" @\"${COMMON_ARGS_FILE}\"\n");
-    }
-    if (assetCatalogsToSplitIntoBundles.size() != 0) {
-      scriptBuilder
-        .append("BUNDLE_ARGS_FILE=\"${TMPDIR}\"/bundle_args\n")
-        .append("cat <<EOT >\"${BUNDLE_ARGS_FILE}\"\n");
-
-      Joiner.on('\n').appendTo(scriptBuilder, assetCatalogsToSplitIntoBundles);
-
-      scriptBuilder
-        .append("\n")
-        .append("EOT\n")
-        .append("\"${PROJECT_DIR}/\"")
-        .append(buildScript.toString())
-        .append(" -b ")
-        .append("@\"${BUNDLE_ARGS_FILE}\"\n");
     }
 
     PBXShellScriptBuildPhase phase = new PBXShellScriptBuildPhase();
@@ -683,21 +620,7 @@ public class NewNativeTargetProjectMutator {
       // we can't handle it currently.
       PBXShellScriptBuildPhase shellScriptBuildPhase = new PBXShellScriptBuildPhase();
       target.getBuildPhases().add(shellScriptBuildPhase);
-      if (GenruleDescription.TYPE.equals(node.getType())) {
-        GenruleDescription.Arg arg = (GenruleDescription.Arg) node.getConstructorArg();
-        for (Path path : Iterables.transform(arg.srcs.get(), sourcePathResolver)) {
-          shellScriptBuildPhase.getInputPaths().add(
-              pathRelativizer.outputDirToRootRelative(path).toString());
-        }
-        if (arg.cmd.isPresent() && !arg.cmd.get().isEmpty()) {
-          shellScriptBuildPhase.setShellScript(arg.cmd.get());
-        } else if (arg.bash.isPresent() || arg.cmdExe.isPresent()) {
-          throw new IllegalStateException("Shell script phase only supports cmd for genrule.");
-        }
-        if (!arg.out.isEmpty()) {
-          shellScriptBuildPhase.getOutputPaths().add(arg.out);
-        }
-      } else if (XcodePrebuildScriptDescription.TYPE.equals(node.getType())) {
+      if (XcodePrebuildScriptDescription.TYPE.equals(node.getType())) {
         XcodePrebuildScriptDescription.Arg arg =
             (XcodePrebuildScriptDescription.Arg) node.getConstructorArg();
         shellScriptBuildPhase.setShellScript(arg.cmd);
@@ -725,34 +648,34 @@ public class NewNativeTargetProjectMutator {
   private String generateXcodeShellScript(TargetNode<?> targetNode) {
     Preconditions.checkArgument(targetNode.getConstructorArg() instanceof ReactNativeLibraryArgs);
 
-    ProjectFilesystem filesystem = targetNode.getRuleFactoryParams().getProjectFilesystem();
-    ReactNativeLibraryArgs args = (ReactNativeLibraryArgs) targetNode.getConstructorArg();
-    IosReactNativeLibraryDescription description =
-        (IosReactNativeLibraryDescription) targetNode.getDescription();
-    ImmutableList.Builder<String> script = ImmutableList.builder();
-    script.add("BASE_DIR=${CONFIGURATION_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}");
-    script.add("JS_OUT=${BASE_DIR}/" + args.bundleName);
-    script.add("SOURCE_MAP=${TEMP_DIR}/rn_source_map/" + args.bundleName + ".map");
-
-    if (skipRNBundle) {
-      // Working in server mode: make sure that we clear the bundle from a previous build.
-      script.add("rm -rf ${JS_OUT}");
-    } else {
-      script.add("mkdir -p `dirname ${JS_OUT}`");
-      script.add("mkdir -p `dirname ${SOURCE_MAP}`");
-
-      script.add(Joiner.on(" ").join(
-              ReactNativeBundle.getBundleScript(
-                  filesystem.resolve(
-                      sourcePathResolver.apply(description.getReactNativePackager())),
-                  filesystem.resolve(sourcePathResolver.apply(args.entryPath)),
-                  ReactNativePlatform.IOS,
-                  ReactNativeFlavors.isDevMode(targetNode.getBuildTarget()),
-                  "${JS_OUT}",
-                  "${BASE_DIR}",
-                  "${SOURCE_MAP}")));
+    ST template;
+    try {
+      template = new ST(
+          Resources.toString(
+              Resources.getResource(
+                  NewNativeTargetProjectMutator.class,
+                  REACT_NATIVE_PACKAGE_TEMPLATE),
+              Charsets.UTF_8));
+    } catch (IOException e) {
+      throw new RuntimeException("There was an error loading 'rn_package.st' template", e);
     }
 
-    return Joiner.on(" && ").join(script.build());
+    ReactNativeLibraryArgs args = (ReactNativeLibraryArgs) targetNode.getConstructorArg();
+
+    template.add("bundle_name", args.bundleName);
+    template.add("skip_rn_bundle", skipRNBundle);
+
+    ProjectFilesystem filesystem = targetNode.getRuleFactoryParams().getProjectFilesystem();
+    BuildTarget buildTarget = targetNode.getBuildTarget();
+    Path jsOutput = ReactNativeBundle.getPathToJSBundleDir(buildTarget).resolve(args.bundleName);
+    template.add("built_bundle_path", filesystem.resolve(jsOutput));
+
+    Path resourceOutput = ReactNativeBundle.getPathToResources(buildTarget);
+    template.add("built_resources_path", filesystem.resolve(resourceOutput));
+
+    Path sourceMap = ReactNativeBundle.getPathToSourceMap(buildTarget);
+    template.add("built_source_map_path", filesystem.resolve(sourceMap));
+
+    return template.render();
   }
 }

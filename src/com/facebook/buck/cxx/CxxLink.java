@@ -16,13 +16,16 @@
 
 package com.facebook.buck.cxx;
 
+import static com.google.common.base.Predicates.notNull;
+
+import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKeyAppendable;
+import com.facebook.buck.rules.RuleKeyBuilder;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.Tool;
@@ -30,6 +33,9 @@ import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.FileScrubberStep;
 import com.facebook.buck.step.fs.MkdirStep;
+import com.facebook.buck.util.MoreStrings;
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Function;
 import com.google.common.base.Functions;
 import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
@@ -37,6 +43,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.nio.file.Path;
+
+import javax.annotation.Nullable;
 
 public class CxxLink
     extends AbstractBuildRule
@@ -53,6 +61,7 @@ public class CxxLink
   // in `appendToRuleKey` where we can first filter the args through the sanitizer.
   private final ImmutableList<String> args;
   private final ImmutableSet<Path> frameworkRoots;
+  private final ImmutableSet<Path> libraries;
   private final DebugPathSanitizer sanitizer;
 
   public CxxLink(
@@ -63,6 +72,7 @@ public class CxxLink
       ImmutableList<SourcePath> inputs,
       ImmutableList<String> args,
       ImmutableSet<Path> frameworkRoots,
+      ImmutableSet<Path> libraries,
       DebugPathSanitizer sanitizer) {
     super(params, resolver);
     this.linker = linker;
@@ -70,11 +80,12 @@ public class CxxLink
     this.inputs = inputs;
     this.args = args;
     this.frameworkRoots = frameworkRoots;
+    this.libraries = libraries;
     this.sanitizer = sanitizer;
   }
 
   @Override
-  public RuleKey.Builder appendToRuleKey(RuleKey.Builder builder) {
+  public RuleKeyBuilder appendToRuleKey(RuleKeyBuilder builder) {
     return builder
         .setReflectively(
             "args",
@@ -84,6 +95,12 @@ public class CxxLink
         .setReflectively(
             "frameworkRoots",
             FluentIterable.from(frameworkRoots)
+                .transform(Functions.toStringFunction())
+                .transform(sanitizer.sanitize(Optional.<Path>absent()))
+                .toList())
+        .setReflectively(
+            "libraries",
+            FluentIterable.from(libraries)
                 .transform(Functions.toStringFunction())
                 .transform(sanitizer.sanitize(Optional.<Path>absent()))
                 .toList());
@@ -97,10 +114,13 @@ public class CxxLink
     return ImmutableList.of(
         new MkdirStep(output.getParent()),
         new CxxLinkStep(
+            getProjectFilesystem().getRootPath(),
             linker.getCommandPrefix(getResolver()),
             output,
             args,
-            frameworkRoots),
+            frameworkRoots,
+            getLibrarySearchDirectories(),
+            getLibraryNames()),
         new FileScrubberStep(output, linker.getScrubbers(context.getProjectRoot())));
   }
 
@@ -121,4 +141,37 @@ public class CxxLink
     return args;
   }
 
-}
+  @VisibleForTesting
+  ImmutableList<SourcePath> getInputs() {
+    return inputs;
+  }
+
+  private ImmutableSet<Path> getLibrarySearchDirectories() {
+    return FluentIterable.from(libraries)
+        .transform(
+            new Function<Path, Path>() {
+              @Nullable
+              @Override
+              public Path apply(Path input) {
+                return input.getParent();
+              }
+            }
+        ).filter(notNull())
+        .toSet();
+  }
+
+  private ImmutableSet<String> getLibraryNames() {
+    return FluentIterable.from(libraries)
+        .transform(
+            new Function<Path, String>() {
+              @Override
+              public String apply(Path fileName) {
+                return MorePaths.stripPathPrefixAndExtension(fileName, "lib");
+              }
+            }
+            // libraries set can contain path-qualified libraries, or just library search paths.
+            // Assume these end in '../lib' and filter out here.
+        ).filter(MoreStrings.NON_EMPTY)
+        .toSet();
+    }
+  }

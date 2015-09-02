@@ -152,6 +152,7 @@ public final class CxxInferEnhancer {
       preprocessorInputs = computePreprocessorInputForCxxBinaryDescriptionArg(
           targetGraph,
           paramsWithoutInferFlavor,
+          pathResolver,
           cxxPlatform,
           (CxxBinaryDescription.Arg) args,
           headerSymlinkTree);
@@ -210,7 +211,8 @@ public final class CxxInferEnhancer {
               CxxFlags.getFlags(
                   args.compilerFlags,
                   args.platformCompilerFlags,
-                  cxxPlatform)),
+                  cxxPlatform),
+              args.prefixHeader),
             transitiveDepsLibraryRules);
 
     return createInferAnalyzeRule(
@@ -252,6 +254,7 @@ public final class CxxInferEnhancer {
   computePreprocessorInputForCxxBinaryDescriptionArg(
       TargetGraph targetGraph,
       BuildRuleParams params,
+      SourcePathResolver pathResolver,
       CxxPlatform cxxPlatform,
       CxxBinaryDescription.Arg args,
       HeaderSymlinkTree headerSymlinkTree) {
@@ -264,11 +267,11 @@ public final class CxxInferEnhancer {
             args.platformPreprocessorFlags,
             args.langPreprocessorFlags,
             cxxPlatform),
-        args.prefixHeaders.get(),
         ImmutableList.of(headerSymlinkTree),
         CxxDescriptionEnhancer.getFrameworkSearchPaths(
-            args.frameworkSearchPaths,
-            cxxPlatform),
+            args.frameworks,
+            cxxPlatform,
+            pathResolver),
         CxxPreprocessables.getTransitiveCxxPreprocessorInput(
             targetGraph,
             cxxPlatform,
@@ -294,7 +297,6 @@ public final class CxxInferEnhancer {
             args.platformPreprocessorFlags,
             args.langPreprocessorFlags,
             cxxPlatform),
-        args.prefixHeaders.get(),
         ImmutableList.of(headerSymlinkTree),
         ImmutableSet.<Path>of(),
         CxxLibraryDescription.getTransitiveCxxPreprocessorInput(
@@ -310,8 +312,9 @@ public final class CxxInferEnhancer {
                 cxxPlatform),
             CxxDescriptionEnhancer.parseExportedHeaders(params, resolver, cxxPlatform, args),
             CxxDescriptionEnhancer.getFrameworkSearchPaths(
-                args.frameworkSearchPaths,
-                cxxPlatform)));
+                args.frameworks,
+                cxxPlatform,
+                pathResolver)));
   }
 
   private static ImmutableSet<CxxInferCapture> createInferCaptureBuildRules(
@@ -322,7 +325,8 @@ public final class CxxInferEnhancer {
       CxxSourceRuleFactory.PicType picType,
       CxxInferTools inferTools,
       ImmutableList<CxxPreprocessorInput> cxxPreprocessorInputs,
-      ImmutableList<String> compilerFlags) {
+      ImmutableList<String> compilerFlags,
+      Optional<SourcePath> prefixHeader) {
 
     CxxSourceRuleFactory factory =
         new CxxSourceRuleFactory(
@@ -331,7 +335,8 @@ public final class CxxInferEnhancer {
             new SourcePathResolver(resolver),
             cxxPlatform,
             cxxPreprocessorInputs,
-            compilerFlags);
+            compilerFlags,
+            prefixHeader);
     return factory.createInferCaptureBuildRules(
         sources,
         picType,

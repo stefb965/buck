@@ -25,7 +25,9 @@ import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleParamsFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.HashedFileTool;
 import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.rules.RuleKeyBuilder;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -58,6 +60,8 @@ public class CxxLinkTest {
       "libc.a");
   private static final ImmutableSet<Path> DEFAULT_FRAMEWORK_ROOTS = ImmutableSet.of(
       Paths.get("/System/Frameworks"));
+  private static final ImmutableSet<Path> DEFAULT_LIBRARIES = ImmutableSet.of(
+      Paths.get("/System/Libraries/libz.dynlib"));
   private static final DebugPathSanitizer DEFAULT_SANITIZER =
       CxxPlatforms.DEFAULT_DEBUG_PATH_SANITIZER;
 
@@ -65,7 +69,7 @@ public class CxxLinkTest {
       RuleKeyBuilderFactory factory,
       AbstractBuildRule rule) {
 
-    RuleKey.Builder builder = factory.newInstance(rule);
+    RuleKeyBuilder builder = factory.newInstance(rule);
     return builder.build();
   }
 
@@ -96,6 +100,7 @@ public class CxxLinkTest {
             DEFAULT_INPUTS,
             DEFAULT_ARGS,
             DEFAULT_FRAMEWORK_ROOTS,
+            DEFAULT_LIBRARIES,
             DEFAULT_SANITIZER));
 
     // Verify that changing the archiver causes a rulekey change.
@@ -109,6 +114,7 @@ public class CxxLinkTest {
             DEFAULT_INPUTS,
             DEFAULT_ARGS,
             DEFAULT_FRAMEWORK_ROOTS,
+            DEFAULT_LIBRARIES,
             DEFAULT_SANITIZER));
     assertNotEquals(defaultRuleKey, linkerChange);
 
@@ -123,6 +129,7 @@ public class CxxLinkTest {
             DEFAULT_INPUTS,
             DEFAULT_ARGS,
             DEFAULT_FRAMEWORK_ROOTS,
+            DEFAULT_LIBRARIES,
             DEFAULT_SANITIZER));
     assertNotEquals(defaultRuleKey, outputChange);
 
@@ -137,6 +144,7 @@ public class CxxLinkTest {
             ImmutableList.<SourcePath>of(new TestSourcePath("different")),
             DEFAULT_ARGS,
             DEFAULT_FRAMEWORK_ROOTS,
+            DEFAULT_LIBRARIES,
             DEFAULT_SANITIZER));
     assertNotEquals(defaultRuleKey, inputChange);
 
@@ -151,6 +159,7 @@ public class CxxLinkTest {
             DEFAULT_INPUTS,
             ImmutableList.of("-different"),
             DEFAULT_FRAMEWORK_ROOTS,
+            DEFAULT_LIBRARIES,
             DEFAULT_SANITIZER));
     assertNotEquals(defaultRuleKey, flagsChange);
 
@@ -166,8 +175,24 @@ public class CxxLinkTest {
             DEFAULT_INPUTS,
             DEFAULT_ARGS,
             ImmutableSet.of(Paths.get("/System/DifferentFrameworks")),
+            DEFAULT_LIBRARIES,
             DEFAULT_SANITIZER));
     assertNotEquals(defaultRuleKey, frameworkRootsChange);
+
+    // Verify that changing the libraries causes a rulekey change.
+    RuleKey librariesRootsChange = generateRuleKey(
+        ruleKeyBuilderFactory,
+        new CxxLink(
+            params,
+            pathResolver,
+            DEFAULT_LINKER,
+            DEFAULT_OUTPUT,
+            DEFAULT_INPUTS,
+            DEFAULT_ARGS,
+            DEFAULT_FRAMEWORK_ROOTS,
+            ImmutableSet.of(Paths.get("/System/Libraries/libx.dynlib")),
+            DEFAULT_SANITIZER));
+    assertNotEquals(defaultRuleKey, librariesRootsChange);
 
   }
 
@@ -214,6 +239,7 @@ public class CxxLinkTest {
             DEFAULT_INPUTS,
             args1,
             ImmutableSet.of(Paths.get("something/Frameworks")),
+            DEFAULT_LIBRARIES,
             sanitizer1));
 
     // Generate another rule with a different path we need to sanitize to the
@@ -229,6 +255,7 @@ public class CxxLinkTest {
             DEFAULT_INPUTS,
             args2,
             ImmutableSet.of(Paths.get("different/Frameworks")),
+            DEFAULT_LIBRARIES,
             sanitizer2));
 
     assertEquals(ruleKey1, ruleKey2);

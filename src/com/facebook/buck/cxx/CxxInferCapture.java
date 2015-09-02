@@ -22,8 +22,8 @@ import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKeyAppendable;
+import com.facebook.buck.rules.RuleKeyBuilder;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.shell.DefaultShellStep;
@@ -60,7 +60,7 @@ public class CxxInferCapture extends AbstractBuildRule implements RuleKeyAppenda
   private final ImmutableSet<Path> headerMaps;
   private final ImmutableSet<Path> frameworkRoots;
   @AddToRuleKey
-  private final ImmutableList<CxxHeaders> includes;
+  private final Optional<SourcePath> prefixHeader;
 
   private final Path resultsDir;
   private final DebugPathSanitizer sanitizer;
@@ -79,7 +79,7 @@ public class CxxInferCapture extends AbstractBuildRule implements RuleKeyAppenda
       ImmutableSet<Path> systemIncludeRoots,
       ImmutableSet<Path> headerMaps,
       ImmutableSet<Path> frameworkRoots,
-      ImmutableList<CxxHeaders> includes,
+      Optional<SourcePath> prefixHeader,
       CxxInferTools inferTools,
       DebugPathSanitizer sanitizer) {
     super(buildRuleParams, pathResolver);
@@ -94,7 +94,7 @@ public class CxxInferCapture extends AbstractBuildRule implements RuleKeyAppenda
     this.systemIncludeRoots = systemIncludeRoots;
     this.headerMaps = headerMaps;
     this.frameworkRoots = frameworkRoots;
-    this.includes = includes;
+    this.prefixHeader = prefixHeader;
     this.inferTools = inferTools;
     this.resultsDir = BuildTargets.getGenPath(this.getBuildTarget(), "infer-out-%s");
     this.sanitizer = sanitizer;
@@ -119,16 +119,12 @@ public class CxxInferCapture extends AbstractBuildRule implements RuleKeyAppenda
   }
 
   private ImmutableList<String> getPreprocessorSuffix() {
-    ImmutableSet.Builder<SourcePath> prefixHeaders = ImmutableSet.builder();
-    for (CxxHeaders cxxHeaders : includes) {
-      prefixHeaders.addAll(cxxHeaders.getPrefixHeaders());
-    }
     return ImmutableList.<String>builder()
         .addAll(rulePreprocessorFlags.get())
         .addAll(
             MoreIterables.zipAndConcat(
                 Iterables.cycle("-include"),
-                FluentIterable.from(prefixHeaders.build())
+                FluentIterable.from(prefixHeader.asSet())
                     .transform(getResolver().getPathFunction())
                     .transform(Functions.toStringFunction())))
         .addAll(
@@ -178,7 +174,7 @@ public class CxxInferCapture extends AbstractBuildRule implements RuleKeyAppenda
     return ImmutableList.<Step>builder()
         .add(new MkdirStep(resultsDir))
         .add(new MkdirStep(output.getParent()))
-        .add(new DefaultShellStep(frontendCommand))
+        .add(new DefaultShellStep(getProjectFilesystem().getRootPath(), frontendCommand))
         .build();
   }
 
@@ -188,7 +184,7 @@ public class CxxInferCapture extends AbstractBuildRule implements RuleKeyAppenda
   }
 
   @Override
-  public RuleKey.Builder appendToRuleKey(RuleKey.Builder builder) {
+  public RuleKeyBuilder appendToRuleKey(RuleKeyBuilder builder) {
     // Sanitize any relevant paths in the flags we pass to the preprocessor, to prevent them
     // from contributing to the rule key.
     builder.setReflectively(

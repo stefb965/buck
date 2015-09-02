@@ -53,7 +53,6 @@ import com.google.common.util.concurrent.ListeningExecutorService;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.EnumSet;
 import java.util.List;
@@ -76,7 +75,7 @@ public class SmartDexingStep implements Step {
   public static final String SHORT_NAME = "smart_dex";
   private static final String SECONDARY_SOLID_DEX_FILENAME = "secondary.dex.jar.xzs";
 
-  public static interface DexInputHashesProvider {
+  public interface DexInputHashesProvider {
     ImmutableMap<Path, Sha1HashCode> getDexInputHashes();
   }
 
@@ -148,13 +147,13 @@ public class SmartDexingStep implements Step {
             projectFilesystem);
 
         // Concatenate if solid compression is specified.
-        List<Path> secondaryDexJars = new ArrayList<>();
+        ImmutableList.Builder<Path> secondaryDexJarsBuilder = ImmutableList.builder();
         for (Path p : outputToInputs.keySet()) {
           if (DexStore.XZS.matchesPath(p)) {
-            secondaryDexJars.add(p);
+            secondaryDexJarsBuilder.add(p);
           }
         }
-
+        ImmutableList<Path> secondaryDexJars = secondaryDexJarsBuilder.build();
         if (!secondaryDexJars.isEmpty()) {
           // Construct the output path for our solid blob and its compressed form.
           Path secondaryBlobOutput = Paths.get(
@@ -355,8 +354,15 @@ public class SmartDexingStep implements Step {
 
       List<Step> steps = Lists.newArrayList();
 
-      steps.add(createDxStepForDxPseudoRule(srcs, outputPath, dxOptions, xzCompressionLevel));
-      steps.add(new WriteFileStep(newInputsHash, outputHashPath, /* executable */ false));
+      steps.add(
+          createDxStepForDxPseudoRule(
+              filesystem.getRootPath(),
+              srcs,
+              outputPath,
+              dxOptions,
+              xzCompressionLevel));
+      steps.add(
+          new WriteFileStep(filesystem, newInputsHash, outputHashPath, /* executable */ false));
 
       // Use a composite step to ensure that runDxSteps can still make use of
       // runStepsInParallelAndWait.  This is necessary to keep the DxStep and
@@ -372,7 +378,9 @@ public class SmartDexingStep implements Step {
    * compressed and uncompressed size of the dex; this information is useful later, in applications,
    * when unpacking.
    */
-  static Step createDxStepForDxPseudoRule(Collection<Path> filesToDex,
+  static Step createDxStepForDxPseudoRule(
+      Path workingDirectory,
+      Collection<Path> filesToDex,
       Path outputPath,
       EnumSet<Option> dxOptions,
       Optional<Integer> xzCompressionLevel) {
@@ -382,7 +390,7 @@ public class SmartDexingStep implements Step {
 
     if (DexStore.XZ.matchesPath(outputPath)) {
       Path tempDexJarOutput = Paths.get(output.replaceAll("\\.jar\\.xz$", ".tmp.jar"));
-      steps.add(new DxStep(tempDexJarOutput, filesToDex, dxOptions));
+      steps.add(new DxStep(workingDirectory, tempDexJarOutput, filesToDex, dxOptions));
       // We need to make sure classes.dex is STOREd in the .dex.jar file, otherwise .XZ
       // compression won't be effective.
       Path repackedJar = Paths.get(output.replaceAll("\\.xz$", ""));
@@ -408,7 +416,7 @@ public class SmartDexingStep implements Step {
 
       // Ensure classes.dex is stored.
       Path tempDexJarOutput = Paths.get(output.replaceAll("\\.jar\\.xzs\\.tmp~$", ".tmp.jar"));
-      steps.add(new DxStep(tempDexJarOutput, filesToDex, dxOptions));
+      steps.add(new DxStep(workingDirectory, tempDexJarOutput, filesToDex, dxOptions));
       steps.add(new RepackZipEntriesStep(
           tempDexJarOutput,
           outputPath,
@@ -424,7 +432,7 @@ public class SmartDexingStep implements Step {
                   outputPath.getFileName() + ".meta")));
     } else if (DexStore.JAR.matchesPath(outputPath) || DexStore.RAW.matchesPath(outputPath) ||
         output.endsWith("classes.dex")) {
-      steps.add(new DxStep(outputPath, filesToDex, dxOptions));
+      steps.add(new DxStep(workingDirectory, outputPath, filesToDex, dxOptions));
       if (DexStore.JAR.matchesPath(outputPath)) {
         steps.add(
             new DexJarAnalysisStep(

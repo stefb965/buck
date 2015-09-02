@@ -22,6 +22,7 @@ import com.google.common.io.ByteStreams;
 import java.io.InputStream;
 import java.io.IOException;
 
+import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.CharsetDecoder;
@@ -45,6 +46,21 @@ public class BserDeserializer {
   public enum KeyOrdering {
       UNSORTED,
       SORTED
+  }
+
+  /**
+   * Exception thrown when BSER parser unexpectedly reaches the end of
+   * the input stream.
+   */
+  @SuppressWarnings("serial")
+  public static class BserEofException extends IOException {
+    public BserEofException(String message) {
+      super(message);
+    }
+
+    public BserEofException(String message, Throwable cause) {
+      super(message, cause);
+    }
   }
 
   private final KeyOrdering keyOrdering;
@@ -91,12 +107,20 @@ public class BserDeserializer {
    */
   @Nullable
   public Object deserializeBserValue(InputStream inputStream) throws IOException {
+    try {
+      return deserializeRecursive(readBserBuffer(inputStream));
+    } catch (BufferUnderflowException e) {
+      throw new BserEofException("Prematurely reached end of BSER buffer", e);
+    }
+  }
+
+  private ByteBuffer readBserBuffer(InputStream inputStream) throws IOException {
     ByteBuffer sniffBuffer = ByteBuffer.allocate(SNIFF_BUFFER_SIZE).order(ByteOrder.nativeOrder());
     Preconditions.checkState(sniffBuffer.hasArray());
 
     int sniffBytesRead = ByteStreams.read(inputStream, sniffBuffer.array(), 0, INITIAL_SNIFF_LEN);
     if (sniffBytesRead < INITIAL_SNIFF_LEN) {
-      throw new IOException(
+      throw new BserEofException(
           String.format(
               "Invalid BSER header (expected %d bytes, got %d bytes)",
               INITIAL_SNIFF_LEN,
@@ -132,7 +156,7 @@ public class BserDeserializer {
         sniffBuffer.position(),
         lengthBytesRemaining);
     if (lengthBytesRead < lengthBytesRemaining) {
-      throw new IOException(
+      throw new BserEofException(
           String.format(
               "Invalid BSER header length (expected %d bytes, got %d bytes)",
               lengthBytesRemaining,
@@ -158,7 +182,7 @@ public class BserDeserializer {
               remainingBytesRead));
     }
 
-    return deserializeRecursive(bserBuffer);
+    return bserBuffer;
   }
 
   private int deserializeIntLen(ByteBuffer buffer, byte type) throws IOException {
@@ -233,8 +257,7 @@ public class BserDeserializer {
         throw new IOException(
             String.format(
                 "Unrecognized BSER object key type %d, expected string",
-                stringType,
-                BSER_STRING));
+                stringType));
       }
       String key = deserializeString(buffer);
       Object value = deserializeRecursive(buffer);

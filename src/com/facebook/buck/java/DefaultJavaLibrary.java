@@ -101,7 +101,7 @@ import javax.annotation.Nullable;
  */
 public class DefaultJavaLibrary extends AbstractBuildRule
     implements JavaLibrary, AbiRule, HasClasspathEntries, ExportDependencies,
-    InitializableFromDisk<JavaLibrary.Data>, AndroidPackageable, MavenPublishable {
+    InitializableFromDisk<JavaLibrary.Data>, AndroidPackageable {
 
   private static final BuildableProperties OUTPUT_TYPE = new BuildableProperties(LIBRARY);
 
@@ -128,6 +128,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
       outputClasspathEntriesSupplier;
   private final Supplier<ImmutableSetMultimap<JavaLibrary, Path>>
       transitiveClasspathEntriesSupplier;
+  private final Supplier<ImmutableSet<JavaLibrary>> transitiveClasspathDepsSupplier;
   private final Supplier<ImmutableSetMultimap<JavaLibrary, Path>>
       declaredClasspathEntriesSupplier;
   private final BuildOutputInitializer<Data> buildOutputInitializer;
@@ -237,6 +238,17 @@ public class DefaultJavaLibrary extends AbstractBuildRule
           }
         });
 
+    this.transitiveClasspathDepsSupplier =
+        Suppliers.memoize(
+            new Supplier<ImmutableSet<JavaLibrary>>() {
+              @Override
+              public ImmutableSet<JavaLibrary> get() {
+                return JavaLibraryClasspathProvider.getTransitiveClasspathDeps(
+                    DefaultJavaLibrary.this,
+                    outputJar);
+              }
+            });
+
     this.declaredClasspathEntriesSupplier =
         Suppliers.memoize(new Supplier<ImmutableSetMultimap<JavaLibrary, Path>>() {
           @Override
@@ -287,7 +299,8 @@ public class DefaultJavaLibrary extends AbstractBuildRule
           javacOptions,
           target,
           suggestBuildRules,
-          getResolver());
+          getResolver(),
+          getProjectFilesystem());
 
       commands.add(javacStep);
     }
@@ -321,7 +334,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
     return BuildTargets.getGenPath(target, "lib__%s__output");
   }
 
-  private static Path getOutputJarPath(BuildTarget target) {
+  static Path getOutputJarPath(BuildTarget target) {
     return Paths.get(
         String.format(
             "%s/%s.jar",
@@ -410,6 +423,11 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   }
 
   @Override
+  public ImmutableSortedSet<SourcePath> getSources() {
+    return srcs;
+  }
+
+  @Override
   public ImmutableSortedSet<BuildRule> getDepsForTransitiveClasspathEntries() {
     return ImmutableSortedSet.copyOf(Sets.union(getDeclaredDeps(), exportedDeps));
   }
@@ -417,6 +435,11 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   @Override
   public ImmutableSetMultimap<JavaLibrary, Path> getTransitiveClasspathEntries() {
     return transitiveClasspathEntriesSupplier.get();
+  }
+
+  @Override
+  public ImmutableSet<JavaLibrary> getTransitiveClasspathDeps() {
+    return transitiveClasspathDepsSupplier.get();
   }
 
   @Override
@@ -522,7 +545,11 @@ public class DefaultJavaLibrary extends AbstractBuildRule
         steps,
         target);
 
-    addPostprocessClassesCommands(steps, postprocessClassesCommands, outputDirectory);
+    addPostprocessClassesCommands(
+        getProjectFilesystem().getRootPath(),
+        steps,
+        postprocessClassesCommands,
+        outputDirectory);
 
     // If there are resources, then link them to the appropriate place in the classes directory.
     JavaPackageFinder finder = context.getJavaPackageFinder();
@@ -711,11 +738,14 @@ public class DefaultJavaLibrary extends AbstractBuildRule
    */
   @VisibleForTesting
   static void addPostprocessClassesCommands(
+      Path workingDirectory,
       ImmutableList.Builder<Step> commands,
       List<String> postprocessClassesCommands,
       Path outputDirectory) {
     for (final String postprocessClassesCommand : postprocessClassesCommands) {
-      BashStep bashStep = new BashStep(postprocessClassesCommand + " " + outputDirectory);
+      BashStep bashStep = new BashStep(
+          workingDirectory,
+          postprocessClassesCommand + " " + outputDirectory);
       commands.add(bashStep);
     }
   }

@@ -36,6 +36,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assume.assumeThat;
 
 import com.dd.plist.NSDictionary;
 import com.dd.plist.NSString;
@@ -62,6 +63,8 @@ import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPlatformUtils;
 import com.facebook.buck.cxx.CxxSource;
+import com.facebook.buck.io.AlwaysFoundExecutableFinder;
+import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.js.IosReactNativeLibraryBuilder;
 import com.facebook.buck.js.ReactNativeBuckConfig;
@@ -224,30 +227,6 @@ public class ProjectGeneratorTest {
   }
 
   @Test
-  public void shouldNotCreateHeaderSymlinkTreesWhenTheyAreDisabled() throws IOException {
-    BuildTarget buildTarget = BuildTarget.builder("//foo", "lib").build();
-    TargetNode<?> node = AppleLibraryBuilder
-        .createBuilder(buildTarget)
-        .setUseBuckHeaderMaps(Optional.of(false))
-        .setHeaders(
-            ImmutableSortedSet.<SourcePath>of(
-                new TestSourcePath("HeaderGroup1/foo.h")))
-        .setExportedHeaders(
-            ImmutableSortedSet.<SourcePath>of(
-                new TestSourcePath("HeaderGroup1/bar.h")))
-        .build();
-
-    ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
-        ImmutableSet.<TargetNode<?>>of(node));
-
-    projectGenerator.createXcodeProjects();
-
-    // No header map should be generated
-    List<Path> headerSymlinkTrees = projectGenerator.getGeneratedHeaderSymlinkTrees();
-    assertThat(headerSymlinkTrees, hasSize(0));
-  }
-
-  @Test
   public void testLibraryHeaderGroupsWithHeaderSymlinkTrees() throws IOException {
     BuildTarget buildTarget = BuildTarget.builder("//foo", "lib").build();
     TargetNode<?> node = AppleLibraryBuilder
@@ -260,7 +239,6 @@ public class ProjectGeneratorTest {
         .setExportedHeaders(
             ImmutableSortedSet.<SourcePath>of(
                 new TestSourcePath("HeaderGroup1/bar.h")))
-        .setUseBuckHeaderMaps(Optional.of(true))
         .build();
 
     ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
@@ -348,7 +326,6 @@ public class ProjectGeneratorTest {
             ImmutableSortedMap.<String, SourcePath>of(
                 "yet/another/name.h", new TestSourcePath("HeaderGroup1/bar.h"),
                 "and/one/more.h", new BuildTargetSourcePath(publicGeneratedTarget)))
-        .setUseBuckHeaderMaps(Optional.of(true))
         .build();
 
     ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
@@ -429,7 +406,6 @@ public class ProjectGeneratorTest {
         .setHeaders(
             ImmutableSortedMap.<String, SourcePath>of(
                 "key.h", new TestSourcePath("value.h")))
-        .setUseBuckHeaderMaps(Optional.of(true))
         .build();
 
     ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
@@ -453,7 +429,6 @@ public class ProjectGeneratorTest {
         .setHeaders(
             ImmutableSortedMap.<String, SourcePath>of(
                 "new-key.h", new TestSourcePath("value.h")))
-        .setUseBuckHeaderMaps(Optional.of(true))
         .build();
 
     projectGenerator = createProjectGeneratorForCombinedProject(
@@ -485,7 +460,6 @@ public class ProjectGeneratorTest {
         .setHeaders(
             ImmutableSortedMap.<String, SourcePath>of(
                 "key.h", new TestSourcePath("value.h")))
-        .setUseBuckHeaderMaps(Optional.of(true))
         .build();
 
     ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
@@ -509,7 +483,6 @@ public class ProjectGeneratorTest {
         .setHeaders(
             ImmutableSortedMap.<String, SourcePath>of(
                 "key.h", new TestSourcePath("new-value.h")))
-        .setUseBuckHeaderMaps(Optional.of(true))
         .build();
 
     projectGenerator = createProjectGeneratorForCombinedProject(
@@ -544,7 +517,6 @@ public class ProjectGeneratorTest {
                     SourceWithFlags.of(
                         new TestSourcePath("bar.h")))))
         .setTests(Optional.of(ImmutableSortedSet.of(testTarget)))
-        .setUseBuckHeaderMaps(Optional.of(true))
         .build();
 
     TargetNode<?> testNode = AppleTestBuilder
@@ -554,7 +526,7 @@ public class ProjectGeneratorTest {
                 ImmutableSortedMap.of(
                     "Default",
                     ImmutableMap.<String, String>of())))
-        .setUseBuckHeaderMaps(Optional.of(true))
+        .setInfoPlist(new TestSourcePath("Info.plist"))
         .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.XCTEST))
         .setDeps(Optional.of(ImmutableSortedSet.of(libraryTarget)))
         .build();
@@ -602,13 +574,13 @@ public class ProjectGeneratorTest {
                         ImmutableList.of("public")),
                     SourceWithFlags.of(
                         new TestSourcePath("bar.h")))))
-        .setUseBuckHeaderMaps(Optional.of(true))
         .build();
 
     TargetNode<?> bundleNode = AppleBundleBuilder
         .createBuilder(bundleTarget)
         .setBinary(libraryTarget)
         .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.FRAMEWORK))
+        .setInfoPlist(new TestSourcePath("Info.plist"))
         .setTests(Optional.of(ImmutableSortedSet.of(testTarget)))
         .build();
 
@@ -619,7 +591,7 @@ public class ProjectGeneratorTest {
                 ImmutableSortedMap.of(
                     "Default",
                     ImmutableMap.<String, String>of())))
-        .setUseBuckHeaderMaps(Optional.of(true))
+        .setInfoPlist(new TestSourcePath("Info.plist"))
         .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.XCTEST))
         .setDeps(Optional.of(ImmutableSortedSet.of(bundleTarget)))
         .build();
@@ -667,13 +639,13 @@ public class ProjectGeneratorTest {
                         ImmutableList.of("public")),
                     SourceWithFlags.of(
                         new TestSourcePath("bar.h")))))
-        .setUseBuckHeaderMaps(Optional.of(true))
         .build();
 
     TargetNode<?> bundleNode = AppleBundleBuilder
         .createBuilder(bundleTarget)
         .setBinary(binaryTarget)
         .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.APP))
+        .setInfoPlist(new TestSourcePath("Info.plist"))
         .setTests(Optional.of(ImmutableSortedSet.of(testTarget)))
         .build();
 
@@ -684,8 +656,8 @@ public class ProjectGeneratorTest {
                 ImmutableSortedMap.of(
                     "Default",
                     ImmutableMap.<String, String>of())))
-        .setUseBuckHeaderMaps(Optional.of(true))
         .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.XCTEST))
+        .setInfoPlist(new TestSourcePath("Info.plist"))
         .setDeps(Optional.of(ImmutableSortedSet.of(bundleTarget)))
         .build();
 
@@ -765,7 +737,6 @@ public class ProjectGeneratorTest {
                     new TestSourcePath("libsomething.a"))))
         .setHeaders(
             ImmutableSortedSet.<SourcePath>of(new TestSourcePath("foo.h")))
-        .setUseBuckHeaderMaps(Optional.of(false))
         .build();
 
     ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
@@ -780,30 +751,12 @@ public class ProjectGeneratorTest {
     assertThat(target.getProductType(), equalTo(ProductType.STATIC_LIBRARY));
 
     assertHasConfigurations(target, "Debug");
-    assertEquals("Should have exact number of build phases", 2, target.getBuildPhases().size());
+    assertEquals("Should have exact number of build phases", 1, target.getBuildPhases().size());
     assertHasSingletonSourcesPhaseWithSourcesAndFlags(
         target, ImmutableMap.of(
             "foo.m", Optional.of("-foo"),
             "bar.m", Optional.<String>absent(),
             "libsomething.a", Optional.<String>absent()));
-
-   // check headers
-    {
-      PBXBuildPhase headersBuildPhase =
-          Iterables.find(target.getBuildPhases(), new Predicate<PBXBuildPhase>() {
-            @Override
-            public boolean apply(PBXBuildPhase input) {
-              return input instanceof PBXHeadersBuildPhase;
-            }
-          });
-      PBXBuildFile headerBuildFile = Iterables.getOnlyElement(headersBuildPhase.getFiles());
-
-      String headerBuildFilePath = assertFileRefIsRelativeAndResolvePath(
-          headerBuildFile.getFileRef());
-      assertEquals(
-          projectFilesystem.getRootPath().resolve("foo.h").toAbsolutePath().normalize().toString(),
-          headerBuildFilePath);
-    }
 
     // this target should not have an asset catalog build phase
     assertFalse(hasShellScriptPhaseToCompileAssetCatalogs(target));
@@ -821,7 +774,6 @@ public class ProjectGeneratorTest {
                     ImmutableMap.<String, String>of())))
         .setHeaderPathPrefix(Optional.of("MyHeaderPathPrefix"))
         .setPrefixHeader(Optional.<SourcePath>of(new TestSourcePath("Foo/Foo-Prefix.pch")))
-        .setUseBuckHeaderMaps(Optional.of(false))
         .build();
 
     ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
@@ -846,61 +798,6 @@ public class ProjectGeneratorTest {
     assertEquals(
         "$BUILT_PRODUCTS_DIR",
         settings.get("CONFIGURATION_BUILD_DIR"));
-    assertEquals(
-        "F4XWM33PHJWGSYQ/Headers/MyHeaderPathPrefix",
-        settings.get("PUBLIC_HEADERS_FOLDER_PATH"));
-  }
-
-  @Test
-  public void testAppleFrameworkConfiguresPublicHeaderPaths() throws IOException {
-    BuildTarget libTarget = BuildTarget.builder("//foo", "lib")
-        .addFlavors(CxxDescriptionEnhancer.SHARED_FLAVOR)
-        .build();
-    TargetNode<?> libNode = AppleLibraryBuilder
-        .createBuilder(libTarget)
-        .setConfigs(
-            Optional.of(
-                ImmutableSortedMap.of(
-                    "Debug",
-                    ImmutableMap.<String, String>of())))
-        .setHeaderPathPrefix(Optional.of("MyHeaderPathPrefix"))
-        .setUseBuckHeaderMaps(Optional.of(false))
-        .build();
-
-    BuildTarget frameworkTarget = BuildTarget.builder("//foo", "bundle").build();
-    TargetNode<?> frameworkNode = AppleBundleBuilder
-        .createBuilder(frameworkTarget)
-        .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.FRAMEWORK))
-        .setBinary(libTarget)
-        .build();
-
-    ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
-        ImmutableSet.<TargetNode<?>>of(libNode, frameworkNode),
-        ImmutableSet.<ProjectGenerator.Option>of());
-
-    projectGenerator.createXcodeProjects();
-
-    PBXTarget frameworkPbxTarget = assertTargetExistsAndReturnTarget(
-        projectGenerator.getGeneratedProject(),
-        "//foo:bundle");
-    assertEquals(frameworkPbxTarget.getProductType(), ProductType.FRAMEWORK);
-    assertThat(frameworkPbxTarget.isa(), equalTo("PBXNativeTarget"));
-    PBXFileReference frameworkProductReference = frameworkPbxTarget.getProductReference();
-    assertEquals("bundle.framework", frameworkProductReference.getName());
-    assertEquals(Optional.of("wrapper.framework"), frameworkProductReference.getExplicitFileType());
-
-    ImmutableMap<String, String> settings = getBuildSettings(
-        frameworkTarget, frameworkPbxTarget, "Debug");
-    assertEquals("framework", settings.get("WRAPPER_EXTENSION"));
-    assertEquals(
-        "$SYMROOT/$CONFIGURATION$EFFECTIVE_PLATFORM_NAME",
-        settings.get("BUILT_PRODUCTS_DIR"));
-    assertEquals(
-        "$BUILT_PRODUCTS_DIR",
-        settings.get("CONFIGURATION_BUILD_DIR"));
-    assertEquals(
-        "F4XWM33PHJRHK3TENRSQ/Headers/MyHeaderPathPrefix",
-        settings.get("PUBLIC_HEADERS_FOLDER_PATH"));
   }
 
   @Test
@@ -937,9 +834,6 @@ public class ProjectGeneratorTest {
     assertEquals(
         "$BUILT_PRODUCTS_DIR",
         settings.get("CONFIGURATION_BUILD_DIR"));
-    assertEquals(
-        "F4XWQ2J2NRUWEI3TNBQXEZLE/Headers/MyHeaderPathPrefix",
-        settings.get("PUBLIC_HEADERS_FOLDER_PATH"));
   }
 
   @Test
@@ -1296,7 +1190,6 @@ public class ProjectGeneratorTest {
     TargetNode<?> libraryNode = AppleLibraryBuilder
         .createBuilder(libraryTarget)
         .setConfigs(Optional.of(configs))
-        .setUseBuckHeaderMaps(Optional.of(false))
         .setSrcs(
             Optional.of(ImmutableSortedSet.of(SourceWithFlags.of(new TestSourcePath("foo.m")))))
         .setFrameworks(
@@ -1314,7 +1207,7 @@ public class ProjectGeneratorTest {
         .createBuilder(testTarget)
         .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.XCTEST))
         .setConfigs(Optional.of(configs))
-        .setUseBuckHeaderMaps(Optional.of(false))
+        .setInfoPlist(new TestSourcePath("Info.plist"))
         .setSrcs(
             Optional.of(
                 ImmutableSortedSet.of(SourceWithFlags.of(new TestSourcePath("fooTest.m")))))
@@ -1341,7 +1234,11 @@ public class ProjectGeneratorTest {
 
     ImmutableMap<String, String> settings = getBuildSettings(testTarget, target, "Debug");
     assertEquals(
-        "$(inherited) $BUILT_PRODUCTS_DIR/F4XWM33PHJWGSYQ/Headers",
+        "$(inherited) " +
+            "../buck-out/gen/foo/xctest-private-header-symlink-tree/.tree.hmap " +
+            "../buck-out/gen/foo/xctest-public-header-symlink-tree/.tree.hmap " +
+            "../buck-out/gen/foo/lib-public-header-symlink-tree/.tree.hmap " +
+            "../buck-out",
         settings.get("HEADER_SEARCH_PATHS"));
     assertEquals(
         null,
@@ -1368,7 +1265,6 @@ public class ProjectGeneratorTest {
     TargetNode<?> libraryNode = AppleLibraryBuilder
         .createBuilder(libraryTarget)
         .setConfigs(Optional.of(configs))
-        .setUseBuckHeaderMaps(Optional.of(false))
         .setSrcs(
             Optional.of(ImmutableSortedSet.of(SourceWithFlags.of(new TestSourcePath("foo.m")))))
         .setFrameworks(
@@ -1386,7 +1282,7 @@ public class ProjectGeneratorTest {
         .createBuilder(testTarget)
         .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.XCTEST))
         .setConfigs(Optional.of(configs))
-        .setUseBuckHeaderMaps(Optional.of(false))
+        .setInfoPlist(new TestSourcePath("Info.plist"))
         .setSrcs(
             Optional.of(
                 ImmutableSortedSet.of(SourceWithFlags.of(new TestSourcePath("fooTest.m")))))
@@ -1413,7 +1309,11 @@ public class ProjectGeneratorTest {
 
     ImmutableMap<String, String> settings = getBuildSettings(testTarget, target, "Debug");
     assertEquals(
-        "headers $BUILT_PRODUCTS_DIR/F4XWM33PHJWGSYQ/Headers",
+        "headers " +
+            "../buck-out/gen/foo/xctest-private-header-symlink-tree/.tree.hmap " +
+            "../buck-out/gen/foo/xctest-public-header-symlink-tree/.tree.hmap " +
+            "../buck-out/gen/foo/lib-public-header-symlink-tree/.tree.hmap " +
+            "../buck-out",
         settings.get("HEADER_SEARCH_PATHS"));
     assertEquals(
         "user_headers",
@@ -1434,7 +1334,6 @@ public class ProjectGeneratorTest {
     BuildTarget libraryDepTarget = BuildTarget.builder("//bar", "lib").build();
     TargetNode<?> libraryDepNode = AppleLibraryBuilder
         .createBuilder(libraryDepTarget)
-        .setUseBuckHeaderMaps(Optional.of(false))
         .setConfigs(Optional.of(configs))
         .setSrcs(
             Optional.of(ImmutableSortedSet.of(SourceWithFlags.of(new TestSourcePath("foo.m")))))
@@ -1463,7 +1362,6 @@ public class ProjectGeneratorTest {
                             Paths.get("Library.framework"),
                             Optional.<String>absent())))))
         .setDeps(Optional.of(ImmutableSortedSet.of(libraryDepTarget)))
-        .setUseBuckHeaderMaps(Optional.of(false))
         .build();
 
     BuildTarget testTarget = BuildTarget.builder("//foo", "xctest").build();
@@ -1471,6 +1369,7 @@ public class ProjectGeneratorTest {
         .createBuilder(testTarget)
         .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.XCTEST))
         .setConfigs(Optional.of(configs))
+        .setInfoPlist(new TestSourcePath("Info.plist"))
         .setSrcs(
             Optional.of(
                 ImmutableSortedSet.of(SourceWithFlags.of(new TestSourcePath("fooTest.m")))))
@@ -1483,7 +1382,6 @@ public class ProjectGeneratorTest {
                             Paths.get("Test.framework"),
                             Optional.<String>absent())))))
         .setDeps(Optional.of(ImmutableSortedSet.of(libraryTarget)))
-        .setUseBuckHeaderMaps(Optional.of(false))
         .build();
 
     ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
@@ -1499,8 +1397,11 @@ public class ProjectGeneratorTest {
     ImmutableMap<String, String> settings = getBuildSettings(testTarget, target, "Debug");
     assertEquals(
         "$(inherited) " +
-            "$BUILT_PRODUCTS_DIR/F4XWEYLSHJWGSYQ/Headers " +
-            "$BUILT_PRODUCTS_DIR/F4XWM33PHJWGSYQ/Headers",
+            "../buck-out/gen/foo/xctest-private-header-symlink-tree/.tree.hmap " +
+            "../buck-out/gen/foo/xctest-public-header-symlink-tree/.tree.hmap " +
+            "../buck-out/gen/bar/lib-public-header-symlink-tree/.tree.hmap " +
+            "../buck-out/gen/foo/lib-public-header-symlink-tree/.tree.hmap " +
+            "../buck-out",
         settings.get("HEADER_SEARCH_PATHS"));
     assertEquals(
         null,
@@ -1527,7 +1428,6 @@ public class ProjectGeneratorTest {
     TargetNode<?> libraryNode = AppleLibraryBuilder
         .createBuilder(libraryTarget)
         .setConfigs(Optional.of(configs))
-        .setUseBuckHeaderMaps(Optional.of(false))
         .setFrameworks(
             Optional.of(
                 ImmutableSortedSet.of(
@@ -1543,7 +1443,7 @@ public class ProjectGeneratorTest {
         .createBuilder(testTarget)
         .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.XCTEST))
         .setConfigs(Optional.of(configs))
-        .setUseBuckHeaderMaps(Optional.of(false))
+        .setInfoPlist(new TestSourcePath("Info.plist"))
         .setSrcs(
             Optional.of(
                 ImmutableSortedSet.of(SourceWithFlags.of(new TestSourcePath("fooTest.m")))))
@@ -1562,7 +1462,11 @@ public class ProjectGeneratorTest {
 
     ImmutableMap<String, String> settings = getBuildSettings(testTarget, target, "Debug");
     assertEquals(
-        "headers $BUILT_PRODUCTS_DIR/F4XWM33PHJWGSYQ/Headers",
+        "headers " +
+            "../buck-out/gen/foo/xctest-private-header-symlink-tree/.tree.hmap " +
+            "../buck-out/gen/foo/xctest-public-header-symlink-tree/.tree.hmap " +
+            "../buck-out/gen/foo/lib-public-header-symlink-tree/.tree.hmap " +
+            "../buck-out",
         settings.get("HEADER_SEARCH_PATHS"));
     assertEquals(
         "libraries $BUILT_PRODUCTS_DIR",
@@ -1591,7 +1495,6 @@ public class ProjectGeneratorTest {
     TargetNode<?> libraryNode = AppleLibraryBuilder
         .createBuilder(libraryTarget)
         .setConfigs(Optional.of(configs))
-        .setUseBuckHeaderMaps(Optional.of(false))
         .setExportedHeaders(
             ImmutableSortedSet.<SourcePath>of(
                 new TestSourcePath("HeaderGroup1/bar.h")))
@@ -1610,7 +1513,7 @@ public class ProjectGeneratorTest {
         .createBuilder(testTarget)
         .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.XCTEST))
         .setConfigs(Optional.of(configs))
-        .setUseBuckHeaderMaps(Optional.of(false))
+        .setInfoPlist(new TestSourcePath("Info.plist"))
         .setSrcs(
             Optional.of(
                 ImmutableSortedSet.of(SourceWithFlags.of(new TestSourcePath("fooTest.m")))))
@@ -1629,7 +1532,11 @@ public class ProjectGeneratorTest {
 
     ImmutableMap<String, String> settings = getBuildSettings(testTarget, target, "Debug");
     assertEquals(
-        "headers $BUILT_PRODUCTS_DIR/F4XWM33PHJWGSYQ/Headers",
+        "headers " +
+            "../buck-out/gen/foo/xctest-private-header-symlink-tree/.tree.hmap " +
+            "../buck-out/gen/foo/xctest-public-header-symlink-tree/.tree.hmap " +
+            "../buck-out/gen/foo/lib-public-header-symlink-tree/.tree.hmap " +
+            "../buck-out",
         settings.get("HEADER_SEARCH_PATHS"));
     assertEquals(
         "libraries $BUILT_PRODUCTS_DIR",
@@ -1652,7 +1559,7 @@ public class ProjectGeneratorTest {
     TargetNode<?> testNode = AppleTestBuilder
         .createBuilder(testTarget)
         .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.XCTEST))
-        .setUseBuckHeaderMaps(Optional.of(false))
+        .setInfoPlist(new TestSourcePath("Info.plist"))
         .build();
 
     ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
@@ -1674,7 +1581,6 @@ public class ProjectGeneratorTest {
     TargetNode<?> depNode = AppleLibraryBuilder
         .createBuilder(depTarget)
         .setSrcs(Optional.of(ImmutableSortedSet.of(SourceWithFlags.of(new TestSourcePath("e.m")))))
-        .setUseBuckHeaderMaps(Optional.of(false))
         .build();
 
     BuildTarget binaryTarget = BuildTarget.builder("//foo", "binary").build();
@@ -1706,9 +1612,7 @@ public class ProjectGeneratorTest {
                             Paths.get("Foo.framework"),
                             Optional.<String>absent())))))
         .setDeps(Optional.of(ImmutableSortedSet.of(depTarget)))
-        .setGid(Optional.<String>absent())
         .setHeaderPathPrefix(Optional.<String>absent())
-        .setUseBuckHeaderMaps(Optional.of(false))
         .setPrefixHeader(Optional.<SourcePath>absent())
         .build();
 
@@ -1721,7 +1625,7 @@ public class ProjectGeneratorTest {
         "//foo:binary");
     assertHasConfigurations(target, "Debug");
     assertEquals(target.getProductType(), ProductType.TOOL);
-    assertEquals("Should have exact number of build phases", 3, target.getBuildPhases().size());
+    assertEquals("Should have exact number of build phases", 2, target.getBuildPhases().size());
     assertHasSingletonSourcesPhaseWithSourcesAndFlags(
         target,
         ImmutableMap.of(
@@ -1767,6 +1671,7 @@ public class ProjectGeneratorTest {
     TargetNode<?> bundleNode = AppleBundleBuilder
         .createBuilder(bundleTarget)
         .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.BUNDLE))
+        .setInfoPlist(new TestSourcePath("Info.plist"))
         .setBinary(sharedLibraryTarget)
         .setDeps(Optional.of(ImmutableSortedSet.of(scriptTarget)))
         .build();
@@ -1829,6 +1734,7 @@ public class ProjectGeneratorTest {
     TargetNode<?> bundleNode = AppleBundleBuilder
         .createBuilder(bundleTarget)
         .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.BUNDLE))
+        .setInfoPlist(new TestSourcePath("Info.plist"))
         .setBinary(sharedLibraryTarget)
         .setDeps(Optional.of(ImmutableSortedSet.of(scriptTarget)))
         .build();
@@ -1888,6 +1794,7 @@ public class ProjectGeneratorTest {
     TargetNode<?> bundleNode = AppleBundleBuilder
         .createBuilder(bundleTarget)
         .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.BUNDLE))
+        .setInfoPlist(new TestSourcePath("Info.plist"))
         .setBinary(sharedLibraryTarget)
         .setDeps(Optional.of(ImmutableSortedSet.of(rnLibraryTarget)))
         .build();
@@ -1940,6 +1847,7 @@ public class ProjectGeneratorTest {
     TargetNode<?> bundleNode = AppleBundleBuilder
         .createBuilder(bundleTarget)
         .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.BUNDLE))
+        .setInfoPlist(new TestSourcePath("Info.plist"))
         .setBinary(sharedLibraryTarget)
         .setDeps(Optional.of(ImmutableSortedSet.of(rnLibraryTarget)))
         .build();
@@ -1993,6 +1901,7 @@ public class ProjectGeneratorTest {
     TargetNode<?> node = AppleBundleBuilder
         .createBuilder(buildTarget)
         .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.FRAMEWORK))
+        .setInfoPlist(new TestSourcePath("Info.plist"))
         .setBinary(sharedLibraryTarget)
         .build();
 
@@ -2036,6 +1945,7 @@ public class ProjectGeneratorTest {
     TargetNode<?> bundleNode = AppleBundleBuilder
         .createBuilder(bundleTarget)
         .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.BUNDLE))
+        .setInfoPlist(new TestSourcePath("Info.plist"))
         .setBinary(fooLibraryTarget)
         .setDeps(Optional.of(ImmutableSortedSet.of(resourceTarget)))
         .build();
@@ -2083,6 +1993,7 @@ public class ProjectGeneratorTest {
     TargetNode<?> node = AppleBundleBuilder
         .createBuilder(buildTarget)
         .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.FRAMEWORK))
+        .setInfoPlist(new TestSourcePath("Info.plist"))
         .setBinary(sharedLibraryTarget)
         .setXcodeProductType(Optional.of("com.facebook.buck.niftyProductType"))
         .build();
@@ -2152,6 +2063,7 @@ public class ProjectGeneratorTest {
         .createBuilder(watchAppTarget)
         .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.APP))
         .setXcodeProductType(Optional.<String>of("com.apple.product-type.application.watchapp2"))
+        .setInfoPlist(new TestSourcePath("Info.plist"))
         .setBinary(watchAppBinaryTarget)
         .build();
 
@@ -2164,6 +2076,7 @@ public class ProjectGeneratorTest {
     TargetNode<?> hostAppNode = AppleBundleBuilder
         .createBuilder(hostAppTarget)
         .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.APP))
+        .setInfoPlist(new TestSourcePath("Info.plist"))
         .setBinary(hostAppBinaryTarget)
         .setDeps(Optional.of(ImmutableSortedSet.of(watchAppTarget)))
         .build();
@@ -2281,6 +2194,7 @@ public class ProjectGeneratorTest {
     TargetNode<?> bundleNode = AppleBundleBuilder
         .createBuilder(bundleTarget)
         .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.BUNDLE))
+        .setInfoPlist(new TestSourcePath("Info.plist"))
         .setBinary(libraryTarget)
         .build();
 
@@ -2324,6 +2238,7 @@ public class ProjectGeneratorTest {
     TargetNode<?> dependentFrameworkNode = AppleBundleBuilder
         .createBuilder(dependentFrameworkTarget)
         .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.FRAMEWORK))
+        .setInfoPlist(new TestSourcePath("Info.plist"))
         .setBinary(dependentSharedLibraryTarget)
         .build();
 
@@ -2340,6 +2255,7 @@ public class ProjectGeneratorTest {
     TargetNode<?> bundleNode = AppleBundleBuilder
         .createBuilder(bundleTarget)
         .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.BUNDLE))
+        .setInfoPlist(new TestSourcePath("Info.plist"))
         .setBinary(libraryTarget)
         .build();
 
@@ -2375,6 +2291,7 @@ public class ProjectGeneratorTest {
     TargetNode<?> dependentStaticFrameworkNode = AppleBundleBuilder
         .createBuilder(dependentStaticFrameworkTarget)
         .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.FRAMEWORK))
+        .setInfoPlist(new TestSourcePath("Info.plist"))
         .setBinary(dependentStaticLibraryTarget)
         .build();
 
@@ -2391,6 +2308,7 @@ public class ProjectGeneratorTest {
     TargetNode<?> dependentFrameworkNode = AppleBundleBuilder
         .createBuilder(dependentFrameworkTarget)
         .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.FRAMEWORK))
+        .setInfoPlist(new TestSourcePath("Info.plist"))
         .setBinary(dependentSharedLibraryTarget)
         .build();
 
@@ -2408,6 +2326,7 @@ public class ProjectGeneratorTest {
     TargetNode<?> bundleNode = AppleBundleBuilder
         .createBuilder(bundleTarget)
         .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.BUNDLE))
+        .setInfoPlist(new TestSourcePath("Info.plist"))
         .setBinary(libraryTarget)
         .build();
 
@@ -2446,6 +2365,7 @@ public class ProjectGeneratorTest {
     TargetNode<?> bundleNode = AppleBundleBuilder
         .createBuilder(bundleTarget)
         .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.BUNDLE))
+        .setInfoPlist(new TestSourcePath("Info.plist"))
         .setBinary(libraryTarget)
         .build();
 
@@ -2485,6 +2405,7 @@ public class ProjectGeneratorTest {
     TargetNode<?> bundleNode = AppleBundleBuilder
         .createBuilder(bundleTarget)
         .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.BUNDLE))
+        .setInfoPlist(new TestSourcePath("Info.plist"))
         .setBinary(bundleLibraryTarget)
         .build();
 
@@ -2523,6 +2444,7 @@ public class ProjectGeneratorTest {
     TargetNode<?> bundleNode = AppleBundleBuilder
         .createBuilder(bundleTarget)
         .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.BUNDLE))
+        .setInfoPlist(new TestSourcePath("Info.plist"))
         .setBinary(bundleLibraryTarget)
         .build();
 
@@ -2610,13 +2532,12 @@ public class ProjectGeneratorTest {
         .build();
     TargetNode<?> node = AppleLibraryBuilder
         .createBuilder(buildTarget)
-        .setUseBuckHeaderMaps(Optional.of(false))
         .setConfigs(
             Optional.of(
                 ImmutableSortedMap.of(
                     "Debug",
                     ImmutableMap.<String, String>of())))
-        .setFrameworks(
+        .setLibraries(
             Optional.of(
                 ImmutableSortedSet.of(
                     FrameworkPath.ofSourceTreePath(
@@ -2651,7 +2572,10 @@ public class ProjectGeneratorTest {
 
     ImmutableMap<String, String> settings = getBuildSettings(buildTarget, target, "Debug");
     assertEquals(
-        "$(inherited) ",
+        "$(inherited) " +
+            "../buck-out/gen/foo/rule-private-header-symlink-tree/.tree.hmap " +
+            "../buck-out/gen/foo/rule-public-header-symlink-tree/.tree.hmap " +
+            "../buck-out",
         settings.get("HEADER_SEARCH_PATHS"));
     assertEquals(
         null,
@@ -2700,80 +2624,6 @@ public class ProjectGeneratorTest {
     assertEquals(
         expectedAttribute.value(),
         actualAttribute.value());
-  }
-
-  @Test
-  public void targetGidInDescriptionSetsTargetGidInGeneratedProject() throws IOException {
-    BuildTarget buildTarget = BuildTarget.builder("//foo", "lib").build();
-    TargetNode<?> node = AppleLibraryBuilder
-        .createBuilder(buildTarget)
-        .setGid(Optional.of("D00D64738"))
-        .build();
-
-    ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
-        ImmutableSet.<TargetNode<?>>of(node));
-    projectGenerator.createXcodeProjects();
-
-    PBXTarget target = assertTargetExistsAndReturnTarget(
-        projectGenerator.getGeneratedProject(),
-        "//foo:lib");
-    // Ensure the GID for the target uses the gid value in the description.
-    assertThat(target.getGlobalID(), equalTo("D00D64738"));
-  }
-
-  @Test
-  public void targetGidInDescriptionReservesGidFromUseByAnotherTarget() throws IOException {
-    BuildTarget fooTarget = BuildTarget.builder("//foo", "lib").build();
-    TargetNode<?> fooNode = AppleLibraryBuilder
-        .createBuilder(fooTarget)
-        .setGid(Optional.of("E66DC04E36F2D8BE00000000"))
-        .build();
-
-    BuildTarget barTarget = BuildTarget.builder("//bar", "lib").build();
-    TargetNode<?> barNode = AppleLibraryBuilder
-        .createBuilder(barTarget)
-        .build();
-
-    ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
-        ImmutableSet.of(fooNode, barNode));
-    projectGenerator.createXcodeProjects();
-
-    PBXTarget target = assertTargetExistsAndReturnTarget(
-        projectGenerator.getGeneratedProject(),
-        "//bar:lib");
-    // Note the '1': normally //bar:lib's GID would be
-    // E66DC04E36F2D8BE00000000 but we hard-coded that in //foo:lib, so //bar:lib
-    // will try and fail to use GID, as it'll already have been reserved.
-    String expectedGID = String.format(
-        "%08X%08X%08X", target.isa().hashCode(), target.getName().hashCode(), 1);
-    assertEquals(
-        "expected GID has correct value",
-        "E66DC04E36F2D8BE00000001", expectedGID);
-    assertEquals("generated GID is same as expected", expectedGID, target.getGlobalID());
-  }
-
-  @Test
-  public void conflictingHardcodedGidsThrow() throws IOException {
-    BuildTarget fooTarget = BuildTarget.builder("//foo", "lib").build();
-    TargetNode<?> fooNode = AppleLibraryBuilder
-        .createBuilder(fooTarget)
-        .setGid(Optional.of("E66DC04E36F2D8BE00000000"))
-        .build();
-
-    BuildTarget barTarget = BuildTarget.builder("//bar", "lib").build();
-    TargetNode<?> barNode = AppleLibraryBuilder
-        .createBuilder(barTarget)
-        .setGid(Optional.of("E66DC04E36F2D8BE00000000"))
-        .build();
-
-    ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
-        ImmutableSet.of(fooNode, barNode));
-
-    thrown.expect(HumanReadableException.class);
-    thrown.expectMessage(
-        "Targets [//bar:lib, //foo:lib] have the same hardcoded GID (E66DC04E36F2D8BE00000000)");
-
-    projectGenerator.createXcodeProjects();
   }
 
   @Test
@@ -2900,10 +2750,12 @@ public class ProjectGeneratorTest {
     TargetNode<AppleTestDescription.Arg> libraryTestStatic =
         AppleTestBuilder.createBuilder(BuildTarget.builder("//foo", "libraryTestStatic").build())
             .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.XCTEST))
+            .setInfoPlist(new TestSourcePath("Info.plist"))
             .build();
     TargetNode<AppleTestDescription.Arg> libraryTestNotStatic =
         AppleTestBuilder.createBuilder(BuildTarget.builder("//foo", "libraryTestNotStatic").build())
             .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.XCTEST))
+            .setInfoPlist(new TestSourcePath("Info.plist"))
             .build();
 
     ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
@@ -2968,6 +2820,7 @@ public class ProjectGeneratorTest {
     TargetNode<AppleTestDescription.Arg> xctest1 =
         AppleTestBuilder.createBuilder(BuildTarget.builder("//foo", "xctest1").build())
             .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.XCTEST))
+            .setInfoPlist(new TestSourcePath("Info.plist"))
             .setDeps(Optional.of(ImmutableSortedSet.of(dep1.getBuildTarget())))
             .setFrameworks(
                 Optional.of(
@@ -2981,6 +2834,7 @@ public class ProjectGeneratorTest {
     TargetNode<AppleTestDescription.Arg> xctest2 =
         AppleTestBuilder.createBuilder(BuildTarget.builder("//foo", "xctest2").build())
             .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.XCTEST))
+            .setInfoPlist(new TestSourcePath("Info.plist"))
             .setDeps(Optional.of(ImmutableSortedSet.of(dep2.getBuildTarget())))
             .build();
 
@@ -3001,6 +2855,8 @@ public class ProjectGeneratorTest {
         ProjectGenerator.SEPARATED_PROJECT_OPTIONS,
         Optional.<BuildTarget>absent(),
         ImmutableList.<String>of(),
+        new AlwaysFoundExecutableFinder(),
+        ImmutableMap.<String, String>of(),
         PLATFORMS,
         DEFAULT_PLATFORM,
         new Function<TargetNode<?>, Path>() {
@@ -3136,6 +2992,7 @@ public class ProjectGeneratorTest {
     TargetNode<?> hostAppNode = AppleBundleBuilder
         .createBuilder(hostAppTarget)
         .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.APP))
+        .setInfoPlist(new TestSourcePath("Info.plist"))
         .setBinary(hostAppBinaryTarget)
         .build();
 
@@ -3147,6 +3004,7 @@ public class ProjectGeneratorTest {
                     "Debug",
                     ImmutableMap.<String, String>of())))
         .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.XCTEST))
+        .setInfoPlist(new TestSourcePath("Info.plist"))
         .setTestHostApp(Optional.of(hostAppTarget))
         .build();
 
@@ -3167,6 +3025,10 @@ public class ProjectGeneratorTest {
 
   @Test
   public void aggregateTargetForBuildWithBuck() throws IOException {
+    Optional<Path> buck = new ExecutableFinder().getOptionalExecutable(
+        Paths.get("buck"),
+        ImmutableMap.<String, String>of());
+    assumeThat(buck.isPresent(), is(true));
     BuildTarget binaryTarget = BuildTarget.builder("//foo", "binary").build();
     TargetNode<?> binaryNode = AppleBinaryBuilder
         .createBuilder(binaryTarget)
@@ -3194,6 +3056,8 @@ public class ProjectGeneratorTest {
         ImmutableSet.<ProjectGenerator.Option>of(),
         Optional.of(binaryTarget),
         ImmutableList.of("--flag", "value with spaces"),
+        new AlwaysFoundExecutableFinder(),
+        ImmutableMap.<String, String>of(),
         PLATFORMS,
         DEFAULT_PLATFORM,
         Functions.<Path>constant(null));
@@ -3308,7 +3172,7 @@ public class ProjectGeneratorTest {
                 ImmutableSortedMap.of(
                     "Default",
                     ImmutableMap.<String, String>of())))
-        .setUseBuckHeaderMaps(Optional.of(false))
+        .setInfoPlist(new TestSourcePath("Info.plist"))
         .setDeps(Optional.of(ImmutableSortedSet.of(libraryTarget)))
         .build();
     TargetNode<?> assetCatalogNode = AppleAssetCatalogBuilder
@@ -3488,6 +3352,8 @@ public class ProjectGeneratorTest {
         projectGeneratorOptions,
         Optional.<BuildTarget>absent(),
         ImmutableList.<String>of(),
+        new AlwaysFoundExecutableFinder(),
+        ImmutableMap.<String, String>of(),
         PLATFORMS,
         DEFAULT_PLATFORM,
         Functions.<Path>constant(null));

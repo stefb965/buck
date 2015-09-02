@@ -18,23 +18,23 @@ package com.facebook.buck.apple;
 
 import com.facebook.buck.io.TeeInputStream;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.MoreThrowables;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
-import com.facebook.buck.step.ExecutionContext;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import com.google.common.io.ByteStreams;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
+import com.google.common.io.ByteStreams;
 
-import java.nio.file.Path;
-import java.io.InputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Map;
 
@@ -47,6 +47,8 @@ import java.util.Map;
  */
 public class XctoolRunTestsStep implements Step {
 
+  private final Path workingDirectory;
+
   public interface StdoutReadingCallback {
     void readStdout(InputStream stdout) throws IOException;
   }
@@ -58,9 +60,10 @@ public class XctoolRunTestsStep implements Step {
   private final Optional<? extends StdoutReadingCallback> stdoutReadingCallback;
 
   public XctoolRunTestsStep(
+      Path workingDirectory,
       Path xctoolPath,
       String sdkName,
-      Optional<String> simulatorName,
+      Optional<String> destinationSpecifier,
       Collection<Path> logicTestBundlePaths,
       Map<Path, Path> appTestBundleToHostAppPaths,
       Path outputPath,
@@ -71,6 +74,8 @@ public class XctoolRunTestsStep implements Step {
         "Either logic tests (%s) or app tests (%s) must be present",
         logicTestBundlePaths,
         appTestBundleToHostAppPaths);
+
+    this.workingDirectory = workingDirectory;
 
     // Each test bundle must have one of these extensions. (xctool
     // depends on them to choose which test runner to use.)
@@ -88,7 +93,7 @@ public class XctoolRunTestsStep implements Step {
     this.command = createCommandArgs(
         xctoolPath,
         sdkName,
-        simulatorName,
+        destinationSpecifier,
         logicTestBundlePaths,
         appTestBundleToHostAppPaths);
     this.outputPath = outputPath;
@@ -104,7 +109,7 @@ public class XctoolRunTestsStep implements Step {
   public int execute(ExecutionContext context) throws InterruptedException {
     ProcessExecutorParams processExecutorParams = ProcessExecutorParams.builder()
         .setCommand(command)
-        .setDirectory(context.getProjectDirectoryRoot().toAbsolutePath().toFile())
+        .setDirectory(workingDirectory.toAbsolutePath().toFile())
         .setRedirectOutput(ProcessBuilder.Redirect.PIPE)
         .build();
 
@@ -159,7 +164,7 @@ public class XctoolRunTestsStep implements Step {
   private static ImmutableList<String> createCommandArgs(
       Path xctoolPath,
       String sdkName,
-      Optional<String> simulatorName,
+      Optional<String> destinationSpecifier,
       Collection<Path> logicTestBundlePaths,
       Map<Path, Path> appTestBundleToHostAppPaths) {
     ImmutableList.Builder<String> args = ImmutableList.builder();
@@ -167,9 +172,9 @@ public class XctoolRunTestsStep implements Step {
     args.add("-reporter");
     args.add("json-stream");
     args.add("-sdk", sdkName);
-    if (simulatorName.isPresent()) {
+    if (destinationSpecifier.isPresent()) {
       args.add("-destination");
-      args.add("name=" + simulatorName.get());
+      args.add(destinationSpecifier.get());
     }
     args.add("run-tests");
     for (Path logicTestBundlePath : logicTestBundlePaths) {

@@ -17,14 +17,18 @@
 package com.facebook.buck.rules;
 
 import com.facebook.buck.event.AbstractBuckEvent;
+import com.facebook.buck.event.EventKey;
 import com.facebook.buck.event.LeafEvent;
 
 
 /**
  * Base class for events about building up the action graph from the target graph.
  */
-@SuppressWarnings("PMD.OverrideBothEqualsAndHashcode")
 public abstract class ActionGraphEvent extends AbstractBuckEvent implements LeafEvent {
+
+  public ActionGraphEvent(EventKey eventKey) {
+    super(eventKey);
+  }
 
   @Override
   protected String getValueString() {
@@ -46,6 +50,10 @@ public abstract class ActionGraphEvent extends AbstractBuckEvent implements Leaf
 
   public static class Started extends ActionGraphEvent {
 
+    public Started() {
+      super(EventKey.unique());
+    }
+
     @Override
     public String getEventName() {
       return "BuildActionGraphStarted";
@@ -55,7 +63,7 @@ public abstract class ActionGraphEvent extends AbstractBuckEvent implements Leaf
   public static class Finished extends ActionGraphEvent {
 
     public Finished(Started started) {
-      chain(started);
+      super(started.getEventKey());
     }
 
     @Override

@@ -149,20 +149,21 @@ public class JsBinary extends AbstractBuildRule implements
       }
     }
 
-    ClosureCompilerStep compileStep = ClosureCompilerStep.builder(compiler)
-        .defines(defines)
-        .externs(externs)
-        .flags(flags)
-        .prettyPrint()
-        .sources(requiredSources)
-        .output(output)
-        .build();
+    ClosureCompilerStep compileStep =
+        ClosureCompilerStep.builder(getProjectFilesystem().getRootPath(), compiler)
+            .defines(defines)
+            .externs(externs)
+            .flags(flags)
+            .prettyPrint()
+            .sources(requiredSources)
+            .output(output)
+            .build();
 
     StringWriter writer = new StringWriter();
     smidgen.writeTo(writer);
 
     steps.add(new MkdirStep(joyPath.getParent()));
-    steps.add(new WriteFileStep(writer.toString(), joyPath));
+    steps.add(new WriteFileStep(getProjectFilesystem(), writer.toString(), joyPath, false));
     steps.add(new MkdirStep(output.getParent()));
     steps.add(compileStep);
 

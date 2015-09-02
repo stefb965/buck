@@ -16,15 +16,20 @@
 
 package com.facebook.buck.rules;
 
+import static com.facebook.buck.io.Watchman.NULL_WATCHMAN;
+
 import com.facebook.buck.android.AndroidDirectoryResolver;
 import com.facebook.buck.android.FakeAndroidDirectoryResolver;
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.json.ProjectBuildFileParserFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.base.Optional;
 
 import java.io.IOException;
+
+import javax.annotation.Nullable;
 
 public class TestRepositoryBuilder {
   private Optional<String> name;
@@ -32,6 +37,8 @@ public class TestRepositoryBuilder {
   private KnownBuildRuleTypes buildRuleTypes;
   private BuckConfig buckConfig;
   private AndroidDirectoryResolver androidDirectoryResolver;
+  @Nullable
+  private ProjectBuildFileParserFactory parserFactory;
 
   public TestRepositoryBuilder() throws InterruptedException, IOException {
     name = Optional.absent();
@@ -61,12 +68,34 @@ public class TestRepositoryBuilder {
     return this;
   }
 
+  public TestRepositoryBuilder setBuildFileParserFactory(ProjectBuildFileParserFactory factory) {
+    this.parserFactory = factory;
+    return this;
+  }
+
   public Repository build() {
-    return Repository.of(
+    if (parserFactory == null) {
+      return new Repository(
+          name,
+          filesystem,
+          NULL_WATCHMAN,
+          buckConfig,
+          buildRuleTypes,
+          androidDirectoryResolver);
+    }
+
+    return new Repository(
         name,
         filesystem,
-        buildRuleTypes,
+        NULL_WATCHMAN,
         buckConfig,
-        androidDirectoryResolver);
+        buildRuleTypes,
+        androidDirectoryResolver) {
+      @Override
+      public ProjectBuildFileParserFactory createBuildFileParserFactory(boolean useWatchmanGlob) {
+        return parserFactory;
+      }
+    };
+
   }
 }

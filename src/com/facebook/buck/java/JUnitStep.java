@@ -43,6 +43,7 @@ import java.lang.reflect.Field;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
@@ -76,6 +77,7 @@ public class JUnitStep extends ShellStep {
   private final ImmutableSet<Path> classpathEntries;
   private final Iterable<String> testClassNames;
   private final List<String> vmArgs;
+  private final ImmutableMap<String, String> nativeLibsEnvironment;
   private final Path directoryForTestResults;
   private final Path modulePath;
   private final Path tmpDirectory;
@@ -115,9 +117,11 @@ public class JUnitStep extends ShellStep {
    * @param tmpDirectory directory tests can use for local file scratch space.
    */
   public JUnitStep(
+      Path workingDirectory,
       Set<Path> classpathEntries,
       Iterable<String> testClassNames,
       List<String> vmArgs,
+      Map<String, String> nativeLibsEnvironment,
       Path directoryForTestResults,
       Path modulePath,
       Path tmpDirectory,
@@ -130,9 +134,12 @@ public class JUnitStep extends ShellStep {
       Optional<Long> testRuleTimeoutMs,
       Optional<Level> stdOutLogLevel,
       Optional<Level> stdErrLogLevel) {
-    this(classpathEntries,
+    this(
+        workingDirectory,
+        classpathEntries,
         testClassNames,
         vmArgs,
+        nativeLibsEnvironment,
         directoryForTestResults,
         modulePath,
         tmpDirectory,
@@ -151,9 +158,11 @@ public class JUnitStep extends ShellStep {
 
   @VisibleForTesting
   JUnitStep(
+      Path workingDirectory,
       Set<Path> classpathEntries,
       Iterable<String> testClassNames,
       List<String> vmArgs,
+      Map<String, String> nativeLibsEnvironment,
       Path directoryForTestResults,
       Path modulePath,
       Path tmpDirectory,
@@ -167,9 +176,11 @@ public class JUnitStep extends ShellStep {
       Optional<Long> testRuleTimeoutMs,
       Optional<Level> stdOutLogLevel,
       Optional<Level> stdErrLogLevel) {
+    super(workingDirectory);
     this.classpathEntries = ImmutableSet.copyOf(classpathEntries);
     this.testClassNames = Iterables.unmodifiableIterable(testClassNames);
     this.vmArgs = ImmutableList.copyOf(vmArgs);
+    this.nativeLibsEnvironment = ImmutableMap.copyOf(nativeLibsEnvironment);
     this.directoryForTestResults = directoryForTestResults;
     this.tmpDirectory = tmpDirectory;
     this.modulePath = modulePath;
@@ -294,7 +305,10 @@ public class JUnitStep extends ShellStep {
 
   @Override
   public ImmutableMap<String, String> getEnvironmentVariables(ExecutionContext context) {
-    return ImmutableMap.of("TMP", context.getProjectFilesystem().resolve(tmpDirectory).toString());
+    return ImmutableMap.<String, String>builder()
+        .put("TMP", context.getProjectFilesystem().resolve(tmpDirectory).toString())
+        .putAll(nativeLibsEnvironment)
+        .build();
   }
 
   private void warnUser(ExecutionContext context, String message) {

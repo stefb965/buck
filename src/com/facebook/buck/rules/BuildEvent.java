@@ -17,16 +17,21 @@
 package com.facebook.buck.rules;
 
 import com.facebook.buck.event.AbstractBuckEvent;
+import com.facebook.buck.event.EventKey;
 import com.facebook.buck.model.BuildTarget;
 import com.google.common.base.Joiner;
 import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableSet;
 
+
 /**
  * Base class for events about building.
  */
-@SuppressWarnings("PMD.OverrideBothEqualsAndHashcode")
 public abstract class BuildEvent extends AbstractBuckEvent {
+
+  public BuildEvent(EventKey eventKey) {
+    super(eventKey);
+  }
 
   public static Started started(Iterable<String> buildArgs) {
     return new Started(ImmutableSet.copyOf(buildArgs));
@@ -47,6 +52,7 @@ public abstract class BuildEvent extends AbstractBuckEvent {
     private final ImmutableSet<String> buildArgs;
 
     protected Started(ImmutableSet<String> buildArgs) {
+      super(EventKey.unique());
       this.buildArgs = buildArgs;
     }
 
@@ -60,11 +66,6 @@ public abstract class BuildEvent extends AbstractBuckEvent {
       return Joiner.on(", ").join(buildArgs);
     }
 
-    @Override
-    public int hashCode() {
-      return Objects.hashCode(buildArgs);
-    }
-
     public ImmutableSet<String> getBuildArgs() {
       return buildArgs;
     }
@@ -76,9 +77,9 @@ public abstract class BuildEvent extends AbstractBuckEvent {
     private final int exitCode;
 
     protected Finished(Started started, int exitCode) {
+      super(started.getEventKey());
       this.buildArgs = started.getBuildArgs();
       this.exitCode = exitCode;
-      chain(started);
     }
 
     public ImmutableSet<String> getBuildArgs() {
@@ -100,10 +101,19 @@ public abstract class BuildEvent extends AbstractBuckEvent {
     }
 
     @Override
-    public int hashCode() {
-      return Objects.hashCode(exitCode);
+    public boolean equals(Object o) {
+      if (!super.equals(o)) {
+        return false;
+      }
+      // Because super.equals compares the EventKey, getting here means that we've somehow managed
+      // to create 2 Finished events for the same Started event.
+      throw new UnsupportedOperationException("Multiple conflicting Finished events detected.");
     }
 
+    @Override
+    public int hashCode() {
+      return Objects.hashCode(super.hashCode(), buildArgs, exitCode);
+    }
   }
 
   public static class RuleCountCalculated extends BuildEvent {
@@ -112,6 +122,7 @@ public abstract class BuildEvent extends AbstractBuckEvent {
     private final int numRules;
 
     protected RuleCountCalculated(ImmutableSet<BuildTarget> buildRules, int numRulesToBuild) {
+      super(EventKey.unique());
       this.buildRules = buildRules;
       this.numRules = numRulesToBuild;
     }
@@ -135,10 +146,19 @@ public abstract class BuildEvent extends AbstractBuckEvent {
     }
 
     @Override
-    public int hashCode() {
-      return Objects.hashCode(buildRules, numRules);
+    public boolean equals(Object o) {
+      if (!super.equals(o)) {
+        return false;
+      }
+      // Because super.equals compares the EventKey, getting here means that we've somehow managed
+      // to create 2 Finished events for the same Started event.
+      throw new UnsupportedOperationException("Multiple conflicting Finished events detected.");
     }
 
+    @Override
+    public int hashCode() {
+      return Objects.hashCode(super.hashCode(), buildRules, numRules);
+    }
   }
 
 }

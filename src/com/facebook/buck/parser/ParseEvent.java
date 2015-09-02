@@ -17,23 +17,23 @@
 package com.facebook.buck.parser;
 
 import com.facebook.buck.event.AbstractBuckEvent;
+import com.facebook.buck.event.EventKey;
 import com.facebook.buck.event.LeafEvent;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.TargetGraph;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.google.common.base.Joiner;
-import com.google.common.base.Objects;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 
 /**
  * Base class for events about parsing build files..
  */
-@SuppressWarnings("PMD.OverrideBothEqualsAndHashcode")
 public abstract class ParseEvent extends AbstractBuckEvent implements LeafEvent {
   private final ImmutableList<BuildTarget> buildTargets;
 
-  protected ParseEvent(Iterable<BuildTarget> buildTargets) {
+  protected ParseEvent(EventKey eventKey, Iterable<BuildTarget> buildTargets) {
+    super(eventKey);
     this.buildTargets = ImmutableList.copyOf(buildTargets);
   }
 
@@ -52,11 +52,6 @@ public abstract class ParseEvent extends AbstractBuckEvent implements LeafEvent 
     return Joiner.on(", ").join(buildTargets);
   }
 
-  @Override
-  public int hashCode() {
-    return buildTargets.hashCode();
-  }
-
   public static Started started(Iterable<BuildTarget> buildTargets) {
     return new Started(buildTargets);
   }
@@ -68,7 +63,7 @@ public abstract class ParseEvent extends AbstractBuckEvent implements LeafEvent 
 
   public static class Started extends ParseEvent {
     protected Started(Iterable<BuildTarget> buildTargets) {
-      super(buildTargets);
+      super(EventKey.unique(), buildTargets);
     }
 
     @Override
@@ -82,9 +77,8 @@ public abstract class ParseEvent extends AbstractBuckEvent implements LeafEvent 
     private final Optional<TargetGraph> graph;
 
     protected Finished(Started started, Optional<TargetGraph> graph) {
-      super(started.getBuildTargets());
+      super(started.getEventKey(), started.getBuildTargets());
       this.graph = graph;
-      chain(started);
     }
 
     @Override
@@ -95,11 +89,6 @@ public abstract class ParseEvent extends AbstractBuckEvent implements LeafEvent 
     @JsonIgnore
     public Optional<TargetGraph> getGraph() {
       return graph;
-    }
-
-    @Override
-    public int hashCode() {
-      return Objects.hashCode(getBuildTargets(), getGraph());
     }
   }
 }

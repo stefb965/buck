@@ -21,6 +21,7 @@ import com.facebook.buck.cxx.CxxConstructorArg;
 import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.cxx.CxxSource;
 import com.facebook.buck.cxx.HeaderVisibility;
+import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BuildRule;
@@ -33,10 +34,9 @@ import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
-import com.facebook.buck.rules.coercer.SourceWithFlagsList;
+import com.facebook.buck.rules.coercer.SourceWithFlags;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
-import com.google.common.base.Functions;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
@@ -65,17 +65,12 @@ public class AppleDescriptions {
   /** Utility class: do not instantiate. */
   private AppleDescriptions() {}
 
-  public static Optional<Path> getPathToHeaderSymlinkTree(
+  public static Path getPathToHeaderSymlinkTree(
       TargetNode<? extends AppleNativeTargetDescriptionArg> targetNode,
       HeaderVisibility headerVisibility) {
-    if (!targetNode.getConstructorArg().getUseBuckHeaderMaps()) {
-      return Optional.absent();
-    }
-
-    return Optional.of(
-        BuildTargets.getGenPath(
-            targetNode.getBuildTarget().getUnflavoredBuildTarget(),
-            "%s" + AppleHeaderVisibilities.getHeaderSymlinkTreeSuffix(headerVisibility)));
+    return BuildTargets.getGenPath(
+        targetNode.getBuildTarget().getUnflavoredBuildTarget(),
+        "%s" + AppleHeaderVisibilities.getHeaderSymlinkTreeSuffix(headerVisibility));
   }
 
   public static Path getHeaderPathPrefix(
@@ -192,42 +187,35 @@ public class AppleDescriptions {
                     arg))
             .build();
 
-    output.srcs = Optional.of(SourceWithFlagsList.ofUnnamedSources(arg.srcs.get()));
-    output.platformSrcs = Optional.of(PatternMatchedCollection.<SourceWithFlagsList>of());
+    output.srcs = arg.srcs;
+    output.platformSrcs = Optional.of(
+        PatternMatchedCollection.<ImmutableSortedSet<SourceWithFlags>>of());
     output.headers = Optional.of(SourceList.ofNamedSources(headerMap));
     output.platformHeaders = Optional.of(PatternMatchedCollection.<SourceList>of());
-    output.prefixHeaders = Optional.of(ImmutableList.copyOf(arg.prefixHeader.asSet()));
+    output.prefixHeader = arg.prefixHeader;
     output.compilerFlags = arg.compilerFlags;
     output.platformCompilerFlags = Optional.of(
         PatternMatchedCollection.<ImmutableList<String>>of());
+    output.preprocessorFlags = arg.preprocessorFlags;
+    output.platformPreprocessorFlags = arg.platformPreprocessorFlags;
+    output.langPreprocessorFlags = arg.langPreprocessorFlags;
     output.linkerFlags = Optional.of(
         FluentIterable
             .from(arg.frameworks.transform(frameworksToLinkerFlagsFunction(resolver)).get())
+            .append(arg.libraries.transform(librariesToLinkerFlagsFunction(resolver)).get())
             .append(arg.linkerFlags.get())
             .toList());
     output.platformLinkerFlags = Optional.of(PatternMatchedCollection.<ImmutableList<String>>of());
-    output.preprocessorFlags = arg.preprocessorFlags;
-    output.platformPreprocessorFlags = Optional.of(
-        PatternMatchedCollection.<ImmutableList<String>>of());
-    output.langPreprocessorFlags = arg.langPreprocessorFlags;
-    output.frameworkSearchPaths =
-        arg.frameworks.isPresent() ?
-            Optional.of(
-                FluentIterable.from(arg.frameworks.get())
-                    .transform(
-                        FrameworkPath.getUnexpandedSearchPathFunction(
-                            resolver.getPathFunction(),
-                            Functions.<Path>identity()))
-                    .toSet()) :
-            Optional.<ImmutableSet<Path>>absent();
+    output.frameworks = arg.frameworks;
+    output.libraries = arg.libraries;
     output.lexSrcs = Optional.of(ImmutableList.<SourcePath>of());
     output.yaccSrcs = Optional.of(ImmutableList.<SourcePath>of());
     output.deps = arg.deps;
     // This is intentionally an empty string; we put all prefixes into
     // the header map itself.
     output.headerNamespace = Optional.of("");
-    output.tests = arg.tests;
     output.cxxRuntimeType = Optional.absent();
+    output.tests = arg.tests;
   }
 
   public static void populateCxxBinaryDescriptionArg(
@@ -277,6 +265,7 @@ public class AppleDescriptions {
     output.exportedLinkerFlags = Optional.of(
         FluentIterable
             .from(arg.frameworks.transform(frameworksToLinkerFlagsFunction(resolver)).get())
+            .append(arg.libraries.transform(librariesToLinkerFlagsFunction(resolver)).get())
             .append(arg.exportedLinkerFlags.get())
             .toList());
     output.exportedPlatformLinkerFlags = Optional.of(
@@ -285,6 +274,7 @@ public class AppleDescriptions {
     output.forceStatic = Optional.of(false);
     output.linkWhole = Optional.of(linkWhole);
     output.supportedPlatformsRegex = Optional.absent();
+    output.canBeAsset = arg.canBeAsset;
   }
 
   @VisibleForTesting
@@ -297,6 +287,21 @@ public class AppleDescriptions {
         return FluentIterable
             .from(input)
             .transformAndConcat(linkerFlagsForFrameworkPathFunction(resolver.getPathFunction()))
+            .toList();
+      }
+    };
+  }
+
+  @VisibleForTesting
+  static Function<
+      ImmutableSortedSet<FrameworkPath>,
+      ImmutableList<String>> librariesToLinkerFlagsFunction(final SourcePathResolver resolver) {
+    return new Function<ImmutableSortedSet<FrameworkPath>, ImmutableList<String>>() {
+      @Override
+      public ImmutableList<String> apply(ImmutableSortedSet<FrameworkPath> input) {
+        return FluentIterable
+            .from(input)
+            .transformAndConcat(linkerFlagsForLibraryFunction(resolver.getPathFunction()))
             .toList();
       }
     };
@@ -343,20 +348,24 @@ public class AppleDescriptions {
     return new Function<FrameworkPath, Iterable<String>>() {
       @Override
       public Iterable<String> apply(FrameworkPath input) {
-        FrameworkPath.FrameworkType frameworkType = input.getFrameworkType(resolver);
-        switch (frameworkType) {
-          case FRAMEWORK:
-            return ImmutableList.of("-framework", input.getName(resolver));
-          case LIBRARY:
-            return ImmutableList.of("-l" + input.getName(resolver));
-        }
-
-        throw new RuntimeException("Unsupported framework type: " + frameworkType);
+        return ImmutableList.of("-framework", input.getName(resolver));
       }
     };
   }
 
-  public static CollectedAssetCatalogs createBuildRulesForTransitiveAssetCatalogDependencies(
+  private static Function<FrameworkPath, Iterable<String>> linkerFlagsForLibraryFunction(
+      final Function<SourcePath, Path> resolver) {
+    return new Function<FrameworkPath, Iterable<String>>() {
+      @Override
+      public Iterable<String> apply(FrameworkPath input) {
+        return ImmutableList.of(
+            "-l",
+            MorePaths.stripPathPrefixAndExtension(input.getFileName(resolver), "lib"));
+      }
+    };
+  }
+
+  public static Optional<AppleAssetCatalog> createBuildRuleForTransitiveAssetCatalogDependencies(
       TargetGraph targetGraph,
       BuildRuleParams params,
       SourcePathResolver sourcePathResolver,
@@ -367,84 +376,35 @@ public class AppleDescriptions {
     ImmutableSet<AppleAssetCatalogDescription.Arg> assetCatalogArgs =
         AppleBuildRules.collectRecursiveAssetCatalogs(targetGraph, ImmutableList.of(targetNode));
 
-    ImmutableSortedSet.Builder<Path> mergeableAssetCatalogDirsBuilder =
-        ImmutableSortedSet.naturalOrder();
-    ImmutableSortedSet.Builder<Path> unmergeableAssetCatalogDirsBuilder =
+    ImmutableSortedSet.Builder<Path> assetCatalogDirsBuilder =
         ImmutableSortedSet.naturalOrder();
 
     for (AppleAssetCatalogDescription.Arg arg : assetCatalogArgs) {
-      if (arg.getCopyToBundles()) {
-        unmergeableAssetCatalogDirsBuilder.addAll(arg.dirs);
-      } else {
-        mergeableAssetCatalogDirsBuilder.addAll(arg.dirs);
-      }
+      assetCatalogDirsBuilder.addAll(arg.dirs);
     }
 
-    ImmutableSortedSet<Path> mergeableAssetCatalogDirs =
-        mergeableAssetCatalogDirsBuilder.build();
-    ImmutableSortedSet<Path> unmergeableAssetCatalogDirs =
-        unmergeableAssetCatalogDirsBuilder.build();
+    ImmutableSortedSet<Path> assetCatalogDirs =
+        assetCatalogDirsBuilder.build();
 
-    Optional<AppleAssetCatalog> mergedAssetCatalog = Optional.absent();
-    if (!mergeableAssetCatalogDirs.isEmpty()) {
-      BuildRuleParams assetCatalogParams = params.copyWithChanges(
-          BuildTarget.builder(params.getBuildTarget())
-              .addFlavors(
-                  AppleAssetCatalog.getFlavor(
-                      ActoolStep.BundlingMode.MERGE_BUNDLES,
-                      MERGED_ASSET_CATALOG_NAME))
-              .build(),
-          Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
-          Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
-      mergedAssetCatalog = Optional.of(
-          new AppleAssetCatalog(
-              assetCatalogParams,
-              sourcePathResolver,
-              applePlatform.getName(),
-              actool,
-              mergeableAssetCatalogDirs,
-              ActoolStep.BundlingMode.MERGE_BUNDLES,
-              MERGED_ASSET_CATALOG_NAME));
+    if (assetCatalogDirs.isEmpty()) {
+      return Optional.absent();
     }
 
-    ImmutableSet.Builder<AppleAssetCatalog> bundledAssetCatalogsBuilder =
-        ImmutableSet.builder();
-    for (Path assetDir : unmergeableAssetCatalogDirs) {
-      String bundleName = getCatalogNameFromPath(assetDir);
-      BuildRuleParams assetCatalogParams = params.copyWithChanges(
-          BuildTarget.builder(params.getBuildTarget())
-              .addFlavors(AppleAssetCatalog.getFlavor(
-                      ActoolStep.BundlingMode.SEPARATE_BUNDLES,
-                      bundleName))
-              .build(),
-          Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
-          Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
-      bundledAssetCatalogsBuilder.add(
-          new AppleAssetCatalog(
-              assetCatalogParams,
-              sourcePathResolver,
-              applePlatform.getName(),
-              actool,
-              ImmutableSortedSet.of(assetDir),
-              ActoolStep.BundlingMode.SEPARATE_BUNDLES,
-              bundleName));
-    }
-    ImmutableSet<AppleAssetCatalog> bundledAssetCatalogs =
-        bundledAssetCatalogsBuilder.build();
+    BuildRuleParams assetCatalogParams = params.copyWithChanges(
+        BuildTarget.builder(params.getBuildTarget())
+            .addFlavors(AppleAssetCatalog.FLAVOR)
+            .build(),
+        Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
+        Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
 
-    return CollectedAssetCatalogs.of(
-        mergedAssetCatalog,
-        bundledAssetCatalogs);
-  }
-
-  private static String getCatalogNameFromPath(Path assetCatalogDir) {
-    String name = assetCatalogDir.getFileName().toString();
-    if (name.endsWith(AppleDescriptions.XCASSETS_DIRECTORY_EXTENSION)) {
-      name = name.substring(
-          0,
-          name.length() - AppleDescriptions.XCASSETS_DIRECTORY_EXTENSION.length());
-    }
-    return name;
+    return Optional.of(
+        new AppleAssetCatalog(
+            assetCatalogParams,
+            sourcePathResolver,
+            applePlatform.getName(),
+            actool,
+            assetCatalogDirs,
+            MERGED_ASSET_CATALOG_NAME));
   }
 
 }

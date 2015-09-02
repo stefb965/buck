@@ -29,7 +29,13 @@ class JavascriptFragmentStep extends ShellStep {
   private final Path temp;
   private final Path output;
 
-  public JavascriptFragmentStep(Path compiler, Path temp, Path output, Iterable<Path> jsDeps) {
+  public JavascriptFragmentStep(
+      Path workingDirectory,
+      Path compiler,
+      Path temp,
+      Path output,
+      Iterable<Path> jsDeps) {
+    super(workingDirectory);
     this.compiler = compiler;
     this.temp = temp;
     this.output = output;

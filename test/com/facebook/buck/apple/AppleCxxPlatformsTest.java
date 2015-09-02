@@ -46,6 +46,7 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParamsFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.rules.RuleKeyBuilder;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -711,7 +712,8 @@ AppleSdkPaths appleSdkPaths =
               pathResolver,
               entry.getValue().getCxxPlatform(),
               ImmutableList.<CxxPreprocessorInput>of(),
-              ImmutableList.<String>of());
+              ImmutableList.<String>of(),
+              Optional.<SourcePath>absent());
       CxxPreprocessAndCompile rule;
       switch (operation) {
         case PREPROCESS_AND_COMPILE:
@@ -751,7 +753,7 @@ AppleSdkPaths appleSdkPaths =
         default:
           throw new IllegalStateException();
       }
-      RuleKey.Builder builder = ruleKeyBuilderFactory.newInstance(rule);
+      RuleKeyBuilder builder = ruleKeyBuilderFactory.newInstance(rule);
       ruleKeys.put(entry.getKey(), builder.build());
     }
     return ruleKeys.build();
@@ -788,8 +790,9 @@ AppleSdkPaths appleSdkPaths =
               Linker.LinkableDepType.SHARED,
               ImmutableList.<BuildRule>of(),
               Optional.<Linker.CxxRuntimeType>absent(),
-              Optional.<SourcePath>absent());
-      RuleKey.Builder builder = ruleKeyBuilderFactory.newInstance(rule);
+              Optional.<SourcePath>absent(),
+              ImmutableSet.<BuildRule>of());
+      RuleKeyBuilder builder = ruleKeyBuilderFactory.newInstance(rule);
       ruleKeys.put(entry.getKey(), builder.build());
     }
     return ruleKeys.build();

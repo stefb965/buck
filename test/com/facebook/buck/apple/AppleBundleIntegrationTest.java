@@ -160,6 +160,61 @@ public class AppleBundleIntegrationTest {
   }
 
   @Test
+  public void extensionBundle() throws IOException{
+    assumeTrue(Platform.detect() == Platform.MACOS);
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this,
+        "simple_extension",
+        tmp);
+    workspace.setUp();
+
+    ProjectWorkspace.ProcessResult result = workspace
+        .runBuckCommand("targets", "--show-output", "//:DemoExtension");
+    result.assertSuccess();
+    assertEquals(
+        "//:DemoExtension buck-out/gen/DemoExtension/DemoExtension.appex",
+        result.getStdout().trim());
+
+    result = workspace
+        .runBuckCommand("build", "//:DemoExtension");
+    result.assertSuccess();
+    Path outputBinary = tmp.getRootPath()
+        .resolve(BuckConstant.GEN_DIR)
+        .resolve("DemoExtension/DemoExtension.appex/DemoExtension");
+    assertTrue(
+        String.format(
+            "Extension binary could not be found inside the appex dir [%s].",
+            outputBinary),
+        Files.exists(outputBinary));
+  }
+
+  @Test
+  public void appBundleWithExtensionBundleDependency() throws IOException{
+    assumeTrue(Platform.detect() == Platform.MACOS);
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this,
+        "simple_app_with_extension",
+        tmp);
+    workspace.setUp();
+
+    ProjectWorkspace.ProcessResult result = workspace
+        .runBuckCommand("targets", "--show-output", "//:DemoAppWithExtension");
+    result.assertSuccess();
+    assertEquals(
+        "//:DemoAppWithExtension buck-out/gen/DemoAppWithExtension/DemoAppWithExtension.app",
+        result.getStdout().trim());
+
+    result = workspace
+        .runBuckCommand("build", "//:DemoAppWithExtension");
+    result.assertSuccess();
+    Path bundleDir = tmp.getRootPath()
+        .resolve(BuckConstant.GEN_DIR)
+        .resolve("DemoAppWithExtension/DemoAppWithExtension.app");
+    assertTrue(Files.exists(bundleDir.resolve("DemoAppWithExtension")));
+    assertTrue(Files.exists(bundleDir.resolve("DemoExtension.appex/DemoExtension")));
+  }
+
+  @Test
   public void bundleBinaryHasDsymBundle() throws IOException, InterruptedException {
     assumeTrue(Platform.detect() == Platform.MACOS);
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
@@ -175,7 +230,9 @@ public class AppleBundleIntegrationTest {
     Path bundlePath = tmp.getRootPath()
         .resolve(BuckConstant.GEN_DIR)
         .resolve("DemoApp#iphonesimulator-x86_64/DemoApp.app");
-    Path dwarfPath = bundlePath.resolve("DemoApp.dSYM/Contents/Resources/DWARF/DemoApp");
+    Path dwarfPath = bundlePath
+        .getParent()
+        .resolve("DemoApp.dSYM/Contents/Resources/DWARF/DemoApp");
     Path binaryPath = bundlePath.resolve("DemoApp");
     assertTrue(Files.exists(dwarfPath));
     String dwarfdumpMainStdout =
@@ -209,12 +266,13 @@ public class AppleBundleIntegrationTest {
 
   @Test
   public void appBundleVariantDirectoryMustEndInLproj() throws IOException {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+
     thrown.expect(HumanReadableException.class);
     thrown.expectMessage(
         "Variant files have to be in a directory with name ending in '.lproj', " +
             "but 'cc/Localizable.strings' is not.");
 
-    assumeTrue(Platform.detect() == Platform.MACOS);
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this,
         "app_bundle_with_invalid_variant",
@@ -278,21 +336,6 @@ public class AppleBundleIntegrationTest {
             tmp.getRootPath()
                 .resolve(BuckConstant.GEN_DIR)
                 .resolve("DemoApp/DemoApp.app/Assets.car")));
-    assertTrue(
-        Files.exists(
-            tmp.getRootPath()
-                .resolve(BuckConstant.GEN_DIR)
-                .resolve("DemoApp/DemoApp.app/Assets1.bundle/Image1.png")));
-    assertFalse(
-        Files.exists(
-            tmp.getRootPath()
-                .resolve(BuckConstant.GEN_DIR)
-                .resolve("DemoApp/DemoApp.app/Assets2.bundle/Image2.png")));
-    assertFalse(
-        Files.exists(
-            tmp.getRootPath()
-                .resolve(BuckConstant.GEN_DIR)
-                .resolve("DemoApp/DemoApp.app/Assets3.bundle/Image3.png")));
 
     workspace.verify();
   }

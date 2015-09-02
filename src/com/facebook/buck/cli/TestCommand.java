@@ -220,7 +220,7 @@ public class TestCommand extends BuildCommand {
     if (isDebugEnabled()) {
       return 1;
     }
-    return getNumThreads(buckConfig);
+    return buckConfig.getNumThreads();
   }
 
   @Override
@@ -367,10 +367,11 @@ public class TestCommand extends BuildCommand {
           Optional.of(getTargetDeviceOptions()))) {
 
         // Build all of the test rules.
-        int exitCode = build.executeAndPrintFailuresToConsole(
+        int exitCode = build.executeAndPrintFailuresToEventBus(
             testRules,
             isKeepGoing(),
-            params.getConsole(),
+            params.getBuckEventBus(),
+            params.getConsole().getAnsi(),
             getPathToBuildReport(params.getBuckConfig()));
         params.getBuckEventBus().post(BuildEvent.finished(started, exitCode));
         if (exitCode != 0) {
@@ -387,7 +388,7 @@ public class TestCommand extends BuildCommand {
         // Once all of the rules are built, then run the tests.
         ConcurrencyLimit concurrencyLimit = new ConcurrencyLimit(
             getNumTestThreads(params.getBuckConfig()),
-            getLoadLimit(params.getBuckConfig()));
+            params.getBuckConfig().getLoadLimit());
         try (CommandThreadManager testPool =
                  new CommandThreadManager("Test-Run", concurrencyLimit)) {
           TestRunningOptions options = TestRunningOptions.builder()

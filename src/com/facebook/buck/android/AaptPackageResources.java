@@ -215,7 +215,7 @@ public class AaptPackageResources extends AbstractBuildRule
           createAllAssetsDirectory(
               ImmutableSet.copyOf(getResolver().getAllPaths(assetsDirectories)),
               commands,
-              context.getProjectFilesystem());
+              getProjectFilesystem());
         } catch (IOException e) {
           context.logError(e, "Error creating all assets directory in %s.", getBuildTarget());
           return 1;
@@ -265,6 +265,7 @@ public class AaptPackageResources extends AbstractBuildRule
 
     steps.add(
         new AaptStep(
+            getProjectFilesystem().getRootPath(),
             getAndroidManifestXml(),
             filteredResourcesProvider.getResDirectories(),
             assetsDirectory,
@@ -287,7 +288,9 @@ public class AaptPackageResources extends AbstractBuildRule
       if (rDotJavaNeedsDexing) {
         Path rDotJavaDexDir = getPathToRDotJavaDexFiles();
         steps.add(new MakeCleanDirectoryStep(rDotJavaDexDir));
-        steps.add(new DxStep(
+        steps.add(
+            new DxStep(
+                getProjectFilesystem().getRootPath(),
                 getPathToRDotJavaDex(),
                 Collections.singleton(getPathToCompiledRDotJavaFiles()),
                 DX_OPTIONS));
@@ -343,6 +346,7 @@ public class AaptPackageResources extends AbstractBuildRule
 
     Path rDotTxtDir = getPathToRDotTxtDir();
     MergeAndroidResourcesStep mergeStep = MergeAndroidResourcesStep.createStepForUberRDotJava(
+        getProjectFilesystem(),
         resourceDeps,
         rDotTxtDir.resolve("R.txt"),
         shouldWarnIfMissingResource,
@@ -375,7 +379,8 @@ public class AaptPackageResources extends AbstractBuildRule
         rDotJavaBin,
         javacOptions,
         getBuildTarget(),
-        getResolver());
+        getResolver(),
+        getProjectFilesystem());
     steps.add(javacStep);
 
     Path rDotJavaClassesTxt = getPathToRDotJavaClassesTxt();

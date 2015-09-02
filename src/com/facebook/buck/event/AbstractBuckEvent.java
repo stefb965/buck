@@ -29,7 +29,6 @@ import javax.annotation.Nullable;
  * Base class for all build events. Using this makes it easy to add a wildcard listener
  * to the event bus.
  */
-@SuppressWarnings("PMD.OverrideBothEqualsAndHashcode")
 public abstract class AbstractBuckEvent implements BuckEvent {
 
   private boolean isConfigured;
@@ -38,16 +37,11 @@ public abstract class AbstractBuckEvent implements BuckEvent {
   private long threadId;
   @Nullable
   private BuildId buildId;
-  @Nullable
-  private EventKey eventKey;
+  private final EventKey eventKey;
 
-  protected AbstractBuckEvent(@Nullable EventKey eventKey) {
-    isConfigured = false;
-    this.eventKey = eventKey;
-  }
-
-  protected AbstractBuckEvent() {
-    this(null);
+  protected AbstractBuckEvent(EventKey eventKey) {
+    this.isConfigured = false;
+    this.eventKey = Preconditions.checkNotNull(eventKey);
   }
 
   /**
@@ -96,20 +90,12 @@ public abstract class AbstractBuckEvent implements BuckEvent {
 
   @Override
   public final EventKey getEventKey() {
-    if (eventKey == null) {
-      eventKey = EventKey.of();
-    }
     return eventKey;
   }
 
   @Override
   public final boolean isRelatedTo(BuckEvent event) {
     return getEventKey().equals(event.getEventKey());
-  }
-
-  protected void chain(AbstractBuckEvent event) {
-    Preconditions.checkState(eventKey == null);
-    eventKey = event.getEventKey();
   }
 
   @JsonIgnore
@@ -127,6 +113,9 @@ public abstract class AbstractBuckEvent implements BuckEvent {
    */
   @Override
   public boolean equals(Object o) {
+    if (o == this) {
+      return true;
+    }
     if (!(o instanceof AbstractBuckEvent)) {
       return false;
     }
@@ -134,12 +123,11 @@ public abstract class AbstractBuckEvent implements BuckEvent {
     AbstractBuckEvent that = (AbstractBuckEvent) o;
 
     return isRelatedTo(that) &&
-        getThreadId() == that.getThreadId() &&
         Objects.equals(getClass(), that.getClass());
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(threadId);
+    return Objects.hash(getClass(), getEventKey());
   }
 }

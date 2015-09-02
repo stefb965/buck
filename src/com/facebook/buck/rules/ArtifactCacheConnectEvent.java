@@ -17,13 +17,17 @@
 package com.facebook.buck.rules;
 
 import com.facebook.buck.event.AbstractBuckEvent;
+import com.facebook.buck.event.EventKey;
 import com.facebook.buck.event.LeafEvent;
 
 /**
  * Base class for events about build rules.
  */
-@SuppressWarnings("PMD.OverrideBothEqualsAndHashcode")
 public abstract class ArtifactCacheConnectEvent extends AbstractBuckEvent implements LeafEvent {
+
+  public ArtifactCacheConnectEvent(EventKey eventKey) {
+    super(eventKey);
+  }
 
   @Override
   public String getCategory() {
@@ -35,11 +39,6 @@ public abstract class ArtifactCacheConnectEvent extends AbstractBuckEvent implem
     return "";
   }
 
-  @Override
-  public int hashCode() {
-    return super.hashCode();
-  }
-
   public static Started started() {
     return new Started();
   }
@@ -49,6 +48,10 @@ public abstract class ArtifactCacheConnectEvent extends AbstractBuckEvent implem
   }
 
   public static class Started extends ArtifactCacheConnectEvent {
+    public Started() {
+      super(EventKey.unique());
+    }
+
     @Override
     public String getEventName() {
       return "ArtifactCacheConnectStarted";
@@ -58,7 +61,7 @@ public abstract class ArtifactCacheConnectEvent extends AbstractBuckEvent implem
   public static class Finished extends ArtifactCacheConnectEvent {
 
     public Finished(Started started) {
-      chain(started);
+      super(started.getEventKey());
     }
 
     @Override

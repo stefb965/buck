@@ -17,6 +17,7 @@
 package com.facebook.buck.python;
 
 import com.facebook.buck.file.WriteFile;
+import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -33,13 +34,24 @@ import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
 
-import javax.annotation.Nullable;
-
 public class PythonInPlaceBinary extends PythonBinary implements HasRuntimeDeps {
 
+  // TODO(agallagher): Task #8098647: This rule has no steps, so it
+  // really doesn't need a rule key.
+  //
+  // However, Python tests will never be re-run if the rule key
+  // doesn't change, so we use the rule key to force the test runner
+  // to re-run the tests if the input changes.
+  //
+  // We should upate the Python test rule to account for this.
+  @AddToRuleKey
   private final WriteFile script;
+  @AddToRuleKey
   private final SymlinkTree linkTree;
+  @AddToRuleKey
   private final PythonPackageComponents components;
+  @AddToRuleKey
+  private final Path python;
 
   public PythonInPlaceBinary(
       BuildRuleParams params,
@@ -47,11 +59,13 @@ public class PythonInPlaceBinary extends PythonBinary implements HasRuntimeDeps 
       WriteFile script,
       SymlinkTree linkTree,
       String mainModule,
-      PythonPackageComponents components) {
+      PythonPackageComponents components,
+      Path python) {
     super(params, resolver, mainModule, components);
     this.script = script;
     this.linkTree = linkTree;
     this.components = components;
+    this.python = python;
   }
 
   @Override
@@ -61,15 +75,15 @@ public class PythonInPlaceBinary extends PythonBinary implements HasRuntimeDeps 
     return ImmutableList.of();
   }
 
-  @Nullable
   @Override
   public Path getPathToOutput() {
-    return null;
+    return script.getPathToOutput();
   }
 
   @Override
   public Tool getExecutableCommand() {
     return new CommandTool.Builder()
+        .addArg(python.toString())
         .addArg(new BuildTargetSourcePath(script.getBuildTarget()))
         .addInput(new BuildTargetSourcePath(linkTree.getBuildTarget()))
         .addInputs(components.getModules().values())

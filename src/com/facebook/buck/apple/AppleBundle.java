@@ -32,12 +32,14 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.HasPostBuildSteps;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.coercer.Either;
 import com.facebook.buck.shell.DefaultShellStep;
+import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.FindAndReplaceStep;
@@ -45,6 +47,9 @@ import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.WriteFileStep;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.ProcessExecutor;
+import com.facebook.buck.util.ProcessExecutorParams;
+import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -52,6 +57,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.io.Files;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Iterator;
@@ -59,12 +65,10 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
-import javax.annotation.Nullable;
-
 /**
  * Creates a bundle: a directory containing files and subdirectories, described by an Info.plist.
  */
-public class AppleBundle extends AbstractBuildRule implements NativeTestable {
+public class AppleBundle extends AbstractBuildRule implements HasPostBuildSteps, NativeTestable {
   private static final Logger LOG = Logger.get(AppleBundle.class);
   private static final String CODE_SIGN_ENTITLEMENTS = "CODE_SIGN_ENTITLEMENTS";
   private static final String CODE_SIGN_IDENTITY = "CODE_SIGN_IDENTITY";
@@ -73,7 +77,7 @@ public class AppleBundle extends AbstractBuildRule implements NativeTestable {
   private final String extension;
 
   @AddToRuleKey
-  private final Optional<SourcePath> infoPlist;
+  private final SourcePath infoPlist;
 
   @AddToRuleKey
   private final ImmutableMap<String, String> infoPlistSubstitutions;
@@ -120,31 +124,34 @@ public class AppleBundle extends AbstractBuildRule implements NativeTestable {
   @AddToRuleKey
   private final Optional<CodeSignIdentity> codeSignIdentity;
 
-  private final ImmutableSet<AppleAssetCatalog> bundledAssetCatalogs;
+  private final ImmutableSet<SourcePath> extensionBundlePaths;
 
-  private final Optional<AppleAssetCatalog> mergedAssetCatalog;
+  private final Optional<AppleAssetCatalog> assetCatalog;
 
   private final String binaryName;
   private final Path bundleRoot;
   private final Path binaryPath;
+  private final Path bundleBinaryPath;
+  private final Path dsymPath;
+  private final boolean hasDebugSymbols;
 
   AppleBundle(
       BuildRuleParams params,
       SourcePathResolver resolver,
       Either<AppleBundleExtension, String> extension,
-      Optional<SourcePath> infoPlist,
+      SourcePath infoPlist,
       Map<String, String> infoPlistSubstitutions,
       Optional<BuildRule> binary,
       AppleBundleDestinations destinations,
       Set<SourcePath> resourceDirs,
       Set<SourcePath> resourceFiles,
       Set<SourcePath> dirsContainingResourceDirs,
+      ImmutableSet<SourcePath> extensionBundlePaths,
       Optional<ImmutableSet<SourcePath>> resourceVariantFiles,
       Tool ibtool,
       Tool dsymutil,
       Tool strip,
-      Set<AppleAssetCatalog> bundledAssetCatalogs,
-      Optional<AppleAssetCatalog> mergedAssetCatalog,
+      Optional<AppleAssetCatalog> assetCatalog,
       Set<BuildTarget> tests,
       AppleSdk sdk,
       ImmutableSet<CodeSignIdentity> allValidCodeSignIdentities,
@@ -160,12 +167,12 @@ public class AppleBundle extends AbstractBuildRule implements NativeTestable {
     this.resourceDirs = resourceDirs;
     this.resourceFiles = resourceFiles;
     this.dirsContainingResourceDirs = dirsContainingResourceDirs;
+    this.extensionBundlePaths = extensionBundlePaths;
     this.resourceVariantFiles = resourceVariantFiles;
     this.ibtool = ibtool;
     this.dsymutil = dsymutil;
     this.strip = strip;
-    this.bundledAssetCatalogs = ImmutableSet.copyOf(bundledAssetCatalogs);
-    this.mergedAssetCatalog = mergedAssetCatalog;
+    this.assetCatalog = assetCatalog;
     this.binaryName = getBinaryName(getBuildTarget());
     this.bundleRoot = getBundleRoot(getBuildTarget(), this.extension);
     this.binaryPath = this.destinations.getExecutablesPath()
@@ -185,8 +192,16 @@ public class AppleBundle extends AbstractBuildRule implements NativeTestable {
                 "/Library/MobileDevice/Provisioning Profiles");
       }
 
-      this.provisioningProfiles = Optional.of(
-          ProvisioningProfileCopyStep.findProfilesInPath(searchPath));
+      Optional<ImmutableSet<ProvisioningProfileMetadata>> provisioningProfiles;
+      try {
+        provisioningProfiles = Optional.of(
+            ProvisioningProfileCopyStep.findProfilesInPath(searchPath));
+      } catch (InterruptedException e) {
+        // We get here if the user pressed Ctrl-C during the profile discovery step.
+        // In this case, we'll fail anyway since the set of profiles will be empty.
+        provisioningProfiles = Optional.of(ImmutableSet.<ProvisioningProfileMetadata>of());
+      }
+      this.provisioningProfiles = provisioningProfiles;
 
       Optional<CodeSignIdentity> foundIdentity = Optional.absent();
       Optional<String> customIdentity = InfoPlistSubstitution.getVariableExpansionForPlatform(
@@ -225,6 +240,12 @@ public class AppleBundle extends AbstractBuildRule implements NativeTestable {
       this.provisioningProfiles = Optional.absent();
       this.codeSignIdentity = Optional.absent();
     }
+    bundleBinaryPath = bundleRoot.resolve(binaryPath);
+    dsymPath = bundleBinaryPath
+        .getParent()
+        .getParent()
+        .resolve(bundleBinaryPath.getFileName().toString() + ".dSYM");
+    hasDebugSymbols = binary.isPresent() && binary.get().getPathToOutput() != null;
   }
 
   public static String getBinaryName(BuildTarget buildTarget) {
@@ -237,8 +258,11 @@ public class AppleBundle extends AbstractBuildRule implements NativeTestable {
         .resolve(getBinaryName(buildTarget) + "." + extension);
   }
 
+  public String getExtension() {
+    return extension;
+  }
+
   @Override
-  @Nullable
   public Path getPathToOutput() {
     return bundleRoot;
   }
@@ -257,6 +281,8 @@ public class AppleBundle extends AbstractBuildRule implements NativeTestable {
 
   public String getPlatformName() { return platformName; }
 
+  public Optional<BuildRule> getBinary() { return binary; }
+
   @Override
   public ImmutableList<Step> getBuildSteps(
       BuildContext context,
@@ -265,7 +291,7 @@ public class AppleBundle extends AbstractBuildRule implements NativeTestable {
 
     Path metadataPath = getMetadataPath();
 
-    Path infoPlistInputPath = getResolver().getPath(infoPlist.get());
+    Path infoPlistInputPath = getResolver().getPath(infoPlist);
     Path infoPlistSubstitutionTempPath =
         BuildTargets.getScratchPath(getBuildTarget(), "%s.plist");
     Path infoPlistOutputPath = metadataPath.resolve("Info.plist");
@@ -274,7 +300,11 @@ public class AppleBundle extends AbstractBuildRule implements NativeTestable {
         new MakeCleanDirectoryStep(bundleRoot),
         new MkdirStep(metadataPath),
         // TODO(user): This is only appropriate for .app bundles.
-        new WriteFileStep("APPLWRUN", metadataPath.resolve("PkgInfo"), /* executable */ false),
+        new WriteFileStep(
+            getProjectFilesystem(),
+            "APPLWRUN",
+            metadataPath.resolve("PkgInfo"),
+            /* executable */ false),
         new FindAndReplaceStep(
           infoPlistInputPath,
           infoPlistSubstitutionTempPath,
@@ -293,26 +323,23 @@ public class AppleBundle extends AbstractBuildRule implements NativeTestable {
             getInfoPlistOverrideKeys(platformName),
             PlistProcessStep.OutputFormat.BINARY));
 
-    // TODO(jakubzika):
-    // Checking whether the output path is not null only serves as a workaround if the binary is
-    // an unflavored CxxLibrary and does not have any output. The correct fix would be using
-    // the correctly flavored version of the rule to make sure that it always has output.
-    if (binary.isPresent() && binary.get().getPathToOutput() != null) {
+    if (hasDebugSymbols) {
       stepsBuilder.add(
           new MkdirStep(bundleRoot.resolve(this.destinations.getExecutablesPath())));
-      Path bundleBinaryPath = bundleRoot.resolve(binaryPath);
+      buildableContext.recordArtifact(dsymPath);
       stepsBuilder.add(
           CopyStep.forFile(
               binary.get().getPathToOutput(),
               bundleBinaryPath));
       stepsBuilder.add(
           new DsymStep(
+              getProjectFilesystem().getRootPath(),
               dsymutil.getCommandPrefix(getResolver()),
               bundleBinaryPath,
-              bundleBinaryPath.resolveSibling(
-                  bundleBinaryPath.getFileName().toString() + ".dSYM")));
+              dsymPath));
       stepsBuilder.add(
           new DefaultShellStep(
+              getProjectFilesystem().getRootPath(),
               ImmutableList.<String>builder()
                   .addAll(strip.getCommandPrefix(getResolver()))
                   .add("-S")
@@ -344,6 +371,8 @@ public class AppleBundle extends AbstractBuildRule implements NativeTestable {
       addResourceProcessingSteps(resolvedFilePath, destinationPath, stepsBuilder);
     }
 
+    addStepsToCopyExtensionBundlesDependencies(stepsBuilder);
+
     if (resourceVariantFiles.isPresent()) {
       for (SourcePath variantSourcePath : resourceVariantFiles.get()) {
         Path variantFilePath = getResolver().getPath(variantSourcePath);
@@ -365,17 +394,8 @@ public class AppleBundle extends AbstractBuildRule implements NativeTestable {
       }
     }
 
-    for (AppleAssetCatalog bundledAssetCatalog : bundledAssetCatalogs) {
-      Path bundleDir = bundledAssetCatalog.getOutputDir();
-      stepsBuilder.add(
-          CopyStep.forDirectory(
-              bundleDir,
-              bundleRoot,
-              CopyStep.DirectoryMode.DIRECTORY_AND_CONTENTS));
-    }
-
-    if (mergedAssetCatalog.isPresent()) {
-      Path bundleDir = mergedAssetCatalog.get().getOutputDir();
+    if (assetCatalog.isPresent()) {
+      Path bundleDir = assetCatalog.get().getOutputDir();
       stepsBuilder.add(
           CopyStep.forDirectory(
               bundleDir,
@@ -407,6 +427,7 @@ public class AppleBundle extends AbstractBuildRule implements NativeTestable {
 
       stepsBuilder.add(
           new ProvisioningProfileCopyStep(
+              getProjectFilesystem(),
               infoPlistOutputPath,
               Optional.<String>absent(),  // Provisioning profile UUID -- find automatically.
               entitlementsPlist,
@@ -417,6 +438,7 @@ public class AppleBundle extends AbstractBuildRule implements NativeTestable {
 
       stepsBuilder.add(
           new CodeSignStep(
+              getProjectFilesystem().getRootPath(),
               bundleDestinationPath,
               signingEntitlementsTempPath,
               codeSignIdentity.get().getHash()
@@ -425,9 +447,61 @@ public class AppleBundle extends AbstractBuildRule implements NativeTestable {
     }
 
     // Ensure the bundle directory is archived so we can fetch it later.
-    buildableContext.recordArtifact(bundleRoot);
+    buildableContext.recordArtifact(getPathToOutput());
 
     return stepsBuilder.build();
+  }
+
+  @Override
+  public ImmutableList<Step> getPostBuildSteps(
+      BuildContext context,
+      BuildableContext buildableContext) {
+    if (!hasDebugSymbols) {
+      return ImmutableList.of();
+    }
+    return ImmutableList.<Step>of(
+        new Step() {
+          @Override
+          public int execute(ExecutionContext context) throws IOException, InterruptedException {
+            ProcessExecutorParams params = ProcessExecutorParams
+                .builder()
+                .addCommand("lldb")
+                .build();
+            return context.getProcessExecutor().launchAndExecute(
+                params,
+                ImmutableSet.<ProcessExecutor.Option>of(),
+                Optional.of(
+                    String.format("target create %s\ntarget symbols add %s", bundleRoot, dsymPath)),
+                Optional.<Long>absent(),
+                Optional.<Function<Process, Void>>absent()).getExitCode();
+          }
+
+          @Override
+          public String getShortName() {
+            return "register debug symbols";
+          }
+
+          @Override
+          public String getDescription(ExecutionContext context) {
+            return String.format(
+                "register debug symbols for binary '%s': '%s'",
+                bundleRoot,
+                dsymPath);
+          }
+        });
+  }
+
+  public void addStepsToCopyExtensionBundlesDependencies(
+      ImmutableList.Builder<Step> stepsBuilder) {
+    for (SourcePath sourcePath : extensionBundlePaths) {
+      Path plugInsDestPath = bundleRoot.resolve(destinations.getPlugInsPath());
+      stepsBuilder.add(new MkdirStep(plugInsDestPath));
+      stepsBuilder.add(
+        CopyStep.forDirectory(
+            getResolver().getPath(sourcePath),
+            plugInsDestPath,
+            CopyStep.DirectoryMode.DIRECTORY_AND_CONTENTS));
+    }
   }
 
   static ImmutableMap<String, String> withDefaults(
@@ -497,6 +571,7 @@ public class AppleBundle extends AbstractBuildRule implements NativeTestable {
         LOG.debug("Compiling XIB %s to NIB %s", sourcePath, destinationPath);
         stepsBuilder.add(
             new IbtoolStep(
+                getProjectFilesystem().getRootPath(),
                 ibtool.getCommandPrefix(getResolver()),
                 sourcePath,
                 compiledNibPath));

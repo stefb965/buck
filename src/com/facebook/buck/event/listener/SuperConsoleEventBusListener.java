@@ -23,16 +23,18 @@ import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.ArtifactCacheEvent;
 import com.facebook.buck.rules.BuildRuleEvent;
+import com.facebook.buck.rules.BuildRuleStatus;
 import com.facebook.buck.rules.CacheResult;
 import com.facebook.buck.rules.TestRunEvent;
 import com.facebook.buck.rules.TestSummaryEvent;
 import com.facebook.buck.step.StepEvent;
-import com.facebook.buck.test.TestResultSummaryVerbosity;
-import com.facebook.buck.test.TestRuleEvent;
 import com.facebook.buck.test.TestResultSummary;
+import com.facebook.buck.test.TestResultSummaryVerbosity;
 import com.facebook.buck.test.TestResults;
+import com.facebook.buck.test.TestRuleEvent;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.util.Console;
+import com.facebook.buck.util.MoreIterables;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
@@ -41,6 +43,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.eventbus.Subscribe;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
@@ -49,7 +52,6 @@ import java.io.IOException;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentMap;
@@ -58,6 +60,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Console that provides rich, updating ansi output about the current build.
@@ -72,6 +75,12 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
    * Amount of time a rule can run before we render it with as an error.
    */
   private static final long ERROR_THRESHOLD_MS = 30000;
+
+  /**
+   * Maximum expected rendered line length so we can start with a decent
+   * size of line rendering buffer.
+   */
+  private static final int EXPECTED_MAXIMUM_RENDERED_LINE_LENGTH = 128;
 
   private static final Logger LOG = Logger.get(SuperConsoleEventBusListener.class);
 
@@ -163,8 +172,9 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
 
   @VisibleForTesting
   synchronized void render() {
+    String lastRenderClear = clearLastRender();
     ImmutableList<String> lines = createRenderLinesAtTime(clock.currentTimeMillis());
-    String nextFrame = clearLastRender() + Joiner.on("\n").join(lines);
+    ImmutableList<String> logLines = createLogRenderLines();
     lastNumLinesPrinted = lines.size();
 
     // Synchronize on the DirtyPrintStreamDecorator to prevent interlacing of output.
@@ -179,9 +189,20 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
               "Stopping console output (stdout dirty %s, stderr dirty %s).",
               stdoutDirty, stderrDirty);
           stopRenderScheduler();
-        } else if (!nextFrame.isEmpty()) {
-          nextFrame = ansi.asNoWrap(nextFrame);
-          console.getStdErr().getRawStream().println(nextFrame);
+        } else if (!lastRenderClear.isEmpty() || !lines.isEmpty() || !logLines.isEmpty()) {
+          Iterable<String> renderedLines = Iterables.concat(
+              MoreIterables.zipAndConcat(
+                  logLines,
+                  Iterables.cycle("\n")),
+              ansi.asNoWrap(
+                  MoreIterables.zipAndConcat(
+                      lines,
+                      Iterables.cycle("\n"))));
+          StringBuilder fullFrame = new StringBuilder(lastRenderClear);
+          for (String part : renderedLines) {
+            fullFrame.append(part);
+          }
+          console.getStdErr().getRawStream().print(fullFrame);
         }
       }
     }
@@ -299,28 +320,20 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
           installFinished,
           lines);
     }
-    renderLogMessages(lines);
     return lines.build();
   }
 
   /**
    * Adds log messages for rendering.
-   * @param lines Builder of lines to render this frame.
    */
-  private void renderLogMessages(ImmutableList.Builder<String> lines) {
-    if (logEvents.isEmpty()) {
-      return;
-    }
-
+  @VisibleForTesting
+  ImmutableList<String> createLogRenderLines() {
     ImmutableList.Builder<String> logEventLinesBuilder = ImmutableList.builder();
-    for (ConsoleEvent logEvent : logEvents) {
+    ConsoleEvent logEvent;
+    while ((logEvent = logEvents.poll()) != null) {
       formatConsoleEvent(logEvent, logEventLinesBuilder);
     }
-    ImmutableList<String> logEventLines = logEventLinesBuilder.build();
-    if (!logEventLines.isEmpty()) {
-      lines.add("Log:");
-      lines.addAll(logEventLines);
-    }
+    return logEventLinesBuilder.build();
   }
 
   /**
@@ -341,13 +354,14 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
           });
 
     // For each thread that has ever run a rule, render information about that thread.
+    StringBuilder lineBuilder = new StringBuilder(EXPECTED_MAXIMUM_RENDERED_LINE_LENGTH);
+    lineBuilder.append(" |=> ");
     for (Map.Entry<Long, Optional<? extends BuildRuleEvent>> entry : eventsByThread) {
-      String threadLine = " |=> ";
       Optional<? extends BuildRuleEvent> startedEvent = entry.getValue();
 
       if (!startedEvent.isPresent()) {
-        threadLine += "IDLE";
-        threadLine = ansi.asSubtleText(threadLine);
+        lineBuilder.append("IDLE");
+        lines.add(ansi.asSubtleText(lineBuilder.toString()));
       } else {
         AtomicLong accumulatedTime = accumulatedRuleTime.get(
             startedEvent.get().getBuildRule().getBuildTarget());
@@ -356,31 +370,36 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
             (accumulatedTime != null ? accumulatedTime.get() : 0);
         Optional<? extends LeafEvent> leafEvent = threadsToRunningStep.get(entry.getKey());
 
-        threadLine += String.format("%s...  %s",
-            startedEvent.get().getBuildRule().getFullyQualifiedName(),
-            formatElapsedTime(elapsedTimeMs));
+        lineBuilder.append(startedEvent.get().getBuildRule().getFullyQualifiedName());
+        lineBuilder.append("...  ");
+        lineBuilder.append(formatElapsedTime(elapsedTimeMs));
 
         if (leafEvent != null && leafEvent.isPresent()) {
-          threadLine += String.format(" (running %s[%s])",
-              leafEvent.get().getCategory(),
-              formatElapsedTime(currentMillis - leafEvent.get().getTimestamp()));
+          lineBuilder.append(" (running ");
+          lineBuilder.append(leafEvent.get().getCategory());
+          lineBuilder.append('[');
+          lineBuilder.append(formatElapsedTime(currentMillis - leafEvent.get().getTimestamp()));
+          lineBuilder.append("])");
 
           if (elapsedTimeMs > WARNING_THRESHOLD_MS) {
             if (elapsedTimeMs > ERROR_THRESHOLD_MS) {
-              threadLine = ansi.asErrorText(threadLine);
+              lines.add(ansi.asErrorText(lineBuilder.toString()));
             } else {
-              threadLine = ansi.asWarningText(threadLine);
+              lines.add(ansi.asWarningText(lineBuilder.toString()));
             }
+          } else {
+            lines.add(lineBuilder.toString());
           }
         } else {
           // If a rule is scheduled on a thread but no steps have been scheduled yet, we are still
           // in the code checking to see if the rule has been cached locally.
           // Show "CHECKING LOCAL CACHE" to prevent thrashing the UI with super fast rules.
-          threadLine += " (checking local cache)";
-          threadLine = ansi.asSubtleText(threadLine);
+          lineBuilder.append(" (checking local cache)");
+          lines.add(ansi.asSubtleText(lineBuilder.toString()));
         }
       }
-      lines.add(threadLine);
+
+      lineBuilder.delete(5, lineBuilder.length());
     }
   }
 
@@ -499,13 +518,15 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   public void buildRuleFinished(BuildRuleEvent.Finished finished) {
     threadsToRunningBuildRuleEvent.put(finished.getThreadId(), Optional.<BuildRuleEvent>absent());
     accumulatedRuleTime.remove(finished.getBuildRule().getBuildTarget());
-    CacheResult cacheResult = finished.getCacheResult();
-    if (cacheResult.getType() != CacheResult.Type.LOCAL_KEY_UNCHANGED_HIT) {
-      updated.incrementAndGet();
-      if (cacheResult.getType() == CacheResult.Type.HIT) {
-        cacheHits.incrementAndGet();
-      } else if (cacheResult.getType() == CacheResult.Type.ERROR) {
-        cacheErrors.incrementAndGet();
+    if (finished.getStatus() == BuildRuleStatus.SUCCESS) {
+      CacheResult cacheResult = finished.getCacheResult();
+      if (cacheResult.getType() != CacheResult.Type.LOCAL_KEY_UNCHANGED_HIT) {
+        updated.incrementAndGet();
+        if (cacheResult.getType() == CacheResult.Type.HIT) {
+          cacheHits.incrementAndGet();
+        } else if (cacheResult.getType() == CacheResult.Type.ERROR) {
+          cacheErrors.incrementAndGet();
+        }
       }
     }
   }

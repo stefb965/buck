@@ -35,9 +35,9 @@ import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.Tool;
+import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.rules.coercer.SourceWithFlags;
-import com.facebook.buck.rules.coercer.SourceWithFlagsList;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
@@ -365,31 +365,25 @@ public class CxxDescriptionEnhancer {
     ImmutableMap.Builder<String, SourceWithFlags> sources = ImmutableMap.builder();
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
     putAllSources(args.srcs.get(), sources, pathResolver, params.getBuildTarget());
-    for (SourceWithFlagsList sourceWithFlagsList :
+    for (ImmutableSortedSet<SourceWithFlags> sourcesWithFlags :
         args.platformSrcs.get().getMatchingValues(cxxPlatform.getFlavor().toString())) {
-      putAllSources(sourceWithFlagsList, sources, pathResolver, params.getBuildTarget());
+      putAllSources(sourcesWithFlags, sources, pathResolver, params.getBuildTarget());
     }
     return CxxCompilableEnhancer.resolveCxxSources(sources.build());
   }
 
   private static void putAllSources(
-      SourceWithFlagsList sourceWithFlagsList,
+      ImmutableSortedSet<SourceWithFlags> sourcesWithFlags,
       ImmutableMap.Builder<String, SourceWithFlags> sources,
       SourcePathResolver pathResolver,
       BuildTarget buildTarget) {
-    switch (sourceWithFlagsList.getType()) {
-      case NAMED:
-        sources.putAll(sourceWithFlagsList.getNamedSources().get());
-        break;
-      case UNNAMED:
-        sources.putAll(
-            pathResolver.getSourcePathNames(
-                buildTarget,
-                "srcs",
-                sourceWithFlagsList.getUnnamedSources().get(),
-                SourceWithFlags.TO_SOURCE_PATH));
-        break;
-    }
+
+    sources.putAll(
+        pathResolver.getSourcePathNames(
+            buildTarget,
+            "srcs",
+            sourcesWithFlags,
+            SourceWithFlags.TO_SOURCE_PATH));
   }
 
   public static ImmutableMap<String, SourcePath> parseLexSources(
@@ -593,7 +587,6 @@ public class CxxDescriptionEnhancer {
       BuildRuleParams params,
       CxxPlatform cxxPlatform,
       ImmutableMultimap<CxxSource.Type, String> preprocessorFlags,
-      ImmutableList<SourcePath> prefixHeaders,
       ImmutableList<HeaderSymlinkTree> headerSymlinkTrees,
       ImmutableSet<Path> frameworkSearchPaths,
       Iterable<CxxPreprocessorInput> cxxPreprocessorInputFromDeps) {
@@ -644,7 +637,6 @@ public class CxxDescriptionEnhancer {
             .putAllPreprocessorFlags(preprocessorFlags)
             .setIncludes(
                 CxxHeaders.builder()
-                    .addAllPrefixHeaders(prefixHeaders)
                     .putAllNameToPathMap(allLinks.build())
                     .putAllFullNameToPathMap(allFullLinks.build())
                     .build())
@@ -725,13 +717,22 @@ public class CxxDescriptionEnhancer {
    * @return the framework search paths with any embedded macros expanded.
    */
   static ImmutableSet<Path> getFrameworkSearchPaths(
-      Optional<ImmutableSet<Path>> frameworkSearchPaths,
-      CxxPlatform cxxPlatform) {
-    return FluentIterable.from(frameworkSearchPaths.or(ImmutableSet.<Path>of()))
+      Optional<ImmutableSortedSet<FrameworkPath>> frameworks,
+      CxxPlatform cxxPlatform,
+      SourcePathResolver resolver) {
+
+    ImmutableSet<Path> searchPaths = FluentIterable.from(frameworks.get())
+        .transform(
+            FrameworkPath.getUnexpandedSearchPathFunction(
+                resolver.getPathFunction(),
+                Functions.<Path>identity()))
+        .toSet();
+
+   return FluentIterable.from(Optional.of(searchPaths).or(ImmutableSet.<Path>of()))
         .transform(Functions.toStringFunction())
         .transform(CxxFlags.getTranslateMacrosFn(cxxPlatform))
-        .transform(MorePaths.TO_PATH)
-        .toSet();
+       .transform(MorePaths.TO_PATH)
+       .toSet();
   }
 
   static class CxxLinkAndCompileRules {
@@ -799,11 +800,11 @@ public class CxxDescriptionEnhancer {
                 args.platformPreprocessorFlags,
                 args.langPreprocessorFlags,
                 cxxPlatform),
-            args.prefixHeaders.get(),
             ImmutableList.of(headerSymlinkTree),
             getFrameworkSearchPaths(
-                args.frameworkSearchPaths,
-                cxxPlatform),
+                args.frameworks,
+                cxxPlatform,
+                new SourcePathResolver(resolver)),
             CxxPreprocessables.getTransitiveCxxPreprocessorInput(
                 targetGraph,
                 cxxPlatform,
@@ -830,6 +831,7 @@ public class CxxDescriptionEnhancer {
                 args.compilerFlags,
                 args.platformCompilerFlags,
                 cxxPlatform),
+            args.prefixHeader,
             preprocessMode,
             sources,
             linkStyle == Linker.LinkableDepType.STATIC ?
@@ -888,7 +890,8 @@ public class CxxDescriptionEnhancer {
             linkStyle,
             params.getDeps(),
             args.cxxRuntimeType,
-            Optional.<SourcePath>absent());
+            Optional.<SourcePath>absent(),
+            ImmutableSet.<BuildRule>of());
     resolver.addToIndex(cxxLink);
 
     // Add the output of the link as the lone argument needed to invoke this binary as a tool.
@@ -915,7 +918,8 @@ public class CxxDescriptionEnhancer {
             target,
             Suppliers.ofInstance(params.getDeclaredDeps()),
             Suppliers.ofInstance(params.getExtraDeps())),
-        ruleResolver, args);
+        ruleResolver,
+        args);
   }
 
   /**

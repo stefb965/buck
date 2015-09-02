@@ -33,7 +33,8 @@ public class ClosureCompilerStep extends ShellStep {
   private final Path output;
   private final ImmutableList<String> cmd;
 
-  private ClosureCompilerStep(Path output, ImmutableList<String> cmd) {
+  private ClosureCompilerStep(Path workingDirectory, Path output, ImmutableList<String> cmd) {
+    super(workingDirectory);
     this.output = Preconditions.checkNotNull(output);
     this.cmd = cmd;
   }
@@ -63,16 +64,19 @@ public class ClosureCompilerStep extends ShellStep {
     return exitCode;
   }
 
-  public static Builder builder(Path jsCompiler) {
-    return new Builder(jsCompiler);
+  public static Builder builder(Path workingDirectory, Path jsCompiler) {
+    return new Builder(workingDirectory, jsCompiler);
   }
 
   public static class Builder {
 
+    private final Path workingDirectory;
     private ImmutableList.Builder<String> cmd = ImmutableList.builder();
     private Path output;
 
-    public Builder(Path compiler) {
+    public Builder(Path workingDirectory, Path compiler) {
+      this.workingDirectory = Preconditions.checkNotNull(workingDirectory);
+
       cmd.add("java", "-jar", compiler.toAbsolutePath().toString());
       cmd.add("--third_party=true");
     }
@@ -117,7 +121,7 @@ public class ClosureCompilerStep extends ShellStep {
     }
 
     public ClosureCompilerStep build() {
-      return new ClosureCompilerStep(output, cmd.build());
+      return new ClosureCompilerStep(workingDirectory, output, cmd.build());
     }
   }
 }

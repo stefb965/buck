@@ -116,7 +116,7 @@ public class JsLibrary extends AbstractBuildRule implements
 
     ImmutableList.Builder<Step> builder = ImmutableList.builder();
     builder.add(new MkdirStep(output.getParent()));
-    builder.add(new WriteFileStep(writer.toString(), output));
+    builder.add(new WriteFileStep(getProjectFilesystem(), writer.toString(), output, false));
 
     buildableContext.recordArtifact(output);
 

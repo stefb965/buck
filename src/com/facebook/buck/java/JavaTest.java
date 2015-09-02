@@ -48,6 +48,7 @@ import com.google.common.base.Predicates;
 import com.google.common.base.Throwables;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Lists;
@@ -60,6 +61,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -74,6 +76,8 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule, HasRuntime
 
   @AddToRuleKey
   private final ImmutableList<String> vmArgs;
+
+  private final ImmutableMap<String, String> nativeLibsEnvironment;
 
   @Nullable
   private CompiledClassFileFinder compiledClassFileFinder;
@@ -117,6 +121,7 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule, HasRuntime
       TestType testType,
       JavacOptions javacOptions,
       List<String> vmArgs,
+      Map<String, String> nativeLibsEnvironment,
       ImmutableSet<BuildRule> sourceUnderTest,
       Optional<Path> resourcesRoot,
       Optional<String> mavenCoords,
@@ -138,6 +143,7 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule, HasRuntime
         resourcesRoot,
         mavenCoords);
     this.vmArgs = ImmutableList.copyOf(vmArgs);
+    this.nativeLibsEnvironment = ImmutableMap.copyOf(nativeLibsEnvironment);
     this.sourceUnderTest = sourceUnderTest;
     this.labels = ImmutableSet.copyOf(labels);
     this.contacts = ImmutableSet.copyOf(contacts);
@@ -189,7 +195,7 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule, HasRuntime
     // If no classes were generated, then this is probably a java_test() that declares a number of
     // other java_test() rules as deps, functioning as a test suite. In this case, simply return an
     // empty list of commands.
-    Set<String> testClassNames = getClassNamesForSources(executionContext);
+    Set<String> testClassNames = getClassNamesForSources();
     LOG.debug("Testing these classes: %s", testClassNames.toString());
     if (testClassNames.isEmpty()) {
       return ImmutableList.of();
@@ -215,9 +221,11 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule, HasRuntime
         executionContext.getTargetDeviceOptional());
 
     junit = new JUnitStep(
+        getProjectFilesystem().getRootPath(),
         classpathEntries,
         reorderedTestClasses,
         properVmArgs,
+        nativeLibsEnvironment,
         pathToTestOutput,
         getBuildTarget().getBasePath(),
         tmpDirectory,
@@ -287,12 +295,12 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule, HasRuntime
   public boolean hasTestResultFiles(ExecutionContext executionContext) {
     // It is possible that this rule was not responsible for running any tests because all tests
     // were run by its deps. In this case, return an empty TestResults.
-    Set<String> testClassNames = getClassNamesForSources(executionContext);
+    Set<String> testClassNames = getClassNamesForSources();
     if (testClassNames.isEmpty()) {
       return true;
     }
 
-    Path outputDirectory = executionContext.getProjectFilesystem()
+    Path outputDirectory = getProjectFilesystem()
         .getPathForRelativePath(getPathToTestOutputDirectory());
     for (String testClass : testClassNames) {
       // We never use cached results when using test selectors, so there's no need to incorporate
@@ -363,7 +371,7 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule, HasRuntime
       public TestResults call() throws Exception {
         // It is possible that this rule was not responsible for running any tests because all tests
         // were run by its deps. In this case, return an empty TestResults.
-        Set<String> testClassNames = getClassNamesForSources(context);
+        Set<String> testClassNames = getClassNamesForSources();
         if (testClassNames.isEmpty()) {
           return new TestResults(
               getBuildTarget(),
@@ -373,7 +381,6 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule, HasRuntime
         }
 
         List<TestCaseSummary> summaries = Lists.newArrayListWithCapacity(testClassNames.size());
-        ProjectFilesystem filesystem = context.getProjectFilesystem();
         for (String testClass : testClassNames) {
           String testSelectorSuffix = "";
           if (isUsingTestSelectors) {
@@ -383,7 +390,7 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule, HasRuntime
             testSelectorSuffix += ".dry_run";
           }
           String path = String.format("%s%s.xml", testClass, testSelectorSuffix);
-          Path testResultFile = filesystem.getPathForRelativePath(
+          Path testResultFile = getProjectFilesystem().getPathForRelativePath(
               getPathToTestOutputDirectory().resolve(path));
           if (!isUsingTestSelectors && !Files.isRegularFile(testResultFile)) {
             String message;
@@ -416,9 +423,9 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule, HasRuntime
     };
   }
 
-  private Set<String> getClassNamesForSources(ExecutionContext context) {
+  private Set<String> getClassNamesForSources() {
     if (compiledClassFileFinder == null) {
-      compiledClassFileFinder = new CompiledClassFileFinder(this, context);
+      compiledClassFileFinder = new CompiledClassFileFinder(this);
     }
     return compiledClassFileFinder.getClassNamesForSources();
   }
@@ -428,18 +435,18 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule, HasRuntime
 
     private final Set<String> classNamesForSources;
 
-    CompiledClassFileFinder(JavaTest rule, ExecutionContext context) {
+    CompiledClassFileFinder(JavaTest rule) {
       Path outputPath;
       Path relativeOutputPath = rule.getPathToOutput();
       if (relativeOutputPath != null) {
-        outputPath = context.getProjectFilesystem().getAbsolutifier().apply(relativeOutputPath);
+        outputPath = rule.getProjectFilesystem().getAbsolutifier().apply(relativeOutputPath);
       } else {
         outputPath = null;
       }
       classNamesForSources = getClassNamesForSources(
           rule.getJavaSrcs(),
           outputPath,
-          context.getProjectFilesystem());
+          rule.getProjectFilesystem());
     }
 
     public Set<String> getClassNamesForSources() {

@@ -21,13 +21,13 @@ import static com.facebook.buck.apple.ProjectGeneratorTestUtils.assertHasSinglet
 import static com.facebook.buck.apple.ProjectGeneratorTestUtils.assertTargetExistsAndReturnTarget;
 import static com.facebook.buck.apple.ProjectGeneratorTestUtils.createDescriptionArgWithDefaults;
 import static com.facebook.buck.apple.ProjectGeneratorTestUtils.getSingletonPhaseByType;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.lessThan;
 import static org.hamcrest.Matchers.startsWith;
 import static org.hamcrest.collection.IsCollectionWithSize.hasSize;
 import static org.hamcrest.collection.IsEmptyIterable.emptyIterable;
 import static org.hamcrest.core.IsNot.not;
-import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -35,16 +35,11 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-import com.dd.plist.NSArray;
-import com.dd.plist.NSDictionary;
-import com.dd.plist.NSString;
 import com.facebook.buck.apple.xcode.xcodeproj.CopyFilePhaseDestinationSpec;
-import com.facebook.buck.apple.xcode.xcodeproj.PBXBuildFile;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXBuildPhase;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXCopyFilesBuildPhase;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXFileReference;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXGroup;
-import com.facebook.buck.apple.xcode.xcodeproj.PBXHeadersBuildPhase;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXNativeTarget;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXProject;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXReference;
@@ -67,7 +62,6 @@ import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TestSourcePath;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.SourceWithFlags;
-import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.testutil.AllExistingProjectFilesystem;
 import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
@@ -84,19 +78,16 @@ import org.junit.Test;
 
 import java.nio.file.Paths;
 import java.util.List;
-import java.util.Set;
 
 public class NewNativeTargetProjectMutatorTest {
-  private BuildRuleResolver buildRuleResolver;
   private PBXProject generatedProject;
   private PathRelativizer pathRelativizer;
   private SourcePathResolver sourcePathResolver;
 
   @Before
   public void setUp() {
-    buildRuleResolver = new BuildRuleResolver();
     generatedProject = new PBXProject("TestProject");
-    sourcePathResolver = new SourcePathResolver(buildRuleResolver);
+    sourcePathResolver = new SourcePathResolver(new BuildRuleResolver());
     pathRelativizer = new PathRelativizer(
         Paths.get("_output"),
         sourcePathResolver.getPathFunction());
@@ -200,32 +191,6 @@ public class NewNativeTargetProjectMutatorTest {
     assertThat(group2.getChildren(), hasSize(1));
     PBXFileReference fileRefBaz = (PBXFileReference) Iterables.get(group2.getChildren(), 0);
     assertEquals("baz.h", fileRefBaz.getName());
-
-    PBXBuildPhase headersBuildPhase =
-        Iterables.find(result.target.getBuildPhases(), new Predicate<PBXBuildPhase>() {
-              @Override
-              public boolean apply(PBXBuildPhase input) {
-                return input instanceof PBXHeadersBuildPhase;
-              }
-            });
-    PBXBuildFile barHeaderBuildFile = Iterables.get(headersBuildPhase.getFiles(), 0);
-    assertTrue(
-        "bar.h should have settings dictionary",
-        barHeaderBuildFile.getSettings().isPresent());
-    NSDictionary barBuildFileSettings = barHeaderBuildFile.getSettings().get();
-    NSArray barAttributes = (NSArray) barBuildFileSettings.get("ATTRIBUTES");
-    assertArrayEquals(new NSString[]{new NSString("Public")}, barAttributes.getArray());
-    PBXBuildFile fooHeaderBuildFile = Iterables.get(headersBuildPhase.getFiles(), 1);
-    assertFalse(
-        "foo.h should not have settings dictionary",
-        fooHeaderBuildFile.getSettings().isPresent());
-    PBXBuildFile bazHeaderBuildFile = Iterables.get(headersBuildPhase.getFiles(), 2);
-    assertTrue(
-        "baz.h should have settings dictionary",
-        bazHeaderBuildFile.getSettings().isPresent());
-    NSDictionary blechBuildFileSettings = bazHeaderBuildFile.getSettings().get();
-    NSArray blechAttributes = (NSArray) blechBuildFileSettings.get("ATTRIBUTES");
-    assertArrayEquals(new NSString[]{new NSString("Public")}, blechAttributes.getArray());
   }
 
   @Test
@@ -243,38 +208,6 @@ public class NewNativeTargetProjectMutatorTest {
     assertThat(sourcesGroup.getChildren(), hasSize(1));
     PBXFileReference fileRef = (PBXFileReference) Iterables.get(sourcesGroup.getChildren(), 0);
     assertEquals("prefix.pch", fileRef.getName());
-  }
-
-  @Test
-  public void testSuppressCopyHeaderOption() throws NoSuchBuildTargetException {
-    Set<SourcePath> privateHeaders = ImmutableSet.<SourcePath>of(new TestSourcePath("foo"));
-
-    {
-      NewNativeTargetProjectMutator mutator = mutatorWithCommonDefaults();
-      mutator
-          .setShouldGenerateCopyHeadersPhase(false)
-          .setPrivateHeaders(privateHeaders);
-      NewNativeTargetProjectMutator.Result result = mutator.buildTargetAndAddToProject(
-          generatedProject);
-
-      assertThat(
-          "copy headers phase should be omitted",
-          Iterables.filter(result.target.getBuildPhases(), PBXHeadersBuildPhase.class),
-          emptyIterable());
-    }
-
-    {
-      NewNativeTargetProjectMutator mutator = mutatorWithCommonDefaults();
-      mutator
-          .setShouldGenerateCopyHeadersPhase(true)
-          .setPrivateHeaders(privateHeaders);
-      NewNativeTargetProjectMutator.Result result = mutator.buildTargetAndAddToProject(
-          generatedProject);
-      assertThat(
-          "copy headers phase should be generated",
-          Iterables.filter(result.target.getBuildPhases(), PBXHeadersBuildPhase.class),
-          not(emptyIterable()));
-    }
   }
 
   @Test
@@ -352,13 +285,11 @@ public class NewNativeTargetProjectMutatorTest {
     PBXBuildPhase copyFilesPhase = new PBXCopyFilesBuildPhase(specBuilder.build());
     mutator.setCopyFilesPhases(ImmutableList.of(copyFilesPhase));
 
-    TargetNode<?> genruleNode = GenruleBuilder
-        .newGenruleBuilder(BuildTarget.builder("//foo", "script").build())
-        .setSrcs(ImmutableList.<SourcePath>of(new TestSourcePath("script/input.png")))
+    TargetNode<?> postbuildNode = XcodePostbuildScriptBuilder
+        .createBuilder(BuildTarget.builder("//foo", "script").build())
         .setCmd("echo \"hello world!\"")
-        .setOut("helloworld.txt")
         .build();
-    mutator.setPostBuildRunScriptPhases(ImmutableList.<TargetNode<?>>of(genruleNode));
+    mutator.setPostBuildRunScriptPhases(ImmutableList.<TargetNode<?>>of(postbuildNode));
 
     NewNativeTargetProjectMutator.Result result =
         mutator.buildTargetAndAddToProject(generatedProject);
@@ -380,38 +311,28 @@ public class NewNativeTargetProjectMutatorTest {
   }
 
   @Test
-  public void assetCatalogsBuildPhaseBuildsBothCommonAndBundledAssetCatalogs()
+  public void assetCatalogsBuildPhaseBuildsAssetCatalogs()
       throws NoSuchBuildTargetException {
-    AppleAssetCatalogDescription.Arg arg1 = new AppleAssetCatalogDescription.Arg();
-    arg1.dirs = ImmutableSortedSet.of(Paths.get("AssetCatalog1.xcassets"));
-    arg1.copyToBundles = Optional.of(false);
-
-    AppleAssetCatalogDescription.Arg arg2 = new AppleAssetCatalogDescription.Arg();
-    arg2.dirs = ImmutableSortedSet.of(Paths.get("AssetCatalog2.xcassets"));
-    arg2.copyToBundles = Optional.of(true);
+    AppleAssetCatalogDescription.Arg arg = new AppleAssetCatalogDescription.Arg();
+    arg.dirs = ImmutableSortedSet.of(Paths.get("AssetCatalog1.xcassets"));
 
     NewNativeTargetProjectMutator mutator = mutatorWithCommonDefaults();
     mutator.setRecursiveAssetCatalogs(
         Paths.get("compile_asset_catalogs"),
-        ImmutableSet.of(arg1, arg2));
+        ImmutableSet.of(arg));
     NewNativeTargetProjectMutator.Result result =
         mutator.buildTargetAndAddToProject(generatedProject);
-    assertTrue(hasShellScriptPhaseToCompileCommonAndSplitAssetCatalogs(result.target));
+    assertTrue(hasShellScriptPhaseToCompileAssetCatalogs(result.target));
   }
 
   @Test
   public void assetCatalogsBuildPhaseDoesNotExceedCommandLineLengthWithLotsOfXcassets()
       throws NoSuchBuildTargetException {
     ImmutableSet.Builder<AppleAssetCatalogDescription.Arg> assetsBuilder = ImmutableSet.builder();
-    for (int i = 0; i < 10000; i += 2) {
-      AppleAssetCatalogDescription.Arg arg1 = new AppleAssetCatalogDescription.Arg();
-      arg1.dirs = ImmutableSortedSet.of(Paths.get(String.format("AssetCatalog%d.xcassets", i)));
-      arg1.copyToBundles = Optional.of(false);
-      assetsBuilder.add(arg1);
-      AppleAssetCatalogDescription.Arg arg2 = new AppleAssetCatalogDescription.Arg();
-      arg2.dirs = ImmutableSortedSet.of(Paths.get(String.format("AssetCatalog%d.xcassets", i + 1)));
-      arg2.copyToBundles = Optional.of(true);
-      assetsBuilder.add(arg2);
+    for (int i = 0; i < 10000; i += 1) {
+      AppleAssetCatalogDescription.Arg arg = new AppleAssetCatalogDescription.Arg();
+      arg.dirs = ImmutableSortedSet.of(Paths.get(String.format("AssetCatalog%d.xcassets", i)));
+      assetsBuilder.add(arg);
     }
 
     NewNativeTargetProjectMutator mutator = mutatorWithCommonDefaults();
@@ -437,66 +358,24 @@ public class NewNativeTargetProjectMutatorTest {
   public void testScriptBuildPhase() throws NoSuchBuildTargetException{
     NewNativeTargetProjectMutator mutator = mutatorWithCommonDefaults();
 
-    TargetNode<?> genruleNode = GenruleBuilder
-        .newGenruleBuilder(BuildTarget.builder("//foo", "script").build())
-        .setSrcs(ImmutableList.<SourcePath>of(new TestSourcePath("script/input.png")))
+    TargetNode<?> prebuildNode = XcodePrebuildScriptBuilder
+        .createBuilder(BuildTarget.builder("//foo", "script").build())
         .setCmd("echo \"hello world!\"")
-        .setOut("helloworld.txt")
         .build();
 
-    mutator.setPostBuildRunScriptPhases(ImmutableList.<TargetNode<?>>of(genruleNode));
+    mutator.setPostBuildRunScriptPhases(ImmutableList.<TargetNode<?>>of(prebuildNode));
     NewNativeTargetProjectMutator.Result result =
         mutator.buildTargetAndAddToProject(generatedProject);
 
     PBXShellScriptBuildPhase phase =
         getSingletonPhaseByType(result.target, PBXShellScriptBuildPhase.class);
     assertEquals(
-        "Should set input paths correctly",
-        "../script/input.png",
-        Iterables.getOnlyElement(phase.getInputPaths()));
-    assertEquals(
         "should set script correctly",
         "echo \"hello world!\"",
         phase.getShellScript());
   }
 
-  @Test
-  public void testScriptBuildPhaseWithGenruleDep() throws NoSuchBuildTargetException{
-    NewNativeTargetProjectMutator mutator = mutatorWithCommonDefaults();
-
-    BuildTarget depBuildTarget = BuildTarget.builder("//foo", "dep").build();
-    // This has the side effect of adding the dependency to the BuildRuleResolver map.
-    GenruleBuilder
-        .newGenruleBuilder(depBuildTarget)
-        .setCmd("echo \"hello dep!\"")
-        .setOut("dep.txt")
-        .build(buildRuleResolver);
-
-    TargetNode<?> genruleNode = GenruleBuilder
-        .newGenruleBuilder(BuildTarget.builder("//foo", "script").build())
-        .setSrcs(ImmutableList.<SourcePath>of(new TestSourcePath("script/input.png")))
-        .setCmd("echo \"hello world!\"")
-        .setOut("helloworld.txt")
-        .setDeps(ImmutableSortedSet.of(depBuildTarget))
-        .build();
-
-    mutator.setPostBuildRunScriptPhases(ImmutableList.<TargetNode<?>>of(genruleNode));
-    NewNativeTargetProjectMutator.Result result =
-        mutator.buildTargetAndAddToProject(generatedProject);
-
-    PBXShellScriptBuildPhase phase =
-        getSingletonPhaseByType(result.target, PBXShellScriptBuildPhase.class);
-    assertEquals(
-        "Should set input paths correctly",
-        "../script/input.png",
-        Iterables.getOnlyElement(phase.getInputPaths()));
-    assertEquals(
-        "should set script correctly",
-        "echo \"hello world!\"",
-        phase.getShellScript());
-  }
-
-  @Test
+@Test
   public void testScriptBuildPhaseWithReactNative() throws NoSuchBuildTargetException {
     NewNativeTargetProjectMutator mutator = mutatorWithCommonDefaults();
 
@@ -520,10 +399,10 @@ public class NewNativeTargetProjectMutatorTest {
     String shellScript = phase.getShellScript();
     assertThat(
         shellScript,
-        startsWith("BASE_DIR=${CONFIGURATION_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}" +
-        " && JS_OUT=${BASE_DIR}/Apps/Foo/FooBundle.js && SOURCE_MAP=${TEMP_DIR}/rn_source_map/" +
-            "Apps/Foo/FooBundle.js.map && mkdir -p `dirname ${JS_OUT}` " +
-            "&& mkdir -p `dirname ${SOURCE_MAP}`"));
+        startsWith("BASE_DIR=${CONFIGURATION_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\n" +
+            "JS_OUT=${BASE_DIR}/Apps/Foo/FooBundle.js\n" +
+            "SOURCE_MAP=${TEMP_DIR}/rn_source_map/Apps/Foo/FooBundle.js.map\n"));
+    assertThat(shellScript, containsString("if false"));
   }
 
   private NewNativeTargetProjectMutator mutatorWithCommonDefaults() {
@@ -584,24 +463,20 @@ public class NewNativeTargetProjectMutatorTest {
     return assetCatalogBuildPhase;
   }
 
-  private boolean hasShellScriptPhaseToCompileCommonAndSplitAssetCatalogs(PBXTarget target) {
+  private boolean hasShellScriptPhaseToCompileAssetCatalogs(PBXTarget target) {
     PBXShellScriptBuildPhase assetCatalogBuildPhase = getAssetCatalogBuildPhase(
         target.getBuildPhases());
 
-    boolean foundCommonAssetCatalogCompileCommand = false;
-    boolean foundSplitAssetCatalogCompileCommand = false;
+    boolean foundAssetCatalogCompileCommand = false;
     String[] lines = assetCatalogBuildPhase.getShellScript().split("\\n");
     for (String line : lines) {
       if (line.contains("compile_asset_catalogs")) {
-        if (line.contains(" -b ")) {
-          foundSplitAssetCatalogCompileCommand = true;
-        } else {
-          assertFalse("should have only one invocation", foundCommonAssetCatalogCompileCommand);
-          foundCommonAssetCatalogCompileCommand = true;
-        }
+        assertFalse(line.contains(" -b "));
+        assertFalse("should have only one invocation", foundAssetCatalogCompileCommand);
+        foundAssetCatalogCompileCommand = true;
       }
     }
 
-    return foundCommonAssetCatalogCompileCommand && foundSplitAssetCatalogCompileCommand;
+    return foundAssetCatalogCompileCommand;
   }
 }

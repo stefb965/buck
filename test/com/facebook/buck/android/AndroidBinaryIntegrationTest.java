@@ -19,6 +19,9 @@ package com.facebook.buck.android;
 import static org.hamcrest.CoreMatchers.containsString;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.testutil.integration.BuckBuildLog;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
@@ -26,6 +29,7 @@ import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.testutil.integration.ZipInspector;
 import com.facebook.buck.zip.ZipConstants;
+import com.google.common.hash.Hashing;
 
 import org.apache.commons.compress.archivers.zip.ZipUtil;
 import org.hamcrest.Matchers;
@@ -35,10 +39,15 @@ import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 
+import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Date;
+import java.util.zip.ZipFile;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -258,6 +267,88 @@ public class AndroidBinaryIntegrationTest {
         assertThat(entry.getName(), new Date(entry.getTime()), Matchers.equalTo(dosEpoch));
       }
     }
+  }
+
+  @Test
+  public void testCxxLibraryAsAsset() throws IOException {
+    workspace.runBuckCommand("build", "//apps/sample:app_cxx_lib_asset").assertSuccess();
+    ZipInspector zipInspector = new ZipInspector(
+        workspace.getPath(
+            "buck-out/gen/apps/sample/app_cxx_lib_asset.apk"));
+    zipInspector.assertFileExists("assets/lib/x86/libnative_cxx_libasset.so");
+    zipInspector.assertFileDoesNotExist("lib/x86/libnative_cxx_libasset.so");
+    zipInspector.assertFileExists("lib/x86/libnative_cxx_foo1.so");
+    zipInspector.assertFileExists("lib/x86/libnative_cxx_foo2.so");
+    zipInspector.assertFileDoesNotExist("assets/lib/x86/libnative_cxx_foo1.so");
+    zipInspector.assertFileDoesNotExist("assets/lib/x86/libnative_cxx_foo2.so");
+  }
+
+  @Test
+  public void testCxxLibraryAsAssetWithoutPackaging() throws IOException {
+    workspace.runBuckCommand("build", "//apps/sample:app_cxx_lib_asset_no_package").assertSuccess();
+    ZipInspector zipInspector = new ZipInspector(
+        workspace.getPath(
+            "buck-out/gen/apps/sample/app_cxx_lib_asset_no_package.apk"));
+    zipInspector.assertFileDoesNotExist("assets/lib/x86/libnative_cxx_libasset.so");
+    zipInspector.assertFileExists("lib/x86/libnative_cxx_libasset.so");
+  }
+
+  @Test
+  public void testCompressAssetLibs() throws IOException {
+    workspace.runBuckCommand("build", "//apps/sample:app_compress_lib_asset").assertSuccess();
+    ZipInspector zipInspector = new ZipInspector(
+        workspace.getPath(
+            "buck-out/gen/apps/sample/app_compress_lib_asset.apk"));
+    zipInspector.assertFileExists("assets/lib/libs.xzs");
+    zipInspector.assertFileExists("assets/lib/metadata.txt");
+    zipInspector.assertFileDoesNotExist("assets/lib/x86/libnative_cxx_libasset.so");
+    zipInspector.assertFileDoesNotExist("lib/x86/libnative_cxx_libasset.so");
+    zipInspector.assertFileExists("lib/x86/libnative_cxx_foo1.so");
+    zipInspector.assertFileExists("lib/x86/libnative_cxx_foo2.so");
+    zipInspector.assertFileDoesNotExist("assets/lib/x86/libnative_cxx_foo1.so");
+    zipInspector.assertFileDoesNotExist("assets/lib/x86/libnative_cxx_foo2.so");
+  }
+
+  @Test
+  public void testLibraryMetadataChecksum() throws IOException {
+    workspace.runBuckCommand("build", "//apps/sample:app_cxx_lib_asset").assertSuccess();
+    Path pathToZip = workspace.getPath("buck-out/gen/apps/sample/app_cxx_lib_asset.apk");
+    ZipFile file = new ZipFile(pathToZip.toFile());
+    ZipEntry metadata = file.getEntry("assets/lib/metadata.txt");
+    assertNotNull(metadata);
+
+    BufferedReader contents = new BufferedReader(
+        new InputStreamReader(file.getInputStream(metadata)));
+    String line = contents.readLine();
+    byte[] buffer = new byte[512];
+    while (line != null) {
+      // Each line is of the form <filename> <filesize> <SHA256 checksum>
+      String[] tokens = line.split(" ");
+      assertSame(tokens.length, 3);
+      String filename = tokens[0];
+      int filesize = Integer.parseInt(tokens[1]);
+      String checksum = tokens[2];
+
+      ZipEntry lib = file.getEntry("assets/lib/" + filename);
+      assertNotNull(lib);
+      InputStream is = file.getInputStream(lib);
+      ByteArrayOutputStream out = new ByteArrayOutputStream();
+      while (filesize > 0) {
+        int read = is.read(buffer, 0, Math.min(buffer.length, filesize));
+        assertTrue(read >= 0);
+        out.write(buffer, 0, read);
+        filesize -= read;
+      }
+      String actualChecksum = Hashing.sha256().hashBytes(out.toByteArray()).toString();
+      assertEquals(checksum, actualChecksum);
+      is.close();
+      out.close();
+      line = contents.readLine();
+    }
+    file.close();
+    contents.close();
+
+
   }
 
 }

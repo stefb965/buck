@@ -19,11 +19,13 @@ package com.facebook.buck.util;
 
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.io.MorePaths;
+import com.facebook.buck.io.Watchman;
+import com.facebook.buck.io.Watchman.Capability;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.timing.Clock;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonToken;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
@@ -46,6 +48,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -78,14 +81,16 @@ public class WatchmanWatcher implements ProjectFilesystemWatcher {
 
   private final long timeoutMillis;
 
-  public WatchmanWatcher(String watchRoot,
-                         Optional<String> watchPrefix,
-                         EventBus fileChangeEventBus,
-                         Clock clock,
-                         ObjectMapper objectMapper,
-                         ProcessExecutor processExecutor,
-                         Iterable<Path> ignorePaths,
-                         Iterable<String> ignoreGlobs) {
+  public WatchmanWatcher(
+      String watchRoot,
+      EventBus fileChangeEventBus,
+      Clock clock,
+      ObjectMapper objectMapper,
+      ProcessExecutor processExecutor,
+      Iterable<Path> ignorePaths,
+      Iterable<String> ignoreGlobs,
+      Watchman watchman,
+      UUID queryUUID) {
     this(fileChangeEventBus,
         clock,
         objectMapper,
@@ -95,10 +100,11 @@ public class WatchmanWatcher implements ProjectFilesystemWatcher {
         createQuery(
             objectMapper,
             watchRoot,
-            watchPrefix,
-            UUID.randomUUID().toString(),
+            watchman.getProjectPrefix(),
+            queryUUID.toString(),
             ignorePaths,
-            ignoreGlobs));
+            ignoreGlobs,
+            watchman.getCapabilities()));
   }
 
   @VisibleForTesting
@@ -125,7 +131,8 @@ public class WatchmanWatcher implements ProjectFilesystemWatcher {
       Optional<String> watchPrefix,
       String uuid,
       Iterable<Path> ignorePaths,
-      Iterable<String> ignoreGlobs) {
+      Iterable<String> ignoreGlobs,
+      Set<Capability> watchmanCapabilities) {
     List<Object> queryParams = new ArrayList<>();
     queryParams.add("query");
     queryParams.add(watchRoot);
@@ -142,6 +149,11 @@ public class WatchmanWatcher implements ProjectFilesystemWatcher {
     // Exclude all directories.
     excludeAnyOf.add(Lists.newArrayList("type", "d"));
 
+    Path projectRoot = Paths.get(watchRoot);
+    if (watchPrefix.isPresent()) {
+      projectRoot = projectRoot.resolve(watchPrefix.get());
+    }
+
     // Exclude all files under directories in project.ignorePaths.
     //
     // Note that it's OK to exclude .git in a query (event though it's
@@ -149,20 +161,30 @@ public class WatchmanWatcher implements ProjectFilesystemWatcher {
     // because watchman's .git cookie magic is done before the query
     // is applied.
     for (Path ignorePath : ignorePaths) {
-      excludeAnyOf.add(
-          Lists.newArrayList(
-              "match",
-              ignorePath.toString() + "/*",
-              "wholename"));
+      if (ignorePath.isAbsolute()) {
+        ignorePath = MorePaths.relativize(projectRoot, ignorePath);
+      }
+      if (watchmanCapabilities.contains(Capability.DIRNAME)) {
+        excludeAnyOf.add(
+            Lists.newArrayList(
+                "dirname",
+                ignorePath.toString()));
+      } else {
+        excludeAnyOf.add(
+            Lists.newArrayList(
+                "match",
+                ignorePath.toString() + "/*",
+                "wholename"));
+      }
     }
 
-    // Exclude all files matching globs in project.ignoreGlobs.
+    // Exclude all filenames matching globs. We explicitly don't match
+    // against the full path ("wholename"), just the filename.
     for (String ignoreGlob : ignoreGlobs) {
       excludeAnyOf.add(
           Lists.newArrayList(
               "match",
-              ignoreGlob,
-              "wholename"));
+              ignoreGlob));
     }
 
     sinceParams.put(
@@ -375,10 +397,6 @@ public class WatchmanWatcher implements ProjectFilesystemWatcher {
     };
   }
 
-  @Override
-  public void close() throws IOException {
-  }
-
   private static class PathEventBuilder {
 
     private WatchEvent.Kind<Path> kind;
@@ -430,34 +448,6 @@ public class WatchmanWatcher implements ProjectFilesystemWatcher {
 
     public boolean canBuild() {
       return path != null;
-    }
-  }
-
-  /**
-   * @return The version of the Watchman server if available, an absent value otherwise.
-   */
-  public Optional<String> getWatchmanVersion() throws InterruptedException {
-    try {
-      Optional<String> result;
-      ProcessExecutor.LaunchedProcess watchmanVersionProcess = processExecutor.launchProcess(
-          ProcessExecutorParams.builder()
-              .addCommand("watchman", "version")
-              .build());
-      Map<String, String> watchmanVersionOutput = objectMapper.readValue(
-          watchmanVersionProcess.getInputStream(),
-          new TypeReference<Map<String, String>>() { });
-      int exitCode = processExecutor.waitForLaunchedProcess(watchmanVersionProcess);
-      if (exitCode != 0) {
-        LOG.error("Error %d executing watchman version", exitCode);
-        return Optional.absent();
-      } else {
-        result = Optional.fromNullable(watchmanVersionOutput.get("version"));
-        LOG.debug("Watchman version: %s", result);
-        return result;
-      }
-    } catch (IOException e) {
-      LOG.error(e, "Could not check if Watchman is available");
-      return Optional.absent();
     }
   }
 }

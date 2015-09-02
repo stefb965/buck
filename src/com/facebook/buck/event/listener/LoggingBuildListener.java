@@ -19,6 +19,7 @@ package com.facebook.buck.event.listener;
 import com.facebook.buck.event.AbstractBuckEvent;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.BuildRuleEvent;
@@ -69,7 +70,16 @@ public class LoggingBuildListener implements BuckEventListener {
 
   @Subscribe
   public void handleConsoleEvent(ConsoleEvent logEvent) {
-    LogRecord record = new LogRecord(logEvent.getLevel(), logEvent.getMessage());
+    LogRecord record =
+        new LogRecord(
+            // Since SEVERE events interrupt the super console, we reserve them
+            // only for exceptional events, and so cap log messages at WARNING here.
+            // Long-term, we likely should have a separate leveling mechanism for
+            // Buck's `ConsoleEvent`.
+            logEvent.getLevel().intValue() <= Level.WARNING.intValue() ?
+                logEvent.getLevel() :
+                Level.WARNING,
+            logEvent.getMessage());
     record.setLoggerName(getClass().getName());
     LOG.log(record);
   }
@@ -99,8 +109,12 @@ public class LoggingBuildListener implements BuckEventListener {
     if (EXPLICITLY_HANDLED_EVENT_TYPES.contains(event.getClass())) {
       return;
     }
+    Level level = Level.FINE;
+    if (event instanceof SimplePerfEvent) {
+      level = Level.FINER;
+    }
     // Use a format so we avoid paying the cost of event.toString() unless we have to.
-    LOG.log(Level.FINE, "{0}", event);
+    LOG.log(level, "{0}", event);
   }
 
   @Override

@@ -42,6 +42,7 @@ public class XctoolRunTestsStepTest {
   public void xctoolCommandWithOnlyLogicTests() throws Exception {
     FakeProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     XctoolRunTestsStep step = new XctoolRunTestsStep(
+        projectFilesystem.getRootPath(),
         Paths.get("/path/to/xctool"),
         "iphonesimulator",
         Optional.<String>absent(),
@@ -81,9 +82,10 @@ public class XctoolRunTestsStepTest {
   public void xctoolCommandWithOnlyAppTests() throws Exception {
     FakeProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     XctoolRunTestsStep step = new XctoolRunTestsStep(
+        projectFilesystem.getRootPath(),
         Paths.get("/path/to/xctool"),
         "iphonesimulator",
-        Optional.of("iPhone 5s"),
+        Optional.of("name=iPhone 5s"),
         ImmutableSet.<Path>of(),
         ImmutableMap.of(
             Paths.get("/path/to/FooAppTest.xctest"),
@@ -124,9 +126,10 @@ public class XctoolRunTestsStepTest {
   public void xctoolCommandWithAppAndLogicTests() throws Exception {
     FakeProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     XctoolRunTestsStep step = new XctoolRunTestsStep(
+        projectFilesystem.getRootPath(),
         Paths.get("/path/to/xctool"),
         "iphonesimulator",
-        Optional.of("iPhone 5s"),
+        Optional.of("name=iPhone 5s,OS=8.2"),
         ImmutableSet.of(
             Paths.get("/path/to/FooLogicTest.xctest")),
         ImmutableMap.of(
@@ -144,7 +147,7 @@ public class XctoolRunTestsStepTest {
                     "-sdk",
                     "iphonesimulator",
                     "-destination",
-                    "name=iPhone 5s",
+                    "name=iPhone 5s,OS=8.2",
                     "run-tests",
                     "-logicTest",
                     "/path/to/FooLogicTest.xctest",
@@ -170,6 +173,7 @@ public class XctoolRunTestsStepTest {
   public void xctoolCommandWhichReturnsExitCode1DoesNotFailStep() throws Exception {
     FakeProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     XctoolRunTestsStep step = new XctoolRunTestsStep(
+        projectFilesystem.getRootPath(),
         Paths.get("/path/to/xctool"),
         "iphonesimulator",
         Optional.<String>absent(),
@@ -209,6 +213,7 @@ public class XctoolRunTestsStepTest {
   public void xctoolCommandWhichReturnsExitCode400FailsStep() throws Exception {
     FakeProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     XctoolRunTestsStep step = new XctoolRunTestsStep(
+        projectFilesystem.getRootPath(),
         Paths.get("/path/to/xctool"),
         "iphonesimulator",
         Optional.<String>absent(),

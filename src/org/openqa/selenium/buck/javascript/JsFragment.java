@@ -84,11 +84,20 @@ public class JsFragment extends AbstractBuildRule {
     }
 
     steps.add(new MkdirStep(temp.getParent()));
-    steps.add(new WriteFileStep(
-        String.format("goog.require('%s'); goog.exportSymbol('_', %s);", module, function),
-        temp));
+    steps.add(
+        new WriteFileStep(
+            getProjectFilesystem(),
+            String.format("goog.require('%s'); goog.exportSymbol('_', %s);", module, function),
+            temp,
+            /* executable */ false));
     steps.add(new MkdirStep(output.getParent()));
-    steps.add(new JavascriptFragmentStep(compiler, temp, output, graph.sortSources()));
+    steps.add(
+        new JavascriptFragmentStep(
+            getProjectFilesystem().getRootPath(),
+            compiler,
+            temp,
+            output,
+            graph.sortSources()));
 
     buildableContext.recordArtifact(output);
 

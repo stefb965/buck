@@ -16,7 +16,6 @@
 
 package com.facebook.buck.apple;
 
-import com.facebook.buck.rules.Tool;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
@@ -27,6 +26,7 @@ import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TestRule;
+import com.facebook.buck.rules.Tool;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
@@ -36,7 +36,9 @@ import com.facebook.buck.test.selectors.TestSelectorList;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.zip.UnzipStep;
+import com.google.common.base.Function;
 import com.google.common.base.Functions;
+import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
@@ -44,17 +46,19 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Iterables;
 
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 
 @SuppressWarnings("PMD.TestClassWithoutTestCases")
@@ -78,8 +82,8 @@ public class AppleTest extends NoopBuildRule implements TestRule, HasRuntimeDeps
   @AddToRuleKey
   private final String platformName;
 
-  @AddToRuleKey
-  private final Optional<String> simulatorName;
+  private final Optional<String> defaultDestinationSpecifier;
+  private final Optional<ImmutableMap<String, String>> destinationSpecifier;
 
   @AddToRuleKey
   private final BuildRule testBundle;
@@ -128,7 +132,8 @@ public class AppleTest extends NoopBuildRule implements TestRule, HasRuntimeDeps
       Optional<Tool> otest,
       Boolean useXctest,
       String platformName,
-      Optional<String> simulatorName,
+      Optional<String> defaultDestinationSpecifier,
+      Optional<ImmutableMap<String, String>> destinationSpecifier,
       BuildRuleParams params,
       SourcePathResolver resolver,
       BuildRule testBundle,
@@ -143,7 +148,8 @@ public class AppleTest extends NoopBuildRule implements TestRule, HasRuntimeDeps
     this.xctest = xctest;
     this.otest = otest;
     this.platformName = platformName;
-    this.simulatorName = simulatorName;
+    this.defaultDestinationSpecifier = defaultDestinationSpecifier;
+    this.destinationSpecifier = destinationSpecifier;
     this.testBundle = testBundle;
     this.testHostApp = testHostApp;
     this.contacts = contacts;
@@ -182,7 +188,7 @@ public class AppleTest extends NoopBuildRule implements TestRule, HasRuntimeDeps
 
   @Override
   public boolean hasTestResultFiles(ExecutionContext executionContext) {
-    return executionContext.getProjectFilesystem().exists(testOutputPath);
+    return getProjectFilesystem().exists(testOutputPath);
   }
 
   @Override
@@ -194,19 +200,19 @@ public class AppleTest extends NoopBuildRule implements TestRule, HasRuntimeDeps
       TestSelectorList testSelectorList,
       TestRule.TestReportingCallback testReportingCallback) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
-    Path resolvedTestBundleDirectory = executionContext.getProjectFilesystem().resolve(
+    Path resolvedTestBundleDirectory = getProjectFilesystem().resolve(
         Preconditions.checkNotNull(testBundle.getPathToOutput()));
 
-    Path pathToTestOutput = executionContext.getProjectFilesystem().resolve(
+    Path pathToTestOutput = getProjectFilesystem().resolve(
         getPathToTestOutputDirectory());
     steps.add(new MakeCleanDirectoryStep(pathToTestOutput));
 
-    Path resolvedTestOutputPath = executionContext.getProjectFilesystem().resolve(
+    Path resolvedTestOutputPath = getProjectFilesystem().resolve(
         testOutputPath);
 
     Optional<Path> testHostAppPath = Optional.absent();
     if (testHostApp.isPresent()) {
-      Path resolvedTestHostAppDirectory = executionContext.getProjectFilesystem().resolve(
+      Path resolvedTestHostAppDirectory = getProjectFilesystem().resolve(
           Preconditions.checkNotNull(testHostApp.get().getPathToOutput()));
       testHostAppPath = Optional.of(
           resolvedTestHostAppDirectory.resolve(
@@ -234,7 +240,7 @@ public class AppleTest extends NoopBuildRule implements TestRule, HasRuntimeDeps
       Path xctoolBinaryPath;
 
       if (xctoolZipRule.isPresent()) {
-        Path resolvedXctoolUnzipDirectory = executionContext.getProjectFilesystem().resolve(
+        Path resolvedXctoolUnzipDirectory = getProjectFilesystem().resolve(
             xctoolUnzipDirectory);
         steps.add(new MakeCleanDirectoryStep(resolvedXctoolUnzipDirectory));
         steps.add(
@@ -248,18 +254,34 @@ public class AppleTest extends NoopBuildRule implements TestRule, HasRuntimeDeps
       }
 
       xctoolStdoutReader = Optional.of(new AppleTestXctoolStdoutReader(testReportingCallback));
+      Optional<String> destinationSpecifierArg;
+      if (!destinationSpecifier.get().isEmpty()) {
+        destinationSpecifierArg = Optional.of(
+            Joiner.on(',').join(
+                Iterables.transform(
+                    destinationSpecifier.get().entrySet(),
+                    new Function<Map.Entry<String, String>, String>() {
+                      @Override
+                      public String apply(Map.Entry<String, String> input) {
+                        return input.getKey() + "=" + input.getValue();
+                      }
+                    })));
+      } else {
+        destinationSpecifierArg = defaultDestinationSpecifier;
+      }
       steps.add(
           new XctoolRunTestsStep(
+              getProjectFilesystem().getRootPath(),
               xctoolBinaryPath,
               platformName,
-              simulatorName,
+              destinationSpecifierArg,
               logicTestPathsBuilder.build(),
               appTestPathsToHostAppsBuilder.build(),
               resolvedTestOutputPath,
               xctoolStdoutReader));
     } else {
       Tool testRunningTool;
-      if (testBundleExtension == "xctest") {
+      if (testBundleExtension.equals("xctest")) {
         testRunningTool = xctest;
       } else if (otest.isPresent()) {
         testRunningTool = otest.get();
@@ -271,7 +293,7 @@ public class AppleTest extends NoopBuildRule implements TestRule, HasRuntimeDeps
       steps.add(
           new XctestRunTestsStep(
               testRunningTool.getCommandPrefix(getResolver()),
-              (testBundleExtension == "xctest" ? "-XCTest" : "-SenTest"),
+              (testBundleExtension.equals("xctest") ? "-XCTest" : "-SenTest"),
               resolvedTestBundleDirectory,
               resolvedTestOutputPath));
     }
@@ -293,7 +315,7 @@ public class AppleTest extends NoopBuildRule implements TestRule, HasRuntimeDeps
           // their output; no need to parse the same output again.
           testCaseSummaries = xctoolStdoutReader.get().getTestCaseSummaries();
         } else {
-          Path resolvedOutputPath = executionContext.getProjectFilesystem().resolve(testOutputPath);
+          Path resolvedOutputPath = getProjectFilesystem().resolve(testOutputPath);
           try (BufferedReader reader =
               Files.newBufferedReader(resolvedOutputPath, StandardCharsets.UTF_8)) {
             if (useXctest) {

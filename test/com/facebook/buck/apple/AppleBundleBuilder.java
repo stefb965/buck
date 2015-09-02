@@ -21,7 +21,6 @@ import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.coercer.Either;
 import com.google.common.base.Optional;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 
 public class AppleBundleBuilder
@@ -52,13 +51,8 @@ public class AppleBundleBuilder
     return this;
   }
 
-  public AppleBundleBuilder setInfoPlist(Optional<SourcePath> infoPlist) {
+  public AppleBundleBuilder setInfoPlist(SourcePath infoPlist) {
     arg.infoPlist = infoPlist;
-    return this;
-  }
-
-  public AppleBundleBuilder setHeaders(Optional<ImmutableMap<String, SourcePath>> headers) {
-    arg.headers = headers;
     return this;
   }
 

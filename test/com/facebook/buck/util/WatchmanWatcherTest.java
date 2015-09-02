@@ -29,6 +29,7 @@ import static org.junit.Assert.fail;
 
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.io.Watchman;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.timing.FakeClock;
@@ -38,6 +39,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.collect.Lists;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import com.google.common.eventbus.EventBus;
 import com.google.common.eventbus.Subscribe;
@@ -438,7 +440,8 @@ public class WatchmanWatcherTest {
         Optional.of("project"),
         "uuid",
         Lists.<Path>newArrayList(),
-        Lists.<String>newArrayList());
+        Lists.<String>newArrayList(),
+        ImmutableSet.of(Watchman.Capability.DIRNAME));
 
     assertThat(
         query,
@@ -453,7 +456,8 @@ public class WatchmanWatcherTest {
         Optional.<String>absent(),
         "uuid",
         Lists.<Path>newArrayList(),
-        Lists.<String>newArrayList());
+        Lists.<String>newArrayList(),
+        ImmutableSet.of(Watchman.Capability.DIRNAME));
     assertEquals(
         "[\"query\",\"/path/to/\\\"repo\\\"\",{\"since\":\"n:buckduuid\"," +
         "\"expression\":[\"not\",[\"anyof\"," +
@@ -470,13 +474,54 @@ public class WatchmanWatcherTest {
         Optional.<String>absent(),
         "uuid",
         Lists.newArrayList(Paths.get("foo"), Paths.get("bar/baz")),
-        Lists.<String>newArrayList());
+        Lists.<String>newArrayList(),
+        ImmutableSet.of(Watchman.Capability.DIRNAME));
+    assertEquals(
+        "[\"query\",\"/path/to/repo\",{\"since\":\"n:buckduuid\"," +
+        "\"expression\":[\"not\",[\"anyof\"," +
+        "[\"type\",\"d\"]," +
+        "[\"dirname\",\"foo\"]," +
+        "[\"dirname\",\"bar/baz\"]]]," +
+        "\"empty_on_fresh_instance\":true,\"fields\":[\"name\",\"exists\",\"new\"]}]",
+        query);
+  }
+
+  @Test
+  public void watchmanQueryWithExcludePathsAddsMatchExpressionToQueryIfDirnameNotAvailable() {
+    String query = WatchmanWatcher.createQuery(
+        new ObjectMapper(),
+        "/path/to/repo",
+        Optional.<String>absent(),
+        "uuid",
+        Lists.newArrayList(Paths.get("foo"), Paths.get("bar/baz")),
+        Lists.<String>newArrayList(),
+        ImmutableSet.<Watchman.Capability>of());
     assertEquals(
         "[\"query\",\"/path/to/repo\",{\"since\":\"n:buckduuid\"," +
         "\"expression\":[\"not\",[\"anyof\"," +
         "[\"type\",\"d\"]," +
         "[\"match\",\"foo/*\",\"wholename\"]," +
         "[\"match\",\"bar/baz/*\",\"wholename\"]]]," +
+        "\"empty_on_fresh_instance\":true,\"fields\":[\"name\",\"exists\",\"new\"]}]",
+        query);
+  }
+
+  @Test
+  public void watchmanQueryRelativizesExcludePaths() {
+    String query = WatchmanWatcher.createQuery(
+        new ObjectMapper(),
+        "/path/to/repo",
+        Optional.<String>absent(),
+        "uuid",
+        Lists.newArrayList(Paths.get("/path/to/repo/foo"), Paths.get("/path/to/repo/bar/baz")),
+        Lists.<String>newArrayList(),
+        ImmutableSet.of(Watchman.Capability.DIRNAME));
+    assertEquals(
+        "[\"query\",\"/path/to/repo\",{\"since\":\"n:buckduuid\"," +
+        "\"expression\":[\"not\",[\"anyof\"," +
+        "[\"type\",\"d\"]," +
+        "[\"dirname\",\"foo\"]," +
+        "[\"dirname\",\"bar/baz\"]]]," +
         "\"empty_on_fresh_instance\":true,\"fields\":[\"name\",\"exists\",\"new\"]}]",
         query);
   }
@@ -489,13 +534,13 @@ public class WatchmanWatcherTest {
         Optional.<String>absent(),
         "uuid",
         Lists.<Path>newArrayList(),
-        Lists.newArrayList("*/project.pbxproj", "buck-out/*"));
+        Lists.newArrayList("*.pbxproj"),
+        ImmutableSet.of(Watchman.Capability.DIRNAME));
     assertEquals(
         "[\"query\",\"/path/to/repo\",{\"since\":\"n:buckduuid\"," +
         "\"expression\":[\"not\",[\"anyof\"," +
         "[\"type\",\"d\"]," +
-        "[\"match\",\"*/project.pbxproj\",\"wholename\"]," +
-        "[\"match\",\"buck-out/*\",\"wholename\"]]]," +
+        "[\"match\",\"*.pbxproj\"]]]," +
         "\"empty_on_fresh_instance\":true,\"fields\":[\"name\",\"exists\",\"new\"]}]",
         query);
   }

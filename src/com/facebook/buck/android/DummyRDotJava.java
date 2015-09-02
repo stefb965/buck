@@ -96,12 +96,14 @@ public class DummyRDotJava extends AbstractBuildRule
       steps.add(new MakeCleanDirectoryStep(emptyRDotJava.getParent()));
       steps.add(
           new WriteFileStep(
+              getProjectFilesystem(),
               "package com.facebook;\n public class R {}\n",
               emptyRDotJava,
               /* executable */ false));
       javaSourceFilePaths = ImmutableSet.of(emptyRDotJava);
     } else {
       MergeAndroidResourcesStep mergeStep = MergeAndroidResourcesStep.createStepForDummyRDotJava(
+          getProjectFilesystem(),
           androidResourceDeps,
           rDotJavaSrcFolder);
       steps.add(mergeStep);
@@ -124,7 +126,8 @@ public class DummyRDotJava extends AbstractBuildRule
             rDotJavaClassesFolder,
             javacOptions,
             getBuildTarget(),
-            getResolver());
+            getResolver(),
+            getProjectFilesystem());
     steps.add(javacStep);
     buildableContext.recordArtifact(rDotJavaClassesFolder);
 

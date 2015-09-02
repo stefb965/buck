@@ -24,6 +24,7 @@ import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.model.Pair;
 import com.facebook.buck.python.PythonPackageComponents;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -35,6 +36,7 @@ import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.base.Functions;
@@ -128,7 +130,8 @@ public class CxxLibraryTest {
         ImmutableList.<SourcePath>of(
             new BuildTargetSourcePath(archive.getBuildTarget())),
         ImmutableList.of(archiveOutput.toString()),
-        ImmutableSet.<Path>of());
+        ImmutableSet.<FrameworkPath>of(),
+        ImmutableSet.<FrameworkPath>of());
     assertEquals(
         expectedStaticNativeLinkableInput,
         cxxLibrary.getNativeLinkableInput(
@@ -142,7 +145,8 @@ public class CxxLibraryTest {
         ImmutableList.<SourcePath>of(
             new BuildTargetSourcePath(sharedLibrary.getBuildTarget())),
         ImmutableList.of(sharedLibraryOutput.toString()),
-        ImmutableSet.<Path>of());
+        ImmutableSet.<FrameworkPath>of(),
+        ImmutableSet.<FrameworkPath>of());
     assertEquals(
         expectedSharedNativeLinkableInput,
         cxxLibrary.getNativeLinkableInput(
@@ -194,13 +198,17 @@ public class CxxLibraryTest {
         pathResolver,
         /* headerOnly */ Predicates.<CxxPlatform>alwaysFalse(),
         Functions.constant(ImmutableMultimap.<CxxSource.Type, String>of()),
-        Functions.constant(ImmutableList.<String>of()),
+        /* exportedLinkerFlags */ Functions.constant(new Pair<>(
+            ImmutableList.<String>of(),
+            ImmutableSet.<SourcePath>of())),
         /* supportedPlatformsRegex */ Optional.<Pattern>absent(),
-        Functions.constant(ImmutableSet.<Path>of()),
+        ImmutableSet.<FrameworkPath>of(),
+        ImmutableSet.<FrameworkPath>of(),
         NativeLinkable.Linkage.STATIC,
         /* linkWhole */ false,
         Optional.<String>absent(),
-        ImmutableSortedSet.<BuildTarget>of());
+        ImmutableSortedSet.<BuildTarget>of(),
+        /* isAsset */ false);
 
     assertThat(
         cxxLibrary.getSharedLibraries(TargetGraph.EMPTY, cxxPlatform).entrySet(),
@@ -222,7 +230,8 @@ public class CxxLibraryTest {
                     target,
                     cxxPlatform.getFlavor(),
                     CxxSourceRuleFactory.PicType.PIC).toString()),
-            ImmutableSet.<Path>of());
+            ImmutableSet.<FrameworkPath>of(),
+            ImmutableSet.<FrameworkPath>of());
     assertEquals(
         expectedSharedNativeLinkableInput,
         cxxLibrary.getNativeLinkableInput(

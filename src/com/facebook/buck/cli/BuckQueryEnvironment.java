@@ -17,10 +17,11 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.json.BuildFileParseException;
+import com.facebook.buck.model.BuildFileTree;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
-import com.facebook.buck.parser.BuildTargetParser;
-import com.facebook.buck.parser.BuildTargetPatternParser;
+import com.facebook.buck.model.FilesystemBackedBuildFileTree;
+import com.facebook.buck.parser.BuildTargetPatternTargetNodeParser;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
@@ -28,6 +29,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Sets;
 import com.google.devtools.build.lib.query2.engine.QueryEnvironment;
 import com.google.devtools.build.lib.query2.engine.QueryException;
 import com.google.devtools.build.lib.query2.engine.QueryExpression;
@@ -43,10 +45,15 @@ import javax.annotation.Nullable;
 
 /**
  * The environment of a Buck query that can evaluate queries to produce a result.
+ *
+ * The query language is documented at docs/command/query.soy
  */
 public class BuckQueryEnvironment implements QueryEnvironment<BuildTarget> {
   private final Map<String, Set<BuildTarget>> letBindings = new HashMap<>();
   private final CommandRunnerParams params;
+  private final CommandLineTargetNodeSpecParser targetNodeSpecParser;
+  private final ParserConfig parserConfig;
+  private final BuildFileTree buildFileTree;
   private TargetGraph graph = TargetGraph.EMPTY;
 
   private final Set<Setting> settings;
@@ -59,9 +66,21 @@ public class BuckQueryEnvironment implements QueryEnvironment<BuildTarget> {
     this.params = params;
     this.settings = settings;
     this.enableProfiling = enableProfiling;
+    this.targetNodeSpecParser = new CommandLineTargetNodeSpecParser(
+        params.getBuckConfig(),
+        new BuildTargetPatternTargetNodeParser(
+            params.getRepository().getFilesystem().getIgnorePaths()));
+    this.parserConfig = new ParserConfig(params.getBuckConfig());
+    this.buildFileTree = new FilesystemBackedBuildFileTree(
+        params.getRepository().getFilesystem(),
+        parserConfig.getBuildFileName());
   }
 
   public CommandRunnerParams getParams() { return params; }
+
+  public ParserConfig getParserConfig() { return parserConfig; }
+
+  public BuildFileTree getBuildFileTree() { return buildFileTree; }
 
   /**
    * Evaluate the specified query expression in this environment.
@@ -98,14 +117,33 @@ public class BuckQueryEnvironment implements QueryEnvironment<BuildTarget> {
   @Override
   public Set<BuildTarget> getTargetsMatchingPattern(QueryExpression owner, String pattern)
       throws QueryException {
-    // TODO(user): only supporting single build targets like buck audit commands.
-    // In the future, this should also support build target patterns as well.
-    Set<BuildTarget> targets = new LinkedHashSet<>();
-    targets.add(
-        BuildTargetParser.INSTANCE.parse(
-            pattern,
-            BuildTargetPatternParser.fullyQualified()));
-    return targets;
+    try {
+      // Sorting to have predictable results across different java libraries implementations.
+      Set<BuildTarget> resolvedTargets = ImmutableSortedSet.copyOf(
+          params.getParser()
+              .resolveTargetSpec(
+                  targetNodeSpecParser.parse(pattern),
+                  new ParserConfig(params.getBuckConfig()),
+                  params.getBuckEventBus(),
+                  params.getConsole(),
+                  params.getEnvironment(),
+                  enableProfiling));
+
+      // Update the target nodes graph to include the resolved build targets.
+      // This should be done incrementally but the TargetGraph is immutable.
+      buildTransitiveClosure(
+          owner,
+          Sets.union(
+              resolvedTargets,
+              getTargetsFromNodes(graph.getNodes())),
+          /* maxDepth */ Integer.MAX_VALUE);
+
+      return resolvedTargets;
+    } catch (BuildTargetException | BuildFileParseException | IOException e) {
+      throw new QueryException("Error in resolving targets matching " + pattern);
+    } catch (InterruptedException e) {
+      throw (QueryException) new QueryException("Interrupted").initCause(e);
+    }
   }
 
   @Override
@@ -150,12 +188,28 @@ public class BuckQueryEnvironment implements QueryEnvironment<BuildTarget> {
 
   @Override
   public Collection<BuildTarget> getReverseDeps(Iterable<BuildTarget> targets) {
-    throw new RuntimeException("Not implemented yet.");
+    Set<BuildTarget> result = new LinkedHashSet<>();
+    for (BuildTarget target : targets) {
+      TargetNode<?> node = getNode(target);
+      if (node != null) {
+        // Using an ImmutableSortedSet in order to ensure consistent outputs because
+        // getOutgoingNodesFor() returns a set whose traversal order can vary across compilers.
+        result.addAll(
+            getTargetsFromNodes(ImmutableSortedSet.copyOf(graph.getIncomingNodesFor(node))));
+      }
+    }
+    return result;
   }
 
   @Override
   public Set<BuildTarget> getTransitiveClosure(Set<BuildTarget> targets) {
-    throw new RuntimeException("Not implemented yet.");
+    Set<TargetNode<?>> nodes = new LinkedHashSet<>();
+    for (BuildTarget target : targets) {
+      nodes.add(Preconditions.checkNotNull(getNode(target)));
+    }
+    // Reusing the existing getSubgraph() for simplicity. It builds the graph when we only need the
+    // nodes. The impact of creating the edges in terms of time and space should be minimal.
+    return getTargetsFromNodes(graph.getSubgraph(nodes).getNodes());
   }
 
   @Override
@@ -204,8 +258,15 @@ public class BuckQueryEnvironment implements QueryEnvironment<BuildTarget> {
   @Override
   public Iterable<QueryFunction> getFunctions() {
     return ImmutableList.of(
-        DEFAULT_QUERY_FUNCTIONS.get(9),  // "deps" is the only default function supported for now.
+        DEFAULT_QUERY_FUNCTIONS.get(9),   // "deps"
+        DEFAULT_QUERY_FUNCTIONS.get(10),  // "rdeps"
+        new QueryKindFunction(),
+        new QueryOwnerFunction(),
         new QueryTestsOfFunction()
     );
+  }
+
+  public String getTargetKind(BuildTarget target) {
+    return Preconditions.checkNotNull(getNode(target)).getType().getName();
   }
 }

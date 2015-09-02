@@ -9,6 +9,7 @@ java_library(
     visibility = [
       '//src/com/facebook/buck/apple:rules',
       '//src/com/facebook/buck/event:event',
+      '//src/com/facebook/buck/io:watchman',
       '//src/com/facebook/buck/python:rules',
       '//src/com/facebook/buck/step:step',
       '//test/...',
@@ -59,6 +60,7 @@ prebuilt_jar(
     '//src/com/facebook/buck/httpserver:httpserver',
     '//src/com/facebook/buck/java/intellij:intellij',
     '//src/com/facebook/buck/model:model',
+    '//src/com/facebook/buck/parser:parser',
     '//src/com/facebook/buck/rules:rules',
     '//src/com/facebook/buck/util/network:network',
     '//src/com/facebook/buck/util:watchman',

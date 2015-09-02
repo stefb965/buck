@@ -30,6 +30,7 @@ import com.facebook.buck.util.Verbosity;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
 import org.easymock.EasyMock;
@@ -76,9 +77,11 @@ public class JUnitStepTest {
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     JUnitStep junit = new JUnitStep(
+        filesystem.getRootPath(),
         classpathEntries,
         testClassNames,
         vmArgs,
+        /* nativeLibsEnvironment */ ImmutableMap.<String, String>of(),
         directoryForTestResults,
         modulePath,
         directoryForTemp,
@@ -157,9 +160,11 @@ public class JUnitStepTest {
     Path testRunnerClasspath = Paths.get("build/classes/junit");
 
     JUnitStep junit = new JUnitStep(
+        Paths.get("."),
         classpathEntries,
         testClassNames,
         vmArgs,
+        ImmutableMap.<String, String>of(),
         directoryForTestResults,
         modulePath,
         directoryForTemp,

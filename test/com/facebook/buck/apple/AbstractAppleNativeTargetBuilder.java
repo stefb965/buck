@@ -120,6 +120,11 @@ public abstract class AbstractAppleNativeTargetBuilder<
     return getThis();
   }
 
+  public BUILDER setLibraries(Optional<ImmutableSortedSet<FrameworkPath>> libraries) {
+    arg.libraries = libraries;
+    return getThis();
+  }
+
   public BUILDER setDeps(Optional<ImmutableSortedSet<BuildTarget>> deps) {
     arg.deps = deps;
     return getThis();
@@ -130,18 +135,8 @@ public abstract class AbstractAppleNativeTargetBuilder<
     return getThis();
   }
 
-  public BUILDER setGid(Optional<String> gid) {
-    arg.gid = gid;
-    return getThis();
-  }
-
   public BUILDER setHeaderPathPrefix(Optional<String> headerPathPrefix) {
     arg.headerPathPrefix = headerPathPrefix;
-    return getThis();
-  }
-
-  public BUILDER setUseBuckHeaderMaps(Optional<Boolean> useBuckHeaderMaps) {
-    arg.useBuckHeaderMaps = useBuckHeaderMaps;
     return getThis();
   }
 
