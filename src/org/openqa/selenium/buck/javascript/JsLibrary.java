@@ -115,7 +115,7 @@ public class JsLibrary extends AbstractBuildRule implements
     smidgen.writeTo(writer);
 
     ImmutableList.Builder<Step> builder = ImmutableList.builder();
-    builder.add(new MkdirStep(output.getParent()));
+    builder.add(new MkdirStep(getProjectFilesystem(), output.getParent()));
     builder.add(new WriteFileStep(getProjectFilesystem(), writer.toString(), output, false));
 
     buildableContext.recordArtifact(output);

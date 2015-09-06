@@ -65,14 +65,16 @@ public class Folder extends AbstractBuildRule {
       BuildContext context, BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
-    steps.add(new MakeCleanDirectoryStep(output.getParent()));
+    steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), output.getParent()));
 
     Path scratch = BuildTargets.getScratchPath(getBuildTarget(), "%s-scratch/" + folderName);
-    steps.add(new MakeCleanDirectoryStep(scratch));
+    steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), scratch));
 
     SrcZipAwareFileBundler bundler = new SrcZipAwareFileBundler(getBuildTarget());
-    bundler.copy(getResolver(), steps, scratch, srcs, false);
-    steps.add(new ZipStep(
+    bundler.copy(getProjectFilesystem(), getResolver(), steps, scratch, srcs, false);
+    steps.add(
+        new ZipStep(
+            getProjectFilesystem(),
             output,
             ImmutableSet.<Path>of(),
             false,

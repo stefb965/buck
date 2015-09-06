@@ -86,36 +86,38 @@ public class Xpi extends AbstractBuildRule {
       BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
-    steps.add(new MakeCleanDirectoryStep(scratch));
+    steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), scratch));
 
-    steps.add(CopyStep.forFile(chrome, scratch.resolve("chrome.manifest")));
-    steps.add(CopyStep.forFile(install, scratch.resolve("install.rdf")));
+    steps.add(CopyStep.forFile(getProjectFilesystem(), chrome, scratch.resolve("chrome.manifest")));
+    steps.add(CopyStep.forFile(getProjectFilesystem(), install, scratch.resolve("install.rdf")));
 
     SrcZipAwareFileBundler bundler = new SrcZipAwareFileBundler(getBuildTarget());
 
     Path contentDir = scratch.resolve("content");
-    steps.add(new MkdirStep(contentDir));
-    bundler.copy(getResolver(), steps, contentDir, content, true);
+    steps.add(new MkdirStep(getProjectFilesystem(), contentDir));
+    bundler.copy(getProjectFilesystem(), getResolver(), steps, contentDir, content, true);
 
     Path componentDir = scratch.resolve("components");
-    steps.add(new MkdirStep(componentDir));
-    bundler.copy(getResolver(), steps, componentDir, components, true);
+    steps.add(new MkdirStep(getProjectFilesystem(), componentDir));
+    bundler.copy(getProjectFilesystem(), getResolver(), steps, componentDir, components, true);
 
     Path platformDir = scratch.resolve("platform");
-    steps.add(new MkdirStep(platformDir));
-    bundler.copy(getResolver(), steps, platformDir, platforms, false);
+    steps.add(new MkdirStep(getProjectFilesystem(), platformDir));
+    bundler.copy(getProjectFilesystem(), getResolver(), steps, platformDir, platforms, false);
 
     Path resourceDir = scratch.resolve("resource");
-    steps.add(new MkdirStep(resourceDir));
-    bundler.copy(getResolver(), steps, resourceDir, resources, true);
+    steps.add(new MkdirStep(getProjectFilesystem(), resourceDir));
+    bundler.copy(getProjectFilesystem(), getResolver(), steps, resourceDir, resources, true);
 
-    steps.add(new MakeCleanDirectoryStep(output.getParent()));
-    steps.add(new ZipStep(
-        output.normalize().toAbsolutePath(),
-        ImmutableSet.<Path>of(),
-        false,
-        ZipStep.DEFAULT_COMPRESSION_LEVEL,
-        scratch));
+    steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), output.getParent()));
+    steps.add(
+        new ZipStep(
+            getProjectFilesystem(),
+            output.normalize().toAbsolutePath(),
+            ImmutableSet.<Path>of(),
+            false,
+            ZipStep.DEFAULT_COMPRESSION_LEVEL,
+            scratch));
 
     buildableContext.recordArtifact(output);
 

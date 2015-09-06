@@ -40,12 +40,12 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildResult;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParamsFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CacheResult;
 import com.facebook.buck.rules.CachingBuildEngine;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildEngine;
+import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeTestRule;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.RuleKey;
@@ -165,6 +165,28 @@ public class TestRunningTest {
     verify(defaultJavaPackageFinder);
   }
 
+  @Test
+  public void testNonGeneratedSourceFileWithoutPathElements() {
+    Path pathToNonGenFile = Paths.get("package/src/SourceFile1.java");
+    assertFalse(MorePaths.isGeneratedFile(pathToNonGenFile));
+
+    ImmutableSortedSet<Path> javaSrcs = ImmutableSortedSet.of(pathToNonGenFile);
+    JavaLibrary javaLibrary = new FakeJavaLibrary(
+        BuildTarget.builder("//foo", "bar").build(),
+        new SourcePathResolver(new BuildRuleResolver())).setJavaSrcs(javaSrcs);
+
+    DefaultJavaPackageFinder defaultJavaPackageFinder =
+        createMock(DefaultJavaPackageFinder.class);
+    expect(defaultJavaPackageFinder.getPathsFromRoot()).andReturn(pathsFromRoot);
+    expect(defaultJavaPackageFinder.getPathElements()).andReturn(ImmutableSet.<String>of("/"));
+
+    replay(defaultJavaPackageFinder);
+
+    TestRunning.getPathToSourceFolders(
+        javaLibrary, Optional.of(defaultJavaPackageFinder), new FakeProjectFilesystem());
+
+    verify(defaultJavaPackageFinder);
+  }
   /**
    * If the source paths specified are from the new unified source tmp then we should return
    * the correct source tmp corresponding to the unified source path.
@@ -505,7 +527,7 @@ public class TestRunningTest {
                             null)))));
     BuildTarget separateTest1Target = BuildTargetFactory.newInstance("//:test1");
     FakeTestRule separateTest1 = new FakeTestRule(
-        BuildRuleParamsFactory.createTrivialBuildRuleParams(separateTest1Target),
+        new FakeBuildRuleParamsBuilder(separateTest1Target).build(),
         new SourcePathResolver(new BuildRuleResolver()),
         ImmutableSet.<Label>of(),
         Optional.of(Paths.get("separateTestStep1OutputDir")),
@@ -526,7 +548,7 @@ public class TestRunningTest {
             atomicExecutionOrder);
     BuildTarget separateTest2Target = BuildTargetFactory.newInstance("//:test2");
     FakeTestRule separateTest2 = new FakeTestRule(
-        BuildRuleParamsFactory.createTrivialBuildRuleParams(separateTest2Target),
+        new FakeBuildRuleParamsBuilder(separateTest2Target).build(),
         new SourcePathResolver(new BuildRuleResolver()),
         ImmutableSet.<Label>of(),
         Optional.of(Paths.get("separateTestStep2OutputDir")),
@@ -547,7 +569,7 @@ public class TestRunningTest {
             atomicExecutionOrder);
     BuildTarget separateTest3Target = BuildTargetFactory.newInstance("//:test3");
     FakeTestRule separateTest3 = new FakeTestRule(
-        BuildRuleParamsFactory.createTrivialBuildRuleParams(separateTest3Target),
+        new FakeBuildRuleParamsBuilder(separateTest3Target).build(),
         new SourcePathResolver(new BuildRuleResolver()),
         ImmutableSet.<Label>of(),
         Optional.of(Paths.get("separateTestStep3OutputDir")),
@@ -578,9 +600,7 @@ public class TestRunningTest {
             separateTest2Target, new RuleKey("00"),
             separateTest3Target, new RuleKey("00")
         ));
-    ExecutionContext fakeExecutionContext = TestExecutionContext.newBuilder()
-        .setProjectFilesystem(new FakeProjectFilesystem())
-        .build();
+    ExecutionContext fakeExecutionContext = TestExecutionContext.newInstance();
     DefaultStepRunner stepRunner = new DefaultStepRunner(fakeExecutionContext);
     int ret = TestRunning.runTests(
         commandRunnerParams,
@@ -644,7 +664,7 @@ public class TestRunningTest {
 
     BuildTarget separateTest1Target = BuildTargetFactory.newInstance("//:test1");
     FakeTestRule separateTest1 = new FakeTestRule(
-        BuildRuleParamsFactory.createTrivialBuildRuleParams(separateTest1Target),
+        new FakeBuildRuleParamsBuilder(separateTest1Target).build(),
         new SourcePathResolver(new BuildRuleResolver()),
         ImmutableSet.<Label>of(),
         Optional.of(Paths.get("separateTestStep1OutputDir")),
@@ -665,7 +685,7 @@ public class TestRunningTest {
             atomicExecutionOrder);
     BuildTarget separateTest2Target = BuildTargetFactory.newInstance("//:test2");
     FakeTestRule separateTest2 = new FakeTestRule(
-        BuildRuleParamsFactory.createTrivialBuildRuleParams(separateTest2Target),
+        new FakeBuildRuleParamsBuilder(separateTest2Target).build(),
         new SourcePathResolver(new BuildRuleResolver()),
         ImmutableSet.<Label>of(),
         Optional.of(Paths.get("separateTestStep2OutputDir")),
@@ -686,7 +706,7 @@ public class TestRunningTest {
             atomicExecutionOrder);
     BuildTarget separateTest3Target = BuildTargetFactory.newInstance("//:test3");
     FakeTestRule separateTest3 = new FakeTestRule(
-        BuildRuleParamsFactory.createTrivialBuildRuleParams(separateTest3Target),
+        new FakeBuildRuleParamsBuilder(separateTest3Target).build(),
         new SourcePathResolver(new BuildRuleResolver()),
         ImmutableSet.<Label>of(),
         Optional.of(Paths.get("separateTestStep3OutputDir")),
@@ -707,7 +727,7 @@ public class TestRunningTest {
             atomicExecutionOrder);
     BuildTarget parallelTest1Target = BuildTargetFactory.newInstance("//:paralleltest1");
     FakeTestRule parallelTest1 = new FakeTestRule(
-        BuildRuleParamsFactory.createTrivialBuildRuleParams(parallelTest1Target),
+        new FakeBuildRuleParamsBuilder(parallelTest1Target).build(),
         new SourcePathResolver(new BuildRuleResolver()),
         ImmutableSet.<Label>of(),
         Optional.of(Paths.get("parallelTestStep1OutputDir")),
@@ -728,7 +748,7 @@ public class TestRunningTest {
             atomicExecutionOrder);
     BuildTarget parallelTest2Target = BuildTargetFactory.newInstance("//:paralleltest2");
     FakeTestRule parallelTest2 = new FakeTestRule(
-        BuildRuleParamsFactory.createTrivialBuildRuleParams(parallelTest2Target),
+        new FakeBuildRuleParamsBuilder(parallelTest2Target).build(),
         new SourcePathResolver(new BuildRuleResolver()),
         ImmutableSet.<Label>of(),
         Optional.of(Paths.get("parallelTestStep2OutputDir")),
@@ -749,7 +769,7 @@ public class TestRunningTest {
             atomicExecutionOrder);
     BuildTarget parallelTest3Target = BuildTargetFactory.newInstance("//:paralleltest3");
     FakeTestRule parallelTest3 = new FakeTestRule(
-        BuildRuleParamsFactory.createTrivialBuildRuleParams(parallelTest3Target),
+        new FakeBuildRuleParamsBuilder(parallelTest3Target).build(),
         new SourcePathResolver(new BuildRuleResolver()),
         ImmutableSet.<Label>of(),
         Optional.of(Paths.get("parallelTestStep3OutputDir")),
@@ -795,9 +815,7 @@ public class TestRunningTest {
             .put(parallelTest2Target, new RuleKey("00"))
             .put(parallelTest3Target, new RuleKey("00"))
             .build());
-    ExecutionContext fakeExecutionContext = TestExecutionContext.newBuilder()
-        .setProjectFilesystem(new FakeProjectFilesystem())
-        .build();
+    ExecutionContext fakeExecutionContext = TestExecutionContext.newInstance();
     DefaultStepRunner stepRunner = new DefaultStepRunner(fakeExecutionContext);
     int ret = TestRunning.runTests(
         commandRunnerParams,
@@ -901,7 +919,7 @@ public class TestRunningTest {
                             null)))));
     BuildTarget failingTestTarget = BuildTargetFactory.newInstance("//:failingtest");
     FakeTestRule failingTest = new FakeTestRule(
-        BuildRuleParamsFactory.createTrivialBuildRuleParams(failingTestTarget),
+        new FakeBuildRuleParamsBuilder(failingTestTarget).build(),
         new SourcePathResolver(new BuildRuleResolver()),
         ImmutableSet.<Label>of(),
         Optional.of(Paths.get("failingTestStep1OutputDir")),
@@ -923,9 +941,7 @@ public class TestRunningTest {
         ImmutableMap.of(
             failingTestTarget, new RuleKey("00")
         ));
-    ExecutionContext fakeExecutionContext = TestExecutionContext.newBuilder()
-        .setProjectFilesystem(new FakeProjectFilesystem())
-        .build();
+    ExecutionContext fakeExecutionContext = TestExecutionContext.newInstance();
     DefaultStepRunner stepRunner = new DefaultStepRunner(fakeExecutionContext);
     int ret = TestRunning.runTests(
         commandRunnerParams,

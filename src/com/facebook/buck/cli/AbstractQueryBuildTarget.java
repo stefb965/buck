@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-present Facebook, Inc.
+ * Copyright 2015-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may
  * not use this file except in compliance with the License. You may obtain
@@ -14,21 +14,28 @@
  * under the License.
  */
 
-package com.facebook.buck.rules;
+package com.facebook.buck.cli;
 
 import com.facebook.buck.model.BuildTarget;
-import com.google.common.base.Preconditions;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 
-public class BuildRuleParamsFactory {
+import org.immutables.value.Value;
 
-  /** Utility class: do not instantiate. */
-  private BuildRuleParamsFactory() {}
+@BuckStyleImmutable
+@Value.Immutable
+abstract class AbstractQueryBuildTarget implements QueryTarget {
 
-  /**
-   * @return a {@link BuildRuleParams} with no deps or visibility patterns, and a pathRelativizer
-   *     that returns the parameter it receives verbatim.
-   */
-  public static BuildRuleParams createTrivialBuildRuleParams(BuildTarget buildTarget) {
-    return new FakeBuildRuleParamsBuilder(Preconditions.checkNotNull(buildTarget)).build();
+  @Value.Parameter
+  abstract BuildTarget getBuildTarget();
+
+  @Override
+  public int compareTo(QueryTarget other) {
+    return toString().compareTo(other.toString());
   }
+
+  @Override
+  public String toString() {
+    return getBuildTarget().toString();
+  }
+
 }

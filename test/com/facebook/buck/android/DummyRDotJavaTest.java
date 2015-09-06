@@ -20,8 +20,9 @@ import static com.facebook.buck.android.AndroidResource.BuildOutput;
 import static com.facebook.buck.java.JavaCompilationConstants.ANDROID_JAVAC_OPTIONS;
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.AbiRule;
+import com.facebook.buck.rules.keys.AbiRule;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -91,19 +92,20 @@ public class DummyRDotJavaTest {
         buildableContext);
     assertEquals("DummyRDotJava returns an incorrect number of Steps.", 6, steps.size());
 
+    ProjectFilesystem filesystem = dummyRDotJava.getProjectFilesystem();
     String rDotJavaSrcFolder = Paths.get("buck-out/bin/java/base/__rule_rdotjava_src__").toString();
     String rDotJavaBinFolder = Paths.get("buck-out/bin/java/base/__rule_rdotjava_bin__").toString();
     String rDotJavaAbiFolder = Paths.get(
         "buck-out/gen/java/base/__rule_dummyrdotjava_abi__").toString();
 
     List<String> expectedStepDescriptions = Lists.newArrayList(
-        makeCleanDirDescription(rDotJavaSrcFolder),
+        makeCleanDirDescription(filesystem.resolve(rDotJavaSrcFolder)),
         mergeAndroidResourcesDescription(
             ImmutableList.of(
                 (AndroidResource) resourceRule1,
                 (AndroidResource) resourceRule2)),
-        makeCleanDirDescription(rDotJavaBinFolder),
-        makeCleanDirDescription(rDotJavaAbiFolder),
+        makeCleanDirDescription(filesystem.resolve(rDotJavaBinFolder)),
+        makeCleanDirDescription(filesystem.resolve(rDotJavaAbiFolder)),
         javacInMemoryDescription(rDotJavaBinFolder, pathResolver),
         String.format("calculate_abi %s", rDotJavaBinFolder));
 
@@ -152,7 +154,7 @@ public class DummyRDotJavaTest {
         dummyRDotJava.initializeFromDisk(onDiskBuildInfo).rDotTxtSha1.getHash());
   }
 
-  private static String makeCleanDirDescription(String dirname) {
+  private static String makeCleanDirDescription(Path dirname) {
     return String.format("rm -r -f %s && mkdir -p %s", dirname, dirname);
   }
 

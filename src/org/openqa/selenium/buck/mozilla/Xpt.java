@@ -62,8 +62,8 @@ public class Xpt extends AbstractBuildRule {
     context.getEventBus().post(ConsoleEvent.warning("Defaulting to fallback for " + out));
     Path from = getResolver().getPath(fallback);
 
-    steps.add(new MkdirStep(out.getParent()));
-    steps.add(CopyStep.forFile(from, out));
+    steps.add(new MkdirStep(getProjectFilesystem(), out.getParent()));
+    steps.add(CopyStep.forFile(getProjectFilesystem(), from, out));
 
     buildableContext.recordArtifact(out);
 

@@ -42,6 +42,8 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
+import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -129,6 +131,10 @@ public class Genrule extends AbstractBuildRule implements HasOutputName {
   private final Path absolutePathToSrcDirectory;
   protected final Function<Path, Path> relativeToAbsolutePathFunction;
 
+  @SuppressWarnings("PMD.UnusedPrivateField")
+  @AddToRuleKey
+  private final Supplier<ImmutableList<Object>> macroRuleKeyAppendables;
+
   protected Genrule(
       BuildRuleParams params,
       SourcePathResolver resolver,
@@ -138,7 +144,8 @@ public class Genrule extends AbstractBuildRule implements HasOutputName {
       Optional<String> bash,
       Optional<String> cmdExe,
       String out,
-      final Function<Path, Path> relativeToAbsolutePathFunction) {
+      final Function<Path, Path> relativeToAbsolutePathFunction,
+      Supplier<ImmutableList<Object>> macroRuleKeyAppendables) {
     super(params, resolver);
     this.srcs = ImmutableList.copyOf(srcs);
     this.macroExpander = macroExpander;
@@ -183,6 +190,7 @@ public class Genrule extends AbstractBuildRule implements HasOutputName {
     this.absolutePathToSrcDirectory = relativeToAbsolutePathFunction.apply(pathToSrcDirectory);
 
     this.relativeToAbsolutePathFunction = relativeToAbsolutePathFunction;
+    this.macroRuleKeyAppendables = Suppliers.memoize(macroRuleKeyAppendables);
   }
 
   /** @return the absolute path to the output file */
@@ -297,18 +305,19 @@ public class Genrule extends AbstractBuildRule implements HasOutputName {
     // Delete the old output for this rule, if it exists.
     commands.add(
         new RmStep(
+            getProjectFilesystem(),
             getPathToOutput(),
             /* shouldForceDeletion */ true,
             /* shouldRecurse */ true));
 
     // Make sure that the directory to contain the output file exists. Rules get output to a
     // directory named after the base path, so we don't want to nuke the entire directory.
-    commands.add(new MkdirStep(pathToOutDirectory));
+    commands.add(new MkdirStep(getProjectFilesystem(), pathToOutDirectory));
 
     // Delete the old temp directory
-    commands.add(new MakeCleanDirectoryStep(pathToTmpDirectory));
+    commands.add(new MakeCleanDirectoryStep(getProjectFilesystem(), pathToTmpDirectory));
     // Create a directory to hold all the source files.
-    commands.add(new MakeCleanDirectoryStep(pathToSrcDirectory));
+    commands.add(new MakeCleanDirectoryStep(getProjectFilesystem(), pathToSrcDirectory));
 
     addSymlinkCommands(commands);
 
@@ -343,7 +352,8 @@ public class Genrule extends AbstractBuildRule implements HasOutputName {
       }
 
       Path destination = pathToSrcDirectory.resolve(localPath);
-      commands.add(new MkdirAndSymlinkFileStep(entry.getKey(), destination));
+      commands.add(
+          new MkdirAndSymlinkFileStep(getProjectFilesystem(), entry.getKey(), destination));
     }
   }
 

@@ -16,6 +16,7 @@
 
 package org.openqa.selenium.buck.file;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.java.Javac;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.SourcePath;
@@ -44,6 +45,7 @@ public class SrcZipAwareFileBundler {
   }
 
   public void copy(
+      ProjectFilesystem filesystem,
       SourcePathResolver resolver,
       ImmutableList.Builder<Step> steps,
       Path destinationDir,
@@ -56,7 +58,7 @@ public class SrcZipAwareFileBundler {
       Path resolved = resolver.getPath(sourcePath);
 
       if (resolved.toString().endsWith(Javac.SRC_ZIP)) {
-        steps.add(new UnzipStep(resolved, destinationDir));
+        steps.add(new UnzipStep(filesystem, resolved, destinationDir));
         continue;
       }
 
@@ -72,6 +74,6 @@ public class SrcZipAwareFileBundler {
       }
       links.put(destination, resolved);
     }
-    steps.add(new SymlinkTreeStep(destinationDir, links.build()));
+    steps.add(new SymlinkTreeStep(filesystem, destinationDir, links.build()));
   }
 }

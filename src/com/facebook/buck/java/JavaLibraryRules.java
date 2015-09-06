@@ -20,7 +20,7 @@ import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbiRule;
+import com.facebook.buck.rules.keys.AbiRule;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.OnDiskBuildInfo;
@@ -48,16 +48,19 @@ public class JavaLibraryRules {
   /** Utility class: do not instantiate. */
   private JavaLibraryRules() {}
 
-  static void addAccumulateClassNamesStep(JavaLibrary javaLibrary,
+  static void addAccumulateClassNamesStep(
+      JavaLibrary javaLibrary,
       BuildableContext buildableContext,
       ImmutableList.Builder<Step> steps) {
 
     Path pathToClassHashes = JavaLibraryRules.getPathToClassHashes(
         javaLibrary.getBuildTarget());
-    steps.add(new MkdirStep(pathToClassHashes.getParent()));
-    steps.add(new AccumulateClassNamesStep(
-        Optional.fromNullable(javaLibrary.getPathToOutput()),
-        pathToClassHashes));
+    steps.add(new MkdirStep(javaLibrary.getProjectFilesystem(), pathToClassHashes.getParent()));
+    steps.add(
+        new AccumulateClassNamesStep(
+            javaLibrary.getProjectFilesystem(),
+            Optional.fromNullable(javaLibrary.getPathToOutput()),
+            pathToClassHashes));
     buildableContext.recordArtifact(pathToClassHashes);
   }
 

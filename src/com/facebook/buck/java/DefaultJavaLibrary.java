@@ -27,7 +27,7 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.HasBuildTarget;
-import com.facebook.buck.rules.AbiRule;
+import com.facebook.buck.rules.keys.AbiRule;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
@@ -277,17 +277,17 @@ public class DefaultJavaLibrary extends AbstractBuildRule
       ImmutableList.Builder<Step> commands,
       BuildTarget target) {
     // Make sure that this directory exists because ABI information will be written here.
-    Step mkdir = new MakeCleanDirectoryStep(getPathToAbiOutputDir());
+    Step mkdir = new MakeCleanDirectoryStep(getProjectFilesystem(), getPathToAbiOutputDir());
     commands.add(mkdir);
 
     // Only run javac if there are .java files to compile.
     if (!getJavaSrcs().isEmpty()) {
       Path pathToSrcsList = BuildTargets.getGenPath(getBuildTarget(), "__%s__srcs");
-      commands.add(new MkdirStep(pathToSrcsList.getParent()));
+      commands.add(new MkdirStep(getProjectFilesystem(), pathToSrcsList.getParent()));
 
       Optional<Path> workingDirectory;
       Path scratchDir = BuildTargets.getGenPath(target, "lib__%s____working_directory");
-      commands.add(new MakeCleanDirectoryStep(scratchDir));
+      commands.add(new MakeCleanDirectoryStep(getProjectFilesystem(), scratchDir));
       workingDirectory = Optional.of(scratchDir);
 
       JavacStep javacStep = new JavacStep(
@@ -484,12 +484,6 @@ public class DefaultJavaLibrary extends AbstractBuildRule
           .build();
     }
 
-    ImmutableSetMultimap<JavaLibrary, Path> transitiveClasspathEntries =
-        ImmutableSetMultimap.<JavaLibrary, Path>builder()
-            .putAll(getTransitiveClasspathEntries())
-            .putAll(this, additionalClasspathEntries)
-            .build();
-
     ImmutableSetMultimap<JavaLibrary, Path> declaredClasspathEntries =
         ImmutableSetMultimap.<JavaLibrary, Path>builder()
             .putAll(getDeclaredClasspathEntries())
@@ -501,7 +495,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
         javacOptions.getAnnotationProcessingParams().getGeneratedSourceFolderName();
     if (annotationGenFolder != null) {
       MakeCleanDirectoryStep mkdirGeneratedSources =
-          new MakeCleanDirectoryStep(annotationGenFolder);
+          new MakeCleanDirectoryStep(getProjectFilesystem(), annotationGenFolder);
       steps.add(mkdirGeneratedSources);
       buildableContext.recordArtifact(annotationGenFolder);
     }
@@ -510,11 +504,11 @@ public class DefaultJavaLibrary extends AbstractBuildRule
     // might be resources that need to be copied there.
     BuildTarget target = getBuildTarget();
     Path outputDirectory = getClassesDir(target);
-    steps.add(new MakeCleanDirectoryStep(outputDirectory));
+    steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), outputDirectory));
 
     Optional<JavacStep.SuggestBuildRules> suggestBuildRule =
-        createSuggestBuildFunction(context,
-            transitiveClasspathEntries,
+        createSuggestBuildFunction(
+            context,
             declaredClasspathEntries,
             JAR_RESOLVER);
 
@@ -558,38 +552,41 @@ public class DefaultJavaLibrary extends AbstractBuildRule
     }
     steps.add(
         new CopyResourcesStep(
+            getProjectFilesystem(),
             getResolver(),
             target,
             resources,
             outputDirectory,
             finder));
 
-    steps.add(new MakeCleanDirectoryStep(getOutputJarDirPath(target)));
+    steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), getOutputJarDirPath(target)));
 
     Path abiJar = getOutputJarDirPath(target)
         .resolve(String.format("%s-abi.jar", target.getShortNameAndFlavorPostfix()));
-    steps.add(new MkdirStep(abiJar.getParent()));
+    steps.add(new MkdirStep(getProjectFilesystem(), abiJar.getParent()));
 
     if (outputJar.isPresent()) {
       Path output = outputJar.get();
 
-      steps.add(new JarDirectoryStep(
+      steps.add(
+          new JarDirectoryStep(
+              getProjectFilesystem(),
               output,
-          Collections.singleton(outputDirectory),
+              Collections.singleton(outputDirectory),
           /* mainClass */ null,
           /* manifestFile */ null));
       buildableContext.recordArtifact(output);
 
       // Calculate the ABI.
 
-      steps.add(new CalculateAbiStep(buildableContext, output, abiJar));
+      steps.add(new CalculateAbiStep(buildableContext, getProjectFilesystem(), output, abiJar));
     } else {
       Path scratch = BuildTargets.getScratchPath(
           target,
           String.format("%%s/%s-temp-abi.jar", target.getShortNameAndFlavorPostfix()));
-      steps.add(new MakeCleanDirectoryStep(scratch.getParent()));
-      steps.add(new TouchStep(scratch));
-      steps.add(new CalculateAbiStep(buildableContext, scratch, abiJar));
+      steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), scratch.getParent()));
+      steps.add(new TouchStep(getProjectFilesystem(), scratch));
+      steps.add(new CalculateAbiStep(buildableContext, getProjectFilesystem(), scratch, abiJar));
     }
 
     JavaLibraryRules.addAccumulateClassNamesStep(this, buildableContext, steps);
@@ -645,7 +642,6 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   @VisibleForTesting
   Optional<JavacStep.SuggestBuildRules> createSuggestBuildFunction(
       final BuildContext context,
-      final ImmutableSetMultimap<JavaLibrary, Path> transitiveClasspathEntries,
       final ImmutableSetMultimap<JavaLibrary, Path> declaredClasspathEntries,
       final JarResolver jarResolver) {
 
@@ -654,6 +650,13 @@ public class DefaultJavaLibrary extends AbstractBuildRule
             new Supplier<ImmutableList<JavaLibrary>>() {
               @Override
               public ImmutableList<JavaLibrary> get() {
+                ImmutableSetMultimap<JavaLibrary, Path> transitiveClasspathEntries =
+                    ImmutableSetMultimap.<JavaLibrary, Path>builder()
+                        .putAll(getTransitiveClasspathEntries())
+                        .putAll(
+                            DefaultJavaLibrary.this,
+                            DefaultJavaLibrary.this.additionalClasspathEntries)
+                        .build();
                 Set<JavaLibrary> transitiveNotDeclaredDeps = Sets.difference(
                     transitiveClasspathEntries.keySet(),
                     Sets.union(ImmutableSet.of(this), declaredClasspathEntries.keySet()));

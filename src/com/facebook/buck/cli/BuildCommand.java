@@ -19,7 +19,6 @@ package com.facebook.buck.cli;
 import com.facebook.buck.android.AndroidPlatformTarget;
 import com.facebook.buck.command.Build;
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
@@ -38,6 +37,7 @@ import com.facebook.buck.rules.CachingBuildEngine;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphToActionGraph;
+import com.facebook.buck.rules.keys.AbiRuleKeyBuilderFactory;
 import com.facebook.buck.rules.keys.DependencyFileRuleKeyBuilderFactory;
 import com.facebook.buck.rules.keys.InputBasedRuleKeyBuilderFactory;
 import com.facebook.buck.step.AdbOptions;
@@ -176,7 +176,6 @@ public class BuildCommand extends AbstractCommand {
   Build createBuild(
       BuckConfig buckConfig,
       ActionGraph graph,
-      ProjectFilesystem projectFilesystem,
       Supplier<AndroidPlatformTarget> androidPlatformTargetSupplier,
       BuildEngine buildEngine,
       ArtifactCache artifactCache,
@@ -195,7 +194,6 @@ public class BuildCommand extends AbstractCommand {
     return new Build(
         graph,
         targetDevice,
-        projectFilesystem,
         androidPlatformTargetSupplier,
         buildEngine,
         artifactCache,
@@ -290,13 +288,13 @@ public class BuildCommand extends AbstractCommand {
       buildTargets = ImmutableSet.of(explicitTarget);
     }
 
+    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
     try (CommandThreadManager pool = new CommandThreadManager(
         "Build",
         getConcurrencyLimit(params.getBuckConfig()));
          Build build = createBuild(
              params.getBuckConfig(),
              actionGraph,
-             params.getRepository().getFilesystem(),
              params.getAndroidPlatformTargetSupplier(),
              new CachingBuildEngine(
                  pool.getExecutor(),
@@ -305,10 +303,13 @@ public class BuildCommand extends AbstractCommand {
                  params.getBuckConfig().getBuildDepFiles(),
                  new InputBasedRuleKeyBuilderFactory(
                      params.getFileHashCache(),
-                     new SourcePathResolver(resolver)),
+                     pathResolver),
+                 new AbiRuleKeyBuilderFactory(
+                     params.getFileHashCache(),
+                     pathResolver),
                  new DependencyFileRuleKeyBuilderFactory(
                      params.getFileHashCache(),
-                     new SourcePathResolver(resolver))),
+                     pathResolver)),
              artifactCache,
              params.getConsole(),
              params.getBuckEventBus(),

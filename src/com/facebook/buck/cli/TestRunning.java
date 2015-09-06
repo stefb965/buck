@@ -16,11 +16,12 @@
 
 package com.facebook.buck.cli;
 
+import static com.facebook.buck.java.JUnitStep.JACOCO_OUTPUT_DIR;
+
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.java.DefaultJavaPackageFinder;
 import com.facebook.buck.java.GenerateCodeCoverageReportStep;
-import com.facebook.buck.java.JUnitStep;
 import com.facebook.buck.java.JavaLibrary;
 import com.facebook.buck.java.JavaTest;
 import com.facebook.buck.log.Logger;
@@ -135,8 +136,13 @@ public class TestRunning {
       rulesUnderTest = getRulesUnderTest(tests);
       if (!rulesUnderTest.isEmpty()) {
         try {
+          // We'll use the filesystem of the first rule under test. This will fail if there are any
+          // tests from a different repo, but it'll help us bootstrap ourselves to being able to
+          // support multiple repos
+          // TODO(user): Support tests in multiple repos
+          JavaLibrary library = rulesUnderTest.iterator().next();
           stepRunner.runStepForBuildTarget(
-              new MakeCleanDirectoryStep(JUnitStep.JACOCO_OUTPUT_DIR),
+              new MakeCleanDirectoryStep(library.getProjectFilesystem(), JACOCO_OUTPUT_DIR),
               Optional.<BuildTarget>absent());
         } catch (StepFailedException e) {
           params.getConsole().printBuildFailureWithoutStacktrace(e);
@@ -426,7 +432,7 @@ public class TestRunning {
                 rulesUnderTest,
                 defaultJavaPackageFinderOptional,
                 params.getRepository().getFilesystem(),
-                JUnitStep.JACOCO_OUTPUT_DIR,
+                JACOCO_OUTPUT_DIR,
                 options.getCoverageReportFormat(),
                 options.getCoverageReportTitle()),
             Optional.<BuildTarget>absent());
@@ -752,7 +758,7 @@ public class TestRunning {
     }
 
     return new GenerateCodeCoverageReportStep(
-        filesystem.getRootPath(),
+        filesystem,
         srcDirectories.build(),
         pathsToClasses.build(),
         outputDirectory,
@@ -789,41 +795,50 @@ public class TestRunning {
     Set<String> srcFolders = Sets.newHashSet();
     loopThroughSourcePath:
     for (Path javaSrcPath : javaSrcs) {
-      if (!MorePaths.isGeneratedFile(javaSrcPath)) {
-        // If the source path is already under a known source folder, then we can skip this
-        // source path.
-        for (String srcFolder : srcFolders) {
-          if (javaSrcPath.startsWith(srcFolder)) {
-            continue loopThroughSourcePath;
-          }
-        }
+      if (MorePaths.isGeneratedFile(javaSrcPath)) {
+        continue;
+      }
 
-        // If the source path is under one of the source roots, then we can just add the source
-        // root.
-        ImmutableSortedSet<String> pathsFromRoot = defaultJavaPackageFinder.getPathsFromRoot();
-        for (String root : pathsFromRoot) {
-          if (javaSrcPath.startsWith(root)) {
-            srcFolders.add(root);
-            continue loopThroughSourcePath;
-          }
-        }
-
-        // Traverse the file system from the parent directory of the java file until we hit the
-        // parent of the src root directory.
-        ImmutableSet<String> pathElements = defaultJavaPackageFinder.getPathElements();
-        Path directory = filesystem.getPathForRelativePath(javaSrcPath.getParent());
-        while (directory != null && !pathElements.contains(directory.getFileName().toString())) {
-          directory = directory.getParent();
-        }
-
-        if (directory != null) {
-          String directoryPath = directory.toString();
-          if (!directoryPath.endsWith("/")) {
-            directoryPath += "/";
-          }
-          srcFolders.add(directoryPath);
+      // If the source path is already under a known source folder, then we can skip this
+      // source path.
+      for (String srcFolder : srcFolders) {
+        if (javaSrcPath.startsWith(srcFolder)) {
+          continue loopThroughSourcePath;
         }
       }
+
+      // If the source path is under one of the source roots, then we can just add the source
+      // root.
+      ImmutableSortedSet<String> pathsFromRoot = defaultJavaPackageFinder.getPathsFromRoot();
+      for (String root : pathsFromRoot) {
+        if (javaSrcPath.startsWith(root)) {
+          srcFolders.add(root);
+          continue loopThroughSourcePath;
+        }
+      }
+
+      // Traverse the file system from the parent directory of the java file until we hit the
+      // parent of the src root directory.
+      ImmutableSet<String> pathElements = defaultJavaPackageFinder.getPathElements();
+      Path directory = filesystem.getPathForRelativePath(javaSrcPath.getParent());
+      if (pathElements.isEmpty()) {
+        continue;
+      }
+
+      while (directory != null && directory.getFileName() != null &&
+          !pathElements.contains(directory.getFileName().toString())) {
+        directory = directory.getParent();
+      }
+
+      if (directory == null || directory.getFileName() == null) {
+        continue;
+      }
+
+      String directoryPath = directory.toString();
+      if (!directoryPath.endsWith("/")) {
+        directoryPath += "/";
+      }
+      srcFolders.add(directoryPath);
     }
 
     return ImmutableSet.copyOf(srcFolders);

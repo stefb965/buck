@@ -39,7 +39,7 @@ import com.facebook.buck.java.abi.AbiWriterProtocol;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.AbiRule;
+import com.facebook.buck.rules.keys.AbiRule;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
@@ -679,7 +679,7 @@ public class DefaultJavaLibraryTest {
   }
 
   /**
-   * @see com.facebook.buck.rules.AbiRule#getAbiKeyForDeps()
+   * @see AbiRule#getAbiKeyForDeps()
    */
   @Test
   public void testGetAbiKeyForDepsInThePresenceOfExportedDeps() throws IOException {
@@ -1045,7 +1045,6 @@ public class DefaultJavaLibraryTest {
     Optional<JavacStep.SuggestBuildRules> suggestFn =
         ((DefaultJavaLibrary) grandparent).createSuggestBuildFunction(
             context,
-            transitive,
             /* declaredClasspathEntries */ ImmutableSetMultimap.<JavaLibrary, Path>of(),
             createJarResolver(classToSymbols));
 
@@ -1271,7 +1270,6 @@ public class DefaultJavaLibraryTest {
     return ImmutableBuildContext.builder()
         .setActionGraph(RuleMap.createGraphFromSingleRule(javaLibrary))
         .setStepRunner(EasyMock.createMock(StepRunner.class))
-        .setProjectFilesystem(projectFilesystem)
         .setClock(new DefaultClock())
         .setBuildId(new BuildId())
         .setArtifactCache(new NoopArtifactCache())
@@ -1355,7 +1353,6 @@ public class DefaultJavaLibraryTest {
       JavacStep javacCommand = lastJavacCommand(steps);
 
       executionContext = TestExecutionContext.newBuilder()
-          .setProjectFilesystem(projectFilesystem)
           .setConsole(new Console(Verbosity.SILENT, System.out, System.err, Ansi.withoutTty()))
           .setDebugEnabled(true)
           .build();

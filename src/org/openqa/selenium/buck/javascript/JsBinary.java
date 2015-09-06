@@ -162,9 +162,9 @@ public class JsBinary extends AbstractBuildRule implements
     StringWriter writer = new StringWriter();
     smidgen.writeTo(writer);
 
-    steps.add(new MkdirStep(joyPath.getParent()));
+    steps.add(new MkdirStep(getProjectFilesystem(), joyPath.getParent()));
     steps.add(new WriteFileStep(getProjectFilesystem(), writer.toString(), joyPath, false));
-    steps.add(new MkdirStep(output.getParent()));
+    steps.add(new MkdirStep(getProjectFilesystem(), output.getParent()));
     steps.add(compileStep);
 
     buildableContext.recordArtifact(output);

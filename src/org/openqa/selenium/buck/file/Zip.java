@@ -60,15 +60,16 @@ public class Zip extends AbstractBuildRule {
       BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
-    steps.add(new RmStep(output, true));
-    steps.add(new MkdirStep(output.getParent()));
-    steps.add(new MakeCleanDirectoryStep(scratchDir));
+    steps.add(new RmStep(getProjectFilesystem(), output, true));
+    steps.add(new MkdirStep(getProjectFilesystem(), output.getParent()));
+    steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), scratchDir));
 
     SrcZipAwareFileBundler bundler = new SrcZipAwareFileBundler(getBuildTarget());
-    bundler.copy(getResolver(), steps, scratchDir, sources, false);
+    bundler.copy(getProjectFilesystem(), getResolver(), steps, scratchDir, sources, false);
 
     steps.add(
         new ZipStep(
+            getProjectFilesystem(),
             output,
             ImmutableSortedSet.<Path>of(),
             /* junk paths */ false,

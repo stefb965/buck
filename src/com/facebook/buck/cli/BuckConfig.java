@@ -16,13 +16,13 @@
 
 package com.facebook.buck.cli;
 
-import com.facebook.buck.rules.HashedFileTool;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.java.DefaultJavaPackageFinder;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.Pair;
 import com.facebook.buck.parser.BuildTargetParseException;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.BuildTargetPatternParser;
@@ -33,6 +33,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CachingBuildEngine;
 import com.facebook.buck.rules.DirArtifactCache;
+import com.facebook.buck.rules.HashedFileTool;
 import com.facebook.buck.rules.HttpArtifactCache;
 import com.facebook.buck.rules.MultiArtifactCache;
 import com.facebook.buck.rules.NoopArtifactCache;
@@ -43,6 +44,7 @@ import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.AnsiEnvironmentChecking;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.util.network.HostnameFetching;
 import com.facebook.buck.util.unit.SizeUnit;
 import com.google.common.annotations.Beta;
 import com.google.common.annotations.VisibleForTesting;
@@ -62,11 +64,9 @@ import com.squareup.okhttp.Response;
 
 import java.io.IOException;
 import java.io.Reader;
-import java.net.InetAddress;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URL;
-import java.net.UnknownHostException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.LinkedHashMap;
@@ -235,20 +235,26 @@ public class BuckConfig {
   }
 
   @Nullable
-  public String getBuildTargetForAlias(String possiblyFlavoredAlias) {
-    String alias = possiblyFlavoredAlias;
-    int poundIdx = possiblyFlavoredAlias.indexOf('#');
-    if (poundIdx != -1) {
-      alias = possiblyFlavoredAlias.substring(0, poundIdx);
-    }
-
-    BuildTarget buildTarget = aliasToBuildTargetMap.get(alias);
+  public String getBuildTargetForAliasAsString(String possiblyFlavoredAlias) {
+    Pair<BuildTarget, Integer> buildTargetPoundIdx = getBuildTargetForAlias(possiblyFlavoredAlias);
+    BuildTarget buildTarget = buildTargetPoundIdx.getFirst();
+    int poundIdx = buildTargetPoundIdx.getSecond();
     if (buildTarget != null) {
       return buildTarget.getFullyQualifiedName() +
           (poundIdx == -1 ? "" : possiblyFlavoredAlias.substring(poundIdx));
     } else {
       return null;
     }
+  }
+
+  public Pair<BuildTarget, Integer> getBuildTargetForAlias(String possiblyFlavoredAlias) {
+    String alias = possiblyFlavoredAlias;
+    int poundIdx = possiblyFlavoredAlias.indexOf('#');
+    if (poundIdx != -1) {
+      alias = possiblyFlavoredAlias.substring(0, poundIdx);
+    }
+    BuildTarget buildTarget = aliasToBuildTargetMap.get(alias);
+    return new Pair<>(buildTarget, poundIdx);
   }
 
   public BuildTarget getBuildTargetForFullyQualifiedTarget(String target) {
@@ -588,8 +594,8 @@ public class BuckConfig {
 
   private String getLocalhost() {
     try {
-      return InetAddress.getLocalHost().getHostName();
-    } catch (UnknownHostException e) {
+      return HostnameFetching.getHostname();
+    } catch (IOException e) {
       return "<unknown>";
     }
   }
