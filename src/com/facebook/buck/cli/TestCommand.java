@@ -43,6 +43,7 @@ import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.step.TargetDevice;
 import com.facebook.buck.step.TargetDeviceOptions;
 import com.facebook.buck.test.CoverageReportFormat;
+import com.facebook.buck.test.TestRunningOptions;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.concurrent.ConcurrencyLimit;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
@@ -94,6 +95,11 @@ public class TestCommand extends BuildCommand {
   @Option(name = "--xml", usage = "Where to write test output as XML.")
   @Nullable
   private String pathToXmlTestOutput = null;
+
+  @Option(name = "--run-with-java-agent",
+      usage = "Whether the test will start a java profiling agent")
+  @Nullable
+  private String pathToJavaAgent = null;
 
   @Option(name = "--no-results-cache", usage = "Whether to use cached test results.")
   @Nullable
@@ -185,8 +191,8 @@ public class TestCommand extends BuildCommand {
     return targetDeviceOptions.getTargetDeviceOptional();
   }
 
-  public AdbOptions getAdbOptions() {
-    return adbOptions.getAdbOptions();
+  public AdbOptions getAdbOptions(BuckConfig buckConfig) {
+    return adbOptions.getAdbOptions(buckConfig);
   }
 
   public TargetDeviceOptions getTargetDeviceOptions() {
@@ -360,7 +366,7 @@ public class TestCommand extends BuildCommand {
           graph,
           params.getAndroidPlatformTargetSupplier(),
           cachingBuildEngine,
-          getArtifactCache(params),
+          params.getArtifactCache(),
           params.getConsole(),
           params.getBuckEventBus(),
           getTargetDeviceOptional(),
@@ -368,7 +374,7 @@ public class TestCommand extends BuildCommand {
           params.getEnvironment(),
           params.getObjectMapper(),
           params.getClock(),
-          Optional.of(getAdbOptions()),
+          Optional.of(getAdbOptions(params.getBuckConfig())),
           Optional.of(getTargetDeviceOptions()))) {
 
         // Build all of the test rules.
@@ -407,6 +413,7 @@ public class TestCommand extends BuildCommand {
               .setDryRun(isDryRun)
               .setShufflingTests(isShufflingTests)
               .setPathToXmlTestOutput(Optional.fromNullable(pathToXmlTestOutput))
+              .setPathToJavaAgent(Optional.fromNullable(pathToJavaAgent))
               .setCoverageReportFormat(coverageReportFormat)
               .setCoverageReportTitle(coverageReportTitle)
               .build();

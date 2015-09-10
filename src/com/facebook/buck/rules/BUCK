@@ -4,6 +4,9 @@ java_library(
     'Repository.java',
     'KnownBuildRuleTypes.java',
   ],
+  tests = [
+    '//test/com/facebook/buck/rules:rules',
+  ],
   deps = [
     ':build_rule',
     ':rules',
@@ -54,7 +57,22 @@ java_library(
     '//src/com/facebook/buck/cli:cli',
     '//src/com/facebook/buck/parser:parser',
     '//test/...',
-  ])
+  ],
+)
+
+java_library(
+  name = 'rule_key',
+  srcs = [
+    'RuleKey.java',
+  ],
+  deps = [
+    '//third-party/java/guava:guava',
+    '//third-party/java/jsr:jsr305',
+  ],
+  visibility = [
+    'PUBLIC',
+  ],
+)
 
 # Ideally, BuildRule.java would require only a handful of other source files
 # in order to compile it. Because BuildContext is referenced in the BuildRule
@@ -111,7 +129,6 @@ java_immutables_library(
     'ParamInfoException.java',
     'PathSourcePath.java',
     'RecordFileSha1Step.java',
-    'RuleKey.java',
     'RuleKeyAppendable.java',
     'RuleKeyBuilder.java',
     'RuleKeyBuilderFactory.java',
@@ -126,7 +143,12 @@ java_immutables_library(
     'TargetNodes.java',
     'Tool.java',
   ] + glob(["coercer/*.java"]),
+  tests = [
+    '//test/com/facebook/buck/rules/coercer:coercer',
+    '//test/com/facebook/buck/rules:rules',
+  ],
   deps = [
+    ':rule_key',
     '//src/com/facebook/buck/apple/xcode:xcode',
     '//src/com/facebook/buck/android:exceptions',
     '//src/com/facebook/buck/android:utils',
@@ -149,12 +171,15 @@ java_immutables_library(
     '//third-party/java/guava:guava',
     '//third-party/java/jsr:jsr305',
   ],
+  exported_deps = [
+    ':rule_key',
+  ],
   visibility = [
     'PUBLIC',
   ],
 )
 
-java_library(
+java_immutables_library(
   name = 'target_graph_to_action_graph',
   srcs = [
     'TargetGraphToActionGraph.java',
@@ -207,6 +232,9 @@ java_immutables_library(
     'TestRule.java',
     'TestRunEvent.java',
     'TestSummaryEvent.java',
+  ],
+  tests = [
+    '//test/com/facebook/buck/rules:rules',
   ],
   deps = [
     ':build_rule',

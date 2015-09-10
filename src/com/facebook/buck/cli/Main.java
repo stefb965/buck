@@ -46,6 +46,7 @@ import com.facebook.buck.model.BuildId;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.python.PythonBuckConfig;
+import com.facebook.buck.rules.ArtifactCache;
 import com.facebook.buck.rules.KnownBuildRuleTypes;
 import com.facebook.buck.rules.Repository;
 import com.facebook.buck.test.TestConfig;
@@ -136,8 +137,6 @@ public final class Main {
   private static final String BUCK_BUILD_ID_ENV_VAR = "BUCK_BUILD_ID";
 
   private static final String BUCKD_COLOR_DEFAULT_ENV_VAR = "BUCKD_COLOR_DEFAULT";
-
-  private static final int ARTIFACT_CACHE_TIMEOUT_IN_SECONDS = 15;
 
   private static final TimeSpan DAEMON_SLAYER_TIMEOUT = new TimeSpan(2, TimeUnit.HOURS);
 
@@ -626,13 +625,13 @@ public final class Main {
                 // multiple times in a single run.
                 new DefaultFileHashCache(new ProjectFilesystem(Paths.get("/")))));
 
-    @Nullable ArtifactCacheFactory artifactCacheFactory = null;
     Optional<WebServer> webServer = getWebServerIfDaemon(
         context,
         rootRepository,
         globHandler);
 
     TestConfig testConfig = new TestConfig(buckConfig);
+    ArtifactCacheBuckConfig cacheBuckConfig = new ArtifactCacheBuckConfig(buckConfig);
 
     // The order of resources in the try-with-resources block is important: the BuckEventBus must
     // be the last resource, so that it is closed first and can deliver its queued events to the
@@ -653,8 +652,12 @@ public final class Main {
                  webServer);
          TempDirectoryCreator tempDirectoryCreator =
              new TempDirectoryCreator(testTempDirOverride);
-         BuckEventBus buildEventBus = new BuckEventBus(clock, buildId)) {
-      artifactCacheFactory = new LoggingArtifactCacheFactory(executionEnvironment, buildEventBus);
+         BuckEventBus buildEventBus = new BuckEventBus(clock, buildId);
+         ArtifactCache artifactCache = ArtifactCaches.newInstance(
+             cacheBuckConfig,
+             buildEventBus,
+             filesystem,
+             executionEnvironment.getWifiSsid())) {
 
       eventListeners = addEventListeners(buildEventBus,
           rootRepository.getFilesystem(),
@@ -745,7 +748,7 @@ public final class Main {
               console,
               rootRepository,
               androidPlatformTargetSupplier,
-              artifactCacheFactory,
+              artifactCache,
               buildEventBus,
               parser,
               platform,
@@ -761,7 +764,6 @@ public final class Main {
       buildEventBus.post(CommandEvent.finished(startedEvent, exitCode));
     } catch (Throwable t) {
       LOG.debug(t, "Failing build on exception.");
-      closeCreatedArtifactCaches(artifactCacheFactory); // Close cache before exit on exception.
       flushEventListeners(console, buildId, eventListeners);
       throw t;
     } finally {
@@ -773,7 +775,6 @@ public final class Main {
       context.get().in.close(); // Avoid client exit triggering client disconnection handling.
       context.get().exit(exitCode); // Allow nailgun client to exit while outputting traces.
     }
-    closeCreatedArtifactCaches(artifactCacheFactory); // Wait for cache close after client exit.
     flushEventListeners(console, buildId, eventListeners);
     return exitCode;
   }
@@ -856,14 +857,6 @@ public final class Main {
       env = ImmutableMap.copyOf(System.getenv());
     }
     return EnvironmentFilter.filteredEnvironment(env, Platform.detect());
-  }
-
-  private static void closeCreatedArtifactCaches(
-      @Nullable ArtifactCacheFactory artifactCacheFactory)
-      throws InterruptedException {
-    if (null != artifactCacheFactory) {
-      artifactCacheFactory.closeCreatedArtifactCaches(ARTIFACT_CACHE_TIMEOUT_IN_SECONDS);
-    }
   }
 
   private Parser getParserFromDaemon(
@@ -961,6 +954,7 @@ public final class Main {
     }
   }
 
+  @SuppressWarnings("PMD.PrematureDeclaration")
   private ImmutableList<BuckEventListener> addEventListeners(
       BuckEventBus buckEvents,
       ProjectFilesystem projectFilesystem,
@@ -994,6 +988,7 @@ public final class Main {
     }
 
     loadListenersFromBuckConfig(eventListenersBuilder, projectFilesystem, config);
+    ArtifactCacheBuckConfig artifactCacheConfig = new ArtifactCacheBuckConfig(config);
 
 
     Optional<URI> remoteLogUrl = config.getRemoteLogUrl();
@@ -1009,7 +1004,7 @@ public final class Main {
               RemoteLoggerFactory.create(remoteLogUrl.get(), objectMapper),
               BuildEnvironmentDescription.of(
                   executionEnvironment,
-                  config.getArtifactCacheModes(),
+                  artifactCacheConfig.getArtifactCacheModesRaw(),
                   environmentExtraData)
           ));
     }

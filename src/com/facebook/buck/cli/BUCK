@@ -88,6 +88,10 @@ java_library(
 java_immutables_library(
   name = 'cli',
   srcs = glob(['*.java'], excludes = EVENTS_SRCS + CONFIG_SRCS + RAW_CONFIG_SRCS),
+  tests = [
+    '//test/com/facebook/buck/cli:cli',
+    '//test/com/facebook/buck/cli:cli-apple-integration',
+  ],
   deps = [
     ':config',
     ':events',
@@ -96,6 +100,7 @@ java_immutables_library(
     '//src/com/facebook/buck/android:packageable',
     '//src/com/facebook/buck/android:rules',
     '//src/com/facebook/buck/android:utils',
+    '//src/com/facebook/buck/apple/device:device',
     '//src/com/facebook/buck/apple/simulator:simulator',
     '//src/com/facebook/buck/apple:rules',
     '//src/com/facebook/buck/command:command',
@@ -167,6 +172,7 @@ java_immutables_library(
     '//third-party/java/jackson:jackson-datatype-jdk7',
     '//third-party/java/jsr:jsr305',
     '//third-party/java/nailgun:nailgun',
+    '//third-party/java/okhttp:okhttp',
   ],
   provided_deps = [
     # Event API is loaded by the bootstrapper at runtime; don't need to depend on it strongly
