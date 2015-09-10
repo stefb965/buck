@@ -206,12 +206,14 @@ public class KnownBuildRuleTypes {
       BuckConfig config,
       ProcessExecutor processExecutor,
       AndroidDirectoryResolver androidDirectoryResolver,
-      PythonEnvironment pythonEnv) throws InterruptedException, IOException {
+      PythonEnvironment pythonEnv,
+      Optional<Path> testTempDirOverride) throws InterruptedException, IOException {
     return createBuilder(
         config,
         processExecutor,
         androidDirectoryResolver,
-        pythonEnv).build();
+        pythonEnv,
+        testTempDirOverride).build();
   }
 
   private static void buildAppleCxxPlatforms(
@@ -266,7 +268,8 @@ public class KnownBuildRuleTypes {
       BuckConfig config,
       ProcessExecutor processExecutor,
       AndroidDirectoryResolver androidDirectoryResolver,
-      PythonEnvironment pythonEnv) throws InterruptedException, IOException {
+      PythonEnvironment pythonEnv,
+      Optional<Path> testTempDirOverride) throws InterruptedException, IOException {
 
     Platform platform = Platform.detect();
 
@@ -498,7 +501,8 @@ public class KnownBuildRuleTypes {
         new JavaTestDescription(
             defaultJavacOptions,
             testRuleTimeoutMs,
-            defaultCxxPlatform));
+            defaultCxxPlatform,
+            testTempDirOverride));
     builder.register(new KeystoreDescription());
     builder.register(new NdkLibraryDescription(ndkVersion, ndkCxxPlatforms));
     OCamlBuckConfig ocamlBuckConfig = new OCamlBuckConfig(platform, config);
@@ -522,7 +526,8 @@ public class KnownBuildRuleTypes {
     builder.register(new RobolectricTestDescription(
             androidBinaryOptions,
             testRuleTimeoutMs,
-            defaultCxxPlatform));
+            defaultCxxPlatform,
+            testTempDirOverride));
     builder.register(new RustBinaryDescription(rustBuckConfig));
     builder.register(new RustLibraryDescription(rustBuckConfig));
     builder.register(new ShBinaryDescription());

@@ -445,13 +445,14 @@ public class CxxLibraryDescription implements
         linkType,
         Optional.of(sharedLibrarySoname),
         sharedLibraryPath,
-        FluentIterable.from(objects.values())
-            .append(
-                FluentIterable.from(getExtraMacroBuildInputs(
-                        params.getBuildTarget(),
-                        ruleResolver,
-                        extraLdFlags))
-                    .transform(SourcePaths.getToBuildTargetSourcePath()))
+        objects.values(),
+        FluentIterable
+            .from(
+                getExtraMacroBuildInputs(
+                    params.getBuildTarget(),
+                    ruleResolver,
+                    extraLdFlags))
+            .transform(SourcePaths.getToBuildTargetSourcePath())
             .toList(),
         linkableDepType,
         params.getDeps(),
@@ -878,8 +879,8 @@ public class CxxLibraryDescription implements
       BuildRuleParams typeParams =
           params.copyWithChanges(
               target,
-              Suppliers.ofInstance(params.getDeclaredDeps()),
-              Suppliers.ofInstance(params.getExtraDeps()));
+              params.getDeclaredDeps(),
+              params.getExtraDeps());
       if (type.get().getValue().equals(Type.HEADERS)) {
         return createHeaderSymlinkTreeBuildRule(
             typeParams,
@@ -1058,6 +1059,7 @@ public class CxxLibraryDescription implements
         exportedLangPreprocessorFlags;
     public Optional<ImmutableList<String>> exportedLinkerFlags;
     public Optional<PatternMatchedCollection<ImmutableList<String>>> exportedPlatformLinkerFlags;
+    public Optional<ImmutableSortedSet<BuildTarget>> exportedDeps;
     public Optional<Pattern> supportedPlatformsRegex;
     public Optional<String> soname;
     public Optional<Boolean> forceStatic;

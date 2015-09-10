@@ -887,6 +887,7 @@ public class CxxDescriptionEnhancer {
             Optional.<String>absent(),
             output,
             objects.values(),
+            /* extraInputs */ ImmutableList.<SourcePath>of(),
             linkStyle,
             params.getDeps(),
             args.cxxRuntimeType,
@@ -916,8 +917,8 @@ public class CxxDescriptionEnhancer {
         targetGraph,
         params.copyWithChanges(
             target,
-            Suppliers.ofInstance(params.getDeclaredDeps()),
-            Suppliers.ofInstance(params.getExtraDeps())),
+            params.getDeclaredDeps(),
+            params.getExtraDeps()),
         ruleResolver,
         args);
   }

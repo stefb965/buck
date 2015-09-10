@@ -48,14 +48,17 @@ public class RobolectricTestDescription implements Description<RobolectricTestDe
   private final JavacOptions templateOptions;
   private final Optional<Long> testRuleTimeoutMs;
   private final CxxPlatform cxxPlatform;
+  private final Optional<Path> testTempDirOverride;
 
   public RobolectricTestDescription(
       JavacOptions templateOptions,
       Optional<Long> testRuleTimeoutMs,
-      CxxPlatform cxxPlatform) {
+      CxxPlatform cxxPlatform,
+      Optional<Path> testTempDirOverride) {
     this.templateOptions = templateOptions;
     this.testRuleTimeoutMs = testRuleTimeoutMs;
     this.cxxPlatform = cxxPlatform;
+    this.testTempDirOverride = testTempDirOverride;
   }
 
   @Override
@@ -104,7 +107,7 @@ public class RobolectricTestDescription implements Description<RobolectricTestDe
     if (dummyRDotJava.isPresent()) {
       additionalClasspathEntries = ImmutableSet.of(dummyRDotJava.get().getRDotJavaBinFolder());
       ImmutableSortedSet<BuildRule> newExtraDeps = ImmutableSortedSet.<BuildRule>naturalOrder()
-          .addAll(params.getExtraDeps())
+          .addAll(params.getExtraDeps().get())
           .add(dummyRDotJava.get())
           .build();
       params = params.copyWithExtraDeps(Suppliers.ofInstance(newExtraDeps));
@@ -124,7 +127,7 @@ public class RobolectricTestDescription implements Description<RobolectricTestDe
             Iterables.concat(
                 BuildRules.getExportedRules(
                     Iterables.concat(
-                        params.getDeclaredDeps(),
+                        params.getDeclaredDeps().get(),
                         resolver.getAllRules(args.providedDeps.get()))),
                 pathResolver.filterBuildRuleInputs(
                     javacOptions.getInputs(pathResolver)))),
@@ -150,7 +153,8 @@ public class RobolectricTestDescription implements Description<RobolectricTestDe
         testRuleTimeoutMs,
         args.getRunTestSeparately(),
         args.stdOutLogLevel,
-        args.stdErrLogLevel);
+        args.stdErrLogLevel,
+        testTempDirOverride);
   }
 
   @SuppressFieldNotInitialized
