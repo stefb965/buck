@@ -16,6 +16,7 @@
 
 package com.facebook.buck.cli;
 
+import com.facebook.buck.graph.Dot;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.parser.ParserConfig;
@@ -47,6 +48,17 @@ public class QueryCommand extends AbstractCommand {
 
   private static final Logger LOG = Logger.get(QueryCommand.class);
 
+  /**
+   * Example usage:
+   * <pre>
+   * buck query "allpaths('//path/to:target', '//path/to:other')" --dot > /tmp/graph.dot
+   * dot -Tpng /tmp/graph.dot -o /tmp/graph.png
+   * </pre>
+   */
+  @Option(name = "--dot",
+      usage = "Print result as Dot graph")
+  private boolean generateDotOutput;
+
   @Option(name = "--json",
       usage = "Output in JSON format")
   private boolean generateJsonOutput;
@@ -59,6 +71,10 @@ public class QueryCommand extends AbstractCommand {
 
   public boolean shouldGenerateJsonOutput() {
     return generateJsonOutput;
+  }
+
+  public boolean shouldGenerateDotOutput() {
+    return generateDotOutput;
   }
 
   public boolean shouldOutputAttributes() {
@@ -88,11 +104,28 @@ public class QueryCommand extends AbstractCommand {
     Set<QueryEnvironment.Setting> settings = new HashSet<>();
     BuckQueryEnvironment env = new BuckQueryEnvironment(params, settings, getEnableProfiling());
 
-    String queryFormat = arguments.remove(0);
-    if (queryFormat.contains("%s")) {
-      return runMultipleQuery(params, env, queryFormat, arguments, shouldGenerateJsonOutput());
-    } else {
-      return runSingleQuery(params, env, queryFormat);
+    try {
+      String queryFormat = arguments.remove(0);
+      if (queryFormat.contains("%s")) {
+        return runMultipleQuery(params, env, queryFormat, arguments, shouldGenerateJsonOutput());
+      } else {
+        return runSingleQuery(params, env, queryFormat);
+      }
+    } catch (RuntimeException e) {
+      if (e.getCause() instanceof InterruptedException) {
+        throw (InterruptedException) e.getCause();
+      }
+      if (e.getCause() instanceof QueryException) {
+        params.getConsole().printBuildFailureWithoutStacktrace(e);
+        return 1;
+      }
+      throw e;
+    } catch (QueryException e) {
+      if (e.getCause() instanceof InterruptedException) {
+        throw (InterruptedException) e.getCause();
+      }
+      params.getConsole().printBuildFailureWithoutStacktrace(e);
+      return 1;
     }
   }
 
@@ -106,66 +139,70 @@ public class QueryCommand extends AbstractCommand {
       String queryFormat,
       List<String> inputsFormattedAsBuildTargets,
       boolean generateJsonOutput)
-      throws IOException, InterruptedException {
+      throws IOException, InterruptedException, QueryException {
     if (inputsFormattedAsBuildTargets.isEmpty()) {
       params.getConsole().printBuildFailure(
           "Specify one or more input targets after the query expression format");
       return 1;
     }
 
-    try {
-      TreeMultimap<String, QueryTarget> queryResultMap = TreeMultimap.create();
+    TreeMultimap<String, QueryTarget> queryResultMap = TreeMultimap.create();
 
-      for (String input : inputsFormattedAsBuildTargets) {
-        String query = queryFormat.replace("%s", input);
-        Set<QueryTarget> queryResult = env.evaluateQuery(query);
-        queryResultMap.putAll(input, queryResult);
-      }
+    for (String input : inputsFormattedAsBuildTargets) {
+      String query = queryFormat.replace("%s", input);
+      Set<QueryTarget> queryResult = env.evaluateQuery(query);
+      queryResultMap.putAll(input, queryResult);
+    }
 
-      LOG.debug("Printing out the following targets: " + queryResultMap);
-      if (generateJsonOutput) {
-        CommandHelper.printJSON(params, queryResultMap);
-      } else {
-        CommandHelper.printToConsole(params, queryResultMap);
-      }
-    } catch (QueryException e) {
-      if (e.getCause() instanceof InterruptedException) {
-        throw (InterruptedException) e.getCause();
-      }
-      params.getConsole().printBuildFailureWithoutStacktrace(e);
-      return 1;
+    LOG.debug("Printing out the following targets: " + queryResultMap);
+    if (generateJsonOutput) {
+      CommandHelper.printJSON(params, queryResultMap);
+    } else {
+      CommandHelper.printToConsole(params, queryResultMap);
     }
     return 0;
   }
 
   int runSingleQuery(CommandRunnerParams params, BuckQueryEnvironment env, String query)
-      throws IOException, InterruptedException {
-    try {
-      Set<QueryTarget> queryResult = env.evaluateQuery(query);
+      throws IOException, InterruptedException, QueryException {
+    Set<QueryTarget> queryResult = env.evaluateQuery(query);
 
-      LOG.debug("Printing out the following targets: " + queryResult);
-      if (shouldOutputAttributes()) {
-        collectAndPrintAttributes(params, env, queryResult);
-      } else if (shouldGenerateJsonOutput()) {
-        CommandHelper.printJSON(params, queryResult);
-      } else {
-        CommandHelper.printToConsole(params, queryResult);
-      }
-    } catch (QueryException e) {
-      if (e.getCause() instanceof InterruptedException) {
-        throw (InterruptedException) e.getCause();
-      }
-      params.getConsole().printBuildFailureWithoutStacktrace(e);
-      return 1;
+    LOG.debug("Printing out the following targets: " + queryResult);
+    if (shouldOutputAttributes()) {
+      collectAndPrintAttributes(params, env, queryResult);
+    } else if (shouldGenerateDotOutput()) {
+      printDotOutput(params, env, queryResult);
+    } else if (shouldGenerateJsonOutput()) {
+      CommandHelper.printJSON(params, queryResult);
+    } else {
+      CommandHelper.printToConsole(params, queryResult);
     }
     return 0;
+  }
+
+  private void printDotOutput(
+      CommandRunnerParams params,
+      BuckQueryEnvironment env,
+      Set<QueryTarget> queryResult)
+      throws IOException, QueryException, InterruptedException {
+    Dot.writeSubgraphOutput(
+        env.getTargetGraph(),
+        "result_graph",
+        env.getNodesFromQueryTargets(queryResult),
+        new Function<TargetNode<?>, String>() {
+          @Override
+          public String apply(TargetNode<?> targetNode) {
+            return "\"" + targetNode.getBuildTarget().getFullyQualifiedName() + "\"";
+          }
+        },
+        params.getConsole().getStdOut());
   }
 
   private void collectAndPrintAttributes(
       CommandRunnerParams params,
       BuckQueryEnvironment env,
       Set<QueryTarget> queryResult)
-      throws InterruptedException, IOException {
+      throws InterruptedException, IOException, QueryException {
     ParserConfig parserConfig = new ParserConfig(params.getBuckConfig());
     SortedMap<String, SortedMap<String, Object>> result = Maps.newTreeMap();
     for (QueryTarget target : queryResult) {
@@ -175,7 +212,7 @@ public class QueryCommand extends AbstractCommand {
       TargetNode<?> node = env.getNode(target);
       try {
         SortedMap<String, Object> sortedTargetRule =
-            TargetsCommand.getBuildTargetRules(params, parserConfig, node);
+            CommandHelper.getBuildTargetRules(params, parserConfig, node);
         if (sortedTargetRule == null) {
           params.getConsole().printErrorText(
               "unable to find rule for target " + node.getBuildTarget().getFullyQualifiedName());

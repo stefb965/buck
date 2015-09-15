@@ -16,6 +16,10 @@
 
 package com.facebook.buck.rules;
 
+import com.facebook.buck.artifact_cache.ArtifactCache;
+import com.facebook.buck.artifact_cache.ArtifactCacheEvent;
+import com.facebook.buck.artifact_cache.CacheResult;
+import com.facebook.buck.artifact_cache.CacheResultType;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.ThrowableConsoleEvent;
 import com.facebook.buck.io.MoreFiles;
@@ -319,7 +323,7 @@ public class CachingBuildEngine implements BuildEngine {
                     BuildResult.success(
                         rule,
                         BuildRuleSuccessType.MATCHING_ABI_RULE_KEY,
-                        AbstractCacheResult.localKeyUnchangedHit()));
+                        CacheResult.localKeyUnchangedHit()));
               }
             }
 
@@ -721,10 +725,15 @@ public class CachingBuildEngine implements BuildEngine {
               new Callable<ImmutableSortedSet<BuildRule>>() {
                 @Override
                 public ImmutableSortedSet<BuildRule> call() throws Exception {
-                  return rule.getDeps();
+                  ImmutableSortedSet.Builder<BuildRule> deps = ImmutableSortedSet.naturalOrder();
+                  deps.addAll(rule.getDeps());
+                  if (rule instanceof HasRuntimeDeps) {
+                    deps.addAll(((HasRuntimeDeps) rule).getRuntimeDeps());
+                  }
+                  return deps.build();
                 }
               });
-
+      ruleDeps.put(rule.getBuildTarget(), deps);
     }
     return deps;
   }
@@ -859,7 +868,7 @@ public class CachingBuildEngine implements BuildEngine {
       // around for debugging purposes.
       Files.delete(zipFile);
 
-      if (cacheResult.getType() == CacheResult.Type.HIT) {
+      if (cacheResult.getType() == CacheResultType.HIT) {
 
         // If we have a hit, also write out the build metadata.
         Path metadataDir = BuildInfo.getPathToMetadataDirectory(rule.getBuildTarget());

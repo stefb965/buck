@@ -402,11 +402,12 @@ public class QueryCommandIntegrationTest {
 
     ProjectWorkspace.ProcessResult result = workspace.runBuckCommand(
         "query",
-        "labels('tests', '//example:four') + labels('srcs', '//example:five') - '//example:six'");
+        "labels('tests', '//example:four') + labels('srcs', '//example:five') " +
+            "+ labels('exported_headers', '//example:six') - '//example:six'");
     result.assertSuccess();
     assertThat(
         result.getStdout(),
-        is(equalTo(workspace.getFileContents("stdout-one-five-except-six-sources-tests"))));
+        is(equalTo(workspace.getFileContents("stdout-one-five-except-six-src-test-exp-header"))));
   }
 
   @Test
@@ -442,6 +443,101 @@ public class QueryCommandIntegrationTest {
     assertThat(
         parseJSON(result.getStdout()),
         is(equalTo(parseJSON(workspace.getFileContents("stdout-name-deps-multi-attr-out.json")))));
+  }
+
+  @Test
+  public void testResolveAliasOutputAttributes() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "query_command", tmp);
+    workspace.setUp();
+
+    ProjectWorkspace.ProcessResult result = workspace.runBuckCommand(
+        "query",
+        "testsof(app)",
+        "--output-attributes",
+        "name",
+        "buck.type");
+    result.assertSuccess();
+    assertThat(
+        parseJSON(result.getStdout()),
+        is(equalTo(parseJSON(workspace.getFileContents("stdout-seven-alias-testsof-attrs.json")))));
+  }
+
+  @Test
+  public void testFilterFour() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "query_command", tmp);
+    workspace.setUp();
+
+    ProjectWorkspace.ProcessResult result = workspace.runBuckCommand(
+        "query",
+        "filter('four', '//example/...')");
+    result.assertSuccess();
+    assertThat(result.getStdout(), is(equalTo(workspace.getFileContents("stdout-filter-four"))));
+  }
+
+  @Test
+  public void testAllPathsDepsOneToFour() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "query_command", tmp);
+    workspace.setUp();
+
+    ProjectWorkspace.ProcessResult result = workspace.runBuckCommand(
+        "query",
+        "allpaths(//example:one, //example:four)",
+        "--output-attributes",
+        "deps");
+    result.assertSuccess();
+    assertThat(
+        parseJSON(result.getStdout()),
+        is(equalTo(parseJSON(workspace.getFileContents("stdout-allpaths-one-four.json")))));
+  }
+
+  @Test
+  public void testAllPathsDepsOneToFiveSix() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "query_command", tmp);
+    workspace.setUp();
+
+    ProjectWorkspace.ProcessResult result = workspace.runBuckCommand(
+        "query",
+        "--dot",
+        "allpaths(deps(//example:one, 1), set(//example:five //example:six))");
+    result.assertSuccess();
+    assertThat(
+        result.getStdout(),
+        is(equalTo(workspace.getFileContents("stdout-allpaths-deps-one-to-five-six.dot"))));
+  }
+
+  @Test
+  public void testFilterAttrTests() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "query_command", tmp);
+    workspace.setUp();
+
+    ProjectWorkspace.ProcessResult result = workspace.runBuckCommand(
+        "query",
+        "attrfilter(tests, '//example:four-tests', '//example/...')");
+    result.assertSuccess();
+    assertThat(result.getStdout(), is(equalTo("//example:four\n")));
+  }
+
+  @Test
+  public void testFilterAttrOutputAttributesTests() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "query_command", tmp);
+    workspace.setUp();
+
+    ProjectWorkspace.ProcessResult result = workspace.runBuckCommand(
+        "query",
+        "attrfilter(labels, 'e2e', '//example/...')",
+        "--output-attributes",
+        "buck.type",
+        "srcs");
+    result.assertSuccess();
+    assertThat(
+        parseJSON(result.getStdout()),
+        is(equalTo(parseJSON(workspace.getFileContents("stdout-attr-e2e-filter.json")))));
   }
 
 }

@@ -16,26 +16,23 @@
 
 package com.facebook.buck.cli;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.devtools.build.lib.query2.engine.QueryEnvironment;
 import com.google.devtools.build.lib.query2.engine.QueryEnvironment.Argument;
 import com.google.devtools.build.lib.query2.engine.QueryEnvironment.ArgumentType;
-import com.google.devtools.build.lib.query2.engine.QueryEnvironment.QueryFunction;
 import com.google.devtools.build.lib.query2.engine.QueryException;
 import com.google.devtools.build.lib.query2.engine.QueryExpression;
 
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
-import java.util.regex.Pattern;
 
 /**
- * A kind(pattern, argument) filter expression, which computes the set of subset
- * of nodes in 'argument' whose kind matches the unanchored regexp 'pattern'.
+ * A kind(pattern, argument) filter expression, which computes the subset
+ * of nodes in 'argument' whose kind matches the unanchored regex 'pattern'.
  *
  * <pre>expr ::= KIND '(' WORD ',' expr ')'</pre>
  */
-public class QueryKindFunction implements QueryFunction {
+public class QueryKindFunction extends QueryRegexFilterFunction {
 
   private static final ImmutableList<ArgumentType> ARGUMENT_TYPES =
       ImmutableList.of(ArgumentType.WORD, ArgumentType.EXPRESSION);
@@ -54,37 +51,25 @@ public class QueryKindFunction implements QueryFunction {
   }
 
   @Override
-  public List<ArgumentType> getArgumentTypes() {
+  public ImmutableList<ArgumentType> getArgumentTypes() {
     return ARGUMENT_TYPES;
   }
 
   @Override
-  public <T> Set<T> eval(QueryEnvironment<T> env, QueryExpression expression, List<Argument> args)
+  protected QueryExpression getExpressionToEval(List<Argument> args) {
+    return args.get(1).getExpression();
+  }
+
+  @Override
+  protected String getPattern(List<Argument> args) {
+    return args.get(0).getWord();
+  }
+
+  @Override
+  protected <T> String getStringToFilter(QueryEnvironment<T> env, List<Argument> args, T target)
       throws QueryException, InterruptedException {
-    // Casts are made in order to keep Bazel's structure for evaluating queries unchanged.
-    if (!(env instanceof BuckQueryEnvironment)) {
-      throw new QueryException("The environment should be an instance of BuckQueryEnvironment");
-    }
-
-    Pattern compiledPattern;
-    String pattern = args.get(0).getWord();
-    try {
-      compiledPattern = Pattern.compile(pattern);
-    } catch (IllegalArgumentException e) {
-      throw new QueryException(
-          expression,
-          String.format("Illegal pattern regexp '%s': %s", pattern, e.getMessage()));
-    }
-
+    Preconditions.checkState(env instanceof BuckQueryEnvironment && target instanceof QueryTarget);
     BuckQueryEnvironment buckEnv = (BuckQueryEnvironment) env;
-    QueryExpression argument = args.get(args.size() - 1).getExpression();
-
-    Set<T> result = new LinkedHashSet<>();
-    for (T target : argument.eval(env)) {
-      if (compiledPattern.matcher(buckEnv.getTargetKind((QueryTarget) target)).find()) {
-        result.add(target);
-      }
-    }
-    return result;
+    return buckEnv.getTargetKind((QueryTarget) target);
   }
 }

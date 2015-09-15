@@ -28,10 +28,10 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.python.PythonBuckConfig;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Objects;
 import java.util.regex.Pattern;
@@ -42,7 +42,6 @@ import java.util.regex.Pattern;
  */
 public class Repository {
 
-  private final Optional<String> name;
   private final ProjectFilesystem filesystem;
   private final Watchman watchman;
   private final BuckConfig config;
@@ -54,18 +53,15 @@ public class Repository {
   private final ImmutableSet<Pattern> tempFilePatterns;
 
   public Repository(
-      Optional<String> name,
       ProjectFilesystem filesystem,
       Watchman watchman,
       BuckConfig config,
-      KnownBuildRuleTypes knownBuildRuleTypes,
-      AndroidDirectoryResolver directoryResolver) {
+      KnownBuildRuleTypesFactory knownBuildRuleTypesFactory,
+      AndroidDirectoryResolver directoryResolver) throws IOException, InterruptedException {
 
-    this.name = name;
     this.filesystem = filesystem;
     this.watchman = watchman;
     this.config = config;
-    this.knownBuildRuleTypes = knownBuildRuleTypes;
     this.directoryResolver = directoryResolver;
 
     ParserConfig parserConfig = new ParserConfig(config);
@@ -75,10 +71,8 @@ public class Repository {
 
     PythonBuckConfig pythonConfig = new PythonBuckConfig(config, new ExecutableFinder());
     this.pythonInterpreter = pythonConfig.getPythonInterpreter();
-  }
 
-  public Optional<String> getName() {
-    return name;
+    this.knownBuildRuleTypes = knownBuildRuleTypesFactory.create(config);
   }
 
   public ProjectFilesystem getFilesystem() {
@@ -91,11 +85,6 @@ public class Repository {
 
   public BuckConfig getBuckConfig() {
     return config;
-  }
-
-  // TODO(jacko): This is a hack to avoid breaking the build. Get rid of it.
-  public AndroidDirectoryResolver getAndroidDirectoryResolver() {
-    return directoryResolver;
   }
 
   public String getBuildFileName() {
@@ -122,10 +111,8 @@ public class Repository {
   public Path getAbsolutePathToBuildFile(BuildTarget target)
       throws MissingBuildFileException {
     Preconditions.checkArgument(
-        target.getRepository().equals(getName()),
-        "Target %s is not from this repository %s.",
-        target,
-        getName());
+        !target.getRepository().isPresent(),
+        "Target %s is not from this repository.", target);
     Path relativePath = target.getBasePath().resolve(
         new ParserConfig(getBuckConfig()).getBuildFileName());
     if (!getFilesystem().isFile(relativePath)) {

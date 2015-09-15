@@ -25,32 +25,26 @@ import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.json.ProjectBuildFileParserFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.testutil.TestConsole;
+import com.facebook.buck.util.ProcessExecutor;
 import com.google.common.base.Optional;
 
 import java.io.IOException;
+import java.nio.file.Path;
 
 import javax.annotation.Nullable;
 
 public class TestRepositoryBuilder {
-  private Optional<String> name;
   private ProjectFilesystem filesystem;
-  private KnownBuildRuleTypes buildRuleTypes;
   private BuckConfig buckConfig;
   private AndroidDirectoryResolver androidDirectoryResolver;
   @Nullable
   private ProjectBuildFileParserFactory parserFactory;
 
   public TestRepositoryBuilder() throws InterruptedException, IOException {
-    name = Optional.absent();
     filesystem = new FakeProjectFilesystem();
-    buildRuleTypes = DefaultKnownBuildRuleTypes.getDefaultKnownBuildRuleTypes(filesystem);
     buckConfig = new FakeBuckConfig();
     androidDirectoryResolver = new FakeAndroidDirectoryResolver();
-  }
-
-  public TestRepositoryBuilder setName(String name) {
-    this.name = Optional.of(name);
-    return this;
   }
 
   public TestRepositoryBuilder setFilesystem(ProjectFilesystem filesystem) {
@@ -73,23 +67,28 @@ public class TestRepositoryBuilder {
     return this;
   }
 
-  public Repository build() {
+  public Repository build() throws IOException, InterruptedException {
+    ProcessExecutor executor = new ProcessExecutor(new TestConsole());
+
+    KnownBuildRuleTypesFactory typesFactory = new KnownBuildRuleTypesFactory(
+        executor,
+        androidDirectoryResolver,
+        Optional.<Path>absent());
+
     if (parserFactory == null) {
       return new Repository(
-          name,
           filesystem,
           NULL_WATCHMAN,
           buckConfig,
-          buildRuleTypes,
+          typesFactory,
           androidDirectoryResolver);
     }
 
     return new Repository(
-        name,
         filesystem,
         NULL_WATCHMAN,
         buckConfig,
-        buildRuleTypes,
+        typesFactory,
         androidDirectoryResolver) {
       @Override
       public ProjectBuildFileParserFactory createBuildFileParserFactory(boolean useWatchmanGlob) {

@@ -17,6 +17,7 @@
 package com.facebook.buck.apple;
 
 import com.facebook.buck.cli.BuckConfig;
+import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.util.ProcessExecutor;
@@ -160,7 +161,7 @@ public class AppleConfig {
         if (allValidIdentities.isEmpty()) {
           LOG.warn("No valid code signing identities found.  Device build/install won't work.");
         } else if (allValidIdentities.size() > 1) {
-          LOG.warn(
+          LOG.info(
               "More than 1 valid identity found.  This could potentially  cause the wrong one to" +
                   " be used unless explicitly specified via CODE_SIGN_IDENTITY.");
         }
@@ -217,7 +218,8 @@ public class AppleConfig {
   }
 
   public Optional<Path> getXctoolPath() {
-    return getOptionalPath("apple", "xctool_path");
+    Path xctool = getOptionalPath("apple", "xctool_path").or(Paths.get("xctool"));
+    return new ExecutableFinder().getOptionalExecutable(xctool, delegate.getEnvironment());
   }
 
   public Optional<BuildTarget> getXctoolZipTarget() {

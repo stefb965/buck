@@ -189,6 +189,15 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
             'd_library',
             'd_test',
         ],
+        'ios': [
+            'apple_asset_catalog',
+            'apple_binary',
+            'apple_bundle',
+            'apple_library',
+            'apple_package',
+            'apple_resource',
+            'apple_test',
+        ],
         'java': [
             'cxx_library',
             'java_binary',
@@ -210,9 +219,9 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
     ] /}
   <h3>Getting Started</h3>
   <ul>
-    <li><a href="{ROOT}">Overview</a>
-    <li><a href="{ROOT}setup/quick_start.html">Quick Start</a>
+    <li><a href="{ROOT}about/overview.html">Overview</a>
     <li><a href="{ROOT}setup/install.html">Downloading and Installing Buck</a>
+    <li><a href="{ROOT}setup/quick_start.html">Quick Start</a>
     <li><a href="{ROOT}article/exopackage.html">Exopackage</a>
   </ul>
   <h3>About</h3>
@@ -257,6 +266,10 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
         {param rules: $platformRulesMap['d'] /}
     {/call}
     {call .platformBuildRuleLink}
+        {param platform: 'iOS' /}
+        {param rules: $platformRulesMap['ios'] /}
+    {/call}
+    {call .platformBuildRuleLink}
         {param platform: 'Java' /}
         {param rules: $platformRulesMap['java'] /}
     {/call}
@@ -274,6 +287,7 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
     {foreach $function in [
         'glob',
         'include_defs',
+        'subdir_glob',
         ]}
       <li><a href="{ROOT}function/{$function}.html">{$function}()</a>
     {/foreach}
@@ -730,16 +744,6 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
   {/param}
 {/call}
 {/template}
-
-/**
- *
- */
-{template .platformWarning}
-<p><strong>
-Note: Buck works only on Mac OS X and Linux. Windows is not supported.
-</strong></p>
-{/template}
-
 
 /**
  * @param? withAlias
