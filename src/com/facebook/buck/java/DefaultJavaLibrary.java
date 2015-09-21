@@ -27,7 +27,7 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.HasBuildTarget;
-import com.facebook.buck.rules.keys.AbiRule;
+import com.facebook.buck.model.HasTests;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
@@ -44,6 +44,7 @@ import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.Sha1HashCode;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.shell.BashStep;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
@@ -100,8 +101,9 @@ import javax.annotation.Nullable;
  * from the {@code //src/com/facebook/feed/model:model} rule.
  */
 public class DefaultJavaLibrary extends AbstractBuildRule
-    implements JavaLibrary, AbiRule, HasClasspathEntries, ExportDependencies,
-    InitializableFromDisk<JavaLibrary.Data>, AndroidPackageable {
+    implements JavaLibrary, HasClasspathEntries, ExportDependencies,
+    InitializableFromDisk<JavaLibrary.Data>, AndroidPackageable,
+    SupportsInputBasedRuleKey, HasTests {
 
   private static final BuildableProperties OUTPUT_TYPE = new BuildableProperties(LIBRARY);
 
@@ -118,9 +120,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   private final Optional<SourcePath> proguardConfig;
   @AddToRuleKey
   private final ImmutableList<String> postprocessClassesCommands;
-  @AddToRuleKey
   private final ImmutableSortedSet<BuildRule> exportedDeps;
-  @AddToRuleKey
   private final ImmutableSortedSet<BuildRule> providedDeps;
   // Some classes need to override this when enhancing deps (see AndroidLibrary).
   private final ImmutableSet<Path> additionalClasspathEntries;
@@ -131,13 +131,25 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   private final Supplier<ImmutableSet<JavaLibrary>> transitiveClasspathDepsSupplier;
   private final Supplier<ImmutableSetMultimap<JavaLibrary, Path>>
       declaredClasspathEntriesSupplier;
+
+  private final SourcePath abiJar;
+  @AddToRuleKey
+  @SuppressWarnings("PMD.UnusedPrivateField")
+  private final Supplier<ImmutableSortedSet<SourcePath>> abiClasspath;
+
   private final BuildOutputInitializer<Data> buildOutputInitializer;
+  private final ImmutableSortedSet<BuildTarget> tests;
 
 
   // TODO(jacko): This really should be final, but we need to refactor how we get the
   // AndroidPlatformTarget first before it can be.
   @AddToRuleKey
   private JavacOptions javacOptions;
+
+  @Override
+  public ImmutableSortedSet<BuildTarget> getTests() {
+    return tests;
+  }
 
   /**
    * Function for opening a JAR and returning all symbols that can be referenced from inside of that
@@ -176,7 +188,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   };
 
   public DefaultJavaLibrary(
-      BuildRuleParams params,
+      final BuildRuleParams params,
       SourcePathResolver resolver,
       Set<? extends SourcePath> srcs,
       Set<? extends SourcePath> resources,
@@ -184,11 +196,61 @@ public class DefaultJavaLibrary extends AbstractBuildRule
       ImmutableList<String> postprocessClassesCommands,
       ImmutableSortedSet<BuildRule> exportedDeps,
       ImmutableSortedSet<BuildRule> providedDeps,
+      SourcePath abiJar,
       ImmutableSet<Path> additionalClasspathEntries,
       JavacOptions javacOptions,
       Optional<Path> resourcesRoot,
-      Optional<String> mavenCoords) {
-    super(params, resolver);
+      Optional<String> mavenCoords,
+      ImmutableSortedSet<BuildTarget> tests) {
+    this(
+        params,
+        resolver,
+        srcs,
+        resources,
+        proguardConfig,
+        postprocessClassesCommands,
+        exportedDeps,
+        providedDeps,
+        abiJar,
+        Suppliers.memoize(
+            new Supplier<ImmutableSortedSet<SourcePath>>() {
+              @Override
+              public ImmutableSortedSet<SourcePath> get() {
+                return JavaLibraryRules.getAbiInputs(params.getDeps());
+              }
+            }),
+        additionalClasspathEntries,
+        javacOptions,
+        resourcesRoot,
+        mavenCoords,
+        tests);
+  }
+
+  private DefaultJavaLibrary(
+      BuildRuleParams params,
+      final SourcePathResolver resolver,
+      Set<? extends SourcePath> srcs,
+      Set<? extends SourcePath> resources,
+      Optional<SourcePath> proguardConfig,
+      ImmutableList<String> postprocessClassesCommands,
+      ImmutableSortedSet<BuildRule> exportedDeps,
+      ImmutableSortedSet<BuildRule> providedDeps,
+      SourcePath abiJar,
+      final Supplier<ImmutableSortedSet<SourcePath>> abiClasspath,
+      ImmutableSet<Path> additionalClasspathEntries,
+      JavacOptions javacOptions,
+      Optional<Path> resourcesRoot,
+      Optional<String> mavenCoords,
+      ImmutableSortedSet<BuildTarget> tests) {
+    super(
+        params.appendExtraDeps(
+            new Supplier<Iterable<? extends BuildRule>>() {
+              @Override
+              public Iterable<? extends BuildRule> get() {
+                return resolver.filterBuildRuleInputs(abiClasspath.get());
+              }
+            }),
+        resolver);
 
     // Exported deps are meant to be forwarded onto the CLASSPATH for dependents,
     // and so only make sense for java library types.
@@ -211,6 +273,10 @@ public class DefaultJavaLibrary extends AbstractBuildRule
     this.javacOptions = javacOptions;
     this.resourcesRoot = resourcesRoot;
     this.mavenCoords = mavenCoords;
+    this.tests = tests;
+
+    this.abiJar = abiJar;
+    this.abiClasspath = abiClasspath;
 
     if (!srcs.isEmpty() || !resources.isEmpty()) {
       this.outputJar = Optional.of(getOutputJarPath(getBuildTarget()));
@@ -348,15 +414,6 @@ public class DefaultJavaLibrary extends AbstractBuildRule
    */
   private static Path getClassesDir(BuildTarget target) {
     return BuildTargets.getScratchPath(target, "lib__%s__classes");
-  }
-
-  /**
-   * Finds all deps that implement JavaLibraryRule and hash their ABI keys together.
-   */
-  @Override
-  public Sha1HashCode getAbiKeyForDeps() {
-    return Sha1HashCode.of(
-        createHasherWithAbiKeyForDeps(getDepsForAbiKey()).hash().toString());
   }
 
   /**
@@ -717,6 +774,11 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   @Override
   public Sha1HashCode getAbiKey() {
     return buildOutputInitializer.getBuildOutput().getAbiKey();
+  }
+
+  @Override
+  public Optional<SourcePath> getAbiJar() {
+    return outputJar.isPresent() ? Optional.of(abiJar) : Optional.<SourcePath>absent();
   }
 
   @Override

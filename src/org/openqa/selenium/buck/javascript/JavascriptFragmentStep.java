@@ -55,7 +55,6 @@ class JavascriptFragmentStep extends ShellStep {
 
     cmd.add("java", "-jar", compiler.toAbsolutePath().toString());
     cmd.add(
-        "--third_party=false",
         String.format("--js_output_file='%s'", output),
         String.format("--output_wrapper='%s'", wrapper),
         "--compilation_level=ADVANCED_OPTIMIZATIONS",

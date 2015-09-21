@@ -78,7 +78,6 @@ public class ClosureCompilerStep extends ShellStep {
       this.workingDirectory = Preconditions.checkNotNull(workingDirectory);
 
       cmd.add("java", "-jar", compiler.toAbsolutePath().toString());
-      cmd.add("--third_party=true");
     }
 
     public Builder defines(Optional<List<String>> defines) {

@@ -58,6 +58,7 @@ import com.facebook.buck.apple.XcodePostbuildScriptDescription;
 import com.facebook.buck.apple.XcodePrebuildScriptDescription;
 import com.facebook.buck.apple.XcodeWorkspaceConfigDescription;
 import com.facebook.buck.cli.BuckConfig;
+import com.facebook.buck.cli.DownloadConfig;
 import com.facebook.buck.cxx.CxxBinaryDescription;
 import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.CxxLibraryDescription;
@@ -120,6 +121,7 @@ import com.facebook.buck.thrift.ThriftPythonEnhancer;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.zip.ZipDescription;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -132,7 +134,6 @@ import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
 
 import org.openqa.selenium.buck.file.FolderDescription;
-import org.openqa.selenium.buck.file.ZipDescription;
 import org.openqa.selenium.buck.javascript.JavascriptConfig;
 import org.openqa.selenium.buck.javascript.JsBinaryDescription;
 import org.openqa.selenium.buck.javascript.JsFragmentDescription;
@@ -391,11 +392,13 @@ public class KnownBuildRuleTypes {
     Optional<Long> testRuleTimeoutMs = config.getLong("test", "rule_timeout");
 
     // Default maven repo, if set
-    Optional<String> defaultMavenRepo = config.getValue("download", "maven_repo");
-    boolean downloadAtRuntimeOk = config.getBooleanValue("download", "in_build", false);
+    DownloadConfig downloadConfig = new DownloadConfig(config);
+    Optional<String> defaultMavenRepo = downloadConfig.getMavenRepo();
+    Optional<Proxy> proxy = downloadConfig.getProxy();
+    boolean downloadAtRuntimeOk = downloadConfig.isDownloadAtRuntimeOk();
     Downloader downloader;
     if (downloadAtRuntimeOk) {
-      downloader = new HttpDownloader(Optional.<Proxy>absent(), defaultMavenRepo);
+      downloader = new HttpDownloader(proxy, defaultMavenRepo);
     } else {
       downloader = new ExplodingDownloader();
     }
@@ -555,6 +558,7 @@ public class KnownBuildRuleTypes {
     builder.register(new XcodePostbuildScriptDescription());
     builder.register(new XcodePrebuildScriptDescription());
     builder.register(new XcodeWorkspaceConfigDescription());
+    builder.register(new ZipDescription());
 
     builder.setCxxPlatforms(cxxPlatforms);
     builder.setDefaultCxxPlatform(defaultCxxPlatform);

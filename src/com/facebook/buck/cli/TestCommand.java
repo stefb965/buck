@@ -29,15 +29,11 @@ import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.CachingBuildEngine;
 import com.facebook.buck.rules.Label;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphToActionGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TargetNodes;
 import com.facebook.buck.rules.TestRule;
-import com.facebook.buck.rules.keys.AbiRuleKeyBuilderFactory;
-import com.facebook.buck.rules.keys.DependencyFileRuleKeyBuilderFactory;
-import com.facebook.buck.rules.keys.InputBasedRuleKeyBuilderFactory;
 import com.facebook.buck.step.AdbOptions;
 import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.step.TargetDevice;
@@ -344,23 +340,13 @@ public class TestCommand extends BuildCommand {
 
     try (CommandThreadManager pool =
              new CommandThreadManager("Test", getConcurrencyLimit(params.getBuckConfig()))) {
-      SourcePathResolver pathResolver =
-          new SourcePathResolver(targetGraphToActionGraph.getRuleResolver());
       CachingBuildEngine cachingBuildEngine =
           new CachingBuildEngine(
               pool.getExecutor(),
               params.getFileHashCache(),
               getBuildEngineMode().or(params.getBuckConfig().getBuildEngineMode()),
               params.getBuckConfig().getBuildDepFiles(),
-              new InputBasedRuleKeyBuilderFactory(
-                  params.getFileHashCache(),
-                  pathResolver),
-              new AbiRuleKeyBuilderFactory(
-                  params.getFileHashCache(),
-                  pathResolver),
-              new DependencyFileRuleKeyBuilderFactory(
-                  params.getFileHashCache(),
-                  pathResolver));
+              targetGraphToActionGraph.getRuleResolvers());
       try (Build build = createBuild(
           params.getBuckConfig(),
           graph,

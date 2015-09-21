@@ -18,6 +18,7 @@ package com.facebook.buck.java;
 
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
@@ -86,7 +87,7 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule, HasRuntime
 
   private final ImmutableSet<String> contacts;
 
-  @AddToRuleKey
+  @AddToRuleKey(stringify = true)
   private ImmutableSet<BuildRule> sourceUnderTest;
 
   private final ImmutableSet<Path> additionalClasspathEntries;
@@ -119,6 +120,7 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule, HasRuntime
       Set<Label> labels,
       Set<String> contacts,
       Optional<SourcePath> proguardConfig,
+      SourcePath abiJar,
       ImmutableSet<Path> addtionalClasspathEntries,
       TestType testType,
       JavacOptions javacOptions,
@@ -141,10 +143,12 @@ public class JavaTest extends DefaultJavaLibrary implements TestRule, HasRuntime
         ImmutableList.<String>of(),
         /* exportDeps */ ImmutableSortedSet.<BuildRule>of(),
         /* providedDeps */ ImmutableSortedSet.<BuildRule>of(),
+        abiJar,
         addtionalClasspathEntries,
         javacOptions,
         resourcesRoot,
-        mavenCoords);
+        mavenCoords,
+        /* tests */ ImmutableSortedSet.<BuildTarget>of());
     this.vmArgs = ImmutableList.copyOf(vmArgs);
     this.nativeLibsEnvironment = ImmutableMap.copyOf(nativeLibsEnvironment);
     this.sourceUnderTest = sourceUnderTest;

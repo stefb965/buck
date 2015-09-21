@@ -56,10 +56,11 @@ import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.Verbosity;
+import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.NullFileHashCache;
 import com.facebook.buck.util.environment.Platform;
+import com.google.common.base.Optional;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -137,10 +138,11 @@ public class GenruleTest {
         .build(ruleResolver, filesystem);
 
     // Verify all of the observers of the Genrule.
-    assertEquals(GEN_PATH.resolve("src/com/facebook/katana/AndroidManifest.xml"),
+    assertEquals(GEN_PATH.resolve("src/com/facebook/katana/katana_manifest/AndroidManifest.xml"),
         genrule.getPathToOutput());
     assertEquals(
-        filesystem.resolve(GEN_DIR + "/src/com/facebook/katana/AndroidManifest.xml").toString(),
+        filesystem.resolve(
+            GEN_DIR + "/src/com/facebook/katana/katana_manifest/AndroidManifest.xml").toString(),
         ((Genrule) genrule).getAbsoluteOutputFilePath());
     BuildContext buildContext = null; // unused since there are no deps
     ImmutableList<Path> inputsToCompareToOutputs = ImmutableList.of(
@@ -166,7 +168,8 @@ public class GenruleTest {
             "rm",
             "-r",
             "-f",
-            "/opt/src/buck/" + GEN_DIR + "/src/com/facebook/katana/AndroidManifest.xml"),
+            "/opt/src/buck/" + GEN_DIR +
+            "/src/com/facebook/katana/katana_manifest/AndroidManifest.xml"),
         rmCommand.getShellCommand());
 
     Step secondStep = steps.get(1);
@@ -174,7 +177,7 @@ public class GenruleTest {
     MkdirStep mkdirCommand = (MkdirStep) secondStep;
     assertEquals(
         "Second command should make sure the output directory exists.",
-        filesystem.resolve(GEN_DIR + "/src/com/facebook/katana"),
+        filesystem.resolve(GEN_DIR + "/src/com/facebook/katana/katana_manifest"),
         mkdirCommand.getPath());
 
     Step mkTmpDir = steps.get(2);
@@ -211,7 +214,9 @@ public class GenruleTest {
     assertEquals("genrule", genruleCommand.getShortName());
     assertEquals(ImmutableMap.<String, String>builder()
         .put("OUT",
-            filesystem.resolve(GEN_DIR + "/src/com/facebook/katana/AndroidManifest.xml").toString())
+            filesystem.resolve(
+                GEN_DIR + "/src/com/facebook/katana/katana_manifest/AndroidManifest.xml")
+                .toString())
         .build(),
         genruleCommand.getEnvironmentVariables(executionContext));
     assertEquals(
@@ -254,7 +259,7 @@ public class GenruleTest {
         ImmutableMap.of(
             "DEPS", "$GEN_DIR/foo/bar.jar",
             "GEN_DIR", filesystem.resolve("buck-out/gen").toString(),
-            "OUT", filesystem.resolve("buck-out/gen/foo/deps.txt").toString()),
+            "OUT", filesystem.resolve("buck-out/gen/foo/baz/deps.txt").toString()),
         environmentVariables);
 
     // Ensure that $GEN_DIR is declared before $DEPS.
@@ -328,9 +333,13 @@ public class GenruleTest {
   }
 
   @Test
-  public void testShouldIncludeDxInEnvironmentIfPresent() {
+  public void testShouldIncludeAndroidSpecificEnvInEnvironmentIfPresent() {
     BuildRuleResolver resolver = new BuildRuleResolver();
     AndroidPlatformTarget android = EasyMock.createNiceMock(AndroidPlatformTarget.class);
+    Path sdkDir = Paths.get("/opt/users/android_sdk");
+    Path ndkDir = Paths.get("/opt/users/android_ndk");
+    EasyMock.expect(android.getSdkDirectory()).andStubReturn(Optional.of(sdkDir));
+    EasyMock.expect(android.getNdkDirectory()).andStubReturn(Optional.of(ndkDir));
     EasyMock.expect(android.getDxExecutable()).andStubReturn(Paths.get("."));
     EasyMock.expect(android.getZipalignExecutable()).andStubReturn(Paths.get("zipalign"));
     EasyMock.replay(android);
@@ -352,6 +361,8 @@ public class GenruleTest {
 
     assertEquals(Paths.get(".").toString(), env.get("DX"));
     assertEquals(Paths.get("zipalign").toString(), env.get("ZIPALIGN"));
+    assertEquals(sdkDir.toString(), env.get("ANDROID_HOME"));
+    assertEquals(ndkDir.toString(), env.get("NDK_HOME"));
 
     EasyMock.verify(android);
   }

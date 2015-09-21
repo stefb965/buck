@@ -29,12 +29,8 @@ import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.CachingBuildEngine;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphToActionGraph;
-import com.facebook.buck.rules.keys.AbiRuleKeyBuilderFactory;
-import com.facebook.buck.rules.keys.DependencyFileRuleKeyBuilderFactory;
-import com.facebook.buck.rules.keys.InputBasedRuleKeyBuilderFactory;
 import com.facebook.buck.step.AdbOptions;
 import com.facebook.buck.step.TargetDevice;
 import com.facebook.buck.step.TargetDeviceOptions;
@@ -92,7 +88,6 @@ public class FetchCommand extends BuildCommand {
     }
 
     int exitCode;
-    SourcePathResolver pathResolver = new SourcePathResolver(transformer.getRuleResolver());
     try (CommandThreadManager pool =
              new CommandThreadManager("Fetch", getConcurrencyLimit(params.getBuckConfig()));
          Build build = createBuild(
@@ -104,15 +99,7 @@ public class FetchCommand extends BuildCommand {
                  params.getFileHashCache(),
                  getBuildEngineMode().or(params.getBuckConfig().getBuildEngineMode()),
                  params.getBuckConfig().getBuildDepFiles(),
-                 new InputBasedRuleKeyBuilderFactory(
-                     params.getFileHashCache(),
-                     pathResolver),
-                 new AbiRuleKeyBuilderFactory(
-                     params.getFileHashCache(),
-                     pathResolver),
-                 new DependencyFileRuleKeyBuilderFactory(
-                     params.getFileHashCache(),
-                     pathResolver)),
+                 transformer.getRuleResolvers()),
              params.getArtifactCache(),
              params.getConsole(),
              params.getBuckEventBus(),
@@ -142,8 +129,11 @@ public class FetchCommand extends BuildCommand {
   }
 
   private FetchTargetNodeToBuildRuleTransformer createFetchTransformer(CommandRunnerParams params) {
-    Optional<String> defaultMavenRepo = params.getBuckConfig().getValue("download", "maven_repo");
-    Downloader downloader = new HttpDownloader(Optional.<Proxy>absent(), defaultMavenRepo);
+    DownloadConfig downloadConfig = new DownloadConfig(params.getBuckConfig());
+    Optional<String> defaultMavenRepo = downloadConfig.getMavenRepo();
+    Optional<Proxy> proxy = downloadConfig.getProxy();
+
+    Downloader downloader = new HttpDownloader(proxy, defaultMavenRepo);
     Description<?> description = new RemoteFileDescription(downloader);
     return new FetchTargetNodeToBuildRuleTransformer(
         ImmutableSet.<Description<?>>of(description)

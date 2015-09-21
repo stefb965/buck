@@ -32,8 +32,6 @@
   <property name="test.debug_port" value="8787" />
   <property name="lint.outputpath" value="${build.dir}/lint.output" />
 
-  <property name="bazel.src.dir" value="third-party/java/bazel/src" />
-
   <property name="dx.base.dir" value="${basedir}/third-party/java/dx" />
   <property name="dx.src.dir" value="${dx.base.dir}/src" />
   <property name="dx.test.dir" value="${dx.base.dir}/tests" />
@@ -421,26 +419,27 @@
     </sequential>
   </macrodef>
 
+  <target name="package-resources">
+    <mkdir dir="${classes.dir}/com/facebook/buck/cli/quickstart/android"/>
+    <zip basedir="src/com/facebook/buck/cli/quickstart/android"
+         destfile="${classes.dir}/com/facebook/buck/cli/quickstart/android/android-template.zip"
+         excludes="BUCK"
+         defaultexcludes="no"/>
+
+    <mkdir dir="${classes.dir}/com/facebook/buck/cli/quickstart/ios"/>
+    <zip basedir="src/com/facebook/buck/cli/quickstart/ios"
+         destfile="${classes.dir}/com/facebook/buck/cli/quickstart/ios/ios-template.zip"
+         excludes="BUCK"
+         defaultexcludes="no"/>
+  </target>
+
   <target name="compile"
-          depends="compile-testrunner, bootstrapper, tracing-api, dx, generate-immutables"
+          depends="compile-testrunner, bootstrapper, package-resources, tracing-api, dx, generate-immutables"
           description="compile Java source code">
     <mkdir dir="${classes.dir}" />
 
     <!-- Copy in scripts we need at run time when using an unpacked buck -->
     <copy file="src/com/facebook/buck/json/buck.py" todir="${classes.dir}/com/facebook/buck/json"/>
-
-    <!--
-     Compile code from Bazel using the default compiler.
-     Using ecj spits out too many warnings that are not our responsibility to fix.
-   -->
-    <javac destdir="${classes.dir}"
-           classpathref="classpath"
-           debug="on"
-           deprecation="on"
-           includeAntRuntime="no"
-    >
-      <src path="${bazel.src.dir}" />
-    </javac>
 
     <!--
       Compile code from AOSP using the default compiler.

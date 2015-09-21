@@ -32,6 +32,7 @@ import com.google.common.base.Charsets;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.common.io.ByteSource;
 import com.squareup.okhttp.MediaType;
@@ -49,9 +50,10 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.HttpURLConnection;
-import java.net.URL;
+import java.net.URI;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -92,23 +94,29 @@ public class HttpArtifactCacheTest {
 
   @Test
   public void testFetchNotFound() throws Exception {
+    final List<Response> responseList = Lists.newArrayList();
     HttpArtifactCache cache =
         new HttpArtifactCache(
             "http",
             null,
             null,
-            new URL("http://localhost:8080"),
+            new URI("http://localhost:8080"),
             /* doStore */ true,
             new FakeProjectFilesystem(),
             BUCK_EVENT_BUS) {
           @Override
           protected Response fetchCall(Request request) throws IOException {
-            return new Response.Builder()
-                .code(HttpURLConnection.HTTP_NOT_FOUND)
-                .body(ResponseBody.create(MediaType.parse("application/octet-stream"), ""))
-                .protocol(Protocol.HTTP_1_1)
-                .request(request)
-                .build();
+            Response response =
+                new Response.Builder()
+                    .code(HttpURLConnection.HTTP_NOT_FOUND)
+                    .body(
+                        ResponseBody.create(
+                            MediaType.parse("application/octet-stream"), "extraneous"))
+                    .protocol(Protocol.HTTP_1_1)
+                    .request(request)
+                    .build();
+            responseList.add(response);
+            return response;
           }
         };
     CacheResult result =
@@ -116,6 +124,9 @@ public class HttpArtifactCacheTest {
             new RuleKey("00000000000000000000000000000000"),
             Paths.get("output/file"));
     assertEquals(result.getType(), CacheResultType.MISS);
+    assertTrue(
+        "response wasn't fully read!",
+        responseList.get(0).body().source().exhausted());
     cache.close();
   }
 
@@ -125,52 +136,61 @@ public class HttpArtifactCacheTest {
     final String data = "test";
     final RuleKey ruleKey = new RuleKey("00000000000000000000000000000000");
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
+    final List<Response> responseList = Lists.newArrayList();
     HttpArtifactCache cache =
         new HttpArtifactCache(
             "http",
             null,
             null,
-            new URL("http://localhost:8080"),
+            new URI("http://localhost:8080"),
             /* doStore */ true,
             filesystem,
             BUCK_EVENT_BUS) {
           @Override
           protected Response fetchCall(Request request) throws IOException {
-            return new Response.Builder()
-                .request(request)
-                .protocol(Protocol.HTTP_1_1)
-                .code(HttpURLConnection.HTTP_OK)
-                .body(
-                    createResponseBody(
-                        ImmutableSet.of(ruleKey),
-                        ImmutableMap.<String, String>of(),
-                        ByteSource.wrap(data.getBytes(Charsets.UTF_8)),
-                        data))
-                .build();
+            Response response =
+                new Response.Builder()
+                    .request(request)
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(HttpURLConnection.HTTP_OK)
+                    .body(
+                        createResponseBody(
+                            ImmutableSet.of(ruleKey),
+                            ImmutableMap.<String, String>of(),
+                            ByteSource.wrap(data.getBytes(Charsets.UTF_8)),
+                            data))
+                    .build();
+            responseList.add(response);
+            return response;
           }
         };
     CacheResult result = cache.fetch(ruleKey, output);
     assertEquals(result.cacheError().or(""), CacheResultType.HIT, result.getType());
     assertEquals(Optional.of(data), filesystem.readFileIfItExists(output));
+    assertTrue(
+        "response wasn't fully read!",
+        responseList.get(0).body().source().exhausted());
     cache.close();
   }
 
   @Test
   public void testFetchUrl() throws Exception {
-    final URL url = new URL("http://localhost:8080");
     final RuleKey ruleKey = new RuleKey("00000000000000000000000000000000");
+    final String expectedUri =
+        "http://localhost:8080/artifacts/key/00000000000000000000000000000000";
+
     HttpArtifactCache cache =
         new HttpArtifactCache(
             "http",
             null,
             null,
-            new URL("http://localhost:8080"),
+            new URI("http://localhost:8080"),
             /* doStore */ true,
             new FakeProjectFilesystem(),
             BUCK_EVENT_BUS) {
           @Override
           protected Response fetchCall(Request request) throws IOException {
-            assertEquals(new URL(url, "artifacts/key/" + ruleKey.toString()), request.url());
+            assertEquals(expectedUri, request.uri().toString());
             return new Response.Builder()
                 .request(request)
                 .protocol(Protocol.HTTP_1_1)
@@ -192,34 +212,41 @@ public class HttpArtifactCacheTest {
   public void testFetchBadChecksum() throws Exception {
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
     final RuleKey ruleKey = new RuleKey("00000000000000000000000000000000");
+    final List<Response> responseList = Lists.newArrayList();
     HttpArtifactCache cache =
         new HttpArtifactCache(
             "http",
             null,
             null,
-            new URL("http://localhost:8080"),
+            new URI("http://localhost:8080"),
             /* doStore */ true,
             filesystem,
             BUCK_EVENT_BUS) {
           @Override
           protected Response fetchCall(Request request) throws IOException {
-            return new Response.Builder()
-                .request(request)
-                .protocol(Protocol.HTTP_1_1)
-                .code(HttpURLConnection.HTTP_OK)
-                .body(
-                    createResponseBody(
-                        ImmutableSet.of(ruleKey),
-                        ImmutableMap.<String, String>of(),
-                        ByteSource.wrap(new byte[0]),
-                        "data"))
-                .build();
+            Response response =
+                new Response.Builder()
+                    .request(request)
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(HttpURLConnection.HTTP_OK)
+                    .body(
+                        createResponseBody(
+                            ImmutableSet.of(ruleKey),
+                            ImmutableMap.<String, String>of(),
+                            ByteSource.wrap(new byte[0]),
+                            "data"))
+                    .build();
+            responseList.add(response);
+            return response;
           }
         };
     Path output = Paths.get("output/file");
     CacheResult result = cache.fetch(ruleKey, output);
     assertEquals(CacheResultType.ERROR, result.getType());
     assertEquals(Optional.<String>absent(), filesystem.readFileIfItExists(output));
+    assertTrue(
+        "response wasn't fully read!",
+        responseList.get(0).body().source().exhausted());
     cache.close();
   }
 
@@ -227,34 +254,41 @@ public class HttpArtifactCacheTest {
   public void testFetchExtraPayload() throws Exception {
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
     final RuleKey ruleKey = new RuleKey("00000000000000000000000000000000");
+    final List<Response> responseList = Lists.newArrayList();
     HttpArtifactCache cache =
         new HttpArtifactCache(
             "http",
             null,
             null,
-            new URL("http://localhost:8080"),
+            new URI("http://localhost:8080"),
             /* doStore */ true,
             filesystem,
             BUCK_EVENT_BUS) {
           @Override
           protected Response fetchCall(Request request) throws IOException {
-            return new Response.Builder()
-                .request(request)
-                .protocol(Protocol.HTTP_1_1)
-                .code(HttpURLConnection.HTTP_OK)
-                .body(
-                    createResponseBody(
-                        ImmutableSet.of(ruleKey),
-                        ImmutableMap.<String, String>of(),
-                        ByteSource.wrap("more data than length".getBytes(Charsets.UTF_8)),
-                        "small"))
-                .build();
+            Response response =
+                new Response.Builder()
+                    .request(request)
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(HttpURLConnection.HTTP_OK)
+                    .body(
+                        createResponseBody(
+                            ImmutableSet.of(ruleKey),
+                            ImmutableMap.<String, String>of(),
+                            ByteSource.wrap("more data than length".getBytes(Charsets.UTF_8)),
+                            "small"))
+                    .build();
+            responseList.add(response);
+            return response;
           }
         };
     Path output = Paths.get("output/file");
     CacheResult result = cache.fetch(ruleKey, output);
     assertEquals(CacheResultType.ERROR, result.getType());
     assertEquals(Optional.<String>absent(), filesystem.readFileIfItExists(output));
+    assertTrue(
+        "response wasn't fully read!",
+        responseList.get(0).body().source().exhausted());
     cache.close();
   }
 
@@ -266,7 +300,7 @@ public class HttpArtifactCacheTest {
             "http",
             null,
             null,
-            new URL("http://localhost:8080"),
+            new URI("http://localhost:8080"),
             /* doStore */ true,
             filesystem,
             BUCK_EVENT_BUS) {
@@ -295,7 +329,7 @@ public class HttpArtifactCacheTest {
             "http",
             null,
             null,
-            new URL("http://localhost:8080"),
+            new URI("http://localhost:8080"),
             /* doStore */ true,
             filesystem,
             BUCK_EVENT_BUS) {
@@ -342,7 +376,7 @@ public class HttpArtifactCacheTest {
   }
 
   @Test(expected = IOException.class)
-  public void testStoreIOException() throws IOException {
+  public void testStoreIOException() throws Exception {
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
     Path output = Paths.get("output/file");
     filesystem.writeContentsToPath("data", output);
@@ -351,7 +385,7 @@ public class HttpArtifactCacheTest {
             "http",
             null,
             null,
-            new URL("http://localhost:8080"),
+            new URI("http://localhost:8080"),
             /* doStore */ true,
             filesystem,
             BUCK_EVENT_BUS) {
@@ -382,7 +416,7 @@ public class HttpArtifactCacheTest {
             "http",
             null,
             null,
-            new URL("http://localhost:8080"),
+            new URI("http://localhost:8080"),
             /* doStore */ true,
             filesystem,
             BUCK_EVENT_BUS) {
@@ -426,7 +460,7 @@ public class HttpArtifactCacheTest {
             "http",
             null,
             null,
-            new URL("http://localhost:8080"),
+            new URI("http://localhost:8080"),
             /* doStore */ true,
             filesystem,
             BUCK_EVENT_BUS) {
@@ -464,7 +498,7 @@ public class HttpArtifactCacheTest {
             "http",
             null,
             null,
-            new URL("http://localhost:8080"),
+            new URI("http://localhost:8080"),
             /* doStore */ true,
             filesystem,
             BUCK_EVENT_BUS) {

@@ -170,6 +170,7 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
             'gen_aidl',
             'keystore',
             'ndk_library',
+            'prebuilt_cxx_library',
             'prebuilt_jar',
             'prebuilt_native_library',
             'project_config',
@@ -177,12 +178,13 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
         'core': [
             'genrule',
             'remote_file',
+            'zip_file',
         ],
         'cxx': [
             'cxx_binary',
             'cxx_library',
             'cxx_test',
-            'prebuilt_native_library',
+            'prebuilt_cxx_library',
         ],
         'd': [
             'd_binary',
@@ -201,6 +203,7 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
             'apple_package',
             'apple_resource',
             'apple_test',
+            'prebuilt_cxx_library',
         ],
         'java': [
             'cxx_library',
@@ -227,6 +230,7 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
     <li><a href="{ROOT}setup/install.html">Downloading and Installing Buck</a>
     <li><a href="{ROOT}setup/quick_start.html">Quick Start</a>
     <li><a href="{ROOT}article/exopackage.html">Exopackage</a>
+    <li><a href="{ROOT}article/query_cheat_sheet.html">Buck Query Cheat Sheet</a>
   </ul>
   <h3>About</h3>
   <ul>
@@ -480,7 +484,7 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
 
 /**
  * @param overview HTML description of the command.
- * @param params HTML documentation for each param of the command.
+ * @param? params HTML documentation for each param of the command.
  *     Should be created using multiple applications of the {buck.param}
  *     template.
  * @param? examples HTML documentation that shows examples of the build
@@ -489,10 +493,12 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
 {template .command}
 {$overview|noAutoescape}
 
-<h2>Parameters</h2>
-<ul class="{css arglist}">
-  {$params|noAutoescape}
-</ul>
+{if $params}
+  <h2>Parameters</h2>
+  <ul class="{css arglist}">
+    {$params|noAutoescape}
+  </ul>
+{/if}
 
 {if $examples}
   <h2>Examples</h2>
@@ -564,6 +570,21 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
 /***/
 {template .apk_genrule}
 {call .ruleLink}{param name : 'apk_genrule' /}{/call}
+{/template}
+
+/***/
+{template .apple_binary}
+{call .ruleLink}{param name: 'apple_binary' /}{/call}
+{/template}
+
+/***/
+{template .apple_bundle}
+{call .ruleLink}{param name: 'apple_bundle' /}{/call}
+{/template}
+
+/***/
+{template .apple_library}
+{call .ruleLink}{param name: 'apple_library' /}{/call}
 {/template}
 
 /***/
@@ -645,8 +666,21 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
 {/template}
 
 /***/
+{template .build_file}
+{call .concept_link}{param page: 'build_file' /}{param name: 'build file' /}{/call}
+{/template}
+
+/***/
 {template .build_target}
 {call .concept_link}{param page: 'build_target' /}{param name: 'build target' /}{/call}
+{/template}
+
+/***/
+{template .build_target_pattern}
+  {call .concept_link}
+    {param page: 'build_target_pattern' /}
+    {param name: 'build target pattern' /}
+  {/call}
 {/template}
 
 /**

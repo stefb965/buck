@@ -17,8 +17,11 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.android.AndroidPlatformTarget;
+import com.facebook.buck.artifact_cache.ArtifactCache;
+import com.facebook.buck.artifact_cache.NoopArtifactCache;
 import com.facebook.buck.command.Build;
 import com.facebook.buck.event.BuckEventBus;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
@@ -28,19 +31,13 @@ import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.rules.ActionGraph;
-import com.facebook.buck.artifact_cache.ArtifactCache;
 import com.facebook.buck.rules.BuildEngine;
 import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CachingBuildEngine;
-import com.facebook.buck.artifact_cache.NoopArtifactCache;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphToActionGraph;
-import com.facebook.buck.rules.keys.AbiRuleKeyBuilderFactory;
-import com.facebook.buck.rules.keys.DependencyFileRuleKeyBuilderFactory;
-import com.facebook.buck.rules.keys.InputBasedRuleKeyBuilderFactory;
 import com.facebook.buck.step.AdbOptions;
 import com.facebook.buck.step.TargetDevice;
 import com.facebook.buck.step.TargetDeviceOptions;
@@ -228,6 +225,11 @@ public class BuildCommand extends AbstractCommand {
   @Override
   @SuppressWarnings("PMD.PrematureDeclaration")
   public int runWithoutHelp(CommandRunnerParams params) throws IOException, InterruptedException {
+    return run(params, Optional.<String>absent());
+  }
+
+  protected int run(CommandRunnerParams params, Optional<String> additionalTarget)
+      throws IOException, InterruptedException {
     ArtifactCache artifactCache = params.getArtifactCache();
     if (isArtifactCacheDisabled()) {
       artifactCache = new NoopArtifactCache();
@@ -247,6 +249,10 @@ public class BuildCommand extends AbstractCommand {
       return 1;
     }
 
+    if (additionalTarget.isPresent()) {
+      arguments.add(additionalTarget.get());
+    }
+
     // Post the build started event, setting it to the Parser recorded start time if appropriate.
     BuildEvent.Started started = BuildEvent.started(getArguments());
     if (params.getParser().getParseStartTime().isPresent()) {
@@ -259,7 +265,7 @@ public class BuildCommand extends AbstractCommand {
 
     // Parse the build files to create a ActionGraph.
     ActionGraph actionGraph;
-    BuildRuleResolver resolver;
+    ImmutableMap<ProjectFilesystem, BuildRuleResolver> resolvers;
     try {
       Pair<ImmutableSet<BuildTarget>, TargetGraph> result = params.getParser()
           .buildTargetGraphForTargetNodeSpecs(
@@ -279,7 +285,7 @@ public class BuildCommand extends AbstractCommand {
               new BuildTargetNodeToBuildRuleTransformer(),
               params.getFileHashCache());
       actionGraph = targetGraphToActionGraph.apply(result.getSecond());
-      resolver = targetGraphToActionGraph.getRuleResolver();
+      resolvers = targetGraphToActionGraph.getRuleResolvers();
     } catch (BuildTargetException | BuildFileParseException e) {
       params.getConsole().printBuildFailureWithoutStacktrace(e);
       return 1;
@@ -300,7 +306,6 @@ public class BuildCommand extends AbstractCommand {
       buildTargets = ImmutableSet.of(explicitTarget);
     }
 
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
     try (CommandThreadManager pool = new CommandThreadManager(
         "Build",
         getConcurrencyLimit(params.getBuckConfig()));
@@ -313,15 +318,7 @@ public class BuildCommand extends AbstractCommand {
                  params.getFileHashCache(),
                  getBuildEngineMode().or(params.getBuckConfig().getBuildEngineMode()),
                  params.getBuckConfig().getBuildDepFiles(),
-                 new InputBasedRuleKeyBuilderFactory(
-                     params.getFileHashCache(),
-                     pathResolver),
-                 new AbiRuleKeyBuilderFactory(
-                     params.getFileHashCache(),
-                     pathResolver),
-                 new DependencyFileRuleKeyBuilderFactory(
-                     params.getFileHashCache(),
-                     pathResolver)),
+                 resolvers),
              artifactCache,
              params.getConsole(),
              params.getBuckEventBus(),

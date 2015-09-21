@@ -48,70 +48,71 @@ import java.util.Map;
 public class HttpArtifactCacheBinaryProtocol {
 
   private static final HashFunction HASH_FUNCTION = Hashing.crc32();
+  // 64MB should be enough for everyone.
+  private static final long MAX_METADATA_HEADER_SIZE = 64 * 1024 * 1024;
 
   private HttpArtifactCacheBinaryProtocol() {
     // Utility class, don't instantiate.
   }
 
   public static FetchResponseReadResult readFetchResponse(
-      InputStream byteStream,
+      DataInputStream input,
       OutputStream payloadSink) throws IOException {
-    FetchResponseReadResult.Builder result = FetchResponseReadResult.builder();
+    // Read the size of a the metadata, and use that to build a input stream to read and
+    // process the rest of it.
+    int metadataSize = input.readInt();
+    if (metadataSize > MAX_METADATA_HEADER_SIZE) {
+      throw new IOException(
+          String.format("Metadata header size of %d is too big.", metadataSize));
+    }
 
+    FetchResponseReadResult.Builder result = FetchResponseReadResult.builder();
     // Create a hasher to be used to generate a hash of the metadata and input.  We'll use
     // this to compare against the embedded checksum.
     Hasher hasher = HASH_FUNCTION.newHasher();
+    byte[] rawMetadata = new byte[metadataSize];
+    ByteStreams.readFully(input, rawMetadata);
+    try (InputStream rawMetadataIn = new ByteArrayInputStream(rawMetadata)) {
 
-    // Open the input stream from the server and start processing data.
-    try (DataInputStream input = new DataInputStream(byteStream)) {
+      // The first part of the metadata needs to be included in the hash.
+      try (DataInputStream metadataIn =
+               new DataInputStream(new HasherInputStream(hasher, rawMetadataIn))) {
 
-      // Read the size of a the metadata, and use that to build a input stream to read and
-      // process the rest of it.
-      int metadataSize = input.readInt();
-      byte[] rawMetadata = new byte[metadataSize];
-      ByteStreams.readFully(input, rawMetadata);
-      try (InputStream rawMetadataIn = new ByteArrayInputStream(rawMetadata)) {
-
-        // The first part of the metadata needs to be included in the hash.
-        try (DataInputStream metadataIn =
-                 new DataInputStream(new HasherInputStream(hasher, rawMetadataIn))) {
-
-          // Read in the rule keys that stored this artifact, and add them to the hash we're
-          // building up.
-          int size = metadataIn.readInt();
-          for (int i = 0; i < size; i++) {
-            result.addRuleKeys(new RuleKey(metadataIn.readUTF()));
-          }
-
-          // Read in the actual metadata map, and add it the hash.
-          size = metadataIn.readInt();
-          for (int i = 0; i < size; i++) {
-            String key = metadataIn.readUTF();
-            int valSize = metadataIn.readInt();
-            byte[] val = new byte[valSize];
-            ByteStreams.readFully(metadataIn, val);
-            result.putMetadata(key, new String(val, Charsets.UTF_8));
-          }
+        // Read in the rule keys that stored this artifact, and add them to the hash we're
+        // building up.
+        int size = metadataIn.readInt();
+        for (int i = 0; i < size; i++) {
+          result.addRuleKeys(new RuleKey(metadataIn.readUTF()));
         }
 
-        // Next, read in the embedded expected checksum, which should be the last byte in
-        // the metadata header.
-        byte[] hashCodeBytes = new byte[HASH_FUNCTION.bits() / Byte.SIZE];
-        ByteStreams.readFully(rawMetadataIn, hashCodeBytes);
-        result.setExpectedHashCode(HashCode.fromBytes(hashCodeBytes));
+        // Read in the actual metadata map, and add it the hash.
+        size = metadataIn.readInt();
+        for (int i = 0; i < size; i++) {
+          String key = metadataIn.readUTF();
+          int valSize = metadataIn.readInt();
+          byte[] val = new byte[valSize];
+          ByteStreams.readFully(metadataIn, val);
+          result.putMetadata(key, new String(val, Charsets.UTF_8));
+        }
       }
 
-      // The remaining data is the payload, which we write to the created file, and also include
-      // in our verification checksum.
-      Hasher artifactOnlyHasher = HASH_FUNCTION.newHasher();
-      try (InputStream payload = new HasherInputStream(artifactOnlyHasher,
-          new HasherInputStream(hasher, byteStream))) {
-        result.setResponseSizeBytes(ByteStreams.copy(payload, payloadSink));
-        result.setArtifactOnlyHashCode(artifactOnlyHasher.hash());
-      }
-
-      result.setActualHashCode(hasher.hash());
+      // Next, read in the embedded expected checksum, which should be the last byte in
+      // the metadata header.
+      byte[] hashCodeBytes = new byte[HASH_FUNCTION.bits() / Byte.SIZE];
+      ByteStreams.readFully(rawMetadataIn, hashCodeBytes);
+      result.setExpectedHashCode(HashCode.fromBytes(hashCodeBytes));
     }
+
+    // The remaining data is the payload, which we write to the created file, and also include
+    // in our verification checksum.
+    Hasher artifactOnlyHasher = HASH_FUNCTION.newHasher();
+    try (InputStream payload = new HasherInputStream(artifactOnlyHasher,
+        new HasherInputStream(hasher, input))) {
+      result.setResponseSizeBytes(ByteStreams.copy(payload, payloadSink));
+      result.setArtifactOnlyHashCode(artifactOnlyHasher.hash());
+    }
+
+    result.setActualHashCode(hasher.hash());
 
     return result.build();
   }
@@ -194,6 +195,9 @@ public class HttpArtifactCacheBinaryProtocol {
         byte[] val = ent.getValue().getBytes(Charsets.UTF_8);
         out.writeInt(val.length);
         out.write(val);
+        if (out.size() > MAX_METADATA_HEADER_SIZE) {
+          throw new IOException("Metadata header too big.");
+        }
       }
     }
 
@@ -204,7 +208,11 @@ public class HttpArtifactCacheBinaryProtocol {
     rawOut.write(hasher.hash().asBytes());
 
     // Finally, base64 encode the raw bytes to make usable in a HTTP header.
-    return rawOut.toByteArray();
+    byte[] bytes = rawOut.toByteArray();
+    if (bytes.length > MAX_METADATA_HEADER_SIZE) {
+      throw new IOException("Metadata header too big.");
+    }
+    return bytes;
   }
 
   @Value.Immutable

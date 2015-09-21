@@ -165,9 +165,9 @@ public class Genrule extends AbstractBuildRule implements HasOutputName, Support
 
     this.out = out;
     BuildTarget target = params.getBuildTarget();
-    this.pathToOutDirectory = Paths.get(
-        BuckConstant.GEN_DIR,
-        target.getBasePathWithSlash());
+    this.pathToOutDirectory = BuckConstant.GEN_PATH
+        .resolve(target.getBasePath())
+        .resolve(target.getShortName());
     this.pathToOutFile = this.pathToOutDirectory.resolve(out);
     if (!pathToOutFile.startsWith(pathToOutDirectory) || pathToOutFile.equals(pathToOutDirectory)) {
       throw new HumanReadableException(
@@ -234,7 +234,17 @@ public class Genrule extends AbstractBuildRule implements HasOutputName, Support
     } catch (NoAndroidSdkException e) {
       android = null;
     }
+
     if (android != null) {
+      Optional<Path> sdkDirectory = android.getSdkDirectory();
+      if (sdkDirectory.isPresent()) {
+        environmentVariablesBuilder.put("ANDROID_HOME", sdkDirectory.get().toString());
+      }
+      Optional<Path> ndkDirectory = android.getNdkDirectory();
+      if (ndkDirectory.isPresent()) {
+        environmentVariablesBuilder.put("NDK_HOME", ndkDirectory.get().toString());
+      }
+
       environmentVariablesBuilder.put("DX", android.getDxExecutable().toString());
       environmentVariablesBuilder.put("ZIPALIGN", android.getZipalignExecutable().toString());
     }
