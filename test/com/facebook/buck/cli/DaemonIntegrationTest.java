@@ -34,7 +34,7 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.io.Watchman;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.parser.ParserConfig;
-import com.facebook.buck.rules.TestRepositoryBuilder;
+import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.TestRunEvent;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
@@ -46,6 +46,7 @@ import com.facebook.buck.timing.FakeClock;
 import com.facebook.buck.util.CapturingPrintStream;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Platform;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Charsets;
 import com.google.common.base.Optional;
 import com.google.common.base.Throwables;
@@ -482,33 +483,39 @@ public class DaemonIntegrationTest {
     ProjectFilesystem filesystem = new ProjectFilesystem(tmp.getRoot().toPath());
 
     Object daemon = Main.getDaemon(
-        new TestRepositoryBuilder().setBuckConfig(
+        new TestCellBuilder().setBuckConfig(
             new FakeBuckConfig(
                 ImmutableMap.of("somesection", ImmutableMap.of("somename", "somevalue"))))
             .setFilesystem(filesystem)
             .build(),
-        ParserConfig.GlobHandler.PYTHON);
+        ParserConfig.GlobHandler.PYTHON,
+        ParserConfig.AllowSymlinks.ALLOW,
+        new ObjectMapper());
     assertEquals(
         "Daemon should not be replaced when config equal.", daemon,
         Main.getDaemon(
-            new TestRepositoryBuilder().setBuckConfig(
+            new TestCellBuilder().setBuckConfig(
                 new FakeBuckConfig(
                     ImmutableMap.of("somesection", ImmutableMap.of("somename", "somevalue"))))
                 .setFilesystem(filesystem)
                 .build(),
-            ParserConfig.GlobHandler.PYTHON));
+            ParserConfig.GlobHandler.PYTHON,
+            ParserConfig.AllowSymlinks.ALLOW,
+            new ObjectMapper()));
 
     assertNotEquals(
         "Daemon should be replaced when config not equal.", daemon,
         Main.getDaemon(
-            new TestRepositoryBuilder().setBuckConfig(
+            new TestCellBuilder().setBuckConfig(
                 new FakeBuckConfig(
                     ImmutableMap.of(
                         "somesection",
                         ImmutableMap.of("somename", "someothervalue"))))
                 .setFilesystem(filesystem)
                 .build(),
-            ParserConfig.GlobHandler.PYTHON));
+            ParserConfig.GlobHandler.PYTHON,
+            ParserConfig.AllowSymlinks.ALLOW,
+            new ObjectMapper()));
   }
 
   @Test
@@ -540,7 +547,7 @@ public class DaemonIntegrationTest {
     ProjectFilesystem filesystem = new ProjectFilesystem(tmp.getRoot().toPath());
 
     Object daemon = Main.getDaemon(
-        new TestRepositoryBuilder()
+        new TestCellBuilder()
             .setAndroidDirectoryResolver(
                 new FakeAndroidDirectoryResolver(
                     Optional.<Path>absent(),
@@ -548,12 +555,14 @@ public class DaemonIntegrationTest {
                     Optional.of("something")))
             .setFilesystem(filesystem)
             .build(),
-        ParserConfig.GlobHandler.PYTHON);
+        ParserConfig.GlobHandler.PYTHON,
+        ParserConfig.AllowSymlinks.ALLOW,
+        new ObjectMapper());
 
     assertNotEquals(
         "Daemon should be replaced when not equal.", daemon,
         Main.getDaemon(
-            new TestRepositoryBuilder()
+            new TestCellBuilder()
                 .setAndroidDirectoryResolver(
                     new FakeAndroidDirectoryResolver(
                         Optional.<Path>absent(),
@@ -561,6 +570,8 @@ public class DaemonIntegrationTest {
                         Optional.of("different")))
                 .setFilesystem(filesystem)
                 .build(),
-            ParserConfig.GlobHandler.PYTHON));
+            ParserConfig.GlobHandler.PYTHON,
+            ParserConfig.AllowSymlinks.ALLOW,
+            new ObjectMapper()));
   }
 }

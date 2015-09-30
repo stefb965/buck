@@ -73,7 +73,9 @@ public class CxxPrepareForLinkStepTest {
         "-rpath",
         "hello",
         "a.o",
-        "libb.a");
+        "libb.a",
+        "-lsysroot",
+        "/Library/Application Support/blabla");
     Path frameworkRoot = Paths.get("/System/Frameworks");
     final Path librarySearchPath = Paths.get("/System/libraries");
     final String library = "z";
@@ -97,7 +99,12 @@ public class CxxPrepareForLinkStepTest {
         .add("-F", frameworkRoot.toString())
         .add("-L", librarySearchPath.toString())
         .add("-l" + library)
-        .addAll(args)
+        .add("-rpath")
+        .add("hello")
+        .add("a.o")
+        .add("libb.a")
+        .add("-lsysroot")
+        .add("\"/Library/Application Support/blabla\"")
         .build();
     List<String> fileContents = Files.readAllLines(argFilePath, StandardCharsets.UTF_8);
     assertThat(fileContents, Matchers.<List<String>>equalTo(expectedFileContents));

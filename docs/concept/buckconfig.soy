@@ -61,6 +61,7 @@ The following sections are recognized by Buck:
     'color',
     'cxx',
     'download',
+    'go',
     'java',
     'httpserver',
     'log',
@@ -192,7 +193,7 @@ This section includes settings that control settings that are specific to Apple 
 
 <p>
   If you want to have Buck be able to install to devices, you need to provide the path to the
-  {sp}<a href="https://github.com/ryu2/SDMMobileDevice"><code>iOSConsole</code></a> binary.
+  {sp}<a href="https://github.com/samdmarshall/SDMMobileDevice"><code>iOSConsole</code></a> binary.
 </p>
 {literal}<pre class = "prettyprint lang-ini">
 [apple]
@@ -404,7 +405,7 @@ It also configures configures the default flags to pass to all invocations of sa
   yaccflags =
 </pre>{/literal}
 
-Adding a section with header [cxx#<i>flavor</i>] to the .buckconfig will add 
+Adding a section with header [cxx#<i>flavor</i>] to the .buckconfig will add
 an alternate cxx section. This cxx section will be used instead of [cxx]
 if the compilation flavor is invoked by appending <i>#flavor</i> to a build
 target. So to build with [cxx#example] rather than [cxx] use
@@ -413,6 +414,33 @@ target. So to build with [cxx#example] rather than [cxx] use
 
 {literal}<pre class="prettyprint">
 $ buck build app#example
+</pre>{/literal}
+
+{call .section}{param title: 'go' /}{/call}
+
+This section defines the go <code>compiler</code> and <code>linker</code> used by go.
+
+<p>
+  By default Buck will try to discovery the Go compiler and linker from the
+  {sp}<code>go</code> tool found in your PATH.
+</p>
+
+<p>
+  You can specify the path find the <code>go</code> tool.  This in turn will
+  allow Buck to discover the compiler/linker by default.
+</p>
+{literal}<pre class="prettyprint lang-ini">
+[go]
+  tool = /usr/local/bin/go
+</pre>{/literal}
+
+<p>
+  You can also optionally specify the full paths to the Go compiler and linker.
+</p>
+{literal}<pre class="prettyprint lang-ini">
+[go]
+  compiler = /usr/local/libexec/go/pkg/tool/darwin_amd64/compile
+  linker = /usr/local/libexec/go/pkg/tool/darwin_amd64/link
 </pre>{/literal}
 
 {call .section}{param title: 'java' /}{/call}
@@ -545,7 +573,7 @@ either be an HTTP(S) URL, or point to a directory on your local disk.
 [maven_repositories]
   central = https://repo1.maven.org/maven2
   m2 = ~/.m2/repository
-</pre>{literal}
+</pre>{/literal}
 
 {call .section}{param title: 'ndk' /}{/call}
 
@@ -752,33 +780,37 @@ The value given is in milliseconds.
 
   # Specify an external test runner command to use instead of Buck's built-in
   # test runner.  The external test runner is invoked by Buck after it has
-  # built all the test rules, passing the test runner an argument for each test
-  # rule which identifies the path to a JSON test info file with information
-  # about the test.
+  # built all the test rules, passing the test runner the path to file which
+  # contains a JSON-encoded list of test file infos:
   #
-  # The JSON test info files have the following format:
+  #   $ <external-runner> --buck-test-info <path>
   #
-  # {
+  # The JSON tests file has the following format:
   #
-  #   # The build target of the test rule.
-  #   "target": "//some:target",
+  # [
+  #   {
   #
-  #   # A string describing the type of the test.
-  #   "type": "gtest",
+  #     # The build target of the test rule.
+  #     "target": "//some:target",
   #
-  #   # The command the test runner should invoke
-  #   "command": ["buck-out/gen/some/rule/rule"],
+  #     # A string describing the type of the test.
+  #     "type": "gtest",
   #
-  #   # Environment variables which should be defined by the test runner.
-  #   "env":  {"VAR": "VALUE"},
+  #     # The command the test runner should invoke
+  #     "command": ["buck-out/gen/some/rule/rule"],
   #
-  #   # The labels passed into the test rule's definition.
-  #   "labels": ["flaky"],
+  #     # Environment variables which should be defined by the test runner.
+  #     "env":  {"VAR": "VALUE"},
   #
-  #   # The contacts passed into the test rule's definition.
-  #   "contacts": ["bobloblaw"]
+  #     # The labels passed into the test rule's definition.
+  #     "labels": ["flaky"],
   #
-  # }
+  #     # The contacts passed into the test rule's definition.
+  #     "contacts": ["bobloblaw"]
+  #
+  #   },
+  #   ...
+  # ]
   #
   # The "type" strings will be one of:
   # - "custom": This describes a test without any structuted output, and which

@@ -19,16 +19,17 @@ package com.facebook.buck.cli;
 import com.facebook.buck.android.AndroidBuckConfig;
 import com.facebook.buck.android.AndroidDirectoryResolver;
 import com.facebook.buck.android.FakeAndroidDirectoryResolver;
+import com.facebook.buck.artifact_cache.ArtifactCache;
+import com.facebook.buck.artifact_cache.NoopArtifactCache;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.httpserver.WebServer;
 import com.facebook.buck.java.FakeJavaPackageFinder;
 import com.facebook.buck.java.JavaPackageFinder;
 import com.facebook.buck.parser.Parser;
-import com.facebook.buck.artifact_cache.ArtifactCache;
-import com.facebook.buck.artifact_cache.NoopArtifactCache;
-import com.facebook.buck.rules.Repository;
-import com.facebook.buck.rules.TestRepositoryBuilder;
+import com.facebook.buck.parser.ParserConfig;
+import com.facebook.buck.rules.Cell;
+import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.timing.DefaultClock;
 import com.facebook.buck.util.Console;
@@ -48,7 +49,7 @@ public class CommandRunnerParamsForTesting {
 
   public static CommandRunnerParams createCommandRunnerParamsForTesting(
       Console console,
-      Repository repository,
+      Cell cell,
       AndroidDirectoryResolver androidDirectoryResolver,
       ArtifactCache artifactCache,
       BuckEventBus eventBus,
@@ -61,7 +62,7 @@ public class CommandRunnerParamsForTesting {
       throws IOException, InterruptedException {
     return new CommandRunnerParams(
         console,
-        repository,
+        cell,
         Main.createAndroidPlatformTargetSupplier(
             androidDirectoryResolver,
             new AndroidBuckConfig(new FakeBuckConfig(), platform),
@@ -69,8 +70,9 @@ public class CommandRunnerParamsForTesting {
         artifactCache,
         eventBus,
         Parser.createBuildFileParser(
-            repository,
-            /* useWatchmanGlob */ false),
+            cell,
+            /* useWatchmanGlob */ false,
+            ParserConfig.AllowSymlinks.ALLOW),
         platform,
         environment,
         javaPackageFinder,
@@ -103,7 +105,7 @@ public class CommandRunnerParamsForTesting {
         throws IOException, InterruptedException{
       return createCommandRunnerParamsForTesting(
           console,
-          new TestRepositoryBuilder().build(),
+          new TestCellBuilder().build(),
           androidDirectoryResolver,
           artifactCache,
           eventBus,

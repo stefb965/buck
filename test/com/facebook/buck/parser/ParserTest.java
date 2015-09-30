@@ -56,11 +56,11 @@ import com.facebook.buck.python.PythonBuckConfig;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.KnownBuildRuleTypes;
-import com.facebook.buck.rules.Repository;
+import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphToActionGraph;
 import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.rules.TestRepositoryBuilder;
+import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.WatchEvents;
 import com.facebook.buck.timing.FakeClock;
@@ -166,7 +166,7 @@ public class ParserTest extends EasyMockSupport {
     BuckConfig config = new FakeBuckConfig();
     eventBus = BuckEventBusFactory.newInstance();
 
-    buildRuleTypes = new TestRepositoryBuilder().build().getKnownBuildRuleTypes();
+    buildRuleTypes = new TestCellBuilder().build().getKnownBuildRuleTypes();
 
     ParserConfig parserConfig = new ParserConfig(config);
     PythonBuckConfig pythonBuckConfig = new PythonBuckConfig(
@@ -227,18 +227,34 @@ public class ParserTest extends EasyMockSupport {
       ProjectBuildFileParserFactory buildFileParserFactory,
       BuckConfig buckConfig)
       throws IOException, InterruptedException {
+    return createParser(
+        buildFileTreeSupplier,
+        rules,
+        buildFileParserFactory,
+        buckConfig,
+        ParserConfig.AllowSymlinks.ALLOW);
+  }
 
-    TestRepositoryBuilder repoBuilder = new TestRepositoryBuilder()
+  private Parser createParser(
+      Supplier<BuildFileTree> buildFileTreeSupplier,
+      Iterable<Map<String, Object>> rules,
+      ProjectBuildFileParserFactory buildFileParserFactory,
+      BuckConfig buckConfig,
+      ParserConfig.AllowSymlinks allowSymlinks)
+      throws IOException, InterruptedException {
+
+    TestCellBuilder repoBuilder = new TestCellBuilder()
         .setBuildFileParserFactory(buildFileParserFactory)
         .setBuckConfig(buckConfig)
         .setFilesystem(filesystem);
 
-    Repository toUse = repoBuilder.build();
+    Cell toUse = repoBuilder.build();
 
     Parser parser = new Parser(
         toUse,
         buildFileTreeSupplier,
-        false);
+        false,
+        allowSymlinks);
 
     try {
       parser.parseRawRulesInternal(rules);
@@ -1540,6 +1556,53 @@ public class ParserTest extends EasyMockSupport {
           ImmutableSet.of(Paths.get("foo/bar/Bar.java")),
           libRule.getJavaSrcs());
     }
+  }
+
+  @Test
+  public void whenSymlinksForbiddenThenParseFailsOnSymlinkInSources()
+      throws Exception {
+    // This test depends on creating symbolic links which we cannot do on Windows.
+    assumeTrue(Platform.detect() != Platform.WINDOWS);
+
+    thrown.expect(HumanReadableException.class);
+    thrown.expectMessage(
+        "Target //foo:lib contains input files under a path which contains a symbolic link (" +
+        "{foo/bar=bar}). To resolve this, use separate rules and declare dependencies instead of " +
+        "using symbolic links.");
+
+    Parser parser = createParser(
+        ofInstance(
+            new FilesystemBackedBuildFileTree(filesystem, "BUCK")),
+        emptyBuildTargets(),
+        new TestProjectBuildFileParserFactory(filesystem.getRootPath(), buildRuleTypes),
+        new FakeBuckConfig(),
+        ParserConfig.AllowSymlinks.FORBID);
+
+    tempDir.newFolder("bar");
+    tempDir.newFile("bar/Bar.java");
+    tempDir.newFolder("foo");
+    Path rootPath = tempDir.getRoot().toPath().toRealPath();
+    java.nio.file.Files.createSymbolicLink(rootPath.resolve("foo/bar"), rootPath.resolve("bar"));
+
+    Path testBuckFile = rootPath.resolve("foo").resolve("BUCK");
+    Files.write(
+        "java_library(name = 'lib', srcs=glob(['bar/*.java']))\n",
+        testBuckFile.toFile(),
+        Charsets.UTF_8);
+
+    BuildTarget libTarget = BuildTarget.builder("//foo", "lib").build();
+    Iterable<BuildTarget> buildTargets = ImmutableList.of(libTarget);
+
+    BuckEventBus eventBus = BuckEventBusFactory.newInstance();
+    BuckConfig config = new FakeBuckConfig();
+
+    parser.buildTargetGraphForBuildTargets(
+        buildTargets,
+        new ParserConfig(config),
+        eventBus,
+        new TestConsole(),
+        config.getEnvironment(),
+        /* enableProfiling */ false);
   }
 
   @Test

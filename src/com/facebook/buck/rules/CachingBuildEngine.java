@@ -222,7 +222,7 @@ public class CachingBuildEngine implements BuildEngine {
             rule.getRuleKey(),
             buildInfoRecorder,
             context.getArtifactCache(),
-            // TODO(simons): This should be a shared between all tests, not one per repo
+            // TODO(simons): This should be a shared between all tests, not one per cell
             rule.getProjectFilesystem(),
             context);
     if (cacheResult.getType().isSuccess()) {
@@ -281,16 +281,16 @@ public class CachingBuildEngine implements BuildEngine {
               }
             }
 
-            RuleKeyFactories repoData = CachingBuildEngine.this.ruleKeyFactories.get(
+            RuleKeyFactories cellData = CachingBuildEngine.this.ruleKeyFactories.get(
                 rule.getProjectFilesystem());
-            Preconditions.checkNotNull(repoData);
+            Preconditions.checkNotNull(cellData);
 
             // Input-based rule keys.
             if (rule instanceof SupportsInputBasedRuleKey) {
 
               // Calculate the input-based rule key and record it in the metadata.
               RuleKey inputRuleKey =
-                  repoData.inputBasedRuleKeyBuilderFactory.newInstance(rule).build();
+                  cellData.inputBasedRuleKeyBuilderFactory.newInstance(rule).build();
               buildInfoRecorder.addBuildMetadata(
                   BuildInfo.METADATA_KEY_FOR_INPUT_BASED_RULE_KEY,
                   inputRuleKey.toString());
@@ -313,7 +313,7 @@ public class CachingBuildEngine implements BuildEngine {
                       inputRuleKey,
                       buildInfoRecorder,
                       context.getArtifactCache(),
-                      // TODO(simons): This should be a shared between all tests, not one per repo
+                      // TODO(simons): This should be a shared between all tests, not one per cell
                       rule.getProjectFilesystem(),
                       context);
               if (cacheResult.getType().isSuccess()) {
@@ -347,7 +347,7 @@ public class CachingBuildEngine implements BuildEngine {
             // rebuilt, which is slow. Fortunately, we limit the effects of this when building Java
             // code when checking the ABI of deps instead of the RuleKey for deps.
             if (rule instanceof AbiRule) {
-              RuleKey abiRuleKey = repoData.abiRuleKeyBuilderFactory.newInstance(rule).build();
+              RuleKey abiRuleKey = cellData.abiRuleKeyBuilderFactory.newInstance(rule).build();
               buildInfoRecorder.addBuildMetadata(
                   BuildInfo.METADATA_KEY_FOR_ABI_RULE_KEY,
                   abiRuleKey.toString());
@@ -660,48 +660,19 @@ public class CachingBuildEngine implements BuildEngine {
 
   // Provide a future that resolve to the result of executing this rule and its runtime
   // dependencies.
-  private ListenableFuture<BuildResult> getBuildRuleResultWithRuntimeDeps(
-      final BuildRule rule,
-      final BuildContext context,
-      final ConcurrentLinkedQueue<ListenableFuture<Void>> asyncCallbacks) {
-
-    // Get the future holding the result for this rule and, if we have no additional runtime deps
-    // to attach, return it.
-    final ListenableFuture<BuildResult> result = getBuildRuleResult(rule, context, asyncCallbacks);
-    if (!(rule instanceof HasRuntimeDeps)) {
-      return result;
-    }
-
-    // Collect any runtime deps we have into a list of futures.
-    ImmutableSortedSet<BuildRule> runtimeDeps = ((HasRuntimeDeps) rule).getRuntimeDeps();
-    List<ListenableFuture<BuildResult>> runtimeDepResults =
-        Lists.newArrayListWithExpectedSize(runtimeDeps.size());
-    for (BuildRule dep : runtimeDeps) {
-      runtimeDepResults.add(getBuildRuleResultWithRuntimeDeps(dep, context, asyncCallbacks));
-    }
-
-    // Create a new combined future, which runs the original rule and all the runtime deps in
-    // parallel, but which propagates an error if any one of them fails.
-    return MoreFutures.chainExceptions(
-        Futures.allAsList(runtimeDepResults),
-        result);
-  }
-
-  // Dispatch a job for the given rule (if we haven't already) and return a future tracking it's
-  // result.
-  private synchronized ListenableFuture<BuildResult> getBuildRuleResult(
+  private ListenableFuture<BuildResult> getBuildRuleResultWithRuntimeDepsUnlocked(
       final BuildRule rule,
       final BuildContext context,
       final ConcurrentLinkedQueue<ListenableFuture<Void>> asyncCallbacks) {
 
     // If the rule is already executing, return it's result future from the cache.
-    Optional<ListenableFuture<BuildResult>> existingResult =
-        Optional.fromNullable(results.get(rule.getBuildTarget()));
-    if (existingResult.isPresent()) {
-      return existingResult.get();
+    ListenableFuture<BuildResult> existingResult = results.get(rule.getBuildTarget());
+    if (existingResult != null) {
+      return existingResult;
     }
 
-    // Otherwise submit a new job for this rule, cache the future, and return it.
+    // Get the future holding the result for this rule and, if we have no additional runtime deps
+    // to attach, return it.
     ListenableFuture<RuleKey> ruleKey = calculateRuleKey(rule, context);
     ListenableFuture<BuildResult> result =
         Futures.transform(
@@ -713,8 +684,46 @@ public class CachingBuildEngine implements BuildEngine {
               }
             },
             service);
+    if (!(rule instanceof HasRuntimeDeps)) {
+      results.put(rule.getBuildTarget(), result);
+      return result;
+    }
+
+    // Collect any runtime deps we have into a list of futures.
+    ImmutableSortedSet<BuildRule> runtimeDeps = ((HasRuntimeDeps) rule).getRuntimeDeps();
+    List<ListenableFuture<BuildResult>> runtimeDepResults =
+        Lists.newArrayListWithExpectedSize(runtimeDeps.size());
+    for (BuildRule dep : runtimeDeps) {
+      runtimeDepResults.add(
+          getBuildRuleResultWithRuntimeDepsUnlocked(dep, context, asyncCallbacks));
+    }
+
+    // Create a new combined future, which runs the original rule and all the runtime deps in
+    // parallel, but which propagates an error if any one of them fails.
+    result =
+        MoreFutures.chainExceptions(
+            Futures.allAsList(runtimeDepResults),
+            result);
     results.put(rule.getBuildTarget(), result);
     return result;
+  }
+
+  private ListenableFuture<BuildResult> getBuildRuleResultWithRuntimeDeps(
+      final BuildRule rule,
+      final BuildContext context,
+      final ConcurrentLinkedQueue<ListenableFuture<Void>> asyncCallbacks) {
+
+    // If the rule is already executing, return it's result future from the cache without acquiring
+    // the lock.
+    ListenableFuture<BuildResult> existingResult = results.get(rule.getBuildTarget());
+    if (existingResult != null) {
+      return existingResult;
+    }
+
+    // Otherwise, grab the lock and delegate to the real method,
+    synchronized (results) {
+      return getBuildRuleResultWithRuntimeDepsUnlocked(rule, context, asyncCallbacks);
+    }
   }
 
   public ListenableFuture<?> walkRule(
@@ -1034,14 +1043,14 @@ public class CachingBuildEngine implements BuildEngine {
       return Optional.absent();
     }
 
-    RuleKeyFactories repoData = this.ruleKeyFactories.get(rule.getProjectFilesystem());
-    Preconditions.checkNotNull(repoData);
+    RuleKeyFactories cellData = this.ruleKeyFactories.get(rule.getProjectFilesystem());
+    Preconditions.checkNotNull(cellData);
 
     // Add in the inputs explicitly listed in the dep file.  If any inputs are no longer on disk,
     // this means something changed and a dep-file based rule key can't be calculated.
     ImmutableList<Path> inputs =
         FluentIterable.from(depFile.get()).transform(MorePaths.TO_PATH).toList();
-    RuleKeyBuilder builder = repoData.depFileRuleKeyBuilderFactory.newInstance(rule);
+    RuleKeyBuilder builder = cellData.depFileRuleKeyBuilderFactory.newInstance(rule);
     for (Path input : inputs) {
       try {
         builder.setPath(input);

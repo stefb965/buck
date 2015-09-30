@@ -14,10 +14,20 @@
  * under the License.
  */
 
-package com.facebook.buck.rules;
+package com.facebook.buck.timing;
 
-import com.google.common.collect.ImmutableSortedSet;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 
-public interface HasDependencies {
-  ImmutableSortedSet<BuildRule> getDeps();
+import org.immutables.value.Value;
+
+@Value.Immutable
+@BuckStyleImmutable
+abstract class AbstractRelativePerfTime {
+  public static final long UNSUPPORTED = -1;
+  @Value.Parameter(order = 1)
+  public abstract long getUserCpuTimeNs();
+  @Value.Parameter(order = 2)
+  public abstract long getSystemCpuTimeNs();
+
+  public boolean hasCpuTime() { return getUserCpuTimeNs() != UNSUPPORTED; }
 }

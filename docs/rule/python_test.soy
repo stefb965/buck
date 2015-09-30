@@ -14,7 +14,7 @@
 {call buck.rule}
 {param status: 'UNFROZEN' /}
 {param overview}
-A <code>python_test()</code> rule is used to define a set of <code>.py</code>
+A <code>python_test()</code> rule is used to define a set of <code>.py</code>{sp}
 files that contain tests to run via the <a href="https://docs.python.org/2/library/unittest.html">Python unit testing framework</a>.
 {/param}
 
@@ -41,6 +41,23 @@ files that contain tests to run via the <a href="https://docs.python.org/2/libra
   {param desc}
   Static files to be packaged along with the python sources. These resources can be
   accessed at runtime using the <a href="https://pythonhosted.org/setuptools/pkg_resources.html">pkg_resources</a> API.
+  {/param}
+{/call}
+
+{call buck.arg}
+  {param name: 'env' /}
+  {{param default : '{}' /}}
+  {param desc}
+  A map of environment names and values to set when running the test.
+  <br><br>
+  It is also possible to expand references to other rules within the <b>values</b> of
+  these environment variables, using builtin {call buck.string_parameter_macros /}:
+  <dl>
+    <dt><code>$(location /&#x2F;path/to:target)</code></dt>
+    <dd>Expands to the location of the output of the build rule. This
+    means that you can refer to these without needing to be aware of how
+    Buck is storing data on the disk mid-build.</dd>
+  </dl>
   {/param}
 {/call}
 

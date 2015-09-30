@@ -16,12 +16,14 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.java.Javac;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.util.MoreIterables;
 import com.google.common.base.Function;
 import com.google.common.base.Functions;
+import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
@@ -77,7 +79,7 @@ public class CxxPrepareForLinkStep implements Step {
     try (PrintWriter pr = new PrintWriter(argFilePath.toString())) {
       LOG.verbose("Creating argfile");
       ImmutableList<String> argFileContents = getLinkerOptions();
-      for (String option : argFileContents) {
+      for (String option : FluentIterable.from(argFileContents).transform(Javac.ARGFILES_ESCAPER)) {
         pr.println(option);
       }
     }

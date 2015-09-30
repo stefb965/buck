@@ -1,7 +1,7 @@
 java_library(
   name = 'types',
   srcs = [
-    'Repository.java',
+    'Cell.java',
     'KnownBuildRuleTypes.java',
     'KnownBuildRuleTypesFactory.java',
   ],
@@ -19,8 +19,10 @@ java_library(
     '//src/com/facebook/buck/cxx:platform',
     '//src/com/facebook/buck/d:d',
     '//src/com/facebook/buck/dotnet:dotnet',
+    '//src/com/facebook/buck/event:event',
     '//src/com/facebook/buck/file:downloader',
     '//src/com/facebook/buck/file:file',
+    '//src/com/facebook/buck/go:go',
     '//src/com/facebook/buck/gwt:gwt',
     '//src/com/facebook/buck/io:io',
     '//src/com/facebook/buck/io:watchman',
@@ -120,7 +122,6 @@ java_immutables_library(
     'Description.java',
     'FlavorableDescription.java',
     'ExportDependencies.java',
-    'HasDependencies.java',
     'HashedFileTool.java',
     'HasPostBuildSteps.java',
     'HasRuntimeDeps.java',
