@@ -78,6 +78,7 @@ import com.facebook.buck.util.cache.ProjectFileHashCache;
 import com.facebook.buck.util.cache.WatchedFileHashCache;
 import com.facebook.buck.util.concurrent.MoreExecutors;
 import com.facebook.buck.util.concurrent.TimeSpan;
+import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.BuildEnvironmentDescription;
 import com.facebook.buck.util.environment.DefaultExecutionEnvironment;
 import com.facebook.buck.util.environment.EnvironmentFilter;
@@ -161,6 +162,8 @@ public final class Main {
   private final PrintStream stdErr;
   private final ImmutableList<BuckEventListener> externalEventsListeners;
 
+  private final Architecture architecture;
+
   private static final Semaphore commandSemaphore = new Semaphore(1);
 
   private final Platform platform;
@@ -195,7 +198,8 @@ public final class Main {
         Cell cell,
         ParserConfig.GlobHandler globHandler,
         ParserConfig.AllowSymlinks allowSymlinks,
-        ObjectMapper objectMapper)
+        ObjectMapper objectMapper,
+        Optional<WebServer> webServerToReuse)
         throws IOException, InterruptedException {
       this.cell = cell;
       this.hashCache = new WatchedFileHashCache(cell.getFilesystem());
@@ -214,7 +218,14 @@ public final class Main {
       fileEventBus.register(parser);
       fileEventBus.register(hashCache);
 
-      webServer = createWebServer(cell.getBuckConfig(), cell.getFilesystem(), objectMapper);
+      if (webServerToReuse.isPresent()) {
+        webServer = webServerToReuse;
+      } else {
+        webServer = createWebServer(cell.getBuckConfig(), cell.getFilesystem(), objectMapper);
+      }
+      if (!initWebServer()) {
+        LOG.warn("Can't start web server");
+      }
       watchmanQueryUUID = UUID.randomUUID();
       JavaUtilsLoggingBuildListener.ensureLogFileIsWritten(cell.getFilesystem());
     }
@@ -240,7 +251,7 @@ public final class Main {
      * If the return value is not absent, then the port is a nonnegative integer. This means that
      * specifying a port of -1 effectively disables the WebServer.
      */
-    private static Optional<Integer> getValidWebServerPort(BuckConfig config) {
+    public static Optional<Integer> getValidWebServerPort(BuckConfig config) {
       // Enable the web httpserver if it is given by command line parameter or specified in
       // .buckconfig. The presence of a nonnegative port number is sufficient.
       Optional<String> serverPort =
@@ -368,9 +379,10 @@ public final class Main {
       ObjectMapper objectMapper)
       throws IOException, InterruptedException  {
     Path rootPath = cell.getFilesystem().getRootPath();
+    Optional<WebServer> webServer = Optional.<WebServer>absent();
     if (daemon == null) {
       LOG.debug("Starting up daemon for project root [%s]", rootPath);
-      daemon = new Daemon(cell, globHandler, allowSymlinks, objectMapper);
+      daemon = new Daemon(cell, globHandler, allowSymlinks, objectMapper, webServer);
     } else {
       // Buck daemons cache build files within a single project root, changing to a different
       // project root is not supported and will likely result in incorrect builds. The buck and
@@ -387,11 +399,27 @@ public final class Main {
       // create a new daemon.
       if (!daemon.cell.equals(cell)) {
         LOG.info("Shutting down and restarting daemon on config or directory resolver change.");
-        daemon.close();
-        daemon = new Daemon(cell, globHandler, allowSymlinks, objectMapper);
+        if (shouldReuseWebServer(cell)) {
+          webServer = daemon.getWebServer();
+          LOG.info("Reusing web server");
+        } else {
+          daemon.close();
+        }
+        daemon = new Daemon(cell, globHandler, allowSymlinks, objectMapper, webServer);
       }
     }
     return daemon;
+  }
+
+  private static boolean shouldReuseWebServer(Cell newCell) {
+    if (newCell == null || daemon == null || daemon.cell == null) {
+      return false;
+    }
+    Optional<Integer> portFromOldConfig =
+        Daemon.getValidWebServerPort(daemon.cell.getBuckConfig());
+    Optional<Integer> portFromUpdatedConfig =
+        Daemon.getValidWebServerPort(newCell.getBuckConfig());
+    return portFromOldConfig.equals(portFromUpdatedConfig);
   }
 
   @VisibleForTesting
@@ -420,6 +448,7 @@ public final class Main {
       List<BuckEventListener> externalEventsListeners) {
     this.stdOut = stdOut;
     this.stdErr = stdErr;
+    this.architecture = Architecture.detect();
     this.platform = Platform.detect();
     this.objectMapper = new ObjectMapper();
     // Add support for serializing Path and other JDK 7 objects.
@@ -479,8 +508,7 @@ public final class Main {
 
     Verbosity verbosity = VerbosityParser.parse(args);
     Optional<String> color;
-    final boolean isDaemon = context.isPresent();
-    if (isDaemon && (context.get().getEnv() != null)) {
+    if (context.isPresent() && (context.get().getEnv() != null)) {
       String colorString = context.get().getEnv().getProperty(BUCKD_COLOR_DEFAULT_ENV_VAR);
       color = Optional.fromNullable(colorString);
     } else {
@@ -513,7 +541,12 @@ public final class Main {
 
     Config rawConfig = Config.createDefaultConfig(canonicalRootPath, configOverrides);
     ProjectFilesystem filesystem = new ProjectFilesystem(canonicalRootPath, rawConfig);
-    BuckConfig buckConfig = new BuckConfig(rawConfig, filesystem, platform, clientEnvironment);
+    BuckConfig buckConfig = new BuckConfig(
+        rawConfig,
+        filesystem,
+        architecture,
+        platform,
+        clientEnvironment);
     // End ugly bootstrapping code.
 
     final Console console = new Console(
@@ -588,6 +621,8 @@ public final class Main {
       watchman = Watchman.NULL_WATCHMAN;
       globHandler = ParserConfig.GlobHandler.PYTHON;
     }
+
+    final boolean isDaemon = context.isPresent() && (watchman != Watchman.NULL_WATCHMAN);
 
     KnownBuildRuleTypesFactory factory = new KnownBuildRuleTypesFactory(
         processExecutor,
@@ -818,7 +853,7 @@ public final class Main {
         commandSemaphore.release(); // Allow another command to execute while outputting traces.
       }
     }
-    if (isDaemon && !rootCell.getBuckConfig().getFlushEventsBeforeExit()) {
+    if (context.isPresent() && !rootCell.getBuckConfig().getFlushEventsBeforeExit()) {
       context.get().in.close(); // Avoid client exit triggering client disconnection handling.
       context.get().exit(exitCode); // Allow nailgun client to exit while outputting traces.
     }
@@ -935,7 +970,6 @@ public final class Main {
     Daemon daemon = getDaemon(cell, globHandler, allowSymlinks, objectMapper);
     daemon.watchClient(context.get());
     daemon.watchFileSystem(commandEvent, eventBus, watchmanWatcher);
-    daemon.initWebServer();
     return daemon.getParser();
   }
 
@@ -1180,6 +1214,10 @@ public final class Main {
       }
       return FAIL_EXIT_CODE;
     } finally {
+      final boolean isDaemon = context.isPresent();
+      if (isDaemon) {
+        System.gc(); // Let VM return memory to OS
+      }
       LOG.debug("Done.");
     }
   }

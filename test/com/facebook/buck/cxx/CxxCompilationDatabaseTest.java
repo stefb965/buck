@@ -64,6 +64,11 @@ public class CxxCompilationDatabaseTest {
     final Path fakeRoot = Paths.get(root);
     ProjectFilesystem filesystem = new FakeProjectFilesystem() {
       @Override
+      public Path getRootPath() {
+        return fakeRoot;
+      }
+
+      @Override
       public Path resolve(Path relativePath) {
         return fakeRoot.resolve(relativePath);
       }
@@ -121,7 +126,7 @@ public class CxxCompilationDatabaseTest {
         rules.add(preprocessRule);
         compileBuildRuleParams = new FakeBuildRuleParamsBuilder(compileTarget)
             .setProjectFilesystem(filesystem)
-            .setDeps(ImmutableSortedSet.<BuildRule>of(preprocessRule))
+            .setDeclaredDeps(ImmutableSortedSet.<BuildRule>of(preprocessRule))
             .build();
         break;
       case COMBINED:
@@ -168,7 +173,8 @@ public class CxxCompilationDatabaseTest {
         testBuildRuleParams,
         testSourcePathResolver,
         strategy,
-        rules.build());
+        rules.build(),
+        CxxCompilationDatabaseFormat.CLANG);
 
     assertEquals(
         "getPathToOutput() should be a function of the build target.",
@@ -187,10 +193,10 @@ public class CxxCompilationDatabaseTest {
         (CxxCompilationDatabase.GenerateCompilationCommandsJson) buildSteps.get(1);
     Iterable<CxxCompilationDatabaseEntry> observedEntries =
         step.createEntries();
-    Iterable<CxxCompilationDatabaseEntry> expectedEntries =
+    Iterable<ClangCxxCompilationDatabaseEntry> expectedEntries =
         ImmutableList.of(
-          new CxxCompilationDatabaseEntry(
-              root + "/foo",
+          ClangCxxCompilationDatabaseEntry.of(
+              root,
               root + "/test.cpp",
               expectedArguments));
     MoreAsserts.assertIterablesEquals(expectedEntries, observedEntries);
@@ -238,6 +244,11 @@ public class CxxCompilationDatabaseTest {
     String root = "/Users/user/src";
     final Path fakeRoot = Paths.get(root);
     ProjectFilesystem filesystem = new FakeProjectFilesystem() {
+      @Override
+      public Path getRootPath() {
+        return fakeRoot;
+      }
+
       @Override
       public Path resolve(Path relativePath) {
         return fakeRoot.resolve(relativePath);
@@ -295,7 +306,7 @@ public class CxxCompilationDatabaseTest {
         .build();
     BuildRuleParams compileBuildRuleParams = new FakeBuildRuleParamsBuilder(compileTarget)
         .setProjectFilesystem(filesystem)
-        .setDeps(ImmutableSortedSet.<BuildRule>of(testPreprocessRule))
+        .setDeclaredDeps(ImmutableSortedSet.<BuildRule>of(testPreprocessRule))
         .build();
     CxxPreprocessAndCompile testCompileRule = new CxxPreprocessAndCompile(
         compileBuildRuleParams,
@@ -322,7 +333,8 @@ public class CxxCompilationDatabaseTest {
         testBuildRuleParams,
         testSourcePathResolver,
         CxxPreprocessMode.SEPARATE,
-        ImmutableSortedSet.of(testPreprocessRule, testCompileRule));
+        ImmutableSortedSet.of(testPreprocessRule, testCompileRule),
+        CxxCompilationDatabaseFormat.CLANG);
 
     assertEquals(
         "getPathToOutput() should be a function of the build target.",
@@ -341,10 +353,10 @@ public class CxxCompilationDatabaseTest {
         (CxxCompilationDatabase.GenerateCompilationCommandsJson) buildSteps.get(1);
     Iterable<CxxCompilationDatabaseEntry> observedEntries =
         step.createEntries();
-    Iterable<CxxCompilationDatabaseEntry> expectedEntries =
+    Iterable<ClangCxxCompilationDatabaseEntry> expectedEntries =
         ImmutableList.of(
-            new CxxCompilationDatabaseEntry(
-                root + "/foo",
+            ClangCxxCompilationDatabaseEntry.of(
+                root,
                 root + "/test.cpp",
                 ImmutableList.of(
                     "compiler",

@@ -366,7 +366,12 @@ public class TestCommand extends BuildCommand {
         };
     ListeningProcessExecutor.LaunchedProcess process =
         processExecutor.launchProcess(processExecutorParams, processListener);
-    return processExecutor.waitForProcess(process, Long.MAX_VALUE, TimeUnit.DAYS);
+    try {
+      return processExecutor.waitForProcess(process, Long.MAX_VALUE, TimeUnit.DAYS);
+    } finally {
+      processExecutor.destroyProcess(process, /* force */ false);
+      processExecutor.waitForProcess(process, Long.MAX_VALUE, TimeUnit.DAYS);
+    }
   }
 
   @Override

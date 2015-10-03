@@ -230,7 +230,6 @@ public class AndroidBinaryGraphEnhancer {
         javacOptions,
         shouldPreDex,
         shouldBuildStringSourceMap,
-        locales.isEmpty(),
         skipCrunchPngs);
     ruleResolver.addToIndex(aaptPackageResources);
     enhancedDeps.add(aaptPackageResources);
@@ -398,6 +397,7 @@ public class AndroidBinaryGraphEnhancer {
           /* declaredDeps */ Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
           /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
           buildRuleParams.getProjectFilesystem(),
+          buildRuleParams.getCellRoots(),
           buildRuleParams.getRuleKeyBuilderFactory());
       JavaLibrary buildConfigJavaLibrary = AndroidBuildConfigDescription.createBuildRule(
           buildConfigParams,

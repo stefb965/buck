@@ -106,7 +106,7 @@ import com.facebook.buck.ocaml.PrebuiltOCamlLibraryDescription;
 import com.facebook.buck.python.PrebuiltPythonLibraryDescription;
 import com.facebook.buck.python.PythonBinaryDescription;
 import com.facebook.buck.python.PythonBuckConfig;
-import com.facebook.buck.python.PythonEnvironment;
+import com.facebook.buck.python.PythonPlatform;
 import com.facebook.buck.python.PythonLibraryDescription;
 import com.facebook.buck.python.PythonTestDescription;
 import com.facebook.buck.rust.RustBinaryDescription;
@@ -211,13 +211,11 @@ public class KnownBuildRuleTypes {
       BuckConfig config,
       ProcessExecutor processExecutor,
       AndroidDirectoryResolver androidDirectoryResolver,
-      PythonEnvironment pythonEnv,
       Optional<Path> testTempDirOverride) throws InterruptedException, IOException {
     return createBuilder(
         config,
         processExecutor,
         androidDirectoryResolver,
-        pythonEnv,
         testTempDirOverride).build();
   }
 
@@ -273,7 +271,6 @@ public class KnownBuildRuleTypes {
       BuckConfig config,
       ProcessExecutor processExecutor,
       AndroidDirectoryResolver androidDirectoryResolver,
-      PythonEnvironment pythonEnv,
       Optional<Path> testTempDirOverride) throws InterruptedException, IOException {
 
     Platform platform = Platform.detect();
@@ -389,8 +386,21 @@ public class KnownBuildRuleTypes {
     ProGuardConfig proGuardConfig = new ProGuardConfig(config);
 
     PythonBuckConfig pyConfig = new PythonBuckConfig(config, new ExecutableFinder());
+    ImmutableList<PythonPlatform> pythonPlatformsList =
+        pyConfig.getPythonPlatforms(processExecutor);
+    ImmutableMap.Builder<Flavor, PythonPlatform> pythonPlatformsMapBuilder = ImmutableMap.builder();
+    for (PythonPlatform pythonPlatform : pythonPlatformsList) {
+      pythonPlatformsMapBuilder.put(pythonPlatform.getFlavor(), pythonPlatform);
+    }
+    ImmutableMap<Flavor, PythonPlatform> pythonPlatformsMap = pythonPlatformsMapBuilder.build();
+    FlavorDomain<PythonPlatform> pythonPlatforms =
+        new FlavorDomain<>("Python Platform", pythonPlatformsMap);
     PythonBinaryDescription pythonBinaryDescription =
-        new PythonBinaryDescription(pyConfig, pythonEnv, defaultCxxPlatform, cxxPlatforms);
+        new PythonBinaryDescription(
+            pyConfig,
+            pythonPlatforms,
+            defaultCxxPlatform,
+            cxxPlatforms);
 
     // Look up the timeout to apply to entire test rules.
     Optional<Long> testRuleTimeoutMs = config.getLong("test", "rule_timeout");
@@ -496,11 +506,12 @@ public class KnownBuildRuleTypes {
     builder.register(new CSharpLibraryDescription());
     builder.register(cxxBinaryDescription);
     builder.register(cxxLibraryDescription);
-    builder.register(new CxxPythonExtensionDescription(cxxBuckConfig, cxxPlatforms));
+    builder.register(
+        new CxxPythonExtensionDescription(pythonPlatforms, cxxBuckConfig, cxxPlatforms));
     builder.register(new CxxTestDescription(cxxBuckConfig, defaultCxxPlatform, cxxPlatforms));
-    builder.register(new DBinaryDescription(dBuckConfig));
+    builder.register(new DBinaryDescription(dBuckConfig, defaultCxxPlatform));
     builder.register(new DLibraryDescription(dBuckConfig));
-    builder.register(new DTestDescription(dBuckConfig));
+    builder.register(new DTestDescription(dBuckConfig, defaultCxxPlatform));
     builder.register(new ExportFileDescription());
     builder.register(new GenruleDescription());
     builder.register(new GenAidlDescription());
@@ -534,6 +545,7 @@ public class KnownBuildRuleTypes {
         new PythonTestDescription(
             pythonBinaryDescription,
             pyConfig,
+            pythonPlatforms,
             defaultCxxPlatform,
             cxxPlatforms));
     builder.register(new RemoteFileDescription(downloader));

@@ -24,9 +24,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.android.AndroidBinary.PackageType;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
@@ -63,11 +61,8 @@ public class AaptPackageResourcesTest {
     ResourcesFilter resourcesFilter = EasyMock.createMock(ResourcesFilter.class);
     EasyMock.replay(resourcesFilter);
 
-    BuildRuleParams params = new FakeBuildRuleParamsBuilder(
-        BuildTarget.builder("//java/src/com/facebook/base", "apk")
-            .addFlavors(ImmutableFlavor.of("aapt_package"))
-            .build())
-        .build();
+    BuildRuleParams params =
+        new FakeBuildRuleParamsBuilder("//java/src/com/facebook/base:apk#aapt_package").build();
 
     // One android_binary rule that depends on the two android_library rules.
     AaptPackageResources aaptPackageResources = new AaptPackageResources(
@@ -81,7 +76,6 @@ public class AaptPackageResourcesTest {
         DEFAULT_JAVAC_OPTIONS,
         /* rDotJavaNeedsDexing */ false,
         /* shouldBuildStringSourceMap */ false,
-        /* shouldWarnIfMissingResources */ false,
         /* skipCrunchPngs */ false);
 
     // Build up the parameters needed to invoke createAllAssetsDirectory().
@@ -129,11 +123,8 @@ public class AaptPackageResourcesTest {
     AndroidResource resourceOne = (AndroidResource) ruleResolver.getRule(
         BuildTargetFactory.newInstance("//java/src/com/facebook/base:libraryTwo_resources"));
 
-    BuildRuleParams params = new FakeBuildRuleParamsBuilder(
-        BuildTarget.builder("//java/src/com/facebook/base", "apk")
-            .addFlavors(ImmutableFlavor.of("aapt_package"))
-            .build())
-        .build();
+    BuildRuleParams params =
+        new FakeBuildRuleParamsBuilder("//java/src/com/facebook/base:apk#aapt_package").build();
     // One android_binary rule that depends on the two android_library rules.
     AaptPackageResources aaptPackageResources = new AaptPackageResources(
         params,
@@ -146,7 +137,6 @@ public class AaptPackageResourcesTest {
         DEFAULT_JAVAC_OPTIONS,
         /* rDotJavaNeedsDexing */ false,
         /* shouldBuildStringSourceMap */ false,
-        /* shouldWarnIfMissingResources */ false,
         /* skipCrunchPngs */ false);
 
     // Build up the parameters needed to invoke createAllAssetsDirectory().
@@ -210,12 +200,8 @@ public class AaptPackageResourcesTest {
     ResourcesFilter resourcesFilter = EasyMock.createMock(ResourcesFilter.class);
     EasyMock.replay(resourcesFilter);
 
-    BuildRuleParams params = new FakeBuildRuleParamsBuilder(
-        BuildTarget
-            .builder("//facebook/base", "apk")
-            .addFlavors(ImmutableFlavor.of("aapt_package"))
-            .build())
-        .build();
+    BuildRuleParams params =
+        new FakeBuildRuleParamsBuilder("//facebook/base:apk#aapt_package").build();
     // One android_binary rule that depends on the two android_library rules.
     AaptPackageResources aaptPackageResources = new AaptPackageResources(
         params,
@@ -228,7 +214,6 @@ public class AaptPackageResourcesTest {
         DEFAULT_JAVAC_OPTIONS,
         /* rDotJavaNeedsDexing */ false,
         /* shouldBuildStringSourceMap */ false,
-        /* shouldWarnIfMissingResources */ false,
         /* skipCrunchPngs */ false);
 
     AndroidResource resourceOne = (AndroidResource) ruleResolver.getRule(
@@ -343,7 +328,6 @@ public class AaptPackageResourcesTest {
             DEFAULT_JAVAC_OPTIONS,
             /* rDotJavaNeedsDexing */ false,
             /* shouldBuildStringSourceMap */ false,
-            /* shouldWarnIfMissingResources */ false,
             /* skipCrunchPngs */ false);
 
     FakeOnDiskBuildInfo onDiskBuildInfo =

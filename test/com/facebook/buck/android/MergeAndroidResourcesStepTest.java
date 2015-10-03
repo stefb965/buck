@@ -67,14 +67,10 @@ public class MergeAndroidResourcesStepTest {
             "int attr c1 0x7f010001",
             "int[] styleable c1 { 0x7f010001 }")));
 
-    ExecutionContext executionContext = TestExecutionContext.newInstance();
-
     SortedSetMultimap<String, RDotTxtEntry> packageNameToResources =
         MergeAndroidResourcesStep.sortSymbols(
             entriesBuilder.buildFilePathToPackageNameSet(),
             Optional.<ImmutableMap<RDotTxtEntry, String>>absent(),
-            /* warnMissingResource */ false,
-            executionContext,
             entriesBuilder.getProjectFilesystem());
 
     assertEquals(1, packageNameToResources.keySet().size());
@@ -131,7 +127,6 @@ public class MergeAndroidResourcesStepTest {
         filesystem,
         ImmutableList.of(resource),
         Optional.of(uberRDotTxt),
-        /* warnMissingResource */ false,
         Paths.get("output"));
 
     ExecutionContext executionContext = TestExecutionContext.newInstance();
@@ -164,6 +159,60 @@ public class MergeAndroidResourcesStepTest {
         "  }\n" +
         "\n" +
         "}\n",
+        filesystem.readFileIfItExists(Paths.get("output/com/facebook/R.java")).get()
+            .replace("\r", ""));
+  }
+
+  @Test
+  public void testGenerateRDotJavaForCustomDrawables() throws IOException {
+    String symbolsFile =
+        BuckConstant.GEN_PATH
+            .resolve("android_res/com/facebook/http/__res_text_symbols__/R.txt")
+            .toString();
+    String rDotJavaPackage = "com.facebook";
+    final ImmutableList<String> outputTextSymbols = ImmutableList.<String>builder()
+        .add("int drawable android_drawable 0x7f010000")
+        .add("int drawable fb_drawable 0x7f010001 #")
+        .build();
+    RDotTxtEntryBuilder entriesBuilder = new RDotTxtEntryBuilder();
+    entriesBuilder.add(new RDotTxtFile(rDotJavaPackage, symbolsFile, outputTextSymbols));
+
+    FakeProjectFilesystem filesystem = entriesBuilder.getProjectFilesystem();
+
+    Path uberRDotTxt = filesystem.resolve("R.txt").toAbsolutePath();
+    filesystem.writeLinesToPath(outputTextSymbols, uberRDotTxt);
+
+    HasAndroidResourceDeps resource = AndroidResourceRuleBuilder.newBuilder()
+        .setResolver(new SourcePathResolver(new BuildRuleResolver()))
+        .setBuildTarget(BuildTargetFactory.newInstance("//android_res/com/facebook/http:res"))
+        .setRes(new TestSourcePath("res"))
+        .setRDotJavaPackage("com.facebook")
+        .build();
+
+    MergeAndroidResourcesStep mergeStep = new MergeAndroidResourcesStep(
+        filesystem,
+        ImmutableList.of(resource),
+        Optional.of(uberRDotTxt),
+        Paths.get("output"));
+
+    ExecutionContext executionContext = TestExecutionContext.newInstance();
+
+    assertEquals(0, mergeStep.execute(executionContext));
+
+    // Verify that the correct Java code is generated.
+    assertEquals(
+        "package com.facebook;\n" +
+            "\n" +
+            "public class R {\n" +
+            "\n" +
+            "  public static class drawable {\n" +
+            "    public static final int android_drawable=0x7f010000;\n" +
+            "    public static final int fb_drawable=0x7f010001;\n" +
+            "  }\n" +
+            "\n" +
+            "  public static final int[] custom_drawables = { 0x7f010001 };\n" +
+            "\n" +
+            "}\n",
         filesystem.readFileIfItExists(Paths.get("output/com/facebook/R.java")).get()
             .replace("\r", ""));
   }

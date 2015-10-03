@@ -16,6 +16,7 @@
 
 package com.facebook.buck.thrift;
 
+import static com.facebook.buck.rules.TestCellBuilder.createCellRoots;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertSame;
@@ -65,7 +66,7 @@ public class ThriftLibraryDescriptionTest {
       BuildRule... deps) {
     return new FakeBuildRule(
         new FakeBuildRuleParamsBuilder(target)
-            .setDeps(ImmutableSortedSet.copyOf(deps))
+            .setDeclaredDeps(ImmutableSortedSet.copyOf(deps))
             .build(),
         resolver);
   }
@@ -76,7 +77,7 @@ public class ThriftLibraryDescriptionTest {
       BuildRule... deps) {
     return new FakeBuildRule(
         new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance(target))
-            .setDeps(ImmutableSortedSet.copyOf(deps))
+            .setDeclaredDeps(ImmutableSortedSet.copyOf(deps))
             .build(),
         resolver);
   }
@@ -88,7 +89,7 @@ public class ThriftLibraryDescriptionTest {
       BuildRule... deps) {
     BuildRuleParams params =
         new FakeBuildRuleParamsBuilder(target)
-            .setDeps(ImmutableSortedSet.copyOf(deps))
+            .setDeclaredDeps(ImmutableSortedSet.copyOf(deps))
             .build();
     try {
       return new HeaderSymlinkTree(params, resolver, root, ImmutableMap.<Path, SourcePath>of());
@@ -553,6 +554,7 @@ public class ThriftLibraryDescriptionTest {
     // Now call the find deps methods and verify it returns nothing.
     Iterable<BuildTarget> results = desc.findDepsForTargetFromConstructorArgs(
         unflavoredTarget,
+        createCellRoots(null),
         constructorArg);
     assertEquals(
         ImmutableList.<BuildTarget>of(),
@@ -598,6 +600,7 @@ public class ThriftLibraryDescriptionTest {
     // Now call the find deps methods and verify it returns nothing.
     Iterable<BuildTarget> results = desc.findDepsForTargetFromConstructorArgs(
         flavoredTarget,
+        createCellRoots(null),
         constructorArg);
     assertEquals(
         ImmutableSet.<BuildTarget>builder()

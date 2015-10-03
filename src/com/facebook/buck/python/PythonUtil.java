@@ -43,30 +43,28 @@ public class PythonUtil {
       SourcePathResolver resolver,
       String parameter,
       Path baseModule,
-      Optional<SourceList> inputs) {
-
-    if (!inputs.isPresent()) {
-      return ImmutableMap.of();
-    }
-
-    final ImmutableMap<String, SourcePath> namesAndSourcePaths;
-
-    if (inputs.get().getUnnamedSources().isPresent()) {
-      namesAndSourcePaths = resolver.getSourcePathNames(
-          target,
-          parameter,
-          inputs.get().getUnnamedSources().get());
-    } else {
-      namesAndSourcePaths = inputs.get().getNamedSources().get();
-    }
+      Iterable<SourceList> inputs) {
 
     ImmutableMap.Builder<Path, SourcePath> moduleNamesAndSourcePaths = ImmutableMap.builder();
 
-    for (ImmutableMap.Entry<String, SourcePath> entry : namesAndSourcePaths.entrySet()) {
-      moduleNamesAndSourcePaths.put(
-          baseModule.resolve(entry.getKey()),
-          entry.getValue());
+    for (SourceList input : inputs) {
+      ImmutableMap<String, SourcePath> namesAndSourcePaths;
+      if (input.getUnnamedSources().isPresent()) {
+        namesAndSourcePaths =
+            resolver.getSourcePathNames(
+                target,
+                parameter,
+                input.getUnnamedSources().get());
+      } else {
+        namesAndSourcePaths = input.getNamedSources().get();
+      }
+      for (ImmutableMap.Entry<String, SourcePath> entry : namesAndSourcePaths.entrySet()) {
+        moduleNamesAndSourcePaths.put(
+            baseModule.resolve(entry.getKey()),
+            entry.getValue());
+      }
     }
+
     return moduleNamesAndSourcePaths.build();
   }
 
@@ -98,6 +96,7 @@ public class PythonUtil {
       final TargetGraph targetGraph,
       BuildRuleParams params,
       PythonPackageComponents packageComponents,
+      final PythonPlatform pythonPlatform,
       final CxxPlatform cxxPlatform) {
 
     final PythonPackageComponents.Builder components =
@@ -118,7 +117,7 @@ public class PythonUtil {
           // Add all components from the python packable into our top-level
           // package.
           components.addComponent(
-              lib.getPythonPackageComponents(targetGraph, cxxPlatform),
+              lib.getPythonPackageComponents(targetGraph, pythonPlatform, cxxPlatform),
               rule.getBuildTarget());
 
           // Return all our deps to recurse on them.

@@ -37,6 +37,7 @@ import com.facebook.buck.rules.Tool;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.AnsiEnvironmentChecking;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.network.HostnameFetching;
 import com.google.common.annotations.Beta;
@@ -93,6 +94,26 @@ public class BuckConfig {
     }
   };
 
+  private final Function<Optional<String>, Path> cellToPath =
+      new Function<Optional<String>, Path>() {
+        @Override
+        public Path apply(Optional<String> cellName) {
+          if (!cellName.isPresent()) {
+            return projectFilesystem.getRootPath();
+          }
+          Optional<Path> root = getPath("repositories", cellName.get(), false);
+          if (!root.isPresent()) {
+            throw new HumanReadableException(
+                "Unable to find repository '%s' in cell rooted at: %s",
+                cellName.get(),
+                projectFilesystem.getRootPath());
+          }
+          return root.get().toAbsolutePath().normalize();
+        }
+      };
+
+  private final Architecture architecture;
+
   private final Config config;
 
   private final ImmutableMap<String, BuildTarget> aliasToBuildTargetMap;
@@ -106,10 +127,12 @@ public class BuckConfig {
   public BuckConfig(
       Config config,
       ProjectFilesystem projectFilesystem,
+      Architecture architecture,
       Platform platform,
       ImmutableMap<String, String> environment) {
     this.config = config;
     this.projectFilesystem = projectFilesystem;
+    this.architecture = architecture;
 
     // We could create this Map on demand; however, in practice, it is almost always needed when
     // BuckConfig is needed because CommandLineBuildTargetNormalizer needs it.
@@ -153,6 +176,7 @@ public class BuckConfig {
   static BuckConfig createFromReaders(
       Map<Path, Reader> readers,
       ProjectFilesystem projectFilesystem,
+      Architecture architecture,
       Platform platform,
       ImmutableMap<String, String> environment,
       ImmutableMap<String, ImmutableMap<String, String>>... configOverrides)
@@ -174,8 +198,13 @@ public class BuckConfig {
     return new BuckConfig(
         config,
         projectFilesystem,
+        architecture,
         platform,
         environment);
+  }
+
+  public Architecture getArchitecture() {
+    return architecture;
   }
 
   public ImmutableMap<String, String> getEntriesForSection(String section) {
@@ -193,6 +222,15 @@ public class BuckConfig {
 
   public ImmutableList<String> getListWithoutComments(String section, String field) {
     return config.getListWithoutComments(section, field);
+  }
+
+  public Function<Optional<String>, Path> getCellRoots() {
+    return cellToPath;
+  }
+
+  public Optional<ImmutableList<String>> getOptionalListWithoutComments(
+      String section, String field) {
+    return config.getOptionalListWithoutComments(section, field);
   }
 
   @Nullable
@@ -221,7 +259,8 @@ public class BuckConfig {
   public BuildTarget getBuildTargetForFullyQualifiedTarget(String target) {
     return BuildTargetParser.INSTANCE.parse(
         target,
-        BuildTargetPatternParser.fullyQualified());
+        BuildTargetPatternParser.fullyQualified(),
+        getCellRoots());
   }
 
   /**
@@ -322,7 +361,7 @@ public class BuckConfig {
    * alias defined earlier in the {@code alias} section. The mapping produced by this method
    * reflects the result of resolving all aliases as values in the {@code alias} section.
    */
-  private static ImmutableMap<String, BuildTarget> createAliasToBuildTargetMap(
+  private ImmutableMap<String, BuildTarget> createAliasToBuildTargetMap(
       ImmutableMap<String, String> rawAliasMap) {
     // We use a LinkedHashMap rather than an ImmutableMap.Builder because we want both (1) order to
     // be preserved, and (2) the ability to inspect the Map while building it up.
@@ -344,7 +383,8 @@ public class BuckConfig {
         // and just grab everything between "//" and ":" and assume it's a valid base path.
         buildTarget = BuildTargetParser.INSTANCE.parse(
             value,
-            BuildTargetPatternParser.fullyQualified());
+            BuildTargetPatternParser.fullyQualified(),
+            getCellRoots());
       }
       aliasToBuildTarget.put(alias, buildTarget);
     }
@@ -493,6 +533,10 @@ public class BuckConfig {
     }
   }
 
+  public Platform getPlatform() {
+    return platform;
+  }
+
   public Optional<URI> getRemoteLogUrl() {
     return getValue("log", "remote_log_url").transform(TO_URI);
   }
@@ -554,10 +598,6 @@ public class BuckConfig {
     return environment;
   }
 
-  public Platform getPlatform() {
-    return platform;
-  }
-
   public String[] getEnv(String propertyName, String separator) {
     String value = getEnvironment().get(propertyName);
     if (value == null) {
@@ -588,6 +628,11 @@ public class BuckConfig {
    */
   public Optional<Path> getPath(String sectionName, String name) {
     return getPath(sectionName, name, true);
+  }
+
+  public Path getRequiredPath(String section, String field) {
+    Optional<Path> path = getPath(section, field);
+    return required(section, field, path);
   }
 
   /**

@@ -328,6 +328,7 @@ public class CxxLibraryDescription implements
               Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
               Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
               params.getProjectFilesystem(),
+              params.getCellRoots(),
               params.getRuleKeyBuilderFactory()),
           pathResolver);
     }
@@ -409,6 +410,7 @@ public class CxxLibraryDescription implements
               Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
               Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
               params.getProjectFilesystem(),
+              params.getCellRoots(),
               params.getRuleKeyBuilderFactory()),
           pathResolver);
     }
@@ -438,6 +440,7 @@ public class CxxLibraryDescription implements
             .transform(
                 MACRO_HANDLER.getExpander(
                     params.getBuildTarget(),
+                    params.getCellRoots(),
                     ruleResolver,
                     params.getProjectFilesystem()))
             .toList(),
@@ -450,6 +453,7 @@ public class CxxLibraryDescription implements
             .from(
                 getExtraMacroBuildInputs(
                     params.getBuildTarget(),
+                    params.getCellRoots(),
                     ruleResolver,
                     extraLdFlags))
             .transform(SourcePaths.getToBuildTargetSourcePath())
@@ -482,7 +486,8 @@ public class CxxLibraryDescription implements
       ImmutableList<String> compilerFlags,
       ImmutableMap<String, CxxSource> sources,
       ImmutableSet<Path> frameworkSearchPaths,
-      CxxPreprocessMode preprocessMode) {
+      CxxPreprocessMode preprocessMode,
+      CxxCompilationDatabaseFormat compilationDatabaseFormat) {
     BuildRuleParams paramsWithoutCompilationDatabaseFlavor = CxxCompilationDatabase
         .paramsWithoutCompilationDatabaseFlavor(params);
     // Invoking requireObjects has the side-effect of invoking
@@ -511,7 +516,8 @@ public class CxxLibraryDescription implements
         params,
         pathResolver,
         preprocessMode,
-        objects.keySet());
+        objects.keySet(),
+        compilationDatabaseFormat);
   }
 
   @Override
@@ -727,7 +733,8 @@ public class CxxLibraryDescription implements
       BuildRuleResolver resolver,
       CxxPlatform cxxPlatform,
       A args,
-      CxxPreprocessMode preprocessMode) {
+      CxxPreprocessMode preprocessMode,
+      CxxCompilationDatabaseFormat compilationDatabaseFormat) {
     return createCompilationDatabase(
         targetGraph,
         params,
@@ -758,7 +765,8 @@ public class CxxLibraryDescription implements
             args.frameworks,
             cxxPlatform,
             new SourcePathResolver(resolver)),
-        preprocessMode);
+        preprocessMode,
+        compilationDatabaseFormat);
   }
 
   public static TypeAndPlatform getTypeAndPlatform(
@@ -801,12 +809,18 @@ public class CxxLibraryDescription implements
 
   private static ImmutableList<BuildRule> getExtraMacroBuildInputs(
       BuildTarget target,
+      Function<Optional<String>, Path> cellNames,
       BuildRuleResolver resolver,
       Iterable<String> flags) {
     ImmutableList.Builder<BuildRule> deps = ImmutableList.builder();
     try {
       for (String flag : flags) {
-        deps.addAll(MACRO_HANDLER.extractAdditionalBuildTimeDeps(target, resolver, flag));
+        deps.addAll(
+            MACRO_HANDLER.extractBuildTimeDeps(
+                target,
+                cellNames,
+                resolver,
+                flag));
       }
     } catch (MacroException e) {
       throw new HumanReadableException(e, "%s: %s", target, e.getMessage());
@@ -829,14 +843,15 @@ public class CxxLibraryDescription implements
         .contains(CxxCompilationDatabase.COMPILATION_DATABASE)) {
       // XXX: This needs bundleLoader for tests..
       return createCompilationDatabaseBuildRule(
-              targetGraph,
-              params,
-              resolver,
-              platform.isPresent()
-                  ? platform.get().getValue()
-                  : DefaultCxxPlatforms.build(cxxBuckConfig),
-              args,
-              preprocessMode);
+          targetGraph,
+          params,
+          resolver,
+          platform.isPresent()
+              ? platform.get().getValue()
+              : DefaultCxxPlatforms.build(cxxBuckConfig),
+          args,
+          preprocessMode,
+          cxxBuckConfig.getCompilationDatabaseFormat());
     }
 
     if (params.getBuildTarget().getFlavors().contains(CxxInferEnhancer.INFER)) {
@@ -984,12 +999,14 @@ public class CxxLibraryDescription implements
                     .transform(
                         MACRO_HANDLER.getExpander(
                             params.getBuildTarget(),
+                            params.getCellRoots(),
                             resolver,
                             params.getProjectFilesystem()))
                     .toList(),
                 FluentIterable.from(
                     getExtraMacroBuildInputs(
                         params.getBuildTarget(),
+                        params.getCellRoots(),
                         resolver,
                         flags))
                     .transform(SourcePaths.getToBuildTargetSourcePath())
@@ -1014,6 +1031,7 @@ public class CxxLibraryDescription implements
   @Override
   public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
+      Function<Optional<String>, Path> cellRoots,
       Arg constructorArg) {
     ImmutableSet.Builder<BuildTarget> deps = ImmutableSet.builder();
 
@@ -1027,7 +1045,7 @@ public class CxxLibraryDescription implements
                   constructorArg.linkerFlags,
                   constructorArg.exportedLinkerFlags))) {
         for (String val : values) {
-          deps.addAll(MACRO_HANDLER.extractParseTimeDeps(buildTarget, val));
+          deps.addAll(MACRO_HANDLER.extractParseTimeDeps(buildTarget, cellRoots, val));
         }
       }
       for (PatternMatchedCollection<ImmutableList<String>> values :
@@ -1037,7 +1055,7 @@ public class CxxLibraryDescription implements
         for (Pair<Pattern, ImmutableList<String>> pav : values.getPatternsAndValues()) {
           for (String val : pav.getSecond()) {
             deps.addAll(
-                MACRO_HANDLER.extractParseTimeDeps(buildTarget, val));
+                MACRO_HANDLER.extractParseTimeDeps(buildTarget, cellRoots, val));
           }
         }
       }

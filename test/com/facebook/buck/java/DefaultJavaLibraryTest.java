@@ -1170,7 +1170,7 @@ public class DefaultJavaLibraryTest {
         .toSortedSet(Ordering.natural());
 
     BuildRuleParams buildRuleParams = new FakeBuildRuleParamsBuilder(buildTarget)
-        .setDeps(ImmutableSortedSet.copyOf(deps))
+        .setDeclaredDeps(ImmutableSortedSet.copyOf(deps))
         .build();
 
     return new DefaultJavaLibrary(
@@ -1599,7 +1599,6 @@ public class DefaultJavaLibraryTest {
           /* resourcesRoot */ Optional.<Path>absent(),
           /* mavenCoords */ Optional.<String>absent(),
           /* manifestFile */ Optional.<SourcePath>absent(),
-          /* isPrebuiltAar */ false,
           /* tests */ ImmutableSortedSet.<BuildTarget>of());
     }
 

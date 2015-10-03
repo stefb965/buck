@@ -124,6 +124,7 @@ public class Cell {
             BuckConfig buckConfig = new BuckConfig(
                 config,
                 cellFilesystem,
+                parentConfig.getArchitecture(),
                 parentConfig.getPlatform(),
                 parentConfig.getEnvironment());
 
@@ -263,6 +264,10 @@ public class Cell {
 
   public Iterable<Pattern> getTempFilePatterns() {
     return tempFilePatterns;
+  }
+
+  public Function<Optional<String>, Path> getCellRoots() {
+    return config.getCellRoots();
   }
 
   public CellFilesystemResolver getCellAliases() {

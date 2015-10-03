@@ -68,16 +68,19 @@ public class PythonTestDescription implements Description<PythonTestDescription.
 
   private final PythonBinaryDescription binaryDescription;
   private final PythonBuckConfig pythonBuckConfig;
+  private final FlavorDomain<PythonPlatform> pythonPlatforms;
   private final CxxPlatform defaultCxxPlatform;
   private final FlavorDomain<CxxPlatform> cxxPlatforms;
 
   public PythonTestDescription(
       PythonBinaryDescription binaryDescription,
       PythonBuckConfig pythonBuckConfig,
+      FlavorDomain<PythonPlatform> pythonPlatforms,
       CxxPlatform defaultCxxPlatform,
       FlavorDomain<CxxPlatform> cxxPlatforms) {
     this.binaryDescription = binaryDescription;
     this.pythonBuckConfig = pythonBuckConfig;
+    this.pythonPlatforms = pythonPlatforms;
     this.defaultCxxPlatform = defaultCxxPlatform;
     this.cxxPlatforms = cxxPlatforms;
   }
@@ -93,22 +96,22 @@ public class PythonTestDescription implements Description<PythonTestDescription.
   }
 
   @VisibleForTesting
-  protected Path getTestMainName() {
+  protected static Path getTestMainName() {
     return Paths.get("__test_main__.py");
   }
 
   @VisibleForTesting
-  protected Path getTestModulesListName() {
+  protected static Path getTestModulesListName() {
     return Paths.get("__test_modules__.py");
   }
 
   @VisibleForTesting
-  protected Path getTestModulesListPath(BuildTarget buildTarget) {
+  protected static Path getTestModulesListPath(BuildTarget buildTarget) {
     return BuildTargets.getGenPath(buildTarget, "%s").resolve(getTestModulesListName());
   }
 
   @VisibleForTesting
-  protected BuildTarget getBinaryBuildTarget(BuildTarget target) {
+  protected static BuildTarget getBinaryBuildTarget(BuildTarget target) {
     return BuildTargets.createFlavoredBuildTarget(target.checkUnflavored(), BINARY_FLAVOR);
   }
 
@@ -164,6 +167,20 @@ public class PythonTestDescription implements Description<PythonTestDescription.
 
     // Extract the platform from the flavor, falling back to the default platform if none are
     // found.
+    PythonPlatform pythonPlatform;
+    try {
+      pythonPlatform = pythonPlatforms
+          .getValue(params.getBuildTarget().getFlavors())
+          .or(pythonPlatforms.getValue(
+                  args.platform
+                      .transform(Flavor.TO_FLAVOR)
+                      .or(pythonPlatforms.getFlavors().iterator().next())));
+    } catch (FlavorDomainException e) {
+      throw new HumanReadableException("%s: %s", params.getBuildTarget(), e.getMessage());
+    }
+
+    // Extract the platform from the flavor, falling back to the default platform if none are
+    // found.
     CxxPlatform cxxPlatform;
     try {
       cxxPlatform = cxxPlatforms
@@ -176,19 +193,43 @@ public class PythonTestDescription implements Description<PythonTestDescription.
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
     Path baseModule = PythonUtil.getBasePath(params.getBuildTarget(), args.baseModule);
 
-    ImmutableMap<Path, SourcePath> srcs = PythonUtil.toModuleMap(
-        params.getBuildTarget(),
-        pathResolver,
-        "srcs",
-        baseModule,
-        args.srcs);
+    ImmutableMap<Path, SourcePath> srcs =
+        ImmutableMap.<Path, SourcePath>builder()
+            .putAll(
+                PythonUtil.toModuleMap(
+                    params.getBuildTarget(),
+                    pathResolver,
+                    "srcs",
+                    baseModule,
+                    args.srcs.asSet()))
+            .putAll(
+                PythonUtil.toModuleMap(
+                    params.getBuildTarget(),
+                    pathResolver,
+                    "platformSrcs",
+                    baseModule,
+                    args.platformSrcs.get()
+                        .getMatchingValues(pythonPlatform.getFlavor().toString())))
+            .build();
 
-    ImmutableMap<Path, SourcePath> resources = PythonUtil.toModuleMap(
-        params.getBuildTarget(),
-        pathResolver,
-        "resources",
-        baseModule,
-        args.resources);
+    ImmutableMap<Path, SourcePath> resources =
+        ImmutableMap.<Path, SourcePath>builder()
+            .putAll(
+                PythonUtil.toModuleMap(
+                    params.getBuildTarget(),
+                    pathResolver,
+                    "resources",
+                    baseModule,
+                    args.resources.asSet()))
+            .putAll(
+                PythonUtil.toModuleMap(
+                    params.getBuildTarget(),
+                    pathResolver,
+                    "platformResources",
+                    baseModule,
+                    args.platformResources.get()
+                        .getMatchingValues(pythonPlatform.getFlavor().toString())))
+            .build();
 
     // Convert the passed in module paths into test module names.
     ImmutableSet.Builder<String> testModulesBuilder = ImmutableSet.builder();
@@ -226,7 +267,12 @@ public class PythonTestDescription implements Description<PythonTestDescription.
         ImmutableSet.<SourcePath>of(),
         args.zipSafe);
     PythonPackageComponents allComponents =
-        PythonUtil.getAllComponents(targetGraph, params, testComponents, cxxPlatform);
+        PythonUtil.getAllComponents(
+            targetGraph,
+            params,
+            testComponents,
+            pythonPlatform,
+            cxxPlatform);
 
     // Build the PEX using a python binary rule with the minimum dependencies.
     BuildRuleParams binaryParams = params.copyWithChanges(
@@ -238,6 +284,7 @@ public class PythonTestDescription implements Description<PythonTestDescription.
             binaryParams,
             resolver,
             pathResolver,
+            pythonPlatform,
             cxxPlatform,
             PythonUtil.toModuleName(params.getBuildTarget(), getTestMainName().toString()),
             allComponents,
@@ -254,6 +301,7 @@ public class PythonTestDescription implements Description<PythonTestDescription.
                     args.env.or(ImmutableMap.<String, String>of()),
                     MACRO_HANDLER.getExpander(
                         params.getBuildTarget(),
+                        params.getCellRoots(),
                         resolver,
                         params.getProjectFilesystem())));
           }
@@ -282,6 +330,7 @@ public class PythonTestDescription implements Description<PythonTestDescription.
     public Optional<ImmutableSet<String>> contacts;
     public Optional<ImmutableSet<Label>> labels;
     public Optional<ImmutableSortedSet<BuildTarget>> sourceUnderTest;
+    public Optional<String> platform;
 
     public Optional<ImmutableList<String>> buildArgs;
 

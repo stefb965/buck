@@ -19,12 +19,13 @@ package com.facebook.buck.python;
 import static com.facebook.buck.rules.BuildableProperties.Kind.LIBRARY;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TestSourcePath;
+import com.google.common.base.Functions;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableMap;
 
@@ -48,11 +49,11 @@ public class PythonLibraryTest {
         Paths.get("dummy"), new TestSourcePath(""));
     PythonLibrary pythonLibrary = new PythonLibrary(
         new FakeBuildRuleParamsBuilder(
-            BuildTarget.builder("//scripts/python", "foo").build())
+            BuildTargetFactory.newInstance("//scripts/python:foo"))
             .build(),
         new SourcePathResolver(new BuildRuleResolver()),
-        srcs,
-        ImmutableMap.<Path, SourcePath>of(),
+        Functions.constant(srcs),
+        Functions.constant(ImmutableMap.<Path, SourcePath>of()),
         Optional.<Boolean>absent());
 
     assertTrue(pythonLibrary.getProperties().is(LIBRARY));

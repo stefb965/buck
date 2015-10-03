@@ -32,6 +32,8 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.python.PythonPackageComponents;
+import com.facebook.buck.python.PythonPlatform;
+import com.facebook.buck.python.PythonTestUtils;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -212,6 +214,7 @@ public class CxxLibraryDescriptionTest {
       @Override
       public PythonPackageComponents getPythonPackageComponents(
           TargetGraph targetGraph,
+          PythonPlatform pythonPlatform,
           CxxPlatform cxxPlatform) {
         return PythonPackageComponents.of(
             ImmutableMap.<Path, SourcePath>of(),
@@ -247,7 +250,10 @@ public class CxxLibraryDescriptionTest {
 
     // Setup the build params we'll pass to description when generating the build rules.
     BuildTarget target = BuildTargetFactory.newInstance("//:rule");
-    CxxSourceRuleFactory cxxSourceRuleFactory = CxxSourceRuleFactoryHelper.of(target, cxxPlatform);
+    CxxSourceRuleFactory cxxSourceRuleFactory = CxxSourceRuleFactoryHelper.of(
+        new FakeProjectFilesystem().getRootPath(),
+        target,
+        cxxPlatform);
     String headerName = "test/bar.h";
     String privateHeaderName = "test/bar_private.h";
     CxxLibraryBuilder cxxLibraryBuilder = (CxxLibraryBuilder) new CxxLibraryBuilder(target)
@@ -561,6 +567,8 @@ public class CxxLibraryDescriptionTest {
   @Test
   @SuppressWarnings("PMD.UseAssertTrueInsteadOfAssertEquals")
   public void createCxxLibraryBuildRules() {
+    FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
+
     BuildRuleResolver resolver = new BuildRuleResolver();
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
     CxxPlatform cxxPlatform = CxxLibraryBuilder.createDefaultPlatform();
@@ -651,6 +659,7 @@ public class CxxLibraryDescriptionTest {
       @Override
       public PythonPackageComponents getPythonPackageComponents(
           TargetGraph targetGraph,
+          PythonPlatform pythonPlatform,
           CxxPlatform cxxPlatform) {
         return PythonPackageComponents.of(
             ImmutableMap.<Path, SourcePath>of(),
@@ -692,13 +701,16 @@ public class CxxLibraryDescriptionTest {
 
     // Setup the build params we'll pass to description when generating the build rules.
     BuildTarget target = BuildTargetFactory.newInstance("//:rule");
-    CxxSourceRuleFactory cxxSourceRuleFactory = CxxSourceRuleFactoryHelper.of(target, cxxPlatform);
+    CxxSourceRuleFactory cxxSourceRuleFactory = CxxSourceRuleFactoryHelper.of(
+        filesystem.getRootPath(),
+        target,
+        cxxPlatform);
     CxxLibraryBuilder cxxLibraryBuilder = (CxxLibraryBuilder) new CxxLibraryBuilder(target)
         .setExportedHeaders(
             ImmutableSortedMap.<String, SourcePath>of(
                 genHeaderName, new BuildTargetSourcePath(genHeaderTarget)))
         .setSrcs(
-            ImmutableSortedSet.<SourceWithFlags>of(
+            ImmutableSortedSet.of(
                 SourceWithFlags.of(new TestSourcePath(sourceName)),
                 SourceWithFlags.of(new BuildTargetSourcePath(genSourceTarget))))
         .setFrameworks(
@@ -715,7 +727,7 @@ public class CxxLibraryDescriptionTest {
         GenruleBuilder.newGenruleBuilder(depTarget)
             .build());
     CxxLibrary rule = (CxxLibrary) cxxLibraryBuilder
-        .build(resolver, new FakeProjectFilesystem(), targetGraph);
+        .build(resolver, filesystem, targetGraph);
 
     // Verify the C/C++ preprocessor input is setup correctly.
     Path headerRoot =
@@ -961,7 +973,7 @@ public class CxxLibraryDescriptionTest {
         Optional.<Boolean>absent());
     assertEquals(
         expectedPythonPackageComponents,
-        rule.getPythonPackageComponents(targetGraph, cxxPlatform));
+        rule.getPythonPackageComponents(targetGraph, PythonTestUtils.PYTHON_PLATFORM, cxxPlatform));
   }
 
   @Test
@@ -982,7 +994,10 @@ public class CxxLibraryDescriptionTest {
         Matchers.not(empty()));
     assertThat(
         cxxLibrary
-            .getPythonPackageComponents(targetGraph1, CxxPlatformUtils.DEFAULT_PLATFORM)
+            .getPythonPackageComponents(
+                targetGraph1,
+                PythonTestUtils.PYTHON_PLATFORM,
+                CxxPlatformUtils.DEFAULT_PLATFORM)
             .getNativeLibraries()
             .entrySet(),
         Matchers.not(empty()));
@@ -1005,7 +1020,10 @@ public class CxxLibraryDescriptionTest {
         empty());
     assertThat(
         cxxLibrary
-            .getPythonPackageComponents(targetGraph2, CxxPlatformUtils.DEFAULT_PLATFORM)
+            .getPythonPackageComponents(
+                targetGraph2,
+                PythonTestUtils.PYTHON_PLATFORM,
+                CxxPlatformUtils.DEFAULT_PLATFORM)
             .getNativeLibraries()
             .entrySet(),
         empty());
@@ -1104,7 +1122,7 @@ public class CxxLibraryDescriptionTest {
     libBuilder.setPlatformLinkerFlags(
         PatternMatchedCollection.<ImmutableList<String>>builder()
             .add(
-                Pattern.compile("default"),
+                Pattern.compile(CxxLibraryBuilder.createDefaultPlatform().getFlavor().toString()),
                 ImmutableList.of("-Wl,--version-script=$(location //:loc)"))
             .build());
     TargetGraph targetGraph = TargetGraphFactory.newInstance(
@@ -1235,7 +1253,7 @@ public class CxxLibraryDescriptionTest {
     libBuilder.setExportedPlatformLinkerFlags(
         PatternMatchedCollection.<ImmutableList<String>>builder()
             .add(
-                Pattern.compile("default"),
+                Pattern.compile(CxxLibraryBuilder.createDefaultPlatform().getFlavor().toString()),
                 ImmutableList.of("-Wl,--version-script=$(location //:loc)"))
             .build());
     TargetGraph targetGraph = TargetGraphFactory.newInstance(
