@@ -21,7 +21,6 @@ import static com.facebook.buck.apple.ProjectGeneratorTestUtils.assertHasSinglet
 import static com.facebook.buck.apple.ProjectGeneratorTestUtils.assertTargetExistsAndReturnTarget;
 import static com.facebook.buck.apple.ProjectGeneratorTestUtils.getSingletonPhaseByType;
 import static org.hamcrest.CoreMatchers.containsString;
-import static org.hamcrest.CoreMatchers.endsWith;
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.hasItem;
 import static org.hamcrest.CoreMatchers.instanceOf;
@@ -123,7 +122,6 @@ import java.nio.file.Paths;
 import java.nio.file.attribute.FileAttribute;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -179,6 +177,47 @@ public class ProjectGeneratorTest {
 
     Optional<String> pbxproj = projectFilesystem.readFileIfItExists(OUTPUT_PROJECT_FILE_PATH);
     assertTrue(pbxproj.isPresent());
+  }
+
+  @Test
+  public void testProjectStructureWithInfoPlist() throws IOException {
+    BuildTarget libraryTarget = BuildTarget.builder(rootPath, "//foo", "lib").build();
+    BuildTarget bundleTarget = BuildTarget.builder(rootPath, "//foo", "bundle").build();
+
+    TargetNode<?> libraryNode = AppleLibraryBuilder
+        .createBuilder(libraryTarget)
+        .setExportedHeaders(
+            ImmutableSortedSet.<SourcePath>of(new TestSourcePath("foo.h")))
+        .build();
+
+    TargetNode<?> bundleNode = AppleBundleBuilder
+        .createBuilder(bundleTarget)
+        .setBinary(libraryTarget)
+        .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.FRAMEWORK))
+        .setInfoPlist(new TestSourcePath(("Info.plist")))
+        .build();
+
+    ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
+        ImmutableSet.of(libraryNode, bundleNode));
+
+    projectGenerator.createXcodeProjects();
+
+    PBXProject project = projectGenerator.getGeneratedProject();
+    PBXGroup bundleGroup =
+        project.getMainGroup().getOrCreateChildGroupByName(bundleTarget.getFullyQualifiedName());
+    PBXGroup sourcesGroup = bundleGroup.getOrCreateChildGroupByName("Sources");
+
+    assertThat(bundleGroup.getChildren(), hasSize(2));
+
+    Iterable<String> childNames = Iterables.transform(
+        sourcesGroup.getChildren(),
+        new Function<PBXReference, String>() {
+          @Override
+          public String apply(PBXReference fileReference) {
+            return fileReference.getName();
+          }
+        });
+    assertThat(childNames, hasItem("Info.plist"));
   }
 
   @Test
@@ -1895,8 +1934,7 @@ public class ProjectGeneratorTest {
 
     ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
         ImmutableSet.of(rnLibraryNode, sharedLibraryNode, bundleNode),
-        ImmutableSet.<ProjectGenerator.Option>of(),
-        Optional.of(Paths.get("js/react-native/runServer.sh")));
+        ImmutableSet.<ProjectGenerator.Option>of());
 
     projectGenerator.createXcodeProjects();
 
@@ -1906,21 +1944,12 @@ public class ProjectGeneratorTest {
     assertThat(target.getName(), equalTo("//foo:bundle#rn_no_bundle"));
     assertThat(target.isa(), equalTo("PBXNativeTarget"));
 
-    Iterator<PBXShellScriptBuildPhase> phases = Iterables.filter(
-        target.getBuildPhases(),
-        PBXShellScriptBuildPhase.class).iterator();
-
-    assertThat(phases.hasNext(), is(true));
+    PBXShellScriptBuildPhase phase = getSingletonPhaseByType(
+        target,
+        PBXShellScriptBuildPhase.class);
     assertThat(
-        phases.next().getShellScript(),
+        phase.getShellScript(),
         containsString("rm -rf ${JS_OUT}"));
-
-    assertThat(phases.hasNext(), is(true));
-    assertThat(
-        phases.next().getShellScript(),
-        endsWith("js/react-native/runServer.sh"));
-
-    assertThat(phases.hasNext(), is(false));
   }
 
   @Test
@@ -2911,7 +2940,6 @@ public class ProjectGeneratorTest {
             xctest2),
         ImmutableSet.<BuildTarget>of(),
         projectFilesystem,
-        /* reactNativeServer */ Optional.<Path>absent(),
         OUTPUT_DIRECTORY,
         PROJECT_NAME,
         "BUCK",
@@ -3118,7 +3146,6 @@ public class ProjectGeneratorTest {
         TargetGraphFactory.newInstance(nodes),
         FluentIterable.from(nodes).transform(HasBuildTarget.TO_TARGET).toSet(),
         projectFilesystem,
-        /* reactNativeServer */ Optional.<Path>absent(),
         OUTPUT_DIRECTORY,
         PROJECT_NAME,
         "BUCK",
@@ -3435,16 +3462,6 @@ public class ProjectGeneratorTest {
   private ProjectGenerator createProjectGeneratorForCombinedProject(
       Iterable<TargetNode<?>> nodes,
       ImmutableSet<ProjectGenerator.Option> projectGeneratorOptions) {
-    return createProjectGeneratorForCombinedProject(
-        nodes,
-        projectGeneratorOptions,
-        Optional.<Path>absent());
-  }
-
-  private ProjectGenerator createProjectGeneratorForCombinedProject(
-      Iterable<TargetNode<?>> nodes,
-      ImmutableSet<ProjectGenerator.Option> projectGeneratorOptions,
-      Optional<Path> reactNativeServer) {
     ImmutableSet<BuildTarget> initialBuildTargets = FluentIterable
         .from(nodes)
         .transform(HasBuildTarget.TO_TARGET)
@@ -3454,7 +3471,6 @@ public class ProjectGeneratorTest {
         TargetGraphFactory.newInstance(ImmutableSet.copyOf(nodes)),
         initialBuildTargets,
         projectFilesystem,
-        reactNativeServer,
         OUTPUT_DIRECTORY,
         PROJECT_NAME,
         "BUCK",

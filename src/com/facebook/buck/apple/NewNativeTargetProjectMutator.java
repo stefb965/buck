@@ -101,6 +101,7 @@ public class NewNativeTargetProjectMutator {
   private ImmutableSet<SourcePath> publicHeaders = ImmutableSet.of();
   private ImmutableSet<SourcePath> privateHeaders = ImmutableSet.of();
   private Optional<SourcePath> prefixHeader = Optional.absent();
+  private Optional<SourcePath> infoPlist = Optional.absent();
   private ImmutableSet<FrameworkPath> frameworks = ImmutableSet.of();
   private ImmutableSet<PBXFileReference> archives = ImmutableSet.of();
   private ImmutableSet<AppleResourceDescription.Arg> recursiveResources = ImmutableSet.of();
@@ -111,7 +112,6 @@ public class NewNativeTargetProjectMutator {
   private Iterable<PBXBuildPhase> copyFilesPhases = ImmutableList.of();
   private Iterable<TargetNode<?>> postBuildRunScriptPhases = ImmutableList.of();
   private boolean skipRNBundle = false;
-  private Collection<Path> additionalRunScripts = ImmutableList.of();
 
   public NewNativeTargetProjectMutator(
       PathRelativizer pathRelativizer,
@@ -176,6 +176,11 @@ public class NewNativeTargetProjectMutator {
     return this;
   }
 
+  public NewNativeTargetProjectMutator setInfoPlist(Optional<SourcePath> infoPlist) {
+    this.infoPlist = infoPlist;
+    return this;
+  }
+
   public NewNativeTargetProjectMutator setFrameworks(Set<FrameworkPath> frameworks) {
     this.frameworks = ImmutableSet.copyOf(frameworks);
     return this;
@@ -218,10 +223,6 @@ public class NewNativeTargetProjectMutator {
     return this;
   }
 
-  public void setAdditionalRunScripts(Collection<Path> scripts) {
-    additionalRunScripts = scripts;
-  }
-
   /**
    * @param recursiveAssetCatalogs List of asset catalog targets of targetNode and dependencies of
    *                               targetNode.
@@ -256,7 +257,6 @@ public class NewNativeTargetProjectMutator {
     addResourcesBuildPhase(target, targetGroup);
     target.getBuildPhases().addAll((Collection<? extends PBXBuildPhase>) copyFilesPhases);
     addRunScriptBuildPhases(target, postBuildRunScriptPhases);
-    addRawScriptBuildPhases(target);
 
     // Product
 
@@ -302,6 +302,14 @@ public class NewNativeTargetProjectMutator {
           pathRelativizer.outputPathToSourcePath(prefixHeader.get()),
           Optional.<String>absent());
       sourcesGroup.getOrCreateFileReferenceBySourceTreePath(prefixHeaderSourceTreePath);
+    }
+
+    if (infoPlist.isPresent()) {
+      SourceTreePath infoPlistSourceTreePath = new SourceTreePath(
+          PBXReference.SourceTree.GROUP,
+          pathRelativizer.outputPathToSourcePath(infoPlist.get()),
+          Optional.<String>absent());
+      sourcesGroup.getOrCreateFileReferenceBySourceTreePath(infoPlistSourceTreePath);
     }
 
     if (!sourcesBuildPhase.getFiles().isEmpty()) {
@@ -605,14 +613,6 @@ public class NewNativeTargetProjectMutator {
         // unreachable
         throw new IllegalStateException("Invalid rule type for shell script build phase");
       }
-    }
-  }
-
-  private void addRawScriptBuildPhases(PBXNativeTarget target) {
-    for (Path runScript : additionalRunScripts) {
-      PBXShellScriptBuildPhase phase = new PBXShellScriptBuildPhase();
-      phase.setShellScript(runScript.toString());
-      target.getBuildPhases().add(phase);
     }
   }
 

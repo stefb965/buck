@@ -171,7 +171,7 @@ public class AppleBundle extends AbstractBuildRule implements HasPostBuildSteps,
       Set<BuildTarget> tests,
       AppleSdk sdk,
       ImmutableSet<CodeSignIdentity> allValidCodeSignIdentities,
-      Optional<SourcePath> provisioningProfileSearchPath,
+      Optional<Path> provisioningProfileSearchPath,
       DebugInfoFormat debugInfoFormat) {
     super(params, resolver);
     this.extension = extension.isLeft() ?
@@ -204,7 +204,7 @@ public class AppleBundle extends AbstractBuildRule implements HasPostBuildSteps,
     if (binary.isPresent() && ApplePlatform.needsCodeSign(this.platformName)) {
       final Path searchPath;
       if (provisioningProfileSearchPath.isPresent()) {
-        searchPath = resolver.getResolvedPath(provisioningProfileSearchPath.get());
+        searchPath = provisioningProfileSearchPath.get();
       } else {
         searchPath = Paths.get(System.getProperty("user.home") +
                 "/Library/MobileDevice/Provisioning Profiles");
@@ -323,6 +323,7 @@ public class AppleBundle extends AbstractBuildRule implements HasPostBuildSteps,
             "APPLWRUN",
             metadataPath.resolve("PkgInfo"),
             /* executable */ false),
+        new MkdirStep(getProjectFilesystem(), infoPlistSubstitutionTempPath.getParent()),
         new FindAndReplaceStep(
             getProjectFilesystem(),
             infoPlistInputPath,

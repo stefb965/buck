@@ -490,7 +490,8 @@ public class KnownBuildRuleTypes {
             cxxPlatforms,
             platformFlavorsToAppleCxxPlatforms,
             defaultCxxPlatform,
-            codeSignIdentitiesSupplier.get());
+            codeSignIdentitiesSupplier.get(),
+            appleConfig.getProvisioningProfileSearchPath());
     builder.register(appleBundleDescription);
     builder.register(new AppleResourceDescription());
     builder.register(
@@ -501,7 +502,8 @@ public class KnownBuildRuleTypes {
             cxxPlatforms,
             platformFlavorsToAppleCxxPlatforms,
             defaultCxxPlatform,
-            codeSignIdentitiesSupplier.get()));
+            codeSignIdentitiesSupplier.get(),
+            appleConfig.getProvisioningProfileSearchPath()));
     builder.register(new CoreDataModelDescription());
     builder.register(new CSharpLibraryDescription());
     builder.register(cxxBinaryDescription);

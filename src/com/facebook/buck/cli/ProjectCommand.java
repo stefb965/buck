@@ -37,7 +37,6 @@ import com.facebook.buck.java.intellij.IjModuleGraph;
 import com.facebook.buck.java.intellij.IjProject;
 import com.facebook.buck.java.intellij.IntellijConfig;
 import com.facebook.buck.java.intellij.Project;
-import com.facebook.buck.js.ReactNativeBuckConfig;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
@@ -712,7 +711,7 @@ public class ProjectCommand extends BuildCommand {
         super.getOptions(),
         new HashMap<Path, ProjectGenerator>(),
         getCombinedProject(),
-        buildWithBuck,
+        buildWithBuck || shouldForceBuildingWithBuck(params.getBuckConfig(), passedInTargetsSet),
         getCombineTestBundles());
     if (!requiredBuildTargets.isEmpty()) {
       BuildCommand buildCommand = new BuildCommand();
@@ -723,6 +722,17 @@ public class ProjectCommand extends BuildCommand {
       exitCode = buildCommand.runWithoutHelp(params);
     }
     return exitCode;
+  }
+
+  private boolean shouldForceBuildingWithBuck(
+      BuckConfig buckConfig,
+      ImmutableSet<BuildTarget> passedInTargetsSet) {
+    if (passedInTargetsSet.size() == 0) {
+      return false;
+    }
+    ImmutableList<BuildTarget> forcedTargets =
+        buckConfig.getBuildTargetList("project", "force_build_with_buck_targets");
+    return forcedTargets.containsAll(passedInTargetsSet);
   }
 
   @VisibleForTesting
@@ -771,7 +781,6 @@ public class ProjectCommand extends BuildCommand {
       }
       WorkspaceAndProjectGenerator generator = new WorkspaceAndProjectGenerator(
           params.getCell().getFilesystem(),
-          new ReactNativeBuckConfig(params.getBuckConfig()),
           targetGraphAndTargets.getTargetGraph(),
           workspaceArgs,
           inputTarget,
