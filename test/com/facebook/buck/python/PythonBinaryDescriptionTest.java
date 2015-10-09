@@ -19,18 +19,24 @@ package com.facebook.buck.python;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.cli.FakeBuckConfig;
+import com.facebook.buck.cxx.CxxBinaryBuilder;
 import com.facebook.buck.cxx.CxxPlatformUtils;
 import com.facebook.buck.io.AlwaysFoundExecutableFinder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
+import com.facebook.buck.rules.HashedFileTool;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TestSourcePath;
+import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.shell.GenruleBuilder;
@@ -45,6 +51,8 @@ import com.google.common.collect.ImmutableSortedSet;
 import org.hamcrest.Matchers;
 import org.junit.Test;
 
+import java.io.IOException;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 
 public class PythonBinaryDescriptionTest {
@@ -203,6 +211,73 @@ public class PythonBinaryDescriptionTest {
             .setPlatform(platform2.getFlavor().toString())
             .build(new BuildRuleResolver());
     assertThat(binary2.getPythonPlatform(), Matchers.equalTo(platform2));
+  }
+
+  @Test
+  public void runtimeDepOnDeps() {
+    BuildRuleResolver resolver = new BuildRuleResolver();
+    BuildRule cxxBinary =
+        new CxxBinaryBuilder(BuildTargetFactory.newInstance("//:dep"))
+            .build(resolver);
+    BuildRule pythonLibrary =
+        new PythonLibraryBuilder(BuildTargetFactory.newInstance("//:lib"))
+            .setDeps(ImmutableSortedSet.of(cxxBinary.getBuildTarget()))
+            .build(resolver);
+    PythonBinary pythonBinary =
+        (PythonBinary) PythonBinaryBuilder.create(BuildTargetFactory.newInstance("//:bin"))
+            .setMainModule("main")
+            .setDeps(ImmutableSortedSet.of(pythonLibrary.getBuildTarget()))
+            .build(resolver);
+    assertThat(
+        BuildRules.getTransitiveRuntimeDeps(pythonBinary),
+        Matchers.hasItem(cxxBinary));
+  }
+
+  @Test
+  public void executableCommandWithPathToPexExecutor() throws IOException {
+    BuildTarget target = BuildTargetFactory.newInstance("//foo:bin");
+    BuildRuleResolver resolver = new BuildRuleResolver();
+    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    final Path executor = Paths.get("executor");
+    PythonBuckConfig config =
+        new PythonBuckConfig(new FakeBuckConfig(), new AlwaysFoundExecutableFinder()) {
+          @Override
+          public Optional<Tool> getPathToPexExecuter(BuildRuleResolver resolver) {
+            return Optional.<Tool>of(new HashedFileTool(executor));
+          }
+        };
+    PythonBinaryBuilder builder =
+        new PythonBinaryBuilder(
+            target,
+            config,
+            PythonTestUtils.PYTHON_PLATFORMS,
+            CxxPlatformUtils.DEFAULT_PLATFORM,
+            CxxPlatformUtils.DEFAULT_PLATFORMS);
+    PythonPackagedBinary binary =
+        (PythonPackagedBinary) builder
+            .setMainModule("main")
+            .build(resolver);
+    assertThat(
+        binary.getExecutableCommand().getCommandPrefix(pathResolver),
+        Matchers.contains(
+            executor.toString(),
+            binary.getBinPath().toAbsolutePath().toString()));
+  }
+
+  @Test
+  public void executableCommandWithNoPathToPexExecutor() {
+    BuildTarget target = BuildTargetFactory.newInstance("//foo:bin");
+    BuildRuleResolver resolver = new BuildRuleResolver();
+    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    PythonPackagedBinary binary =
+        (PythonPackagedBinary) PythonBinaryBuilder.create(target)
+            .setMainModule("main")
+        .build(resolver);
+    assertThat(
+        binary.getExecutableCommand().getCommandPrefix(pathResolver),
+        Matchers.contains(
+            PythonTestUtils.PYTHON_PLATFORM.getEnvironment().getPythonPath().toString(),
+            binary.getBinPath().toAbsolutePath().toString()));
   }
 
 }
