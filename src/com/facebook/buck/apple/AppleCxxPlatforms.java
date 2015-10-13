@@ -28,7 +28,6 @@ import com.facebook.buck.cxx.DebugPathSanitizer;
 import com.facebook.buck.cxx.Linkers;
 import com.facebook.buck.cxx.VersionedTool;
 import com.facebook.buck.io.ExecutableFinder;
-import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.util.HumanReadableException;
@@ -192,6 +191,18 @@ public class AppleCxxPlatforms {
         "apple-lipo",
         version);
 
+    Optional<Path> stubBinaryPath;
+    switch (targetSdk.getApplePlatform().getName()) {
+      case ApplePlatform.Name.WATCHOS:
+      case ApplePlatform.Name.WATCHSIMULATOR:
+        stubBinaryPath = Optional.of(
+            sdkPaths.getSdkPath().resolve("Library/Application Support/WatchKit/WK"));
+        break;
+      default:
+        stubBinaryPath = Optional.absent();
+        break;
+    }
+
     CxxBuckConfig config = new CxxBuckConfig(buckConfig);
 
     ImmutableFlavor targetFlavor = ImmutableFlavor.of(
@@ -257,6 +268,7 @@ public class AppleCxxPlatforms {
         .setOtest(otest)
         .setDsymutil(dsymutil)
         .setLipo(lipo)
+        .setStubBinary(stubBinaryPath)
         .build();
   }
 
@@ -290,36 +302,6 @@ public class AppleCxxPlatforms {
           Paths.get(tool),
           toolSearchPaths,
           ImmutableSet.<String>of());
-  }
-
-  /**
-   * Attempts to get better cxx platform based on the current environment.
-   * @param enviroment environment variables that will be taken into account
-   * @param defaultCxxPlatform Default platform from the config
-   * @param cxxPlatformsMap Other platforms to consider.
-   * @return defaultCxxPlatform if environment info is not enough to pick better platform.
-   * Otherwise - better platform from the cxxPlatformMap.
-   */
-  public static CxxPlatform determineBestPlatform(
-      ImmutableMap<String, String> enviroment,
-      CxxPlatform defaultCxxPlatform,
-      ImmutableMap<Flavor, CxxPlatform> cxxPlatformsMap) {
-    // this feature is currently mainly for Xcode users - developer may switch the type
-    // of the device from the drop down menu. Xcode sets the environment variables below before
-    // executing shell script build phase.
-    String arch = enviroment.get("arch");
-    String platformName = enviroment.get("PLATFORM_NAME");
-    if (arch == null || arch.length() == 0 ||
-        platformName == null || platformName.length() == 0) {
-      return defaultCxxPlatform;
-    }
-    for (CxxPlatform platform : cxxPlatformsMap.values()) {
-      String flavourName = platform.getFlavor().getName();
-      if (flavourName.contains(platformName) && flavourName.contains(arch)) {
-        return platform;
-      }
-    }
-    return defaultCxxPlatform;
   }
 
 }

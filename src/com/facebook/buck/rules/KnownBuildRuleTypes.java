@@ -369,12 +369,6 @@ public class KnownBuildRuleTypes {
 
     cxxPlatformsMap = cxxPlatformsBuilder.build();
 
-    if (appleConfig.shouldAttemptToDetermineBestCxxPlatform()) {
-      defaultCxxPlatform = AppleCxxPlatforms.determineBestPlatform(
-          config.getEnvironment(),
-          defaultCxxPlatform,
-          cxxPlatformsMap);
-    }
 
     // Build up the final list of C/C++ platforms.
     FlavorDomain<CxxPlatform> cxxPlatforms = new FlavorDomain<>(
@@ -430,7 +424,6 @@ public class KnownBuildRuleTypes {
     JavacOptions defaultJavacOptions = javaConfig.getDefaultJavacOptions();
     JavacOptions androidBinaryOptions = JavacOptions.builder(defaultJavacOptions)
         .build();
-    Optional<String> javaBinOverride = javaConfig.getJavaBinOverride();
 
     InferBuckConfig inferBuckConfig = new InferBuckConfig(config);
 
@@ -529,19 +522,14 @@ public class KnownBuildRuleTypes {
     builder.register(new GoLibraryDescription(goBuckConfig));
     builder.register(new GwtBinaryDescription());
     builder.register(new IosReactNativeLibraryDescription(reactNativeBuckConfig));
-    builder.register(
-        new JavaBinaryDescription(
-          defaultJavacOptions,
-          defaultCxxPlatform,
-          javaBinOverride));
+    builder.register(new JavaBinaryDescription(defaultJavacOptions, defaultCxxPlatform));
     builder.register(new JavaLibraryDescription(defaultJavacOptions));
     builder.register(
         new JavaTestDescription(
             defaultJavacOptions,
             testRuleTimeoutMs,
             defaultCxxPlatform,
-            testTempDirOverride,
-            javaBinOverride));
+            testTempDirOverride));
     builder.register(new KeystoreDescription());
     builder.register(new NdkLibraryDescription(ndkVersion, ndkCxxPlatforms));
     OCamlBuckConfig ocamlBuckConfig = new OCamlBuckConfig(platform, config);

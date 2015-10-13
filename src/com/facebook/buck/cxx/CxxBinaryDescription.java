@@ -149,8 +149,7 @@ public class CxxBinaryDescription implements
           params,
           pathResolver,
           preprocessMode,
-          cxxLinkAndCompileRules.compileRules,
-          cxxBuckConfig.getCompilationDatabaseFormat());
+          cxxLinkAndCompileRules.compileRules);
     }
 
     if (flavors.contains(CxxInferEnhancer.INFER)) {
@@ -250,4 +249,5 @@ public class CxxBinaryDescription implements
     public Optional<Linker.LinkableDepType> linkStyle;
   }
 
+  public FlavorDomain<CxxPlatform> getCxxPlatforms() { return cxxPlatforms; }
 }

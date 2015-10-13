@@ -483,10 +483,6 @@ and generated code, respectively.  Both default to "7".
 <p>
 Use "skip_checking_missing_deps" to skip analyzing build failure to find missing
 dependencies.
-<p>
-"java_bin" is the location of a script to run instead of <code>java</code> when Buck
-needs to run an external java process (e.g. `buck test`). JAVA_HOME is set from
-Buck's <code>java.home</code> property. Defaults to <code>java</code>
 
 {call .section}{param title: 'httpserver' /}{/call}
 
@@ -830,9 +826,13 @@ The value given is in milliseconds.
   # Specify an external test runner command to use instead of Buck's built-in
   # test runner.  The external test runner is invoked by Buck after it has
   # built all the test rules, passing the test runner the path to file which
-  # contains a JSON-encoded list of test file infos:
+  # contains a JSON-encoded list of test file infos.  When Buck is invoked via:
   #
-  #   $ <external-runner> --buck-test-info <path>
+  #   $ buck test -- <extra-runner-args>...
+  #
+  # It will invoke the external runner with:
+  #
+  #   $ <external-runner> <extra-runner-args>... --buck-test-info <path>
   #
   # The JSON tests file has the following format:
   #

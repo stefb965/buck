@@ -45,12 +45,13 @@ import com.facebook.buck.java.JavacOptions;
 import com.facebook.buck.log.CommandThreadAssociation;
 import com.facebook.buck.log.LogConfig;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.model.BuckVersion;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
+import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.KnownBuildRuleTypes;
 import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
-import com.facebook.buck.rules.Cell;
 import com.facebook.buck.test.TestConfig;
 import com.facebook.buck.test.TestResultSummaryVerbosity;
 import com.facebook.buck.timing.Clock;
@@ -58,6 +59,7 @@ import com.facebook.buck.timing.DefaultClock;
 import com.facebook.buck.timing.NanosAdjustedClock;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.AnsiEnvironmentChecking;
+import com.facebook.buck.util.AsyncCloseable;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultPropertyFinder;
@@ -65,6 +67,7 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.InterruptionFailedException;
 import com.facebook.buck.util.MoreFunctions;
 import com.facebook.buck.util.PkillProcessManager;
+import com.facebook.buck.util.PrintStreamProcessExecutorFactory;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessManager;
 import com.facebook.buck.util.PropertyFinder;
@@ -73,10 +76,9 @@ import com.facebook.buck.util.WatchmanWatcher;
 import com.facebook.buck.util.WatchmanWatcherException;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.FileHashCache;
-import com.facebook.buck.util.cache.StackedFileHashCache;
 import com.facebook.buck.util.cache.ProjectFileHashCache;
+import com.facebook.buck.util.cache.StackedFileHashCache;
 import com.facebook.buck.util.cache.WatchedFileHashCache;
-import com.facebook.buck.util.AsyncCloseable;
 import com.facebook.buck.util.concurrent.MoreExecutors;
 import com.facebook.buck.util.concurrent.TimeSpan;
 import com.facebook.buck.util.environment.Architecture;
@@ -114,6 +116,7 @@ import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.nio.file.FileSystems;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.text.SimpleDateFormat;
@@ -565,6 +568,15 @@ public final class Main {
       if (!commandSemaphoreAcquired) {
         return BUSY_EXIT_CODE;
       }
+      Optional<String> currentVersion =
+          filesystem.readFileIfItExists(BuckConstant.CURRENT_VERSION_FILE);
+      if (!currentVersion.isPresent() || !currentVersion.get().equals(BuckVersion.getVersion())) {
+        filesystem.deleteRecursivelyIfExists(BuckConstant.ANNOTATION_PATH);
+        filesystem.deleteRecursivelyIfExists(BuckConstant.GEN_PATH);
+        filesystem.deleteRecursivelyIfExists(BuckConstant.SCRATCH_PATH);
+        filesystem.mkdirs(BuckConstant.CURRENT_VERSION_FILE.getParent());
+        filesystem.writeContentsToPath(BuckVersion.getVersion(), BuckConstant.CURRENT_VERSION_FILE);
+      }
     }
 
     PropertyFinder propertyFinder = new DefaultPropertyFinder(
@@ -666,20 +678,24 @@ public final class Main {
 
     // Build up the hash cache, which is a collection of the stateful cell cache and some per-run
     // caches.
-    FileHashCache fileHashCache =
-        new StackedFileHashCache(
-            ImmutableList.of(
-                cellHashCache,
-                buckOutHashCache,
-                // A cache which caches hashes of cell-relative paths which may have been ignore by
-                // the main cell cache, and only serves to prevent rehashing the same file multiple
-                // times in a single run.
-                new DefaultFileHashCache(
-                    new ProjectFilesystem(rootCell.getFilesystem().getRootPath())),
-                // A cache which caches hashes of absolute paths which my be accessed by certain
-                // rules (e.g. /usr/bin/gcc), and only serves to prevent rehashing the same file
-                // multiple times in a single run.
-                new DefaultFileHashCache(new ProjectFilesystem(Paths.get("/")))));
+
+    ImmutableList.Builder<FileHashCache> allCaches = ImmutableList.builder();
+    allCaches.add(cellHashCache);
+    allCaches.add(buckOutHashCache);
+    // A cache which caches hashes of cell-relative paths which may have been ignore by
+    // the main cell cache, and only serves to prevent rehashing the same file multiple
+    // times in a single run.
+    allCaches.add(new DefaultFileHashCache(
+        new ProjectFilesystem(rootCell.getFilesystem().getRootPath())));
+
+    for (Path root : FileSystems.getDefault().getRootDirectories()) {
+      // A cache which caches hashes of absolute paths which my be accessed by certain
+      // rules (e.g. /usr/bin/gcc), and only serves to prevent rehashing the same file
+      // multiple times in a single run.
+      allCaches.add(new DefaultFileHashCache(new ProjectFilesystem(root)));
+    }
+
+    FileHashCache fileHashCache = new StackedFileHashCache(allCaches.build());
 
     Optional<WebServer> webServer = getWebServerIfDaemon(
         context,
@@ -746,7 +762,7 @@ public final class Main {
             diskIoExecutorService,
             new DefaultVersionControlCmdLineInterfaceFactory(
                 rootCell.getFilesystem().getRootPath(),
-                processExecutor,
+                new PrintStreamProcessExecutorFactory(),
                 vcBuckConfig),
             buildEventBus
         );

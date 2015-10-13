@@ -14,9 +14,18 @@
  * under the License.
  */
 
-package com.facebook.buck.cxx;
+package com.facebook.buck.util;
 
-public interface CxxCompilationDatabaseEntry {
-  String getFile();
-  String getCommand();
+import java.io.PrintStream;
+
+public class PrintStreamProcessExecutorFactory implements ProcessExecutorFactory {
+  @Override
+  public ProcessExecutor createProcessExecutor(PrintStream stdout, PrintStream stderr) {
+    return new ProcessExecutor(
+        new Console(
+            Verbosity.SILENT,
+            stdout,
+            stderr,
+            Ansi.withoutTty()));
+  }
 }
