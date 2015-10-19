@@ -64,8 +64,6 @@ import com.google.common.base.Predicate;
 import com.google.common.base.Supplier;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
-import com.google.common.cache.CacheLoader;
-import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -79,7 +77,6 @@ import com.google.common.collect.MapDifference;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.eventbus.Subscribe;
-import com.google.common.hash.HashCode;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
 
@@ -255,10 +252,6 @@ public class Parser {
     state.cleanCache();
   }
 
-  public LoadingCache<BuildTarget, HashCode> getBuildTargetHashCodeCache() {
-    return state.getBuildTargetHashCodeCache();
-  }
-
   /**
    * @return a set of {@link BuildTarget} objects that this {@link TargetNodeSpec} refers to.
    */
@@ -272,9 +265,7 @@ public class Parser {
     ImmutableSet.Builder<BuildTarget> targets = ImmutableSet.builder();
 
     // Iterate over the build files the given target node spec returns.
-    for (Path buildFile : spec.getBuildFileSpec().findBuildFiles(
-        cell.getFilesystem(),
-        cell.getBuildFileName())) {
+    for (Path buildFile : spec.getBuildFileSpec().findBuildFiles(cell)) {
 
       // Format a proper error message for non-existent build files.
       if (!cell.getFilesystem().isFile(buildFile)) {
@@ -1113,8 +1104,6 @@ public class Parser {
 
     private final Map<BuildTarget, Path> targetsToFile;
 
-    private final LoadingCache<BuildTarget, HashCode> buildTargetHashCodeCache;
-
     /**
      * A map from absolute included files ({@code /jimp/BUILD_DEFS}, for example) to the build files
      * that depend on them (typically {@code /jimp/BUCK} files).
@@ -1132,13 +1121,6 @@ public class Parser {
       this.parsedBuildFiles = ArrayListMultimap.create();
       this.targetsToFile = Maps.newHashMap();
       this.pathsToBuildTargets = ArrayListMultimap.create();
-      this.buildTargetHashCodeCache = CacheBuilder.newBuilder().build(
-          new CacheLoader<BuildTarget, HashCode>() {
-            @Override
-            public HashCode load(BuildTarget buildTarget) throws IOException, InterruptedException {
-              return loadHashCodeForBuildTarget(buildTarget);
-            }
-          });
       this.buildFileDependents = ArrayListMultimap.create();
       this.buildFile = buildFileName;
       this.allowSymlinks = allowSymlinks;
@@ -1152,7 +1134,6 @@ public class Parser {
       memoizedTargetNodes.invalidateAll();
       targetsToFile.clear();
       pathsToBuildTargets.clear();
-      buildTargetHashCodeCache.invalidateAll();
       buildFileDependents.clear();
     }
 
@@ -1160,15 +1141,14 @@ public class Parser {
     public String toString() {
       return String.format(
           "%s memoized=%s symlinks=%s build files under symlink=%s parsed=%s targets-to-files=%s " +
-          "paths-to-targets=%s build-target-hash-code-cache=%s",
+          "paths-to-targets=%s",
           super.toString(),
           memoizedTargetNodes,
           symlinkExistenceCache,
           buildInputPathsUnderSymlink,
           parsedBuildFiles,
           targetsToFile,
-          pathsToBuildTargets,
-          buildTargetHashCodeCache);
+          pathsToBuildTargets);
     }
 
     /**
@@ -1274,7 +1254,6 @@ public class Parser {
       for (BuildTarget target : targetsToRemove) {
         memoizedTargetNodes.invalidate(target);
       }
-      buildTargetHashCodeCache.invalidateAll(targetsToRemove);
       pathsToBuildTargets.removeAll(path);
 
       List<Path> dependents = buildFileDependents.get(path);
@@ -1411,7 +1390,11 @@ public class Parser {
           try (SimplePerfEvent.Scope scope = SimplePerfEvent.scope(
               eventBus, PerfEventId.of("CreatedTargetNode"),
               "target", buildTarget)) {
+            Hasher hasher = Hashing.sha1().newHasher();
+            hasher.putString(BuckVersion.getVersion(), UTF_8);
+            JsonObjectHashing.hashJsonObject(hasher, map);
             targetNode = new TargetNode(
+                hasher.hash(),
                 description,
                 constructorArg,
                 factoryParams,
@@ -1470,33 +1453,6 @@ public class Parser {
       for (Path buildFilePath : buildInputPathsUnderSymlinkCopy) {
         invalidateDependents(buildFilePath);
       }
-    }
-
-    private synchronized HashCode loadHashCodeForBuildTarget(BuildTarget buildTarget)
-        throws IOException, InterruptedException{
-      // Warm up the cache.
-      get(buildTarget);
-
-      Path buildTargetPath = targetsToFile.get(
-          BuildTarget.of(buildTarget.getUnflavoredBuildTarget()));
-      if (buildTargetPath == null) {
-        throw new HumanReadableException("Couldn't find build target %s", buildTarget);
-      }
-      List<Map<String, Object>> rules = getRawRules(buildTargetPath);
-      Hasher hasher = Hashing.sha1().newHasher();
-      hasher.putString(BuckVersion.getVersion(), UTF_8);
-      for (Map<String, Object> map : rules) {
-        if (!buildTarget.getShortName().equals(map.get("name"))) {
-          continue;
-        }
-
-        JsonObjectHashing.hashJsonObject(hasher, map);
-      }
-      return hasher.hash();
-    }
-
-    public LoadingCache<BuildTarget, HashCode> getBuildTargetHashCodeCache() {
-      return buildTargetHashCodeCache;
     }
   }
 

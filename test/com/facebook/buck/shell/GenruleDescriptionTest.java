@@ -18,12 +18,13 @@ package com.facebook.buck.shell;
 
 import static com.facebook.buck.rules.TestCellBuilder.UNALIASED;
 import static com.facebook.buck.rules.TestCellBuilder.createCellRoots;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.fail;
 
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.java.JavaLibraryBuilder;
+import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargetPattern;
@@ -42,6 +43,7 @@ import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.hash.Hashing;
 
 import org.hamcrest.Matchers;
 import org.junit.Test;
@@ -82,6 +84,7 @@ public class GenruleDescriptionTest {
       fail("Expected constructorArg to be correctly populated.");
     }
     TargetNode<GenruleDescription.Arg> targetNode = new TargetNode<>(
+        Hashing.sha1().hashString(params.target.getFullyQualifiedName(), UTF_8),
         genruleDescription,
         constructorArg,
         params,

@@ -40,8 +40,8 @@ import com.facebook.buck.httpserver.WebServer;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.io.TempDirectoryCreator;
 import com.facebook.buck.io.Watchman;
-import com.facebook.buck.java.JavaBuckConfig;
-import com.facebook.buck.java.JavacOptions;
+import com.facebook.buck.jvm.java.JavaBuckConfig;
+import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.log.CommandThreadAssociation;
 import com.facebook.buck.log.LogConfig;
 import com.facebook.buck.log.Logger;
@@ -336,8 +336,11 @@ public final class Main {
     /** @return true if the web server was started successfully. */
     private boolean initWebServer() {
       if (webServer.isPresent()) {
+        Optional<ArtifactCache> servedCache = ArtifactCaches.newServedCache(
+            new ArtifactCacheBuckConfig(cell.getBuckConfig()),
+            cell.getFilesystem());
         try {
-          webServer.get().start();
+          webServer.get().updateAndStartIfNeeded(servedCache);
           return true;
         } catch (WebServer.WebServerException e) {
           LOG.error(e);
@@ -423,6 +426,7 @@ public final class Main {
         Daemon.getValidWebServerPort(daemon.cell.getBuckConfig());
     Optional<Integer> portFromUpdatedConfig =
         Daemon.getValidWebServerPort(newCell.getBuckConfig());
+
     return portFromOldConfig.equals(portFromUpdatedConfig);
   }
 
@@ -743,7 +747,8 @@ public final class Main {
           buildEventBus);
       consoleListener.setProgressEstimator(progressEstimator);
 
-      eventListeners = addEventListeners(buildEventBus,
+      eventListeners = addEventListeners(
+          buildEventBus,
           rootCell.getFilesystem(),
           buildId,
           rootCell.getBuckConfig(),

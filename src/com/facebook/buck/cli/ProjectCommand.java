@@ -26,17 +26,18 @@ import com.facebook.buck.apple.ProjectGenerator;
 import com.facebook.buck.apple.SchemeActionType;
 import com.facebook.buck.apple.WorkspaceAndProjectGenerator;
 import com.facebook.buck.apple.XcodeWorkspaceConfigDescription;
+import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.ProjectGenerationEvent;
 import com.facebook.buck.io.ExecutableFinder;
-import com.facebook.buck.java.JavaBuckConfig;
-import com.facebook.buck.java.JavaFileParser;
-import com.facebook.buck.java.JavaLibraryDescription;
-import com.facebook.buck.java.JavaPackageFinder;
-import com.facebook.buck.java.JavacOptions;
-import com.facebook.buck.java.intellij.IjModuleGraph;
-import com.facebook.buck.java.intellij.IjProject;
-import com.facebook.buck.java.intellij.IntellijConfig;
-import com.facebook.buck.java.intellij.Project;
+import com.facebook.buck.jvm.java.JavaBuckConfig;
+import com.facebook.buck.jvm.java.JavaFileParser;
+import com.facebook.buck.jvm.java.JavaLibraryDescription;
+import com.facebook.buck.jvm.java.JavaPackageFinder;
+import com.facebook.buck.jvm.java.JavacOptions;
+import com.facebook.buck.jvm.java.intellij.IjModuleGraph;
+import com.facebook.buck.jvm.java.intellij.IjProject;
+import com.facebook.buck.jvm.java.intellij.IntellijConfig;
+import com.facebook.buck.jvm.java.intellij.Project;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
@@ -63,6 +64,7 @@ import com.facebook.buck.rules.TargetGraphToActionGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.MoreExceptions;
 import com.facebook.buck.util.ProcessManager;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Ascii;
@@ -348,7 +350,8 @@ public class ProjectCommand extends BuildCommand {
               params.getEnvironment(),
               getEnableProfiling());
     } catch (BuildTargetException | BuildFileParseException | HumanReadableException e) {
-      params.getConsole().printBuildFailureWithoutStacktrace(e);
+      params.getBuckEventBus().post(ConsoleEvent.severe(
+          MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
       return 1;
     }
 

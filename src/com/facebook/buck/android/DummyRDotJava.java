@@ -16,14 +16,13 @@
 
 package com.facebook.buck.android;
 
-import com.facebook.buck.java.CalculateAbiStep;
-import com.facebook.buck.java.HasJavaAbi;
-import com.facebook.buck.java.JavacOptions;
-import com.facebook.buck.java.JavacStep;
+import com.facebook.buck.jvm.java.CalculateAbiStep;
+import com.facebook.buck.jvm.java.HasJavaAbi;
+import com.facebook.buck.jvm.java.JavacOptions;
+import com.facebook.buck.jvm.java.JavacStep;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.HasBuildTarget;
-import com.facebook.buck.rules.keys.AbiRule;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
@@ -35,6 +34,7 @@ import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.Sha1HashCode;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.keys.AbiRule;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.WriteFileStep;
@@ -60,6 +60,8 @@ public class DummyRDotJava extends AbstractBuildRule
   private final SourcePath abiJar;
   @AddToRuleKey
   private final JavacOptions javacOptions;
+  @AddToRuleKey
+  private final Optional<String> unionPackage;
   private final BuildOutputInitializer<BuildOutput> buildOutputInitializer;
 
   public DummyRDotJava(
@@ -67,7 +69,8 @@ public class DummyRDotJava extends AbstractBuildRule
       SourcePathResolver resolver,
       Set<HasAndroidResourceDeps> androidResourceDeps,
       SourcePath abiJar,
-      JavacOptions javacOptions) {
+      JavacOptions javacOptions,
+      Optional<String> unionPackage) {
     super(params, resolver);
     // Sort the input so that we get a stable ABI for the same set of resources.
     this.androidResourceDeps = FluentIterable.from(androidResourceDeps)
@@ -75,6 +78,7 @@ public class DummyRDotJava extends AbstractBuildRule
     this.abiJar = abiJar;
     this.javacOptions = javacOptions;
     this.buildOutputInitializer = new BuildOutputInitializer<>(params.getBuildTarget(), this);
+    this.unionPackage = unionPackage;
   }
 
   @Override
@@ -107,7 +111,8 @@ public class DummyRDotJava extends AbstractBuildRule
       MergeAndroidResourcesStep mergeStep = MergeAndroidResourcesStep.createStepForDummyRDotJava(
           getProjectFilesystem(),
           androidResourceDeps,
-          rDotJavaSrcFolder);
+          rDotJavaSrcFolder,
+          unionPackage);
       steps.add(mergeStep);
       javaSourceFilePaths =
           ImmutableSet.copyOf(mergeStep.getRDotJavaFiles());
@@ -192,11 +197,6 @@ public class DummyRDotJava extends AbstractBuildRule
   @Override
   public BuildOutputInitializer<BuildOutput> getBuildOutputInitializer() {
     return buildOutputInitializer;
-  }
-
-  @Override
-  public Sha1HashCode getAbiKey() {
-    return buildOutputInitializer.getBuildOutput().rDotTxtSha1;
   }
 
   @Override

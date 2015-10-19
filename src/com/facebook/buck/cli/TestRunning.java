@@ -16,14 +16,15 @@
 
 package com.facebook.buck.cli;
 
-import static com.facebook.buck.java.JUnitStep.JACOCO_OUTPUT_DIR;
+import static com.facebook.buck.jvm.java.JUnitStep.JACOCO_OUTPUT_DIR;
 
+import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.java.DefaultJavaPackageFinder;
-import com.facebook.buck.java.GenerateCodeCoverageReportStep;
-import com.facebook.buck.java.JavaLibrary;
-import com.facebook.buck.java.JavaTest;
+import com.facebook.buck.jvm.java.DefaultJavaPackageFinder;
+import com.facebook.buck.jvm.java.GenerateCodeCoverageReportStep;
+import com.facebook.buck.jvm.java.JavaLibrary;
+import com.facebook.buck.jvm.java.JavaTest;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.HasBuildTarget;
@@ -60,6 +61,7 @@ import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.base.Strings;
+import com.google.common.base.Throwables;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -147,7 +149,8 @@ public class TestRunning {
               new MakeCleanDirectoryStep(library.getProjectFilesystem(), JACOCO_OUTPUT_DIR),
               Optional.<BuildTarget>absent());
         } catch (StepFailedException e) {
-          params.getConsole().printBuildFailureWithoutStacktrace(e);
+          params.getBuckEventBus().post(
+              ConsoleEvent.severe(Throwables.getRootCause(e).getLocalizedMessage()));
           return 1;
         }
       }
@@ -437,7 +440,8 @@ public class TestRunning {
                 options.getCoverageReportTitle()),
             Optional.<BuildTarget>absent());
       } catch (StepFailedException e) {
-        params.getConsole().printBuildFailureWithoutStacktrace(e);
+        params.getBuckEventBus().post(
+            ConsoleEvent.severe(Throwables.getRootCause(e).getLocalizedMessage()));
         return 1;
       }
     }

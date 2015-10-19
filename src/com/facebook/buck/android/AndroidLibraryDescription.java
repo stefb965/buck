@@ -17,12 +17,12 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.android.AndroidLibraryGraphEnhancer.ResourceDependencyMode;
-import com.facebook.buck.java.AnnotationProcessingParams;
-import com.facebook.buck.java.CalculateAbi;
-import com.facebook.buck.java.JavaLibrary;
-import com.facebook.buck.java.JavaLibraryDescription;
-import com.facebook.buck.java.JavaSourceJar;
-import com.facebook.buck.java.JavacOptions;
+import com.facebook.buck.jvm.java.AnnotationProcessingParams;
+import com.facebook.buck.jvm.java.CalculateAbi;
+import com.facebook.buck.jvm.java.JavaLibrary;
+import com.facebook.buck.jvm.java.JavaLibraryDescription;
+import com.facebook.buck.jvm.java.JavaSourceJar;
+import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.Flavored;
@@ -100,7 +100,8 @@ public class AndroidLibraryDescription
         params.copyWithExtraDeps(
             Suppliers.ofInstance(resolver.getAllRules(args.exportedDeps.get()))),
         javacOptions,
-        ResourceDependencyMode.FIRST_ORDER);
+        ResourceDependencyMode.FIRST_ORDER,
+        args.resourceUnionPackage);
 
     boolean hasDummyRDotJavaFlavor =
         params.getBuildTarget().getFlavors().contains(DUMMY_R_DOT_JAVA_FLAVOR);
@@ -181,5 +182,6 @@ public class AndroidLibraryDescription
   @SuppressFieldNotInitialized
   public static class Arg extends JavaLibraryDescription.Arg {
     public Optional<SourcePath> manifest;
+    public Optional<String> resourceUnionPackage;
   }
 }

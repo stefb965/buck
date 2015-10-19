@@ -39,6 +39,16 @@ public class ArtifactCaches {
   private ArtifactCaches() {
   }
 
+  /**
+   * Creates a new instance of the cache for use during a build.
+   *
+   * @param buckConfig describes what kind of cache to create
+   * @param buckEventBus event bus
+   * @param projectFilesystem filesystem to store files on
+   * @param wifiSsid current WiFi ssid to decide if we want the http cache or not
+   * @return a cache
+   * @throws InterruptedException
+   */
   public static ArtifactCache newInstance(
       ArtifactCacheBuckConfig buckConfig,
       BuckEventBus buckEventBus,
@@ -55,6 +65,24 @@ public class ArtifactCaches {
             wifiSsid));
     buckEventBus.post(ArtifactCacheConnectEvent.finished(started));
     return artifactCache;
+  }
+
+  /**
+   * Creates a new instance of the cache to be used to serve the dircache from the WebServer.
+   *
+   * @param buckConfig describes how to configure te cache
+   * @param projectFilesystem filesystem to store files on
+   * @return a cache
+   * @throws InterruptedException
+   */
+  public static Optional<ArtifactCache> newServedCache(
+      ArtifactCacheBuckConfig buckConfig,
+      ProjectFilesystem projectFilesystem) {
+    if (!buckConfig.getServingLocalCacheEnabled()) {
+      return Optional.absent();
+    } else {
+      return Optional.of(createDirArtifactCache(buckConfig, projectFilesystem));
+    }
   }
 
   private static ArtifactCache newInstanceInternal(
@@ -101,7 +129,7 @@ public class ArtifactCaches {
       ArtifactCacheBuckConfig buckConfig,
       ProjectFilesystem projectFilesystem) {
     Path cacheDir = buckConfig.getCacheDir();
-    boolean doStore = buckConfig.getDirCacheReadMode();
+    boolean doStore = buckConfig.getDirCacheReadMode().isDoStore();
     try {
       return new DirArtifactCache(
           "dir",
@@ -122,7 +150,7 @@ public class ArtifactCaches {
       ProjectFilesystem projectFilesystem) {
     URI uri = buckConfig.getHttpCacheUrl();
     int timeoutSeconds = buckConfig.getHttpCacheTimeoutSeconds();
-    boolean doStore = buckConfig.getHttpCacheReadMode();
+    boolean doStore = buckConfig.getHttpCacheReadMode().isDoStore();
     final String host = buckConfig.getHostToReportToRemoteCacheServer();
 
     // Setup the defaut client to use.
@@ -163,4 +191,5 @@ public class ArtifactCaches {
         projectFilesystem,
         buckEventBus);
   }
+
 }

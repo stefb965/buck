@@ -17,7 +17,7 @@
 package org.openqa.selenium.buck.file;
 
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.java.Javac;
+import com.facebook.buck.jvm.java.Javac;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;

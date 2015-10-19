@@ -47,6 +47,7 @@ import com.facebook.buck.test.TestRunningOptions;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ListeningProcessExecutor;
+import com.facebook.buck.util.MoreExceptions;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.concurrent.ConcurrencyLimit;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
@@ -271,8 +272,8 @@ public class TestCommand extends BuildCommand {
       throws InterruptedException, IOException {
 
     if (!withDashArguments.isEmpty()) {
-      params.getBuckEventBus().post(
-          ConsoleEvent.severe("Unexpected arguments after \"--\" when using internal runner"));
+      params.getBuckEventBus().post(ConsoleEvent.severe(
+          "Unexpected arguments after \"--\" when using internal runner"));
       return 1;
     }
 
@@ -291,7 +292,8 @@ public class TestCommand extends BuildCommand {
           buildEngine,
           new DefaultStepRunner(build.getExecutionContext()));
     } catch (ExecutionException e) {
-      params.getConsole().printBuildFailureWithoutStacktrace(e);
+      params.getBuckEventBus().post(ConsoleEvent.severe(
+          MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
       return 1;
     }
   }
@@ -308,11 +310,9 @@ public class TestCommand extends BuildCommand {
     List<ExternalTestRunnerTestSpec> specs = Lists.newArrayList();
     for (TestRule testRule : testRules) {
       if (!(testRule instanceof ExternalTestRunnerRule)) {
-        params.getBuckEventBus().post(
-            ConsoleEvent.severe(
-                String.format(
-                    "Test %s does not support external test running",
-                    testRule.getBuildTarget())));
+        params.getBuckEventBus().post(ConsoleEvent.severe(String.format(
+            "Test %s does not support external test running",
+            testRule.getBuildTarget())));
         return 1;
       }
       ExternalTestRunnerRule rule = (ExternalTestRunnerRule) testRule;
@@ -473,7 +473,8 @@ public class TestCommand extends BuildCommand {
       }
 
     } catch (BuildTargetException | BuildFileParseException e) {
-      params.getConsole().printBuildFailureWithoutStacktrace(e);
+      params.getBuckEventBus().post(ConsoleEvent.severe(
+          MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
       return 1;
     }
 
