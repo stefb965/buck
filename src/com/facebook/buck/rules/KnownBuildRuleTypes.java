@@ -405,7 +405,7 @@ public class KnownBuildRuleTypes {
             cxxPlatforms);
 
     // Look up the timeout to apply to entire test rules.
-    Optional<Long> testRuleTimeoutMs = config.getLong("test", "rule_timeout");
+    Optional<Long> defaultTestRuleTimeoutMs = config.getLong("test", "rule_timeout");
 
 
     // Prepare the downloader if we're allowing mid-build downloads
@@ -478,7 +478,7 @@ public class KnownBuildRuleTypes {
             androidBinaryOptions,
             ndkCxxPlatforms,
             dxExecutorService));
-    builder.register(new AndroidInstrumentationTestDescription(testRuleTimeoutMs));
+    builder.register(new AndroidInstrumentationTestDescription(defaultTestRuleTimeoutMs));
     builder.register(new AndroidLibraryDescription(androidBinaryOptions));
     builder.register(new AndroidManifestDescription());
     builder.register(new AndroidPrebuiltAarDescription(androidBinaryOptions));
@@ -520,7 +520,7 @@ public class KnownBuildRuleTypes {
             cxxBuckConfig,
             defaultCxxPlatform,
             cxxPlatforms,
-            testRuleTimeoutMs));
+            defaultTestRuleTimeoutMs));
     builder.register(new DBinaryDescription(dBuckConfig, defaultCxxPlatform));
     builder.register(new DLibraryDescription(dBuckConfig));
     builder.register(new DTestDescription(dBuckConfig, defaultCxxPlatform));
@@ -540,7 +540,7 @@ public class KnownBuildRuleTypes {
     builder.register(
         new JavaTestDescription(
             defaultJavacOptions,
-            testRuleTimeoutMs,
+            defaultTestRuleTimeoutMs,
             defaultCxxPlatform,
             testTempDirOverride));
     builder.register(new KeystoreDescription());
@@ -567,7 +567,7 @@ public class KnownBuildRuleTypes {
     builder.register(new RemoteFileDescription(downloader));
     builder.register(new RobolectricTestDescription(
             androidBinaryOptions,
-            testRuleTimeoutMs,
+            defaultTestRuleTimeoutMs,
             defaultCxxPlatform,
             testTempDirOverride));
     builder.register(new RustBinaryDescription(rustBuckConfig));
