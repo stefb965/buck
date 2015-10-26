@@ -23,6 +23,7 @@ import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -38,7 +39,14 @@ import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.rules.coercer.SourceWithFlags;
+import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.rules.macros.LocationMacroExpander;
+import com.facebook.buck.rules.macros.MacroExpander;
+import com.facebook.buck.rules.macros.MacroHandler;
+import com.facebook.buck.rules.args.MacroArg;
+import com.facebook.buck.rules.args.SourcePathArg;
+import com.facebook.buck.rules.args.StringArg;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Functions;
@@ -79,6 +87,11 @@ public class CxxDescriptionEnhancer {
 
   public static final Flavor CXX_LINK_BINARY_FLAVOR = ImmutableFlavor.of("binary");
   public static final Flavor LEX_YACC_SOURCE_FLAVOR = ImmutableFlavor.of("lex_yacc_sources");
+
+  protected static final MacroHandler MACRO_HANDLER =
+      new MacroHandler(
+          ImmutableMap.<String, MacroExpander>of(
+              "location", new LocationMacroExpander()));
 
   private CxxDescriptionEnhancer() {}
 
@@ -362,11 +375,11 @@ public class CxxDescriptionEnhancer {
       CxxPlatform cxxPlatform,
       CxxConstructorArg args) {
     return parseCxxSources(
-      params,
-      resolver,
-      cxxPlatform,
-      args.srcs.get(),
-      args.platformSrcs.get());
+        params,
+        resolver,
+        cxxPlatform,
+        args.srcs.get(),
+        args.platformSrcs.get());
   }
 
   public static ImmutableMap<String, CxxSource> parseCxxSources(
@@ -422,9 +435,9 @@ public class CxxDescriptionEnhancer {
   }
 
   @VisibleForTesting
-  protected static BuildTarget createLexBuildTarget(BuildTarget target, String name) {
+  protected static BuildTarget createLexBuildTarget(UnflavoredBuildTarget target, String name) {
     return BuildTarget
-        .builder(target.getUnflavoredBuildTarget())
+        .builder(target)
         .addFlavors(
             ImmutableFlavor.of(
                 String.format(
@@ -434,9 +447,9 @@ public class CxxDescriptionEnhancer {
   }
 
   @VisibleForTesting
-  protected static BuildTarget createYaccBuildTarget(BuildTarget target, String name) {
+  protected static BuildTarget createYaccBuildTarget(UnflavoredBuildTarget target, String name) {
     return BuildTarget
-        .builder(target.getUnflavoredBuildTarget())
+        .builder(target)
         .addFlavors(
             ImmutableFlavor.of(
                 String.format(
@@ -449,7 +462,7 @@ public class CxxDescriptionEnhancer {
    * @return the output path prefix to use for yacc generated files.
    */
   @VisibleForTesting
-  protected static Path getYaccOutputPrefix(BuildTarget target, String name) {
+  protected static Path getYaccOutputPrefix(UnflavoredBuildTarget target, String name) {
     BuildTarget flavoredTarget = createYaccBuildTarget(target, name);
     return BuildTargets.getGenPath(flavoredTarget, "%s/" + name);
   }
@@ -458,7 +471,7 @@ public class CxxDescriptionEnhancer {
    * @return the output path to use for the lex generated C/C++ source.
    */
   @VisibleForTesting
-  protected static Path getLexSourceOutputPath(BuildTarget target, String name) {
+  protected static Path getLexSourceOutputPath(UnflavoredBuildTarget target, String name) {
     BuildTarget flavoredTarget = createLexBuildTarget(target, name);
     return BuildTargets.getGenPath(flavoredTarget, "%s/" + name + ".cc");
   }
@@ -467,7 +480,7 @@ public class CxxDescriptionEnhancer {
    * @return the output path to use for the lex generated C/C++ header.
    */
   @VisibleForTesting
-  protected static Path getLexHeaderOutputPath(BuildTarget target, String name) {
+  protected static Path getLexHeaderOutputPath(UnflavoredBuildTarget target, String name) {
     BuildTarget flavoredTarget = createLexBuildTarget(target, name);
     return BuildTargets.getGenPath(flavoredTarget, "%s/" + name + ".h");
   }
@@ -507,13 +520,15 @@ public class CxxDescriptionEnhancer {
 
     // Loop over all lex sources, generating build rule for each one and adding the sources
     // and headers it generates to our bookkeeping maps.
+    UnflavoredBuildTarget unflavoredBuildTarget =
+        params.getBuildTarget().getUnflavoredBuildTarget();
     for (ImmutableMap.Entry<String, SourcePath> ent : lexSrcs.entrySet()) {
       final String name = ent.getKey();
       final SourcePath source = ent.getValue();
 
-      BuildTarget target = createLexBuildTarget(params.getBuildTarget(), name);
-      Path outputSource = getLexSourceOutputPath(target, name);
-      Path outputHeader = getLexHeaderOutputPath(target, name);
+      BuildTarget target = createLexBuildTarget(unflavoredBuildTarget, name);
+      Path outputSource = getLexSourceOutputPath(unflavoredBuildTarget, name);
+      Path outputHeader = getLexHeaderOutputPath(unflavoredBuildTarget, name);
 
       // Create the build rule to run lex on this source and add it to the resolver.
       Lex lex = new Lex(
@@ -552,8 +567,10 @@ public class CxxDescriptionEnhancer {
       final String name = ent.getKey();
       final SourcePath source = ent.getValue();
 
-      BuildTarget target = createYaccBuildTarget(params.getBuildTarget(), name);
-      Path outputPrefix = getYaccOutputPrefix(target, Files.getNameWithoutExtension(name));
+      BuildTarget target = createYaccBuildTarget(unflavoredBuildTarget, name);
+      Path outputPrefix = getYaccOutputPrefix(
+          unflavoredBuildTarget,
+          Files.getNameWithoutExtension(name));
 
       // Create the build rule to run yacc on this source and add it to the resolver.
       Yacc yacc = new Yacc(
@@ -761,26 +778,26 @@ public class CxxDescriptionEnhancer {
     ImmutableMap<String, SourcePath> lexSrcs = parseLexSources(params, resolver, args);
     ImmutableMap<String, SourcePath> yaccSrcs = parseYaccSources(params, resolver, args);
     return createBuildRulesForCxxBinary(
-      targetGraph,
-      params,
-      resolver,
-      cxxPlatform,
-      srcs,
-      headers,
-      lexSrcs,
-      yaccSrcs,
-      preprocessMode,
-      args.linkStyle.or(Linker.LinkableDepType.STATIC),
-      args.preprocessorFlags,
-      args.platformPreprocessorFlags,
-      args.langPreprocessorFlags,
-      args.frameworks,
-      args.compilerFlags,
-      args.platformCompilerFlags,
-      args.prefixHeader,
-      args.linkerFlags,
-      args.platformLinkerFlags,
-      args.cxxRuntimeType);
+        targetGraph,
+        params,
+        resolver,
+        cxxPlatform,
+        srcs,
+        headers,
+        lexSrcs,
+        yaccSrcs,
+        preprocessMode,
+        args.linkStyle.or(Linker.LinkableDepType.STATIC),
+        args.preprocessorFlags,
+        args.platformPreprocessorFlags,
+        args.langPreprocessorFlags,
+        args.frameworks,
+        args.compilerFlags,
+        args.platformCompilerFlags,
+        args.prefixHeader,
+        args.linkerFlags,
+        args.platformLinkerFlags,
+        args.cxxRuntimeType);
   }
 
   public static CxxLinkAndCompileRules createBuildRulesForCxxBinary(
@@ -806,7 +823,7 @@ public class CxxDescriptionEnhancer {
       Optional<Linker.CxxRuntimeType> cxxRuntimeType) {
     SourcePathResolver sourcePathResolver = new SourcePathResolver(resolver);
     Path linkOutput = getLinkOutputPath(params.getBuildTarget());
-    ImmutableList.Builder<String> extraLdFlagsBuilder = ImmutableList.builder();
+    ImmutableList.Builder<Arg> argsBuilder = ImmutableList.builder();
     CommandTool.Builder executableBuilder = new CommandTool.Builder();
 
     // Setup the rules to run lex/yacc.
@@ -879,12 +896,21 @@ public class CxxDescriptionEnhancer {
                 CxxSourceRuleFactory.PicType.PDC :
                 CxxSourceRuleFactory.PicType.PIC);
 
-    // Build up the linker flags.
-    extraLdFlagsBuilder.addAll(
+    // Build up the linker flags, which support macro expansion.
+    ImmutableList<String> resolvedLinkerFlags =
         CxxFlags.getFlags(
             linkerFlags,
             platformLinkerFlags,
-            cxxPlatform));
+            cxxPlatform);
+    argsBuilder.addAll(
+        FluentIterable.from(resolvedLinkerFlags)
+            .transform(
+                MacroArg.toMacroArgFunction(
+                    MACRO_HANDLER,
+                    params.getBuildTarget(),
+                    params.getCellRoots(),
+                    resolver,
+                    params.getProjectFilesystem())));
 
     // Special handling for dynamically linked binaries.
     if (linkStyle == Linker.LinkableDepType.SHARED) {
@@ -900,19 +926,23 @@ public class CxxDescriptionEnhancer {
                   Predicates.instanceOf(NativeLinkable.class)));
 
       // Embed a origin-relative library path into the binary so it can find the shared libraries.
-      extraLdFlagsBuilder.addAll(
-          Linkers.iXlinker(
-              "-rpath",
-              String.format(
-                  "%s/%s",
-                  cxxPlatform.getLd().origin(),
-                  linkOutput.getParent().relativize(sharedLibraries.getRoot()).toString())));
+      argsBuilder.addAll(
+          StringArg.from(
+              Linkers.iXlinker(
+                  "-rpath",
+                  String.format(
+                      "%s/%s",
+                      cxxPlatform.getLd().origin(),
+                      linkOutput.getParent().relativize(sharedLibraries.getRoot()).toString()))));
 
       // Add all the shared libraries and the symlink tree as inputs to the tool that represents
       // this binary, so that users can attach the proper deps.
       executableBuilder.addDep(sharedLibraries);
       executableBuilder.addInputs(sharedLibraries.getLinks().values());
     }
+
+    // Add object files into the args.
+    argsBuilder.addAll(SourcePathArg.from(sourcePathResolver, objects.values()));
 
     // Generate the final link rule.  We use the top-level target as the link rule's
     // target, so that it corresponds to the actual binary we build.
@@ -922,13 +952,11 @@ public class CxxDescriptionEnhancer {
             cxxPlatform,
             params,
             sourcePathResolver,
-            extraLdFlagsBuilder.build(),
             createCxxLinkTarget(params.getBuildTarget()),
             Linker.LinkType.EXECUTABLE,
             Optional.<String>absent(),
             linkOutput,
-            objects.values(),
-            /* extraInputs */ ImmutableList.<SourcePath>of(),
+            argsBuilder.build(),
             linkStyle,
             params.getDeps(),
             cxxRuntimeType,

@@ -29,6 +29,7 @@ import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -81,8 +82,9 @@ public class CxxDescriptionEnhancerTest {
         new CxxBuckConfig(buckConfig));
 
     // Setup the target name and build params.
-    BuildTarget target = BuildTargetFactory.newInstance("//:test");
-    BuildRuleParams params = new FakeBuildRuleParamsBuilder(target).build();
+    UnflavoredBuildTarget target =
+        BuildTargetFactory.newInstance("//:test").getUnflavoredBuildTarget();
+    BuildRuleParams params = new FakeBuildRuleParamsBuilder(BuildTarget.of(target)).build();
 
     // Setup a genrule that generates our lex source.
     String lexSourceName = "test.ll";
@@ -171,7 +173,6 @@ public class CxxDescriptionEnhancerTest {
         BuildTargetFactory.newInstance("//:privatesymlink"),
         Paths.get("private/symlink/tree/lib"),
         new FakeBuildRule("//:archive", pathResolver),
-        Paths.get("output/path/lib.a"),
         new FakeBuildRule("//:shared", pathResolver),
         Paths.get("output/path/lib.so"),
         "lib.so",
@@ -222,7 +223,6 @@ public class CxxDescriptionEnhancerTest {
         BuildTargetFactory.newInstance("//:privatesymlink"),
         Paths.get("private/symlink/tree/lib"),
         new FakeBuildRule("//:archive", pathResolver),
-        Paths.get("output/path/lib.a"),
         new FakeBuildRule("//:shared", pathResolver),
         Paths.get("output/path/lib.so"),
         "lib.so",

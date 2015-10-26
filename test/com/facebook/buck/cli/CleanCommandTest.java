@@ -26,8 +26,8 @@ import com.facebook.buck.httpserver.WebServer;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.FakeJavaPackageFinder;
 import com.facebook.buck.jvm.java.intellij.Project;
-import com.facebook.buck.parser.Parser;
 import com.facebook.buck.artifact_cache.ArtifactCache;
+import com.facebook.buck.parser.ParserNg;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.testutil.TestConsole;
@@ -42,12 +42,14 @@ import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableMap;
 
 import org.easymock.Capture;
+import org.easymock.EasyMock;
 import org.easymock.EasyMockSupport;
 import org.junit.Test;
 import org.kohsuke.args4j.CmdLineException;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 
 /**
  * Unit test for {@link CleanCommand}.
@@ -112,7 +114,13 @@ public class CleanCommandTest extends EasyMockSupport {
 
   private CommandRunnerParams createCommandRunnerParams() throws InterruptedException, IOException {
     projectFilesystem = createMock(ProjectFilesystem.class);
+    EasyMock.expect(projectFilesystem.getRootPath()).andStubReturn(Paths.get("/opt/foo"));
+
+    EasyMock.replay(projectFilesystem);
+
     Cell cell = new TestCellBuilder().setFilesystem(projectFilesystem).build();
+
+    EasyMock.reset(projectFilesystem);
 
     Supplier<AndroidPlatformTarget> androidPlatformTargetSupplier =
         AndroidPlatformTarget.EXPLODING_ANDROID_PLATFORM_TARGET_SUPPLIER;
@@ -122,7 +130,7 @@ public class CleanCommandTest extends EasyMockSupport {
         androidPlatformTargetSupplier,
         createMock(ArtifactCache.class),
         BuckEventBusFactory.newInstance(),
-        createMock(Parser.class),
+        createMock(ParserNg.class),
         Platform.detect(),
         ImmutableMap.copyOf(System.getenv()),
         new FakeJavaPackageFinder(),
@@ -132,6 +140,8 @@ public class CleanCommandTest extends EasyMockSupport {
         Optional.<WebServer>absent(),
         FakeBuckConfig.builder().build(),
         new NullFileHashCache());
+
+
   }
 
 }

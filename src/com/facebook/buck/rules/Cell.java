@@ -36,6 +36,7 @@ import com.facebook.buck.util.Console;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
+import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.cache.CacheBuilder;
@@ -47,6 +48,7 @@ import com.google.common.util.concurrent.UncheckedExecutionException;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Objects;
 import java.util.regex.Pattern;
 
@@ -56,7 +58,8 @@ import java.util.regex.Pattern;
  */
 public class Cell {
 
-  private final LoadingCache<String, Cell> cells;
+  private final LoadingCache<Path, Cell> cells;
+  private final ImmutableSet<Path> knownRoots;
   private final ProjectFilesystem filesystem;
   private final Watchman watchman;
   private final BuckConfig config;
@@ -66,7 +69,6 @@ public class Cell {
   private final String buildFileName;
   private final boolean enforceBuckPackageBoundaries;
   private final ImmutableSet<Pattern> tempFilePatterns;
-  private CellFilesystemResolver cellFilesystemResolver;
 
   public Cell(
       final ProjectFilesystem filesystem,
@@ -87,36 +89,42 @@ public class Cell {
     this.enforceBuckPackageBoundaries = parserConfig.getEnforceBuckPackageBoundary();
     this.tempFilePatterns = parserConfig.getTempFilePatterns();
 
+    ImmutableMap<String, String> allCells = getBuckConfig().getEntriesForSection("repositories");
+    ImmutableSet.Builder<Path> roots = ImmutableSet.builder();
+    roots.add(filesystem.getRootPath());
+    for (String path : allCells.values()) {
+      // Added the precondition check, though the resolve call can never return null.
+      Path cellRoot = Preconditions.checkNotNull(
+          getBuckConfig().resolvePathThatMayBeOutsideTheProjectFilesystem(Paths.get(path)));
+      roots.add(cellRoot);
+    }
+    this.knownRoots = roots.build();
+
     PythonBuckConfig pythonConfig = new PythonBuckConfig(config, new ExecutableFinder());
     this.pythonInterpreter = pythonConfig.getPythonInterpreter();
 
     this.knownBuildRuleTypes = knownBuildRuleTypesFactory.create(config);
 
     this.cells = CacheBuilder.newBuilder().build(
-        new CacheLoader<String, Cell>() {
+        new CacheLoader<Path, Cell>() {
           @Override
-          public Cell load(String cellName) throws Exception {
-            Optional<Path> maybeRoot = getBuckConfig().getPath("repositories", cellName, false);
-            if (!maybeRoot.isPresent()) {
-              throw new HumanReadableException(
-                  "Unable to find repository named '%s' in repo rooted at %s",
-                  cellName,
-                  getFilesystem().getRootPath());
-            }
+          public Cell load(Path cellPath) throws Exception {
+            cellPath = cellPath.toRealPath();
 
-            // Added the precondition check, though the resolve call can never return null.
-            // TODO(user): Remove precondition check when possible.
-            Path root = Preconditions.checkNotNull(
-                getBuckConfig()
-                    .resolvePathThatMayBeOutsideTheProjectFilesystem(maybeRoot.get()));
+            if (!knownRoots.contains(cellPath)) {
+              throw new HumanReadableException(
+                  "Unable to find repository rooted at %s. Known roots are:\n  %s",
+                  getFilesystem().getRootPath(),
+                  Joiner.on(",\n  ").join(knownRoots));
+            }
 
             // TODO(simons): Get the overrides from the parent config
             ImmutableMap<String, ImmutableMap<String, String>> sections = ImmutableMap.of();
             Config config = Config.createDefaultConfig(
-                root,
+                cellPath,
                 sections);
 
-            ProjectFilesystem cellFilesystem = new ProjectFilesystem(root, config);
+            ProjectFilesystem cellFilesystem = new ProjectFilesystem(cellPath, config);
 
             Cell parent = Cell.this;
             BuckConfig parentConfig = parent.getBuckConfig();
@@ -128,7 +136,7 @@ public class Cell {
                 parentConfig.getPlatform(),
                 parentConfig.getEnvironment());
 
-            Watchman.build(root, parentConfig.getEnvironment(), console, clock);
+            Watchman.build(cellPath, parentConfig.getEnvironment(), console, clock);
 
             return new Cell(
                 cellFilesystem,
@@ -142,19 +150,16 @@ public class Cell {
         }
     );
 
-    Function<Optional<String>, ProjectFilesystem> cellFilesystemAliases =
-        new Function<Optional<String>, ProjectFilesystem>() {
-          @Override
-          public ProjectFilesystem apply(Optional<String> cellName) {
-            return getCell(cellName).getFilesystem();
-          }
-        };
-    this.cellFilesystemResolver =
-        new CellFilesystemResolver(getFilesystem(), cellFilesystemAliases);
+    // Ensure that the cell can find itself.
+    cells.put(getFilesystem().getRootPath(), this);
   }
 
   public ProjectFilesystem getFilesystem() {
     return filesystem;
+  }
+
+  public Path getRoot() {
+    return getFilesystem().getRootPath();
   }
 
   public KnownBuildRuleTypes getKnownBuildRuleTypes() {
@@ -173,13 +178,11 @@ public class Cell {
     return enforceBuckPackageBoundaries;
   }
 
-  public Cell getCell(Optional<String> cellName) {
-    if (!cellName.isPresent()) {
-      return this;
-    }
+  public Cell getCell(BuildTarget target) {
+    Path cellPath = target.getCellPath();
 
     try {
-      return cells.getUnchecked(cellName.get());
+      return cells.getUnchecked(cellPath);
     } catch (UncheckedExecutionException e) {
       Throwable cause = e.getCause();
       if (cause instanceof HumanReadableException) {
@@ -187,6 +190,13 @@ public class Cell {
       }
       throw e;
     }
+  }
+
+  public Optional<Cell> getCellIfKnown(BuildTarget target) {
+    if (knownRoots.contains(target.getCellPath())) {
+      return Optional.of(getCell(target));
+    }
+    return Optional.absent();
   }
 
   public Description<?> getDescription(BuildRuleType type) {
@@ -203,12 +213,13 @@ public class Cell {
 
   public Path getAbsolutePathToBuildFile(BuildTarget target)
       throws MissingBuildFileException {
-    Cell targetCell = getCell(target.getCell());
+    Cell targetCell = getCell(target);
 
     ProjectFilesystem targetFilesystem = targetCell.getFilesystem();
 
-    Path buildFile = targetFilesystem.resolve(target.getBasePath()).resolve(
-        new ParserConfig(targetCell.getBuckConfig()).getBuildFileName());
+    Path buildFile = targetFilesystem
+        .resolve(target.getBasePath())
+        .resolve(targetCell.getBuildFileName());
 
     if (!targetFilesystem.isFile(buildFile)) {
       throw new MissingBuildFileException(target, targetCell.getBuckConfig());
@@ -270,14 +281,10 @@ public class Cell {
     return config.getCellRoots();
   }
 
-  public CellFilesystemResolver getCellAliases() {
-    return cellFilesystemResolver;
-  }
-
   @SuppressWarnings("serial")
   public static class MissingBuildFileException extends BuildTargetException {
     public MissingBuildFileException(BuildTarget buildTarget, BuckConfig buckConfig) {
-      super(String.format("No build file at %s when resolving target %s.",
+      super(String.format("No build XXX at %s when resolving target %s.",
           buildTarget.getBasePathWithSlash() + new ParserConfig(buckConfig).getBuildFileName(),
           buildTarget.getFullyQualifiedName()));
     }

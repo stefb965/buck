@@ -20,12 +20,14 @@ import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.js.ReactNativeFlavors;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Either;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.FlavorDomainException;
 import com.facebook.buck.model.Flavored;
 import com.facebook.buck.model.HasTests;
+import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -34,6 +36,7 @@ import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.Hint;
+import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePaths;
@@ -41,6 +44,7 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
+import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -59,8 +63,12 @@ import java.nio.file.Path;
 import java.util.Map;
 import java.util.Set;
 
-public class AppleBundleDescription implements Description<AppleBundleDescription.Arg>, Flavored {
+public class AppleBundleDescription implements Description<AppleBundleDescription.Arg>,
+    Flavored,
+    ImplicitDepsInferringDescription<AppleBundleDescription.Arg> {
   public static final BuildRuleType TYPE = BuildRuleType.of("apple_bundle");
+
+  private static final Flavor WATCH = ImmutableFlavor.of("watch");
 
   private static final ImmutableSet<Flavor> SUPPORTED_LIBRARY_FLAVORS = ImmutableSet.of(
       CxxDescriptionEnhancer.STATIC_FLAVOR,
@@ -71,8 +79,8 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
   private final FlavorDomain<CxxPlatform> cxxPlatformFlavorDomain;
   private final ImmutableMap<Flavor, AppleCxxPlatform> platformFlavorsToAppleCxxPlatforms;
   private final CxxPlatform defaultCxxPlatform;
-  private final ImmutableSet<CodeSignIdentity> allValidCodeSignIdentities;
-  private final Optional<Path> provisioningProfileSearchPath;
+  private final CodeSignIdentityStore codeSignIdentityStore;
+  private final ProvisioningProfileStore provisioningProfileStore;
 
   public AppleBundleDescription(
       AppleBinaryDescription appleBinaryDescription,
@@ -80,16 +88,16 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
       FlavorDomain<CxxPlatform> cxxPlatformFlavorDomain,
       Map<Flavor, AppleCxxPlatform> platformFlavorsToAppleCxxPlatforms,
       CxxPlatform defaultCxxPlatform,
-      ImmutableSet<CodeSignIdentity> allValidCodeSignIdentities,
-      Optional<Path> provisioningProfileSearchPath) {
+      CodeSignIdentityStore codeSignIdentityStore,
+      ProvisioningProfileStore provisioningProfileStore) {
     this.appleBinaryDescription = appleBinaryDescription;
     this.appleLibraryDescription = appleLibraryDescription;
     this.cxxPlatformFlavorDomain = cxxPlatformFlavorDomain;
     this.platformFlavorsToAppleCxxPlatforms =
         ImmutableMap.copyOf(platformFlavorsToAppleCxxPlatforms);
     this.defaultCxxPlatform = defaultCxxPlatform;
-    this.allValidCodeSignIdentities = allValidCodeSignIdentities;
-    this.provisioningProfileSearchPath = provisioningProfileSearchPath;
+    this.codeSignIdentityStore = codeSignIdentityStore;
+    this.provisioningProfileStore = provisioningProfileStore;
   }
 
   @Override
@@ -117,37 +125,49 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
     return appleBinaryDescription.hasFlavors(flavorBuilder.build());
   }
 
+  /** Only works with thin binaries. */
+  private CxxPlatform getCxxPlatformForBuildTarget(BuildTarget target) {
+    CxxPlatform cxxPlatform;
+    try {
+      cxxPlatform = cxxPlatformFlavorDomain
+          .getValue(target.getFlavors())
+          .or(defaultCxxPlatform);
+    } catch (FlavorDomainException e) {
+      throw new HumanReadableException(e, "%s: %s", target, e.getMessage());
+    }
+
+    return cxxPlatform;
+  }
+
+  private AppleCxxPlatform getAppleCxxPlatformForBuildTarget(BuildTarget target) {
+    Optional<FatBinaryInfo> fatBinaryInfo =
+        FatBinaryInfo.create(platformFlavorsToAppleCxxPlatforms, target);
+    AppleCxxPlatform appleCxxPlatform;
+    if (fatBinaryInfo.isPresent()) {
+      appleCxxPlatform = fatBinaryInfo.get().getRepresentativePlatform();
+    } else {
+      CxxPlatform cxxPlatform = getCxxPlatformForBuildTarget(target);
+      appleCxxPlatform =
+          platformFlavorsToAppleCxxPlatforms.get(cxxPlatform.getFlavor());
+      if (appleCxxPlatform == null) {
+        throw new HumanReadableException(
+            "%s: Apple bundle requires an Apple platform, found '%s'",
+            target,
+            cxxPlatform.getFlavor().getName());
+      }
+    }
+
+    return appleCxxPlatform;
+  }
+
+
   @Override
   public <A extends Arg> AppleBundle createBuildRule(
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) {
-
-    Optional<FatBinaryInfo> fatBinaryInfo =
-        FatBinaryInfo.create(platformFlavorsToAppleCxxPlatforms, params.getBuildTarget());
-    AppleCxxPlatform appleCxxPlatform;
-    if (fatBinaryInfo.isPresent()) {
-      appleCxxPlatform = fatBinaryInfo.get().getRepresentativePlatform();
-    } else {
-      CxxPlatform cxxPlatform;
-      try {
-        cxxPlatform = cxxPlatformFlavorDomain
-            .getValue(params.getBuildTarget().getFlavors())
-            .or(defaultCxxPlatform);
-      } catch (FlavorDomainException e) {
-        throw new HumanReadableException(e, "%s: %s", params.getBuildTarget(), e.getMessage());
-      }
-      appleCxxPlatform =
-          platformFlavorsToAppleCxxPlatforms.get(cxxPlatform.getFlavor());
-      if (appleCxxPlatform == null) {
-        throw new HumanReadableException(
-            "%s: Apple bundle requires an Apple platform, found '%s'",
-            params.getBuildTarget(),
-            cxxPlatform.getFlavor().getName());
-      }
-    }
-
+    AppleCxxPlatform appleCxxPlatform = getAppleCxxPlatformForBuildTarget(params.getBuildTarget());
     AppleBundleDestinations destinations =
         AppleBundleDestinations.platformDestinations(
             appleCxxPlatform.getAppleSdk().getApplePlatform());
@@ -199,8 +219,9 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
                             bundleVariantFiles))))
             .build());
 
-    ImmutableSet<SourcePath> extensionBundlePaths = collectFirstLevelAppleDependencyBundles(
-        params.getDeps());
+    ImmutableMap<SourcePath, String> extensionBundlePaths = collectFirstLevelAppleDependencyBundles(
+        params.getDeps(),
+        destinations);
 
     return new AppleBundle(
         bundleParamsWithFlavoredBinaryDep,
@@ -221,8 +242,8 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
         assetCatalog,
         args.getTests(),
         appleCxxPlatform.getAppleSdk(),
-        allValidCodeSignIdentities,
-        provisioningProfileSearchPath,
+        codeSignIdentityStore,
+        provisioningProfileStore,
         AppleBundle.DebugInfoFormat.DSYM);
   }
 
@@ -299,15 +320,17 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
                 .toSortedSet(Ordering.natural())));
   }
 
-  private ImmutableSet<SourcePath> collectFirstLevelAppleDependencyBundles(
-      ImmutableSortedSet<BuildRule> deps) {
-    ImmutableSet.Builder<SourcePath> extensionBundlePaths = ImmutableSet.builder();
+  private ImmutableMap<SourcePath, String> collectFirstLevelAppleDependencyBundles(
+      ImmutableSortedSet<BuildRule> deps,
+      AppleBundleDestinations destinations) {
+    ImmutableMap.Builder<SourcePath, String> extensionBundlePaths = ImmutableMap.builder();
     // We only care about the direct layer of dependencies. ExtensionBundles inside ExtensionBundles
     // do not get pulled in to the top-level Bundle.
     for (BuildRule rule : deps) {
       if (rule instanceof AppleBundle) {
         AppleBundle appleBundle = (AppleBundle) rule;
-        if (AppleBundleExtension.APPEX.toFileExtension().equals(appleBundle.getExtension())) {
+        if (AppleBundleExtension.APPEX.toFileExtension().equals(appleBundle.getExtension()) ||
+            AppleBundleExtension.APP.toFileExtension().equals(appleBundle.getExtension())) {
           Path outputPath = Preconditions.checkNotNull(
               appleBundle.getPathToOutput(),
               "Path cannot be null for AppleBundle [%s].",
@@ -315,7 +338,20 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
           SourcePath sourcePath = new BuildTargetSourcePath(
               appleBundle.getBuildTarget(),
               outputPath);
-          extensionBundlePaths.add(sourcePath);
+
+          Path destinationPath;
+
+          String platformName = appleBundle.getPlatformName();
+
+          if ((platformName.equals(ApplePlatform.Name.WATCHOS) ||
+              platformName.equals(ApplePlatform.Name.WATCHSIMULATOR)) &&
+              appleBundle.getExtension().equals(AppleBundleExtension.APP.toFileExtension())) {
+            destinationPath = destinations.getWatchAppPath();
+          } else {
+            destinationPath = destinations.getPlugInsPath();
+          }
+
+          extensionBundlePaths.put(sourcePath, destinationPath.toString());
         }
       }
     }
@@ -323,13 +359,89 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
     return extensionBundlePaths.build();
   }
 
+  /**
+   * Propagate the bundle's platform flavors to its dependents.
+   */
+
+  @Override
+  public ImmutableSet<BuildTarget> findDepsForTargetFromConstructorArgs(
+      BuildTarget buildTarget,
+      Function<Optional<String>, Path> cellRoots,
+      AppleBundleDescription.Arg constructorArg) {
+    if (!constructorArg.deps.isPresent()) {
+      return ImmutableSet.of();
+    }
+
+    if (!cxxPlatformFlavorDomain.containsAnyOf(buildTarget.getFlavors())) {
+      buildTarget = BuildTarget.builder(buildTarget).addAllFlavors(
+          ImmutableSet.of(defaultCxxPlatform.getFlavor())).build();
+    }
+
+    Optional<FatBinaryInfo> fatBinaryInfo =
+        FatBinaryInfo.create(platformFlavorsToAppleCxxPlatforms, buildTarget);
+    CxxPlatform cxxPlatform;
+    if (fatBinaryInfo.isPresent()) {
+      AppleCxxPlatform appleCxxPlatform = fatBinaryInfo.get().getRepresentativePlatform();
+      cxxPlatform = appleCxxPlatform.getCxxPlatform();
+    } else {
+      cxxPlatform = getCxxPlatformForBuildTarget(buildTarget);
+    }
+
+    String platformName = cxxPlatform.getFlavor().getName();
+    final Flavor actualWatchFlavor;
+    if (ApplePlatform.isSimulator(platformName)) {
+      actualWatchFlavor = ImmutableFlavor.builder().name("watchsimulator-i386").build();
+    } else if (platformName.startsWith(ApplePlatform.Name.IPHONEOS) ||
+        platformName.startsWith(ApplePlatform.Name.WATCHOS)) {
+      actualWatchFlavor = ImmutableFlavor.builder().name("watchos-armv7k").build();
+    } else {
+      actualWatchFlavor = ImmutableFlavor.builder().name(platformName).build();
+    }
+
+    FluentIterable<BuildTarget> depsExcludingBinary = FluentIterable.from(constructorArg.deps.get())
+        .filter(Predicates.not(Predicates.equalTo(constructorArg.binary)));
+
+    FluentIterable<BuildTarget> targetsWithPlatformFlavors = depsExcludingBinary.filter(
+        BuildTargets.containsFlavors(cxxPlatformFlavorDomain));
+
+    FluentIterable<BuildTarget> targetsWithoutPlatformFlavors = depsExcludingBinary.filter(
+        Predicates.not(BuildTargets.containsFlavors(cxxPlatformFlavorDomain)));
+
+    FluentIterable<BuildTarget> watchTargets = targetsWithoutPlatformFlavors
+        .filter(BuildTargets.containsFlavor(WATCH))
+        .transform(
+            new Function<BuildTarget, BuildTarget>() {
+              @Override
+              public BuildTarget apply(BuildTarget input) {
+                return BuildTarget.builder(
+                    input.withoutFlavors(ImmutableSet.of(WATCH)))
+                    .addFlavors(actualWatchFlavor)
+                    .build();
+              }
+            });
+
+    targetsWithoutPlatformFlavors = targetsWithoutPlatformFlavors
+        .filter(Predicates.not(BuildTargets.containsFlavor(WATCH)));
+
+    return ImmutableSet.<BuildTarget>builder()
+        .addAll(targetsWithPlatformFlavors)
+        .addAll(watchTargets)
+        .addAll(
+            BuildTargets.propagateFlavorDomains(
+                buildTarget,
+                ImmutableSet.<FlavorDomain<?>>of(cxxPlatformFlavorDomain),
+                targetsWithoutPlatformFlavors))
+        .build();
+  }
+
+
   @SuppressFieldNotInitialized
   public static class Arg implements HasAppleBundleFields, HasTests {
     public Either<AppleBundleExtension, String> extension;
     public BuildTarget binary;
     public SourcePath infoPlist;
     public Optional<ImmutableMap<String, String>> infoPlistSubstitutions;
-    public Optional<ImmutableSortedSet<BuildTarget>> deps;
+    @Hint(isDep = false) public Optional<ImmutableSortedSet<BuildTarget>> deps;
     @Hint(isDep = false) public Optional<ImmutableSortedSet<BuildTarget>> tests;
     public Optional<String> xcodeProductType;
 

@@ -104,8 +104,8 @@ public class AppleTestDescription implements
   private final FlavorDomain<CxxPlatform> cxxPlatformFlavorDomain;
   private final ImmutableMap<Flavor, AppleCxxPlatform> platformFlavorsToAppleCxxPlatforms;
   private final CxxPlatform defaultCxxPlatform;
-  private final ImmutableSet<CodeSignIdentity> allValidCodeSignIdentities;
-  private final Optional<Path> provisioningProfileSearchPath;
+  private final CodeSignIdentityStore codeSignIdentityStore;
+  private final ProvisioningProfileStore provisioningProfileStore;
   private final Supplier<Optional<Path>> xcodeDeveloperDirectorySupplier;
 
   public AppleTestDescription(
@@ -115,8 +115,8 @@ public class AppleTestDescription implements
       FlavorDomain<CxxPlatform> cxxPlatformFlavorDomain,
       Map<Flavor, AppleCxxPlatform> platformFlavorsToAppleCxxPlatforms,
       CxxPlatform defaultCxxPlatform,
-      ImmutableSet<CodeSignIdentity> allValidCodeSignIdentities,
-      Optional<Path> provisioningProfileSearchPath,
+      CodeSignIdentityStore codeSignIdentityStore,
+      ProvisioningProfileStore provisioningProfileStore,
       Supplier<Optional<Path>> xcodeDeveloperDirectorySupplier) {
     this.appleConfig = appleConfig;
     this.appleBundleDescription = appleBundleDescription;
@@ -125,8 +125,8 @@ public class AppleTestDescription implements
     this.platformFlavorsToAppleCxxPlatforms =
         ImmutableMap.copyOf(platformFlavorsToAppleCxxPlatforms);
     this.defaultCxxPlatform = defaultCxxPlatform;
-    this.allValidCodeSignIdentities = allValidCodeSignIdentities;
-    this.provisioningProfileSearchPath = provisioningProfileSearchPath;
+    this.codeSignIdentityStore = codeSignIdentityStore;
+    this.provisioningProfileStore = provisioningProfileStore;
     this.xcodeDeveloperDirectorySupplier = xcodeDeveloperDirectorySupplier;
   }
 
@@ -338,7 +338,7 @@ public class AppleTestDescription implements
         resourceDirs,
         resourceFiles,
         dirsContainingResourceDirsBuilder.build(),
-        ImmutableSet.<SourcePath>of(),
+        ImmutableMap.<SourcePath, String>of(),
         Optional.of(resourceVariantFiles),
         appleCxxPlatform.getIbtool(),
         appleCxxPlatform.getDsymutil(),
@@ -346,8 +346,8 @@ public class AppleTestDescription implements
         assetCatalog,
         ImmutableSortedSet.<BuildTarget>of(),
         appleCxxPlatform.getAppleSdk(),
-        allValidCodeSignIdentities,
-        provisioningProfileSearchPath,
+        codeSignIdentityStore,
+        provisioningProfileStore,
         AppleBundle.DebugInfoFormat.NONE);
 
 

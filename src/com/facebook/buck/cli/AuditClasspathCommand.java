@@ -18,13 +18,11 @@ package com.facebook.buck.cli;
 
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.graph.Dot;
-import com.facebook.buck.jvm.java.HasClasspathEntries;
 import com.facebook.buck.json.BuildFileParseException;
+import com.facebook.buck.jvm.java.HasClasspathEntries;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.BuildTargetPatternParser;
-import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.TargetGraph;
@@ -122,14 +120,12 @@ public class AuditClasspathCommand extends AbstractCommand {
 
     TargetGraph targetGraph;
     try {
-      targetGraph = params.getParser().buildTargetGraphForBuildTargets(
-          targets,
-          new ParserConfig(params.getBuckConfig()),
+      targetGraph = params.getParser().buildTargetGraph(
           params.getBuckEventBus(),
-          params.getConsole(),
-          params.getEnvironment(),
-          getEnableProfiling());
-    } catch (BuildTargetException | BuildFileParseException e) {
+          params.getCell(),
+          getEnableProfiling(),
+          targets);
+    } catch (BuildFileParseException e) {
       params.getBuckEventBus().post(ConsoleEvent.severe(
           MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
       return 1;
@@ -180,7 +176,8 @@ public class AuditClasspathCommand extends AbstractCommand {
       TargetGraph targetGraph,
       TargetGraphTransformer targetGraphTransformer,
       ImmutableSet<BuildTarget> targets) {
-    ActionGraph graph = targetGraphTransformer.apply(targetGraph);
+    ActionGraph graph =
+        Preconditions.checkNotNull(targetGraphTransformer.apply(targetGraph)).getFirst();
     SortedSet<Path> classpathEntries = Sets.newTreeSet();
 
     for (BuildTarget target : targets) {
@@ -208,7 +205,8 @@ public class AuditClasspathCommand extends AbstractCommand {
       TargetGraphTransformer targetGraphTransformer,
       ImmutableSet<BuildTarget> targets)
       throws IOException {
-    ActionGraph graph = targetGraphTransformer.apply(targetGraph);
+    ActionGraph graph =
+        Preconditions.checkNotNull(targetGraphTransformer.apply(targetGraph)).getFirst();
     Multimap<String, String> targetClasspaths = LinkedHashMultimap.create();
 
     for (BuildTarget target : targets) {

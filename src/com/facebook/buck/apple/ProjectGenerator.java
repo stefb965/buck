@@ -47,6 +47,7 @@ import com.facebook.buck.cxx.CxxSource;
 import com.facebook.buck.cxx.HeaderVisibility;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ProjectGenerationEvent;
+import com.facebook.buck.halide.HalideLibraryDescription;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
@@ -136,10 +137,12 @@ public class ProjectGenerator {
 
   private static final Logger LOG = Logger.get(ProjectGenerator.class);
   private static final String BUILD_WITH_BUCK_TEMPLATE = "build-with-buck.st";
+  private static final String FIX_UUID_PY_RESOURCE = "fix_uuid.py";
   public static final String REPORT_ABSOLUTE_PATHS = "--report-absolute-paths";
   public static final String XCODE_BUILD_SCRIPT_CONFIG_ARG_NAME = "--config";
   public static final String XCODE_BUILD_SCRIPT_CONFIG_ARG_VALUE =
       "cxx.default_platform=$PLATFORM_NAME-$arch";
+  private static final String HALIDE_COMPILER_TEMPLATE = "halide-compiler.st";
 
   public enum Option {
     /** Use short BuildTarget name instead of full name for targets */
@@ -465,6 +468,9 @@ public class ProjectGenerator {
         AppleBundle.getBundleRoot(targetToBuildWithBuck.get(), "dSYM"));
     Path resolvedBundleDestination = projectFilesystem.resolve(bundleDestination);
     Path resolvedDsymDestination = projectFilesystem.resolve(dsymDestination);
+    String fixUuidScriptPath = Resources.getResource(
+        ProjectGenerator.class,
+        FIX_UUID_PY_RESOURCE).getPath();
 
     template.add("repo_root", projectFilesystem.getRootPath());
     template.add("path_to_buck", pathToBuck);
@@ -478,6 +484,7 @@ public class ProjectGenerator {
     template.add("resolved_dsym_source", resolvedDsymSource);
     template.add("resolved_dsym_destination", resolvedDsymDestination);
     template.add("binary_name", binaryName);
+    template.add("path_to_fix_uuid_script", fixUuidScriptPath);
 
     shellScriptBuildPhase.setShellScript(template.render());
 
@@ -586,9 +593,93 @@ public class ProjectGenerator {
     } else if (targetNode.getType().equals(AppleResourceDescription.TYPE)) {
       checkAppleResourceTargetNodeReferencingValidContents(
           (TargetNode<AppleResourceDescription.Arg>) targetNode);
+    } else if (targetNode.getType().equals(HalideLibraryDescription.TYPE)) {
+      TargetNode<HalideLibraryDescription.Arg> halideTargetNode =
+        (TargetNode<HalideLibraryDescription.Arg>) targetNode;
+      BuildTarget buildTarget = targetNode.getBuildTarget();
+
+      // If this _isn't_ the #halide-compiler version of the rule, then generate
+      // a native target for it. The generated target just runs a shell script
+      // that invokes the "compiler" with the correct target architecture.
+      if (!HalideLibraryDescription.isHalideCompilerTarget(buildTarget)) {
+        result = generateHalideLibraryTarget(project, halideTargetNode);
+      } else {
+        // ATM we build the compiler on the command-line using Buck, so we need
+        // to add it to the requiredBuildTargetsBuilder here.
+        BuildTarget compilerTarget =
+          HalideLibraryDescription.createHalideCompilerBuildTarget(buildTarget);
+        requiredBuildTargetsBuilder.add(compilerTarget);
+      }
     }
     buckEventBus.post(ProjectGenerationEvent.processed());
     return result;
+  }
+
+  private static Path getHalideOutputPath(BuildTarget target) {
+    return Paths.get("buck-out/halide")
+      .resolve(target.getBasePath())
+      .resolve(target.getShortName());
+  }
+
+  private Optional<PBXTarget> generateHalideLibraryTarget(
+      PBXProject project,
+      TargetNode<HalideLibraryDescription.Arg> targetNode) throws IOException {
+    final BuildTarget buildTarget = targetNode.getBuildTarget();
+    String productName = getProductName(buildTarget);
+    Path outputPath = getHalideOutputPath(buildTarget);
+    BuildTarget compilerTarget =
+      HalideLibraryDescription.createHalideCompilerBuildTarget(buildTarget);
+    Path compilerPath = BuildTargets.getGenPath(compilerTarget, "%s");
+
+    PBXShellScriptBuildPhase scriptPhase = new PBXShellScriptBuildPhase();
+    ST template = new ST(
+      Resources.toString(
+        Resources.getResource(ProjectGenerator.class, HALIDE_COMPILER_TEMPLATE),
+        Charsets.UTF_8));
+    template.add("repo_root", projectFilesystem.getRootPath());
+    template.add("path_to_compiler", compilerPath);
+    template.add("output_dir", outputPath);
+    template.add("output_prefix", buildTarget.getShortName());
+    scriptPhase.setShellScript(template.render());
+
+    NewNativeTargetProjectMutator mutator = new NewNativeTargetProjectMutator(
+      pathRelativizer,
+      sourcePathResolver);
+    mutator
+      .setTargetName(getXcodeTargetName(buildTarget))
+      .setProduct(ProductType.STATIC_LIBRARY, productName, outputPath)
+      .setPreBuildRunScriptPhases(ImmutableList.of(scriptPhase));
+
+    NewNativeTargetProjectMutator.Result targetBuilderResult;
+    try {
+      targetBuilderResult = mutator.buildTargetAndAddToProject(project);
+    } catch (NoSuchBuildTargetException e) {
+      throw new HumanReadableException(e);
+    }
+
+    ImmutableMap<String, String> appendedConfig = ImmutableMap.<String, String>of();
+    ImmutableMap<String, String> extraSettings = ImmutableMap.<String, String>of();
+    ImmutableMap.Builder<String, String> defaultSettingsBuilder =
+      ImmutableMap.builder();
+    defaultSettingsBuilder.put(
+      "REPO_ROOT",
+      projectFilesystem.getRootPath().toAbsolutePath().normalize().toString());
+    defaultSettingsBuilder.put("PRODUCT_NAME", productName);
+
+    Optional<ImmutableSortedMap<String, ImmutableMap<String, String>>> configs =
+      getXcodeBuildConfigurationsForTargetNode(
+        targetNode,
+        appendedConfig);
+    PBXNativeTarget target = targetBuilderResult.target;
+    setTargetBuildConfigurations(
+      getConfigurationNameToXcconfigPath(buildTarget),
+      target,
+      project.getMainGroup(),
+      configs.get(),
+      extraSettings,
+      defaultSettingsBuilder.build(),
+      appendedConfig);
+    return Optional.<PBXTarget>of(target);
   }
 
   @SuppressWarnings("unchecked")
@@ -1059,7 +1150,7 @@ public class ProjectGenerator {
 
   private Optional<ImmutableSortedMap<String, ImmutableMap<String, String>>>
   getXcodeBuildConfigurationsForTargetNode(
-      TargetNode<? extends CxxLibraryDescription.Arg> targetNode,
+      TargetNode<?> targetNode,
       ImmutableMap<String, String> appendedConfig) {
     Optional<TargetNode<AppleNativeTargetDescriptionArg>> appleTargetNode =
         targetNode.castArg(AppleNativeTargetDescriptionArg.class);
@@ -1069,7 +1160,8 @@ public class ProjectGenerator {
     }
     if (!configs.isPresent() ||
         (configs.isPresent() && configs.get().isEmpty()) ||
-        targetNode.getType().equals(CxxLibraryDescription.TYPE)) {
+        targetNode.getType().equals(CxxLibraryDescription.TYPE) ||
+        targetNode.getType().equals(HalideLibraryDescription.TYPE)) {
       ImmutableMap<String, ImmutableMap<String, String>> defaultConfig =
           CxxPlatformXcodeConfigGenerator.getDefaultXcodeBuildConfigurationsFromCxxPlatform(
               defaultCxxPlatform,
@@ -1542,6 +1634,8 @@ public class ProjectGenerator {
       return Optional.of(
           CopyFilePhaseDestinationSpec.of(PBXCopyFilesBuildPhase.Destination.EXECUTABLES)
       );
+    } else if (targetNode.getType().equals(HalideLibraryDescription.TYPE)) {
+      return Optional.absent();
     } else {
       throw new RuntimeException("Unexpected type: " + targetNode.getType());
     }
@@ -1720,6 +1814,31 @@ public class ProjectGenerator {
 
     for (Path headerSymlinkTreePath : collectRecursiveHeaderSymlinkTrees(targetNode)) {
       builder.add(getHeaderMapLocationFromSymlinkTreeRoot(headerSymlinkTreePath));
+    }
+
+    for (Path halideHeaderPath : collectRecursiveHalideLibraryHeaderPaths(targetNode)) {
+      builder.add(halideHeaderPath);
+    }
+
+    return builder.build();
+  }
+
+  private ImmutableSet<Path> collectRecursiveHalideLibraryHeaderPaths(
+      TargetNode<? extends CxxLibraryDescription.Arg> targetNode) {
+    ImmutableSet.Builder<Path> builder = ImmutableSet.builder();
+    for (TargetNode<?> input :
+      AppleBuildRules.getRecursiveTargetNodeDependenciesOfTypes(
+        targetGraph,
+        AppleBuildRules.RecursiveDependenciesMode.BUILDING,
+        targetNode,
+        Optional.of(
+          ImmutableSet.<BuildRuleType>of(
+            HalideLibraryDescription.TYPE)))) {
+      BuildTarget buildTarget = input.getBuildTarget();
+      if (!HalideLibraryDescription.isHalideCompilerTarget(buildTarget)) {
+        Path outputDir = getHalideOutputPath(buildTarget);
+        builder.add(pathRelativizer.outputDirToRootRelative(outputDir));
+      }
     }
 
     return builder.build();
@@ -1914,16 +2033,30 @@ public class ProjectGenerator {
                 AppleBuildRules.RecursiveDependenciesMode.LINKING,
                 ImmutableSet.of(
                     AppleLibraryDescription.TYPE,
-                    CxxLibraryDescription.TYPE)))
+                    CxxLibraryDescription.TYPE,
+                    HalideLibraryDescription.TYPE)))
         .append(targetNodes)
         .transformAndConcat(
             new Function<TargetNode<?>, Iterable<? extends String>>() {
               @Override
               public Iterable<String> apply(TargetNode<?> input) {
-                return input
-                    .castArg(AppleNativeTargetDescriptionArg.class)
-                    .transform(GET_EXPORTED_LINKER_FLAGS)
-                    .or(ImmutableSet.<String>of());
+                if (input.getType() == HalideLibraryDescription.TYPE) {
+                  ImmutableSet.Builder<String> builder = ImmutableSet.builder();
+                  BuildTarget buildTarget = input.getBuildTarget();
+                  if (!HalideLibraryDescription.isHalideCompilerTarget(buildTarget)) {
+                    String shortName = buildTarget.getShortName();
+                    Path libPath = pathRelativizer
+                      .outputDirToRootRelative(getHalideOutputPath(buildTarget))
+                      .resolve(shortName + ".o");
+                    builder.add(libPath.toString());
+                  }
+                  return builder.build();
+                } else {
+                  return input
+                      .castArg(AppleNativeTargetDescriptionArg.class)
+                      .transform(GET_EXPORTED_LINKER_FLAGS)
+                      .or(ImmutableSet.<String>of());
+                }
               }
             });
   }

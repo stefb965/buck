@@ -31,17 +31,16 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.httpserver.WebServer;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.jvm.java.FakeJavaPackageFinder;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
 import com.facebook.buck.jvm.java.JavaTestBuilder;
 import com.facebook.buck.jvm.java.JavaTestDescription;
 import com.facebook.buck.jvm.java.PrebuiltJarBuilder;
-import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.Either;
-import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.PathSourcePath;
@@ -91,14 +90,17 @@ public class TargetsCommandTest {
   private TargetsCommand targetsCommand;
   private CommandRunnerParams params;
   private ObjectMapper objectMapper;
+  private ProjectFilesystem filesystem;
 
-  private SortedMap<String, TargetNode<?>> buildTargetNodes(String baseName, String name) {
+  private SortedMap<String, TargetNode<?>> buildTargetNodes(
+      ProjectFilesystem filesystem,
+      String buildTarget) {
     SortedMap<String, TargetNode<?>> buildRules = Maps.newTreeMap();
-    BuildTarget buildTarget = BuildTargetFactory.newInstance(baseName + ":" + name);
+    BuildTarget target = BuildTargetFactory.newInstance(filesystem, buildTarget);
     TargetNode<?> node = JavaLibraryBuilder
-        .createBuilder(buildTarget)
+        .createBuilder(target)
         .build();
-    buildRules.put(buildTarget.getFullyQualifiedName(), node);
+    buildRules.put(buildTarget, node);
     return buildRules;
   }
 
@@ -112,8 +114,10 @@ public class TargetsCommandTest {
       this, "target_command", tmp
     );
     workspace.setUp();
+
+    filesystem = new ProjectFilesystem(workspace.getDestPath().toRealPath().normalize());
     Cell cell = new TestCellBuilder()
-        .setFilesystem(new ProjectFilesystem(workspace.getDestPath()))
+        .setFilesystem(filesystem)
         .build();
     AndroidDirectoryResolver androidDirectoryResolver = new FakeAndroidDirectoryResolver();
     ArtifactCache artifactCache = new NoopArtifactCache();
@@ -139,14 +143,11 @@ public class TargetsCommandTest {
   public void testJsonOutputForBuildTarget()
       throws IOException, BuildFileParseException, InterruptedException {
     // run `buck targets` on the build file and parse the observed JSON.
-    SortedMap<String, TargetNode<?>> nodes = buildTargetNodes(
-        "//",
-        "test-library");
+    SortedMap<String, TargetNode<?>> nodes = buildTargetNodes(filesystem, "//:test-library");
 
     targetsCommand.printJsonForTargets(
         params,
-        nodes,
-        new ParserConfig(FakeBuckConfig.builder().build()));
+        nodes);
     String observedOutput = console.getTextWrittenToStdOut();
     JsonNode observed = objectMapper.readTree(
         objectMapper.getJsonFactory().createJsonParser(observedOutput));
@@ -196,11 +197,10 @@ public class TargetsCommandTest {
   public void testJsonOutputForMissingBuildTarget()
       throws BuildFileParseException, IOException, InterruptedException {
     // nonexistent target should not exist.
-    SortedMap<String, TargetNode<?>> buildRules = buildTargetNodes("//", "nonexistent");
+    SortedMap<String, TargetNode<?>> buildRules = buildTargetNodes(filesystem, "//:nonexistent");
     targetsCommand.printJsonForTargets(
         params,
-        buildRules,
-        new ParserConfig(FakeBuckConfig.builder().build()));
+        buildRules);
 
     String output = console.getTextWrittenToStdOut();
     assertEquals("[\n]\n", output);

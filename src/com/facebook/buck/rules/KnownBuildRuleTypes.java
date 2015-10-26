@@ -52,8 +52,9 @@ import com.facebook.buck.apple.AppleSdkPaths;
 import com.facebook.buck.apple.AppleTestDescription;
 import com.facebook.buck.apple.AppleToolchain;
 import com.facebook.buck.apple.AppleToolchainDiscovery;
-import com.facebook.buck.apple.CodeSignIdentity;
+import com.facebook.buck.apple.CodeSignIdentityStore;
 import com.facebook.buck.apple.CoreDataModelDescription;
+import com.facebook.buck.apple.ProvisioningProfileStore;
 import com.facebook.buck.apple.XcodePostbuildScriptDescription;
 import com.facebook.buck.apple.XcodePrebuildScriptDescription;
 import com.facebook.buck.apple.XcodeWorkspaceConfigDescription;
@@ -86,6 +87,9 @@ import com.facebook.buck.gwt.GwtBinaryDescription;
 import com.facebook.buck.halide.HalideLibraryDescription;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.js.AndroidReactNativeLibraryDescription;
+import com.facebook.buck.js.IosReactNativeLibraryDescription;
+import com.facebook.buck.js.ReactNativeBuckConfig;
 import com.facebook.buck.jvm.java.JavaBinaryDescription;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
@@ -93,9 +97,6 @@ import com.facebook.buck.jvm.java.JavaTestDescription;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.KeystoreDescription;
 import com.facebook.buck.jvm.java.PrebuiltJarDescription;
-import com.facebook.buck.js.AndroidReactNativeLibraryDescription;
-import com.facebook.buck.js.IosReactNativeLibraryDescription;
-import com.facebook.buck.js.ReactNativeBuckConfig;
 import com.facebook.buck.log.CommandThreadFactory;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.Flavor;
@@ -107,8 +108,8 @@ import com.facebook.buck.ocaml.PrebuiltOCamlLibraryDescription;
 import com.facebook.buck.python.PrebuiltPythonLibraryDescription;
 import com.facebook.buck.python.PythonBinaryDescription;
 import com.facebook.buck.python.PythonBuckConfig;
-import com.facebook.buck.python.PythonPlatform;
 import com.facebook.buck.python.PythonLibraryDescription;
+import com.facebook.buck.python.PythonPlatform;
 import com.facebook.buck.python.PythonTestDescription;
 import com.facebook.buck.rust.RustBinaryDescription;
 import com.facebook.buck.rust.RustBuckConfig;
@@ -459,8 +460,10 @@ public class KnownBuildRuleTypes {
                 SmartDexingStep.determineOptimalThreadCount(),
                 new CommandThreadFactory("SmartDexing")));
 
-    Supplier<ImmutableSet<CodeSignIdentity>> codeSignIdentitiesSupplier =
-        AppleConfig.createCodeSignIdentitiesSupplier(processExecutor);
+    CodeSignIdentityStore codeSignIdentityStore =
+        CodeSignIdentityStore.fromSystem(processExecutor);
+    ProvisioningProfileStore provisioningProfileStore =
+        ProvisioningProfileStore.fromSearchPath(appleConfig.getProvisioningProfileSearchPath());
 
     builder.register(new AndroidAarDescription(new AndroidManifestDescription(), ndkCxxPlatforms));
     builder.register(
@@ -491,8 +494,8 @@ public class KnownBuildRuleTypes {
             cxxPlatforms,
             platformFlavorsToAppleCxxPlatforms,
             defaultCxxPlatform,
-            codeSignIdentitiesSupplier.get(),
-            appleConfig.getProvisioningProfileSearchPath());
+            codeSignIdentityStore,
+            provisioningProfileStore);
     builder.register(appleBundleDescription);
     builder.register(new AppleResourceDescription());
     builder.register(
@@ -503,8 +506,8 @@ public class KnownBuildRuleTypes {
             cxxPlatforms,
             platformFlavorsToAppleCxxPlatforms,
             defaultCxxPlatform,
-            codeSignIdentitiesSupplier.get(),
-            appleConfig.getProvisioningProfileSearchPath(),
+            codeSignIdentityStore,
+            provisioningProfileStore,
             appleConfig.getAppleDeveloperDirectorySupplier(processExecutor)));
     builder.register(new CoreDataModelDescription());
     builder.register(new CSharpLibraryDescription());
@@ -512,7 +515,12 @@ public class KnownBuildRuleTypes {
     builder.register(cxxLibraryDescription);
     builder.register(
         new CxxPythonExtensionDescription(pythonPlatforms, cxxBuckConfig, cxxPlatforms));
-    builder.register(new CxxTestDescription(cxxBuckConfig, defaultCxxPlatform, cxxPlatforms));
+    builder.register(
+        new CxxTestDescription(
+            cxxBuckConfig,
+            defaultCxxPlatform,
+            cxxPlatforms,
+            testRuleTimeoutMs));
     builder.register(new DBinaryDescription(dBuckConfig, defaultCxxPlatform));
     builder.register(new DLibraryDescription(dBuckConfig));
     builder.register(new DTestDescription(dBuckConfig, defaultCxxPlatform));

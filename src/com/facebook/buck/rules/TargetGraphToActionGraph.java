@@ -20,7 +20,6 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.graph.AbstractBottomUpTraversal;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
@@ -28,16 +27,12 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.cache.StackedFileHashCache;
-import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -50,11 +45,10 @@ public class TargetGraphToActionGraph implements TargetGraphTransformer {
   private final BuckEventBus eventBus;
   private final TargetNodeToBuildRuleTransformer buildRuleGenerator;
   private final FileHashCache fileHashCache;
-  private final LoadingCache<ProjectFilesystem, BuildRuleResolver> ruleResolvers;
-  private volatile int hashOfTargetGraph;
 
+  private volatile int hashOfTargetGraph;
   @Nullable
-  private volatile ActionGraph actionGraph;
+  private volatile Pair<ActionGraph, BuildRuleResolver> result;
 
 
   public TargetGraphToActionGraph(
@@ -64,56 +58,46 @@ public class TargetGraphToActionGraph implements TargetGraphTransformer {
     this.eventBus = eventBus;
     this.buildRuleGenerator = buildRuleGenerator;
     this.fileHashCache = fileHashCache;
-
-    this.ruleResolvers = CacheBuilder.newBuilder().build(
-        new CacheLoader<ProjectFilesystem, BuildRuleResolver>() {
-          @Override
-          public BuildRuleResolver load(ProjectFilesystem key) throws Exception {
-            return new BuildRuleResolver();
-          }
-        }
-    );
   }
 
   @Override
-  public synchronized ActionGraph apply(TargetGraph targetGraph) {
-    if (actionGraph != null) {
+  public synchronized Pair<ActionGraph, BuildRuleResolver> apply(TargetGraph targetGraph) {
+    if (result != null) {
       if (targetGraph.hashCode() == hashOfTargetGraph) {
-        return actionGraph;
+        return result;
       }
       LOG.info("Flushing cached action graph. May be a performance hit.");
     }
 
-    actionGraph = createActionGraph(targetGraph);
+    result = createActionGraph(targetGraph);
     hashOfTargetGraph = targetGraph.hashCode();
 
-    return actionGraph;
+    return result;
   }
 
-  private ActionGraph createActionGraph(final TargetGraph targetGraph) {
+  private Pair<ActionGraph, BuildRuleResolver> createActionGraph(
+      final TargetGraph targetGraph) {
     ActionGraphEvent.Started started = ActionGraphEvent.started();
     eventBus.post(started);
 
+    final BuildRuleResolver resolver = new BuildRuleResolver();
+
     // I think this could be a little more verbose, but I'm not quite sure how.
-    final LoadingCache<CellFilesystemResolver, Pair<BuildRuleResolver, RuleKeyBuilderFactory>>
-        cellSpecificData = CacheBuilder.newBuilder().build(
-        new CacheLoader<CellFilesystemResolver, Pair<BuildRuleResolver, RuleKeyBuilderFactory>>() {
+    final LoadingCache<ProjectFilesystem, RuleKeyBuilderFactory>
+        ruleKeyBuilderFactories = CacheBuilder.newBuilder().build(
+        new CacheLoader<ProjectFilesystem, RuleKeyBuilderFactory>() {
           @Override
-          public Pair<BuildRuleResolver, RuleKeyBuilderFactory> load(
-              CellFilesystemResolver cellNameResolver) throws Exception {
-            BuildRuleResolver ruleResolver = new BuildRuleResolverView(cellNameResolver);
+          public RuleKeyBuilderFactory load(ProjectFilesystem filesystem) throws Exception {
 
             StackedFileHashCache cellHashCache = new StackedFileHashCache(
                 ImmutableList.of(
                     fileHashCache,
-                    new DefaultFileHashCache(cellNameResolver.getFilesystem())));
+                    new DefaultFileHashCache(filesystem)));
 
-            RuleKeyBuilderFactory factory = new DefaultRuleKeyBuilderFactory(
+            return new DefaultRuleKeyBuilderFactory(
                 cellHashCache,
-                new SourcePathResolver(ruleResolver));
-
-            return new Pair<>(ruleResolver, factory);
-          }
+                new SourcePathResolver(resolver));
+            }
         }
     );
 
@@ -125,16 +109,16 @@ public class TargetGraphToActionGraph implements TargetGraphTransformer {
 
           @Override
           public void visit(TargetNode<?> node) {
-            Pair<BuildRuleResolver, RuleKeyBuilderFactory> data =
-                cellSpecificData.getUnchecked(node.getCellFilesystemResolver());
+            RuleKeyBuilderFactory data = ruleKeyBuilderFactories.getUnchecked(
+                node.getRuleFactoryParams().getProjectFilesystem());
 
             BuildRule rule;
             try {
               rule = buildRuleGenerator.transform(
                   targetGraph,
-                  data.getFirst(),
+                  resolver,
                   node,
-                  data.getSecond());
+                  data);
             } catch (NoSuchBuildTargetException e) {
               throw new HumanReadableException(e);
             }
@@ -143,13 +127,12 @@ public class TargetGraphToActionGraph implements TargetGraphTransformer {
             // if we create a new build rule during graph enhancement, and the user asks to
             // build the same build rule. The returned rule may have a different name from the
             // target node.
-            BuildRuleResolver ruleResolver = data.getFirst();
             Optional<BuildRule> existingRule =
-                ruleResolver.getRuleOptional(rule.getBuildTarget());
+                resolver.getRuleOptional(rule.getBuildTarget());
             Preconditions.checkState(
                 !existingRule.isPresent() || existingRule.get().equals(rule));
             if (!existingRule.isPresent()) {
-              ruleResolver.addToIndex(rule);
+              resolver.addToIndex(rule);
             }
 
             eventBus.post(ActionGraphEvent.processed(
@@ -159,105 +142,11 @@ public class TargetGraphToActionGraph implements TargetGraphTransformer {
         };
     bottomUpTraversal.traverse();
 
-    ImmutableSet.Builder<BuildRule> allRules = ImmutableSet.builder();
-    for (BuildRuleResolver resolver : ruleResolvers.asMap().values()) {
-      allRules.addAll(resolver.getBuildRules());
-    }
-
-    ActionGraph result = new ActionGraph(allRules.build());
+    Pair<ActionGraph, BuildRuleResolver> result = new Pair<>(
+        new ActionGraph(resolver.getBuildRules()),
+        resolver);
     eventBus.post(ActionGraphEvent.finished(started));
     return result;
   }
 
-  public ImmutableMap<ProjectFilesystem, BuildRuleResolver> getRuleResolvers() {
-    Preconditions.checkNotNull(ruleResolvers);
-    return ImmutableMap.copyOf(ruleResolvers.asMap());
-  }
-
-  private class BuildRuleResolverView extends BuildRuleResolver {
-    private final CellFilesystemResolver nameResolver;
-
-    public BuildRuleResolverView(CellFilesystemResolver nameResolver) {
-      this.nameResolver = nameResolver;
-    }
-
-    @Override
-    public <T extends BuildRule> T addToIndex(T buildRule) {
-      ProjectFilesystem filesystem = buildRule.getProjectFilesystem();
-      BuildRuleResolver toUse = ruleResolvers.getUnchecked(filesystem);
-      return toUse.addToIndex(buildRule);
-    }
-
-    @Override
-    public BuildRule getRule(BuildTarget target) {
-      try {
-        BuildRuleResolver toUse = getResolver(target).get();
-        return toUse.getRule(target.withoutCell());
-      } catch (IllegalStateException e) {
-        LOG.warn(
-            "Unable to retrieve rule: %s in cell %s",
-            target,
-            target.getUnflavoredBuildTarget().getCellPath());
-        throw e;
-      }
-    }
-
-    @Override
-    public Iterable<BuildRule> getBuildRules() {
-      return FluentIterable.from(ruleResolvers.asMap().values())
-          .transformAndConcat(
-              new Function<BuildRuleResolver, Iterable<BuildRule>>() {
-                @Override
-                public Iterable<BuildRule> apply(BuildRuleResolver input) {
-                  return input.getBuildRules();
-                }
-              });
-    }
-
-    @Override
-    public Optional<BuildRule> getRuleOptional(BuildTarget target) {
-      Optional<BuildRuleResolver> toUse = getResolver(target);
-
-      if (!toUse.isPresent()) {
-        return Optional.absent();
-      }
-
-      return toUse.get().getRuleOptional(target.withoutCell());
-    }
-
-    @Override
-    public <T extends BuildRule> Optional<T> getRuleOptionalWithType(
-        BuildTarget target, Class<T> cls) {
-      Optional<BuildRuleResolver> toUse = getResolver(target);
-
-      if (toUse.isPresent()) {
-        return toUse.get().getRuleOptionalWithType(target.withoutCell(), cls);
-      }
-      return Optional.absent();
-    }
-
-    private Optional<BuildRuleResolver> getResolver(BuildTarget target) {
-      // Handle the case where there's an actual honest-to-goodness cell name given. Avoid using the
-      // normal mechanism to ensure that only rules visible from a cell are requested.
-      if (target.getCell().isPresent()) {
-        ProjectFilesystem filesystem = nameResolver.apply(target.getCell());
-        return Optional.of(ruleResolvers.getUnchecked(filesystem));
-      }
-
-      // At this point, we need to be aware that the target has been stored without a qualifying
-      // cell, so scan the available roots to figure out if we can find the right resolver to use.
-      ProjectFilesystem filesystem = null;
-      for (ProjectFilesystem pfs : ruleResolvers.asMap().keySet()) {
-        if (pfs.getRootPath().equals(target.getUnflavoredBuildTarget().getCellPath())) {
-          filesystem = pfs;
-          break;
-        }
-      }
-      if (filesystem == null) {
-        return Optional.absent();
-      }
-
-      return Optional.of(ruleResolvers.getUnchecked(filesystem));
-    }
-  }
 }

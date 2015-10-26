@@ -55,12 +55,12 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Iterables;
 import com.google.common.io.Files;
 
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Iterator;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -132,7 +132,7 @@ public class AppleBundle extends AbstractBuildRule implements HasPostBuildSteps,
   private final String sdkName;
 
   @AddToRuleKey
-  private final Optional<ImmutableSet<ProvisioningProfileMetadata>> provisioningProfiles;
+  private final ProvisioningProfileStore provisioningProfileStore;
 
   @AddToRuleKey
   private final Optional<CodeSignIdentity> codeSignIdentity;
@@ -140,7 +140,9 @@ public class AppleBundle extends AbstractBuildRule implements HasPostBuildSteps,
   @AddToRuleKey
   private final DebugInfoFormat debugInfoFormat;
 
-  private final ImmutableSet<SourcePath> extensionBundlePaths;
+  // Need to use String here as RuleKeyBuilder requires that paths exist to compute hashes.
+  @AddToRuleKey
+  private final ImmutableMap<SourcePath, String> extensionBundlePaths;
 
   private final Optional<AppleAssetCatalog> assetCatalog;
 
@@ -162,7 +164,7 @@ public class AppleBundle extends AbstractBuildRule implements HasPostBuildSteps,
       Set<SourcePath> resourceDirs,
       Set<SourcePath> resourceFiles,
       Set<SourcePath> dirsContainingResourceDirs,
-      ImmutableSet<SourcePath> extensionBundlePaths,
+      ImmutableMap<SourcePath, String> extensionBundlePaths,
       Optional<ImmutableSet<SourcePath>> resourceVariantFiles,
       Tool ibtool,
       Tool dsymutil,
@@ -170,8 +172,8 @@ public class AppleBundle extends AbstractBuildRule implements HasPostBuildSteps,
       Optional<AppleAssetCatalog> assetCatalog,
       Set<BuildTarget> tests,
       AppleSdk sdk,
-      ImmutableSet<CodeSignIdentity> allValidCodeSignIdentities,
-      Optional<Path> provisioningProfileSearchPath,
+      CodeSignIdentityStore codeSignIdentityStore,
+      ProvisioningProfileStore provisioningProfileStore,
       DebugInfoFormat debugInfoFormat) {
     super(params, resolver);
     this.extension = extension.isLeft() ?
@@ -202,24 +204,7 @@ public class AppleBundle extends AbstractBuildRule implements HasPostBuildSteps,
     // We need to resolve the possible set of profiles and code sign identity at construction time
     // because they form part of the rule key.
     if (binary.isPresent() && ApplePlatform.needsCodeSign(this.platformName)) {
-      final Path searchPath;
-      if (provisioningProfileSearchPath.isPresent()) {
-        searchPath = provisioningProfileSearchPath.get();
-      } else {
-        searchPath = Paths.get(System.getProperty("user.home") +
-                "/Library/MobileDevice/Provisioning Profiles");
-      }
-
-      Optional<ImmutableSet<ProvisioningProfileMetadata>> provisioningProfiles;
-      try {
-        provisioningProfiles = Optional.of(
-            ProvisioningProfileCopyStep.findProfilesInPath(searchPath));
-      } catch (InterruptedException e) {
-        // We get here if the user pressed Ctrl-C during the profile discovery step.
-        // In this case, we'll fail anyway since the set of profiles will be empty.
-        provisioningProfiles = Optional.of(ImmutableSet.<ProvisioningProfileMetadata>of());
-      }
-      this.provisioningProfiles = provisioningProfiles;
+      this.provisioningProfileStore = provisioningProfileStore;
 
       Optional<CodeSignIdentity> foundIdentity = Optional.absent();
       Optional<String> customIdentity = InfoPlistSubstitution.getVariableExpansionForPlatform(
@@ -228,25 +213,16 @@ public class AppleBundle extends AbstractBuildRule implements HasPostBuildSteps,
           this.infoPlistSubstitutions);
       if (customIdentity.isPresent()) {
         LOG.debug("Bundle specifies custom code signing identity: " + customIdentity.get());
-        if (CodeSignIdentity.isHash(customIdentity.get())) {
-          for (CodeSignIdentity identity : allValidCodeSignIdentities) {
-            if (identity.getHash().equals(customIdentity.get())) {
-              foundIdentity = Optional.of(identity);
-              break;
-            }
-          }
+        if (CodeSignIdentity.isFingerprint(customIdentity.get())) {
+          foundIdentity =
+              codeSignIdentityStore.findIdentityMatchingFingerprint(customIdentity.get());
         } else {
-          for (CodeSignIdentity identity : allValidCodeSignIdentities) {
-            if (identity.getFullName().startsWith(customIdentity.get())) {
-              foundIdentity = Optional.of(identity);
-              break;
-            }
-          }
+          foundIdentity =
+              codeSignIdentityStore.findIdentityByCommonNamePrefix(customIdentity.get());
         }
-      } else if (!allValidCodeSignIdentities.isEmpty()) {
-        LOG.debug("Using default code signing identity");
-        Iterator<CodeSignIdentity> it = allValidCodeSignIdentities.iterator();
-        foundIdentity = Optional.of(it.next());
+      } else if (!codeSignIdentityStore.getIdentities().isEmpty()) {
+        LOG.debug("Using arbitrary code signing identity");
+        foundIdentity = Optional.of(Iterables.getLast(codeSignIdentityStore.getIdentities()));
       }
       if (!foundIdentity.isPresent()) {
         throw new HumanReadableException("The platform " + platformName + " for this target " +
@@ -255,7 +231,8 @@ public class AppleBundle extends AbstractBuildRule implements HasPostBuildSteps,
       LOG.debug("Code signing identity is " + foundIdentity.toString());
       this.codeSignIdentity = foundIdentity;
     } else {
-      this.provisioningProfiles = Optional.absent();
+      this.provisioningProfileStore = ProvisioningProfileStore.fromProvisioningProfiles(
+          ImmutableList.<ProvisioningProfileMetadata>of());
       this.codeSignIdentity = Optional.absent();
     }
     bundleBinaryPath = bundleRoot.resolve(binaryPath);
@@ -434,7 +411,7 @@ public class AppleBundle extends AbstractBuildRule implements HasPostBuildSteps,
     }
 
     // Copy the .mobileprovision file if the platform requires it.
-    if (provisioningProfiles.isPresent()) {
+    if (codeSignIdentity.isPresent()) {
       Optional<Path> entitlementsPlist = Optional.absent();
       final Path srcRoot = getProjectFilesystem().getRootPath().resolve(
           getBuildTarget().getBasePath());
@@ -461,7 +438,7 @@ public class AppleBundle extends AbstractBuildRule implements HasPostBuildSteps,
               infoPlistOutputPath,
               Optional.<String>absent(),  // Provisioning profile UUID -- find automatically.
               entitlementsPlist,
-              provisioningProfiles.get(),
+              provisioningProfileStore,
               bundleDestinationPath.resolve("embedded.mobileprovision"),
               signingEntitlementsTempPath)
       );
@@ -471,7 +448,7 @@ public class AppleBundle extends AbstractBuildRule implements HasPostBuildSteps,
               getProjectFilesystem().getRootPath(),
               bundleDestinationPath,
               signingEntitlementsTempPath,
-              codeSignIdentity.get().getHash()
+              codeSignIdentity.get().getFingerprint()
           )
       );
     }
@@ -523,14 +500,14 @@ public class AppleBundle extends AbstractBuildRule implements HasPostBuildSteps,
 
   public void addStepsToCopyExtensionBundlesDependencies(
       ImmutableList.Builder<Step> stepsBuilder) {
-    for (SourcePath sourcePath : extensionBundlePaths) {
-      Path plugInsDestPath = bundleRoot.resolve(destinations.getPlugInsPath());
-      stepsBuilder.add(new MkdirStep(getProjectFilesystem(), plugInsDestPath));
+    for (Map.Entry<SourcePath, String> entry : extensionBundlePaths.entrySet()) {
+      Path destPath = bundleRoot.resolve(entry.getValue());
+      stepsBuilder.add(new MkdirStep(getProjectFilesystem(), destPath));
       stepsBuilder.add(
         CopyStep.forDirectory(
             getProjectFilesystem(),
-            getResolver().getPath(sourcePath),
-            plugInsDestPath,
+            getResolver().getPath(entry.getKey()),
+            destPath,
             CopyStep.DirectoryMode.DIRECTORY_AND_CONTENTS));
     }
   }
@@ -554,7 +531,7 @@ public class AppleBundle extends AbstractBuildRule implements HasPostBuildSteps,
 
     if (platformName.contains("osx")) {
       keys.put("LSRequiresIPhoneOS", new NSNumber(false));
-    } else {
+    } else if (!platformName.contains("watch")) {
       keys.put("LSRequiresIPhoneOS", new NSNumber(true));
     }
 

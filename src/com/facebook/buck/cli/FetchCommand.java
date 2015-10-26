@@ -26,9 +26,9 @@ import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.model.Pair;
-import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildEvent;
+import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CachingBuildEngine;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.TargetGraph;
@@ -39,6 +39,7 @@ import com.facebook.buck.step.TargetDeviceOptions;
 import com.facebook.buck.util.DefaultPropertyFinder;
 import com.facebook.buck.util.MoreExceptions;
 import com.google.common.base.Optional;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 
 import java.io.IOException;
@@ -71,21 +72,19 @@ public class FetchCommand extends BuildCommand {
         ruleGenerator,
         params.getFileHashCache());
 
-    ActionGraph actionGraph;
+    Pair<ActionGraph, BuildRuleResolver> actionGraphAndResolver;
     ImmutableSet<BuildTarget> buildTargets;
     try {
       Pair<ImmutableSet<BuildTarget>, TargetGraph> result = params.getParser()
           .buildTargetGraphForTargetNodeSpecs(
+              params.getBuckEventBus(),
+              params.getCell(),
+              getEnableProfiling(),
               parseArgumentsAsTargetNodeSpecs(
                   params.getBuckConfig(),
                   params.getCell().getFilesystem().getIgnorePaths(),
-                  getArguments()),
-              new ParserConfig(params.getBuckConfig()),
-              params.getBuckEventBus(),
-              params.getConsole(),
-              params.getEnvironment(),
-              getEnableProfiling());
-      actionGraph = transformer.apply(result.getSecond());
+                  getArguments()));
+      actionGraphAndResolver = Preconditions.checkNotNull(transformer.apply(result.getSecond()));
       buildTargets = ruleGenerator.getDownloadableTargets();
     } catch (BuildTargetException | BuildFileParseException e) {
       params.getBuckEventBus().post(ConsoleEvent.severe(
@@ -98,14 +97,14 @@ public class FetchCommand extends BuildCommand {
              new CommandThreadManager("Fetch", getConcurrencyLimit(params.getBuckConfig()));
          Build build = createBuild(
              params.getBuckConfig(),
-             actionGraph,
+             actionGraphAndResolver.getFirst(),
              params.getAndroidPlatformTargetSupplier(),
              new CachingBuildEngine(
                  pool.getExecutor(),
                  params.getFileHashCache(),
                  getBuildEngineMode().or(params.getBuckConfig().getBuildEngineMode()),
                  params.getBuckConfig().getBuildDepFiles(),
-                 transformer.getRuleResolvers()),
+                 actionGraphAndResolver.getSecond()),
              params.getArtifactCache(),
              params.getConsole(),
              params.getBuckEventBus(),

@@ -27,7 +27,6 @@ import com.facebook.buck.json.ProjectBuildFileParserFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.timing.FakeClock;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
@@ -39,20 +38,6 @@ import javax.annotation.Nullable;
 
 public class TestCellBuilder {
 
-  private static final ProjectFilesystem DEFAULT_FS = new FakeProjectFilesystem();
-
-  public static final CellFilesystemResolver UNALIASED = new CellFilesystemResolver(
-      DEFAULT_FS,
-      new Function<Optional<String>, ProjectFilesystem>() {
-        @Override
-        public ProjectFilesystem apply(Optional<String> input) {
-          if (!input.isPresent()) {
-            return DEFAULT_FS;
-          }
-          throw new HumanReadableException("Cannot load cell: " + input);
-        }
-      });
-
   private ProjectFilesystem filesystem;
   private BuckConfig buckConfig;
   private AndroidDirectoryResolver androidDirectoryResolver;
@@ -61,7 +46,6 @@ public class TestCellBuilder {
 
   public TestCellBuilder() throws InterruptedException, IOException {
     filesystem = new FakeProjectFilesystem();
-    buckConfig = FakeBuckConfig.builder().build();
     androidDirectoryResolver = new FakeAndroidDirectoryResolver();
   }
 
@@ -88,6 +72,10 @@ public class TestCellBuilder {
   public Cell build() throws IOException, InterruptedException {
     ProcessExecutor executor = new ProcessExecutor(new TestConsole());
 
+    BuckConfig config = buckConfig == null ?
+        FakeBuckConfig.builder().setFilesystem(filesystem).build() :
+        buckConfig;
+
     KnownBuildRuleTypesFactory typesFactory = new KnownBuildRuleTypesFactory(
         executor,
         androidDirectoryResolver,
@@ -98,7 +86,7 @@ public class TestCellBuilder {
           filesystem,
           new TestConsole(),
           NULL_WATCHMAN,
-          buckConfig,
+          config,
           typesFactory,
           androidDirectoryResolver,
           new FakeClock(0));
@@ -108,7 +96,7 @@ public class TestCellBuilder {
         filesystem,
         new TestConsole(),
         NULL_WATCHMAN,
-        buckConfig,
+        config,
         typesFactory,
         androidDirectoryResolver,
         new FakeClock(0)) {

@@ -42,11 +42,9 @@ import javax.annotation.Nullable;
 @Value.Immutable
 abstract class AbstractBuildTarget
     implements
-        Comparable<AbstractBuildTarget>,
-        HasUnflavoredBuildTarget,
-        HasBuildTarget {
+    Comparable<AbstractBuildTarget>,
+    HasBuildTarget {
 
-  @Override
   @Value.Parameter
   public abstract UnflavoredBuildTarget getUnflavoredBuildTarget();
 
@@ -64,6 +62,10 @@ abstract class AbstractBuildTarget
   @JsonProperty("cell")
   public Optional<String> getCell() {
     return getUnflavoredBuildTarget().getCell();
+  }
+
+  public Path getCellPath() {
+    return getUnflavoredBuildTarget().getCellPath();
   }
 
   @JsonProperty("baseName")

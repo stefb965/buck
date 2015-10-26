@@ -37,7 +37,7 @@ import java.nio.file.Path;
 
 /**
  * A {@link TargetNode} represents a node in the target graph which is created by the
- * {@link com.facebook.buck.parser.Parser} as a result of parsing BUCK files in a project. It is
+ * {@link com.facebook.buck.parser.ParserNg} as a result of parsing BUCK files in a project. It is
  * responsible for processing the raw (python) inputs of a build rule, and gathering any build
  * targets and paths referenced from those inputs.
  */
@@ -46,7 +46,6 @@ public class TargetNode<T> implements Comparable<TargetNode<?>>, HasBuildTarget 
   private final HashCode rawInputsHashCode;
   private final BuildRuleFactoryParams ruleFactoryParams;
   private final Function<Optional<String>, Path> cellRoots;
-  private final CellFilesystemResolver cellFilesystemResolver;
 
   private final Description<T> description;
 
@@ -64,15 +63,13 @@ public class TargetNode<T> implements Comparable<TargetNode<?>>, HasBuildTarget 
       BuildRuleFactoryParams params,
       ImmutableSet<BuildTarget> declaredDeps,
       ImmutableSet<BuildTargetPattern> visibilityPatterns,
-      Function<Optional<String>, Path> cellRoots,
-      CellFilesystemResolver cellFilesystemResolver)
+      Function<Optional<String>, Path> cellRoots)
       throws NoSuchBuildTargetException, InvalidSourcePathInputException {
     this.rawInputsHashCode = rawInputsHashCode;
     this.description = description;
     this.constructorArg = constructorArg;
     this.ruleFactoryParams = params;
     this.cellRoots = cellRoots;
-    this.cellFilesystemResolver = cellFilesystemResolver;
 
     final ImmutableSet.Builder<Path> paths = ImmutableSet.builder();
     final ImmutableSortedSet.Builder<BuildTarget> extraDeps = ImmutableSortedSet.naturalOrder();
@@ -304,8 +301,7 @@ public class TargetNode<T> implements Comparable<TargetNode<?>>, HasBuildTarget 
           ruleFactoryParams,
           declaredDeps,
           visibilityPatterns,
-          cellRoots,
-          cellFilesystemResolver);
+          cellRoots);
     } catch (InvalidSourcePathInputException | NoSuchBuildTargetException e) {
       // This is extremely unlikely to happen --- we've already created a TargetNode with these
       // values before.
@@ -315,10 +311,6 @@ public class TargetNode<T> implements Comparable<TargetNode<?>>, HasBuildTarget 
 
   public Function<Optional<String>, Path> getCellNames() {
     return cellRoots;
-  }
-
-  public CellFilesystemResolver getCellFilesystemResolver() {
-    return cellFilesystemResolver;
   }
 
   @SuppressWarnings("serial")
