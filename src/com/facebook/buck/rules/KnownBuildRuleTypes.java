@@ -432,7 +432,6 @@ public class KnownBuildRuleTypes {
 
     CxxBinaryDescription cxxBinaryDescription =
         new CxxBinaryDescription(
-            cxxBuckConfig,
             inferBuckConfig,
             defaultCxxPlatform,
             cxxPlatforms,
