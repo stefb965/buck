@@ -478,8 +478,7 @@ public class TestCommand extends BuildCommand {
     TargetGraphToActionGraph targetGraphToActionGraph =
         new TargetGraphToActionGraph(
             params.getBuckEventBus(),
-            new BuildTargetNodeToBuildRuleTransformer(),
-            params.getFileHashCache());
+            new BuildTargetNodeToBuildRuleTransformer());
     Pair<ActionGraph, BuildRuleResolver> actionGraphAndResolver =
         Preconditions.checkNotNull(targetGraphToActionGraph.apply(targetGraph));
 
