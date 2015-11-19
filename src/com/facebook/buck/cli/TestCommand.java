@@ -509,6 +509,7 @@ public class TestCommand extends BuildCommand {
       try (Build build = createBuild(
           params.getBuckConfig(),
           actionGraphAndResolver.getFirst(),
+          actionGraphAndResolver.getSecond(),
           params.getAndroidPlatformTargetSupplier(),
           cachingBuildEngine,
           params.getArtifactCache(),
