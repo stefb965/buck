@@ -445,10 +445,19 @@ public class KnownBuildRuleTypes {
         cxxPlatforms,
         cxxBuckConfig.getPreprocessMode());
 
+    CodeSignIdentityStore codeSignIdentityStore =
+        CodeSignIdentityStore.fromSystem(processExecutor);
+    ProvisioningProfileStore provisioningProfileStore =
+        ProvisioningProfileStore.fromSearchPath(appleConfig.getProvisioningProfileSearchPath());
+
     AppleLibraryDescription appleLibraryDescription =
         new AppleLibraryDescription(
             cxxLibraryDescription,
-            cxxPlatforms);
+            cxxPlatforms,
+            platformFlavorsToAppleCxxPlatforms,
+            defaultCxxPlatform,
+            codeSignIdentityStore,
+            provisioningProfileStore);
     builder.register(appleLibraryDescription);
 
     AppleBinaryDescription appleBinaryDescription =
@@ -462,10 +471,6 @@ public class KnownBuildRuleTypes {
                 SmartDexingStep.determineOptimalThreadCount(),
                 new CommandThreadFactory("SmartDexing")));
 
-    CodeSignIdentityStore codeSignIdentityStore =
-        CodeSignIdentityStore.fromSystem(processExecutor);
-    ProvisioningProfileStore provisioningProfileStore =
-        ProvisioningProfileStore.fromSearchPath(appleConfig.getProvisioningProfileSearchPath());
 
     builder.register(new AndroidAarDescription(new AndroidManifestDescription(), ndkCxxPlatforms));
     builder.register(
