@@ -614,7 +614,8 @@ public class KnownBuildRuleTypes {
                     cxxLibraryDescription,
                     /* cpp2 */ true),
                 new ThriftPythonEnhancer(thriftBuckConfig, ThriftPythonEnhancer.Type.NORMAL),
-                new ThriftPythonEnhancer(thriftBuckConfig, ThriftPythonEnhancer.Type.TWISTED))));
+                new ThriftPythonEnhancer(thriftBuckConfig, ThriftPythonEnhancer.Type.TWISTED),
+                new ThriftPythonEnhancer(thriftBuckConfig, ThriftPythonEnhancer.Type.ASYNCIO))));
     builder.register(new XcodePostbuildScriptDescription());
     builder.register(new XcodePrebuildScriptDescription());
     builder.register(new XcodeWorkspaceConfigDescription());
