@@ -555,6 +555,7 @@ public class KnownBuildRuleTypes {
     builder.register(new GwtBinaryDescription());
     builder.register(
       new HalideLibraryDescription(
+        defaultCxxPlatform,
         cxxPlatforms,
         cxxBuckConfig.getPreprocessMode(),
         halideBuckConfig));
