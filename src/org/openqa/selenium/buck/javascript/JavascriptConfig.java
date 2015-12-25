@@ -17,8 +17,14 @@
 package org.openqa.selenium.buck.javascript;
 
 import com.facebook.buck.cli.BuckConfig;
-
-import java.nio.file.Path;
+import com.facebook.buck.rules.BinaryBuildRule;
+import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.HashedFileTool;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.Tool;
+import com.google.common.base.Optional;
+import com.google.common.base.Preconditions;
 
 public class JavascriptConfig {
 
@@ -28,9 +34,21 @@ public class JavascriptConfig {
     this.delegate = delegate;
   }
 
-  public Path getClosureCompilerPath() {
-    return delegate.getPath("tools", "closure_compiler").get();
+  public Tool getClosureCompiler(Optional<SourcePath> compilerPath, SourcePathResolver resolver) {
+    SourcePath path = getClosureCompilerSourcePath(compilerPath);
+    Optional<BuildRule> rule = resolver.getRule(path);
+    if (rule.isPresent()) {
+      Preconditions.checkState(
+          rule.get() instanceof BinaryBuildRule,
+          "Closure compiler must be a binary build rule");
+      return ((BinaryBuildRule) rule.get()).getExecutableCommand();
+    }
+
+    return new HashedFileTool(resolver.getAbsolutePath(path));
   }
 
+  public SourcePath getClosureCompilerSourcePath(Optional<SourcePath> compilerPath) {
+    return compilerPath.or(delegate.getRequiredSourcePath("tools", "closure_compiler"));
+  }
 }
 

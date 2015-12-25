@@ -24,6 +24,7 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.Tool;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.WriteFileStep;
@@ -38,7 +39,7 @@ public class JsFragment extends AbstractBuildRule {
   private final Path output;
   private final Path temp;
   @AddToRuleKey
-  private final Path compiler;
+  private final Tool compiler;
   @AddToRuleKey
   private final ImmutableSortedSet<BuildRule> deps;
   @AddToRuleKey
@@ -49,7 +50,7 @@ public class JsFragment extends AbstractBuildRule {
   public JsFragment(
       BuildRuleParams params,
       SourcePathResolver resolver,
-      Path compiler,
+      Tool compiler,
       ImmutableSortedSet<BuildRule> deps,
       String module,
       String function) {
@@ -94,6 +95,7 @@ public class JsFragment extends AbstractBuildRule {
     steps.add(
         new JavascriptFragmentStep(
             getProjectFilesystem().getRootPath(),
+            getResolver(),
             compiler,
             temp,
             output,

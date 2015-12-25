@@ -21,16 +21,22 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.TargetGraph;
+import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.List;
 
-public class JsBinaryDescription implements Description<JsBinaryDescription.Arg> {
+public class JsBinaryDescription implements
+    Description<JsBinaryDescription.Arg>,
+    ImplicitDepsInferringDescription<JsBinaryDescription.Arg> {
 
   private static final BuildRuleType TYPE = BuildRuleType.of("js_binary");
   private final JavascriptConfig config;
@@ -58,7 +64,7 @@ public class JsBinaryDescription implements Description<JsBinaryDescription.Arg>
     return new JsBinary(
         params,
         new SourcePathResolver(resolver),
-        config.getClosureCompilerPath(),
+        config.getClosureCompiler(args.compiler, new SourcePathResolver(resolver)),
         params.getDeclaredDeps(),
         args.srcs,
         args.defines,
@@ -66,11 +72,21 @@ public class JsBinaryDescription implements Description<JsBinaryDescription.Arg>
         args.externs);
   }
 
+  @Override
+  public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
+      BuildTarget buildTarget,
+      Function<Optional<String>, Path> cellRoots,
+      Arg arg) {
+    SourcePath compiler = config.getClosureCompilerSourcePath(arg.compiler);
+    return SourcePaths.filterBuildTargetSourcePaths(Collections.singleton(compiler));
+  }
+
   public static class Arg {
     public Optional<List<String>> defines;
-    public Optional<List<Path>> externs;
+    public Optional<List<SourcePath>> externs;
     public Optional<List<String>> flags;
     public ImmutableSortedSet<SourcePath> srcs;
+    public Optional<SourcePath> compiler;
 
     public Optional<ImmutableSortedSet<BuildTarget>> deps;
   }

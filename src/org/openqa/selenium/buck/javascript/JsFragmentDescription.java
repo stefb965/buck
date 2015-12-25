@@ -22,12 +22,21 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.ImplicitDepsInferringDescription;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.TargetGraph;
+import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSortedSet;
 
-public class JsFragmentDescription implements Description<JsFragmentDescription.Arg> {
+import java.nio.file.Path;
+import java.util.Collections;
+
+public class JsFragmentDescription implements
+    Description<JsFragmentDescription.Arg>,
+    ImplicitDepsInferringDescription<JsFragmentDescription.Arg> {
 
   public static final BuildRuleType TYPE = BuildRuleType.of("js_fragment");
   private final JavascriptConfig config;
@@ -55,15 +64,25 @@ public class JsFragmentDescription implements Description<JsFragmentDescription.
     return new JsFragment(
         params,
         new SourcePathResolver(resolver),
-        config.getClosureCompilerPath(),
+        config.getClosureCompiler(args.compiler, new SourcePathResolver(resolver)),
         params.getDeps(),
         args.module,
         args.function);
   }
 
+  @Override
+  public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
+      BuildTarget buildTarget,
+      Function<Optional<String>, Path> cellRoots,
+      Arg arg) {
+    SourcePath compiler = config.getClosureCompilerSourcePath(arg.compiler);
+    return SourcePaths.filterBuildTargetSourcePaths(Collections.singleton(compiler));
+  }
+
   public static class Arg {
     public String function;
     public String module;
+    public Optional<SourcePath> compiler;
 
     public Optional<ImmutableSortedSet<BuildTarget>> deps;
   }

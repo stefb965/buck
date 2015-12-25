@@ -55,7 +55,8 @@ public class SrcZipAwareFileBundler {
     ImmutableMap.Builder<Path, Path> links = ImmutableMap.builder();
 
     for (SourcePath sourcePath : toCopy) {
-      Path resolved = resolver.getPath(sourcePath);
+      Path resolved = resolver.getAbsolutePath(sourcePath);
+      Path relative = resolver.getRelativePath(sourcePath);
 
       if (resolved.toString().endsWith(Javac.SRC_ZIP)) {
         steps.add(new UnzipStep(filesystem, resolved, destinationDir));
@@ -67,8 +68,8 @@ public class SrcZipAwareFileBundler {
       }
 
       Path destination;
-      if (!junkPaths && resolved.startsWith(basePath)) {
-        destination = basePath.relativize(resolved);
+      if (!junkPaths && relative.startsWith(basePath)) {
+        destination = basePath.relativize(relative);
       } else {
         destination = resolved.getFileName();
       }

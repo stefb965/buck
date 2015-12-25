@@ -24,8 +24,6 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 
-import java.nio.file.Path;
-
 public class XptDescription implements Description<XptDescription.Arg> {
 
   private static final BuildRuleType TYPE = BuildRuleType.of("mozilla_xpt");
@@ -51,6 +49,6 @@ public class XptDescription implements Description<XptDescription.Arg> {
 
   public static class Arg {
     public SourcePath fallback;
-    public Path src;
+    public SourcePath src;
   }
 }

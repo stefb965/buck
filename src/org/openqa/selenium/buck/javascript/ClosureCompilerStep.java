@@ -17,6 +17,9 @@
 package org.openqa.selenium.buck.javascript;
 
 
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.Tool;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.HumanReadableException;
@@ -64,20 +67,25 @@ public class ClosureCompilerStep extends ShellStep {
     return exitCode;
   }
 
-  public static Builder builder(Path workingDirectory, Path jsCompiler) {
-    return new Builder(workingDirectory, jsCompiler);
+  public static Builder builder(
+      Path workingDirectory,
+      SourcePathResolver resolver,
+      Tool jsCompiler) {
+    return new Builder(workingDirectory, resolver, jsCompiler);
   }
 
   public static class Builder {
 
     private final Path workingDirectory;
+    private final SourcePathResolver resolver;
     private ImmutableList.Builder<String> cmd = ImmutableList.builder();
     private Path output;
 
-    public Builder(Path workingDirectory, Path compiler) {
+    public Builder(Path workingDirectory, SourcePathResolver resolver, Tool compiler) {
       this.workingDirectory = Preconditions.checkNotNull(workingDirectory);
+      this.resolver = resolver;
 
-      cmd.add("java", "-jar", compiler.toAbsolutePath().toString());
+      cmd.addAll(compiler.getCommandPrefix(resolver));
     }
 
     public Builder defines(Optional<List<String>> defines) {
@@ -87,9 +95,9 @@ public class ClosureCompilerStep extends ShellStep {
       return this;
     }
 
-    public Builder externs(Optional<List<Path>> externs) {
-      for (Path path : externs.or(ImmutableList.<Path>of())) {
-        cmd.add("--externs='" + path.normalize() + "'");
+    public Builder externs(Optional<List<SourcePath>> externs) {
+      for (SourcePath path : externs.or(ImmutableList.<SourcePath>of())) {
+        cmd.add("--externs='" + resolver.getAbsolutePath(path) + "'");
       }
       return this;
     }

@@ -26,8 +26,6 @@ import com.facebook.buck.rules.TargetGraph;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSortedSet;
 
-import java.nio.file.Path;
-
 public class XpiDescription implements Description<XpiDescription.Arg> {
 
   private static final BuildRuleType TYPE = BuildRuleType.of("mozilla_extension");
@@ -60,10 +58,10 @@ public class XpiDescription implements Description<XpiDescription.Arg> {
   }
 
   public static class Arg {
-    public Path chrome;
+    public SourcePath chrome;
     public Optional<ImmutableSortedSet<SourcePath>> components;
     public Optional<ImmutableSortedSet<SourcePath>> content;
-    public Path install;
+    public SourcePath install;
     public Optional<ImmutableSortedSet<SourcePath>> platforms;
     public Optional<ImmutableSortedSet<SourcePath>> resources;
   }

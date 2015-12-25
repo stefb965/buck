@@ -43,13 +43,13 @@ public class Xpi extends AbstractBuildRule {
   private final Path scratch;
   private final Path output;
   @AddToRuleKey
-  private final Path chrome;
+  private final SourcePath chrome;
   @AddToRuleKey
   private final ImmutableSortedSet<SourcePath> components;
   @AddToRuleKey
   private final ImmutableSortedSet<SourcePath> content;
   @AddToRuleKey
-  private final Path install;
+  private final SourcePath install;
   @AddToRuleKey
   private final ImmutableSortedSet<SourcePath> resources;
   @AddToRuleKey
@@ -58,10 +58,10 @@ public class Xpi extends AbstractBuildRule {
   public Xpi(
       BuildRuleParams params,
       SourcePathResolver resolver,
-      Path chrome,
+      SourcePath chrome,
       ImmutableSortedSet<SourcePath> components,
       ImmutableSortedSet<SourcePath> content,
-      Path install,
+      SourcePath install,
       ImmutableSortedSet<SourcePath> resources,
       ImmutableSortedSet<SourcePath> platforms) {
     super(params, resolver);
@@ -88,8 +88,16 @@ public class Xpi extends AbstractBuildRule {
 
     steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), scratch));
 
-    steps.add(CopyStep.forFile(getProjectFilesystem(), chrome, scratch.resolve("chrome.manifest")));
-    steps.add(CopyStep.forFile(getProjectFilesystem(), install, scratch.resolve("install.rdf")));
+    steps.add(
+        CopyStep.forFile(
+            getProjectFilesystem(),
+            getResolver().getAbsolutePath(chrome),
+            scratch.resolve("chrome.manifest")));
+    steps.add(
+        CopyStep.forFile(
+            getProjectFilesystem(),
+            getResolver().getAbsolutePath(install),
+            scratch.resolve("install.rdf")));
 
     SrcZipAwareFileBundler bundler = new SrcZipAwareFileBundler(getBuildTarget());
 

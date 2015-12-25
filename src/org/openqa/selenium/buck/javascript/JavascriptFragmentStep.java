@@ -16,6 +16,8 @@
 
 package org.openqa.selenium.buck.javascript;
 
+import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.Tool;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.google.common.collect.ImmutableList;
@@ -24,18 +26,21 @@ import java.nio.file.Path;
 
 class JavascriptFragmentStep extends ShellStep {
 
-  private final Path compiler;
+  private final SourcePathResolver resolver;
+  private final Tool compiler;
   private final Iterable<Path> jsDeps;
   private final Path temp;
   private final Path output;
 
   public JavascriptFragmentStep(
       Path workingDirectory,
-      Path compiler,
+      SourcePathResolver resolver,
+      Tool compiler,
       Path temp,
       Path output,
       Iterable<Path> jsDeps) {
     super(workingDirectory);
+    this.resolver = resolver;
     this.compiler = compiler;
     this.temp = temp;
     this.output = output;
@@ -53,7 +58,7 @@ class JavascriptFragmentStep extends ShellStep {
             "document:typeof window!='undefined'?window.document:null" +
             "}, arguments);}", wrapper);
 
-    cmd.add("java", "-jar", compiler.toAbsolutePath().toString());
+    cmd.addAll(compiler.getCommandPrefix(resolver));
     cmd.add(
         String.format("--js_output_file='%s'", output),
         String.format("--output_wrapper='%s'", wrapper),

@@ -28,6 +28,7 @@ import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.Tool;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.WriteFileStep;
@@ -55,14 +56,14 @@ public class JsBinary extends AbstractBuildRule implements
   private final Path joyPath;
   private final Path output;
   @AddToRuleKey
-  private final Path compiler;
+  private final Tool compiler;
   private final Supplier<ImmutableSortedSet<BuildRule>> deps;
   @AddToRuleKey
   private final ImmutableSortedSet<SourcePath> srcs;
   @AddToRuleKey
   private final Optional<List<String>> defines;
   @AddToRuleKey
-  private final Optional<List<Path>> externs;
+  private final Optional<List<SourcePath>> externs;
   @AddToRuleKey
   private final Optional<List<String>> flags;
   private JavascriptDependencies joy;
@@ -71,12 +72,12 @@ public class JsBinary extends AbstractBuildRule implements
   public JsBinary(
       BuildRuleParams params,
       SourcePathResolver resolver,
-      Path compiler,
+      Tool compiler,
       Supplier<ImmutableSortedSet<BuildRule>> deps,
       ImmutableSortedSet<SourcePath> srcs,
       Optional<List<String>> defines,
       Optional<List<String>> flags,
-      Optional<List<Path>> externs) {
+      Optional<List<SourcePath>> externs) {
     super(params, resolver);
 
     this.compiler = compiler;
@@ -108,7 +109,7 @@ public class JsBinary extends AbstractBuildRule implements
     Set<JavascriptSource> jsSources = Sets.newHashSet();
     // Do the magic with the sources, as if we're a js_library
     for (SourcePath src : srcs) {
-      Path resolved = getResolver().getPath(src);
+      Path resolved = getResolver().getAbsolutePath(src);
       JavascriptSource jsSource = new JavascriptSource(resolved);
       jsSources.add(jsSource);
 
@@ -151,7 +152,7 @@ public class JsBinary extends AbstractBuildRule implements
     }
 
     ClosureCompilerStep compileStep =
-        ClosureCompilerStep.builder(getProjectFilesystem().getRootPath(), compiler)
+        ClosureCompilerStep.builder(getProjectFilesystem().getRootPath(), getResolver(), compiler)
             .defines(defines)
             .externs(externs)
             .flags(flags)

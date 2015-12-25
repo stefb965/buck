@@ -41,15 +41,20 @@ public class Xpt extends AbstractBuildRule {
 
   @SuppressWarnings("PMD.UnusedPrivateField")
   @AddToRuleKey
-  private final Path src;
+  private final SourcePath src;
   private final Path out;
 
-  public Xpt(BuildRuleParams params, SourcePathResolver resolver, Path src, SourcePath fallback) {
+  public Xpt(
+      BuildRuleParams params,
+      SourcePathResolver resolver,
+      SourcePath src,
+      SourcePath fallback) {
     super(params, resolver);
 
     this.fallback = Preconditions.checkNotNull(fallback);
     this.src = Preconditions.checkNotNull(src);
-    String name = Files.getNameWithoutExtension(src.getFileName().toString()) + ".xpt";
+    Path relativePath = resolver.getRelativePath(src);
+    String name = Files.getNameWithoutExtension(relativePath.toString()) + ".xpt";
     this.out = BuildTargets.getGenPath(getBuildTarget(), name);
   }
 
@@ -60,7 +65,7 @@ public class Xpt extends AbstractBuildRule {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
     context.getEventBus().post(ConsoleEvent.warning("Defaulting to fallback for " + out));
-    Path from = getResolver().getPath(fallback);
+    Path from = getResolver().getAbsolutePath(fallback);
 
     steps.add(new MkdirStep(getProjectFilesystem(), out.getParent()));
     steps.add(CopyStep.forFile(getProjectFilesystem(), from, out));

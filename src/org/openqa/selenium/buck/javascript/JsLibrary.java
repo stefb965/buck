@@ -79,7 +79,7 @@ public class JsLibrary extends AbstractBuildRule implements
     Set<String> allProvides = Sets.newHashSet();
     JavascriptDependencies smidgen = new JavascriptDependencies();
     for (SourcePath src : srcs) {
-      Path path = getResolver().getPath(src);
+      Path path = getResolver().getAbsolutePath(src);
       JavascriptSource source = new JavascriptSource(path);
       smidgen.add(source);
       allRequires.addAll(source.getRequires());
