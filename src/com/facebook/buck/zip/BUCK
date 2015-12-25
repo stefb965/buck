@@ -92,6 +92,7 @@ java_library(
   ],
   visibility = [
     '//src/com/facebook/buck/rules:types',
+    '//src/org/openqa/selenium/...',
     '//test/com/facebook/buck/zip:zip',
   ],
 )
