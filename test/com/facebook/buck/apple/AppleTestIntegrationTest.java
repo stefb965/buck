@@ -62,8 +62,8 @@ public class AppleTestIntegrationTest {
         this, "apple_test_header_symlink_tree", tmp);
     workspace.setUp();
 
-    BuildTarget buildTarget =
-        BuildTargetFactory.newInstance("//Libraries/TestLibrary:Test#default,header-symlink-tree");
+    BuildTarget buildTarget = BuildTargetFactory.newInstance(
+        "//Libraries/TestLibrary:Test#iphonesimulator-x86_64,private-headers");
     ProjectWorkspace.ProcessResult result = workspace.runBuckCommand(
         "build",
         buildTarget.getFullyQualifiedName());
@@ -304,6 +304,7 @@ public class AppleTestIntegrationTest {
   }
 
   @Test
+  @Ignore("Simulator-hosted app tests currently timing out in CI")
   public void successOnAppTestPassing() throws IOException {
     assumeTrue(Platform.detect() == Platform.MACOS);
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
@@ -323,6 +324,7 @@ public class AppleTestIntegrationTest {
   }
 
   @Test
+  @Ignore("Simulator-hosted app tests currently timing out in CI")
   public void exitCodeIsCorrectOnAppTestFailure() throws IOException {
     assumeTrue(Platform.detect() == Platform.MACOS);
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
@@ -409,6 +411,7 @@ public class AppleTestIntegrationTest {
   }
 
   @Test
+  @Ignore("Simulator-hosted app tests currently timing out in CI")
   public void successForAppTestWithXib() throws IOException {
     assumeTrue(Platform.detect() == Platform.MACOS);
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(

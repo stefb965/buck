@@ -107,6 +107,7 @@ class ParallelDaemonicParserState implements DaemonicParserState {
   @GuardedBy("this")
   private final HashMultimap<UnflavoredBuildTarget, BuildTarget> targetsCornucopia;
   private final OptimisticLoadingCache<BuildTarget, TargetNode<?>> allTargetNodes;
+  private final Predicate<BuildTarget> hasCachedTargetNodeForBuildTargetPredicate;
   private final LoadingCache<Cell, BuildFileTree> buildFileTrees;
 
   /**
@@ -142,12 +143,19 @@ class ParallelDaemonicParserState implements DaemonicParserState {
 
   public ParallelDaemonicParserState(
       TypeCoercerFactory typeCoercerFactory,
-      ConstructorArgMarshaller marshaller) {
+      ConstructorArgMarshaller marshaller,
+      int parsingThreads) {
     this.typeCoercerFactory = typeCoercerFactory;
     this.marshaller = marshaller;
-    this.allRawNodes = new OptimisticLoadingCache<>();
+    this.allRawNodes = new OptimisticLoadingCache<>(parsingThreads);
     this.targetsCornucopia = HashMultimap.create();
-    this.allTargetNodes = new OptimisticLoadingCache<>();
+    this.allTargetNodes = new OptimisticLoadingCache<>(parsingThreads);
+    this.hasCachedTargetNodeForBuildTargetPredicate = new Predicate<BuildTarget>() {
+      @Override
+      public boolean apply(BuildTarget buildTarget) {
+        return hasCachedTargetNodeForBuildTarget(buildTarget);
+      }
+    };
     this.buildFileTrees = CacheBuilder.newBuilder().build(
         new CacheLoader<Cell, BuildFileTree>() {
           @Override
@@ -253,6 +261,14 @@ class ParallelDaemonicParserState implements DaemonicParserState {
     } catch (UncheckedExecutionException | ExecutionException e) {
       throw propagate(e);
     }
+  }
+
+  public boolean hasCachedTargetNodeForBuildTarget(BuildTarget buildTarget) {
+    return allTargetNodes.containsKey(buildTarget);
+  }
+
+  public Predicate<BuildTarget> getHasCachedTargetNodeForBuildTargetPredicate() {
+    return hasCachedTargetNodeForBuildTargetPredicate;
   }
 
   private RuntimeException propagate(Throwable e)

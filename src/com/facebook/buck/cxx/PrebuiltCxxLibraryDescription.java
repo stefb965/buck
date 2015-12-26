@@ -292,6 +292,7 @@ public class PrebuiltCxxLibraryDescription
             .build(),
         Linker.LinkableDepType.SHARED,
         params.getDeps(),
+        Optional.<Linker.CxxRuntimeType>absent(),
         Optional.<SourcePath>absent(),
         ImmutableSet.<BuildTarget>of(),
         ImmutableSet.<FrameworkPath>of());
@@ -384,7 +385,7 @@ public class PrebuiltCxxLibraryDescription
         },
         args.soname,
         args.linkWithoutSoname.or(false),
-        args.forceStatic.or(false) ? NativeLinkable.Linkage.STATIC : NativeLinkable.Linkage.ANY,
+        args.forceStatic.or(false),
         args.headerOnly.or(false),
         args.linkWhole.or(false),
         args.provided.or(false),

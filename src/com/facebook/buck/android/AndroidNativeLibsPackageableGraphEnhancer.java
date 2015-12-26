@@ -112,7 +112,9 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
     ImmutableSet<NdkCxxPlatforms.TargetCpuType> filters =
         cpuFilters.isEmpty() ? nativePlatforms.keySet() : cpuFilters;
     for (NdkCxxPlatforms.TargetCpuType targetCpuType : filters) {
-      NdkCxxPlatform platform = Preconditions.checkNotNull(nativePlatforms.get(targetCpuType));
+      NdkCxxPlatform platform = Preconditions.checkNotNull(
+          nativePlatforms.get(targetCpuType),
+          "Unknown platform type " + targetCpuType.toString());
 
       // Populate nativeLinkableLibs and nativeLinkableLibsAssets with the appropriate entries.
       boolean hasNativeLibs = populateMapWithLinkables(
@@ -199,8 +201,8 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
       String sharedLibrarySoName = entry.getKey().getSecond();
       BuildTarget targetForStripRule = BuildTarget.builder(originalBuildTarget)
           .addFlavors(ImmutableFlavor.of("strip"))
-          .addFlavors(ImmutableFlavor.of(sharedLibrarySoName))
-          .addFlavors(ImmutableFlavor.of(targetCpuType.name()))
+          .addFlavors(ImmutableFlavor.of(Flavor.replaceInvalidCharacters(sharedLibrarySoName)))
+          .addFlavors(ImmutableFlavor.of(Flavor.replaceInvalidCharacters(targetCpuType.name())))
           .build();
 
       Optional<BuildRule> previouslyCreated = ruleResolver.getRuleOptional(targetForStripRule);

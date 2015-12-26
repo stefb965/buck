@@ -14,9 +14,6 @@
  * under the License.
  */
 
-// TODO(jcarreiro): Handle building the pipeline for different targets (e.g.
-// GPU) using flavors.
-
 package com.facebook.buck.halide;
 
 import com.facebook.buck.cxx.CxxBinary;
@@ -57,6 +54,7 @@ import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -166,6 +164,7 @@ public class HalideLibraryDescription implements
     Optional<ImmutableSortedSet<FrameworkPath>>
       frameworks = Optional.of(ImmutableSortedSet.<FrameworkPath>of());
     Optional<SourcePath> prefixHeader = Optional.absent();
+    Optional<Linker.CxxRuntimeType> cxxRuntimeType = Optional.absent();
 
     CxxLinkAndCompileRules cxxLinkAndCompileRules =
         CxxDescriptionEnhancer.createBuildRulesForCxxBinary(
@@ -184,7 +183,8 @@ public class HalideLibraryDescription implements
             platformCompilerFlags,
             prefixHeader,
             linkerFlags,
-            platformLinkerFlags);
+            platformLinkerFlags,
+            cxxRuntimeType);
 
     BuildRuleParams binParams = params.copyWithBuildTarget(target);
     binParams.appendExtraDeps(cxxLinkAndCompileRules.executable.getDeps(pathResolver));
@@ -272,5 +272,6 @@ public class HalideLibraryDescription implements
   public class Arg extends CxxBinaryDescription.Arg {
     @Hint(isDep = false)
     public Optional<ImmutableSortedSet<BuildTarget>> compilerDeps;
+    public Optional<ImmutableSortedMap<String, ImmutableMap<String, String>>> configs;
   }
 }

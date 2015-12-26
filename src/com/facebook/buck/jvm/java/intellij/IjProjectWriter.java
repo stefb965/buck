@@ -80,7 +80,7 @@ public class IjProjectWriter {
 
   private void writeModule(IjModule module) throws IOException {
     projectFilesystem.mkdirs(MODULES_PREFIX);
-    Path path = IjProjectTemplateDataPreparer.getModuleOutputFilePath(module.getName());
+    Path path = module.getModuleImlFilePath();
 
     ST moduleContents = getST(StringTemplateFile.MODULE_TEMPLATE);
 
@@ -139,7 +139,7 @@ public class IjProjectWriter {
 
     boolean danglingTempFile = false;
     Path tempFile = projectFilesystem.createTempFile(
-        projectFilesystem.getPathForRelativePath(IDEA_CONFIG_DIR_PREFIX),
+        IDEA_CONFIG_DIR_PREFIX,
         path.getFileName().toString(),
         ".tmp");
     try {

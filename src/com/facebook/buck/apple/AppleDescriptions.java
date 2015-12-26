@@ -234,6 +234,7 @@ public class AppleDescriptions {
     // This is intentionally an empty string; we put all prefixes into
     // the header map itself.
     output.headerNamespace = Optional.of("");
+    output.cxxRuntimeType = Optional.absent();
     output.tests = arg.tests;
   }
 
@@ -539,12 +540,10 @@ public class AppleDescriptions {
         extensionBundlePaths,
         Optional.of(bundleVariantFiles),
         frameworks,
-        appleCxxPlatform.getIbtool(),
+        appleCxxPlatform,
         assetCatalog,
         tests,
-        appleCxxPlatform.getAppleSdk(),
         codeSignIdentityStore,
-        appleCxxPlatform.getCodesignAllocate(),
         provisioningProfileStore);
   }
 

@@ -70,7 +70,7 @@ public class PythonBuckConfig {
       Paths.get(
           System.getProperty(
               "buck.path_to_pex",
-              "src/com/facebook/buck/python/pex.py"))
+              "src/com/facebook/buck/python/make_pex.py"))
           .toAbsolutePath();
 
   private static final LoadingCache<ProjectFilesystem, PathSourcePath> PATH_TO_TEST_MAIN =
@@ -231,6 +231,11 @@ public class PythonBuckConfig {
 
   public Optional<Tool> getPathToPexExecuter(BuildRuleResolver resolver) {
     return delegate.getTool(SECTION, "path_to_pex_executer", resolver);
+  }
+
+  public NativeLinkStrategy getNativeLinkStrategy() {
+    return delegate.getEnum(SECTION, "native_link_strategy", NativeLinkStrategy.class)
+        .or(NativeLinkStrategy.SPEARATE);
   }
 
   public String getPexExtension() {

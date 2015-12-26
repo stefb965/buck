@@ -32,7 +32,24 @@ import javax.annotation.Nullable;
  */
 class OptimisticLoadingCache<K, V> {
 
-  private final ConcurrentMap<K, V> values = new ConcurrentHashMap<>();
+  /**
+   * Resizing is expensive.  This saves us four resizes from the normal default of 16.
+   */
+  static final int DEFAULT_INITIAL_CAPACITY = 256;
+
+  /**
+   * Taken from {@link ConcurrentMap}.
+   */
+  static final float DEFAULT_LOAD_FACTOR = 0.75f;
+
+  private final ConcurrentMap<K, V> values;
+
+  public OptimisticLoadingCache(int parsingThreads) {
+    this.values = new ConcurrentHashMap<>(
+        DEFAULT_INITIAL_CAPACITY,
+        DEFAULT_LOAD_FACTOR,
+        parsingThreads);
+  }
 
   public V get(K key, Callable<V> loader) throws ExecutionException {
     V value = values.get(key);
@@ -52,6 +69,10 @@ class OptimisticLoadingCache<K, V> {
   @Nullable
   public V getIfPresent(K key) {
     return values.get(key);
+  }
+
+  public boolean containsKey(K key) {
+    return values.containsKey(key);
   }
 
   public void invalidateAll(Set<K> keys) {

@@ -52,6 +52,7 @@ import com.google.common.eventbus.Subscribe;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
@@ -120,7 +121,8 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
       TestResultSummaryVerbosity summaryVerbosity,
       ExecutionEnvironment executionEnvironment,
       Optional<WebServer> webServer,
-      Locale locale) {
+      Locale locale,
+      Path testLogPath) {
     super(console, clock, locale);
     this.locale = locale;
     this.formatTimeFunction = new Function<Long, String>(){
@@ -147,7 +149,8 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
         console.getAnsi(),
         console.getVerbosity(),
         summaryVerbosity,
-        locale);
+        locale,
+        Optional.of(testLogPath));
     this.testRunStarted = new AtomicReference<>();
     this.testRunFinished = new AtomicReference<>();
   }
@@ -201,7 +204,12 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
                   MoreIterables.zipAndConcat(
                       lines,
                       Iterables.cycle("\n"))));
-          StringBuilder fullFrame = new StringBuilder(lastRenderClear);
+          int bufferSize = lastRenderClear.length();
+          for (String part : renderedLines) {
+            bufferSize += part.length();
+          }
+          StringBuilder fullFrame = new StringBuilder(bufferSize);
+          fullFrame.append(lastRenderClear);
           for (String part : renderedLines) {
             fullFrame.append(part);
           }
