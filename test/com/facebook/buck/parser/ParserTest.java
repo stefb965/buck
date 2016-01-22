@@ -244,13 +244,31 @@ public class ParserTest {
     BuildTarget razTarget = BuildTarget.builder(cellRoot, "//java/com/facebook", "raz").build();
     Iterable<BuildTarget> buildTargets = ImmutableList.of(fooTarget, razTarget);
 
-    thrown.expect(HumanReadableException.class);
     thrown.expectMessage(
         "No rule found when resolving target //java/com/facebook:raz in build file " +
             "//java/com/facebook/BUCK");
     thrown.expectMessage(
         "Defined in file: " +
             filesystem.resolve(razTarget.getBasePath()).resolve(DEFAULT_BUILD_FILE_NAME));
+
+    parser.buildTargetGraph(
+        eventBus,
+        cell,
+        false,
+        executorService,
+        buildTargets);
+  }
+
+  @Test
+  public void testMissingBuildFile()
+      throws InterruptedException, BuildFileParseException, IOException, BuildTargetException {
+    BuildTarget target = BuildTarget.builder(cellRoot, "//path/to/nowhere", "nowhere").build();
+    Iterable<BuildTarget> buildTargets = ImmutableList.of(target);
+
+    thrown.expect(Cell.MissingBuildFileException.class);
+    thrown.expectMessage(
+        "No build file at path/to/nowhere/BUCK when resolving target " +
+            "//path/to/nowhere:nowhere");
 
     parser.buildTargetGraph(
         eventBus,
@@ -272,15 +290,14 @@ public class ParserTest {
         "genrule(name = 'cake', out = 'file.txt', cmd = '$(exe ////cake:walk) > $OUT')"
             .getBytes(UTF_8));
 
-    parser.getAllTargetNodes(eventBus, cell, false, buckFile);
+    parser.getAllTargetNodes(eventBus, cell, false, executorService, buckFile);
   }
 
   @Test
   public void shouldThrowAnExceptionIfADepIsInAFileThatCannotBeParsed()
       throws IOException, InterruptedException, BuildTargetException, BuildFileParseException {
-    thrown.expect(HumanReadableException.class);
     thrown.expectMessage("Parse error for build file");
-    thrown.expectMessage("foo/BUCK");
+    thrown.expectMessage(Paths.get("foo/BUCK").toString());
 
     Path buckFile = cellRoot.resolve("BUCK");
     Files.write(
@@ -314,7 +331,7 @@ public class ParserTest {
         ("export_file(name = 'cake', src = 'hello.txt')\n" +
         "genrule(name = 'cake', out = 'file.txt', cmd = 'touch $OUT')\n").getBytes(UTF_8));
 
-    parser.getAllTargetNodes(eventBus, cell, false, buckFile);
+    parser.getAllTargetNodes(eventBus, cell, false, executorService, buckFile);
   }
 
   @Test
@@ -527,6 +544,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Process event.
@@ -540,6 +558,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Test that the second parseBuildFile call repopulated the cache.
@@ -554,6 +573,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Process event.
@@ -567,6 +587,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Test that the second parseBuildFile call repopulated the cache.
@@ -581,6 +602,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Process event.
@@ -594,6 +616,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Test that the second parseBuildFile call repopulated the cache.
@@ -608,6 +631,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Process event.
@@ -621,6 +645,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Test that the second parseBuildFile call repopulated the cache.
@@ -635,6 +660,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Process event.
@@ -648,6 +674,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Test that the second parseBuildFile call repopulated the cache.
@@ -662,6 +689,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Process event.
@@ -675,6 +703,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Test that the second parseBuildFile call repopulated the cache.
@@ -689,6 +718,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Process event.
@@ -702,6 +732,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Test that the second parseBuildFile call repopulated the cache.
@@ -716,6 +747,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Process event.
@@ -729,6 +761,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Test that the second parseBuildFile call repopulated the cache.
@@ -743,6 +776,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Process event.
@@ -756,6 +790,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Test that the second parseBuildFile call repopulated the cache.
@@ -770,6 +805,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Process event.
@@ -783,6 +819,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Test that the second parseBuildFile call repopulated the cache.
@@ -797,6 +834,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Process event.
@@ -810,6 +848,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Test that the second parseBuildFile call repopulated the cache.
@@ -824,6 +863,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Process event.
@@ -837,6 +877,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Test that the second parseBuildFile call repopulated the cache.
@@ -852,6 +893,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Process event.
@@ -865,6 +907,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Test that the second parseBuildFile call repopulated the cache.
@@ -896,6 +939,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testAncestorBuildFile);
 
 
@@ -909,6 +953,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testAncestorBuildFile);
 
     // Test that the second parseBuildFile call repopulated the cache.
@@ -923,6 +968,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Process event.
@@ -935,6 +981,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Test that the second parseBuildFile call did not repopulate the cache.
@@ -950,6 +997,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Process event.
@@ -962,6 +1010,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Test that the second parseBuildFile call repopulated the cache.
@@ -976,6 +1025,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Process event.
@@ -988,6 +1038,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Test that the second parseBuildFile call repopulated the cache.
@@ -1002,6 +1053,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Process event.
@@ -1014,6 +1066,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Test that the second parseBuildFile call repopulated the cache.
@@ -1028,6 +1081,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Process event.
@@ -1040,6 +1094,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Test that the second parseBuildFile call repopulated the cache.
@@ -1054,6 +1109,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Process event.
@@ -1066,6 +1122,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Test that the second parseBuildFile call did not repopulate the cache.
@@ -1080,6 +1137,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Process event.
@@ -1092,6 +1150,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Test that the second parseBuildFile call did not repopulate the cache.
@@ -1106,6 +1165,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Process event.
@@ -1119,6 +1179,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testBuildFile);
 
     // Test that the second parseBuildFile call did not repopulate the cache.
@@ -1455,6 +1516,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         fooLib1Target);
     assertThat(targetNode.getBuildTarget(), Matchers.equalTo(fooLib1Target));
 
@@ -1463,6 +1525,7 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         testFooBuckFile);
     assertThat(targetNodes.size(), Matchers.equalTo(2));
     assertThat(
@@ -1493,14 +1556,16 @@ public class ParserTest {
         eventBus,
         cell,
         false,
+        executorService,
         fooLibTarget);
     assertThat(targetNode.getBuildTarget(), Matchers.equalTo(fooLibTarget));
 
       SortedMap<String, Object> rules = parser.getRawTargetNode(
-        eventBus,
-        cell,
-        false,
-        targetNode);
+          eventBus,
+          cell,
+          false,
+          executorService,
+          targetNode);
     assertThat(rules, Matchers.hasKey("name"));
     assertThat(
         (String) rules.get("name"),

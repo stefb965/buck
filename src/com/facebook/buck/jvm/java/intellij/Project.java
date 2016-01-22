@@ -474,7 +474,10 @@ public class Project {
       if (module.isIntelliJPlugin()) {
         jdkDependency = SerializableDependentModule.newIntelliJPluginJdk();
       } else {
-        jdkDependency = SerializableDependentModule.newStandardJdk();
+        jdkDependency = SerializableDependentModule.newStandardJdk(
+            intellijConfig.getJdkName(),
+            intellijConfig.getJdkType()
+        );
       }
     }
 
@@ -1086,6 +1089,7 @@ public class Project {
     try (ExecutionContext childContext = ExecutionContext.builder()
         .setExecutionContext(executionContext)
         .setConsole(childConsole)
+        .setExecutors(executionContext.getExecutors())
         .build()) {
       exitCode = command.execute(childContext);
     }

@@ -41,6 +41,14 @@ public class BuckEventsConsumerFactory {
         return mBus.syncPublisher(RulesParsingEndConsumer.BUCK_PARSE_RULE_END);
     }
 
+    public RulesParsingProgressUpdateConsumer getRulesParsingProgressUpdateConsumer() {
+        return mBus.syncPublisher(RulesParsingProgressUpdateConsumer.BUCK_PARSE_PROGRESS_UPDATE);
+    }
+
+    public BuckBuildProgressUpdateConsumer getBuckBuildProgressUpdateConsumer() {
+        return mBus.syncPublisher(BuckBuildProgressUpdateConsumer.BUCK_BUILD_PROGRESS_UPDATE);
+    }
+
     public BuildRuleSuspendedConsumer getBuildRuleSuspendedConsumer() {
         return mBus.syncPublisher(BuildRuleSuspendedConsumer.BUCK_BUILD_RULE_SUSPENDED);
     }

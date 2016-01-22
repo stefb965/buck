@@ -88,6 +88,10 @@ public class BuckConfig {
 
   private static final String DEFAULT_MAX_TRACES = "25";
 
+  private static final ImmutableMap<String, ImmutableSet<String>> IGNORE_FIELDS_FOR_DAEMON_RESTART =
+      ImmutableMap.of("build", ImmutableSet.of("threads", "load_limit")
+  );
+
   private static final Function<String, URI> TO_URI = new Function<String, URI>() {
     @Override
     public URI apply(String input) {
@@ -302,6 +306,23 @@ public class BuckConfig {
   }
 
   /**
+   * @return the parsed BuildTarget in the given section and field, if set and a valid build target.
+   *
+   * This is useful if you use getTool to get the target, if any, but allow filesystem references.
+   */
+  public Optional<BuildTarget> getMaybeBuildTarget(String section, String field) {
+    Optional<String> value = getValue(section, field);
+    if (!value.isPresent()) {
+      return Optional.absent();
+    }
+    try {
+      return Optional.of(getBuildTargetForFullyQualifiedTarget(value.get()));
+    } catch (BuildTargetParseException e) {
+      return Optional.absent();
+    }
+  }
+
+  /**
    * @return the parsed BuildTarget in the given section and field.
    */
   public BuildTarget getRequiredBuildTarget(String section, String field) {
@@ -357,21 +378,22 @@ public class BuckConfig {
     if (!value.isPresent()) {
       return Optional.absent();
     }
-    try {
-      BuildTarget target = getBuildTargetForFullyQualifiedTarget(value.get());
-      Optional<BuildRule> rule = resolver.getRuleOptional(target);
+    Optional<BuildTarget> target = getMaybeBuildTarget(section, field);
+    if (target.isPresent()) {
+      Optional<BuildRule> rule = resolver.getRuleOptional(target.get());
       if (!rule.isPresent()) {
-        throw new HumanReadableException("[%s] %s: no rule found for %s", section, field, target);
+        throw new HumanReadableException(
+            "[%s] %s: no rule found for %s", section, field, target.get());
       }
       if (!(rule.get() instanceof BinaryBuildRule)) {
         throw new HumanReadableException(
             "[%s] %s: %s must be an executable rule",
             section,
             field,
-            target);
+            target.get());
       }
       return Optional.of(((BinaryBuildRule) rule.get()).getExecutableCommand());
-    } catch (BuildTargetParseException e) {
+    } else {
       checkPathExists(
           value.get(),
           String.format("Overridden %s:%s path not found: ", section, field));
@@ -610,6 +632,14 @@ public class BuckConfig {
     return value.get();
   }
 
+  // This is a hack. A cleaner approach would be to expose a narrow view of the config to any code
+  // that affects the state cached by the Daemon.
+  public boolean equalsForDaemonRestart(BuckConfig other) {
+    return this.config.equalsIgnoring(
+        other.config,
+        IGNORE_FIELDS_FOR_DAEMON_RESTART);
+  }
+
   @Override
   public boolean equals(Object obj) {
     if (this == obj) {
@@ -724,6 +754,14 @@ public class BuckConfig {
         .or(Float.POSITIVE_INFINITY);
   }
 
+  public long getCountersFirstFlushIntervalMillis() {
+    return config.getLong("counters", "first_flush_interval_millis").or(5000L);
+  }
+
+  public long getCountersFlushIntervalMillis() {
+    return config.getLong("counters", "flush_interval_millis").or(30000L);
+  }
+
   public Optional<Path> getPath(String sectionName, String name, boolean isCellRootRelative) {
     Optional<String> pathString = getValue(sectionName, name);
     return pathString.isPresent() ?
@@ -768,5 +806,4 @@ public class BuckConfig {
     }
     return Optional.of(ImmutableList.copyOf(Splitter.on(' ').splitToList(value.get())));
   }
-
 }

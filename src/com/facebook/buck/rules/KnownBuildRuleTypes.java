@@ -65,6 +65,9 @@ import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPlatforms;
+import com.facebook.buck.jvm.scala.ScalaBuckConfig;
+import com.facebook.buck.jvm.scala.ScalaLibraryDescription;
+import com.facebook.buck.jvm.scala.ScalaTestDescription;
 import com.facebook.buck.python.CxxPythonExtensionDescription;
 import com.facebook.buck.cxx.CxxTestDescription;
 import com.facebook.buck.cxx.DefaultCxxPlatforms;
@@ -94,6 +97,7 @@ import com.facebook.buck.js.IosReactNativeLibraryDescription;
 import com.facebook.buck.js.ReactNativeBuckConfig;
 import com.facebook.buck.jvm.groovy.GroovyBuckConfig;
 import com.facebook.buck.jvm.groovy.GroovyLibraryDescription;
+import com.facebook.buck.jvm.groovy.GroovyTestDescription;
 import com.facebook.buck.jvm.java.JavaBinaryDescription;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
@@ -436,6 +440,8 @@ public class KnownBuildRuleTypes {
     JavaBuckConfig javaConfig = new JavaBuckConfig(config);
     JavacOptions defaultJavacOptions = javaConfig.getDefaultJavacOptions();
 
+    ScalaBuckConfig scalaConfig = new ScalaBuckConfig(config);
+
     InferBuckConfig inferBuckConfig = new InferBuckConfig(config);
 
     CxxBinaryDescription cxxBinaryDescription =
@@ -555,7 +561,19 @@ public class KnownBuildRuleTypes {
             goBuckConfig,
             defaultTestRuleTimeoutMs,
             defaultCxxPlatform));
-    builder.register(new GroovyLibraryDescription(new GroovyBuckConfig(config)));
+    GroovyBuckConfig groovyBuckConfig = new GroovyBuckConfig(config);
+    builder.register(
+        new GroovyLibraryDescription(
+            groovyBuckConfig,
+            defaultJavacOptions));
+    builder.register(
+        new GroovyTestDescription(
+            groovyBuckConfig,
+            defaultJavacOptions,
+            defaultTestRuleTimeoutMs,
+            testTempDirOverride
+        )
+    );
     builder.register(new GwtBinaryDescription());
     builder.register(
       new HalideLibraryDescription(
@@ -604,6 +622,12 @@ public class KnownBuildRuleTypes {
             testTempDirOverride));
     builder.register(new RustBinaryDescription(rustBuckConfig));
     builder.register(new RustLibraryDescription(rustBuckConfig));
+    builder.register(new ScalaLibraryDescription(scalaConfig));
+    builder.register(new ScalaTestDescription(
+        scalaConfig,
+        defaultTestRuleTimeoutMs,
+        defaultCxxPlatform,
+        testTempDirOverride));
     builder.register(new ShBinaryDescription());
     builder.register(new ShTestDescription(defaultTestRuleTimeoutMs));
     ThriftBuckConfig thriftBuckConfig = new ThriftBuckConfig(config);

@@ -89,8 +89,9 @@ class BuckTool(object):
 
     def _environ_for_buck(self):
         env = os.environ.copy()
-        env['CLASSPATH'] = self._get_bootstrap_classpath()
-        env['BUCK_CLASSPATH'] = self._get_java_classpath()
+        env['CLASSPATH'] = str(self._get_bootstrap_classpath())
+        env['BUCK_CLASSPATH'] = str(self._get_java_classpath())
+        env['BUCK_TTY'] = str(int(sys.stdin.isatty()))
         # Buck overwrites these variables for a few purposes.
         # Pass them through with their original values for
         # tests that need them.
@@ -102,7 +103,6 @@ class BuckTool(object):
 
     def launch_buck(self, build_id):
         with Tracing('BuckRepo.launch_buck'):
-            self.kill_autobuild()
             if 'clean' in sys.argv:
                 self.kill_buckd()
 
@@ -235,7 +235,7 @@ class BuckTool(object):
             # Make sure the Unix domain socket doesn't exist before this call.
             try:
                 os.unlink(buck_socket_path)
-            except OSError, e:
+            except OSError as e:
                 if e.errno == errno.ENOENT:
                     # Socket didn't previously exist.
                     pass
@@ -265,15 +265,6 @@ class BuckTool(object):
                 return 0
 
             return returncode
-
-    def kill_autobuild(self):
-        autobuild_pid = self._buck_project.get_autobuild_pid()
-        if autobuild_pid:
-            if autobuild_pid.isdigit():
-                try:
-                    os.kill(autobuild_pid, signal.SIGTERM)
-                except OSError:
-                    pass
 
     def kill_buckd(self):
         with Tracing('BuckRepo.kill_buckd'):

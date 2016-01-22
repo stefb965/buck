@@ -74,3 +74,14 @@
   {/param}
 {/call}
 {/template}
+
+/***/
+{template .package_style_arg}
+{call buck.arg}
+  {param name : 'package_style' /}
+  {param default : 'None' /}
+  {param desc}
+  Used to override the global packaging style set with {call buckconfig.python_package_style /}.
+  {/param}
+{/call}
+{/template}

@@ -23,8 +23,10 @@ import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.BuildRuleEvent;
 import com.facebook.buck.rules.BuildRuleStatus;
 import com.facebook.buck.rules.IndividualTestEvent;
+import com.facebook.buck.rules.TestStatusMessageEvent;
 import com.facebook.buck.rules.TestRunEvent;
 import com.facebook.buck.test.TestResultSummaryVerbosity;
+import com.facebook.buck.test.TestStatusMessage;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.util.Console;
 import com.google.common.base.Joiner;
@@ -43,6 +45,8 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
   private final Locale locale;
   private final AtomicLong parseTime;
   private final TestResultFormatter testFormatter;
+  private final ImmutableList.Builder<TestStatusMessage> testStatusMessageBuilder =
+      ImmutableList.builder();
 
   public SimpleConsoleEventBusListener(
       Console console,
@@ -137,7 +141,11 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
   @Subscribe
   public void testRunCompleted(TestRunEvent.Finished event) {
     ImmutableList.Builder<String> lines = ImmutableList.builder();
-    testFormatter.runComplete(lines, event.getResults());
+    ImmutableList<TestStatusMessage> testStatusMessages;
+    synchronized (testStatusMessageBuilder) {
+      testStatusMessages = testStatusMessageBuilder.build();
+    }
+    testFormatter.runComplete(lines, event.getResults(), testStatusMessages);
     printLines(lines);
   }
 
@@ -184,6 +192,20 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
         lines);
 
     printLines(lines);
+  }
+
+  @Subscribe
+  public void testStatusMessageStarted(TestStatusMessageEvent.Started started) {
+    synchronized (testStatusMessageBuilder) {
+      testStatusMessageBuilder.add(started.getTestStatusMessage());
+    }
+  }
+
+  @Subscribe
+  public void testStatusMessageFinished(TestStatusMessageEvent.Finished finished) {
+    synchronized (testStatusMessageBuilder) {
+      testStatusMessageBuilder.add(finished.getTestStatusMessage());
+    }
   }
 
   private void printLines(ImmutableList.Builder<String> lines) {

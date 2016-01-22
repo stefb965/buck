@@ -33,6 +33,9 @@ java_library(
     '//test/com/facebook/buck/rules:testutil',
     '//third-party/java/guava:guava',
   ],
+  visibility = [
+    '//test/...',
+  ],
 )
 
 java_test(
@@ -63,6 +66,8 @@ java_test(
     '//src/com/facebook/buck/shell:rules',
     '//src/com/facebook/buck/shell:steps',
     '//src/com/facebook/buck/step:step',
+    '//src/com/facebook/buck/test/result/type:type',
+    '//src/com/facebook/buck/test:test',
     '//src/com/facebook/buck/timing:timing',
     '//src/com/facebook/buck/util:constants',
     '//src/com/facebook/buck/util:exceptions',

@@ -426,7 +426,7 @@ public class PythonBinaryDescriptionTest {
         new PythonBuckConfig(FakeBuckConfig.builder().build(), new AlwaysFoundExecutableFinder()) {
           @Override
           public NativeLinkStrategy getNativeLinkStrategy() {
-            return NativeLinkStrategy.SPEARATE;
+            return NativeLinkStrategy.SEPARATE;
           }
         };
     PythonBinaryBuilder binaryBuilder =
@@ -565,6 +565,30 @@ public class PythonBinaryDescriptionTest {
             binary.getComponents().getNativeLibraries().keySet(),
             Functions.toStringFunction()),
         Matchers.hasItem("libtransitive_cxx.so"));
+  }
+
+  @Test
+  public void packageStyleParam() throws Exception {
+    BuildRuleResolver resolver =
+        new BuildRuleResolver(TargetGraph.EMPTY, new BuildTargetNodeToBuildRuleTransformer());
+    PythonBinary pythonBinary =
+        (PythonBinary) PythonBinaryBuilder.create(BuildTargetFactory.newInstance("//:bin"))
+            .setMainModule("main")
+            .setPackageStyle(PythonBuckConfig.PackageStyle.INPLACE)
+            .build(resolver);
+    assertThat(
+        pythonBinary,
+        Matchers.instanceOf(PythonInPlaceBinary.class));
+    resolver =
+        new BuildRuleResolver(TargetGraph.EMPTY, new BuildTargetNodeToBuildRuleTransformer());
+    pythonBinary =
+        (PythonBinary) PythonBinaryBuilder.create(BuildTargetFactory.newInstance("//:bin"))
+            .setMainModule("main")
+            .setPackageStyle(PythonBuckConfig.PackageStyle.STANDALONE)
+            .build(resolver);
+    assertThat(
+        pythonBinary,
+        Matchers.instanceOf(PythonPackagedBinary.class));
   }
 
 }

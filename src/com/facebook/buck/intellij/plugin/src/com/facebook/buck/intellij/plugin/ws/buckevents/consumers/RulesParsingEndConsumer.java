@@ -21,9 +21,9 @@ import com.intellij.util.messages.Topic;
 import java.math.BigInteger;
 
 public interface RulesParsingEndConsumer {
-    Topic<RulesParsingEndConsumer> BUCK_PARSE_RULE_END = Topic.create(
-            "buck.parse-rule.end",
-            RulesParsingEndConsumer.class
-    );
-    void consumeParseRuleEnd(String build, BigInteger timestamp, int numRules);
+  Topic<RulesParsingEndConsumer> BUCK_PARSE_RULE_END = Topic.create(
+      "buck.parse-rule.end",
+      RulesParsingEndConsumer.class
+  );
+  void consumeParseRuleEnd(String build, BigInteger timestamp);
 }

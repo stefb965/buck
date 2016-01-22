@@ -28,6 +28,8 @@ import com.facebook.buck.artifact_cache.ArtifactCache;
 import com.facebook.buck.artifact_cache.ArtifactCacheBuckConfig;
 import com.facebook.buck.artifact_cache.ArtifactCaches;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
+import com.facebook.buck.counters.CounterRegistry;
+import com.facebook.buck.counters.CounterRegistryImpl;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.event.ConsoleEvent;
@@ -35,6 +37,7 @@ import com.facebook.buck.event.listener.AbstractConsoleEventBusListener;
 import com.facebook.buck.event.listener.ChromeTraceBuildListener;
 import com.facebook.buck.event.listener.FileSerializationEventBusListener;
 import com.facebook.buck.event.listener.JavaUtilsLoggingBuildListener;
+import com.facebook.buck.event.listener.LoadBalancerEventsListener;
 import com.facebook.buck.event.listener.LoggingBuildListener;
 import com.facebook.buck.event.listener.ProgressEstimator;
 import com.facebook.buck.event.listener.RemoteLogUploaderEventListener;
@@ -61,6 +64,7 @@ import com.facebook.buck.rules.KnownBuildRuleTypes;
 import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
+import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.test.TestConfig;
 import com.facebook.buck.test.TestResultSummaryVerbosity;
 import com.facebook.buck.timing.Clock;
@@ -136,11 +140,13 @@ import java.nio.file.StandardCopyOption;
 import java.text.SimpleDateFormat;
 import java.util.Arrays;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
@@ -177,7 +183,8 @@ public final class Main {
    */
   private static final String STATIC_CONTENT_DIRECTORY = System.getProperty(
       "buck.path_to_static_content", "webserver/static");
-  private static final int DISK_IO_STATS_TIMEOUT_SECONDS = 2;
+  private static final int DISK_IO_STATS_TIMEOUT_SECONDS = 10;
+  private static final int EXECUTOR_SERVICES_TIMEOUT_SECONDS = 60;
 
   private final PrintStream stdOut;
   private final PrintStream stdErr;
@@ -694,6 +701,7 @@ public final class Main {
     AndroidDirectoryResolver androidDirectoryResolver =
         new DefaultAndroidDirectoryResolver(
             filesystem,
+            androidBuckConfig.getBuildToolsVersion(),
             androidBuckConfig.getNdkVersion(),
             propertyFinder);
 
@@ -811,6 +819,11 @@ public final class Main {
       // when connecting. For now, we'll use the default from the server environment.
       Locale locale = Locale.getDefault();
 
+      // create a cached thread pool for cpu intensive tasks
+      Map<ExecutionContext.ExecutorPool, ExecutorService> executors =
+          new HashMap<ExecutionContext.ExecutorPool, ExecutorService>();
+      executors.put(ExecutionContext.ExecutorPool.CPU, Executors.newCachedThreadPool());
+
       // The order of resources in the try-with-resources block is important: the BuckEventBus must
       // be the last resource, so that it is closed first and can deliver its queued events to the
       // other resources before they are closed.
@@ -833,7 +846,13 @@ public final class Main {
            TempDirectoryCreator tempDirectoryCreator =
                new TempDirectoryCreator(testTempDirOverride);
            AsyncCloseable asyncCloseable = new AsyncCloseable(diskIoExecutorService);
-           BuckEventBus buildEventBus = new BuckEventBus(clock, buildId)) {
+           BuckEventBus buildEventBus = new BuckEventBus(clock, buildId);
+           // NOTE: This will only run during the lifetime of the process and will flush on close.
+           CounterRegistry counterRegistry = new CounterRegistryImpl(
+               MoreExecutors.newSingleThreadScheduledExecutor("CounterAggregatorThread"),
+               buildEventBus,
+               buckConfig.getCountersFirstFlushIntervalMillis(),
+               buckConfig.getCountersFlushIntervalMillis())) {
 
         buildEventBus.register(HANG_MONITOR.getHangMonitor());
 
@@ -861,11 +880,12 @@ public final class Main {
             console,
             consoleListener,
             rootCell.getKnownBuildRuleTypes(),
-            clientEnvironment);
+            clientEnvironment,
+            counterRegistry);
 
         VersionControlBuckConfig vcBuckConfig = new VersionControlBuckConfig(buckConfig);
 
-        if (vcBuckConfig.shouldGenerateStatistics()) {
+        if (!command.isReadOnly() && vcBuckConfig.shouldGenerateStatistics()) {
           vcStatsGenerator = new VersionControlStatsGenerator(
               diskIoExecutorService,
               new DefaultVersionControlCmdLineInterfaceFactory(
@@ -966,7 +986,8 @@ public final class Main {
                 processManager,
                 webServer,
                 buckConfig,
-                fileHashCache));
+                fileHashCache,
+                executors));
         // Wait for HTTP writes to complete.
         closeHttpExecutorService(
             cacheBuckConfig, Optional.of(buildEventBus), httpWriteExecutorService);
@@ -988,6 +1009,10 @@ public final class Main {
           // complete; the cleaner will ensure subsequent cleans are
           // serialized with this one.)
           TRASH_CLEANER.startCleaningDirectory();
+        }
+        // shut down the cached thread pools
+        for (ExecutionContext.ExecutorPool p: executors.keySet()) {
+          closeExecutorService(p.toString(), executors.get(p), EXECUTOR_SERVICES_TIMEOUT_SECONDS);
         }
       }
       if (context.isPresent() && !rootCell.getBuckConfig().getFlushEventsBeforeExit()) {
@@ -1012,7 +1037,7 @@ public final class Main {
         executorName,
         timeoutSeconds);
     executorService.awaitTermination(timeoutSeconds, TimeUnit.SECONDS);
-    if (!executorService.isShutdown()) {
+    if (!executorService.isTerminated()) {
       LOG.warn(
           "%s executor service is still running after shutdown request and " +
               "%s second timeout. Shutting down forcefully..",
@@ -1232,7 +1257,8 @@ public final class Main {
       Console console,
       AbstractConsoleEventBusListener consoleEventBusListener,
       KnownBuildRuleTypes knownBuildRuleTypes,
-      ImmutableMap<String, String> environment) throws InterruptedException {
+      ImmutableMap<String, String> environment,
+      CounterRegistry counterRegistry) throws InterruptedException {
     ImmutableList.Builder<BuckEventListener> eventListenersBuilder =
         ImmutableList.<BuckEventListener>builder()
             .add(new JavaUtilsLoggingBuildListener())
@@ -1288,6 +1314,8 @@ public final class Main {
               javacOptions,
               environment));
     }
+
+    eventListenersBuilder.add(new LoadBalancerEventsListener(counterRegistry));
 
     eventListenersBuilder.addAll(externalEventsListeners);
 

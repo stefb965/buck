@@ -200,6 +200,9 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
             'go_library',
             'go_test',
         ],
+        'groovy': [
+            'groovy_library',
+        ],
         'halide': [
             'halide_library',
         ],
@@ -284,6 +287,10 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
     {call .platformBuildRuleLink}
         {param platform: 'Go' /}
         {param rules: $platformRulesMap['go'] /}
+    {/call}
+    {call .platformBuildRuleLink}
+        {param platform: 'Groovy' /}
+        {param rules: $platformRulesMap['groovy'] /}
     {/call}
     {call .platformBuildRuleLink}
         {param platform: 'Halide' /}
@@ -613,6 +620,11 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
 {/template}
 
 /***/
+{template .groovy_library}
+{call .ruleLink}{param name : 'groovy_library' /}{/call}
+{/template}
+
+/***/
 {template .java_library}
 {call .ruleLink}{param name : 'java_library' /}{/call}
 {/template}
@@ -635,6 +647,11 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
 /***/
 {template .project_config}
 {call .ruleLink}{param name : 'project_config' /}{/call}
+{/template}
+
+/***/
+{template .prebuilt_cxx_library}
+{call .ruleLink}{param name : 'prebuilt_cxx_library' /}{/call}
 {/template}
 
 /***/
@@ -673,6 +690,11 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
 {/template}
 
 /***/
+{template .fn_include_defs}
+<a href="{ROOT}function/include_defs.html"><code>include_defs()</code></a>
+{/template}
+
+/***/
 {template .string_parameter_macros}
 <a href="{ROOT}function/string_parameter_macros.html">string parameter macros</a>
 {/template}
@@ -688,6 +710,11 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
 /***/
 {template .build_file}
 {call .concept_link}{param page: 'build_file' /}{param name: 'build file' /}{/call}
+{/template}
+
+/***/
+{template .build_rule}
+{call .concept_link}{param page: 'build_rule' /}{param name: 'build rule' /}{/call}
 {/template}
 
 /***/
@@ -751,15 +778,13 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
 {/template}
 
 /***/
-{template .cmd_uninstall}
-{call .cmd_link}{param name : 'uninstall' /}{/call}
+{template .cmd_test}
+{call .cmd_link}{param name: 'test' /}{/call}
 {/template}
 
-/**
- * @param section
- */
-{template .concept_buckconfig_section}
-<a href="{ROOT}concept/buckconfig.html#{$section}"><code>.buckconfig</code></a>
+/***/
+{template .cmd_uninstall}
+{call .cmd_link}{param name : 'uninstall' /}{/call}
 {/template}
 
 /***/
@@ -832,7 +857,7 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
   {param desc}
   If set specifies the maximum amount of time (in milliseconds) in which all of the tests in this
   rule should complete. This overrides the default <code>rule_timeout</code> if any has been
-  specified in {call buck.concept_buckconfig_section}{param section : 'test' /}{/call}.
+  specified in {call buckconfig.test_rule_timeout /}.
   {/param}
 {/call}
 {/template}

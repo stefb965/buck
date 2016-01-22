@@ -22,8 +22,11 @@ import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 
+import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
+
+import java.io.IOException;
 
 
 public class GroovyLibraryIntegrationTest {
@@ -32,51 +35,57 @@ public class GroovyLibraryIntegrationTest {
 
   private ProjectWorkspace workspace;
 
-  @Test
-  public void shouldCompileGroovyClass() throws Exception {
+  @Before
+  public void setUp() throws IOException {
     assumeTrue(System.getenv("GROOVY_HOME") != null);
 
     workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "groovy_library_description", tmp);
     workspace.setUp();
+  }
 
-    // Run `buck build`.
+  @Test
+  public void shouldCompileGroovyClass() throws Exception {
     ProjectWorkspace.ProcessResult buildResult =
         workspace.runBuckCommand("build", "//com/example/good:example");
     buildResult.assertSuccess("Build should have succeeded.");
-
-    workspace.verify();
   }
 
   @Test
   public void shouldCompileLibraryWithDependencyOnAnother() throws Exception {
-    assumeTrue(System.getenv("GROOVY_HOME") != null);
-
-    workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "groovy_library_description", tmp);
-    workspace.setUp();
-
-    // Run `buck build`.
     ProjectWorkspace.ProcessResult buildResult =
         workspace.runBuckCommand("build", "//com/example/child:child");
     buildResult.assertSuccess("Build should have succeeded.");
-
-    workspace.verify();
   }
 
   @Test
   public void shouldFailToCompileInvalidGroovyClass() throws Exception {
-    assumeTrue(System.getenv("GROOVY_HOME") != null);
-
-    workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "groovy_library_description", tmp);
-    workspace.setUp();
-
-    // Run `buck build`.
     ProjectWorkspace.ProcessResult buildResult =
         workspace.runBuckCommand("build", "//com/example/bad:fail");
     buildResult.assertFailure();
+  }
 
-    workspace.verify();
+  @Test
+  public void shouldCrossCompileWithJava() throws Exception {
+    ProjectWorkspace.ProcessResult buildResult =
+        workspace.runBuckCommand("build", "//com/example/xcompile:xcompile");
+    buildResult.assertSuccess();
+  }
+
+  @Test
+  public void javaOptionsArePassedThroughToTheJavacCompiler() throws Exception {
+    // The code inside requires java 7, but the source level is set to java 6.
+    ProjectWorkspace.ProcessResult buildResult =
+        workspace.runBuckCommand("build", "//com/example/modern:xcompile");
+
+    buildResult.assertFailure();
+  }
+
+  @Test
+  public void arbitraryJavaOptionsArePassedThrough() throws Exception {
+    ProjectWorkspace.ProcessResult buildResult =
+        workspace.runBuckCommand("build", "//com/example/javacextras:javacextras");
+
+    buildResult.assertFailure();
   }
 }

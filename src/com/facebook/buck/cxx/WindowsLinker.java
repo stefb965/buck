@@ -103,6 +103,16 @@ public class WindowsLinker implements Linker {
   }
 
   @Override
+  public Iterable<String> getNoAsNeededSharedLibsFlags() {
+    return ImmutableList.of();
+  }
+
+  @Override
+  public Iterable<String> getIgnoreUndefinedSymbolsFlags() {
+    return ImmutableList.of();
+  }
+
+  @Override
   public RuleKeyBuilder appendToRuleKey(RuleKeyBuilder builder) {
     return builder
         .setReflectively("tool", tool)

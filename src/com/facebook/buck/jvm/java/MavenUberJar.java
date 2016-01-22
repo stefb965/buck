@@ -28,14 +28,15 @@ import com.facebook.buck.step.fs.MkdirStep;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Ordering;
+import com.google.common.collect.Sets;
 
 import java.nio.file.Path;
 
@@ -63,7 +64,9 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
 
   private static BuildRuleParams adjustParams(BuildRuleParams params, TraversedDeps traversedDeps) {
     return params.copyWithDeps(
-        Suppliers.ofInstance(traversedDeps.builtinDeps),
+        Suppliers.ofInstance(
+            FluentIterable.from(traversedDeps.packagedDeps)
+                .toSortedSet(Ordering.<BuildRule>natural())),
         Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
   }
 
@@ -95,7 +98,7 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
     JarDirectoryStep mergeOutputsStep = new JarDirectoryStep(
         getProjectFilesystem(),
         pathToOutput,
-        toOutputPaths(traversedDeps.builtinDeps),
+        toOutputPaths(traversedDeps.packagedDeps),
         null,
         null);
     return ImmutableList.of(mkOutputDirStep, mergeOutputsStep);
@@ -131,8 +134,13 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
   }
 
   @Override
-  public ImmutableSortedSet<HasMavenCoordinates> getMavenDeps() {
+  public Iterable<HasMavenCoordinates> getMavenDeps() {
     return traversedDeps.mavenDeps;
+  }
+
+  @Override
+  public Iterable<BuildRule> getPackagedDependencies() {
+    return traversedDeps.packagedDeps;
   }
 
   public static class SourceJar extends JavaSourceJar implements MavenPublishable {
@@ -160,7 +168,7 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
 
       ImmutableSortedSet<SourcePath> sourcePaths =
           FluentIterable
-              .from(traversedDeps.builtinDeps)
+              .from(traversedDeps.packagedDeps)
               .filter(HasSources.class)
               .transformAndConcat(
                   new Function<HasSources, Iterable<SourcePath>>() {
@@ -180,48 +188,58 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
     }
 
     @Override
-    public ImmutableSortedSet<HasMavenCoordinates> getMavenDeps() {
-      return Preconditions.checkNotNull(traversedDeps).mavenDeps;
+    public Iterable<HasMavenCoordinates> getMavenDeps() {
+      return traversedDeps.mavenDeps;
+    }
+
+    @Override
+    public Iterable<BuildRule> getPackagedDependencies() {
+      return traversedDeps.packagedDeps;
     }
   }
 
   private static class TraversedDeps {
-    public final ImmutableSortedSet<HasMavenCoordinates> mavenDeps;
-    public final ImmutableSortedSet<BuildRule> builtinDeps;
+    public final Iterable<HasMavenCoordinates> mavenDeps;
+    public final Iterable<BuildRule> packagedDeps;
 
     private TraversedDeps(
-        ImmutableSortedSet<HasMavenCoordinates> mavenDeps,
-        ImmutableSortedSet<BuildRule> builtinDeps) {
+        Iterable<HasMavenCoordinates> mavenDeps,
+        Iterable<BuildRule> packagedDeps) {
       this.mavenDeps = mavenDeps;
-      this.builtinDeps = builtinDeps;
+      this.packagedDeps = packagedDeps;
     }
 
-    private static TraversedDeps traverse(ImmutableCollection<? extends BuildRule> roots) {
+    private static TraversedDeps traverse(ImmutableSet<? extends BuildRule> roots) {
       ImmutableSortedSet.Builder<HasMavenCoordinates> depsCollector =
           ImmutableSortedSet.naturalOrder();
-      ImmutableSortedSet.Builder<BuildRule> builtinCollector = ImmutableSortedSet.naturalOrder();
-      builtinCollector.addAll(roots);
 
-      for (BuildRule root : roots) {
-        traverseDepsRecursively(root, depsCollector, builtinCollector);
+      ImmutableSortedSet.Builder<JavaLibrary> candidates = ImmutableSortedSet.naturalOrder();
+      for (final BuildRule root : roots) {
+        Preconditions.checkState(root instanceof HasClasspathEntries);
+        candidates.addAll(FluentIterable
+            .from(((HasClasspathEntries) root).getTransitiveClasspathDeps())
+            .filter(new Predicate<JavaLibrary>() {
+              @Override
+              public boolean apply(JavaLibrary buildRule) {
+                return !root.equals(buildRule);
+              }
+            }));
       }
-
-      return new TraversedDeps(depsCollector.build(), builtinCollector.build());
-    }
-
-    private static void traverseDepsRecursively(
-        BuildRule visitedNode,
-        ImmutableSortedSet.Builder<HasMavenCoordinates> depsCollector,
-        ImmutableSortedSet.Builder<BuildRule> builtinsCollector) {
-      for (BuildRule dep : visitedNode.getDeps()) {
-        if (HasMavenCoordinates.MAVEN_COORDS_PRESENT_PREDICATE.apply(dep)) {
-          depsCollector.add((HasMavenCoordinates) dep);
-        } else {
-          builtinsCollector.add(dep);
-          traverseDepsRecursively(dep, depsCollector, builtinsCollector);
+      ImmutableSortedSet.Builder<JavaLibrary> removals = ImmutableSortedSet.naturalOrder();
+      for (JavaLibrary javaLibrary : candidates.build()) {
+        if (HasMavenCoordinates.MAVEN_COORDS_PRESENT_PREDICATE.apply(javaLibrary)) {
+          depsCollector.add(javaLibrary);
+          removals.addAll(javaLibrary.getTransitiveClasspathDeps());
         }
       }
 
+      return new TraversedDeps(
+          /* mavenDeps */ depsCollector.build(),
+          /* packagedDeps */ Sets.union(
+          roots,
+          Sets.difference(
+              candidates.build(),
+              removals.build())));
     }
   }
 }

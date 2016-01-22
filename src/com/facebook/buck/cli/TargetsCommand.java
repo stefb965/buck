@@ -54,6 +54,7 @@ import com.facebook.buck.rules.TargetNodes;
 import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreExceptions;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
@@ -78,6 +79,7 @@ import com.google.common.hash.HashCode;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
 
+import org.immutables.value.Value;
 import org.kohsuke.args4j.Argument;
 import org.kohsuke.args4j.Option;
 
@@ -86,8 +88,11 @@ import java.io.PrintStream;
 import java.io.StringWriter;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
 import java.util.SortedMap;
 import java.util.concurrent.Executor;
 
@@ -257,17 +262,29 @@ public class TargetsCommand extends AbstractCommand {
       throw new HumanReadableException("Cannot show rule key and target hash at the same time.");
     }
 
+    ImmutableMap<String, ShowOptions> showRulesResult =
+        ImmutableMap.of();
+
     try (CommandThreadManager pool = new CommandThreadManager(
         "Targets",
         params.getBuckConfig().getWorkQueueExecutionOrder(),
         getConcurrencyLimit(params.getBuckConfig()))) {
       if (isShowOutput() || isShowRuleKey() || isShowTargetHash()) {
         try {
-          return doShowRules(params, pool.getExecutor());
+          showRulesResult = computeShowRules(params, pool.getExecutor());
         } catch (NoSuchBuildTargetException e) {
           throw new HumanReadableException(
               "Error getting rules: %s",
               e.getHumanReadableErrorMessage());
+        } catch (BuildTargetException | BuildFileParseException e) {
+          params.getBuckEventBus().post(ConsoleEvent.severe(
+              MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
+          return 1;
+        }
+
+        if (!getPrintJson()) {
+          printShowRules(showRulesResult, params);
+          return 0;
         }
       }
 
@@ -356,7 +373,7 @@ public class TargetsCommand extends AbstractCommand {
       // Print out matching targets in alphabetical order.
       if (getPrintJson()) {
         try {
-          printJsonForTargets(params, matchingNodes);
+          printJsonForTargets(params, pool.getExecutor(), matchingNodes, showRulesResult);
         } catch (BuildFileParseException e) {
           params.getBuckEventBus().post(ConsoleEvent.severe(
               MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
@@ -370,8 +387,28 @@ public class TargetsCommand extends AbstractCommand {
         }
       }
     }
-
     return 0;
+  }
+
+  private void printShowRules(
+      Map<String, ShowOptions> showRulesResult,
+      CommandRunnerParams params) {
+    for (Entry<String, ShowOptions> entry : showRulesResult.entrySet()) {
+      ImmutableList.Builder<String> builder = ImmutableList.builder();
+      builder.add(entry.getKey());
+      ShowOptions showOptions = entry.getValue();
+      if (showOptions.getRuleKey().isPresent()) {
+        builder.add(showOptions.getRuleKey().get());
+      }
+      if (showOptions.getOutputPath().isPresent()) {
+        builder.add(showOptions.getOutputPath().get());
+      }
+      if (showOptions.getTargetHash().isPresent()) {
+        builder.add(showOptions.getTargetHash().get());
+      }
+      params.getConsole().getStdOut().println(Joiner.on(' ').join(builder.build()));
+    }
+
   }
 
   @Override
@@ -465,14 +502,14 @@ public class TargetsCommand extends AbstractCommand {
           ImmutableSortedSet<BuildTarget> tests =
               ((HasTests) node.getConstructorArg()).getTests();
           for (BuildTarget testTarget : tests) {
-            TargetNode<?> testNode = graph.get(testTarget);
-            if (testNode == null) {
+            Optional<TargetNode<?>> testNode = graph.getOptional(testTarget);
+            if (!testNode.isPresent()) {
               throw new HumanReadableException(
                   "'%s' (test of '%s') is not in the target graph.",
                   testTarget,
                   node);
             }
-            extraEdgesBuilder.put(testNode, node);
+            extraEdgesBuilder.put(testNode.get(), node);
           }
         }
 
@@ -480,7 +517,7 @@ public class TargetsCommand extends AbstractCommand {
           ImmutableSortedSet<BuildTarget> sourceUnderTest =
               ((HasSourceUnderTest) node.getConstructorArg()).getSourceUnderTest();
           for (BuildTarget sourceTarget : sourceUnderTest) {
-            TargetNode<?> sourceNode = Preconditions.checkNotNull(graph.get(sourceTarget));
+            TargetNode<?> sourceNode = graph.get(sourceTarget);
             extraEdgesBuilder.put(node, sourceNode);
           }
         }
@@ -512,28 +549,47 @@ public class TargetsCommand extends AbstractCommand {
   @VisibleForTesting
   void printJsonForTargets(
       CommandRunnerParams params,
-      SortedMap<String, TargetNode<?>> buildIndex)
+      Executor executor,
+      SortedMap<String, TargetNode<?>> buildIndex,
+      ImmutableMap<String, ShowOptions> showRulesResult)
       throws BuildFileParseException, IOException, InterruptedException {
     // Print the JSON representation of the build node for the specified target(s).
     params.getConsole().getStdOut().println("[");
 
     ObjectMapper mapper = params.getObjectMapper();
-    Iterator<TargetNode<?>> valueIterator = buildIndex.values().iterator();
+    Iterator<Entry<String, TargetNode<?>>> mapIterator = buildIndex.entrySet().iterator();
 
-    while (valueIterator.hasNext()) {
-      TargetNode<?> targetNode = valueIterator.next();
-
-      SortedMap<String, Object> sortedTargetRule = null;
+    while (mapIterator.hasNext()) {
+      Entry<String, TargetNode<?>> current = mapIterator.next();
+      String target = current.getKey();
+      TargetNode<?> targetNode = current.getValue();
+      SortedMap<String, Object> sortedTargetRule;
       sortedTargetRule = params.getParser().getRawTargetNode(
           params.getBuckEventBus(),
           params.getCell(),
           getEnableProfiling(),
+          executor,
           targetNode);
       if (sortedTargetRule == null) {
         params.getConsole().printErrorText(
             "unable to find rule for target " +
                 targetNode.getBuildTarget().getFullyQualifiedName());
         continue;
+      }
+      ShowOptions showOptions = showRulesResult.get(target);
+      if (showOptions != null) {
+        putIfValuePresent(
+            ShowOptionsName.RULE_KEY.getName(),
+            showOptions.getRuleKey(),
+            sortedTargetRule);
+        putIfValuePresent(
+            ShowOptionsName.OUTPUT_PATH.getName(),
+            showOptions.getOutputPath(),
+            sortedTargetRule);
+        putIfValuePresent(
+            ShowOptionsName.TARGET_HASH.getName(),
+            showOptions.getTargetHash(),
+            sortedTargetRule);
       }
 
       // Print the build rule information as JSON.
@@ -545,13 +601,22 @@ public class TargetsCommand extends AbstractCommand {
         throw Throwables.propagate(e);
       }
       String output = stringWriter.getBuffer().toString();
-      if (valueIterator.hasNext()) {
+      if (mapIterator.hasNext()) {
         output += ",";
       }
       params.getConsole().getStdOut().println(output);
     }
 
     params.getConsole().getStdOut().println("]");
+  }
+
+  private void putIfValuePresent(
+      String key,
+      Optional<String> value,
+      SortedMap<String, Object> targetMap) {
+    if (value.isPresent()) {
+      targetMap.put(key, value.get());
+    }
   }
 
   @VisibleForTesting
@@ -595,22 +660,24 @@ public class TargetsCommand extends AbstractCommand {
   }
 
   /**
-   * Assumes at least one target is specified.  Prints each of the
+   * Assumes at least one target is specified.  Computes each of the
    * specified targets, followed by the rule key, output path, and/or
    * target hash, depending on what flags are passed in.
+   * @return  An immutable map consisting of result of show options
+   * for to each target rule
    */
-  private int doShowRules(CommandRunnerParams params, Executor executor)
-      throws IOException, InterruptedException, NoSuchBuildTargetException {
+  private ImmutableMap<String, ShowOptions> computeShowRules(
+      CommandRunnerParams params,
+      Executor executor)
+      throws IOException, InterruptedException, BuildFileParseException, BuildTargetException {
     if (getArguments().isEmpty()) {
-      params.getBuckEventBus().post(ConsoleEvent.severe(
-          "Must specify at least one build target."));
-      return 1;
+      throw new HumanReadableException("Must specify at least one build target.");
     }
 
+    Map<String, ShowOptions.Builder> showOptionBuilderMap = new HashMap<>();
     ImmutableSet<BuildTarget> matchingBuildTargets;
     TargetGraph targetGraph;
-    try {
-      Pair<ImmutableSet<BuildTarget>, TargetGraph> result = params.getParser()
+      Pair<ImmutableSet<BuildTarget>, TargetGraph> res = params.getParser()
           .buildTargetGraphForTargetNodeSpecs(
               params.getBuckEventBus(),
               params.getCell(),
@@ -619,17 +686,17 @@ public class TargetsCommand extends AbstractCommand {
               parseArgumentsAsTargetNodeSpecs(
                   params.getBuckConfig(),
                   getArguments()));
-      matchingBuildTargets = result.getFirst();
-      targetGraph = result.getSecond();
+      matchingBuildTargets = res.getFirst();
+      targetGraph = res.getSecond();
 
       if (isShowTargetHash()) {
-        return doShowTargetHash(params, executor, matchingBuildTargets, targetGraph);
+        computeShowTargetHash(
+            params,
+            executor,
+            matchingBuildTargets,
+            targetGraph,
+            showOptionBuilderMap);
       }
-    } catch (BuildTargetException | BuildFileParseException e) {
-      params.getBuckEventBus().post(ConsoleEvent.severe(
-          MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
-      return 1;
-    }
 
     // We only need the action graph if we're showing the output or the keys, and the
     // RuleKeyBuilderFactory if we're showing the keys.
@@ -653,37 +720,47 @@ public class TargetsCommand extends AbstractCommand {
     }
 
     for (BuildTarget target : ImmutableSortedSet.copyOf(matchingBuildTargets)) {
-      ImmutableList.Builder<String> builder = ImmutableList.builder();
-      builder.add(target.getFullyQualifiedName());
+      ShowOptions.Builder showOptionsBuilder =
+          getShowOptionBuilder(showOptionBuilderMap, target);
+      Preconditions.checkNotNull(showOptionsBuilder);
       if (actionGraph.isPresent()) {
         BuildRule rule = buildRuleResolver.get().requireRule(target);
         if (isShowRuleKey()) {
-          builder.add(ruleKeyBuilderFactory.get().build(rule).toString());
+          showOptionsBuilder.setRuleKey(ruleKeyBuilderFactory.get().build(rule).toString());
         }
         if (isShowOutput()) {
-          Path outputPath;
-          if (rule instanceof BuildRuleWithAppleBundle) {
-            outputPath = ((BuildRuleWithAppleBundle) rule).getAppleBundle().getPathToOutput();
-          } else {
-            outputPath = rule.getPathToOutput();
-          }
-          if (outputPath != null) {
-            builder.add(outputPath.toString());
+          Optional<Path> outputPath = getUserFacingOutputPath(rule);
+          if (outputPath.isPresent()) {
+            showOptionsBuilder.setOutputPath(outputPath.get().toString());
           }
         }
       }
-      params.getConsole().getStdOut().println(Joiner.on(' ').join(builder.build()));
     }
 
-    return 0;
+    ImmutableMap.Builder<String, ShowOptions> builder =  new ImmutableMap.Builder<>();
+    for (Entry<String, ShowOptions.Builder> entry : showOptionBuilderMap.entrySet()) {
+      builder.put(entry.getKey(), entry.getValue().build());
+    }
+    return builder.build();
   }
 
-  private int doShowTargetHash(
+  public static Optional<Path> getUserFacingOutputPath(BuildRule rule) {
+    Path outputPath;
+    if (rule instanceof BuildRuleWithAppleBundle) {
+      outputPath = ((BuildRuleWithAppleBundle) rule).getAppleBundle().getPathToOutput();
+    } else {
+      outputPath = rule.getPathToOutput();
+    }
+    return Optional.fromNullable(outputPath);
+  }
+
+  private void computeShowTargetHash(
       CommandRunnerParams params,
       Executor executor,
       ImmutableSet<BuildTarget> matchingBuildTargets,
-      TargetGraph targetGraph)
-      throws IOException, InterruptedException, BuildFileParseException {
+      TargetGraph targetGraph,
+      Map<String, ShowOptions.Builder> showRulesResult)
+      throws IOException, InterruptedException, BuildFileParseException, BuildTargetException {
     LOG.debug("Getting target hash for %s", matchingBuildTargets);
 
     Iterable<BuildTarget> matchingBuildTargetsWithTests;
@@ -739,10 +816,7 @@ public class TargetsCommand extends AbstractCommand {
     // we can re-walk the graph for each target passed in to the command,
     // hashing the target, its deps, the tests, and their deps.
     for (BuildTarget target : matchingBuildTargets) {
-      TargetNode<?> targetNode = Preconditions.checkNotNull(
-          targetGraphWithTests.get(target),
-          "Could not find target %s in project graph",
-          target);
+      TargetNode<?> targetNode = targetGraphWithTests.get(target);
       ImmutableSet<TargetNode<?>> dependencyClosure =
           getDependencyClosure(targetGraphWithTests, targetNode);
 
@@ -773,13 +847,11 @@ public class TargetsCommand extends AbstractCommand {
         Preconditions.checkNotNull(dependencyHash, "Couldn't get hash for node: %s", nodeToHash);
         hasher.putBytes(dependencyHash.asBytes());
       }
-      params.getConsole().getStdOut().format(
-          "%s %s\n",
-          target.getFullyQualifiedName(),
-          hasher.hash().toString());
-    }
+      ShowOptions.Builder showOptionsBuilder = getShowOptionBuilder(showRulesResult, target);
+      String hash = hasher.hash().toString();
+      showOptionsBuilder.setTargetHash(hash);
 
-    return 0;
+    }
   }
 
   private ImmutableSet<TargetNode<?>> getDependencyClosure(
@@ -824,11 +896,15 @@ public class TargetsCommand extends AbstractCommand {
 
     // Get all valid targets in our target directory by reading the build file.
     ImmutableSet<TargetNode<?>> targetNodes;
-    try {
+    try (CommandThreadManager pool = new CommandThreadManager(
+        "Targets",
+        params.getBuckConfig().getWorkQueueExecutionOrder(),
+        getConcurrencyLimit(params.getBuckConfig()))) {
       targetNodes = parser.getAllTargetNodes(
           params.getBuckEventBus(),
           owningCell,
           getEnableProfiling(),
+          pool.getExecutor(),
           buildFile);
     } catch (BuildFileParseException e) {
       // TODO(jasta): this doesn't smell right!
@@ -889,6 +965,43 @@ public class TargetsCommand extends AbstractCommand {
       }
 
       return referencedInputs.contains(node.getBuildTarget().getBasePath().resolve(buildFileName));
+    }
+  }
+
+  private ShowOptions.Builder getShowOptionBuilder(
+      Map<String, ShowOptions.Builder> showRulesBuilderMap,
+      BuildTarget target) {
+    if (!showRulesBuilderMap.containsKey(target.getFullyQualifiedName())) {
+      ShowOptions.Builder builder = ShowOptions.builder();
+      showRulesBuilderMap.put(target.getFullyQualifiedName(), builder);
+      return builder;
+    }
+    return showRulesBuilderMap.get(target.getFullyQualifiedName());
+  }
+
+  @Value.Immutable
+  @BuckStyleImmutable
+  public abstract static class AbstractShowOptions {
+    public abstract Optional<String> getOutputPath();
+
+    public abstract Optional<String> getRuleKey();
+
+    public abstract Optional<String> getTargetHash();
+  }
+
+  private enum ShowOptionsName {
+    OUTPUT_PATH("buck.outputPath"),
+    TARGET_HASH("buck.targetHash"),
+    RULE_KEY("buck.ruleKey");
+
+    private String name;
+
+    ShowOptionsName(String name) {
+      this.name = name;
+    }
+
+    public String getName() {
+      return name;
     }
   }
 

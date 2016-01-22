@@ -16,6 +16,7 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
@@ -131,7 +132,7 @@ public class JavaTest
 
   private final Optional<Path> testTempDirOverride;
 
-  protected JavaTest(
+  public JavaTest(
       BuildRuleParams params,
       SourcePathResolver resolver,
       Set<SourcePath> srcs,
@@ -404,7 +405,10 @@ public class JavaTest
   /**
    * @return a test case result, named "main", signifying a failure of the entire test class.
    */
-  private TestCaseSummary getTestClassFailedSummary(String testClass, String message) {
+  private TestCaseSummary getTestClassFailedSummary(
+      String testClass,
+      String message,
+      long time) {
     return new TestCaseSummary(
         testClass,
         ImmutableList.of(
@@ -412,7 +416,7 @@ public class JavaTest
                 testClass,
                 "main",
                 ResultType.FAILURE,
-                0L,
+                time,
                 message,
                 "",
                 "",
@@ -462,7 +466,8 @@ public class JavaTest
             summaries.add(
                 getTestClassFailedSummary(
                     testClass,
-                    message));
+                    message,
+                    testRuleTimeoutMs.or(0L)));
           // Not having a test result file at all (which only happens when we are using test
           // selectors) is interpreted as meaning a test didn't run at all, so we'll completely
           // ignore it.  This is another result of the fact that JUnit is the only thing that can
@@ -543,13 +548,9 @@ public class JavaTest
 
       final Set<String> sourceClassNames = Sets.newHashSetWithExpectedSize(sources.size());
       for (Path path : sources) {
-        String source = path.toString();
-        int lastSlashIndex = source.lastIndexOf(File.separatorChar);
-        if (lastSlashIndex >= 0) {
-          source = source.substring(lastSlashIndex + 1);
-        }
-        source = source.substring(0, source.length() - ".java".length());
-        sourceClassNames.add(source);
+        // We support multiple languages in this rule - the file extension doesn't matter so long
+        // as the language supports filename == classname.
+        sourceClassNames.add(MorePaths.getNameWithoutExtension(path));
       }
 
       final ImmutableSet.Builder<String> testClassNames = ImmutableSet.builder();
@@ -566,7 +567,7 @@ public class JavaTest
           }
 
           // As a heuristic for case (2) as described in the Javadoc, make sure the name of the
-          // .class file matches the name of a .java file.
+          // .class file matches the name of a .java/.scala/.xxx file.
           String nameWithoutDotClass = name.substring(0, name.length() - ".class".length());
           if (!sourceClassNames.contains(nameWithoutDotClass)) {
             return;

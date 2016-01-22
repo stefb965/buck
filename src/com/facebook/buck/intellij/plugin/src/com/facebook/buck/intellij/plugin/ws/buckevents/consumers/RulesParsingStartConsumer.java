@@ -22,7 +22,7 @@ import java.math.BigInteger;
 
 public interface RulesParsingStartConsumer {
     Topic<RulesParsingStartConsumer> BUCK_PARSE_RULE_START = Topic.create(
-            "buck.parse-rule.end",
+            "buck.parse-rule.start",
             RulesParsingStartConsumer.class
     );
     void consumeParseRuleStart(String build, BigInteger timestamp);

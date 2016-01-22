@@ -45,7 +45,6 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.keys.AbiRule;
 import com.facebook.buck.shell.AbstractGenruleStep;
-import com.facebook.buck.shell.EchoStep;
 import com.facebook.buck.shell.SymlinkFilesIntoDirectoryStep;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
@@ -186,6 +185,7 @@ public class AndroidBinary
   @AddToRuleKey
   private final Optional<SourcePath> proguardJarOverride;
   private final String proguardMaxHeapSize;
+  private final Optional<String> proguardAgentPath;
   @AddToRuleKey
   private final ResourceCompressionMode resourceCompressionMode;
   @AddToRuleKey
@@ -216,6 +216,7 @@ public class AndroidBinary
       SourcePathResolver resolver,
       Optional<SourcePath> proguardJarOverride,
       String proguardMaxHeapSize,
+      Optional<String> proguardAgentPath,
       Keystore keystore,
       PackageType packageType,
       DexSplitMode dexSplitMode,
@@ -241,6 +242,7 @@ public class AndroidBinary
     super(params, resolver);
     this.proguardJarOverride = proguardJarOverride;
     this.proguardMaxHeapSize = proguardMaxHeapSize;
+    this.proguardAgentPath = proguardAgentPath;
     this.keystore = keystore;
     this.packageType = packageType;
     this.dexSplitMode = dexSplitMode;
@@ -577,13 +579,6 @@ public class AndroidBinary
         apkPath);
     steps.add(zipalign);
 
-    // Inform the user where the APK can be found.
-    EchoStep success = new EchoStep(
-        String.format("built APK for %s at %s",
-            getBuildTarget().getFullyQualifiedName(),
-            apkPath));
-    steps.add(success);
-
     buildableContext.recordArtifact(getApkPath());
     return steps.build();
   }
@@ -851,6 +846,7 @@ public class AndroidBinary
             Optional.of(getResolver().getAbsolutePath(proguardJarOverride.get())) :
             Optional.<Path>absent(),
         proguardMaxHeapSize,
+        proguardAgentPath,
         proguardConfigDir.resolve("proguard.txt"),
         proguardConfigsBuilder.build(),
         sdkProguardConfig,

@@ -457,7 +457,8 @@ public class CxxLibraryDescription implements
             .addAll(SourcePathArg.from(pathResolver, objects.values()))
             .build(),
         linkableDepType,
-        params.getDeps(),
+        FluentIterable.from(params.getDeps())
+            .filter(NativeLinkable.class),
         cxxRuntimeType,
         bundleLoader,
         blacklist,
@@ -943,8 +944,7 @@ public class CxxLibraryDescription implements
         resolver,
         pathResolver,
         FluentIterable.from(args.exportedDeps.get())
-            .transform(resolver.getRuleFunction())
-            .filter(NativeLinkable.class),
+            .transform(resolver.getRuleFunction()),
         Predicates.not(hasObjects),
         new Function<CxxPlatform, ImmutableMultimap<CxxSource.Type, String>>() {
           @Override

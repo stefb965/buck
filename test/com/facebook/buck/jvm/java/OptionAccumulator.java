@@ -22,7 +22,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-class OptionAccumulator implements AbstractJavacOptions.OptionsConsumer {
+class OptionAccumulator implements OptionsConsumer {
   public final Map<String, String> keyVals = new HashMap<String, String>();
   public final List<String> flags = new ArrayList<String>();
   public final List<String> extras = new ArrayList<String>();
