@@ -72,7 +72,7 @@ import java.util.Set;
 import javax.annotation.Nullable;
 
 /**
- * Suppose this were a rule defined in <code>src/com/facebook/feed/BUILD</code>:
+ * Suppose this were a rule defined in <code>src/com/facebook/feed/BUCK</code>:
  * <pre>
  * java_library(
  *   name = 'feed',
@@ -483,7 +483,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
           declared,
           outputDirectory,
           workingDirectory,
-          Optional.of(pathToSrcsList),
+          pathToSrcsList,
           Optional.of(suggestBuildRule),
           postprocessClassesCommands,
           ImmutableSortedSet.of(outputDirectory),

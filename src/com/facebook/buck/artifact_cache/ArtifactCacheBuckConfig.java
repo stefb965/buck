@@ -16,8 +16,6 @@
 
 package com.facebook.buck.artifact_cache;
 
-import static com.facebook.buck.util.BuckConstant.DEFAULT_CACHE_DIR;
-
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.cli.SlbBuckConfig;
 import com.facebook.buck.util.HumanReadableException;
@@ -59,13 +57,15 @@ public class ArtifactCacheBuckConfig {
   private static final String HTTP_TIMEOUT_SECONDS_FIELD_NAME = "http_timeout_seconds";
   private static final String HTTP_READ_HEADERS_FIELD_NAME = "http_read_headers";
   private static final String HTTP_WRITE_HEADERS_FIELD_NAME = "http_write_headers";
+  private static final String HTTP_CACHE_ERROR_MESSAGE_NAME = "http_error_message_format";
   private static final ImmutableSet<String> HTTP_CACHE_DESCRIPTION_FIELDS = ImmutableSet.of(
       HTTP_URL_FIELD_NAME,
       HTTP_BLACKLISTED_WIFI_SSIDS_FIELD_NAME,
       HTTP_MODE_FIELD_NAME,
       HTTP_TIMEOUT_SECONDS_FIELD_NAME,
       HTTP_READ_HEADERS_FIELD_NAME,
-      HTTP_WRITE_HEADERS_FIELD_NAME);
+      HTTP_WRITE_HEADERS_FIELD_NAME,
+      HTTP_CACHE_ERROR_MESSAGE_NAME);
 
   // List of names of cache-* sections that contain the fields above. This is used to emulate
   // dicts, essentially.
@@ -76,6 +76,8 @@ public class ArtifactCacheBuckConfig {
   private static final long DEFAULT_HTTP_CACHE_TIMEOUT_SECONDS = 3L;
   private static final String DEFAULT_HTTP_MAX_CONCURRENT_WRITES = "1";
   private static final String DEFAULT_HTTP_WRITE_SHUTDOWN_TIMEOUT_SECONDS = "1800"; // 30 minutes
+  private static final String DEFAULT_HTTP_CACHE_ERROR_MESSAGE =
+      "{cache_name} cache encountered an error: {error_message}";
 
   private static final String SERVED_CACHE_ENABLED_FIELD_NAME = "serve_local_cache";
   private static final String DEFAULT_SERVED_CACHE_MODE = CacheReadMode.readonly.name();
@@ -83,6 +85,10 @@ public class ArtifactCacheBuckConfig {
   private static final String LOAD_BALANCING_TYPE = "load_balancing_type";
   private static final LoadBalancingType DEFAULT_LOAD_BALANCING_TYPE =
       LoadBalancingType.SINGLE_SERVER;
+
+  private static final String TWO_LEVEL_CACHING_ENABLED_FIELD_NAME = "two_level_cache_enabled";
+  private static final String TWO_LEVEL_CACHING_THRESHOLD_FIELD_NAME = "two_level_cache_threshold";
+  private static final long TWO_LEVEL_CACHING_THRESHOLD_DEFAULT = 20 * 1024L;
 
   public enum LoadBalancingType {
     SINGLE_SERVER,
@@ -133,7 +139,12 @@ public class ArtifactCacheBuckConfig {
   }
 
   public ImmutableList<String> getArtifactCacheModesRaw() {
-    return buckConfig.getListWithoutComments(CACHE_SECTION_NAME, "mode");
+    // If there is a user-set value, even if it is `mode =`, use it.
+    if (buckConfig.hasUserDefinedValue(CACHE_SECTION_NAME, "mode")) {
+      return buckConfig.getListWithoutComments(CACHE_SECTION_NAME, "mode");
+    }
+    // Otherwise, we default to using the directory cache.
+    return ImmutableList.of("dir");
   }
 
   public ImmutableSet<ArtifactCacheMode> getArtifactCacheModes() {
@@ -186,12 +197,31 @@ public class ArtifactCacheBuckConfig {
     return result.build();
   }
 
+  public boolean getTwoLevelCachingEnabled() {
+    return buckConfig.getBooleanValue(
+        CACHE_SECTION_NAME,
+        TWO_LEVEL_CACHING_ENABLED_FIELD_NAME,
+        false);
+  }
+
+  public long getTwoLevelCachingThreshold() {
+    return buckConfig.getValue(CACHE_SECTION_NAME, TWO_LEVEL_CACHING_THRESHOLD_FIELD_NAME)
+        .transform(
+            new Function<String, Long>() {
+              @Override
+              public Long apply(String input) {
+                return SizeUnit.parseBytes(input);
+              }
+            })
+        .or(TWO_LEVEL_CACHING_THRESHOLD_DEFAULT);
+  }
+
   private CacheReadMode getDirCacheReadMode() {
     return getCacheReadMode(CACHE_SECTION_NAME, "dir_mode", DEFAULT_DIR_CACHE_MODE);
   }
 
   private Path getCacheDir() {
-    String cacheDir = buckConfig.getValue(CACHE_SECTION_NAME, "dir").or(DEFAULT_CACHE_DIR);
+    String cacheDir = buckConfig.getLocalCacheDirectory();
     Path pathToCacheDir = buckConfig.resolvePathThatMayBeOutsideTheProjectFilesystem(
         Paths.get(
             cacheDir));
@@ -253,6 +283,10 @@ public class ArtifactCacheBuckConfig {
     return ImmutableSet.copyOf(httpCacheNames);
   }
 
+  private String getCacheErrorFormatMessage(String section, String fieldName, String defaultValue) {
+    return buckConfig.getValue(section, fieldName).or(defaultValue);
+  }
+
   private HttpCacheEntry obtainEntryForName(Optional<String> cacheName) {
     final String section = Joiner.on('#').skipNulls().join(CACHE_SECTION_NAME, cacheName.orNull());
 
@@ -268,6 +302,11 @@ public class ArtifactCacheBuckConfig {
         buckConfig.getListWithoutComments(section, HTTP_BLACKLISTED_WIFI_SSIDS_FIELD_NAME));
     builder.setCacheReadMode(
         getCacheReadMode(section, HTTP_MODE_FIELD_NAME, DEFAULT_HTTP_CACHE_MODE));
+    builder.setErrorMessageFormat(
+        getCacheErrorFormatMessage(
+            section,
+            HTTP_CACHE_ERROR_MESSAGE_NAME,
+            DEFAULT_HTTP_CACHE_ERROR_MESSAGE));
     return builder.build();
   }
 
@@ -334,6 +373,7 @@ public class ArtifactCacheBuckConfig {
     public abstract ImmutableMap<String, String> getWriteHeaders();
     public abstract CacheReadMode getCacheReadMode();
     protected abstract ImmutableSet<String> getBlacklistedWifiSsids();
+    public abstract String getErrorMessageFormat();
 
     public boolean isWifiUsableForDistributedCache(Optional<String> currentWifiSsid) {
       if (currentWifiSsid.isPresent() &&

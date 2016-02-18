@@ -21,10 +21,10 @@ import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.Linker;
-import com.facebook.buck.cxx.TypeAndPlatform;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Either;
 import com.facebook.buck.model.Flavor;
+import com.facebook.buck.model.FlavorConvertible;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.Flavored;
 import com.facebook.buck.model.ImmutableFlavor;
@@ -65,8 +65,8 @@ public class AppleLibraryDescription implements
       CxxDescriptionEnhancer.STATIC_FLAVOR,
       CxxDescriptionEnhancer.SHARED_FLAVOR,
       AppleDescriptions.FRAMEWORK_FLAVOR,
-      AppleDebugFormat.DWARF_AND_DSYM_FLAVOR,
-      AppleDebugFormat.NO_DEBUG_FLAVOR,
+      AppleDebugFormat.DWARF_AND_DSYM.getFlavor(),
+      AppleDebugFormat.NONE.getFlavor(),
       ImmutableFlavor.of("default"));
 
   private static final Predicate<Flavor> IS_SUPPORTED_FLAVOR = new Predicate<Flavor>() {
@@ -76,34 +76,32 @@ public class AppleLibraryDescription implements
     }
   };
 
-  private enum Type {
-    HEADERS,
-    EXPORTED_HEADERS,
-    SHARED,
-    STATIC_PIC,
-    STATIC,
-    MACH_O_BUNDLE,
-    FRAMEWORK,
+  private enum Type implements FlavorConvertible {
+    HEADERS(CxxDescriptionEnhancer.HEADER_SYMLINK_TREE_FLAVOR),
+    EXPORTED_HEADERS(CxxDescriptionEnhancer.EXPORTED_HEADER_SYMLINK_TREE_FLAVOR),
+    SHARED(CxxDescriptionEnhancer.SHARED_FLAVOR),
+    STATIC_PIC(CxxDescriptionEnhancer.STATIC_PIC_FLAVOR),
+    STATIC(CxxDescriptionEnhancer.STATIC_FLAVOR),
+    MACH_O_BUNDLE(CxxDescriptionEnhancer.MACH_O_BUNDLE_FLAVOR),
+    FRAMEWORK(AppleDescriptions.FRAMEWORK_FLAVOR),
     ;
+
+    private final Flavor flavor;
+
+    Type(Flavor flavor) {
+      this.flavor = flavor;
+    }
+
+    @Override
+    public Flavor getFlavor() {
+      return flavor;
+    }
   }
 
   public static final FlavorDomain<Type> LIBRARY_TYPE =
-      new FlavorDomain<>(
-          "C/C++ Library Type",
-          ImmutableMap.<Flavor, Type>builder()
-              .put(CxxDescriptionEnhancer.HEADER_SYMLINK_TREE_FLAVOR, Type.HEADERS)
-              .put(
-                  CxxDescriptionEnhancer.EXPORTED_HEADER_SYMLINK_TREE_FLAVOR,
-                  Type.EXPORTED_HEADERS)
-              .put(CxxDescriptionEnhancer.SHARED_FLAVOR, Type.SHARED)
-              .put(CxxDescriptionEnhancer.STATIC_PIC_FLAVOR, Type.STATIC_PIC)
-              .put(CxxDescriptionEnhancer.STATIC_FLAVOR, Type.STATIC)
-              .put(CxxDescriptionEnhancer.MACH_O_BUNDLE_FLAVOR, Type.MACH_O_BUNDLE)
-              .put(AppleDescriptions.FRAMEWORK_FLAVOR, Type.FRAMEWORK)
-              .build());
+      FlavorDomain.from("C/C++ Library Type", Type.class);
 
   private final CxxLibraryDescription delegate;
-  private final FlavorDomain<CxxPlatform> cxxPlatformFlavorDomain;
   private final ImmutableMap<Flavor, AppleCxxPlatform> platformFlavorsToAppleCxxPlatforms;
   private final CxxPlatform defaultCxxPlatform;
   private final CodeSignIdentityStore codeSignIdentityStore;
@@ -111,13 +109,11 @@ public class AppleLibraryDescription implements
 
   public AppleLibraryDescription(
       CxxLibraryDescription delegate,
-      FlavorDomain<CxxPlatform> cxxPlatformFlavorDomain,
       ImmutableMap<Flavor, AppleCxxPlatform> platformFlavorsToAppleCxxPlatforms,
       CxxPlatform defaultCxxPlatform,
       CodeSignIdentityStore codeSignIdentityStore,
       ProvisioningProfileStore provisioningProfileStore) {
     this.delegate = delegate;
-    this.cxxPlatformFlavorDomain = cxxPlatformFlavorDomain;
     this.platformFlavorsToAppleCxxPlatforms = platformFlavorsToAppleCxxPlatforms;
     this.defaultCxxPlatform = defaultCxxPlatform;
     this.codeSignIdentityStore = codeSignIdentityStore;
@@ -151,7 +147,7 @@ public class AppleLibraryDescription implements
     if (type.isPresent() && type.get().getValue().equals(Type.FRAMEWORK)) {
       if (!args.infoPlist.isPresent()) {
         throw new HumanReadableException(
-            "Cannot create framework for apple_library '%s':\n",
+            "Cannot create framework for apple_library '%s':\n" +
             "No value specified for 'info_plist' attribute.",
             params.getBuildTarget().getUnflavoredBuildTarget());
       }
@@ -163,7 +159,7 @@ public class AppleLibraryDescription implements
       }
 
       return AppleDescriptions.createAppleBundle(
-          cxxPlatformFlavorDomain,
+          delegate.getCxxPlatforms(),
           defaultCxxPlatform,
           platformFlavorsToAppleCxxPlatforms,
           targetGraph,
@@ -199,10 +195,6 @@ public class AppleLibraryDescription implements
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
 
     CxxLibraryDescription.Arg delegateArg = delegate.createUnpopulatedConstructorArg();
-    TypeAndPlatform typeAndPlatform =
-        CxxLibraryDescription.getTypeAndPlatform(
-            params.getBuildTarget(),
-            cxxPlatformFlavorDomain);
     AppleDescriptions.populateCxxLibraryDescriptionArg(
         pathResolver,
         delegateArg,
@@ -213,7 +205,6 @@ public class AppleLibraryDescription implements
         params,
         resolver,
         delegateArg,
-        typeAndPlatform,
         linkableDepType,
         bundleLoader,
         blacklist);
@@ -231,7 +222,7 @@ public class AppleLibraryDescription implements
     if (!buildTarget.getFlavors().contains(AppleDescriptions.FRAMEWORK_FLAVOR)) {
       return Optional.absent();
     }
-    Optional<Flavor> cxxPlatformFlavor = cxxPlatformFlavorDomain.getFlavor(buildTarget);
+    Optional<Flavor> cxxPlatformFlavor = delegate.getCxxPlatforms().getFlavor(buildTarget);
     Preconditions.checkState(
         cxxPlatformFlavor.isPresent(),
         "Could not find cxx platform in:\n%s",

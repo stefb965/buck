@@ -26,6 +26,7 @@ import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.SourcePath;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 public class PythonBinaryBuilder extends AbstractNodeBuilder<PythonBinaryDescription.Arg> {
@@ -92,6 +93,11 @@ public class PythonBinaryBuilder extends AbstractNodeBuilder<PythonBinaryDescrip
     return this;
   }
 
+  public PythonBinaryBuilder setPreloadDeps(ImmutableSet<BuildTarget> deps) {
+    arg.preloadDeps = Optional.fromNullable(deps);
+    return this;
+  }
+
   public PythonBinaryBuilder setPlatform(String platform) {
     arg.platform = Optional.of(platform);
     return this;
@@ -99,6 +105,11 @@ public class PythonBinaryBuilder extends AbstractNodeBuilder<PythonBinaryDescrip
 
   public PythonBinaryBuilder setPackageStyle(PythonBuckConfig.PackageStyle packageStyle) {
     arg.packageStyle = Optional.of(packageStyle);
+    return this;
+  }
+
+  public PythonBinaryBuilder setLinkerFlags(ImmutableList<String> linkerFlags) {
+    arg.linkerFlags = Optional.of(linkerFlags);
     return this;
   }
 

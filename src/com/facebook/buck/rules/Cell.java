@@ -268,6 +268,10 @@ public class Cell {
     return buildFile;
   }
 
+  public Watchman getWatchman() {
+    return watchman;
+  }
+
   /**
    * Callers are responsible for managing the life-cycle of the created {@link
    * ProjectBuildFileParser}.
@@ -299,6 +303,7 @@ public class Cell {
             .setUseWatchmanGlob(useWatchmanGlob)
             .setWatchman(watchman)
             .setWatchmanQueryTimeoutMs(parserConfig.getWatchmanQueryTimeoutMs())
+            .setRawConfig(getBuckConfig().getRawConfigForParser())
             .build());
   }
 

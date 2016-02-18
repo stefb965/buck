@@ -19,6 +19,7 @@ package com.facebook.buck.json;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.facebook.buck.bser.BserDeserializer;
+import com.facebook.buck.bser.BserSerializer;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.PerfEventId;
@@ -40,11 +41,15 @@ import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
+import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.io.Resources;
 
+import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;
@@ -60,6 +65,8 @@ import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
 
 import javax.annotation.Nullable;
 
@@ -87,6 +94,7 @@ public class ProjectBuildFileParser implements AutoCloseable {
   private final ImmutableMap<String, String> environment;
 
   private Optional<Path> pathToBuckPy;
+  private Supplier<Path> rawConfigJson;
 
   @Nullable private ProcessExecutor.LaunchedProcess buckPyProcess;
   @Nullable private BufferedWriter buckPyStdinWriter;
@@ -96,19 +104,22 @@ public class ProjectBuildFileParser implements AutoCloseable {
   private final BuckEventBus buckEventBus;
   private final ProcessExecutor processExecutor;
   private final BserDeserializer bserDeserializer;
+  private final BserSerializer bserSerializer;
 
   private boolean isInitialized;
   private boolean isClosed;
 
   private boolean enableProfiling;
   @Nullable private NamedTemporaryFile profileOutputFile;
-  @Nullable private Thread stderrConsumer;
+  @Nullable private FutureTask<Void> stderrConsumerTerminationFuture;
+  @Nullable private Thread stderrConsumerThread;
   @Nullable private ProjectBuildFileParseEvents.Started projectBuildFileParseEventStarted;
 
   protected ProjectBuildFileParser(
       ProjectBuildFileParserOptions options,
       ConstructorArgMarshaller marshaller,
       ImmutableMap<String, String> environment,
+      final ImmutableMap<String, ImmutableMap<String, String>> rawConfig,
       BuckEventBus buckEventBus,
       ProcessExecutor processExecutor) {
     this.pathToBuckPy = Optional.absent();
@@ -118,6 +129,26 @@ public class ProjectBuildFileParser implements AutoCloseable {
     this.buckEventBus = buckEventBus;
     this.processExecutor = processExecutor;
     this.bserDeserializer = new BserDeserializer(BserDeserializer.KeyOrdering.SORTED);
+    this.bserSerializer = new BserSerializer();
+
+    this.rawConfigJson =
+        Suppliers.memoize(
+            new Supplier<Path>() {
+              @Override
+              public Path get() {
+                try {
+                  Path rawConfigJson = Files.createTempFile("raw_config", ".json");
+                  Files.createDirectories(rawConfigJson.getParent());
+                  try (OutputStream output =
+                           new BufferedOutputStream(Files.newOutputStream(rawConfigJson))) {
+                    bserSerializer.serializeToStream(rawConfig, output);
+                  }
+                  return rawConfigJson;
+                } catch (IOException e) {
+                  throw Throwables.propagate(e);
+                }
+              }
+            });
   }
 
   public void setEnableProfiling(boolean enableProfiling) {
@@ -173,18 +204,20 @@ public class ProjectBuildFileParser implements AutoCloseable {
       OutputStream stdin = buckPyProcess.getOutputStream();
       InputStream stderr = buckPyProcess.getErrorStream();
 
-      stderrConsumer = Threads.namedThread(
+      InputStreamConsumer stderrConsumer = new InputStreamConsumer(
+          stderr,
+          new InputStreamConsumer.Handler() {
+            @Override
+            public void handleLine(String line) {
+              buckEventBus.post(
+                  ConsoleEvent.warning("Warning raised by BUCK file parser: %s", line));
+            }
+          });
+      stderrConsumerTerminationFuture = new FutureTask<>(stderrConsumer);
+      stderrConsumerThread = Threads.namedThread(
           ProjectBuildFileParser.class.getSimpleName(),
-          new InputStreamConsumer(
-              stderr,
-              new InputStreamConsumer.Handler() {
-                @Override
-                public void handleLine(String line) {
-                  buckEventBus.post(
-                      ConsoleEvent.warning("Warning raised by BUCK file parser: %s", line));
-                }
-              }));
-      stderrConsumer.start();
+          stderrConsumerTerminationFuture);
+      stderrConsumerThread.start();
 
       buckPyStdinWriter = new BufferedWriter(new OutputStreamWriter(stdin));
     }
@@ -250,6 +283,9 @@ public class ProjectBuildFileParser implements AutoCloseable {
       argBuilder.add(include);
     }
 
+    // Add all config settings.
+    argBuilder.add("--config", rawConfigJson.get().toString());
+
     return argBuilder.build();
   }
 
@@ -262,8 +298,8 @@ public class ProjectBuildFileParser implements AutoCloseable {
       throws BuildFileParseException, InterruptedException {
     List<Map<String, Object>> result = getAllRulesAndMetaRules(buildFile);
 
-    // Strip out the __includes meta rule, which is the last rule.
-    return Collections.unmodifiableList(result.subList(0, result.size() - 1));
+    // Strip out the __includes and __configs meta rules, which are the last rules.
+    return Collections.unmodifiableList(result.subList(0, result.size() - 2));
   }
 
   /**
@@ -388,7 +424,7 @@ public class ProjectBuildFileParser implements AutoCloseable {
 
   @Override
   @SuppressWarnings("PMD.EmptyCatchBlock")
-  public void close() throws BuildFileParseException, InterruptedException {
+  public void close() throws BuildFileParseException, InterruptedException, IOException {
     if (isClosed) {
       return;
     }
@@ -408,9 +444,20 @@ public class ProjectBuildFileParser implements AutoCloseable {
           // to write.
         }
 
-        if (stderrConsumer != null) {
-          stderrConsumer.join();
-          stderrConsumer = null;
+        if (stderrConsumerThread != null) {
+          stderrConsumerThread.join();
+          stderrConsumerThread = null;
+          try {
+            Preconditions.checkNotNull(stderrConsumerTerminationFuture).get();
+          } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof IOException) {
+              throw (IOException) cause;
+            } else {
+              throw new RuntimeException(e);
+            }
+          }
+          stderrConsumerTerminationFuture = null;
         }
 
         if (enableProfiling && profileOutputFile != null) {
@@ -532,4 +579,5 @@ public class ProjectBuildFileParser implements AutoCloseable {
     pathToBuckPy = Optional.of(normalizedBuckDotPyPath);
     LOG.debug("Created temporary buck.py instance at %s.", normalizedBuckDotPyPath);
   }
+
 }

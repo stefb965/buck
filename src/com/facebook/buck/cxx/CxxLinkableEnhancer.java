@@ -17,6 +17,7 @@
 package com.facebook.buck.cxx;
 
 import com.facebook.buck.io.MorePaths;
+import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
@@ -48,6 +49,7 @@ import java.nio.file.Path;
 import java.util.EnumSet;
 
 public class CxxLinkableEnhancer {
+  private static final Logger LOG = Logger.get(CxxLinkableEnhancer.class);
 
   private static final EnumSet<Linker.LinkType> SONAME_REQUIRED_LINK_TYPES = EnumSet.of(
       Linker.LinkType.SHARED,
@@ -115,6 +117,9 @@ public class CxxLinkableEnhancer {
   /**
    * Construct a {@link CxxLink} rule that builds a native linkable from top-level input objects
    * and a dependency tree of {@link NativeLinkable} dependencies.
+   *
+   * @param nativeLinkableDeps library dependencies that the linkable links in
+   * @param immediateLinkableInput framework and libraries of the linkable itself
    */
   public static CxxLink createCxxLinkableBuildRule(
       CxxPlatform cxxPlatform,
@@ -124,13 +129,12 @@ public class CxxLinkableEnhancer {
       Linker.LinkType linkType,
       Optional<String> soname,
       Path output,
-      ImmutableList<Arg> args,
       Linker.LinkableDepType depType,
       Iterable<? extends NativeLinkable> nativeLinkableDeps,
       Optional<Linker.CxxRuntimeType> cxxRuntimeType,
       Optional<SourcePath> bundleLoader,
       ImmutableSet<BuildTarget> blacklist,
-      ImmutableSet<FrameworkPath> frameworks) throws NoSuchBuildTargetException {
+      NativeLinkableInput immediateLinkableInput) throws NoSuchBuildTargetException {
 
     // Soname should only ever be set when linking a "shared" library.
     Preconditions.checkState(!soname.isPresent() || SONAME_REQUIRED_LINK_TYPES.contains(linkType));
@@ -141,11 +145,14 @@ public class CxxLinkableEnhancer {
 
     // Collect and topologically sort our deps that contribute to the link.
     ImmutableList.Builder<NativeLinkableInput> nativeLinkableInputs = ImmutableList.builder();
+    nativeLinkableInputs.add(immediateLinkableInput);
     for (NativeLinkable nativeLinkable : Maps.filterKeys(
         NativeLinkables.getNativeLinkables(cxxPlatform, nativeLinkableDeps, depType),
         Predicates.not(Predicates.in(blacklist))).values()) {
-      nativeLinkableInputs.add(
-          NativeLinkables.getNativeLinkableInput(cxxPlatform, depType, nativeLinkable));
+      NativeLinkableInput input = NativeLinkables.getNativeLinkableInput(
+          cxxPlatform, depType, nativeLinkable);
+      LOG.debug("Native linkable %s returned input %s", nativeLinkable, input);
+      nativeLinkableInputs.add(input);
     }
     NativeLinkableInput linkableInput = NativeLinkableInput.concat(nativeLinkableInputs.build());
 
@@ -169,9 +176,6 @@ public class CxxLinkableEnhancer {
       argsBuilder.addAll(StringArg.from(cxxPlatform.getLd().soname(soname.get())));
     }
 
-    // Add all the top-level arguments.
-    argsBuilder.addAll(args);
-
     // Add all arguments from our dependencies.
     argsBuilder.addAll(linkableInput.getArgs());
 
@@ -182,11 +186,11 @@ public class CxxLinkableEnhancer {
         ImmutableSortedSet.copyOf(linkableInput.getLibraries()),
         argsBuilder);
 
-    // Add framework args - from both linkable dependancies and the frameworks for the binary
+    // Add framework args
     addFrameworkLinkerArgs(
         cxxPlatform,
         resolver,
-        mergeFrameworks(linkableInput, frameworks),
+        ImmutableSortedSet.copyOf(linkableInput.getFrameworks()),
         argsBuilder);
 
     final ImmutableList<Arg> allArgs = argsBuilder.build();
@@ -200,15 +204,6 @@ public class CxxLinkableEnhancer {
         allArgs,
         depType,
         cxxRuntimeType);
-  }
-
-  private static ImmutableSortedSet<FrameworkPath> mergeFrameworks(
-      NativeLinkableInput nativeLinkable,
-      ImmutableSet<FrameworkPath> frameworkPaths) {
-    return ImmutableSortedSet.<FrameworkPath>naturalOrder()
-        .addAll(nativeLinkable.getFrameworks())
-        .addAll(frameworkPaths)
-        .build();
   }
 
   private static void addSharedLibrariesLinkerArgs(
@@ -233,13 +228,6 @@ public class CxxLinkableEnhancer {
           public void appendToCommandLine(ImmutableCollection.Builder<String> builder) {
             ImmutableSortedSet<Path> searchPaths = FluentIterable.from(frameworkPaths)
                 .transform(frameworkPathToSearchPath)
-                .transform(
-                    new Function<Path, Path>() {
-                      @Override
-                      public Path apply(Path input) {
-                        return input.getParent();
-                      }
-                    })
                 .filter(Predicates.notNull())
                 .toSortedSet(Ordering.natural());
             for (Path searchPath : searchPaths) {
@@ -324,7 +312,7 @@ public class CxxLinkableEnhancer {
       BuildTarget target,
       Path output,
       String soname,
-      ImmutableList<Arg> args) {
+      ImmutableList<? extends Arg> args) {
     return createCxxLinkableBuildRule(
         cxxPlatform,
         params,

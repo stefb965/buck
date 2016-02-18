@@ -227,7 +227,7 @@ public class AppleDescriptions {
     output.platformPreprocessorFlags = arg.platformPreprocessorFlags;
     output.langPreprocessorFlags = arg.langPreprocessorFlags;
     output.linkerFlags = arg.linkerFlags;
-    output.platformLinkerFlags = Optional.of(PatternMatchedCollection.<ImmutableList<String>>of());
+    output.platformLinkerFlags = arg.platformLinkerFlags;
     output.frameworks = arg.frameworks;
     output.libraries = arg.libraries;
     output.deps = arg.deps;
@@ -350,42 +350,6 @@ public class AppleDescriptions {
             MERGED_ASSET_CATALOG_NAME));
   }
 
-  /** Only works with thin binaries. */
-  static CxxPlatform getCxxPlatformForBuildTarget(
-      FlavorDomain<CxxPlatform> cxxPlatformFlavorDomain,
-      CxxPlatform defaultCxxPlatform,
-      BuildTarget target) {
-    return cxxPlatformFlavorDomain.getValue(target).or(defaultCxxPlatform);
-  }
-
-  private static AppleCxxPlatform getAppleCxxPlatformForBuildTarget(
-      FlavorDomain<CxxPlatform> cxxPlatformFlavorDomain,
-      CxxPlatform defaultCxxPlatform,
-      ImmutableMap<Flavor, AppleCxxPlatform> platformFlavorsToAppleCxxPlatforms,
-      BuildTarget target) {
-    Optional<FatBinaryInfo> fatBinaryInfo =
-        FatBinaryInfo.create(platformFlavorsToAppleCxxPlatforms, target);
-    AppleCxxPlatform appleCxxPlatform;
-    if (fatBinaryInfo.isPresent()) {
-      appleCxxPlatform = fatBinaryInfo.get().getRepresentativePlatform();
-    } else {
-      CxxPlatform cxxPlatform = getCxxPlatformForBuildTarget(
-          cxxPlatformFlavorDomain,
-          defaultCxxPlatform,
-          target);
-      appleCxxPlatform =
-          platformFlavorsToAppleCxxPlatforms.get(cxxPlatform.getFlavor());
-      if (appleCxxPlatform == null) {
-        throw new HumanReadableException(
-            "%s: Apple bundle requires an Apple platform, found '%s'",
-            target,
-            cxxPlatform.getFlavor().getName());
-      }
-    }
-
-    return appleCxxPlatform;
-  }
-
   static AppleDsym createAppleDsym(
       FlavorDomain<CxxPlatform> cxxPlatformFlavorDomain,
       CxxPlatform defaultCxxPlatform,
@@ -393,9 +357,12 @@ public class AppleDescriptions {
       BuildRuleParams params,
       BuildRuleResolver resolver,
       AppleBundle appleBundle) {
-    AppleCxxPlatform appleCxxPlatform = getAppleCxxPlatformForBuildTarget(
-        cxxPlatformFlavorDomain, defaultCxxPlatform, platformFlavorsToAppleCxxPlatforms,
-        params.getBuildTarget());
+    AppleCxxPlatform appleCxxPlatform = ApplePlatforms.getAppleCxxPlatformForBuildTarget(
+        cxxPlatformFlavorDomain,
+        defaultCxxPlatform,
+        platformFlavorsToAppleCxxPlatforms,
+        params.getBuildTarget(),
+        FatBinaryInfos.create(platformFlavorsToAppleCxxPlatforms, params.getBuildTarget()));
     SourcePathResolver sourcePathResolver = new SourcePathResolver(resolver);
     return new AppleDsym(
         params.copyWithChanges(
@@ -442,9 +409,11 @@ public class AppleDescriptions {
       ImmutableSortedSet<BuildTarget> deps,
       ImmutableSortedSet<BuildTarget> tests)
       throws NoSuchBuildTargetException {
-    AppleCxxPlatform appleCxxPlatform = getAppleCxxPlatformForBuildTarget(
+    AppleCxxPlatform appleCxxPlatform = ApplePlatforms.getAppleCxxPlatformForBuildTarget(
         cxxPlatformFlavorDomain, defaultCxxPlatform, platformFlavorsToAppleCxxPlatforms,
-        params.getBuildTarget());
+        params.getBuildTarget(),
+        FatBinaryInfos.create(platformFlavorsToAppleCxxPlatforms, params.getBuildTarget()));
+
     AppleBundleDestinations destinations =
         AppleBundleDestinations.platformDestinations(
             appleCxxPlatform.getAppleSdk().getApplePlatform());
@@ -568,8 +537,8 @@ public class AppleDescriptions {
                 ImmutableSet.of(
                     ReactNativeFlavors.DO_NOT_BUNDLE,
                     AppleDescriptions.FRAMEWORK_FLAVOR,
-                    AppleDebugFormat.DWARF_AND_DSYM_FLAVOR,
-                    AppleDebugFormat.NO_DEBUG_FLAVOR,
+                    AppleDebugFormat.DWARF_AND_DSYM.getFlavor(),
+                    AppleDebugFormat.NONE.getFlavor(),
                     AppleBinaryDescription.APP_FLAVOR)));
     if (!cxxPlatformFlavorDomain.containsAnyOf(flavors)) {
       flavors = new ImmutableSet.Builder<Flavor>()

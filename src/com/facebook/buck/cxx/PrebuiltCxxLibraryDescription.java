@@ -21,6 +21,7 @@ import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
+import com.facebook.buck.model.FlavorConvertible;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
@@ -34,7 +35,6 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
-import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.rules.macros.MacroException;
@@ -62,17 +62,25 @@ public class PrebuiltCxxLibraryDescription
 
   private static final MacroFinder MACRO_FINDER = new MacroFinder();
 
-  private enum Type {
-    EXPORTED_HEADERS,
-    SHARED,
+  private enum Type implements FlavorConvertible {
+    EXPORTED_HEADERS(CxxDescriptionEnhancer.EXPORTED_HEADER_SYMLINK_TREE_FLAVOR),
+    SHARED(CxxDescriptionEnhancer.SHARED_FLAVOR),
+    ;
+
+    private final Flavor flavor;
+
+    Type(Flavor flavor) {
+      this.flavor = flavor;
+    }
+
+    @Override
+    public Flavor getFlavor() {
+      return flavor;
+    }
   }
 
   private static final FlavorDomain<Type> LIBRARY_TYPE =
-      new FlavorDomain<>(
-          "C/C++ Library Type",
-          ImmutableMap.of(
-              CxxDescriptionEnhancer.EXPORTED_HEADER_SYMLINK_TREE_FLAVOR, Type.EXPORTED_HEADERS,
-              CxxDescriptionEnhancer.SHARED_FLAVOR, Type.SHARED));
+      FlavorDomain.from("C/C++ Library Type", Type.class);
 
   public static final BuildRuleType TYPE = BuildRuleType.of("prebuilt_cxx_library");
 
@@ -277,26 +285,25 @@ public class PrebuiltCxxLibraryDescription
         Linker.LinkType.SHARED,
         Optional.of(soname),
         builtSharedLibraryPath,
-        ImmutableList.<com.facebook.buck.rules.args.Arg>builder()
-            .addAll(
-                StringArg.from(
-                    CxxFlags.getFlags(
-                        args.exportedLinkerFlags,
-                        args.exportedPlatformLinkerFlags,
-                        cxxPlatform)))
-            .addAll(
-                cxxPlatform.getLd().linkWhole(
-                    new SourcePathArg(
-                        pathResolver,
-                        new PathSourcePath(params.getProjectFilesystem(), staticLibraryPath))))
-            .build(),
         Linker.LinkableDepType.SHARED,
         FluentIterable.from(params.getDeps())
             .filter(NativeLinkable.class),
         Optional.<Linker.CxxRuntimeType>absent(),
         Optional.<SourcePath>absent(),
         ImmutableSet.<BuildTarget>of(),
-        ImmutableSet.<FrameworkPath>of());
+        NativeLinkableInput.builder()
+            .addAllArgs(
+                StringArg.from(
+                    CxxFlags.getFlags(
+                        args.exportedLinkerFlags,
+                        args.exportedPlatformLinkerFlags,
+                        cxxPlatform)))
+            .addAllArgs(
+                cxxPlatform.getLd().linkWhole(
+                    new SourcePathArg(
+                        pathResolver,
+                        new PathSourcePath(params.getProjectFilesystem(), staticLibraryPath))))
+            .build());
   }
 
   @Override

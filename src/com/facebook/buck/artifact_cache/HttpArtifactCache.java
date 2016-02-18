@@ -20,6 +20,7 @@ import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent.Finished;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent.Started;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.io.LazyPath;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.rules.RuleKey;
@@ -65,6 +66,7 @@ public class HttpArtifactCache implements ArtifactCache {
   private final ProjectFilesystem projectFilesystem;
   private final BuckEventBus buckEventBus;
   private final ListeningExecutorService httpWriteExecutorService;
+  private final String errorTextTemplate;
 
   private final Set<String> seenErrors = Sets.newConcurrentHashSet();
 
@@ -75,7 +77,8 @@ public class HttpArtifactCache implements ArtifactCache {
       boolean doStore,
       ProjectFilesystem projectFilesystem,
       BuckEventBus buckEventBus,
-      ListeningExecutorService httpWriteExecutorService) {
+      ListeningExecutorService httpWriteExecutorService,
+      String errorTextTemplate) {
     this.name = name;
     this.fetchClient = fetchClient;
     this.storeClient = storeClient;
@@ -83,6 +86,7 @@ public class HttpArtifactCache implements ArtifactCache {
     this.projectFilesystem = projectFilesystem;
     this.buckEventBus = buckEventBus;
     this.httpWriteExecutorService = httpWriteExecutorService;
+    this.errorTextTemplate = errorTextTemplate;
   }
 
   protected Response fetchCall(String path, Request.Builder requestBuilder) throws IOException {
@@ -91,7 +95,7 @@ public class HttpArtifactCache implements ArtifactCache {
 
   public CacheResult fetchImpl(
       RuleKey ruleKey,
-      Path file,
+      LazyPath output,
       final Finished.Builder eventBuilder) throws IOException {
 
     Request.Builder requestBuilder =
@@ -119,6 +123,7 @@ public class HttpArtifactCache implements ArtifactCache {
 
       // Setup a temporary file, which sits next to the destination, to write to and
       // make sure all parent dirs exist.
+      Path file = output.get();
       projectFilesystem.createParentDirs(file);
       Path temp = projectFilesystem.createTempFile(
           file.getParent(),
@@ -164,7 +169,7 @@ public class HttpArtifactCache implements ArtifactCache {
   @Override
   public CacheResult fetch(
       RuleKey ruleKey,
-      Path output) throws InterruptedException {
+      LazyPath output) throws InterruptedException {
     Started startedEvent = HttpArtifactCacheEvent.newFetchStartedEvent(ImmutableSet.<RuleKey>of());
     buckEventBus.post(startedEvent);
     Finished.Builder eventBuilder = HttpArtifactCacheEvent.newFinishedEventBuilder(startedEvent)
@@ -312,7 +317,10 @@ public class HttpArtifactCache implements ArtifactCache {
 
   private void reportFailureToEvenBus(String format, Object... args) {
     if (seenErrors.add(format)) {
-      buckEventBus.post(ConsoleEvent.warning(format, args));
+      buckEventBus.post(ConsoleEvent.warning(
+          errorTextTemplate
+              .replaceAll("\\{cache_name}", name)
+              .replaceAll("\\{error_message}", String.format(format, args))));
     }
   }
 

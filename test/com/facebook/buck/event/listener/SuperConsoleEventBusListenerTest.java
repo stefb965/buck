@@ -20,6 +20,7 @@ import static com.facebook.buck.event.listener.ConsoleTestUtils.postStoreFinishe
 import static com.facebook.buck.event.listener.ConsoleTestUtils.postStoreScheduled;
 import static com.facebook.buck.event.listener.ConsoleTestUtils.postStoreStarted;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
@@ -29,6 +30,7 @@ import com.facebook.buck.artifact_cache.DirArtifactCacheEvent;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
 import com.facebook.buck.cli.BuildTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.cli.CommandEvent;
+import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.event.ArtifactCompressionEvent;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
@@ -89,8 +91,8 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.FileSystem;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Locale;
 import java.util.Map;
@@ -115,6 +117,8 @@ public class SuperConsoleEventBusListenerTest {
 
   private FileSystem vfs;
   private Path logPath;
+  private SuperConsoleConfig emptySuperConsoleConfig =
+      new SuperConsoleConfig(FakeBuckConfig.builder().build());
 
   @Before
   public void createTestLogFile() {
@@ -147,6 +151,7 @@ public class SuperConsoleEventBusListenerTest {
 
     SuperConsoleEventBusListener listener =
         new SuperConsoleEventBusListener(
+            new SuperConsoleConfig(FakeBuckConfig.builder().build()),
             console,
             fakeClock,
             silentSummaryVerbosity,
@@ -436,6 +441,7 @@ public class SuperConsoleEventBusListenerTest {
 
     SuperConsoleEventBusListener listener =
         new SuperConsoleEventBusListener(
+            emptySuperConsoleConfig,
             console,
             fakeClock,
             silentSummaryVerbosity,
@@ -582,6 +588,7 @@ public class SuperConsoleEventBusListenerTest {
 
     SuperConsoleEventBusListener listener =
         new SuperConsoleEventBusListener(
+            emptySuperConsoleConfig,
             console,
             fakeClock,
             silentSummaryVerbosity,
@@ -868,6 +875,7 @@ public class SuperConsoleEventBusListenerTest {
 
     SuperConsoleEventBusListener listener =
         new SuperConsoleEventBusListener(
+            emptySuperConsoleConfig,
             console,
             fakeClock,
             silentSummaryVerbosity,
@@ -1151,6 +1159,7 @@ public class SuperConsoleEventBusListenerTest {
 
     SuperConsoleEventBusListener listener =
         new SuperConsoleEventBusListener(
+            emptySuperConsoleConfig,
             console,
             fakeClock,
             noisySummaryVerbosity,
@@ -1449,6 +1458,7 @@ public class SuperConsoleEventBusListenerTest {
             fakeTarget, new RuleKey("aaaa")));
     SuperConsoleEventBusListener listener =
         new SuperConsoleEventBusListener(
+            emptySuperConsoleConfig,
             console,
             fakeClock,
             silentSummaryVerbosity,
@@ -1617,6 +1627,7 @@ public class SuperConsoleEventBusListenerTest {
 
     SuperConsoleEventBusListener listener =
         new SuperConsoleEventBusListener(
+            emptySuperConsoleConfig,
             console,
             fakeClock,
             silentSummaryVerbosity,
@@ -1643,6 +1654,7 @@ public class SuperConsoleEventBusListenerTest {
     TestConsole console = new TestConsole();
     SuperConsoleEventBusListener listener =
         new SuperConsoleEventBusListener(
+            emptySuperConsoleConfig,
             console,
             fakeClock,
             silentSummaryVerbosity,
@@ -1699,6 +1711,7 @@ public class SuperConsoleEventBusListenerTest {
     TestConsole console = new TestConsole();
     SuperConsoleEventBusListener listener =
         new SuperConsoleEventBusListener(
+            emptySuperConsoleConfig,
             console,
             fakeClock,
             silentSummaryVerbosity,
@@ -1755,6 +1768,7 @@ public class SuperConsoleEventBusListenerTest {
     TestConsole console = new TestConsole();
     SuperConsoleEventBusListener listener =
         new SuperConsoleEventBusListener(
+            emptySuperConsoleConfig,
             console,
             fakeClock,
             silentSummaryVerbosity,
@@ -1790,6 +1804,95 @@ public class SuperConsoleEventBusListenerTest {
 
     validateConsole(console, listener, 0L, ImmutableList.of(
         "[-] GENERATING PROJECT...FINISHED 0.0s"));
+  }
+
+  @Test
+  public void renderLinesWithLineLimit() throws IOException {
+    Clock fakeClock = new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1));
+    TestConsole console = new TestConsole();
+    try (SuperConsoleEventBusListener listener =
+             new SuperConsoleEventBusListener(
+                 emptySuperConsoleConfig,
+                 console,
+                 fakeClock,
+                 silentSummaryVerbosity,
+                 new DefaultExecutionEnvironment(
+                     ImmutableMap.copyOf(System.getenv()),
+                     System.getProperties()),
+                 Optional.<WebServer>absent(),
+                 Locale.US,
+                 logPath)) {
+
+      FakeThreadStateRenderer fakeRenderer =
+          new FakeThreadStateRenderer(ImmutableList.of(2L, 1L, 4L, 8L, 5L));
+      ImmutableList.Builder<String> lines;
+
+      ImmutableList<String> fullOutput = ImmutableList.of(
+          " |=> Status of thread 2",
+          " |=> Status of thread 1",
+          " |=> Status of thread 4",
+          " |=> Status of thread 8",
+          " |=> Status of thread 5");
+
+      lines = ImmutableList.builder();
+      listener.renderLines(fakeRenderer, lines, 10000, false);
+      assertThat(
+          lines.build(),
+          equalTo(fullOutput));
+      assertThat(fakeRenderer.lastSortWasByTime(), is(false));
+
+      lines = ImmutableList.builder();
+      listener.renderLines(fakeRenderer, lines, 10000, true);
+      assertThat(
+          lines.build(),
+          equalTo(fullOutput));
+      assertThat(fakeRenderer.lastSortWasByTime(), is(true));
+
+      lines = ImmutableList.builder();
+      listener.renderLines(fakeRenderer, lines, 6, false);
+      assertThat(
+          lines.build(),
+          equalTo(fullOutput));
+      assertThat(fakeRenderer.lastSortWasByTime(), is(false));
+
+      lines = ImmutableList.builder();
+      listener.renderLines(fakeRenderer, lines, 5, false);
+      assertThat(
+          lines.build(),
+          equalTo(fullOutput));
+      assertThat(fakeRenderer.lastSortWasByTime(), is(false));
+
+      lines = ImmutableList.builder();
+      listener.renderLines(fakeRenderer, lines, 4, false);
+      assertThat(
+          lines.build(),
+          equalTo(
+              ImmutableList.of(
+                  " |=> Status of thread 2",
+                  " |=> Status of thread 1",
+                  " |=> Status of thread 4",
+                  " |=> 2 MORE THREADS: t8 t5")));
+      assertThat(fakeRenderer.lastSortWasByTime(), is(true));
+
+      lines = ImmutableList.builder();
+      listener.renderLines(fakeRenderer, lines, 2, false);
+      assertThat(
+          lines.build(),
+          equalTo(
+              ImmutableList.of(
+                  " |=> Status of thread 2",
+                  " |=> 4 MORE THREADS: t1 t4 t8 t5")));
+      assertThat(fakeRenderer.lastSortWasByTime(), is(true));
+
+      lines = ImmutableList.builder();
+      listener.renderLines(fakeRenderer, lines, 1, false);
+      assertThat(
+          lines.build(),
+          equalTo(
+              ImmutableList.of(
+                  " |=> 5 THREADS: t2 t1 t4 t8 t5")));
+      assertThat(fakeRenderer.lastSortWasByTime(), is(true));
+    }
   }
 
   private void validateConsole(TestConsole console,
@@ -1846,6 +1949,7 @@ public class SuperConsoleEventBusListenerTest {
     TestConsole console = new TestConsole();
     SuperConsoleEventBusListener listener =
         new SuperConsoleEventBusListener(
+            new SuperConsoleConfig(FakeBuckConfig.builder().build()),
             console,
             fakeClock,
             silentSummaryVerbosity,

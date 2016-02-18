@@ -52,7 +52,7 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TestCellBuilder;
-import com.facebook.buck.rules.coercer.SourceWithFlags;
+import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.testutil.FakeOutputStream;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
@@ -73,6 +73,8 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Maps;
+import com.google.common.util.concurrent.ListeningExecutorService;
+import com.google.common.util.concurrent.MoreExecutors;
 
 import org.junit.After;
 import org.junit.Before;
@@ -86,7 +88,6 @@ import java.io.UnsupportedEncodingException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.SortedMap;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class TargetsCommandTest {
@@ -97,7 +98,7 @@ public class TargetsCommandTest {
   private CommandRunnerParams params;
   private ObjectMapper objectMapper;
   private ProjectFilesystem filesystem;
-  private ExecutorService executor;
+  private ListeningExecutorService executor;
 
   private SortedMap<String, TargetNode<?>> buildTargetNodes(
       ProjectFilesystem filesystem,
@@ -144,7 +145,7 @@ public class TargetsCommandTest {
         new FakeJavaPackageFinder(),
         objectMapper,
         Optional.<WebServer>absent());
-    executor = Executors.newSingleThreadExecutor();
+    executor = MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor());
   }
 
   @After
@@ -164,12 +165,12 @@ public class TargetsCommandTest {
         nodes, ImmutableMap.<String, ShowOptions>of());
     String observedOutput = console.getTextWrittenToStdOut();
     JsonNode observed = objectMapper.readTree(
-        objectMapper.getJsonFactory().createJsonParser(observedOutput));
+        objectMapper.getFactory().createParser(observedOutput));
 
     // parse the expected JSON.
     String expectedJson = workspace.getFileContents("TargetsCommandTestBuckJson1.js");
     JsonNode expected = objectMapper.readTree(
-      objectMapper.getJsonFactory().createJsonParser(expectedJson)
+      objectMapper.getFactory().createParser(expectedJson)
         .enable(Feature.ALLOW_COMMENTS)
     );
 
@@ -188,14 +189,14 @@ public class TargetsCommandTest {
 
     // Parse the observed JSON.
     JsonNode observed = objectMapper.readTree(
-      objectMapper.getJsonFactory().createJsonParser(result.getStdout())
+      objectMapper.getFactory().createParser(result.getStdout())
         .enable(Feature.ALLOW_COMMENTS)
     );
 
     // Parse the expected JSON.
     String expectedJson = workspace.getFileContents("TargetsCommandTestBuckJson2.js");
     JsonNode expected = objectMapper.readTree(
-      objectMapper.getJsonFactory().createJsonParser(expectedJson)
+      objectMapper.getFactory().createParser(expectedJson)
         .enable(Feature.ALLOW_COMMENTS)
     );
 

@@ -27,6 +27,7 @@ import com.facebook.buck.cxx.CxxSource;
 import com.facebook.buck.cxx.CxxSourceRuleFactory;
 import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.cxx.NativeLinkable;
+import com.facebook.buck.cxx.NativeLinkableInput;
 import com.facebook.buck.io.AlwaysFoundExecutableFinder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
@@ -42,7 +43,6 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.SourcePathArg;
-import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
@@ -103,7 +103,8 @@ public class NdkCxxPlatformTest {
               entry.getValue().getCxxPlatform(),
               ImmutableList.<CxxPreprocessorInput>of(),
               ImmutableList.<String>of(),
-              Optional.<SourcePath>absent());
+              Optional.<SourcePath>absent(),
+              CxxSourceRuleFactory.PicType.PIC);
       CxxPreprocessAndCompile rule;
       switch (operation) {
         case PREPROCESS_AND_COMPILE:
@@ -115,7 +116,6 @@ public class NdkCxxPlatformTest {
                       CxxSource.Type.CXX,
                       new FakeSourcePath(source),
                       ImmutableList.<String>of()),
-                  CxxSourceRuleFactory.PicType.PIC,
                   CxxPreprocessMode.COMBINED);
           break;
         case PREPROCESS:
@@ -126,8 +126,7 @@ public class NdkCxxPlatformTest {
                   CxxSource.of(
                       CxxSource.Type.CXX,
                       new FakeSourcePath(source),
-                      ImmutableList.<String>of()),
-                  CxxSourceRuleFactory.PicType.PIC);
+                      ImmutableList.<String>of()));
           break;
         case COMPILE:
           rule =
@@ -137,8 +136,7 @@ public class NdkCxxPlatformTest {
                   CxxSource.of(
                       CxxSource.Type.CXX_CPP_OUTPUT,
                       new FakeSourcePath(source),
-                      ImmutableList.<String>of()),
-                  CxxSourceRuleFactory.PicType.PIC);
+                      ImmutableList.<String>of()));
           break;
         default:
           throw new IllegalStateException();
@@ -174,15 +172,14 @@ public class NdkCxxPlatformTest {
           Linker.LinkType.EXECUTABLE,
           Optional.<String>absent(),
           Paths.get("output"),
-          SourcePathArg.from(
-              pathResolver,
-              new FakeSourcePath("input.o")),
           Linker.LinkableDepType.SHARED,
           ImmutableList.<NativeLinkable>of(),
           Optional.<Linker.CxxRuntimeType>absent(),
           Optional.<SourcePath>absent(),
           ImmutableSet.<BuildTarget>of(),
-          ImmutableSet.<FrameworkPath>of());
+          NativeLinkableInput.builder()
+              .setArgs(SourcePathArg.from(pathResolver, new FakeSourcePath("input.o")))
+              .build());
       ruleKeys.put(entry.getKey(), ruleKeyBuilderFactory.build(rule));
     }
     return ruleKeys.build();
@@ -194,12 +191,12 @@ public class NdkCxxPlatformTest {
   public void checkRootAndPlatformDoNotAffectRuleKeys() throws Exception {
 
     // Test all major compiler and runtime combinations.
-    ImmutableList<Pair<NdkCxxPlatforms.Compiler.Type, NdkCxxPlatforms.CxxRuntime>> configs =
+    ImmutableList<Pair<NdkCxxPlatformCompiler.Type, NdkCxxPlatforms.CxxRuntime>> configs =
         ImmutableList.of(
-            new Pair<>(NdkCxxPlatforms.Compiler.Type.GCC, NdkCxxPlatforms.CxxRuntime.GNUSTL),
-            new Pair<>(NdkCxxPlatforms.Compiler.Type.CLANG, NdkCxxPlatforms.CxxRuntime.GNUSTL),
-            new Pair<>(NdkCxxPlatforms.Compiler.Type.CLANG, NdkCxxPlatforms.CxxRuntime.LIBCXX));
-    for (Pair<NdkCxxPlatforms.Compiler.Type, NdkCxxPlatforms.CxxRuntime> config : configs) {
+            new Pair<>(NdkCxxPlatformCompiler.Type.GCC, NdkCxxPlatforms.CxxRuntime.GNUSTL),
+            new Pair<>(NdkCxxPlatformCompiler.Type.CLANG, NdkCxxPlatforms.CxxRuntime.GNUSTL),
+            new Pair<>(NdkCxxPlatformCompiler.Type.CLANG, NdkCxxPlatforms.CxxRuntime.LIBCXX));
+    for (Pair<NdkCxxPlatformCompiler.Type, NdkCxxPlatforms.CxxRuntime> config : configs) {
       Map<String, ImmutableMap<NdkCxxPlatforms.TargetCpuType, RuleKey>>
           preprocessAndCompileRukeKeys = Maps.newHashMap();
       Map<String, ImmutableMap<NdkCxxPlatforms.TargetCpuType, RuleKey>>
@@ -221,7 +218,7 @@ public class NdkCxxPlatformTest {
           ImmutableMap<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform> platforms =
               NdkCxxPlatforms.getPlatforms(
                   filesystem,
-                  ImmutableNdkCxxPlatforms.Compiler.builder()
+                  NdkCxxPlatformCompiler.builder()
                       .setType(config.getFirst())
                       .setVersion("gcc-version")
                       .setGccVersion("clang-version")

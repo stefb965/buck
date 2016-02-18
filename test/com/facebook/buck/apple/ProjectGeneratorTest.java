@@ -90,7 +90,7 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.coercer.FrameworkPath;
-import com.facebook.buck.rules.coercer.SourceWithFlags;
+import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.shell.ExportFileBuilder;
 import com.facebook.buck.shell.ExportFileDescription;
 import com.facebook.buck.testutil.AllExistingProjectFilesystem;
@@ -143,8 +143,7 @@ public class ProjectGeneratorTest {
       OUTPUT_DIRECTORY.resolve(PROJECT_CONTAINER);
   private static final Path OUTPUT_PROJECT_FILE_PATH =
       OUTPUT_PROJECT_BUNDLE_PATH.resolve("project.pbxproj");
-  private static final FlavorDomain<CxxPlatform> PLATFORMS =
-      new FlavorDomain<>("C/C++ platform", ImmutableMap.<Flavor, CxxPlatform>of());
+  private static final FlavorDomain<CxxPlatform> PLATFORMS = FlavorDomain.of("C/C++ platform");
   private static final CxxPlatform DEFAULT_PLATFORM = CxxPlatformUtils.DEFAULT_PLATFORM;
   private static final Flavor DEFAULT_FLAVOR = ImmutableFlavor.of("default");
   private SettableFakeClock clock;
@@ -1048,7 +1047,12 @@ public class ProjectGeneratorTest {
     // use by the Xcode compilation step.
     ImmutableSet<BuildTarget> requiredBuildTargets = projectGenerator.getRequiredBuildTargets();
     assertTrue(requiredBuildTargets.contains(compilerTarget));
-    assertTrue(requiredBuildTargets.contains(libTarget));
+    assertThat(
+        requiredBuildTargets,
+        hasItem(
+            libTarget.withFlavors(
+                HalideLibraryDescription.HALIDE_COMPILE_FLAVOR,
+                DEFAULT_PLATFORM.getFlavor())));
   }
 
   @Test

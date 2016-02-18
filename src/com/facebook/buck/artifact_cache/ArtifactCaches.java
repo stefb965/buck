@@ -101,7 +101,6 @@ public class ArtifactCaches {
    * @param buckConfig describes how to configure te cache
    * @param projectFilesystem filesystem to store files on
    * @return a cache
-   * @throws InterruptedException
    */
   public static Optional<ArtifactCache> newServedCache(
       ArtifactCacheBuckConfig buckConfig,
@@ -156,13 +155,24 @@ public class ArtifactCaches {
       }
     }
     ImmutableList<ArtifactCache> artifactCaches = builder.build();
+    ArtifactCache result;
 
     if (artifactCaches.size() == 1) {
       // Don't bother wrapping a single artifact cache in MultiArtifactCache.
-      return artifactCaches.get(0);
+      result = artifactCaches.get(0);
     } else {
-      return new MultiArtifactCache(artifactCaches);
+      result = new MultiArtifactCache(artifactCaches);
     }
+
+    if (buckConfig.getTwoLevelCachingEnabled()) {
+      result = new TwoLevelArtifactCacheDecorator(
+          result,
+          projectFilesystem,
+          httpWriteExecutorService,
+          buckConfig.getTwoLevelCachingThreshold());
+    }
+
+    return result;
   }
 
   private static ArtifactCache createDirArtifactCache(
@@ -308,7 +318,8 @@ public class ArtifactCaches {
         doStore,
         projectFilesystem,
         buckEventBus,
-        httpWriteExecutorService);
+        httpWriteExecutorService,
+        cacheDescription.getErrorMessageFormat());
   }
 
   private static class ProgressResponseBody extends ResponseBody {

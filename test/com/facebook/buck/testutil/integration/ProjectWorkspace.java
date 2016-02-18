@@ -41,6 +41,8 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.io.Watchman;
 import com.facebook.buck.model.BuckVersion;
 import com.facebook.buck.model.BuildId;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
 import com.facebook.buck.rules.TestRunEvent;
@@ -220,6 +222,14 @@ public class ProjectWorkspace {
       };
       Files.walkFileTree(destPath, copyDirVisitor);
     }
+
+    // Disable the directory cache by default.  Tests that want to enable it can call
+    // `enableDirCache` on this object.  Only do this if a .buckconfig.local file does not already
+    // exist, however (we assume the test knows what it is doing at that point).
+    if (!Files.exists(getPath(".buckconfig.local"))) {
+      writeContentsToPath("[cache]\n  mode =", ".buckconfig.local");
+    }
+
     isSetUp = true;
     return this;
   }
@@ -590,6 +600,11 @@ public class ProjectWorkspace {
             Optional.<Path>absent()),
         directoryResolver,
         new DefaultClock());
+  }
+
+  public BuildTarget newBuildTarget(String fullyQualifiedName)
+      throws IOException, InterruptedException {
+    return BuildTargetFactory.newInstance(asCell().getFilesystem(), fullyQualifiedName);
   }
 
   /** The result of running {@code buck} from the command line. */

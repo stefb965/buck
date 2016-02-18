@@ -1,0 +1,17 @@
+#@# GENERATED FILE: DO NOT MODIFY 3091e9073709aa561c42c3fe78610c1fbc34e98c #@#
+{
+  "event" : [
+    "//src/com/facebook/buck/log:api",
+    "//src/com/facebook/buck/log:log",
+    "//src/com/facebook/buck/model:build_id",
+    "//src/com/facebook/buck/model:model",
+    "//src/com/facebook/buck/rules:rule_key",
+    "//src/com/facebook/buck/timing:timing",
+    "//src/com/facebook/buck/util/concurrent:concurrent",
+    "//src/com/facebook/buck/util/immutables:immutables",
+    "//third-party/java/guava:guava",
+    "//third-party/java/immutables:processor",
+    "//third-party/java/jackson:jackson-annotations",
+    "//third-party/java/jsr:jsr305"
+  ]
+}

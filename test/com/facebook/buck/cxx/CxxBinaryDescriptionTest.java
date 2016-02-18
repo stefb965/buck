@@ -25,6 +25,7 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.HasBuildTarget;
+import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRules;
@@ -34,8 +35,10 @@ import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
-import com.facebook.buck.rules.coercer.SourceWithFlags;
+import com.facebook.buck.rules.SourceWithFlags;
+import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
@@ -79,6 +82,9 @@ public class CxxBinaryDescriptionTest {
     // Setup a C/C++ library that we'll depend on form the C/C++ binary description.
     BuildTarget depTarget = BuildTargetFactory.newInstance("//:dep");
     CxxLibraryBuilder depBuilder = new CxxLibraryBuilder(depTarget)
+        .setExportedHeaders(
+            SourceList.ofUnnamedSources(
+                ImmutableSortedSet.<SourcePath>of(new FakeSourcePath("blah.h"))))
         .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(new FakeSourcePath("test.cpp"))));
     BuildTarget archiveTarget = BuildTarget.builder(depTarget)
         .addFlavors(CxxDescriptionEnhancer.STATIC_FLAVOR)
@@ -130,18 +136,15 @@ public class CxxBinaryDescriptionTest {
             cxxPlatform,
             ImmutableList.<CxxPreprocessorInput>of(),
             ImmutableList.<String>of(),
-            Optional.<SourcePath>absent());
+            Optional.<SourcePath>absent(),
+            CxxSourceRuleFactory.PicType.PDC);
 
     // Check that link rule has the expected deps: the object files for our sources and the
     // archive from the dependency.
     assertEquals(
         ImmutableSet.of(
-            cxxSourceRuleFactory.createCompileBuildTarget(
-                "test/bar.cpp",
-                CxxSourceRuleFactory.PicType.PDC),
-            cxxSourceRuleFactory.createCompileBuildTarget(
-                genSourceName,
-                CxxSourceRuleFactory.PicType.PDC),
+            cxxSourceRuleFactory.createCompileBuildTarget("test/bar.cpp"),
+            cxxSourceRuleFactory.createCompileBuildTarget(genSourceName),
             archiveTarget),
         FluentIterable.from(rule.getDeps())
             .transform(HasBuildTarget.TO_TARGET)
@@ -150,10 +153,7 @@ public class CxxBinaryDescriptionTest {
     // Verify that the preproces rule for our user-provided source has correct deps setup
     // for the various header rules.
     BuildRule preprocessRule1 = resolver.getRule(
-        cxxSourceRuleFactory.createPreprocessBuildTarget(
-            "test/bar.cpp",
-            CxxSource.Type.CXX,
-            CxxSourceRuleFactory.PicType.PDC));
+        cxxSourceRuleFactory.createPreprocessBuildTarget("test/bar.cpp", CxxSource.Type.CXX));
     assertEquals(
         ImmutableSet.of(
             genHeaderTarget,
@@ -169,9 +169,7 @@ public class CxxBinaryDescriptionTest {
     // Verify that the compile rule for our user-provided source has correct deps setup
     // for the various header rules.
     BuildRule compileRule1 = resolver.getRule(
-        cxxSourceRuleFactory.createCompileBuildTarget(
-            "test/bar.cpp",
-            CxxSourceRuleFactory.PicType.PDC));
+        cxxSourceRuleFactory.createCompileBuildTarget("test/bar.cpp"));
     assertNotNull(compileRule1);
     assertEquals(
         ImmutableSet.of(
@@ -183,10 +181,7 @@ public class CxxBinaryDescriptionTest {
     // Verify that the preproces rule for our user-provided source has correct deps setup
     // for the various header rules.
     BuildRule preprocessRule2 = resolver.getRule(
-        cxxSourceRuleFactory.createPreprocessBuildTarget(
-            genSourceName,
-            CxxSource.Type.CXX,
-            CxxSourceRuleFactory.PicType.PDC));
+        cxxSourceRuleFactory.createPreprocessBuildTarget(genSourceName, CxxSource.Type.CXX));
     assertEquals(
         ImmutableSet.of(
             genHeaderTarget,
@@ -202,10 +197,8 @@ public class CxxBinaryDescriptionTest {
 
     // Verify that the compile rule for our genrule-generated source has correct deps setup
     // for the various header rules and the generating genrule.
-    BuildRule compileRule2 = resolver.getRule(
-        cxxSourceRuleFactory.createCompileBuildTarget(
-            genSourceName,
-            CxxSourceRuleFactory.PicType.PDC));
+    BuildRule compileRule2 =
+        resolver.getRule(cxxSourceRuleFactory.createCompileBuildTarget(genSourceName));
     assertNotNull(compileRule2);
     assertEquals(
         ImmutableSet.of(
@@ -342,4 +335,30 @@ public class CxxBinaryDescriptionTest {
         Matchers.not(Matchers.hasItem(dep)));
   }
 
+  @Test
+  public void binaryShouldLinkOwnRequiredLibraries() throws Exception {
+    ProjectFilesystem filesystem = new FakeProjectFilesystem();
+    CxxPlatform platform = CxxLibraryBuilder.createDefaultPlatform();
+
+    CxxBinaryBuilder binaryBuilder =
+        new CxxBinaryBuilder(
+            BuildTargetFactory
+                .newInstance("//:foo")
+                .withFlavors(platform.getFlavor(), ImmutableFlavor.of("shared")));
+    binaryBuilder
+        .setLibraries(
+            ImmutableSortedSet.of(
+                FrameworkPath.ofSourcePath(new FakeSourcePath("/some/path/libs.dylib")),
+                FrameworkPath.ofSourcePath(new FakeSourcePath("/another/path/liba.dylib"))))
+        .setSrcs(
+            ImmutableSortedSet.of(
+                SourceWithFlags.of(new FakeSourcePath("foo.c"))));
+    TargetGraph targetGraph = TargetGraphFactory.newInstance(binaryBuilder.build());
+    BuildRuleResolver resolver =
+        new BuildRuleResolver(targetGraph, new BuildTargetNodeToBuildRuleTransformer());
+    CxxBinary binary = (CxxBinary) binaryBuilder.build(resolver, filesystem, targetGraph);
+    assertThat(
+        binary.getRule().getArgs(),
+        Matchers.hasItems("-L", "/another/path", "/some/path", "-la", "-ls"));
+  }
 }

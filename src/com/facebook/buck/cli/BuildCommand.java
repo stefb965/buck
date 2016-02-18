@@ -69,8 +69,6 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.Executor;
-import java.util.concurrent.ExecutorService;
 
 import javax.annotation.Nullable;
 
@@ -224,7 +222,7 @@ public class BuildCommand extends AbstractCommand {
       Clock clock,
       Optional<AdbOptions> adbOptions,
       Optional<TargetDeviceOptions> targetDeviceOptions,
-      Map<ExecutionContext.ExecutorPool, ExecutorService> executors) {
+      Map<ExecutionContext.ExecutorPool, ListeningExecutorService> executors) {
     if (console.getVerbosity() == Verbosity.ALL) {
       console.getStdErr().printf("Creating a build with %d threads.\n", buckConfig.getNumThreads());
     }
@@ -344,7 +342,7 @@ public class BuildCommand extends AbstractCommand {
   @Nullable
   public Pair<ActionGraph, BuildRuleResolver> createActionGraphAndResolver(
       CommandRunnerParams params,
-      Executor executor)
+      ListeningExecutorService executor)
       throws IOException, InterruptedException {
     if (getArguments().isEmpty()) {
       params.getConsole().printBuildFailure("Must specify at least one build target.");

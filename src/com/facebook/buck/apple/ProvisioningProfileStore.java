@@ -26,6 +26,8 @@ import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.hash.HashCode;
 
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
@@ -42,6 +44,8 @@ import java.util.Map.Entry;
 public class ProvisioningProfileStore implements RuleKeyAppendable {
   public static final Optional<ImmutableMap<String, NSObject>> MATCH_ANY_ENTITLEMENT =
       Optional.<ImmutableMap<String, NSObject>>absent();
+  public static final Optional<ImmutableList<CodeSignIdentity>> MATCH_ANY_IDENTITY =
+      Optional.<ImmutableList<CodeSignIdentity>>absent();
 
   private static final Logger LOG = Logger.get(ProvisioningProfileStore.class);
   private final Supplier<ImmutableList<ProvisioningProfileMetadata>>
@@ -70,7 +74,8 @@ public class ProvisioningProfileStore implements RuleKeyAppendable {
   // XXXXXXXXXX.com.example.* will match over XXXXXXXXXX.* for com.example.TestApp
   public Optional<ProvisioningProfileMetadata> getBestProvisioningProfile(
       String bundleID,
-      Optional<ImmutableMap<String, NSObject>> entitlements) {
+      Optional<ImmutableMap<String, NSObject>> entitlements,
+      Optional<? extends Iterable<CodeSignIdentity>> identities) {
     final Optional<String> prefix;
     if (entitlements.isPresent()) {
       prefix = Optional.of(ProvisioningProfileMetadata.prefixFromEntitlements(entitlements.get()));
@@ -99,12 +104,16 @@ public class ProvisioningProfileStore implements RuleKeyAppendable {
             match = (bundleID.equals(profileBundleID));
           }
 
+          if (!match) {
+            LOG.debug("Ignoring non-matching ID for profile " + profile.getUUID());
+          }
+
           // Match against other keys of the entitlements.  Otherwise, we could potentially select
           // a profile that doesn't have all the needed entitlements, causing a error when
           // installing to device.
           //
           // For example: get-task-allow, aps-environment, etc.
-          if (entitlements.isPresent()) {
+          if (match && entitlements.isPresent()) {
             ImmutableMap<String, NSObject> entitlementsDict = entitlements.get();
             ImmutableMap<String, NSObject> profileEntitlements = profile.getEntitlements();
             for (Entry<String, NSObject> entry : entitlementsDict.entrySet()) {
@@ -112,8 +121,29 @@ public class ProvisioningProfileStore implements RuleKeyAppendable {
                   entry.getKey().equals("application-identifier") ||
                   entry.getValue().equals(profileEntitlements.get(entry.getKey())))) {
                 match = false;
+                LOG.debug("Ignoring profile " + profile.getUUID() +
+                    " with mismatched entitlement " + entry.getKey() + "; value is " +
+                    profileEntitlements.get(entry.getKey()) + " but expected " + entry.getValue());
                 break;
               }
+            }
+          }
+
+          // Reject any certificate which we know we can't sign with the supplied identities.
+          ImmutableSet<HashCode> validFingerprints = profile.getDeveloperCertificateFingerprints();
+          if (match && identities.isPresent() && !validFingerprints.isEmpty()) {
+            match = false;
+            for (CodeSignIdentity identity : identities.get()) {
+              Optional<HashCode> fingerprint = identity.getFingerprint();
+              if (fingerprint.isPresent() && validFingerprints.contains(fingerprint.get())) {
+                match = true;
+                break;
+              }
+            }
+
+            if (!match) {
+              LOG.debug("Ignoring profile " + profile.getUUID() +
+                  " because it can't be signed with any valid identity in the current keychain.");
             }
           }
 
@@ -122,6 +152,8 @@ public class ProvisioningProfileStore implements RuleKeyAppendable {
             bestMatch = Optional.of(profile);
           }
         }
+      } else {
+        LOG.debug("Ignoring expired profile " + profile.getUUID());
       }
     }
 
@@ -136,6 +168,7 @@ public class ProvisioningProfileStore implements RuleKeyAppendable {
   }
 
   public static ProvisioningProfileStore fromSearchPath(final Path searchPath) {
+    LOG.debug("Provisioning profile search path: " + searchPath);
     return new ProvisioningProfileStore(Suppliers.memoize(
         new Supplier<ImmutableList<ProvisioningProfileMetadata>>() {
           @Override

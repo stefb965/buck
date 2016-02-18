@@ -41,7 +41,7 @@ import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
-import com.facebook.buck.rules.coercer.SourceWithFlags;
+import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
 import com.facebook.buck.rules.macros.MacroExpander;
 import com.facebook.buck.rules.macros.MacroHandler;
@@ -563,6 +563,7 @@ public class CxxDescriptionEnhancer {
         args.platformPreprocessorFlags,
         args.langPreprocessorFlags,
         args.frameworks,
+        args.libraries,
         args.compilerFlags,
         args.platformCompilerFlags,
         args.prefixHeader,
@@ -583,6 +584,7 @@ public class CxxDescriptionEnhancer {
       Optional<PatternMatchedCollection<ImmutableList<String>>> platformPreprocessorFlags,
       Optional<ImmutableMap<CxxSource.Type, ImmutableList<String>>> langPreprocessorFlags,
       Optional<ImmutableSortedSet<FrameworkPath>> frameworks,
+      Optional<ImmutableSortedSet<FrameworkPath>> libraries,
       Optional<ImmutableList<String>> compilerFlags,
       Optional<PatternMatchedCollection<ImmutableList<String>>> platformCompilerFlags,
       Optional<SourcePath> prefixHeader,
@@ -701,14 +703,17 @@ public class CxxDescriptionEnhancer {
             Linker.LinkType.EXECUTABLE,
             Optional.<String>absent(),
             linkOutput,
-            argsBuilder.build(),
             linkStyle,
             FluentIterable.from(params.getDeps())
                 .filter(NativeLinkable.class),
             cxxRuntimeType,
             Optional.<SourcePath>absent(),
             ImmutableSet.<BuildTarget>of(),
-            frameworks.or(ImmutableSortedSet.<FrameworkPath>of()));
+            NativeLinkableInput.builder()
+                .setArgs(argsBuilder.build())
+                .setFrameworks(frameworks.or(ImmutableSortedSet.<FrameworkPath>of()))
+                .setLibraries(libraries.or(ImmutableSortedSet.<FrameworkPath>of()))
+                .build());
     resolver.addToIndex(cxxLink);
 
     // Add the output of the link as the lone argument needed to invoke this binary as a tool.
@@ -718,6 +723,120 @@ public class CxxDescriptionEnhancer {
         cxxLink,
         ImmutableSortedSet.copyOf(objects.keySet()),
         executableBuilder.build());
+  }
+
+  /**
+   * Create all build rules needed to generate the compilation database.
+   *
+   * @return the {@link CxxCompilationDatabase} rule representing the actual compilation database.
+   */
+  public static CxxCompilationDatabase createCompilationDatabase(
+      BuildRuleParams params,
+      BuildRuleResolver ruleResolver,
+      SourcePathResolver pathResolver,
+      CxxPlatform cxxPlatform,
+      CxxPreprocessMode preprocessMode,
+      CxxConstructorArg arg) throws NoSuchBuildTargetException {
+    BuildRuleParams paramsWithoutCompilationDatabaseFlavor = CxxCompilationDatabase
+        .paramsWithoutCompilationDatabaseFlavor(params);
+    // Invoking requireObjects has the side-effect of invoking
+    // CxxSourceRuleFactory.requirePreprocessAndCompileRules(), which has the side-effect of
+    // creating CxxPreprocessAndCompile rules and adding them to the ruleResolver.
+    ImmutableMap<CxxPreprocessAndCompile, SourcePath> objects = requireObjects(
+        paramsWithoutCompilationDatabaseFlavor,
+        ruleResolver,
+        pathResolver,
+        cxxPlatform,
+        preprocessMode,
+        CxxSourceRuleFactory.PicType.PIC,
+        arg);
+
+    return CxxCompilationDatabase.createCompilationDatabase(
+        params,
+        pathResolver,
+        preprocessMode,
+        objects.keySet());
+  }
+
+  public static ImmutableMap<CxxPreprocessAndCompile, SourcePath> requireObjects(
+      BuildRuleParams params,
+      BuildRuleResolver ruleResolver,
+      SourcePathResolver sourcePathResolver,
+      CxxPlatform cxxPlatform,
+      CxxPreprocessMode preprocessMode,
+      CxxSourceRuleFactory.PicType pic,
+      CxxConstructorArg args) throws NoSuchBuildTargetException {
+    ImmutableMultimap<CxxSource.Type, String> exportedPreprocessorFlags;
+    ImmutableMap<Path, SourcePath> exportedHeaders;
+    if (args instanceof CxxLibraryDescription.Arg) {
+      CxxLibraryDescription.Arg hasExportedArgs = (CxxLibraryDescription.Arg) args;
+      exportedPreprocessorFlags = CxxFlags.getLanguageFlags(
+          hasExportedArgs.exportedPreprocessorFlags,
+          hasExportedArgs.exportedPlatformLinkerFlags,
+          hasExportedArgs.exportedLangPreprocessorFlags,
+          cxxPlatform);
+      exportedHeaders = CxxDescriptionEnhancer.parseExportedHeaders(
+          params.getBuildTarget(),
+          sourcePathResolver,
+          Optional.of(cxxPlatform),
+          hasExportedArgs);
+    } else {
+      exportedPreprocessorFlags = ImmutableMultimap.of();
+      exportedHeaders = ImmutableMap.of();
+    }
+
+    HeaderSymlinkTree headerSymlinkTree =
+        CxxDescriptionEnhancer.requireHeaderSymlinkTree(
+            params,
+            ruleResolver,
+            sourcePathResolver,
+            cxxPlatform,
+            CxxDescriptionEnhancer.parseHeaders(
+                params.getBuildTarget(),
+                sourcePathResolver,
+                Optional.of(cxxPlatform),
+                args),
+            HeaderVisibility.PRIVATE);
+
+    ImmutableList<CxxPreprocessorInput> cxxPreprocessorInputFromDependencies =
+        CxxDescriptionEnhancer.collectCxxPreprocessorInput(
+            params,
+            cxxPlatform,
+            CxxFlags.getLanguageFlags(
+                args.preprocessorFlags,
+                args.platformPreprocessorFlags,
+                args.langPreprocessorFlags,
+                cxxPlatform),
+            ImmutableList.of(headerSymlinkTree),
+            ImmutableSet.<FrameworkPath>of(),
+            CxxLibraryDescription.getTransitiveCxxPreprocessorInput(
+                params,
+                ruleResolver,
+                sourcePathResolver,
+                cxxPlatform,
+                exportedPreprocessorFlags,
+                exportedHeaders,
+                args.frameworks.or(ImmutableSortedSet.<FrameworkPath>of())));
+
+    // Create rule to build the object files.
+    return CxxSourceRuleFactory.requirePreprocessAndCompileRules(
+        params,
+        ruleResolver,
+        sourcePathResolver,
+        cxxPlatform,
+        cxxPreprocessorInputFromDependencies,
+        CxxFlags.getFlags(
+            args.compilerFlags,
+            args.platformCompilerFlags,
+            cxxPlatform),
+        args.prefixHeader,
+        preprocessMode,
+        CxxDescriptionEnhancer.parseCxxSources(
+            params.getBuildTarget(),
+            sourcePathResolver,
+            cxxPlatform,
+            args),
+        pic);
   }
 
   /**
@@ -786,6 +905,19 @@ public class CxxDescriptionEnhancer {
     } catch (SymlinkTree.InvalidSymlinkTreeException e) {
       throw new RuntimeException(e.getMessage());
     }
+  }
+
+  public static Flavor flavorForLinkableDepType(Linker.LinkableDepType linkableDepType) {
+    switch (linkableDepType) {
+      case STATIC:
+        return STATIC_FLAVOR;
+      case STATIC_PIC:
+        return STATIC_PIC_FLAVOR;
+      case SHARED:
+        return SHARED_FLAVOR;
+    }
+    throw new RuntimeException(
+        String.format("Unsupported LinkableDepType: '%s'", linkableDepType));
   }
 
 }

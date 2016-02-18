@@ -84,13 +84,24 @@ public class CxxTestDescription implements
   }
 
   @Override
-  public <A extends Arg> CxxTest createBuildRule(
+  public <A extends Arg> BuildRule createBuildRule(
       TargetGraph targetGraph,
       final BuildRuleParams params,
       final BuildRuleResolver resolver,
       final A args) throws NoSuchBuildTargetException {
     CxxPlatform cxxPlatform = cxxPlatforms.getValue(params.getBuildTarget()).or(defaultCxxPlatform);
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+
+    if (params.getBuildTarget().getFlavors()
+          .contains(CxxCompilationDatabase.COMPILATION_DATABASE)) {
+      return CxxDescriptionEnhancer.createCompilationDatabase(
+          params,
+          resolver,
+          pathResolver,
+          cxxPlatform,
+          cxxBuckConfig.getPreprocessMode(),
+          args);
+    }
 
     // Generate the link rule that builds the test binary.
     final CxxLinkAndCompileRules cxxLinkAndCompileRules =
@@ -276,6 +287,10 @@ public class CxxTestDescription implements
   public boolean hasFlavors(ImmutableSet<Flavor> flavors) {
 
     if (flavors.isEmpty()) {
+      return true;
+    }
+
+    if (flavors.contains(CxxCompilationDatabase.COMPILATION_DATABASE)) {
       return true;
     }
 

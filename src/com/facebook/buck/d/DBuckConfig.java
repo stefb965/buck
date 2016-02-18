@@ -18,17 +18,19 @@ package com.facebook.buck.d;
 
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.io.ExecutableFinder;
+import com.facebook.buck.io.FileFinder;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.rules.HashedFileTool;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.environment.Architecture;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
@@ -109,26 +111,37 @@ public class DBuckConfig {
       LOG.debug("Could not resolve " + compilerPath +
               " to real path (likely cause: it does not exist)");
     }
+
     Path usrLib = Paths.get("/usr", "lib");
     Path usrLocalLib = Paths.get("/usr", "local", "lib");
-    String platformName = delegate.getArchitecture().toString() + "-" +
+    Architecture architecture = delegate.getArchitecture();
+    String platformName = architecture.toString() + "-" +
         delegate.getPlatform().getAutoconfName();
     String platformNameGnu = platformName + "-gnu";
-    for (Path libDir : ImmutableList.of(
-        compilerPath.getParent().resolve(Paths.get("..", "lib")).normalize(),
-        usrLocalLib,
-        usrLib,
-        usrLocalLib.resolve(platformName),
-        usrLocalLib.resolve(platformNameGnu),
-        usrLib.resolve(platformName),
-        usrLib.resolve(platformNameGnu))) {
-      for (String libName : ImmutableList.of("libphobos2.a", "libphobos2.so")) {
-        Path phobosPath = libDir.resolve(libName);
-        if (Files.exists(phobosPath)) {
-          LOG.debug("Detected path to Phobos: " + phobosPath);
-          return ImmutableList.of(libDir);
-        }
-      }
+
+    ImmutableSet<Path> searchPath = ImmutableSet.<Path>builder()
+        .add(compilerPath.getParent().resolve(Paths.get("..", "lib")).normalize())
+        .add(usrLocalLib)
+        .add(usrLib)
+        .add(usrLocalLib.resolve(platformName))
+        .add(usrLocalLib.resolve(platformNameGnu))
+        .add(usrLib.resolve(platformName))
+        .add(usrLib.resolve(platformNameGnu))
+        .build();
+
+    ImmutableSet<String> fileNames = FileFinder.combine(
+        ImmutableSet.of("lib"),
+        "phobos2",
+        ImmutableSet.of(".a", ".so"));
+
+    Optional<Path> phobosPath = FileFinder.getOptionalFile(
+        fileNames,
+        searchPath,
+        FileFinder.IS_REGULAR_FILE);
+
+    if (phobosPath.isPresent()) {
+      LOG.debug("Detected path to Phobos: " + phobosPath.get());
+      return ImmutableList.of(phobosPath.get().getParent());
     }
 
     throw new HumanReadableException(

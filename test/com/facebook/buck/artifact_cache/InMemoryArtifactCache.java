@@ -16,6 +16,7 @@
 
 package com.facebook.buck.artifact_cache;
 
+import com.facebook.buck.io.LazyPath;
 import com.facebook.buck.rules.RuleKey;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableMap;
@@ -35,6 +36,10 @@ public class InMemoryArtifactCache implements ArtifactCache {
 
   private final Map<RuleKey, Artifact> artifacts = Maps.newConcurrentMap();
 
+  public int getArtifactCount() {
+    return artifacts.size();
+  }
+
   public boolean hasArtifact(RuleKey ruleKey) {
     return artifacts.containsKey(ruleKey);
   }
@@ -44,13 +49,13 @@ public class InMemoryArtifactCache implements ArtifactCache {
   }
 
   @Override
-  public CacheResult fetch(RuleKey ruleKey, Path output) {
+  public CacheResult fetch(RuleKey ruleKey, LazyPath output) {
     Artifact artifact = artifacts.get(ruleKey);
     if (artifact == null) {
       return CacheResult.miss();
     }
     try {
-      Files.write(output, artifact.data);
+      Files.write(output.get(), artifact.data);
     } catch (IOException e) {
       throw Throwables.propagate(e);
     }

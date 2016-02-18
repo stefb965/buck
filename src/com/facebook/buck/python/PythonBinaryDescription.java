@@ -38,11 +38,13 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.Tool;
+import com.facebook.buck.rules.args.MacroArg;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Suppliers;
+import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -121,7 +123,8 @@ public class PythonBinaryDescription implements
       PythonPlatform pythonPlatform,
       CxxPlatform cxxPlatform,
       String mainModule,
-      PythonPackageComponents components) {
+      PythonPackageComponents components,
+      ImmutableSet<String> preloadLibraries) {
 
     // We don't currently support targeting Windows.
     if (cxxPlatform.getLd() instanceof WindowsLinker) {
@@ -190,7 +193,8 @@ public class PythonBinaryDescription implements
         mainModule,
         components,
         pythonPlatform.getEnvironment(),
-        pythonBuckConfig.getPexExtension());
+        pythonBuckConfig.getPexExtension(),
+        preloadLibraries);
   }
 
   protected PythonBinary createPackageRule(
@@ -202,7 +206,8 @@ public class PythonBinaryDescription implements
       String mainModule,
       PythonPackageComponents components,
       ImmutableList<String> buildArgs,
-      PythonBuckConfig.PackageStyle packageStyle) {
+      PythonBuckConfig.PackageStyle packageStyle,
+      ImmutableSet<String> preloadLibraries) {
 
     switch (packageStyle) {
 
@@ -214,7 +219,8 @@ public class PythonBinaryDescription implements
             pythonPlatform,
             cxxPlatform,
             mainModule,
-            components);
+            components,
+            preloadLibraries);
 
       case STANDALONE:
         ImmutableSortedSet<BuildRule> componentDeps =
@@ -232,11 +238,12 @@ public class PythonBinaryDescription implements
             pythonPlatform,
             pexTool,
             buildArgs,
-            pythonBuckConfig.getPathToPexExecuter(resolver).or(pythonPlatform.getEnvironment()),
+            pythonBuckConfig.getPexExecutor(resolver).or(pythonPlatform.getEnvironment()),
             pythonBuckConfig.getPexExtension(),
             pythonPlatform.getEnvironment(),
             mainModule,
             components,
+            preloadLibraries,
             // Attach any additional declared deps that don't qualify as build time deps,
             // as runtime deps, so that we make to include other things we depend on in
             // the build.
@@ -304,6 +311,14 @@ public class PythonBinaryDescription implements
             binaryPackageComponents,
             pythonPlatform,
             cxxPlatform,
+            FluentIterable.from(args.linkerFlags.get())
+                .transform(
+                    MacroArg.toMacroArgFunction(
+                        PythonUtil.MACRO_HANDLER,
+                        params.getBuildTarget(),
+                        params.getCellRoots(),
+                        resolver))
+                .toList(),
             pythonBuckConfig.getNativeLinkStrategy());
     return createPackageRule(
         params,
@@ -314,7 +329,11 @@ public class PythonBinaryDescription implements
         mainModule,
         allPackageComponents,
         args.buildArgs.or(ImmutableList.<String>of()),
-        args.packageStyle.or(pythonBuckConfig.getPackageStyle()));
+        args.packageStyle.or(pythonBuckConfig.getPackageStyle()),
+        PythonUtil.getPreloadNames(
+            resolver,
+            cxxPlatform,
+            args.preloadDeps.or(ImmutableSortedSet.<BuildTarget>of())));
   }
 
   @Override
@@ -326,6 +345,7 @@ public class PythonBinaryDescription implements
 
     if (pythonBuckConfig.getPackageStyle() == PythonBuckConfig.PackageStyle.STANDALONE) {
       targets.addAll(pythonBuckConfig.getPexTarget().asSet());
+      targets.addAll(pythonBuckConfig.getPexExecutorTarget().asSet());
     }
 
     return targets.build();
@@ -341,6 +361,8 @@ public class PythonBinaryDescription implements
     public Optional<ImmutableList<String>> buildArgs;
     public Optional<String> platform;
     public Optional<PythonBuckConfig.PackageStyle> packageStyle;
+    public Optional<ImmutableSet<BuildTarget>> preloadDeps;
+    public Optional<ImmutableList<String>> linkerFlags;
   }
 
 }

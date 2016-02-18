@@ -15,12 +15,7 @@ java_library(
   tests = [
     '//test/com/facebook/buck/zip:zip',
   ],
-  deps = [
-    '//third-party/java/guava:guava',
-    '//third-party/java/jsr:jsr305',
-    '//src/com/facebook/buck/timing:timing',
-    '//src/com/facebook/buck/util:exceptions',
-  ],
+  autodeps = True,
   visibility = ['PUBLIC'],
 )
 
@@ -30,13 +25,7 @@ java_library(
   tests = [
     '//test/com/facebook/buck/zip:zip',
   ],
-  deps = [
-    ':stream',
-    '//src/com/facebook/buck/io:io',
-    '//third-party/java/guava:guava',
-    '//third-party/java/jsr:jsr305',
-    '//third-party/java/commons-compress:commons-compress',
-  ],
+  autodeps = True,
   visibility = [ 'PUBLIC' ],
 )
 
@@ -46,20 +35,7 @@ java_library(
   tests = [
     '//test/com/facebook/buck/zip:zip',
   ],
-  deps = [
-    ':stream',
-    ':unzip',
-    '//src/com/facebook/buck/event:event',
-    '//src/com/facebook/buck/log:api',
-    '//src/com/facebook/buck/model:model',
-    '//src/com/facebook/buck/shell:steps',
-    '//src/com/facebook/buck/step:step',
-    '//src/com/facebook/buck/step/fs:fs',
-    '//src/com/facebook/buck/util:exceptions',
-    '//src/com/facebook/buck/io:io',
-    '//third-party/java/guava:guava',
-    '//third-party/java/jsr:jsr305',
-  ],
+  autodeps = True,
   visibility = [
     '//src/org/openqa/selenium/...',
     '//src/com/facebook/buck/android/...',
@@ -78,23 +54,20 @@ java_library(
     'Zip.java',
     'ZipDescription.java',
   ],
-  deps = [
-    ':steps',
-    '//src/com/facebook/buck/io:io',
-    '//src/com/facebook/buck/jvm/java:support',
-    '//src/com/facebook/buck/model:model',
-    '//src/com/facebook/buck/parser:rule_pattern',
-    '//src/com/facebook/buck/rules:build_rule',
-    '//src/com/facebook/buck/step/fs:fs',
-    '//src/com/facebook/buck/step:step',
-    '//src/com/facebook/buck/util:exceptions',
-    '//third-party/java/guava:guava',
-  ],
+  autodeps = True,
   visibility = [
     '//src/com/facebook/buck/rules:types',
     '//src/org/openqa/selenium/...',
     '//test/com/facebook/buck/zip:zip',
   ],
+)
+
+java_library(
+  name = 'constants',
+  srcs = [
+    'ZipCompressionLevel.java',
+  ],
+  visibility = ['PUBLIC'],
 )
 
 java_binary(

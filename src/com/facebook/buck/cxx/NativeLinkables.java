@@ -81,6 +81,12 @@ public class NativeLinkables {
     return nativeLinkables.build();
   }
 
+  /**
+   * Extract from the dependency graph all the libraries which must be considered for linking.
+   *
+   * Traversal proceeds depending on whether each dependency is to be statically or dynamically
+   * linked.
+   */
   public static ImmutableMap<BuildTarget, NativeLinkable> getNativeLinkables(
       final CxxPlatform cxxPlatform,
       Iterable<? extends NativeLinkable> inputs,
@@ -148,9 +154,9 @@ public class NativeLinkables {
         break;
       case STATIC:
         linkStyle =
-            requestedLinkStyle == Linker.LinkableDepType.SHARED ?
-                Linker.LinkableDepType.STATIC_PIC :
-                Linker.LinkableDepType.STATIC;
+            requestedLinkStyle == Linker.LinkableDepType.STATIC ?
+                Linker.LinkableDepType.STATIC :
+                Linker.LinkableDepType.STATIC_PIC;
         break;
       case ANY:
         linkStyle = requestedLinkStyle;

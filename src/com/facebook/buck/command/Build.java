@@ -22,6 +22,7 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.ThrowableConsoleEvent;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
+import com.facebook.buck.model.BuildId;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
@@ -60,6 +61,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.io.Files;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.ListeningExecutorService;
 
 import org.immutables.value.Value;
 
@@ -71,7 +73,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
 
 import javax.annotation.Nullable;
 
@@ -119,7 +120,7 @@ public class Build implements Closeable {
       ConcurrencyLimit concurrencyLimit,
       Optional<AdbOptions> adbOptions,
       Optional<TargetDeviceOptions> targetDeviceOptions,
-      Map<ExecutionContext.ExecutorPool, ExecutorService> executors) {
+      Map<ExecutionContext.ExecutorPool, ListeningExecutorService> executors) {
     this.actionGraph = actionGraph;
     this.ruleResolver = ruleResolver;
     this.executionContext = ExecutionContext.builder()
@@ -178,6 +179,7 @@ public class Build implements Closeable {
       Iterable<? extends HasBuildTarget> targetish,
       boolean isKeepGoing)
       throws IOException, StepFailedException, ExecutionException, InterruptedException {
+    BuildId buildId = executionContext.getBuildId();
     buildContext = ImmutableBuildContext.builder()
         .setActionGraph(actionGraph)
         .setStepRunner(stepRunner)
@@ -188,7 +190,7 @@ public class Build implements Closeable {
         .setAndroidBootclasspathSupplier(
             BuildContext.createBootclasspathSupplier(
                 executionContext.getAndroidPlatformTargetSupplier()))
-        .setBuildId(executionContext.getBuildId())
+        .setBuildId(buildId)
         .putAllEnvironment(executionContext.getEnvironment())
         .setKeepGoing(isKeepGoing)
         .setShouldReportAbsolutePaths(executionContext.shouldReportAbsolutePaths())

@@ -22,6 +22,7 @@ import com.facebook.buck.artifact_cache.CacheResultType;
 import com.facebook.buck.event.ArtifactCompressionEvent;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.ThrowableConsoleEvent;
+import com.facebook.buck.io.LazyPath;
 import com.facebook.buck.io.MoreFiles;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
@@ -30,8 +31,8 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.rules.keys.AbiRule;
 import com.facebook.buck.rules.keys.AbiRuleKeyBuilderFactory;
-import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
 import com.facebook.buck.rules.keys.DefaultDependencyFileRuleKeyBuilderFactory;
+import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
 import com.facebook.buck.rules.keys.DependencyFileRuleKeyBuilderFactory;
 import com.facebook.buck.rules.keys.InputBasedRuleKeyBuilderFactory;
 import com.facebook.buck.rules.keys.SupportsDependencyFileRuleKey;
@@ -41,8 +42,8 @@ import com.facebook.buck.step.StepFailedException;
 import com.facebook.buck.step.StepRunner;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.NamedTemporaryFile;
+import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.cache.StackedFileHashCache;
 import com.facebook.buck.util.concurrent.MoreFutures;
@@ -306,7 +307,7 @@ public class CachingBuildEngine implements BuildEngine {
             ruleKeyFactory.defaultRuleKeyBuilderFactory));
 
     // 3. Build deps.
-    return Futures.transform(
+    return Futures.transformAsync(
         getDepResults(rule, context, asyncCallbacks),
         new AsyncFunction<List<BuildResult>, BuildResult>() {
           @Override
@@ -634,7 +635,7 @@ public class CachingBuildEngine implements BuildEngine {
             return Futures.immediateFuture(input);
           }
         };
-    buildResult = Futures.transform(buildResult, callback);
+    buildResult = Futures.transformAsync(buildResult, callback);
 
     // Handle either build success or failure.
     final SettableFuture<BuildResult> result = SettableFuture.create();
@@ -796,7 +797,7 @@ public class CachingBuildEngine implements BuildEngine {
     // to attach, return it.
     ListenableFuture<RuleKey> ruleKey = calculateRuleKey(rule, context);
     ListenableFuture<BuildResult> result =
-        Futures.transform(
+        Futures.transformAsync(
             ruleKey,
             new AsyncFunction<RuleKey, BuildResult>() {
               @Override
@@ -850,22 +851,22 @@ public class CachingBuildEngine implements BuildEngine {
   public ListenableFuture<?> walkRule(
       BuildRule rule,
       final Set<BuildRule> seen) {
-    return Futures.transform(
-              getRuleDeps(rule),
-              new AsyncFunction<ImmutableSortedSet<BuildRule>, List<Object>>() {
-                @Override
-                public ListenableFuture<List<Object>> apply(
-                    @Nonnull ImmutableSortedSet<BuildRule> deps) {
-                  List<ListenableFuture<?>> results =
-                      Lists.newArrayListWithExpectedSize(deps.size());
-                  for (BuildRule dep : deps) {
-                    if (seen.add(dep)) {
-                      results.add(walkRule(dep, seen));
-                    }
-                  }
-                  return Futures.allAsList(results);
-                }
-              });
+    return Futures.transformAsync(
+        getRuleDeps(rule),
+        new AsyncFunction<ImmutableSortedSet<BuildRule>, List<Object>>() {
+          @Override
+          public ListenableFuture<List<Object>> apply(
+              @Nonnull ImmutableSortedSet<BuildRule> deps) {
+            List<ListenableFuture<?>> results =
+                Lists.newArrayListWithExpectedSize(deps.size());
+            for (BuildRule dep : deps) {
+              if (seen.add(dep)) {
+                results.add(walkRule(dep, seen));
+              }
+            }
+            return Futures.allAsList(results);
+          }
+        });
   }
 
   @Override
@@ -912,7 +913,7 @@ public class CachingBuildEngine implements BuildEngine {
       // Grab all the dependency rule key futures.  Since our rule key calculation depends on this
       // one, we need to wait for them to complete.
       ListenableFuture<List<RuleKey>> depKeys =
-          Futures.transform(
+          Futures.transformAsync(
               getRuleDeps(rule),
               new AsyncFunction<ImmutableSortedSet<BuildRule>, List<RuleKey>>() {
                 @Override
@@ -965,7 +966,7 @@ public class CachingBuildEngine implements BuildEngine {
         new ConcurrentLinkedQueue<>();
     final ListenableFuture<BuildResult> resultFuture =
         getBuildRuleResultWithRuntimeDeps(rule, context, asyncCallbacks);
-    return Futures.transform(
+    return Futures.transformAsync(
         resultFuture,
         new AsyncFunction<BuildResult, BuildResult>() {
           @Override
@@ -979,7 +980,7 @@ public class CachingBuildEngine implements BuildEngine {
   }
 
   private CacheResult tryToFetchArtifactFromBuildCacheAndOverlayOnTopOfProjectFilesystem(
-      BuildRule rule,
+      final BuildRule rule,
       RuleKey ruleKey,
       BuildInfoRecorder buildInfoRecorder,
       ArtifactCache artifactCache,
@@ -988,34 +989,32 @@ public class CachingBuildEngine implements BuildEngine {
 
     // Create a temp file whose extension must be ".zip" for Filesystems.newFileSystem() to infer
     // that we are creating a zip-based FileSystem.
-    Path zipFile;
-    try {
-      zipFile = Files.createTempFile(
-          "buck_artifact_" + MoreFiles.sanitize(rule.getBuildTarget().getShortName()),
-          ".zip");
-    } catch (IOException e) {
-      throw new RuntimeException(e);
-    }
+    LazyPath lazyZipPath = new LazyPath() {
+      @Override
+      protected Path create() throws IOException {
+        return Files.createTempFile(
+            "buck_artifact_" + MoreFiles.sanitize(rule.getBuildTarget().getShortName()),
+            ".zip");
+      }
+    };
 
     // TODO(bolinfest): Change ArtifactCache.fetch() so that it returns a File instead of takes one.
     // Then we could download directly from the remote cache into the on-disk cache and unzip it
     // from there.
     CacheResult cacheResult =
-        buildInfoRecorder.fetchArtifactForBuildable(ruleKey, zipFile, artifactCache);
+        buildInfoRecorder.fetchArtifactForBuildable(ruleKey, lazyZipPath, artifactCache);
     if (!cacheResult.getType().isSuccess()) {
-      try {
-        Files.delete(zipFile);
-      } catch (IOException e) {
-        LOG.warn(e, "failed to delete %s", zipFile);
-      }
       return cacheResult;
     }
     LOG.debug("Fetched '%s' from cache with rulekey '%s'", rule, ruleKey);
 
+    // It should be fine to get the path straight away, since cache already did it's job.
+    Path zipPath = lazyZipPath.getUnchecked();
+
     // We unzip the file in the root of the project directory.
     // Ideally, the following would work:
     //
-    // Path pathToZip = Paths.get(zipFile.getAbsolutePath());
+    // Path pathToZip = Paths.get(zipPath.getAbsolutePath());
     // FileSystem fs = FileSystems.newFileSystem(pathToZip, /* loader */ null);
     // Path root = Iterables.getOnlyElement(fs.getRootDirectories());
     // MoreFiles.copyRecursively(root, projectRoot);
@@ -1028,13 +1027,13 @@ public class CachingBuildEngine implements BuildEngine {
     buildContext.getEventBus().post(started);
     try {
       Unzip.extractZipFile(
-          zipFile.toAbsolutePath(),
+          zipPath.toAbsolutePath(),
           filesystem,
           Unzip.ExistingFileMode.OVERWRITE_AND_CLEAN_DIRECTORIES);
 
       // We only delete the ZIP file when it has been unzipped successfully. Otherwise, we leave it
       // around for debugging purposes.
-      Files.delete(zipFile);
+      Files.delete(zipPath);
 
       if (cacheResult.getType() == CacheResultType.HIT) {
 
@@ -1056,7 +1055,7 @@ public class CachingBuildEngine implements BuildEngine {
                   "The rule will be built locally, " +
                   "but here is the stacktrace of the failed unzip call:\n" +
                   rule.getBuildTarget(),
-              zipFile.toAbsolutePath(),
+              zipPath.toAbsolutePath(),
               Throwables.getStackTraceAsString(e)));
       return CacheResult.miss();
     } finally {
@@ -1220,6 +1219,9 @@ public class CachingBuildEngine implements BuildEngine {
                rule.getProjectFilesystem().newFileInputStream(manifestPath)) {
         manifest = new Manifest(inputStream);
       }
+    } else {
+      // Ensure the path to manifest exist
+      rule.getProjectFilesystem().createParentDirs(manifestPath);
     }
 
     // If the manifest is larger than the max size, just truncate it.  It might be nice to support
@@ -1291,6 +1293,20 @@ public class CachingBuildEngine implements BuildEngine {
     Pair<RuleKey, ImmutableSet<SourcePath>> manifestKey =
         ruleKeyFactories.getUnchecked(rule.getProjectFilesystem())
             .depFileRuleKeyBuilderFactory.buildManifestKey(rule);
+
+    LazyPath tempFile = new LazyPath() {
+      @Override
+      protected Path create() throws IOException {
+        return Files.createTempFile("buck.", ".manifest");
+      }
+    };
+
+    CacheResult manifestResult =
+        context.getArtifactCache().fetch(manifestKey.getFirst(), tempFile);
+    if (!manifestResult.getType().isSuccess()) {
+      return CacheResult.miss();
+    }
+
     Path manifestPath = getManifestPath(rule);
 
     // Clear out any existing manifest.
@@ -1298,19 +1314,14 @@ public class CachingBuildEngine implements BuildEngine {
 
     // Now, fetch an existing manifest from the cache.
     rule.getProjectFilesystem().createParentDirs(manifestPath);
-    try (NamedTemporaryFile tempFile = new NamedTemporaryFile("buck.", ".manifest")) {
-      CacheResult manifestResult =
-          context.getArtifactCache().fetch(manifestKey.getFirst(), tempFile.get());
-      if (!manifestResult.getType().isSuccess()) {
-        return CacheResult.miss();
-      }
-      try (OutputStream outputStream =
-               rule.getProjectFilesystem().newFileOutputStream(manifestPath);
-           InputStream inputStream =
-               new GZIPInputStream(new BufferedInputStream(Files.newInputStream(tempFile.get())))) {
-        ByteStreams.copy(inputStream, outputStream);
-      }
+
+    try (OutputStream outputStream =
+             rule.getProjectFilesystem().newFileOutputStream(manifestPath);
+         InputStream inputStream =
+             new GZIPInputStream(new BufferedInputStream(Files.newInputStream(tempFile.get())))) {
+      ByteStreams.copy(inputStream, outputStream);
     }
+    Files.delete(tempFile.get());
 
     // Deserialize the manifest.
     Manifest manifest;

@@ -173,7 +173,7 @@ public class ProjectFilesystem {
     Preconditions.checkArgument(Files.isDirectory(root));
     Preconditions.checkState(vfs.equals(root.getFileSystem()));
     Preconditions.checkArgument(root.isAbsolute());
-    this.projectRoot = root.normalize();
+    this.projectRoot = MorePaths.normalize(root);
     this.pathAbsolutifier = new Function<Path, Path>() {
       @Override
       public Path apply(Path path) {
@@ -292,11 +292,11 @@ public class ProjectFilesystem {
    * @return the specified {@code path} resolved against {@link #getRootPath()} to an absolute path.
    */
   public Path resolve(Path path) {
-    return resolvePathFromOtherVfs(path).toAbsolutePath().normalize();
+    return MorePaths.normalize(resolvePathFromOtherVfs(path).toAbsolutePath());
   }
 
   public Path resolve(String path) {
-    return getRootPath().resolve(path).toAbsolutePath().normalize();
+    return MorePaths.normalize(getRootPath().resolve(path).toAbsolutePath());
   }
 
   /**
@@ -355,7 +355,7 @@ public class ProjectFilesystem {
    *         value is returned.
    */
   public Optional<Path> getPathRelativeToProjectRoot(Path path) {
-    path = path.normalize();
+    path = MorePaths.normalize(path);
     if (path.isAbsolute()) {
       if (path.startsWith(projectRoot)) {
         return Optional.of(MorePaths.relativize(projectRoot, path));
@@ -924,7 +924,7 @@ public class ProjectFilesystem {
       } else {
         // When sourcePath is relative, resolve it from the targetPath. We're creating a hard link
         // anyway.
-        realFile = symLink.getParent().resolve(realFile).normalize();
+        realFile = MorePaths.normalize(symLink.getParent().resolve(realFile));
         Files.createLink(symLink, realFile);
       }
     } else {
@@ -988,7 +988,7 @@ public class ProjectFilesystem {
         CustomZipEntry entry = new CustomZipEntry(entryName);
 
         // We want deterministic ZIPs, so avoid mtimes.
-        entry.setTime(0);
+        entry.setFakeTime();
 
         // Support executable files.  If we detect this file is executable, store this
         // information as 0100 in the field typically used in zip implementations for
@@ -1011,7 +1011,7 @@ public class ProjectFilesystem {
       for (Map.Entry<Path, String> fileContentsEntry : additionalFileContents.entrySet()) {
         CustomZipEntry entry = new CustomZipEntry(fileContentsEntry.getKey().toString());
         // We want deterministic ZIPs, so avoid mtimes.
-        entry.setTime(0);
+        entry.setFakeTime();
         zip.putNextEntry(entry);
         try (InputStream stream =
                  new ByteArrayInputStream(fileContentsEntry.getValue().getBytes(Charsets.UTF_8))) {

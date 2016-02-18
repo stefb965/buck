@@ -18,6 +18,7 @@ package com.facebook.buck.parser;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
+import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.PerfEventId;
 import com.facebook.buck.event.SimplePerfEvent;
@@ -62,6 +63,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Iterators;
+import com.google.common.collect.Maps;
 import com.google.common.collect.SetMultimap;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
@@ -73,6 +75,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardWatchEventKinds;
 import java.nio.file.WatchEvent;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -82,6 +85,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.regex.Pattern;
 
+import javax.annotation.Nullable;
 import javax.annotation.concurrent.GuardedBy;
 import javax.annotation.concurrent.ThreadSafe;
 
@@ -101,6 +105,7 @@ class DaemonicParserState {
    * build files as the tail, for example: {"__includes":["/foo/BUCK", "/foo/buck_includes"]}
    */
   private static final String INCLUDES_META_RULE = "__includes";
+  private static final String CONFIGS_META_RULE = "__configs";
 
   private final TypeCoercerFactory typeCoercerFactory;
   private final ConstructorArgMarshaller marshaller;
@@ -117,6 +122,10 @@ class DaemonicParserState {
    */
   @GuardedBy("this")
   private final SetMultimap<Path, Path> buildFileDependents;
+
+  @GuardedBy("this")
+  private final Map<Path, ImmutableMap<String, ImmutableMap<String, Optional<String>>>>
+      buildFileConfigs;
 
   /**
    * Environment used by build files. If the environment is changed, then build files need to be
@@ -165,6 +174,7 @@ class DaemonicParserState {
           }
         });
     this.buildFileDependents = HashMultimap.create();
+    this.buildFileConfigs = new HashMap<>();
     this.cachedEnvironment = ImmutableMap.of();
     this.cachedIncludes = new ConcurrentHashMap<>();
     this.knownCells = Collections.synchronizedSet(new HashSet<Cell>());
@@ -178,6 +188,7 @@ class DaemonicParserState {
       Path buildFile) throws BuildFileParseException, InterruptedException {
     Preconditions.checkState(buildFile.isAbsolute());
     invalidateIfProjectBuildFileParserStateChanged(cell);
+    invalidateIfBuckConfigHasChanged(cell, buildFile);
 
     try {
       return loadRawNodes(cell, buildFile, parser);
@@ -194,6 +205,7 @@ class DaemonicParserState {
       final TargetNodeListener nodeListener) throws BuildFileParseException, InterruptedException {
     Preconditions.checkState(buildFile.isAbsolute());
     invalidateIfProjectBuildFileParserStateChanged(cell);
+    invalidateIfBuckConfigHasChanged(cell, buildFile);
     try {
       List<Map<String, Object>> allRawNodes = loadRawNodes(cell, buildFile, parser);
 
@@ -225,13 +237,14 @@ class DaemonicParserState {
       final TargetNodeListener nodeListener
   ) throws BuildFileParseException, BuildTargetException, InterruptedException {
     invalidateIfProjectBuildFileParserStateChanged(cell);
+    final Path buildFile = cell.getAbsolutePathToBuildFile(target);
+    invalidateIfBuckConfigHasChanged(cell, buildFile);
     try {
       return allTargetNodes.get(
           target,
           new Callable<TargetNode<?>>() {
             @Override
             public TargetNode<?> call() throws Exception {
-              Path buildFile = cell.getAbsolutePathToBuildFile(target);
               Preconditions.checkState(buildFile.isAbsolute());
               List<Map<String, Object>> rawNodes = loadRawNodes(cell, buildFile, parser);
 
@@ -303,6 +316,8 @@ class DaemonicParserState {
           public ImmutableList<Map<String, Object>> call() throws Exception {
             List<Map<String, Object>> rawNodes = parser.getAllRulesAndMetaRules(buildFile);
             ImmutableSet<Path> dependentsOfEveryNode = ImmutableSet.of();
+            ImmutableMap<String, ImmutableMap<String, Optional<String>>> configs =
+                ImmutableMap.of();
             ImmutableList.Builder<Map<String, Object>> toReturn = ImmutableList.builder();
             for (Map<String, Object> rawNode : rawNodes) {
               if (rawNode.containsKey(INCLUDES_META_RULE)) {
@@ -319,12 +334,34 @@ class DaemonicParserState {
                           }
                         })
                     .toSet();
+              } else if (rawNode.containsKey(CONFIGS_META_RULE)) {
+                ImmutableMap.Builder<String, ImmutableMap<String, Optional<String>>> builder =
+                    ImmutableMap.builder();
+                Map<String, Map<String, String>> configsMeta =
+                    Preconditions.checkNotNull(
+                        (Map<String, Map<String, String>>) rawNode.get(CONFIGS_META_RULE));
+                for (Map.Entry<String, Map<String, String>> ent : configsMeta.entrySet()) {
+                  builder.put(
+                      ent.getKey(),
+                      ImmutableMap.copyOf(
+                          Maps.transformValues(
+                              ent.getValue(),
+                              new Function<String, Optional<String>>() {
+                                @Override
+                                public Optional<String> apply(@Nullable String input) {
+                                  return Optional.fromNullable(input);
+                                }
+                              })));
+                }
+                configs = builder.build();
               } else {
                 toReturn.add(rawNode);
               }
             }
 
             synchronized (this) {
+              buildFileConfigs.put(buildFile, configs);
+
               // We now know all the nodes. They all implicitly depend on everything in
               // the "dependentsOfEveryNode" set.
               for (Path dependent : dependentsOfEveryNode) {
@@ -334,8 +371,9 @@ class DaemonicParserState {
 
             // We also know that the rules all depend on the default includes for the
             // cell.
+            BuckConfig buckConfig = cell.getBuckConfig();
             Iterable<String> defaultIncludes =
-                new ParserConfig(cell.getBuckConfig()).getDefaultIncludes();
+                new ParserConfig(buckConfig).getDefaultIncludes();
             synchronized (this) {
               for (String include : defaultIncludes) {
                 // Default includes are given as "//path/to/file". They look like targets
@@ -491,6 +529,8 @@ class DaemonicParserState {
 
     for (Cell cell : knownCells) {
       try {
+        // We only care about creation and deletion events because modified should result in a rule
+        // key change.  For parsing, these are the only events we need to care about.
         if (isPathCreateOrDeleteEvent(event)) {
           BuildFileTree buildFiles = buildFileTrees.get(cell);
 
@@ -503,9 +543,11 @@ class DaemonicParserState {
           // "containing" {@code path} unless its filename matches a temp file pattern.
           if (!isTempFile(cell, path)) {
             invalidateContainingBuildFile(cell, buildFiles, path);
+          } else {
+            LOG.debug(
+                "Not invalidating the owning build file of %s because it is a temporary file.",
+                cell.getFilesystem().resolve(path).toAbsolutePath().toString());
           }
-
-          LOG.verbose("Invalidating dependents for path %s, cache state %s", path, this);
         }
       } catch (ExecutionException | UncheckedExecutionException e) {
         try {
@@ -555,6 +597,13 @@ class DaemonicParserState {
       }
     }
 
+    if (packageBuildFiles.isEmpty()) {
+      LOG.debug(
+          "%s is not owned by any build file.  Not invalidating anything.",
+          cell.getFilesystem().resolve(path).toAbsolutePath().toString());
+      return;
+    }
+
     // Invalidate all the packages we found.
     for (Path buildFile : packageBuildFiles) {
       invalidatePath(cell, buildFile.resolve(cell.getBuildFileName()));
@@ -595,6 +644,8 @@ class DaemonicParserState {
       invalidatePath(cell, dependent);
     }
     buildFileDependents.removeAll(path);
+
+    buildFileConfigs.remove(path);
   }
 
   public static boolean isPathCreateOrDeleteEvent(WatchEvent<?> event) {
@@ -615,6 +666,24 @@ class DaemonicParserState {
       }
     };
     return Iterators.any(cell.getTempFilePatterns().iterator(), patternMatches);
+  }
+
+  private synchronized void invalidateIfBuckConfigHasChanged(Cell cell, Path buildFile) {
+    ImmutableMap<String, ImmutableMap<String, Optional<String>>> usedConfigs =
+        buildFileConfigs.get(buildFile);
+    if (usedConfigs != null) {
+      for (Map.Entry<String, ImmutableMap<String, Optional<String>>> keyEnt :
+          usedConfigs.entrySet()) {
+        for (Map.Entry<String, Optional<String>> valueEnt : keyEnt.getValue().entrySet()) {
+          Optional<String> value =
+              cell.getBuckConfig().getValue(keyEnt.getKey(), valueEnt.getKey());
+          if (!value.equals(valueEnt.getValue())) {
+            invalidatePath(cell, buildFile);
+            return;
+          }
+        }
+      }
+    }
   }
 
   private void invalidateIfProjectBuildFileParserStateChanged(Cell cell) {
@@ -656,6 +725,7 @@ class DaemonicParserState {
     targetsCornucopia.clear();
     allRawNodes.invalidateAll();
     buildFileDependents.clear();
+    buildFileConfigs.clear();
     knownCells.clear();
   }
 

@@ -42,6 +42,7 @@ import com.facebook.buck.event.listener.LoggingBuildListener;
 import com.facebook.buck.event.listener.ProgressEstimator;
 import com.facebook.buck.event.listener.RemoteLogUploaderEventListener;
 import com.facebook.buck.event.listener.SimpleConsoleEventBusListener;
+import com.facebook.buck.event.listener.SuperConsoleConfig;
 import com.facebook.buck.event.listener.SuperConsoleEventBusListener;
 import com.facebook.buck.httpserver.WebServer;
 import com.facebook.buck.io.AsynchronousDirectoryContentsCleaner;
@@ -105,6 +106,7 @@ import com.facebook.buck.util.versioncontrol.DefaultVersionControlCmdLineInterfa
 import com.facebook.buck.util.versioncontrol.VersionControlBuckConfig;
 import com.facebook.buck.util.versioncontrol.VersionControlStatsGenerator;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.guava.GuavaModule;
 import com.fasterxml.jackson.datatype.jdk7.Jdk7Module;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
@@ -505,7 +507,7 @@ public final class Main {
     this.stdErr = stdErr;
     this.architecture = Architecture.detect();
     this.platform = Platform.detect();
-    this.objectMapper = new ObjectMapper();
+    this.objectMapper = new ObjectMapper().registerModule(new GuavaModule());
     // Add support for serializing Path and other JDK 7 objects.
     this.objectMapper.registerModule(new Jdk7Module());
     this.externalEventsListeners = ImmutableList.copyOf(externalEventsListeners);
@@ -820,9 +822,9 @@ public final class Main {
       Locale locale = Locale.getDefault();
 
       // create a cached thread pool for cpu intensive tasks
-      Map<ExecutionContext.ExecutorPool, ExecutorService> executors =
-          new HashMap<ExecutionContext.ExecutorPool, ExecutorService>();
-      executors.put(ExecutionContext.ExecutorPool.CPU, Executors.newCachedThreadPool());
+      Map<ExecutionContext.ExecutorPool, ListeningExecutorService> executors = new HashMap<>();
+      executors.put(ExecutionContext.ExecutorPool.CPU, listeningDecorator(
+          Executors.newCachedThreadPool()));
 
       // The order of resources in the try-with-resources block is important: the BuckEventBus must
       // be the last resource, so that it is closed first and can deliver its queued events to the
@@ -837,6 +839,7 @@ public final class Main {
            AbstractConsoleEventBusListener consoleListener =
                createConsoleEventListener(
                    clock,
+                   new SuperConsoleConfig(buckConfig),
                    console,
                    testConfig.getResultSummaryVerbosity(),
                    executionEnvironment,
@@ -1330,6 +1333,7 @@ public final class Main {
 
   private AbstractConsoleEventBusListener createConsoleEventListener(
       Clock clock,
+      SuperConsoleConfig config,
       Console console,
       TestResultSummaryVerbosity testResultSummaryVerbosity,
       ExecutionEnvironment executionEnvironment,
@@ -1343,6 +1347,7 @@ public final class Main {
         !verbosity.shouldPrintCommand() &&
         verbosity.shouldPrintStandardInformation()) {
       SuperConsoleEventBusListener superConsole = new SuperConsoleEventBusListener(
+          config,
           console,
           clock,
           testResultSummaryVerbosity,

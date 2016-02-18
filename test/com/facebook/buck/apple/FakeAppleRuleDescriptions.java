@@ -132,17 +132,12 @@ public class FakeAppleRuleDescriptions {
       new CxxBuckConfig(DEFAULT_BUCK_CONFIG));
 
   private static final FlavorDomain<CxxPlatform> DEFAULT_APPLE_FLAVOR_DOMAIN =
-      new FlavorDomain<>(
+      FlavorDomain.of(
           "Fake iPhone C/C++ Platform",
-          ImmutableMap.of(
-              DEFAULT_PLATFORM.getFlavor(),
-              DEFAULT_PLATFORM,
-              DEFAULT_IPHONEOS_I386_PLATFORM.getCxxPlatform().getFlavor(),
-              DEFAULT_IPHONEOS_I386_PLATFORM.getCxxPlatform(),
-              DEFAULT_IPHONEOS_X86_64_PLATFORM.getCxxPlatform().getFlavor(),
-              DEFAULT_IPHONEOS_X86_64_PLATFORM.getCxxPlatform(),
-              DEFAULT_MACOSX_X86_64_PLATFORM.getCxxPlatform().getFlavor(),
-              DEFAULT_MACOSX_X86_64_PLATFORM.getCxxPlatform()));
+          DEFAULT_PLATFORM,
+          DEFAULT_IPHONEOS_I386_PLATFORM.getCxxPlatform(),
+          DEFAULT_IPHONEOS_X86_64_PLATFORM.getCxxPlatform(),
+          DEFAULT_MACOSX_X86_64_PLATFORM.getCxxPlatform());
 
   private static final ImmutableMap<Flavor, AppleCxxPlatform>
     DEFAULT_PLATFORM_FLAVORS_TO_APPLE_CXX_PLATFORMS =
@@ -164,7 +159,6 @@ public class FakeAppleRuleDescriptions {
             new InferBuckConfig(DEFAULT_BUCK_CONFIG),
             DEFAULT_APPLE_FLAVOR_DOMAIN,
             CxxPreprocessMode.COMBINED),
-        DEFAULT_APPLE_FLAVOR_DOMAIN,
         DEFAULT_PLATFORM_FLAVORS_TO_APPLE_CXX_PLATFORMS,
         DEFAULT_PLATFORM,
         CodeSignIdentityStore.fromIdentities(ImmutableList.of(CodeSignIdentity.AD_HOC)),
@@ -181,9 +175,7 @@ public class FakeAppleRuleDescriptions {
             DEFAULT_IPHONEOS_I386_PLATFORM.getCxxPlatform(),
             DEFAULT_APPLE_FLAVOR_DOMAIN,
             CxxPreprocessMode.COMBINED),
-        DEFAULT_APPLE_FLAVOR_DOMAIN,
         DEFAULT_PLATFORM_FLAVORS_TO_APPLE_CXX_PLATFORMS,
-        DEFAULT_PLATFORM,
         CodeSignIdentityStore.fromIdentities(ImmutableList.of(CodeSignIdentity.AD_HOC)),
         ProvisioningProfileStore.fromProvisioningProfiles(
             ImmutableList.<ProvisioningProfileMetadata>of()));

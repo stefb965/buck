@@ -117,9 +117,22 @@ public class Omnibus {
     Map<BuildTarget, NativeLinkable> rootDeps = new LinkedHashMap<>();
     for (SharedNativeLinkTarget root : includedRoots) {
       roots.put(root.getBuildTarget(), root);
-      for (NativeLinkable dep : root.getSharedNativeLinkTargetDeps(cxxPlatform)) {
-        rootDeps.put(dep.getBuildTarget(), dep);
-        nativeLinkables.put(dep.getBuildTarget(), dep);
+      for (NativeLinkable dep :
+           NativeLinkables.getNativeLinkables(
+               cxxPlatform,
+               root.getSharedNativeLinkTargetDeps(cxxPlatform),
+               Linker.LinkableDepType.SHARED).values()) {
+        Linker.LinkableDepType linkStyle =
+            NativeLinkables.getLinkStyle(
+                dep.getPreferredLinkage(cxxPlatform),
+                Linker.LinkableDepType.SHARED);
+        Preconditions.checkState(linkStyle != Linker.LinkableDepType.STATIC);
+
+        // We only consider deps which aren't *only* statically linked.
+        if (linkStyle == Linker.LinkableDepType.SHARED) {
+          rootDeps.put(dep.getBuildTarget(), dep);
+          nativeLinkables.put(dep.getBuildTarget(), dep);
+        }
       }
     }
 
@@ -209,7 +222,8 @@ public class Omnibus {
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
-      CxxPlatform cxxPlatform) {
+      CxxPlatform cxxPlatform,
+      ImmutableList<? extends Arg> extraLdflags) {
     BuildTarget dummyOmnibusTarget =
         BuildTarget.builder(params.getBuildTarget())
             .addFlavors(DUMMY_OMNIBUS_FLAVOR)
@@ -223,7 +237,7 @@ public class Omnibus {
             dummyOmnibusTarget,
             BuildTargets.getGenPath(dummyOmnibusTarget, "%s").resolve(omnibusSoname),
             omnibusSoname,
-            ImmutableList.<Arg>of()));
+            extraLdflags));
     return new BuildTargetSourcePath(dummyOmnibusTarget);
   }
 
@@ -234,12 +248,16 @@ public class Omnibus {
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
       CxxPlatform cxxPlatform,
+      ImmutableList<? extends Arg> extraLdflags,
       OmnibusSpec spec,
       SourcePath omnibus,
       SharedNativeLinkTarget root)
       throws NoSuchBuildTargetException {
 
     ImmutableList.Builder<Arg> argsBuilder = ImmutableList.builder();
+
+    // Add any extra flags to the link.
+    argsBuilder.addAll(extraLdflags);
 
     // Since the dummy omnibus library doesn't actually contain any symbols, make sure the linker
     // won't drop its runtime reference to it.
@@ -263,6 +281,18 @@ public class Omnibus {
     boolean alreadyAddedOmnibusToArgs = false;
     for (Map.Entry<BuildTarget, NativeLinkable> entry : deps.entrySet()) {
       BuildTarget target = entry.getKey();
+      NativeLinkable nativeLinkable = entry.getValue();
+      Linker.LinkableDepType linkStyle =
+          NativeLinkables.getLinkStyle(
+              nativeLinkable.getPreferredLinkage(cxxPlatform),
+              Linker.LinkableDepType.SHARED);
+
+      // If this dep needs to be linked statically, then we always link it directly.
+      if (linkStyle != Linker.LinkableDepType.SHARED) {
+        Preconditions.checkState(linkStyle == Linker.LinkableDepType.STATIC_PIC);
+        argsBuilder.addAll(nativeLinkable.getNativeLinkableInput(cxxPlatform, linkStyle).getArgs());
+        continue;
+      }
 
       // If this dep is another root node, substitute in the custom linked library we built for it.
       if (spec.getRoots().containsKey(target)) {
@@ -276,8 +306,9 @@ public class Omnibus {
         continue;
       }
 
-      // If this dep is in the giant merge omnibus body, then add the omnibus library to the link.
-      if (spec.getBody().containsKey(target)) {
+      // If we're linking this dep from the body, then we need to link via the giant merged
+      // libomnibus instead.
+      if (spec.getBody().containsKey(target)) { // && linkStyle == Linker.LinkableDepType.SHARED) {
         if (!alreadyAddedOmnibusToArgs) {
           argsBuilder.add(new SourcePathArg(pathResolver, omnibus));
           alreadyAddedOmnibusToArgs = true;
@@ -285,15 +316,10 @@ public class Omnibus {
         continue;
       }
 
-      // Otherwise, this is an excluded node, so link it normally.
+      // Otherwise, this is either an explicitly statically linked or excluded node, so link it
+      // normally.
       Preconditions.checkState(spec.getExcluded().containsKey(target));
-      NativeLinkable nativeLinkable = entry.getValue();
-      NativeLinkableInput depInput =
-          NativeLinkables.getNativeLinkableInput(
-              cxxPlatform,
-              Linker.LinkableDepType.SHARED,
-              nativeLinkable);
-      argsBuilder.addAll(depInput.getArgs());
+      argsBuilder.addAll(nativeLinkable.getNativeLinkableInput(cxxPlatform, linkStyle).getArgs());
     }
 
     // Create the root library rule using the arguments assembled above.
@@ -345,10 +371,14 @@ public class Omnibus {
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
       CxxPlatform cxxPlatform,
+      ImmutableList<? extends Arg> extraLdflags,
       OmnibusSpec spec)
       throws NoSuchBuildTargetException {
 
     ImmutableList.Builder<Arg> argsBuilder = ImmutableList.builder();
+
+    // Add extra ldflags to the beginning of the link.
+    argsBuilder.addAll(extraLdflags);
 
     // For roots that aren't dependencies of nodes in the body, we extract their undefined symbols
     // to add to the link so that required symbols get pulled into the merged library.
@@ -452,6 +482,7 @@ public class Omnibus {
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
       final CxxPlatform cxxPlatform,
+      final ImmutableList<? extends Arg> extraLdflags,
       Iterable<? extends SharedNativeLinkTarget> nativeLinkTargetRoots,
       Iterable<? extends NativeLinkable> nativeLinkableRoots)
       throws NoSuchBuildTargetException {
@@ -463,18 +494,28 @@ public class Omnibus {
     // Create an empty dummy omnibus library, to give the roots something to link against before
     // we have the actual omnibus library available.  Note that this requires that the linker
     // supports linking shared libraries with undefined references.
-    SourcePath dummyOmnibus = createDummyOmnibus(params, ruleResolver, pathResolver, cxxPlatform);
+    SourcePath dummyOmnibus =
+        createDummyOmnibus(params, ruleResolver, pathResolver, cxxPlatform, extraLdflags);
 
     // Create rule for each of the root nodes, linking against the dummy omnibus library above.
     for (SharedNativeLinkTarget root : spec.getRoots().values()) {
       SharedLibrary lib =
-          createRoot(params, ruleResolver, pathResolver, cxxPlatform, spec, dummyOmnibus, root);
+          createRoot(
+              params,
+              ruleResolver,
+              pathResolver,
+              cxxPlatform,
+              extraLdflags,
+              spec,
+              dummyOmnibus,
+              root);
       libs.putRoots(root.getBuildTarget(), lib);
     }
 
     // If there are any body nodes, generate the giant merged omnibus library.
     if (!spec.getBody().isEmpty()) {
-      SharedLibrary omnibus = createOmnibus(params, ruleResolver, pathResolver, cxxPlatform, spec);
+      SharedLibrary omnibus =
+          createOmnibus(params, ruleResolver, pathResolver, cxxPlatform, extraLdflags, spec);
       libs.addLibraries(omnibus);
     }
 

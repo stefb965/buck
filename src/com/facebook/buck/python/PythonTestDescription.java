@@ -36,6 +36,7 @@ import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.args.MacroArg;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
 import com.facebook.buck.rules.macros.MacroExpander;
 import com.facebook.buck.rules.macros.MacroHandler;
@@ -45,6 +46,7 @@ import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
+import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -259,6 +261,14 @@ public class PythonTestDescription implements
             testComponents,
             pythonPlatform,
             cxxPlatform,
+            FluentIterable.from(args.linkerFlags.get())
+                .transform(
+                    MacroArg.toMacroArgFunction(
+                        PythonUtil.MACRO_HANDLER,
+                        params.getBuildTarget(),
+                        params.getCellRoots(),
+                        resolver))
+                .toList(),
             pythonBuckConfig.getNativeLinkStrategy());
 
     // Build the PEX using a python binary rule with the minimum dependencies.
@@ -276,7 +286,11 @@ public class PythonTestDescription implements
             PythonUtil.toModuleName(params.getBuildTarget(), getTestMainName().toString()),
             allComponents,
             args.buildArgs.or(ImmutableList.<String>of()),
-            args.packageStyle.or(pythonBuckConfig.getPackageStyle()));
+            args.packageStyle.or(pythonBuckConfig.getPackageStyle()),
+            PythonUtil.getPreloadNames(
+                resolver,
+                cxxPlatform,
+                args.preloadDeps.get()));
     resolver.addToIndex(binary);
 
     // Supplier which expands macros in the passed in test environment.
@@ -334,6 +348,8 @@ public class PythonTestDescription implements
     public Optional<ImmutableSortedSet<BuildTarget>> sourceUnderTest;
     public Optional<String> platform;
     public Optional<PythonBuckConfig.PackageStyle> packageStyle;
+    public Optional<ImmutableSet<BuildTarget>> preloadDeps;
+    public Optional<ImmutableList<String>> linkerFlags;
 
     public Optional<ImmutableList<String>> buildArgs;
 

@@ -16,7 +16,7 @@
 
 package org.openqa.selenium.buck.file;
 
-import static com.facebook.buck.zip.ZipStep.DEFAULT_COMPRESSION_LEVEL;
+import static com.facebook.buck.zip.ZipCompressionLevel.DEFAULT_COMPRESSION_LEVEL;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;

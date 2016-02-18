@@ -16,6 +16,8 @@
 
 package org.openqa.selenium.buck.mozilla;
 
+import static com.facebook.buck.zip.ZipCompressionLevel.DEFAULT_COMPRESSION_LEVEL;
+
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
@@ -123,7 +125,7 @@ public class Xpi extends AbstractBuildRule {
             output.normalize().toAbsolutePath(),
             ImmutableSet.<Path>of(),
             false,
-            ZipStep.DEFAULT_COMPRESSION_LEVEL,
+            DEFAULT_COMPRESSION_LEVEL,
             scratch));
 
     buildableContext.recordArtifact(output);

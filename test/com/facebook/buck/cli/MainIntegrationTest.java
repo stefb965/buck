@@ -106,6 +106,7 @@ public class MainIntegrationTest {
         "  buck command [command-options]",
         "available commands:",
         "  audit       lists the inputs for the specified target",
+        "  autodeps    auto-generates dependencies for build rules, where possible",
         "  build       builds the specified target",
         "  cache       makes calls to the artifact cache",
         "  clean       deletes any generated files",
@@ -123,7 +124,7 @@ public class MainIntegrationTest {
         "  test        builds and runs the tests for the specified target",
         "  uninstall   uninstalls an APK",
         "options:",
-        " --help         : Shows this screen and exits.",
+        " --help (-h)    : Shows this screen and exits.",
         " --version (-V) : Show version number.",
         "");
   }

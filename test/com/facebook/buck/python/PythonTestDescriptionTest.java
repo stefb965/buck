@@ -19,7 +19,10 @@ package com.facebook.buck.python;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.cli.BuildTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.cxx.CxxBinaryBuilder;
+import com.facebook.buck.cxx.CxxPlatformUtils;
+import com.facebook.buck.io.AlwaysFoundExecutableFinder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.FlavorDomain;
@@ -34,7 +37,10 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
+import com.facebook.buck.shell.ShBinary;
+import com.facebook.buck.shell.ShBinaryBuilder;
 import com.facebook.buck.step.Step;
+import com.facebook.buck.testutil.TargetGraphFactory;
 import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -199,11 +205,7 @@ public class PythonTestDescriptionTest {
     PythonTestBuilder builder =
         PythonTestBuilder.create(
             BuildTargetFactory.newInstance("//:bin"),
-            new FlavorDomain<>(
-                "Python Platform",
-                ImmutableMap.of(
-                    platform1.getFlavor(), platform1,
-                    platform2.getFlavor(), platform2)));
+            FlavorDomain.of("Python Platform", platform1, platform2));
     PythonTest test1 =
         (PythonTest) builder
             .setPlatform(platform1.getFlavor().toString())
@@ -262,6 +264,42 @@ public class PythonTestDescriptionTest {
     assertThat(
         pythonTest.getBinary(),
         Matchers.instanceOf(PythonPackagedBinary.class));
+  }
+
+  @Test
+  public void pexExecutorIsAddedToTestRuntimeDeps() throws Exception {
+    ShBinaryBuilder pexExecutorBuilder =
+        new ShBinaryBuilder(BuildTargetFactory.newInstance("//:pex_executor"))
+            .setMain(new FakeSourcePath("run.sh"));
+    PythonTestBuilder builder =
+        new PythonTestBuilder(
+            BuildTargetFactory.newInstance("//:bin"),
+            new PythonBuckConfig(
+                FakeBuckConfig.builder()
+                    .setSections(
+                        ImmutableMap.of(
+                            "python",
+                            ImmutableMap.of(
+                                "path_to_pex_executer",
+                                pexExecutorBuilder.getTarget().toString())))
+                    .build(),
+                new AlwaysFoundExecutableFinder()),
+            PythonTestUtils.PYTHON_PLATFORMS,
+            CxxPlatformUtils.DEFAULT_PLATFORM,
+            CxxPlatformUtils.DEFAULT_PLATFORMS);
+    builder
+        .setPackageStyle(PythonBuckConfig.PackageStyle.STANDALONE);
+    BuildRuleResolver resolver =
+        new BuildRuleResolver(
+            TargetGraphFactory.newInstance(
+                pexExecutorBuilder.build(),
+                builder.build()),
+            new BuildTargetNodeToBuildRuleTransformer());
+    ShBinary pexExecutor = (ShBinary) pexExecutorBuilder.build(resolver);
+    PythonTest binary = (PythonTest) builder.build(resolver);
+    assertThat(
+        binary.getRuntimeDeps(),
+        Matchers.hasItem(pexExecutor));
   }
 
 }

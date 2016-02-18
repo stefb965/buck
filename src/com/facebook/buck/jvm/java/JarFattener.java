@@ -34,6 +34,7 @@ import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.SymlinkFileStep;
 import com.facebook.buck.step.fs.WriteFileStep;
+import com.facebook.buck.zip.ZipCompressionLevel;
 import com.facebook.buck.zip.ZipStep;
 import com.google.common.base.Optional;
 import com.google.common.base.Throwables;
@@ -153,9 +154,12 @@ public class JarFattener extends AbstractBuildRule implements BinaryBuildRule {
         getProjectFilesystem(),
         zipped,
         ImmutableSet.<Path>of(),
-            /* junkPaths */ false,
-            /* compressionLevel */ 0,
+        false,
+        ZipCompressionLevel.MIN_COMPRESSION_LEVEL,
         fatJarDir);
+
+    Path pathToSrcsList = BuildTargets.getGenPath(getBuildTarget(), "__%s__srcs");
+    steps.add(new MkdirStep(getProjectFilesystem(), pathToSrcsList.getParent()));
 
     CompileToJarStepFactory compileStepFactory =
         new JavacToJarStepFactory(javacOptions, JavacOptionsAmender.IDENTITY);
@@ -169,7 +173,7 @@ public class JarFattener extends AbstractBuildRule implements BinaryBuildRule {
         /* classpathEntries */ ImmutableSortedSet.<Path>of(),
         fatJarDir,
         /* workingDir */ Optional.<Path>absent(),
-        /* pathToSrcsList */ Optional.<Path>absent(),
+        pathToSrcsList,
         /* suggestBuildRule */ Optional.<SuggestBuildRules>absent(),
         steps,
         buildableContext);

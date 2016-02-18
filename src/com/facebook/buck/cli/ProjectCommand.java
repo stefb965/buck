@@ -27,6 +27,7 @@ import com.facebook.buck.apple.SchemeActionType;
 import com.facebook.buck.apple.WorkspaceAndProjectGenerator;
 import com.facebook.buck.apple.XcodeWorkspaceConfigDescription;
 import com.facebook.buck.cxx.CxxBuckConfig;
+import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.ProjectGenerationEvent;
 import com.facebook.buck.halide.HalideBuckConfig;
@@ -90,6 +91,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Ordering;
 import com.google.common.collect.Sets;
 import com.google.common.io.Files;
+import com.google.common.util.concurrent.ListeningExecutorService;
 
 import org.kohsuke.args4j.Option;
 
@@ -103,7 +105,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.concurrent.Executor;
 
 import javax.annotation.Nullable;
 
@@ -544,7 +545,8 @@ public class ProjectCommand extends BuildCommand {
         ruleResolver,
         sourcePathResolver,
         params.getCell().getFilesystem(),
-        getIntellijAggregationMode(params.getBuckConfig()));
+        getIntellijAggregationMode(params.getBuckConfig()),
+        params.getBuckConfig());
 
     ImmutableSet<BuildTarget> requiredBuildTargets = project.write();
 
@@ -816,6 +818,8 @@ public class ProjectCommand extends BuildCommand {
       HalideBuckConfig halideBuckConfig = new HalideBuckConfig(params.getBuckConfig());
       CxxBuckConfig cxxBuckConfig = new CxxBuckConfig(params.getBuckConfig());
 
+      CxxPlatform defaultCxxPlatform = params.getCell().getKnownBuildRuleTypes().
+          getDefaultCxxPlatforms();
       WorkspaceAndProjectGenerator generator = new WorkspaceAndProjectGenerator(
           params.getCell().getFilesystem(),
           targetGraphAndTargets.getTargetGraph(),
@@ -830,7 +834,7 @@ public class ProjectCommand extends BuildCommand {
           new ExecutableFinder(),
           params.getEnvironment(),
           params.getCell().getKnownBuildRuleTypes().getCxxPlatforms(),
-          params.getCell().getKnownBuildRuleTypes().getDefaultCxxPlatforms(),
+          defaultCxxPlatform,
           new ParserConfig(params.getBuckConfig()).getBuildFileName(),
           new Function<TargetNode<?>, SourcePathResolver>() {
             @Override
@@ -973,7 +977,7 @@ public class ProjectCommand extends BuildCommand {
 
   private TargetGraph getProjectGraphForIde(
       CommandRunnerParams params,
-      Executor executor,
+      ListeningExecutorService executor,
       ImmutableSet<BuildTarget> passedInTargets,
       boolean needsFullRecursiveParse
   ) throws InterruptedException, BuildFileParseException, BuildTargetException, IOException {
@@ -1009,7 +1013,7 @@ public class ProjectCommand extends BuildCommand {
       boolean isWithTests,
       boolean isWithDependenciesTests,
       boolean needsFullRecursiveParse,
-      Executor executor
+      ListeningExecutorService executor
   )
       throws IOException, InterruptedException, BuildFileParseException, BuildTargetException {
 

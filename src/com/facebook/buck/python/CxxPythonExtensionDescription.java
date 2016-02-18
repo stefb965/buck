@@ -52,22 +52,22 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
+import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Sets;
+import com.google.common.collect.Iterables;
 
 import java.nio.file.Path;
 import java.util.Map;
-import java.util.Set;
 
 public class CxxPythonExtensionDescription implements
     Description<CxxPythonExtensionDescription.Arg>,
@@ -209,33 +209,31 @@ public class CxxPythonExtensionDescription implements
     return argsBuilder.build();
   }
 
-  /**
-   * Reconstruct the extra-deps with irrelevant python platform C/C++ libs filtered out.
-   */
-  private Supplier<ImmutableSortedSet<BuildRule>> removeUnusedPlatformDeps(
-      final BuildRuleResolver ruleResolver,
-      final PythonPlatform pythonPlatform,
-      final Supplier<ImmutableSortedSet<BuildRule>> originalExtraDeps) {
-    return new Supplier<ImmutableSortedSet<BuildRule>>() {
-      @Override
-      public ImmutableSortedSet<BuildRule> get() {
-        BuildRule relevantCxxLibrary =
-            ruleResolver.getRule(pythonPlatform.getCxxLibrary().get());
-        Set<BuildRule> extraDeps = Sets.newHashSet(originalExtraDeps.get());
-        for (PythonPlatform python : pythonPlatforms.getValues()) {
-          Optional<BuildTarget> cxxLibraryTarget = python.getCxxLibrary();
-          if (cxxLibraryTarget.isPresent()) {
-            Optional<BuildRule> cxxLibrary =
-                ruleResolver.getRuleOptional(cxxLibraryTarget.get());
-            if (cxxLibrary.isPresent() && !cxxLibrary.get().equals(relevantCxxLibrary)) {
-              extraDeps.remove(cxxLibrary.get());
-            }
-          }
-        }
-        return ImmutableSortedSet.copyOf(extraDeps);
-      }
-    };
+  private ImmutableList<BuildRule> getPlatformDeps(
+      BuildRuleParams params,
+      BuildRuleResolver ruleResolver,
+      PythonPlatform pythonPlatform,
+      Arg args) {
+
+    ImmutableList.Builder<BuildRule> rules = ImmutableList.builder();
+
+    // Add declared deps.
+    rules.addAll(params.getDeclaredDeps().get());
+
+    // Add platform specific deps.
+    rules.addAll(
+        ruleResolver.getAllRules(
+            Iterables.concat(
+                args.platformDeps
+                    .or(PatternMatchedCollection.<ImmutableSortedSet<BuildTarget>>of())
+                    .getMatchingValues(pythonPlatform.getFlavor().toString()))));
+
+    // Add a dep on the python C/C++ library.
+    rules.add(ruleResolver.getRule(pythonPlatform.getCxxLibrary().get().getBuildTarget()));
+
+    return rules.build();
   }
+
 
   private <A extends Arg> BuildRule createExtensionBuildRule(
       BuildRuleParams params,
@@ -261,14 +259,17 @@ public class CxxPythonExtensionDescription implements
         Linker.LinkType.SHARED,
         Optional.of(extensionName),
         extensionPath,
-        getExtensionArgs(params, ruleResolver, pathResolver, cxxPlatform, args),
         Linker.LinkableDepType.SHARED,
         FluentIterable.from(params.getDeps())
             .filter(NativeLinkable.class),
         args.cxxRuntimeType,
         Optional.<SourcePath>absent(),
         ImmutableSet.<BuildTarget>of(),
-        args.frameworks.or(ImmutableSortedSet.<FrameworkPath>of()));
+        NativeLinkableInput.builder()
+          .setArgs(getExtensionArgs(params, ruleResolver, pathResolver, cxxPlatform, args))
+          .setFrameworks(args.frameworks.or(ImmutableSortedSet.<FrameworkPath>of()))
+          .setLibraries(args.libraries.or(ImmutableSortedSet.<FrameworkPath>of()))
+          .build());
   }
 
   @Override
@@ -293,11 +294,15 @@ public class CxxPythonExtensionDescription implements
     if (type.isPresent() && platform.isPresent() && pythonPlatform.isPresent()) {
       Preconditions.checkState(type.get().getValue() == Type.EXTENSION);
       return createExtensionBuildRule(
-          params.copyWithExtraDeps(
-              removeUnusedPlatformDeps(
-                  ruleResolver,
-                  pythonPlatform.get().getValue(),
-                  params.getExtraDeps())),
+          params.copyWithDeps(
+              Suppliers.ofInstance(
+                  ImmutableSortedSet.copyOf(
+                      getPlatformDeps(
+                          params,
+                          ruleResolver,
+                          pythonPlatform.get().getValue(),
+                          args))),
+              Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
           ruleResolver,
           pythonPlatform.get().getValue(),
           platform.get().getValue(),
@@ -357,12 +362,8 @@ public class CxxPythonExtensionDescription implements
           @Override
           public Iterable<? extends NativeLinkable> getSharedNativeLinkTargetDeps(
               CxxPlatform cxxPlatform) {
-            return FluentIterable.from(params.getDeclaredDeps().get())
-                .filter(NativeLinkable.class)
-                .append(
-                    ruleResolver.getRuleOptionalWithType(
-                        pythonPlatform.getCxxLibrary().get().getBuildTarget(),
-                        NativeLinkable.class).get());
+            return FluentIterable.from(getPlatformDeps(params, ruleResolver, pythonPlatform, args))
+                .filter(NativeLinkable.class);
           }
 
           @Override
@@ -381,11 +382,10 @@ public class CxxPythonExtensionDescription implements
                                 .addFlavors(pythonPlatform.getFlavor())
                                 .addFlavors(CxxDescriptionEnhancer.SHARED_FLAVOR)
                                 .build(),
-                            params.getDeclaredDeps(),
-                            removeUnusedPlatformDeps(
-                                ruleResolver,
-                                pythonPlatform,
-                                params.getExtraDeps())),
+                            Suppliers.ofInstance(
+                                ImmutableSortedSet.copyOf(
+                                    getPlatformDeps(params, ruleResolver, pythonPlatform, args))),
+                            Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
                         ruleResolver,
                         pathResolver,
                         cxxPlatform,
@@ -421,6 +421,7 @@ public class CxxPythonExtensionDescription implements
 
   @SuppressFieldNotInitialized
   public static class Arg extends CxxConstructorArg {
+    public Optional<PatternMatchedCollection<ImmutableSortedSet<BuildTarget>>> platformDeps;
     public Optional<String> baseModule;
   }
 

@@ -29,8 +29,8 @@ import com.facebook.buck.android.AndroidPrebuiltAarDescription;
 import com.facebook.buck.android.AndroidResourceDescription;
 import com.facebook.buck.android.ApkGenruleDescription;
 import com.facebook.buck.android.GenAidlDescription;
-import com.facebook.buck.android.ImmutableNdkCxxPlatforms;
 import com.facebook.buck.android.NdkCxxPlatform;
+import com.facebook.buck.android.NdkCxxPlatformCompiler;
 import com.facebook.buck.android.NdkCxxPlatforms;
 import com.facebook.buck.android.NdkLibraryDescription;
 import com.facebook.buck.android.PrebuiltNativeLibraryDescription;
@@ -65,10 +65,6 @@ import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPlatforms;
-import com.facebook.buck.jvm.scala.ScalaBuckConfig;
-import com.facebook.buck.jvm.scala.ScalaLibraryDescription;
-import com.facebook.buck.jvm.scala.ScalaTestDescription;
-import com.facebook.buck.python.CxxPythonExtensionDescription;
 import com.facebook.buck.cxx.CxxTestDescription;
 import com.facebook.buck.cxx.DefaultCxxPlatforms;
 import com.facebook.buck.cxx.InferBuckConfig;
@@ -105,6 +101,9 @@ import com.facebook.buck.jvm.java.JavaTestDescription;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.KeystoreDescription;
 import com.facebook.buck.jvm.java.PrebuiltJarDescription;
+import com.facebook.buck.jvm.scala.ScalaBuckConfig;
+import com.facebook.buck.jvm.scala.ScalaLibraryDescription;
+import com.facebook.buck.jvm.scala.ScalaTestDescription;
 import com.facebook.buck.log.CommandThreadFactory;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.lua.LuaBinaryDescription;
@@ -112,10 +111,12 @@ import com.facebook.buck.lua.LuaBuckConfig;
 import com.facebook.buck.lua.LuaLibraryDescription;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
+import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.ocaml.OCamlBinaryDescription;
 import com.facebook.buck.ocaml.OCamlBuckConfig;
 import com.facebook.buck.ocaml.OCamlLibraryDescription;
 import com.facebook.buck.ocaml.PrebuiltOCamlLibraryDescription;
+import com.facebook.buck.python.CxxPythonExtensionDescription;
 import com.facebook.buck.python.PrebuiltPythonLibraryDescription;
 import com.facebook.buck.python.PythonBinaryDescription;
 import com.facebook.buck.python.PythonBuckConfig;
@@ -129,6 +130,7 @@ import com.facebook.buck.shell.ExportFileDescription;
 import com.facebook.buck.shell.GenruleDescription;
 import com.facebook.buck.shell.ShBinaryDescription;
 import com.facebook.buck.shell.ShTestDescription;
+import com.facebook.buck.swift.SwiftLibraryDescription;
 import com.facebook.buck.thrift.ThriftBuckConfig;
 import com.facebook.buck.thrift.ThriftCxxEnhancer;
 import com.facebook.buck.thrift.ThriftJavaEnhancer;
@@ -280,6 +282,25 @@ public class KnownBuildRuleTypes {
   }
 
   @VisibleForTesting
+  static CxxPlatform getHostCxxPlatformFromConfig(
+      CxxBuckConfig cxxBuckConfig,
+      ImmutableMap<Flavor, CxxPlatform> cxxPlatforms,
+      CxxPlatform defaultCxxPlatform) {
+    Optional<String> hostCxxPlatform = cxxBuckConfig.getHostPlatform();
+    if (hostCxxPlatform.isPresent()) {
+      ImmutableFlavor hostFlavor = ImmutableFlavor.of(hostCxxPlatform.get());
+      if (cxxPlatforms.containsKey(hostFlavor)) {
+        return CxxPlatforms.copyPlatformWithFlavorAndConfig(
+            cxxPlatforms.get(hostFlavor),
+            cxxBuckConfig,
+            DefaultCxxPlatforms.FLAVOR);
+      }
+    }
+
+    return defaultCxxPlatform;
+  }
+
+  @VisibleForTesting
   static Builder createBuilder(
       BuckConfig config,
       ProcessExecutor processExecutor,
@@ -315,14 +336,14 @@ public class KnownBuildRuleTypes {
     ImmutableMap.Builder<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform> ndkCxxPlatformsBuilder =
         ImmutableMap.builder();
     if (ndkRoot.isPresent()) {
-      NdkCxxPlatforms.Compiler.Type compilerType =
+      NdkCxxPlatformCompiler.Type compilerType =
           androidConfig.getNdkCompiler().or(NdkCxxPlatforms.DEFAULT_COMPILER_TYPE);
       String gccVersion = androidConfig.getNdkGccVersion().or(NdkCxxPlatforms.DEFAULT_GCC_VERSION);
-      NdkCxxPlatforms.Compiler compiler =
-          ImmutableNdkCxxPlatforms.Compiler.builder()
+      NdkCxxPlatformCompiler compiler =
+          NdkCxxPlatformCompiler.builder()
               .setType(compilerType)
               .setVersion(
-                  compilerType == NdkCxxPlatforms.Compiler.Type.GCC ?
+                  compilerType == NdkCxxPlatformCompiler.Type.GCC ?
                       gccVersion :
                       androidConfig.getNdkClangVersion().or(NdkCxxPlatforms.DEFAULT_CLANG_VERSION))
               .setGccVersion(gccVersion)
@@ -356,8 +377,12 @@ public class KnownBuildRuleTypes {
       cxxPlatformsBuilder.put(entry.getKey(), entry.getValue().getCxxPlatform());
     }
 
-    // Add the default, config-defined C/C++ platform.
-    CxxPlatform systemDefaultCxxPlatform = DefaultCxxPlatforms.build(platform, cxxBuckConfig);
+    // Add the host's own C/C++ platform.
+    CxxPlatform systemDefaultCxxPlatform = getHostCxxPlatformFromConfig(
+        cxxBuckConfig,
+        cxxPlatformsBuilder.build(),
+        DefaultCxxPlatforms.build(platform, cxxBuckConfig));
+
     cxxPlatformsBuilder.put(systemDefaultCxxPlatform.getFlavor(), systemDefaultCxxPlatform);
     ImmutableMap<Flavor, CxxPlatform> cxxPlatformsMap = cxxPlatformsBuilder.build();
 
@@ -405,13 +430,8 @@ public class KnownBuildRuleTypes {
     PythonBuckConfig pyConfig = new PythonBuckConfig(config, new ExecutableFinder());
     ImmutableList<PythonPlatform> pythonPlatformsList =
         pyConfig.getPythonPlatforms(processExecutor);
-    ImmutableMap.Builder<Flavor, PythonPlatform> pythonPlatformsMapBuilder = ImmutableMap.builder();
-    for (PythonPlatform pythonPlatform : pythonPlatformsList) {
-      pythonPlatformsMapBuilder.put(pythonPlatform.getFlavor(), pythonPlatform);
-    }
-    ImmutableMap<Flavor, PythonPlatform> pythonPlatformsMap = pythonPlatformsMapBuilder.build();
     FlavorDomain<PythonPlatform> pythonPlatforms =
-        new FlavorDomain<>("Python Platform", pythonPlatformsMap);
+        FlavorDomain.from("Python Platform", pythonPlatformsList);
     PythonBinaryDescription pythonBinaryDescription =
         new PythonBinaryDescription(
             pyConfig,
@@ -465,7 +485,6 @@ public class KnownBuildRuleTypes {
     AppleLibraryDescription appleLibraryDescription =
         new AppleLibraryDescription(
             cxxLibraryDescription,
-            cxxPlatforms,
             platformFlavorsToAppleCxxPlatforms,
             defaultCxxPlatform,
             codeSignIdentityStore,
@@ -475,12 +494,17 @@ public class KnownBuildRuleTypes {
     AppleBinaryDescription appleBinaryDescription =
         new AppleBinaryDescription(
             cxxBinaryDescription,
-            cxxPlatforms,
             platformFlavorsToAppleCxxPlatforms,
-            defaultCxxPlatform,
             codeSignIdentityStore,
             provisioningProfileStore);
     builder.register(appleBinaryDescription);
+
+    SwiftLibraryDescription swiftLibraryDescription =
+        new SwiftLibraryDescription(
+            cxxPlatforms,
+            platformFlavorsToAppleCxxPlatforms,
+            defaultCxxPlatform);
+    builder.register(swiftLibraryDescription);
 
     // Create an executor service exclusively for the smart dexing step.
     ListeningExecutorService dxExecutorService =
