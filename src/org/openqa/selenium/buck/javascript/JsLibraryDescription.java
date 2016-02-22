@@ -17,6 +17,7 @@
 package org.openqa.selenium.buck.javascript;
 
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
@@ -54,7 +55,7 @@ public class JsLibraryDescription implements Description<JsLibraryDescription.Ar
         args.srcs);
   }
 
-  public static class Arg {
+  public static class Arg extends AbstractDescriptionArg {
     public ImmutableSortedSet<SourcePath> srcs;
     public Optional<ImmutableSortedSet<BuildTarget>> deps;
   }

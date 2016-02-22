@@ -16,6 +16,7 @@
 
 package com.facebook.buck.jvm.java.autodeps;
 
+import com.facebook.buck.android.AndroidLibraryDescription;
 import com.facebook.buck.autodeps.DepsForBuildFiles;
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.graph.AbstractBottomUpTraversal;
@@ -139,6 +140,7 @@ public class JavaDepsFinder {
   }
 
   private static final Set<BuildRuleType> RULES_TO_VISIT = ImmutableSet.of(
+      AndroidLibraryDescription.TYPE,
       JavaLibraryDescription.TYPE,
       JavaTestDescription.TYPE);
 
@@ -190,6 +192,15 @@ public class JavaDepsFinder {
 
         for (BuildTarget exportedDep : arg.exportedDeps.or(ImmutableSortedSet.<BuildTarget>of())) {
           ruleToRulesThatExportIt.put(exportedDep, buildTarget);
+        }
+
+        // The build target should be recorded as a provider for every symbol in its
+        // generated_symbols set (if it exists). It is common to use this for symbols that are
+        // generated via annotation processors.
+        if (arg.generatedSymbols.isPresent()) {
+          for (String symbol : arg.generatedSymbols.get()) {
+            symbolToProviders.put(symbol, buildTarget);
+          }
         }
 
         // As a performance improvement, we should graph enhance a rule for the java_library() rule

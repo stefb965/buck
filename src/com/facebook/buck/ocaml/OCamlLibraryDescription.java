@@ -19,6 +19,7 @@ package com.facebook.buck.ocaml;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
@@ -68,6 +69,7 @@ public class OCamlLibraryDescription implements Description<OCamlLibraryDescript
         resolver,
         srcs,
         /*isLibrary*/ true,
+        args.bytecodeOnly.or(false),
         flags.build(),
         linkerflags);
   }
@@ -78,12 +80,13 @@ public class OCamlLibraryDescription implements Description<OCamlLibraryDescript
   }
 
   @SuppressFieldNotInitialized
-  public static class Arg {
+  public static class Arg extends AbstractDescriptionArg {
     public Optional<ImmutableList<OCamlSource>> srcs;
     public Optional<ImmutableSortedSet<BuildTarget>> deps;
     public Optional<ImmutableList<String>> compilerFlags;
     public Optional<ImmutableList<String>> linkerFlags;
     public Optional<String> warningsFlags;
+    public Optional<Boolean> bytecodeOnly;
   }
 
 }

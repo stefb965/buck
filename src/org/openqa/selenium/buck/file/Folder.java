@@ -72,7 +72,7 @@ public class Folder extends AbstractBuildRule {
     steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), scratch));
 
     SrcZipAwareFileBundler bundler = new SrcZipAwareFileBundler(getBuildTarget());
-    bundler.copy(getProjectFilesystem(), getResolver(), steps, scratch, srcs, false);
+    bundler.copy(getProjectFilesystem(), getResolver(), steps, scratch, srcs);
     steps.add(
         new ZipStep(
             getProjectFilesystem(),

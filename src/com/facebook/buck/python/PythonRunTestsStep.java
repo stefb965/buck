@@ -81,7 +81,7 @@ public class PythonRunTestsStep implements Step {
       return getShellStepWithArgs("-o", resultsOutputPath.toString()).execute(context);
     }
 
-    ShellStep listStep = getShellStepWithArgs("-l");
+    ShellStep listStep = getShellStepWithArgs("-l", "-L", "buck");
     int exitCode = listStep.execute(context);
     if (timedOut || exitCode != 0) {
       return exitCode;

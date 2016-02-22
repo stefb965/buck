@@ -16,6 +16,7 @@
 
 package com.facebook.buck.artifact_cache;
 
+import com.facebook.buck.io.BorrowablePath;
 import com.facebook.buck.io.LazyPath;
 import com.facebook.buck.io.MoreFiles;
 import com.facebook.buck.io.ProjectFilesystem;
@@ -37,10 +38,16 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.FileVisitOption;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 public class DirArtifactCache implements ArtifactCache {
@@ -51,6 +58,7 @@ public class DirArtifactCache implements ArtifactCache {
   private static final float STORED_TO_MAX_BYTES_RATIO_TRIM_TRIGGER = 0.5f;
   // How much of the max size to leave if we decide to delete old files.
   private static final float MAX_BYTES_TRIM_RATIO = 2 / 3f;
+  private static final String TMP_EXTENSION = ".tmp";
 
   private final String name;
   private final ProjectFilesystem filesystem;
@@ -79,13 +87,12 @@ public class DirArtifactCache implements ArtifactCache {
   public CacheResult fetch(RuleKey ruleKey, LazyPath output) {
     CacheResult result;
     try {
-
       // First, build up the metadata from the metadata file.
       ImmutableMap.Builder<String, String> metadata = ImmutableMap.builder();
       try (DataInputStream in =
                new DataInputStream(
                    filesystem.newFileInputStream(
-                       cacheDir.resolve(ruleKey.toString() + ".metadata")))) {
+                       getPathForRuleKey(ruleKey, Optional.of(".metadata"))))) {
         int sz = in.readInt();
         for (int i = 0; i < sz; i++) {
           String key = in.readUTF();
@@ -97,7 +104,7 @@ public class DirArtifactCache implements ArtifactCache {
       }
 
       // Now copy the artifact out.
-      filesystem.copyFile(cacheDir.resolve(ruleKey.toString()), output.get());
+      filesystem.copyFile(getPathForRuleKey(ruleKey, Optional.<String>absent()), output.get());
 
       result = CacheResult.hit(name, metadata.build());
     } catch (NoSuchFileException e) {
@@ -123,37 +130,41 @@ public class DirArtifactCache implements ArtifactCache {
   public ListenableFuture<Void> store(
       ImmutableSet<RuleKey> ruleKeys,
       ImmutableMap<String, String> metadata,
-      Path output) {
+      BorrowablePath output) {
 
     if (!doStore) {
       return Futures.immediateFuture(null);
     }
 
     try {
-
+      Optional<Path> borrowedAndStoredArtifactPath = Optional.absent();
       for (RuleKey ruleKey : ruleKeys) {
-
-        Path artifactPath = cacheDir.resolve(ruleKey.toString());
-        Path metadataPath = cacheDir.resolve(ruleKey.toString() + ".metadata");
+        Path artifactPath = getPathForRuleKey(ruleKey, Optional.<String>absent());
+        Path metadataPath = getPathForRuleKey(ruleKey, Optional.of(".metadata"));
 
         if (filesystem.exists(artifactPath) && filesystem.exists(metadataPath)) {
           continue;
         }
 
-        // Write to a temporary file and move the file to its final location atomically to protect
-        // against partial artifacts (whether due to buck interruption or filesystem failure) posing
-        // as valid artifacts during subsequent buck runs.
-        Path tmp = filesystem.createTempFile(cacheDir, "artifact", ".tmp");
-        try {
-          filesystem.copyFile(output, tmp);
-          filesystem.move(tmp, artifactPath, StandardCopyOption.REPLACE_EXISTING);
-          bytesSinceLastDeleteOldFiles += filesystem.getFileSize(artifactPath);
-        } finally {
-          filesystem.deleteFileAtPathIfExists(tmp);
+        filesystem.mkdirs(getParentDirForRuleKey(ruleKey));
+
+        if (!output.canBorrow()) {
+          storeArtifactOutput(output.getPath(), artifactPath);
+        } else {
+          // This branch means that we are apparently the only users of the `output`, so instead
+          // of making a safe transfer of the output to the dir cache (copy+move), we can just
+          // move it without copying.  This significantly optimizes the Disk I/O.
+          if (!borrowedAndStoredArtifactPath.isPresent()) {
+            borrowedAndStoredArtifactPath = Optional.of(artifactPath);
+            filesystem.move(output.getPath(), artifactPath, StandardCopyOption.REPLACE_EXISTING);
+          } else {
+            storeArtifactOutput(borrowedAndStoredArtifactPath.get(), artifactPath);
+          }
         }
+        bytesSinceLastDeleteOldFiles += filesystem.getFileSize(artifactPath);
 
         // Now, write the meta data artifact.
-        tmp = filesystem.createTempFile(cacheDir, "metadata", ".tmp");
+        Path tmp = filesystem.createTempFile(cacheDir, "metadata", TMP_EXTENSION);
         try {
           try (DataOutputStream out = new DataOutputStream(filesystem.newFileOutputStream(tmp))) {
             out.writeInt(metadata.size());
@@ -189,6 +200,44 @@ public class DirArtifactCache implements ArtifactCache {
     return Futures.immediateFuture(null);
   }
 
+  private ImmutableList<String> subfolders(RuleKey ruleKey) {
+    if (ruleKey.toString().length() < 4) {
+      return ImmutableList.of();
+    }
+    String first = ruleKey.toString().substring(0, 2);
+    String second = ruleKey.toString().substring(2, 4);
+    return ImmutableList.of(first, second);
+  }
+
+  @VisibleForTesting
+  Path getPathForRuleKey(RuleKey ruleKey, Optional<String> extension) {
+    return getParentDirForRuleKey(ruleKey).resolve(ruleKey.toString() + extension.or(""));
+  }
+
+  @VisibleForTesting
+  Path getParentDirForRuleKey(RuleKey ruleKey) {
+    ImmutableList<String> folders = subfolders(ruleKey);
+    Path result = cacheDir;
+    for (String f : folders) {
+      result = result.resolve(f);
+    }
+    return result;
+  }
+
+  private void storeArtifactOutput(Path output, Path artifactPath) throws IOException {
+    // Write to a temporary file and move the file to its final location atomically to protect
+    // against partial artifacts (whether due to buck interruption or filesystem failure) posing
+    // as valid artifacts during subsequent buck runs.
+    Path tmp = filesystem.createTempFile(cacheDir, "artifact", TMP_EXTENSION);
+    try {
+      filesystem.copyFile(output, tmp);
+      filesystem.move(tmp, artifactPath);
+      bytesSinceLastDeleteOldFiles += filesystem.getFileSize(artifactPath);
+    } finally {
+      filesystem.deleteFileAtPathIfExists(tmp);
+    }
+  }
+
   /**
    * @return {@code true}: storing artifacts is always supported by this class.
    */
@@ -210,22 +259,44 @@ public class DirArtifactCache implements ArtifactCache {
     if (!maxCacheSizeBytes.isPresent()) {
       return;
     }
-    for (File fileAccessedEntry : findFilesToDelete()) {
-      try {
-        Files.deleteIfExists(fileAccessedEntry.toPath());
-      } catch (IOException e) {
-        // Eat any IOExceptions while attempting to clean up the cache directory.  If the file is
-        // now in use, we no longer want to delete it.
-        continue;
+    try {
+      for (File fileAccessedEntry : findFilesToDelete()) {
+        try {
+          Files.deleteIfExists(fileAccessedEntry.toPath());
+        } catch (IOException e) {
+          // Eat any IOExceptions while attempting to clean up the cache directory.  If the file is
+          // now in use, we no longer want to delete it.
+          continue;
+        }
       }
+    } catch (IOException e) {
+      LOG.error(e, "Failed to delete old files from cache");
     }
   }
 
-  private Iterable<File> findFilesToDelete() {
+  @VisibleForTesting
+  File[] getAllFilesInCache() throws IOException {
+    final List<File> allFiles = new ArrayList<>();
+    Files.walkFileTree(
+        filesystem.resolve(cacheDir),
+        ImmutableSet.<FileVisitOption>of(),
+        Integer.MAX_VALUE,
+        new SimpleFileVisitor<Path>() {
+          @Override
+          public FileVisitResult visitFile(Path file,
+              BasicFileAttributes attrs) throws IOException {
+            allFiles.add(file.toFile());
+            return super.visitFile(file, attrs);
+          }
+        });
+    return allFiles.toArray(new File[0]);
+  }
+
+  private Iterable<File> findFilesToDelete() throws IOException {
     Preconditions.checkState(maxCacheSizeBytes.isPresent());
     long maxSizeBytes = maxCacheSizeBytes.get();
 
-    File[] files = filesystem.resolve(cacheDir).toFile().listFiles();
+    File[] files = getAllFilesInCache();
     MoreFiles.sortFilesByAccessTime(files);
 
     // Finds the first N from the list ordered by last access time who's combined size is less than

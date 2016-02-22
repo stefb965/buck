@@ -16,6 +16,7 @@
 
 package org.openqa.selenium.buck.mozilla;
 
+import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
@@ -57,7 +58,7 @@ public class XpiDescription implements Description<XpiDescription.Arg> {
         args.platforms.get());
   }
 
-  public static class Arg {
+  public static class Arg extends AbstractDescriptionArg {
     public SourcePath chrome;
     public Optional<ImmutableSortedSet<SourcePath>> components;
     public Optional<ImmutableSortedSet<SourcePath>> content;

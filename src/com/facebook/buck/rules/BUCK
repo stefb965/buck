@@ -27,6 +27,15 @@ java_library(
   ],
 )
 
+BUILD_RULE_IMMUTABLES = [
+  'AbstractBuildRuleType.java',
+  'AbstractExopackageInfo.java',
+  'AbstractExternalTestRunnerTestSpec.java',
+  'AbstractLabel.java',
+  'AbstractSha1HashCode.java',
+  'AbstractSourceWithFlags.java',
+]
+
 # Ideally, BuildRule.java would require only a handful of other source files
 # in order to compile it. Because BuildContext is referenced in the BuildRule
 # interface, its dependencies are much broader than desired.
@@ -34,13 +43,8 @@ java_immutables_library(
   name = 'build_rule',
   srcs = [
     'AbstractBuildRule.java',
-    'AbstractBuildRuleType.java',
-    'AbstractExopackageInfo.java',
-    'AbstractExternalTestRunnerTestSpec.java',
-    'AbstractLabel.java',
-    'AbstractSha1HashCode.java',
+    'AbstractDescriptionArg.java',
     'AbstractSourcePath.java',
-    'AbstractSourceWithFlags.java',
     'ActionGraph.java',
     'ActionGraphEvent.java',
     'AddToRuleKey.java',
@@ -89,8 +93,8 @@ java_immutables_library(
     'SourcePathResolver.java',
     'SourcePaths.java',
     'SourceRoot.java',
+    'SupportsColorsInOutput.java',
     'TargetGraph.java',
-    'TargetGraphHashing.java',
     'TargetGraphToActionGraph.java',
     'TargetGraphTransformer.java',
     'TargetName.java',
@@ -99,6 +103,7 @@ java_immutables_library(
     'TargetNodes.java',
     'Tool.java',
   ],
+  immutable_srcs = BUILD_RULE_IMMUTABLES,
   tests = [
     '//test/com/facebook/buck/rules/coercer:coercer',
     '//test/com/facebook/buck/rules:rules',
@@ -124,10 +129,25 @@ java_immutables_library(
     # is repaired by exporting this rule.
     '//src/com/facebook/buck/parser:rule_pattern',
 
+    # AbstractDescriptionArg uses the @SuppressFieldNotInitialized annotation,
+    # it is required by all subclasses to make them build with Infer.
+    '//third-party/java/infer-annotations:infer-annotations',
+
     # ExternalTestRunnerTestSpec implements
     # com.fasterxml.jackson.databind.JsonSerializable.
     '//third-party/java/jackson:jackson-databind',
   ],
+  visibility = [
+    'PUBLIC',
+  ],
+)
+
+java_immutables_library(
+  name = 'target_graph_hashing',
+  srcs = [
+    'TargetGraphHashing.java',
+  ],
+  autodeps = True,
   visibility = [
     'PUBLIC',
   ],

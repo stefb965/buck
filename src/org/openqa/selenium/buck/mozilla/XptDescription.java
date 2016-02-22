@@ -16,6 +16,7 @@
 
 package org.openqa.selenium.buck.mozilla;
 
+import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
@@ -47,7 +48,7 @@ public class XptDescription implements Description<XptDescription.Arg> {
     return new Xpt(params, new SourcePathResolver(resolver), args.src, args.fallback);
   }
 
-  public static class Arg {
+  public static class Arg extends AbstractDescriptionArg {
     public SourcePath fallback;
     public SourcePath src;
   }

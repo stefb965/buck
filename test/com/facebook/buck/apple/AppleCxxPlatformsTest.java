@@ -33,7 +33,6 @@ import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPlatforms;
 import com.facebook.buck.cxx.CxxPreprocessAndCompile;
 import com.facebook.buck.cxx.CxxPreprocessMode;
-import com.facebook.buck.cxx.CxxPreprocessorInput;
 import com.facebook.buck.cxx.CxxSource;
 import com.facebook.buck.cxx.CxxSourceRuleFactory;
 import com.facebook.buck.cxx.Linker;
@@ -743,22 +742,18 @@ AppleSdkPaths appleSdkPaths =
     ImmutableMap.Builder<Flavor, RuleKey> ruleKeys =
         ImmutableMap.builder();
     for (Map.Entry<Flavor, AppleCxxPlatform> entry : cxxPlatforms.entrySet()) {
-      CxxSourceRuleFactory cxxSourceRuleFactory =
-          new CxxSourceRuleFactory(
-              new FakeBuildRuleParamsBuilder(target).build(),
-              resolver,
-              pathResolver,
-              entry.getValue().getCxxPlatform(),
-              ImmutableList.<CxxPreprocessorInput>of(),
-              ImmutableList.<String>of(),
-              Optional.<SourcePath>absent(),
-              CxxSourceRuleFactory.PicType.PIC);
+      CxxSourceRuleFactory cxxSourceRuleFactory = CxxSourceRuleFactory.builder()
+          .setParams(new FakeBuildRuleParamsBuilder(target).build())
+          .setResolver(resolver)
+          .setPathResolver(pathResolver)
+          .setCxxPlatform(entry.getValue().getCxxPlatform())
+          .setPicType(CxxSourceRuleFactory.PicType.PIC)
+          .build();
       CxxPreprocessAndCompile rule;
       switch (operation) {
         case PREPROCESS_AND_COMPILE:
           rule =
               cxxSourceRuleFactory.createPreprocessAndCompileBuildRule(
-                  resolver,
                   source,
                   CxxSource.of(
                       CxxSource.Type.CXX,
@@ -769,7 +764,6 @@ AppleSdkPaths appleSdkPaths =
         case PREPROCESS:
           rule =
               cxxSourceRuleFactory.createPreprocessBuildRule(
-                  resolver,
                   source,
                   CxxSource.of(
                       CxxSource.Type.CXX,
@@ -779,7 +773,6 @@ AppleSdkPaths appleSdkPaths =
         case COMPILE:
           rule =
               cxxSourceRuleFactory.createCompileBuildRule(
-                  resolver,
                   source,
                   CxxSource.of(
                       CxxSource.Type.CXX_CPP_OUTPUT,

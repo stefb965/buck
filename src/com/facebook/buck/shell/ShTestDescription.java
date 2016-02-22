@@ -17,19 +17,23 @@
 package com.facebook.buck.shell;
 
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.MacroArg;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
+import com.facebook.buck.rules.macros.MacroException;
 import com.facebook.buck.rules.macros.MacroExpander;
 import com.facebook.buck.rules.macros.MacroHandler;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
@@ -37,10 +41,16 @@ import com.google.common.base.Supplier;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
 
-public class ShTestDescription implements Description<ShTestDescription.Arg> {
+import java.nio.file.Path;
+
+public class ShTestDescription implements
+    Description<ShTestDescription.Arg>,
+    ImplicitDepsInferringDescription<ShTestDescription.Arg> {
 
   public static final BuildRuleType TYPE = BuildRuleType.of("sh_test");
 
@@ -107,8 +117,30 @@ public class ShTestDescription implements Description<ShTestDescription.Arg> {
         args.labels.get());
   }
 
+  @Override
+  public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
+      BuildTarget buildTarget,
+      Function<Optional<String>, Path> cellRoots,
+      Arg constructorArg) {
+    ImmutableSet.Builder<BuildTarget> deps = ImmutableSet.builder();
+
+    // Add parse time deps for any macros.
+    for (String blob :
+         Iterables.concat(
+             constructorArg.args.or(ImmutableList.<String>of()),
+             constructorArg.env.or(ImmutableMap.<String, String>of()).values())) {
+      try {
+        deps.addAll(MACRO_HANDLER.extractParseTimeDeps(buildTarget, cellRoots, blob));
+      } catch (MacroException e) {
+        throw new HumanReadableException(e, "%s: %s", buildTarget, e.getMessage());
+      }
+    }
+
+    return deps.build();
+  }
+
   @SuppressFieldNotInitialized
-  public static class Arg {
+  public static class Arg extends AbstractDescriptionArg {
     public SourcePath test;
     public Optional<ImmutableList<String>> args;
     public Optional<ImmutableSortedSet<Label>> labels;

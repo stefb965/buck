@@ -16,6 +16,7 @@
 
 package org.openqa.selenium.buck.file;
 
+import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -56,7 +57,7 @@ public class FolderDescription implements Description<FolderDescription.Arg> {
   }
 
   @SuppressFieldNotInitialized
-  public class Arg {
+  public class Arg extends AbstractDescriptionArg {
     public Optional<String> out;
     public ImmutableSortedSet<SourcePath> srcs;
   }

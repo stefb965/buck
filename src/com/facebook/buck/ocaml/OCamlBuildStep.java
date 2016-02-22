@@ -44,6 +44,7 @@ public class OCamlBuildStep implements Step {
   private final ImmutableList<String> cCompiler;
   private final ImmutableMap<String, String> cxxCompilerEnvironment;
   private final ImmutableList<String> cxxCompiler;
+  private final boolean bytecodeOnly;
 
   private final boolean hasGeneratedSources;
   private final OCamlDepToolStep depToolStep;
@@ -55,7 +56,8 @@ public class OCamlBuildStep implements Step {
       ImmutableMap<String, String> cCompilerEnvironment,
       ImmutableList<String> cCompiler,
       ImmutableMap<String, String> cxxCompilerEnvironment,
-      ImmutableList<String> cxxCompiler) {
+      ImmutableList<String> cxxCompiler,
+      boolean bytecodeOnly) {
     this.resolver = resolver;
     this.filesystem = filesystem;
     this.ocamlContext = ocamlContext;
@@ -63,6 +65,7 @@ public class OCamlBuildStep implements Step {
     this.cCompiler = cCompiler;
     this.cxxCompilerEnvironment = cxxCompilerEnvironment;
     this.cxxCompiler = cxxCompiler;
+    this.bytecodeOnly = bytecodeOnly;
 
     hasGeneratedSources = ocamlContext.getLexInput().size() > 0 ||
         ocamlContext.getYaccInput().size() > 0;
@@ -109,18 +112,21 @@ public class OCamlBuildStep implements Step {
     // To get the DAG we launch ocamldep tool which provides the direct dependency information, like
     // module A depends on modules B, C, D.
     ImmutableList<Path> sortedInput = sortDependency(depToolStep.getStdout());
-    ImmutableList.Builder<Path> linkerInputs = ImmutableList.builder();
-    int mlCompileExitCode = executeMLCompilation(
-        context,
-        filesystem.getRootPath(),
-        sortedInput,
-        linkerInputs);
-    if (mlCompileExitCode != 0) {
-      return mlCompileExitCode;
+    ImmutableList.Builder<Path> nativeLinkerInputs = ImmutableList.builder();
+
+    if (!bytecodeOnly) {
+      int mlCompileNativeExitCode = executeMLNativeCompilation(
+          context,
+          filesystem.getRootPath(),
+          sortedInput,
+          nativeLinkerInputs);
+      if (mlCompileNativeExitCode != 0) {
+        return mlCompileNativeExitCode;
+      }
     }
 
     ImmutableList.Builder<Path> bytecodeLinkerInputs = ImmutableList.builder();
-    int mlCompileBytecodeExitCode = executeMLCompileBytecode(
+    int mlCompileBytecodeExitCode = executeMLBytecodeCompilation(
         context,
         filesystem.getRootPath(),
         sortedInput,
@@ -137,16 +143,18 @@ public class OCamlBuildStep implements Step {
 
     ImmutableList<Path> cObjects = cLinkerInputs.build();
 
-    linkerInputs.addAll(cObjects);
-    int nativeLinkExitCode = executeLinking(context, linkerInputs.build());
-    if (nativeLinkExitCode != 0) {
-      return nativeLinkExitCode;
+    if (!bytecodeOnly) {
+      nativeLinkerInputs.addAll(cObjects);
+      int nativeLinkExitCode = executeNativeLinking(context, nativeLinkerInputs.build());
+      if (nativeLinkExitCode != 0) {
+        return nativeLinkExitCode;
+      }
     }
 
     bytecodeLinkerInputs.addAll(cObjects);
-    int bytecodeExitCode =  executeBytecodeLinking(context, bytecodeLinkerInputs.build());
-    if (bytecodeExitCode != 0) {
-      return bytecodeExitCode;
+    int bytecodeLinkExitCode =  executeBytecodeLinking(context, bytecodeLinkerInputs.build());
+    if (bytecodeLinkExitCode != 0) {
+      return bytecodeLinkExitCode;
     }
 
     if (!ocamlContext.isLibrary()) {
@@ -198,7 +206,7 @@ public class OCamlBuildStep implements Step {
     return 0;
   }
 
-  private int executeLinking(
+  private int executeNativeLinking(
       ExecutionContext context,
       ImmutableList<Path> linkerInputs) throws IOException, InterruptedException {
 
@@ -212,9 +220,9 @@ public class OCamlBuildStep implements Step {
         cxxCompiler,
         ocamlContext.getOcamlCompiler().get().getCommandPrefix(resolver),
         flags.build(),
-        ocamlContext.getOutput(),
-        ocamlContext.getLinkableInput().getArgs(),
+        ocamlContext.getNativeOutput(),
         ocamlContext.getNativeLinkableInput().getArgs(),
+        ocamlContext.getCLinkableInput().getArgs(),
         linkerInputs,
         ocamlContext.isLibrary(),
         /* isBytecode */ false);
@@ -236,8 +244,8 @@ public class OCamlBuildStep implements Step {
         ocamlContext.getOcamlBytecodeCompiler().get().getCommandPrefix(resolver),
         flags.build(),
         ocamlContext.getBytecodeOutput(),
-        ocamlContext.getLinkableInput().getArgs(),
-        ocamlContext.getNativeLinkableInput().getArgs(),
+        ocamlContext.getBytecodeLinkableInput().getArgs(),
+        ocamlContext.getCLinkableInput().getArgs(),
         linkerInputs,
         ocamlContext.isLibrary(),
         /* isBytecode */ true);
@@ -246,7 +254,7 @@ public class OCamlBuildStep implements Step {
 
   private ImmutableList<String> getCompileFlags(boolean isBytecode, boolean excludeDeps) {
     String output = isBytecode ? ocamlContext.getCompileBytecodeOutputDir().toString() :
-        ocamlContext.getCompileOutputDir().toString();
+        ocamlContext.getCompileNativeOutputDir().toString();
     ImmutableList.Builder<String> flagBuilder = ImmutableList.builder();
     flagBuilder.addAll(ocamlContext.getIncludeFlags(isBytecode, /* excludeDeps */ excludeDeps));
     flagBuilder.addAll(ocamlContext.getFlags());
@@ -256,7 +264,7 @@ public class OCamlBuildStep implements Step {
     return flagBuilder.build();
   }
 
-  private int executeMLCompilation(
+  private int executeMLNativeCompilation(
       ExecutionContext context,
       Path workingDirectory,
       ImmutableList<Path> sortedInput,
@@ -264,7 +272,7 @@ public class OCamlBuildStep implements Step {
   ) throws IOException, InterruptedException {
     MakeCleanDirectoryStep mkDir = new MakeCleanDirectoryStep(
         filesystem,
-        ocamlContext.getCompileOutputDir());
+        ocamlContext.getCompileNativeOutputDir());
     int mkDirExitCode = mkDir.execute(context);
     if (mkDirExitCode != 0) {
       return mkDirExitCode;
@@ -274,7 +282,7 @@ public class OCamlBuildStep implements Step {
       String outputFileName = inputFileName
           .replaceFirst(OCamlCompilables.OCAML_ML_REGEX, OCamlCompilables.OCAML_CMX)
           .replaceFirst(OCamlCompilables.OCAML_MLI_REGEX, OCamlCompilables.OCAML_CMI);
-      Path outputPath = ocamlContext.getCompileOutputDir().resolve(outputFileName);
+      Path outputPath = ocamlContext.getCompileNativeOutputDir().resolve(outputFileName);
       if (!outputFileName.endsWith(OCamlCompilables.OCAML_CMI)) {
         linkerInputs.add(outputPath);
       }
@@ -300,11 +308,12 @@ public class OCamlBuildStep implements Step {
     return 0;
   }
 
-  private int executeMLCompileBytecode(
+  private int executeMLBytecodeCompilation(
       ExecutionContext context,
       Path workingDirectory,
       ImmutableList<Path> sortedInput,
-      ImmutableList.Builder<Path> linkerInputs) throws IOException, InterruptedException {
+      ImmutableList.Builder<Path> linkerInputs
+  ) throws IOException, InterruptedException {
     MakeCleanDirectoryStep mkDir = new MakeCleanDirectoryStep(
         filesystem,
         ocamlContext.getCompileBytecodeOutputDir());

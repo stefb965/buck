@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY 4690f8742939c26e3a84c8d28a6544e680c5cbf0 #@#
+#@# GENERATED FILE: DO NOT MODIFY 2bdebcaeba40b92970b5b7babaa19820e2aeb249 #@#
 {
   "listener" : [
     "//src/com/facebook/buck/artifact_cache:artifact_cache",
@@ -23,6 +23,7 @@
     "//src/com/facebook/buck/step:step",
     "//src/com/facebook/buck/test:config",
     "//src/com/facebook/buck/test:test",
+    "//src/com/facebook/buck/test/result/type:type",
     "//src/com/facebook/buck/test/selectors:selectors",
     "//src/com/facebook/buck/timing:timing",
     "//src/com/facebook/buck/util:constants",

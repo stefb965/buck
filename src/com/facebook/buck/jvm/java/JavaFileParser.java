@@ -545,7 +545,12 @@ public class JavaFileParser {
         ASTNode parent = ancestor.getParent();
         if (!(parent instanceof PackageDeclaration) && !(parent instanceof ImportDeclaration)) {
           String symbol = ancestor.getFullyQualifiedName();
-          addTypeFromDotDelimitedSequence(symbol);
+
+          // If it does not start with an uppercase letter, it is probably because it is a property
+          // lookup.
+          if (CharMatcher.JAVA_UPPER_CASE.matches(symbol.charAt(0))) {
+            addTypeFromDotDelimitedSequence(symbol);
+          }
         }
 
         return false;
@@ -599,14 +604,10 @@ public class JavaFileParser {
         String simpleName = getSimpleNameFromFullyQualifiedName(fullyQualifiedName);
         simpleImportedTypes.add(simpleName);
 
-        if (node.isStatic()) {
-          // Only worry about the dependency on the enclosing type.
-          int index = fullyQualifiedName.indexOf("." + simpleName);
-          String enclosingType = fullyQualifiedName.substring(0, index + simpleName.length() + 1);
-          requiredSymbolsFromExplicitImports.add(enclosingType);
-        } else {
-          requiredSymbolsFromExplicitImports.add(fullyQualifiedName);
-        }
+        // Only worry about the dependency on the enclosing type.
+        int index = fullyQualifiedName.indexOf("." + simpleName);
+        String enclosingType = fullyQualifiedName.substring(0, index + simpleName.length() + 1);
+        requiredSymbolsFromExplicitImports.add(enclosingType);
         return false;
       }
 
@@ -739,13 +740,20 @@ public class JavaFileParser {
     int startIndex = 0;
     while (dotIndex <= fullyQualifiedName.length()) {
       String component = fullyQualifiedName.substring(startIndex, dotIndex);
-      if (startsWithUppercaseChar(component)) {
+      // In practice, if there is an uppercase character in the component, it should be the first
+      // character, but we have found some exceptions, in practice.
+      if (CharMatcher.JAVA_UPPER_CASE.matchesAnyOf(component)) {
         return component;
       } else {
         startIndex = dotIndex + 1;
         dotIndex = fullyQualifiedName.indexOf('.', startIndex);
         if (dotIndex < 0) {
-          dotIndex = fullyQualifiedName.length();
+          int length = fullyQualifiedName.length();
+          if (startIndex <= length) {
+            dotIndex = length;
+          } else {
+            break;
+          }
         }
       }
     }

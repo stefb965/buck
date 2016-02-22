@@ -23,6 +23,9 @@ import com.facebook.buck.artifact_cache.ArtifactCacheBuckConfig;
 import com.facebook.buck.artifact_cache.ArtifactCaches;
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.artifact_cache.CacheResultType;
+import com.facebook.buck.artifact_cache.DirArtifactCacheTestUtil;
+import com.facebook.buck.artifact_cache.TestArtifactCaches;
+import com.facebook.buck.io.BorrowablePath;
 import com.facebook.buck.io.LazyPath;
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.cli.BuckConfigTestUtils;
@@ -91,8 +94,7 @@ public class ServedCacheIntegrationTest {
     dirCache.store(
         ImmutableSet.of(A_FILE_RULE_KEY),
         A_FILE_METADATA,
-        A_FILE_PATH
-    );
+        BorrowablePath.notBorrowablePath(A_FILE_PATH));
   }
 
   @After
@@ -228,7 +230,11 @@ public class ServedCacheIntegrationTest {
 
   @Test
   public void testMalformedDirCacheMetaData() throws Exception {
-    Path cacheFilePath = tmpDir.getRoot().resolve("test-cache/" + A_FILE_RULE_KEY + ".metadata");
+    ArtifactCache cache = TestArtifactCaches.createDirCacheForTest(
+        projectFilesystem.getRootPath(),
+        Paths.get("test-cache"));
+    Path cacheFilePath = DirArtifactCacheTestUtil.getPathForRuleKey(
+        cache, A_FILE_RULE_KEY, Optional.of(".metadata"));
     assertThat(projectFilesystem.exists(cacheFilePath), Matchers.is(true));
     try (DataOutputStream outputStream =
              new DataOutputStream(projectFilesystem.newFileOutputStream(cacheFilePath))) {
@@ -337,7 +343,7 @@ public class ServedCacheIntegrationTest {
       public ListenableFuture<Void> store(
           ImmutableSet<RuleKey> ruleKeys,
           ImmutableMap<String, String> metadata,
-          Path output) {
+          BorrowablePath output) {
         return Futures.immediateFuture(null);
       }
 
@@ -394,19 +400,19 @@ public class ServedCacheIntegrationTest {
   }
 
   @Test
-  public void testStoreAndFetch() throws Exception {
+  public void testStoreAndFetchNotBorrowable() throws Exception {
     webServer = new WebServer(
         /* port */ 0,
         projectFilesystem,
         "/static/",
         new ObjectMapper());
     webServer.updateAndStartIfNeeded(ArtifactCaches.newServedCache(
-            createMockLocalConfig(
-                "[cache]",
-                "dir = test-cache",
-                "serve_local_cache = true",
-                "served_local_cache_mode = readwrite"),
-            projectFilesystem));
+        createMockLocalConfig(
+            "[cache]",
+            "dir = test-cache",
+            "serve_local_cache = true",
+            "served_local_cache_mode = readwrite"),
+        projectFilesystem));
 
     ArtifactCache serverBackedCache = ArtifactCaches.newInstance(
         createMockLocalHttpCacheConfig(webServer.getPort().get()),
@@ -427,7 +433,57 @@ public class ServedCacheIntegrationTest {
     CacheResult cacheResult = serverBackedCache.fetch(ruleKey, fetchedContents);
     assertThat(cacheResult.getType().isSuccess(), Matchers.is(false));
 
-    serverBackedCache.store(ImmutableSet.of(ruleKey), metadata, originalDataPath);
+    serverBackedCache.store(
+        ImmutableSet.of(ruleKey),
+        metadata,
+        BorrowablePath.notBorrowablePath(originalDataPath));
+
+    cacheResult = serverBackedCache.fetch(ruleKey, fetchedContents);
+    assertThat(cacheResult.getType().isSuccess(), Matchers.is(true));
+    assertThat(cacheResult.getMetadata(), Matchers.equalTo(metadata));
+    assertThat(
+        projectFilesystem.readFileIfItExists(fetchedContents.get()).get(),
+        Matchers.equalTo(data));
+  }
+
+  @Test
+  public void testStoreAndFetchBorrowable() throws Exception {
+    webServer = new WebServer(
+        /* port */ 0,
+        projectFilesystem,
+        "/static/",
+        new ObjectMapper());
+    webServer.updateAndStartIfNeeded(ArtifactCaches.newServedCache(
+        createMockLocalConfig(
+            "[cache]",
+            "dir = test-cache",
+            "serve_local_cache = true",
+            "served_local_cache_mode = readwrite"),
+        projectFilesystem));
+
+    ArtifactCache serverBackedCache = ArtifactCaches.newInstance(
+        createMockLocalHttpCacheConfig(webServer.getPort().get()),
+        buckEventBus,
+        projectFilesystem,
+        Optional.<String>absent(),
+        DIRECT_EXECUTOR_SERVICE);
+
+    RuleKey ruleKey = new RuleKey("00111222333444");
+    ImmutableMap<String, String> metadata = ImmutableMap.of(
+        "some key",
+        "some value");
+    Path originalDataPath = tmpDir.newFile();
+    String data = "you won't believe this!";
+    projectFilesystem.writeContentsToPath(data, originalDataPath);
+
+    LazyPath fetchedContents = LazyPath.ofInstance(tmpDir.newFile());
+    CacheResult cacheResult = serverBackedCache.fetch(ruleKey, fetchedContents);
+    assertThat(cacheResult.getType().isSuccess(), Matchers.is(false));
+
+    serverBackedCache.store(
+        ImmutableSet.of(ruleKey),
+        metadata,
+        BorrowablePath.borrowablePath(originalDataPath));
 
     cacheResult = serverBackedCache.fetch(ruleKey, fetchedContents);
     assertThat(cacheResult.getType().isSuccess(), Matchers.is(true));
@@ -471,7 +527,10 @@ public class ServedCacheIntegrationTest {
     CacheResult cacheResult = serverBackedCache.fetch(ruleKey, fetchedContents);
     assertThat(cacheResult.getType().isSuccess(), Matchers.is(false));
 
-    serverBackedCache.store(ImmutableSet.of(ruleKey), metadata, originalDataPath);
+    serverBackedCache.store(
+        ImmutableSet.of(ruleKey),
+        metadata,
+        BorrowablePath.notBorrowablePath(originalDataPath));
 
     cacheResult = serverBackedCache.fetch(ruleKey, fetchedContents);
     assertThat(cacheResult.getType().isSuccess(), Matchers.is(false));

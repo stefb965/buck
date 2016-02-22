@@ -18,6 +18,7 @@ package org.openqa.selenium.buck.javascript;
 
 
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
@@ -79,7 +80,7 @@ public class JsFragmentDescription implements
     return SourcePaths.filterBuildTargetSourcePaths(Collections.singleton(compiler));
   }
 
-  public static class Arg {
+  public static class Arg extends AbstractDescriptionArg {
     public String function;
     public String module;
     public Optional<SourcePath> compiler;

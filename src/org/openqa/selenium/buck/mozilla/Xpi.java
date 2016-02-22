@@ -104,19 +104,19 @@ public class Xpi extends AbstractBuildRule {
 
     Path contentDir = scratch.resolve("content");
     steps.add(new MkdirStep(getProjectFilesystem(), contentDir));
-    bundler.copy(getProjectFilesystem(), getResolver(), steps, contentDir, content, true);
+    bundler.copy(getProjectFilesystem(), getResolver(), steps, contentDir, content);
 
     Path componentDir = scratch.resolve("components");
     steps.add(new MkdirStep(getProjectFilesystem(), componentDir));
-    bundler.copy(getProjectFilesystem(), getResolver(), steps, componentDir, components, true);
+    bundler.copy(getProjectFilesystem(), getResolver(), steps, componentDir, components);
 
     Path platformDir = scratch.resolve("platform");
     steps.add(new MkdirStep(getProjectFilesystem(), platformDir));
-    bundler.copy(getProjectFilesystem(), getResolver(), steps, platformDir, platforms, false);
+    bundler.copy(getProjectFilesystem(), getResolver(), steps, platformDir, platforms);
 
     Path resourceDir = scratch.resolve("resource");
     steps.add(new MkdirStep(getProjectFilesystem(), resourceDir));
-    bundler.copy(getProjectFilesystem(), getResolver(), steps, resourceDir, resources, true);
+    bundler.copy(getProjectFilesystem(), getResolver(), steps, resourceDir, resources);
 
     steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), output.getParent()));
     steps.add(

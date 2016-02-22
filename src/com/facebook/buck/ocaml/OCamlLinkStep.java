@@ -40,7 +40,7 @@ public class OCamlLinkStep extends ShellStep {
   public final ImmutableList<String> flags;
   public final Path output;
   public final ImmutableList<Arg> depInput;
-  public final ImmutableList<Arg> nativeDepInput;
+  public final ImmutableList<Arg> cDepInput;
   public final ImmutableList<Path> input;
   public final boolean isLibrary;
   public final boolean isBytecode;
@@ -55,7 +55,7 @@ public class OCamlLinkStep extends ShellStep {
       ImmutableList<String> flags,
       Path output,
       ImmutableList<Arg> depInput,
-      ImmutableList<Arg> nativeDepInput,
+      ImmutableList<Arg> cDepInput,
       ImmutableList<Path> input,
       boolean isLibrary,
       boolean isBytecode) {
@@ -66,21 +66,20 @@ public class OCamlLinkStep extends ShellStep {
     this.flags = flags;
     this.output = output;
     this.depInput = depInput;
-    this.nativeDepInput = nativeDepInput;
+    this.cDepInput = cDepInput;
     this.input = input;
     this.isLibrary = isLibrary;
     this.isBytecode = isBytecode;
 
     ImmutableList.Builder<String> ocamlInputBuilder = ImmutableList.builder();
 
+    final String linkExt = isBytecode
+        ? OCamlCompilables.OCAML_CMA
+        : OCamlCompilables.OCAML_CMXA;
+
     for (String linkInput : Arg.stringify(depInput)) {
-      if (isLibrary && linkInput.endsWith(OCamlCompilables.OCAML_CMXA)) {
+      if (isLibrary && linkInput.endsWith(linkExt)) {
         continue;
-      }
-      if (isBytecode) {
-        linkInput = linkInput.replaceAll(
-            OCamlCompilables.OCAML_CMXA_REGEX,
-            OCamlCompilables.OCAML_CMA);
       }
       ocamlInputBuilder.add(linkInput);
     }
@@ -115,7 +114,7 @@ public class OCamlLinkStep extends ShellStep {
         .addAll(
             MoreIterables.zipAndConcat(
                 Iterables.cycle("-cclib"),
-                FluentIterable.from(nativeDepInput)
+                FluentIterable.from(cDepInput)
                     .transformAndConcat(Arg.stringListFunction())))
         .build();
   }
