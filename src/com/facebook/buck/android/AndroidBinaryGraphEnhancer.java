@@ -18,6 +18,7 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.android.AndroidBinary.ExopackageMode;
 import com.facebook.buck.android.AndroidBinary.PackageType;
+import com.facebook.buck.android.AndroidBinary.RelinkerMode;
 import com.facebook.buck.android.FilterResourcesStep.ResourceFilter;
 import com.facebook.buck.android.NdkCxxPlatforms.TargetCpuType;
 import com.facebook.buck.android.ResourcesFilter.ResourceCompressionMode;
@@ -43,6 +44,7 @@ import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -117,6 +119,7 @@ public class AndroidBinaryGraphEnhancer {
       Optional<SourcePath> buildConfigValuesFile,
       Optional<Integer> xzCompressionLevel,
       ImmutableMap<TargetCpuType, NdkCxxPlatform> nativePlatforms,
+      RelinkerMode relinkerMode,
       ListeningExecutorService dxExecutorService) {
     this.buildRuleParams = originalParams;
     this.originalBuildTarget = originalParams.getBuildTarget();
@@ -147,7 +150,8 @@ public class AndroidBinaryGraphEnhancer {
         ruleResolver,
         originalParams,
         nativePlatforms,
-        cpuFilters);
+        cpuFilters,
+        relinkerMode);
   }
 
   AndroidGraphEnhancementResult createAdditionalBuildables() throws NoSuchBuildTargetException {
@@ -167,6 +171,9 @@ public class AndroidBinaryGraphEnhancer {
     ImmutableSortedSet<BuildRule> resourceRules =
         getTargetsAsRules(resourceDetails.getResourcesWithNonEmptyResDir());
 
+    ImmutableCollection<BuildRule> rulesWithResourceDirectories =
+        pathResolver.filterBuildRuleInputs(resourceDetails.getResourceDirectories());
+
     FilteredResourcesProvider filteredResourcesProvider;
     boolean needsResourceFiltering = resourceFilter.isEnabled() ||
         resourceCompressionMode.isStoreStringsAsAssets() ||
@@ -179,9 +186,7 @@ public class AndroidBinaryGraphEnhancer {
               Suppliers.ofInstance(
                   ImmutableSortedSet.<BuildRule>naturalOrder()
                       .addAll(resourceRules)
-                      .addAll(
-                          pathResolver.filterBuildRuleInputs(
-                              resourceDetails.getResourceDirectories()))
+                      .addAll(rulesWithResourceDirectories)
                       .build()),
               /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
       ResourcesFilter resourcesFilter = new ResourcesFilter(
@@ -211,8 +216,7 @@ public class AndroidBinaryGraphEnhancer {
                 // Add all deps with non-empty res dirs, since we at least need the R.txt file
                 // (even if we're filtering).
                 .addAll(getTargetsAsRules(resourceDetails.getResourcesWithNonEmptyResDir()))
-                .addAll(
-                    pathResolver.filterBuildRuleInputs(resourceDetails.getResourceDirectories()))
+                .addAll(rulesWithResourceDirectories)
                 .addAll(
                     pathResolver.filterBuildRuleInputs(
                         packageableCollection.getAssetsDirectories()))
@@ -244,6 +248,8 @@ public class AndroidBinaryGraphEnhancer {
           Suppliers.ofInstance(
               ImmutableSortedSet.<BuildRule>naturalOrder()
                   .add(aaptPackageResources)
+                  .addAll(resourceRules)
+                  .addAll(rulesWithResourceDirectories)
                   // Model the dependency on the presence of res directories, which, in the case
                   // of resource filtering, is cached by the `ResourcesFilter` rule.
                   .addAll(

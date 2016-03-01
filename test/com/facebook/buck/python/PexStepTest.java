@@ -26,7 +26,7 @@ import static org.hamcrest.Matchers.startsWith;
 
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.facebook.buck.util.ObjectMappers;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -44,7 +44,6 @@ import java.util.Map;
 public class PexStepTest {
 
   private static final Path PYTHON_PATH = Paths.get("/usr/local/bin/python");
-  private static final PythonVersion PYTHON_VERSION = PythonVersion.of("CPython", "2.6.9");
   private static final ImmutableMap<String, String> PEX_ENVIRONMENT = ImmutableMap.of();
   private static final ImmutableList<String> PEX_COMMAND = ImmutableList.of();
   private static final Path TEMP_PATH = Paths.get("/tmp/");
@@ -69,7 +68,6 @@ public class PexStepTest {
             PEX_ENVIRONMENT,
             PEX_COMMAND,
             PYTHON_PATH,
-            PYTHON_VERSION,
             TEMP_PATH,
             DEST_PATH,
             ENTRY_POINT,
@@ -84,7 +82,6 @@ public class PexStepTest {
 
     assertThat(command, startsWith(Joiner.on(" ").join(PEX_COMMAND)));
     assertThat(command, containsString("--python " + PYTHON_PATH));
-    assertThat(command, containsString("--python-version " + PYTHON_VERSION));
     assertThat(command, containsString("--entry-point " + ENTRY_POINT));
     assertThat(command, endsWith(" " + DEST_PATH));
   }
@@ -97,7 +94,6 @@ public class PexStepTest {
             PEX_ENVIRONMENT,
             PEX_COMMAND,
             PYTHON_PATH,
-            PYTHON_VERSION,
             TEMP_PATH,
             DEST_PATH,
             ENTRY_POINT,
@@ -122,7 +118,6 @@ public class PexStepTest {
             PEX_ENVIRONMENT,
             PEX_COMMAND,
             PYTHON_PATH,
-            PYTHON_VERSION,
             TEMP_PATH,
             DEST_PATH,
             ENTRY_POINT,
@@ -133,7 +128,7 @@ public class PexStepTest {
             PRELOAD_LIBRARIES,
             /* zipSafe */ true);
 
-    Map<String, Object> args = new ObjectMapper().readValue(
+    Map<String, Object> args = ObjectMappers.newDefaultInstance().readValue(
         step.getStdin(TestExecutionContext.newInstance()).get(),
         Map.class);
     assertThat(
@@ -161,7 +156,6 @@ public class PexStepTest {
                 .add("--some", "--args")
                 .build(),
             PYTHON_PATH,
-            PYTHON_VERSION,
             TEMP_PATH,
             DEST_PATH,
             ENTRY_POINT,

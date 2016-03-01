@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY b3ec009430139a570d22294943865f0749c38166 #@#
+#@# GENERATED FILE: DO NOT MODIFY b516b71a9b8a6edf77c530465161fb5a4becf587 #@#
 {
   "config" : [
     "//src/com/facebook/buck/cli:config",
@@ -7,6 +7,7 @@
   ],
   "parser" : [
     "//src/com/facebook/buck/cli:config",
+    "//src/com/facebook/buck/counters:counters",
     "//src/com/facebook/buck/event:event",
     "//src/com/facebook/buck/graph:graph",
     "//src/com/facebook/buck/io:io",
@@ -23,6 +24,7 @@
     "//src/com/facebook/buck/util:io",
     "//src/com/facebook/buck/util:util",
     "//src/com/facebook/buck/util/concurrent:concurrent",
+    "//src/com/facebook/buck/util/environment:env-filter",
     "//src/com/facebook/buck/util/immutables:immutables",
     "//third-party/java/guava:guava",
     "//third-party/java/immutables:processor",

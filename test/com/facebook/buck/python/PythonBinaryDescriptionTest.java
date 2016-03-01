@@ -45,6 +45,7 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.Tool;
+import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.shell.GenruleBuilder;
@@ -74,7 +75,7 @@ public class PythonBinaryDescriptionTest {
   private static final PythonPlatform PY2 =
       PythonPlatform.of(
           ImmutableFlavor.of("py2"),
-          new PythonEnvironment(Paths.get("python2"), PythonVersion.of("CPython", "2.6.9")),
+          new PythonEnvironment(Paths.get("python2"), PythonVersion.of("2.6")),
           Optional.of(PYTHON2_DEP_TARGET));
 
   @Test
@@ -216,12 +217,12 @@ public class PythonBinaryDescriptionTest {
     PythonPlatform platform1 =
         PythonPlatform.of(
             ImmutableFlavor.of("pyPlat1"),
-            new PythonEnvironment(Paths.get("python2.6"), PythonVersion.of("CPython", "2.6.9")),
+            new PythonEnvironment(Paths.get("python2.6"), PythonVersion.of("2.6")),
             Optional.<BuildTarget>absent());
     PythonPlatform platform2 =
         PythonPlatform.of(
             ImmutableFlavor.of("pyPlat2"),
-            new PythonEnvironment(Paths.get("python2.7"), PythonVersion.of("CPython", "2.7.11")),
+            new PythonEnvironment(Paths.get("python2.7"), PythonVersion.of("2.7")),
             Optional.<BuildTarget>absent());
     PythonBinaryBuilder builder =
         PythonBinaryBuilder.create(
@@ -701,7 +702,7 @@ public class PythonBinaryDescriptionTest {
           resolver.getRuleOptionalWithType(
               ((BuildTargetSourcePath) path).getTarget(), CxxLink.class).get();
       assertThat(
-          link.getArgs(),
+          Arg.stringify(link.getArgs()),
           Matchers.hasItem("-flag"));
     }
   }

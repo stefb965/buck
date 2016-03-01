@@ -106,8 +106,10 @@ import com.facebook.buck.jvm.scala.ScalaLibraryDescription;
 import com.facebook.buck.jvm.scala.ScalaTestDescription;
 import com.facebook.buck.log.CommandThreadFactory;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.lua.CxxLuaExtensionDescription;
 import com.facebook.buck.lua.LuaBinaryDescription;
 import com.facebook.buck.lua.LuaBuckConfig;
+import com.facebook.buck.lua.LuaConfig;
 import com.facebook.buck.lua.LuaLibraryDescription;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
@@ -421,7 +423,7 @@ public class KnownBuildRuleTypes {
 
     RustBuckConfig rustBuckConfig = new RustBuckConfig(config);
 
-    GoBuckConfig goBuckConfig = new GoBuckConfig(config, processExecutor);
+    GoBuckConfig goBuckConfig = new GoBuckConfig(config, processExecutor, cxxPlatforms);
 
     HalideBuckConfig halideBuckConfig = new HalideBuckConfig(config);
 
@@ -464,6 +466,8 @@ public class KnownBuildRuleTypes {
 
     InferBuckConfig inferBuckConfig = new InferBuckConfig(config);
 
+    LuaConfig luaConfig = new LuaBuckConfig(config, new ExecutableFinder());
+
     CxxBinaryDescription cxxBinaryDescription =
         new CxxBinaryDescription(
             inferBuckConfig,
@@ -472,7 +476,7 @@ public class KnownBuildRuleTypes {
             cxxBuckConfig.getPreprocessMode());
 
     CxxLibraryDescription cxxLibraryDescription = new CxxLibraryDescription(
-        cxxBuckConfig,
+        defaultCxxPlatform,
         inferBuckConfig,
         cxxPlatforms,
         cxxBuckConfig.getPreprocessMode());
@@ -563,6 +567,7 @@ public class KnownBuildRuleTypes {
     builder.register(new CSharpLibraryDescription());
     builder.register(cxxBinaryDescription);
     builder.register(cxxLibraryDescription);
+    builder.register(new CxxLuaExtensionDescription(luaConfig, cxxBuckConfig, cxxPlatforms));
     builder.register(
         new CxxPythonExtensionDescription(pythonPlatforms, cxxBuckConfig, cxxPlatforms));
     builder.register(
@@ -572,19 +577,18 @@ public class KnownBuildRuleTypes {
             cxxPlatforms,
             defaultTestRuleTimeoutMs));
     builder.register(new DBinaryDescription(dBuckConfig, defaultCxxPlatform));
-    builder.register(new DLibraryDescription(dBuckConfig));
+    builder.register(new DLibraryDescription(dBuckConfig, defaultCxxPlatform));
     builder.register(new DTestDescription(
             dBuckConfig, defaultTestRuleTimeoutMs, defaultCxxPlatform));
     builder.register(new ExportFileDescription());
     builder.register(new GenruleDescription());
     builder.register(new GenAidlDescription());
-    builder.register(new GoBinaryDescription(goBuckConfig, defaultCxxPlatform));
+    builder.register(new GoBinaryDescription(goBuckConfig));
     builder.register(new GoLibraryDescription(goBuckConfig));
     builder.register(
         new GoTestDescription(
             goBuckConfig,
-            defaultTestRuleTimeoutMs,
-            defaultCxxPlatform));
+            defaultTestRuleTimeoutMs));
     GroovyBuckConfig groovyBuckConfig = new GroovyBuckConfig(config);
     builder.register(
         new GroovyLibraryDescription(
@@ -615,7 +619,8 @@ public class KnownBuildRuleTypes {
             defaultCxxPlatform,
             testTempDirOverride));
     builder.register(new KeystoreDescription());
-    builder.register(new LuaBinaryDescription(new LuaBuckConfig(config, new ExecutableFinder())));
+    builder.register(
+        new LuaBinaryDescription(luaConfig, cxxBuckConfig, defaultCxxPlatform, cxxPlatforms));
     builder.register(new LuaLibraryDescription());
     builder.register(new NdkLibraryDescription(ndkVersion, ndkCxxPlatforms));
     OCamlBuckConfig ocamlBuckConfig = new OCamlBuckConfig(platform, config);

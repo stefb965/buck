@@ -20,14 +20,10 @@ import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.RuleKeyBuilder;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SupportsColorsInOutput;
-import com.facebook.buck.util.Optionals;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Ordering;
-
-import java.util.List;
 
 /**
  * Helper class for generating compiler invocations for a cxx compilation rule.
@@ -37,8 +33,7 @@ class CompilerDelegate implements RuleKeyAppendable {
   private final Compiler compiler;
 
   // Fields that added to the rule key with some processing.
-  private final ImmutableList<String> platformCompilerFlags;
-  private final ImmutableList<String> ruleCompilerFlags;
+  private final CxxToolFlags compilerFlags;
 
   // Fields that are not added to the rule key.
   private final SourcePathResolver resolver;
@@ -48,13 +43,11 @@ class CompilerDelegate implements RuleKeyAppendable {
       SourcePathResolver resolver,
       DebugPathSanitizer sanitizer,
       Compiler compiler,
-      List<String> platformCompilerFlags,
-      List<String> ruleCompilerFlags) {
+      CxxToolFlags flags) {
     this.resolver = resolver;
     this.sanitizer = sanitizer;
     this.compiler = compiler;
-    this.platformCompilerFlags = ImmutableList.copyOf(platformCompilerFlags);
-    this.ruleCompilerFlags = ImmutableList.copyOf(ruleCompilerFlags);
+    this.compilerFlags = flags;
   }
 
   @Override
@@ -62,34 +55,28 @@ class CompilerDelegate implements RuleKeyAppendable {
     builder.setReflectively("compiler", compiler);
     builder.setReflectively(
         "platformCompilerFlags",
-        sanitizer.sanitizeFlags(Optional.of(platformCompilerFlags)));
+        sanitizer.sanitizeFlags(compilerFlags.getPlatformFlags()));
     builder.setReflectively(
         "ruleCompilerFlags",
-        sanitizer.sanitizeFlags(Optional.of(ruleCompilerFlags)));
+        sanitizer.sanitizeFlags(compilerFlags.getRuleFlags()));
     return builder;
   }
 
   /**
    * Returns the argument list for executing the compiler.
-   *
-   * @param preprocessorDelegate If present, generate an argument list that operates on original
-   *                             (un-preprocessed) inputs.
    */
-  public ImmutableList<String> getCommand(Optional<PreprocessorDelegate> preprocessorDelegate) {
-    ImmutableList.Builder<String> builder = ImmutableList.builder();
-    builder.addAll(compiler.getCommandPrefix(resolver));
-    if (preprocessorDelegate.isPresent()) {
-      builder.addAll(preprocessorDelegate.get().getPreprocessorPlatformPrefix());
-    }
-    builder.addAll(platformCompilerFlags);
-    if (preprocessorDelegate.isPresent()) {
-      builder.addAll(preprocessorDelegate.get().getPreprocessorSuffix());
-    }
-    builder.addAll(ruleCompilerFlags);
-    builder.addAll(
-        compiler.debugCompilationDirFlags(sanitizer.getCompilationDirectory())
-            .or(ImmutableList.<String>of()));
-    return builder.build();
+  public ImmutableList<String> getCommand(CxxToolFlags prependedFlags) {
+    return ImmutableList.<String>builder()
+        .addAll(compiler.getCommandPrefix(resolver))
+        .addAll(CxxToolFlags.concat(prependedFlags, compilerFlags).getAllFlags())
+        .addAll(
+            compiler.debugCompilationDirFlags(sanitizer.getCompilationDirectory())
+                .or(ImmutableList.<String>of()))
+        .build();
+  }
+
+  public CxxToolFlags getCompilerFlags() {
+    return compilerFlags;
   }
 
   public ImmutableMap<String, String> getEnvironment() {
@@ -100,7 +87,8 @@ class CompilerDelegate implements RuleKeyAppendable {
     return Ordering.natural().immutableSortedCopy(compiler.getInputs());
   }
 
-  public Optional<SupportsColorsInOutput> getColorSupport() {
-    return Optionals.cast(compiler, SupportsColorsInOutput.class);
+  public Optional<ImmutableList<String>> getFlagsForColorDiagnostics() {
+    return compiler.getFlagsForColorDiagnostics();
   }
+
 }

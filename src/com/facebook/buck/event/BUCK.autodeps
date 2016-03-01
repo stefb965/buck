@@ -1,6 +1,7 @@
-#@# GENERATED FILE: DO NOT MODIFY 3091e9073709aa561c42c3fe78610c1fbc34e98c #@#
+#@# GENERATED FILE: DO NOT MODIFY c208a28c7d7a23c3c4c2b3bc7918fd6b43621fa5 #@#
 {
   "event" : [
+    "//src/com/facebook/buck/event/external:external_lib",
     "//src/com/facebook/buck/log:api",
     "//src/com/facebook/buck/log:log",
     "//src/com/facebook/buck/model:build_id",

@@ -113,8 +113,7 @@ public class CxxCompilationDatabaseTest {
                     CxxPlatforms.DEFAULT_DEBUG_PATH_SANITIZER,
                     filesystem.getRootPath(),
                     new DefaultPreprocessor(new HashedFileTool(Paths.get("compiler"))),
-                    ImmutableList.<String>of(),
-                    ImmutableList.<String>of(),
+                    CxxToolFlags.of(),
                     ImmutableSet.of(
                         filesystem.resolve("foo/bar"),
                         filesystem.resolve("test")),
@@ -134,10 +133,15 @@ public class CxxCompilationDatabaseTest {
                     },
                     Optional.<SourcePath>absent(),
                     ImmutableList.<CxxHeaders>of()),
-              Paths.get("test.ii"),
-              new FakeSourcePath(filesystem, "test.cpp"),
-              CxxSource.Type.CXX,
-              CxxPlatforms.DEFAULT_DEBUG_PATH_SANITIZER);
+                new CompilerDelegate(
+                    testSourcePathResolver,
+                    CxxPlatforms.DEFAULT_DEBUG_PATH_SANITIZER,
+                    new DefaultCompiler(new HashedFileTool(Paths.get("compiler"))),
+                    CxxToolFlags.of()),
+                Paths.get("test.ii"),
+                new FakeSourcePath(filesystem, "test.cpp"),
+                CxxSource.Type.CXX,
+                CxxPlatforms.DEFAULT_DEBUG_PATH_SANITIZER);
         rules.add(preprocessRule);
         compileBuildRuleParams = new FakeBuildRuleParamsBuilder(compileTarget)
             .setProjectFilesystem(filesystem)
@@ -151,8 +155,7 @@ public class CxxCompilationDatabaseTest {
                     testSourcePathResolver,
                     CxxPlatforms.DEFAULT_DEBUG_PATH_SANITIZER,
                     new DefaultCompiler(new HashedFileTool(Paths.get("compiler"))),
-                    ImmutableList.<String>of(),
-                    ImmutableList.<String>of()),
+                    CxxToolFlags.of()),
                 Paths.get("test.o"),
                 new FakeSourcePath(filesystem, "test.ii"),
                 CxxSource.Type.CXX_CPP_OUTPUT,
@@ -172,8 +175,7 @@ public class CxxCompilationDatabaseTest {
                     CxxPlatforms.DEFAULT_DEBUG_PATH_SANITIZER,
                     filesystem.getRootPath(),
                     new DefaultPreprocessor(new HashedFileTool(Paths.get("preprocessor"))),
-                    ImmutableList.<String>of(),
-                    ImmutableList.<String>of(),
+                    CxxToolFlags.of(),
                     ImmutableSet.of(
                         filesystem.resolve("foo/bar"),
                         filesystem.resolve("test")),
@@ -197,8 +199,7 @@ public class CxxCompilationDatabaseTest {
                     testSourcePathResolver,
                     CxxPlatforms.DEFAULT_DEBUG_PATH_SANITIZER,
                     new DefaultCompiler(new HashedFileTool(Paths.get("compiler"))),
-                    ImmutableList.<String>of(),
-                    ImmutableList.<String>of()),
+                    CxxToolFlags.of()),
                 Paths.get("test.o"),
                 new FakeSourcePath(filesystem, "test.cpp"),
                 CxxSource.Type.CXX,

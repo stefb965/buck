@@ -19,6 +19,10 @@ package com.facebook.buck.event.listener;
 import com.facebook.buck.artifact_cache.ArtifactCacheEvent;
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.artifact_cache.CacheResultType;
+import com.facebook.buck.distributed.DistBuildStatus;
+import com.facebook.buck.distributed.DistBuildStatusEvent;
+import com.facebook.buck.distributed.thrift.BuildStatus;
+import com.facebook.buck.distributed.thrift.LogRecord;
 import com.facebook.buck.event.ArtifactCompressionEvent;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.LeafEvent;
@@ -60,8 +64,12 @@ import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.TimeZone;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentMap;
@@ -136,6 +144,8 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   private final int threadLineLimitOnError;
   private final boolean shouldAlwaysSortThreadsByTime;
 
+  private Optional<DistBuildStatus> distBuildStatus;
+  private final DateFormat dateFormat;
   private int lastNumLinesPrinted;
 
   public SuperConsoleEventBusListener(
@@ -146,7 +156,8 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
       ExecutionEnvironment executionEnvironment,
       Optional<WebServer> webServer,
       Locale locale,
-      Path testLogPath) {
+      Path testLogPath,
+      TimeZone timeZone) {
     super(console, clock, locale);
     this.locale = locale;
     this.formatTimeFunction = new Function<Long, String>(){
@@ -184,6 +195,10 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     this.threadLineLimitOnWarning = config.getThreadLineLimitOnWarning();
     this.threadLineLimitOnError = config.getThreadLineLimitOnError();
     this.shouldAlwaysSortThreadsByTime = config.shouldAlwaysSortThreadsByTime();
+    this.distBuildStatus = Optional.absent();
+
+    this.dateFormat = new SimpleDateFormat("[yyyy-MM-dd HH:mm:ss.SSS]", this.locale);
+    this.dateFormat.setTimeZone(timeZone);
   }
 
   /**
@@ -259,6 +274,11 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   ImmutableList<String> createRenderLinesAtTime(long currentTimeMillis) {
     ImmutableList.Builder<String> lines = ImmutableList.builder();
 
+    // print latest distributed build debug info lines
+    if (buildStarted != null && buildStarted.isDistributedBuild()) {
+      getDistBuildDebugInfo(lines);
+    }
+
     if (parseStarted == null && parseFinished == null) {
       logEventPair(
           "PARSING BUCK FILES",
@@ -293,6 +313,9 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     // If parsing has not finished, then there is no build rule information to print yet.
     if (parseTime != UNFINISHED_EVENT_PAIR) {
       lines.add(getNetworkStatsLine(buildFinished));
+      if (buildStarted != null && buildStarted.isDistributedBuild()) {
+        lines.add(getDistBuildStatusLine());
+      }
       // Log build time, excluding time spent in parsing.
       String jobSummary = null;
       if (ruleCount.isPresent()) {
@@ -461,6 +484,44 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
             "%d Artifacts",
             networkStatsKeeper.getDownloadedArtifactDownloaded()));
     return parseLine + " " + "(" + Joiner.on(", ").join(columns) + ")";
+  }
+
+  private String getDistBuildStatusLine()  {
+    // create a local reference to avoid inconsistencies
+    Optional<DistBuildStatus> distBuildStatus = this.distBuildStatus;
+    boolean finished = distBuildStatus.isPresent() &&
+        (distBuildStatus.get().getStatus() == BuildStatus.FINISHED_SUCCESSFULLY ||
+            distBuildStatus.get().getStatus() == BuildStatus.FAILED);
+    String parseLine = finished ? "[-] " : "[+] ";
+
+    parseLine += "DISTBUILD STATUS: ";
+
+    if (!distBuildStatus.isPresent()) {
+      parseLine += "INIT...";
+      return parseLine;
+    }
+    parseLine += distBuildStatus.get().getStatus().toString() + "...";
+
+    if (!finished) {
+      parseLine += " ETA: " + formatElapsedTime(distBuildStatus.get().getETAMillis());
+    }
+    if (distBuildStatus.get().getMessage().isPresent()) {
+      parseLine += " (" + distBuildStatus.get().getMessage().get() + ")";
+    }
+    return parseLine;
+  }
+
+  private void getDistBuildDebugInfo(ImmutableList.Builder<String> lines) {
+    // create a local reference to avoid inconsistencies
+    Optional<DistBuildStatus> distBuildStatus = this.distBuildStatus;
+    if (distBuildStatus.isPresent() && distBuildStatus.get().getLogBook().isPresent())  {
+      lines.add(ansi.asWarningText("Distributed build debug info:"));
+      for (LogRecord log : distBuildStatus.get().getLogBook().get()) {
+        String dateString = dateFormat.format(new Date(log.getTimestampMillis()));
+        lines.add(ansi.asWarningText(dateString + " " + log.getName()));
+      }
+      anyWarningsPrinted.set(true);
+    }
   }
 
   /**
@@ -642,6 +703,13 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   @Subscribe
   public void artifactCompressionFinished(ArtifactCompressionEvent.Finished finished) {
     threadsToRunningStep.put(finished.getThreadId(), Optional.<StepEvent>absent());
+  }
+
+  @Override
+  @Subscribe
+  public void distributedBuildStatus(DistBuildStatusEvent event) {
+    super.distributedBuildStatus(event);
+    distBuildStatus = Optional.of(event.getStatus());
   }
 
   @Subscribe

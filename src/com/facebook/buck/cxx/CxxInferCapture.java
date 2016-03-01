@@ -40,7 +40,6 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 
 import java.nio.file.Path;
-import java.util.LinkedHashSet;
 
 /**
  * Generate the CFG for a source file
@@ -49,10 +48,8 @@ public class CxxInferCapture extends AbstractBuildRule implements RuleKeyAppenda
 
   @AddToRuleKey
   private final CxxInferTools inferTools;
-  private final Optional<ImmutableList<String>> platformPreprocessorFlags;
-  private final Optional<ImmutableList<String>> rulePreprocessorFlags;
-  private final Optional<ImmutableList<String>> platformCompilerFlags;
-  private final Optional<ImmutableList<String>> ruleCompilerFlags;
+  private final CxxToolFlags preprocessorFlags;
+  private final CxxToolFlags compilerFlags;
   @AddToRuleKey
   private final SourcePath input;
   private final CxxSource.Type inputType;
@@ -74,10 +71,8 @@ public class CxxInferCapture extends AbstractBuildRule implements RuleKeyAppenda
   CxxInferCapture(
       BuildRuleParams buildRuleParams,
       SourcePathResolver pathResolver,
-      Optional<ImmutableList<String>> platformPreprocessorFlags,
-      Optional<ImmutableList<String>> rulePreprocessorFlags,
-      Optional<ImmutableList<String>> platformCompilerFlags,
-      Optional<ImmutableList<String>> ruleCompilerFlags,
+      CxxToolFlags preprocessorFlags,
+      CxxToolFlags compilerFlags,
       SourcePath input,
       AbstractCxxSource.Type inputType,
       Path output,
@@ -90,10 +85,8 @@ public class CxxInferCapture extends AbstractBuildRule implements RuleKeyAppenda
       CxxInferTools inferTools,
       DebugPathSanitizer sanitizer) {
     super(buildRuleParams, pathResolver);
-    this.platformPreprocessorFlags = platformPreprocessorFlags;
-    this.rulePreprocessorFlags = rulePreprocessorFlags;
-    this.platformCompilerFlags = platformCompilerFlags;
-    this.ruleCompilerFlags = ruleCompilerFlags;
+    this.preprocessorFlags = preprocessorFlags;
+    this.compilerFlags = compilerFlags;
     this.input = input;
     this.inputType = inputType;
     this.output = output;
@@ -108,46 +101,27 @@ public class CxxInferCapture extends AbstractBuildRule implements RuleKeyAppenda
     this.sanitizer = sanitizer;
   }
 
-  private ImmutableList<String> getPreprocessorPlatformPrefix() {
-    return platformPreprocessorFlags.get();
-  }
-
-  private ImmutableList<String> getCompilerPlatformPrefix() {
-    ImmutableList.Builder<String> flags = ImmutableList.builder();
-    flags.addAll(getPreprocessorPlatformPrefix());
-    flags.addAll(platformCompilerFlags.get());
-    return flags.build();
-  }
-
-  private ImmutableList<String> getCompilerSuffix() {
-    ImmutableList.Builder<String> suffix = ImmutableList.builder();
-    suffix.addAll(getPreprocessorSuffix());
-    suffix.addAll(ruleCompilerFlags.get());
-    return suffix.build();
-  }
-
-  private ImmutableList<String> getPreprocessorSuffix() {
-    return ImmutableList.<String>builder()
-        .addAll(new LinkedHashSet<>(rulePreprocessorFlags.get()))
-        .addAll(
+  private CxxToolFlags getSearchPathFlags() {
+    return CxxToolFlags.explicitBuilder()
+        .addAllRuleFlags(
             MoreIterables.zipAndConcat(
                 Iterables.cycle("-include"),
                 FluentIterable.from(prefixHeader.asSet())
                     .transform(getResolver().deprecatedPathFunction())
                     .transform(Functions.toStringFunction())))
-        .addAll(
+        .addAllRuleFlags(
             MoreIterables.zipAndConcat(
                 Iterables.cycle("-I"),
                 Iterables.transform(headerMaps, Functions.toStringFunction())))
-        .addAll(
+        .addAllRuleFlags(
             MoreIterables.zipAndConcat(
                 Iterables.cycle("-I"),
                 Iterables.transform(includeRoots, Functions.toStringFunction())))
-        .addAll(
+        .addAllRuleFlags(
             MoreIterables.zipAndConcat(
                 Iterables.cycle("-isystem"),
                 Iterables.transform(systemIncludeRoots, Functions.toStringFunction())))
-        .addAll(
+        .addAllRuleFlags(
             MoreIterables.zipAndConcat(
                 Iterables.cycle("-F"),
                 FluentIterable.from(frameworkRoots)
@@ -169,8 +143,9 @@ public class CxxInferCapture extends AbstractBuildRule implements RuleKeyAppenda
         .add("--out", resultsDir.toString())
         .add("--")
         .add("clang")
-        .addAll(getCompilerPlatformPrefix())
-        .addAll(getCompilerSuffix())
+        .addAll(
+            CxxToolFlags.concat(preprocessorFlags, getSearchPathFlags(), compilerFlags)
+                .getAllFlags())
         .add("-x", inputType.getLanguage())
         .add("-o", output.toString()) // TODO(martinoluca): Use -fsyntax-only for better perf
         .add("-c")
@@ -203,19 +178,18 @@ public class CxxInferCapture extends AbstractBuildRule implements RuleKeyAppenda
   public RuleKeyBuilder appendToRuleKey(RuleKeyBuilder builder) {
     // Sanitize any relevant paths in the flags we pass to the preprocessor, to prevent them
     // from contributing to the rule key.
-    builder.setReflectively(
-        "platformPreprocessorFlags",
-        sanitizer.sanitizeFlags(platformPreprocessorFlags));
-    builder.setReflectively(
-        "rulePreprocessorFlags",
-        sanitizer.sanitizeFlags(rulePreprocessorFlags));
-    builder.setReflectively(
-        "platformCompilerFlags",
-        sanitizer.sanitizeFlags(platformCompilerFlags));
-    builder.setReflectively(
-        "ruleCompilerFlags",
-        sanitizer.sanitizeFlags(ruleCompilerFlags));
-
-    return builder;
+    return builder
+        .setReflectively(
+            "platformPreprocessorFlags",
+            sanitizer.sanitizeFlags(preprocessorFlags.getPlatformFlags()))
+        .setReflectively(
+            "rulePreprocessorFlags",
+            sanitizer.sanitizeFlags(preprocessorFlags.getRuleFlags()))
+        .setReflectively(
+            "platformCompilerFlags",
+            sanitizer.sanitizeFlags(compilerFlags.getPlatformFlags()))
+        .setReflectively(
+            "ruleCompilerFlags",
+            sanitizer.sanitizeFlags(compilerFlags.getRuleFlags()));
   }
 }

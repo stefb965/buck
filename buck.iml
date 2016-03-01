@@ -18,6 +18,7 @@
       <excludeFolder url="file://$MODULE_DIR$/build" />
       <excludeFolder url="file://$MODULE_DIR$/src/com/facebook/buck/android/support" />
       <excludeFolder url="file://$MODULE_DIR$/src/com/facebook/buck/cli/quickstart" />
+      <excludeFolder url="file://$MODULE_DIR$/src/com/facebook/buck/event/listener/noos" />
       <excludeFolder url="file://$MODULE_DIR$/src/com/facebook/buck/intellij/plugin" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/android/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/apple/testdata" />
@@ -31,6 +32,7 @@
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/gwt/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/js/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/jvm/groovy/testdata" />
+      <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/jvm/java/autodeps/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/jvm/java/intellij/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/jvm/java/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/ocaml/testdata" />
@@ -38,7 +40,6 @@
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/python/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/rust/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/shell/testdata" />
-      <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/test/cache/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/test/labels/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/testrunner/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/thrift/testdata" />

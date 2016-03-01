@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY 1ab1b4444951b63ea7976156c36941ea6fb4e2fd #@#
+#@# GENERATED FILE: DO NOT MODIFY ad502d0c43b9aea5cd8298a97644b8fd5389ac3d #@#
 {
   "build_event" : [
     "//src/com/facebook/buck/event:event",
@@ -43,6 +43,7 @@
   "rules" : [
     "//src/com/facebook/buck/artifact_cache:artifact_cache",
     "//src/com/facebook/buck/event:event",
+    "//src/com/facebook/buck/event/external:external_lib",
     "//src/com/facebook/buck/io:io",
     "//src/com/facebook/buck/log:api",
     "//src/com/facebook/buck/model:model",
@@ -64,7 +65,8 @@
     "//third-party/java/immutables:processor",
     "//third-party/java/infer-annotations:infer-annotations",
     "//third-party/java/jackson:jackson-annotations",
-    "//third-party/java/jsr:jsr305"
+    "//third-party/java/jsr:jsr305",
+    "//third-party/java/stringtemplate:stringtemplate"
   ],
   "target_graph_hashing" : [
     "//src/com/facebook/buck/graph:graph",

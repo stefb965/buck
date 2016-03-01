@@ -52,7 +52,7 @@ public class CxxPreprocessAndCompile
   @AddToRuleKey
   private final Optional<PreprocessorDelegate> preprocessDelegate;
   @AddToRuleKey
-  private final Optional<CompilerDelegate> compilerDelegate;
+  private final CompilerDelegate compilerDelegate;
   @AddToRuleKey(stringify = true)
   private final Path output;
   @AddToRuleKey
@@ -66,14 +66,13 @@ public class CxxPreprocessAndCompile
       SourcePathResolver resolver,
       CxxPreprocessAndCompileStep.Operation operation,
       Optional<PreprocessorDelegate> preprocessDelegate,
-      Optional<CompilerDelegate> compilerDelegate,
+      CompilerDelegate compilerDelegate,
       Path output,
       SourcePath input,
       CxxSource.Type inputType,
       DebugPathSanitizer sanitizer) {
     super(params, resolver);
     Preconditions.checkState(operation.isPreprocess() == preprocessDelegate.isPresent());
-    Preconditions.checkState(operation.isCompile() == compilerDelegate.isPresent());
     this.operation = operation;
     this.preprocessDelegate = preprocessDelegate;
     this.compilerDelegate = compilerDelegate;
@@ -99,7 +98,7 @@ public class CxxPreprocessAndCompile
         resolver,
         CxxPreprocessAndCompileStep.Operation.COMPILE,
         Optional.<PreprocessorDelegate>absent(),
-        Optional.of(compilerDelegate),
+        compilerDelegate,
         output,
         input,
         inputType,
@@ -113,6 +112,7 @@ public class CxxPreprocessAndCompile
       BuildRuleParams params,
       SourcePathResolver resolver,
       PreprocessorDelegate preprocessorDelegate,
+      CompilerDelegate compilerDelegate,
       Path output,
       SourcePath input,
       CxxSource.Type inputType,
@@ -122,7 +122,7 @@ public class CxxPreprocessAndCompile
         resolver,
         CxxPreprocessAndCompileStep.Operation.PREPROCESS,
         Optional.of(preprocessorDelegate),
-        Optional.<CompilerDelegate>absent(),
+        compilerDelegate,
         output,
         input,
         inputType,
@@ -149,7 +149,7 @@ public class CxxPreprocessAndCompile
             ? CxxPreprocessAndCompileStep.Operation.PIPED_PREPROCESS_AND_COMPILE
             : CxxPreprocessAndCompileStep.Operation.COMPILE_MUNGE_DEBUGINFO),
         Optional.of(preprocessorDelegate),
-        Optional.of(compilerDelegate),
+        compilerDelegate,
         output,
         input,
         inputType,
@@ -189,23 +189,23 @@ public class CxxPreprocessAndCompile
     if (preprocessDelegate.isPresent()) {
       preprocessorCommand = Optional.of(
           new CxxPreprocessAndCompileStep.ToolCommand(
-              preprocessDelegate.get().getCommand(),
+              getPreprocessorDelegate().get().getCommand(compilerDelegate.getCompilerFlags()),
               preprocessDelegate.get().getEnvironment(),
-              preprocessDelegate.get().getColorSupport()));
+              preprocessDelegate.get().getFlagsForColorDiagnostics()));
     } else {
       preprocessorCommand = Optional.absent();
     }
 
     Optional<CxxPreprocessAndCompileStep.ToolCommand> compilerCommand;
-    if (compilerDelegate.isPresent()) {
+    if (operation.isCompile()) {
       compilerCommand = Optional.of(
           new CxxPreprocessAndCompileStep.ToolCommand(
-              compilerDelegate.get().getCommand(
+              compilerDelegate.getCommand(
                   operation == CxxPreprocessAndCompileStep.Operation.COMPILE_MUNGE_DEBUGINFO
-                      ? preprocessDelegate
-                      : Optional.<PreprocessorDelegate>absent()),
-              compilerDelegate.get().getEnvironment(),
-              compilerDelegate.get().getColorSupport()));
+                      ? preprocessDelegate.get().getFlagsWithSearchPaths()
+                      : CxxToolFlags.of()),
+              compilerDelegate.getEnvironment(),
+              compilerDelegate.getFlagsForColorDiagnostics()));
     } else {
       compilerCommand = Optional.absent();
     }
@@ -257,7 +257,8 @@ public class CxxPreprocessAndCompile
     }
     PreprocessorDelegate effectivePreprocessorDelegate = preprocessRule.preprocessDelegate.get();
     ImmutableList.Builder<String> cmd = ImmutableList.builder();
-    cmd.addAll(compilerDelegate.get().getCommand(Optional.of(effectivePreprocessorDelegate)));
+    cmd.addAll(
+        compilerDelegate.getCommand(effectivePreprocessorDelegate.getFlagsWithSearchPaths()));
     // use the input of the preprocessor, since the fact that this is going through preprocessor is
     // hidden to compdb.
     cmd.add("-x", preprocessRule.inputType.getLanguage());
@@ -295,8 +296,8 @@ public class CxxPreprocessAndCompile
     }
 
     // If present, include all inputs coming from the compiler tool.
-    if (compilerDelegate.isPresent()) {
-      inputs.addAll(compilerDelegate.get().getInputsAfterBuildingLocally());
+    if (operation.isCompile()) {
+      inputs.addAll(compilerDelegate.getInputsAfterBuildingLocally());
     }
 
     // Add the input.

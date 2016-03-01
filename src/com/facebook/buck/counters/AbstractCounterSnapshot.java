@@ -18,13 +18,22 @@ package com.facebook.buck.counters;
 
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSetMultimap;
 
 import org.immutables.value.Value;
 
 @Value.Immutable
 @BuckStyleImmutable
 abstract class AbstractCounterSnapshot {
+  public static CounterSnapshot.Builder builderForCounter(Counter counter) {
+    CounterSnapshot.Builder builder = CounterSnapshot.builder();
+    builder.setTags(counter.getTags());
+    builder.setCategory(counter.getCategory());
+    return builder;
+  }
+
   abstract String getCategory();
   abstract ImmutableMap<String, String> getTags();
+  abstract ImmutableSetMultimap<String, String> getTagSets();
   abstract ImmutableMap<String, Long> getValues();
 }

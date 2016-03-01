@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY 05a944e3218f30a302a415e9d227887af359247f #@#
+#@# GENERATED FILE: DO NOT MODIFY 0c56299b647594dbdf5a9d4cfa81d095488dd277 #@#
 {
   "autodeps" : [
     "//src/com/facebook/buck/android:rules",
@@ -13,8 +13,13 @@
     "//src/com/facebook/buck/model:model",
     "//src/com/facebook/buck/parser:rule_pattern",
     "//src/com/facebook/buck/rules:build_rule",
+    "//src/com/facebook/buck/rules:rules",
+    "//src/com/facebook/buck/step:step",
+    "//src/com/facebook/buck/step/fs:fs",
     "//src/com/facebook/buck/util:io",
+    "//src/com/facebook/buck/util:util",
     "//third-party/java/guava:guava",
+    "//third-party/java/jackson:jackson-databind",
     "//third-party/java/jsr:jsr305"
   ]
 }

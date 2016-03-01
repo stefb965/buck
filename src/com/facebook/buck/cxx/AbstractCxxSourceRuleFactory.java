@@ -38,12 +38,12 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
+import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.FluentIterable;
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -221,25 +221,30 @@ abstract class AbstractCxxSourceRuleFactory {
     Preconditions.checkArgument(CxxSourceTypes.isPreprocessableType(source.getType()));
 
     BuildTarget target = createPreprocessBuildTarget(name, source.getType());
-    Preprocessor tool = CxxSourceTypes.getPreprocessor(getCxxPlatform(), source.getType());
-
-    // Build up the list of dependencies for this rule.
-    ImmutableSortedSet<BuildRule> dependencies =
-        computeSourcePreprocessorAndToolDeps(Optional.of((Tool) tool), source);
+    PreprocessorDelegate preprocessorDelegate = preprocessorDelegates.getUnchecked(
+        PreprocessAndCompilePreprocessorDelegateKey.of(source.getType(), source.getFlags()));
 
     // Build the CxxCompile rule and add it to our sorted set of build rules.
-    CxxPreprocessAndCompile result = CxxPreprocessAndCompile.preprocess(
-        getParams().copyWithChanges(
-            target,
-            Suppliers.ofInstance(dependencies),
-            Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
-        getPathResolver(),
-        preprocessorDelegates.getUnchecked(
-            PreprocessAndCompilePreprocessorDelegateKey.of(source.getType(), source.getFlags())),
-        getPreprocessOutputPath(target, source.getType(), name),
-        source.getPath(),
-        source.getType(),
-        getCxxPlatform().getDebugPathSanitizer());
+    CxxPreprocessAndCompile result =
+        CxxPreprocessAndCompile.preprocess(
+            getParams().copyWithChanges(
+                target,
+                new DepsBuilder()
+                    .addPreprocessDeps()
+                    .add(preprocessorDelegate.getPreprocessor())
+                    .add(source),
+                Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+            getPathResolver(),
+            preprocessorDelegate,
+            new CompilerDelegate(
+                getPathResolver(),
+                getCxxPlatform().getDebugPathSanitizer(),
+                getCompiler(source.getType()),
+                computeCompilerFlags(source.getType(), source.getFlags())),
+            getPreprocessOutputPath(target, source.getType(), name),
+            source.getPath(),
+            source.getType(),
+            getCxxPlatform().getDebugPathSanitizer());
     getResolver().addToIndex(result);
     return result;
   }
@@ -371,44 +376,30 @@ abstract class AbstractCxxSourceRuleFactory {
     BuildTarget target = createCompileBuildTarget(name);
     Compiler compiler = getCompiler(source.getType());
 
-    ImmutableSortedSet<BuildRule> dependencies =
-        ImmutableSortedSet.<BuildRule>naturalOrder()
-            // Add dependencies on any build rules used to create the compiler.
-            .addAll(compiler.getDeps(getPathResolver()))
-            // If a build rule generates our input source, add that as a dependency.
-            .addAll(getPathResolver().filterBuildRuleInputs(source.getPath()))
-            .build();
-
     // Build up the list of compiler flags.
-    ImmutableList<String> platformFlags =
-        ImmutableList.<String>builder()
-            // If we're using pic, add in the appropriate flag.
-            .addAll(getPicType().getFlags())
-            // Add in the platform specific compiler flags.
-            .addAll(getPlatformCompileFlags(source.getType()))
-            .build();
-
-    ImmutableList<String> ruleFlags =
-        ImmutableList.<String>builder()
-            // Add custom compiler flags.
-            .addAll(getRuleCompileFlags(source.getType()))
-            // Add custom per-file flags.
-            .addAll(source.getFlags())
-            .build();
+    CxxToolFlags flags = CxxToolFlags.explicitBuilder()
+        // If we're using pic, add in the appropriate flag.
+        .addAllPlatformFlags(getPicType().getFlags())
+        // Add in the platform specific compiler flags.
+        .addAllPlatformFlags(getPlatformCompileFlags(source.getType()))
+        // Add custom compiler flags.
+        .addAllRuleFlags(getRuleCompileFlags(source.getType()))
+        // Add custom per-file flags.
+        .addAllRuleFlags(source.getFlags())
+        .build();
 
     // Build the CxxCompile rule and add it to our sorted set of build rules.
     CxxPreprocessAndCompile result = CxxPreprocessAndCompile.compile(
         getParams().copyWithChanges(
             target,
-            Suppliers.ofInstance(dependencies),
+            new DepsBuilder().add(compiler).add(source),
             Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
         getPathResolver(),
         new CompilerDelegate(
             getPathResolver(),
             getCxxPlatform().getDebugPathSanitizer(),
             compiler,
-            platformFlags,
-            ruleFlags),
+            flags),
         getCompileOutputPath(target, name),
         source.getPath(),
         source.getType(),
@@ -430,68 +421,31 @@ abstract class AbstractCxxSourceRuleFactory {
     return createCompileBuildRule(name, source);
   }
 
-  private ImmutableSortedSet<BuildRule> computeSourcePreprocessorAndToolDeps(
-      Optional<Tool> toolOptional,
-      CxxSource source) {
-
-    ImmutableCollection<BuildRule> toolInputs =
-        toolOptional.isPresent()
-            ? toolOptional.get().getDeps(getPathResolver())
-            : ImmutableSet.<BuildRule>of();
-
-    return ImmutableSortedSet.<BuildRule>naturalOrder()
-        // Add dependencies on any build rules used to create the preprocessor.
-        .addAll(toolInputs)
-        // If a build rule generates our input source, add that as a dependency.
-        .addAll(getPathResolver().filterBuildRuleInputs(source.getPath()))
-        // Add in all preprocessor deps.
-        .addAll(getPreprocessDeps())
-        .build();
-  }
-
-  private ImmutableList<String> computePlatformPreprocessorFlags(CxxSource.Type type) {
-    return ImmutableList.<String>builder()
-        // If we're using pic, add in the appropriate flag.
-        .addAll(getPicType().getFlags())
-        // Add in platform specific preprocessor flags.
-        .addAll(CxxSourceTypes.getPlatformPreprocessFlags(getCxxPlatform(), type))
-        // Add in the platform specific compiler flags.
-        .addAll(
-            getPlatformCompileFlags(
-                CxxSourceTypes.getPreprocessorOutputType(type)))
-        .build();
-  }
-
-
-  private ImmutableList<String> computePlatformCompilerFlags(CxxSource source) {
-    // Build up the list of compiler flags.
-    return ImmutableList.<String>builder()
-        // If we're using pic, add in the appropriate flag.
-        .addAll(getPicType().getFlags())
-        // Add in the platform specific compiler flags.
-        .addAll(getPlatformCompileFlags(CxxSourceTypes.getPreprocessorOutputType(source.getType())))
-        .build();
-  }
-
-  private ImmutableList<String> computeRulePreprocessorFlags(
+  private CxxToolFlags computePreprocessorFlags(
       CxxSource.Type type,
       ImmutableList<String> sourceFlags) {
-    return ImmutableList.<String>builder()
-        // Add custom preprocessor flags.
-        .addAll(preprocessorFlags.getUnchecked(type))
+    return CxxToolFlags.explicitBuilder()
+        .addAllPlatformFlags(getPicType().getFlags())
+        .addAllPlatformFlags(CxxSourceTypes.getPlatformPreprocessFlags(getCxxPlatform(), type))
+        .addAllRuleFlags(preprocessorFlags.getUnchecked(type))
         // Add custom compiler flags.
-        .addAll(getRuleCompileFlags(CxxSourceTypes.getPreprocessorOutputType(type)))
+        .addAllRuleFlags(getRuleCompileFlags(CxxSourceTypes.getPreprocessorOutputType(type)))
         // Add custom per-file flags.
-        .addAll(sourceFlags)
+        .addAllRuleFlags(sourceFlags)
         .build();
   }
 
-  private ImmutableList<String> computeRuleCompilerFlags(CxxSource source) {
-    return ImmutableList.<String>builder()
-        // Add custom compiler flags.
-        .addAll(getRuleCompileFlags(CxxSourceTypes.getPreprocessorOutputType(source.getType())))
-        // Add custom per-file flags.
-        .addAll(source.getFlags())
+  private CxxToolFlags computeCompilerFlags(
+      CxxSource.Type type,
+      ImmutableList<String> sourceFlags) {
+    return CxxToolFlags.explicitBuilder()
+        // If we're using pic, add in the appropriate flag.
+        .addAllPlatformFlags(getPicType().getFlags())
+        // Add in the platform specific compiler flags.
+        .addAllPlatformFlags(
+            getPlatformCompileFlags(CxxSourceTypes.getPreprocessorOutputType(type)))
+        .addAllRuleFlags(getRuleCompileFlags(CxxSourceTypes.getPreprocessorOutputType(type)))
+        .addAllRuleFlags(sourceFlags)
         .build();
   }
 
@@ -522,14 +476,13 @@ abstract class AbstractCxxSourceRuleFactory {
     CxxInferCapture result = new CxxInferCapture(
         getParams().copyWithChanges(
             target,
-            Suppliers.ofInstance(
-                computeSourcePreprocessorAndToolDeps(Optional.<Tool>absent(), source)),
+            new DepsBuilder().addPreprocessDeps().add(source),
             Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
         getPathResolver(),
-        Optional.of(CxxSourceTypes.getPlatformPreprocessFlags(getCxxPlatform(), source.getType())),
-        Optional.of(preprocessorFlags.getUnchecked(source.getType())),
-        Optional.of(computePlatformCompilerFlags(source)),
-        Optional.of(computeRuleCompilerFlags(source)),
+        CxxToolFlags.copyOf(
+            CxxSourceTypes.getPlatformPreprocessFlags(getCxxPlatform(), source.getType()),
+            preprocessorFlags.getUnchecked(source.getType())),
+        computeCompilerFlags(source.getType(), source.getFlags()),
         source.getPath(),
         source.getType(),
         getCompileOutputPath(target, name),
@@ -562,22 +515,22 @@ abstract class AbstractCxxSourceRuleFactory {
 
     LOG.verbose("Creating preprocess and compile %s for %s", target, source);
 
+    PreprocessorDelegate preprocessorDelegate = preprocessorDelegates.getUnchecked(
+        PreprocessAndCompilePreprocessorDelegateKey.of(source.getType(), source.getFlags()));
     // Build the CxxCompile rule and add it to our sorted set of build rules.
     CxxPreprocessAndCompile result = CxxPreprocessAndCompile.preprocessAndCompile(
         getParams().copyWithChanges(
             target,
-            Suppliers.ofInstance(
-                computeSourcePreprocessorAndToolDeps(Optional.of((Tool) compiler), source)),
+            // compiler handles both preprocessing and compiling
+            new DepsBuilder().addPreprocessDeps().add(compiler).add(source),
             Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
         getPathResolver(),
-        preprocessorDelegates.getUnchecked(
-            PreprocessAndCompilePreprocessorDelegateKey.of(source.getType(), source.getFlags())),
+        preprocessorDelegate,
         new CompilerDelegate(
             getPathResolver(),
             getCxxPlatform().getDebugPathSanitizer(),
             compiler,
-            computePlatformCompilerFlags(source),
-            computeRuleCompilerFlags(source)),
+            computeCompilerFlags(source.getType(), source.getFlags())),
         getCompileOutputPath(target, name),
         source.getPath(),
         source.getType(),
@@ -755,15 +708,14 @@ abstract class AbstractCxxSourceRuleFactory {
       extends CacheLoader<PreprocessAndCompilePreprocessorDelegateKey, PreprocessorDelegate> {
 
     @Override
-    public PreprocessorDelegate load(PreprocessAndCompilePreprocessorDelegateKey key)
+    public PreprocessorDelegate load(@Nonnull PreprocessAndCompilePreprocessorDelegateKey key)
         throws Exception {
       return new PreprocessorDelegate(
           getPathResolver(),
           getCxxPlatform().getDebugPathSanitizer(),
           getParams().getProjectFilesystem().getRootPath(),
           CxxSourceTypes.getPreprocessor(getCxxPlatform(), key.getSourceType()),
-          computePlatformPreprocessorFlags(key.getSourceType()),
-          computeRulePreprocessorFlags(key.getSourceType(), key.getSourceFlags()),
+          computePreprocessorFlags(key.getSourceType(), key.getSourceFlags()),
           getIncludeRoots(),
           getSystemIncludeRoots(),
           getHeaderMaps(),
@@ -774,5 +726,33 @@ abstract class AbstractCxxSourceRuleFactory {
     }
 
   }
+
+  /**
+   * Supplier suitable for generating the dependency list of a build rule.
+   */
+  private class DepsBuilder implements Supplier<ImmutableSortedSet<BuildRule>> {
+    private final ImmutableSortedSet.Builder<BuildRule> builder = ImmutableSortedSet.naturalOrder();
+
+    @Override
+    public ImmutableSortedSet<BuildRule> get() {
+      return builder.build();
+    }
+
+    public DepsBuilder add(Tool tool) {
+      builder.addAll(tool.getDeps(getPathResolver()));
+      return this;
+    }
+
+    public DepsBuilder add(CxxSource source) {
+      builder.addAll(getPathResolver().filterBuildRuleInputs(source.getPath()));
+      return this;
+    }
+
+    public DepsBuilder addPreprocessDeps() {
+      builder.addAll(getPreprocessDeps());
+      return this;
+    }
+  }
+
 
 }

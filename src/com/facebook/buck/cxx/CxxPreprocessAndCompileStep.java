@@ -21,7 +21,6 @@ import com.facebook.buck.event.PerfEventId;
 import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.rules.SupportsColorsInOutput;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.util.Escaper;
@@ -118,10 +117,13 @@ public class CxxPreprocessAndCompileStep implements Step {
    *
    * @return Half-configured ProcessBuilder
    */
-  private ProcessBuilder makeSubprocessBuilder() {
+  private ProcessBuilder makeSubprocessBuilder(ExecutionContext context) {
     ProcessBuilder builder = new ProcessBuilder();
     builder.directory(filesystem.getRootPath().toAbsolutePath().toFile());
     builder.redirectError(ProcessBuilder.Redirect.PIPE);
+
+    builder.environment().clear();
+    builder.environment().putAll(context.getEnvironment());
 
     // A forced compilation directory is set in the constructor.  Now, we can't actually force
     // the compiler to embed this into the binary -- all we can do set the PWD environment to
@@ -185,6 +187,18 @@ public class CxxPreprocessAndCompileStep implements Step {
         .build();
   }
 
+  private ImmutableList<String> makeGeneratePchCommand(boolean allowColorInDiagnostics) {
+    return ImmutableList.<String>builder()
+        .addAll(preprocessorCommand.get().getCommand(allowColorInDiagnostics))
+        // Using x-header language type directs the compiler to generate a PCH file.
+        .add("-x", inputType.getPrecompiledHeaderLanguage().get())
+        // PCH file generation can also output dep files.
+        .addAll(getDepFileArgs(getDepTemp()))
+        .add(input.toString())
+        .add("-o", output.toString())
+        .build();
+  }
+
   private void safeCloseProcessor(@Nullable ManagedRunnable processor) {
     if (processor != null) {
       try {
@@ -201,13 +215,13 @@ public class CxxPreprocessAndCompileStep implements Step {
     Preconditions.checkState(preprocessorCommand.isPresent());
     Preconditions.checkState(compilerCommand.isPresent());
     ByteArrayOutputStream preprocessError = new ByteArrayOutputStream();
-    ProcessBuilder preprocessBuilder = makeSubprocessBuilder();
+    ProcessBuilder preprocessBuilder = makeSubprocessBuilder(context);
     preprocessBuilder.command(makePreprocessCommand(context.getAnsi().isAnsiTerminal()));
     preprocessBuilder.environment().putAll(preprocessorCommand.get().getEnvironment());
     preprocessBuilder.redirectOutput(ProcessBuilder.Redirect.PIPE);
 
     ByteArrayOutputStream compileError = new ByteArrayOutputStream();
-    ProcessBuilder compileBuilder = makeSubprocessBuilder();
+    ProcessBuilder compileBuilder = makeSubprocessBuilder(context);
     compileBuilder.command(
         makeCompileCommand(
             "-",
@@ -262,7 +276,7 @@ public class CxxPreprocessAndCompileStep implements Step {
         context.getBuckEventBus().post(
             createConsoleEvent(
                 context,
-                preprocessorCommand.get(),
+                preprocessorCommand.get().supportsColorsInDiagnostics(),
                 preprocessStatus == 0 ? Level.WARNING : Level.SEVERE,
                 preprocessErr));
       }
@@ -272,7 +286,7 @@ public class CxxPreprocessAndCompileStep implements Step {
         context.getBuckEventBus().post(
             createConsoleEvent(
                 context,
-                compilerCommand.get(),
+                compilerCommand.get().supportsColorsInDiagnostics(),
                 compileStatus == 0 ? Level.WARNING : Level.SEVERE,
                 compileErr));
       }
@@ -314,7 +328,7 @@ public class CxxPreprocessAndCompileStep implements Step {
   }
 
   private int executeOther(ExecutionContext context) throws Exception {
-    ProcessBuilder builder = makeSubprocessBuilder();
+    ProcessBuilder builder = makeSubprocessBuilder(context);
 
     builder.command(getCommand(context.getAnsi().isAnsiTerminal()));
     // If we're preprocessing, file output goes through stdout, so we can postprocess it.
@@ -374,7 +388,7 @@ public class CxxPreprocessAndCompileStep implements Step {
       context.getBuckEventBus().post(
           createConsoleEvent(
               context,
-              operation == Operation.PREPROCESS ? preprocessorCommand.get() : compilerCommand.get(),
+              preprocessorCommand.or(compilerCommand).get().supportsColorsInDiagnostics(),
               exitCode == 0 ? Level.WARNING : Level.SEVERE,
               err));
     }
@@ -384,10 +398,10 @@ public class CxxPreprocessAndCompileStep implements Step {
 
   private ConsoleEvent createConsoleEvent(
       ExecutionContext context,
-      ToolCommand command,
+      boolean commandOutputsColor,
       Level level,
       String message) {
-    if (context.getAnsi().isAnsiTerminal() && command.supportsColorsInDiagnostics()) {
+    if (context.getAnsi().isAnsiTerminal() && commandOutputsColor) {
       return ConsoleEvent.createForMessageWithAnsiEscapeCodes(level, message);
     } else {
       return ConsoleEvent.create(level, message);
@@ -493,14 +507,14 @@ public class CxxPreprocessAndCompileStep implements Step {
   }
 
   public ImmutableList<String> getCommand() {
-    return getCommand(false);
-  }
-
-  public ImmutableList<String> getCommand(boolean allowColorsInDiagnostics) {
     // We set allowColorsInDiagnostics to false here because this function is only used by the
     // compilation database (its contents should not depend on how Buck was invoked) and in the
     // step's description. It is not used to determine what command this step runs, which needs
     // to decide whether to use colors or not based on whether the terminal supports them.
+    return getCommand(false);
+  }
+
+  public ImmutableList<String> getCommand(boolean allowColorsInDiagnostics) {
     switch (operation) {
       case COMPILE:
       case COMPILE_MUNGE_DEBUGINFO:
@@ -511,6 +525,8 @@ public class CxxPreprocessAndCompileStep implements Step {
             allowColorsInDiagnostics);
       case PREPROCESS:
         return makePreprocessCommand(allowColorsInDiagnostics);
+      case GENERATE_PCH:
+        return makeGeneratePchCommand(allowColorsInDiagnostics);
       // $CASES-OMITTED$
       default:
         throw new RuntimeException("invalid operation type");
@@ -573,46 +589,61 @@ public class CxxPreprocessAndCompileStep implements Step {
      * compiler.
      */
     PIPED_PREPROCESS_AND_COMPILE,
+    GENERATE_PCH,
     ;
 
     /**
      * Returns whether the step has a preprocessor component.
      */
     public boolean isPreprocess() {
-      return this == COMPILE_MUNGE_DEBUGINFO ||
-          this == PREPROCESS ||
-          this == PIPED_PREPROCESS_AND_COMPILE;
+      switch (this) {
+        case COMPILE_MUNGE_DEBUGINFO:
+        case PREPROCESS:
+        case PIPED_PREPROCESS_AND_COMPILE:
+        case GENERATE_PCH:
+          return true;
+        case COMPILE:
+          return false;
+      }
+      throw new RuntimeException("unhandled case");
     }
 
     /**
      * Returns whether the step has a compilation component.
      */
     public boolean isCompile() {
-      return this == COMPILE ||
-          this == COMPILE_MUNGE_DEBUGINFO ||
-          this == PIPED_PREPROCESS_AND_COMPILE;
+      switch (this) {
+        case COMPILE:
+        case COMPILE_MUNGE_DEBUGINFO:
+        case PIPED_PREPROCESS_AND_COMPILE:
+          return true;
+        case PREPROCESS:
+        case GENERATE_PCH:
+          return false;
+      }
+      throw new RuntimeException("unhandled case");
     }
   }
 
   public static class ToolCommand {
     private final ImmutableList<String> command;
     private final ImmutableMap<String, String> environment;
-    private final Optional<SupportsColorsInOutput> colorSupport;
+    private final Optional<ImmutableList<String>> flagsForColorDiagnostics;
 
     public ToolCommand(
         ImmutableList<String> command,
         ImmutableMap<String, String> environment,
-        Optional<SupportsColorsInOutput> colorSupport) {
+        Optional<ImmutableList<String>> flagsForColorDiagnostics) {
       this.command = command;
       this.environment = environment;
-      this.colorSupport = colorSupport;
+      this.flagsForColorDiagnostics = flagsForColorDiagnostics;
     }
 
     public ImmutableList<String> getCommand(boolean allowColorsInDiagnostics) {
-      if (allowColorsInDiagnostics && colorSupport.isPresent()) {
+      if (allowColorsInDiagnostics && flagsForColorDiagnostics.isPresent()) {
         return ImmutableList.<String>builder()
             .addAll(command)
-            .addAll(colorSupport.get().getArgsForColorsInOutput())
+            .addAll(flagsForColorDiagnostics.get())
             .build();
       } else {
         return command;
@@ -624,7 +655,7 @@ public class CxxPreprocessAndCompileStep implements Step {
     }
 
     public boolean supportsColorsInDiagnostics() {
-      return colorSupport.isPresent();
+      return flagsForColorDiagnostics.isPresent();
     }
   }
 

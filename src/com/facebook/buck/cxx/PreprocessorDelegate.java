@@ -21,15 +21,15 @@ import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.RuleKeyBuilder;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SupportsColorsInOutput;
 import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.util.MoreIterables;
-import com.facebook.buck.util.Optionals;
+import com.facebook.buck.util.MoreSuppliers;
 import com.google.common.base.Function;
 import com.google.common.base.Functions;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Supplier;
 import com.google.common.base.Throwables;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -57,8 +57,7 @@ class PreprocessorDelegate implements RuleKeyAppendable {
   private final RuleKeyAppendableFunction<FrameworkPath, Path> frameworkPathSearchPathFunction;
 
   // Fields that added to the rule key with some processing.
-  private final ImmutableList<String> platformPreprocessorFlags;
-  private final ImmutableList<String> rulePreprocessorFlags;
+  private final CxxToolFlags preprocessorFlags;
   private final ImmutableSet<FrameworkPath> frameworkRoots;
 
   // Fields that are not added to the rule key.
@@ -81,14 +80,15 @@ class PreprocessorDelegate implements RuleKeyAppendable {
       return absoluteString.length() > relativeString.length() ? relativePath : path;
     }
   };
+  private final Supplier<ImmutableMap<Path, Path>> replacementPaths;
+  private final Supplier<ImmutableMultimap<String, SourcePath>> pathToSourcePathMap;
 
   public PreprocessorDelegate(
       SourcePathResolver resolver,
       DebugPathSanitizer sanitizer,
       Path workingDir,
       Preprocessor preprocessor,
-      List<String> platformPreprocessorFlags,
-      List<String> rulePreprocessorFlags,
+      CxxToolFlags preprocessorFlags,
       Set<Path> includeRoots,
       Set<Path> systemIncludeRoots,
       Set<Path> headerMaps,
@@ -99,8 +99,7 @@ class PreprocessorDelegate implements RuleKeyAppendable {
     this.preprocessor = preprocessor;
     this.prefixHeader = prefixHeader;
     this.includes = ImmutableList.copyOf(includes);
-    this.platformPreprocessorFlags = ImmutableList.copyOf(platformPreprocessorFlags);
-    this.rulePreprocessorFlags = ImmutableList.copyOf(rulePreprocessorFlags);
+    this.preprocessorFlags = preprocessorFlags;
     this.frameworkRoots = ImmutableSet.copyOf(frameworkRoots);
     this.includeRoots = ImmutableSet.copyOf(includeRoots);
     this.systemIncludeRoots = ImmutableSet.copyOf(systemIncludeRoots);
@@ -109,6 +108,13 @@ class PreprocessorDelegate implements RuleKeyAppendable {
     this.workingDir = workingDir;
     this.resolver = resolver;
     this.frameworkPathSearchPathFunction = frameworkPathSearchPathFunction;
+
+    this.replacementPaths = MoreSuppliers.weakMemoize(new ReplacementPathsSupplier());
+    this.pathToSourcePathMap = MoreSuppliers.weakMemoize(new PathToSourcePathMapSupplier());
+  }
+
+  public Preprocessor getPreprocessor() {
+    return preprocessor;
   }
 
   @Override
@@ -122,10 +128,10 @@ class PreprocessorDelegate implements RuleKeyAppendable {
     // from contributing to the rule key.
     builder.setReflectively(
         "platformPreprocessorFlags",
-        sanitizer.sanitizeFlags(Optional.of(platformPreprocessorFlags)));
+        sanitizer.sanitizeFlags(preprocessorFlags.getPlatformFlags()));
     builder.setReflectively(
         "rulePreprocessorFlags",
-        sanitizer.sanitizeFlags(Optional.of(rulePreprocessorFlags)));
+        sanitizer.sanitizeFlags(preprocessorFlags.getRuleFlags()));
 
     builder.setReflectively("frameworkRoots", frameworkRoots);
     return builder;
@@ -136,79 +142,69 @@ class PreprocessorDelegate implements RuleKeyAppendable {
    */
   public ImmutableMap<Path, Path> getReplacementPaths()
       throws CxxHeaders.ConflictingHeadersException {
-    ImmutableMap.Builder<Path, Path> replacementPathsBuilder = ImmutableMap.builder();
-    for (Map.Entry<Path, SourcePath> entry :
-        CxxHeaders.concat(includes).getFullNameToPathMap().entrySet()) {
-      // TODO(#9117006): We don't currently support a way to serialize `SourcePath` objects in a
-      // cache-compatible format, and we certainly can't use absolute paths here.  So, for now,
-      // just use relative paths.  The consequence here is that debug paths and error/warning
-      // messages may be incorrect when referring to headers in another cell.
-      replacementPathsBuilder.put(
-          Preconditions.checkNotNull(minLengthPathRepresentation.apply(entry.getKey())),
-          resolver.getRelativePath(entry.getValue()));
+    try {
+      return replacementPaths.get();
+    } catch (RuntimeException e) {
+      Throwable cause = e.getCause();
+      if (cause != null) {
+        Throwables.propagateIfInstanceOf(cause, CxxHeaders.ConflictingHeadersException.class);
+      }
+      throw e;
     }
-    return replacementPathsBuilder.build();
   }
 
   /**
    * Get the command for standalone preprocessor calls.
+   *
+   * @param compilerFlags flags to append.
    */
-  public ImmutableList<String> getCommand() {
+  public ImmutableList<String> getCommand(CxxToolFlags compilerFlags) {
     return ImmutableList.<String>builder()
         .addAll(preprocessor.getCommandPrefix(resolver))
-        .addAll(getPreprocessorPlatformPrefix())
-        .addAll(getPreprocessorSuffix())
+        .addAll(CxxToolFlags.concat(getFlagsWithSearchPaths(), compilerFlags).getAllFlags())
         .addAll(preprocessor.getExtraFlags().or(ImmutableList.<String>of()))
         .build();
-
   }
 
   public ImmutableMap<String, String> getEnvironment() {
     return preprocessor.getEnvironment(resolver);
   }
 
-  /**
-   * Get platform preprocessor flags for composing into the compiler command line.
-   */
-  public ImmutableList<String> getPreprocessorPlatformPrefix() {
-    return platformPreprocessorFlags;
+  public CxxToolFlags getFlagsWithSearchPaths() {
+    return CxxToolFlags.concat(preprocessorFlags, getSearchPathFlags());
   }
 
   /**
-   * Get preprocessor flags for composing into the compiler command line that should be appended
-   * after the rest.
-   *
-   * This is important when there are flags that overwrite previous flags.
+   * Flags derived from search paths.
    */
-  public ImmutableList<String> getPreprocessorSuffix() {
-
-    return ImmutableList.<String>builder()
-        .addAll(rulePreprocessorFlags)
-        .addAll(
+  private CxxToolFlags getSearchPathFlags() {
+    // It doesn't matter whether these go in platform or rules, since they are strictly additive.
+    return CxxToolFlags.explicitBuilder()
+        .addAllRuleFlags(
             MoreIterables.zipAndConcat(
                 Iterables.cycle("-include"),
                 FluentIterable.from(prefixHeader.asSet())
                     .transform(resolver.getAbsolutePathFunction())
                     .transform(Functions.toStringFunction())))
-        .addAll(
+        .addAllRuleFlags(
             MoreIterables.zipAndConcat(
                 Iterables.cycle("-I"),
                 Iterables.transform(
                     headerMaps,
                     Functions.compose(Functions.toStringFunction(), minLengthPathRepresentation))))
-        .addAll(
+        .addAllRuleFlags(
             MoreIterables.zipAndConcat(
                 Iterables.cycle("-I"),
                 Iterables.transform(
                     includeRoots,
                     Functions.compose(Functions.toStringFunction(), minLengthPathRepresentation))))
-        .addAll(
+        .addAllRuleFlags(
             MoreIterables.zipAndConcat(
                 Iterables.cycle("-isystem"),
                 Iterables.transform(
                     systemIncludeRoots,
                     Functions.compose(Functions.toStringFunction(), minLengthPathRepresentation))))
-        .addAll(
+        .addAllRuleFlags(
             MoreIterables.zipAndConcat(
                 Iterables.cycle("-F"),
                 FluentIterable.from(frameworkRoots)
@@ -245,17 +241,7 @@ class PreprocessorDelegate implements RuleKeyAppendable {
     // correct (e.g. there may be two `SourcePath` includes with the same relative path, but
     // coming from different cells).  Favor correctness in this case and just add *all*
     // `SourcePath`s that have relative paths matching those specific in the dep file.
-    ImmutableMultimap<String, SourcePath> pathToSourcePathMap;
-    try {
-      pathToSourcePathMap =
-          Multimaps.index(
-              CxxHeaders.concat(includes).getFullNameToPathMap().values(),
-              Functions.compose(
-                  Functions.toStringFunction(),
-                  resolver.getRelativePathFunction()));
-    } catch (CxxHeaders.ConflictingHeadersException e) {
-      throw Throwables.propagate(e);
-    }
+    ImmutableMultimap<String, SourcePath> pathToSourcePathMap = this.pathToSourcePathMap.get();
     for (String line : depFileLines) {
       inputs.addAll(pathToSourcePathMap.get(line));
     }
@@ -263,7 +249,46 @@ class PreprocessorDelegate implements RuleKeyAppendable {
     return inputs.build();
   }
 
-  public Optional<SupportsColorsInOutput> getColorSupport() {
-    return Optionals.cast(preprocessor, SupportsColorsInOutput.class);
+  public Optional<ImmutableList<String>> getFlagsForColorDiagnostics() {
+    return preprocessor.getFlagsForColorDiagnostics();
+  }
+
+  private class ReplacementPathsSupplier implements Supplier<ImmutableMap<Path, Path>> {
+    @Override
+    public ImmutableMap<Path, Path> get() {
+      try {
+        ImmutableMap.Builder<Path, Path> replacementPathsBuilder = ImmutableMap.builder();
+        for (Map.Entry<Path, SourcePath> entry :
+            CxxHeaders.concat(includes).getFullNameToPathMap().entrySet()) {
+          // TODO(#9117006): We don't currently support a way to serialize `SourcePath` objects in a
+          // cache-compatible format, and we certainly can't use absolute paths here.  So, for now,
+          // just use relative paths.  The consequence here is that debug paths and error/warning
+          // messages may be incorrect when referring to headers in another cell.
+          replacementPathsBuilder.put(
+              Preconditions.checkNotNull(minLengthPathRepresentation.apply(entry.getKey())),
+              resolver.getRelativePath(entry.getValue()));
+        }
+        return replacementPathsBuilder.build();
+      } catch (CxxHeaders.ConflictingHeadersException e) {
+        throw new RuntimeException(e);
+      }
+    }
+  }
+
+
+  private class PathToSourcePathMapSupplier
+      implements Supplier<ImmutableMultimap<String, SourcePath>> {
+    @Override
+    public ImmutableMultimap<String, SourcePath> get() {
+      try {
+        return Multimaps.index(
+            CxxHeaders.concat(includes).getFullNameToPathMap().values(),
+            Functions.compose(
+                Functions.toStringFunction(),
+                resolver.getRelativePathFunction()));
+      } catch (CxxHeaders.ConflictingHeadersException e) {
+        throw new RuntimeException(e);
+      }
+    }
   }
 }

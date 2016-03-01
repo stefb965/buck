@@ -80,6 +80,7 @@ import com.facebook.buck.util.DefaultPropertyFinder;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.InterruptionFailedException;
 import com.facebook.buck.util.MoreFunctions;
+import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.PkillProcessManager;
 import com.facebook.buck.util.PrintStreamProcessExecutorFactory;
 import com.facebook.buck.util.ProcessExecutor;
@@ -106,8 +107,6 @@ import com.facebook.buck.util.versioncontrol.DefaultVersionControlCmdLineInterfa
 import com.facebook.buck.util.versioncontrol.VersionControlBuckConfig;
 import com.facebook.buck.util.versioncontrol.VersionControlStatsGenerator;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.datatype.guava.GuavaModule;
-import com.fasterxml.jackson.datatype.jdk7.Jdk7Module;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
@@ -146,6 +145,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.TimeZone;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -507,9 +507,7 @@ public final class Main {
     this.stdErr = stdErr;
     this.architecture = Architecture.detect();
     this.platform = Platform.detect();
-    this.objectMapper = new ObjectMapper().registerModule(new GuavaModule());
-    // Add support for serializing Path and other JDK 7 objects.
-    this.objectMapper.registerModule(new Jdk7Module());
+    this.objectMapper = ObjectMappers.newDefaultInstance();
     this.externalEventsListeners = ImmutableList.copyOf(externalEventsListeners);
   }
 
@@ -869,7 +867,8 @@ public final class Main {
 
         ProgressEstimator progressEstimator = new ProgressEstimator(
             filesystem.getRootPath(),
-            buildEventBus);
+            buildEventBus,
+            objectMapper);
         consoleListener.setProgressEstimator(progressEstimator);
 
         eventListeners = addEventListeners(
@@ -945,6 +944,13 @@ public final class Main {
               typeCoercerFactory,
               new ConstructorArgMarshaller(typeCoercerFactory));
         }
+
+        // Because the Parser is potentially constructed before the CounterRegistry,
+        // we need to manually register its counters after it's created.
+        //
+        // The counters will be unregistered once the counter registry is closed.
+        counterRegistry.registerCounters(parser.getCounters());
+
         JavaUtilsLoggingBuildListener.ensureLogFileIsWritten(rootCell.getFilesystem());
 
         Optional<ProcessManager> processManager;
@@ -968,7 +974,7 @@ public final class Main {
           Optional<Path> eventsOutputPath = subcommand.getEventsOutputPath();
           if (eventsOutputPath.isPresent()) {
             BuckEventListener listener =
-                new FileSerializationEventBusListener(eventsOutputPath.get());
+                new FileSerializationEventBusListener(eventsOutputPath.get(), objectMapper);
             buildEventBus.register(listener);
           }
         }
@@ -1354,7 +1360,8 @@ public final class Main {
           executionEnvironment,
           webServer,
           locale,
-          testLogPath);
+          testLogPath,
+          TimeZone.getDefault());
       superConsole.startRenderScheduler(SUPER_CONSOLE_REFRESH_RATE.getDuration(),
           SUPER_CONSOLE_REFRESH_RATE.getUnit());
       return superConsole;

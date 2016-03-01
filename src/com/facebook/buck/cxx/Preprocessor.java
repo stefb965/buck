@@ -25,8 +25,12 @@ public interface Preprocessor extends Tool {
 
   Optional<ImmutableList<String>> getExtraFlags();
 
+  Optional<ImmutableList<String>> getFlagsForColorDiagnostics();
+
   Optional<Function<String, Iterable<String>>> getExtraLineProcessor();
 
   boolean supportsHeaderMaps();
+
+  boolean supportsPrecompiledHeaders();
 
 }

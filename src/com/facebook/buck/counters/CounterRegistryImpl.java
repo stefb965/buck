@@ -17,6 +17,7 @@
 package com.facebook.buck.counters;
 
 import com.facebook.buck.event.BuckEventBus;
+import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -24,6 +25,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import java.io.IOException;
+import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
@@ -78,8 +80,26 @@ public class CounterRegistryImpl implements CounterRegistry {
   }
 
   @Override
+  public TagSetCounter newTagSetCounter(
+      String category, String name, ImmutableMap<String, String> tags) {
+    return registerCounter(
+        new TagSetCounter(category, name, tags));
+  }
+
+  @Override
+  public void registerCounters(Collection<Counter> countersToRegister) {
+    synchronized (this) {
+      Preconditions.checkState(
+          counters.addAll(countersToRegister),
+          "Duplicate counters=[%s]",
+          countersToRegister);
+    }
+  }
+
+  @Override
   public void close() throws IOException {
     flushCountersFuture.cancel(false);
+    flushCounters();
   }
 
   private <T extends Counter> T registerCounter(T counter) {
@@ -91,22 +111,20 @@ public class CounterRegistryImpl implements CounterRegistry {
   }
 
   private void flushCounters() {
-    CountersSnapshotEvent.Started startedEvent = CountersSnapshotEvent.started();
-    eventBus.post(startedEvent);
-
-    List<CounterSnapshot> snapshots = null;
+    List<Optional<CounterSnapshot>> snapshots = null;
     synchronized (this) {
       snapshots = Lists.newArrayListWithCapacity(counters.size());
       for (Counter counter : counters) {
-        if (counter.hasData()) {
-          snapshots.add(counter.getSnapshot());
-          counter.reset();
-        }
+        snapshots.add(counter.flush());
       }
     }
 
-    CountersSnapshotEvent.Finished finishedEvent = CountersSnapshotEvent.finished(
-        startedEvent, ImmutableList.copyOf(snapshots));
-    eventBus.post(finishedEvent);
+    ImmutableList<CounterSnapshot> presentSnapshots = ImmutableList.copyOf(
+        Optional.presentInstances(snapshots));
+    if (!presentSnapshots.isEmpty()) {
+      CountersSnapshotEvent event = new CountersSnapshotEvent(presentSnapshots);
+      eventBus.post(event);
+    }
   }
+
 }
