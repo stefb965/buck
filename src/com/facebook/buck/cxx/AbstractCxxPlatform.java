@@ -20,6 +20,8 @@ import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorConvertible;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.google.common.base.Optional;
+import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Multimap;
 
@@ -32,53 +34,71 @@ import java.util.List;
  */
 @Value.Immutable
 @BuckStyleImmutable
-interface AbstractCxxPlatform extends FlavorConvertible {
+abstract class AbstractCxxPlatform implements FlavorConvertible {
 
   @Override
-  Flavor getFlavor();
+  public abstract Flavor getFlavor();
 
-  Tool getAs();
-  List<String> getAsflags();
+  public abstract Compiler getAs();
+  public abstract List<String> getAsflags();
 
-  Preprocessor getAspp();
-  List<String> getAsppflags();
+  public abstract Preprocessor getAspp();
+  public abstract List<String> getAsppflags();
 
-  Compiler getCc();
-  List<String> getCflags();
+  protected abstract Supplier<Compiler> getCcSupplier();
+  public abstract List<String> getCflags();
+  public Compiler getCc() {
+    return getCcSupplier().get();
+  }
 
-  Compiler getCxx();
-  List<String> getCxxflags();
+  protected abstract Supplier<Compiler> getCxxSupplier();
+  public abstract List<String> getCxxflags();
+  public Compiler getCxx() {
+    return getCxxSupplier().get();
+  }
 
-  Preprocessor getCpp();
-  List<String> getCppflags();
+  protected abstract Supplier<Preprocessor> getCppSupplier();
+  public abstract List<String> getCppflags();
+  public Preprocessor getCpp() {
+    return getCppSupplier().get();
+  }
 
-  Preprocessor getCxxpp();
-  List<String> getCxxppflags();
+  protected abstract Supplier<Preprocessor> getCxxppSupplier();
+  public abstract List<String> getCxxppflags();
+  public Preprocessor getCxxpp() {
+    return getCxxppSupplier().get();
+  }
 
-  Linker getLd();
-  List<String> getLdflags();
-  Multimap<Linker.LinkableDepType, String> getRuntimeLdflags();
+  public abstract Optional<Preprocessor> getCudapp();
+  public abstract List<String> getCudappflags();
 
-  Tool getStrip();
-  List<String> getStripFlags();
+  public abstract Optional<Compiler> getCuda();
+  public abstract List<String> getCudaflags();
 
-  Archiver getAr();
-  List<String> getArflags();
+  public abstract Linker getLd();
+  public abstract List<String> getLdflags();
+  public abstract Multimap<Linker.LinkableDepType, String> getRuntimeLdflags();
 
-  Tool getRanlib();
-  List<String> getRanlibflags();
+  public abstract Tool getStrip();
+  public abstract List<String> getStripFlags();
 
-  SymbolNameTool getSymbolNameTool();
+  public abstract Archiver getAr();
+  public abstract List<String> getArflags();
 
-  String getSharedLibraryExtension();
-  String getSharedLibraryVersionedExtensionFormat();
+  public abstract Tool getRanlib();
+  public abstract List<String> getRanlibflags();
 
-  DebugPathSanitizer getDebugPathSanitizer();
+  public abstract SymbolNameTool getSymbolNameTool();
+
+  public abstract String getSharedLibraryExtension();
+  public abstract String getSharedLibraryVersionedExtensionFormat();
+
+  public abstract DebugPathSanitizer getDebugPathSanitizer();
 
   /**
    * @return a map for macro names to their respective expansions, to be used to expand macro
    *     references in user-provided flags.
    */
-  ImmutableMap<String, String> getFlagMacros();
+  public abstract ImmutableMap<String, String> getFlagMacros();
 
 }

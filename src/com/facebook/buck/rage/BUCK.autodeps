@@ -1,0 +1,24 @@
+#@# GENERATED FILE: DO NOT MODIFY 34a5b897fd0e3cb72e1caa33400f195e4aa03ae4 #@#
+{
+  "config" : [
+    "//src/com/facebook/buck/cli:config",
+    "//src/com/facebook/buck/util/immutables:immutables",
+    "//third-party/java/guava:guava",
+    "//third-party/java/immutables:processor"
+  ],
+  "rage" : [
+    "//src/com/facebook/buck/io:io",
+    "//src/com/facebook/buck/model:build_id",
+    "//src/com/facebook/buck/model:model",
+    "//src/com/facebook/buck/rage:config",
+    "//src/com/facebook/buck/util:constants",
+    "//src/com/facebook/buck/util:exceptions",
+    "//src/com/facebook/buck/util/environment:environment",
+    "//src/com/facebook/buck/util/immutables:immutables",
+    "//src/com/facebook/buck/util/unit:unit",
+    "//src/com/facebook/buck/zip:stream",
+    "//third-party/java/guava:guava",
+    "//third-party/java/immutables:processor",
+    "//third-party/java/jackson:jackson-databind"
+  ]
+}

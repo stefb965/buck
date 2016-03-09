@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY ad502d0c43b9aea5cd8298a97644b8fd5389ac3d #@#
+#@# GENERATED FILE: DO NOT MODIFY f6b63096bd8ae648bb772412402999965496159c #@#
 {
   "build_event" : [
     "//src/com/facebook/buck/event:event",
@@ -35,6 +35,11 @@
     "//third-party/java/jackson:jackson-core",
     "//third-party/java/jackson:jackson-databind",
     "//third-party/java/jsr:jsr305"
+  ],
+  "command_tool" : [
+    "//src/com/facebook/buck/rules:build_rule",
+    "//src/com/facebook/buck/rules/args:args",
+    "//third-party/java/guava:guava"
   ],
   "rule_key" : [
     "//third-party/java/guava:guava",

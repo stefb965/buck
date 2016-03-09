@@ -89,7 +89,8 @@ abstract class AbstractCxxSourceRuleFactory {
   @Value.Lazy
   protected ImmutableList<BuildRule> getPreprocessDeps() {
     ImmutableList.Builder<BuildRule> builder = ImmutableList.builder();
-    for (CxxPreprocessorInput input : getCxxPreprocessorInput()) {
+    ImmutableList<CxxPreprocessorInput> inputs = getCxxPreprocessorInput();
+    for (CxxPreprocessorInput input : inputs) {
       // Depend on the rules that generate the sources and headers we're compiling.
       builder.addAll(
           getPathResolver().filterBuildRuleInputs(
@@ -182,7 +183,10 @@ abstract class AbstractCxxSourceRuleFactory {
    */
   @VisibleForTesting
   public BuildTarget createPreprocessBuildTarget(String name, CxxSource.Type type) {
-    String outputName = Flavor.replaceInvalidCharacters(getPreprocessOutputName(type, name));
+    String outputName = CxxFlavorSanitizer.sanitize(
+        getPreprocessOutputName(
+            type,
+            name));
     return BuildTarget
         .builder(getParams().getBuildTarget())
         .addFlavors(getCxxPlatform().getFlavor())
@@ -239,7 +243,9 @@ abstract class AbstractCxxSourceRuleFactory {
             new CompilerDelegate(
                 getPathResolver(),
                 getCxxPlatform().getDebugPathSanitizer(),
-                getCompiler(source.getType()),
+                CxxSourceTypes.getCompiler(
+                    getCxxPlatform(),
+                    CxxSourceTypes.getPreprocessorOutputType(source.getType())),
                 computeCompilerFlags(source.getType(), source.getFlags())),
             getPreprocessOutputPath(target, source.getType(), name),
             source.getPath(),
@@ -285,7 +291,7 @@ abstract class AbstractCxxSourceRuleFactory {
    */
   @VisibleForTesting
   public BuildTarget createCompileBuildTarget(String name) {
-    String outputName = Flavor.replaceInvalidCharacters(getCompileOutputName(name));
+    String outputName = CxxFlavorSanitizer.sanitize(getCompileOutputName(name));
     return BuildTarget
         .builder(getParams().getBuildTarget())
         .addFlavors(getCxxPlatform().getFlavor())
@@ -299,7 +305,7 @@ abstract class AbstractCxxSourceRuleFactory {
   }
 
   public BuildTarget createInferCaptureBuildTarget(String name) {
-    String outputName = Flavor.replaceInvalidCharacters(getCompileOutputName(name));
+    String outputName = CxxFlavorSanitizer.sanitize(getCompileOutputName(name));
     return BuildTarget
         .builder(getParams().getBuildTarget())
         .addAllFlavors(getParams().getBuildTarget().getFlavors())
@@ -318,32 +324,24 @@ abstract class AbstractCxxSourceRuleFactory {
     return false;
   }
 
-  // Pick the compiler to use.  Basically, if we're dealing with C++ sources, use the C++
-  // compiler, and the C compiler for everything.
-  private Compiler getCompiler(CxxSource.Type type) {
-    return CxxSourceTypes.needsCxxCompiler(type) ?
-        getCxxPlatform().getCxx() :
-        getCxxPlatform().getCc();
-  }
-
   private ImmutableList<String> getPlatformCompileFlags(CxxSource.Type type) {
     ImmutableList.Builder<String> args = ImmutableList.builder();
 
-    // If we're dealing with a C source that can be compiled, add the platform C compiler flags.
+    // Add in the source-type specific platform compiler flags.
+    args.addAll(CxxSourceTypes.getPlatformCompilerFlags(getCxxPlatform(), type));
+
+    // These source types require assembling, so add in platform-specific assembler flags.
+    //
+    // TODO(andrewjcg): We shouldn't care about lower-level assembling.  If the user has assembler
+    // flags in mind which they want to propagate to other languages, they should pass them in via
+    // some other means (e.g. `.buckconfig`).
     if (type == CxxSource.Type.C_CPP_OUTPUT ||
-        type == CxxSource.Type.OBJC_CPP_OUTPUT) {
-      args.addAll(getCxxPlatform().getCflags());
+        type == CxxSource.Type.OBJC_CPP_OUTPUT ||
+        type == CxxSource.Type.CXX_CPP_OUTPUT ||
+        type == CxxSource.Type.OBJCXX_CPP_OUTPUT ||
+        type == CxxSource.Type.CUDA_CPP_OUTPUT) {
+      args.addAll(getCxxPlatform().getAsflags());
     }
-
-    // If we're dealing with a C++ source that can be compiled, add the platform C++ compiler
-    // flags.
-    if (type == CxxSource.Type.CXX_CPP_OUTPUT ||
-        type == CxxSource.Type.OBJCXX_CPP_OUTPUT) {
-      args.addAll(getCxxPlatform().getCxxflags());
-    }
-
-    // All source types require assembling, so add in platform-specific assembler flags.
-    args.addAll(getCxxPlatform().getAsflags());
 
     return args.build();
   }
@@ -355,7 +353,8 @@ abstract class AbstractCxxSourceRuleFactory {
     if (type == CxxSource.Type.C_CPP_OUTPUT ||
         type == CxxSource.Type.OBJC_CPP_OUTPUT ||
         type == CxxSource.Type.CXX_CPP_OUTPUT ||
-        type == CxxSource.Type.OBJCXX_CPP_OUTPUT) {
+        type == CxxSource.Type.OBJCXX_CPP_OUTPUT ||
+        type == CxxSource.Type.CUDA_CPP_OUTPUT) {
       args.addAll(getCompilerFlags());
     }
 
@@ -374,7 +373,7 @@ abstract class AbstractCxxSourceRuleFactory {
     Preconditions.checkArgument(CxxSourceTypes.isCompilableType(source.getType()));
 
     BuildTarget target = createCompileBuildTarget(name);
-    Compiler compiler = getCompiler(source.getType());
+    Compiler compiler = CxxSourceTypes.getCompiler(getCxxPlatform(), source.getType());
 
     // Build up the list of compiler flags.
     CxxToolFlags flags = CxxToolFlags.explicitBuilder()
@@ -415,10 +414,15 @@ abstract class AbstractCxxSourceRuleFactory {
     Optional<CxxPreprocessAndCompile> existingRule = getResolver().getRuleOptionalWithType(
         target, CxxPreprocessAndCompile.class);
     if (existingRule.isPresent()) {
+      if (!existingRule.get().getInput().equals(source.getPath())) {
+        throw new RuntimeException(
+            String.format("Hash collision for %s; a build rule would have been ignored.", name));
+      }
       return existingRule.get();
     }
 
     return createCompileBuildRule(name, source);
+
   }
 
   private CxxToolFlags computePreprocessorFlags(
@@ -428,8 +432,6 @@ abstract class AbstractCxxSourceRuleFactory {
         .addAllPlatformFlags(getPicType().getFlags())
         .addAllPlatformFlags(CxxSourceTypes.getPlatformPreprocessFlags(getCxxPlatform(), type))
         .addAllRuleFlags(preprocessorFlags.getUnchecked(type))
-        // Add custom compiler flags.
-        .addAllRuleFlags(getRuleCompileFlags(CxxSourceTypes.getPreprocessorOutputType(type)))
         // Add custom per-file flags.
         .addAllRuleFlags(sourceFlags)
         .build();
@@ -511,7 +513,10 @@ abstract class AbstractCxxSourceRuleFactory {
     Preconditions.checkArgument(CxxSourceTypes.isPreprocessableType(source.getType()));
 
     BuildTarget target = createCompileBuildTarget(name);
-    Compiler compiler = getCompiler(source.getType());
+    Compiler compiler =
+        CxxSourceTypes.getCompiler(
+            getCxxPlatform(),
+            CxxSourceTypes.getPreprocessorOutputType(source.getType()));
 
     LOG.verbose("Creating preprocess and compile %s for %s", target, source);
 
@@ -550,12 +555,15 @@ abstract class AbstractCxxSourceRuleFactory {
     Optional<CxxPreprocessAndCompile> existingRule = getResolver().getRuleOptionalWithType(
         target, CxxPreprocessAndCompile.class);
     if (existingRule.isPresent()) {
+      if (!existingRule.get().getInput().equals(source.getPath())) {
+        throw new RuntimeException(
+            String.format("Hash collision for %s; a build rule would have been ignored.", name));
+      }
       return existingRule.get();
     }
 
     return createPreprocessAndCompileBuildRule(name, source, strategy);
   }
-
 
   public ImmutableSet<CxxInferCapture> createInferCaptureBuildRules(
       ImmutableMap<String, CxxSource> sources,
@@ -715,13 +723,14 @@ abstract class AbstractCxxSourceRuleFactory {
           getCxxPlatform().getDebugPathSanitizer(),
           getParams().getProjectFilesystem().getRootPath(),
           CxxSourceTypes.getPreprocessor(getCxxPlatform(), key.getSourceType()),
-          computePreprocessorFlags(key.getSourceType(), key.getSourceFlags()),
-          getIncludeRoots(),
-          getSystemIncludeRoots(),
-          getHeaderMaps(),
-          getFrameworks(),
+          PreprocessorFlags.of(
+              getPrefixHeader(),
+              computePreprocessorFlags(key.getSourceType(), key.getSourceFlags()),
+              getFrameworks(),
+              getHeaderMaps(),
+              getIncludeRoots(),
+              getSystemIncludeRoots()),
           CxxDescriptionEnhancer.frameworkPathToSearchPath(getCxxPlatform(), getPathResolver()),
-          getPrefixHeader(),
           getIncludes());
     }
 

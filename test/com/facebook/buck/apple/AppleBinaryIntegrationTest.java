@@ -16,6 +16,7 @@
 
 package com.facebook.buck.apple;
 
+import static com.facebook.buck.cxx.CxxFlavorSanitizer.sanitize;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.is;
@@ -148,6 +149,20 @@ public class AppleBinaryIntegrationTest {
   }
 
   @Test
+  public void testAppleLibraryPropagatesExportedPlatformLinkerFlags()
+      throws IOException, InterruptedException {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "apple_binary_with_library_dependency_builds_something", tmp);
+    workspace.setUp();
+    ProjectWorkspace.ProcessResult buildResult =
+      workspace.runBuckCommand("build", "//Apps/TestApp:BadTestApp");
+    buildResult.assertFailure();
+    String stderr = buildResult.getStderr();
+    assertTrue(stderr.contains("bad-flag"));
+  }
+
+  @Test
   public void testAppleBinaryHeaderSymlinkTree() throws IOException {
     assumeTrue(Platform.detect() == Platform.MACOS);
 
@@ -240,10 +255,15 @@ public class AppleBinaryIntegrationTest {
     MoreAsserts.assertContentsEqual(
         workspace.getPath(
             "first/buck-out/gen/Apps/TestApp/" +
-                "TestApp#compile-TestClass.m.o,iphonesimulator-x86_64/TestClass.m.o"),
+                "TestApp#compile-" + sanitize("TestClass.m.o") + ",iphonesimulator-x86_64/" +
+                "TestClass.m.o"
+        ),
         workspace.getPath(
             "second/buck-out/gen/Apps/TestApp/" +
-                "TestApp#compile-TestClass.m.o,iphonesimulator-x86_64/TestClass.m.o"));
+                "TestApp#compile-" + sanitize("TestClass.m.o") + ",iphonesimulator-x86_64/" +
+                "TestClass.m.o"
+        )
+    );
     MoreAsserts.assertContentsEqual(
         workspace.getPath(
             "first/buck-out/gen/Apps/TestApp/TestApp#iphonesimulator-x86_64"),

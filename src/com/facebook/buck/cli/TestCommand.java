@@ -334,6 +334,7 @@ public class TestCommand extends BuildCommand {
         ProcessExecutorParams.builder()
             .addAllCommand(command)
             .addAllCommand(withDashArguments)
+            .setEnvironment(params.getEnvironment())
             .addCommand("--buck-test-info", infoFile.toString())
             .setDirectory(params.getCell().getFilesystem().getRootPath().toFile())
             .build();

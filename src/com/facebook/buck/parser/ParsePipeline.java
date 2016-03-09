@@ -19,7 +19,6 @@ package com.facebook.buck.parser;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.json.BuildFileParseException;
-import com.facebook.buck.json.ProjectBuildFileParser;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
@@ -34,7 +33,6 @@ import com.google.common.base.Supplier;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Iterables;
 import com.google.common.util.concurrent.AsyncFunction;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
@@ -60,7 +58,7 @@ import javax.annotation.concurrent.ThreadSafe;
  *   (in) BuildTarget -> [getRawNodes] -*> [createTargetNode] -> (out) TargetNode
  * (steps in [] have their output cached, -*> means that this step has parallel fanout).
  *
- * The work is simply dumped onto the executor, the {@link ParserLeaseVendor} is used to constrain
+ * The work is simply dumped onto the executor, the {@link ProjectBuildFileParserPool} is used to constrain
  * the number of concurrent active parsers.
  * Within a single pipeline instance work is not duplicated (the **JobsCache variables) are used
  * to make sure we don't schedule the same work more than once), however it's possible for multiple
@@ -80,7 +78,7 @@ public class ParsePipeline implements AutoCloseable {
   private final Map<Path, ListenableFuture<ImmutableList<Map<String, Object>>>> rawNodeJobsCache;
   private final ListeningExecutorService executorService;
   private final BuckEventBus buckEventBus;
-  private final ParserLeaseVendor<ProjectBuildFileParser> parserLeaseVendor;
+  private final ProjectBuildFileParserPool projectBuildFileParserPool;
   private final boolean speculativeDepsTraversal;
   private final AtomicBoolean shuttingDown;
 
@@ -91,7 +89,7 @@ public class ParsePipeline implements AutoCloseable {
    * @param delegate where to farm out the creation of TargetNodes to
    * @param executorService executor
    * @param buckEventBus bus to use for parse start/stop events
-   * @param parserLeaseVendor where to get parsers from
+   * @param projectBuildFileParserPool where to get parsers from
    * @param speculativeDepsTraversal whether to automatically schedule parsing of nodes' deps in the
    *                                 background.
    */
@@ -100,7 +98,7 @@ public class ParsePipeline implements AutoCloseable {
       Delegate delegate,
       ListeningExecutorService executorService,
       BuckEventBus buckEventBus,
-      ParserLeaseVendor<ProjectBuildFileParser> parserLeaseVendor,
+      ProjectBuildFileParserPool projectBuildFileParserPool,
       boolean speculativeDepsTraversal) {
     this.cache = cache;
     this.delegate = delegate;
@@ -108,7 +106,7 @@ public class ParsePipeline implements AutoCloseable {
     this.rawNodeJobsCache = new HashMap<>();
     this.executorService = executorService;
     this.buckEventBus = buckEventBus;
-    this.parserLeaseVendor = parserLeaseVendor;
+    this.projectBuildFileParserPool = projectBuildFileParserPool;
     this.speculativeDepsTraversal = speculativeDepsTraversal;
     this.shuttingDown = new AtomicBoolean(false);
   }
@@ -213,6 +211,10 @@ public class ParsePipeline implements AutoCloseable {
           @Override
           public ListenableFuture<List<TargetNode<?>>> apply(
               ImmutableList<Map<String, Object>> allRawNodes) throws BuildTargetException {
+
+            if (shuttingDown.get()) {
+              return Futures.immediateCancelledFuture();
+            }
 
             ImmutableSet.Builder<ListenableFuture<TargetNode<?>>> allNodes = ImmutableSet.builder();
             for (Map<String, Object> rawNode : allRawNodes) {
@@ -414,7 +416,6 @@ public class ParsePipeline implements AutoCloseable {
           }
         }
     );
-
     if (speculativeDepsTraversal) {
       Futures.addCallback(
           targetNodeFuture,
@@ -469,6 +470,10 @@ public class ParsePipeline implements AutoCloseable {
           @Override
           public ListenableFuture<TargetNode<?>> apply(Map<String, Object> rawNode)
               throws BuildTargetException {
+            if (shuttingDown.get()) {
+              return Futures.immediateCancelledFuture();
+            }
+
             try (SimplePerfEvent.Scope scope = Parser.getTargetNodeEventScope(
                 buckEventBus,
                 buildTarget)) {
@@ -495,15 +500,17 @@ public class ParsePipeline implements AutoCloseable {
   private ListenableFuture<ImmutableList<Map<String, Object>>> computeRawNodes(
       final Cell cell,
       final Path buildFile) {
-
-    return parserLeaseVendor.leaseParser(
-        cell,
-        new AsyncFunction<ProjectBuildFileParser, ImmutableList<Map<String, Object>>>() {
+    return Futures.transformAsync(
+        projectBuildFileParserPool.getAllRulesAndMetaRules(cell, buildFile, executorService),
+        new AsyncFunction<
+            ImmutableList<Map<String, Object>>,
+            ImmutableList<Map<String, Object>>>() {
           @Override
           public ListenableFuture<ImmutableList<Map<String, Object>>> apply(
-              ProjectBuildFileParser parser) throws BuildFileParseException, InterruptedException {
-            ImmutableList<Map<String, Object>> rawNodes =
-                ImmutableList.copyOf(parser.getAllRulesAndMetaRules(buildFile));
+              ImmutableList<Map<String, Object>> rawNodes) throws Exception {
+            if (shuttingDown.get()) {
+              return Futures.immediateCancelledFuture();
+            }
             return Futures.immediateFuture(
                 cache.putRawNodesIfNotPresent(cell, buildFile, rawNodes));
           }
@@ -565,31 +572,17 @@ public class ParsePipeline implements AutoCloseable {
     if (shuttingDown.get()) {
       return;
     }
-    ImmutableSet.Builder<ListenableFuture<?>> pendingFutures = ImmutableSet.builder();
+    shuttingDown.set(true);
 
-    synchronized (lock) {
-      shuttingDown.set(true);
-      // At this point external callers should not schedule more work, internally job creation
-      // should also be impossible as we're in the synchronized block (and after we exit it all code
-      // paths that do create jobs should early-out with a cancelled future).
-      // This means that it is sufficient to cancel/wait for jobs that had been scheduled up to this
-      // point.
-      Iterable<ListenableFuture<?>> futures = Iterables.concat(
-          rawNodeJobsCache.values(),
-          targetNodeJobsCache.values());
-      for (ListenableFuture<?> future : futures) {
-        future.cancel(false);
-        if (!future.isDone()) {
-          pendingFutures.add(future);
-        }
-      }
-    }
-
-    try {
-      Futures.successfulAsList(pendingFutures.build()).get();
-    } catch (ExecutionException e) {
-      LOG.info("Discarded exception when shutting down parse pipeline.", e);
-    }
+    // At this point external callers should not schedule more work, internally job creation
+    // should also stop. Any scheduled futures should eventually cancel themselves (all of the
+    // AsyncFunctions that interact with the Cache are wired to early-out if `shuttingDown` is
+    // true).
+    // We could block here waiting for all ongoing work to complete, however the user has already
+    // gotten everything they want out of the pipeline, so the only interesting thing that could
+    // happen here are exceptions thrown by the ProjectBuildFileParser as its shutting down. These
+    // aren't critical enough to warrant bringing down the entire process, as they don't affect the
+    // state that has already been extracted from the parser.
   }
 
   /**

@@ -37,6 +37,7 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.util.HumanReadableException;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -47,6 +48,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Maps;
 import com.google.common.io.Files;
 import com.google.common.io.Resources;
 
@@ -105,21 +107,24 @@ abstract class GoDescriptors {
       Path packageName,
       ImmutableSet<SourcePath> srcs,
       List<String> compilerFlags,
+      List<String> assemblerFlags,
       GoPlatform platform) throws NoSuchBuildTargetException {
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
 
     Preconditions.checkState(
         params.getBuildTarget().getFlavors().contains(platform.getFlavor()));
 
+    ImmutableSet<GoLinkable> linkables = requireGoLinkables(
+        params.getBuildTarget(),
+        resolver,
+        platform,
+        params.getDeclaredDeps().get());
+
     BuildTarget target = createSymlinkTreeTarget(params.getBuildTarget());
     SymlinkTree symlinkTree = makeSymlinkTree(
         params.copyWithBuildTarget(target),
         pathResolver,
-        requireGoLinkables(
-            params.getBuildTarget(),
-            resolver,
-            platform,
-            params.getDeclaredDeps().get()));
+        linkables);
     resolver.addToIndex(symlinkTree);
 
     LOG.verbose(
@@ -131,10 +136,44 @@ abstract class GoDescriptors {
         pathResolver,
         symlinkTree,
         packageName,
+        getPackageImportMap(packageName, FluentIterable.from(linkables).transformAndConcat(
+            new Function<GoLinkable, ImmutableSet<Path>>() {
+              @Override
+              public ImmutableSet<Path> apply(GoLinkable input) {
+                return input.getGoLinkInput().keySet();
+              }
+            })),
         ImmutableSet.copyOf(srcs),
         ImmutableList.copyOf(compilerFlags),
         goBuckConfig.getCompiler(),
+        ImmutableList.copyOf(assemblerFlags),
+        goBuckConfig.getAssemblerIncludeDirs(),
+        goBuckConfig.getAssembler(),
+        goBuckConfig.getPacker(),
         platform);
+  }
+
+  @VisibleForTesting
+  static ImmutableMap<Path, Path> getPackageImportMap(
+      Path basePackageName, Iterable<Path> packageNameIter) {
+    Map<Path, Path> importMapBuilder = Maps.newHashMap();
+    ImmutableSortedSet<Path> packageNames = ImmutableSortedSet.copyOf(packageNameIter);
+
+    Path prefix = Paths.get("");
+    for (Path component : FluentIterable.of(new Path[]{Paths.get("")}).append(basePackageName)) {
+      prefix = prefix.resolve(component);
+
+      Path vendorPrefix = prefix.resolve("vendor");
+      for (Path vendoredPackage : packageNames.tailSet(vendorPrefix)) {
+        if (!vendoredPackage.startsWith(vendorPrefix)) {
+          break;
+        }
+
+        importMapBuilder.put(MorePaths.relativize(vendorPrefix, vendoredPackage), vendoredPackage);
+      }
+    }
+
+    return ImmutableMap.copyOf(importMapBuilder);
   }
 
   static GoBinary createGoBinaryRule(
@@ -143,6 +182,7 @@ abstract class GoDescriptors {
       GoBuckConfig goBuckConfig,
       ImmutableSet<SourcePath> srcs,
       List<String> compilerFlags,
+      List<String> assemblerFlags,
       List<String> linkerFlags,
       GoPlatform platform) throws NoSuchBuildTargetException {
     BuildTarget libraryTarget =
@@ -156,6 +196,7 @@ abstract class GoDescriptors {
         Paths.get("main"),
         srcs,
         compilerFlags,
+        assemblerFlags,
         platform);
     resolver.addToIndex(library);
 
@@ -224,6 +265,7 @@ abstract class GoDescriptors {
         ImmutableSet.<SourcePath>of(new PathSourcePath(
                 projectFilesystem,
                 MorePaths.relativize(projectFilesystem.getRootPath(), extractTestMainGenerator()))),
+        ImmutableList.<String>of(),
         ImmutableList.<String>of(),
         ImmutableList.<String>of(),
         goBuckConfig.getDefaultPlatform());

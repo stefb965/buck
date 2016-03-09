@@ -1,7 +1,7 @@
 <idea-plugin version="2">
   <id>intellij.buck.plugin</id>
   <name>Buck for IDEA</name>
-  <version>2.2</version>
+  <version>2.3</version>
   <category>Build</category>
 
   <description><![CDATA[
@@ -120,6 +120,12 @@
       </action>
       <action class="com.facebook.buck.intellij.plugin.actions.BuckBuildAction" id="buck.Build">
         <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift S"/>
+      </action>
+      <action class="com.facebook.buck.intellij.plugin.actions.BuckTestAction" id="buck.Test">
+          <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift Y"/>
+      </action>
+      <action class="com.facebook.buck.intellij.plugin.actions.BuckProjectGenerationAction" id="buck.ProjectGeneration">
+        <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift B"/>
       </action>
       <action class="com.facebook.buck.intellij.plugin.actions.BuckKillAction" id="buck.Kill">
         <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift L"/>

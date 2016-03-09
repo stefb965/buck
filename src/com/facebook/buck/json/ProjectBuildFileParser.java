@@ -36,6 +36,7 @@ import com.facebook.buck.util.NamedTemporaryFile;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.Threads;
+import com.facebook.buck.util.concurrent.AssertScopeExclusiveAccess;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
@@ -105,6 +106,7 @@ public class ProjectBuildFileParser implements AutoCloseable {
   private final ProcessExecutor processExecutor;
   private final BserDeserializer bserDeserializer;
   private final BserSerializer bserSerializer;
+  private final AssertScopeExclusiveAccess assertSingleThreadedParsing;
 
   private boolean isInitialized;
   private boolean isClosed;
@@ -130,6 +132,7 @@ public class ProjectBuildFileParser implements AutoCloseable {
     this.processExecutor = processExecutor;
     this.bserDeserializer = new BserDeserializer(BserDeserializer.KeyOrdering.SORTED);
     this.bserSerializer = new BserSerializer();
+    this.assertSingleThreadedParsing = new AssertScopeExclusiveAccess();
 
     this.rawConfigJson =
         Suppliers.memoize(
@@ -155,6 +158,11 @@ public class ProjectBuildFileParser implements AutoCloseable {
     ensureNotClosed();
     ensureNotInitialized();
     this.enableProfiling = enableProfiling;
+  }
+
+  @VisibleForTesting
+  public boolean isClosed() {
+    return isClosed;
   }
 
   private void ensureNotClosed() {
@@ -332,7 +340,7 @@ public class ProjectBuildFileParser implements AutoCloseable {
     int numRules = 0;
     buckEventBus.post(parseBuckFileStarted);
     List<Map<String, Object>> result = null;
-    try {
+    try (AssertScopeExclusiveAccess.Scope scope = assertSingleThreadedParsing.scope()) {
       String buildFileString = buildFile.toString();
       LOG.verbose("Writing to buck.py stdin: %s", buildFileString);
       buckPyStdinWriter.write(buildFileString);

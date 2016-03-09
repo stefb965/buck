@@ -64,6 +64,17 @@ public class GoBinaryIntegrationTest {
   }
 
   @Test
+  public void binaryWithAsm() throws IOException, InterruptedException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "asm", tmp);
+    workspace.setUp();
+
+    ProjectWorkspace.ProcessResult result = workspace.runBuckCommand("run", "//src/asm_test:bin");
+    result.assertSuccess();
+    assertThat(result.getStdout(), Matchers.containsString("Sum is 6"));
+  }
+
+    @Test
   public void buildAfterChangeWorks() throws IOException, InterruptedException {
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "simple_binary", tmp);
@@ -80,6 +91,17 @@ public class GoBinaryIntegrationTest {
   public void binaryWithLibrary() throws IOException, InterruptedException {
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "binary_with_library", tmp);
+    workspace.setUp();
+
+    assertThat(
+        workspace.runBuckCommand("run", "//:hello").assertSuccess().getStdout(),
+        Matchers.containsString("Hello, world!"));
+  }
+
+  @Test
+  public void vendoredLibrary() throws IOException, InterruptedException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "vendored_library", tmp);
     workspace.setUp();
 
     assertThat(

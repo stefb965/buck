@@ -38,6 +38,18 @@ public class BuckEventsConsumerFactory {
         return mBus.syncPublisher(RulesParsingProgressUpdateConsumer.BUCK_PARSE_PROGRESS_UPDATE);
     }
 
+    public TestRunStartedConsumer getTestRunStartedConsumer() {
+        return mBus.syncPublisher(TestRunStartedConsumer.BUCK_TEST_RUN_STARTED);
+    }
+
+    public TestRunCompleteConsumer getTestRunCompleteConsumer() {
+        return mBus.syncPublisher(TestRunCompleteConsumer.BUCK_TEST_RUN_COMPLETE);
+    }
+
+    public TestResultsAvailableConsumer getTestResultsAvailableConsumer() {
+        return mBus.syncPublisher(TestResultsAvailableConsumer.BUCK_TEST_RESULTS_AVAILABLE);
+    }
+
     public BuckBuildStartConsumer getBuildStartConsumer() {
         return mBus.syncPublisher(BuckBuildStartConsumer.BUCK_BUILD_START);
     }
@@ -52,5 +64,23 @@ public class BuckEventsConsumerFactory {
 
     public CompilerErrorConsumer getCompilerErrorConsumer() {
         return mBus.syncPublisher(CompilerErrorConsumer.COMPILER_ERROR_CONSUMER);
+    }
+
+    public BuckConsoleEventConsumer getConsoleEventConsumer() {
+        return mBus.syncPublisher(BuckConsoleEventConsumer.BUCK_CONSOLE_EVENT);
+    }
+    public BuckProjectGenerationFinishedConsumer getBuckProjectGenerationFinishedConsumer() {
+        return mBus.syncPublisher(
+            BuckProjectGenerationFinishedConsumer.PROJECT_GENERATION_FINISHED_CONSUMER);
+    }
+
+    public BuckProjectGenerationProgressConsumer getBuckProjectGenerationProgressConsumer() {
+        return mBus.syncPublisher(
+            BuckProjectGenerationProgressConsumer.PROJECT_GENERATION_PROGRESS_CONSUMER);
+    }
+
+    public BuckProjectGenerationStartedConsumer getBuckProjectGenerationStartedConsumer() {
+        return mBus.syncPublisher(
+            BuckProjectGenerationStartedConsumer.PROJECT_GENERATION_STARTED_CONSUMER);
     }
 }

@@ -16,30 +16,34 @@
 
 package com.facebook.buck.intellij.plugin.ws.buckevents;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
+import com.facebook.buck.event.external.events.BuckEventExternalInterface;
+import com.facebook.buck.intellij.plugin.ws.buckevents.consumers.BuckEventsConsumerFactory;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.guava.GuavaModule;
+import com.fasterxml.jackson.module.mrbean.MrBeanModule;
 
-public class BuckEventHandler implements BuckEventHandlerInterface {
+import java.io.IOException;
 
-    private BuckEventsQueueInterface mQueue;
+public class BuckEventHandler implements BuckEventsHandlerInterface {
+    private final BuckEventsQueueInterface mQueue;
+    private final ObjectMapper mObjectMapper;
 
     private Runnable mOnConnectHandler = null;
     private Runnable mOnDisconnectHandler = null;
 
-
-    private Gson mGson;
-
-    public BuckEventHandler(BuckEventsQueueInterface queue,
+    public BuckEventHandler(BuckEventsConsumerFactory consumerFactory,
                             Runnable onConnectHandler,
                             Runnable onDisconnectHandler) {
-
         mOnConnectHandler = onConnectHandler;
         mOnDisconnectHandler = onDisconnectHandler;
-        mQueue = queue;
 
-        GsonBuilder builder = new GsonBuilder();
-        builder.registerTypeAdapter(BuckEventInterface.class, new BuckEventAdapter());
-        mGson = builder.create();
+        mObjectMapper = new ObjectMapper();
+        mObjectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        mObjectMapper.registerModule(new MrBeanModule());
+        mObjectMapper.registerModule(new GuavaModule());
+
+        mQueue = new BuckEventsQueue(mObjectMapper, consumerFactory);
     }
 
     @Override
@@ -58,10 +62,13 @@ public class BuckEventHandler implements BuckEventHandlerInterface {
 
     @Override
     public void onMessage(final String message) {
-        final BuckEventInterface be = mGson.fromJson(message, BuckEventInterface.class);
-
-        if (!be.getEventType().equals(BuckEventUnknown.eventType)) {
-            mQueue.add(be);
+        final BuckEventExternalInterface buckEventExternalInterface;
+        try {
+            buckEventExternalInterface =
+                mObjectMapper.readValue(message, BuckEventExternalInterface.class);
+            mQueue.add(message, buckEventExternalInterface);
+        } catch (IOException e) {
+            e.printStackTrace();
         }
     }
 }

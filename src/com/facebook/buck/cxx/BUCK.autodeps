@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY 3d24623bce6a1c0a771ec1a771427840637a86a4 #@#
+#@# GENERATED FILE: DO NOT MODIFY adb5de01c9f1d6ba2ca097409839bf381d1780ab #@#
 {
   "framework_path_arg" : [
     "//src/com/facebook/buck/rules:build_rule",
@@ -35,11 +35,13 @@
     "//src/com/facebook/buck/graph:graph",
     "//src/com/facebook/buck/io:io",
     "//src/com/facebook/buck/json:rules",
+    "//src/com/facebook/buck/json:steps",
     "//src/com/facebook/buck/jvm/java:support",
     "//src/com/facebook/buck/log:api",
     "//src/com/facebook/buck/model:model",
     "//src/com/facebook/buck/parser:rule_pattern",
     "//src/com/facebook/buck/rules:build_rule",
+    "//src/com/facebook/buck/rules:command_tool",
     "//src/com/facebook/buck/rules:rules",
     "//src/com/facebook/buck/rules/args:args",
     "//src/com/facebook/buck/rules/coercer:coercer",

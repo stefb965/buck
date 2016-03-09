@@ -16,6 +16,7 @@
 
 package com.facebook.buck.cxx;
 
+import static com.facebook.buck.cxx.CxxFlavorSanitizer.sanitize;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.oneOf;
@@ -371,6 +372,45 @@ public class CxxBinaryIntegrationTest {
   }
 
   @Test
+  public void testInferCxxBinaryWithDepsEmitsAllTheDependenciesResultsDirs() throws IOException {
+    assumeTrue(Platform.detect() != Platform.WINDOWS);
+    ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(
+        this,
+        tmp,
+        Optional.<String>absent());
+
+    BuildTarget inputBuildTarget = BuildTargetFactory.newInstance("//foo:binary_with_chain_deps");
+    String inputBuildTargetName =
+        inputBuildTarget.withFlavors(CxxInferEnhancer.INFER).getFullyQualifiedName();
+
+    // Build the given target and check that it succeeds.
+    workspace.runBuckCommand("build", inputBuildTargetName).assertSuccess();
+
+    assertTrue(
+        workspace.getPath("buck-out/gen/foo/infer-binary_with_chain_deps#infer/infer-deps.txt")
+            .toFile().exists());
+
+    String loggedDeps = workspace.getFileContents(
+        "buck-out/gen/foo/infer-binary_with_chain_deps#infer/infer-deps.txt");
+
+    String expectedOutput =
+        "//foo:binary_with_chain_deps#infer-analyze\t" +
+            "buck-out/gen/foo/infer-analysis-binary_with_chain_deps#infer-analyze\n" +
+        "//foo:chain_dep_one#default,infer-analyze\t" +
+            "buck-out/gen/foo/infer-analysis-chain_dep_one#default,infer-analyze\n" +
+        "//foo:chain_dep_one#default,infer-capture-" + sanitize("chain_dep_one.c.o") + "\t" +
+            "buck-out/gen/foo/infer-out-chain_dep_one#default,infer-capture-" +
+            sanitize("chain_dep_one.c.o") + "\n" +
+        "//foo:chain_dep_two#default,infer-analyze\t" +
+            "buck-out/gen/foo/infer-analysis-chain_dep_two#default,infer-analyze\n" +
+        "//foo:chain_dep_two#default,infer-capture-" + sanitize("chain_dep_two.c.o") + "\t" +
+            "buck-out/gen/foo/infer-out-chain_dep_two#default,infer-capture-" +
+            sanitize("chain_dep_two.c.o") + "\n";
+
+    assertEquals(expectedOutput, loggedDeps);
+  }
+
+  @Test
   public void testInferCxxBinarySkipsBlacklistedFiles() throws IOException {
     assumeTrue(Platform.detect() != Platform.WINDOWS);
     ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(
@@ -389,15 +429,17 @@ public class CxxBinaryIntegrationTest {
     assertFalse(
         "Cfg file for chain_dep_one.c should not exist",
         workspace.getPath(
-            "buck-out/gen/foo/infer-out-chain_dep_one#default,infer-capture-chain_dep_one.c.o/" +
-                "captured/chain_dep_one.c_captured/chain_dep_one.c.cfg").toFile().exists());
+            "buck-out/gen/foo/infer-out-chain_dep_one#default,infer-capture-" +
+                sanitize("chain_dep_one.c.o") +
+                "/captured/chain_dep_one.c_captured/chain_dep_one.c.cfg").toFile().exists());
 
     // Check that the remaining files still have their cfgs
     assertTrue(
         "Expected cfg for chain_dep_two.c not found",
         workspace.getPath(
-            "buck-out/gen/foo/infer-out-chain_dep_two#default,infer-capture-chain_dep_two.c.o/" +
-                "captured/chain_dep_two.c_captured/chain_dep_two.c.cfg").toFile().exists());
+            "buck-out/gen/foo/infer-out-chain_dep_two#default,infer-capture-" +
+                sanitize("chain_dep_two.c.o") +
+                "/captured/chain_dep_two.c_captured/chain_dep_two.c.cfg").toFile().exists());
     assertTrue(
         "Expected cfg for top_chain.c not found",
         workspace.getPath(
@@ -424,14 +466,17 @@ public class CxxBinaryIntegrationTest {
     assertTrue(
         "Expected cfg for chain_dep_one.c not found",
         workspace.getPath(
-            "buck-out/gen/foo/infer-out-chain_dep_one#default,infer-capture-chain_dep_one.c.o/" +
-                "captured/chain_dep_one.c_captured/chain_dep_one.c.cfg").toFile().exists());
+            "buck-out/gen/foo/infer-out-" +
+                "chain_dep_one#default,infer-capture-" +
+                sanitize("chain_dep_one.c.o") +
+                "/captured/chain_dep_one.c_captured/chain_dep_one.c.cfg").toFile().exists());
 
     assertTrue(
         "Expected cfg for chain_dep_two.c not found",
         workspace.getPath(
-            "buck-out/gen/foo/infer-out-chain_dep_two#default,infer-capture-chain_dep_two.c.o/" +
-                "captured/chain_dep_two.c_captured/chain_dep_two.c.cfg").toFile().exists());
+            "buck-out/gen/foo/infer-out-chain_dep_two#default,infer-capture-" +
+                sanitize("chain_dep_two.c.o") +
+                "/captured/chain_dep_two.c_captured/chain_dep_two.c.cfg").toFile().exists());
     assertTrue(
         "Expected cfg for top_chain.c not found",
         workspace.getPath(
@@ -930,7 +975,7 @@ public class CxxBinaryIntegrationTest {
 
     BuckBuildLog buildLog = workspace.getBuildLog();
     buildLog.assertTargetBuiltLocally("//:bin#binary");
-    buildLog.assertTargetBuiltLocally("//:bin#compile-bin.c.o,default");
+    buildLog.assertTargetBuiltLocally("//:bin#compile-" + sanitize("bin.c.o") + ",default");
     buildLog.assertTargetBuiltLocally("//:lib1#default,static");
 
     workspace.resetBuildLogFile();
@@ -942,7 +987,8 @@ public class CxxBinaryIntegrationTest {
 
     buildLog = workspace.getBuildLog();
     buildLog.assertTargetBuiltLocally("//:bin#binary");
-    buildLog.assertTargetHadMatchingDepfileRuleKey("//:bin#compile-bin.c.o,default");
+    buildLog.assertTargetHadMatchingDepfileRuleKey(
+        "//:bin#compile-" + sanitize("bin.c.o") + ",default");
     buildLog.assertTargetBuiltLocally("//:lib1#default,static");
   }
 
@@ -957,7 +1003,7 @@ public class CxxBinaryIntegrationTest {
 
     BuckBuildLog buildLog = workspace.getBuildLog();
     buildLog.assertTargetBuiltLocally("//:bin#binary");
-    buildLog.assertTargetBuiltLocally("//:bin#compile-bin.c.o,default");
+    buildLog.assertTargetBuiltLocally("//:bin#compile-" + sanitize("bin.c.o") + ",default");
     buildLog.assertTargetBuiltLocally("//:lib1#default,static");
 
     workspace.resetBuildLogFile();
@@ -969,7 +1015,8 @@ public class CxxBinaryIntegrationTest {
 
     buildLog = workspace.getBuildLog();
     buildLog.assertTargetHadMatchingInputRuleKey("//:bin#binary");
-    buildLog.assertTargetHadMatchingDepfileRuleKey("//:bin#compile-bin.c.o,default");
+    buildLog.assertTargetHadMatchingDepfileRuleKey(
+        "//:bin#compile-" + sanitize("bin.c.o") + ",default");
     buildLog.assertTargetHadMatchingInputRuleKey("//:lib1#default,static");
   }
 
@@ -1279,7 +1326,7 @@ public class CxxBinaryIntegrationTest {
         // object files.
         "--config", "cxx.cxxldflags=-shared",
         "//:bar")
-            .assertSuccess();
+        .assertSuccess();
   }
 
 }
