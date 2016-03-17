@@ -50,6 +50,7 @@ import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.parser.BuildFileSpec;
 import com.facebook.buck.parser.ParserConfig;
+import com.facebook.buck.parser.SpeculativeParsing;
 import com.facebook.buck.parser.TargetNodePredicateSpec;
 import com.facebook.buck.python.PythonBuckConfig;
 import com.facebook.buck.rules.ActionGraph;
@@ -358,7 +359,8 @@ public class ProjectCommand extends BuildCommand {
                 pool.getExecutor(),
                 parseArgumentsAsTargetNodeSpecs(
                     params.getBuckConfig(),
-                    getArguments()));
+                    getArguments()),
+                SpeculativeParsing.of(true));
         needsFullRecursiveParse = needsFullRecursiveParse || passedInTargetsSet.isEmpty();
         projectGraph = getProjectGraphForIde(
             params,
@@ -821,7 +823,7 @@ public class ProjectCommand extends BuildCommand {
       CxxPlatform defaultCxxPlatform = params.getCell().getKnownBuildRuleTypes().
           getDefaultCxxPlatforms();
       WorkspaceAndProjectGenerator generator = new WorkspaceAndProjectGenerator(
-          params.getCell().getFilesystem(),
+          params.getCell(),
           targetGraphAndTargets.getTargetGraph(),
           workspaceArgs,
           inputTarget,
@@ -1049,8 +1051,7 @@ public class ProjectCommand extends BuildCommand {
 
   public static ImmutableSet<BuildTarget> replaceWorkspacesWithSourceTargetsIfPossible(
       ImmutableSet<BuildTarget> buildTargets, TargetGraph projectGraph) {
-    ImmutableSet<TargetNode<?>> targetNodes =
-        TargetGraphAndTargets.checkAndGetTargetNodes(buildTargets, projectGraph);
+    Iterable<TargetNode<?>> targetNodes = projectGraph.getAll(buildTargets);
     ImmutableSet.Builder<BuildTarget> resultBuilder = ImmutableSet.builder();
     for (TargetNode<?> node : targetNodes) {
       BuildRuleType type = node.getType();

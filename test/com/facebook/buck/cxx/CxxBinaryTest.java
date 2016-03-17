@@ -54,7 +54,7 @@ public class CxxBinaryTest {
             new CxxLink(
                 linkParams,
                 pathResolver,
-                CxxPlatformUtils.DEFAULT_PLATFORM.getLd(),
+                CxxPlatformUtils.DEFAULT_PLATFORM.getLd().resolve(ruleResolver),
                 bin,
                 ImmutableList.<Arg>of()));
     BuildRuleParams params = new FakeBuildRuleParamsBuilder("//:target").build();
@@ -64,7 +64,6 @@ public class CxxBinaryTest {
                 params,
                 ruleResolver,
                 pathResolver,
-                bin,
                 cxxLink,
                 new CommandTool.Builder()
                     .addArg(

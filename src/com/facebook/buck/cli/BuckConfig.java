@@ -27,15 +27,16 @@ import com.facebook.buck.model.Pair;
 import com.facebook.buck.parser.BuildTargetParseException;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.BuildTargetPatternParser;
-import com.facebook.buck.rules.BinaryBuildRule;
-import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BinaryBuildRuleToolProvider;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CachingBuildEngine;
+import com.facebook.buck.rules.ConstantToolProvider;
 import com.facebook.buck.rules.HashedFileTool;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.Tool;
+import com.facebook.buck.rules.ToolProvider;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.AnsiEnvironmentChecking;
 import com.facebook.buck.util.HumanReadableException;
@@ -95,7 +96,10 @@ public class BuckConfig {
   private static final String DEFAULT_MAX_TRACES = "25";
 
   private static final ImmutableMap<String, ImmutableSet<String>> IGNORE_FIELDS_FOR_DAEMON_RESTART =
-      ImmutableMap.of("build", ImmutableSet.of("threads", "load_limit")
+      ImmutableMap.of(
+          "build", ImmutableSet.of("threads", "load_limit"),
+          "client", ImmutableSet.of("id"),
+          "project", ImmutableSet.of("ide_prompt")
   );
 
   private static final Function<String, URI> TO_URI = new Function<String, URI>() {
@@ -384,32 +388,32 @@ public class BuckConfig {
    * @return a {@link Tool} identified by a @{link BuildTarget} or {@link Path} reference
    *     by the given section:field, if set.
    */
-  public Optional<Tool> getTool(String section, String field, BuildRuleResolver resolver) {
+  public Optional<ToolProvider> getToolProvider(String section, String field) {
     Optional<String> value = getValue(section, field);
     if (!value.isPresent()) {
       return Optional.absent();
     }
     Optional<BuildTarget> target = getMaybeBuildTarget(section, field);
     if (target.isPresent()) {
-      Optional<BuildRule> rule = resolver.getRuleOptional(target.get());
-      if (!rule.isPresent()) {
-        throw new HumanReadableException(
-            "[%s] %s: no rule found for %s", section, field, target.get());
-      }
-      if (!(rule.get() instanceof BinaryBuildRule)) {
-        throw new HumanReadableException(
-            "[%s] %s: %s must be an executable rule",
-            section,
-            field,
-            target.get());
-      }
-      return Optional.of(((BinaryBuildRule) rule.get()).getExecutableCommand());
+      return Optional.<ToolProvider>of(
+          new BinaryBuildRuleToolProvider(
+              target.get(),
+              String.format("[%s] %s", section, field)));
     } else {
       checkPathExists(
           value.get(),
           String.format("Overridden %s:%s path not found: ", section, field));
-      return Optional.<Tool>of(new HashedFileTool(getPathFromVfs(value.get())));
+      return Optional.<ToolProvider>of(
+          new ConstantToolProvider(new HashedFileTool(getPathFromVfs(value.get()))));
     }
+  }
+
+  public Optional<Tool> getTool(String section, String field, BuildRuleResolver resolver) {
+    Optional<ToolProvider> provider = getToolProvider(section, field);
+    if (!provider.isPresent()) {
+      return Optional.absent();
+    }
+    return Optional.of(provider.get().resolve(resolver));
   }
 
   public Tool getRequiredTool(String section, String field, BuildRuleResolver resolver) {
@@ -936,17 +940,19 @@ public class BuckConfig {
       // If none of this section's entries are ignored, then add it as-is.
       ImmutableMap<String, String> fields = sectionEnt.getValue();
       ImmutableSet<String> ignoredFieldNames =
-          IGNORE_FIELDS_FOR_DAEMON_RESTART.get(sectionEnt.getKey());
+          IGNORE_FIELDS_FOR_DAEMON_RESTART.get(sectionName);
       if (Sets.intersection(fields.keySet(), ignoredFieldNames).isEmpty()) {
         filtered.put(sectionEnt);
         continue;
       }
 
       // Otherwise, filter out the ignored fields.
-      filtered.put(
-          sectionName,
-          ImmutableMap.copyOf(
-              Maps.filterKeys(fields, Predicates.not(Predicates.in(ignoredFieldNames)))));
+      ImmutableMap<String, String> remainingKeys = ImmutableMap.copyOf(
+          Maps.filterKeys(fields, Predicates.not(Predicates.in(ignoredFieldNames))));
+
+      if (!remainingKeys.isEmpty()) {
+        filtered.put(sectionName, remainingKeys);
+      }
     }
 
     return filtered.build();

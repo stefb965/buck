@@ -18,6 +18,7 @@ package com.facebook.buck.parser;
 
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.SimplePerfEvent;
+import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
@@ -27,6 +28,7 @@ import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Function;
+import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
@@ -41,6 +43,7 @@ import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.UncheckedExecutionException;
 
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -118,11 +121,10 @@ public class ParsePipeline implements AutoCloseable {
    * @param buildFile absolute path to the file to process.
    * @return all targets from the file
    * @throws BuildFileParseException for syntax errors.
-   * @throws InterruptedException thread was interrupted.
    */
   public ImmutableSet<TargetNode<?>> getAllTargetNodes(
       final Cell cell,
-      final Path buildFile) throws BuildFileParseException, InterruptedException {
+      final Path buildFile) throws BuildFileParseException {
     Preconditions.checkState(!shuttingDown.get());
 
     try {
@@ -141,12 +143,11 @@ public class ParsePipeline implements AutoCloseable {
    * @return the node
    * @throws BuildFileParseException for syntax errors in the build file.
    * @throws BuildTargetException if the buildTarget is malformed
-   * @throws InterruptedException thread was interrupted.
    */
   public final TargetNode<?> getTargetNode(
       final Cell cell,
       final BuildTarget buildTarget
-  ) throws BuildFileParseException, BuildTargetException, InterruptedException {
+  ) throws BuildFileParseException, BuildTargetException {
     Preconditions.checkState(!shuttingDown.get());
 
     Optional<TargetNode<?>> cachedNode = cache.lookupTargetNode(cell, buildTarget);
@@ -169,11 +170,10 @@ public class ParsePipeline implements AutoCloseable {
    * @param buildFile absolute path to the file to process.
    * @return all targets from the file
    * @throws BuildFileParseException for syntax errors.
-   * @throws InterruptedException thread was interrupted.
    */
   public ImmutableList<Map<String, Object>> getRawNodes(
       final Cell cell,
-      final Path buildFile) throws BuildFileParseException, InterruptedException {
+      final Path buildFile) throws BuildFileParseException {
     Preconditions.checkArgument(buildFile.isAbsolute());
     Preconditions.checkState(!shuttingDown.get());
 
@@ -219,7 +219,7 @@ public class ParsePipeline implements AutoCloseable {
             ImmutableSet.Builder<ListenableFuture<TargetNode<?>>> allNodes = ImmutableSet.builder();
             for (Map<String, Object> rawNode : allRawNodes) {
               UnflavoredBuildTarget unflavored =
-                  parseBuildTargetFromRawRule(cell.getRoot(), rawNode);
+                  parseBuildTargetFromRawRule(cell.getRoot(), rawNode, buildFile);
               BuildTarget target = BuildTarget.of(unflavored);
 
               allNodes.add(getTargetNodeJob(cell, target, buildFile, rawNode));
@@ -416,6 +416,59 @@ public class ParsePipeline implements AutoCloseable {
           }
         }
     );
+
+    return targetNodeFuture;
+  }
+
+  /**
+   * Creates a {@link TargetNode} and de-dupes it against the cache.
+   *
+   * @param cell the {@link Cell} that the build file belongs to.
+   * @param buildTarget name of the node we're looking for.
+   * @param buildFile build file the rawNode comes from.
+   * @param rawNode raw node to create the TargetNode out of.
+   * @return future.
+   */
+  private ListenableFuture<TargetNode<?>> computeTargetNode(
+      final Cell cell,
+      final BuildTarget buildTarget,
+      final Path buildFile,
+      ListenableFuture<Map<String, Object>> rawNode) {
+
+    ListenableFuture<TargetNode<?>> targetNodeFuture = Futures.transformAsync(
+        rawNode,
+        new AsyncFunction<Map<String, Object>, TargetNode<?>>() {
+          @Override
+          public ListenableFuture<TargetNode<?>> apply(Map<String, Object> rawNode)
+              throws BuildTargetException {
+            if (shuttingDown.get()) {
+              return Futures.immediateCancelledFuture();
+            }
+
+            try (SimplePerfEvent.Scope scope = Parser.getTargetNodeEventScope(
+                buckEventBus,
+                buildTarget)) {
+
+              Path pathToCheck = buildTarget.getBasePath();
+              if (cell.getFilesystem().isIgnored(pathToCheck)) {
+                throw new HumanReadableException(
+                    "Content of '%s' cannot be built because" +
+                        " it is defined in an ignored directory.",
+                    pathToCheck);
+              }
+
+              TargetNode<?> targetNode = delegate.createTargetNode(
+                  cell,
+                  buildFile,
+                  buildTarget,
+                  rawNode);
+              return Futures.<TargetNode<?>>immediateFuture(
+                  cache.putTargetNodeIfNotPresent(cell, buildTarget, targetNode));
+            }
+          }
+        },
+        executorService);
+
     if (speculativeDepsTraversal) {
       Futures.addCallback(
           targetNodeFuture,
@@ -450,47 +503,6 @@ public class ParsePipeline implements AutoCloseable {
   }
 
   /**
-   * Creates a {@link TargetNode} and de-dupes it against the cache.
-   *
-   * @param cell the {@link Cell} that the build file belongs to.
-   * @param buildTarget name of the node we're looking for.
-   * @param buildFile build file the rawNode comes from.
-   * @param rawNode raw node to create the TargetNode out of.
-   * @return future.
-   */
-  private ListenableFuture<TargetNode<?>> computeTargetNode(
-      final Cell cell,
-      final BuildTarget buildTarget,
-      final Path buildFile,
-      ListenableFuture<Map<String, Object>> rawNode) {
-
-    return Futures.transformAsync(
-        rawNode,
-        new AsyncFunction<Map<String, Object>, TargetNode<?>>() {
-          @Override
-          public ListenableFuture<TargetNode<?>> apply(Map<String, Object> rawNode)
-              throws BuildTargetException {
-            if (shuttingDown.get()) {
-              return Futures.immediateCancelledFuture();
-            }
-
-            try (SimplePerfEvent.Scope scope = Parser.getTargetNodeEventScope(
-                buckEventBus,
-                buildTarget)) {
-              TargetNode<?> targetNode = delegate.createTargetNode(
-                  cell,
-                  buildFile,
-                  buildTarget,
-                  rawNode);
-              return Futures.<TargetNode<?>>immediateFuture(
-                  cache.putTargetNodeIfNotPresent(cell, buildTarget, targetNode));
-            }
-          }
-        },
-        executorService);
-  }
-
-  /**
    * Invokes the parser to get the raw node description.
    *
    * @param cell the {@link Cell} that the build file belongs to.
@@ -512,21 +524,37 @@ public class ParsePipeline implements AutoCloseable {
               return Futures.immediateCancelledFuture();
             }
             return Futures.immediateFuture(
-                cache.putRawNodesIfNotPresent(cell, buildFile, rawNodes));
+                cache.putRawNodesIfNotPresentAndStripMetaEntries(cell, buildFile, rawNodes));
           }
         },
         executorService);
   }
 
   /**
+   * @param cellRoot root path to the cell the rule is defined in.
    * @param map the map of values that define the rule.
+   * @param rulePathForDebug path to the build file the rule is defined in, only used for debugging.
    * @return the build target defined by the rule.
    */
-  protected final UnflavoredBuildTarget parseBuildTargetFromRawRule(
+  public static UnflavoredBuildTarget parseBuildTargetFromRawRule(
       Path cellRoot,
-      Map<String, Object> map) {
-    String basePath = (String) Preconditions.checkNotNull(map.get("buck.base_path"));
-    String name = (String) Preconditions.checkNotNull(map.get("name"));
+      Map<String, Object> map,
+      Path rulePathForDebug) {
+    String basePath = (String) map.get("buck.base_path");
+    String name = (String) map.get("name");
+    if (basePath == null || name == null) {
+      throw new IllegalStateException(
+          String.format("Attempting to parse build target from malformed raw data in %s: %s.",
+              rulePathForDebug,
+              Joiner.on(",").withKeyValueSeparator("->").join(map)));
+    }
+    Path otherBasePath = cellRoot.relativize(MorePaths.getParentOrEmpty(rulePathForDebug));
+    if (!otherBasePath.equals(Paths.get(basePath))) {
+      throw new IllegalStateException(
+          String.format("Raw data claims to come from [%s], but we tried rooting it at [%s].",
+              basePath,
+              otherBasePath));
+    }
     return UnflavoredBuildTarget.builder(UnflavoredBuildTarget.BUILD_TARGET_PREFIX + basePath, name)
         .setCellPath(cellRoot)
         .build();
@@ -568,7 +596,7 @@ public class ParsePipeline implements AutoCloseable {
   }
 
   @Override
-  public void close() throws InterruptedException {
+  public void close() {
     if (shuttingDown.get()) {
       return;
     }
@@ -623,13 +651,16 @@ public class ParsePipeline implements AutoCloseable {
         Path buildFile);
 
     /**
-     * Insert item into the cache if it was not already there.
+     * Insert item into the cache if it was not already there. The cache will also strip any
+     * meta entries from the raw nodes (these are intended for the cache as they contain information
+     * about what other files to invalidate entries on).
+     *
      * @param cell cell
      * @param buildFile build file
      * @param rawNodes nodes to insert
      * @return previous nodes for the file if the cache contained it, new ones otherwise.
      */
-    ImmutableList<Map<String, Object>> putRawNodesIfNotPresent(
+    ImmutableList<Map<String, Object>> putRawNodesIfNotPresentAndStripMetaEntries(
         Cell cell,
         Path buildFile,
         ImmutableList<Map<String, Object>> rawNodes);

@@ -7,17 +7,21 @@
 
 import __builtin__
 import __future__
+
 from collections import namedtuple
+from pathlib import Path, PureWindowsPath, PurePath
+from pywatchman import bser
+import StringIO
+import cProfile
 import functools
 import hashlib
 import imp
 import inspect
 import json
-from pathlib import Path, PureWindowsPath, PurePath
 import optparse
 import os
 import os.path
-from pywatchman import bser
+import pstats
 import re
 import subprocess
 import sys
@@ -421,24 +425,35 @@ def get_base_path(build_env=None):
     return build_env.base_path
 
 
+def flatten_list_of_dicts(list_of_dicts):
+    """Flatten the given list of dictionaries by merging l[1:] onto
+    l[0], one at a time. Key/Value pairs which appear in later list entries
+    will override those that appear in earlier entries
+
+    :param list_of_dicts: the list of dict objects to flatten.
+    :return: a single dict containing the flattened list
+    """
+    return_value = {}
+    for d in list_of_dicts:
+        for k, v in d.iteritems():
+            return_value[k] = v
+    return return_value
+
+
 @provide_for_build
-def add_deps(name, deps=[], build_env=None):
-    assert build_env.type == BuildContextType.BUILD_FILE, (
-        "Cannot use `add_deps()` at the top-level of an included file.")
+def flatten_dicts(*args, **_):
+    """Flatten the given list of dictionaries by merging args[1:] onto
+    args[0], one at a time.
 
-    if name not in build_env.rules:
-        raise ValueError(
-            'Invoked \'add_deps\' on non-existent rule %s.' % name)
-
-    rule = build_env.rules[name]
-    if 'deps' not in rule:
-        raise ValueError(
-            'Invoked \'add_deps\' on rule %s that has no \'deps\' field'
-            % name)
-    rule['deps'] = rule['deps'] + deps
+    :param *args: the list of dict objects to flatten.
+    :param **_: ignore the build_env kwarg
+    :return: a single dict containing the flattened list
+    """
+    return flatten_list_of_dicts(args)
 
 
 GENDEPS_SIGNATURE = re.compile(r'^#@# GENERATED FILE: DO NOT MODIFY ([a-f0-9]{40}) #@#\n$')
+
 
 class BuildFileProcessor(object):
 
@@ -780,7 +795,7 @@ def cygwin_adjusted_path(path):
         return path
 
 
-def encode_result(values, diagnostics):
+def encode_result(values, diagnostics, profile):
     result = {'values': values}
     if diagnostics:
         encoded_diagnostics = []
@@ -790,6 +805,8 @@ def encode_result(values, diagnostics):
                 'level': d.level,
             })
         result['diagnostics'] = encoded_diagnostics
+    if profile is not None:
+        result['profile'] = profile
     return bser.dumps(result)
 
 
@@ -809,10 +826,16 @@ def format_traceback_and_exception():
     return formatted_traceback + formatted_exception
 
 
-def process_with_diagnostics(build_file, build_file_processor, to_parent):
+def process_with_diagnostics(build_file, build_file_processor, to_parent,
+                             should_profile=False):
     build_file = cygwin_adjusted_path(build_file)
     diagnostics = set()
     values = []
+    if should_profile:
+        profile = cProfile.Profile()
+        profile.enable()
+    else:
+        profile = None
     try:
         values = build_file_processor.process(build_file.rstrip(), diagnostics=diagnostics)
     except Exception as e:
@@ -824,7 +847,15 @@ def process_with_diagnostics(build_file, build_file_processor, to_parent):
                     level='fatal'))
         raise e
     finally:
-        to_parent.write(encode_result(values, diagnostics))
+        if profile is not None:
+            profile.disable()
+            s = StringIO.StringIO()
+            pstats.Stats(profile, stream=s).sort_stats('cumulative').print_stats()
+            profile_result = s.getvalue()
+        else:
+            profile_result = None
+
+        to_parent.write(encode_result(values, diagnostics, profile_result))
         to_parent.flush()
 
 
@@ -917,6 +948,10 @@ def main():
         action='store_true',
         dest='quiet',
         help='Stifles exception backtraces printed to stderr during parsing.')
+    parser.add_option(
+        '--profile',
+        action='store_true',
+        help='Profile every buck file execution')
     (options, args) = parser.parse_args()
 
     # Even though project_root is absolute path, it may not be concise. For
@@ -974,11 +1009,13 @@ def main():
         sys.excepthook = silent_excepthook
 
     for build_file in args:
-        process_with_diagnostics(build_file, buildFileProcessor, to_parent)
+        process_with_diagnostics(build_file, buildFileProcessor, to_parent,
+                                 should_profile=options.profile)
 
     # "for ... in sys.stdin" in Python 2.x hangs until stdin is closed.
     for build_file in iter(sys.stdin.readline, ''):
-        process_with_diagnostics(build_file, buildFileProcessor, to_parent)
+        process_with_diagnostics(build_file, buildFileProcessor, to_parent,
+                                 should_profile=options.profile)
 
     if options.quiet:
         sys.excepthook = orig_excepthook

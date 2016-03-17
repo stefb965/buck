@@ -47,7 +47,9 @@ import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxSource;
 import com.facebook.buck.cxx.HeaderVisibility;
 import com.facebook.buck.event.BuckEventBus;
+import com.facebook.buck.event.PerfEventId;
 import com.facebook.buck.event.ProjectGenerationEvent;
+import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.halide.HalideBuckConfig;
 import com.facebook.buck.halide.HalideCompile;
 import com.facebook.buck.halide.HalideLibraryDescription;
@@ -65,17 +67,17 @@ import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.HasTests;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.SourceList;
-import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.shell.ExportFileDescription;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.Escaper;
@@ -214,6 +216,7 @@ public class ProjectGenerator {
 
   private final Function<SourcePath, Path> sourcePathResolver;
   private final TargetGraph targetGraph;
+  private final Cell projectCell;
   private final ProjectFilesystem projectFilesystem;
   private final Path outputDirectory;
   private final String projectName;
@@ -263,7 +266,7 @@ public class ProjectGenerator {
   public ProjectGenerator(
       TargetGraph targetGraph,
       Set<BuildTarget> initialTargets,
-      ProjectFilesystem projectFilesystem,
+      Cell cell,
       Path outputDirectory,
       String projectName,
       String buildFileName,
@@ -288,7 +291,8 @@ public class ProjectGenerator {
 
     this.targetGraph = targetGraph;
     this.initialTargets = ImmutableSet.copyOf(initialTargets);
-    this.projectFilesystem = projectFilesystem;
+    this.projectCell = cell;
+    this.projectFilesystem = cell.getFilesystem();
     this.outputDirectory = outputDirectory;
     this.projectName = projectName;
     this.buildFileName = buildFileName;
@@ -410,7 +414,11 @@ public class ProjectGenerator {
   public void createXcodeProjects() throws IOException {
     LOG.debug("Creating projects for targets %s", initialTargets);
 
-    try {
+    try (
+        SimplePerfEvent.Scope scope = SimplePerfEvent.scope(
+            buckEventBus,
+            PerfEventId.of("xcode_project_generation"),
+            ImmutableMap.<String, Object>of("Path", getProjectPath()))) {
       for (TargetNode<?> targetNode : targetGraph.getNodes()) {
         if (isBuiltByCurrentProject(targetNode.getBuildTarget())) {
           LOG.debug("Including rule %s in project", targetNode);
@@ -1697,8 +1705,9 @@ public class ProjectGenerator {
       for (Map.Entry<Path, SourcePath> entry : contents.entrySet()) {
         headerMapBuilder.add(
             entry.getKey().toString(),
-            BuckConstant.BUCK_OUTPUT_PATH
-                .relativize(headerSymlinkTreeRoot)
+            Paths.get("../../")
+                .resolve(projectCell.getRoot().getFileName())
+                .resolve(headerSymlinkTreeRoot)
                 .resolve(entry.getKey()));
       }
       projectFilesystem.writeBytesToPath(headerMapBuilder.build().getBytes(), headerMapLocation);
@@ -1951,7 +1960,10 @@ public class ProjectGenerator {
     Path treeRoot = AppleDescriptions.getPathToHeaderSymlinkTree(
         targetNode,
         headerVisibility);
-    return pathRelativizer.outputDirToRootRelative(treeRoot);
+    Path cellRoot = MorePaths.relativize(
+        projectFilesystem.getRootPath(),
+        targetNode.getBuildTarget().getCellPath());
+    return pathRelativizer.outputDirToRootRelative(cellRoot.resolve(treeRoot));
   }
 
   private Path getHeaderMapLocationFromSymlinkTreeRoot(Path headerSymlinkTreeRoot) {
@@ -2142,8 +2154,7 @@ public class ProjectGenerator {
     return isSourceUnderTest;
   }
 
-  private <T extends AbstractDescriptionArg> ImmutableSet<String>
-  collectRecursiveLibrarySearchPaths(
+  private <T> ImmutableSet<String> collectRecursiveLibrarySearchPaths(
       Iterable<TargetNode<T>> targetNodes) {
     return new ImmutableSet.Builder<String>()
         .add("$BUILT_PRODUCTS_DIR")
@@ -2161,8 +2172,7 @@ public class ProjectGenerator {
                 })).build();
   }
 
-  private <T extends AbstractDescriptionArg> ImmutableSet<String>
-  collectRecursiveFrameworkSearchPaths(
+  private <T> ImmutableSet<String> collectRecursiveFrameworkSearchPaths(
       Iterable<TargetNode<T>> targetNodes) {
     return new ImmutableSet.Builder<String>()
         .add("$BUILT_PRODUCTS_DIR")
@@ -2180,8 +2190,7 @@ public class ProjectGenerator {
                 })).build();
   }
 
-  private <T extends AbstractDescriptionArg> Iterable<FrameworkPath>
-  collectRecursiveFrameworkDependencies(
+  private <T> Iterable<FrameworkPath> collectRecursiveFrameworkDependencies(
       Iterable<TargetNode<T>> targetNodes) {
     return FluentIterable
         .from(targetNodes)
@@ -2209,8 +2218,7 @@ public class ProjectGenerator {
             });
   }
 
-  private <T extends AbstractDescriptionArg> Iterable<String>
-  collectRecursiveSearchPathsForFrameworkPaths(
+  private <T> Iterable<String> collectRecursiveSearchPathsForFrameworkPaths(
       Iterable<TargetNode<T>> targetNodes,
       final Function<
           AppleNativeTargetDescriptionArg,
@@ -2237,8 +2245,7 @@ public class ProjectGenerator {
             });
   }
 
-  private <T extends AbstractDescriptionArg> Iterable<String>
-  collectRecursiveExportedPreprocessorFlags(
+  private <T> Iterable<String> collectRecursiveExportedPreprocessorFlags(
       Iterable<TargetNode<T>> targetNodes) {
     return FluentIterable
         .from(targetNodes)
@@ -2262,7 +2269,7 @@ public class ProjectGenerator {
             });
   }
 
-  private <T extends AbstractDescriptionArg> Iterable<String> collectRecursiveExportedLinkerFlags(
+  private <T> Iterable<String> collectRecursiveExportedLinkerFlags(
       Iterable<TargetNode<T>> targetNodes) {
     return FluentIterable
         .from(targetNodes)
@@ -2287,9 +2294,8 @@ public class ProjectGenerator {
             });
   }
 
-  private <T extends AbstractDescriptionArg> ImmutableSet<PBXFileReference>
-  collectRecursiveLibraryDependencies(
-      Iterable<TargetNode<T>> targetNodes) {
+  private <T> ImmutableSet<PBXFileReference>
+  collectRecursiveLibraryDependencies(Iterable<TargetNode<T>> targetNodes) {
     return FluentIterable
         .from(targetNodes)
         .transformAndConcat(

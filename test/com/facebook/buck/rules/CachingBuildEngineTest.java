@@ -387,8 +387,8 @@ public class CachingBuildEngineTest {
 
       // Simulate successfully fetching the output file from the ArtifactCache.
       ArtifactCache artifactCache = createMock(ArtifactCache.class);
-      Map<String, String> desiredZipEntries = ImmutableMap.of(
-          "buck-out/gen/src/com/facebook/orca/orca.jar",
+      Map<Path, String> desiredZipEntries = ImmutableMap.of(
+          Paths.get("buck-out/gen/src/com/facebook/orca/orca.jar"),
           "Imagine this is the contents of a valid JAR file.");
       expect(
           artifactCache.fetch(
@@ -468,8 +468,8 @@ public class CachingBuildEngineTest {
 
       // Simulate successfully fetching the output file from the ArtifactCache.
       ArtifactCache artifactCache = createMock(ArtifactCache.class);
-      Map<String, String> desiredZipEntries = ImmutableMap.of(
-          "buck-out/gen/src/com/facebook/orca/orca.jar",
+      Map<Path, String> desiredZipEntries = ImmutableMap.of(
+          Paths.get("buck-out/gen/src/com/facebook/orca/orca.jar"),
           "Imagine this is the contents of a valid JAR file.");
       expect(
           artifactCache.fetch(
@@ -1253,7 +1253,7 @@ public class CachingBuildEngineTest {
       BuildResult result = cachingBuildEngine.build(buildContext, rule).get();
       assertEquals(BuildRuleSuccessType.MATCHING_INPUT_BASED_RULE_KEY, result.getSuccess());
 
-      // Verify the actual rule key was updated on disk.
+      // Verify the input-based and actual rule keys were updated on disk.
       OnDiskBuildInfo onDiskBuildInfo = buildContext.createOnDiskBuildInfoFor(target, filesystem);
       assertThat(
           onDiskBuildInfo.getRuleKey(BuildInfo.METADATA_KEY_FOR_RULE_KEY),
@@ -1290,9 +1290,9 @@ public class CachingBuildEngineTest {
           artifact,
           ImmutableMap.of(
               BuildInfo.getPathToMetadataDirectory(target)
-                  .resolve(BuildInfo.METADATA_KEY_FOR_RECORDED_PATHS).toString(),
+                  .resolve(BuildInfo.METADATA_KEY_FOR_RECORDED_PATHS),
               MAPPER.writeValueAsString(ImmutableList.of(rule.getPathToOutput().toString())),
-              rule.getPathToOutput().toString(),
+              rule.getPathToOutput(),
               "stuff"));
       cache.store(
           ImmutableSet.of(inputRuleKey),
@@ -1452,7 +1452,7 @@ public class CachingBuildEngineTest {
       ZipInspector inspector = new ZipInspector(fetchedArtifact);
       inspector.assertFileContents(
           BuildInfo.getPathToMetadataDirectory(target)
-              .resolve(BuildInfo.METADATA_KEY_FOR_DEP_FILE).toString(),
+              .resolve(BuildInfo.METADATA_KEY_FOR_DEP_FILE),
           MAPPER.writeValueAsString(ImmutableList.of(input.toString())));
     }
 
@@ -2083,9 +2083,9 @@ public class CachingBuildEngineTest {
           artifact,
           ImmutableMap.of(
               BuildInfo.getPathToMetadataDirectory(target)
-                  .resolve(BuildInfo.METADATA_KEY_FOR_RECORDED_PATHS).toString(),
+                  .resolve(BuildInfo.METADATA_KEY_FOR_RECORDED_PATHS),
               MAPPER.writeValueAsString(ImmutableList.of(output.toString())),
-              output.toString(),
+              output,
               "stuff"));
       cache.store(
           ImmutableSet.of(artifactKey),
@@ -2241,6 +2241,67 @@ public class CachingBuildEngineTest {
     }
   }
 
+  public static class UncachableRuleTests extends CommonFixture {
+    @Test
+    public void uncachableRulesDoNotTouchTheCache() throws Exception {
+      BuildTarget target = BuildTargetFactory.newInstance("//:rule");
+      BuildRuleParams params =
+          new FakeBuildRuleParamsBuilder(target)
+              .setProjectFilesystem(filesystem)
+              .build();
+      BuildRule rule = new UncachableRule(
+          params,
+          pathResolver,
+          ImmutableList.<Step>of(),
+          Paths.get("foo.out"));
+      CachingBuildEngine cachingBuildEngine =
+          new CachingBuildEngine(
+              MoreExecutors.newDirectExecutorService(),
+              fileHashCache,
+              CachingBuildEngine.BuildMode.SHALLOW,
+              CachingBuildEngine.DependencySchedulingOrder.RANDOM,
+              CachingBuildEngine.DepFiles.ENABLED,
+              256L,
+              pathResolver,
+              Functions.constant(
+                  new CachingBuildEngine.RuleKeyFactories(
+                      NOOP_RULE_KEY_FACTORY,
+                      NOOP_RULE_KEY_FACTORY,
+                      NOOP_RULE_KEY_FACTORY,
+                      NOOP_DEP_FILE_RULE_KEY_FACTORY)));
+      BuildResult result = cachingBuildEngine.build(buildContext, rule).get();
+      assertEquals(
+          BuildRuleSuccessType.BUILT_LOCALLY,
+          result.getSuccess());
+      assertEquals(
+          "Should not attempt to fetch from cache",
+          CacheResultType.IGNORED,
+          result.getCacheResult().getType());
+      assertEquals("should not have written to the cache", 0, cache.getArtifactCount());
+    }
+
+    private static class UncachableRule extends RuleWithSteps
+        implements UncachableBuildRule, SupportsDependencyFileRuleKey {
+      public UncachableRule(
+          BuildRuleParams buildRuleParams,
+          SourcePathResolver resolver,
+          ImmutableList<Step> steps,
+          Path output) {
+        super(buildRuleParams, resolver, steps, output);
+      }
+
+      @Override
+      public boolean useDependencyFileRuleKeys() {
+        return true;
+      }
+
+      @Override
+      public ImmutableList<SourcePath> getInputsAfterBuildingLocally() throws IOException {
+        return ImmutableList.of();
+      }
+    }
+  }
+
 
   // TODO(bolinfest): Test that when the success files match, nothing is built and nothing is
   // written back to the cache.
@@ -2370,9 +2431,9 @@ public class CachingBuildEngineTest {
    */
   private static class FakeArtifactCacheThatWritesAZipFile implements ArtifactCache {
 
-    private final Map<String, String> desiredEntries;
+    private final Map<Path, String> desiredEntries;
 
-    public FakeArtifactCacheThatWritesAZipFile(Map<String, String> desiredEntries) {
+    public FakeArtifactCacheThatWritesAZipFile(Map<Path, String> desiredEntries) {
       this.desiredEntries = desiredEntries;
     }
 
@@ -2512,10 +2573,10 @@ public class CachingBuildEngineTest {
 
   }
 
-  private static void writeEntriesToZip(Path file, ImmutableMap<String, String> entries)
+  private static void writeEntriesToZip(Path file, ImmutableMap<Path, String> entries)
       throws IOException {
     try (CustomZipOutputStream zip = ZipOutputStreams.newOutputStream(file)) {
-      for (Map.Entry<String, String> mapEntry : entries.entrySet()) {
+      for (Map.Entry<Path, String> mapEntry : entries.entrySet()) {
         CustomZipEntry entry = new CustomZipEntry(mapEntry.getKey());
         // We want deterministic ZIPs, so avoid mtimes. -1 is timzeone independent, 0 is not.
         entry.setTime(ZipConstants.getFakeTime());

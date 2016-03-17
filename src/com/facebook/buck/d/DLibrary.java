@@ -37,16 +37,18 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
 public class DLibrary extends NoopBuildRule implements NativeLinkable {
-  BuildRuleParams params;
-  BuildRuleResolver buildRuleResolver;
+
+  private final BuildRuleResolver buildRuleResolver;
+  private final DIncludes includes;
 
   public DLibrary(
       BuildRuleParams params,
       BuildRuleResolver buildRuleResolver,
-      SourcePathResolver sourcePathResolver) {
+      SourcePathResolver sourcePathResolver,
+      DIncludes includes) {
     super(params, sourcePathResolver);
-    this.params = params;
     this.buildRuleResolver = buildRuleResolver;
+    this.includes = includes;
   }
 
   @Override
@@ -87,4 +89,10 @@ public class DLibrary extends NoopBuildRule implements NativeLinkable {
   public ImmutableMap<String, SourcePath> getSharedLibraries(CxxPlatform cxxPlatform) {
     return ImmutableMap.of();
   }
+
+  public DIncludes getIncludes() throws NoSuchBuildTargetException {
+    buildRuleResolver.requireRule(getBuildTarget().withFlavors(DDescriptionUtils.SOURCE_LINK_TREE));
+    return includes;
+  }
+
 }

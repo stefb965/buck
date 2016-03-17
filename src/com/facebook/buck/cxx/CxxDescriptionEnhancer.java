@@ -98,6 +98,7 @@ public class CxxDescriptionEnhancer {
 
   public static HeaderSymlinkTree createHeaderSymlinkTree(
       BuildRuleParams params,
+      BuildRuleResolver resolver,
       SourcePathResolver pathResolver,
       CxxPlatform cxxPlatform,
       ImmutableMap<Path, SourcePath> headers,
@@ -114,7 +115,8 @@ public class CxxDescriptionEnhancer {
             cxxPlatform.getFlavor(),
             headerVisibility);
     Optional<Path> headerMapLocation = Optional.absent();
-    if (cxxPlatform.getCpp().supportsHeaderMaps() && cxxPlatform.getCxxpp().supportsHeaderMaps()) {
+    if (cxxPlatform.getCpp().resolve(resolver).supportsHeaderMaps() &&
+        cxxPlatform.getCxxpp().resolve(resolver).supportsHeaderMaps()) {
       headerMapLocation =
           Optional.of(
               getHeaderMapPath(
@@ -154,6 +156,7 @@ public class CxxDescriptionEnhancer {
 
     HeaderSymlinkTree symlinkTree = createHeaderSymlinkTree(
         params,
+        ruleResolver,
         pathResolver,
         cxxPlatform,
         headers,
@@ -567,6 +570,7 @@ public class CxxDescriptionEnhancer {
         args.frameworks,
         args.libraries,
         args.compilerFlags,
+        args.langCompilerFlags,
         args.platformCompilerFlags,
         args.prefixHeader,
         args.linkerFlags,
@@ -588,6 +592,7 @@ public class CxxDescriptionEnhancer {
       Optional<ImmutableSortedSet<FrameworkPath>> frameworks,
       Optional<ImmutableSortedSet<FrameworkPath>> libraries,
       Optional<ImmutableList<String>> compilerFlags,
+      Optional<ImmutableMap<CxxSource.Type, ImmutableList<String>>> langCompilerFlags,
       Optional<PatternMatchedCollection<ImmutableList<String>>> platformCompilerFlags,
       Optional<SourcePath> prefixHeader,
       Optional<ImmutableList<String>> linkerFlags,
@@ -633,9 +638,10 @@ public class CxxDescriptionEnhancer {
             sourcePathResolver,
             cxxPlatform,
             cxxPreprocessorInput,
-            CxxFlags.getFlags(
+            CxxFlags.getLanguageFlags(
                 compilerFlags,
                 platformCompilerFlags,
+                langCompilerFlags,
                 cxxPlatform),
             prefixHeader,
             preprocessMode,
@@ -682,7 +688,7 @@ public class CxxDescriptionEnhancer {
                   "-rpath",
                   String.format(
                       "%s/%s",
-                      cxxPlatform.getLd().origin(),
+                      cxxPlatform.getLd().resolve(resolver).origin(),
                       absLinkOut.getParent().relativize(sharedLibraries.getRoot()).toString()))));
 
       // Add all the shared libraries and the symlink tree as inputs to the tool that represents
@@ -700,6 +706,7 @@ public class CxxDescriptionEnhancer {
         CxxLinkableEnhancer.createCxxLinkableBuildRule(
             cxxPlatform,
             params,
+            resolver,
             sourcePathResolver,
             createCxxLinkTarget(params.getBuildTarget()),
             Linker.LinkType.EXECUTABLE,
@@ -833,7 +840,7 @@ public class CxxDescriptionEnhancer {
       CxxLibraryDescription.Arg hasExportedArgs = (CxxLibraryDescription.Arg) args;
       exportedPreprocessorFlags = CxxFlags.getLanguageFlags(
           hasExportedArgs.exportedPreprocessorFlags,
-          hasExportedArgs.exportedPlatformLinkerFlags,
+          hasExportedArgs.exportedPlatformPreprocessorFlags,
           hasExportedArgs.exportedLangPreprocessorFlags,
           cxxPlatform);
       exportedHeaders = CxxDescriptionEnhancer.parseExportedHeaders(
@@ -886,9 +893,10 @@ public class CxxDescriptionEnhancer {
         sourcePathResolver,
         cxxPlatform,
         cxxPreprocessorInputFromDependencies,
-        CxxFlags.getFlags(
+        CxxFlags.getLanguageFlags(
             args.compilerFlags,
             args.platformCompilerFlags,
+            args.langCompilerFlags,
             cxxPlatform),
         args.prefixHeader,
         preprocessMode,

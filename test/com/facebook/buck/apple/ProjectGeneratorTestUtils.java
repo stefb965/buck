@@ -35,7 +35,6 @@ import com.facebook.buck.apple.xcode.xcodeproj.PBXTarget;
 import com.facebook.buck.apple.xcode.xcodeproj.XCBuildConfiguration;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
@@ -43,6 +42,7 @@ import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercer;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.Types;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -65,8 +65,7 @@ public final class ProjectGeneratorTestUtils {
    */
   private ProjectGeneratorTestUtils() {}
 
-  public static <T extends AbstractDescriptionArg> T
-  createDescriptionArgWithDefaults(Description<T> description) {
+  public static <T> T createDescriptionArgWithDefaults(Description<T> description) {
     T arg = description.createUnpopulatedConstructorArg();
     for (Field field : arg.getClass().getFields()) {
       Object value;
@@ -78,7 +77,8 @@ public final class ProjectGeneratorTestUtils {
         value = ImmutableMap.of();
       } else if (field.getType().isAssignableFrom(Optional.class)) {
         Type nonOptionalType = Types.getFirstNonOptionalType(field);
-        TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
+        TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory(
+            ObjectMappers.newDefaultInstance());
         TypeCoercer<?> typeCoercer = typeCoercerFactory.typeCoercerForType(nonOptionalType);
         value = typeCoercer.getOptionalValue();
       } else if (field.getType().isAssignableFrom(String.class)) {

@@ -16,12 +16,11 @@
 
 package com.facebook.buck.cli;
 
+import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.query.QueryBuildTarget;
+import com.facebook.buck.query.QueryException;
 import com.facebook.buck.query.QueryFileTarget;
 import com.facebook.buck.query.QueryTarget;
-import com.facebook.buck.query.QueryException;
-import com.facebook.buck.model.HasBuildTarget;
-import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.ParamInfo;
 import com.facebook.buck.rules.PathSourcePath;
@@ -30,6 +29,7 @@ import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.ObjectMappers;
 import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -39,18 +39,19 @@ import java.nio.file.Path;
 
 public class QueryTargetAccessor {
 
-  private static final TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
+  private static final TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory(
+      ObjectMappers.newDefaultInstance());
 
   private QueryTargetAccessor() { }
 
-  public static <T extends AbstractDescriptionArg> ImmutableSet<QueryTarget> getTargetsInAttribute(
+  public static <T> ImmutableSet<QueryTarget> getTargetsInAttribute(
       TargetNode<T> node,
       String attribute)
       throws QueryException {
     try {
       final ImmutableSet.Builder<QueryTarget> builder = ImmutableSortedSet.naturalOrder();
       Field field = node.getConstructorArg().getClass().getField(attribute);
-      ParamInfo<T> info = new ParamInfo<>(typeCoercerFactory, field);
+      ParamInfo info = new ParamInfo(typeCoercerFactory, field);
       info.traverse(
           new ParamInfo.Traversal() {
             @Override
@@ -76,7 +77,7 @@ public class QueryTargetAccessor {
   /**
    * Filters the objects in the given attribute that satisfy the given predicate.
    */
-  public static <T extends AbstractDescriptionArg> ImmutableSet<Object> filterAttributeContents(
+  public static <T> ImmutableSet<Object> filterAttributeContents(
       TargetNode<T> node,
       String attribute,
       final Predicate<Object> predicate)
@@ -84,7 +85,7 @@ public class QueryTargetAccessor {
     try {
       final ImmutableSet.Builder<Object> builder = ImmutableSet.builder();
       Field field = node.getConstructorArg().getClass().getField(attribute);
-      ParamInfo<T> info = new ParamInfo<>(typeCoercerFactory, field);
+      ParamInfo info = new ParamInfo(typeCoercerFactory, field);
       info.traverse(
           new ParamInfo.Traversal() {
             @Override

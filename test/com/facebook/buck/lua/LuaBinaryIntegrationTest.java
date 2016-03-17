@@ -37,6 +37,7 @@ import com.facebook.buck.testutil.ParameterizedTests;
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
+import com.facebook.buck.util.BgProcessKiller;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Joiner;
@@ -93,6 +94,10 @@ public class LuaBinaryIntegrationTest {
     lua = luaOptional.get();
 
     // Try to detect if a Lua devel package is available, which is needed to C/C++ support.
+    BuildRuleResolver resolver =
+        new BuildRuleResolver(
+            TargetGraph.EMPTY,
+            new BuildTargetNodeToBuildRuleTransformer());
     CxxPlatform cxxPlatform =
         DefaultCxxPlatforms.build(
             Platform.detect(),
@@ -101,15 +106,12 @@ public class LuaBinaryIntegrationTest {
     builder.command(
         ImmutableList.<String>builder()
             .addAll(
-                cxxPlatform.getCc().getCommandPrefix(
-                    new SourcePathResolver(
-                        new BuildRuleResolver(
-                            TargetGraph.EMPTY,
-                            new BuildTargetNodeToBuildRuleTransformer()))))
+                cxxPlatform.getCc().resolve(resolver)
+                    .getCommandPrefix(new SourcePathResolver(resolver)))
             .add("-includelua.h", "-E", "-")
             .build());
     builder.redirectInput(ProcessBuilder.Redirect.PIPE);
-    Process process = builder.start();
+    Process process = BgProcessKiller.startProcess(builder);
     process.getOutputStream().close();
     int exitCode = process.waitFor();
     luaDevel = exitCode == 0;

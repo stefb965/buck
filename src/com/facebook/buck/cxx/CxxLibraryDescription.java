@@ -51,7 +51,6 @@ import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.base.Suppliers;
-import com.google.common.base.Throwables;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -126,8 +125,9 @@ public class CxxLibraryDescription implements
     return cxxPlatforms.containsAnyOf(flavors) ||
         flavors.contains(CxxCompilationDatabase.COMPILATION_DATABASE) ||
         flavors.contains(CxxCompilationDatabase.UBER_COMPILATION_DATABASE) ||
-        flavors.contains(CxxInferEnhancer.INFER) ||
-        flavors.contains(CxxInferEnhancer.INFER_ANALYZE);
+        flavors.contains(CxxInferEnhancer.InferFlavors.INFER.get()) ||
+        flavors.contains(CxxInferEnhancer.InferFlavors.INFER_ANALYZE.get()) ||
+        flavors.contains(CxxInferEnhancer.InferFlavors.INFER_CAPTURE_ALL.get());
 
   }
 
@@ -298,6 +298,7 @@ public class CxxLibraryDescription implements
     return CxxLinkableEnhancer.createCxxLinkableBuildRule(
         cxxPlatform,
         params,
+        ruleResolver,
         pathResolver,
         sharedTarget,
         linkType,
@@ -344,6 +345,8 @@ public class CxxLibraryDescription implements
     arg.compilerFlags = Optional.of(ImmutableList.<String>of());
     arg.platformCompilerFlags =
         Optional.of(PatternMatchedCollection.<ImmutableList<String>>of());
+    arg.langCompilerFlags =
+        Optional.of(ImmutableMap.<CxxSource.Type, ImmutableList<String>>of());
     arg.exportedPreprocessorFlags = Optional.of(ImmutableList.<String>of());
     arg.exportedPlatformPreprocessorFlags =
         Optional.of(PatternMatchedCollection.<ImmutableList<String>>of());
@@ -382,6 +385,7 @@ public class CxxLibraryDescription implements
       A args) {
     return CxxDescriptionEnhancer.createHeaderSymlinkTree(
         params,
+        resolver,
         new SourcePathResolver(resolver),
         cxxPlatform,
         CxxDescriptionEnhancer.parseHeaders(
@@ -402,6 +406,7 @@ public class CxxLibraryDescription implements
       A args) {
     return CxxDescriptionEnhancer.createHeaderSymlinkTree(
         params,
+        resolver,
         new SourcePathResolver(resolver),
         cxxPlatform,
         CxxDescriptionEnhancer.parseExportedHeaders(
@@ -563,24 +568,35 @@ public class CxxLibraryDescription implements
               params :
               params.withFlavor(defaultCxxPlatform.getFlavor()),
           resolver);
-    } else if (params.getBuildTarget().getFlavors().contains(CxxInferEnhancer.INFER)) {
+    } else if (params.getBuildTarget().getFlavors()
+        .contains(CxxInferEnhancer.InferFlavors.INFER.get())) {
       return CxxInferEnhancer.requireInferAnalyzeAndReportBuildRuleForCxxDescriptionArg(
           params,
           resolver,
           new SourcePathResolver(resolver),
           platform.or(defaultCxxPlatform),
           args,
-          new CxxInferTools(inferBuckConfig),
+          inferBuckConfig,
           new CxxInferSourceFilter(inferBuckConfig));
-    } else if (params.getBuildTarget().getFlavors().contains(CxxInferEnhancer.INFER_ANALYZE)) {
+    } else if (params.getBuildTarget().getFlavors()
+        .contains(CxxInferEnhancer.InferFlavors.INFER_ANALYZE.get())) {
       return CxxInferEnhancer.requireInferAnalyzeBuildRuleForCxxDescriptionArg(
           params,
           resolver,
           new SourcePathResolver(resolver),
           platform.or(defaultCxxPlatform),
           args,
-          new CxxInferTools(inferBuckConfig),
+          inferBuckConfig,
           new CxxInferSourceFilter(inferBuckConfig));
+    } else if (params.getBuildTarget().getFlavors()
+        .contains(CxxInferEnhancer.InferFlavors.INFER_CAPTURE_ALL.get())) {
+      return CxxInferEnhancer.requireAllTransitiveCaptureBuildRules(
+          params,
+          resolver,
+          platform.or(defaultCxxPlatform),
+          inferBuckConfig,
+          new CxxInferSourceFilter(inferBuckConfig),
+          args);
     } else if (type.isPresent() && platform.isPresent()) {
       // If we *are* building a specific type of this lib, call into the type specific
       // rule builder methods.
@@ -738,7 +754,7 @@ public class CxxLibraryDescription implements
                   args.libraries.or(ImmutableSortedSet.<FrameworkPath>of()),
                   preprocessMode);
             } catch (NoSuchBuildTargetException e) {
-              throw Throwables.propagate(e);
+              throw new RuntimeException(e);
             }
           }
         },
@@ -763,6 +779,9 @@ public class CxxLibraryDescription implements
       Function<Optional<String>, Path> cellRoots,
       Arg constructorArg) {
     ImmutableSet.Builder<BuildTarget> deps = ImmutableSet.builder();
+
+    // Get any parse time deps from the C/C++ platforms.
+    deps.addAll(CxxPlatforms.getParseTimeDeps(cxxPlatforms.getValues()));
 
     try {
       for (ImmutableList<String> values :
@@ -801,6 +820,22 @@ public class CxxLibraryDescription implements
       BuildRuleResolver resolver,
       A args,
       final Class<U> metadataClass) throws NoSuchBuildTargetException {
+    if (buildTarget.getFlavors().contains(CxxInferEnhancer.InferFlavors.INFER_CAPTURE_ALL.get())) {
+      return Optional.of(
+          CxxInferEnhancer.collectSourcesOverDependencies(
+              buildTarget,
+              resolver,
+              cxxPlatforms.getValue(buildTarget).or(defaultCxxPlatform),
+              args))
+          .transform(
+              new Function<CxxSourceSet, U>() {
+                @Override
+                public U apply(CxxSourceSet input) {
+                  return metadataClass.cast(input);
+                }
+              });
+    }
+
     if (!metadataClass.isAssignableFrom(CxxCompilationDatabaseDependencies.class) ||
         !buildTarget.getFlavors().contains(CxxCompilationDatabase.COMPILATION_DATABASE)) {
       return Optional.absent();

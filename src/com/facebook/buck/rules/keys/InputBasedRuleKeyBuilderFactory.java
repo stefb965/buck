@@ -25,7 +25,6 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Throwables;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
@@ -92,7 +91,12 @@ public class InputBasedRuleKeyBuilderFactory
       public RuleKey build() {
         Result result = buildResult();
         for (BuildRule usedDep : result.getDeps()) {
-          Preconditions.checkState(rule.getDeps().contains(usedDep));
+          Preconditions.checkState(
+              rule.getDeps().contains(usedDep),
+              "%s: %s not in deps (%s)",
+              rule.getBuildTarget(),
+              usedDep.getBuildTarget(),
+              rule.getDeps());
         }
         return result.getRuleKey();
       }
@@ -133,7 +137,7 @@ public class InputBasedRuleKeyBuilderFactory
               pathResolver.getAbsolutePath(sourcePath),
               pathResolver.getRelativePath(sourcePath));
         } catch (IOException e) {
-          throw Throwables.propagate(e);
+          throw new RuntimeException(e);
         }
       }
       inputs.add(Collections.singleton(sourcePath));

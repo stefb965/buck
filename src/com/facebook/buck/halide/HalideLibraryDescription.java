@@ -112,6 +112,7 @@ public class HalideLibraryDescription
       ImmutableSortedSet<SourceWithFlags> halideSources,
       Optional<ImmutableList<String>> compilerFlags,
       Optional<PatternMatchedCollection<ImmutableList<String>>> platformCompilerFlags,
+      Optional<ImmutableMap<CxxSource.Type, ImmutableList<String>>> langCompilerFlags,
       Optional<ImmutableList<String>> linkerFlags,
       Optional<PatternMatchedCollection<ImmutableList<String>>> platformLinkerFlags)
       throws NoSuchBuildTargetException {
@@ -149,6 +150,7 @@ public class HalideLibraryDescription
             frameworks,
             libraries,
             compilerFlags,
+            langCompilerFlags,
             platformCompilerFlags,
             prefixHeader,
             linkerFlags,
@@ -159,7 +161,6 @@ public class HalideLibraryDescription
         params.appendExtraDeps(cxxLinkAndCompileRules.executable.getDeps(pathResolver)),
         ruleResolver,
         pathResolver,
-        cxxLinkAndCompileRules.cxxLink.getOutput(),
         cxxLinkAndCompileRules.cxxLink,
         cxxLinkAndCompileRules.executable,
         ImmutableSortedSet.<FrameworkPath>of(),
@@ -224,6 +225,7 @@ public class HalideLibraryDescription
           new BuildTargetSourcePath(compileTarget, outputPath));
       return CxxDescriptionEnhancer.createHeaderSymlinkTree(
           params,
+          resolver,
           new SourcePathResolver(resolver),
           cxxPlatform,
           headersBuilder.build(),
@@ -247,6 +249,7 @@ public class HalideLibraryDescription
           args.srcs.get(),
           args.compilerFlags,
           args.platformCompilerFlags,
+          args.langCompilerFlags,
           args.linkerFlags,
           args.platformLinkerFlags);
     } else if (

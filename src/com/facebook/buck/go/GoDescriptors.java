@@ -42,7 +42,6 @@ import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
-import com.google.common.base.Throwables;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -84,7 +83,7 @@ abstract class GoDescriptors {
             try {
               return resolver.requireMetadata(flavoredTarget, ImmutableSet.class).get();
             } catch (NoSuchBuildTargetException ex) {
-              throw Throwables.propagate(ex);
+              throw new RuntimeException(ex);
             }
           }
         });
@@ -136,13 +135,15 @@ abstract class GoDescriptors {
         pathResolver,
         symlinkTree,
         packageName,
-        getPackageImportMap(packageName, FluentIterable.from(linkables).transformAndConcat(
-            new Function<GoLinkable, ImmutableSet<Path>>() {
-              @Override
-              public ImmutableSet<Path> apply(GoLinkable input) {
-                return input.getGoLinkInput().keySet();
-              }
-            })),
+        getPackageImportMap(goBuckConfig.getVendorPaths(),
+            params.getBuildTarget().getBasePath(),
+            FluentIterable.from(linkables).transformAndConcat(
+              new Function<GoLinkable, ImmutableSet<Path>>() {
+                @Override
+                public ImmutableSet<Path> apply(GoLinkable input) {
+                  return input.getGoLinkInput().keySet();
+                }
+              })),
         ImmutableSet.copyOf(srcs),
         ImmutableList.copyOf(compilerFlags),
         goBuckConfig.getCompiler(),
@@ -155,15 +156,20 @@ abstract class GoDescriptors {
 
   @VisibleForTesting
   static ImmutableMap<Path, Path> getPackageImportMap(
-      Path basePackageName, Iterable<Path> packageNameIter) {
+      ImmutableList<Path> globalVendorPaths,
+      Path basePackagePath, Iterable<Path> packageNameIter) {
     Map<Path, Path> importMapBuilder = Maps.newHashMap();
     ImmutableSortedSet<Path> packageNames = ImmutableSortedSet.copyOf(packageNameIter);
 
+    ImmutableList.Builder<Path> vendorPathsBuilder = ImmutableList.builder();
+    vendorPathsBuilder.addAll(globalVendorPaths);
     Path prefix = Paths.get("");
-    for (Path component : FluentIterable.of(new Path[]{Paths.get("")}).append(basePackageName)) {
+    for (Path component : FluentIterable.of(new Path[]{Paths.get("")}).append(basePackagePath)) {
       prefix = prefix.resolve(component);
+      vendorPathsBuilder.add(prefix.resolve("vendor"));
+    }
 
-      Path vendorPrefix = prefix.resolve("vendor");
+    for (Path vendorPrefix: vendorPathsBuilder.build()) {
       for (Path vendoredPackage : packageNames.tailSet(vendorPrefix)) {
         if (!vendoredPackage.startsWith(vendorPrefix)) {
           break;
@@ -178,7 +184,7 @@ abstract class GoDescriptors {
 
   static GoBinary createGoBinaryRule(
       BuildRuleParams params,
-      BuildRuleResolver resolver,
+      final BuildRuleResolver resolver,
       GoBuckConfig goBuckConfig,
       ImmutableSet<SourcePath> srcs,
       List<String> compilerFlags,
@@ -220,12 +226,13 @@ abstract class GoDescriptors {
             Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of(symlinkTree, library)),
             Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
         pathResolver,
-        platform.getCxxPlatform().transform(new Function<CxxPlatform, Linker>() {
-          @Override
-          public Linker apply(CxxPlatform input) {
-            return input.getLd();
-          }
-        }),
+        platform.getCxxPlatform().transform(
+            new Function<CxxPlatform, Linker>() {
+              @Override
+              public Linker apply(CxxPlatform input) {
+                return input.getLd().resolve(resolver);
+              }
+            }),
         symlinkTree,
         library,
         goBuckConfig.getLinker(),
@@ -283,7 +290,7 @@ abstract class GoDescriptors {
       try {
         return Paths.get(resourceURL.toURI());
       } catch (URISyntaxException e) {
-        throw Throwables.propagate(e);
+        throw new RuntimeException(e);
       }
     } else {
       // Running from a .pex file, extraction is required
@@ -294,7 +301,7 @@ abstract class GoDescriptors {
         Resources.copy(resourceURL, new FileOutputStream(tempFile));
         return tempFile.toPath();
       } catch (IOException e) {
-        throw Throwables.propagate(e);
+        throw new RuntimeException(e);
       }
     }
   }
@@ -337,7 +344,7 @@ abstract class GoDescriptors {
         try {
           return requireGoLinkable(sourceTarget, resolver, platform, input.getBuildTarget());
         } catch (NoSuchBuildTargetException e) {
-          throw Throwables.propagate(e);
+          throw new RuntimeException(e);
         }
       }
     }).toSet();
@@ -377,7 +384,7 @@ abstract class GoDescriptors {
       return new SymlinkTree(params, pathResolver, root, treeMap);
     } catch (SymlinkTree.InvalidSymlinkTreeException ex) {
       // This should never happen since go package names don't have .. as a path component.
-      throw Throwables.propagate(ex);
+      throw new RuntimeException(ex);
     }
   }
 

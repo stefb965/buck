@@ -9,7 +9,12 @@ java_library(
     '//test/com/facebook/buck/rules:rules',
   ],
   autodeps = True,
+  exported_deps = [
+    # Cell exports ProjectFilesystem via a getter.
+    '//src/com/facebook/buck/io:io',
+  ],
   visibility = [
+    '//src/com/facebook/buck/apple:generators',
     '//src/com/facebook/buck/cli:cli',
     '//src/com/facebook/buck/parser:parser',
     '//test/...',
@@ -49,6 +54,7 @@ java_immutables_library(
     'ActionGraphEvent.java',
     'AddToRuleKey.java',
     'BinaryBuildRule.java',
+    'BinaryBuildRuleToolProvider.java',
     'BuckPyFunction.java',
     'BuildableContext.java',
     'BuildableProperties.java',
@@ -66,6 +72,7 @@ java_immutables_library(
     'BuildRuleStatus.java',
     'BuildRuleSuccessType.java',
     'BuildTargetSourcePath.java',
+    'ConstantToolProvider.java',
     'ConstructorArgMarshaller.java',
     'ConstructorArgMarshalException.java',
     'DefaultOnDiskBuildInfo.java',
@@ -100,6 +107,8 @@ java_immutables_library(
     'TargetNodeToBuildRuleTransformer.java',
     'TargetNodes.java',
     'Tool.java',
+    'ToolProvider.java',
+    'UncachableBuildRule.java',
   ],
   immutable_srcs = BUILD_RULE_IMMUTABLES,
   tests = [

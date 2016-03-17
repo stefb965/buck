@@ -17,6 +17,7 @@
 package com.facebook.buck.intellij.plugin.build;
 
 import com.facebook.buck.intellij.plugin.config.BuckSettingsProvider;
+import com.facebook.buck.intellij.plugin.ui.BuckEventsConsumer;
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.configurations.GeneralCommandLine;
 import com.intellij.execution.process.OSProcessHandler;
@@ -35,6 +36,7 @@ import org.jetbrains.annotations.Nullable;
 import java.io.File;
 import java.nio.charset.Charset;
 import java.util.Iterator;
+import java.util.regex.Pattern;
 
 /**
  * The handler for buck commands with text outputs.
@@ -50,6 +52,8 @@ public abstract class BuckCommandHandler {
   private final File workingDirectory;
   private final GeneralCommandLine commandLine;
   private final Object processStateLock = new Object();
+  private BuckEventsConsumer buckEventsConsumer;
+  private static final Pattern CHARACTER_DIGITS_PATTERN = Pattern.compile("(?s).*[A-Z0-9a-z]+.*");
 
   @SuppressWarnings({"FieldAccessedSynchronizedAndUnsynchronized"})
   private Process process;
@@ -74,9 +78,9 @@ public abstract class BuckCommandHandler {
   private final StringBuilder stderrLine = new StringBuilder();
 
   /**
-   * @param project   a project
-   * @param directory a process directory
-   * @param command   a command to execute (if empty string, the parameter is ignored)
+   * @param project            a project
+   * @param directory          a process directory
+   * @param command            a command to execute (if empty string, the parameter is ignored)
    */
   public BuckCommandHandler(
       Project project,
@@ -92,6 +96,24 @@ public abstract class BuckCommandHandler {
     workingDirectory = directory;
     commandLine.withWorkDirectory(workingDirectory);
     commandLine.addParameter(command.name());
+    for (String parameter : command.getParameters()) {
+      commandLine.addParameter(parameter);
+    }
+  }
+
+  /**
+   * @param project            a project
+   * @param directory          a process directory
+   * @param command            a command to execute (if empty string, the parameter is ignored)
+   * @param buckEventsConsumer the buck events consume
+   */
+  public BuckCommandHandler(
+      Project project,
+      File directory,
+      BuckCommand command,
+      BuckEventsConsumer buckEventsConsumer) {
+    this(project, directory, command);
+    this.buckEventsConsumer = buckEventsConsumer;
   }
 
   /**
@@ -285,10 +307,24 @@ public abstract class BuckCommandHandler {
    * @param lines       line iterator
    * @param lineBuilder a line builder
    */
-  protected abstract void notifyLines(
+  protected void notifyLines(
       final Key outputType,
       final Iterator<String> lines,
-      final StringBuilder lineBuilder);
+      final StringBuilder lineBuilder) {
+    if (outputType == ProcessOutputTypes.STDERR && buckEventsConsumer != null) {
+      StringBuilder stderr = new StringBuilder();
+      while (lines.hasNext()) {
+        String line = lines.next();
+        // Check if the line has at least one character or digit
+        if (CHARACTER_DIGITS_PATTERN.matcher(line).matches()) {
+          stderr.append(line);
+        }
+      }
+      if (stderr.length() != 0) {
+        buckEventsConsumer.consumeConsoleEvent(stderr.toString());
+      }
+    }
+  }
 
   protected abstract boolean beforeCommand();
 

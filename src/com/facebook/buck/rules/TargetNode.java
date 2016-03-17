@@ -42,8 +42,7 @@ import java.nio.file.Path;
  * responsible for processing the raw (python) inputs of a build rule, and gathering any build
  * targets and paths referenced from those inputs.
  */
-public class TargetNode<T extends AbstractDescriptionArg>
-    implements Comparable<TargetNode<?>>, HasBuildTarget {
+public class TargetNode<T> implements Comparable<TargetNode<?>>, HasBuildTarget {
 
   private final HashCode rawInputsHashCode;
   private final TypeCoercerFactory typeCoercerFactory;
@@ -82,7 +81,7 @@ public class TargetNode<T extends AbstractDescriptionArg>
     // Scan the input to find possible BuildTargets, necessary for loading dependent rules.
     T arg = description.createUnpopulatedConstructorArg();
     for (Field field : arg.getClass().getFields()) {
-      ParamInfo<T> info = new ParamInfo<>(typeCoercerFactory, field);
+      ParamInfo info = new ParamInfo(typeCoercerFactory, field);
       if (info.isDep() && info.isInput() &&
           info.hasElementTypes(BuildTarget.class, SourcePath.class, Path.class)) {
         detectBuildTargetsAndPathsForConstructorArg(extraDeps, paths, info, constructorArg);
@@ -188,7 +187,7 @@ public class TargetNode<T extends AbstractDescriptionArg>
    * Type safe checked cast of the constructor arg.
    */
   @SuppressWarnings("unchecked")
-  public <U extends AbstractDescriptionArg> Optional<TargetNode<U>> castArg(Class<U> cls) {
+  public <U> Optional<TargetNode<U>> castArg(Class<U> cls) {
     if (cls.isInstance(constructorArg)) {
       return Optional.of((TargetNode<U>) this);
     } else {
@@ -199,7 +198,7 @@ public class TargetNode<T extends AbstractDescriptionArg>
   private void detectBuildTargetsAndPathsForConstructorArg(
       final ImmutableSet.Builder<BuildTarget> depsBuilder,
       final ImmutableSet.Builder<Path> pathsBuilder,
-      ParamInfo<T> info,
+      ParamInfo info,
       T constructorArg) throws NoSuchBuildTargetException {
     // We'll make no test for optionality here. Let's assume it's done elsewhere.
 

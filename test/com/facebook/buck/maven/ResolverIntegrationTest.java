@@ -32,11 +32,11 @@ import com.facebook.buck.file.RemoteFileDescription;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.jvm.java.PrebuiltJarDescription;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.json.DefaultProjectBuildFileParserFactory;
 import com.facebook.buck.json.ProjectBuildFileParser;
 import com.facebook.buck.json.ProjectBuildFileParserOptions;
+import com.facebook.buck.jvm.java.PrebuiltJarDescription;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.python.PythonBuckConfig;
 import com.facebook.buck.rules.ConstructorArgMarshaller;
@@ -46,6 +46,7 @@ import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.HttpdForTests;
 import com.facebook.buck.testutil.integration.TestDataHelper;
+import com.facebook.buck.util.ObjectMappers;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -107,7 +108,7 @@ public class ResolverIntegrationTest {
         buckConfig,
         new ExecutableFinder());
 
-    ImmutableSet<Description<?>> descriptions = ImmutableSet.of(
+    ImmutableSet<Description<?>> descriptions = ImmutableSet.<Description<?>>of(
         new RemoteFileDescription(new ExplodingDownloader()),
         new PrebuiltJarDescription());
 
@@ -121,7 +122,8 @@ public class ResolverIntegrationTest {
             .setDescriptions(descriptions)
             .build());
     buildFileParser = parserFactory.createParser(
-        new ConstructorArgMarshaller(new DefaultTypeCoercerFactory()),
+        new ConstructorArgMarshaller(new DefaultTypeCoercerFactory(
+            ObjectMappers.newDefaultInstance())),
         new TestConsole(),
         ImmutableMap.<String, String>of(),
         BuckEventBusFactory.newInstance());

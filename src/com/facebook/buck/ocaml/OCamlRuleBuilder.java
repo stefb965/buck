@@ -40,6 +40,7 @@ import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.coercer.OCamlSource;
 import com.facebook.buck.util.Ansi;
+import com.facebook.buck.util.BgProcessKiller;
 import com.facebook.buck.util.CapturingPrintStream;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.HumanReadableException;
@@ -298,8 +299,8 @@ public class OCamlRuleBuilder {
         compileParams,
         pathResolver,
         ocamlContext,
-        ocamlBuckConfig.getCCompiler(),
-        ocamlBuckConfig.getCxxCompiler(),
+        ocamlBuckConfig.getCCompiler().resolve(resolver),
+        ocamlBuckConfig.getCxxCompiler().resolve(resolver),
         bytecodeOnly);
     resolver.addToIndex(ocamlLibraryBuild);
 
@@ -449,8 +450,8 @@ public class OCamlRuleBuilder {
         ocamlContext,
         mlInput,
         cInput,
-        ocamlBuckConfig.getCCompiler(),
-        ocamlBuckConfig.getCxxCompiler(),
+        ocamlBuckConfig.getCCompiler().resolve(resolver),
+        ocamlBuckConfig.getCxxCompiler().resolve(resolver),
         bytecodeOnly);
 
     OCamlGeneratedBuildRules result = generator.generate();
@@ -565,8 +566,9 @@ public class OCamlRuleBuilder {
       ProcessExecutor exe = new ProcessExecutor(console);
       ProcessBuilder processBuilder = new ProcessBuilder(cmd);
       processBuilder.directory(baseDir.toFile());
+      Process p = BgProcessKiller.startProcess(processBuilder);
       ProcessExecutor.Result result = exe.execute(
-          processBuilder.start(),
+          p,
           options.build(),
         /* stdin */ Optional.<String>absent(),
         /* timeOutMs */ Optional.<Long>absent(),

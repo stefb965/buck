@@ -21,15 +21,18 @@ import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxSourceRuleFactory;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
@@ -66,26 +69,46 @@ public class DLibraryDescription implements Description<DLibraryDescription.Arg>
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver buildRuleResolver,
-      A args) {
+      A args)
+      throws NoSuchBuildTargetException {
 
     SourcePathResolver pathResolver = new SourcePathResolver(buildRuleResolver);
 
+    if (params.getBuildTarget().getFlavors().contains(DDescriptionUtils.SOURCE_LINK_TREE)) {
+      return DDescriptionUtils.createSourceSymlinkTree(
+          params.getBuildTarget(),
+          params,
+          pathResolver,
+          args.srcs);
+    }
+
+    BuildTarget sourceTreeTarget =
+        params.getBuildTarget().withFlavors(DDescriptionUtils.SOURCE_LINK_TREE);
+    DIncludes dIncludes =
+        DIncludes.builder()
+            .setLinkTree(new BuildTargetSourcePath(sourceTreeTarget))
+            .setSources(args.srcs.getPaths())
+            .build();
+
     if (params.getBuildTarget().getFlavors().contains(CxxDescriptionEnhancer.STATIC_FLAVOR)) {
+      buildRuleResolver.requireRule(sourceTreeTarget);
       return createStaticLibraryBuildRule(
           params,
           buildRuleResolver,
           pathResolver,
-          dBuckConfig,
           cxxPlatform,
-          args.srcs,
+          dBuckConfig,
           /* compilerFlags */ ImmutableList.<String>of(),
+          args.srcs,
+          dIncludes,
           CxxSourceRuleFactory.PicType.PDC);
     }
 
     return new DLibrary(
         params,
         buildRuleResolver,
-        pathResolver);
+        pathResolver,
+        dIncludes);
   }
 
   /**
@@ -95,21 +118,24 @@ public class DLibraryDescription implements Description<DLibraryDescription.Arg>
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
-      DBuckConfig dBuckConfig,
       CxxPlatform cxxPlatform,
-      Iterable<SourcePath> sources,
+      DBuckConfig dBuckConfig,
       ImmutableList<String> compilerFlags,
-      CxxSourceRuleFactory.PicType pic) {
+      SourceList sources,
+      DIncludes dIncludes,
+      CxxSourceRuleFactory.PicType pic)
+      throws NoSuchBuildTargetException {
 
     ImmutableList<SourcePath> compiledSources =
-      DDescriptionUtils.sourcePathsForCompiledSources(
-          sources,
-          compilerFlags,
-          params,
-          ruleResolver,
-          pathResolver,
-          cxxPlatform,
-          dBuckConfig);
+        DDescriptionUtils.sourcePathsForCompiledSources(
+            params,
+            ruleResolver,
+            pathResolver,
+            cxxPlatform,
+            dBuckConfig,
+            compilerFlags,
+            sources,
+            dIncludes);
 
     // Write a build rule to create the archive for this library.
     BuildTarget staticTarget =
@@ -141,7 +167,7 @@ public class DLibraryDescription implements Description<DLibraryDescription.Arg>
 
   @SuppressFieldNotInitialized
   public static class Arg extends AbstractDescriptionArg {
-    public ImmutableSortedSet<SourcePath> srcs;
+    public SourceList srcs;
     public Optional<ImmutableSortedSet<BuildTarget>> deps;
   }
 }

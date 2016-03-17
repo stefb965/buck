@@ -38,7 +38,6 @@ import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.model.FilesystemBackedBuildFileTree;
 import com.facebook.buck.model.Flavored;
 import com.facebook.buck.model.UnflavoredBuildTarget;
-import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuckPyFunction;
 import com.facebook.buck.rules.BuildRuleFactoryParams;
 import com.facebook.buck.rules.BuildRuleType;
@@ -53,6 +52,7 @@ import com.facebook.buck.util.concurrent.AutoCloseableLock;
 import com.facebook.buck.util.concurrent.AutoCloseableReadWriteUpdateLock;
 import com.facebook.buck.util.environment.EnvironmentFilter;
 import com.google.common.base.Function;
+import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
@@ -255,7 +255,7 @@ class DaemonicParserState implements ParsePipeline.Cache {
 
   @Override
   @SuppressWarnings("unchecked")
-  public ImmutableList<Map<String, Object>> putRawNodesIfNotPresent(
+  public ImmutableList<Map<String, Object>> putRawNodesIfNotPresentAndStripMetaEntries(
       final Cell cell,
       final Path buildFile,
       final ImmutableList<Map<String, Object>> rawNodes) {
@@ -365,6 +365,7 @@ class DaemonicParserState implements ParsePipeline.Cache {
     // Because of the way that the parser works, we know this can never return null.
     Description<?> description = cell.getDescription(buildRuleType);
 
+    UnflavoredBuildTarget unflavoredBuildTarget = target.getUnflavoredBuildTarget();
     if (target.isFlavored()) {
       if (description instanceof Flavored) {
         if (!((Flavored) description).hasFlavors(
@@ -380,15 +381,29 @@ class DaemonicParserState implements ParsePipeline.Cache {
         LOG.warn(
             "Target %s (type %s) must implement the Flavored interface " +
                 "before we can check if it supports flavors: %s",
-            target.getUnflavoredBuildTarget(),
+            unflavoredBuildTarget,
             buildRuleType,
             target.getFlavors());
         throw new HumanReadableException(
             "Target %s (type %s) does not currently support flavors (tried %s)",
-            target.getUnflavoredBuildTarget(),
+            unflavoredBuildTarget,
             buildRuleType,
             target.getFlavors());
       }
+    }
+
+    UnflavoredBuildTarget unflavoredBuildTargetFromRawData =
+        ParsePipeline.parseBuildTargetFromRawRule(
+            cell.getRoot(),
+            rawNode,
+            buildFile);
+    if (!unflavoredBuildTarget.equals(unflavoredBuildTargetFromRawData)) {
+      throw new IllegalStateException(
+          String.format(
+              "Inconsistent internal state, target from data: %s, expected: %s, raw data: %s",
+              unflavoredBuildTargetFromRawData,
+              unflavoredBuildTarget,
+              Joiner.on(',').withKeyValueSeparator("->").join(rawNode)));
     }
 
     Cell targetCell = cell.getCell(target);
@@ -399,7 +414,7 @@ class DaemonicParserState implements ParsePipeline.Cache {
             cell.getFilesystem(),
             cell.getBuildFileName()),
         targetCell.isEnforcingBuckPackageBoundaries());
-    AbstractDescriptionArg constructorArg = description.createUnpopulatedConstructorArg();
+    Object constructorArg = description.createUnpopulatedConstructorArg();
     try {
       ImmutableSet.Builder<BuildTarget> declaredDeps = ImmutableSet.builder();
       ImmutableSet.Builder<BuildTargetPattern> visibilityPatterns =
@@ -457,20 +472,6 @@ class DaemonicParserState implements ParsePipeline.Cache {
     return cell.getBuildRuleType(type);
   }
 
-  /**
-   * @param map the map of values that define the rule.
-   * @return the build target defined by the rule.
-   */
-  private UnflavoredBuildTarget parseBuildTargetFromRawRule(
-      Path cellRoot,
-      Map<String, Object> map) {
-    String basePath = (String) Preconditions.checkNotNull(map.get("buck.base_path"));
-    String name = (String) Preconditions.checkNotNull(map.get("name"));
-    return UnflavoredBuildTarget.builder(UnflavoredBuildTarget.BUILD_TARGET_PREFIX + basePath, name)
-        .setCellPath(cellRoot)
-        .build();
-  }
-
   public void invalidateBasedOn(WatchEvent<?> event) throws InterruptedException {
     if (!WatchEvents.isPathChangeEvent(event)) {
       // Non-path change event, likely an overflow due to many change events: invalidate everything.
@@ -486,6 +487,10 @@ class DaemonicParserState implements ParsePipeline.Cache {
     filesChangedCounter.inc();
 
     Path path = (Path) event.context();
+
+    Preconditions.checkState(
+        allTargetNodes.isEmpty() || !knownCells.isEmpty(),
+        "There are cached target nodes but no known cells. Cache invalidation will not work.");
 
     for (Cell cell : knownCells) {
       try {
@@ -526,7 +531,11 @@ class DaemonicParserState implements ParsePipeline.Cache {
     invalidatePath(path);
   }
 
-  public void invalidatePath(Path path) throws InterruptedException {
+  public void invalidatePath(Path path) {
+    Preconditions.checkState(
+        allTargetNodes.isEmpty() || !knownCells.isEmpty(),
+        "There are cached target nodes but no known cells. Cache invalidation will not work.");
+
     // The paths from watchman are not absolute. Because of this, we adopt a conservative approach
     // to invalidating the caches.
     for (Cell cell : knownCells) {
@@ -600,7 +609,8 @@ class DaemonicParserState implements ParsePipeline.Cache {
 
         // Invalidate the target nodes first
         for (Map<String, Object> rawNode : rawNodes) {
-          UnflavoredBuildTarget target = parseBuildTargetFromRawRule(cell.getRoot(), rawNode);
+          UnflavoredBuildTarget target =
+              ParsePipeline.parseBuildTargetFromRawRule(cell.getRoot(), rawNode, path);
           LOG.debug("Invalidating target for path %s: %s", path, target);
           allTargetNodes.invalidateAll(targetsCornucopia.get(target));
           targetsCornucopia.removeAll(target);
@@ -717,6 +727,7 @@ class DaemonicParserState implements ParsePipeline.Cache {
           cacheInvalidatedByDefaultIncludesChangeCounter.inc();
         }
       }
+      knownCells.clear();
       knownCells.add(cell);
     }
   }
@@ -745,10 +756,6 @@ class DaemonicParserState implements ParsePipeline.Cache {
         invalidated = true;
       }
       buildFileConfigs.clear();
-      if (!knownCells.isEmpty()) {
-        invalidated = true;
-      }
-      knownCells.clear();
 
       if (invalidated) {
         LOG.debug("Cache data invalidated.");

@@ -6,7 +6,6 @@ import platform
 import re
 import shlex
 import signal
-import signal
 import subprocess
 import sys
 import tempfile
@@ -24,6 +23,10 @@ BUCKD_CLIENT_TIMEOUT_MILLIS = 60000
 GC_MAX_PAUSE_TARGET = 15000
 
 JAVA_MAX_HEAP_SIZE_MB = 1000
+
+# While waiting for the daemon to terminate, print a message at most
+# every DAEMON_BUSY_MESSAGE_SECONDS seconds.
+DAEMON_BUSY_MESSAGE_SECONDS = 1.0
 
 # Describes a resource used by this driver.
 #  - name: logical name of the resources
@@ -164,17 +167,25 @@ class BuckTool(object):
             if use_buckd and self._is_buckd_running() and \
                     os.path.exists(buck_socket_path):
                 with Tracing('buck', args={'command': sys.argv[1:]}):
-                    with NailgunConnection('local:.buckd/sock', cwd=self._buck_project.root) as c:
-                        exit_code = c.send_command(
-                            'com.facebook.buck.cli.Main',
-                            sys.argv[1:],
-                            env=env,
-                            cwd=self._buck_project.root)
-                        if exit_code == 2:
-                            print('Daemon is busy, please wait',
-                                  'or run "buck kill" to terminate it.',
-                                  file=sys.stderr)
-                        return exit_code
+                    exit_code = 2
+                    last_diagnostic_time = 0
+                    while exit_code == 2:
+                        with NailgunConnection('local:.buckd/sock',
+                                               cwd=self._buck_project.root) as c:
+                            exit_code = c.send_command(
+                                'com.facebook.buck.cli.Main',
+                                sys.argv[1:],
+                                env=env,
+                                cwd=self._buck_project.root)
+                            if exit_code == 2:
+                                now = time.time()
+                                if now - last_diagnostic_time > DAEMON_BUSY_MESSAGE_SECONDS:
+                                    print('Daemon is busy, waiting for it to exit...',
+                                          file=sys.stderr)
+                                    last_diagnostic_time = now
+                                time.sleep(0.1)
+                    return exit_code
+
 
             command = ["buck"]
             extra_default_options = [
@@ -216,6 +227,8 @@ class BuckTool(object):
                 # statistics; doing it once every five seconds is much
                 # saner for a long-lived daemon.
                 "-XX:PerfDataSamplingInterval=5000",
+                # Do not touch most signals
+                "-Xrs",
                 # Likewise, waking up once per second just in case
                 # there's some rebalancing to be done is silly.
                 "-XX:+UnlockDiagnosticVMOptions",
@@ -233,7 +246,7 @@ class BuckTool(object):
 
             command.extend(self._get_java_args(buck_version_uid, extra_default_options))
             command.append("com.facebook.buck.cli.bootstrapper.ClassLoaderBootstrapper")
-            command.append("com.martiansoftware.nailgun.NGServer")
+            command.append("com.facebook.buck.cli.Main$DaemonBootstrap")
             command.append("local:.buckd/sock")
             command.append("{0}".format(BUCKD_CLIENT_TIMEOUT_MILLIS))
 
@@ -245,16 +258,11 @@ class BuckTool(object):
                 # Close any open file descriptors to further separate buckd from its
                 # invoking context (e.g. otherwise we'd hang when running things like
                 # `ssh localhost buck clean`).
-
-                # N.B. preexec_func is POSIX-only, and any reasonable
-                # POSIX system has a /dev/null
-                os.setpgrp()
                 dev_null_fd = os.open("/dev/null", os.O_RDWR)
                 os.dup2(dev_null_fd, 0)
                 os.dup2(dev_null_fd, 1)
                 os.dup2(dev_null_fd, 2)
                 os.close(dev_null_fd)
-
             buck_socket_path = self._buck_project.get_buckd_socket_path()
 
             # Make sure the Unix domain socket doesn't exist before this call.

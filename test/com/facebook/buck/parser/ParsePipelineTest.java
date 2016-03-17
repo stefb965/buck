@@ -34,12 +34,14 @@ import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.concurrent.MoreExecutors;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.ListeningExecutorService;
 
@@ -56,6 +58,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
+
 public class ParsePipelineTest {
   @Rule
   public TemporaryPaths tmp = new TemporaryPaths();
@@ -63,11 +66,27 @@ public class ParsePipelineTest {
   @Rule
   public ExpectedException expectedException = ExpectedException.none();
 
+  @Test
+  public void testIgnoredDirsErr() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this,
+        "ignored_dirs_err",
+        tmp);
+    workspace.setUp();
+
+    expectedException.expect(HumanReadableException.class);
+    expectedException.expectMessage(
+        " cannot be built because it is defined in an ignored directory.");
+    // enforce creation of targetNode's
+    workspace.runBuckBuild("//libraries/path-to-ignore:ignored-lib");
+  }
+
   private <T> void waitForAll(Iterable<T> items, Predicate<T> predicate)
       throws InterruptedException {
-    boolean allThere = true;
+    boolean allThere = false;
     for (int i = 0; i < 50; ++i) {
-      if (FluentIterable.from(items).allMatch(predicate)) {
+      allThere |= FluentIterable.from(items).allMatch(predicate);
+      if (allThere) {
         break;
       }
       Thread.sleep(100);
@@ -172,6 +191,77 @@ public class ParsePipelineTest {
     }
   }
 
+  @Test
+  public void exceptionOnMalformedRawNode() throws Exception {
+    try (Fixture fixture = new Fixture("pipeline_test")) {
+      Cell cell = fixture.getCell();
+      Path rootBuildFilePath = cell.getFilesystem().resolve("BUCK");
+      fixture.getCache().putRawNodesIfNotPresentAndStripMetaEntries(
+          cell,
+          rootBuildFilePath,
+          ImmutableList.<Map<String, Object>>of(
+              ImmutableMap.of("name", (Object) "bar")));
+      expectedException.expect(IllegalStateException.class);
+      expectedException.expectMessage("malformed raw data");
+      fixture.getParsePipeline().getAllTargetNodes(
+          cell,
+          rootBuildFilePath);
+    }
+  }
+
+  @Test
+  public void exceptionOnSwappedRawNodesInGetAllTargetNodes() throws Exception {
+    try (Fixture fixture = new Fixture("pipeline_test")) {
+      Cell cell = fixture.getCell();
+      Path rootBuildFilePath = cell.getFilesystem().resolve("BUCK");
+      Path aBuildFilePath = cell.getFilesystem().resolve("a/BUCK");
+      fixture.getParsePipeline().getAllTargetNodes(
+          cell,
+          rootBuildFilePath);
+      Optional<ImmutableList<Map<String, Object>>> rootRawNodes = fixture.getCache().lookupRawNodes(
+          cell,
+          rootBuildFilePath);
+      fixture.getCache().putRawNodesIfNotPresentAndStripMetaEntries(
+          cell,
+          aBuildFilePath,
+          rootRawNodes.get());
+      expectedException.expect(IllegalStateException.class);
+      expectedException.expectMessage(
+          "Raw data claims to come from [], but we tried rooting it at [a].");
+      fixture.getParsePipeline().getAllTargetNodes(
+          cell,
+          aBuildFilePath);
+    }
+  }
+
+  @Test
+  public void exceptionOnSwappedRawNodesInGetTargetNode() throws Exception {
+    // The difference between this test and exceptionOnSwappedRawNodesInGetAllTargetNodes is that
+    // the two methods follow different code paths to determine what the BuildTarget for the result
+    // should be and we want to test both of them.
+    try (Fixture fixture = new Fixture("pipeline_test")) {
+      Cell cell = fixture.getCell();
+      Path rootBuildFilePath = cell.getFilesystem().resolve("BUCK");
+      Path aBuildFilePath = cell.getFilesystem().resolve("a/BUCK");
+      fixture.getParsePipeline().getAllTargetNodes(
+          cell,
+          rootBuildFilePath);
+      Optional<ImmutableList<Map<String, Object>>> rootRawNodes = fixture.getCache().lookupRawNodes(
+          cell,
+          rootBuildFilePath);
+      fixture.getCache().putRawNodesIfNotPresentAndStripMetaEntries(
+          cell,
+          aBuildFilePath,
+          rootRawNodes.get());
+      expectedException.expect(IllegalStateException.class);
+      expectedException.expectMessage(
+          "Raw data claims to come from [], but we tried rooting it at [a].");
+      fixture.getParsePipeline().getTargetNode(
+          cell,
+          BuildTargetFactory.newInstance(cell.getFilesystem(), "//a:lib"));
+    }
+  }
+
   private static class ParsePipelineCache implements ParsePipeline.Cache {
     private final Map<BuildTarget, TargetNode<?>> targetNodeMap = new HashMap<>();
     private final Map<Path, ImmutableList<Map<String, Object>>> rawNodeMap = new HashMap<>();
@@ -198,8 +288,12 @@ public class ParsePipelineTest {
     }
 
     @Override
-    public synchronized ImmutableList<Map<String, Object>> putRawNodesIfNotPresent(
-        Cell cell, Path buildFile, ImmutableList<Map<String, Object>> rawNodes) {
+    public synchronized ImmutableList<Map<String, Object>>
+    putRawNodesIfNotPresentAndStripMetaEntries(
+        Cell cell,
+        Path buildFile,
+        ImmutableList<Map<String, Object>> rawNodes) {
+      // Strip meta entries.
       rawNodes = FluentIterable.from(rawNodes)
           .filter(
               new Predicate<Map<String, Object>>() {
@@ -236,13 +330,14 @@ public class ParsePipelineTest {
       this.eventBus = BuckEventBusFactory.newInstance();
       this.console = new TestConsole();
       this.executorService = com.google.common.util.concurrent.MoreExecutors.listeningDecorator(
-          MoreExecutors.newSingleThreadExecutor("test"));
+          MoreExecutors.newMultiThreadExecutor("ParsePipelineTest", 4));
       this.projectBuildFileParsers = new HashSet<>();
       this.workspace.setUp();
 
       this.cell = this.workspace.asCell();
       this.cache = new ParsePipelineCache();
-      final TypeCoercerFactory coercerFactory = new DefaultTypeCoercerFactory();
+      final TypeCoercerFactory coercerFactory = new DefaultTypeCoercerFactory(
+          ObjectMappers.newDefaultInstance());
       final ConstructorArgMarshaller constructorArgMarshaller =
           new ConstructorArgMarshaller(coercerFactory);
 

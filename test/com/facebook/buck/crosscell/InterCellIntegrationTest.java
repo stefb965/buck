@@ -45,6 +45,7 @@ import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -112,10 +113,25 @@ public class InterCellIntegrationTest {
         "inter-cell/export-file/primary",
         "inter-cell/export-file/secondary");
     ProjectWorkspace primary = cells.getFirst();
-    primary.runBuckCommand("targets", "--show-target-hash", "//:cxxbinary");
+    ProjectWorkspace.ProcessResult result = primary.runBuckCommand(
+        "targets",
+        "--show-target-hash",
+        "//:cxxbinary");
+    result.assertSuccess();
+  }
 
-    // Everything is as it should be.
-    // Otherwise a HumanReadableException would be thrown
+  @Test
+  public void shouldBeAbleToUseProjectCommandXCell() throws IOException {
+    assumeThat(Platform.detect(), is(not(WINDOWS)));
+
+    Pair<ProjectWorkspace, ProjectWorkspace> cells = prepare(
+        "inter-cell/export-file/primary",
+        "inter-cell/export-file/secondary");
+    ProjectWorkspace primary = cells.getFirst();
+
+    ProjectWorkspace.ProcessResult result = primary.runBuckCommand("project", "//:cxxbinary");
+
+    result.assertSuccess();
   }
 
   @Test
@@ -274,7 +290,8 @@ public class InterCellIntegrationTest {
     registerCell(secondary, "primary", primary);
 
     // We could just do a build, but that's a little extreme since all we need is the target graph
-    TypeCoercerFactory coercerFactory = new DefaultTypeCoercerFactory();
+    TypeCoercerFactory coercerFactory = new DefaultTypeCoercerFactory(
+        ObjectMappers.newDefaultInstance());
     Parser parser = new Parser(
         new ParserConfig(cells.getFirst().asCell().getBuckConfig()),
         coercerFactory,

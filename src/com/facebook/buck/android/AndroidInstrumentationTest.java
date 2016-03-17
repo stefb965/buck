@@ -24,8 +24,11 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.ExternalTestRunnerRule;
+import com.facebook.buck.rules.ExternalTestRunnerTestSpec;
 import com.facebook.buck.rules.InstallableApk;
 import com.facebook.buck.rules.Label;
+import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TestRule;
 import com.facebook.buck.step.ExecutionContext;
@@ -37,21 +40,34 @@ import com.facebook.buck.test.TestResults;
 import com.facebook.buck.test.TestRunningOptions;
 import com.facebook.buck.test.XmlTestResultParser;
 import com.facebook.buck.test.result.type.ResultType;
+import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.PackagedResource;
 import com.google.common.base.Functions;
 import com.google.common.base.Optional;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 
+import java.io.File;
 import java.nio.file.Path;
-import java.util.List;
+import java.nio.file.Paths;
 import java.util.Set;
 import java.util.concurrent.Callable;
 
 @SuppressWarnings("PMD.TestClassWithoutTestCases")
 public class AndroidInstrumentationTest extends AbstractBuildRule
-    implements TestRule {
+    implements TestRule, ExternalTestRunnerRule {
+
+  private static final String TEST_RESULT_FILE = "test_result.xml";
+
+  // TODO(#9027062): Migrate this to a PackagedResource so we don't make assumptions
+  // about the ant build.
+  private static final Path TESTRUNNER_CLASSES =
+      Paths.get(
+          System.getProperty(
+              "buck.testrunner_classes",
+              new File("build/testrunner/classes").getAbsolutePath()));
 
   @AddToRuleKey
   private ImmutableSet<BuildRule> sourceUnderTest;
@@ -106,6 +122,13 @@ public class AndroidInstrumentationTest extends AbstractBuildRule
       ExecutionContext executionContext,
       TestRunningOptions options,
       TestRule.TestReportingCallback testReportingCallback) {
+    Preconditions.checkArgument(executionContext.getAdbOptions().isPresent());
+
+    if (executionContext.getAdbOptions().get().isMultiInstallModeEnabled()) {
+      throw new HumanReadableException(
+          "Running android instrumentation tests with multiple devices is not supported.");
+    }
+
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
     Path pathToTestOutput = getPathToTestOutputDirectory();
@@ -115,36 +138,72 @@ public class AndroidInstrumentationTest extends AbstractBuildRule
       steps.add(new ApkInstallStep(
               ((AndroidInstrumentationApk) apk).getApkUnderTest()));
     }
-    steps.add(new InstrumentationStep(
-            apk,
-            getProjectFilesystem().resolve(pathToTestOutput),
-            testRuleTimeoutMs));
+
+    AdbHelper adb = AdbHelper.get(executionContext, true);
+    IDevice device;
+    try {
+      device = adb.getSingleDevice();
+    } catch (InterruptedException e) {
+      throw new HumanReadableException("Unable to get connected device.");
+    }
+
+    steps.add(getInstrumentationStep(
+            executionContext.getPathToAdbExecutable(),
+            Optional.of(getProjectFilesystem().resolve(pathToTestOutput)),
+            Optional.of(device.getSerialNumber()),
+            Optional.<Path>absent(),
+            Optional.<Path>absent()));
 
     return steps.build();
   }
 
+  private InstrumentationStep getInstrumentationStep(
+      String pathToAdbExecutable,
+      Optional<Path> directoryForTestResults,
+      Optional<String> deviceSerial,
+      Optional<Path> instrumentationApkPath,
+      Optional<Path> apkUnderTestPath) {
+    String packageName = AdbHelper.tryToExtractPackageNameFromManifest(apk);
+    String testRunner = AdbHelper.tryToExtractInstrumentationTestRunnerFromManifest(apk);
+
+    String ddmlib = new PathSourcePath(
+        this.getProjectFilesystem(),
+        AndroidInstrumentationTest.class + "/ddmlib.jar",
+        new PackagedResource(
+            this.getProjectFilesystem(),
+            AndroidInstrumentationTest.class,
+            "ddmlib.jar")).getRelativePath().toString();
+
+    String kxml2 = new PathSourcePath(
+        this.getProjectFilesystem(),
+        AndroidInstrumentationTest.class + "/kxml2.jar",
+        new PackagedResource(
+            this.getProjectFilesystem(),
+            AndroidInstrumentationTest.class,
+            "kxml2.jar")).getRelativePath().toString();
+
+    AndroidInstrumentationTestJVMArgs jvmArgs = AndroidInstrumentationTestJVMArgs.builder()
+        .setApkUnderTestPath(apkUnderTestPath)
+        .setPathToAdbExecutable(pathToAdbExecutable)
+        .setDeviceSerial(deviceSerial)
+        .setDirectoryForTestResults(directoryForTestResults)
+        .setInstrumentationApkPath(instrumentationApkPath)
+        .setTestPackage(packageName)
+        .setTestRunner(testRunner)
+        .setTestRunnerClasspath(TESTRUNNER_CLASSES)
+        .setDdmlibJarPath(ddmlib)
+        .setKxmlJarPath(kxml2)
+        .build();
+
+    return new InstrumentationStep(
+        getProjectFilesystem(), jvmArgs, testRuleTimeoutMs);
+  }
+
   @Override
   public boolean hasTestResultFiles(ExecutionContext context) {
-    List<IDevice> devices;
-    AdbHelper adbHelper = AdbHelper.get(context, true);
-    try {
-      devices = adbHelper.getDevices(true);
-    } catch (InterruptedException e) {
-      devices = Lists.newArrayList();
-    }
-    // It might happen that a new device is attached when re-running the tests,
-    // in which case we want to re-run the tests with the new device included.
-    for (IDevice device : devices) {
-      Path testResultPath = getProjectFilesystem().resolve(
-          getPathToTestOutputDirectory().resolve(
-              BuckXmlTestRunListener.TEST_RESULT_FILE_PREFIX +
-                  device.getSerialNumber() +
-                  BuckXmlTestRunListener.TEST_RESULT_FILE_SUFFIX));
-      if (!testResultPath.toFile().exists()) {
-        return false;
-      }
-    }
-    return true;
+    Path testResultPath = getProjectFilesystem().resolve(
+        getPathToTestOutputDirectory().resolve(TEST_RESULT_FILE));
+    return testResultPath.toFile().exists();
   }
 
   @Override
@@ -178,23 +237,18 @@ public class AndroidInstrumentationTest extends AbstractBuildRule
       @Override
       public TestResults call() throws Exception {
         final ImmutableList.Builder<TestCaseSummary> summaries = ImmutableList.builder();
-        List<IDevice> devices;
+        IDevice device;
         AdbHelper adbHelper = AdbHelper.get(context, true);
         try {
-          devices = adbHelper.getDevices(true);
+          device = adbHelper.getSingleDevice();
         } catch (InterruptedException e) {
-          devices = Lists.newArrayList();
+          device = null;
         }
-        if (devices.isEmpty()) {
+        if (device == null) {
           summaries.add(getTestClassAssumedSummary());
-        }
-
-        for (IDevice device : devices) {
+        } else {
           Path testResultPath = getProjectFilesystem().resolve(
-              getPathToTestOutputDirectory().resolve(
-                  BuckXmlTestRunListener.TEST_RESULT_FILE_PREFIX +
-                      device.getSerialNumber() +
-                      BuckXmlTestRunListener.TEST_RESULT_FILE_SUFFIX));
+              getPathToTestOutputDirectory().resolve(TEST_RESULT_FILE));
           summaries.add(
               XmlTestResultParser.parseAndroid(testResultPath, device.getSerialNumber()));
         }
@@ -225,4 +279,31 @@ public class AndroidInstrumentationTest extends AbstractBuildRule
     return false;
   }
 
+  @Override
+  public ExternalTestRunnerTestSpec getExternalTestRunnerSpec(
+      ExecutionContext executionContext, TestRunningOptions testRunningOptions) {
+    Optional<Path> apkUnderTestPath = Optional.absent();
+    if (apk instanceof AndroidInstrumentationApk) {
+      apkUnderTestPath = Optional.of(toPath(((AndroidInstrumentationApk) apk).getApkUnderTest()));
+    }
+    InstrumentationStep step = getInstrumentationStep(
+        executionContext.getPathToAdbExecutable(),
+        Optional.<Path>absent(),
+        Optional.<String>absent(),
+        Optional.of(toPath(apk)),
+        apkUnderTestPath);
+
+    return ExternalTestRunnerTestSpec.builder()
+        .setTarget(getBuildTarget())
+        .setType("android_instrumentation")
+        .setCommand(step.getShellCommandInternal(executionContext))
+        .setLabels(getLabels())
+        .setContacts(getContacts())
+        .build();
+  }
+
+  private static Path toPath(InstallableApk apk) {
+    return apk.getProjectFilesystem().resolve(
+        apk.getApkPath());
+  }
 }

@@ -25,6 +25,7 @@ import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.ObjectMappers;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Throwables;
@@ -43,7 +44,7 @@ import javax.annotation.Nullable;
  * and {@link ActionGraph} ({@link TargetNode} and {@link BuildRule} respectively) mirroring the
  * behavior seen when running the actual parser as closely as possible.
  */
-public abstract class AbstractNodeBuilder<A extends AbstractDescriptionArg> {
+public abstract class AbstractNodeBuilder<A> {
   protected final Description<A> description;
   protected final BuildRuleFactoryParams factoryParams;
   protected final BuildTarget target;
@@ -115,7 +116,7 @@ public abstract class AbstractNodeBuilder<A extends AbstractDescriptionArg> {
           hash,
           description,
           arg,
-          new DefaultTypeCoercerFactory(),
+          new DefaultTypeCoercerFactory(ObjectMappers.newDefaultInstance()),
           factoryParams,
           getDepsFromArg(),
           ImmutableSet.<BuildTargetPattern>of(),
@@ -183,7 +184,8 @@ public abstract class AbstractNodeBuilder<A extends AbstractDescriptionArg> {
    */
   private void populateWithDefaultValues(A arg) {
     try {
-      new ConstructorArgMarshaller(new DefaultTypeCoercerFactory()).populateDefaults(
+      new ConstructorArgMarshaller(
+          new DefaultTypeCoercerFactory(ObjectMappers.newDefaultInstance())).populateDefaults(
           cellRoots,
           new FakeProjectFilesystem(),
           factoryParams,

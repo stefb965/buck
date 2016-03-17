@@ -128,7 +128,7 @@ public class PythonBinaryDescription implements
       ImmutableSet<String> preloadLibraries) {
 
     // We don't currently support targeting Windows.
-    if (cxxPlatform.getLd() instanceof WindowsLinker) {
+    if (cxxPlatform.getLd().resolve(resolver) instanceof WindowsLinker) {
       throw new HumanReadableException(
           "%s: cannot build in-place python binaries for Windows (%s)",
           params.getBuildTarget(),
@@ -188,6 +188,7 @@ public class PythonBinaryDescription implements
     return new PythonInPlaceBinary(
         params,
         pathResolver,
+        resolver,
         pythonPlatform,
         cxxPlatform,
         linkTree,
@@ -343,6 +344,11 @@ public class PythonBinaryDescription implements
       Function<Optional<String>, Path> cellRoots,
       Arg constructorArg) {
     ImmutableList.Builder<BuildTarget> targets = ImmutableList.builder();
+
+    // We need to use the C/C++ linker for native libs handling, so add in the C/C++ linker to
+    // parse time deps.
+    targets.addAll(
+        cxxPlatforms.getValue(buildTarget).or(defaultCxxPlatform).getLd().getParseTimeDeps());
 
     if (pythonBuckConfig.getPackageStyle() == PythonBuckConfig.PackageStyle.STANDALONE) {
       targets.addAll(pythonBuckConfig.getPexTarget().asSet());

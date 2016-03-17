@@ -22,6 +22,7 @@ import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxFlags;
 import com.facebook.buck.cxx.CxxLinkableEnhancer;
 import com.facebook.buck.cxx.CxxPlatform;
+import com.facebook.buck.cxx.CxxPlatforms;
 import com.facebook.buck.cxx.CxxPreprocessAndCompile;
 import com.facebook.buck.cxx.CxxPreprocessables;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
@@ -157,9 +158,10 @@ public class CxxLuaExtensionDescription implements
             pathResolver,
             cxxPlatform,
             cxxPreprocessorInput,
-            CxxFlags.getFlags(
+            CxxFlags.getLanguageFlags(
                 args.compilerFlags,
                 args.platformCompilerFlags,
+                args.langCompilerFlags,
                 cxxPlatform),
             args.prefixHeader,
             cxxBuckConfig.getPreprocessMode(),
@@ -194,6 +196,7 @@ public class CxxLuaExtensionDescription implements
     return CxxLinkableEnhancer.createCxxLinkableBuildRule(
         cxxPlatform,
         params,
+        ruleResolver,
         pathResolver,
         getExtensionTarget(
             params.getBuildTarget(),
@@ -294,7 +297,15 @@ public class CxxLuaExtensionDescription implements
       BuildTarget buildTarget,
       Function<Optional<String>, Path> cellRoots,
       Arg constructorArg) {
-    return luaConfig.getLuaCxxLibraryTarget().asSet();
+    ImmutableSet.Builder<BuildTarget> deps = ImmutableSet.builder();
+
+    // Add deps from lua C/C++ library.
+    deps.addAll(luaConfig.getLuaCxxLibraryTarget().asSet());
+
+    // Get any parse time deps from the C/C++ platforms.
+    deps.addAll(CxxPlatforms.getParseTimeDeps(cxxPlatforms.getValues()));
+
+    return deps.build();
   }
 
   @SuppressFieldNotInitialized

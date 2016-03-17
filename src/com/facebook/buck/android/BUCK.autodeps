@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY 4e488748701c20b80615ab7227eb42f13b9bc0c5 #@#
+#@# GENERATED FILE: DO NOT MODIFY 1e16256406624b2ec693de3d0960fd79affde759 #@#
 {
   "exceptions" : [
     "//src/com/facebook/buck/util:exceptions",
@@ -57,6 +57,7 @@
     "//src/com/facebook/buck/jvm/java:steps",
     "//src/com/facebook/buck/jvm/java:support",
     "//src/com/facebook/buck/jvm/java/classes:classes",
+    "//src/com/facebook/buck/jvm/java/runner:runner",
     "//src/com/facebook/buck/log:api",
     "//src/com/facebook/buck/model:model",
     "//src/com/facebook/buck/parser:rule_pattern",
@@ -75,6 +76,7 @@
     "//src/com/facebook/buck/util:constants",
     "//src/com/facebook/buck/util:escaper",
     "//src/com/facebook/buck/util:exceptions",
+    "//src/com/facebook/buck/util:io",
     "//src/com/facebook/buck/util:object_mapper",
     "//src/com/facebook/buck/util:util",
     "//src/com/facebook/buck/util/environment:platform",
@@ -100,6 +102,7 @@
     "//src/com/facebook/buck/android:split_dex",
     "//src/com/facebook/buck/android:utils",
     "//src/com/facebook/buck/cxx:platform",
+    "//src/com/facebook/buck/cxx:rules",
     "//src/com/facebook/buck/dalvik:dalvik",
     "//src/com/facebook/buck/dalvik/firstorder:firstorder",
     "//src/com/facebook/buck/event:event",

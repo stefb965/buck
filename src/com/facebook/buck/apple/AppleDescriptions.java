@@ -223,6 +223,7 @@ public class AppleDescriptions {
     output.prefixHeader = arg.prefixHeader;
     output.compilerFlags = arg.compilerFlags;
     output.platformCompilerFlags = arg.platformCompilerFlags;
+    output.langCompilerFlags = arg.langCompilerFlags;
     output.preprocessorFlags = arg.preprocessorFlags;
     output.platformPreprocessorFlags = arg.platformPreprocessorFlags;
     output.langPreprocessorFlags = arg.langPreprocessorFlags;
@@ -277,8 +278,7 @@ public class AppleDescriptions {
                 headerPathPrefix,
                 arg)));
     output.exportedPlatformHeaders = Optional.of(PatternMatchedCollection.<SourceList>of());
-    output.exportedPlatformPreprocessorFlags = Optional.of(
-        PatternMatchedCollection.<ImmutableList<String>>of());
+    output.exportedPlatformPreprocessorFlags = arg.exportedPlatformPreprocessorFlags;
     output.exportedLangPreprocessorFlags = Optional.of(
         ImmutableMap.<CxxSource.Type, ImmutableList<String>>of());
     output.exportedLinkerFlags = arg.exportedLinkerFlags;

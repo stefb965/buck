@@ -17,10 +17,12 @@
 package com.facebook.buck.python;
 
 import com.facebook.buck.cxx.CxxPlatform;
+import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.CommandTool;
@@ -36,7 +38,6 @@ import com.facebook.buck.util.Escaper;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
 import com.google.common.base.Supplier;
-import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -70,6 +71,7 @@ public class PythonInPlaceBinary extends PythonBinary implements HasRuntimeDeps 
   public PythonInPlaceBinary(
       BuildRuleParams params,
       SourcePathResolver resolver,
+      BuildRuleResolver ruleResolver,
       PythonPlatform pythonPlatform,
       CxxPlatform cxxPlatform,
       SymlinkTree linkTree,
@@ -81,6 +83,7 @@ public class PythonInPlaceBinary extends PythonBinary implements HasRuntimeDeps 
     super(params, resolver, pythonPlatform, mainModule, components, preloadLibraries, pexExtension);
     this.script =
         getScript(
+            ruleResolver,
             pythonPlatform,
             cxxPlatform,
             mainModule,
@@ -99,11 +102,12 @@ public class PythonInPlaceBinary extends PythonBinary implements HasRuntimeDeps 
     try {
       return Resources.toString(Resources.getResource(RUN_INPLACE_RESOURCE), Charsets.UTF_8);
     } catch (IOException e) {
-      throw Throwables.propagate(e);
+      throw new RuntimeException(e);
     }
   }
 
   private static Supplier<String> getScript(
+      final BuildRuleResolver resolver,
       final PythonPlatform pythonPlatform,
       final CxxPlatform cxxPlatform,
       final String mainModule,
@@ -112,6 +116,7 @@ public class PythonInPlaceBinary extends PythonBinary implements HasRuntimeDeps 
       final ImmutableSet<String> preloadLibraries) {
     final String relativeLinkTreeRootStr =
         Escaper.escapeAsPythonString(relativeLinkTreeRoot.toString());
+    final Linker ld = cxxPlatform.getLd().resolve(resolver);
     return new Supplier<String>() {
       @Override
       public String get() {
@@ -121,7 +126,7 @@ public class PythonInPlaceBinary extends PythonBinary implements HasRuntimeDeps 
             .add("MODULES_DIR", relativeLinkTreeRootStr)
             .add(
                 "NATIVE_LIBS_ENV_VAR",
-                Escaper.escapeAsPythonString(cxxPlatform.getLd().searchPathEnvVar()))
+                Escaper.escapeAsPythonString(ld.searchPathEnvVar()))
             .add(
                 "NATIVE_LIBS_DIR",
                 components.getNativeLibraries().isEmpty() ?
@@ -129,7 +134,7 @@ public class PythonInPlaceBinary extends PythonBinary implements HasRuntimeDeps 
                     relativeLinkTreeRootStr)
             .add(
                 "NATIVE_LIBS_PRELOAD_ENV_VAR",
-                Escaper.escapeAsPythonString(cxxPlatform.getLd().preloadEnvVar()))
+                Escaper.escapeAsPythonString(ld.preloadEnvVar()))
             .add(
                 "NATIVE_LIBS_PRELOAD",
                 Escaper.escapeAsPythonString(Joiner.on(':').join(preloadLibraries)))

@@ -32,6 +32,7 @@ import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BuildRuleStatus;
 import com.facebook.buck.rules.BuildRuleSuccessType;
 import com.facebook.buck.testutil.integration.BuckBuildLog;
@@ -42,10 +43,13 @@ import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Function;
+import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterables;
+import com.google.common.collect.Sets;
 
 import org.hamcrest.Matchers;
 import org.junit.Assert;
@@ -57,6 +61,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Set;
 
 public class CxxBinaryIntegrationTest {
 
@@ -75,8 +80,9 @@ public class CxxBinaryIntegrationTest {
     CxxPlatform cxxPlatform = DefaultCxxPlatforms.build(
         new CxxBuckConfig(FakeBuckConfig.builder().build()));
     BuildTarget inputBuildTarget = BuildTargetFactory.newInstance("//foo:binary_with_deps");
-    String inputBuildTargetName =
-        inputBuildTarget.withFlavors(CxxInferEnhancer.INFER).getFullyQualifiedName();
+    String inputBuildTargetName = inputBuildTarget
+        .withFlavors(CxxInferEnhancer.InferFlavors.INFER.get())
+        .getFullyQualifiedName();
 
     /*
      * Build the given target and check that it succeeds.
@@ -112,10 +118,12 @@ public class CxxBinaryIntegrationTest {
         cxxSourceRuleFactory.createInferCaptureBuildTarget(sourceName);
 
     // this is flavored, and denotes the analysis step (generates a local report)
-    BuildTarget inferAnalysisTarget = inputBuildTarget.withFlavors(CxxInferEnhancer.INFER_ANALYZE);
+    BuildTarget inferAnalysisTarget = inputBuildTarget
+        .withFlavors(CxxInferEnhancer.InferFlavors.INFER_ANALYZE.get());
 
     // this is the flavored version of the top level target (the one give in input to buck)
-    BuildTarget inferReportTarget = inputBuildTarget.withFlavors(CxxInferEnhancer.INFER);
+    BuildTarget inferReportTarget = inputBuildTarget
+        .withFlavors(CxxInferEnhancer.InferFlavors.INFER.get());
 
     String bt;
     for (BuildTarget buildTarget : buildLog.getAllTargets()) {
@@ -131,6 +139,120 @@ public class CxxBinaryIntegrationTest {
   }
 
   @Test
+  public void testInferCxxBinaryDepsInvalidateCacheWhenVersionChanges() throws IOException {
+    assumeTrue(Platform.detect() != Platform.WINDOWS);
+    ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(
+        this,
+        tmp,
+        Optional.<String>absent());
+    workspace.enableDirCache(); // enable the cache
+
+    CxxPlatform cxxPlatform = DefaultCxxPlatforms.build(
+        new CxxBuckConfig(FakeBuckConfig.builder().build()));
+    BuildTarget inputBuildTarget = BuildTargetFactory.newInstance("//foo:binary_with_deps");
+    final String inputBuildTargetName = inputBuildTarget.withFlavors(
+        CxxInferEnhancer.InferFlavors.INFER.get()).getFullyQualifiedName();
+
+    /*
+     * Build the given target and check that it succeeds.
+     */
+    workspace.runBuckCommand("build", inputBuildTargetName).assertSuccess();
+
+    /*
+     * Check that building after clean will use the cache
+     */
+    workspace.runBuckCommand("clean").assertSuccess();
+    workspace.runBuckCommand("build", inputBuildTargetName).assertSuccess();
+    BuckBuildLog buildLog = workspace.getBuildLog();
+    for (BuildTarget buildTarget : buildLog.getAllTargets()) {
+      buildLog.assertTargetWasFetchedFromCache(buildTarget.toString());
+    }
+
+    /*
+     * Check that if the version of infer changes, then all the infer-related targets are
+     * recomputed
+     */
+    workspace.resetBuildLogFile();
+    workspace.replaceFileContents("fake-infer/fake-bin/infer", "0.12345", "9.9999");
+    workspace.runBuckCommand("clean").assertSuccess();
+    workspace.runBuckCommand("build", inputBuildTargetName).assertSuccess();
+    buildLog = workspace.getBuildLog();
+
+
+    String sourceName = "src_with_deps.c";
+    CxxSourceRuleFactory cxxSourceRuleFactory = CxxSourceRuleFactoryHelper.of(
+        workspace.getDestPath(),
+        inputBuildTarget,
+        cxxPlatform);
+
+    BuildTarget topCaptureBuildTarget =
+        cxxSourceRuleFactory.createInferCaptureBuildTarget(sourceName);
+
+    BuildTarget topInferAnalysisTarget =
+        inputBuildTarget.withFlavors(CxxInferEnhancer.InferFlavors.INFER_ANALYZE.get());
+
+    BuildTarget topInferReportTarget = inputBuildTarget.withFlavors(
+        CxxInferEnhancer.InferFlavors.INFER.get());
+
+    BuildTarget depOneBuildTarget =
+        BuildTargetFactory.newInstance(workspace.getDestPath(), "//foo:dep_one");
+    String depOneSourceName = "dep_one.c";
+    CxxSourceRuleFactory depOneSourceRuleFactory =
+        CxxSourceRuleFactoryHelper.of(workspace.getDestPath(), depOneBuildTarget, cxxPlatform);
+
+    BuildTarget depOneCaptureBuildTarget =
+        depOneSourceRuleFactory.createInferCaptureBuildTarget(depOneSourceName);
+
+    BuildTarget depOneInferAnalysisTarget =
+        depOneCaptureBuildTarget.withFlavors(
+            cxxPlatform.getFlavor(),
+            CxxInferEnhancer.InferFlavors.INFER_ANALYZE.get());
+
+    BuildTarget depTwoBuildTarget =
+        BuildTargetFactory.newInstance(workspace.getDestPath(), "//foo:dep_two");
+    CxxSourceRuleFactory depTwoSourceRuleFactory =
+        CxxSourceRuleFactoryHelper.of(workspace.getDestPath(), depTwoBuildTarget, cxxPlatform);
+
+    BuildTarget depTwoCaptureBuildTarget =
+        depTwoSourceRuleFactory.createInferCaptureBuildTarget("dep_two.c");
+
+    BuildTarget depTwoInferAnalysisTarget =
+        depTwoCaptureBuildTarget.withFlavors(
+            cxxPlatform.getFlavor(),
+            CxxInferEnhancer.InferFlavors.INFER_ANALYZE.get());
+
+    ImmutableSet<String> locallyBuiltTargets = ImmutableSet.of(
+        topCaptureBuildTarget.toString(),
+        topInferAnalysisTarget.toString(),
+        topInferReportTarget.toString(),
+        depOneCaptureBuildTarget.toString(),
+        depOneInferAnalysisTarget.toString(),
+        depTwoCaptureBuildTarget.toString(),
+        depTwoInferAnalysisTarget.toString());
+
+    // check that infer-related targets are getting rebuilt
+    for (String t : locallyBuiltTargets) {
+      buildLog.assertTargetBuiltLocally(t);
+    }
+
+    Set <String> builtFromCacheTargets = Sets.newHashSet(
+        Iterables.transform(
+            buildLog.getAllTargets(), new Function<BuildTarget, String>() {
+              @Override
+              public String apply(BuildTarget input) {
+                return input.toString();
+              }
+            })
+    );
+    builtFromCacheTargets.removeAll(locallyBuiltTargets);
+
+    // check that all the other targets are fetched from the cache
+    for (String t : builtFromCacheTargets) {
+      buildLog.assertTargetWasFetchedFromCache(t);
+    }
+  }
+
+  @Test
   public void testInferCxxBinaryWithoutDeps() throws IOException {
     assumeTrue(Platform.detect() != Platform.WINDOWS);
     ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(
@@ -142,8 +264,9 @@ public class CxxBinaryIntegrationTest {
         new CxxBuckConfig(FakeBuckConfig.builder().build()));
     BuildTarget inputBuildTarget =
         BuildTargetFactory.newInstance(workspace.getDestPath(), "//foo:simple");
-    String inputBuildTargetName =
-        inputBuildTarget.withFlavors(CxxInferEnhancer.INFER).getFullyQualifiedName();
+    String inputBuildTargetName = inputBuildTarget
+        .withFlavors(CxxInferEnhancer.InferFlavors.INFER.get())
+        .getFullyQualifiedName();
 
     /*
      * Build the given target and check that it succeeds.
@@ -170,10 +293,12 @@ public class CxxBinaryIntegrationTest {
             cxxPlatform.getFlavor(),
             HeaderVisibility.PRIVATE);
     // this is flavored, and denotes the analysis step (generates a local report)
-    BuildTarget inferAnalysisTarget = inputBuildTarget.withFlavors(CxxInferEnhancer.INFER_ANALYZE);
+    BuildTarget inferAnalysisTarget =
+        inputBuildTarget.withFlavors(CxxInferEnhancer.InferFlavors.INFER_ANALYZE.get());
 
     // this is flavored and corresponds to the top level target (the one give in input to buck)
-    BuildTarget inferReportTarget = inputBuildTarget.withFlavors(CxxInferEnhancer.INFER);
+    BuildTarget inferReportTarget =
+        inputBuildTarget.withFlavors(CxxInferEnhancer.InferFlavors.INFER.get());
 
     ImmutableSet<BuildTarget> expectedTargets = ImmutableSet.<BuildTarget>builder()
         .addAll(
@@ -227,8 +352,9 @@ public class CxxBinaryIntegrationTest {
         new CxxBuckConfig(FakeBuckConfig.builder().build()));
     BuildTarget inputBuildTarget =
         BuildTargetFactory.newInstance(workspace.getDestPath(), "//foo:binary_with_deps");
-    String inputBuildTargetName =
-        inputBuildTarget.withFlavors(CxxInferEnhancer.INFER).getFullyQualifiedName();
+    String inputBuildTargetName = inputBuildTarget
+        .withFlavors(CxxInferEnhancer.InferFlavors.INFER.get())
+        .getFullyQualifiedName();
 
     /*
      * Build the given target and check that it succeeds.
@@ -256,11 +382,12 @@ public class CxxBinaryIntegrationTest {
             HeaderVisibility.PRIVATE);
 
     // this is flavored, and denotes the analysis step (generates a local report)
-    BuildTarget topInferAnalysisTarget =
-        inputBuildTarget.withFlavors(CxxInferEnhancer.INFER_ANALYZE);
+    BuildTarget topInferAnalysisTarget = inputBuildTarget
+        .withFlavors(CxxInferEnhancer.InferFlavors.INFER_ANALYZE.get());
 
     // this is flavored and corresponds to the top level target (the one give in input to buck)
-    BuildTarget topInferReportTarget = inputBuildTarget.withFlavors(CxxInferEnhancer.INFER);
+    BuildTarget topInferReportTarget = inputBuildTarget
+        .withFlavors(CxxInferEnhancer.InferFlavors.INFER.get());
 
     // 2. create the targets of dep_one
     BuildTarget depOneBuildTarget =
@@ -288,7 +415,7 @@ public class CxxBinaryIntegrationTest {
     BuildTarget depOneInferAnalysisTarget =
         depOneCaptureBuildTarget.withFlavors(
             cxxPlatform.getFlavor(),
-            CxxInferEnhancer.INFER_ANALYZE);
+            CxxInferEnhancer.InferFlavors.INFER_ANALYZE.get());
 
     // 3. create the targets of dep_two
     BuildTarget depTwoBuildTarget =
@@ -314,7 +441,7 @@ public class CxxBinaryIntegrationTest {
     BuildTarget depTwoInferAnalysisTarget =
         depTwoCaptureBuildTarget.withFlavors(
             cxxPlatform.getFlavor(),
-            CxxInferEnhancer.INFER_ANALYZE);
+            CxxInferEnhancer.InferFlavors.INFER_ANALYZE.get());
 
     // Check all the targets are in the buildLog
     assertEquals(
@@ -379,113 +506,63 @@ public class CxxBinaryIntegrationTest {
         tmp,
         Optional.<String>absent());
 
-    BuildTarget inputBuildTarget = BuildTargetFactory.newInstance("//foo:binary_with_chain_deps");
-    String inputBuildTargetName =
-        inputBuildTarget.withFlavors(CxxInferEnhancer.INFER).getFullyQualifiedName();
+    BuildTarget inputBuildTarget = BuildTargetFactory.newInstance("//foo:binary_with_chain_deps")
+        .withFlavors(CxxInferEnhancer.InferFlavors.INFER.get());
 
     // Build the given target and check that it succeeds.
-    workspace.runBuckCommand("build", inputBuildTargetName).assertSuccess();
+    workspace.runBuckCommand("build", inputBuildTarget.getFullyQualifiedName()).assertSuccess();
 
     assertTrue(
-        workspace.getPath("buck-out/gen/foo/infer-binary_with_chain_deps#infer/infer-deps.txt")
-            .toFile().exists());
+        Files.exists(
+            workspace.getPath(
+                BuildTargets.getGenPath(inputBuildTarget, "infer-%s/infer-deps.txt"))));
 
     String loggedDeps = workspace.getFileContents(
-        "buck-out/gen/foo/infer-binary_with_chain_deps#infer/infer-deps.txt");
+        BuildTargets.getGenPath(inputBuildTarget, "infer-%s/infer-deps.txt"));
 
-    String expectedOutput =
-        "//foo:binary_with_chain_deps#infer-analyze\t" +
-            "buck-out/gen/foo/infer-analysis-binary_with_chain_deps#infer-analyze\n" +
-        "//foo:chain_dep_one#default,infer-analyze\t" +
-            "buck-out/gen/foo/infer-analysis-chain_dep_one#default,infer-analyze\n" +
-        "//foo:chain_dep_one#default,infer-capture-" + sanitize("chain_dep_one.c.o") + "\t" +
-            "buck-out/gen/foo/infer-out-chain_dep_one#default,infer-capture-" +
-            sanitize("chain_dep_one.c.o") + "\n" +
-        "//foo:chain_dep_two#default,infer-analyze\t" +
-            "buck-out/gen/foo/infer-analysis-chain_dep_two#default,infer-analyze\n" +
-        "//foo:chain_dep_two#default,infer-capture-" + sanitize("chain_dep_two.c.o") + "\t" +
-            "buck-out/gen/foo/infer-out-chain_dep_two#default,infer-capture-" +
-            sanitize("chain_dep_two.c.o") + "\n";
+    String sanitizedChainDepOne = sanitize("chain_dep_one.c.o");
+    String sanitizedTopChain = sanitize("top_chain.c.o");
+    String sanitizedChainDepTwo = sanitize("chain_dep_two.c.o");
 
-    assertEquals(expectedOutput, loggedDeps);
+    BuildTarget analyzeTopChainTarget = BuildTargetFactory.newInstance(
+        "//foo:binary_with_chain_deps#infer-analyze");
+    BuildTarget captureTopChainTarget = BuildTargetFactory.newInstance(
+        "//foo:binary_with_chain_deps#default,infer-capture-" + sanitizedTopChain);
+    BuildTarget analyzeChainDepOneTarget = BuildTargetFactory.newInstance(
+        "//foo:chain_dep_one#default,infer-analyze");
+    BuildTarget captureChainDepOneTarget = BuildTargetFactory.newInstance(
+        "//foo:chain_dep_one#default,infer-capture-" + sanitizedChainDepOne);
+    BuildTarget analyzeChainDepTwoTarget = BuildTargetFactory.newInstance(
+        "//foo:chain_dep_two#default,infer-analyze");
+    BuildTarget captureChainDepTwoTarget = BuildTargetFactory.newInstance(
+        "//foo:chain_dep_two#default,infer-capture-" + sanitizedChainDepTwo);
+    String expectedOutput = Joiner.on('\n').join(
+        ImmutableList.of(
+            analyzeTopChainTarget.getFullyQualifiedName() + "\t" +
+                "[infer-analyze]\t" +
+                BuildTargets.getGenPath(analyzeTopChainTarget, "infer-analysis-%s"),
+            captureTopChainTarget.getFullyQualifiedName() + "\t" +
+                "[default, infer-capture-" + sanitizedTopChain + "]\t" +
+                BuildTargets.getGenPath(captureTopChainTarget, "infer-out-%s"),
+            analyzeChainDepOneTarget.getFullyQualifiedName() + "\t" +
+                "[default, infer-analyze]\t" +
+                BuildTargets.getGenPath(analyzeChainDepOneTarget, "infer-analysis-%s"),
+            captureChainDepOneTarget.getFullyQualifiedName() + "\t" +
+                "[default, infer-capture-" + sanitizedChainDepOne + "]\t" +
+                BuildTargets.getGenPath(captureChainDepOneTarget, "infer-out-%s"),
+            analyzeChainDepTwoTarget.getFullyQualifiedName() + "\t" +
+                "[default, infer-analyze]\t" +
+                BuildTargets.getGenPath(analyzeChainDepTwoTarget, "infer-analysis-%s"),
+            captureChainDepTwoTarget.getFullyQualifiedName() + "\t" +
+                "[default, infer-capture-" + sanitizedChainDepTwo + "]\t" +
+                BuildTargets.getGenPath(captureChainDepTwoTarget, "infer-out-%s")));
+
+    assertEquals(expectedOutput + "\n", loggedDeps);
   }
 
   @Test
-  public void testInferCxxBinarySkipsBlacklistedFiles() throws IOException {
-    assumeTrue(Platform.detect() != Platform.WINDOWS);
-    ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(
-        this,
-        tmp,
-        Optional.of(".*one\\.c"));
-
-    BuildTarget inputBuildTarget = BuildTargetFactory.newInstance("//foo:binary_with_chain_deps");
-    String inputBuildTargetName =
-        inputBuildTarget.withFlavors(CxxInferEnhancer.INFER).getFullyQualifiedName();
-
-    // Build the given target and check that it succeeds.
-    workspace.runBuckCommand("build", inputBuildTargetName).assertSuccess();
-
-    // Check that the cfg associated with chain_dep_one.c does not exist
-    assertFalse(
-        "Cfg file for chain_dep_one.c should not exist",
-        workspace.getPath(
-            "buck-out/gen/foo/infer-out-chain_dep_one#default,infer-capture-" +
-                sanitize("chain_dep_one.c.o") +
-                "/captured/chain_dep_one.c_captured/chain_dep_one.c.cfg").toFile().exists());
-
-    // Check that the remaining files still have their cfgs
-    assertTrue(
-        "Expected cfg for chain_dep_two.c not found",
-        workspace.getPath(
-            "buck-out/gen/foo/infer-out-chain_dep_two#default,infer-capture-" +
-                sanitize("chain_dep_two.c.o") +
-                "/captured/chain_dep_two.c_captured/chain_dep_two.c.cfg").toFile().exists());
-    assertTrue(
-        "Expected cfg for top_chain.c not found",
-        workspace.getPath(
-            "buck-out/gen/foo/infer-analysis-binary_with_chain_deps#infer-analyze/captured/" +
-                "top_chain.c_captured/top_chain.c.cfg").toFile().exists());
-  }
-
-  @Test
-  public void testInferCxxBinaryRunsOnAllFilesWhenBlacklistIsNotSpecified() throws IOException {
-    assumeTrue(Platform.detect() != Platform.WINDOWS);
-    ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(
-        this,
-        tmp,
-        Optional.<String>absent());
-
-    BuildTarget inputBuildTarget = BuildTargetFactory.newInstance("//foo:binary_with_chain_deps");
-    String inputBuildTargetName =
-        inputBuildTarget.withFlavors(CxxInferEnhancer.INFER).getFullyQualifiedName();
-
-    // Build the given target and check that it succeeds.
-    workspace.runBuckCommand("build", inputBuildTargetName).assertSuccess();
-
-    // Check that all cfgs have been created
-    assertTrue(
-        "Expected cfg for chain_dep_one.c not found",
-        workspace.getPath(
-            "buck-out/gen/foo/infer-out-" +
-                "chain_dep_one#default,infer-capture-" +
-                sanitize("chain_dep_one.c.o") +
-                "/captured/chain_dep_one.c_captured/chain_dep_one.c.cfg").toFile().exists());
-
-    assertTrue(
-        "Expected cfg for chain_dep_two.c not found",
-        workspace.getPath(
-            "buck-out/gen/foo/infer-out-chain_dep_two#default,infer-capture-" +
-                sanitize("chain_dep_two.c.o") +
-                "/captured/chain_dep_two.c_captured/chain_dep_two.c.cfg").toFile().exists());
-    assertTrue(
-        "Expected cfg for top_chain.c not found",
-        workspace.getPath(
-            "buck-out/gen/foo/infer-analysis-binary_with_chain_deps#infer-analyze/captured/" +
-                "top_chain.c_captured/top_chain.c.cfg").toFile().exists());
-  }
-
-  @Test
-  public void testInferCxxBinaryWithCachedDepsGetsAllItsTransitiveDeps() throws IOException {
+  public void testInferCxxBinaryWithDiamondDepsHasRuntimeDepsOfAllCaptureRulesWhenCacheHits(
+  ) throws IOException {
     assumeTrue(Platform.detect() != Platform.WINDOWS);
     ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(
         this,
@@ -493,9 +570,11 @@ public class CxxBinaryIntegrationTest {
         Optional.<String>absent());
     workspace.enableDirCache(); // enable the cache
 
-    BuildTarget inputBuildTarget = BuildTargetFactory.newInstance("//foo:binary_with_chain_deps");
-    String inputBuildTargetName =
-        inputBuildTarget.withFlavors(CxxInferEnhancer.INFER).getFullyQualifiedName();
+    BuildTarget inputBuildTarget = BuildTargetFactory.newInstance(
+        "//foo:binary_with_diamond_deps");
+    String inputBuildTargetName = inputBuildTarget
+        .withFlavors(CxxInferEnhancer.InferFlavors.INFER_CAPTURE_ALL.get())
+        .getFullyQualifiedName();
 
     /*
      * Build the given target and check that it succeeds.
@@ -513,6 +592,241 @@ public class CxxBinaryIntegrationTest {
     }
 
     /*
+    * Check that runtime deps have been fetched from cache as well
+    */
+    assertTrue(
+        "This file was expected to exist because it's declared as runtime dep",
+        Files.exists(
+            workspace.getPath(
+                BuildTargets
+                    .getGenPath(
+                        BuildTargetFactory.newInstance(
+                            "//foo:binary_with_diamond_deps#default,infer-capture-" +
+                                sanitize("simple.cpp.o")),
+                        "infer-out-%s")
+                    .resolve("captured/simple.cpp_captured/simple.cpp.cfg"))));
+    assertTrue(
+        "This file was expected to exist because it's declared as runtime dep",
+        Files.exists(
+            workspace.getPath(
+                BuildTargets
+                    .getGenPath(
+                        BuildTargetFactory.newInstance(
+                            "//foo:binary_with_diamond_deps#default,infer-capture-" +
+                                sanitize("dep_one.c.o")),
+                        "infer-out-%s")
+                    .resolve("captured/dep_one.c_captured/dep_one.c.cfg"))));
+    assertTrue(
+        "This file was expected to exist because it's declared as runtime dep",
+        Files.exists(
+            workspace.getPath(
+                BuildTargets
+                    .getGenPath(
+                        BuildTargetFactory.newInstance(
+                            "//foo:binary_with_diamond_deps#default,infer-capture-" +
+                                sanitize("dep_two.c.o")),
+                        "infer-out-%s")
+                    .resolve("captured/dep_two.c_captured/dep_two.c.cfg"))));
+    assertTrue(
+        "This file was expected to exist because it's declared as runtime dep",
+        Files.exists(
+            workspace.getPath(
+                BuildTargets
+                    .getGenPath(
+                        BuildTargetFactory.newInstance(
+                            "//foo:binary_with_diamond_deps#default,infer-capture-" +
+                                sanitize("src_with_deps.c.o")),
+                        "infer-out-%s")
+                    .resolve("captured/src_with_deps.c_captured/src_with_deps.c.cfg"))));
+  }
+
+  @Test
+  public void testInferCxxBinaryWithDiamondDepsEmitsAllTransitiveCaptureRulesOnce(
+  ) throws IOException {
+    assumeTrue(Platform.detect() != Platform.WINDOWS);
+    ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(
+        this,
+        tmp,
+        Optional.<String>absent());
+
+    BuildTarget inputBuildTarget = BuildTargetFactory.newInstance(
+        "//foo:binary_with_diamond_deps")
+        .withFlavors(CxxInferEnhancer.InferFlavors.INFER_CAPTURE_ALL.get());
+
+    // Build the given target and check that it succeeds.
+    workspace.runBuckCommand("build", inputBuildTarget.getFullyQualifiedName()).assertSuccess();
+
+    assertTrue(
+        Files.exists(
+            workspace.getPath(
+                BuildTargets.getGenPath(inputBuildTarget, "infer-%s/infer-deps.txt"))));
+
+    String loggedDeps = workspace.getFileContents(
+        BuildTargets.getGenPath(inputBuildTarget, "infer-%s/infer-deps.txt"));
+
+    String sanitizedSimpleCpp = sanitize("simple.cpp.o");
+    String sanitizedDepOne = sanitize("dep_one.c.o");
+    String sanitizedDepTwo = sanitize("dep_two.c.o");
+    String sanitizedSrcWithDeps = sanitize("src_with_deps.c.o");
+    BuildTarget simpleCppTarget = BuildTargetFactory.newInstance(
+        "//foo:binary_with_diamond_deps#default,infer-capture-" + sanitizedSimpleCpp);
+    BuildTarget depOneTarget = BuildTargetFactory.newInstance(
+        "//foo:binary_with_diamond_deps#default,infer-capture-" + sanitizedDepOne);
+    BuildTarget depTwoTarget = BuildTargetFactory.newInstance(
+        "//foo:binary_with_diamond_deps#default,infer-capture-" + sanitizedDepTwo);
+    BuildTarget srcWithDepsTarget = BuildTargetFactory.newInstance(
+        "//foo:binary_with_diamond_deps#default,infer-capture-" + sanitizedSrcWithDeps);
+
+    String expectedOutput = Joiner.on('\n').join(
+        ImmutableList.of(
+            simpleCppTarget.getFullyQualifiedName() + "\t" +
+                "[default, infer-capture-" + sanitizedSimpleCpp + "]\t" +
+                BuildTargets.getGenPath(simpleCppTarget, "infer-out-%s"),
+            depOneTarget.getFullyQualifiedName() + "\t" +
+                "[default, infer-capture-" + sanitizedDepOne + "]\t" +
+                BuildTargets.getGenPath(depOneTarget, "infer-out-%s"),
+            depTwoTarget.getFullyQualifiedName() + "\t" +
+                "[default, infer-capture-" + sanitizedDepTwo + "]\t" +
+                BuildTargets.getGenPath(depTwoTarget, "infer-out-%s"),
+            srcWithDepsTarget.getFullyQualifiedName() + "\t" +
+                "[default, infer-capture-" + sanitizedSrcWithDeps + "]\t" +
+                BuildTargets.getGenPath(srcWithDepsTarget, "infer-out-%s")));
+
+    assertEquals(expectedOutput + "\n", loggedDeps);
+  }
+
+  @Test
+  public void testInferCxxBinarySkipsBlacklistedFiles() throws IOException {
+    assumeTrue(Platform.detect() != Platform.WINDOWS);
+    ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(
+        this,
+        tmp,
+        Optional.of(".*one\\.c"));
+
+    BuildTarget inputBuildTarget = BuildTargetFactory.newInstance("//foo:binary_with_chain_deps");
+    String inputBuildTargetName = inputBuildTarget
+        .withFlavors(CxxInferEnhancer.InferFlavors.INFER.get())
+        .getFullyQualifiedName();
+
+    // Build the given target and check that it succeeds.
+    workspace.runBuckCommand("build", inputBuildTargetName).assertSuccess();
+
+    // Check that the cfg associated with chain_dep_one.c does not exist
+    assertFalse(
+        "Cfg file for chain_dep_one.c should not exist",
+        Files.exists(
+            workspace.getPath(
+                BuildTargets
+                    .getGenPath(
+                        BuildTargetFactory.newInstance(
+                            "//foo:chain_dep_one#default,infer-capture-" +
+                                sanitize("chain_dep_one.c.o")),
+                        "infer-out-%s")
+                    .resolve("captured/chain_dep_one.c_captured/chain_dep_one.c.cfg"))));
+
+    // Check that the remaining files still have their cfgs
+    assertTrue(
+        "Expected cfg for chain_dep_two.c not found",
+        Files.exists(
+            workspace.getPath(
+                BuildTargets
+                    .getGenPath(
+                        BuildTargetFactory.newInstance(
+                            "//foo:chain_dep_two#default,infer-capture-" +
+                                sanitize("chain_dep_two.c.o")),
+                        "infer-out-%s")
+                    .resolve("captured/chain_dep_two.c_captured/chain_dep_two.c.cfg"))));
+    assertTrue(
+        "Expected cfg for top_chain.c not found",
+        Files.exists(
+            workspace.getPath(
+                BuildTargets
+                    .getGenPath(
+                        BuildTargetFactory.newInstance(
+                            "//foo:binary_with_chain_deps#infer-analyze"),
+                        "infer-analysis-%s")
+                    .resolve("captured/top_chain.c_captured/top_chain.c.cfg"))));
+  }
+
+  @Test
+  public void testInferCxxBinaryRunsOnAllFilesWhenBlacklistIsNotSpecified() throws IOException {
+    assumeTrue(Platform.detect() != Platform.WINDOWS);
+    ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(
+        this,
+        tmp,
+        Optional.<String>absent());
+
+    BuildTarget inputBuildTarget = BuildTargetFactory.newInstance("//foo:binary_with_chain_deps");
+    String inputBuildTargetName = inputBuildTarget
+        .withFlavors(CxxInferEnhancer.InferFlavors.INFER.get())
+        .getFullyQualifiedName();
+
+    // Build the given target and check that it succeeds.
+    workspace.runBuckCommand("build", inputBuildTargetName).assertSuccess();
+
+    // Check that all cfgs have been created
+    assertTrue(
+        "Expected cfg for chain_dep_one.c not found",
+        Files.exists(
+            workspace.getPath(
+                BuildTargets
+                    .getGenPath(
+                        BuildTargetFactory.newInstance(
+                            "//foo:chain_dep_one#default,infer-capture-" +
+                                sanitize("chain_dep_one.c.o")),
+                        "infer-out-%s")
+                    .resolve("captured/chain_dep_one.c_captured/chain_dep_one.c.cfg"))));
+    assertTrue(
+        "Expected cfg for chain_dep_two.c not found",
+        Files.exists(
+            workspace.getPath(
+                BuildTargets
+                    .getGenPath(
+                        BuildTargetFactory.newInstance(
+                            "//foo:chain_dep_two#default,infer-capture-" +
+                                sanitize("chain_dep_two.c.o")),
+                        "infer-out-%s")
+                    .resolve("captured/chain_dep_two.c_captured/chain_dep_two.c.cfg"))));
+    assertTrue(
+        "Expected cfg for top_chain.c not found",
+        Files.exists(
+            workspace.getPath(
+                BuildTargets
+                    .getGenPath(
+                        BuildTargetFactory.newInstance(
+                            "//foo:binary_with_chain_deps#infer-analyze"),
+                        "infer-analysis-%s")
+                    .resolve("captured/top_chain.c_captured/top_chain.c.cfg"))));
+  }
+
+  @Test
+  public void testInferCxxBinaryWithCachedDepsGetsAllItsTransitiveDeps() throws IOException {
+    assumeTrue(Platform.detect() != Platform.WINDOWS);
+    ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(
+        this,
+        tmp,
+        Optional.<String>absent());
+    workspace.enableDirCache(); // enable the cache
+
+    BuildTarget inputBuildTarget = BuildTargetFactory.newInstance("//foo:binary_with_chain_deps")
+        .withFlavors(CxxInferEnhancer.InferFlavors.INFER.get());
+
+    /*
+     * Build the given target and check that it succeeds.
+     */
+    workspace.runBuckCommand("build", inputBuildTarget.getFullyQualifiedName()).assertSuccess();
+
+    /*
+     * Check that building after clean will use the cache
+     */
+    workspace.runBuckCommand("clean").assertSuccess();
+    workspace.runBuckCommand("build", inputBuildTarget.getFullyQualifiedName()).assertSuccess();
+    BuckBuildLog buildLog = workspace.getBuildLog();
+    for (BuildTarget buildTarget : buildLog.getAllTargets()) {
+      buildLog.assertTargetWasFetchedFromCache(buildTarget.toString());
+    }
+
+    /*
      * Check that if the file in the top target changes, then all the transitive deps will be
      * fetched from the cache (even those that are not direct dependencies).
      * Make sure there's the specs file of the dependency that has distance 2 from
@@ -521,14 +835,18 @@ public class CxxBinaryIntegrationTest {
     String sourceName = "top_chain.c";
     workspace.replaceFileContents("foo/" + sourceName, "*p += 1", "*p += 10");
     workspace.runBuckCommand("clean").assertSuccess();
-    workspace.runBuckCommand("build", inputBuildTargetName).assertSuccess();
+    workspace.runBuckCommand("build", inputBuildTarget.getFullyQualifiedName()).assertSuccess();
 
     // Check all the buildrules were fetched from the cache (and there's the specs file)
     assertTrue(
         "Expected specs file for func_ret_null() in chain_dep_two.c not found",
-        workspace.getPath(
-            "buck-out/gen/foo/infer-analysis-chain_dep_two#default,infer-analyze/specs/" +
-                "mockedSpec.specs").toFile().exists());
+        Files.exists(
+            workspace.getPath(
+                BuildTargets
+                    .getGenPath(
+                        BuildTargetFactory.newInstance(
+                            "//foo:chain_dep_two#default,infer-analyze"),
+                        "infer-analysis-%s/specs/mockedSpec.specs"))));
   }
 
   @Test
@@ -539,16 +857,16 @@ public class CxxBinaryIntegrationTest {
         tmp,
         Optional.<String>absent());
 
-    BuildTarget inputBuildTarget = BuildTargetFactory.newInstance("//foo:binary_with_chain_deps");
-    String inputBuildTargetName =
-        inputBuildTarget.withFlavors(CxxInferEnhancer.INFER).getFullyQualifiedName();
+    BuildTarget inputBuildTarget = BuildTargetFactory.newInstance("//foo:binary_with_chain_deps")
+        .withFlavors(CxxInferEnhancer.InferFlavors.INFER.get());
 
     /*
      * Build the given target and check that it succeeds.
      */
-    workspace.runBuckCommand("build", inputBuildTargetName).assertSuccess();
+    workspace.runBuckCommand("build", inputBuildTarget.getFullyQualifiedName()).assertSuccess();
 
-    String reportPath = "buck-out/gen/foo/infer-binary_with_chain_deps#infer/report.json";
+    String reportPath =
+        BuildTargets.getGenPath(inputBuildTarget, "infer-%s/report.json").toString();
     List<Object> bugs = InferHelper.loadInferReport(workspace, reportPath);
 
     // check that the merge step has merged a total of 3 bugs, one for each target
@@ -567,15 +885,15 @@ public class CxxBinaryIntegrationTest {
         tmp,
         Optional.<String>absent());
 
-    BuildTarget inputBuildTarget = BuildTargetFactory.newInstance("//foo:binary_with_chain_deps");
-    String inputBuildTargetName =
-        inputBuildTarget.withFlavors(CxxInferEnhancer.INFER).getFullyQualifiedName();
+    BuildTarget inputBuildTarget = BuildTargetFactory.newInstance("//foo:binary_with_chain_deps")
+        .withFlavors(CxxInferEnhancer.InferFlavors.INFER.get());
 
     //Build the given target and check that it succeeds.
-    workspace.runBuckCommand("build", inputBuildTargetName).assertSuccess();
+    workspace.runBuckCommand("build", inputBuildTarget.getFullyQualifiedName()).assertSuccess();
 
-    String specsPathList =
-        "buck-out/gen/foo/infer-analysis-binary_with_chain_deps#infer-analyze/specs_path_list.txt";
+    String specsPathList = BuildTargets
+        .getGenPath(inputBuildTarget, "infer-analysis-%s-analyze/specs_path_list.txt")
+        .toString();
     String out = workspace.getFileContents(specsPathList);
 
     ImmutableList<Path> paths = FluentIterable.of(out.split("\n")).transform(
@@ -1312,6 +1630,15 @@ public class CxxBinaryIntegrationTest {
         TestDataHelper.createProjectWorkspaceForScenario(this, "shared_link_style", tmp);
     workspace.setUp();
     workspace.runBuckBuild("//:gen").assertSuccess();
+  }
+
+  @Test
+  public void shBinaryAsLinker() throws IOException {
+    assumeThat(Platform.detect(), oneOf(Platform.LINUX, Platform.MACOS));
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "step_test", tmp);
+    workspace.setUp();
+    workspace.runBuckBuild("-c", "cxx.ld=//:cxx", "//:binary_with_unused_header").assertSuccess();
   }
 
   @Test

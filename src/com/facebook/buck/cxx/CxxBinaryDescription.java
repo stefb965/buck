@@ -77,6 +77,7 @@ public class CxxBinaryDescription implements
       A args) {
     return CxxDescriptionEnhancer.createHeaderSymlinkTree(
         params,
+        resolver,
         new SourcePathResolver(resolver),
         cxxPlatform,
         CxxDescriptionEnhancer.parseHeaders(
@@ -152,26 +153,36 @@ public class CxxBinaryDescription implements
           resolver);
     }
 
-    if (flavors.contains(CxxInferEnhancer.INFER)) {
+    if (flavors.contains(CxxInferEnhancer.InferFlavors.INFER.get())) {
       return CxxInferEnhancer.requireInferAnalyzeAndReportBuildRuleForCxxDescriptionArg(
           params,
           resolver,
           pathResolver,
           cxxPlatform,
           args,
-          new CxxInferTools(inferBuckConfig),
+          inferBuckConfig,
           new CxxInferSourceFilter(inferBuckConfig));
     }
 
-    if (flavors.contains(CxxInferEnhancer.INFER_ANALYZE)) {
+    if (flavors.contains(CxxInferEnhancer.InferFlavors.INFER_ANALYZE.get())) {
       return CxxInferEnhancer.requireInferAnalyzeBuildRuleForCxxDescriptionArg(
           params,
           resolver,
           pathResolver,
           cxxPlatform,
           args,
-          new CxxInferTools(inferBuckConfig),
+          inferBuckConfig,
           new CxxInferSourceFilter(inferBuckConfig));
+    }
+
+    if (flavors.contains(CxxInferEnhancer.InferFlavors.INFER_CAPTURE_ALL.get())) {
+      return CxxInferEnhancer.requireAllTransitiveCaptureBuildRules(
+          params,
+          resolver,
+          cxxPlatform,
+          inferBuckConfig,
+          new CxxInferSourceFilter(inferBuckConfig),
+          args);
     }
 
     CxxLinkAndCompileRules cxxLinkAndCompileRules =
@@ -196,7 +207,6 @@ public class CxxBinaryDescription implements
         params.appendExtraDeps(cxxLinkAndCompileRules.executable.getDeps(pathResolver)),
         resolver,
         pathResolver,
-        cxxLinkAndCompileRules.cxxLink.getOutput(),
         cxxLinkAndCompileRules.cxxLink,
         cxxLinkAndCompileRules.executable,
         args.frameworks.get(),
@@ -214,6 +224,13 @@ public class CxxBinaryDescription implements
       Function<Optional<String>, Path> cellRoots,
       Arg constructorArg) {
     ImmutableSet.Builder<BuildTarget> deps = ImmutableSet.builder();
+
+    // Get any parse time deps from the C/C++ platforms.
+    deps.addAll(
+        CxxPlatforms.getParseTimeDeps(
+            cxxPlatforms
+                .getValue(buildTarget.getFlavors())
+                .or(defaultCxxPlatform)));
 
     Iterable<Iterable<String>> macroStrings =
         ImmutableList.<Iterable<String>>builder()
@@ -251,8 +268,9 @@ public class CxxBinaryDescription implements
             CxxDescriptionEnhancer.HEADER_SYMLINK_TREE_FLAVOR,
             CxxCompilationDatabase.COMPILATION_DATABASE,
             CxxCompilationDatabase.UBER_COMPILATION_DATABASE,
-            CxxInferEnhancer.INFER,
-            CxxInferEnhancer.INFER_ANALYZE));
+            CxxInferEnhancer.InferFlavors.INFER.get(),
+            CxxInferEnhancer.InferFlavors.INFER_ANALYZE.get(),
+            CxxInferEnhancer.InferFlavors.INFER_CAPTURE_ALL.get()));
 
     return flavors.isEmpty();
   }
@@ -271,6 +289,26 @@ public class CxxBinaryDescription implements
       BuildRuleResolver resolver,
       A args,
       final Class<U> metadataClass) throws NoSuchBuildTargetException {
+
+    if (buildTarget.getFlavors().contains(CxxInferEnhancer.InferFlavors.INFER_CAPTURE_ALL.get())) {
+      CxxPlatform cxxPlatform = cxxPlatforms
+          .getValue(buildTarget.getFlavors())
+          .or(defaultCxxPlatform);
+      return Optional.of(
+          CxxInferEnhancer.collectSourcesOverDependencies(
+              buildTarget,
+              resolver,
+              cxxPlatform,
+              args))
+          .transform(
+              new Function<CxxSourceSet, U>() {
+                @Override
+                public U apply(CxxSourceSet input) {
+                  return metadataClass.cast(input);
+                }
+              });
+    }
+
     if (!metadataClass.isAssignableFrom(CxxCompilationDatabaseDependencies.class) ||
         !buildTarget.getFlavors().contains(CxxCompilationDatabase.COMPILATION_DATABASE)) {
       return Optional.absent();

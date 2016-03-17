@@ -57,6 +57,7 @@ import com.facebook.buck.shell.GenruleDescription;
 import com.facebook.buck.testutil.WatchEventsForTests;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
@@ -190,7 +191,8 @@ public class ParserTest {
         .setBuckConfig(config)
         .build();
 
-    DefaultTypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
+    DefaultTypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory(
+        ObjectMappers.newDefaultInstance());
     parser = new Parser(
         new ParserConfig(cell.getBuckConfig()),
         typeCoercerFactory,
@@ -484,6 +486,48 @@ public class ParserTest {
 
     // Test that the second parseBuildFile call repopulated the cache.
     assertEquals("Should have invalidated cache.", 2, counter.calls);
+  }
+
+  @Test
+  public void pathInvalidationWorksAfterOverflow() throws Exception {
+    // Call filterAllTargetsInProject to populate the cache.
+    filterAllTargetsInProject(
+        parser,
+        cell,
+        Predicates.<TargetNode<?>>alwaysTrue(),
+        eventBus,
+        executorService);
+
+    // Send overflow event.
+    parser.onFileSystemChange(WatchEventsForTests.createOverflowEvent());
+
+    // Call filterAllTargetsInProject to request cached rules.
+    filterAllTargetsInProject(
+        parser,
+        cell,
+        Predicates.<TargetNode<?>>alwaysTrue(),
+        eventBus,
+        executorService);
+
+    // Test that the second parseBuildFile call repopulated the cache.
+    assertEquals("Should have invalidated cache.", 2, counter.calls);
+
+    // Send a "file added" event.
+    parser.onFileSystemChange(
+        createPathEvent(
+            Paths.get("java/com/facebook/Something.java"),
+            StandardWatchEventKinds.ENTRY_CREATE));
+
+    // Call filterAllTargetsInProject to request cached rules.
+    filterAllTargetsInProject(
+        parser,
+        cell,
+        Predicates.<TargetNode<?>>alwaysTrue(),
+        eventBus,
+        executorService);
+
+    // Test that the third parseBuildFile call repopulated the cache.
+    assertEquals("Should have invalidated cache.", 3, counter.calls);
   }
 
   @Test
@@ -1205,45 +1249,6 @@ public class ParserTest {
   }
 
   @Test
-  public void testGeneratedDeps() throws Exception {
-    // Execute buildTargetGraphForBuildTargets() with a target in a valid file but a bad rule name.
-    tempDir.newFolder("java", "com", "facebook", "generateddeps");
-
-    Path testGeneratedDepsBuckFile = tempDir.newFile("java/com/facebook/generateddeps/BUCK");
-    Files.write(
-        testGeneratedDepsBuckFile,
-        ("java_library(name = 'foo')\n" +
-            "java_library(name = 'bar')\n" +
-            "add_deps(name = 'foo', deps = [':bar'])\n").getBytes(UTF_8));
-
-    BuildTarget fooTarget = BuildTarget.builder(
-        tempDir.getRoot().toRealPath(),
-        "//java/com/facebook/generateddeps",
-        "foo").build();
-
-    BuildTarget barTarget = BuildTarget.builder(
-        tempDir.getRoot().toRealPath(),
-        "//java/com/facebook/generateddeps",
-        "bar").build();
-    Iterable<BuildTarget> buildTargets = ImmutableList.of(fooTarget, barTarget);
-
-    TargetGraph targetGraph = parser.buildTargetGraph(
-        eventBus,
-        cell,
-        false,
-        executorService,
-        buildTargets);
-    BuildRuleResolver resolver = buildActionGraph(eventBus, targetGraph);
-
-    BuildRule fooRule = resolver.requireRule(fooTarget);
-    assertNotNull(fooRule);
-    BuildRule barRule = resolver.requireRule(barTarget);
-    assertNotNull(barRule);
-
-    assertEquals(ImmutableSet.of(barRule), fooRule.getDeps());
-  }
-
-  @Test
   public void whenAllRulesAreRequestedWithDifferingIncludesThenRulesAreParsedTwice()
       throws BuildFileParseException, BuildTargetException, IOException, InterruptedException {
     filterAllTargetsInProject(
@@ -1379,7 +1384,8 @@ public class ParserTest {
     BuildTarget fooLibTarget = BuildTarget.builder(cellRoot, "//foo", "lib").build();
     HashCode original = buildTargetGraphAndGetHashCodes(parser, fooLibTarget).get(fooLibTarget);
 
-    DefaultTypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
+    DefaultTypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory(
+        ObjectMappers.newDefaultInstance());
     parser = new Parser(
         new ParserConfig(cell.getBuckConfig()),
         typeCoercerFactory,
@@ -1497,7 +1503,8 @@ public class ParserTest {
     HashCode libKey = hashes.get(fooLibTarget);
     HashCode lib2Key = hashes.get(fooLib2Target);
 
-    DefaultTypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
+    DefaultTypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory(
+        ObjectMappers.newDefaultInstance());
     parser = new Parser(
         new ParserConfig(cell.getBuckConfig()),
         typeCoercerFactory,
@@ -2006,7 +2013,8 @@ public class ParserTest {
                 BuildFileSpec.fromRecursivePath(Paths.get("bar"))),
             TargetNodePredicateSpec.of(
                 Predicates.alwaysTrue(),
-                BuildFileSpec.fromRecursivePath(Paths.get("foo")))));
+                BuildFileSpec.fromRecursivePath(Paths.get("foo")))),
+        SpeculativeParsing.of(true));
   }
 
   private BuildRuleResolver buildActionGraph(BuckEventBus eventBus, TargetGraph targetGraph) {

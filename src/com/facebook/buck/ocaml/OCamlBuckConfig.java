@@ -17,11 +17,11 @@
 package com.facebook.buck.ocaml;
 
 import com.facebook.buck.cli.BuckConfig;
-import com.facebook.buck.cxx.Compiler;
+import com.facebook.buck.cxx.CompilerProvider;
 import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.DefaultCxxPlatforms;
-import com.facebook.buck.cxx.Linker;
+import com.facebook.buck.cxx.LinkerProvider;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.rules.HashedFileTool;
 import com.facebook.buck.rules.Tool;
@@ -55,7 +55,7 @@ public class OCamlBuckConfig {
     return getTool("ocaml", "ocaml.compiler", DEFAULT_OCAML_COMPILER);
   }
 
-  public Compiler getCCompiler() {
+  public CompilerProvider getCCompiler() {
     return cxxPlatform.getCc();
   }
 
@@ -83,7 +83,7 @@ public class OCamlBuckConfig {
     return getTool("ocaml", "ocaml.bytecode.compiler", DEFAULT_OCAML_BYTECODE_COMPILER);
   }
 
-  public Compiler getCxxCompiler() {
+  public CompilerProvider getCxxCompiler() {
     return cxxPlatform.getCxx();
   }
 
@@ -95,7 +95,7 @@ public class OCamlBuckConfig {
     return cxxPlatform.getLdflags();
   }
 
-  public Linker getLinker() {
+  public LinkerProvider getLinker() {
     return cxxPlatform.getLd();
   }
 

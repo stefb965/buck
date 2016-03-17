@@ -38,6 +38,7 @@ import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
+import com.facebook.buck.rules.coercer.ManifestEntries;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
@@ -60,7 +61,7 @@ import java.util.Map;
 public class AndroidBinaryGraphEnhancer {
 
   public static final Flavor DEX_FLAVOR = ImmutableFlavor.of("dex");
-  private static final Flavor DEX_MERGE_FLAVOR = ImmutableFlavor.of("dex_merge");
+  public static final Flavor DEX_MERGE_FLAVOR = ImmutableFlavor.of("dex_merge");
   private static final Flavor RESOURCES_FILTER_FLAVOR = ImmutableFlavor.of("resources_filter");
   public static final Flavor AAPT_PACKAGE_FLAVOR = ImmutableFlavor.of("aapt_package");
   private static final Flavor CALCULATE_ABI_FLAVOR = ImmutableFlavor.of("calculate_exopackage_abi");
@@ -70,6 +71,7 @@ public class AndroidBinaryGraphEnhancer {
   private final BuildTarget originalBuildTarget;
   private final ImmutableSortedSet<BuildRule> originalDeps;
   private final BuildRuleParams buildRuleParams;
+  private final ManifestEntries manifestEntries;
   private final BuildRuleResolver ruleResolver;
   private final SourcePathResolver pathResolver;
   private final ResourceCompressionMode resourceCompressionMode;
@@ -120,8 +122,10 @@ public class AndroidBinaryGraphEnhancer {
       Optional<Integer> xzCompressionLevel,
       ImmutableMap<TargetCpuType, NdkCxxPlatform> nativePlatforms,
       RelinkerMode relinkerMode,
-      ListeningExecutorService dxExecutorService) {
+      ListeningExecutorService dxExecutorService,
+      ManifestEntries manifestEntries) {
     this.buildRuleParams = originalParams;
+    this.manifestEntries = manifestEntries;
     this.originalBuildTarget = originalParams.getBuildTarget();
     this.originalDeps = originalParams.getDeps();
     this.ruleResolver = ruleResolver;
@@ -235,7 +239,8 @@ public class AndroidBinaryGraphEnhancer {
         javacOptions,
         shouldPreDex,
         shouldBuildStringSourceMap,
-        skipCrunchPngs);
+        skipCrunchPngs,
+        manifestEntries);
     ruleResolver.addToIndex(aaptPackageResources);
     enhancedDeps.add(aaptPackageResources);
 

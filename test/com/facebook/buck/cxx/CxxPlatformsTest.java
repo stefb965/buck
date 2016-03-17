@@ -19,20 +19,19 @@ package com.facebook.buck.cxx;
 import static org.hamcrest.CoreMatchers.instanceOf;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.is;
 import static org.hamcrest.core.IsNot.not;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.rules.ConstantToolProvider;
 import com.facebook.buck.rules.HashedFileTool;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.environment.Platform;
-import com.google.common.base.Suppliers;
-import com.google.common.collect.ImmutableList;
+import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
@@ -53,24 +52,27 @@ public class CxxPlatformsTest {
   public void returnsKnownDefaultPlatformSetInConfig() {
     ImmutableMap<String, ImmutableMap<String, String>> sections = ImmutableMap.of(
         "cxx", ImmutableMap.of("default_platform", "borland_cxx_452"));
+    CompilerProvider compiler =
+        new CompilerProvider(
+            Paths.get("borland"),
+            Optional.of(CxxToolProvider.Type.DEFAULT));
+    PreprocessorProvider preprocessor =
+        new PreprocessorProvider(
+            Paths.get("borland"),
+            Optional.of(CxxToolProvider.Type.DEFAULT));
     CxxPlatform borlandCxx452Platform =
       CxxPlatform.builder()
           .setFlavor(ImmutableFlavor.of("borland_cxx_452"))
-          .setAs(new DefaultCompiler(new HashedFileTool(Paths.get("borland"))))
-          .setAspp(new DefaultPreprocessor(new HashedFileTool(Paths.get("borland"))))
-          .setCcSupplier(
-              Suppliers.<Compiler>ofInstance(
-                  new DefaultCompiler(new HashedFileTool(Paths.get("borland")))))
-          .setCppSupplier(
-              Suppliers.<Preprocessor>ofInstance(
-                  new DefaultPreprocessor(new HashedFileTool(Paths.get("borland")))))
-          .setCxxSupplier(
-              Suppliers.<Compiler>ofInstance(
-                  new DefaultCompiler(new HashedFileTool(Paths.get("borland")))))
-          .setCxxppSupplier(
-              Suppliers.<Preprocessor>ofInstance(
-                  new DefaultPreprocessor(new HashedFileTool(Paths.get("borland")))))
-          .setLd(new GnuLinker(new HashedFileTool(Paths.get("borland"))))
+          .setAs(compiler)
+          .setAspp(preprocessor)
+          .setCc(compiler)
+          .setCpp(preprocessor)
+          .setCxx(compiler)
+          .setCxxpp(preprocessor)
+          .setLd(
+              new DefaultLinkerProvider(
+                  LinkerProvider.Type.GNU,
+                  new ConstantToolProvider(new HashedFileTool(Paths.get("borland")))))
           .setStrip(new HashedFileTool(Paths.get("borland")))
           .setSymbolNameTool(new PosixNmSymbolNameTool(new HashedFileTool(Paths.get("borland"))))
           .setAr(new GnuArchiver(new HashedFileTool(Paths.get("borland"))))
@@ -137,11 +139,11 @@ public class CxxPlatformsTest {
         not(hasItem("-Wtest")));
   }
 
-  public Linker getPlatformLinker(Platform linkerPlatform) {
+  public LinkerProvider getPlatformLinker(LinkerProvider.Type linkerType) {
     ImmutableMap<String, ImmutableMap<String, String>> sections = ImmutableMap.of(
         "cxx", ImmutableMap.of(
             "ld", Paths.get("fake_path").toString(),
-            "linker_platform", linkerPlatform.name()));
+            "linker_platform", linkerType.name()));
 
     CxxBuckConfig buckConfig = new CxxBuckConfig(
         FakeBuckConfig.builder()
@@ -156,13 +158,13 @@ public class CxxPlatformsTest {
   @Test
   public void linkerOverriddenByConfig() {
     assertThat("MACOS linker was not a DarwinLinker instance",
-        getPlatformLinker(Platform.MACOS), instanceOf(DarwinLinker.class));
+        getPlatformLinker(LinkerProvider.Type.DARWIN).getType(), is(LinkerProvider.Type.DARWIN));
     assertThat("LINUX linker was not a GnuLinker instance",
-        getPlatformLinker(Platform.LINUX), instanceOf(GnuLinker.class));
+        getPlatformLinker(LinkerProvider.Type.GNU).getType(), is(LinkerProvider.Type.GNU));
     assertThat("WINDOWS linker was not a GnuLinker instance",
-        getPlatformLinker(Platform.WINDOWS), instanceOf(GnuLinker.class));
+        getPlatformLinker(LinkerProvider.Type.WINDOWS).getType(), is(LinkerProvider.Type.WINDOWS));
     assertThat("UNKNOWN linker was not a UnknownLinker instance",
-        getPlatformLinker(Platform.UNKNOWN), instanceOf(UnknownLinker.class));
+        getPlatformLinker(LinkerProvider.Type.UNKNOWN).getType(), is(LinkerProvider.Type.UNKNOWN));
   }
 
   @Test
@@ -226,28 +228,4 @@ public class CxxPlatformsTest {
     DefaultCxxPlatforms.build(buckConfig);
   }
 
-  @Test
-  public void isVersionOfClang() {
-    assertTrue(CxxPlatforms.isVersionOfClang(
-        ImmutableList.of(
-            "clang version 3.7.1 ",
-            "Target: x86_64-unknown-linux-gnu",
-            "Thread model: posix")));
-    assertTrue(CxxPlatforms.isVersionOfClang(
-        ImmutableList.of(
-            "Apple LLVM version 7.0.2 (clang-700.1.81)",
-            "Target: x86_64-apple-darwin15.3.0",
-            "Thread model: posix")));
-    assertFalse(CxxPlatforms.isVersionOfClang(
-        ImmutableList.of(
-            "gcc (GCC) 4.4.7 20120313 (Red Hat 4.4.7-16)",
-            "Copyright (C) 2010 Free Software Foundation, Inc.",
-            "This is free software; see the source for copying conditions.  There is NO",
-            "warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.")));
-    assertFalse(CxxPlatforms.isVersionOfClang(
-        ImmutableList.of(
-            "Blah blah blah.",
-            "I am a compiler.",
-            "I am not clang though.")));
-  }
 }

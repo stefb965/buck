@@ -46,6 +46,7 @@ import com.google.common.cache.LoadingCache;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
@@ -80,7 +81,7 @@ abstract class AbstractCxxSourceRuleFactory {
   @Value.Parameter
   public abstract ImmutableList<CxxPreprocessorInput> getCxxPreprocessorInput();
   @Value.Parameter
-  public abstract ImmutableList<String> getCompilerFlags();
+  public abstract ImmutableMultimap<CxxSource.Type, String> getCompilerFlags();
   @Value.Parameter
   public abstract Optional<SourcePath> getPrefixHeader();
   @Value.Parameter
@@ -227,6 +228,11 @@ abstract class AbstractCxxSourceRuleFactory {
     BuildTarget target = createPreprocessBuildTarget(name, source.getType());
     PreprocessorDelegate preprocessorDelegate = preprocessorDelegates.getUnchecked(
         PreprocessAndCompilePreprocessorDelegateKey.of(source.getType(), source.getFlags()));
+    Compiler compiler =
+        CxxSourceTypes.getCompiler(
+            getCxxPlatform(),
+            CxxSourceTypes.getPreprocessorOutputType(source.getType()))
+                .resolve(getResolver());
 
     // Build the CxxCompile rule and add it to our sorted set of build rules.
     CxxPreprocessAndCompile result =
@@ -236,6 +242,11 @@ abstract class AbstractCxxSourceRuleFactory {
                 new DepsBuilder()
                     .addPreprocessDeps()
                     .add(preprocessorDelegate.getPreprocessor())
+                    // We shouldn't really need to depend on the compiler for preprocess-only rules,
+                    // but the `CxxPreprocessAndCompile` class adds the entire `CompilerDelegate` to
+                    // the rule key, which means the input-based rule key factory expects to be
+                    // included in the dep list.
+                    .add(compiler)
                     .add(source),
                 Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
             getPathResolver(),
@@ -243,9 +254,7 @@ abstract class AbstractCxxSourceRuleFactory {
             new CompilerDelegate(
                 getPathResolver(),
                 getCxxPlatform().getDebugPathSanitizer(),
-                CxxSourceTypes.getCompiler(
-                    getCxxPlatform(),
-                    CxxSourceTypes.getPreprocessorOutputType(source.getType())),
+                compiler,
                 computeCompilerFlags(source.getType(), source.getFlags())),
             getPreprocessOutputPath(target, source.getType(), name),
             source.getPath(),
@@ -310,7 +319,9 @@ abstract class AbstractCxxSourceRuleFactory {
         .builder(getParams().getBuildTarget())
         .addAllFlavors(getParams().getBuildTarget().getFlavors())
         .addFlavors(getCxxPlatform().getFlavor())
-        .addFlavors(ImmutableFlavor.of(String.format("infer-capture-%s", outputName)))
+        .addFlavors(ImmutableFlavor.of(String.format("%s-%s",
+                    CxxInferEnhancer.InferFlavors.INFER_CAPTURE.get().toString(),
+                    outputName)))
         .build();
   }
 
@@ -347,18 +358,7 @@ abstract class AbstractCxxSourceRuleFactory {
   }
 
   private ImmutableList<String> getRuleCompileFlags(CxxSource.Type type) {
-    ImmutableList.Builder<String> args = ImmutableList.builder();
-
-    // Add in explicit additional compiler flags, if we're compiling.
-    if (type == CxxSource.Type.C_CPP_OUTPUT ||
-        type == CxxSource.Type.OBJC_CPP_OUTPUT ||
-        type == CxxSource.Type.CXX_CPP_OUTPUT ||
-        type == CxxSource.Type.OBJCXX_CPP_OUTPUT ||
-        type == CxxSource.Type.CUDA_CPP_OUTPUT) {
-      args.addAll(getCompilerFlags());
-    }
-
-    return args.build();
+    return ImmutableList.copyOf(getCompilerFlags().get(type));
   }
 
   /**
@@ -373,7 +373,9 @@ abstract class AbstractCxxSourceRuleFactory {
     Preconditions.checkArgument(CxxSourceTypes.isCompilableType(source.getType()));
 
     BuildTarget target = createCompileBuildTarget(name);
-    Compiler compiler = CxxSourceTypes.getCompiler(getCxxPlatform(), source.getType());
+    Compiler compiler =
+        CxxSourceTypes.getCompiler(getCxxPlatform(), source.getType())
+            .resolve(getResolver());
 
     // Build up the list of compiler flags.
     CxxToolFlags flags = CxxToolFlags.explicitBuilder()
@@ -454,7 +456,7 @@ abstract class AbstractCxxSourceRuleFactory {
   public CxxInferCapture requireInferCaptureBuildRule(
       String name,
       CxxSource source,
-      CxxInferTools inferTools) {
+      InferBuckConfig inferConfig) {
     BuildTarget target = createInferCaptureBuildTarget(name);
 
     Optional<CxxInferCapture> existingRule = getResolver().getRuleOptionalWithType(
@@ -463,14 +465,14 @@ abstract class AbstractCxxSourceRuleFactory {
       return existingRule.get();
     }
 
-    return createInferCaptureBuildRule(target, name, source, inferTools);
+    return createInferCaptureBuildRule(target, name, source, inferConfig);
   }
 
   public CxxInferCapture createInferCaptureBuildRule(
       BuildTarget target,
       String name,
       CxxSource source,
-      CxxInferTools inferTools) {
+      InferBuckConfig inferConfig) {
     Preconditions.checkArgument(CxxSourceTypes.isPreprocessableType(source.getType()));
 
     LOG.verbose("Creating preprocessed InferCapture build rule %s for %s", target, source);
@@ -494,7 +496,7 @@ abstract class AbstractCxxSourceRuleFactory {
         getFrameworks(),
         CxxDescriptionEnhancer.frameworkPathToSearchPath(getCxxPlatform(), getPathResolver()),
         getPrefixHeader(),
-        inferTools,
+        inferConfig,
         getCxxPlatform().getDebugPathSanitizer());
     getResolver().addToIndex(result);
     return result;
@@ -516,7 +518,8 @@ abstract class AbstractCxxSourceRuleFactory {
     Compiler compiler =
         CxxSourceTypes.getCompiler(
             getCxxPlatform(),
-            CxxSourceTypes.getPreprocessorOutputType(source.getType()));
+            CxxSourceTypes.getPreprocessorOutputType(source.getType()))
+                .resolve(getResolver());
 
     LOG.verbose("Creating preprocess and compile %s for %s", target, source);
 
@@ -527,7 +530,11 @@ abstract class AbstractCxxSourceRuleFactory {
         getParams().copyWithChanges(
             target,
             // compiler handles both preprocessing and compiling
-            new DepsBuilder().addPreprocessDeps().add(compiler).add(source),
+            new DepsBuilder()
+                .addPreprocessDeps()
+                .add(preprocessorDelegate.getPreprocessor())
+                .add(compiler)
+                .add(source),
             Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
         getPathResolver(),
         preprocessorDelegate,
@@ -565,9 +572,9 @@ abstract class AbstractCxxSourceRuleFactory {
     return createPreprocessAndCompileBuildRule(name, source, strategy);
   }
 
-  public ImmutableSet<CxxInferCapture> createInferCaptureBuildRules(
+  public ImmutableSet<CxxInferCapture> requireInferCaptureBuildRules(
       ImmutableMap<String, CxxSource> sources,
-      CxxInferTools inferTools,
+      InferBuckConfig inferConfig,
       CxxInferSourceFilter sourceFilter) {
 
     ImmutableSet.Builder<CxxInferCapture> objects = ImmutableSet.builder();
@@ -587,7 +594,7 @@ abstract class AbstractCxxSourceRuleFactory {
       CxxInferCapture rule = requireInferCaptureBuildRule(
           name,
           source,
-          inferTools);
+          inferConfig);
       objects.add(rule);
     }
 
@@ -667,7 +674,7 @@ abstract class AbstractCxxSourceRuleFactory {
       SourcePathResolver pathResolver,
       CxxPlatform cxxPlatform,
       ImmutableList<CxxPreprocessorInput> cxxPreprocessorInput,
-      ImmutableList<String> compilerFlags,
+      ImmutableMultimap<CxxSource.Type, String> compilerFlags,
       Optional<SourcePath> prefixHeader,
       CxxPreprocessMode strategy,
       ImmutableMap<String, CxxSource> sources,
@@ -722,7 +729,8 @@ abstract class AbstractCxxSourceRuleFactory {
           getPathResolver(),
           getCxxPlatform().getDebugPathSanitizer(),
           getParams().getProjectFilesystem().getRootPath(),
-          CxxSourceTypes.getPreprocessor(getCxxPlatform(), key.getSourceType()),
+          CxxSourceTypes.getPreprocessor(getCxxPlatform(), key.getSourceType())
+              .resolve(getResolver()),
           PreprocessorFlags.of(
               getPrefixHeader(),
               computePreprocessorFlags(key.getSourceType(), key.getSourceFlags()),

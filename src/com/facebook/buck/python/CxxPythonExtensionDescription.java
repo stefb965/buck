@@ -22,6 +22,7 @@ import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxFlags;
 import com.facebook.buck.cxx.CxxLinkableEnhancer;
 import com.facebook.buck.cxx.CxxPlatform;
+import com.facebook.buck.cxx.CxxPlatforms;
 import com.facebook.buck.cxx.CxxPreprocessAndCompile;
 import com.facebook.buck.cxx.CxxPreprocessables;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
@@ -181,9 +182,10 @@ public class CxxPythonExtensionDescription implements
             pathResolver,
             cxxPlatform,
             cxxPreprocessorInput,
-            CxxFlags.getFlags(
+            CxxFlags.getLanguageFlags(
                 args.compilerFlags,
                 args.platformCompilerFlags,
+                args.langCompilerFlags,
                 cxxPlatform),
             args.prefixHeader,
             cxxBuckConfig.getPreprocessMode(),
@@ -201,7 +203,9 @@ public class CxxPythonExtensionDescription implements
     // Embed a origin-relative library path into the binary so it can find the shared libraries.
     argsBuilder.addAll(
         StringArg.from(
-            Linkers.iXlinker("-rpath", String.format("%s/", cxxPlatform.getLd().libOrigin()))));
+            Linkers.iXlinker(
+                "-rpath",
+                String.format("%s/", cxxPlatform.getLd().resolve(ruleResolver).libOrigin()))));
 
     // Add object files into the args.
     argsBuilder.addAll(SourcePathArg.from(pathResolver, picObjects.values()));
@@ -251,6 +255,7 @@ public class CxxPythonExtensionDescription implements
     return CxxLinkableEnhancer.createCxxLinkableBuildRule(
         cxxPlatform,
         params,
+        ruleResolver,
         pathResolver,
         getExtensionTarget(
             params.getBuildTarget(),
@@ -416,6 +421,9 @@ public class CxxPythonExtensionDescription implements
       Function<Optional<String>, Path> cellRoots,
       Arg constructorArg) {
     ImmutableSet.Builder<BuildTarget> deps = ImmutableSet.builder();
+
+    // Get any parse time deps from the C/C++ platforms.
+    deps.addAll(CxxPlatforms.getParseTimeDeps(cxxPlatforms.getValues()));
 
     for (PythonPlatform pythonPlatform : pythonPlatforms.getValues()) {
       deps.addAll(pythonPlatform.getCxxLibrary().asSet());
