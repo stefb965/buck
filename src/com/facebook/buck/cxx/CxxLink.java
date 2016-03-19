@@ -28,7 +28,9 @@ import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.FileScrubberStep;
+import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
@@ -55,6 +57,14 @@ public class CxxLink
     this.linker = linker;
     this.output = output;
     this.args = args;
+    performChecks(params);
+  }
+
+  private void performChecks(BuildRuleParams params) {
+    Preconditions.checkArgument(
+        !params.getBuildTarget().getFlavors().contains(CxxStrip.RULE_FLAVOR) ||
+            !CxxStrip.StripStyle.FLAVOR_DOMAIN.containsAnyOf(params.getBuildTarget().getFlavors()),
+        "CxxLink should not be created with CxxStrip flavors");
   }
 
   @Override
@@ -62,6 +72,7 @@ public class CxxLink
       BuildContext context,
       BuildableContext buildableContext) {
     buildableContext.recordArtifact(output);
+    Path scratchDir = BuildTargets.getScratchPath(getBuildTarget(), "%s-tmp");
     Path argFilePath = getProjectFilesystem().getRootPath().resolve(
         BuildTargets.getScratchPath(getBuildTarget(), "%s__argfile.txt"));
 
@@ -76,6 +87,7 @@ public class CxxLink
 
     return ImmutableList.of(
         new MkdirStep(getProjectFilesystem(), output.getParent()),
+        new MakeCleanDirectoryStep(getProjectFilesystem(), scratchDir),
         new CxxPrepareForLinkStep(
             argFilePath,
             output,
@@ -84,7 +96,8 @@ public class CxxLink
             getProjectFilesystem().getRootPath(),
             linker.getEnvironment(getResolver()),
             linker.getCommandPrefix(getResolver()),
-            argFilePath),
+            argFilePath,
+            getProjectFilesystem().getRootPath().resolve(scratchDir)),
         new FileScrubberStep(
             getProjectFilesystem(),
             output,

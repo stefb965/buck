@@ -136,6 +136,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import javax.annotation.Nullable;
+
 /**
  * Generator for xcode project and associated files from a set of xcode/ios rules.
  */
@@ -595,9 +597,9 @@ public class ProjectGenerator {
         'f');
 
     Optional<String> productName = getProductNameForTargetNode(targetNode);
-    String binaryName = AppleBundle.getBinaryName(targetToBuildWithBuck.get(), productName);
-    Path bundleDestination = getScratchPathForAppBundle(targetToBuildWithBuck.get(), binaryName);
-    Path dsymDestination = getScratchPathForDsymBundle(targetToBuildWithBuck.get(), binaryName);
+    String binaryName = AppleBundle.getBinaryName(targetNode.getBuildTarget(), productName);
+    Path bundleDestination = getScratchPathForAppBundle(targetNode.getBuildTarget(), binaryName);
+    Path dsymDestination = getScratchPathForDsymBundle(targetNode.getBuildTarget(), binaryName);
     Path resolvedBundleDestination = projectFilesystem.resolve(bundleDestination);
     Path resolvedDsymDestination = projectFilesystem.resolve(dsymDestination);
     Path fixUUIDScriptPath = getFixUUIDScriptPath(projectFilesystem);
@@ -608,7 +610,7 @@ public class ProjectGenerator {
       template.add("buck_flavor", "");
     }
     template.add("path_to_buck", getPathToBuck(executableFinder, environment));
-    template.add("buck_target", targetToBuildWithBuck.get().getFullyQualifiedName());
+    template.add("buck_target", targetNode.getBuildTarget().getFullyQualifiedName());
     template.add("root_path", projectFilesystem.getRootPath());
 
     template.add("comp_dir", compDir);
@@ -634,8 +636,8 @@ public class ProjectGenerator {
     }
 
     Optional<String> productName = getProductNameForTargetNode(targetNode);
-    String binaryName = AppleBundle.getBinaryName(targetToBuildWithBuck.get(), productName);
-    Path bundleDestination = getScratchPathForAppBundle(targetToBuildWithBuck.get(), binaryName);
+    String binaryName = AppleBundle.getBinaryName(targetNode.getBuildTarget(), productName);
+    Path bundleDestination = getScratchPathForAppBundle(targetNode.getBuildTarget(), binaryName);
     Path resolvedBundleDestination = projectFilesystem.resolve(bundleDestination);
 
     template.add("root_path", projectFilesystem.getRootPath());
@@ -767,6 +769,30 @@ public class ProjectGenerator {
         "REPO_ROOT",
         projectFilesystem.getRootPath().toAbsolutePath().normalize().toString());
     defaultSettingsBuilder.put("HALIDE_COMPILER_PATH", compilerPath.toString());
+
+    // pass the source list to the xcode script
+    String halideCompilerSrcs = "";
+    if (targetNode.getConstructorArg().srcs.isPresent()) {
+      Iterable<Path> compilerSrcFiles =
+          Iterables.transform(
+              targetNode.getConstructorArg().srcs.get(),
+              new Function<SourceWithFlags, Path>() {
+                @Nullable
+                @Override
+                public Path apply(@Nullable SourceWithFlags input) {
+                  return sourcePathResolver.apply(input.getSourcePath());
+                }
+              }
+          );
+      halideCompilerSrcs = Joiner.on(" ").join(compilerSrcFiles);
+    }
+    defaultSettingsBuilder.put("HALIDE_COMPILER_SRCS", halideCompilerSrcs);
+    String halideCompilerFlags = "";
+    if (targetNode.getConstructorArg().compilerFlags.isPresent()) {
+      halideCompilerFlags = Joiner.on(" ").join(targetNode.getConstructorArg().compilerFlags.get());
+    }
+    defaultSettingsBuilder.put("HALIDE_COMPILER_FLAGS", halideCompilerFlags);
+
     defaultSettingsBuilder.put("HALIDE_OUTPUT_PATH", outputPath.toString());
     defaultSettingsBuilder.put("HALIDE_FUNC_NAME", buildTarget.getShortName());
     defaultSettingsBuilder.put(PRODUCT_NAME, productName);

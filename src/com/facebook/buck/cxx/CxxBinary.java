@@ -30,11 +30,14 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.step.Step;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
+
+import javax.annotation.Nullable;
 
 public class CxxBinary
     extends AbstractBuildRule
@@ -42,7 +45,7 @@ public class CxxBinary
 
   private final BuildRuleParams params;
   private final BuildRuleResolver ruleResolver;
-  private final CxxLink rule;
+  private final BuildRule linkRule;
   private final Tool executable;
   private final ImmutableSortedSet<BuildTarget> tests;
   private final ImmutableSortedSet<FrameworkPath> frameworks;
@@ -51,17 +54,32 @@ public class CxxBinary
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       SourcePathResolver resolver,
-      CxxLink rule,
+      BuildRule linkRule,
       Tool executable,
       Iterable<FrameworkPath> frameworks,
       Iterable<BuildTarget> tests) {
     super(params, resolver);
     this.params = params;
     this.ruleResolver = ruleResolver;
-    this.rule = rule;
+    this.linkRule = linkRule;
     this.executable = executable;
     this.tests = ImmutableSortedSet.copyOf(tests);
     this.frameworks = ImmutableSortedSet.copyOf(frameworks);
+    performChecks(linkRule);
+  }
+
+  private void performChecks(BuildRule linkRule) {
+    Preconditions.checkArgument(
+        linkRule instanceof CxxLink || linkRule instanceof CxxStrip,
+        "CxxBinary (%s) link rule (%s) is expected to be instance of either CxxLink or CxxStrip");
+    Preconditions.checkArgument(
+        getDeps().contains(linkRule),
+        "CxxBinary (%s) must depend on its link rule (%s) via deps");
+    Preconditions.checkArgument(
+        !params.getBuildTarget().getFlavors().contains(CxxStrip.RULE_FLAVOR),
+        "CxxBinary (%s) build target should not contain CxxStrip rule flavor %s. Otherwise " +
+            "it may be not possible to distinguish CxxBinary (%s) and link rule (%s) in graph.",
+        this, CxxStrip.RULE_FLAVOR, this, linkRule);
   }
 
   @Override
@@ -75,13 +93,14 @@ public class CxxBinary
     return ImmutableList.of();
   }
 
+  @Nullable
   @Override
   public Path getPathToOutput() {
-    return rule.getPathToOutput();
+    return linkRule.getPathToOutput();
   }
 
-  public CxxLink getRule() {
-    return rule;
+  public BuildRule getLinkRule() {
+    return linkRule;
   }
 
   @Override

@@ -24,7 +24,6 @@ import static org.junit.Assume.assumeTrue;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
@@ -42,6 +41,7 @@ import org.junit.Rule;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.EnumSet;
@@ -50,6 +50,12 @@ import java.util.Set;
 public class ApplePackageIntegrationTest {
   @Rule
   public DebuggableTemporaryFolder tmp = new DebuggableTemporaryFolder();
+
+  private static boolean isDirEmpty(final Path directory) throws IOException {
+    try (DirectoryStream<Path> dirStream = Files.newDirectoryStream(directory)) {
+      return !dirStream.iterator().hasNext();
+    }
+  }
 
   @Test
   public void packageHasProperStructure() throws IOException, InterruptedException {
@@ -83,19 +89,14 @@ public class ApplePackageIntegrationTest {
 
     ZipInspector zipInspector = new ZipInspector(
         workspace.getPath(BuildTargets.getGenPath(packageTarget, "%s.ipa")));
-    zipInspector.assertFileExists(("Payload/DemoApp.app/DemoApp"));
+    zipInspector.assertFileExists("Payload/DemoApp.app/DemoApp");
+    zipInspector.assertFileDoesNotExist("WatchKitSupport");
+    zipInspector.assertFileDoesNotExist("WatchKitSupport2");
     zipInspector.assertFileContents(
         "Payload/DemoApp.app/PkgInfo",
         new String(
             Files.readAllBytes(
-                templateDir.resolve(
-                    BuildTargets
-                        .getGenPath(
-                            BuildTarget.builder(appTarget)
-                                .addFlavors(ImmutableFlavor.of("iphonesimulator-x86_64"))
-                                .build(),
-                            "%s")
-                        .resolve("DemoApp.app/PkgInfo.expected"))),
+                templateDir.resolve("DemoApp_output.expected/DemoApp.app/PkgInfo.expected")),
             UTF_8));
   }
 
@@ -116,10 +117,18 @@ public class ApplePackageIntegrationTest {
         workspace.getPath(BuildTargets.getGenPath(packageTarget, "%s.ipa")),
         destination,
         Unzip.ExistingFileMode.OVERWRITE_AND_CLEAN_DIRECTORIES);
-    assertTrue(
-        Files.exists(
-            destination.resolve(
-                "Payload/DemoApp.app/Watch/DemoWatchApp.app/_WatchKitStub/WK")));
+
+    Path stubInsideBundle = destination.resolve(
+        "Payload/DemoApp.app/Watch/DemoWatchApp.app/_WatchKitStub/WK");
+    Path stubOutsideBundle = destination.resolve("WatchKitSupport2/WK");
+
+    assertTrue(Files.exists(stubInsideBundle));
+    assertTrue(Files.isExecutable(stubOutsideBundle));
+    assertTrue(Files.isDirectory(destination.resolve("Symbols")));
+    assertTrue(isDirEmpty(destination.resolve("Symbols")));
+    assertEquals(
+        new String(Files.readAllBytes(stubInsideBundle)),
+        new String(Files.readAllBytes(stubOutsideBundle)));
   }
 
   @Test

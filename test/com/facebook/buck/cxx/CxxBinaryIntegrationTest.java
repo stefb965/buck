@@ -601,7 +601,7 @@ public class CxxBinaryIntegrationTest {
                 BuildTargets
                     .getGenPath(
                         BuildTargetFactory.newInstance(
-                            "//foo:binary_with_diamond_deps#default,infer-capture-" +
+                            "//foo:simple_lib#default,infer-capture-" +
                                 sanitize("simple.cpp.o")),
                         "infer-out-%s")
                     .resolve("captured/simple.cpp_captured/simple.cpp.cfg"))));
@@ -612,7 +612,7 @@ public class CxxBinaryIntegrationTest {
                 BuildTargets
                     .getGenPath(
                         BuildTargetFactory.newInstance(
-                            "//foo:binary_with_diamond_deps#default,infer-capture-" +
+                            "//foo:diamond_dep_one#default,infer-capture-" +
                                 sanitize("dep_one.c.o")),
                         "infer-out-%s")
                     .resolve("captured/dep_one.c_captured/dep_one.c.cfg"))));
@@ -623,7 +623,7 @@ public class CxxBinaryIntegrationTest {
                 BuildTargets
                     .getGenPath(
                         BuildTargetFactory.newInstance(
-                            "//foo:binary_with_diamond_deps#default,infer-capture-" +
+                            "//foo:diamond_dep_two#default,infer-capture-" +
                                 sanitize("dep_two.c.o")),
                         "infer-out-%s")
                     .resolve("captured/dep_two.c_captured/dep_two.c.cfg"))));
@@ -669,28 +669,29 @@ public class CxxBinaryIntegrationTest {
     String sanitizedDepTwo = sanitize("dep_two.c.o");
     String sanitizedSrcWithDeps = sanitize("src_with_deps.c.o");
     BuildTarget simpleCppTarget = BuildTargetFactory.newInstance(
-        "//foo:binary_with_diamond_deps#default,infer-capture-" + sanitizedSimpleCpp);
+        "//foo:simple_lib#default,infer-capture-" + sanitizedSimpleCpp);
     BuildTarget depOneTarget = BuildTargetFactory.newInstance(
-        "//foo:binary_with_diamond_deps#default,infer-capture-" + sanitizedDepOne);
+        "//foo:diamond_dep_one#default,infer-capture-" + sanitizedDepOne);
     BuildTarget depTwoTarget = BuildTargetFactory.newInstance(
-        "//foo:binary_with_diamond_deps#default,infer-capture-" + sanitizedDepTwo);
+        "//foo:diamond_dep_two#default,infer-capture-" + sanitizedDepTwo);
     BuildTarget srcWithDepsTarget = BuildTargetFactory.newInstance(
         "//foo:binary_with_diamond_deps#default,infer-capture-" + sanitizedSrcWithDeps);
 
+
     String expectedOutput = Joiner.on('\n').join(
         ImmutableList.of(
-            simpleCppTarget.getFullyQualifiedName() + "\t" +
-                "[default, infer-capture-" + sanitizedSimpleCpp + "]\t" +
-                BuildTargets.getGenPath(simpleCppTarget, "infer-out-%s"),
+            srcWithDepsTarget.getFullyQualifiedName() + "\t" +
+                "[default, infer-capture-" + sanitizedSrcWithDeps + "]\t" +
+                BuildTargets.getGenPath(srcWithDepsTarget, "infer-out-%s"),
             depOneTarget.getFullyQualifiedName() + "\t" +
                 "[default, infer-capture-" + sanitizedDepOne + "]\t" +
                 BuildTargets.getGenPath(depOneTarget, "infer-out-%s"),
             depTwoTarget.getFullyQualifiedName() + "\t" +
                 "[default, infer-capture-" + sanitizedDepTwo + "]\t" +
                 BuildTargets.getGenPath(depTwoTarget, "infer-out-%s"),
-            srcWithDepsTarget.getFullyQualifiedName() + "\t" +
-                "[default, infer-capture-" + sanitizedSrcWithDeps + "]\t" +
-                BuildTargets.getGenPath(srcWithDepsTarget, "infer-out-%s")));
+            simpleCppTarget.getFullyQualifiedName() + "\t" +
+                "[default, infer-capture-" + sanitizedSimpleCpp + "]\t" +
+                BuildTargets.getGenPath(simpleCppTarget, "infer-out-%s")));
 
     assertEquals(expectedOutput + "\n", loggedDeps);
   }
@@ -1654,6 +1655,103 @@ public class CxxBinaryIntegrationTest {
         "--config", "cxx.cxxldflags=-shared",
         "//:bar")
         .assertSuccess();
+  }
+
+  @Test
+  public void testStrippedBinaryProducesBothUnstrippedAndStrippedOutputs()
+      throws IOException, InterruptedException {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+
+    BuildTarget unstrippedTarget = BuildTargetFactory.newInstance("//:test");
+    BuildTarget strippedTarget = unstrippedTarget.withFlavors(
+        CxxStrip.StripStyle.DEBUGGING_SYMBOLS.getFlavor());
+
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "header_namespace", tmp);
+    workspace.setUp();
+    workspace.runBuckCommand(
+        "build",
+        "--config", "cxx.cxxflags=-g",
+        strippedTarget.getFullyQualifiedName()).assertSuccess();
+
+    Path strippedPath = workspace.getPath(BuildTargets.getGenPath(
+        BuildTarget.builder(strippedTarget)
+            .addFlavors(CxxStrip.RULE_FLAVOR)
+            .build(),
+        "%s"));
+    Path unstrippedPath = workspace.getPath(BuildTargets.getGenPath(unstrippedTarget, "%s"));
+
+    String strippedOut = workspace.runCommand("dsymutil", "-s", strippedPath.toString())
+        .getStdout().or("");
+    String unstrippedOut = workspace.runCommand("dsymutil", "-s", unstrippedPath.toString())
+        .getStdout().or("");
+
+    assertThat(strippedOut, Matchers.containsStringIgnoringCase("dyld_stub_binder"));
+    assertThat(unstrippedOut, Matchers.containsStringIgnoringCase("dyld_stub_binder"));
+
+    assertThat(strippedOut, Matchers.not(Matchers.containsStringIgnoringCase("test.cpp")));
+    assertThat(unstrippedOut, Matchers.containsStringIgnoringCase("test.cpp"));
+  }
+
+  @Test
+  public void testStrippedBinaryCanBeFetchedFromCacheAlone()
+      throws Exception {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+
+    BuildTarget strippedTarget = BuildTargetFactory.newInstance("//:test")
+        .withFlavors(CxxStrip.StripStyle.DEBUGGING_SYMBOLS.getFlavor());
+    BuildTarget unstrippedTarget = strippedTarget.withoutFlavors(
+        CxxStrip.StripStyle.FLAVOR_DOMAIN.getFlavors());
+
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "header_namespace", tmp);
+    workspace.setUp();
+    workspace.enableDirCache();
+
+    workspace.runBuckCommand(
+        "build",
+        "--config", "cxx.cxxflags=-g",
+        strippedTarget.getFullyQualifiedName()).assertSuccess();
+    workspace.runBuckCommand("clean").assertSuccess();
+    workspace.runBuckCommand(
+        "build",
+        "--config", "cxx.cxxflags=-g",
+        strippedTarget.getFullyQualifiedName()).assertSuccess();
+
+    Path strippedPath = workspace.getPath(BuildTargets.getGenPath(
+        BuildTarget.builder(strippedTarget)
+            .addFlavors(CxxStrip.RULE_FLAVOR)
+            .build(),
+        "%s"));
+    Path unstrippedPath = workspace.getPath(BuildTargets.getGenPath(unstrippedTarget, "%s"));
+
+    assertThat(Files.exists(strippedPath), Matchers.equalTo(true));
+    assertThat(Files.exists(unstrippedPath), Matchers.equalTo(false));
+  }
+
+  @Test
+  public void testStrippedBinaryOutputDiffersFromUnstripped()
+      throws IOException, InterruptedException {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+
+    BuildTarget unstrippedTarget = BuildTargetFactory.newInstance("//:test");
+    BuildTarget strippedTarget = unstrippedTarget.withFlavors(
+        CxxStrip.StripStyle.DEBUGGING_SYMBOLS.getFlavor());
+
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "header_namespace", tmp);
+    workspace.setUp();
+    ProjectWorkspace.ProcessResult strippedResult = workspace.runBuckCommand(
+        "targets", "--show-output", strippedTarget.getFullyQualifiedName());
+    strippedResult.assertSuccess();
+
+    ProjectWorkspace.ProcessResult unstrippedResult = workspace.runBuckCommand(
+        "targets", "--show-output", unstrippedTarget.getFullyQualifiedName());
+    unstrippedResult.assertSuccess();
+
+    String strippedOutput = strippedResult.getStdout().split(" ")[1];
+    String unstrippedOutput = unstrippedResult.getStdout().split(" ")[1];
+    assertThat(strippedOutput, Matchers.not(Matchers.equalTo(unstrippedOutput)));
   }
 
 }

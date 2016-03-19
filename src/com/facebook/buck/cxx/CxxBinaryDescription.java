@@ -93,12 +93,19 @@ public class CxxBinaryDescription implements
     return new Arg();
   }
 
+  @SuppressWarnings("PMD.PrematureDeclaration")
   @Override
   public <A extends Arg> BuildRule createBuildRule(
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) throws NoSuchBuildTargetException {
+
+    // We explicitly remove strip flavor from params to make sure rule
+    // has the same output regardless if we will strip or not.
+    Optional<CxxStrip.StripStyle> flavoredStripStyle =
+        CxxStrip.StripStyle.FLAVOR_DOMAIN.getValue(params.getBuildTarget());
+    params = CxxStrip.removeStripStyleFlavorInParams(params, flavoredStripStyle);
 
     // Extract the platform from the flavor, falling back to the default platform if none are
     // found.
@@ -137,7 +144,8 @@ public class CxxBinaryDescription implements
               resolver,
               cxxPlatform,
               args,
-              preprocessMode);
+              preprocessMode,
+              flavoredStripStyle);
       return CxxCompilationDatabase.createCompilationDatabase(
           params,
           pathResolver,
@@ -185,13 +193,25 @@ public class CxxBinaryDescription implements
           args);
     }
 
+    if (flavors.contains(CxxInferEnhancer.InferFlavors.INFER_CAPTURE_ONLY.get())) {
+      return CxxInferEnhancer.requireInferCaptureAggregatorBuildRuleForCxxDescriptionArg(
+          params,
+          resolver,
+          pathResolver,
+          cxxPlatform,
+          args,
+          inferBuckConfig,
+          new CxxInferSourceFilter(inferBuckConfig));
+    }
+
     CxxLinkAndCompileRules cxxLinkAndCompileRules =
         CxxDescriptionEnhancer.createBuildRulesForCxxBinaryDescriptionArg(
             params,
             resolver,
             cxxPlatform,
             args,
-            preprocessMode);
+            preprocessMode,
+            flavoredStripStyle);
 
     // Return a CxxBinary rule as our representative in the action graph, rather than the CxxLink
     // rule above for a couple reasons:
@@ -203,11 +223,13 @@ public class CxxBinaryDescription implements
     //     have to wait for the dependency binary to link before we could link the dependent binary.
     //     By using another BuildRule, we can keep the original target graph dependency tree while
     //     preventing it from affecting link parallelism.
+
+    params = CxxStrip.restoreStripStyleFlavorInParams(params, flavoredStripStyle);
     return new CxxBinary(
         params.appendExtraDeps(cxxLinkAndCompileRules.executable.getDeps(pathResolver)),
         resolver,
         pathResolver,
-        cxxLinkAndCompileRules.cxxLink,
+        cxxLinkAndCompileRules.getBinaryRule(),
         cxxLinkAndCompileRules.executable,
         args.frameworks.get(),
         args.tests.get());
@@ -270,7 +292,10 @@ public class CxxBinaryDescription implements
             CxxCompilationDatabase.UBER_COMPILATION_DATABASE,
             CxxInferEnhancer.InferFlavors.INFER.get(),
             CxxInferEnhancer.InferFlavors.INFER_ANALYZE.get(),
-            CxxInferEnhancer.InferFlavors.INFER_CAPTURE_ALL.get()));
+            CxxInferEnhancer.InferFlavors.INFER_CAPTURE_ALL.get(),
+            CxxStrip.StripStyle.ALL_SYMBOLS.getFlavor(),
+            CxxStrip.StripStyle.DEBUGGING_SYMBOLS.getFlavor(),
+            CxxStrip.StripStyle.NON_GLOBAL_SYMBOLS.getFlavor()));
 
     return flavors.isEmpty();
   }
@@ -289,26 +314,6 @@ public class CxxBinaryDescription implements
       BuildRuleResolver resolver,
       A args,
       final Class<U> metadataClass) throws NoSuchBuildTargetException {
-
-    if (buildTarget.getFlavors().contains(CxxInferEnhancer.InferFlavors.INFER_CAPTURE_ALL.get())) {
-      CxxPlatform cxxPlatform = cxxPlatforms
-          .getValue(buildTarget.getFlavors())
-          .or(defaultCxxPlatform);
-      return Optional.of(
-          CxxInferEnhancer.collectSourcesOverDependencies(
-              buildTarget,
-              resolver,
-              cxxPlatform,
-              args))
-          .transform(
-              new Function<CxxSourceSet, U>() {
-                @Override
-                public U apply(CxxSourceSet input) {
-                  return metadataClass.cast(input);
-                }
-              });
-    }
-
     if (!metadataClass.isAssignableFrom(CxxCompilationDatabaseDependencies.class) ||
         !buildTarget.getFlavors().contains(CxxCompilationDatabase.COMPILATION_DATABASE)) {
       return Optional.absent();
