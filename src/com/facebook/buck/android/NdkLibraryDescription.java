@@ -43,12 +43,11 @@ import com.facebook.buck.rules.macros.MacroExpander;
 import com.facebook.buck.rules.macros.MacroHandler;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.Escaper;
-import com.facebook.buck.util.MoreIterables;
 import com.facebook.buck.util.MoreStrings;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Functions;
+import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -57,7 +56,6 @@ import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Iterables;
 
 import java.io.IOException;
 import java.nio.file.FileVisitOption;
@@ -172,43 +170,29 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescription.
     for (Map.Entry<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform> entry : cxxPlatforms.entrySet()) {
       CxxPlatform cxxPlatform = entry.getValue().getCxxPlatform();
 
-      CxxPreprocessorInput cxxPreprocessorInput;
-      try {
-        // Collect the preprocessor input for all C/C++ library deps.  We search *through* other
-        // NDK library rules.
-        cxxPreprocessorInput = CxxPreprocessorInput.concat(
-            CxxPreprocessables.getTransitiveCxxPreprocessorInput(
-                cxxPlatform,
-                params.getDeps(),
-                Predicates.instanceOf(NdkLibrary.class)));
-      } catch (CxxHeaders.ConflictingHeadersException e) {
-        throw e.getHumanReadableExceptionForBuildTarget(params.getBuildTarget());
-      }
+      // Collect the preprocessor input for all C/C++ library deps.  We search *through* other
+      // NDK library rules.
+      CxxPreprocessorInput cxxPreprocessorInput =
+          CxxPreprocessorInput.concat(
+              CxxPreprocessables.getTransitiveCxxPreprocessorInput(
+                  cxxPlatform,
+                  params.getDeps(),
+                  Predicates.instanceOf(NdkLibrary.class)));
 
       // We add any dependencies from the C/C++ preprocessor input to this rule, even though
       // it technically should be added to the top-level rule.
-      deps.addAll(
-          pathResolver.filterBuildRuleInputs(
-              cxxPreprocessorInput.getIncludes().getNameToPathMap().values()));
-      deps.addAll(resolver.getAllRules(cxxPreprocessorInput.getRules()));
+      deps.addAll(cxxPreprocessorInput.getDeps(resolver, pathResolver));
 
       // Add in the transitive preprocessor flags contributed by C/C++ library rules into the
       // NDK build.
-      Iterable<String> ppflags = Iterables.concat(
-          cxxPreprocessorInput.getPreprocessorFlags().get(CxxSource.Type.C),
-          MoreIterables.zipAndConcat(
-              Iterables.cycle("-I"),
-              FluentIterable.from(cxxPreprocessorInput.getHeaderMaps())
-                  .transform(Functions.toStringFunction())),
-          MoreIterables.zipAndConcat(
-              Iterables.cycle("-I"),
-              FluentIterable.from(cxxPreprocessorInput.getIncludeRoots())
-                  .transform(Functions.toStringFunction())),
-          MoreIterables.zipAndConcat(
-              Iterables.cycle("-isystem"),
-              FluentIterable.from(cxxPreprocessorInput.getIncludeRoots())
-                  .transform(Functions.toStringFunction())));
-      String localCflags = Joiner.on(' ').join(escapeForMakefile(ppflags));
+      ImmutableList.Builder<String> ppFlags = ImmutableList.builder();
+      ppFlags.addAll(cxxPreprocessorInput.getPreprocessorFlags().get(CxxSource.Type.C));
+      ppFlags.addAll(
+          CxxHeaders.getArgs(
+              cxxPreprocessorInput.getIncludes(),
+              pathResolver,
+              Optional.<Function<Path, Path>>absent()));
+      String localCflags = Joiner.on(' ').join(escapeForMakefile(ppFlags.build()));
 
       // Collect the native linkable input for all C/C++ library deps.  We search *through* other
       // NDK library rules.

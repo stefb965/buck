@@ -23,7 +23,6 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
@@ -63,7 +62,6 @@ import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Iterables;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -385,28 +383,16 @@ public class CxxDescriptionEnhancer {
         params.getBuildTarget(),
         cxxPreprocessorInputFromTestedRules);
 
-    ImmutableMap.Builder<Path, SourcePath> allLinks = ImmutableMap.builder();
-    ImmutableMap.Builder<Path, SourcePath> allFullLinks = ImmutableMap.builder();
-    ImmutableList.Builder<Path> allIncludeRoots = ImmutableList.builder();
-    ImmutableSet.Builder<Path> allHeaderMaps = ImmutableSet.builder();
+    ImmutableList.Builder<CxxHeaders> allIncludes = ImmutableList.builder();
     for (HeaderSymlinkTree headerSymlinkTree : headerSymlinkTrees) {
-      allLinks.putAll(headerSymlinkTree.getLinks());
-      allFullLinks.putAll(headerSymlinkTree.getFullLinks());
-      allIncludeRoots.add(headerSymlinkTree.getIncludePath());
-      allHeaderMaps.addAll(headerSymlinkTree.getHeaderMap().asSet());
+      allIncludes.add(
+          CxxSymlinkTreeHeaders.from(headerSymlinkTree, CxxPreprocessables.IncludeType.LOCAL));
     }
 
     CxxPreprocessorInput localPreprocessorInput =
         CxxPreprocessorInput.builder()
-            .addAllRules(Iterables.transform(headerSymlinkTrees, HasBuildTarget.TO_TARGET))
             .putAllPreprocessorFlags(preprocessorFlags)
-            .setIncludes(
-                CxxHeaders.builder()
-                    .putAllNameToPathMap(allLinks.build())
-                    .putAllFullNameToPathMap(allFullLinks.build())
-                    .build())
-            .addAllIncludeRoots(allIncludeRoots.build())
-            .addAllHeaderMaps(allHeaderMaps.build())
+            .addAllIncludes(allIncludes.build())
             .addAllFrameworks(frameworks)
             .build();
 
@@ -544,7 +530,7 @@ public class CxxDescriptionEnhancer {
       CxxPlatform cxxPlatform,
       CxxBinaryDescription.Arg args,
       CxxPreprocessMode preprocessMode,
-      Optional<CxxStrip.StripStyle> stripStyle) throws NoSuchBuildTargetException {
+      Optional<StripStyle> stripStyle) throws NoSuchBuildTargetException {
 
     SourcePathResolver sourcePathResolver = new SourcePathResolver(resolver);
     ImmutableMap<String, CxxSource> srcs = parseCxxSources(
@@ -587,7 +573,7 @@ public class CxxDescriptionEnhancer {
       ImmutableMap<String, CxxSource> srcs,
       ImmutableMap<Path, SourcePath> headers,
       CxxPreprocessMode preprocessMode,
-      Optional<CxxStrip.StripStyle> stripStyle,
+      Optional<StripStyle> stripStyle,
       Linker.LinkableDepType linkStyle,
       Optional<ImmutableList<String>> preprocessorFlags,
       Optional<PatternMatchedCollection<ImmutableList<String>>> platformPreprocessorFlags,
@@ -756,15 +742,13 @@ public class CxxDescriptionEnhancer {
   private static CxxStrip createCxxStripRule(
       BuildRuleParams params,
       CxxPlatform cxxPlatform,
-      Optional<CxxStrip.StripStyle> stripStyle,
+      Optional<StripStyle> stripStyle,
       SourcePathResolver sourcePathResolver,
       CxxLink cxxLink) {
     BuildRuleParams stripRuleParams = params
         .copyWithChanges(
-            BuildTarget.builder(params.getBuildTarget())
-                .addFlavors(CxxStrip.RULE_FLAVOR)
-                .addFlavors(stripStyle.get().getFlavor())
-                .build(),
+            params.getBuildTarget().withAppendedFlavors(
+                CxxStrip.RULE_FLAVOR, stripStyle.get().getFlavor()),
             Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of(cxxLink)),
             Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
     return new CxxStrip(
@@ -1003,18 +987,14 @@ public class CxxDescriptionEnhancer {
     for (Map.Entry<String, SourcePath> ent : libraries.entrySet()) {
       links.put(Paths.get(ent.getKey()), ent.getValue());
     }
-    try {
-      return new SymlinkTree(
-          params.copyWithChanges(
-              symlinkTreeTarget,
-              Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
-              Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
-          pathResolver,
-          symlinkTreeRoot,
-          links.build());
-    } catch (SymlinkTree.InvalidSymlinkTreeException e) {
-      throw new RuntimeException(e.getMessage());
-    }
+    return new SymlinkTree(
+        params.copyWithChanges(
+            symlinkTreeTarget,
+            Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
+            Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+        pathResolver,
+        symlinkTreeRoot,
+        links.build());
   }
 
   public static Flavor flavorForLinkableDepType(Linker.LinkableDepType linkableDepType) {

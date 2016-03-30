@@ -17,25 +17,26 @@
 package com.facebook.buck.cxx;
 
 import com.facebook.buck.io.MorePaths;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.RuleKeyBuilder;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
 import com.facebook.buck.rules.coercer.FrameworkPath;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreSuppliers;
 import com.google.common.base.Function;
-import com.google.common.base.Functions;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
-import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableMultimap;
-import com.google.common.collect.Multimaps;
+import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -56,21 +57,38 @@ class PreprocessorDelegate implements RuleKeyAppendable {
   private final DebugPathSanitizer sanitizer;
   private final Path workingDir;
   private final SourcePathResolver resolver;
-  private final Function<Path, Path> minLengthPathRepresentation = new Function<Path, Path>() {
-    @Override
-    public Path apply(Path path) {
-      Preconditions.checkState(
-          path.isAbsolute(),
-          "Expected preprocessor suffix to be absolute: %s",
-          path);
-      String absoluteString = path.toString();
-      Path relativePath = MorePaths.relativize(workingDir, path);
-      String relativeString = relativePath.toString();
-      return absoluteString.length() > relativeString.length() ? relativePath : path;
-    }
-  };
-  private final Supplier<ImmutableMap<Path, Path>> replacementPaths;
-  private final Supplier<ImmutableMultimap<String, SourcePath>> pathToSourcePathMap;
+
+  private final Function<Path, Path> minLengthPathRepresentation =
+      new Function<Path, Path>() {
+        @Override
+        public Path apply(Path path) {
+          Preconditions.checkState(
+              path.isAbsolute(),
+              "Expected preprocessor suffix to be absolute: %s",
+              path);
+          String absoluteString = path.toString();
+          Path relativePath = MorePaths.relativize(workingDir, path);
+          String relativeString = relativePath.toString();
+          return absoluteString.length() > relativeString.length() ? relativePath : path;
+        }
+      };
+
+  private final Supplier<HeaderPathNormalizer> headerPathNormalizer =
+      MoreSuppliers.weakMemoize(
+          new Supplier<HeaderPathNormalizer>() {
+            @Override
+            public HeaderPathNormalizer get() {
+              HeaderPathNormalizer.Builder builder =
+                  new HeaderPathNormalizer.Builder(
+                      resolver,
+                      minLengthPathRepresentation);
+              for (CxxHeaders include : includes) {
+                include.addToHeaderPathNormalizer(builder);
+              }
+              return builder.build();
+            }
+          });
+
 
   public PreprocessorDelegate(
       SourcePathResolver resolver,
@@ -87,9 +105,6 @@ class PreprocessorDelegate implements RuleKeyAppendable {
     this.workingDir = workingDir;
     this.resolver = resolver;
     this.frameworkPathSearchPathFunction = frameworkPathSearchPathFunction;
-
-    this.replacementPaths = MoreSuppliers.weakMemoize(new ReplacementPathsSupplier());
-    this.pathToSourcePathMap = MoreSuppliers.weakMemoize(new PathToSourcePathMapSupplier());
   }
 
   public Preprocessor getPreprocessor() {
@@ -105,20 +120,8 @@ class PreprocessorDelegate implements RuleKeyAppendable {
     return builder;
   }
 
-  /**
-   * Resolve the map of symlinks to real paths to hand off the preprocess step.
-   */
-  public ImmutableMap<Path, Path> getReplacementPaths()
-      throws CxxHeaders.ConflictingHeadersException {
-    try {
-      return replacementPaths.get();
-    } catch (RuntimeException e) {
-      Throwable cause = e.getCause();
-      if (cause != null) {
-        Throwables.propagateIfInstanceOf(cause, CxxHeaders.ConflictingHeadersException.class);
-      }
-      throw e;
-    }
+  public HeaderPathNormalizer getHeaderPathNormalizer() {
+    return headerPathNormalizer.get();
   }
 
   /**
@@ -152,6 +155,24 @@ class PreprocessorDelegate implements RuleKeyAppendable {
     return preprocessor.getExtraLineProcessor();
   }
 
+  public void checkForConflictingHeaders() throws ConflictingHeadersException {
+    Map<Path, SourcePath> headers = new HashMap<>();
+    for (CxxHeaders cxxHeaders : includes) {
+      if (cxxHeaders instanceof CxxSymlinkTreeHeaders) {
+        CxxSymlinkTreeHeaders symlinkTreeHeaders = (CxxSymlinkTreeHeaders) cxxHeaders;
+        for (Map.Entry<Path, SourcePath> entry : symlinkTreeHeaders.getNameToPathMap().entrySet()) {
+          SourcePath original = headers.put(entry.getKey(), entry.getValue());
+          if (original != null && !original.equals(entry.getValue())) {
+            throw new ConflictingHeadersException(
+                entry.getKey(),
+                original,
+                entry.getValue());
+          }
+        }
+      }
+    }
+  }
+
   /**
    * @see com.facebook.buck.rules.keys.SupportsDependencyFileRuleKey
    */
@@ -174,9 +195,11 @@ class PreprocessorDelegate implements RuleKeyAppendable {
     // correct (e.g. there may be two `SourcePath` includes with the same relative path, but
     // coming from different cells).  Favor correctness in this case and just add *all*
     // `SourcePath`s that have relative paths matching those specific in the dep file.
-    ImmutableMultimap<String, SourcePath> pathToSourcePathMap = this.pathToSourcePathMap.get();
+    HeaderPathNormalizer headerPathNormalizer = getHeaderPathNormalizer();
     for (String line : depFileLines) {
-      inputs.addAll(pathToSourcePathMap.get(line));
+      Path absolutePath = Paths.get(line);
+      Preconditions.checkState(absolutePath.isAbsolute());
+      inputs.add(headerPathNormalizer.getSourcePathForAbsolutePath(Paths.get(line)));
     }
 
     return inputs.build();
@@ -186,42 +209,23 @@ class PreprocessorDelegate implements RuleKeyAppendable {
     return preprocessor.getFlagsForColorDiagnostics();
   }
 
-  private class ReplacementPathsSupplier implements Supplier<ImmutableMap<Path, Path>> {
-    @Override
-    public ImmutableMap<Path, Path> get() {
-      try {
-        ImmutableMap.Builder<Path, Path> replacementPathsBuilder = ImmutableMap.builder();
-        for (Map.Entry<Path, SourcePath> entry :
-            CxxHeaders.concat(includes).getFullNameToPathMap().entrySet()) {
-          // TODO(#9117006): We don't currently support a way to serialize `SourcePath` objects in a
-          // cache-compatible format, and we certainly can't use absolute paths here.  So, for now,
-          // just use relative paths.  The consequence here is that debug paths and error/warning
-          // messages may be incorrect when referring to headers in another cell.
-          replacementPathsBuilder.put(
-              Preconditions.checkNotNull(minLengthPathRepresentation.apply(entry.getKey())),
-              resolver.getRelativePath(entry.getValue()));
-        }
-        return replacementPathsBuilder.build();
-      } catch (CxxHeaders.ConflictingHeadersException e) {
-        throw new RuntimeException(e);
-      }
+  @SuppressWarnings("serial")
+  public static class ConflictingHeadersException extends Exception {
+    public ConflictingHeadersException(Path key, SourcePath value1, SourcePath value2) {
+      super(
+          String.format(
+              "'%s' maps to both %s.",
+              key,
+              ImmutableSortedSet.of(value1, value2)));
+    }
+
+    public HumanReadableException getHumanReadableExceptionForBuildTarget(BuildTarget buildTarget) {
+      return new HumanReadableException(
+          this,
+          "Target '%s' uses conflicting header file mappings. %s",
+          buildTarget,
+          getMessage());
     }
   }
 
-
-  private class PathToSourcePathMapSupplier
-      implements Supplier<ImmutableMultimap<String, SourcePath>> {
-    @Override
-    public ImmutableMultimap<String, SourcePath> get() {
-      try {
-        return Multimaps.index(
-            CxxHeaders.concat(includes).getFullNameToPathMap().values(),
-            Functions.compose(
-                Functions.toStringFunction(),
-                resolver.getRelativePathFunction()));
-      } catch (CxxHeaders.ConflictingHeadersException e) {
-        throw new RuntimeException(e);
-      }
-    }
-  }
 }

@@ -28,6 +28,7 @@ import com.facebook.buck.cxx.CxxSourceRuleFactory;
 import com.facebook.buck.cxx.CxxStrip;
 import com.facebook.buck.cxx.HeaderVisibility;
 import com.facebook.buck.cxx.Linker;
+import com.facebook.buck.cxx.StripStyle;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
@@ -89,7 +90,7 @@ public class HalideLibraryDescription
     return cxxPlatforms.containsAnyOf(flavors) ||
         flavors.contains(HALIDE_COMPILE_FLAVOR) ||
         flavors.contains(HALIDE_COMPILER_FLAVOR) ||
-        CxxStrip.StripStyle.FLAVOR_DOMAIN.containsAnyOf(flavors);
+        StripStyle.FLAVOR_DOMAIN.containsAnyOf(flavors);
   }
 
   @Override
@@ -119,8 +120,8 @@ public class HalideLibraryDescription
       Optional<PatternMatchedCollection<ImmutableList<String>>> platformLinkerFlags)
       throws NoSuchBuildTargetException {
 
-    Optional<CxxStrip.StripStyle> flavoredStripStyle =
-        CxxStrip.StripStyle.FLAVOR_DOMAIN.getValue(params.getBuildTarget());
+    Optional<StripStyle> flavoredStripStyle =
+        StripStyle.FLAVOR_DOMAIN.getValue(params.getBuildTarget());
     params = CxxStrip.removeStripStyleFlavorInParams(params, flavoredStripStyle);
 
     ImmutableMap<String, CxxSource> srcs = CxxDescriptionEnhancer.parseCxxSources(
@@ -186,8 +187,9 @@ public class HalideLibraryDescription
     BuildRule halideCompile = ruleResolver.requireRule(
         params.getBuildTarget().withFlavors(HALIDE_COMPILE_FLAVOR, platform.getFlavor()));
     BuildTarget buildTarget = halideCompile.getBuildTarget();
-    return new Archive(
-        params.copyWithExtraDeps(Suppliers.ofInstance(ImmutableSortedSet.of(halideCompile))),
+    return Archive.from(
+        params.getBuildTarget(),
+        params,
         pathResolver,
         platform.getAr(),
         platform.getRanlib(),
@@ -267,11 +269,7 @@ public class HalideLibraryDescription
       // Halide always output PIC, so it's output can be used for both cases.
       // See: https://github.com/halide/Halide/blob/e3c301f3/src/LLVM_Output.cpp#L152
       return createHalideStaticLibrary(
-          params.copyWithDeps(
-              Suppliers.ofInstance(
-                  ImmutableSortedSet.<BuildRule>of()),
-              Suppliers.ofInstance(
-                  ImmutableSortedSet.<BuildRule>of())),
+          params,
           resolver,
           new SourcePathResolver(resolver),
           cxxPlatform);

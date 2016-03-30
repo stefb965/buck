@@ -23,6 +23,8 @@ import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.DefaultJavaPackageFinder;
 import com.facebook.buck.jvm.java.GenerateCodeCoverageReportStep;
+import com.facebook.buck.jvm.java.JavaRuntimeLauncher;
+import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaTest;
 import com.facebook.buck.log.Logger;
@@ -54,7 +56,6 @@ import com.facebook.buck.test.TestStatusMessage;
 import com.facebook.buck.test.result.type.ResultType;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.Verbosity;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.base.Functions;
@@ -177,12 +178,6 @@ public class TestRunning {
     // Start running all of the tests. The result of each java_test() rule is represented as a
     // ListenableFuture.
     List<ListenableFuture<TestResults>> results = Lists.newArrayList();
-
-    // Unless `--verbose 0` is specified, print out test results as they become available.
-    // Failures with the ListenableFuture should always be printed, as they indicate an error with
-    // Buck, not the test being run.
-    Verbosity verbosity = params.getConsole().getVerbosity();
-    final boolean printTestResults = (verbosity != Verbosity.SILENT);
 
     TestRuleKeyFileHelper testRuleKeyFileHelper = new TestRuleKeyFileHelper(buildEngine);
     final AtomicInteger lastReportedTestSequenceNumber = new AtomicInteger();
@@ -354,7 +349,6 @@ public class TestRunning {
                 testRun.getTest(),
                 testRun.getTestReportingCallback(),
                 testTargets,
-                printTestResults,
                 lastReportedTestSequenceNumber,
                 totalNumberOfTests));
     }
@@ -386,7 +380,6 @@ public class TestRunning {
                       testRun.getTest(),
                       testRun.getTestReportingCallback(),
                       testTargets,
-                      printTestResults,
                       lastReportedTestSequenceNumber,
                       totalNumberOfTests));
             }
@@ -454,6 +447,9 @@ public class TestRunning {
             getReportCommand(
                 rulesUnderTest,
                 defaultJavaPackageFinderOptional,
+                new JavaBuckConfig(params.getBuckConfig())
+                    .getDefaultJavaOptions()
+                    .getJavaRuntimeLauncher(),
                 params.getCell().getFilesystem(),
                 JACOCO_OUTPUT_DIR,
                 options.getCoverageReportFormat(),
@@ -483,7 +479,6 @@ public class TestRunning {
       final TestRule testRule,
       final TestRule.TestReportingCallback testReportingCallback,
       final ImmutableSet<String> testTargets,
-      final boolean printTestResults,
       final AtomicInteger lastReportedTestSequenceNumber,
       final int totalNumberOfTests) {
 
@@ -530,9 +525,7 @@ public class TestRunning {
       @Override
       public void onSuccess(TestResults testResults) {
         LOG.debug("Transforming successful test results %s", testResults);
-        if (printTestResults) {
-          postTestResults(testResults);
-        }
+        postTestResults(testResults);
         transformedTestResults.set(testResults);
       }
 
@@ -559,12 +552,7 @@ public class TestRunning {
                 testRule.getContacts(),
                 FluentIterable.from(
                     testRule.getLabels()).transform(Functions.toStringFunction()).toSet());
-        TestResults newTestResults;
-        if (printTestResults) {
-          newTestResults = postTestResults(testResults);
-        } else {
-          newTestResults = testResults;
-        }
+        TestResults newTestResults = postTestResults(testResults);
         transformedTestResults.set(newTestResults);
       }
     };
@@ -772,6 +760,7 @@ public class TestRunning {
   private static Step getReportCommand(
       ImmutableSet<JavaLibrary> rulesUnderTest,
       Optional<DefaultJavaPackageFinder> defaultJavaPackageFinderOptional,
+      JavaRuntimeLauncher javaRuntimeLauncher,
       ProjectFilesystem filesystem,
       Path outputDirectory,
       CoverageReportFormat format,
@@ -794,6 +783,7 @@ public class TestRunning {
     }
 
     return new GenerateCodeCoverageReportStep(
+        javaRuntimeLauncher,
         filesystem,
         srcDirectories.build(),
         pathsToClasses.build(),

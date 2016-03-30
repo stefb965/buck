@@ -16,7 +16,11 @@
 
 package com.facebook.buck.cxx;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
+import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.hasItems;
+import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.nullValue;
 import static org.junit.Assert.assertEquals;
@@ -43,6 +47,7 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.Arg;
+import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
@@ -52,12 +57,13 @@ import com.facebook.buck.shell.ExportFileBuilder;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
-import com.facebook.buck.util.BuckConstant;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.collect.FluentIterable;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -71,37 +77,35 @@ import java.util.regex.Pattern;
 
 public class CxxLibraryDescriptionTest {
 
-  private static Path getHeaderSymlinkTreeIncludePath(
+  private static Optional<SourcePath> getHeaderMaps(
       BuildTarget target,
       BuildRuleResolver resolver,
       CxxPlatform cxxPlatform,
       HeaderVisibility headerVisibility) {
     if (cxxPlatform.getCpp().resolve(resolver).supportsHeaderMaps() &&
         cxxPlatform.getCxxpp().resolve(resolver).supportsHeaderMaps()) {
-      return BuckConstant.BUCK_OUTPUT_PATH;
+      return Optional.<SourcePath>of(
+          new BuildTargetSourcePath(
+              CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(
+                  target,
+                  cxxPlatform.getFlavor(),
+                  headerVisibility),
+              CxxDescriptionEnhancer.getHeaderMapPath(
+                  target,
+                  cxxPlatform.getFlavor(),
+                  headerVisibility)));
     } else {
-      return CxxDescriptionEnhancer.getHeaderSymlinkTreePath(
-          target,
-          cxxPlatform.getFlavor(),
-          headerVisibility);
+      return Optional.absent();
     }
   }
 
-  private static ImmutableSet<Path> getHeaderMaps(
-      BuildTarget target,
-      BuildRuleResolver resolver,
-      CxxPlatform cxxPlatform,
-      HeaderVisibility headerVisibility) {
-    if (cxxPlatform.getCpp().resolve(resolver).supportsHeaderMaps() &&
-        cxxPlatform.getCxxpp().resolve(resolver).supportsHeaderMaps()) {
-      return ImmutableSet.of(
-          CxxDescriptionEnhancer.getHeaderMapPath(
-              target,
-              cxxPlatform.getFlavor(),
-              headerVisibility));
-    } else {
-      return ImmutableSet.of();
+  private static ImmutableSet<Path> getHeaderNames(Iterable<CxxHeaders> includes) {
+    ImmutableSet.Builder<Path> names = ImmutableSet.builder();
+    for (CxxHeaders headers : includes) {
+      CxxSymlinkTreeHeaders symlinkTreeHeaders = (CxxSymlinkTreeHeaders) headers;
+      names.addAll(symlinkTreeHeaders.getNameToPathMap().keySet());
     }
+    return names.build();
   }
 
   @Test
@@ -177,97 +181,70 @@ public class CxxLibraryDescriptionTest {
     depBuilder.build(resolver, filesystem, targetGraph);
     CxxLibrary rule = (CxxLibrary) cxxLibraryBuilder.build(resolver, filesystem, targetGraph);
 
-    Path headerRoot =
-        CxxDescriptionEnhancer.getHeaderSymlinkTreePath(
-            target,
-            cxxPlatform.getFlavor(),
+    // Verify public preprocessor input.
+    CxxPreprocessorInput publicInput =
+        rule.getCxxPreprocessorInput(
+            cxxPlatform,
             HeaderVisibility.PUBLIC);
-    assertEquals(
-        CxxPreprocessorInput.builder()
-            .addRules(
-                CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(
-                    target,
-                    cxxPlatform.getFlavor(),
-                    HeaderVisibility.PUBLIC))
-            .setIncludes(
-                CxxHeaders.builder()
-                    .putNameToPathMap(
-                        Paths.get(headerName),
-                        new FakeSourcePath(headerName))
-                    .putNameToPathMap(
-                        Paths.get(genHeaderName),
-                        new BuildTargetSourcePath(genHeaderTarget))
-                    .putFullNameToPathMap(
-                        headerRoot.resolve(headerName),
-                        new FakeSourcePath(headerName))
-                    .putFullNameToPathMap(
-                        headerRoot.resolve(genHeaderName),
-                        new BuildTargetSourcePath(genHeaderTarget))
-                    .build())
-            .addIncludeRoots(
-                getHeaderSymlinkTreeIncludePath(
-                    target,
-                    resolver,
-                    cxxPlatform,
-                    HeaderVisibility.PUBLIC))
-            .addAllHeaderMaps(
-                getHeaderMaps(
-                    target,
-                    resolver,
-                    cxxPlatform,
-                    HeaderVisibility.PUBLIC))
-            .addFrameworks(
-                FrameworkPath.ofSourcePath(
-                    new PathSourcePath(filesystem, Paths.get("/some/framework/path/s.dylib"))),
-                FrameworkPath.ofSourcePath(
-                    new PathSourcePath(filesystem, Paths.get("/another/framework/path/a.dylib"))))
-            .build(),
-        rule.getCxxPreprocessorInput(
-            cxxPlatform,
-            HeaderVisibility.PUBLIC));
+    assertThat(
+        publicInput.getFrameworks(),
+        Matchers.containsInAnyOrder(
+            FrameworkPath.ofSourcePath(
+                new PathSourcePath(filesystem, Paths.get("/some/framework/path/s.dylib"))),
+            FrameworkPath.ofSourcePath(
+                new PathSourcePath(filesystem, Paths.get("/another/framework/path/a.dylib")))));
+    CxxSymlinkTreeHeaders publicHeaders = (CxxSymlinkTreeHeaders) publicInput.getIncludes().get(0);
+    assertThat(
+        publicHeaders.getIncludeType(),
+        Matchers.equalTo(CxxPreprocessables.IncludeType.LOCAL));
+    assertThat(
+        publicHeaders.getNameToPathMap(),
+        Matchers.equalTo(
+            ImmutableMap.<Path, SourcePath>of(
+                Paths.get(headerName),
+                new FakeSourcePath(headerName),
+                Paths.get(genHeaderName),
+                new BuildTargetSourcePath(genHeaderTarget))));
+    assertThat(
+        publicHeaders.getHeaderMap(),
+        Matchers.equalTo(
+            getHeaderMaps(
+                target,
+                resolver,
+                cxxPlatform,
+                HeaderVisibility.PUBLIC)));
 
-    Path privateHeaderRoot =
-        CxxDescriptionEnhancer.getHeaderSymlinkTreePath(
-            target,
-            cxxPlatform.getFlavor(),
-            HeaderVisibility.PRIVATE);
-    assertEquals(
-        CxxPreprocessorInput.builder()
-            .addRules(
-                CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(
-                    target,
-                    cxxPlatform.getFlavor(),
-                    HeaderVisibility.PRIVATE))
-            .setIncludes(
-                CxxHeaders.builder()
-                    .putNameToPathMap(
-                        Paths.get(privateHeaderName),
-                        new FakeSourcePath(privateHeaderName))
-                    .putFullNameToPathMap(
-                        privateHeaderRoot.resolve(privateHeaderName),
-                        new FakeSourcePath(privateHeaderName))
-                    .build())
-            .addIncludeRoots(
-                getHeaderSymlinkTreeIncludePath(
-                    target,
-                    resolver,
-                    cxxPlatform,
-                    HeaderVisibility.PRIVATE))
-            .addAllHeaderMaps(
-                getHeaderMaps(
-                    target,
-                    resolver,
-                    cxxPlatform,
-                    HeaderVisibility.PRIVATE))
-            .addFrameworks(
-                FrameworkPath.ofSourcePath(
-                    new PathSourcePath(filesystem, Paths.get("/some/framework/path/s.dylib"))),
-                FrameworkPath.ofSourcePath(
-                    new PathSourcePath(filesystem, Paths.get("/another/framework/path/a.dylib"))))
-            .build(),
+    // Verify private preprocessor input.
+    CxxPreprocessorInput privateInput =
         rule.getCxxPreprocessorInput(
             cxxPlatform,
-            HeaderVisibility.PRIVATE));
+            HeaderVisibility.PRIVATE);
+    assertThat(
+        privateInput.getFrameworks(),
+        Matchers.containsInAnyOrder(
+            FrameworkPath.ofSourcePath(
+                new PathSourcePath(filesystem, Paths.get("/some/framework/path/s.dylib"))),
+            FrameworkPath.ofSourcePath(
+                new PathSourcePath(filesystem, Paths.get("/another/framework/path/a.dylib")))));
+    CxxSymlinkTreeHeaders privateHeaders =
+        (CxxSymlinkTreeHeaders) privateInput.getIncludes().get(0);
+    assertThat(
+        privateHeaders.getIncludeType(),
+        Matchers.equalTo(CxxPreprocessables.IncludeType.LOCAL));
+    assertThat(
+        privateHeaders.getNameToPathMap(),
+        Matchers.equalTo(
+            ImmutableMap.<Path, SourcePath>of(
+                Paths.get(privateHeaderName),
+                new FakeSourcePath(privateHeaderName))));
+    assertThat(
+        privateHeaders.getHeaderMap(),
+        Matchers.equalTo(
+            getHeaderMaps(
+                target,
+                resolver,
+                cxxPlatform,
+                HeaderVisibility.PRIVATE)));
 
     // Verify that the archive rule has the correct deps: the object files from our sources.
     rule.getNativeLinkableInput(cxxPlatform, Linker.LinkableDepType.STATIC);
@@ -377,7 +354,7 @@ public class CxxLibraryDescriptionTest {
     ImmutableList<String> sonameArgs = ImmutableList.copyOf(linker.soname(soname));
     assertThat(
         Arg.stringify(rule.getArgs()),
-        Matchers.hasItems(sonameArgs.toArray(new String[sonameArgs.size()])));
+        hasItems(sonameArgs.toArray(new String[sonameArgs.size()])));
   }
 
   @Test
@@ -417,7 +394,7 @@ public class CxxLibraryDescriptionTest {
             Linker.LinkableDepType.STATIC);
     assertThat(
         Arg.stringify(input.getArgs()),
-        Matchers.not(Matchers.hasItems(linkWholeFlags.toArray(new String[linkWholeFlags.size()]))));
+        Matchers.not(hasItems(linkWholeFlags.toArray(new String[linkWholeFlags.size()]))));
 
     // Create a cxx library using link whole.
     CxxLibraryBuilder linkWholeBuilder =
@@ -443,7 +420,7 @@ public class CxxLibraryDescriptionTest {
             Linker.LinkableDepType.STATIC);
     assertThat(
         Arg.stringify(linkWholeInput.getArgs()),
-        Matchers.hasItems(linkWholeFlags.toArray(new String[linkWholeFlags.size()])));
+        hasItems(linkWholeFlags.toArray(new String[linkWholeFlags.size()])));
   }
 
   @Test
@@ -523,46 +500,35 @@ public class CxxLibraryDescriptionTest {
     CxxLibrary rule = (CxxLibrary) cxxLibraryBuilder.build(resolver, filesystem, targetGraph);
 
     // Verify the C/C++ preprocessor input is setup correctly.
-    Path headerRoot =
-        CxxDescriptionEnhancer.getHeaderSymlinkTreePath(
-            target,
-            cxxPlatform.getFlavor(),
+    CxxPreprocessorInput publicInput =
+        rule.getCxxPreprocessorInput(
+            cxxPlatform,
             HeaderVisibility.PUBLIC);
-    assertEquals(
-        CxxPreprocessorInput.builder()
-            .addRules(
-                CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(
-                    target,
-                    cxxPlatform.getFlavor(),
-                    HeaderVisibility.PUBLIC))
-            .setIncludes(
-                CxxHeaders.builder()
-                    .putNameToPathMap(
-                        Paths.get(genHeaderName),
-                        new BuildTargetSourcePath(genHeaderTarget))
-                    .putFullNameToPathMap(
-                        headerRoot.resolve(genHeaderName),
-                        new BuildTargetSourcePath(genHeaderTarget))
-                    .build())
-            .addIncludeRoots(
-                getHeaderSymlinkTreeIncludePath(
-                    target,
-                    resolver,
-                    cxxPlatform,
-                    HeaderVisibility.PUBLIC))
-            .addAllHeaderMaps(
-                getHeaderMaps(
-                    target,
-                    resolver,
-                    cxxPlatform,
-                    HeaderVisibility.PUBLIC))
-            .addFrameworks(
-                FrameworkPath.ofSourcePath(
-                    new PathSourcePath(filesystem, Paths.get("/some/framework/path/s.dylib"))),
-                FrameworkPath.ofSourcePath(
-                    new PathSourcePath(filesystem, Paths.get("/another/framework/path/a.dylib"))))
-            .build(),
-        rule.getCxxPreprocessorInput(cxxPlatform, HeaderVisibility.PUBLIC));
+    assertThat(
+        publicInput.getFrameworks(),
+        Matchers.containsInAnyOrder(
+            FrameworkPath.ofSourcePath(
+                new PathSourcePath(filesystem, Paths.get("/some/framework/path/s.dylib"))),
+            FrameworkPath.ofSourcePath(
+                new PathSourcePath(filesystem, Paths.get("/another/framework/path/a.dylib")))));
+    CxxSymlinkTreeHeaders publicHeaders = (CxxSymlinkTreeHeaders) publicInput.getIncludes().get(0);
+    assertThat(
+        publicHeaders.getIncludeType(),
+        Matchers.equalTo(CxxPreprocessables.IncludeType.LOCAL));
+    assertThat(
+        publicHeaders.getNameToPathMap(),
+        Matchers.equalTo(
+            ImmutableMap.<Path, SourcePath>of(
+                Paths.get(genHeaderName),
+                new BuildTargetSourcePath(genHeaderTarget))));
+    assertThat(
+        publicHeaders.getHeaderMap(),
+        Matchers.equalTo(
+            getHeaderMaps(
+                target,
+                resolver,
+                cxxPlatform,
+                HeaderVisibility.PUBLIC)));
 
     // Verify that the archive rule has the correct deps: the object files from our sources.
     rule.getNativeLinkableInput(cxxPlatform, Linker.LinkableDepType.STATIC);
@@ -795,9 +761,15 @@ public class CxxLibraryDescriptionTest {
         lib.getNativeLinkableInput(
             CxxLibraryBuilder.createDefaultPlatform(),
             Linker.LinkableDepType.STATIC_PIC);
+    Arg firstArg = nativeLinkableInput.getArgs().get(0);
+    assertThat(firstArg, instanceOf(SourcePathArg.class));
+    SourcePathArg sourcePathArg = (SourcePathArg) firstArg;
+    ImmutableCollection<BuildRule> deps = sourcePathArg.getDeps(new SourcePathResolver(resolver));
+    assertThat(deps.size(), is(1));
+    BuildRule buildRule = deps.asList().get(0);
     assertThat(
-        Arg.stringify(nativeLinkableInput.getArgs()).get(0),
-        Matchers.containsString("static-pic"));
+        buildRule.getBuildTarget().getFlavors(),
+        hasItem(CxxDescriptionEnhancer.STATIC_PIC_FLAVOR));
   }
 
   @Test
@@ -832,11 +804,11 @@ public class CxxLibraryDescriptionTest {
             filesystem,
             targetGraph);
 
-    assertThat(lib.getDeps(), Matchers.hasItem(loc));
+    assertThat(lib.getDeps(), hasItem(loc));
     assertThat(
         Arg.stringify(lib.getArgs()),
-        Matchers.hasItem(
-            Matchers.containsString(Preconditions.checkNotNull(loc.getPathToOutput()).toString())));
+        hasItem(
+            containsString(Preconditions.checkNotNull(loc.getPathToOutput()).toString())));
   }
 
   @Test
@@ -876,16 +848,16 @@ public class CxxLibraryDescriptionTest {
             filesystem,
             targetGraph);
 
-    assertThat(lib.getDeps(), Matchers.hasItem(loc));
+    assertThat(lib.getDeps(), hasItem(loc));
     assertThat(
         Arg.stringify(lib.getArgs()),
-        Matchers.hasItem(
+        hasItem(
             String.format(
                 "-Wl,--version-script=%s",
                 Preconditions.checkNotNull(loc.getPathToOutput()).toAbsolutePath())));
     assertThat(
         Arg.stringify(lib.getArgs()),
-        Matchers.not(Matchers.hasItem(loc.getPathToOutput().toAbsolutePath().toString())));
+        Matchers.not(hasItem(loc.getPathToOutput().toAbsolutePath().toString())));
   }
 
   @Test
@@ -925,12 +897,12 @@ public class CxxLibraryDescriptionTest {
             filesystem,
             targetGraph);
 
-    assertThat(lib.getDeps(), Matchers.not(Matchers.hasItem(loc)));
+    assertThat(lib.getDeps(), Matchers.not(hasItem(loc)));
     assertThat(
         Arg.stringify(lib.getArgs()),
         Matchers.not(
-            Matchers.hasItem(
-                Matchers.containsString(
+            hasItem(
+                containsString(
                     Preconditions.checkNotNull(loc.getPathToOutput()).toString()))));
   }
 
@@ -971,11 +943,11 @@ public class CxxLibraryDescriptionTest {
         FluentIterable.from(nativeLinkableInput.getArgs())
             .transformAndConcat(Arg.getDepsFunction(pathResolver))
             .toSet(),
-        Matchers.hasItem(loc));
+        hasItem(loc));
     assertThat(
         Arg.stringify(nativeLinkableInput.getArgs()),
-        Matchers.hasItem(
-            Matchers.containsString(
+        hasItem(
+            containsString(
                 Preconditions.checkNotNull(loc.getPathToOutput()).toString())));
   }
 
@@ -1021,11 +993,11 @@ public class CxxLibraryDescriptionTest {
         FluentIterable.from(nativeLinkableInput.getArgs())
             .transformAndConcat(Arg.getDepsFunction(pathResolver))
             .toSet(),
-        Matchers.hasItem(loc));
+        hasItem(loc));
     assertThat(
         Arg.stringify(nativeLinkableInput.getArgs()),
-        Matchers.hasItem(
-            Matchers.containsString(
+        hasItem(
+            containsString(
                 Preconditions.checkNotNull(loc.getPathToOutput()).toString())));
   }
 
@@ -1074,12 +1046,12 @@ public class CxxLibraryDescriptionTest {
         FluentIterable.from(nativeLinkableInput.getArgs())
             .transformAndConcat(Arg.getDepsFunction(pathResolver))
             .toSet(),
-        Matchers.not(Matchers.hasItem(loc)));
+        Matchers.not(hasItem(loc)));
     assertThat(
         Arg.stringify(nativeLinkableInput.getArgs()),
         Matchers.not(
-            Matchers.hasItem(
-                Matchers.containsString(
+            hasItem(
+                containsString(
                     Preconditions.checkNotNull(loc.getPathToOutput()).toString()))));
   }
 
@@ -1216,7 +1188,7 @@ public class CxxLibraryDescriptionTest {
         rule.getSharedNativeLinkTargetInput(CxxPlatformUtils.DEFAULT_PLATFORM);
     assertThat(
         Arg.stringify(input.getArgs()),
-        Matchers.hasItems("--flag", "--exported-flag"));
+        hasItems("--flag", "--exported-flag"));
   }
 
   @Test
@@ -1237,7 +1209,7 @@ public class CxxLibraryDescriptionTest {
         FluentIterable.from(cxxLibrary.getRuntimeDeps())
             .transform(HasBuildTarget.TO_TARGET)
             .toSet(),
-        Matchers.hasItem(cxxBinaryBuilder.getTarget()));
+        hasItem(cxxBinaryBuilder.getTarget()));
   }
 
   @Test
@@ -1268,7 +1240,7 @@ public class CxxLibraryDescriptionTest {
     CxxLink library = (CxxLink) libraryBuilder.build(resolver, filesystem, targetGraph);
     assertThat(
         Arg.stringify(library.getArgs()),
-        Matchers.hasItems("-L", "/another/path", "$SDKROOT/usr/lib", "-la", "-lz"));
+        hasItems("-L", "/another/path", "$SDKROOT/usr/lib", "-la", "-lz"));
   }
 
   @Test
@@ -1305,18 +1277,19 @@ public class CxxLibraryDescriptionTest {
         new BuildRuleResolver(
             TargetGraphFactory.newInstance(cxxLibraryBuilder.build()),
             new BuildTargetNodeToBuildRuleTransformer());
+    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
     CxxLibrary rule = (CxxLibrary) cxxLibraryBuilder.build(resolver, filesystem);
     CxxPreprocessorInput input =
         rule.getCxxPreprocessorInput(CxxPlatformUtils.DEFAULT_PLATFORM, HeaderVisibility.PUBLIC);
     assertThat(
-        input.getIncludes().getNameToPathMap().keySet(),
+        getHeaderNames(input.getIncludes()),
         Matchers.<Path>empty());
     assertThat(
         input.getSystemIncludeRoots(),
         Matchers.<Path>empty());
     assertThat(
-        input.getRules(),
-        Matchers.<BuildTarget>empty());
+        ImmutableSortedSet.copyOf(input.getDeps(resolver, pathResolver)),
+        Matchers.<BuildRule>empty());
   }
 
 }

@@ -1,5 +1,7 @@
 #!/usr/bin/python -u
 
+from __future__ import print_function
+
 import json
 import optparse
 import sys

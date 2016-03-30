@@ -20,13 +20,19 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.oneOf;
 
+import com.facebook.buck.cli.BuildTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.FakeSourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.util.Ansi;
 import com.google.common.base.Function;
+import com.google.common.base.Functions;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -46,10 +52,18 @@ public class CxxErrorTransformerFactoryTest {
 
   @Parameterized.Parameters(name = "{index}: {0}")
   public static Collection<Object[]> data() {
+    ProjectFilesystem filesystem = new FakeProjectFilesystem();
+    BuildRuleResolver ruleResolver =
+        new BuildRuleResolver(TargetGraph.EMPTY, new BuildTargetNodeToBuildRuleTransformer());
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleResolver);
+
     Path original = Paths.get("buck-out/foo#bar/world.h");
     Path replacement = Paths.get("hello/world.h");
 
-    ImmutableMap<Path, Path> replacementPaths = ImmutableMap.of(original, replacement);
+    HeaderPathNormalizer.Builder normalizerBuilder =
+        new HeaderPathNormalizer.Builder(pathResolver, Functions.<Path>identity());
+    normalizerBuilder.addHeader(new FakeSourcePath(replacement.toString()), original);
+    HeaderPathNormalizer normalizer = normalizerBuilder.build();
 
     Path compilationDirectory = Paths.get("compDir");
     Path sanitizedDir = Paths.get("hello");
@@ -60,7 +74,6 @@ public class CxxErrorTransformerFactoryTest {
         compilationDirectory,
         ImmutableBiMap.of(unsanitizedDir, sanitizedDir));
 
-    ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     return ImmutableList.copyOf(new Object[][] {
         {
@@ -68,7 +81,7 @@ public class CxxErrorTransformerFactoryTest {
             new CxxErrorTransformerFactory(
                 Optional.of(filesystem.getRootPath()),
                 Optional.<Function<Path, Path>>absent(),
-                replacementPaths,
+                normalizer,
                 sanitizer),
             replacement,
             original
@@ -78,7 +91,7 @@ public class CxxErrorTransformerFactoryTest {
             new CxxErrorTransformerFactory(
                 Optional.of(filesystem.getRootPath()),
                 Optional.of(filesystem.getAbsolutifier()),
-                replacementPaths,
+                normalizer,
                 sanitizer),
             replacement.toAbsolutePath(),
             original
@@ -141,6 +154,23 @@ public class CxxErrorTransformerFactoryTest {
     assertThat(
         transformer.transformLine(String.format("%s:4:2: something bad", originalPath)),
         equalTo(String.format("%s:4:2: something bad", expectedPath)));
+  }
+
+  @Test
+  public void shouldProperlyTransformColoredLinesInErrorMessages() {
+    Ansi ansi = new Ansi(/* isAnsiTerminal */ true);
+    assertThat(
+        transformer.transformLine(
+            String.format("%s something bad", ansi.asErrorText(originalPath + ":"))),
+        equalTo(String.format("%s something bad", ansi.asErrorText(expectedPath + ":"))));
+    assertThat(
+        transformer.transformLine(
+            String.format("%s something bad", ansi.asErrorText(originalPath + ":4:"))),
+        equalTo(String.format("%s something bad", ansi.asErrorText(expectedPath + ":4:"))));
+    assertThat(
+        transformer.transformLine(
+            String.format("%s something bad", ansi.asErrorText(originalPath + ":4:2:"))),
+        equalTo(String.format("%s something bad", ansi.asErrorText(expectedPath + ":4:2:"))));
   }
 
   @Test

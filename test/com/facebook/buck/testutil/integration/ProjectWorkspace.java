@@ -39,6 +39,7 @@ import com.facebook.buck.io.MoreFiles;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.io.Watchman;
+import com.facebook.buck.jvm.java.JavaCompilationConstants;
 import com.facebook.buck.model.BuckVersion;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.model.BuildTarget;
@@ -263,7 +264,7 @@ public class ProjectWorkspace {
       ImmutableList<String> vmArgs,
       String... args)  throws IOException, InterruptedException {
     List<String> command = ImmutableList.<String>builder()
-        .add("java")
+        .add(JavaCompilationConstants.DEFAULT_JAVA_OPTIONS.getJavaRuntimeLauncher().getCommand())
         .addAll(vmArgs)
         .add("-jar")
         .add(jar.toString())
@@ -710,8 +711,13 @@ public class ProjectWorkspace {
     }
   }
 
-
-  private void assertFilesEqual(Path expected, Path actual) throws IOException {
+  public void assertFilesEqual(Path expected, Path actual) throws IOException {
+    if (!expected.isAbsolute()) {
+      expected = templatePath.resolve(expected);
+    }
+    if (!actual.isAbsolute()) {
+      actual = destPath.resolve(actual);
+    }
     if (!Files.isRegularFile(actual)) {
       fail("Expected file " + actual + " could not be found.");
     }
@@ -759,7 +765,9 @@ public class ProjectWorkspace {
               "DTPlatformVersion",
               "MinimumOSVersion",
               "DTSDKBuild",
-              "DTPlatformBuild"
+              "DTPlatformBuild",
+              "DTXcode",
+              "DTXcodeBuild"
           };
           if (observedObject instanceof NSDictionary &&
               expectedObject instanceof NSDictionary) {

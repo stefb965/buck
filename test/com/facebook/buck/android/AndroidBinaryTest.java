@@ -25,6 +25,7 @@ import com.facebook.buck.android.FilterResourcesStep.ResourceFilter;
 import com.facebook.buck.android.ResourcesFilter.ResourceCompressionMode;
 import com.facebook.buck.cli.BuildTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.jvm.java.FakeJavaLibrary;
+import com.facebook.buck.jvm.java.JavaCompilationConstants;
 import com.facebook.buck.jvm.java.Keystore;
 import com.facebook.buck.jvm.java.KeystoreBuilder;
 import com.facebook.buck.jvm.java.PrebuiltJarBuilder;
@@ -133,6 +134,7 @@ public class AndroidBinaryTest {
     ImmutableList.Builder<Step> expectedSteps = ImmutableList.builder();
 
     ProGuardObfuscateStep.create(
+        JavaCompilationConstants.DEFAULT_JAVA_OPTIONS.getJavaRuntimeLauncher(),
         new FakeProjectFilesystem(),
         Optional.<Path>absent(),
         "1024M",
@@ -351,8 +353,8 @@ public class AndroidBinaryTest {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new BuildTargetNodeToBuildRuleTransformer());
     BuildRule keystoreRule = addKeystoreRule(resolver);
-    AndroidBinaryBuilder builder = AndroidBinaryBuilder.createBuilder(
-        BuildTargetFactory.newInstance("//:target"))
+    BuildTarget target = BuildTargetFactory.newInstance("//:target");
+    AndroidBinaryBuilder builder = AndroidBinaryBuilder.createBuilder(target)
         .setManifest(new FakeSourcePath("AndroidManifest.xml"))
         .setKeystore(keystoreRule.getBuildTarget())
         .setResourceFilter(new ResourceFilter(ImmutableList.of("mdpi")))
@@ -375,8 +377,12 @@ public class AndroidBinaryTest {
 
     assertEquals(
         ImmutableList.of(
-            Paths.get("buck-out/bin/__filtered__target#resources_filter__/0"),
-            Paths.get("buck-out/bin/__filtered__target#resources_filter__/1")),
+            BuildTargets.getScratchPath(
+                target.withFlavors(AndroidBinaryGraphEnhancer.RESOURCES_FILTER_FLAVOR),
+                "__filtered__%s__/0"),
+            BuildTargets.getScratchPath(
+                target.withFlavors(AndroidBinaryGraphEnhancer.RESOURCES_FILTER_FLAVOR),
+                "__filtered__%s__/1")),
         filteredDirs.build());
   }
 

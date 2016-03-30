@@ -24,7 +24,6 @@ import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -92,41 +91,9 @@ abstract class AbstractCxxSourceRuleFactory {
     ImmutableList.Builder<BuildRule> builder = ImmutableList.builder();
     ImmutableList<CxxPreprocessorInput> inputs = getCxxPreprocessorInput();
     for (CxxPreprocessorInput input : inputs) {
-      // Depend on the rules that generate the sources and headers we're compiling.
-      builder.addAll(
-          getPathResolver().filterBuildRuleInputs(
-              ImmutableList.<SourcePath>builder()
-                  .addAll(input.getIncludes().getNameToPathMap().values())
-                  .build()));
-      // Also add in extra deps from the preprocessor input, such as the symlink tree rules.
-      builder.addAll(
-          BuildRules.toBuildRulesFor(
-              getParams().getBuildTarget(),
-              getResolver(),
-              input.getRules()));
+      builder.addAll(input.getDeps(getResolver(), getPathResolver()));
     }
     return builder.build();
-  }
-
-  @Value.Lazy
-  protected ImmutableSet<Path> getIncludeRoots() {
-    return FluentIterable.from(getCxxPreprocessorInput())
-        .transformAndConcat(CxxPreprocessorInput.GET_INCLUDE_ROOTS)
-        .toSet();
-  }
-
-  @Value.Lazy
-  protected ImmutableSet<Path> getSystemIncludeRoots() {
-    return FluentIterable.from(getCxxPreprocessorInput())
-        .transformAndConcat(CxxPreprocessorInput.GET_SYSTEM_INCLUDE_ROOTS)
-        .toSet();
-  }
-
-  @Value.Lazy
-  protected ImmutableSet<Path> getHeaderMaps() {
-    return FluentIterable.from(getCxxPreprocessorInput())
-        .transformAndConcat(CxxPreprocessorInput.GET_HEADER_MAPS)
-        .toSet();
   }
 
   @Value.Lazy
@@ -139,8 +106,15 @@ abstract class AbstractCxxSourceRuleFactory {
   @Value.Lazy
   protected ImmutableList<CxxHeaders> getIncludes() {
     return FluentIterable.from(getCxxPreprocessorInput())
-        .transform(CxxPreprocessorInput.GET_INCLUDES)
+        .transformAndConcat(CxxPreprocessorInput.GET_INCLUDES)
         .toList();
+  }
+
+  @Value.Lazy
+  protected ImmutableSet<Path> getSystemIncludeRoots() {
+    return FluentIterable.from(getCxxPreprocessorInput())
+        .transformAndConcat(CxxPreprocessorInput.GET_SYSTEM_INCLUDE_ROOTS)
+        .toSet();
   }
 
   private final LoadingCache<CxxSource.Type, ImmutableList<String>> preprocessorFlags =
@@ -477,6 +451,8 @@ abstract class AbstractCxxSourceRuleFactory {
 
     LOG.verbose("Creating preprocessed InferCapture build rule %s for %s", target, source);
 
+    PreprocessorDelegate preprocessorDelegate = preprocessorDelegates.getUnchecked(
+        PreprocessAndCompilePreprocessorDelegateKey.of(source.getType(), source.getFlags()));
     CxxInferCapture result = new CxxInferCapture(
         getParams().copyWithChanges(
             target,
@@ -490,12 +466,7 @@ abstract class AbstractCxxSourceRuleFactory {
         source.getPath(),
         source.getType(),
         getCompileOutputPath(target, name),
-        getIncludeRoots(),
-        getSystemIncludeRoots(),
-        getHeaderMaps(),
-        getFrameworks(),
-        CxxDescriptionEnhancer.frameworkPathToSearchPath(getCxxPlatform(), getPathResolver()),
-        getPrefixHeader(),
+        preprocessorDelegate,
         inferConfig,
         getCxxPlatform().getDebugPathSanitizer());
     getResolver().addToIndex(result);
@@ -734,9 +705,8 @@ abstract class AbstractCxxSourceRuleFactory {
           PreprocessorFlags.of(
               getPrefixHeader(),
               computePreprocessorFlags(key.getSourceType(), key.getSourceFlags()),
+              getIncludes(),
               getFrameworks(),
-              getHeaderMaps(),
-              getIncludeRoots(),
               getSystemIncludeRoots()),
           CxxDescriptionEnhancer.frameworkPathToSearchPath(getCxxPlatform(), getPathResolver()),
           getIncludes());

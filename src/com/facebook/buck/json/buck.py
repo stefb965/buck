@@ -160,16 +160,29 @@ def add_rule(rule, build_env):
     # set to False.
     if rule_name in build_env.autodeps:
         if rule.get('autodeps', False):
+            # TODO(bolinfest): One major edge case that exists right now when using a set to de-dupe
+            # elements is that the same target may be referenced in two different ways:
+            # 1. As a fully-qualified target: //src/com/facebook/buck/android:packageable
+            # 2. As a local target:           :packageable
+            # Because of this, we may end up with two entries for the same target even though we
+            # are trying to use a set to remove duplicates.
+
             # Combine all of the deps into a set to eliminate duplicates. Although we would prefer
             # it if each dep were exclusively in BUCK or BUCK.autodeps, that is not always
             # possible. For example, if a user-defined macro creates a library that hardcodes a dep
             # and the tooling to produce BUCK.autodeps also infers the need for that dep and adds
             # it to BUCK.autodeps, then it will appear in both places.
             explicit_deps = rule.get('deps', [])
-            autodeps = build_env.autodeps[rule_name]
+            auto_deps = build_env.autodeps[rule_name]['deps']
             deps = set(explicit_deps)
-            deps.update(autodeps)
+            deps.update(auto_deps)
             rule['deps'] = list(deps)
+
+            explicit_exported_deps = rule.get('exportedDeps', [])
+            auto_exported_deps = build_env.autodeps[rule_name]['exported_deps']
+            exported_deps = set(explicit_exported_deps)
+            exported_deps.update(auto_exported_deps)
+            rule['exportedDeps'] = list(exported_deps)
         else:
             # If there is an entry in the .autodeps file for the rule, but the rule has autodeps
             # set to False, then the .autodeps file is likely out of date. Ideally, we would warn
@@ -458,8 +471,8 @@ GENDEPS_SIGNATURE = re.compile(r'^#@# GENERATED FILE: DO NOT MODIFY ([a-f0-9]{40
 class BuildFileProcessor(object):
 
     def __init__(self, project_root, watchman_watch_root, watchman_project_prefix, build_file_name,
-                 allow_empty_globs, watchman_client, watchman_error, implicit_includes=[],
-                 extra_funcs=[], configs={}):
+                 allow_empty_globs, ignore_buck_autodeps_files, watchman_client, watchman_error,
+                 implicit_includes=[], extra_funcs=[], configs={}):
         self._cache = {}
         self._build_env_stack = []
         self._sync_cookie_state = SyncCookieState()
@@ -470,6 +483,7 @@ class BuildFileProcessor(object):
         self._build_file_name = build_file_name
         self._implicit_includes = implicit_includes
         self._allow_empty_globs = allow_empty_globs
+        self._ignore_buck_autodeps_files = ignore_buck_autodeps_files
         self._watchman_client = watchman_client
         self._watchman_error = watchman_error
         self._configs = configs
@@ -681,18 +695,16 @@ class BuildFileProcessor(object):
         base_path = relative_path_to_build_file[:len_suffix]
         dirname = os.path.dirname(path)
 
-        # Try to process the .autodeps file. If there is a signature failure, then record the
-        # error, but do not blow up.
-        invalid_signature_error_message = None
-        autodeps_file = dirname + '/' + self._build_file_name + '.autodeps'
-        has_autodeps = False
+        # If there is a signature failure, then record the error, but do not blow up.
         autodeps = None
-        if os.path.isfile(autodeps_file):
-            try:
-                autodeps = self._parse_autodeps(autodeps_file)
-                has_autodeps = True
-            except InvalidSignatureError as e:
-                invalid_signature_error_message = e.message
+        autodeps_file = None
+        invalid_signature_error_message = None
+        try:
+            results = self._try_parse_autodeps(dirname)
+            if results:
+                (autodeps, autodeps_file) = results
+        except InvalidSignatureError as e:
+            invalid_signature_error_message = e.message
 
         build_env = BuildFileContext(
             base_path,
@@ -708,7 +720,7 @@ class BuildFileProcessor(object):
         # If the .autodeps file has been successfully parsed, then treat it as if it were
         # a file loaded via include_defs() in that a change to the .autodeps file should
         # force all of the build rules in the build file to be invalidated.
-        if has_autodeps:
+        if autodeps_file:
             build_env.includes.add(autodeps_file)
 
         if invalid_signature_error_message:
@@ -719,6 +731,21 @@ class BuildFileProcessor(object):
             build_env,
             path,
             implicit_includes=implicit_includes)
+
+    def _try_parse_autodeps(self, dirname):
+        """
+        Returns a tuple of (autodeps dict, autodeps_file string), or None.
+        """
+        # When we are running as part of `buck autodeps`, we ignore existing BUCK.autodeps files.
+        if self._ignore_buck_autodeps_files:
+            return None
+
+        autodeps_file = dirname + '/' + self._build_file_name + '.autodeps'
+        if not os.path.isfile(autodeps_file):
+            return None
+
+        autodeps = self._parse_autodeps(autodeps_file)
+        return (autodeps, autodeps_file)
 
     def _parse_autodeps(self, autodeps_file):
         """
@@ -949,6 +976,10 @@ def main():
         dest='quiet',
         help='Stifles exception backtraces printed to stderr during parsing.')
     parser.add_option(
+        '--ignore_buck_autodeps_files',
+        action='store_true',
+        help='Profile every buck file execution')
+    parser.add_option(
         '--profile',
         action='store_true',
         help='Profile every buck file execution')
@@ -992,6 +1023,7 @@ def main():
         options.watchman_project_prefix,
         options.build_file_name,
         options.allow_empty_globs,
+        options.ignore_buck_autodeps_files,
         watchman_client,
         watchman_error,
         implicit_includes=options.include or [],

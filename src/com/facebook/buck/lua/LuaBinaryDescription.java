@@ -440,27 +440,19 @@ public class LuaBinaryDescription implements
       SourcePathResolver pathResolver,
       Flavor flavor,
       ImmutableMap<String, SourcePath> components) {
-    BuildTarget linkTreeTarget =
-        BuildTarget.builder(params.getBuildTarget())
-            .addFlavors(flavor)
-            .build();
+    BuildTarget linkTreeTarget = params.getBuildTarget().withAppendedFlavor(flavor);
     Path linkTreeRoot =
         params.getProjectFilesystem().resolve(
             BuildTargets.getGenPath(linkTreeTarget, "%s"));
-    try {
-      return resolver.addToIndex(
-          SymlinkTree.from(
-              params.copyWithChanges(
-                  linkTreeTarget,
-                  Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
-                  Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
-              pathResolver,
-              linkTreeRoot,
-              components));
-    } catch (SymlinkTree.InvalidSymlinkTreeException e) {
-      throw e.getHumanReadableExceptionForBuildTarget(
-          params.getBuildTarget().getUnflavoredBuildTarget());
-    }
+    return resolver.addToIndex(
+        SymlinkTree.from(
+            params.copyWithChanges(
+                linkTreeTarget,
+                Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
+                Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+            pathResolver,
+            linkTreeRoot,
+            components));
   }
 
   private Tool getInPlaceBinary(

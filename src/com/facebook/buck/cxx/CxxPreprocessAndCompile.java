@@ -37,7 +37,6 @@ import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -176,15 +175,20 @@ public class CxxPreprocessAndCompile
   @VisibleForTesting
   CxxPreprocessAndCompileStep makeMainStep(Path scratchDir) {
 
-    // If we're compiling, this will just be empty.
-    ImmutableMap<Path, Path> replacementPaths;
-    try {
-      replacementPaths = preprocessDelegate.isPresent()
-          ? preprocessDelegate.get().getReplacementPaths()
-          : ImmutableMap.<Path, Path>of();
-    } catch (CxxHeaders.ConflictingHeadersException e) {
-      throw e.getHumanReadableExceptionForBuildTarget(getBuildTarget());
+    // Check for conflicting headers.
+    if (preprocessDelegate.isPresent()) {
+      try {
+        preprocessDelegate.get().checkForConflictingHeaders();
+      } catch (PreprocessorDelegate.ConflictingHeadersException e) {
+        throw e.getHumanReadableExceptionForBuildTarget(getBuildTarget());
+      }
     }
+
+    // If we're compiling, this will just be empty.
+    HeaderPathNormalizer headerPathNormalizer =
+        preprocessDelegate.isPresent() ?
+            preprocessDelegate.get().getHeaderPathNormalizer() :
+            HeaderPathNormalizer.empty(getResolver());
 
     Optional<CxxPreprocessAndCompileStep.ToolCommand> preprocessorCommand;
 
@@ -221,7 +225,7 @@ public class CxxPreprocessAndCompile
         inputType,
         preprocessorCommand,
         compilerCommand,
-        replacementPaths,
+        headerPathNormalizer,
         sanitizer,
         preprocessDelegate.isPresent() ?
             preprocessDelegate.get().getPreprocessorExtraLineProcessor() :

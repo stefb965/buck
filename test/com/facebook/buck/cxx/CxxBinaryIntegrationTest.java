@@ -893,7 +893,9 @@ public class CxxBinaryIntegrationTest {
     workspace.runBuckCommand("build", inputBuildTarget.getFullyQualifiedName()).assertSuccess();
 
     String specsPathList = BuildTargets
-        .getGenPath(inputBuildTarget, "infer-analysis-%s-analyze/specs_path_list.txt")
+        .getGenPath(
+            inputBuildTarget.withFlavors(CxxInferEnhancer.InferFlavors.INFER_ANALYZE.get()),
+            "infer-analysis-%s/specs_path_list.txt")
         .toString();
     String out = workspace.getFileContents(specsPathList);
 
@@ -1664,7 +1666,7 @@ public class CxxBinaryIntegrationTest {
 
     BuildTarget unstrippedTarget = BuildTargetFactory.newInstance("//:test");
     BuildTarget strippedTarget = unstrippedTarget.withFlavors(
-        CxxStrip.StripStyle.DEBUGGING_SYMBOLS.getFlavor());
+        StripStyle.DEBUGGING_SYMBOLS.getFlavor());
 
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "header_namespace", tmp);
@@ -1699,9 +1701,9 @@ public class CxxBinaryIntegrationTest {
     assumeTrue(Platform.detect() == Platform.MACOS);
 
     BuildTarget strippedTarget = BuildTargetFactory.newInstance("//:test")
-        .withFlavors(CxxStrip.StripStyle.DEBUGGING_SYMBOLS.getFlavor());
+        .withFlavors(StripStyle.DEBUGGING_SYMBOLS.getFlavor());
     BuildTarget unstrippedTarget = strippedTarget.withoutFlavors(
-        CxxStrip.StripStyle.FLAVOR_DOMAIN.getFlavors());
+        StripStyle.FLAVOR_DOMAIN.getFlavors());
 
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "header_namespace", tmp);
@@ -1736,7 +1738,7 @@ public class CxxBinaryIntegrationTest {
 
     BuildTarget unstrippedTarget = BuildTargetFactory.newInstance("//:test");
     BuildTarget strippedTarget = unstrippedTarget.withFlavors(
-        CxxStrip.StripStyle.DEBUGGING_SYMBOLS.getFlavor());
+        StripStyle.DEBUGGING_SYMBOLS.getFlavor());
 
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "header_namespace", tmp);

@@ -58,17 +58,20 @@ public class JavaTestDescription implements
 
   public static final BuildRuleType TYPE = BuildRuleType.of("java_test");
 
-  private final JavacOptions templateOptions;
+  private final JavaOptions javaOptions;
+  private final JavacOptions templateJavacOptions;
   private final Optional<Long> defaultTestRuleTimeoutMs;
   private final CxxPlatform cxxPlatform;
   private final Optional<Path> testTempDirOverride;
 
   public JavaTestDescription(
+      JavaOptions javaOptions,
       JavacOptions templateOptions,
       Optional<Long> defaultTestRuleTimeoutMs,
       CxxPlatform cxxPlatform,
       Optional<Path> testTempDirOverride) {
-    this.templateOptions = templateOptions;
+    this.javaOptions = javaOptions;
+    this.templateJavacOptions = templateOptions;
     this.defaultTestRuleTimeoutMs = defaultTestRuleTimeoutMs;
     this.cxxPlatform = cxxPlatform;
     this.testTempDirOverride = testTempDirOverride;
@@ -94,7 +97,7 @@ public class JavaTestDescription implements
 
     JavacOptions javacOptions =
         JavacOptionsFactory.create(
-            templateOptions,
+            templateJavacOptions,
             params,
             resolver,
             pathResolver,
@@ -109,10 +112,7 @@ public class JavaTestDescription implements
         cxxPlatform);
     params = cxxLibraryEnhancement.updatedParams;
 
-    BuildTarget abiJarTarget =
-        BuildTarget.builder(params.getBuildTarget())
-            .addFlavors(CalculateAbi.FLAVOR)
-            .build();
+    BuildTarget abiJarTarget = params.getBuildTarget().withAppendedFlavor(CalculateAbi.FLAVOR);
 
     JavaTest test =
         resolver.addToIndex(
@@ -140,6 +140,7 @@ public class JavaTestDescription implements
                 /* additionalClasspathEntries */ ImmutableSet.<Path>of(),
                 args.testType.or(TestType.JUNIT),
                 new JavacToJarStepFactory(javacOptions, JavacOptionsAmender.IDENTITY),
+                javaOptions.getJavaRuntimeLauncher(),
                 args.vmArgs.get(),
                 cxxLibraryEnhancement.nativeLibsEnvironment,
                 validateAndGetSourcesUnderTest(

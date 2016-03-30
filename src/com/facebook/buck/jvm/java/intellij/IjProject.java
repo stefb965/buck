@@ -23,8 +23,10 @@ import com.facebook.buck.android.DummyRDotJava;
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
+import com.facebook.buck.jvm.java.AnnotationProcessingParams;
 import com.facebook.buck.jvm.java.JavaFileParser;
 import com.facebook.buck.jvm.java.JavaLibrary;
+import com.facebook.buck.jvm.java.JvmLibraryArg;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.rules.BuildRule;
@@ -76,11 +78,12 @@ public class IjProject {
   /**
    * Write the project to disk.
    *
+   * @param runPostGenerationCleaner Whether or not the post-generation cleaner should be run.
    * @return set of {@link BuildTarget}s which should be built in order for the project to index
    *   correctly.
    * @throws IOException
    */
-  public ImmutableSet<BuildTarget> write() throws IOException {
+  public ImmutableSet<BuildTarget> write(boolean runPostGenerationCleaner) throws IOException {
     final ImmutableSet.Builder<BuildTarget> requiredBuildTargets = ImmutableSet.builder();
     IjLibraryFactory libraryFactory = new DefaultIjLibraryFactory(
         new DefaultIjLibraryFactory.IjLibraryFactoryResolver() {
@@ -160,6 +163,26 @@ public class IjProject {
                 .transform(getAbsolutePathAndRecordRuleFunction);
           }
 
+          @Override
+          public Optional<Path> getAnnotationOutputPath(
+              TargetNode<? extends JvmLibraryArg> targetNode) {
+            AnnotationProcessingParams annotationProcessingParams =
+                targetNode
+                .getConstructorArg()
+                .buildAnnotationProcessingParams(
+                    targetNode.getBuildTarget(),
+                    projectFilesystem,
+                    buildRuleResolver
+                );
+            if (annotationProcessingParams == null || annotationProcessingParams.isEmpty()) {
+              return Optional.<Path>absent();
+            }
+
+            return Optional
+                  .fromNullable(annotationProcessingParams.getGeneratedSourceFolderName())
+                  .or(Optional.<Path>absent());
+          }
+
           private Path getRelativePathAndRecordRule(SourcePath sourcePath) {
             requiredBuildTargets.addAll(
                 sourcePathResolver.getRule(sourcePath)
@@ -181,7 +204,7 @@ public class IjProject {
     IjProjectWriter writer = new IjProjectWriter(
         new IjProjectTemplateDataPreparer(parsingJavaPackageFinder, moduleGraph, projectFilesystem),
         projectFilesystem);
-    writer.write(buckConfig);
+    writer.write(buckConfig, runPostGenerationCleaner);
     return requiredBuildTargets.build();
   }
 }

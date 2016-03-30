@@ -137,9 +137,7 @@ public class PythonBinaryDescription implements
 
     // Generate an empty __init__.py module to fill in for any missing ones in the link tree.
     BuildTarget emptyInitTarget =
-        BuildTarget.builder(params.getBuildTarget())
-            .addFlavors(ImmutableFlavor.of("__init__"))
-            .build();
+        params.getBuildTarget().withAppendedFlavor(ImmutableFlavor.of("__init__"));
     Path emptyInitPath =
         BuildTargets.getGenPath(
             params.getBuildTarget(),
@@ -159,14 +157,10 @@ public class PythonBinaryDescription implements
     components = addMissingInitModules(components, new BuildTargetSourcePath(emptyInitTarget));
 
     BuildTarget linkTreeTarget =
-        BuildTarget.builder(params.getBuildTarget())
-            .addFlavors(ImmutableFlavor.of("link-tree"))
-            .build();
+        params.getBuildTarget().withAppendedFlavor(ImmutableFlavor.of("link-tree"));
     Path linkTreeRoot = params.getProjectFilesystem().resolve(
         BuildTargets.getGenPath(linkTreeTarget, "%s"));
-    SymlinkTree linkTree;
-    try {
-      linkTree =
+    SymlinkTree linkTree =
         resolver.addToIndex(
             new SymlinkTree(
                 params.copyWithChanges(
@@ -180,10 +174,6 @@ public class PythonBinaryDescription implements
                     .putAll(components.getResources())
                     .putAll(components.getNativeLibraries())
                     .build()));
-    } catch (SymlinkTree.InvalidSymlinkTreeException e) {
-      throw e.getHumanReadableExceptionForBuildTarget(
-          params.getBuildTarget().getUnflavoredBuildTarget());
-    }
 
     return new PythonInPlaceBinary(
         params,

@@ -173,9 +173,7 @@ public class HttpArtifactCache implements ArtifactCache {
   }
 
   @Override
-  public CacheResult fetch(
-      RuleKey ruleKey,
-      LazyPath output) throws InterruptedException {
+  public CacheResult fetch(RuleKey ruleKey, LazyPath output) {
     Started startedEvent = HttpArtifactCacheEvent.newFetchStartedEvent(ImmutableSet.<RuleKey>of());
     buckEventBus.post(startedEvent);
     Finished.Builder eventBuilder = HttpArtifactCacheEvent.newFinishedEventBuilder(startedEvent)
@@ -255,24 +253,28 @@ public class HttpArtifactCache implements ArtifactCache {
 
     // Dispatch the store operation and verify it succeeded.
     Response response = storeCall(builder);
-    final boolean requestFailed = response.code() != HttpURLConnection.HTTP_ACCEPTED;
-    if (requestFailed) {
-      reportFailure(
-          "store(%s, %s): unexpected response: %d",
-          response.request().urlString(),
-          ruleKeys,
-          response.code());
-    }
+    try {
+      final boolean requestFailed = response.code() != HttpURLConnection.HTTP_ACCEPTED;
+      if (requestFailed) {
+        reportFailure(
+            "store(%s, %s): unexpected response: %d",
+            response.request().urlString(),
+            ruleKeys,
+            response.code());
+      }
 
-    eventBuilder.setWasUploadSuccessful(!requestFailed);
+      eventBuilder.setWasUploadSuccessful(!requestFailed);
+    } finally {
+      // To release all resources from this connection to the connection pool.
+      response.body().close();
+    }
   }
 
   @Override
   public ListenableFuture<Void> store(
       final ImmutableSet<RuleKey> ruleKeys,
       final ImmutableMap<String, String> metadata,
-      final BorrowablePath output)
-      throws InterruptedException {
+      final BorrowablePath output) {
     if (!isStoreSupported()) {
       return Futures.immediateFuture(null);
     }

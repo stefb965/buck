@@ -25,7 +25,6 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -38,7 +37,6 @@ import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ComparisonChain;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
@@ -57,14 +55,29 @@ public class CxxPreprocessables {
   private CxxPreprocessables() {}
 
   public enum IncludeType {
+
     /**
      * Headers should be included with `-I`.
      */
-    LOCAL,
+    LOCAL("-I"),
+
     /**
      * Headers should be included with `-isystem`.
      */
-    SYSTEM,
+    SYSTEM("-isystem"),
+
+    ;
+
+    private String flag;
+
+    IncludeType(String flag) {
+      this.flag = flag;
+    }
+
+    public String getFlag() {
+      return flag;
+    }
+
   }
 
   /**
@@ -149,29 +162,25 @@ public class CxxPreprocessables {
             Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
             Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
 
-    try {
-      if (headerMapPath.isPresent()) {
-        return new HeaderSymlinkTreeWithHeaderMap(
-            paramsWithoutDeps,
-            resolver,
-            root,
-            headerMapPath.get(),
-            links);
-      } else {
-        return new HeaderSymlinkTree(
-            paramsWithoutDeps,
-            resolver,
-            root,
-            links);
-      }
-    } catch (SymlinkTree.InvalidSymlinkTreeException e) {
-      throw e.getHumanReadableExceptionForBuildTarget(target.getUnflavoredBuildTarget());
+    if (headerMapPath.isPresent()) {
+      return new HeaderSymlinkTreeWithHeaderMap(
+          paramsWithoutDeps,
+          resolver,
+          root,
+          headerMapPath.get(),
+          links);
+    } else {
+      return new HeaderSymlinkTree(
+          paramsWithoutDeps,
+          resolver,
+          root,
+          links);
     }
   }
 
   /**
-   * @return adds a the header {@link SymlinkTree} for the given rule to the
-   *     {@link CxxPreprocessorInput}.
+   * @return adds a the header {@link com.facebook.buck.rules.SymlinkTree} for the given rule to
+   *     the {@link CxxPreprocessorInput}.
    */
   public static CxxPreprocessorInput.Builder addHeaderSymlinkTree(
       CxxPreprocessorInput.Builder builder,
@@ -192,24 +201,8 @@ public class CxxPreprocessables {
         rule.getClass(),
         target);
     HeaderSymlinkTree symlinkTree = (HeaderSymlinkTree) rule;
-    builder
-        .addRules(symlinkTree.getBuildTarget())
-        .setIncludes(
-            CxxHeaders.builder()
-                .setNameToPathMap(ImmutableSortedMap.copyOf(symlinkTree.getLinks()))
-                .setFullNameToPathMap(ImmutableSortedMap.copyOf(symlinkTree.getFullLinks()))
-                .build());
-    switch(includeType) {
-      case LOCAL:
-        builder.addIncludeRoots(symlinkTree.getIncludePath());
-        builder.addAllHeaderMaps(symlinkTree.getHeaderMap().asSet());
-        break;
-      case SYSTEM:
-        builder.addSystemIncludeRoots(symlinkTree.getSystemIncludePath());
-        break;
-    }
+    builder.addIncludes(CxxSymlinkTreeHeaders.from(symlinkTree, includeType));
     return builder;
-
   }
 
   /**

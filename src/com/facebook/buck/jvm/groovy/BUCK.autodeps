@@ -1,20 +1,25 @@
-#@# GENERATED FILE: DO NOT MODIFY 2ba63d4140eaf8269e2bc96867eea7f9abeb74b9 #@#
+#@# GENERATED FILE: DO NOT MODIFY c41299941b68a4208f431d1fa5de77acebcc1a7e #@#
 {
-  "rules" : [
-    "//src/com/facebook/buck/cli:config",
-    "//src/com/facebook/buck/io:io",
-    "//src/com/facebook/buck/jvm/common:resources",
-    "//src/com/facebook/buck/jvm/core:suggestbuildrules",
-    "//src/com/facebook/buck/jvm/java:rules",
-    "//src/com/facebook/buck/jvm/java:steps",
-    "//src/com/facebook/buck/jvm/java:support",
-    "//src/com/facebook/buck/model:model",
-    "//src/com/facebook/buck/parser:rule_pattern",
-    "//src/com/facebook/buck/rules:build_rule",
-    "//src/com/facebook/buck/step:step",
-    "//src/com/facebook/buck/util:exceptions",
-    "//src/com/facebook/buck/util:io",
-    "//third-party/java/guava:guava",
-    "//third-party/java/infer-annotations:infer-annotations"
-  ]
+  "rules" : {
+    "deps" : [
+      "//src/com/facebook/buck/io:executable-finder",
+      "//src/com/facebook/buck/jvm/common:resources",
+      "//src/com/facebook/buck/util:exceptions",
+      "//src/com/facebook/buck/util:io"
+    ],
+    "exported_deps" : [
+      "//src/com/facebook/buck/cli:config",
+      "//src/com/facebook/buck/io:io",
+      "//src/com/facebook/buck/jvm/core:suggestbuildrules",
+      "//src/com/facebook/buck/jvm/java:rules",
+      "//src/com/facebook/buck/jvm/java:steps",
+      "//src/com/facebook/buck/jvm/java:support",
+      "//src/com/facebook/buck/model:model",
+      "//src/com/facebook/buck/parser:rule_pattern",
+      "//src/com/facebook/buck/rules:build_rule",
+      "//src/com/facebook/buck/step:step",
+      "//third-party/java/guava:guava",
+      "//third-party/java/infer-annotations:infer-annotations"
+    ]
+  }
 }

@@ -1,18 +1,22 @@
-#@# GENERATED FILE: DO NOT MODIFY c208a28c7d7a23c3c4c2b3bc7918fd6b43621fa5 #@#
+#@# GENERATED FILE: DO NOT MODIFY 230165188865b595d2b2bd3c8968eb25a98cd920 #@#
 {
-  "event" : [
-    "//src/com/facebook/buck/event/external:external_lib",
-    "//src/com/facebook/buck/log:api",
-    "//src/com/facebook/buck/log:log",
-    "//src/com/facebook/buck/model:build_id",
-    "//src/com/facebook/buck/model:model",
-    "//src/com/facebook/buck/rules:rule_key",
-    "//src/com/facebook/buck/timing:timing",
-    "//src/com/facebook/buck/util/concurrent:concurrent",
-    "//src/com/facebook/buck/util/immutables:immutables",
-    "//third-party/java/guava:guava",
-    "//third-party/java/immutables:processor",
-    "//third-party/java/jackson:jackson-annotations",
-    "//third-party/java/jsr:jsr305"
-  ]
+  "event" : {
+    "deps" : [
+      "//src/com/facebook/buck/log:log",
+      "//src/com/facebook/buck/util/concurrent:concurrent",
+      "//third-party/java/immutables:processor",
+      "//third-party/java/jsr:jsr305"
+    ],
+    "exported_deps" : [
+      "//src/com/facebook/buck/event/external:external_lib",
+      "//src/com/facebook/buck/log:api",
+      "//src/com/facebook/buck/model:build_id",
+      "//src/com/facebook/buck/model:model",
+      "//src/com/facebook/buck/rules:rule_key",
+      "//src/com/facebook/buck/timing:timing",
+      "//src/com/facebook/buck/util/immutables:immutables",
+      "//third-party/java/guava:guava",
+      "//third-party/java/jackson:jackson-annotations"
+    ]
+  }
 }

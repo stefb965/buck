@@ -192,9 +192,8 @@ abstract class GoDescriptors {
       List<String> linkerFlags,
       GoPlatform platform) throws NoSuchBuildTargetException {
     BuildTarget libraryTarget =
-        BuildTarget.builder(params.getBuildTarget())
-            .addFlavors(ImmutableFlavor.of("compile"), platform.getFlavor())
-            .build();
+        params.getBuildTarget().withAppendedFlavors(
+            ImmutableFlavor.of("compile"), platform.getFlavor());
     GoCompile library = GoDescriptors.createGoCompileRule(
         params.copyWithBuildTarget(libraryTarget),
         resolver,
@@ -380,12 +379,7 @@ abstract class GoDescriptors {
         params.getBuildTarget(),
         "__%s__tree"));
 
-    try {
-      return new SymlinkTree(params, pathResolver, root, treeMap);
-    } catch (SymlinkTree.InvalidSymlinkTreeException ex) {
-      // This should never happen since go package names don't have .. as a path component.
-      throw new RuntimeException(ex);
-    }
+    return new SymlinkTree(params, pathResolver, root, treeMap);
   }
 
   /**

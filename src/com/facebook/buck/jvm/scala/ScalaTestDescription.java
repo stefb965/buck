@@ -19,6 +19,7 @@ package com.facebook.buck.jvm.scala;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.jvm.common.ResourceValidator;
 import com.facebook.buck.jvm.java.CalculateAbi;
+import com.facebook.buck.jvm.java.JavaOptions;
 import com.facebook.buck.jvm.java.JavaTest;
 import com.facebook.buck.jvm.java.JavaTestDescription;
 import com.facebook.buck.jvm.java.TestType;
@@ -55,16 +56,19 @@ public class ScalaTestDescription implements Description<ScalaTestDescription.Ar
   public static final BuildRuleType TYPE = BuildRuleType.of("scala_test");
 
   private final ScalaBuckConfig config;
+  private final JavaOptions javaOptions;
   private final Optional<Long> defaultTestRuleTimeoutMs;
   private final CxxPlatform cxxPlatform;
   private final Optional<Path> testTempDirOverride;
 
   public ScalaTestDescription(
       ScalaBuckConfig config,
+      JavaOptions javaOptions,
       Optional<Long> defaultTestRuleTimeoutMs,
       CxxPlatform cxxPlatform,
       Optional<Path> testTempDirOverride) {
     this.config = config;
+    this.javaOptions = javaOptions;
     this.defaultTestRuleTimeoutMs = defaultTestRuleTimeoutMs;
     this.cxxPlatform = cxxPlatform;
     this.testTempDirOverride = testTempDirOverride;
@@ -113,10 +117,7 @@ public class ScalaTestDescription implements Description<ScalaTestDescription.Ar
 
     Tool scalac = config.getScalac(resolver);
 
-    BuildTarget abiJarTarget =
-        BuildTarget.builder(params.getBuildTarget())
-            .addFlavors(CalculateAbi.FLAVOR)
-            .build();
+    BuildTarget abiJarTarget = params.getBuildTarget().withAppendedFlavor(CalculateAbi.FLAVOR);
 
     JavaTest test =
         resolver.addToIndex(
@@ -148,9 +149,10 @@ public class ScalaTestDescription implements Description<ScalaTestDescription.Ar
                         .addAll(args.extraArguments.get())
                         .build()
                 ),
+                javaOptions.getJavaRuntimeLauncher(),
                 args.vmArgs.get(),
-                cxxLibraryEnhancement.nativeLibsEnvironment,
-                /* sourcesUnderTest */ ImmutableSet.<BuildRule>of(),
+                /* sourcesUnderTest */ cxxLibraryEnhancement.nativeLibsEnvironment,
+                ImmutableSet.<BuildRule>of(),
                 args.resourcesRoot,
                 args.mavenCoords,
                 args.testRuleTimeoutMs.or(defaultTestRuleTimeoutMs),

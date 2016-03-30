@@ -137,9 +137,12 @@ public abstract class ExecutionContext implements Closeable {
    * @return A clone of this {@link ExecutionContext} with {@code stdout} and {@code stderr}
    *    redirected to the provided {@link PrintStream}s.
    */
-  public ExecutionContext createSubContext(PrintStream newStdout, PrintStream newStderr) {
+  public ExecutionContext createSubContext(
+      PrintStream newStdout,
+      PrintStream newStderr,
+      Optional<Verbosity> verbosityOverride) {
     Console console = new Console(
-        this.getConsole().getVerbosity(),
+        verbosityOverride.or(this.getConsole().getVerbosity()),
         newStdout,
         newStderr,
         this.getConsole().getAnsi());
@@ -147,7 +150,8 @@ public abstract class ExecutionContext implements Closeable {
     return ImmutableExecutionContext.copyOf(this)
         .withConsole(console)
         .withProcessExecutor(new ProcessExecutor(console))
-        .withClassLoaderCache(getClassLoaderCache().addRef());
+        .withClassLoaderCache(getClassLoaderCache().addRef())
+        .withWorkerProcesses(new ConcurrentHashMap<String, WorkerProcess>());
   }
 
   public void logError(Throwable error, String msg, Object... formatArgs) {
@@ -275,7 +279,6 @@ public abstract class ExecutionContext implements Closeable {
       setConcurrencyLimit(executionContext.getConcurrencyLimit());
       setAdbOptions(executionContext.getAdbOptions());
       setTargetDeviceOptions(executionContext.getTargetDeviceOptions());
-      setWorkerProcesses(executionContext.getWorkerProcesses());
       return this;
     }
 
