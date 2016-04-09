@@ -23,7 +23,7 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.cli.BuckConfig;
-import com.facebook.buck.cli.BuildTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
@@ -100,7 +100,7 @@ public class CxxSourceRuleFactoryTest {
       BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
       BuildRuleParams params = new FakeBuildRuleParamsBuilder(target).build();
       BuildRuleResolver resolver =
-          new BuildRuleResolver(TargetGraph.EMPTY, new BuildTargetNodeToBuildRuleTransformer());
+          new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
       SourcePathResolver pathResolver = new SourcePathResolver(resolver);
 
       FakeBuildRule dep = resolver.addToIndex(new FakeBuildRule("//:dep1", pathResolver));
@@ -114,6 +114,7 @@ public class CxxSourceRuleFactoryTest {
           .setParams(params)
           .setResolver(resolver)
           .setPathResolver(pathResolver)
+          .setCxxBuckConfig(CxxPlatformUtils.DEFAULT_CONFIG)
           .setCxxPlatform(CXX_PLATFORM)
           .addCxxPreprocessorInput(cxxPreprocessorInput)
           .setPicType(CxxSourceRuleFactory.PicType.PDC)
@@ -144,7 +145,7 @@ public class CxxSourceRuleFactoryTest {
       BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
       BuildRuleParams params = new FakeBuildRuleParamsBuilder(target).build();
       BuildRuleResolver resolver =
-          new BuildRuleResolver(TargetGraph.EMPTY, new BuildTargetNodeToBuildRuleTransformer());
+          new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
       SourcePathResolver pathResolver = new SourcePathResolver(resolver);
 
       ImmutableList<String> platformFlags = ImmutableList.of("-some", "-flags");
@@ -161,6 +162,7 @@ public class CxxSourceRuleFactoryTest {
           .setParams(params)
           .setResolver(resolver)
           .setPathResolver(pathResolver)
+          .setCxxBuckConfig(CxxPlatformUtils.DEFAULT_CONFIG)
           .setCxxPlatform(platform)
           .addCxxPreprocessorInput(cxxPreprocessorInput)
           .setPicType(CxxSourceRuleFactory.PicType.PDC)
@@ -199,7 +201,7 @@ public class CxxSourceRuleFactoryTest {
       BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
       BuildRuleParams params = new FakeBuildRuleParamsBuilder(target).build();
       BuildRuleResolver resolver =
-          new BuildRuleResolver(TargetGraph.EMPTY, new BuildTargetNodeToBuildRuleTransformer());
+          new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
 
       FakeBuildRule dep = createFakeBuildRule("//:test", new SourcePathResolver(resolver));
       resolver.addToIndex(dep);
@@ -208,6 +210,7 @@ public class CxxSourceRuleFactoryTest {
           .setParams(params)
           .setResolver(resolver)
           .setPathResolver(new SourcePathResolver(resolver))
+          .setCxxBuckConfig(CxxPlatformUtils.DEFAULT_CONFIG)
           .setCxxPlatform(CXX_PLATFORM)
           .setPicType(CxxSourceRuleFactory.PicType.PDC)
           .build();
@@ -242,13 +245,14 @@ public class CxxSourceRuleFactoryTest {
       BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
       BuildRuleParams params = new FakeBuildRuleParamsBuilder(target).build();
       BuildRuleResolver resolver =
-          new BuildRuleResolver(TargetGraph.EMPTY, new BuildTargetNodeToBuildRuleTransformer());
+          new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
       Path scratchDir = Paths.get("scratchDir");
 
       CxxSourceRuleFactory.Builder cxxSourceRuleFactoryBuilder = CxxSourceRuleFactory.builder()
           .setParams(params)
           .setResolver(resolver)
           .setPathResolver(new SourcePathResolver(resolver))
+          .setCxxBuckConfig(CxxPlatformUtils.DEFAULT_CONFIG)
           .setCxxPlatform(CXX_PLATFORM);
       CxxSourceRuleFactory cxxSourceRuleFactoryPDC = cxxSourceRuleFactoryBuilder
           .setPicType(CxxSourceRuleFactory.PicType.PDC)
@@ -316,7 +320,7 @@ public class CxxSourceRuleFactoryTest {
     @Test
     public void checkPrefixHeaderIsIncluded() {
       BuildRuleResolver buildRuleResolver =
-          new BuildRuleResolver(TargetGraph.EMPTY, new BuildTargetNodeToBuildRuleTransformer());
+          new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
       BuildTarget target = BuildTargetFactory.newInstance("//:target");
       BuildRuleParams params = new FakeBuildRuleParamsBuilder(target).build();
       ProjectFilesystem filesystem = new AllExistingProjectFilesystem();
@@ -332,6 +336,7 @@ public class CxxSourceRuleFactoryTest {
           .setParams(params)
           .setResolver(buildRuleResolver)
           .setPathResolver(new SourcePathResolver(buildRuleResolver))
+          .setCxxBuckConfig(CxxPlatformUtils.DEFAULT_CONFIG)
           .setCxxPlatform(platform)
           .setPrefixHeader(prefixHeaderSourcePath)
           .setPicType(CxxSourceRuleFactory.PicType.PDC)
@@ -358,7 +363,7 @@ public class CxxSourceRuleFactoryTest {
     @Test
     public void duplicateRuleFetchedFromResolverShouldCreateTheSameTarget() {
       BuildRuleResolver buildRuleResolver =
-          new BuildRuleResolver(TargetGraph.EMPTY, new BuildTargetNodeToBuildRuleTransformer());
+          new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
       BuildTarget target = BuildTargetFactory.newInstance("//:target");
       BuildRuleParams params = new FakeBuildRuleParamsBuilder(target).build();
       ProjectFilesystem filesystem = new AllExistingProjectFilesystem();
@@ -370,6 +375,7 @@ public class CxxSourceRuleFactoryTest {
           .setParams(params)
           .setResolver(buildRuleResolver)
           .setPathResolver(new SourcePathResolver(buildRuleResolver))
+          .setCxxBuckConfig(CxxPlatformUtils.DEFAULT_CONFIG)
           .setCxxPlatform(platform)
           .setPicType(CxxSourceRuleFactory.PicType.PDC)
           .build();
@@ -400,7 +406,7 @@ public class CxxSourceRuleFactoryTest {
       BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
       BuildRuleParams params = new FakeBuildRuleParamsBuilder(target).build();
       BuildRuleResolver resolver =
-          new BuildRuleResolver(TargetGraph.EMPTY, new BuildTargetNodeToBuildRuleTransformer());
+          new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
       SourcePathResolver pathResolver = new SourcePathResolver(resolver);
 
       ShBinary cxxpp =
@@ -428,6 +434,7 @@ public class CxxSourceRuleFactoryTest {
               .setParams(params)
               .setResolver(resolver)
               .setPathResolver(pathResolver)
+              .setCxxBuckConfig(CxxPlatformUtils.DEFAULT_CONFIG)
               .setCxxPlatform(cxxPlatform)
               .addCxxPreprocessorInput(CxxPreprocessorInput.EMPTY)
               .setPicType(CxxSourceRuleFactory.PicType.PDC)
@@ -512,7 +519,7 @@ public class CxxSourceRuleFactoryTest {
     @Test
     public void test() {
       BuildRuleResolver buildRuleResolver =
-          new BuildRuleResolver(TargetGraph.EMPTY, new BuildTargetNodeToBuildRuleTransformer());
+          new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
       BuildTarget target = BuildTargetFactory.newInstance("//:target");
       BuildRuleParams params = new FakeBuildRuleParamsBuilder(target).build();
       ProjectFilesystem filesystem = new AllExistingProjectFilesystem();
@@ -524,6 +531,7 @@ public class CxxSourceRuleFactoryTest {
           .setParams(params)
           .setResolver(buildRuleResolver)
           .setPathResolver(new SourcePathResolver(buildRuleResolver))
+          .setCxxBuckConfig(CxxPlatformUtils.DEFAULT_CONFIG)
           .setCxxPlatform(platform)
           .setPicType(CxxSourceRuleFactory.PicType.PDC)
           .build();
@@ -609,7 +617,7 @@ public class CxxSourceRuleFactoryTest {
 
     // Some common boilerplate.
     private BuildRuleResolver buildRuleResolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new BuildTargetNodeToBuildRuleTransformer());
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     private SourcePathResolver sourcePathResolver = new SourcePathResolver(buildRuleResolver);
     private BuildTarget target = BuildTargetFactory.newInstance("//:target");
     private BuildRuleParams params = new FakeBuildRuleParamsBuilder(target).build();
@@ -645,6 +653,7 @@ public class CxxSourceRuleFactoryTest {
           .setParams(params)
           .setResolver(buildRuleResolver)
           .setPathResolver(sourcePathResolver)
+          .setCxxBuckConfig(CxxPlatformUtils.DEFAULT_CONFIG)
           .setCxxPlatform(platform)
           .addCxxPreprocessorInput(cxxPreprocessorInput)
           .setPicType(CxxSourceRuleFactory.PicType.PDC)
@@ -684,6 +693,7 @@ public class CxxSourceRuleFactoryTest {
           .setParams(params)
           .setResolver(buildRuleResolver)
           .setPathResolver(sourcePathResolver)
+          .setCxxBuckConfig(CxxPlatformUtils.DEFAULT_CONFIG)
           .setCxxPlatform(platform)
           .setCompilerFlags(
               CxxFlags.getLanguageFlags(
@@ -735,7 +745,7 @@ public class CxxSourceRuleFactoryTest {
     @Test
     public void test() {
       BuildRuleResolver buildRuleResolver =
-          new BuildRuleResolver(TargetGraph.EMPTY, new BuildTargetNodeToBuildRuleTransformer());
+          new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
       SourcePathResolver sourcePathResolver = new SourcePathResolver(buildRuleResolver);
       BuildTarget target = BuildTargetFactory.newInstance("//:target");
       BuildRuleParams params = new FakeBuildRuleParamsBuilder(target).build();
@@ -744,6 +754,7 @@ public class CxxSourceRuleFactoryTest {
           .setParams(params)
           .setResolver(buildRuleResolver)
           .setPathResolver(sourcePathResolver)
+          .setCxxBuckConfig(CxxPlatformUtils.DEFAULT_CONFIG)
           .setCxxPlatform(CXX_PLATFORM)
           .setPicType(CxxSourceRuleFactory.PicType.PDC)
           .build();
@@ -759,5 +770,4 @@ public class CxxSourceRuleFactoryTest {
           cxxCompile.makeMainStep(scratchDir).getCommand(), Matchers.hasItems("-x", expected));
     }
   }
-
 }

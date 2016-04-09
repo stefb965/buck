@@ -16,7 +16,6 @@
 
 package com.facebook.buck.rules;
 
-import com.facebook.buck.model.Pair;
 import com.google.common.base.Function;
 
 /**
@@ -24,9 +23,9 @@ import com.google.common.base.Function;
  * {@link BuildRule}s, but there's not requirement for this to be the case.
  */
 public interface TargetGraphTransformer
-    extends Function<TargetGraph, Pair<ActionGraph, BuildRuleResolver>> {
+    extends Function<TargetGraph, ActionGraphAndResolver> {
 
   @Override
-  Pair<ActionGraph, BuildRuleResolver> apply(TargetGraph input);
+  ActionGraphAndResolver apply(TargetGraph input);
 
 }

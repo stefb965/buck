@@ -16,15 +16,13 @@
 
 package com.facebook.buck.simulate;
 
-import com.facebook.buck.cli.BuildTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.Pair;
-import com.facebook.buck.rules.ActionGraph;
-import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.ActionGraphAndResolver;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphToActionGraph;
 import com.facebook.buck.rules.TargetGraphTransformer;
@@ -54,13 +52,13 @@ public class BuildSimulatorTest {
     SimulateTimes times = SimulateTimes.createEmpty(DEFAULT_MILLIS);
     TargetGraph oneNodeGraph = createOneNodeGraph();
     TargetGraphTransformer transformer =
-        new TargetGraphToActionGraph(eventBus, new BuildTargetNodeToBuildRuleTransformer());
-    Pair<ActionGraph, BuildRuleResolver> result =
+        new TargetGraphToActionGraph(eventBus, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphAndResolver result =
         Preconditions.checkNotNull(transformer.apply(oneNodeGraph));
     BuildSimulator sim = new BuildSimulator(
         times,
-        result.getFirst(),
-        result.getSecond(),
+        result.getActionGraph(),
+        result.getResolver(),
         NUMBER_OF_THREADS);
     SimulateReport report = sim.simulateBuild(
         System.currentTimeMillis(),
@@ -76,13 +74,13 @@ public class BuildSimulatorTest {
     SimulateTimes times = SimulateTimesTest.createDefaultTestInstance();
     TargetGraph oneNodeGraph = createOneNodeGraph();
     TargetGraphTransformer transformer =
-        new TargetGraphToActionGraph(eventBus, new BuildTargetNodeToBuildRuleTransformer());
-    Pair<ActionGraph, BuildRuleResolver> result =
+        new TargetGraphToActionGraph(eventBus, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphAndResolver result =
         Preconditions.checkNotNull(transformer.apply(oneNodeGraph));
     BuildSimulator sim = new BuildSimulator(
         times,
-        result.getFirst(),
-        result.getSecond(),
+        result.getActionGraph(),
+        result.getResolver(),
         NUMBER_OF_THREADS);
     SimulateReport report = sim.simulateBuild(
         System.currentTimeMillis(),
@@ -170,13 +168,13 @@ public class BuildSimulatorTest {
       long expectedDurationMillis) throws IOException {
     SimulateTimes times = SimulateTimes.createEmpty(DEFAULT_MILLIS);
     TargetGraphTransformer transformer =
-        new TargetGraphToActionGraph(eventBus, new BuildTargetNodeToBuildRuleTransformer());
-    Pair<ActionGraph, BuildRuleResolver> result =
+        new TargetGraphToActionGraph(eventBus, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphAndResolver result =
         Preconditions.checkNotNull(transformer.apply(targetGraph));
     BuildSimulator sim = new BuildSimulator(
         times,
-        result.getFirst(),
-        result.getSecond(),
+        result.getActionGraph(),
+        result.getResolver(),
         numberThreads);
     SimulateReport report = sim.simulateBuild(
         System.currentTimeMillis(),

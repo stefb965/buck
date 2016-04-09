@@ -16,6 +16,7 @@
 
 package com.facebook.buck.python;
 
+import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.file.WriteFile;
 import com.facebook.buck.model.BuildTarget;
@@ -75,6 +76,7 @@ public class PythonTestDescription implements
   private final PythonBinaryDescription binaryDescription;
   private final PythonBuckConfig pythonBuckConfig;
   private final FlavorDomain<PythonPlatform> pythonPlatforms;
+  private final CxxBuckConfig cxxBuckConfig;
   private final CxxPlatform defaultCxxPlatform;
   private final Optional<Long> defaultTestRuleTimeoutMs;
   private final FlavorDomain<CxxPlatform> cxxPlatforms;
@@ -83,12 +85,14 @@ public class PythonTestDescription implements
       PythonBinaryDescription binaryDescription,
       PythonBuckConfig pythonBuckConfig,
       FlavorDomain<PythonPlatform> pythonPlatforms,
+      CxxBuckConfig cxxBuckConfig,
       CxxPlatform defaultCxxPlatform,
       Optional<Long> defaultTestRuleTimeoutMs,
       FlavorDomain<CxxPlatform> cxxPlatforms) {
     this.binaryDescription = binaryDescription;
     this.pythonBuckConfig = pythonBuckConfig;
     this.pythonPlatforms = pythonPlatforms;
+    this.cxxBuckConfig = cxxBuckConfig;
     this.defaultCxxPlatform = defaultCxxPlatform;
     this.defaultTestRuleTimeoutMs = defaultTestRuleTimeoutMs;
     this.cxxPlatforms = cxxPlatforms;
@@ -269,6 +273,7 @@ public class PythonTestDescription implements
             pathResolver,
             testComponents,
             pythonPlatform,
+            cxxBuckConfig,
             cxxPlatform,
             FluentIterable.from(args.linkerFlags.get())
                 .transform(
@@ -304,15 +309,30 @@ public class PythonTestDescription implements
 
     ImmutableList.Builder<Pair<Float, ImmutableSet<Path>>> neededCoverageBuilder =
         ImmutableList.builder();
-    for (Pair<Float, BuildTarget> coveragePair : args.neededCoverage.get()) {
-        BuildRule buildRule = resolver.getRule(coveragePair.getSecond());
+    for (NeededCoverageSpec coverageSpec : args.neededCoverage.get()) {
+        BuildRule buildRule = resolver.getRule(coverageSpec.getBuildTarget());
         if (params.getDeps().contains(buildRule) &&
-                buildRule instanceof PythonLibrary) {
-            PythonLibrary pythonLibrary = (PythonLibrary) buildRule;
-            ImmutableMap<Path, SourcePath> pathToSourcePath = pythonLibrary.getSrcs(pythonPlatform);
-            neededCoverageBuilder.add(
-                    new Pair<Float, ImmutableSet<Path>>(coveragePair.getFirst(),
-                                                        pathToSourcePath.keySet()));
+            buildRule instanceof PythonLibrary) {
+          PythonLibrary pythonLibrary = (PythonLibrary) buildRule;
+          ImmutableSortedSet<Path> paths;
+          if (coverageSpec.getPathName().isPresent()) {
+            Path path = coverageSpec.getBuildTarget().getBasePath().resolve(
+                coverageSpec.getPathName().get());
+            if (!pythonLibrary.getSrcs(pythonPlatform).keySet().contains(path)) {
+              throw new HumanReadableException(
+                  "%s: path %s specified in needed_coverage not found in target %s",
+                  params.getBuildTarget(),
+                  path,
+                  buildRule.getBuildTarget());
+            }
+            paths = ImmutableSortedSet.of(path);
+          } else {
+            paths = ImmutableSortedSet.copyOf(pythonLibrary.getSrcs(pythonPlatform).keySet());
+          }
+          neededCoverageBuilder.add(
+              new Pair<Float, ImmutableSet<Path>>(
+                  coverageSpec.getNeededCoverageRatio(),
+                  paths));
         } else {
             throw new HumanReadableException(
                     "%s: needed_coverage requires a python library dependency. Found %s instead",
@@ -384,7 +404,7 @@ public class PythonTestDescription implements
     public Optional<PythonBuckConfig.PackageStyle> packageStyle;
     public Optional<ImmutableSet<BuildTarget>> preloadDeps;
     public Optional<ImmutableList<String>> linkerFlags;
-    public Optional<ImmutableList<Pair<Float, BuildTarget>>> neededCoverage;
+    public Optional<ImmutableList<NeededCoverageSpec>> neededCoverage;
 
     public Optional<ImmutableList<String>> buildArgs;
 

@@ -16,11 +16,10 @@
 
 package com.facebook.buck.cxx;
 
-import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.hasItem;
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.cli.BuildTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -42,11 +41,11 @@ import java.nio.file.Paths;
 public class CxxPrecompiledHeaderTest {
 
   @Test
-  public void generatesPchAsPostBuildStep() {
+  public void generatesPchStepShouldUseCorrectLang() {
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     BuildRuleParams params = new FakeBuildRuleParamsBuilder(target).build();
     BuildRuleResolver resolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new BuildTargetNodeToBuildRuleTransformer());
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     Preprocessor preprocessorSupportingPch =
         new DefaultPreprocessor(CxxPlatformUtils.DEFAULT_PLATFORM.getCpp().resolve(resolver)) {
           @Override
@@ -62,6 +61,7 @@ public class CxxPrecompiledHeaderTest {
         new PreprocessorDelegate(
             sourcePathResolver,
             CxxPlatforms.DEFAULT_DEBUG_PATH_SANITIZER,
+            CxxPlatformUtils.DEFAULT_CONFIG.getHeaderVerification(),
             Paths.get("./"),
             preprocessorSupportingPch,
             PreprocessorFlags.builder().build(),
@@ -69,14 +69,11 @@ public class CxxPrecompiledHeaderTest {
                 CxxPlatformUtils.DEFAULT_PLATFORM,
                 sourcePathResolver),
             ImmutableList.<CxxHeaders>of()),
+        CxxToolFlags.of(),
         new FakeSourcePath("foo.h"),
         CxxSource.Type.C,
         CxxPlatforms.DEFAULT_DEBUG_PATH_SANITIZER);
-    ImmutableList<Step> steps =
-        precompiledHeader.getBuildSteps(FakeBuildContext.NOOP_CONTEXT, new FakeBuildableContext());
-    assertThat("Nothing should be done for cachable steps", steps, empty());
-
-    ImmutableList<Step> postBuildSteps = precompiledHeader.getPostBuildSteps(
+    ImmutableList<Step> postBuildSteps = precompiledHeader.getBuildSteps(
         FakeBuildContext.NOOP_CONTEXT,
         new FakeBuildableContext());
     CxxPreprocessAndCompileStep step = Iterables.getOnlyElement(

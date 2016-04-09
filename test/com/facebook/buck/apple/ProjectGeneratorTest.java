@@ -56,7 +56,7 @@ import com.facebook.buck.apple.xcode.xcodeproj.PBXVariantGroup;
 import com.facebook.buck.apple.xcode.xcodeproj.ProductType;
 import com.facebook.buck.apple.xcode.xcodeproj.SourceTreePath;
 import com.facebook.buck.apple.xcode.xcodeproj.XCBuildConfiguration;
-import com.facebook.buck.cli.BuildTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
@@ -2154,7 +2154,7 @@ public class ProjectGeneratorTest {
             .setSections(
                 ImmutableMap.of(
                     "react-native",
-                    ImmutableMap.of("packager", "react-native/packager.sh")))
+                    ImmutableMap.of("packager_worker", "react-native/packager.sh")))
             .setFilesystem(filesystem)
             .build());
     TargetNode<?> rnLibraryNode = IosReactNativeLibraryBuilder
@@ -2212,7 +2212,7 @@ public class ProjectGeneratorTest {
             .setSections(
                 ImmutableMap.of(
                     "react-native",
-                    ImmutableMap.of("packager", "react-native/packager.sh")))
+                    ImmutableMap.of("packager_worker", "react-native/packager.sh")))
             .setFilesystem(filesystem)
             .build());
     TargetNode<?> rnLibraryNode = IosReactNativeLibraryBuilder
@@ -3296,6 +3296,7 @@ public class ProjectGeneratorTest {
         ProjectGenerator.SEPARATED_PROJECT_OPTIONS,
         Optional.<BuildTarget>absent(),
         ImmutableList.<String>of(),
+        ImmutableList.<BuildTarget>of(),
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.<String, String>of(),
         PLATFORMS,
@@ -3469,6 +3470,48 @@ public class ProjectGeneratorTest {
   }
 
   @Test
+  public void applicationTestDoesNotCopyHostAppBundleIntoTestBundle() throws IOException {
+    BuildTarget hostAppBinaryTarget =
+        BuildTarget.builder(rootPath, "//foo", "HostAppBinary").build();
+    TargetNode<?> hostAppBinaryNode = AppleBinaryBuilder
+        .createBuilder(hostAppBinaryTarget)
+        .build();
+
+    BuildTarget hostAppTarget = BuildTarget.builder(rootPath, "//foo", "HostApp").build();
+    TargetNode<?> hostAppNode = AppleBundleBuilder
+        .createBuilder(hostAppTarget)
+        .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.APP))
+        .setInfoPlist(new FakeSourcePath("Info.plist"))
+        .setBinary(hostAppBinaryTarget)
+        .build();
+
+    BuildTarget testTarget = BuildTarget.builder(rootPath, "//foo", "AppTest").build();
+    TargetNode<?> testNode = AppleTestBuilder.createBuilder(testTarget)
+        .setConfigs(
+            Optional.of(
+                ImmutableSortedMap.of(
+                    "Debug",
+                    ImmutableMap.<String, String>of())))
+        .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.XCTEST))
+        .setInfoPlist(new FakeSourcePath("Info.plist"))
+        .setTestHostApp(Optional.of(hostAppTarget))
+        .build();
+
+    ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
+        ImmutableSet.of(hostAppBinaryNode, hostAppNode, testNode),
+        ImmutableSet.<ProjectGenerator.Option>of());
+
+    projectGenerator.createXcodeProjects();
+
+    PBXTarget testPBXTarget = assertTargetExistsAndReturnTarget(
+        projectGenerator.getGeneratedProject(),
+        "//foo:AppTest");
+
+    // for this test phases should be empty - there should be no copy phases in particular
+    assertThat(testPBXTarget.getBuildPhases().size(), Matchers.equalTo(0));
+  }
+
+  @Test
   public void testAggregateTargetForBundleForBuildWithBuck() throws IOException {
     BuildTarget binaryTarget = BuildTarget.builder(rootPath, "//foo", "binary").build();
     TargetNode<?> binaryNode = AppleBinaryBuilder
@@ -3500,6 +3543,7 @@ public class ProjectGeneratorTest {
         ImmutableSet.<ProjectGenerator.Option>of(),
         Optional.of(bundleTarget),
         ImmutableList.of("--flag", "value with spaces"),
+        ImmutableList.<BuildTarget>of(),
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.<String, String>of(),
         PLATFORMS,
@@ -3588,6 +3632,7 @@ public class ProjectGeneratorTest {
         ImmutableSet.<ProjectGenerator.Option>of(),
         Optional.of(binaryTarget),
         ImmutableList.of("--flag", "value with spaces"),
+        ImmutableList.<BuildTarget>of(),
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.<String, String>of(),
         PLATFORMS,
@@ -3656,6 +3701,7 @@ public class ProjectGeneratorTest {
         ImmutableSet.<ProjectGenerator.Option>of(),
         Optional.of(libraryTarget),
         ImmutableList.of("--flag", "value with spaces"),
+        ImmutableList.<BuildTarget>of(),
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.<String, String>of(),
         PLATFORMS,
@@ -4192,6 +4238,7 @@ public class ProjectGeneratorTest {
         projectGeneratorOptions,
         Optional.<BuildTarget>absent(),
         ImmutableList.<String>of(),
+        ImmutableList.<BuildTarget>of(),
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.<String, String>of(),
         PLATFORMS,
@@ -4211,7 +4258,7 @@ public class ProjectGeneratorTest {
         return new SourcePathResolver(
             new BuildRuleResolver(
                 targetGraph,
-                new BuildTargetNodeToBuildRuleTransformer()));
+                new DefaultTargetNodeToBuildRuleTransformer()));
       }
     };
   }

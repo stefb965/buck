@@ -30,7 +30,8 @@ import static org.junit.Assert.fail;
 
 import com.facebook.buck.android.AndroidBinary.ExopackageMode;
 import com.facebook.buck.android.NdkCxxPlatforms.TargetCpuType;
-import com.facebook.buck.cli.BuildTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.cxx.CxxPlatformUtils;
 import com.facebook.buck.jvm.core.HasJavaClassHashes;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.Keystore;
@@ -58,6 +59,7 @@ import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.google.common.base.Optional;
 import com.google.common.base.Suppliers;
+import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -76,7 +78,7 @@ public class AndroidBinaryGraphEnhancerTest {
   @Test
   public void testCreateDepsForPreDexing() throws Exception {
     BuildRuleResolver ruleResolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new BuildTargetNodeToBuildRuleTransformer());
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
 
     // Create three Java rules, :dep1, :dep2, and :lib. :lib depends on :dep1 and :dep2.
     BuildTarget javaDep1BuildTarget = BuildTargetFactory.newInstance("//java/com/example:dep1");
@@ -137,7 +139,8 @@ public class AndroidBinaryGraphEnhancerTest {
         /* nativePlatforms */ ImmutableMap.<TargetCpuType, NdkCxxPlatform>of(),
         AndroidBinary.RelinkerMode.DISABLED,
         MoreExecutors.newDirectExecutorService(),
-        /* manifestEntries */ ManifestEntries.empty());
+        /* manifestEntries */ ManifestEntries.empty(),
+        CxxPlatformUtils.DEFAULT_CONFIG);
 
     BuildTarget aaptPackageResourcesTarget =
         BuildTargetFactory.newInstance("//java/com/example:apk#aapt_package");
@@ -214,7 +217,7 @@ public class AndroidBinaryGraphEnhancerTest {
     BuildRuleParams buildConfigParams = new FakeBuildRuleParamsBuilder(buildConfigBuildTarget)
         .build();
     BuildRuleResolver ruleResolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new BuildTargetNodeToBuildRuleTransformer());
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     AndroidBuildConfigJavaLibrary buildConfigJavaLibrary = AndroidBuildConfigDescription
         .createBuildRule(
           buildConfigParams,
@@ -258,12 +261,14 @@ public class AndroidBinaryGraphEnhancerTest {
         /* nativePlatforms */ ImmutableMap.<TargetCpuType, NdkCxxPlatform>of(),
         AndroidBinary.RelinkerMode.DISABLED,
         MoreExecutors.newDirectExecutorService(),
-        /* manifestEntries */ ManifestEntries.empty());
+        /* manifestEntries */ ManifestEntries.empty(),
+        CxxPlatformUtils.DEFAULT_CONFIG);
     replay(keystore);
     AndroidGraphEnhancementResult result = graphEnhancer.createAdditionalBuildables();
 
     // Verify that android_build_config() was processed correctly.
     Flavor flavor = ImmutableFlavor.of("buildconfig_com_example_buck");
+    final SourcePathResolver pathResolver = new SourcePathResolver(ruleResolver);
     BuildTarget enhancedBuildConfigTarget = BuildTarget
         .builder(apkTarget)
         .addFlavors(flavor)
@@ -274,7 +279,10 @@ public class AndroidBinaryGraphEnhancerTest {
         ImmutableSet.of(
             BuildTargets.getGenPath(enhancedBuildConfigTarget, "lib__%s__output")
                 .resolve(enhancedBuildConfigTarget.getShortNameAndFlavorPostfix() + ".jar")),
-        result.getClasspathEntriesToDex());
+        FluentIterable
+            .from(result.getClasspathEntriesToDex())
+            .transform(pathResolver.deprecatedPathFunction())
+        .toSet());
     BuildRule enhancedBuildConfigRule = ruleResolver.getRule(enhancedBuildConfigTarget);
     assertTrue(enhancedBuildConfigRule instanceof AndroidBuildConfigJavaLibrary);
     AndroidBuildConfigJavaLibrary enhancedBuildConfigJavaLibrary =
@@ -339,7 +347,7 @@ public class AndroidBinaryGraphEnhancerTest {
   @Test
   public void testResourceRulesBecomeDepsOfAaptPackageResources() throws Exception {
     BuildRuleResolver ruleResolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new BuildTargetNodeToBuildRuleTransformer());
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
 
     AndroidResource resource =
         (AndroidResource) AndroidResourceBuilder
@@ -380,7 +388,8 @@ public class AndroidBinaryGraphEnhancerTest {
         /* nativePlatforms */ ImmutableMap.<TargetCpuType, NdkCxxPlatform>of(),
         AndroidBinary.RelinkerMode.DISABLED,
         MoreExecutors.newDirectExecutorService(),
-        /* manifestEntries */ ManifestEntries.empty());
+        /* manifestEntries */ ManifestEntries.empty(),
+        CxxPlatformUtils.DEFAULT_CONFIG);
     graphEnhancer.createAdditionalBuildables();
 
     BuildRule aaptPackageResourcesRule = findRuleOfType(ruleResolver, AaptPackageResources.class);
@@ -393,7 +402,7 @@ public class AndroidBinaryGraphEnhancerTest {
   @Test
   public void testPackageStringsDependsOnResourcesFilter() throws Exception {
     BuildRuleResolver ruleResolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new BuildTargetNodeToBuildRuleTransformer());
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
 
     // set it up.
     BuildTarget target = BuildTargetFactory.newInstance("//:target");
@@ -426,7 +435,8 @@ public class AndroidBinaryGraphEnhancerTest {
         /* nativePlatforms */ ImmutableMap.<TargetCpuType, NdkCxxPlatform>of(),
         AndroidBinary.RelinkerMode.DISABLED,
         MoreExecutors.newDirectExecutorService(),
-        /* manifestEntries */ ManifestEntries.empty());
+        /* manifestEntries */ ManifestEntries.empty(),
+        CxxPlatformUtils.DEFAULT_CONFIG);
     graphEnhancer.createAdditionalBuildables();
 
     ResourcesFilter resourcesFilter = findRuleOfType(ruleResolver, ResourcesFilter.class);
@@ -441,7 +451,7 @@ public class AndroidBinaryGraphEnhancerTest {
   @Test
   public void testResourceRulesDependOnRulesBehindResourceSourcePaths() throws Exception {
     BuildRuleResolver ruleResolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new BuildTargetNodeToBuildRuleTransformer());
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver pathResolver = new SourcePathResolver(ruleResolver);
 
     FakeBuildRule resourcesDep =
@@ -499,7 +509,8 @@ public class AndroidBinaryGraphEnhancerTest {
         /* nativePlatforms */ ImmutableMap.<TargetCpuType, NdkCxxPlatform>of(),
         AndroidBinary.RelinkerMode.DISABLED,
         MoreExecutors.newDirectExecutorService(),
-        /* manifestEntries */ ManifestEntries.empty());
+        /* manifestEntries */ ManifestEntries.empty(),
+        CxxPlatformUtils.DEFAULT_CONFIG);
     graphEnhancer.createAdditionalBuildables();
 
 

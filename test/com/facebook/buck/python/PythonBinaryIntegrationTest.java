@@ -24,8 +24,10 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assume.assumeThat;
 
 import com.facebook.buck.cli.BuckConfig;
-import com.facebook.buck.cli.BuildTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.cli.Config;
+import com.facebook.buck.config.Configs;
+import com.facebook.buck.config.RawConfig;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.config.Config;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.DefaultCxxPlatforms;
@@ -166,7 +168,7 @@ public class PythonBinaryIntegrationTest {
   @Test
   public void nativeLibsEnvVarIsPreserved() throws IOException {
     BuildRuleResolver resolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new BuildTargetNodeToBuildRuleTransformer());
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
 
     assumeThat(
         "TODO(8667197): Native libs currently don't work on El Capitan",
@@ -290,10 +292,7 @@ public class PythonBinaryIntegrationTest {
   }
 
   private PythonBuckConfig getPythonBuckConfig() throws IOException {
-    Config rawConfig =
-        Config.createDefaultConfig(
-            tmp.getRootPath(),
-            ImmutableMap.<String, ImmutableMap<String, String>>of());
+    Config rawConfig = Configs.createDefaultConfig(tmp.getRootPath(), RawConfig.of());
     BuckConfig buckConfig =
         new BuckConfig(
             rawConfig,

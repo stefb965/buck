@@ -180,6 +180,7 @@ public class CxxPythonExtensionDescription implements
             params,
             ruleResolver,
             pathResolver,
+            cxxBuckConfig,
             cxxPlatform,
             cxxPreprocessorInput,
             CxxFlags.getLanguageFlags(
@@ -253,6 +254,7 @@ public class CxxPythonExtensionDescription implements
             pythonPlatform.getFlavor(),
             cxxPlatform.getFlavor());
     return CxxLinkableEnhancer.createCxxLinkableBuildRule(
+        cxxBuckConfig,
         cxxPlatform,
         params,
         ruleResolver,

@@ -1,13 +1,6 @@
-SIMULATE_IMMUTABLES = [
-  'AbstractSimulateReport.java',
-  'AbstractSingleRunReport.java',
-]
-java_immutables_library(
-  name = 'simulate',
-  srcs = glob(['*.java'], excludes = SIMULATE_IMMUTABLES),
-  immutable_srcs = SIMULATE_IMMUTABLES,
-  autodeps = True,
-  visibility = [
-    'PUBLIC',
+standard_java_library(
+  immutable_types = [
+    'SimulateReport',
+    'SingleRunReport',
   ],
 )

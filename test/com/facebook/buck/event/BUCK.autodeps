@@ -1,9 +1,8 @@
-#@# GENERATED FILE: DO NOT MODIFY 6b158d39448e9ed3e26cc093caa3642e0eb6f67a #@#
+#@# GENERATED FILE: DO NOT MODIFY 5322a7489ad534e628d1b5b33d070dd3c17e0803 #@#
 {
   "event" : {
     "deps" : [
       "//src/com/facebook/buck/artifact_cache:artifact_cache",
-      "//src/com/facebook/buck/cli:cli",
       "//src/com/facebook/buck/event:event",
       "//src/com/facebook/buck/model:build_id",
       "//src/com/facebook/buck/model:model",

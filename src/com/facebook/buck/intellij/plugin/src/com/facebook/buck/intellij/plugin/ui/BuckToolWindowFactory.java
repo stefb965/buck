@@ -18,6 +18,7 @@ package com.facebook.buck.intellij.plugin.ui;
 
 import com.facebook.buck.intellij.plugin.build.BuckBuildManager;
 
+import com.facebook.buck.intellij.plugin.config.BuckSettingsProvider;
 import com.facebook.buck.intellij.plugin.ui.tree.BuckTreeNodeDetail;
 import com.facebook.buck.intellij.plugin.ui.tree.BuckTreeNodeDetailError;
 import com.facebook.buck.intellij.plugin.ui.tree.BuckTreeNodeFileError;
@@ -111,10 +112,13 @@ public class BuckToolWindowFactory implements ToolWindowFactory, DumbAware {
 
     Content consoleContent = createConsoleContent(runnerLayoutUi, project);
 
+    BuckSettingsProvider.State state = BuckSettingsProvider.getInstance().getState();
 
     JBTabs myTabs = new JBTabsImpl(project);
     // Debug Console
-    myTabs.addTab(new TabInfo(consoleContent.getComponent())).setText("Debug");
+    if (state.showDebug) {
+      myTabs.addTab(new TabInfo(consoleContent.getComponent())).setText("Debug");
+    }
     // Build Tree Events
     Content treeViewContent = runnerLayoutUi.createContent(BUILD_OUTPUT_PANEL,
             createBuildInfoPanel(project), "Build Output", null, null);
@@ -154,14 +158,12 @@ public class BuckToolWindowFactory implements ToolWindowFactory, DumbAware {
 
     DefaultActionGroup group = new DefaultActionGroup();
 
-    group.add(actionManager.getAction("buck.connect"));
-    group.add(actionManager.getAction("buck.disconnect"));
-    group.addSeparator();
     group.add(actionManager.getAction("buck.ChooseTarget"));
     group.addSeparator();
     group.add(actionManager.getAction("buck.Build"));
     group.add(actionManager.getAction("buck.Test"));
     group.add(actionManager.getAction("buck.Install"));
+    group.add(actionManager.getAction("buck.InstallDebug"));
     group.add(actionManager.getAction("buck.Uninstall"));
     group.add(actionManager.getAction("buck.Kill"));
     group.add(actionManager.getAction("buck.ProjectGeneration"));

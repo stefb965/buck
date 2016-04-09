@@ -16,9 +16,10 @@
 package com.facebook.buck.cxx;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.cli.BuildTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
@@ -35,6 +36,7 @@ import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.HashedFileTool;
 import com.facebook.buck.rules.RuleKeyBuilder;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
@@ -43,9 +45,13 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
+import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+
+import org.hamcrest.Matchers;
 
 import org.junit.Test;
 
@@ -83,7 +89,7 @@ public class CxxCompilationDatabaseTest {
         .build();
 
     BuildRuleResolver testBuildRuleResolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new BuildTargetNodeToBuildRuleTransformer());
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver testSourcePathResolver = new SourcePathResolver(testBuildRuleResolver);
 
     BuildTarget preprocessTarget = BuildTarget
@@ -116,6 +122,7 @@ public class CxxCompilationDatabaseTest {
                 new PreprocessorDelegate(
                     testSourcePathResolver,
                     CxxPlatforms.DEFAULT_DEBUG_PATH_SANITIZER,
+                    CxxPlatformUtils.DEFAULT_CONFIG.getHeaderVerification(),
                     filesystem.getRootPath(),
                     new DefaultPreprocessor(new HashedFileTool(Paths.get("compiler"))),
                     preprocessorFlags,
@@ -171,6 +178,7 @@ public class CxxCompilationDatabaseTest {
                 new PreprocessorDelegate(
                     testSourcePathResolver,
                     CxxPlatforms.DEFAULT_DEBUG_PATH_SANITIZER,
+                    CxxPlatformUtils.DEFAULT_CONFIG.getHeaderVerification(),
                     filesystem.getRootPath(),
                     new DefaultPreprocessor(new HashedFileTool(Paths.get("preprocessor"))),
                     preprocessorFlags,
@@ -194,6 +202,7 @@ public class CxxCompilationDatabaseTest {
                 Paths.get("test.o"),
                 new FakeSourcePath(filesystem, "test.cpp"),
                 CxxSource.Type.CXX,
+                Optional.<PrecompiledHeaderReference>absent(),
                 CxxPlatforms.DEFAULT_DEBUG_PATH_SANITIZER,
                 strategy));
         break;
@@ -201,11 +210,32 @@ public class CxxCompilationDatabaseTest {
         throw new RuntimeException("Invalid strategy");
     }
 
+    HeaderSymlinkTree privateSymlinkTree = CxxDescriptionEnhancer.createHeaderSymlinkTree(
+        testBuildRuleParams,
+        testBuildRuleResolver,
+        testSourcePathResolver,
+        CxxPlatformUtils.DEFAULT_PLATFORM,
+        ImmutableMap.<Path, SourcePath>of(),
+        HeaderVisibility.PRIVATE
+    );
+    HeaderSymlinkTree exportedSymlinkTree = CxxDescriptionEnhancer.createHeaderSymlinkTree(
+        testBuildRuleParams,
+        testBuildRuleResolver,
+        testSourcePathResolver,
+        CxxPlatformUtils.DEFAULT_PLATFORM,
+        ImmutableMap.<Path, SourcePath>of(),
+        HeaderVisibility.PUBLIC
+    );
     CxxCompilationDatabase compilationDatabase = CxxCompilationDatabase.createCompilationDatabase(
         testBuildRuleParams,
         testSourcePathResolver,
         strategy,
-        rules.build());
+        rules.build(),
+        ImmutableSortedSet.of(privateSymlinkTree, exportedSymlinkTree));
+
+    assertThat(
+        compilationDatabase.getRuntimeDeps(),
+        Matchers.<BuildRule>contains(exportedSymlinkTree, privateSymlinkTree));
 
     assertEquals(
         "getPathToOutput() should be a function of the build target.",

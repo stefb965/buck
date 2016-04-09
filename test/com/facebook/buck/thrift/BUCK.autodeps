@@ -1,8 +1,7 @@
-#@# GENERATED FILE: DO NOT MODIFY bee7edfb36e4619a97a85d56735dee0a2ded7373 #@#
+#@# GENERATED FILE: DO NOT MODIFY 5e6d1a0781952d4e30b44c0ba8ab0dec9f5c8dcf #@#
 {
   "thrift" : {
     "deps" : [
-      "//src/com/facebook/buck/cli:cli",
       "//src/com/facebook/buck/cli:config",
       "//src/com/facebook/buck/cxx:platform",
       "//src/com/facebook/buck/cxx:rules",
@@ -28,7 +27,7 @@
       "//src/com/facebook/buck/shell:rules",
       "//src/com/facebook/buck/step:step",
       "//src/com/facebook/buck/step/fs:fs",
-      "//src/com/facebook/buck/thrift:rules",
+      "//src/com/facebook/buck/thrift:thrift",
       "//src/com/facebook/buck/timing:timing",
       "//src/com/facebook/buck/util:exceptions",
       "//src/com/facebook/buck/util:io",

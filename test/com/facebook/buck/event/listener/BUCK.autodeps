@@ -1,10 +1,9 @@
-#@# GENERATED FILE: DO NOT MODIFY 684fb3da301e89d3ee8e0a185902ebc8d83a1d3f #@#
+#@# GENERATED FILE: DO NOT MODIFY bac75bf592ccad053d17e0b9d2fa0e9074a1e592 #@#
 {
   "listener" : {
     "deps" : [
       "//src-gen:thrift",
       "//src/com/facebook/buck/artifact_cache:artifact_cache",
-      "//src/com/facebook/buck/cli:cli",
       "//src/com/facebook/buck/cli:events",
       "//src/com/facebook/buck/distributed:distributed",
       "//src/com/facebook/buck/event:event",

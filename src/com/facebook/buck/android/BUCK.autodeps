@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY 050018aac720e915793f049b5df797290e2955cb #@#
+#@# GENERATED FILE: DO NOT MODIFY 94bee50a1ec37ba9aeb40904cf9332c9ddd90340 #@#
 {
   "exceptions" : {
     "deps" : [
@@ -51,12 +51,11 @@
     "deps" : [
       "//src/com/facebook/buck/android:helpers",
       "//src/com/facebook/buck/android:utils",
-      "//src/com/facebook/buck/cxx:rules",
       "//src/com/facebook/buck/dalvik:dalvik",
       "//src/com/facebook/buck/dalvik:steps",
       "//src/com/facebook/buck/event:event",
       "//src/com/facebook/buck/graph:graph",
-      "//src/com/facebook/buck/jvm/common:resources",
+      "//src/com/facebook/buck/jvm/common:common",
       "//src/com/facebook/buck/jvm/core:suggestbuildrules",
       "//src/com/facebook/buck/jvm/java/classes:classes",
       "//src/com/facebook/buck/jvm/java/runner:runner",
@@ -83,6 +82,7 @@
       "//src/com/facebook/buck/android/aapt:aapt",
       "//src/com/facebook/buck/cli:config",
       "//src/com/facebook/buck/cxx:platform",
+      "//src/com/facebook/buck/cxx:rules",
       "//src/com/facebook/buck/io:io",
       "//src/com/facebook/buck/jvm/core:classhash",
       "//src/com/facebook/buck/jvm/java:rules",

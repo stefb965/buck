@@ -1,18 +1,8 @@
-IMMUTABLES = ['AbstractGoPlatform.java', 'AbstractGoLinkable.java']
-
-java_immutables_library(
-  name = 'immutables',
-  immutable_srcs = IMMUTABLES,
-  autodeps = True,
-  visibility = [
-    '//test/com/facebook/buck/go/...',
+standard_java_library(
+  immutable_types = [
+    'GoLinkable',
+    'GoPlatform',
   ],
-)
-
-java_library(
-  name = 'go',
-  srcs = glob(['*.java'], excludes=IMMUTABLES),
-  autodeps = True,
   visibility = [
     '//src/com/facebook/buck/rules:types',
     '//test/com/facebook/buck/go/...',

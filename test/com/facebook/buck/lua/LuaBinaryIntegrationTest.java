@@ -21,8 +21,10 @@ import static org.junit.Assume.assumeThat;
 import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.cli.BuckConfig;
-import com.facebook.buck.cli.BuildTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.cli.Config;
+import com.facebook.buck.config.Configs;
+import com.facebook.buck.config.RawConfig;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.config.Config;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.CxxPlatform;
@@ -97,7 +99,7 @@ public class LuaBinaryIntegrationTest {
     BuildRuleResolver resolver =
         new BuildRuleResolver(
             TargetGraph.EMPTY,
-            new BuildTargetNodeToBuildRuleTransformer());
+            new DefaultTargetNodeToBuildRuleTransformer());
     CxxPlatform cxxPlatform =
         DefaultCxxPlatforms.build(
             Platform.detect(),
@@ -224,10 +226,7 @@ public class LuaBinaryIntegrationTest {
   }
 
   private LuaBuckConfig getLuaBuckConfig() throws IOException {
-    Config rawConfig =
-        Config.createDefaultConfig(
-            tmp.getRootPath(),
-            ImmutableMap.<String, ImmutableMap<String, String>>of());
+    Config rawConfig = Configs.createDefaultConfig(tmp.getRootPath(), RawConfig.of());
     BuckConfig buckConfig =
         new BuckConfig(
             rawConfig,

@@ -1,8 +1,5 @@
-java_immutables_library(
-  name = 'counters',
-  srcs = glob(['*.java']),
-  autodeps = True,
-  visibility = [
-    'PUBLIC',
+standard_java_library(
+  immutable_types = [
+    'CounterSnapshot',
   ],
 )

@@ -17,6 +17,7 @@
 package com.facebook.buck.util.versioncontrol;
 
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.util.MoreMaps;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorFactory;
 import com.facebook.buck.util.ProcessExecutorParams;
@@ -25,17 +26,23 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class HgCmdLineInterface implements VersionControlCmdLineInterface {
   private static final Logger LOG = Logger.get(VersionControlCmdLineInterface.class);
 
+  private static final Map<String, String> HG_ENVIRONMENT_VARIABLES = ImmutableMap.of(
+      // Set HGPLAIN to prevent user-defined Hg aliases from interfering with the expected behavior.
+      "HGPLAIN", "1"
+  );
   private static final Pattern HG_REVISION_ID_PATTERN = Pattern.compile("^[a-zA-Z0-9]+$");
   private static final Pattern HG_DATE_PATTERN = Pattern.compile("(\\d+)\\s([\\-\\+]?\\d+)");
   private static final int HG_UNIX_TS_GROUP_INDEX = 1;
@@ -76,14 +83,19 @@ public class HgCmdLineInterface implements VersionControlCmdLineInterface {
   private ProcessExecutorFactory processExecutorFactory;
   private final File projectRoot;
   private final String hgCmd;
+  private final ImmutableMap<String, String> environment;
 
   public HgCmdLineInterface(
       ProcessExecutorFactory processExecutorFactory,
       File projectRoot,
-      String hgCmd) {
+      String hgCmd,
+      ImmutableMap<String, String> environment) {
     this.processExecutorFactory = processExecutorFactory;
     this.projectRoot = projectRoot;
     this.hgCmd = hgCmd;
+    this.environment = MoreMaps.merge(
+        environment,
+        HG_ENVIRONMENT_VARIABLES);
   }
 
   @Override
@@ -148,6 +160,7 @@ public class HgCmdLineInterface implements VersionControlCmdLineInterface {
     ProcessExecutorParams processExecutorParams = ProcessExecutorParams.builder()
         .setCommand(command)
         .setDirectory(projectRoot)
+        .setEnvironment(environment)
         .build();
 
     ProcessExecutor.Result result;

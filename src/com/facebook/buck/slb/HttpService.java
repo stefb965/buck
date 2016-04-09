@@ -17,12 +17,11 @@
 package com.facebook.buck.slb;
 
 import com.squareup.okhttp.Request;
-import com.squareup.okhttp.Response;
 
 import java.io.IOException;
 
 public interface HttpService extends AutoCloseable {
-  Response makeRequest(String path, Request.Builder request) throws IOException;
+  HttpResponse makeRequest(String path, Request.Builder request) throws IOException;
 
   @Override
   void close();

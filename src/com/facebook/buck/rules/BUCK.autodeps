@@ -1,5 +1,19 @@
-#@# GENERATED FILE: DO NOT MODIFY 5b1e82c8b51840e1563025819bb0948b7a56ad20 #@#
+#@# GENERATED FILE: DO NOT MODIFY cf44bc9e05195c5da701fff8b22e4b08f78f98b8 #@#
 {
+  "action_graph_cache" : {
+    "deps" : [
+      "//src/com/facebook/buck/model:model",
+      "//src/com/facebook/buck/rules:rule_key",
+      "//src/com/facebook/buck/rules/keys:keys",
+      "//third-party/java/jsr:jsr305"
+    ],
+    "exported_deps" : [
+      "//src/com/facebook/buck/counters:counters",
+      "//src/com/facebook/buck/event:event",
+      "//src/com/facebook/buck/rules:build_rule",
+      "//third-party/java/guava:guava"
+    ]
+  },
   "build_event" : {
     "deps" : [ ],
     "exported_deps" : [
@@ -113,24 +127,25 @@
       "//src/com/facebook/buck/android:steps",
       "//src/com/facebook/buck/apple:platform",
       "//src/com/facebook/buck/apple:rules",
+      "//src/com/facebook/buck/config:config",
       "//src/com/facebook/buck/d:d",
       "//src/com/facebook/buck/dotnet:dotnet",
       "//src/com/facebook/buck/file:downloader",
       "//src/com/facebook/buck/file:file",
       "//src/com/facebook/buck/go:go",
       "//src/com/facebook/buck/gwt:gwt",
-      "//src/com/facebook/buck/halide:rules",
+      "//src/com/facebook/buck/halide:halide",
       "//src/com/facebook/buck/io:executable-finder",
       "//src/com/facebook/buck/js:js",
-      "//src/com/facebook/buck/jvm/groovy:rules",
+      "//src/com/facebook/buck/jvm/groovy:groovy",
       "//src/com/facebook/buck/jvm/java:config",
       "//src/com/facebook/buck/jvm/java:rules",
       "//src/com/facebook/buck/jvm/java:support",
-      "//src/com/facebook/buck/jvm/scala:rules",
+      "//src/com/facebook/buck/jvm/scala:scala",
       "//src/com/facebook/buck/log:api",
       "//src/com/facebook/buck/log:log",
       "//src/com/facebook/buck/lua:lua",
-      "//src/com/facebook/buck/ocaml:rules",
+      "//src/com/facebook/buck/ocaml:ocaml",
       "//src/com/facebook/buck/parser:config",
       "//src/com/facebook/buck/python:config",
       "//src/com/facebook/buck/python:rules",
@@ -139,8 +154,8 @@
       "//src/com/facebook/buck/rust:rust",
       "//src/com/facebook/buck/shell:rules",
       "//src/com/facebook/buck/shell:worker",
-      "//src/com/facebook/buck/swift:rules",
-      "//src/com/facebook/buck/thrift:rules",
+      "//src/com/facebook/buck/swift:swift",
+      "//src/com/facebook/buck/thrift:thrift",
       "//src/com/facebook/buck/util:exceptions",
       "//src/com/facebook/buck/util/environment:platform",
       "//src/com/facebook/buck/zip:rules",

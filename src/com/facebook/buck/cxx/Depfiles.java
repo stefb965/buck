@@ -16,12 +16,30 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.event.PerfEventId;
+import com.facebook.buck.event.SimplePerfEvent;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.log.Logger;
+import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.HumanReadableException;
+import com.google.common.base.Optional;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 
-import java.nio.CharBuffer;
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.io.OutputStreamWriter;
+import java.nio.CharBuffer;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Objects;
+import java.util.logging.Level;
 
 /**
  * Specialized parser for .d Makefiles emitted by {@code gcc -MD}.
@@ -154,6 +172,64 @@ public class Depfiles {
     } else {
       return new Depfile(target, prereqs);
     }
+  }
+
+  public static int parseAndWriteBuckCompatibleDepfile(
+      ExecutionContext context,
+      ProjectFilesystem filesystem,
+      HeaderPathNormalizer headerPathNormalizer,
+      HeaderVerification headerVerification,
+      Path sourceDepFile,
+      Path destDepFile,
+      Path inputPath,
+      Path outputPath
+  ) throws IOException {
+    // Process the dependency file, fixing up the paths, and write it out to it's final location.
+    // The paths of the headers written out to the depfile are the paths to the symlinks from the
+    // root of the repo if the compilation included them from the header search paths pointing to
+    // the symlink trees, or paths to headers relative to the source file if the compilation
+    // included them using source relative include paths. To handle both cases we check for the
+    // prerequisites both in the values and the keys of the replacement map.
+    Logger.get(Depfiles.class).debug("Processing dependency file %s as Makefile", sourceDepFile);
+    ImmutableMap<String, Object> params = ImmutableMap.<String, Object>of(
+        "input", inputPath, "output", outputPath);
+    try (InputStream input = filesystem.newFileInputStream(sourceDepFile);
+         BufferedReader reader = new BufferedReader(new InputStreamReader(input));
+         OutputStream output = filesystem.newFileOutputStream(destDepFile);
+         BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(output));
+         SimplePerfEvent.Scope perfEvent = SimplePerfEvent.scope(
+             context.getBuckEventBus(),
+             PerfEventId.of("depfile-parse"),
+             params)) {
+      ImmutableList<String> prereqs = Depfiles.parseDepfile(reader).getPrereqs();
+      // Skip the first prereq, as it's the input source file.
+      Preconditions.checkState(inputPath.toString().equals(prereqs.get(0)));
+      ImmutableList<String> headers = prereqs.subList(1, prereqs.size());
+      for (String header : headers) {
+        Optional<Path> absolutePath =
+            headerPathNormalizer.getAbsolutePathForUnnormalizedPath(Paths.get(header));
+        if (absolutePath.isPresent()) {
+          Preconditions.checkState(absolutePath.get().isAbsolute());
+          writer.write(absolutePath.get().toString());
+          writer.newLine();
+        } else if (
+            headerVerification.getMode() != HeaderVerification.Mode.IGNORE &&
+                !headerVerification.isWhitelisted(header)) {
+          context.getBuckEventBus().post(
+              ConsoleEvent.create(
+                  headerVerification.getMode() == HeaderVerification.Mode.ERROR ?
+                      Level.SEVERE :
+                      Level.WARNING,
+                  "%s: included an untracked header \"%s\"",
+                  inputPath,
+                  header));
+          if (headerVerification.getMode() == HeaderVerification.Mode.ERROR) {
+            return 1;
+          }
+        }
+      }
+    }
+    return 0;
   }
 
   public static class Depfile {

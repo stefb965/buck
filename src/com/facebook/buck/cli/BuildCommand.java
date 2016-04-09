@@ -29,18 +29,17 @@ import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.model.HasBuildTarget;
-import com.facebook.buck.model.Pair;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.ActionGraph;
+import com.facebook.buck.rules.ActionGraphAndResolver;
 import com.facebook.buck.rules.BuildEngine;
 import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CachingBuildEngine;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetGraphToActionGraph;
+import com.facebook.buck.rules.TargetGraphAndBuildTargets;
 import com.facebook.buck.slb.NoHealthyServersException;
 import com.facebook.buck.step.AdbOptions;
 import com.facebook.buck.step.ExecutionContext;
@@ -317,7 +316,7 @@ public class BuildCommand extends AbstractCommand {
     }
 
     // Parse the build files to create a ActionGraph.
-    Pair<ActionGraph, BuildRuleResolver> actionGraphAndResolver =
+    ActionGraphAndResolver actionGraphAndResolver =
         createActionGraphAndResolver(params, executorService);
     if (actionGraphAndResolver == null) {
       return 1;
@@ -348,11 +347,11 @@ public class BuildCommand extends AbstractCommand {
 
   private void showOutputs(
       CommandRunnerParams params,
-      Pair<ActionGraph, BuildRuleResolver> actionGraphAndResolver) {
+      ActionGraphAndResolver actionGraphAndResolver) {
     params.getConsole().getStdOut().println("The outputs are:");
     for (BuildTarget buildTarget : buildTargets) {
       try {
-        BuildRule rule = actionGraphAndResolver.getSecond().requireRule(buildTarget);
+        BuildRule rule = actionGraphAndResolver.getResolver().requireRule(buildTarget);
         Optional<Path> outputPath = TargetsCommand.getUserFacingOutputPath(rule);
         params.getConsole().getStdOut().printf(
             "%s %s\n",
@@ -365,7 +364,7 @@ public class BuildCommand extends AbstractCommand {
   }
 
   @Nullable
-  public Pair<ActionGraph, BuildRuleResolver> createActionGraphAndResolver(
+  public ActionGraphAndResolver createActionGraphAndResolver(
       CommandRunnerParams params,
       ListeningExecutorService executor)
       throws IOException, InterruptedException {
@@ -384,9 +383,9 @@ public class BuildCommand extends AbstractCommand {
     }
 
     // Parse the build files to create a ActionGraph.
-    Pair<ActionGraph, BuildRuleResolver> actionGraphAndResolver;
+    ActionGraphAndResolver actionGraphAndResolver;
     try {
-      Pair<ImmutableSet<BuildTarget>, TargetGraph> result = params.getParser()
+      TargetGraphAndBuildTargets result = params.getParser()
           .buildTargetGraphForTargetNodeSpecs(
               params.getBuckEventBus(),
               params.getCell(),
@@ -396,14 +395,12 @@ public class BuildCommand extends AbstractCommand {
                   params.getBuckConfig(),
                   getArguments()),
               /* ignoreBuckAutodepsFiles */ false);
-      buildTargets = result.getFirst();
+      buildTargets = result.getBuildTargets();
       buildTargetsHaveBeenCalculated = true;
-      TargetGraphToActionGraph targetGraphToActionGraph =
-          new TargetGraphToActionGraph(
-              params.getBuckEventBus(),
-              new BuildTargetNodeToBuildRuleTransformer());
       actionGraphAndResolver = Preconditions.checkNotNull(
-          targetGraphToActionGraph.apply(result.getSecond()));
+          params.getActionGraphCache().getActionGraph(
+              params.getBuckEventBus(),
+              result.getTargetGraph()));
     } catch (BuildTargetException | BuildFileParseException e) {
       params.getBuckEventBus().post(ConsoleEvent.severe(
           MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
@@ -417,7 +414,7 @@ public class BuildCommand extends AbstractCommand {
           BuildTargetPatternParser.fullyQualified(),
           params.getCell().getCellRoots());
       Iterable<BuildRule> actionGraphRules =
-          Preconditions.checkNotNull(actionGraphAndResolver.getFirst().getNodes());
+          Preconditions.checkNotNull(actionGraphAndResolver.getActionGraph().getNodes());
       ImmutableSet<BuildTarget> actionGraphTargets =
           ImmutableSet.copyOf(Iterables.transform(actionGraphRules, HasBuildTarget.TO_TARGET));
       if (!actionGraphTargets.contains(explicitTarget)) {
@@ -433,7 +430,7 @@ public class BuildCommand extends AbstractCommand {
 
   protected int executeLocalBuild(
       CommandRunnerParams params,
-      Pair<ActionGraph, BuildRuleResolver> actionGraphAndResolver,
+      ActionGraphAndResolver actionGraphAndResolver,
       WeightedListeningExecutorService executor)
       throws IOException, InterruptedException {
 
@@ -444,8 +441,8 @@ public class BuildCommand extends AbstractCommand {
 
     try (Build build = createBuild(
         params.getBuckConfig(),
-        actionGraphAndResolver.getFirst(),
-        actionGraphAndResolver.getSecond(),
+        actionGraphAndResolver.getActionGraph(),
+        actionGraphAndResolver.getResolver(),
         params.getAndroidPlatformTargetSupplier(),
         new CachingBuildEngine(
             executor,
@@ -454,7 +451,7 @@ public class BuildCommand extends AbstractCommand {
             params.getBuckConfig().getDependencySchedulingOrder(),
             params.getBuckConfig().getBuildDepFiles(),
             params.getBuckConfig().getBuildMaxDepFileCacheEntries(),
-            actionGraphAndResolver.getSecond()),
+            actionGraphAndResolver.getResolver()),
         artifactCache,
         params.getConsole(),
         params.getBuckEventBus(),

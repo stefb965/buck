@@ -28,7 +28,7 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.cli.BuckConfig;
-import com.facebook.buck.cli.BuildTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
@@ -2021,9 +2021,9 @@ public class ParserTest {
     return Preconditions.checkNotNull(
         new TargetGraphToActionGraph(
             eventBus,
-            new BuildTargetNodeToBuildRuleTransformer())
+            new DefaultTargetNodeToBuildRuleTransformer())
             .apply(targetGraph))
-        .getSecond();
+        .getResolver();
   }
 
   /**
@@ -2054,7 +2054,7 @@ public class ParserTest {
                         filter,
                         BuildFileSpec.fromRecursivePath(Paths.get("")))),
                 /* ignoreBuckAutodepsFiles */ false)
-                .getSecond().getNodes())
+                .getTargetGraph().getNodes())
         .filter(filter)
         .transform(HasBuildTarget.TO_TARGET)
         .toSet();

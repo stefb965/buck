@@ -1,11 +1,10 @@
-#@# GENERATED FILE: DO NOT MODIFY 7f4d29d8275a59f2220b6dc0f4fc33f91e709bd6 #@#
+#@# GENERATED FILE: DO NOT MODIFY f9502efe4bdf2ad316a9751c126ce3b9b4a393a4 #@#
 {
   "halide" : {
     "deps" : [
-      "//src/com/facebook/buck/cli:cli",
       "//src/com/facebook/buck/cxx:platform",
       "//src/com/facebook/buck/cxx:rules",
-      "//src/com/facebook/buck/halide:rules",
+      "//src/com/facebook/buck/halide:halide",
       "//src/com/facebook/buck/io:io",
       "//src/com/facebook/buck/model:model",
       "//src/com/facebook/buck/rules:build_rule",
@@ -24,14 +23,13 @@
   "testutil" : {
     "deps" : [
       "//src/com/facebook/buck/cli:config",
-      "//src/com/facebook/buck/cxx:rules",
       "//test/com/facebook/buck/cli:FakeBuckConfig",
       "//test/com/facebook/buck/testutil:testutil",
       "//third-party/java/guava:guava"
     ],
     "exported_deps" : [
       "//src/com/facebook/buck/cxx:platform",
-      "//src/com/facebook/buck/halide:rules",
+      "//src/com/facebook/buck/halide:halide",
       "//src/com/facebook/buck/io:io",
       "//src/com/facebook/buck/model:model",
       "//test/com/facebook/buck/cxx:testutil"

@@ -28,6 +28,8 @@ import com.facebook.buck.artifact_cache.ArtifactCache;
 import com.facebook.buck.artifact_cache.ArtifactCacheBuckConfig;
 import com.facebook.buck.artifact_cache.ArtifactCaches;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
+import com.facebook.buck.config.Config;
+import com.facebook.buck.config.Configs;
 import com.facebook.buck.counters.CounterRegistry;
 import com.facebook.buck.counters.CounterRegistryImpl;
 import com.facebook.buck.event.BuckEventBus;
@@ -59,6 +61,7 @@ import com.facebook.buck.model.BuckVersion;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
+import com.facebook.buck.rules.ActionGraphCache;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.ConstructorArgMarshaller;
 import com.facebook.buck.rules.KnownBuildRuleTypes;
@@ -80,10 +83,10 @@ import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultPropertyFinder;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.InterruptionFailedException;
+import com.facebook.buck.util.Libc;
 import com.facebook.buck.util.MoreFunctions;
 import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.PkillProcessManager;
-import com.facebook.buck.util.Libc;
 import com.facebook.buck.util.PrintStreamProcessExecutorFactory;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessManager;
@@ -124,6 +127,10 @@ import com.google.common.util.concurrent.ServiceManager;
 import com.martiansoftware.nailgun.NGClientListener;
 import com.martiansoftware.nailgun.NGContext;
 import com.martiansoftware.nailgun.NGServer;
+import com.sun.jna.LastErrorException;
+import com.sun.jna.Native;
+import com.sun.jna.Pointer;
+import com.sun.jna.ptr.IntByReference;
 
 import org.kohsuke.args4j.CmdLineException;
 
@@ -157,11 +164,6 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
 import javax.annotation.Nullable;
-
-import com.sun.jna.LastErrorException;
-import com.sun.jna.Native;
-import com.sun.jna.Pointer;
-import com.sun.jna.ptr.IntByReference;
 
 public final class Main {
 
@@ -255,6 +257,7 @@ public final class Main {
     private final EventBus fileEventBus;
     private final Optional<WebServer> webServer;
     private final UUID watchmanQueryUUID;
+    private final ActionGraphCache actionGraphCache;
 
     public Daemon(
         Cell cell,
@@ -271,12 +274,15 @@ public final class Main {
                   ImmutableSet.<ProjectFilesystem.PathOrGlobMatcher>of()));
       this.fileEventBus = new EventBus("file-change-events");
 
+      actionGraphCache = new ActionGraphCache();
+
       TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory(objectMapper);
       this.parser = new Parser(
           new ParserConfig(cell.getBuckConfig()),
           typeCoercerFactory,
           new ConstructorArgMarshaller(typeCoercerFactory));
       fileEventBus.register(parser);
+      fileEventBus.register(actionGraphCache);
       fileEventBus.register(hashCache);
 
       if (webServerToReuse.isPresent()) {
@@ -344,6 +350,10 @@ public final class Main {
 
     private Parser getParser() {
       return parser;
+    }
+
+    private ActionGraphCache getActionGraphCache() {
+      return actionGraphCache;
     }
 
     private DefaultFileHashCache getFileHashCache() {
@@ -664,15 +674,11 @@ public final class Main {
       return 1;
     }
 
-    ImmutableMap<String, ImmutableMap<String, String>> configOverrides =
-        command.getConfigOverrides();
-
     Path canonicalRootPath = projectRoot.toRealPath().normalize();
-
-    Config rawConfig = Config.createDefaultConfig(canonicalRootPath, configOverrides);
-    ProjectFilesystem filesystem = new ProjectFilesystem(canonicalRootPath, rawConfig);
+    Config config = Configs.createDefaultConfig(canonicalRootPath, command.getConfigOverrides());
+    ProjectFilesystem filesystem = new ProjectFilesystem(canonicalRootPath, config);
     BuckConfig buckConfig = new BuckConfig(
-        rawConfig,
+        config,
         filesystem,
         architecture,
         platform,
@@ -931,7 +937,8 @@ public final class Main {
                 new DefaultVersionControlCmdLineInterfaceFactory(
                     rootCell.getFilesystem().getRootPath(),
                     new PrintStreamProcessExecutorFactory(),
-                    vcBuckConfig),
+                    vcBuckConfig,
+                    buckConfig.getEnvironment()),
                 buildEventBus
             );
 
@@ -983,11 +990,20 @@ public final class Main {
                 new ConstructorArgMarshaller(typeCoercerFactory));
           }
 
+          ActionGraphCache actionGraphCache = getActionGraphCacheFromDaemon(context, rootCell);
+
           // Because the Parser is potentially constructed before the CounterRegistry,
           // we need to manually register its counters after it's created.
           //
           // The counters will be unregistered once the counter registry is closed.
           counterRegistry.registerCounters(parser.getCounters());
+
+          // Because the ActionGraphCache is potentially constructed before the CounterRegistry,
+          // we need to manually register its counters after it's created. We register the counters
+          // of the ActionGraphCache only if we run the daemon.
+          if (context.isPresent()) {
+            counterRegistry.registerCounters(actionGraphCache.getCounters());
+          }
 
           JavaUtilsLoggingBuildListener.ensureLogFileIsWritten(rootCell.getFilesystem());
 
@@ -1036,7 +1052,8 @@ public final class Main {
                   buckConfig,
                   fileHashCache,
                   executors,
-                  buildEnvironmentDescription));
+                  buildEnvironmentDescription,
+                  actionGraphCache));
           // Wait for HTTP writes to complete.
           closeHttpExecutorService(
               cacheBuckConfig, Optional.of(buildEventBus), httpWriteExecutorService);
@@ -1244,12 +1261,22 @@ public final class Main {
   private Optional<WebServer> getWebServerIfDaemon(
       Optional<NGContext> context,
       Cell cell)
-      throws IOException, InterruptedException  {
+      throws IOException, InterruptedException {
     if (context.isPresent()) {
       Daemon daemon = getDaemon(cell, objectMapper);
       return daemon.getWebServer();
     }
     return Optional.absent();
+  }
+
+  private ActionGraphCache getActionGraphCacheFromDaemon(
+      Optional<NGContext> context,
+      Cell cell)
+      throws IOException, InterruptedException {
+    if (context.isPresent()) {
+      return getDaemon(cell, objectMapper).getActionGraphCache();
+    }
+    return new ActionGraphCache();
   }
 
   private void loadListenersFromBuckConfig(

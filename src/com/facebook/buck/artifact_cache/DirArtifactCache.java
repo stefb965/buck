@@ -106,7 +106,7 @@ public class DirArtifactCache implements ArtifactCache {
       // Now copy the artifact out.
       filesystem.copyFile(getPathForRuleKey(ruleKey, Optional.<String>absent()), output.get());
 
-      result = CacheResult.hit(name, metadata.build());
+      result = CacheResult.hit(name, metadata.build(), filesystem.getFileSize(output.get()));
     } catch (NoSuchFileException e) {
       result = CacheResult.miss();
     } catch (IOException e) {
@@ -260,7 +260,10 @@ public class DirArtifactCache implements ArtifactCache {
 
   @Override
   public void close() {
-    deleteOldFiles();
+    // Do a cache clean up on exit only if cache was written to.
+    if (bytesSinceLastDeleteOldFiles > 0) {
+      deleteOldFiles();
+    }
   }
 
   /**
@@ -294,13 +297,21 @@ public class DirArtifactCache implements ArtifactCache {
         ImmutableSet.<FileVisitOption>of(),
         Integer.MAX_VALUE,
         new SimpleFileVisitor<Path>() {
+
+          @Override
+          public FileVisitResult preVisitDirectory(
+              Path dir, BasicFileAttributes attrs) throws IOException {
+            // do not work with files in temp folder as they will be moved later
+            if (dir.equals(getPathToTempFolder())) {
+              return FileVisitResult.SKIP_SUBTREE;
+            }
+            return super.preVisitDirectory(dir, attrs);
+          }
+
           @Override
           public FileVisitResult visitFile(Path file,
               BasicFileAttributes attrs) throws IOException {
-            // do not work with files in temp folder as they will be moved later
-            if (!file.getParent().equals(getPathToTempFolder())) {
-              allFiles.add(file.toFile());
-            }
+            allFiles.add(file.toFile());
             return super.visitFile(file, attrs);
           }
         });

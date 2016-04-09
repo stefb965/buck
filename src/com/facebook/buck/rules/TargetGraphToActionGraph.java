@@ -18,26 +18,15 @@ package com.facebook.buck.rules;
 
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.graph.AbstractBottomUpTraversal;
-import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.Pair;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.util.HumanReadableException;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
-import javax.annotation.Nullable;
-
 public class TargetGraphToActionGraph implements TargetGraphTransformer {
-
-  private static final Logger LOG = Logger.get(TargetGraphToActionGraph.class);
 
   private final BuckEventBus eventBus;
   private final TargetNodeToBuildRuleTransformer buildRuleGenerator;
-
-  private volatile int hashOfTargetGraph;
-  @Nullable
-  private volatile Pair<ActionGraph, BuildRuleResolver> result;
-
 
   public TargetGraphToActionGraph(
       BuckEventBus eventBus,
@@ -47,21 +36,11 @@ public class TargetGraphToActionGraph implements TargetGraphTransformer {
   }
 
   @Override
-  public synchronized Pair<ActionGraph, BuildRuleResolver> apply(TargetGraph targetGraph) {
-    if (result != null) {
-      if (targetGraph.hashCode() == hashOfTargetGraph) {
-        return result;
-      }
-      LOG.info("Flushing cached action graph. May be a performance hit.");
-    }
-
-    result = createActionGraph(targetGraph);
-    hashOfTargetGraph = targetGraph.hashCode();
-
-    return result;
+  public synchronized ActionGraphAndResolver apply(TargetGraph targetGraph) {
+    return createActionGraph(targetGraph);
   }
 
-  private Pair<ActionGraph, BuildRuleResolver> createActionGraph(final TargetGraph targetGraph) {
+  private ActionGraphAndResolver createActionGraph(final TargetGraph targetGraph) {
     ActionGraphEvent.Started started = ActionGraphEvent.started();
     eventBus.post(started);
 
@@ -87,11 +66,12 @@ public class TargetGraphToActionGraph implements TargetGraphTransformer {
         };
     bottomUpTraversal.traverse();
 
-    Pair<ActionGraph, BuildRuleResolver> result = new Pair<>(
-        new ActionGraph(resolver.getBuildRules()),
-        resolver);
+    ActionGraphAndResolver result = ActionGraphAndResolver.builder()
+        .setActionGraph(new ActionGraph(resolver.getBuildRules()))
+        .setResolver(resolver)
+        .build();
+
     eventBus.post(ActionGraphEvent.finished(started));
     return result;
   }
-
 }

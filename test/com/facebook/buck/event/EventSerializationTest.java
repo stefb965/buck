@@ -20,7 +20,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.artifact_cache.CacheResult;
-import com.facebook.buck.cli.BuildTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
@@ -198,7 +198,8 @@ public class EventSerializationTest {
         "{\"timestamp\":%d,\"nanoTime\":%d,\"threadId\":%d,\"buildId\":\"%s\"," +
             "\"status\":\"SUCCESS\",\"cacheResult\":{\"type\":\"MISS\",\"cacheSource\":{" +
             "\"present\":false},\"cacheError\":{\"present\":false}," +
-            "\"metadata\":{\"present\":false}}, \"buildRule\":{\"type\":" +
+            "\"metadata\":{\"present\":false},\"artifactSizeBytes\":{\"present\":false}}," +
+            "\"buildRule\":{\"type\":" +
             "\"fake_build_rule\",\"name\":\"//fake:rule\"}," +
             "\"type\":\"BuildRuleFinished\"," +
             "\"eventKey\":{\"value\":1024186770}}",
@@ -290,7 +291,10 @@ public class EventSerializationTest {
     return new FakeBuildRule(
         buildTarget,
         new SourcePathResolver(
-            new BuildRuleResolver(TargetGraph.EMPTY, new BuildTargetNodeToBuildRuleTransformer())),
+            new BuildRuleResolver(
+              TargetGraph.EMPTY,
+              new DefaultTargetNodeToBuildRuleTransformer())
+        ),
         ImmutableSortedSet.<BuildRule>of());
   }
 

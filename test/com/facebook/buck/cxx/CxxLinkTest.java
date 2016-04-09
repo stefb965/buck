@@ -19,7 +19,7 @@ package com.facebook.buck.cxx;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 
-import com.facebook.buck.cli.BuildTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -29,6 +29,7 @@ import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.HashedFileTool;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
+import com.facebook.buck.rules.RuleScheduleInfo;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.Arg;
@@ -55,7 +56,7 @@ public class CxxLinkTest {
   private static final Path DEFAULT_OUTPUT = Paths.get("test.exe");
   private static final SourcePathResolver DEFAULT_SOURCE_PATH_RESOLVER =
       new SourcePathResolver(
-          new BuildRuleResolver(TargetGraph.EMPTY, new BuildTargetNodeToBuildRuleTransformer()));
+          new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
   private static final ImmutableList<Arg> DEFAULT_ARGS =
       ImmutableList.of(
           new StringArg("-rpath"),
@@ -70,9 +71,9 @@ public class CxxLinkTest {
 
   @Test
   public void testThatInputChangesCauseRuleKeyChanges() {
-    SourcePathResolver pathResolver =
-        new SourcePathResolver(
-            new BuildRuleResolver(TargetGraph.EMPTY, new BuildTargetNodeToBuildRuleTransformer()));
+    SourcePathResolver pathResolver = new SourcePathResolver(
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
+    );
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     BuildRuleParams params = new FakeBuildRuleParamsBuilder(target).build();
     FakeFileHashCache hashCache = FakeFileHashCache.createFromStrings(
@@ -91,7 +92,9 @@ public class CxxLinkTest {
             pathResolver,
             DEFAULT_LINKER,
             DEFAULT_OUTPUT,
-            DEFAULT_ARGS));
+            DEFAULT_ARGS,
+            Optional.<RuleScheduleInfo>absent(),
+            /* cacheable */ true));
 
     // Verify that changing the archiver causes a rulekey change.
 
@@ -101,7 +104,9 @@ public class CxxLinkTest {
             pathResolver,
             new GnuLinker(new HashedFileTool(Paths.get("different"))),
             DEFAULT_OUTPUT,
-            DEFAULT_ARGS));
+            DEFAULT_ARGS,
+            Optional.<RuleScheduleInfo>absent(),
+            /* cacheable */ true));
     assertNotEquals(defaultRuleKey, linkerChange);
 
     // Verify that changing the output path causes a rulekey change.
@@ -112,7 +117,9 @@ public class CxxLinkTest {
             pathResolver,
             DEFAULT_LINKER,
             Paths.get("different"),
-            DEFAULT_ARGS));
+            DEFAULT_ARGS,
+            Optional.<RuleScheduleInfo>absent(),
+            /* cacheable */ true));
     assertNotEquals(defaultRuleKey, outputChange);
 
     // Verify that changing the flags causes a rulekey change.
@@ -128,16 +135,18 @@ public class CxxLinkTest {
                     new SourcePathResolver(
                         new BuildRuleResolver(
                             TargetGraph.EMPTY,
-                            new BuildTargetNodeToBuildRuleTransformer())),
-                    new FakeSourcePath("different")))));
+                            new DefaultTargetNodeToBuildRuleTransformer())),
+                    new FakeSourcePath("different"))),
+            Optional.<RuleScheduleInfo>absent(),
+            /* cacheable */ true));
     assertNotEquals(defaultRuleKey, flagsChange);
   }
 
   @Test
   public void sanitizedPathsInFlagsDoNotAffectRuleKey() {
-    SourcePathResolver pathResolver =
-        new SourcePathResolver(
-            new BuildRuleResolver(TargetGraph.EMPTY, new BuildTargetNodeToBuildRuleTransformer()));
+    SourcePathResolver pathResolver = new SourcePathResolver(
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
+    );
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     BuildRuleParams params = new FakeBuildRuleParamsBuilder(target).build();
     RuleKeyBuilderFactory ruleKeyBuilderFactory =
@@ -179,7 +188,9 @@ public class CxxLinkTest {
             pathResolver,
             DEFAULT_LINKER,
             DEFAULT_OUTPUT,
-            args1));
+            args1,
+            Optional.<RuleScheduleInfo>absent(),
+            /* cacheable */ true));
 
     // Generate another rule with a different path we need to sanitize to the
     // same consistent value as above.
@@ -195,7 +206,9 @@ public class CxxLinkTest {
             pathResolver,
             DEFAULT_LINKER,
             DEFAULT_OUTPUT,
-            args2));
+            args2,
+            Optional.<RuleScheduleInfo>absent(),
+            /* cacheable */ true));
 
     assertEquals(ruleKey1, ruleKey2);
   }

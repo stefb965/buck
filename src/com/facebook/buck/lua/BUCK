@@ -1,19 +1,12 @@
-LUA_IMMUTABLES = [
-  'AbstractLuaPackageComponents.java',
-]
-java_immutables_library(
-  name = 'lua',
-  srcs = glob(['*.java'], excludes = LUA_IMMUTABLES),
-  immutable_srcs = LUA_IMMUTABLES,
+standard_java_library(
+  immutable_types = [
+    'LuaPackageComponents',
+  ],
   tests = [
     '//test/com/facebook/buck/lua:lua',
   ],
   resources = [
     'native-starter.cpp.in',
     'starter.lua.in',
-  ],
-  autodeps = True,
-  visibility = [
-    'PUBLIC',
   ],
 )

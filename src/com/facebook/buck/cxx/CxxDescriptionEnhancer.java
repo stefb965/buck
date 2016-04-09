@@ -17,6 +17,7 @@
 package com.facebook.buck.cxx;
 
 import com.facebook.buck.io.MorePaths;
+import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.json.JsonConcatenate;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
@@ -527,9 +528,9 @@ public class CxxDescriptionEnhancer {
   public static CxxLinkAndCompileRules createBuildRulesForCxxBinaryDescriptionArg(
       BuildRuleParams params,
       BuildRuleResolver resolver,
+      CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
       CxxBinaryDescription.Arg args,
-      CxxPreprocessMode preprocessMode,
       Optional<StripStyle> stripStyle) throws NoSuchBuildTargetException {
 
     SourcePathResolver sourcePathResolver = new SourcePathResolver(resolver);
@@ -546,10 +547,10 @@ public class CxxDescriptionEnhancer {
     return createBuildRulesForCxxBinary(
         params,
         resolver,
+        cxxBuckConfig,
         cxxPlatform,
         srcs,
         headers,
-        preprocessMode,
         stripStyle,
         args.linkStyle.or(Linker.LinkableDepType.STATIC),
         args.preprocessorFlags,
@@ -569,10 +570,10 @@ public class CxxDescriptionEnhancer {
   public static CxxLinkAndCompileRules createBuildRulesForCxxBinary(
       BuildRuleParams params,
       BuildRuleResolver resolver,
+      CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
       ImmutableMap<String, CxxSource> srcs,
       ImmutableMap<Path, SourcePath> headers,
-      CxxPreprocessMode preprocessMode,
       Optional<StripStyle> stripStyle,
       Linker.LinkableDepType linkStyle,
       Optional<ImmutableList<String>> preprocessorFlags,
@@ -625,6 +626,7 @@ public class CxxDescriptionEnhancer {
             params,
             resolver,
             sourcePathResolver,
+            cxxBuckConfig,
             cxxPlatform,
             cxxPreprocessorInput,
             CxxFlags.getLanguageFlags(
@@ -633,7 +635,7 @@ public class CxxDescriptionEnhancer {
                 langCompilerFlags,
                 cxxPlatform),
             prefixHeader,
-            preprocessMode,
+            cxxBuckConfig.getPreprocessMode(),
             srcs,
             linkStyle == Linker.LinkableDepType.STATIC ?
                 CxxSourceRuleFactory.PicType.PDC :
@@ -689,38 +691,33 @@ public class CxxDescriptionEnhancer {
     // Add object files into the args.
     argsBuilder.addAll(SourcePathArg.from(sourcePathResolver, objects.values()));
 
-    // Generate the final link rule.  We use the top-level target as the link rule's
-    // target, so that it corresponds to the actual binary we build.
-    CxxLink cxxLink =
-        CxxLinkableEnhancer.createCxxLinkableBuildRule(
-            cxxPlatform,
-            params,
-            resolver,
-            sourcePathResolver,
-            createCxxLinkTarget(params.getBuildTarget()),
-            Linker.LinkType.EXECUTABLE,
-            Optional.<String>absent(),
-            linkOutput,
-            linkStyle,
-            FluentIterable.from(params.getDeps())
-                .filter(NativeLinkable.class),
-            cxxRuntimeType,
-            Optional.<SourcePath>absent(),
-            ImmutableSet.<BuildTarget>of(),
-            NativeLinkableInput.builder()
-                .setArgs(argsBuilder.build())
-                .setFrameworks(frameworks.or(ImmutableSortedSet.<FrameworkPath>of()))
-                .setLibraries(libraries.or(ImmutableSortedSet.<FrameworkPath>of()))
-                .build());
-    resolver.addToIndex(cxxLink);
+    BuildTarget linkRuleTarget = createCxxLinkTarget(params.getBuildTarget());
+
+    CxxLink cxxLink = createCxxLinkRule(
+        params,
+        resolver,
+        cxxBuckConfig,
+        cxxPlatform,
+        linkStyle,
+        frameworks,
+        libraries,
+        cxxRuntimeType,
+        sourcePathResolver,
+        linkOutput,
+        argsBuilder,
+        linkRuleTarget);
 
     BuildRule binaryRuleForExecutable;
     Optional<CxxStrip> cxxStrip = Optional.absent();
     if (stripStyle.isPresent()) {
-      CxxStrip stripRule =
-          createCxxStripRule(params, cxxPlatform, stripStyle, sourcePathResolver, cxxLink);
+      CxxStrip stripRule = createCxxStripRule(
+          params,
+          resolver,
+          cxxPlatform,
+          stripStyle.get(),
+          sourcePathResolver,
+          cxxLink);
       cxxStrip = Optional.of(stripRule);
-      resolver.addToIndex(stripRule);
       binaryRuleForExecutable = stripRule;
     } else {
       binaryRuleForExecutable = cxxLink;
@@ -739,25 +736,147 @@ public class CxxDescriptionEnhancer {
         executableBuilder.build());
   }
 
-  private static CxxStrip createCxxStripRule(
+  private static CxxLink createCxxLinkRule(
       BuildRuleParams params,
+      BuildRuleResolver resolver,
+      CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
-      Optional<StripStyle> stripStyle,
+      Linker.LinkableDepType linkStyle,
+      Optional<ImmutableSortedSet<FrameworkPath>> frameworks,
+      Optional<ImmutableSortedSet<FrameworkPath>> libraries,
+      Optional<Linker.CxxRuntimeType> cxxRuntimeType,
       SourcePathResolver sourcePathResolver,
-      CxxLink cxxLink) {
+      Path linkOutput,
+      ImmutableList.Builder<Arg> argsBuilder,
+      BuildTarget linkRuleTarget) throws NoSuchBuildTargetException {
+    CxxLink cxxLink;
+    Optional<BuildRule> existingCxxLinkRule = resolver.getRuleOptional(linkRuleTarget);
+    if (existingCxxLinkRule.isPresent()) {
+      Preconditions.checkArgument(existingCxxLinkRule.get() instanceof CxxLink);
+      cxxLink = (CxxLink) existingCxxLinkRule.get();
+    } else {
+      // Generate the final link rule.  We use the top-level target as the link rule's
+      // target, so that it corresponds to the actual binary we build.
+      cxxLink =
+          CxxLinkableEnhancer.createCxxLinkableBuildRule(
+              cxxBuckConfig,
+              cxxPlatform,
+              params,
+              resolver,
+              sourcePathResolver,
+              linkRuleTarget,
+              Linker.LinkType.EXECUTABLE,
+              Optional.<String>absent(),
+              linkOutput,
+              linkStyle,
+              FluentIterable.from(params.getDeps())
+                  .filter(NativeLinkable.class),
+              cxxRuntimeType,
+              Optional.<SourcePath>absent(),
+              ImmutableSet.<BuildTarget>of(),
+              NativeLinkableInput.builder()
+                  .setArgs(argsBuilder.build())
+                  .setFrameworks(frameworks.or(ImmutableSortedSet.<FrameworkPath>of()))
+                  .setLibraries(libraries.or(ImmutableSortedSet.<FrameworkPath>of()))
+                  .build());
+      resolver.addToIndex(cxxLink);
+    }
+    return cxxLink;
+  }
+
+  public static CxxStrip createCxxStripRule(
+      BuildRuleParams params,
+      BuildRuleResolver resolver,
+      CxxPlatform cxxPlatform,
+      StripStyle stripStyle,
+      SourcePathResolver sourcePathResolver,
+      BuildRule unstrippedBinaryRule) {
     BuildRuleParams stripRuleParams = params
         .copyWithChanges(
             params.getBuildTarget().withAppendedFlavors(
-                CxxStrip.RULE_FLAVOR, stripStyle.get().getFlavor()),
-            Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of(cxxLink)),
+                CxxStrip.RULE_FLAVOR, stripStyle.getFlavor()),
+            Suppliers.ofInstance(ImmutableSortedSet.of(unstrippedBinaryRule)),
             Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
-    return new CxxStrip(
-        stripRuleParams,
-        sourcePathResolver,
-        stripStyle.get(),
-        new BuildTargetSourcePath(cxxLink.getBuildTarget()),
-        cxxPlatform.getStrip(),
-        CxxDescriptionEnhancer.getLinkOutputPath(stripRuleParams.getBuildTarget()));
+    Optional<BuildRule> exisitingRule = resolver.getRuleOptional(stripRuleParams.getBuildTarget());
+    if (exisitingRule.isPresent()) {
+      Preconditions.checkArgument(exisitingRule.get() instanceof CxxStrip);
+      return (CxxStrip) exisitingRule.get();
+    } else {
+      CxxStrip cxxStrip = new CxxStrip(
+          stripRuleParams,
+          sourcePathResolver,
+          stripStyle,
+          new BuildTargetSourcePath(unstrippedBinaryRule.getBuildTarget()),
+          cxxPlatform.getStrip(),
+          CxxDescriptionEnhancer.getLinkOutputPath(stripRuleParams.getBuildTarget()));
+      resolver.addToIndex(cxxStrip);
+      return cxxStrip;
+    }
+  }
+
+  public static
+  ImmutableSortedSet<HeaderSymlinkTree> requireTransitiveCompilationDatabaseHeaderSymlinkTreeDeps(
+      BuildRuleParams params,
+      BuildRuleResolver ruleResolver,
+      SourcePathResolver pathResolver,
+      final CxxPlatform cxxPlatform,
+      CxxConstructorArg arg) {
+    BuildRuleParams paramsWithoutFlavor = params.withoutFlavor(
+        CxxCompilationDatabase.COMPILATION_DATABASE);
+    final ImmutableSortedSet.Builder<HeaderSymlinkTree> resultBuilder =
+        ImmutableSortedSet.naturalOrder();
+    resultBuilder.add(
+        CxxDescriptionEnhancer.requireHeaderSymlinkTree(
+            paramsWithoutFlavor,
+            ruleResolver,
+            pathResolver,
+            cxxPlatform,
+            CxxDescriptionEnhancer.parseHeaders(
+                params.getBuildTarget(),
+                pathResolver,
+                Optional.of(cxxPlatform),
+                arg),
+            HeaderVisibility.PRIVATE));
+
+    if (arg instanceof CxxLibraryDescription.Arg) {
+      CxxLibraryDescription.Arg libArg = (CxxLibraryDescription.Arg) arg;
+      resultBuilder.add(
+        CxxDescriptionEnhancer.requireHeaderSymlinkTree(
+            paramsWithoutFlavor,
+            ruleResolver,
+            pathResolver,
+            cxxPlatform,
+            CxxDescriptionEnhancer.parseExportedHeaders(
+                params.getBuildTarget(),
+                pathResolver,
+                Optional.of(cxxPlatform),
+                libArg),
+            HeaderVisibility.PUBLIC));
+    }
+
+    // Walk the transitive deps and add any exported headers present as
+    // runtime dependencies.
+    //
+    // TODO(bhamiltoncx): Use BuildRuleResolver.requireMetadata() so we can
+    // cache the result of this walk.
+    AbstractBreadthFirstTraversal<BuildRule> visitor =
+        new AbstractBreadthFirstTraversal<BuildRule>(params.getDeps()) {
+          @Override
+          public ImmutableSet<BuildRule> visit(BuildRule dep) {
+            if (dep instanceof CxxPreprocessorDep) {
+              CxxPreprocessorDep cxxPreprocessorDep = (CxxPreprocessorDep) dep;
+              Optional<HeaderSymlinkTree> exportedHeaderSymlinkTree =
+                  cxxPreprocessorDep.getExportedHeaderSymlinkTree(cxxPlatform);
+              if (exportedHeaderSymlinkTree.isPresent()) {
+                resultBuilder.add(exportedHeaderSymlinkTree.get());
+              }
+            }
+            return dep.getDeps();
+          }
+        };
+    visitor.start();
+
+    return resultBuilder.build();
   }
 
   /**
@@ -769,26 +888,33 @@ public class CxxDescriptionEnhancer {
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
+      CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
-      CxxPreprocessMode preprocessMode,
       CxxConstructorArg arg) throws NoSuchBuildTargetException {
     // Invoking requireObjects has the side-effect of invoking
     // CxxSourceRuleFactory.requirePreprocessAndCompileRules(), which has the side-effect of
     // creating CxxPreprocessAndCompile rules and adding them to the ruleResolver.
+    BuildRuleParams paramsWithoutFlavor = params.withoutFlavor(
+        CxxCompilationDatabase.COMPILATION_DATABASE);
     ImmutableMap<CxxPreprocessAndCompile, SourcePath> objects = requireObjects(
-        params.withoutFlavor(CxxCompilationDatabase.COMPILATION_DATABASE),
+        paramsWithoutFlavor,
         ruleResolver,
         pathResolver,
+        cxxBuckConfig,
         cxxPlatform,
-        preprocessMode,
         CxxSourceRuleFactory.PicType.PIC,
         arg);
-
     return CxxCompilationDatabase.createCompilationDatabase(
         params,
         pathResolver,
-        preprocessMode,
-        objects.keySet());
+        cxxBuckConfig.getPreprocessMode(),
+        objects.keySet(),
+        requireTransitiveCompilationDatabaseHeaderSymlinkTreeDeps(
+            params,
+            ruleResolver,
+            pathResolver,
+            cxxPlatform,
+            arg));
   }
 
   public static BuildRule createUberCompilationDatabase(
@@ -855,8 +981,8 @@ public class CxxDescriptionEnhancer {
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       SourcePathResolver sourcePathResolver,
+      CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
-      CxxPreprocessMode preprocessMode,
       CxxSourceRuleFactory.PicType pic,
       CxxConstructorArg args) throws NoSuchBuildTargetException {
     ImmutableMultimap<CxxSource.Type, String> exportedPreprocessorFlags;
@@ -916,6 +1042,7 @@ public class CxxDescriptionEnhancer {
         params,
         ruleResolver,
         sourcePathResolver,
+        cxxBuckConfig,
         cxxPlatform,
         cxxPreprocessorInputFromDependencies,
         CxxFlags.getLanguageFlags(
@@ -924,7 +1051,7 @@ public class CxxDescriptionEnhancer {
             args.langCompilerFlags,
             cxxPlatform),
         args.prefixHeader,
-        preprocessMode,
+        cxxBuckConfig.getPreprocessMode(),
         CxxDescriptionEnhancer.parseCxxSources(
             params.getBuildTarget(),
             sourcePathResolver,

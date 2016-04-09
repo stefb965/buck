@@ -1,9 +1,8 @@
-#@# GENERATED FILE: DO NOT MODIFY d78cf65b622b414466d5e56536d98d9cfef7683a #@#
+#@# GENERATED FILE: DO NOT MODIFY 0f143471102fdb9cb72f61eb815a6aeb9ed139a8 #@#
 {
   "intellij" : {
     "deps" : [
       "//src/com/facebook/buck/android:rules",
-      "//src/com/facebook/buck/cli:cli",
       "//src/com/facebook/buck/io:io",
       "//src/com/facebook/buck/jvm/core:packagefinder",
       "//src/com/facebook/buck/jvm/java:autodeps",

@@ -28,32 +28,29 @@ java_library(
   ],
 )
 
-BUILD_RULE_IMMUTABLES = [
-  'AbstractBuildRuleType.java',
-  'AbstractExopackageInfo.java',
-  'AbstractExternalTestRunnerTestSpec.java',
-  'AbstractLabel.java',
-  'AbstractSha1HashCode.java',
-  'AbstractSourceWithFlags.java',
-]
-
 # Ideally, BuildRule.java would require only a handful of other source files
 # in order to compile it. Because BuildContext is referenced in the BuildRule
 # interface, its dependencies are much broader than desired.
 java_immutables_library(
   name = 'build_rule',
   srcs = [
+    'AbstractActionGraphAndResolver.java',
     'AbstractBuildRule.java',
+    'AbstractBuildRuleType.java',
     'AbstractDescriptionArg.java',
+    'AbstractExopackageInfo.java',
+    'AbstractExternalTestRunnerTestSpec.java',
+    'AbstractLabel.java',
+    'AbstractSha1HashCode.java',
     'AbstractSourcePath.java',
+    'AbstractSourceWithFlags.java',
+    'AbstractTargetGraphAndBuildTargets.java',
     'ActionGraph.java',
     'ActionGraphEvent.java',
     'AddToRuleKey.java',
     'BinaryBuildRule.java',
     'BinaryBuildRuleToolProvider.java',
     'BuckPyFunction.java',
-    'BuildableContext.java',
-    'BuildableProperties.java',
     'BuildContext.java',
     'BuildEngine.java',
     'BuildInfo.java',
@@ -62,26 +59,31 @@ java_immutables_library(
     'BuildRule.java',
     'BuildRuleDependencyVisitors.java',
     'BuildRuleFactoryParams.java',
-    'BuildRuleResolver.java',
     'BuildRuleParams.java',
-    'BuildRules.java',
+    'BuildRuleResolver.java',
     'BuildRuleStatus.java',
     'BuildRuleSuccessType.java',
+    'BuildRules.java',
     'BuildTargetSourcePath.java',
+    'BuildableContext.java',
+    'BuildableProperties.java',
     'ConstantToolProvider.java',
-    'ConstructorArgMarshaller.java',
     'ConstructorArgMarshalException.java',
+    'ConstructorArgMarshaller.java',
     'DefaultOnDiskBuildInfo.java',
+    'DefaultRuleKeyLogger.java',
+    'DefaultTargetNodeToBuildRuleTransformer.java',
     'Description.java',
     'ExportDependencies.java',
-    'HashedFileTool.java',
     'HasPostBuildSteps.java',
     'HasRuntimeDeps.java',
+    'HashedFileTool.java',
     'Hint.java',
     'ImplicitDepsInferringDescription.java',
     'ImplicitInputsInferringDescription.java',
     'MetadataProvidingDescription.java',
     'NonHashableSourcePathContainer.java',
+    'NullRuleKeyLogger.java',
     'OnDiskBuildInfo.java',
     'ParamInfo.java',
     'ParamInfoException.java',
@@ -91,6 +93,7 @@ java_immutables_library(
     'RuleKeyAppendable.java',
     'RuleKeyBuilder.java',
     'RuleKeyBuilderFactory.java',
+    'RuleKeyLogger.java',
     'SourcePath.java',
     'SourcePathResolver.java',
     'SourcePaths.java',
@@ -104,9 +107,16 @@ java_immutables_library(
     'TargetNodes.java',
     'Tool.java',
     'ToolProvider.java',
-    'UncachableBuildRule.java',
   ],
-  immutable_srcs = BUILD_RULE_IMMUTABLES,
+  immutable_types = [
+    'BuildRuleType',
+    'ExopackageInfo',
+    'ExternalTestRunnerTestSpec',
+    'ImmutableBuildContext',
+    'Label',
+    'Sha1HashCode',
+    'SourceWithFlags',
+  ],
   tests = [
     '//test/com/facebook/buck/rules/coercer:coercer',
     '//test/com/facebook/buck/rules:rules',
@@ -117,7 +127,7 @@ java_immutables_library(
   ],
 )
 
-java_immutables_library(
+java_library(
   name = 'target_graph_hashing',
   srcs = [
     'TargetGraphHashing.java',
@@ -140,6 +150,7 @@ java_immutables_library(
   name = 'rules',
   srcs = [
     'AbstractBuildRuleKeys.java',
+    'AbstractRuleScheduleInfo.java',
     'AssociatedTargetNodePredicate.java',
     'BuildOutputInitializer.java',
     'BuildRuleEvent.java',
@@ -152,6 +163,7 @@ java_immutables_library(
     'Manifest.java',
     'NoopBuildRule.java',
     'NoopBuildRuleWithTests.java',
+    'OverrideScheduleRule.java',
     'ProjectConfig.java',
     'ProjectConfigDescription.java',
     'RuleDepsCache.java',
@@ -163,6 +175,10 @@ java_immutables_library(
     'TestSummaryEvent.java',
     'UnskippedRulesTracker.java',
     'WriteStringTemplateRule.java',
+  ],
+  immutable_types = [
+    'BuildRuleKeys',
+    'RuleScheduleInfo',
   ],
   tests = [
     '//test/com/facebook/buck/rules:rules',
@@ -188,4 +204,20 @@ java_library(
   ],
   autodeps = True,
   visibility = ['PUBLIC'],
+)
+
+java_library(
+  name = 'action_graph_cache',
+  srcs = [
+    'ActionGraphCache.java',
+  ],
+  tests = [
+    '//test/com/facebook/buck/rules:rules',
+  ],
+  autodeps = True,
+  visibility = [
+    '//src/com/facebook/buck/cli:cli',
+    '//test/com/facebook/buck/cli:cli',
+    '//test/com/facebook/buck/rules:rules',
+  ],
 )

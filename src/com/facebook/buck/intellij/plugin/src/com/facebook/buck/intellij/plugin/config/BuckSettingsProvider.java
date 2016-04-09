@@ -49,6 +49,9 @@ public class BuckSettingsProvider implements PersistentStateComponent<BuckSettin
 
   @Override
   public State getState() {
+    if (state.buckExecutable == null || state.buckExecutable.isEmpty()) {
+      state.buckExecutable = BuckExecutableDetector.getBuckExecutable();
+    }
     return state;
   }
 
@@ -93,9 +96,14 @@ public class BuckSettingsProvider implements PersistentStateComponent<BuckSettin
     /**
      * Path to buck executable.
      *
-     * TODO(t7982097): Use Buck's ExecutableFinder class.
      */
-    public String buckExecutable = BuckExecutableDetector.detect();
+    public String buckExecutable;
+
+    /**
+     * Enable the debug window for the plugin.
+     *
+     */
+    public boolean showDebug = false;
 
     /**
      * "-r" parameter for "buck install"

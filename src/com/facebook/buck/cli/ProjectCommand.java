@@ -47,16 +47,19 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.model.FilesystemBackedBuildFileTree;
 import com.facebook.buck.model.HasBuildTarget;
-import com.facebook.buck.model.Pair;
 import com.facebook.buck.parser.BuildFileSpec;
+import com.facebook.buck.parser.BuildTargetParser;
+import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.SpeculativeParsing;
 import com.facebook.buck.parser.TargetNodePredicateSpec;
 import com.facebook.buck.python.PythonBuckConfig;
 import com.facebook.buck.rules.ActionGraph;
+import com.facebook.buck.rules.ActionGraphAndResolver;
 import com.facebook.buck.rules.AssociatedTargetNodePredicate;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.ProjectConfig;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
@@ -223,6 +226,15 @@ public class ProjectCommand extends BuildCommand {
       usage = "After generating an IntelliJ project using --experimental-ij-generation, start a " +
           "cleaner which removes any .iml files which weren't generated as part of the project.")
   private boolean runIjCleaner = false;
+
+  @Option(
+      name = "--focus",
+      depends = "--build-with-buck",
+      usage = "Space separated list of build target full qualified names that should be part of " +
+          "focused project. Must be used with --build-with-buck. " +
+          "For example, //Libs/CommonLibs:BaseLib //Libs/ImportantLib:ImportantLib")
+  @Nullable
+  private String modulesToFocusOn = null;
 
   public boolean getCombinedProject() {
     return combinedProject;
@@ -533,10 +545,10 @@ public class ProjectCommand extends BuildCommand {
       final TargetGraphAndTargets targetGraphAndTargets) throws IOException, InterruptedException {
     TargetGraphToActionGraph targetGraphToActionGraph = new TargetGraphToActionGraph(
         params.getBuckEventBus(),
-        new BuildTargetNodeToBuildRuleTransformer());
-    Pair<ActionGraph, BuildRuleResolver> result = Preconditions.checkNotNull(
+        new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphAndResolver result = Preconditions.checkNotNull(
         targetGraphToActionGraph.apply(targetGraphAndTargets.getTargetGraph()));
-    BuildRuleResolver ruleResolver = result.getSecond();
+    BuildRuleResolver ruleResolver = result.getResolver();
     SourcePathResolver sourcePathResolver = new SourcePathResolver(ruleResolver);
 
     JavacOptions javacOptions = new JavaBuckConfig(params.getBuckConfig())
@@ -654,16 +666,16 @@ public class ProjectCommand extends BuildCommand {
     }
     // Create an ActionGraph that only contains targets that can be represented as IDE
     // configuration files.
-    Pair<ActionGraph, BuildRuleResolver> result = Preconditions.checkNotNull(
+    ActionGraphAndResolver result = Preconditions.checkNotNull(
         new TargetGraphToActionGraph(
             params.getBuckEventBus(),
-            new BuildTargetNodeToBuildRuleTransformer())
+            new DefaultTargetNodeToBuildRuleTransformer())
             .apply(targetGraphAndTargets.getTargetGraph()));
-    ActionGraph actionGraph = result.getFirst();
+    ActionGraph actionGraph = result.getActionGraph();
 
     try (ExecutionContext executionContext = createExecutionContext(params)) {
       Project project = new Project(
-          new SourcePathResolver(result.getSecond()),
+          new SourcePathResolver(result.getResolver()),
           FluentIterable
               .from(actionGraph.getNodes())
               .filter(ProjectConfig.class)
@@ -793,6 +805,7 @@ public class ProjectCommand extends BuildCommand {
         passedInTargetsSet,
         options,
         super.getOptions(),
+        getFocusModules(params),
         new HashMap<Path, ProjectGenerator>(),
         getCombinedProject(),
         buildWithBuck || shouldForceBuildingWithBuck(params.getBuckConfig(), passedInTargetsSet),
@@ -824,6 +837,7 @@ public class ProjectCommand extends BuildCommand {
       ImmutableSet<BuildTarget> passedInTargetsSet,
       ImmutableSet<ProjectGenerator.Option> options,
       ImmutableList<String> buildWithBuckFlags,
+      ImmutableList<BuildTarget> focusModules,
       Map<Path, ProjectGenerator> projectGenerators,
       boolean combinedProject,
       boolean buildWithBuck,
@@ -845,7 +859,7 @@ public class ProjectCommand extends BuildCommand {
           public TargetGraphToActionGraph get() {
             return new TargetGraphToActionGraph(
                 params.getBuckEventBus(),
-                new BuildTargetNodeToBuildRuleTransformer());
+                new DefaultTargetNodeToBuildRuleTransformer());
           }
         });
     final LoadingCache<TargetNode<?>, SourcePathResolver>
@@ -859,7 +873,7 @@ public class ProjectCommand extends BuildCommand {
                     TargetGraph subgraph = targetGraphAndTargets.getTargetGraph().getSubgraph(
                         ImmutableSet.of(targetNode));
                     BuildRuleResolver buildRuleResolver =
-                        targetGraphToActionGraph.apply(subgraph).getSecond();
+                        targetGraphToActionGraph.apply(subgraph).getResolver();
                     return new SourcePathResolver(buildRuleResolver);
                   }
                 });
@@ -901,6 +915,7 @@ public class ProjectCommand extends BuildCommand {
           combinedProject,
           buildWithBuck,
           buildWithBuckFlags,
+          focusModules,
           !appleConfig.getXcodeDisableParallelizeBuild(),
           appleConfig.shouldAttemptToDetermineBestCxxPlatform(),
           new ExecutableFinder(),
@@ -929,6 +944,23 @@ public class ProjectCommand extends BuildCommand {
     }
 
     return requiredBuildTargetsBuilder.build();
+  }
+
+  private ImmutableList<BuildTarget> getFocusModules(CommandRunnerParams params) {
+    if (modulesToFocusOn == null) {
+      return ImmutableList.of();
+    }
+    ImmutableList.Builder<BuildTarget> builder = ImmutableList.builder();
+
+    for (String fullyQualifiedName : modulesToFocusOn.split("\\s+")) {
+      BuildTarget target = BuildTargetParser.INSTANCE.parse(
+          fullyQualifiedName,
+          BuildTargetPatternParser.fullyQualified(),
+          params.getCell().getCellRoots());
+      builder.add(target);
+    }
+
+    return builder.build();
   }
 
   public static ImmutableSet<ProjectGenerator.Option> buildWorkspaceGeneratorOptions(
@@ -1065,7 +1097,7 @@ public class ProjectCommand extends BuildCommand {
                       Predicates.<TargetNode<?>>alwaysTrue(),
                       BuildFileSpec.fromRecursivePath(Paths.get("")))),
               /* ignoreBuckAutodepsFiles */ false)
-          .getSecond();
+          .getTargetGraph();
     }
     Preconditions.checkState(!passedInTargets.isEmpty());
     return params.getParser()
@@ -1166,6 +1198,8 @@ public class ProjectCommand extends BuildCommand {
     workspaceArgs.workspaceName = Optional.absent();
     workspaceArgs.extraSchemes = Optional.of(ImmutableSortedMap.<String, BuildTarget>of());
     workspaceArgs.isRemoteRunnable = Optional.absent();
+    workspaceArgs.explicitRunnablePath = Optional.absent();
+    workspaceArgs.launchStyle = Optional.absent();
     return workspaceArgs;
   }
 

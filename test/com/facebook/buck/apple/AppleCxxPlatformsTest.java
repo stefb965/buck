@@ -18,14 +18,18 @@ package com.facebook.buck.apple;
 
 import static com.facebook.buck.testutil.HasConsecutiveItemsMatcher.hasConsecutiveItems;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasItems;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.matchesPattern;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
+import com.dd.plist.NSDictionary;
 import com.facebook.buck.cli.BuckConfig;
-import com.facebook.buck.cli.BuildTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.cxx.CxxPlatformUtils;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.CxxLinkableEnhancer;
@@ -57,8 +61,10 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
+import com.facebook.buck.testutil.TestLogSink;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
+import com.google.common.base.Charsets;
 import com.google.common.base.Optional;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -71,7 +77,9 @@ import org.hamcrest.Matchers;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
+import org.junit.rules.TemporaryFolder;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
@@ -81,6 +89,12 @@ public class AppleCxxPlatformsTest {
 
   @Rule
   public ExpectedException thrown = ExpectedException.none();
+
+  @Rule
+  public TestLogSink logSink = new TestLogSink(AppleCxxPlatforms.class);
+
+  @Rule
+  public TemporaryFolder temp = new TemporaryFolder();
 
   @Test
   public void iphoneOSSdkPathsBuiltFromDirectory() throws Exception {
@@ -137,7 +151,7 @@ public class AppleCxxPlatformsTest {
     CxxPlatform cxxPlatform = appleCxxPlatform.getCxxPlatform();
 
     BuildRuleResolver ruleResolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new BuildTargetNodeToBuildRuleTransformer());
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver resolver = new SourcePathResolver(ruleResolver);
 
     assertEquals(
@@ -254,7 +268,7 @@ public class AppleCxxPlatformsTest {
     CxxPlatform cxxPlatform = appleCxxPlatform.getCxxPlatform();
 
     BuildRuleResolver ruleResolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new BuildTargetNodeToBuildRuleTransformer());
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver resolver = new SourcePathResolver(ruleResolver);
 
     assertEquals(
@@ -304,6 +318,113 @@ public class AppleCxxPlatformsTest {
         cxxPlatform.getCxx().resolve(ruleResolver).getCommandPrefix(resolver).get(0));
     assertEquals(
         Paths.get("Platforms/WatchOS.platform/Developer/usr/bin/ar")
+            .toString(),
+        cxxPlatform.getAr().getCommandPrefix(resolver).get(0));
+  }
+
+  @Test
+  public void appleTVOSSdkPathsBuiltFromDirectory() throws Exception {
+    AppleSdkPaths appleSdkPaths =
+        AppleSdkPaths.builder()
+            .setDeveloperPath(Paths.get("."))
+            .addToolchainPaths(Paths.get("Toolchains/XcodeDefault.xctoolchain"))
+            .setPlatformPath(Paths.get("Platforms/AppleTVOS.platform"))
+            .setSdkPath(Paths.get("Platforms/AppleTVOS.platform/Developer/SDKs/AppleTVOS9.1.sdk"))
+            .build();
+
+    AppleToolchain toolchain = AppleToolchain.builder()
+        .setIdentifier("com.apple.dt.XcodeDefault")
+        .setPath(Paths.get("Toolchains/XcodeDefault.xctoolchain"))
+        .setVersion("1")
+        .build();
+
+    AppleSdk targetSdk = AppleSdk.builder()
+        .setApplePlatform(ApplePlatform.APPLETVOS)
+        .setName("appletvos9.1")
+        .setVersion("9.1")
+        .setToolchains(ImmutableList.of(toolchain))
+        .build();
+
+    ImmutableSet<Path> paths = ImmutableSet.<Path>builder()
+        .add(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/clang"))
+        .add(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++"))
+        .add(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/dsymutil"))
+        .add(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/lipo"))
+        .add(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/ranlib"))
+        .add(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/strip"))
+        .add(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/nm"))
+        .add(Paths.get("Platforms/AppleTVOS.platform/Developer/usr/bin/libtool"))
+        .add(Paths.get("Platforms/AppleTVOS.platform/Developer/usr/bin/ar"))
+        .add(Paths.get("usr/bin/actool"))
+        .add(Paths.get("usr/bin/ibtool"))
+        .add(Paths.get("usr/bin/lldb"))
+        .add(Paths.get("usr/bin/xctest"))
+        .build();
+
+    AppleCxxPlatform appleCxxPlatform =
+        AppleCxxPlatforms.buildWithExecutableChecker(
+            targetSdk,
+            "9.1",
+            "arm64",
+            appleSdkPaths,
+            FakeBuckConfig.builder().build(),
+            new FakeAppleConfig(),
+            new FakeExecutableFinder(paths),
+            Optional.<ProcessExecutor>absent());
+
+    CxxPlatform cxxPlatform = appleCxxPlatform.getCxxPlatform();
+
+    BuildRuleResolver ruleResolver =
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    SourcePathResolver resolver = new SourcePathResolver(ruleResolver);
+
+    assertEquals(
+        ImmutableList.of("usr/bin/actool"),
+        appleCxxPlatform.getActool().getCommandPrefix(resolver));
+    assertEquals(
+        ImmutableList.of("usr/bin/ibtool"),
+        appleCxxPlatform.getIbtool().getCommandPrefix(resolver));
+    assertEquals(
+        ImmutableList.of("usr/bin/lldb"),
+        appleCxxPlatform.getLldb().getCommandPrefix(resolver));
+    assertEquals(
+        ImmutableList.of("Toolchains/XcodeDefault.xctoolchain/usr/bin/dsymutil"),
+        appleCxxPlatform.getDsymutil().getCommandPrefix(resolver));
+
+    assertEquals(
+        ImmutableList.of("usr/bin/xctest"),
+        appleCxxPlatform.getXctest().getCommandPrefix(resolver));
+
+    assertEquals(
+        ImmutableFlavor.of("appletvos9.1-arm64"),
+        cxxPlatform.getFlavor());
+    assertEquals(
+        Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/clang").toString(),
+        cxxPlatform.getCc().resolve(ruleResolver).getCommandPrefix(resolver).get(0));
+    assertThat(
+        ImmutableList.<String>builder()
+            .addAll(cxxPlatform.getCc().resolve(ruleResolver).getCommandPrefix(resolver))
+            .addAll(cxxPlatform.getCflags())
+            .build(),
+        hasConsecutiveItems(
+            "-isysroot",
+            Paths.get("Platforms/AppleTVOS.platform/Developer/SDKs/AppleTVOS9.1.sdk").toString()));
+    assertThat(
+        cxxPlatform.getCflags(),
+        hasConsecutiveItems("-arch", "arm64"));
+    assertThat(
+        cxxPlatform.getCflags(),
+        hasConsecutiveItems("-mtvos-version-min=9.1"));
+    assertThat(
+        cxxPlatform.getLdflags(),
+        hasConsecutiveItems(
+            "-Wl,-sdk_version",
+            "-Wl,9.1"));
+    assertEquals(
+        Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++").toString(),
+        cxxPlatform.getCxx().resolve(ruleResolver).getCommandPrefix(resolver).get(0));
+    assertEquals(
+        Paths.get("Platforms/AppleTVOS.platform/Developer/usr/bin/ar")
             .toString(),
         cxxPlatform.getAr().getCommandPrefix(resolver).get(0));
   }
@@ -736,6 +857,67 @@ AppleSdkPaths appleSdkPaths =
         hasItem("-mwatchos-simulator-version-min=2.0"));
   }
 
+  @Test
+  public void appleTVOSSimulatorPlatformSetsLinkerFlags() throws Exception {
+    AppleSdkPaths appleSdkPaths = AppleSdkPaths.builder()
+        .setDeveloperPath(Paths.get("."))
+        .addToolchainPaths(Paths.get("Toolchains/XcodeDefault.xctoolchain"))
+        .setPlatformPath(Paths.get("Platforms/AppleTVSimulator.platform"))
+        .setSdkPath(
+            Paths.get("Platforms/AppleTVSimulator.platform/Developer/SDKs/AppleTVSimulator9.1.sdk")
+        )
+        .build();
+
+    ImmutableSet<Path> paths = ImmutableSet.<Path>builder()
+        .add(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/clang"))
+        .add(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++"))
+        .add(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/dsymutil"))
+        .add(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/lipo"))
+        .add(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/ranlib"))
+        .add(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/strip"))
+        .add(Paths.get("Toolchains/XcodeDefault.xctoolchain/usr/bin/nm"))
+        .add(Paths.get("Platforms/AppleTVSimulator.platform/Developer/usr/bin/libtool"))
+        .add(Paths.get("Platforms/AppleTVSimulator.platform/Developer/usr/bin/ar"))
+        .add(Paths.get("usr/bin/actool"))
+        .add(Paths.get("usr/bin/ibtool"))
+        .add(Paths.get("usr/bin/lldb"))
+        .add(Paths.get("usr/bin/xctest"))
+        .build();
+
+    AppleToolchain toolchain = AppleToolchain.builder()
+        .setIdentifier("com.apple.dt.XcodeDefault")
+        .setPath(Paths.get("Toolchains/XcodeDefault.xctoolchain"))
+        .setVersion("1")
+        .build();
+
+    AppleSdk targetSdk = AppleSdk.builder()
+        .setApplePlatform(ApplePlatform.APPLETVSIMULATOR)
+        .setName("appletvsimulator9.1")
+        .setVersion("9.1")
+        .setToolchains(ImmutableList.of(toolchain))
+        .build();
+
+    AppleCxxPlatform appleCxxPlatform =
+        AppleCxxPlatforms.buildWithExecutableChecker(
+            targetSdk,
+            "9.1",
+            "arm64",
+            appleSdkPaths,
+            FakeBuckConfig.builder().build(),
+            new FakeAppleConfig(),
+            new FakeExecutableFinder(paths),
+            Optional.<ProcessExecutor>absent());
+
+    CxxPlatform cxxPlatform = appleCxxPlatform.getCxxPlatform();
+
+    assertThat(
+        cxxPlatform.getCflags(),
+        hasItem("-mtvos-simulator-version-min=9.1"));
+    assertThat(
+        cxxPlatform.getLdflags(),
+        hasItem("-mtvos-simulator-version-min=9.1"));
+  }
+
   enum Operation {
     PREPROCESS,
     COMPILE,
@@ -747,7 +929,7 @@ AppleSdkPaths appleSdkPaths =
       Operation operation,
       ImmutableMap<Flavor, AppleCxxPlatform> cxxPlatforms) {
     BuildRuleResolver resolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new BuildTargetNodeToBuildRuleTransformer());
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
     String source = "source.cpp";
     RuleKeyBuilderFactory ruleKeyBuilderFactory =
@@ -765,6 +947,7 @@ AppleSdkPaths appleSdkPaths =
           .setParams(new FakeBuildRuleParamsBuilder(target).build())
           .setResolver(resolver)
           .setPathResolver(pathResolver)
+          .setCxxBuckConfig(CxxPlatformUtils.DEFAULT_CONFIG)
           .setCxxPlatform(entry.getValue().getCxxPlatform())
           .setPicType(CxxSourceRuleFactory.PicType.PIC)
           .build();
@@ -810,7 +993,7 @@ AppleSdkPaths appleSdkPaths =
   private ImmutableMap<Flavor, RuleKey> constructLinkRuleKeys(
       ImmutableMap<Flavor, AppleCxxPlatform> cxxPlatforms) throws NoSuchBuildTargetException {
     BuildRuleResolver resolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new BuildTargetNodeToBuildRuleTransformer());
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
     RuleKeyBuilderFactory ruleKeyBuilderFactory =
         new DefaultRuleKeyBuilderFactory(
@@ -825,6 +1008,7 @@ AppleSdkPaths appleSdkPaths =
     for (Map.Entry<Flavor, AppleCxxPlatform> entry : cxxPlatforms.entrySet()) {
       BuildRule rule =
           CxxLinkableEnhancer.createCxxLinkableBuildRule(
+              CxxPlatformUtils.DEFAULT_CONFIG,
               entry.getValue().getCxxPlatform(),
               new FakeBuildRuleParamsBuilder(target).build(),
               resolver,
@@ -931,4 +1115,48 @@ AppleSdkPaths appleSdkPaths =
 
   }
 
+  @Test
+  public void nonExistentPlatformVersionPlistIsLogged() {
+    AppleCxxPlatform platform = buildAppleCxxPlatform(Paths.get("/nonexistentjabberwock"));
+    assertThat(platform.getBuildVersion(), equalTo(Optional.<String>absent()));
+    assertThat(
+        logSink.getRecords(),
+        hasItem(
+            TestLogSink.logRecordWithMessage(
+                matchesPattern(".*does not exist.*Build version will be unset.*"))));
+  }
+
+  @Test
+  public void invalidPlatformVersionPlistIsLogged() throws Exception {
+    Path tempRoot = temp.getRoot().toPath();
+    Path platformRoot = tempRoot.resolve("Platforms/iPhoneOS.platform");
+    Files.createDirectories(platformRoot);
+    Files.write(
+        platformRoot.resolve("version.plist"),
+        "I am, as a matter of fact, an extremely invalid plist.".getBytes(Charsets.UTF_8));
+    AppleCxxPlatform platform = buildAppleCxxPlatform(tempRoot);
+    assertThat(platform.getBuildVersion(), equalTo(Optional.<String>absent()));
+    assertThat(
+        logSink.getRecords(),
+        hasItem(
+            TestLogSink.logRecordWithMessage(
+                matchesPattern("Failed to parse.*Build version will be unset.*"))));
+  }
+
+  @Test
+  public void platformVersionPlistWithMissingFieldIsLogged() throws Exception {
+    Path tempRoot = temp.getRoot().toPath();
+    Path platformRoot = tempRoot.resolve("Platforms/iPhoneOS.platform");
+    Files.createDirectories(platformRoot);
+    Files.write(
+        platformRoot.resolve("version.plist"),
+        new NSDictionary().toXMLPropertyList().getBytes(Charsets.UTF_8));
+    AppleCxxPlatform platform = buildAppleCxxPlatform(tempRoot);
+    assertThat(platform.getBuildVersion(), equalTo(Optional.<String>absent()));
+    assertThat(
+        logSink.getRecords(),
+        hasItem(
+            TestLogSink.logRecordWithMessage(
+                matchesPattern(".*missing ProductBuildVersion. Build version will be unset.*"))));
+  }
 }

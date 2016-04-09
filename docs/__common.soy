@@ -334,6 +334,7 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
         'include_defs',
         'read_config',
         'subdir_glob',
+        'flatten_dicts',
         ]}
       <li><a href="{ROOT}function/{$function}.html">{$function}()</a>
     {/foreach}
@@ -352,6 +353,7 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
         'project',
         'query',
         'quickstart',
+        'repl',
         'run',
         'root',
         'server',
@@ -486,7 +488,6 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
 {/if}
 {/template}
 
-
 /**
  * Used to format an argument to a build rule.
  *
@@ -558,15 +559,40 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
 
 /**
  * @param overview HTML description of the function.
+ * @param status one of FROZEN, UNFROZEN, or DEPRECATED to indicate the
+       current level of support for the rule.
  * @param args HTML documentation for each arg for the function.
  *     Should be created using multiple applications of the {buck.functionArg}
  *     template.
  * @param? examples HTML documentation that shows examples of the function
  *     in action.
+ * @param? furtherexp Further explanation; HTML shown after arguments and
+        examples.
  */
 {template .function}
-  // For now, functions and build rules should be documented the same way.
-  {call .rule data="all" /}
+{switch $status}
+  {case 'FROZEN'}
+    // Nothing to show here.
+  {case 'UNFROZEN'}
+    <p><small>This is liable to change in the future.</small></p>
+  {case 'DEPRECATED'}
+    <p><small>This will be removed in the future.</small></p>
+{/switch}
+{$overview|noAutoescape}
+
+<h2>Arguments</h2>
+<ul class="{css arglist}">
+  {$args|noAutoescape}
+</ul>
+
+{if $examples}
+  <h2>Examples</h2>
+  {$examples|noAutoescape}
+{/if}
+
+{if $furtherexp}
+  {$furtherexp|noAutoescape}
+{/if}
 {/template}
 
 
@@ -746,6 +772,12 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
 <a href="{ROOT}function/string_parameter_macros.html">string parameter macros</a>
 {/template}
 
+/***/
+{template .fn_flatten_dicts}
+<a href="{ROOT}function/flatten_dicts.html"><code>flatten_dicts()</code></a>
+{/template}
+
+
 /**
  * @param page
  * @param name
@@ -817,6 +849,11 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
 /***/
 {template .cmd_quickstart}
 {call .cmd_link}{param name : 'quickstart' /}{/call}
+{/template}
+
+/***/
+{template .cmd_repl}
+{call .cmd_link}{param name : 'repl' /}{/call}
 {/template}
 
 /***/

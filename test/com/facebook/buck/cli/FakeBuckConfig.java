@@ -16,16 +16,14 @@
 
 package com.facebook.buck.cli;
 
+import com.facebook.buck.config.Config;
+import com.facebook.buck.config.ConfigBuilder;
+import com.facebook.buck.config.RawConfig;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.Platform;
-import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableMap;
-
-import java.io.IOException;
-import java.io.StringReader;
-import java.util.Arrays;
 
 /**
  * Implementation of {@link BuckConfig} with no data, or only the data specified by
@@ -34,9 +32,6 @@ import java.util.Arrays;
  * exclusively for testing.
  */
 public class FakeBuckConfig {
-
-  private static final ImmutableMap<String, ImmutableMap<String, String>> EMPTY_SECTIONS =
-      ImmutableMap.of();
 
   private FakeBuckConfig() {
     // Utility class
@@ -49,7 +44,7 @@ public class FakeBuckConfig {
   public static class Builder {
     private ProjectFilesystem filesystem = new FakeProjectFilesystem();
     private ImmutableMap<String, String> environment = ImmutableMap.copyOf(System.getenv());
-    private ImmutableMap<String, ImmutableMap<String, String>> sections = EMPTY_SECTIONS;
+    private RawConfig sections = RawConfig.of();
     private Architecture architecture = Architecture.detect();
     private Platform platform = Platform.detect();
 
@@ -73,20 +68,18 @@ public class FakeBuckConfig {
       return this;
     }
 
-    public Builder setSections(ImmutableMap<String, ImmutableMap<String, String>> sections) {
+    public Builder setSections(RawConfig sections) {
       this.sections = sections;
       return this;
     }
 
+    public Builder setSections(ImmutableMap<String, ImmutableMap<String, String>> sections) {
+      this.sections = RawConfig.of(sections);
+      return this;
+    }
+
     public Builder setSections(String... iniFileLines) {
-      try {
-        sections = Inis.read(
-            new StringReader(
-                Joiner.on(
-                    "\n").join(Arrays.asList(iniFileLines))));
-      } catch (IOException e) {
-        throw new RuntimeException(e);
-      }
+      sections = ConfigBuilder.rawFromLines(iniFileLines);
       return this;
     }
 

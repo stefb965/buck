@@ -16,6 +16,8 @@
 
 package com.facebook.buck.intellij.plugin.ui;
 
+import com.facebook.buck.intellij.plugin.actions.BuckInstallDebugAction;
+import com.facebook.buck.intellij.plugin.debugger.AndroidDebugger;
 import com.facebook.buck.intellij.plugin.ui.tree.BuckTreeNodeBuild;
 import com.facebook.buck.intellij.plugin.ui.tree.BuckTreeNodeDetail;
 import com.facebook.buck.intellij.plugin.ui.tree.BuckTreeNodeFileError;
@@ -25,6 +27,7 @@ import com.facebook.buck.intellij.plugin.ui.utils.ErrorExtractor;
 import com.facebook.buck.intellij.plugin.ws.buckevents.consumers.BuckBuildEndConsumer;
 import com.facebook.buck.intellij.plugin.ws.buckevents.consumers.BuckBuildStartConsumer;
 import com.facebook.buck.intellij.plugin.ws.buckevents.consumers.BuckConsoleEventConsumer;
+import com.facebook.buck.intellij.plugin.ws.buckevents.consumers.BuckInstallFinishedConsumer;
 import com.facebook.buck.intellij.plugin.ws.buckevents.consumers.BuckProjectGenerationFinishedConsumer;
 import com.facebook.buck.intellij.plugin.ws.buckevents.consumers.BuckProjectGenerationProgressConsumer;
 import com.facebook.buck.intellij.plugin.ws.buckevents.consumers.BuckProjectGenerationStartedConsumer;
@@ -70,7 +73,8 @@ public class BuckEventsConsumer implements
     TestRunCompleteConsumer,
     TestResultsAvailableConsumer,
     BuckConsoleEventConsumer,
-    CompilerErrorConsumer {
+    CompilerErrorConsumer,
+    BuckInstallFinishedConsumer {
 
     private Project mProject;
     public BuckEventsConsumer(Project project) {
@@ -81,7 +85,6 @@ public class BuckEventsConsumer implements
     private DefaultTreeModel mTreeModel;
     private Map<String, List<String>> mErrors =
             Collections.synchronizedMap(new HashMap<String, List<String>>());
-
     private double mBuildProgressValue = 0;
     private double mParseProgressValue = 0;
     private double mProjectGenerationProgressValue = 0;
@@ -112,12 +115,6 @@ public class BuckEventsConsumer implements
 
     public void detachWithMessage(String message) {
         detach();
-        BuckEventsConsumer.this.mTreeModel.setRoot(new BuckTreeNodeDetail(
-                null,
-                BuckTreeNodeDetail.DetailType.ERROR,
-                "Disconnected from buck: " + message
-        ));
-        BuckEventsConsumer.this.mTreeModel.reload();
     }
 
     public void attach(String target, DefaultTreeModel treeModel) {
@@ -152,6 +149,8 @@ public class BuckEventsConsumer implements
         mConnection.subscribe(TestRunStartedConsumer.BUCK_TEST_RUN_STARTED, this);
         mConnection.subscribe(TestRunCompleteConsumer.BUCK_TEST_RUN_COMPLETE, this);
         mConnection.subscribe(TestResultsAvailableConsumer.BUCK_TEST_RESULTS_AVAILABLE, this);
+
+        mConnection.subscribe(BuckInstallFinishedConsumer.INSTALL_FINISHED_CONSUMER, this);
     }
     @Override
     public void consumeBuckBuildProgressUpdate(long timestamp,
@@ -572,5 +571,14 @@ public class BuckEventsConsumer implements
                 BuckEventsConsumer.this.mTreeModel.reload();
             }
         });
+    }
+
+    @Override
+    public void consumeInstallFinished(long timestamp, final String packageName) {
+
+        if (BuckInstallDebugAction.shouldDebug()) {
+            AndroidDebugger.attachDebugger(packageName, mProject);
+            BuckInstallDebugAction.setDebug(false);
+        }
     }
 }

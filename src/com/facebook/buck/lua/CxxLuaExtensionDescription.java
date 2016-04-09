@@ -156,6 +156,7 @@ public class CxxLuaExtensionDescription implements
             params,
             ruleResolver,
             pathResolver,
+            cxxBuckConfig,
             cxxPlatform,
             cxxPreprocessorInput,
             CxxFlags.getLanguageFlags(
@@ -194,6 +195,7 @@ public class CxxLuaExtensionDescription implements
             params.getBuildTarget(),
             cxxPlatform);
     return CxxLinkableEnhancer.createCxxLinkableBuildRule(
+        cxxBuckConfig,
         cxxPlatform,
         params,
         ruleResolver,

@@ -18,10 +18,10 @@ package com.facebook.buck.cli;
 
 import static com.facebook.buck.util.BuckConstant.DEFAULT_CACHE_DIR;
 
+import com.facebook.buck.config.Config;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.DefaultJavaPackageFinder;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.parser.BuildTargetParseException;
@@ -58,7 +58,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.io.IOException;
-import java.io.Reader;
 import java.net.URI;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
@@ -75,8 +74,6 @@ import javax.annotation.concurrent.Immutable;
 @Beta
 @Immutable
 public class BuckConfig {
-
-  private static final Logger LOG = Logger.get(BuckConfig.class);
 
   public static final String DEFAULT_BUCK_CONFIG_OVERRIDE_FILE_NAME = ".buckconfig.local";
 
@@ -185,38 +182,6 @@ public class BuckConfig {
     }
 
     throw new HumanReadableException("Not a valid %s: %s.", fieldName.toLowerCase(), aliasName);
-  }
-
-  @SafeVarargs
-  @VisibleForTesting
-  static BuckConfig createFromReaders(
-      Map<Path, Reader> readers,
-      ProjectFilesystem projectFilesystem,
-      Architecture architecture,
-      Platform platform,
-      ImmutableMap<String, String> environment,
-      ImmutableMap<String, ImmutableMap<String, String>>... configOverrides)
-  throws IOException {
-    ImmutableList.Builder<ImmutableMap<String, ImmutableMap<String, String>>> builder =
-        ImmutableList.builder();
-    for (Map.Entry<Path, Reader> entry : readers.entrySet()) {
-      Path filePath = entry.getKey();
-      Reader reader = entry.getValue();
-      ImmutableMap<String, ImmutableMap<String, String>> parsedConfiguration = Inis.read(reader);
-      LOG.debug("Loaded a configuration file %s: %s", filePath, parsedConfiguration);
-      builder.add(parsedConfiguration);
-    }
-    for (ImmutableMap<String, ImmutableMap<String, String>> configOverride : configOverrides) {
-      LOG.debug("Adding configuration overrides: %s", configOverride);
-      builder.add(configOverride);
-    }
-    Config config = new Config(builder.build());
-    return new BuckConfig(
-        config,
-        projectFilesystem,
-        architecture,
-        platform,
-        environment);
   }
 
   public Architecture getArchitecture() {
@@ -517,8 +482,7 @@ public class BuckConfig {
     return ImmutableSet.copyOf(getListWithoutComments("java", "src_roots"));
   }
 
-  @VisibleForTesting
-  DefaultJavaPackageFinder createDefaultJavaPackageFinder() {
+  public DefaultJavaPackageFinder createDefaultJavaPackageFinder() {
     Set<String> srcRoots = getSrcRoots();
     return DefaultJavaPackageFinder.createDefaultJavaPackageFinder(srcRoots);
   }
@@ -526,7 +490,7 @@ public class BuckConfig {
   /**
    * Return Strings so as to avoid a dependency on {@link LabelSelector}!
    */
-  ImmutableList<String> getDefaultRawExcludedLabelSelectors() {
+  public ImmutableList<String> getDefaultRawExcludedLabelSelectors() {
     return getListWithoutComments("test", "excluded_labels");
   }
 

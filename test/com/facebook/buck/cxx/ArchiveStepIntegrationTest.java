@@ -19,7 +19,7 @@ package com.facebook.buck.cxx;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.cli.BuildTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -58,9 +58,9 @@ public class ArchiveStepIntegrationTest {
         new CxxBuckConfig(FakeBuckConfig.builder().build()));
 
     // Build up the paths to various files the archive step will use.
-    SourcePathResolver sourcePathResolver =
-        new SourcePathResolver(
-            new BuildRuleResolver(TargetGraph.EMPTY, new BuildTargetNodeToBuildRuleTransformer()));
+    SourcePathResolver sourcePathResolver = new SourcePathResolver(
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
+    );
     Tool archiver = platform.getAr();
     Path output = filesystem.resolve(Paths.get("output.a"));
     Path relativeInput = Paths.get("input.dat");
@@ -107,9 +107,9 @@ public class ArchiveStepIntegrationTest {
         DefaultCxxPlatforms.build(new CxxBuckConfig(FakeBuckConfig.builder().build()));
 
     // Build up the paths to various files the archive step will use.
-    SourcePathResolver sourcePathResolver =
-        new SourcePathResolver(
-            new BuildRuleResolver(TargetGraph.EMPTY, new BuildTargetNodeToBuildRuleTransformer()));
+    SourcePathResolver sourcePathResolver = new SourcePathResolver(
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
+    );
     Tool archiver = platform.getAr();
     Path output = filesystem.getRootPath().getFileSystem().getPath("output.a");
 
@@ -133,6 +133,49 @@ public class ArchiveStepIntegrationTest {
     try (ArArchiveInputStream stream = new ArArchiveInputStream(
         new FileInputStream(filesystem.resolve(output).toFile()))) {
       assertThat(stream.getNextArEntry(), Matchers.nullValue());
+    }
+  }
+
+  @Test
+  public void inputDirs() throws IOException, InterruptedException {
+    ProjectFilesystem filesystem = new ProjectFilesystem(tmp.getRoot().toPath());
+    CxxPlatform platform =
+        DefaultCxxPlatforms.build(new CxxBuckConfig(FakeBuckConfig.builder().build()));
+
+    // Build up the paths to various files the archive step will use.
+    SourcePathResolver sourcePathResolver =
+        new SourcePathResolver(
+            new BuildRuleResolver(
+                TargetGraph.EMPTY,
+                new DefaultTargetNodeToBuildRuleTransformer()));
+    Tool archiver = platform.getAr();
+    Path output = filesystem.getRootPath().getFileSystem().getPath("output.a");
+    Path relativeInput = filesystem.getRootPath().getFileSystem().getPath("foo/blah.dat");
+    Path input = filesystem.resolve(relativeInput);
+    filesystem.mkdirs(relativeInput.getParent());
+    filesystem.writeContentsToPath("blah", relativeInput);
+
+    // Build an archive step.
+    ArchiveStep archiveStep =
+        new ArchiveStep(
+            filesystem,
+            archiver.getEnvironment(sourcePathResolver),
+            archiver.getCommandPrefix(sourcePathResolver),
+            output,
+            ImmutableList.of(input.getParent()));
+
+    // Execute the archive step and verify it ran successfully.
+    ExecutionContext executionContext = TestExecutionContext.newInstance();
+    TestConsole console = (TestConsole) executionContext.getConsole();
+    int exitCode = archiveStep.execute(executionContext);
+    assertEquals("archive step failed: " + console.getTextWrittenToStdErr(), 0, exitCode);
+
+    // Now read the archive entries and verify that the timestamp, UID, and GID fields are
+    // zero'd out.
+    try (ArArchiveInputStream stream = new ArArchiveInputStream(
+         new FileInputStream(filesystem.resolve(output).toFile()))) {
+      ArArchiveEntry entry = stream.getNextArEntry();
+      assertThat(entry.getName(), Matchers.equalTo("blah.dat"));
     }
   }
 

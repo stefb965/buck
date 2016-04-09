@@ -16,6 +16,8 @@
 
 package com.facebook.buck.intellij.plugin.config;
 
+import com.facebook.buck.intellij.plugin.debugger.AndroidDebugger;
+import com.facebook.buck.intellij.plugin.file.BuckFileType;
 import com.facebook.buck.intellij.plugin.ui.BuckEventsConsumer;
 import com.facebook.buck.intellij.plugin.ui.BuckToolWindowFactory;
 import com.facebook.buck.intellij.plugin.ui.BuckUIManager;
@@ -27,9 +29,15 @@ import com.intellij.execution.ui.ConsoleViewContentType;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.components.ProjectComponent;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.fileTypes.FileNameMatcher;
+import com.intellij.openapi.fileTypes.FileType;
+import com.intellij.openapi.fileTypes.FileTypeManager;
+import com.intellij.openapi.fileTypes.UnknownFileType;
+import com.intellij.openapi.fileTypes.impl.FileTypeManagerImpl;
 import com.intellij.openapi.project.Project;
 
 import java.io.IOException;
+import java.util.List;
 
 public final class BuckModule implements ProjectComponent {
 
@@ -37,12 +45,11 @@ public final class BuckModule implements ProjectComponent {
     private BuckClient mClient = new BuckClient();
     private BuckEventsHandler mEventHandler;
     private BuckEventsConsumer mBu;
-    private boolean mConnecting = false;
     private static final Logger LOG = Logger.getInstance(BuckModule.class);
 
     public BuckModule(final Project project) {
         mProject = project;
-
+        AndroidDebugger.init();
         mEventHandler = new BuckEventsHandler(
             new BuckEventsConsumerFactory(mProject),
             new Runnable() {
@@ -74,7 +81,7 @@ public final class BuckModule implements ProjectComponent {
                         }
                     });
                     BuckModule mod = project.getComponent(BuckModule.class);
-                    mod.disconnect("Received disconnect from the server");
+                    mod.disconnect();
                 }
             }
         );
@@ -101,10 +108,6 @@ public final class BuckModule implements ProjectComponent {
         disconnect();
     }
 
-    public boolean isConnecting() {
-        return mConnecting;
-    }
-
     public boolean isConnected() {
         return mClient.isConnected();
     }
@@ -118,17 +121,7 @@ public final class BuckModule implements ProjectComponent {
         }
     }
 
-    public void disconnect(String message) {
-        if (mClient.isConnected()) {
-            if (mBu != null) {
-                mBu.detachWithMessage(message);
-            }
-            mClient.disconnect();
-        }
-    }
-
     public void connect() {
-        mConnecting = true;
         ApplicationManager.getApplication().executeOnPooledThread(new Runnable() {
             @Override
             public void run() {
@@ -145,7 +138,7 @@ public final class BuckModule implements ProjectComponent {
                                     "Try adding to your '.buckconfig.local' file:\n" +
                                     "[httpserver]\n" +
                                     "    port = 0\n" +
-                                    "After that press the 'Connect to buck' button.\n",
+                                    "After that, try running the command again.\n",
                                 ConsoleViewContentType.ERROR_OUTPUT);
                         } else {
                             mClient = new BuckClient(port, mEventHandler);
@@ -154,17 +147,38 @@ public final class BuckModule implements ProjectComponent {
                         }
                     } catch (NumberFormatException e) {
                         LOG.error(e);
-                        mConnecting = false;
                     } catch (ExecutionException e) {
                         LOG.error(e);
-                        mConnecting = false;
                     } catch (IOException e) {
                         LOG.error(e);
-                        mConnecting = false;
                     }
                 }
-                mConnecting = false;
             }
+        });
+
+        ApplicationManager.getApplication().runWriteAction(new Runnable() {
+            @Override
+            public void run() {
+                FileTypeManager fileTypeManager = FileTypeManagerImpl.getInstance();
+
+              FileType fileType = fileTypeManager
+                  .getFileTypeByFileName(BuckFileType.INSTANCE.getDefaultExtension());
+
+              // Remove all FileType associations for BUCK files that are not BuckFileType
+              while (!(fileType instanceof  BuckFileType || fileType instanceof UnknownFileType)) {
+                List<FileNameMatcher> fileNameMatchers = fileTypeManager.getAssociations(fileType);
+
+                for (FileNameMatcher fileNameMatcher : fileNameMatchers) {
+                  if (fileNameMatcher.accept(BuckFileType.INSTANCE.getDefaultExtension())) {
+                    fileTypeManager.removeAssociation(fileType, fileNameMatcher);
+                  }
+                }
+
+                fileType = fileTypeManager
+                    .getFileTypeByFileName(BuckFileType.INSTANCE.getDefaultExtension());
+              }
+            }
+
         });
     }
 

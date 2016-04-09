@@ -16,6 +16,7 @@
 
 package com.facebook.buck.apple;
 
+import com.facebook.buck.apple.xcode.XCScheme;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXTarget;
 import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.CxxPlatform;
@@ -70,6 +71,7 @@ public class WorkspaceAndProjectGenerator {
   private final TargetGraph projectGraph;
   private final XcodeWorkspaceConfigDescription.Arg workspaceArguments;
   private final BuildTarget workspaceBuildTarget;
+  private final ImmutableList<BuildTarget> focusModules;
   private final ImmutableSet<ProjectGenerator.Option> projectGeneratorOptions;
   private final boolean combinedProject;
   private final boolean buildWithBuck;
@@ -103,6 +105,7 @@ public class WorkspaceAndProjectGenerator {
       boolean combinedProject,
       boolean buildWithBuck,
       ImmutableList<String> buildWithBuckFlags,
+      ImmutableList<BuildTarget> focusModules,
       boolean parallelizeBuild,
       boolean attemptToDetermineBestCxxPlatform,
       ExecutableFinder executableFinder,
@@ -118,6 +121,7 @@ public class WorkspaceAndProjectGenerator {
     this.projectGraph = projectGraph;
     this.workspaceArguments = workspaceArguments;
     this.workspaceBuildTarget = workspaceBuildTarget;
+    this.focusModules = focusModules;
     this.projectGeneratorOptions = ImmutableSet.copyOf(projectGeneratorOptions);
     this.combinedProject = combinedProject;
     this.buildWithBuck = buildWithBuck;
@@ -256,6 +260,7 @@ public class WorkspaceAndProjectGenerator {
           projectGeneratorOptions,
           targetToBuildWithBuck,
           buildWithBuckFlags,
+          focusModules,
           executableFinder,
           environment,
           cxxPlatforms,
@@ -342,6 +347,7 @@ public class WorkspaceAndProjectGenerator {
                       }
                     }),
                 buildWithBuckFlags,
+                focusModules,
                 executableFinder,
                 environment,
                 cxxPlatforms,
@@ -380,6 +386,7 @@ public class WorkspaceAndProjectGenerator {
             projectGeneratorOptions,
             Optional.<BuildTarget>absent(),
             buildWithBuckFlags,
+            focusModules,
             executableFinder,
             environment,
             cxxPlatforms,
@@ -840,9 +847,9 @@ public class WorkspaceAndProjectGenerator {
       if (isMainScheme) {
         orderedRunTestTargets = orderedRunTestTargets.append(synthesizedCombinedTestTargets);
       }
-      Optional<String> runnablePath;
+      Optional<String> runnablePath = schemeConfigArg.explicitRunnablePath;
       Optional<BuildTarget> targetToBuildWithBuck = getTargetToBuildWithBuck();
-      if (buildWithBuck && targetToBuildWithBuck.isPresent()) {
+      if (buildWithBuck && targetToBuildWithBuck.isPresent() && !runnablePath.isPresent()) {
         Optional<String> productName = getProductName(
             schemeNameToSrcTargetNode.get(schemeName),
             targetToBuildWithBuck);
@@ -851,8 +858,6 @@ public class WorkspaceAndProjectGenerator {
             rootCell.getFilesystem().resolve(
                 ProjectGenerator.getScratchPathForAppBundle(targetToBuildWithBuck.get(), binaryName)
             ).toString());
-      } else {
-        runnablePath = Optional.absent();
       }
       Optional<String> remoteRunnablePath;
       if (schemeConfigArg.isRemoteRunnable.or(false)) {
@@ -876,7 +881,8 @@ public class WorkspaceAndProjectGenerator {
           runnablePath,
           remoteRunnablePath,
           XcodeWorkspaceConfigDescription.getActionConfigNamesFromArg(workspaceArguments),
-          targetToProjectPathMap);
+          targetToProjectPathMap,
+          schemeConfigArg.launchStyle.or(XCScheme.LaunchAction.LaunchStyle.AUTO));
       schemeGenerator.writeScheme();
       schemeGenerators.put(schemeName, schemeGenerator);
     }

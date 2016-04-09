@@ -51,20 +51,20 @@ public class CxxBinaryDescription implements
 
   public static final BuildRuleType TYPE = BuildRuleType.of("cxx_binary");
 
+  private final CxxBuckConfig cxxBuckConfig;
   private final InferBuckConfig inferBuckConfig;
   private final CxxPlatform defaultCxxPlatform;
   private final FlavorDomain<CxxPlatform> cxxPlatforms;
-  private final CxxPreprocessMode preprocessMode;
 
   public CxxBinaryDescription(
+      CxxBuckConfig cxxBuckConfig,
       InferBuckConfig inferBuckConfig,
       CxxPlatform defaultCxxPlatform,
-      FlavorDomain<CxxPlatform> cxxPlatforms,
-      CxxPreprocessMode preprocessMode) {
+      FlavorDomain<CxxPlatform> cxxPlatforms) {
+    this.cxxBuckConfig = cxxBuckConfig;
     this.inferBuckConfig = inferBuckConfig;
     this.defaultCxxPlatform = defaultCxxPlatform;
     this.cxxPlatforms = cxxPlatforms;
-    this.preprocessMode = preprocessMode;
   }
 
   /**
@@ -138,19 +138,27 @@ public class CxxBinaryDescription implements
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
 
     if (flavors.contains(CxxCompilationDatabase.COMPILATION_DATABASE)) {
+      BuildRuleParams paramsWithoutFlavor =
+          params.withoutFlavor(CxxCompilationDatabase.COMPILATION_DATABASE);
       CxxLinkAndCompileRules cxxLinkAndCompileRules = CxxDescriptionEnhancer
           .createBuildRulesForCxxBinaryDescriptionArg(
-              params.withoutFlavor(CxxCompilationDatabase.COMPILATION_DATABASE),
+              paramsWithoutFlavor,
               resolver,
+              cxxBuckConfig,
               cxxPlatform,
               args,
-              preprocessMode,
               flavoredStripStyle);
       return CxxCompilationDatabase.createCompilationDatabase(
           params,
           pathResolver,
-          preprocessMode,
-          cxxLinkAndCompileRules.compileRules);
+          cxxBuckConfig.getPreprocessMode(),
+          cxxLinkAndCompileRules.compileRules,
+          CxxDescriptionEnhancer.requireTransitiveCompilationDatabaseHeaderSymlinkTreeDeps(
+              paramsWithoutFlavor,
+              resolver,
+              pathResolver,
+              cxxPlatform,
+              args));
     }
 
     if (flavors.contains(CxxCompilationDatabase.UBER_COMPILATION_DATABASE)) {
@@ -166,6 +174,7 @@ public class CxxBinaryDescription implements
           params,
           resolver,
           pathResolver,
+          cxxBuckConfig,
           cxxPlatform,
           args,
           inferBuckConfig,
@@ -177,6 +186,7 @@ public class CxxBinaryDescription implements
           params,
           resolver,
           pathResolver,
+          cxxBuckConfig,
           cxxPlatform,
           args,
           inferBuckConfig,
@@ -187,6 +197,7 @@ public class CxxBinaryDescription implements
       return CxxInferEnhancer.requireAllTransitiveCaptureBuildRules(
           params,
           resolver,
+          cxxBuckConfig,
           cxxPlatform,
           inferBuckConfig,
           new CxxInferSourceFilter(inferBuckConfig),
@@ -198,6 +209,7 @@ public class CxxBinaryDescription implements
           params,
           resolver,
           pathResolver,
+          cxxBuckConfig,
           cxxPlatform,
           args,
           inferBuckConfig,
@@ -208,9 +220,9 @@ public class CxxBinaryDescription implements
         CxxDescriptionEnhancer.createBuildRulesForCxxBinaryDescriptionArg(
             params,
             resolver,
+            cxxBuckConfig,
             cxxPlatform,
             args,
-            preprocessMode,
             flavoredStripStyle);
 
     // Return a CxxBinary rule as our representative in the action graph, rather than the CxxLink
@@ -225,7 +237,7 @@ public class CxxBinaryDescription implements
     //     preventing it from affecting link parallelism.
 
     params = CxxStrip.restoreStripStyleFlavorInParams(params, flavoredStripStyle);
-    return new CxxBinary(
+    CxxBinary cxxBinary = new CxxBinary(
         params.appendExtraDeps(cxxLinkAndCompileRules.executable.getDeps(pathResolver)),
         resolver,
         pathResolver,
@@ -233,6 +245,8 @@ public class CxxBinaryDescription implements
         cxxLinkAndCompileRules.executable,
         args.frameworks.get(),
         args.tests.get());
+    resolver.addToIndex(cxxBinary);
+    return cxxBinary;
   }
 
   @Override

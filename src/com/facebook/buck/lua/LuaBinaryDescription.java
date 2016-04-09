@@ -218,6 +218,7 @@ public class LuaBinaryDescription implements
             baseParams,
             ruleResolver,
             pathResolver,
+            cxxBuckConfig,
             cxxPlatform,
             ImmutableList.<CxxPreprocessorInput>builder()
                 .add(
@@ -245,6 +246,7 @@ public class LuaBinaryDescription implements
             CxxSourceRuleFactory.PicType.PDC);
     ruleResolver.addToIndex(
         CxxLinkableEnhancer.createCxxLinkableBuildRule(
+            cxxBuckConfig,
             cxxPlatform,
             baseParams,
             ruleResolver,
