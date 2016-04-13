@@ -41,14 +41,17 @@ public class Zip extends AbstractBuildRule {
   @AddToRuleKey
   private final ImmutableSortedSet<SourcePath> sources;
   private final Path scratchDir;
+  private final boolean flatten;
 
   public Zip(
       BuildRuleParams params,
       SourcePathResolver resolver,
       String outputName,
-      ImmutableSortedSet<SourcePath> sources) {
+      ImmutableSortedSet<SourcePath> sources,
+      boolean flatten) {
     super(params, resolver);
     this.sources = Preconditions.checkNotNull(sources);
+    this.flatten = flatten;
 
     this.output = BuildTargets.getGenPath(getBuildTarget(), outputName);
     this.scratchDir = BuildTargets.getScratchPath(getBuildTarget(), "%s.zip.scratch");
@@ -72,7 +75,7 @@ public class Zip extends AbstractBuildRule {
             getProjectFilesystem(),
             output,
             ImmutableSortedSet.<Path>of(),
-            /* junk paths */ false,
+            /* junk paths */ flatten,
             ZipCompressionLevel.DEFAULT_COMPRESSION_LEVEL,
             scratchDir));
 

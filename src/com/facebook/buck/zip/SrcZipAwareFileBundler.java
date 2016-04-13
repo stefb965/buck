@@ -40,6 +40,7 @@ import java.util.Map;
 public class SrcZipAwareFileBundler {
 
   private final Path basePath;
+
   public SrcZipAwareFileBundler(BuildTarget target) {
     this(target.getBasePath());
   }

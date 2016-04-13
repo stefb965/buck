@@ -53,12 +53,14 @@ public class ZipDescription implements Description<ZipDescription.Arg> {
         params,
         new SourcePathResolver(resolver),
         args.out.or(params.getBuildTarget().getShortName() + ".zip"),
-        args.srcs);
+        args.srcs,
+        args.flatten.or(Boolean.FALSE));
   }
 
   public class Arg extends AbstractDescriptionArg {
     public Optional<String> out;
     public ImmutableSortedSet<SourcePath> srcs;
+    public Optional<Boolean> flatten;
 
     public Optional<ImmutableSortedSet<BuildTarget>> deps;
   }
