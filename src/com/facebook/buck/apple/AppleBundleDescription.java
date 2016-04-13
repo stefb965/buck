@@ -70,7 +70,7 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
   private final CxxPlatform defaultCxxPlatform;
   private final CodeSignIdentityStore codeSignIdentityStore;
   private final ProvisioningProfileStore provisioningProfileStore;
-  private final AppleDebugFormat defaultDebugInfoFormat;
+  private final AppleDebugFormat defaultDebugFormat;
 
   public AppleBundleDescription(
       AppleBinaryDescription appleBinaryDescription,
@@ -80,7 +80,7 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
       CxxPlatform defaultCxxPlatform,
       CodeSignIdentityStore codeSignIdentityStore,
       ProvisioningProfileStore provisioningProfileStore,
-      AppleDebugFormat defaultDebugInfoFormat) {
+      AppleDebugFormat defaultDebugFormat) {
     this.appleBinaryDescription = appleBinaryDescription;
     this.appleLibraryDescription = appleLibraryDescription;
     this.cxxPlatformFlavorDomain = cxxPlatformFlavorDomain;
@@ -88,7 +88,7 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
     this.defaultCxxPlatform = defaultCxxPlatform;
     this.codeSignIdentityStore = codeSignIdentityStore;
     this.provisioningProfileStore = provisioningProfileStore;
-    this.defaultDebugInfoFormat = defaultDebugInfoFormat;
+    this.defaultDebugFormat = defaultDebugFormat;
   }
 
   @Override
@@ -109,8 +109,7 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
     ImmutableSet.Builder<Flavor> flavorBuilder = ImmutableSet.builder();
     for (Flavor flavor : flavors) {
       if (flavor.equals(ReactNativeFlavors.DO_NOT_BUNDLE) ||
-          flavor.equals(AppleDebugFormat.DWARF_AND_DSYM.getFlavor()) ||
-          flavor.equals(AppleDebugFormat.NONE.getFlavor())) {
+          AppleDebugFormat.FLAVOR_DOMAIN.getFlavors().contains(flavor)) {
         continue;
       }
       flavorBuilder.add(flavor);
@@ -125,20 +124,19 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) throws NoSuchBuildTargetException {
-    AppleDebugFormat flavoredDebugInfoFormat = AppleDebugFormat.FLAVOR_DOMAIN
+    AppleDebugFormat flavoredDebugFormat = AppleDebugFormat.FLAVOR_DOMAIN
         .getValue(params.getBuildTarget())
-        .or(defaultDebugInfoFormat);
-    Flavor debugFormatFlavor = flavoredDebugInfoFormat.getFlavor();
-    if (!params.getBuildTarget().getFlavors().contains(debugFormatFlavor)) {
+        .or(defaultDebugFormat);
+    if (!params.getBuildTarget().getFlavors().contains(flavoredDebugFormat.getFlavor())) {
       return (BuildRuleWithAppleBundle) resolver.requireRule(
-          params.getBuildTarget().withAppendedFlavor(debugFormatFlavor));
+          params.getBuildTarget().withAppendedFlavor(flavoredDebugFormat.getFlavor()));
     }
     if (!AppleDescriptions.INCLUDE_FRAMEWORKS.getValue(params.getBuildTarget()).isPresent()) {
       return (BuildRuleWithAppleBundle) resolver.requireRule(
           params.getBuildTarget().withAppendedFlavor(
               AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR));
     }
-    AppleBundle appleBundle = AppleDescriptions.createAppleBundle(
+    return AppleDescriptions.createAppleBundle(
         cxxPlatformFlavorDomain,
         defaultCxxPlatform,
         appleCxxPlatformsFlavorDomain,
@@ -153,19 +151,8 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
         args.infoPlist,
         args.infoPlistSubstitutions,
         args.deps.get(),
-        args.getTests());
-    if (flavoredDebugInfoFormat.getFlavor() == AppleDebugFormat.NONE.getFlavor() ||
-        !appleBundle.getBinary().isPresent()) {
-      return appleBundle;
-    }
-    AppleDsym appleDsym = AppleDescriptions.createAppleDsym(
-        cxxPlatformFlavorDomain,
-        defaultCxxPlatform,
-        appleCxxPlatformsFlavorDomain,
-        params,
-        resolver,
-        appleBundle);
-    return AppleDescriptions.createAppleBundleWithDsym(appleBundle, appleDsym, params, resolver);
+        args.getTests(),
+        flavoredDebugFormat);
   }
 
   /**

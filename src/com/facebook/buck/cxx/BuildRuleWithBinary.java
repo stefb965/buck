@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-present Facebook, Inc.
+ * Copyright 2016-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may
  * not use this file except in compliance with the License. You may obtain
@@ -13,18 +13,13 @@
  * License for the specific language governing permissions and limitations
  * under the License.
  */
-
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.rules.BuildRule;
 
-import com.facebook.buck.io.FileScrubber;
-import com.facebook.buck.rules.Tool;
-import com.google.common.collect.ImmutableList;
-
-public interface Archiver extends Tool {
-
-  ImmutableList<FileScrubber> getScrubbers();
-
-  boolean supportsThinArchives();
-
+/**
+ * Build rule that holds a binary build rule
+ */
+public interface BuildRuleWithBinary extends BuildRule {
+  BuildRule getBinaryBuildRule();
 }
