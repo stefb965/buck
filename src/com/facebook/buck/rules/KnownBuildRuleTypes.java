@@ -86,6 +86,9 @@ import com.facebook.buck.go.GoTestDescription;
 import com.facebook.buck.gwt.GwtBinaryDescription;
 import com.facebook.buck.halide.HalideBuckConfig;
 import com.facebook.buck.halide.HalideLibraryDescription;
+import com.facebook.buck.haskell.HaskellBinaryDescription;
+import com.facebook.buck.haskell.HaskellBuckConfig;
+import com.facebook.buck.haskell.HaskellLibraryDescription;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.js.AndroidReactNativeLibraryDescription;
@@ -414,6 +417,7 @@ public class KnownBuildRuleTypes {
 
     cxxPlatformsMap = cxxPlatformsBuilder.build();
 
+    ExecutableFinder executableFinder = new ExecutableFinder();
 
     // Build up the final list of C/C++ platforms.
     FlavorDomain<CxxPlatform> cxxPlatforms = new FlavorDomain<>(
@@ -432,7 +436,7 @@ public class KnownBuildRuleTypes {
 
     ProGuardConfig proGuardConfig = new ProGuardConfig(config);
 
-    PythonBuckConfig pyConfig = new PythonBuckConfig(config, new ExecutableFinder());
+    PythonBuckConfig pyConfig = new PythonBuckConfig(config, executableFinder);
     ImmutableList<PythonPlatform> pythonPlatformsList =
         pyConfig.getPythonPlatforms(processExecutor);
     FlavorDomain<PythonPlatform> pythonPlatforms =
@@ -471,7 +475,7 @@ public class KnownBuildRuleTypes {
 
     InferBuckConfig inferBuckConfig = new InferBuckConfig(config);
 
-    LuaConfig luaConfig = new LuaBuckConfig(config, new ExecutableFinder());
+    LuaConfig luaConfig = new LuaBuckConfig(config, executableFinder);
 
     CxxBinaryDescription cxxBinaryDescription =
         new CxxBinaryDescription(
@@ -518,6 +522,11 @@ public class KnownBuildRuleTypes {
             defaultCxxPlatform);
     builder.register(swiftLibraryDescription);
 
+    HaskellBuckConfig haskellBuckConfig = new HaskellBuckConfig(config, executableFinder);
+    builder.register(new HaskellLibraryDescription(haskellBuckConfig, cxxBuckConfig, cxxPlatforms));
+    builder.register(
+        new HaskellBinaryDescription(haskellBuckConfig, cxxPlatforms, defaultCxxPlatform));
+
     // Create an executor service exclusively for the smart dexing step.
     ListeningExecutorService dxExecutorService =
         MoreExecutors.listeningDecorator(
@@ -557,7 +566,7 @@ public class KnownBuildRuleTypes {
     builder.register(new AndroidResourceDescription());
     builder.register(new ApkGenruleDescription());
     builder.register(new AppleAssetCatalogDescription());
-    builder.register(new ApplePackageDescription());
+    builder.register(new ApplePackageDescription(appleConfig, platformFlavorsToAppleCxxPlatforms));
     AppleBundleDescription appleBundleDescription =
         new AppleBundleDescription(
             appleBinaryDescription,
@@ -573,7 +582,6 @@ public class KnownBuildRuleTypes {
     builder.register(
         new AppleTestDescription(
             appleConfig,
-            appleBundleDescription,
             appleLibraryDescription,
             cxxPlatforms,
             platformFlavorsToAppleCxxPlatforms,

@@ -320,7 +320,7 @@ public class TestCommand extends BuildCommand {
     // Serialize the specs to a file to pass into the test runner.
     Path infoFile =
         params.getCell().getFilesystem()
-            .resolve(BuckConstant.SCRATCH_PATH.resolve("external_runner_specs.json"));
+            .resolve(BuckConstant.getScratchPath().resolve("external_runner_specs.json"));
     Files.createDirectories(infoFile.getParent());
     Files.deleteIfExists(infoFile);
     params.getObjectMapper().writerWithDefaultPrettyPrinter().writeValue(infoFile.toFile(), specs);
@@ -470,6 +470,7 @@ public class TestCommand extends BuildCommand {
               params.getBuckConfig().getDependencySchedulingOrder(),
               params.getBuckConfig().getBuildDepFiles(),
               params.getBuckConfig().getBuildMaxDepFileCacheEntries(),
+              params.getBuckConfig().getBuildArtifactCacheSizeLimit(),
               actionGraphAndResolver.getResolver());
       try (Build build = createBuild(
           params.getBuckConfig(),

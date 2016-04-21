@@ -1,17 +1,17 @@
 /*
  * Copyright 2015-present Facebook, Inc.
  *
- *  Licensed under the Apache License, Version 2.0 (the "License"); you may
- *  not use this file except in compliance with the License. You may obtain
- *  a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may
+ * not use this file except in compliance with the License. You may obtain
+ * a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *  Unless required by applicable law or agreed to in writing, software
- *  distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- *  WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- *  License for the specific language governing permissions and limitations
- *  under the License.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+ * License for the specific language governing permissions and limitations
+ * under the License.
  */
 
 package com.facebook.buck.js;
@@ -19,6 +19,7 @@ package com.facebook.buck.js;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
+import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.keys.AbiRule;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
@@ -36,13 +37,15 @@ import com.google.common.base.Optional;
 
 import java.nio.file.Path;
 
-import javax.annotation.Nullable;
-
 /**
  * Responsible for running the React Native JS packager in order to generate a single {@code .js}
  * bundle along with resources referenced by the javascript code.
  */
 public class ReactNativeBundle extends AbstractBuildRule implements AbiRule {
+
+  public static final String JS_BUNDLE_OUTPUT_DIR_FORMAT = "__%s_js__/";
+  public static final String RESOURCES_OUTPUT_DIR_FORMAT = "__%s_res__/";
+  public static final String SOURCE_MAP_OUTPUT_FORMAT = "__%s_source_map__/source.map";
 
   @AddToRuleKey
   private final SourcePath entryPath;
@@ -54,7 +57,7 @@ public class ReactNativeBundle extends AbstractBuildRule implements AbiRule {
   private final boolean isDevMode;
 
   @AddToRuleKey
-  private final SourcePath jsPackager;
+  private final Tool jsPackager;
 
   @AddToRuleKey
   private final ReactNativePlatform platform;
@@ -77,7 +80,7 @@ public class ReactNativeBundle extends AbstractBuildRule implements AbiRule {
       boolean isDevMode,
       String bundleName,
       Optional<String> packagerFlags,
-      SourcePath jsPackager,
+      Tool jsPackager,
       ReactNativePlatform platform,
       ReactNativeDeps depsFinder) {
     super(ruleParams, resolver);
@@ -122,7 +125,7 @@ public class ReactNativeBundle extends AbstractBuildRule implements AbiRule {
     ReactNativeBundleWorkerStep workerStep = new ReactNativeBundleWorkerStep(
         getProjectFilesystem(),
         tmpDir,
-        getResolver().getAbsolutePath(jsPackager),
+        jsPackager.getCommandPrefix(getResolver()),
         packagerFlags,
         platform,
         isUnbundle,
@@ -143,21 +146,20 @@ public class ReactNativeBundle extends AbstractBuildRule implements AbiRule {
   }
 
   public static Path getPathToJSBundleDir(BuildTarget target) {
-    return BuildTargets.getGenPath(target, "__%s_js__/");
+    return BuildTargets.getGenPath(target, JS_BUNDLE_OUTPUT_DIR_FORMAT);
   }
 
   public static Path getPathToResources(BuildTarget target) {
-    return BuildTargets.getGenPath(target, "__%s_res__/");
+    return BuildTargets.getGenPath(target, RESOURCES_OUTPUT_DIR_FORMAT);
   }
 
   public static Path getPathToSourceMap(BuildTarget target) {
-    return BuildTargets.getGenPath(target, "__%s_source_map__/source.map");
+    return BuildTargets.getGenPath(target, SOURCE_MAP_OUTPUT_FORMAT);
   }
 
   @Override
-  @Nullable
   public Path getPathToOutput() {
-    return null;
+    return jsOutputDir;
   }
 
   @Override

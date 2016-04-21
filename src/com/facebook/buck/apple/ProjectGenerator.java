@@ -57,7 +57,6 @@ import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.js.IosReactNativeLibraryDescription;
-import com.facebook.buck.js.ReactNativeFlavors;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuckVersion;
 import com.facebook.buck.model.BuildTarget;
@@ -736,7 +735,8 @@ public class ProjectGenerator {
   }
 
   private static Path getHalideOutputPath(BuildTarget target) {
-    return Paths.get("buck-out/halide")
+    return  BuckConstant.getBuckOutputPath()
+        .resolve("halide")
         .resolve(target.getBasePath())
         .resolve(target.getShortName());
   }
@@ -1140,26 +1140,22 @@ public class ProjectGenerator {
     // and add any shell script rules here
     ImmutableList.Builder<TargetNode<?>> preScriptPhases = ImmutableList.builder();
     ImmutableList.Builder<TargetNode<?>> postScriptPhases = ImmutableList.builder();
-    boolean skipRNBundle = ReactNativeFlavors.skipBundling(buildTargetNode.getBuildTarget());
     if (bundle.isPresent() && targetNode != bundle.get() && isFocusedOnTarget) {
       collectBuildScriptDependencies(
           targetGraph.getAll(bundle.get().getDeclaredDeps()),
           preScriptPhases,
-          postScriptPhases,
-          skipRNBundle);
+          postScriptPhases);
     }
     collectBuildScriptDependencies(
         targetGraph.getAll(targetNode.getDeclaredDeps()),
         preScriptPhases,
-        postScriptPhases,
-        skipRNBundle);
+        postScriptPhases);
     if (isFocusedOnTarget) {
       mutator.setPreBuildRunScriptPhasesFromTargetNodes(preScriptPhases.build());
       if (copyFilesPhases.isPresent()) {
         mutator.setCopyFilesPhases(copyFilesPhases.get());
       }
       mutator.setPostBuildRunScriptPhasesFromTargetNodes(postScriptPhases.build());
-      mutator.skipReactNativeBundle(skipRNBundle);
     }
 
     NewNativeTargetProjectMutator.Result targetBuilderResult;
@@ -1281,7 +1277,7 @@ public class ProjectGenerator {
     ImmutableSet<Path> recursiveHeaderSearchPaths = collectRecursiveHeaderSearchPaths(targetNode);
     ImmutableSet<Path> headerMapBases = recursiveHeaderSearchPaths.isEmpty() ?
         ImmutableSet.<Path>of() :
-        ImmutableSet.of(pathRelativizer.outputDirToRootRelative(BuckConstant.BUCK_OUTPUT_PATH));
+        ImmutableSet.of(pathRelativizer.outputDirToRootRelative(BuckConstant.getBuckOutputPath()));
 
     appendConfigsBuilder
         .put(
@@ -1720,15 +1716,12 @@ public class ProjectGenerator {
   private void collectBuildScriptDependencies(
       Iterable<TargetNode<?>> targetNodes,
       ImmutableList.Builder<TargetNode<?>> preRules,
-      ImmutableList.Builder<TargetNode<?>> postRules,
-      boolean skipRNBundle) {
+      ImmutableList.Builder<TargetNode<?>> postRules) {
     for (TargetNode<?> targetNode : targetNodes) {
       BuildRuleType type = targetNode.getType();
       if (type.equals(IosReactNativeLibraryDescription.TYPE)) {
         postRules.add(targetNode);
-        if (!skipRNBundle) {
-          requiredBuildTargetsBuilder.add(targetNode.getBuildTarget());
-        }
+        requiredBuildTargetsBuilder.add(targetNode.getBuildTarget());
       } else if (type.equals(XcodePostbuildScriptDescription.TYPE)) {
         postRules.add(targetNode);
       } else if (type.equals(XcodePrebuildScriptDescription.TYPE)) {
@@ -2565,7 +2558,7 @@ public class ProjectGenerator {
   }
 
   private Path emptyFileWithExtension(String extension) {
-    Path path = BuckConstant.GEN_PATH.resolve("xcode-scripts/emptyFile." + extension);
+    Path path = BuckConstant.getGenPath().resolve("xcode-scripts/emptyFile." + extension);
     if (!projectFilesystem.exists(path)) {
       try {
         projectFilesystem.createParentDirs(path);

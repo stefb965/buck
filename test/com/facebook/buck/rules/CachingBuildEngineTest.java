@@ -245,6 +245,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DependencySchedulingOrder.RANDOM,
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
+              Optional.<Long>absent(),
               resolver);
 
       // Add a build step so we can verify that the steps are executed.
@@ -340,6 +341,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DependencySchedulingOrder.RANDOM,
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
+              Optional.<Long>absent(),
               resolver);
       ListenableFuture<BuildResult> buildResult = cachingBuildEngine.build(buildContext, buildRule);
 
@@ -403,6 +405,7 @@ public class CachingBuildEngineTest {
           .setArtifactCache(artifactCache)
           .setJavaPackageFinder(createMock(JavaPackageFinder.class))
           .setEventBus(buckEventBus)
+          .setObjectMapper(ObjectMappers.newDefaultInstance())
           .build();
 
       filesystem.writeContentsToPath(
@@ -420,6 +423,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DependencySchedulingOrder.RANDOM,
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
+              Optional.<Long>absent(),
               resolver);
       ListenableFuture<BuildResult> buildResult = cachingBuildEngine.build(buildContext, buildRule);
       buckEventBus.post(
@@ -483,6 +487,7 @@ public class CachingBuildEngineTest {
           .setArtifactCache(artifactCache)
           .setJavaPackageFinder(createMock(JavaPackageFinder.class))
           .setEventBus(buckEventBus)
+          .setObjectMapper(ObjectMappers.newDefaultInstance())
           .build();
 
       filesystem.writeContentsToPath(
@@ -500,6 +505,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DependencySchedulingOrder.RANDOM,
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
+              Optional.<Long>absent(),
               resolver);
       ListenableFuture<BuildResult> buildResult = cachingBuildEngine.build(buildContext, buildRule);
       buckEventBus.post(
@@ -555,6 +561,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DependencySchedulingOrder.RANDOM,
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
+              Optional.<Long>absent(),
               resolver);
 
       // Run the build.
@@ -631,6 +638,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DependencySchedulingOrder.RANDOM,
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
+              Optional.<Long>absent(),
               resolver);
 
       // Run the build.
@@ -739,6 +747,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DependencySchedulingOrder.RANDOM,
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
+              Optional.<Long>absent(),
               resolver);
 
       // Run the build.
@@ -834,6 +843,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DependencySchedulingOrder.RANDOM,
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
+              Optional.<Long>absent(),
               resolver);
 
       // Run the build.
@@ -861,7 +871,7 @@ public class CachingBuildEngineTest {
               .build();
 
       BuildRule rule =
-          new NoopBuildRule(
+          new EmptyBuildRule(
               new FakeBuildRuleParamsBuilder("//:rule")
                   .setProjectFilesystem(filesystem)
                   .build(),
@@ -874,6 +884,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DependencySchedulingOrder.RANDOM,
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
+              Optional.<Long>absent(),
               resolver);
 
       BuildResult result = cachingBuildEngine.build(buildContext, rule).get();
@@ -887,7 +898,7 @@ public class CachingBuildEngineTest {
       Path output = Paths.get("output/path");
       filesystem.mkdirs(output.getParent());
       filesystem.writeContentsToPath("something", output);
-      HashCode originalHashCode = fileHashCache.get(output);
+      HashCode originalHashCode = fileHashCache.get(filesystem.resolve(output));
       assertTrue(fileHashCache.willGet(output));
 
       // Create a simple rule which just writes something new to the output file.
@@ -908,6 +919,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DependencySchedulingOrder.RANDOM,
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
+              Optional.<Long>absent(),
               resolver);
 
       // Run the build.
@@ -915,7 +927,7 @@ public class CachingBuildEngineTest {
       assertEquals(BuildRuleSuccessType.BUILT_LOCALLY, result.getSuccess());
 
       // Verify that we have a new hash.
-      HashCode newHashCode = fileHashCache.get(output);
+      HashCode newHashCode = fileHashCache.get(filesystem.resolve(output));
       assertThat(newHashCode, Matchers.not(equalTo(originalHashCode)));
     }
 
@@ -983,6 +995,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DependencySchedulingOrder.RANDOM,
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
+              Optional.<Long>absent(),
               resolver);
 
       // Run the build.
@@ -1076,6 +1089,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DependencySchedulingOrder.RANDOM,
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
+              Optional.<Long>absent(),
               resolver);
 
       // Run the build.
@@ -1133,12 +1147,46 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DependencySchedulingOrder.RANDOM,
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
+              Optional.<Long>absent(),
               resolver);
 
       assertThat(
           cachingBuildEngine.getNumRulesToBuild(ImmutableList.of(rule1)),
           equalTo(3));
     }
+
+    @Test
+    public void artifactCacheSizeLimit() throws Exception {
+      // Create a simple rule which just writes something new to the output file.
+      BuildRule rule =
+          new WriteFile(
+              new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance("//:rule"))
+                  .setProjectFilesystem(filesystem)
+                  .build(),
+              pathResolver,
+              "data",
+              Paths.get("output/path"),
+              /* executable */ false);
+
+      // Create the build engine with low cache artifact limit which prevents caching the above\
+      // rule.
+      CachingBuildEngine cachingBuildEngine =
+          new CachingBuildEngine(
+              toWeighted(MoreExecutors.newDirectExecutorService()),
+              new NullFileHashCache(),
+              CachingBuildEngine.BuildMode.SHALLOW,
+              CachingBuildEngine.DependencySchedulingOrder.RANDOM,
+              CachingBuildEngine.DepFiles.ENABLED,
+              256L,
+              Optional.of(2L),
+              resolver);
+
+      // Verify that after building successfully, nothing is cached.
+      BuildResult result = cachingBuildEngine.build(buildContext, rule).get();
+      assertThat(result.getSuccess(), equalTo(BuildRuleSuccessType.BUILT_LOCALLY));
+      assertTrue(cache.isEmpty());
+    }
+
   }
 
   public static class InputBasedRuleKeyTests extends CommonFixture {
@@ -1176,6 +1224,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DependencySchedulingOrder.RANDOM,
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
+              Optional.<Long>absent(),
               pathResolver,
               Functions.constant(
                   new CachingBuildEngine.RuleKeyFactories(
@@ -1235,6 +1284,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DependencySchedulingOrder.RANDOM,
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
+              Optional.<Long>absent(),
               pathResolver,
               Functions.constant(
                   new CachingBuildEngine.RuleKeyFactories(
@@ -1307,6 +1357,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DependencySchedulingOrder.RANDOM,
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
+              Optional.<Long>absent(),
               pathResolver,
               Functions.constant(
                   new CachingBuildEngine.RuleKeyFactories(
@@ -1579,7 +1630,7 @@ public class CachingBuildEngineTest {
 
       // Now modify the input file and invalidate it in the cache.
       filesystem.writeContentsToPath("something else", input);
-      fileHashCache.invalidate(input);
+      fileHashCache.invalidate(filesystem.resolve(input));
 
       // Run the build.
       CachingBuildEngine cachingBuildEngine = engineWithDepFileFactory(depFileFactory);
@@ -1649,7 +1700,7 @@ public class CachingBuildEngineTest {
 
       // Now delete the input and invalidate it in the cache.
       filesystem.deleteFileAtPath(input);
-      fileHashCache.invalidate(input);
+      fileHashCache.invalidate(filesystem.resolve(input));
 
       // Run the build.
       CachingBuildEngine cachingBuildEngine = engineWithDepFileFactory(depFileFactory);
@@ -1666,6 +1717,7 @@ public class CachingBuildEngineTest {
           CachingBuildEngine.DependencySchedulingOrder.RANDOM,
           CachingBuildEngine.DepFiles.ENABLED,
           256L,
+          Optional.<Long>absent(),
           pathResolver,
           Functions.constant(
               new CachingBuildEngine.RuleKeyFactories(
@@ -1730,6 +1782,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DependencySchedulingOrder.RANDOM,
               CachingBuildEngine.DepFiles.CACHE,
               256L,
+              Optional.<Long>absent(),
               pathResolver,
               Functions.constant(
                   new CachingBuildEngine.RuleKeyFactories(
@@ -1763,7 +1816,9 @@ public class CachingBuildEngineTest {
           equalTo(
               ImmutableMap.of(
                   depFileRuleKey,
-                  ImmutableMap.of(input.toString(), fileHashCache.get(input)))));
+                  ImmutableMap.of(
+                      input.toString(),
+                      fileHashCache.get(filesystem.resolve(input))))));
 
       // Verify that the artifact is also cached via the dep file rule key.
       Path fetchedArtifact = tmp.newFile("artifact").toPath();
@@ -1829,6 +1884,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DependencySchedulingOrder.RANDOM,
               CachingBuildEngine.DepFiles.CACHE,
               256L,
+              Optional.<Long>absent(),
               pathResolver,
               Functions.constant(
                   new CachingBuildEngine.RuleKeyFactories(
@@ -1876,7 +1932,7 @@ public class CachingBuildEngineTest {
           equalTo(
               ImmutableMap.of(
                   depFileRuleKey,
-                  ImmutableMap.of(input.toString(), fileHashCache.get(input)),
+                  ImmutableMap.of(input.toString(), fileHashCache.get(filesystem.resolve(input))),
                   new RuleKey("abcd"),
                   ImmutableMap.of("some/path.h", HashCode.fromInt(12)))));
 
@@ -1944,6 +2000,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DependencySchedulingOrder.RANDOM,
               CachingBuildEngine.DepFiles.CACHE,
               1L,
+              Optional.<Long>absent(),
               pathResolver,
               Functions.constant(
                   new CachingBuildEngine.RuleKeyFactories(
@@ -1992,7 +2049,9 @@ public class CachingBuildEngineTest {
           equalTo(
               ImmutableMap.of(
                   depFileRuleKey,
-                  ImmutableMap.of(input.toString(), fileHashCache.get(input)))));
+                  ImmutableMap.of(
+                      input.toString(),
+                      fileHashCache.get(filesystem.resolve(input))))));
     }
 
     @Test
@@ -2048,6 +2107,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DependencySchedulingOrder.RANDOM,
               CachingBuildEngine.DepFiles.CACHE,
               256L,
+              Optional.<Long>absent(),
               pathResolver,
               Functions.constant(
                   new CachingBuildEngine.RuleKeyFactories(
@@ -2112,6 +2172,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DependencySchedulingOrder.RANDOM,
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
+              Optional.<Long>absent(),
               pathResolver,
               Functions.constant(
                   new CachingBuildEngine.RuleKeyFactories(
@@ -2163,6 +2224,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DependencySchedulingOrder.RANDOM,
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
+              Optional.<Long>absent(),
               pathResolver,
               Functions.constant(
                   new CachingBuildEngine.RuleKeyFactories(
@@ -2208,6 +2270,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DependencySchedulingOrder.RANDOM,
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
+              Optional.<Long>absent(),
               pathResolver,
               Functions.constant(
                   new CachingBuildEngine.RuleKeyFactories(
@@ -2257,6 +2320,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DependencySchedulingOrder.RANDOM,
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
+              Optional.<Long>absent(),
               pathResolver,
               Functions.constant(
                   new CachingBuildEngine.RuleKeyFactories(
@@ -2332,6 +2396,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DependencySchedulingOrder.RANDOM,
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
+              Optional.<Long>absent(),
               pathResolver,
               Functions.constant(
                   new CachingBuildEngine.RuleKeyFactories(
@@ -2425,7 +2490,7 @@ public class CachingBuildEngineTest {
 
       // Create a noop simple rule.
       BuildRule rule =
-          new NoopBuildRule(
+          new EmptyBuildRule(
               new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance("//:rule"))
                   .setProjectFilesystem(filesystem)
                   .build(),
@@ -2440,6 +2505,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DependencySchedulingOrder.RANDOM,
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
+              Optional.<Long>absent(),
               pathResolver,
               Functions.constant(
                   new CachingBuildEngine.RuleKeyFactories(
@@ -2475,7 +2541,7 @@ public class CachingBuildEngineTest {
 
       // Create a simple rule and set it up so that it has a matching rule key.
       BuildRule rule =
-          new NoopBuildRule(
+          new EmptyBuildRule(
               new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance("//:rule"))
                   .setProjectFilesystem(filesystem)
                   .build(),
@@ -2498,6 +2564,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DependencySchedulingOrder.RANDOM,
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
+              Optional.<Long>absent(),
               pathResolver,
               Functions.constant(
                   new CachingBuildEngine.RuleKeyFactories(
@@ -2533,13 +2600,13 @@ public class CachingBuildEngineTest {
 
       // Create a simple rule and dep.
       BuildRule dep =
-          new NoopBuildRule(
+          new EmptyBuildRule(
               new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance("//:dep"))
                   .setProjectFilesystem(filesystem)
                   .build(),
               pathResolver);
       BuildRule rule =
-          new NoopBuildRule(
+          new EmptyBuildRule(
               new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance("//:rule"))
                   .setDeclaredDeps(ImmutableSortedSet.of(dep))
                   .setProjectFilesystem(filesystem)
@@ -2555,6 +2622,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DependencySchedulingOrder.RANDOM,
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
+              Optional.<Long>absent(),
               pathResolver,
               Functions.constant(
                   new CachingBuildEngine.RuleKeyFactories(
@@ -2971,6 +3039,28 @@ public class CachingBuildEngineTest {
         new ListeningSemaphore(Integer.MAX_VALUE),
         /* defaultPermits */ 1,
         service);
+  }
+
+  private static class EmptyBuildRule extends AbstractBuildRule {
+
+    public EmptyBuildRule(
+        BuildRuleParams buildRuleParams,
+        SourcePathResolver resolver) {
+      super(buildRuleParams, resolver);
+    }
+
+    @Override
+    public ImmutableList<Step> getBuildSteps(
+        BuildContext context, BuildableContext buildableContext) {
+      return ImmutableList.of();
+    }
+
+    @Nullable
+    @Override
+    public Path getPathToOutput() {
+      return null;
+    }
+
   }
 
 }

@@ -119,9 +119,13 @@ public class AppleBinaryDescription implements
       return true;
     }
     final ImmutableSet<Flavor> delegateFlavors = ImmutableSet.copyOf(
-        Sets.difference(flavors, AppleDebugFormat.FLAVOR_DOMAIN.getFlavors()));
+        Sets.difference(
+            flavors,
+            Sets.union(
+                AppleDebugFormat.FLAVOR_DOMAIN.getFlavors(),
+                ImmutableSet.of(APP_FLAVOR))));
     Collection<ImmutableSortedSet<Flavor>> thinFlavorSets =
-        FatBinaryInfos.generateThinFlavors(
+        MultiarchFileInfos.generateThinFlavors(
             platformFlavorsToAppleCxxPlatforms.getFlavors(),
             ImmutableSortedSet.copyOf(delegateFlavors));
     if (thinFlavorSets.size() > 1) {
@@ -204,7 +208,7 @@ public class AppleBinaryDescription implements
             CxxStrip.RULE_FLAVOR,
             StripStyle.FLAVOR_DOMAIN
                 .getFlavor(params.getBuildTarget().getFlavors())
-                .or(StripStyle.ALL_SYMBOLS.getFlavor()));
+                .or(StripStyle.NON_GLOBAL_SYMBOLS.getFlavor()));
     BuildRule strippedBinaryRule = createBinary(
         targetGraph,
         params.copyWithBuildTarget(strippedBinaryBuildTarget),
@@ -281,7 +285,7 @@ public class AppleBinaryDescription implements
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) throws NoSuchBuildTargetException {
-    Optional<FatBinaryInfo> fatBinaryInfo = FatBinaryInfos.create(
+    Optional<MultiarchFileInfo> fatBinaryInfo = MultiarchFileInfos.create(
         platformFlavorsToAppleCxxPlatforms,
         params.getBuildTarget());
     if (fatBinaryInfo.isPresent()) {
@@ -353,7 +357,7 @@ public class AppleBinaryDescription implements
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args,
-      FatBinaryInfo fatBinaryInfo) throws NoSuchBuildTargetException {
+      MultiarchFileInfo fatBinaryInfo) throws NoSuchBuildTargetException {
 
     Optional<BuildRule> existingRule = resolver.getRuleOptional(params.getBuildTarget());
     if (existingRule.isPresent()) {
@@ -381,7 +385,7 @@ public class AppleBinaryDescription implements
         .transform(SourcePaths.getToBuildTargetSourcePath())
         .toSortedSet(Ordering.natural());
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
-    FatBinary fatBinary = new FatBinary(
+    MultiarchFile multiarchFile = new MultiarchFile(
         params.copyWithDeps(
             Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
             Suppliers.ofInstance(thinRules.build())),
@@ -389,8 +393,8 @@ public class AppleBinaryDescription implements
         fatBinaryInfo.getRepresentativePlatform().getLipo(),
         inputs,
         BuildTargets.getGenPath(params.getBuildTarget(), "%s"));
-    resolver.addToIndex(fatBinary);
-    return fatBinary;
+    resolver.addToIndex(multiarchFile);
+    return multiarchFile;
   }
 
   @Override

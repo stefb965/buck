@@ -33,7 +33,6 @@ import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -225,6 +224,9 @@ public class CxxPreprocessAndCompile
               .add(
                   "-include-pch",
                   getResolver().getAbsolutePath(precompiledHeader.get().getSourcePath()).toString())
+              // Force clang to accept pch even if mtime of its input changes, since buck tracks
+              // input contents, this should be safe.
+              .add("-Wp,-fno-validate-pch")
               .build();
         }
       } else {
@@ -254,10 +256,7 @@ public class CxxPreprocessAndCompile
         sanitizer,
         preprocessDelegate.isPresent() ?
             preprocessDelegate.get().getHeaderVerification() :
-            HeaderVerification.NONE,
-        preprocessDelegate.isPresent() ?
-            preprocessDelegate.get().getPreprocessorExtraLineProcessor() :
-            Optional.<Function<String, Iterable<String>>>absent(),
+            HeaderVerification.of(HeaderVerification.Mode.IGNORE),
         scratchDir);
   }
 

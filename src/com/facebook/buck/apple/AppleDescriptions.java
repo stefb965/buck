@@ -27,7 +27,6 @@ import com.facebook.buck.cxx.CxxStrip;
 import com.facebook.buck.cxx.HeaderVisibility;
 import com.facebook.buck.cxx.ProvidesStaticLibraryDeps;
 import com.facebook.buck.cxx.StripStyle;
-import com.facebook.buck.js.ReactNativeFlavors;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Either;
@@ -431,7 +430,7 @@ public class AppleDescriptions {
         defaultCxxPlatform,
         appleCxxPlatforms,
         unstrippedBinaryBuildRule.getBuildTarget(),
-        FatBinaryInfos.create(appleCxxPlatforms, unstrippedBinaryBuildRule.getBuildTarget()));
+        MultiarchFileInfos.create(appleCxxPlatforms, unstrippedBinaryBuildRule.getBuildTarget()));
 
     AppleDsym appleDsym = new AppleDsym(
         params.copyWithDeps(
@@ -473,7 +472,7 @@ public class AppleDescriptions {
         defaultCxxPlatform,
         appleCxxPlatforms,
         params.getBuildTarget(),
-        FatBinaryInfos.create(appleCxxPlatforms, params.getBuildTarget()));
+        MultiarchFileInfos.create(appleCxxPlatforms, params.getBuildTarget()));
 
     AppleBundleDestinations destinations =
         AppleBundleDestinations.platformDestinations(
@@ -570,7 +569,7 @@ public class AppleDescriptions {
           appleCxxPlatforms);
       appleDsym = createAppleDsymForDebugFormat(
           debugFormat,
-          params,
+          binaryParams,
           resolver,
           (ProvidesStaticLibraryDeps) unstrippedBinaryRule,
           cxxPlatformFlavorDomain,
@@ -656,7 +655,6 @@ public class AppleDescriptions {
             Sets.difference(
                 flavors,
                 ImmutableSet.of(
-                    ReactNativeFlavors.DO_NOT_BUNDLE,
                     AppleDescriptions.FRAMEWORK_FLAVOR,
                     AppleBinaryDescription.APP_FLAVOR)));
     if (!cxxPlatformFlavorDomain.containsAnyOf(flavors)) {
@@ -697,13 +695,7 @@ public class AppleDescriptions {
     }
 
     if (!StripStyle.FLAVOR_DOMAIN.containsAnyOf(buildTarget.getFlavors())) {
-      // append strip style depending on the type of the binary target
-      if (binaryTargetNode.getDescription() instanceof AppleLibraryDescription ||
-          binaryTargetNode.getDescription() instanceof AppleTestDescription) {
-        buildTarget = buildTarget.withAppendedFlavor(StripStyle.NON_GLOBAL_SYMBOLS.getFlavor());
-      } else {
-        buildTarget = buildTarget.withAppendedFlavor(StripStyle.ALL_SYMBOLS.getFlavor());
-      }
+      buildTarget = buildTarget.withAppendedFlavor(StripStyle.NON_GLOBAL_SYMBOLS.getFlavor());
     }
 
     return resolver.requireRule(buildTarget);

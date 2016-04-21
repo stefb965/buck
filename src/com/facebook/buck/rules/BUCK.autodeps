@@ -1,10 +1,11 @@
-#@# GENERATED FILE: DO NOT MODIFY cf44bc9e05195c5da701fff8b22e4b08f78f98b8 #@#
+#@# GENERATED FILE: DO NOT MODIFY 8cec1ed50a3247266365c453e715162bf7f80f86 #@#
 {
   "action_graph_cache" : {
     "deps" : [
+      "//src/com/facebook/buck/graph:graph",
       "//src/com/facebook/buck/model:model",
-      "//src/com/facebook/buck/rules:rule_key",
-      "//src/com/facebook/buck/rules/keys:keys",
+      "//src/com/facebook/buck/parser:rule_pattern",
+      "//src/com/facebook/buck/util:exceptions",
       "//third-party/java/jsr:jsr305"
     ],
     "exported_deps" : [
@@ -28,7 +29,6 @@
       "//src/com/facebook/buck/log:api",
       "//src/com/facebook/buck/util:constants",
       "//src/com/facebook/buck/util/hash:hash",
-      "//third-party/java/gson:gson",
       "//third-party/java/immutables:processor"
     ],
     "exported_deps" : [
@@ -135,6 +135,7 @@
       "//src/com/facebook/buck/go:go",
       "//src/com/facebook/buck/gwt:gwt",
       "//src/com/facebook/buck/halide:halide",
+      "//src/com/facebook/buck/haskell:haskell",
       "//src/com/facebook/buck/io:executable-finder",
       "//src/com/facebook/buck/js:js",
       "//src/com/facebook/buck/jvm/groovy:groovy",

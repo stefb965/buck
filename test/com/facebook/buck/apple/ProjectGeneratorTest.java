@@ -73,7 +73,6 @@ import com.facebook.buck.io.AlwaysFoundExecutableFinder;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.js.IosReactNativeLibraryBuilder;
 import com.facebook.buck.js.ReactNativeBuckConfig;
-import com.facebook.buck.js.ReactNativeFlavors;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.Either;
@@ -2202,65 +2201,6 @@ public class ProjectGeneratorTest {
   }
 
   @Test
-  public void testNoBundleFlavoredAppleBundleRuleWithRNLibraryDependency() throws IOException {
-    BuildTarget rnLibraryTarget = BuildTarget.builder(rootPath, "//foo", "rn_library")
-        .addFlavors(DEFAULT_FLAVOR)
-        .build();
-    ProjectFilesystem filesystem = new AllExistingProjectFilesystem();
-    ReactNativeBuckConfig buckConfig = new ReactNativeBuckConfig(
-        FakeBuckConfig.builder()
-            .setSections(
-                ImmutableMap.of(
-                    "react-native",
-                    ImmutableMap.of("packager_worker", "react-native/packager.sh")))
-            .setFilesystem(filesystem)
-            .build());
-    TargetNode<?> rnLibraryNode = IosReactNativeLibraryBuilder
-        .builder(rnLibraryTarget, buckConfig)
-        .setBundleName("Apps/Foo/FooBundle.js")
-        .setEntryPath(new PathSourcePath(filesystem, Paths.get("js/FooApp.js")))
-        .build();
-
-    BuildTarget sharedLibraryTarget = BuildTarget
-        .builder(rootPath, "//dep", "shared")
-        .addFlavors(CxxDescriptionEnhancer.SHARED_FLAVOR)
-        .build();
-    TargetNode<?> sharedLibraryNode = AppleLibraryBuilder
-        .createBuilder(sharedLibraryTarget)
-        .build();
-
-    BuildTarget bundleTarget = BuildTarget.builder(rootPath, "//foo", "bundle")
-        .addFlavors(ReactNativeFlavors.DO_NOT_BUNDLE)
-        .build();
-    TargetNode<?> bundleNode = AppleBundleBuilder
-        .createBuilder(bundleTarget)
-        .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.BUNDLE))
-        .setInfoPlist(new FakeSourcePath("Info.plist"))
-        .setBinary(sharedLibraryTarget)
-        .setDeps(Optional.of(ImmutableSortedSet.of(rnLibraryTarget)))
-        .build();
-
-    ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
-        ImmutableSet.of(rnLibraryNode, sharedLibraryNode, bundleNode),
-        ImmutableSet.<ProjectGenerator.Option>of());
-
-    projectGenerator.createXcodeProjects();
-
-    PBXProject project = projectGenerator.getGeneratedProject();
-    PBXTarget target = assertTargetExistsAndReturnTarget(
-        project, "//foo:bundle#rn_no_bundle");
-    assertThat(target.getName(), equalTo("//foo:bundle#rn_no_bundle"));
-    assertThat(target.isa(), equalTo("PBXNativeTarget"));
-
-    PBXShellScriptBuildPhase phase = getSingletonPhaseByType(
-        target,
-        PBXShellScriptBuildPhase.class);
-    assertThat(
-        phase.getShellScript(),
-        containsString("rm -rf ${JS_OUT}"));
-  }
-
-  @Test
   public void testAppleBundleRuleForSharedLibraryFramework() throws IOException {
     BuildTarget sharedLibraryTarget = BuildTarget
         .builder(rootPath, "//dep", "shared")
@@ -3325,7 +3265,7 @@ public class ProjectGeneratorTest {
     assertHasSingletonSourcesPhaseWithSourcesAndFlags(
         target,
         ImmutableMap.of(
-            BuckConstant.GEN_PATH.resolve("xcode-scripts/emptyFile.c").toString(),
+            BuckConstant.getGenPath().resolve("xcode-scripts/emptyFile.c").toString(),
             Optional.<String>absent()));
     assertHasSingletonFrameworksPhaseWithFrameworkEntries(
         target,

@@ -135,6 +135,7 @@ public class CachingBuildEngine implements BuildEngine {
   private final DepFiles depFiles;
   private final long maxDepFileCacheEntries;
   private final SourcePathResolver pathResolver;
+  private final Optional<Long> artifactCacheSizeLimit;
   private final LoadingCache<ProjectFilesystem, FileHashCache> fileHashCaches;
   private final LoadingCache<ProjectFilesystem, RuleKeyFactories> ruleKeyFactories;
 
@@ -145,6 +146,7 @@ public class CachingBuildEngine implements BuildEngine {
       DependencySchedulingOrder dependencySchedulingOrder,
       DepFiles depFiles,
       long maxDepFileCacheEntries,
+      Optional<Long> artifactCacheSizeLimit,
       final BuildRuleResolver resolver) {
     this.ruleDeps = new RuleDepsCache(service);
     this.unskippedRulesTracker = createUnskippedRulesTracker(buildMode, ruleDeps, service);
@@ -154,6 +156,7 @@ public class CachingBuildEngine implements BuildEngine {
     this.dependencySchedulingOrder = dependencySchedulingOrder;
     this.depFiles = depFiles;
     this.maxDepFileCacheEntries = maxDepFileCacheEntries;
+    this.artifactCacheSizeLimit = artifactCacheSizeLimit;
     this.pathResolver = new SourcePathResolver(resolver);
 
     this.fileHashCaches = createFileHashCacheLoader(fileHashCache);
@@ -177,6 +180,7 @@ public class CachingBuildEngine implements BuildEngine {
       DependencySchedulingOrder dependencySchedulingOrder,
       DepFiles depFiles,
       long maxDepFileCacheEntries,
+      Optional<Long> artifactCacheSizeLimit,
       SourcePathResolver pathResolver,
       final Function<? super ProjectFilesystem, RuleKeyFactories> ruleKeyFactoriesFunction) {
     this.ruleDeps = new RuleDepsCache(service);
@@ -187,6 +191,7 @@ public class CachingBuildEngine implements BuildEngine {
     this.dependencySchedulingOrder = dependencySchedulingOrder;
     this.depFiles = depFiles;
     this.maxDepFileCacheEntries = maxDepFileCacheEntries;
+    this.artifactCacheSizeLimit = artifactCacheSizeLimit;
     this.pathResolver = pathResolver;
 
     this.fileHashCaches = createFileHashCacheLoader(fileHashCache);
@@ -220,7 +225,7 @@ public class CachingBuildEngine implements BuildEngine {
             FileHashCache buckOutCache = new DefaultFileHashCache(
                 new ProjectFilesystem(
                     filesystem.getRootPath(),
-                    Optional.of(ImmutableSet.of(BuckConstant.BUCK_OUTPUT_PATH)),
+                    Optional.of(ImmutableSet.of(BuckConstant.getBuckOutputPath())),
                     ImmutableSet.<ProjectFilesystem.PathOrGlobMatcher>of()));
             return new StackedFileHashCache(
                 ImmutableList.of(defaultCache, cellCache, buckOutCache));
@@ -532,6 +537,9 @@ public class CachingBuildEngine implements BuildEngine {
                 new Callable<BuildResult>() {
                   @Override
                   public BuildResult call() throws Exception {
+                    if (!context.isKeepGoing() && firstFailure != null) {
+                      return BuildResult.canceled(rule, firstFailure);
+                    }
                     try (BuildRuleEvent.Scope scope =
                              BuildRuleEvent.resumeSuspendScope(
                                  context.getEventBus(),
@@ -627,7 +635,7 @@ public class CachingBuildEngine implements BuildEngine {
               // Invalidate any cached hashes for the output paths, since we've updated them.
               FileHashCache fileHashCache = fileHashCaches.get(rule.getProjectFilesystem());
               for (Path path : buildInfoRecorder.getRecordedPaths()) {
-                fileHashCache.invalidate(path);
+                fileHashCache.invalidate(rule.getProjectFilesystem().resolve(path));
               }
             }
 
@@ -681,7 +689,8 @@ public class CachingBuildEngine implements BuildEngine {
             buildInfoRecorder.addMetadata(
                 BuildInfo.METADATA_KEY_FOR_RECORDED_PATHS,
                 FluentIterable.from(buildInfoRecorder.getRecordedPaths())
-                    .transform(Functions.toStringFunction()));
+                    .transform(Functions.toStringFunction())
+                    .toList());
             if (success.shouldWriteRecordedMetadataToDiskAfterBuilding()) {
               try {
                 boolean clearExistingMetadata = success.shouldClearAndOverwriteMetadataOnDisk();
@@ -729,10 +738,18 @@ public class CachingBuildEngine implements BuildEngine {
                 }
               }
 
-              private void uploadToCache(BuildRuleSuccessType success) {
+              private boolean shouldUploadToCache(long outputSize) {
                 if (!rule.isCacheable()) {
-                  return;
+                  return false;
                 }
+                if (artifactCacheSizeLimit.isPresent() &&
+                    outputSize > artifactCacheSizeLimit.get()) {
+                  return false;
+                }
+                return true;
+              }
+
+              private void uploadToCache(BuildRuleSuccessType success) {
 
                 // Collect up all the rule keys we have index the artifact in the cache with.
                 Set<RuleKey> ruleKeys = Sets.newHashSet();
@@ -804,19 +821,21 @@ public class CachingBuildEngine implements BuildEngine {
                 if (input.getStatus() == BuildRuleStatus.SUCCESS) {
                   BuildRuleSuccessType success = Preconditions.checkNotNull(input.getSuccess());
                   successType = Optional.of(success);
-                  uploadToCache(success);
 
-                  // Get the size of outputs when they've changed.
-                  if (success.outputsHaveChanged()) {
-                    try {
-                      outputSize = Optional.of(buildInfoRecorder.getOutputSize());
-                    } catch (IOException e) {
-                      context.getEventBus().post(
-                          ThrowableConsoleEvent.create(
-                              e,
-                              "Error getting output size for %s.",
-                              rule));
-                    }
+                  // Try get the output size.
+                  try {
+                    outputSize = Optional.of(buildInfoRecorder.getOutputSize());
+                  } catch (IOException e) {
+                    context.getEventBus().post(
+                        ThrowableConsoleEvent.create(
+                            e,
+                            "Error getting output size for %s.",
+                            rule));
+                  }
+
+                  // If this rule is cacheable, upload it to the cache.
+                  if (outputSize.isPresent() && shouldUploadToCache(outputSize.get())) {
+                    uploadToCache(success);
                   }
 
                   // Calculate the hash of outputs that were built locally and are cacheable.
@@ -1088,6 +1107,7 @@ public class CachingBuildEngine implements BuildEngine {
     CacheResult cacheResult =
         buildInfoRecorder.fetchArtifactForBuildable(ruleKey, lazyZipPath, artifactCache);
     if (!cacheResult.getType().isSuccess()) {
+      LOG.debug("Cache miss for '%s' with rulekey '%s'", rule, ruleKey);
       return cacheResult;
     }
     LOG.debug("Fetched '%s' from cache with rulekey '%s'", rule, ruleKey);
