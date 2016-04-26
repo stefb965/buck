@@ -28,9 +28,15 @@ java_library(
   visibility = [ 'PUBLIC' ],
 )
 
-java_library(
+java_immutables_library(
   name = 'io',
   srcs = glob(['*.java'], excludes = FINDER_SRCS + WATCHMAN_SRCS),
+  tests = [
+    '//test/com/facebook/buck/io:io',
+  ],
+  immutable_types = [
+    'ArchiveMemberPath',
+  ],
   autodeps = True,
   visibility = [ 'PUBLIC' ],
 )

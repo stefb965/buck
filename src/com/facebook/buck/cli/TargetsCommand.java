@@ -36,6 +36,7 @@ import com.facebook.buck.model.HasTests;
 import com.facebook.buck.model.InMemoryBuildFileTree;
 import com.facebook.buck.parser.BuildFileSpec;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
+import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.TargetNodePredicateSpec;
 import com.facebook.buck.rules.ActionGraph;
@@ -274,26 +275,18 @@ public class TargetsCommand extends AbstractCommand {
   private int runWithExecutor(
       CommandRunnerParams params,
       ListeningExecutorService executor) throws IOException, InterruptedException {
+    Optional<ImmutableSet<BuildRuleType>> buildRuleTypes = getBuildRuleTypesFromParams(params);
+    if (!buildRuleTypes.isPresent()) {
+      return 1;
+    }
+
     ImmutableMap<BuildTarget, ShowOptions> showRulesResult =
         ImmutableMap.of();
 
     if (isShowOutput() || isShowRuleKey() || isShowTargetHash()) {
       try {
-        if (getArguments().isEmpty()) {
-          throw new HumanReadableException("Must specify at least one build target.");
-        }
-
-        TargetGraphAndBuildTargets targetGraphAndBuildTargetsForShowRules = params.getParser()
-            .buildTargetGraphForTargetNodeSpecs(
-                params.getBuckEventBus(),
-                params.getCell(),
-                getEnableProfiling(),
-                executor,
-                parseArgumentsAsTargetNodeSpecs(
-                    params.getBuckConfig(),
-                    getArguments()),
-            /* ignoreBuckAutodepsFiles */ false);
-
+        TargetGraphAndBuildTargets targetGraphAndBuildTargetsForShowRules =
+            buildTargetGraphAndTargetsForShowRules(params, executor, buildRuleTypes);
         showRulesResult = computeShowRules(
             params,
             executor,
@@ -313,11 +306,6 @@ public class TargetsCommand extends AbstractCommand {
         printShowRules(showRulesResult, params);
         return 0;
       }
-    }
-
-    Optional<ImmutableSet<BuildRuleType>> buildRuleTypes = getBuildRuleTypesFromParams(params);
-    if (!buildRuleTypes.isPresent()) {
-      return 1;
     }
 
     // Parse the entire action graph, or (if targets are specified),
@@ -340,6 +328,51 @@ public class TargetsCommand extends AbstractCommand {
         buildRuleTypes);
 
     return printResults(params, executor, matchingNodes, showRulesResult);
+  }
+
+  private TargetGraphAndBuildTargets buildTargetGraphAndTargetsForShowRules(
+      CommandRunnerParams params,
+      ListeningExecutorService executor,
+      Optional<ImmutableSet<BuildRuleType>> buildRuleTypes)
+      throws InterruptedException, BuildFileParseException, BuildTargetException, IOException {
+    if (getArguments().isEmpty()) {
+      TargetGraphAndBuildTargets completeTargetGraphAndBuildTargets = params.getParser()
+          .buildTargetGraphForTargetNodeSpecs(
+              params.getBuckEventBus(),
+              params.getCell(),
+              getEnableProfiling(),
+              executor,
+              ImmutableList.of(
+                  TargetNodePredicateSpec.of(
+                      Predicates.<TargetNode<?>>alwaysTrue(),
+                      BuildFileSpec.fromRecursivePath(
+                          Paths.get("")))),
+              false,
+              Parser.ApplyDefaultFlavorsMode.ENABLED);
+      SortedMap<String, TargetNode<?>> matchingNodes = getMatchingNodes(
+          params,
+          completeTargetGraphAndBuildTargets,
+          buildRuleTypes);
+
+      Iterable<BuildTarget> buildTargets = FluentIterable.from(matchingNodes.values()).transform(
+          HasBuildTarget.TO_TARGET);
+
+      return TargetGraphAndBuildTargets.builder()
+          .setTargetGraph(completeTargetGraphAndBuildTargets.getTargetGraph())
+          .setBuildTargets(buildTargets)
+          .build();
+    } else {
+      return params.getParser()
+          .buildTargetGraphForTargetNodeSpecs(
+              params.getBuckEventBus(),
+              params.getCell(),
+              getEnableProfiling(),
+              executor,
+              parseArgumentsAsTargetNodeSpecs(
+                  params.getBuckConfig(),
+                  getArguments()),
+              false);
+    }
   }
 
   /**
@@ -421,7 +454,8 @@ public class TargetsCommand extends AbstractCommand {
                             Predicates.<TargetNode<?>>alwaysTrue(),
                             BuildFileSpec.fromRecursivePath(
                                 Paths.get("")))),
-                    ignoreBuckAutodepsFiles).getTargetGraph()).build());
+                    ignoreBuckAutodepsFiles,
+                    Parser.ApplyDefaultFlavorsMode.ENABLED).getTargetGraph()).build());
       } else {
         return Optional.of(
             params.getParser()
@@ -433,7 +467,8 @@ public class TargetsCommand extends AbstractCommand {
                     parseArgumentsAsTargetNodeSpecs(
                         params.getBuckConfig(),
                         getArguments()),
-                    ignoreBuckAutodepsFiles));
+                    ignoreBuckAutodepsFiles,
+                Parser.ApplyDefaultFlavorsMode.ENABLED));
       }
     } catch (BuildTargetException | BuildFileParseException e) {
       params.getBuckEventBus().post(ConsoleEvent.severe(
@@ -461,7 +496,8 @@ public class TargetsCommand extends AbstractCommand {
   private void printShowRules(
       Map<BuildTarget, ShowOptions> showRulesResult,
       CommandRunnerParams params) {
-    for (Entry<BuildTarget, ShowOptions> entry : showRulesResult.entrySet()) {
+    for (Entry<BuildTarget, ShowOptions> entry :
+        ImmutableSortedMap.copyOf(showRulesResult).entrySet()) {
       ImmutableList.Builder<String> builder = ImmutableList.builder();
       builder.add(entry.getKey().getFullyQualifiedName());
       ShowOptions showOptions = entry.getValue();
@@ -736,8 +772,7 @@ public class TargetsCommand extends AbstractCommand {
       }
     }
 
-    for (TargetNode<?> targetNode :
-        ImmutableSortedSet.copyOf(targetGraphAndTargetNodes.getTargetNodes())) {
+    for (TargetNode<?> targetNode : targetGraphAndTargetNodes.getTargetNodes()) {
       ShowOptions.Builder showOptionsBuilder =
           getShowOptionBuilder(showOptionBuilderMap, targetNode.getBuildTarget());
       Preconditions.checkNotNull(showOptionsBuilder);

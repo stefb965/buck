@@ -19,6 +19,7 @@ package com.facebook.buck.cxx;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
@@ -26,7 +27,6 @@ import java.nio.file.Path;
 
 public class RanlibStep extends ShellStep {
 
-  private final ProjectFilesystem filesystem;
   private final ImmutableMap<String, String> ranlibEnv;
   private final ImmutableList<String> ranlibPrefix;
   private final Path output;
@@ -34,9 +34,10 @@ public class RanlibStep extends ShellStep {
   public RanlibStep(
       ProjectFilesystem filesystem,
       ImmutableMap<String, String> ranlibEnv,
-      ImmutableList<String> ranlibPrefix, Path output) {
+      ImmutableList<String> ranlibPrefix,
+      Path output) {
     super(filesystem.getRootPath());
-    this.filesystem = filesystem;
+    Preconditions.checkArgument(!output.isAbsolute());
     this.ranlibEnv = ranlibEnv;
     this.ranlibPrefix = ranlibPrefix;
     this.output = output;
@@ -51,7 +52,7 @@ public class RanlibStep extends ShellStep {
   protected ImmutableList<String> getShellCommandInternal(ExecutionContext context) {
     return ImmutableList.<String>builder()
         .addAll(ranlibPrefix)
-        .add(filesystem.resolve(output).toString())
+        .add(output.toString())
         .build();
   }
 

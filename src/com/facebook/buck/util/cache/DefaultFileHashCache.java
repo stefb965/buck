@@ -17,14 +17,17 @@
 package com.facebook.buck.util.cache;
 
 import com.facebook.buck.hashing.PathHashing;
+import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
+import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hasher;
@@ -34,6 +37,7 @@ import com.google.common.io.ByteSource;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.concurrent.ExecutionException;
 
@@ -61,9 +65,14 @@ public class DefaultFileHashCache implements ProjectFileHashCache {
   private HashCodeAndFileType getHashCodeAndFileType(Path path) throws IOException {
     if (projectFilesystem.isDirectory(path)) {
       return getDirHashCode(path);
-    } else {
-      return HashCodeAndFileType.ofFile(getFileHashCode(path));
+    } else if (path.toString().endsWith(".jar")) {
+      return HashCodeAndFileType.ofArchive(
+          getFileHashCode(path),
+          projectFilesystem,
+          path);
     }
+
+    return HashCodeAndFileType.ofFile(getFileHashCode(path));
   }
 
   private HashCode getFileHashCode(final Path path) throws IOException {
@@ -107,6 +116,11 @@ public class DefaultFileHashCache implements ProjectFileHashCache {
   }
 
   @Override
+  public boolean willGet(ArchiveMemberPath archiveMemberPath) {
+    return willGet(archiveMemberPath.getArchivePath());
+  }
+
+  @Override
   public void invalidate(Path rawPath) {
     Path path = resolvePath(rawPath);
     HashCodeAndFileType cached = loadingCache.getIfPresent(path);
@@ -140,8 +154,62 @@ public class DefaultFileHashCache implements ProjectFileHashCache {
   }
 
   @Override
+  public HashCode get(ArchiveMemberPath archiveMemberPath) throws IOException {
+    Preconditions.checkState(archiveMemberPath.isAbsolute());
+
+    Path absoluteFilePath = archiveMemberPath.getArchivePath();
+    Path relativeFilePath = resolvePath(absoluteFilePath).normalize();
+
+    try {
+      HashCodeAndFileType fileHashCodeAndFileType = loadingCache.get(relativeFilePath);
+
+      Path memberPath = archiveMemberPath.getMemberPath();
+      HashCodeAndFileType memberHashCodeAndFileType =
+          fileHashCodeAndFileType.getContents().get(memberPath);
+      if (memberHashCodeAndFileType == null) {
+        throw new NoSuchFileException(archiveMemberPath.toString());
+      }
+
+      return memberHashCodeAndFileType.getHashCode();
+    } catch (ExecutionException e) {
+      Throwables.propagateIfInstanceOf(e.getCause(), IOException.class);
+      throw Throwables.propagate(e.getCause());
+    }
+  }
+
+  @Override
   public ProjectFilesystem getFilesystem() {
     return projectFilesystem;
+  }
+
+  @Override
+  public void set(Path rawPath, HashCode hashCode) throws IOException {
+    final Path path = resolvePath(rawPath);
+    HashCodeAndFileType value;
+
+    if (projectFilesystem.isDirectory(path)) {
+      value = HashCodeAndFileType.ofDirectory(
+          hashCode,
+          ImmutableSet.copyOf(
+              FluentIterable.from(projectFilesystem.getFilesUnderPath(path))
+                  .transform(
+                      new Function<Path, Path>() {
+                        @Override
+                        public Path apply(Path input) {
+                          return path.relativize(input);
+                        }
+                      })));
+    } else if (rawPath.toString().endsWith(".jar")) {
+      value = HashCodeAndFileType.ofArchive(
+          hashCode,
+          projectFilesystem,
+          projectFilesystem.getPathRelativeToProjectRoot(path).get());
+
+    } else {
+      value = HashCodeAndFileType.ofFile(hashCode);
+    }
+
+    loadingCache.put(path, value);
   }
 
 }

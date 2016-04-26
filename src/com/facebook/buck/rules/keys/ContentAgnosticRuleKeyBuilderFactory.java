@@ -16,16 +16,22 @@
 
 package com.facebook.buck.rules.keys;
 
+import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.RuleKeyBuilder;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.util.cache.FileHashCache;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
 import com.google.common.hash.HashCode;
 
 import java.io.IOException;
 import java.nio.file.Path;
 
+import javax.annotation.Nonnull;
 
 /**
  * A factory for generating {@link RuleKey}s that only take into the account the path of a file
@@ -36,10 +42,22 @@ public class ContentAgnosticRuleKeyBuilderFactory
 
   private final FileHashCache fileHashCache;
   private final SourcePathResolver pathResolver;
+  private final LoadingCache<RuleKeyAppendable, RuleKey> ruleKeyCache;
 
   public ContentAgnosticRuleKeyBuilderFactory(
       SourcePathResolver pathResolver
   ) {
+    // Build the cache around the sub-rule-keys and their dep lists.
+    ruleKeyCache = CacheBuilder.newBuilder().weakKeys().build(
+        new CacheLoader<RuleKeyAppendable, RuleKey>() {
+          @Override
+          public RuleKey load(@Nonnull RuleKeyAppendable appendable) throws Exception {
+            RuleKeyBuilder subKeyBuilder = newBuilder();
+            appendable.appendToRuleKey(subKeyBuilder);
+            return subKeyBuilder.build();
+          }
+        });
+
     this.pathResolver = pathResolver;
     this.fileHashCache = new FileHashCache() {
 
@@ -49,24 +67,46 @@ public class ContentAgnosticRuleKeyBuilderFactory
       }
 
       @Override
+      public HashCode get(ArchiveMemberPath archiveMemberPath) throws IOException {
+        throw new AssertionError();
+      }
+
+      @Override
       public boolean willGet(Path path) {
         return true;
       }
 
       @Override
-      public void invalidate(Path path) {
-
+      public boolean willGet(ArchiveMemberPath archiveMemberPath) {
+        return true;
       }
 
       @Override
-      public void invalidateAll() {
+      public void invalidate(Path path) {}
 
+      @Override
+      public void invalidateAll() {}
+
+      @Override
+      public void set(Path path, HashCode hashCode) {}
+    };
+  }
+
+  private RuleKeyBuilder newBuilder() {
+    return new RuleKeyBuilder(pathResolver, fileHashCache, this) {
+      @Override
+      protected RuleKey getAppendableRuleKey(
+          SourcePathResolver resolver,
+          FileHashCache hashCache,
+          RuleKeyAppendable appendable) {
+        return ruleKeyCache.getUnchecked(appendable);
       }
+
     };
   }
 
   @Override
   protected RuleKeyBuilder newBuilder(final BuildRule rule) {
-    return new RuleKeyBuilder(pathResolver, fileHashCache, this);
+    return newBuilder();
   }
 }

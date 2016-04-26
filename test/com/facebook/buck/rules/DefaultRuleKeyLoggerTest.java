@@ -18,6 +18,7 @@ package com.facebook.buck.rules;
 
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
@@ -116,6 +117,29 @@ public class DefaultRuleKeyLoggerTest {
   }
 
   @Test
+  public void archiveMemberPathField() {
+    Fixture fixture = new Fixture();
+
+    TestRule fakeRule = new TestRule(
+        BuildTargetFactory.newInstance("//:foo"),
+        fixture.getPathResolver(),
+        null,
+        new ArchiveMemberSourcePath(new FakeSourcePath(FAKE_PATH.toString()), Paths.get("member")),
+        null);
+
+    fixture.getRuleKeyBuilderFactory().build(fakeRule);
+
+    assertThat(
+        fixture.getLogger().getCurrentLogElements(),
+        Matchers.contains(
+            "string(\"//:foo\"):", "key(name):",
+            "string(\"test_rule\"):", "key(buck.type):",
+            "string(\"N/A\"):", "key(buckVersionUid):",
+            "archiveMember(foo/bar/path/1!/member:f1134a34c0de):", "key(pathField):"));
+
+  }
+
+  @Test
   public void appendable() {
     Fixture fixture = new Fixture();
 
@@ -154,6 +178,11 @@ public class DefaultRuleKeyLoggerTest {
         }
 
         @Override
+        public boolean willGet(ArchiveMemberPath archiveMemberPath) {
+          return true;
+        }
+
+        @Override
         public void invalidate(Path path) {
         }
 
@@ -164,6 +193,15 @@ public class DefaultRuleKeyLoggerTest {
         @Override
         public HashCode get(Path path) throws IOException {
           return HashCode.fromString("f1134a34c0de");
+        }
+
+        @Override
+        public HashCode get(ArchiveMemberPath archiveMemberPath) {
+          return HashCode.fromString("f1134a34c0de");
+        }
+
+        @Override
+        public void set(Path path, HashCode hashCode) {
         }
       };
       logger = new DefaultRuleKeyLogger();

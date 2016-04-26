@@ -51,7 +51,7 @@ public class JavacStep implements Step {
 
   private final Path outputDirectory;
 
-  private final Optional<Path> usedClassesFile;
+  private final ClassUsageFileWriter usedClassesFileWriter;
 
   private final Optional<StandardJavaFileManagerFactory> fileManagerFactory;
 
@@ -103,7 +103,7 @@ public class JavacStep implements Step {
 
   public JavacStep(
       Path outputDirectory,
-      Optional<Path> usedClassesFile,
+      ClassUsageFileWriter usedClassesFileWriter,
       Optional<StandardJavaFileManagerFactory> fileManagerFactory,
       Optional<Path> workingDirectory,
       ImmutableSortedSet<Path> javaSourceFilePaths,
@@ -116,7 +116,7 @@ public class JavacStep implements Step {
       SourcePathResolver resolver,
       ProjectFilesystem filesystem) {
     this.outputDirectory = outputDirectory;
-    this.usedClassesFile = usedClassesFile;
+    this.usedClassesFileWriter = usedClassesFileWriter;
     this.fileManagerFactory = fileManagerFactory;
     this.workingDirectory = workingDirectory;
     this.javaSourceFilePaths = javaSourceFilePaths;
@@ -155,10 +155,11 @@ public class JavacStep implements Step {
           resolver,
           invokingRule,
           getOptions(context, declaredClasspathEntries),
+          javacOptions.getSafeAnnotationProcessors(),
           javaSourceFilePaths,
           pathToSrcsList,
           workingDirectory,
-          usedClassesFile,
+          usedClassesFileWriter,
           fileManagerFactory);
 
       String firstOrderStdout = stdout.getContentsAsString(Charsets.UTF_8);

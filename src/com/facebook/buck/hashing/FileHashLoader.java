@@ -16,6 +16,7 @@
 
 package com.facebook.buck.hashing;
 
+import com.facebook.buck.io.ArchiveMemberPath;
 import com.google.common.hash.HashCode;
 
 import java.io.IOException;
@@ -25,4 +26,5 @@ public interface FileHashLoader {
 
   HashCode get(Path path) throws IOException;
 
+  HashCode get(ArchiveMemberPath archiveMemberPath) throws IOException;
 }

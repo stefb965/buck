@@ -18,15 +18,16 @@ package com.facebook.buck.rules;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Pair;
+import com.facebook.buck.rules.keys.DependencyFileEntry;
 import com.facebook.buck.rules.keys.DependencyFileRuleKeyBuilderFactory;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.cache.NullFileHashCache;
+import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
 import java.io.IOException;
-import java.nio.file.Path;
 
 import javax.annotation.Nullable;
 
@@ -73,7 +74,10 @@ public class FakeRuleKeyBuilderFactory
   }
 
   @Override
-  public RuleKey build(BuildRule rule, ImmutableList<Path> inputs) throws IOException {
+  public RuleKey build(
+      BuildRule rule,
+      Optional<ImmutableSet<SourcePath>> possibleDepFileSourcePaths,
+      ImmutableList<DependencyFileEntry> inputs) throws IOException {
     return build(rule);
   }
 

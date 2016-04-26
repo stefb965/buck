@@ -22,9 +22,9 @@ import com.facebook.buck.apple.AppleBundleDescription;
 import com.facebook.buck.apple.AppleConfig;
 import com.facebook.buck.apple.AppleLibraryDescription;
 import com.facebook.buck.apple.AppleTestDescription;
-import com.facebook.buck.apple.ProjectGenerator;
+import com.facebook.buck.apple.project_generator.ProjectGenerator;
 import com.facebook.buck.apple.SchemeActionType;
-import com.facebook.buck.apple.WorkspaceAndProjectGenerator;
+import com.facebook.buck.apple.project_generator.WorkspaceAndProjectGenerator;
 import com.facebook.buck.apple.XcodeWorkspaceConfigDescription;
 import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.CxxPlatform;
@@ -50,6 +50,7 @@ import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.parser.BuildFileSpec;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.BuildTargetPatternParser;
+import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.SpeculativeParsing;
 import com.facebook.buck.parser.TargetNodePredicateSpec;
@@ -368,7 +369,8 @@ public class ProjectCommand extends BuildCommand {
                 parseArgumentsAsTargetNodeSpecs(
                     params.getBuckConfig(),
                     getArguments()),
-                SpeculativeParsing.of(true));
+                SpeculativeParsing.of(true),
+                Parser.ApplyDefaultFlavorsMode.ENABLED);
         needsFullRecursiveParse = needsFullRecursiveParse || passedInTargetsSet.isEmpty();
         projectGraph = getProjectGraphForIde(
             params,

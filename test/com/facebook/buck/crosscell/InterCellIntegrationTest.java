@@ -21,6 +21,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.hamcrest.CoreMatchers.not;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThat;
 import static org.junit.Assert.fail;
 import static org.junit.Assume.assumeThat;
 
@@ -118,6 +119,29 @@ public class InterCellIntegrationTest {
         "--show-target-hash",
         "//:cxxbinary");
     result.assertSuccess();
+
+    ProjectWorkspace.ProcessResult result2 = primary.runBuckCommand(
+        "targets",
+        "secondary//:cxxlib");
+    result2.assertSuccess();
+  }
+
+  @Test
+  public void shouldBeAbleToUseQueryCommandXCell() throws IOException {
+    assumeThat(Platform.detect(), is(not(WINDOWS)));
+
+    Pair<ProjectWorkspace, ProjectWorkspace> cells = prepare(
+        "inter-cell/export-file/primary",
+        "inter-cell/export-file/secondary");
+    ProjectWorkspace primary = cells.getFirst();
+    ProjectWorkspace.ProcessResult result = primary.runBuckCommand(
+        "query",
+        "deps(%s)",
+        "//:cxxbinary");
+    result.assertSuccess();
+    assertThat(
+        result.getStdout(),
+        is(primary.getFileContents("stdout-cross-cell-dep")));
   }
 
   @Test
@@ -142,24 +166,6 @@ public class InterCellIntegrationTest {
         "inter-cell/export-file/primary",
         "inter-cell/export-file/secondary");
     ProjectWorkspace primary = cells.getFirst();
-
-    ProjectWorkspace.ProcessResult result = primary.runBuckBuild("//:cxxbinary");
-
-    result.assertSuccess();
-  }
-
-  @Test
-  public void cellNameCanUseFullString() throws IOException {
-    assumeThat(Platform.detect(), is(not(WINDOWS)));
-
-    ProjectWorkspace primary = createWorkspace("inter-cell/export-file/primary");
-    primary.setUp();
-
-    ProjectWorkspace secondary = createWorkspace("inter-cell/export-file/secondary");
-    secondary.setUp();
-
-    // Add the '@' for backward compatibility
-    registerCell(primary, "@secondary", secondary);
 
     ProjectWorkspace.ProcessResult result = primary.runBuckBuild("//:cxxbinary");
 

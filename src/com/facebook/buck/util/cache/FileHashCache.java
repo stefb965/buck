@@ -17,7 +17,10 @@
 package com.facebook.buck.util.cache;
 
 import com.facebook.buck.hashing.FileHashLoader;
+import com.facebook.buck.io.ArchiveMemberPath;
+import com.google.common.hash.HashCode;
 
+import java.io.IOException;
 import java.nio.file.Path;
 
 /**
@@ -28,8 +31,12 @@ public interface FileHashCache extends FileHashLoader {
 
   boolean willGet(Path path);
 
+  boolean willGet(ArchiveMemberPath archiveMemberPath);
+
   void invalidate(Path path);
 
   void invalidateAll();
+
+  void set(Path path, HashCode hashCode) throws IOException;
 
 }

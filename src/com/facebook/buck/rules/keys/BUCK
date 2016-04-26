@@ -1,1 +1,14 @@
-standard_java_library()
+java_immutables_library(
+  name = 'keys',
+  srcs = glob(['*.java']),
+  immutable_types = [
+    'DependencyFileEntry',
+  ],
+  tests = [
+    '//test/com/facebook/buck/rules/keys:keys',
+  ],
+  autodeps = True,
+  visibility = [
+    'PUBLIC',
+  ],
+)

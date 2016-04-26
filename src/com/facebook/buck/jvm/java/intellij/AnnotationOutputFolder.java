@@ -23,7 +23,7 @@ import java.nio.file.Path;
 /**
  * A path which contains a set of sources we wish to present to IntelliJ.
  */
-public class AnnotationOutputFolder extends InclusiveFolder {
+public class AnnotationOutputFolder extends SelfMergingOnlyFolder {
 
   public static final IJFolderFactory FACTORY = new IJFolderFactory() {
     @Override
@@ -46,38 +46,7 @@ public class AnnotationOutputFolder extends InclusiveFolder {
   }
 
   @Override
-  public boolean isCoalescent() {
-    return false;
-  }
-
-  @Override
-  public boolean canMergeWith(IjFolder other) {
-    return false;
-  }
-
-  @Override
   public IJFolderFactory getFactory() {
     return FACTORY;
   }
-
-  @Override
-  public IjFolder merge(IjFolder otherFolder) {
-    if (getPath().equals(otherFolder.getPath()) &&
-        getInputs().equals(otherFolder.getInputs())) {
-      return this;
-    }
-
-    throw new IllegalArgumentException(
-      "Can not merge two AnnotationOutputFolder objects with different paths " +
-      "(tried to merge " +
-      getPath() +
-      "," +
-      getInputs() +
-      " and " +
-      otherFolder.getPath() +
-      "," +
-      otherFolder.getInputs() +
-      " ).");
-  }
-
 }

@@ -50,6 +50,7 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.keys.AbiRuleKeyBuilderFactory;
 import com.facebook.buck.rules.keys.DefaultDependencyFileRuleKeyBuilderFactory;
 import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
+import com.facebook.buck.rules.keys.DependencyFileEntry;
 import com.facebook.buck.rules.keys.DependencyFileRuleKeyBuilderFactory;
 import com.facebook.buck.rules.keys.SupportsDependencyFileRuleKey;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
@@ -63,6 +64,7 @@ import com.facebook.buck.step.StepFailedException;
 import com.facebook.buck.step.StepRunner;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.step.fs.WriteFileStep;
+import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
@@ -80,6 +82,7 @@ import com.facebook.buck.zip.CustomZipEntry;
 import com.facebook.buck.zip.CustomZipOutputStream;
 import com.facebook.buck.zip.ZipConstants;
 import com.facebook.buck.zip.ZipOutputStreams;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Function;
 import com.google.common.base.Functions;
@@ -161,9 +164,9 @@ public class CachingBuildEngineTest {
     public DebuggableTemporaryFolder tmp = new DebuggableTemporaryFolder();
 
     protected InMemoryArtifactCache cache = new InMemoryArtifactCache();
-    protected ProjectFilesystem filesystem;
+    protected FakeProjectFilesystem filesystem;
     protected DefaultFileHashCache fileHashCache;
-    protected BuildContext buildContext;
+    protected ImmutableBuildContext buildContext;
     protected BuildRuleResolver resolver;
     protected SourcePathResolver pathResolver;
     protected RuleKeyBuilderFactory ruleKeyBuilderFactory;
@@ -246,6 +249,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
               Optional.<Long>absent(),
+              ObjectMappers.newDefaultInstance(),
               resolver);
 
       // Add a build step so we can verify that the steps are executed.
@@ -342,6 +346,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
               Optional.<Long>absent(),
+              ObjectMappers.newDefaultInstance(),
               resolver);
       ListenableFuture<BuildResult> buildResult = cachingBuildEngine.build(buildContext, buildRule);
 
@@ -424,6 +429,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
               Optional.<Long>absent(),
+              ObjectMappers.newDefaultInstance(),
               resolver);
       ListenableFuture<BuildResult> buildResult = cachingBuildEngine.build(buildContext, buildRule);
       buckEventBus.post(
@@ -506,6 +512,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
               Optional.<Long>absent(),
+              ObjectMappers.newDefaultInstance(),
               resolver);
       ListenableFuture<BuildResult> buildResult = cachingBuildEngine.build(buildContext, buildRule);
       buckEventBus.post(
@@ -562,6 +569,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
               Optional.<Long>absent(),
+              ObjectMappers.newDefaultInstance(),
               resolver);
 
       // Run the build.
@@ -639,6 +647,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
               Optional.<Long>absent(),
+              ObjectMappers.newDefaultInstance(),
               resolver);
 
       // Run the build.
@@ -748,6 +757,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
               Optional.<Long>absent(),
+              ObjectMappers.newDefaultInstance(),
               resolver);
 
       // Run the build.
@@ -844,6 +854,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
               Optional.<Long>absent(),
+              ObjectMappers.newDefaultInstance(),
               resolver);
 
       // Run the build.
@@ -885,6 +896,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
               Optional.<Long>absent(),
+              ObjectMappers.newDefaultInstance(),
               resolver);
 
       BuildResult result = cachingBuildEngine.build(buildContext, rule).get();
@@ -920,6 +932,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
               Optional.<Long>absent(),
+              ObjectMappers.newDefaultInstance(),
               resolver);
 
       // Run the build.
@@ -996,6 +1009,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
               Optional.<Long>absent(),
+              ObjectMappers.newDefaultInstance(),
               resolver);
 
       // Run the build.
@@ -1090,6 +1104,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
               Optional.<Long>absent(),
+              ObjectMappers.newDefaultInstance(),
               resolver);
 
       // Run the build.
@@ -1148,6 +1163,7 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
               Optional.<Long>absent(),
+              ObjectMappers.newDefaultInstance(),
               resolver);
 
       assertThat(
@@ -1179,12 +1195,71 @@ public class CachingBuildEngineTest {
               CachingBuildEngine.DepFiles.ENABLED,
               256L,
               Optional.of(2L),
+              ObjectMappers.newDefaultInstance(),
               resolver);
 
       // Verify that after building successfully, nothing is cached.
       BuildResult result = cachingBuildEngine.build(buildContext, rule).get();
       assertThat(result.getSuccess(), equalTo(BuildRuleSuccessType.BUILT_LOCALLY));
       assertTrue(cache.isEmpty());
+    }
+
+    public void fetchingFromCacheSeedsFileHashCache() throws Throwable {
+      ArtifactCache artifactCache = new InMemoryArtifactCache();
+      BuildContext buildContext = this.buildContext.withArtifactCache(artifactCache);
+
+      // Create a simple rule which just writes something new to the output file.
+      BuildTarget target = BuildTargetFactory.newInstance("//:rule");
+      Path output = filesystem.getRootPath().getFileSystem().getPath("output/path");
+      BuildRuleParams params =
+          new FakeBuildRuleParamsBuilder(target)
+              .setProjectFilesystem(filesystem)
+              .build();
+      BuildRule rule =
+          new WriteFile(params, pathResolver, "something else", output, /* executable */ false);
+
+      // Run an initial build to seed the cache.
+      CachingBuildEngine cachingBuildEngine =
+          new CachingBuildEngine(
+              toWeighted(MoreExecutors.newDirectExecutorService()),
+              fileHashCache,
+              CachingBuildEngine.BuildMode.SHALLOW,
+              CachingBuildEngine.DependencySchedulingOrder.RANDOM,
+              CachingBuildEngine.DepFiles.ENABLED,
+              256L,
+              Optional.<Long>absent(),
+              ObjectMappers.newDefaultInstance(),
+              resolver);
+      BuildResult result = cachingBuildEngine.build(buildContext, rule).get();
+      assertEquals(
+          BuildRuleSuccessType.BUILT_LOCALLY,
+          result.getSuccess());
+
+      // Clear the file system.
+      filesystem.clear();
+
+      // Now run a second build that gets a cache hit.  We use an empty `FakeFileHashCache` which
+      // does *not* contain the path, so any attempts to hash it will fail.
+      FakeFileHashCache fakeFileHashCache =
+          new FakeFileHashCache(ImmutableMap.<Path, HashCode>of());
+      cachingBuildEngine =
+          new CachingBuildEngine(
+              toWeighted(MoreExecutors.newDirectExecutorService()),
+              fakeFileHashCache,
+              CachingBuildEngine.BuildMode.SHALLOW,
+              CachingBuildEngine.DependencySchedulingOrder.RANDOM,
+              CachingBuildEngine.DepFiles.ENABLED,
+              256L,
+              Optional.<Long>absent(),
+              ObjectMappers.newDefaultInstance(),
+              resolver);
+      result = cachingBuildEngine.build(buildContext, rule).get();
+      assertEquals(
+          BuildRuleSuccessType.FETCHED_FROM_CACHE,
+          result.getSuccess());
+
+      // Verify that the cache hit caused the file hash cache to contain the path.
+      assertTrue(fakeFileHashCache.contains(filesystem.resolve(output)));
     }
 
   }
@@ -1458,6 +1533,13 @@ public class CachingBuildEngineTest {
               return ImmutableList.<Step>of(
                   new WriteFileStep(filesystem, "", output, /* executable */ false));
             }
+
+            @Override
+            public Optional<ImmutableSet<SourcePath>> getPossibleInputSourcePaths()
+                throws IOException {
+              return Optional.absent();
+            }
+
             @Override
             public ImmutableList<SourcePath> getInputsAfterBuildingLocally() {
               return ImmutableList.<SourcePath>of(new PathSourcePath(filesystem, input));
@@ -1472,7 +1554,10 @@ public class CachingBuildEngineTest {
       CachingBuildEngine cachingBuildEngine = engineWithDepFileFactory(depFileFactory);
 
       // Run the build.
-      RuleKey depFileRuleKey = depFileFactory.build(rule, ImmutableList.of(input));
+      RuleKey depFileRuleKey = depFileFactory.build(
+          rule,
+          Optional.<ImmutableSet<SourcePath>>absent(),
+          ImmutableList.of(DependencyFileEntry.of(input, Optional.<Path>absent())));
       BuildResult result = cachingBuildEngine.build(buildContext, rule).get();
       assertEquals(BuildRuleSuccessType.BUILT_LOCALLY, getSuccess(result));
 
@@ -1483,7 +1568,7 @@ public class CachingBuildEngineTest {
           equalTo(Optional.of(depFileRuleKey)));
       assertThat(
           onDiskBuildInfo.getValues(BuildInfo.METADATA_KEY_FOR_DEP_FILE),
-          equalTo(Optional.of(ImmutableList.of(input.toString()))));
+          equalTo(Optional.of(ImmutableList.of(fileToDepFileEntryString(input)))));
 
       // Verify that the dep file rule key and dep file were written to the cached artifact.
       Path fetchedArtifact = tmp.newFile("fetched_artifact.zip").toPath();
@@ -1499,7 +1584,7 @@ public class CachingBuildEngineTest {
       inspector.assertFileContents(
           BuildInfo.getPathToMetadataDirectory(target)
               .resolve(BuildInfo.METADATA_KEY_FOR_DEP_FILE),
-          MAPPER.writeValueAsString(ImmutableList.of(input.toString())));
+          MAPPER.writeValueAsString(ImmutableList.of(fileToDepFileEntryString(input))));
     }
 
     @Test
@@ -1532,6 +1617,11 @@ public class CachingBuildEngineTest {
                   });
             }
             @Override
+            public Optional<ImmutableSet<SourcePath>> getPossibleInputSourcePaths()
+                throws IOException {
+              return Optional.absent();
+            }
+            @Override
             public ImmutableList<SourcePath> getInputsAfterBuildingLocally() {
               return ImmutableList.<SourcePath>of(new PathSourcePath(filesystem, input));
             }
@@ -1553,7 +1643,7 @@ public class CachingBuildEngineTest {
           BuildInfo.getPathToMetadataDirectory(target)
               .resolve(BuildInfo.METADATA_KEY_FOR_DEP_FILE_RULE_KEY));
       filesystem.writeContentsToPath(
-          MAPPER.writeValueAsString(ImmutableList.of(input.toString())),
+          MAPPER.writeValueAsString(ImmutableList.of(fileToDepFileEntryString(input))),
           BuildInfo.getPathToMetadataDirectory(target)
               .resolve(BuildInfo.METADATA_KEY_FOR_DEP_FILE));
 
@@ -1594,9 +1684,14 @@ public class CachingBuildEngineTest {
                 BuildableContext buildableContext) {
               buildableContext.addMetadata(
                   BuildInfo.METADATA_KEY_FOR_DEP_FILE,
-                  ImmutableList.of(input.toString()));
+                  ImmutableList.of(fileToDepFileEntryString(input)));
               return ImmutableList.<Step>of(
                   new WriteFileStep(filesystem, "", output, /* executable */ false));
+            }
+            @Override
+            public Optional<ImmutableSet<SourcePath>> getPossibleInputSourcePaths()
+                throws IOException {
+              return Optional.absent();
             }
             @Override
             public ImmutableList<SourcePath> getInputsAfterBuildingLocally() {
@@ -1610,7 +1705,10 @@ public class CachingBuildEngineTest {
 
       // Prepare an input file that should appear in the dep file.
       filesystem.writeContentsToPath("something", input);
-      RuleKey depFileRuleKey = depFileFactory.build(rule, ImmutableList.of(input));
+      RuleKey depFileRuleKey = depFileFactory.build(
+          rule,
+          Optional.<ImmutableSet<SourcePath>>absent(),
+          ImmutableList.of(DependencyFileEntry.of(input, Optional.<Path>absent())));
 
       // Prepopulate the dep file rule key and dep file.
       filesystem.writeContentsToPath(
@@ -1618,7 +1716,7 @@ public class CachingBuildEngineTest {
           BuildInfo.getPathToMetadataDirectory(target)
               .resolve(BuildInfo.METADATA_KEY_FOR_DEP_FILE_RULE_KEY));
       filesystem.writeContentsToPath(
-          MAPPER.writeValueAsString(ImmutableList.of(input.toString())),
+          MAPPER.writeValueAsString(ImmutableList.of(fileToDepFileEntryString(input))),
           BuildInfo.getPathToMetadataDirectory(target)
               .resolve(BuildInfo.METADATA_KEY_FOR_DEP_FILE));
 
@@ -1635,6 +1733,89 @@ public class CachingBuildEngineTest {
       // Run the build.
       CachingBuildEngine cachingBuildEngine = engineWithDepFileFactory(depFileFactory);
       BuildResult result = cachingBuildEngine.build(buildContext, rule).get();
+      assertEquals(BuildRuleSuccessType.BUILT_LOCALLY, getSuccess(result));
+    }
+
+    @Test
+    public void nonDepFileEligibleInputChangeCausesRebuild() throws Exception {
+      final Path inputFile = Paths.get("input");
+
+      // Create a simple rule which just writes a file.
+      BuildTarget target = BuildTargetFactory.newInstance("//:rule");
+      BuildRuleParams params =
+          new FakeBuildRuleParamsBuilder(target)
+              .setProjectFilesystem(filesystem)
+              .build();
+      final Path output = Paths.get("output");
+      final ImmutableSet<SourcePath> inputsBefore = ImmutableSet.<SourcePath>of();
+      BuildRule rule =
+          new DepFileBuildRule(params, pathResolver) {
+            @AddToRuleKey
+            private final SourcePath path = new PathSourcePath(filesystem, inputFile);
+            @Override
+            public ImmutableList<Step> getBuildSteps(
+                BuildContext context,
+                BuildableContext buildableContext) {
+              buildableContext.addMetadata(
+                  BuildInfo.METADATA_KEY_FOR_DEP_FILE,
+                  ImmutableList.<String>of());
+              return ImmutableList.<Step>of(
+                  new WriteFileStep(filesystem, "", output, /* executable */ false));
+            }
+            @Override
+            public Optional<ImmutableSet<SourcePath>> getPossibleInputSourcePaths()
+                throws IOException {
+              return Optional.of(inputsBefore);
+            }
+            @Override
+            public ImmutableList<SourcePath> getInputsAfterBuildingLocally() {
+              return ImmutableList.of();
+            }
+            @Override
+            public Path getPathToOutput() {
+              return output;
+            }
+          };
+
+      // Prepare an input file that will not appear in the dep file. This is to simulate a
+      // a dependency that the dep-file generator is not aware of.
+      filesystem.writeContentsToPath("something", inputFile);
+
+      // Prepopulate the dep file rule key and dep file.
+      RuleKey depFileRuleKey = depFileFactory.build(
+          rule,
+          Optional.of(inputsBefore),
+          ImmutableList.<DependencyFileEntry>of());
+      filesystem.writeContentsToPath(
+          depFileRuleKey.toString(),
+          BuildInfo.getPathToMetadataDirectory(target)
+              .resolve(BuildInfo.METADATA_KEY_FOR_DEP_FILE_RULE_KEY));
+      final String emptyDepFileContents = "[]";
+      filesystem.writeContentsToPath(
+          emptyDepFileContents,
+          BuildInfo.getPathToMetadataDirectory(target)
+              .resolve(BuildInfo.METADATA_KEY_FOR_DEP_FILE));
+
+      // Prepopulate the recorded paths metadata.
+      filesystem.writeContentsToPath(
+          MAPPER.writeValueAsString(ImmutableList.of(output.toString())),
+          BuildInfo.getPathToMetadataDirectory(target)
+              .resolve(BuildInfo.METADATA_KEY_FOR_RECORDED_PATHS));
+
+      // Now modify the input file and invalidate it in the cache.
+      filesystem.writeContentsToPath("something else", inputFile);
+      fileHashCache.invalidate(filesystem.resolve(inputFile));
+
+      // Run the build.
+      CachingBuildEngine cachingBuildEngine = engineWithDepFileFactory(depFileFactory);
+      BuildResult result = cachingBuildEngine.build(buildContext, rule).get();
+
+      // The dep file should still be empty, yet the target will rebuild because of the change
+      // to the non-dep-file-eligible input file
+      String newDepFile = filesystem.readLines(
+          BuildInfo.getPathToMetadataDirectory(target)
+              .resolve(BuildInfo.METADATA_KEY_FOR_DEP_FILE)).get(0);
+      assertEquals(emptyDepFileContents, newDepFile);
       assertEquals(BuildRuleSuccessType.BUILT_LOCALLY, getSuccess(result));
     }
 
@@ -1664,9 +1845,14 @@ public class CachingBuildEngineTest {
                 BuildableContext buildableContext) {
               buildableContext.addMetadata(
                   BuildInfo.METADATA_KEY_FOR_DEP_FILE,
-                  ImmutableList.of(input.toString()));
+                  ImmutableList.of(fileToDepFileEntryString(input)));
               return ImmutableList.<Step>of(
                   new WriteFileStep(filesystem, "", output, /* executable */ false));
+            }
+            @Override
+            public Optional<ImmutableSet<SourcePath>> getPossibleInputSourcePaths()
+                throws IOException {
+              return Optional.absent();
             }
             @Override
             public ImmutableList<SourcePath> getInputsAfterBuildingLocally() {
@@ -1680,7 +1866,10 @@ public class CachingBuildEngineTest {
 
       // Prepare an input file that should appear in the dep file.
       filesystem.writeContentsToPath("something", input);
-      RuleKey depFileRuleKey = depFileFactory.build(rule, ImmutableList.of(input));
+      RuleKey depFileRuleKey = depFileFactory.build(
+          rule,
+          Optional.<ImmutableSet<SourcePath>>absent(),
+          ImmutableList.of(DependencyFileEntry.of(input, Optional.<Path>absent())));
 
       // Prepopulate the dep file rule key and dep file.
       filesystem.writeContentsToPath(
@@ -1688,7 +1877,7 @@ public class CachingBuildEngineTest {
           BuildInfo.getPathToMetadataDirectory(target)
               .resolve(BuildInfo.METADATA_KEY_FOR_DEP_FILE_RULE_KEY));
       filesystem.writeContentsToPath(
-          MAPPER.writeValueAsString(ImmutableList.of(input.toString())),
+          MAPPER.writeValueAsString(ImmutableList.of(fileToDepFileEntryString(input))),
           BuildInfo.getPathToMetadataDirectory(target)
               .resolve(BuildInfo.METADATA_KEY_FOR_DEP_FILE));
 
@@ -1762,6 +1951,11 @@ public class CachingBuildEngineTest {
                 BuildableContext buildableContext) {
               return ImmutableList.<Step>of(
                   new WriteFileStep(filesystem, "", output, /* executable */ false));
+            }
+            @Override
+            public Optional<ImmutableSet<SourcePath>> getPossibleInputSourcePaths()
+                throws IOException {
+              return Optional.absent();
             }
             @Override
             public ImmutableList<SourcePath> getInputsAfterBuildingLocally() {
@@ -1864,6 +2058,11 @@ public class CachingBuildEngineTest {
                 BuildableContext buildableContext) {
               return ImmutableList.<Step>of(
                   new WriteFileStep(filesystem, "", output, /* executable */ false));
+            }
+            @Override
+            public Optional<ImmutableSet<SourcePath>> getPossibleInputSourcePaths()
+                throws IOException {
+              return Optional.absent();
             }
             @Override
             public ImmutableList<SourcePath> getInputsAfterBuildingLocally() {
@@ -1982,6 +2181,11 @@ public class CachingBuildEngineTest {
                   new WriteFileStep(filesystem, "", output, /* executable */ false));
             }
             @Override
+            public Optional<ImmutableSet<SourcePath>> getPossibleInputSourcePaths()
+                throws IOException {
+              return Optional.absent();
+            }
+            @Override
             public ImmutableList<SourcePath> getInputsAfterBuildingLocally() {
               return ImmutableList.<SourcePath>of(new PathSourcePath(filesystem, input));
             }
@@ -2087,6 +2291,11 @@ public class CachingBuildEngineTest {
                 BuildableContext buildableContext) {
               return ImmutableList.<Step>of(
                   new WriteFileStep(filesystem, "", output, /* executable */ false));
+            }
+            @Override
+            public Optional<ImmutableSet<SourcePath>> getPossibleInputSourcePaths()
+                throws IOException {
+              return Optional.absent();
             }
             @Override
             public ImmutableList<SourcePath> getInputsAfterBuildingLocally() {
@@ -2352,6 +2561,11 @@ public class CachingBuildEngineTest {
       @Override
       public boolean useDependencyFileRuleKeys() {
         return true;
+      }
+
+      @Override
+      public Optional<ImmutableSet<SourcePath>> getPossibleInputSourcePaths() throws IOException {
+        return Optional.absent();
       }
 
       @Override
@@ -2790,6 +3004,16 @@ public class CachingBuildEngineTest {
         return result.getSuccess();
       default:
         throw new IllegalStateException();
+    }
+  }
+
+  private static String fileToDepFileEntryString(Path file) {
+    DependencyFileEntry entry = DependencyFileEntry.of(file, Optional.<Path>absent());
+
+    try {
+      return MAPPER.writeValueAsString(entry);
+    } catch (JsonProcessingException e) {
+      throw new AssertionError(e);
     }
   }
 

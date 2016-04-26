@@ -32,6 +32,7 @@ import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
+import com.facebook.buck.parser.Parser;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.ActionGraphAndResolver;
 import com.facebook.buck.rules.BuildEngine;
@@ -394,12 +395,16 @@ public class BuildCommand extends AbstractCommand {
               parseArgumentsAsTargetNodeSpecs(
                   params.getBuckConfig(),
                   getArguments()),
-              /* ignoreBuckAutodepsFiles */ false);
+              /* ignoreBuckAutodepsFiles */ false,
+              Parser.ApplyDefaultFlavorsMode.ENABLED);
       buildTargets = result.getBuildTargets();
       buildTargetsHaveBeenCalculated = true;
       actionGraphAndResolver = Preconditions.checkNotNull(
           params.getActionGraphCache().getActionGraph(
               params.getBuckEventBus(),
+              BuildIdSampler.apply(
+                  params.getBuckConfig().getActionGraphCacheCheckSampleRate(),
+                  params.getBuckEventBus().getBuildId()),
               result.getTargetGraph()));
     } catch (BuildTargetException | BuildFileParseException e) {
       params.getBuckEventBus().post(ConsoleEvent.severe(
@@ -452,6 +457,7 @@ public class BuildCommand extends AbstractCommand {
             params.getBuckConfig().getBuildDepFiles(),
             params.getBuckConfig().getBuildMaxDepFileCacheEntries(),
             params.getBuckConfig().getBuildArtifactCacheSizeLimit(),
+            params.getObjectMapper(),
             actionGraphAndResolver.getResolver()),
         artifactCache,
         params.getConsole(),

@@ -1,40 +1,7 @@
-#@# GENERATED FILE: DO NOT MODIFY 91ffe21f353f042156026159a1c83d14d6a0b7d4 #@#
+#@# GENERATED FILE: DO NOT MODIFY 16a4a1181f7198577fd3a5b249a7873bdddaacd5 #@#
 {
-  "generators" : {
-    "deps" : [
-      "//src/com/facebook/buck/apple/clang:headermap",
-      "//src/com/facebook/buck/graph:graph",
-      "//src/com/facebook/buck/js:js",
-      "//src/com/facebook/buck/log:api",
-      "//src/com/facebook/buck/parser:rule_pattern",
-      "//src/com/facebook/buck/shell:rules",
-      "//src/com/facebook/buck/util:constants",
-      "//src/com/facebook/buck/util:escaper",
-      "//src/com/facebook/buck/util:exceptions",
-      "//third-party/java/dd-plist:dd-plist",
-      "//third-party/java/stringtemplate:stringtemplate"
-    ],
-    "exported_deps" : [
-      "//src/com/facebook/buck/apple:rules",
-      "//src/com/facebook/buck/apple/xcode:xcode",
-      "//src/com/facebook/buck/cxx:platform",
-      "//src/com/facebook/buck/cxx:rules",
-      "//src/com/facebook/buck/event:event",
-      "//src/com/facebook/buck/halide:halide",
-      "//src/com/facebook/buck/io:executable-finder",
-      "//src/com/facebook/buck/io:io",
-      "//src/com/facebook/buck/model:model",
-      "//src/com/facebook/buck/rules:build_rule",
-      "//src/com/facebook/buck/rules:types",
-      "//src/com/facebook/buck/rules/coercer:coercer",
-      "//src/com/facebook/buck/util:util",
-      "//third-party/java/guava:guava",
-      "//third-party/java/jsr:jsr305"
-    ]
-  },
   "platform" : {
     "deps" : [
-      "//src/com/facebook/buck/cxx:rules",
       "//src/com/facebook/buck/util:exceptions",
       "//third-party/java/immutables:processor"
     ],
@@ -49,6 +16,7 @@
   },
   "rules" : {
     "deps" : [
+      "//src/com/facebook/buck/apple/xcode:xcode",
       "//src/com/facebook/buck/file:rules",
       "//src/com/facebook/buck/graph:graph",
       "//src/com/facebook/buck/halide:halide",
@@ -64,12 +32,10 @@
       "//src/com/facebook/buck/zip:constants",
       "//src/com/facebook/buck/zip:steps",
       "//third-party/java/gson:gson",
-      "//third-party/java/immutables:processor",
-      "//third-party/java/stringtemplate:stringtemplate"
+      "//third-party/java/immutables:processor"
     ],
     "exported_deps" : [
       "//src/com/facebook/buck/apple:platform",
-      "//src/com/facebook/buck/apple/xcode:xcode",
       "//src/com/facebook/buck/cli:config",
       "//src/com/facebook/buck/cxx:platform",
       "//src/com/facebook/buck/cxx:rules",

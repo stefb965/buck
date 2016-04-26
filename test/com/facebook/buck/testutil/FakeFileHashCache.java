@@ -16,9 +16,9 @@
 
 package com.facebook.buck.testutil;
 
+import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.util.cache.FileHashCache;
-import com.google.common.collect.Maps;
 import com.google.common.hash.HashCode;
 
 import java.io.IOException;
@@ -34,9 +34,22 @@ import java.util.Map;
 public class FakeFileHashCache implements FileHashCache {
 
   private final Map<Path, HashCode> pathsToHashes;
+  private final Map<ArchiveMemberPath, HashCode> archiveMemberPathsToHashes;
+
+  public static FakeFileHashCache withArchiveMemberPathHashes(
+      Map<ArchiveMemberPath, HashCode> archiveMemberPathsToHashes) {
+    return new FakeFileHashCache(new HashMap<Path, HashCode>(), archiveMemberPathsToHashes);
+  }
 
   public FakeFileHashCache(Map<Path, HashCode> pathsToHashes) {
-    this.pathsToHashes = Maps.newHashMap(pathsToHashes);
+    this(pathsToHashes, new HashMap<ArchiveMemberPath, HashCode>());
+  }
+
+  private FakeFileHashCache(
+      Map<Path, HashCode> pathsToHashes,
+      Map<ArchiveMemberPath, HashCode> archiveMemberPathsToHashes) {
+    this.archiveMemberPathsToHashes = archiveMemberPathsToHashes;
+    this.pathsToHashes = pathsToHashes;
   }
 
   public static FakeFileHashCache createFromStrings(Map<String, String> pathsToHashes) {
@@ -61,7 +74,12 @@ public class FakeFileHashCache implements FileHashCache {
 
   @Override
   public boolean willGet(Path path) {
-    return pathsToHashes.containsKey(path);
+    return true;
+  }
+
+  @Override
+  public boolean willGet(ArchiveMemberPath archiveMemberPath) {
+    throw new UnsupportedOperationException("Not yet implemented");
   }
 
   @Override
@@ -81,6 +99,24 @@ public class FakeFileHashCache implements FileHashCache {
       throw new NoSuchFileException(path.toString());
     }
     return hashCode;
+  }
+
+  @Override
+  public HashCode get(ArchiveMemberPath archiveMemberPath) throws IOException {
+    HashCode hashCode = archiveMemberPathsToHashes.get(archiveMemberPath);
+    if (hashCode == null) {
+      throw new NoSuchFileException(archiveMemberPath.toString());
+    }
+    return hashCode;
+  }
+
+  @Override
+  public void set(Path path, HashCode hashCode) {
+    pathsToHashes.put(path, hashCode);
+  }
+
+  public boolean contains(Path path) {
+    return pathsToHashes.containsKey(path);
   }
 
 }

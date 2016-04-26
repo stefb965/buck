@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY 7c8787534a9b939b47b30a16618b77f7b2ba0217 #@#
+#@# GENERATED FILE: DO NOT MODIFY cef25da0f2b30713c69ad3113127d7990d656d10 #@#
 {
   "fakepackagefinder" : {
     "deps" : [ ],
@@ -57,6 +57,7 @@
       "//src/com/facebook/buck/util:exceptions",
       "//src/com/facebook/buck/util:io",
       "//src/com/facebook/buck/util:object_mapper",
+      "//src/com/facebook/buck/util:util",
       "//src/com/facebook/buck/util/cache:cache",
       "//src/com/facebook/buck/util/environment:platform",
       "//src/com/facebook/buck/zip:stream",
@@ -81,6 +82,7 @@
       "//third-party/java/guava:guava",
       "//third-party/java/hamcrest:hamcrest-junit",
       "//third-party/java/hamcrest:java-hamcrest",
+      "//third-party/java/jimfs:jimfs",
       "//third-party/java/jsr:jsr305",
       "//third-party/java/junit:junit"
     ],
