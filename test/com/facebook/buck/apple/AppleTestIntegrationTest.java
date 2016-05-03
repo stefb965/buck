@@ -101,7 +101,7 @@ public class AppleTestIntegrationTest {
 
     Path projectRoot = Paths.get(tmp.getRootPath().toFile().getCanonicalPath());
 
-    BuildTarget appleTestBundleFlavoredBuildTarget = BuildTarget.copyOf(buildTarget)
+    BuildTarget appleTestBundleFlavoredBuildTarget = buildTarget
         .withFlavors(
             ImmutableFlavor.of("iphonesimulator-x86_64"),
             ImmutableFlavor.of("apple-test-bundle"),
@@ -134,7 +134,7 @@ public class AppleTestIntegrationTest {
 
     Path projectRoot = Paths.get(tmp.getRootPath().toFile().getCanonicalPath());
 
-    BuildTarget appleTestBundleFlavoredBuildTarget = BuildTarget.copyOf(buildTarget)
+    BuildTarget appleTestBundleFlavoredBuildTarget = buildTarget
         .withFlavors(
             ImmutableFlavor.of("iphonesimulator-x86_64"),
             ImmutableFlavor.of("apple-test-bundle"),
@@ -217,7 +217,7 @@ public class AppleTestIntegrationTest {
             "%s"));
 
     Path projectRoot = Paths.get(tmp.getRootPath().toFile().getCanonicalPath());
-    BuildTarget appleTestBundleFlavoredBuildTarget = BuildTarget.copyOf(buildTarget)
+    BuildTarget appleTestBundleFlavoredBuildTarget = buildTarget
         .withFlavors(
             ImmutableFlavor.of("apple-test-bundle"),
             AppleDebugFormat.DWARF_AND_DSYM.getFlavor(),

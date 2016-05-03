@@ -364,7 +364,7 @@ public class ProjectCommand extends BuildCommand {
             .resolveTargetSpecs(
                 params.getBuckEventBus(),
                 params.getCell(),
-                getEnableProfiling(),
+                getEnableParserProfiling(),
                 pool.getExecutor(),
                 parseArgumentsAsTargetNodeSpecs(
                     params.getBuckConfig(),
@@ -1057,17 +1057,20 @@ public class ProjectCommand extends BuildCommand {
       ImmutableSet<BuildTarget> passedInTargets,
       boolean needsFullRecursiveParse
   ) throws InterruptedException, BuildFileParseException, BuildTargetException, IOException {
+
     if (needsFullRecursiveParse) {
       return params.getParser()
           .buildTargetGraphForTargetNodeSpecs(
               params.getBuckEventBus(),
               params.getCell(),
-              getEnableProfiling(),
+              getEnableParserProfiling(),
               executor,
               ImmutableList.of(
                   TargetNodePredicateSpec.of(
                       Predicates.<TargetNode<?>>alwaysTrue(),
-                      BuildFileSpec.fromRecursivePath(Paths.get("")))),
+                      BuildFileSpec.fromRecursivePath(
+                          Paths.get(""),
+                          params.getCell().getRoot()))),
               /* ignoreBuckAutodepsFiles */ false)
           .getTargetGraph();
     }
@@ -1076,7 +1079,7 @@ public class ProjectCommand extends BuildCommand {
         .buildTargetGraph(
             params.getBuckEventBus(),
             params.getCell(),
-            getEnableProfiling(),
+            getEnableParserProfiling(),
             executor,
             passedInTargets);
 
@@ -1108,7 +1111,7 @@ public class ProjectCommand extends BuildCommand {
         projectGraph = params.getParser().buildTargetGraph(
             params.getBuckEventBus(),
             params.getCell(),
-            getEnableProfiling(),
+            getEnableParserProfiling(),
             executor,
             Sets.union(graphRoots, explicitTestTargets));
       }

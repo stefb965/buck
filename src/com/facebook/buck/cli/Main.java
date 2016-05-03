@@ -160,6 +160,7 @@ import java.util.TimeZone;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
@@ -198,6 +199,7 @@ public final class Main {
       "buck.path_to_static_content", "webserver/static");
   private static final int DISK_IO_STATS_TIMEOUT_SECONDS = 10;
   private static final int EXECUTOR_SERVICES_TIMEOUT_SECONDS = 60;
+  private static final int COUNTER_AGGREGATOR_SERVICE_TIMEOUT_SECONDS = 20;
 
   private final InputStream stdIn;
   private final PrintStream stdOut;
@@ -643,24 +645,11 @@ public final class Main {
       Path projectRoot,
       Optional<NGContext> context,
       ImmutableMap<String, String> clientEnvironment,
+      boolean setupLogging,
       String... args)
       throws IOException, InterruptedException {
 
-    Verbosity verbosity = VerbosityParser.parse(args);
-    Optional<String> color;
-    if (context.isPresent() && (context.get().getEnv() != null)) {
-      String colorString = context.get().getEnv().getProperty(BUCKD_COLOR_DEFAULT_ENV_VAR);
-      color = Optional.fromNullable(colorString);
-    } else {
-      color = Optional.absent();
-    }
-
-    // We need a BuckConfig to create a Console, but we get BuckConfig from Cell, and we need
-    // a Console to create a Cell. To break this bootstrapping loop, create a temporary
-    // BuckConfig.
-    // TODO(oconnor663): We probably shouldn't rely on BuckConfig to instantiate Console.
-    // Begin ugly bootstrapping code
-
+    // Parse the command line args.
     BuckCommand command = new BuckCommand();
     AdditionalOptionsCmdLineParser cmdLineParser = new AdditionalOptionsCmdLineParser(command);
     try {
@@ -674,6 +663,7 @@ public final class Main {
       return 1;
     }
 
+    // Setup filesystem and buck config.
     Path canonicalRootPath = projectRoot.toRealPath().normalize();
     Config config = Configs.createDefaultConfig(canonicalRootPath, command.getConfigOverrides());
     ProjectFilesystem filesystem = new ProjectFilesystem(canonicalRootPath, config);
@@ -683,8 +673,46 @@ public final class Main {
         architecture,
         platform,
         clientEnvironment);
-    // End ugly bootstrapping code.
 
+    // Setup logging.
+    if (setupLogging) {
+
+      // Reset logging each time we run a command while daemonized.
+      // This will cause us to write a new log per command.
+      if (context.isPresent()) {
+        LOG.debug("Rotating log.");
+        LogConfig.flushLogs();
+        LogConfig.setupLogging();
+      }
+
+      if (LOG.isDebugEnabled()) {
+        Long gitCommitTimestamp = Long.getLong("buck.git_commit_timestamp");
+        String buildDateStr;
+        if (gitCommitTimestamp == null) {
+          buildDateStr = "(unknown)";
+        } else {
+          buildDateStr = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US).format(
+              new Date(TimeUnit.SECONDS.toMillis(gitCommitTimestamp)));
+        }
+        String buildRev = System.getProperty("buck.git_commit", "(unknown)");
+        LOG.debug(
+            "Starting up (build date %s, rev %s), args: %s",
+            buildDateStr,
+            buildRev,
+            Arrays.toString(args));
+        LOG.debug("System properties: %s", System.getProperties());
+      }
+    }
+
+    // Setup the console.
+    Verbosity verbosity = VerbosityParser.parse(args);
+    Optional<String> color;
+    if (context.isPresent() && (context.get().getEnv() != null)) {
+      String colorString = context.get().getEnv().getProperty(BUCKD_COLOR_DEFAULT_ENV_VAR);
+      color = Optional.fromNullable(colorString);
+    } else {
+      color = Optional.absent();
+    }
     final Console console = new Console(
         verbosity,
         stdOut,
@@ -852,7 +880,9 @@ public final class Main {
         ExecutorService diskIoExecutorService = MoreExecutors.newSingleThreadExecutor("Disk I/O");
         ListeningExecutorService httpWriteExecutorService =
             getHttpWriteExecutorService(cacheBuckConfig);
-        VersionControlStatsGenerator vcStatsGenerator = null;
+        ScheduledExecutorService counterAggregatorExecutor =
+            MoreExecutors.newSingleThreadScheduledExecutor("CounterAggregatorThread");
+        VersionControlStatsGenerator vcStatsGenerator;
 
         // Eventually, we'll want to get allow websocket and/or nailgun clients to specify locale
         // when connecting. For now, we'll use the default from the server environment.
@@ -867,33 +897,32 @@ public final class Main {
         // must be the last resource, so that it is closed first and can deliver its queued events
         // to the other resources before they are closed.
         try (ConsoleLogLevelOverrider consoleLogLevelOverrider =
-            new ConsoleLogLevelOverrider(buildId.toString(), verbosity);
+                 new ConsoleLogLevelOverrider(buildId.toString(), verbosity);
              ConsoleHandlerRedirector consoleHandlerRedirector =
-            new ConsoleHandlerRedirector(
-                buildId.toString(),
-                console.getStdErr(),
-                Optional.<OutputStream>of(stdErr));
+                 new ConsoleHandlerRedirector(
+                     buildId.toString(),
+                     console.getStdErr(),
+                     Optional.<OutputStream>of(stdErr));
              AbstractConsoleEventBusListener consoleListener =
-            createConsoleEventListener(
-                clock,
-                new SuperConsoleConfig(buckConfig),
-                console,
-                testConfig.getResultSummaryVerbosity(),
-                executionEnvironment,
-                webServer,
-                locale,
-                BuckConstant.getLogPath().resolve("test.log"));
+                 createConsoleEventListener(
+                     clock,
+                     new SuperConsoleConfig(buckConfig),
+                     console,
+                     testConfig.getResultSummaryVerbosity(),
+                     executionEnvironment,
+                     webServer,
+                     locale,
+                     BuckConstant.getLogPath().resolve("test.log"));
              TempDirectoryCreator tempDirectoryCreator =
                  new TempDirectoryCreator(testTempDirOverride);
              AsyncCloseable asyncCloseable = new AsyncCloseable(diskIoExecutorService);
              BuckEventBus buildEventBus = new BuckEventBus(clock, buildId);
-
-        // NOTE: This will only run during the lifetime of the process and will flush on close.
+             // NOTE: This will only run during the lifetime of the process and will flush on close.
              CounterRegistry counterRegistry = new CounterRegistryImpl(
-                MoreExecutors.newSingleThreadScheduledExecutor("CounterAggregatorThread"),
-                buildEventBus,
-                buckConfig.getCountersFirstFlushIntervalMillis(),
-                buckConfig.getCountersFlushIntervalMillis())) {
+                 counterAggregatorExecutor,
+                 buildEventBus,
+                 buckConfig.getCountersFirstFlushIntervalMillis(),
+                 buckConfig.getCountersFlushIntervalMillis())) {
 
           buildEventBus.register(HANG_MONITOR.getHangMonitor());
 
@@ -1058,6 +1087,10 @@ public final class Main {
           // Wait for HTTP writes to complete.
           closeHttpExecutorService(
               cacheBuckConfig, Optional.of(buildEventBus), httpWriteExecutorService);
+          closeExecutorService(
+              "CounterAggregatorExecutor",
+              counterAggregatorExecutor,
+              COUNTER_AGGREGATOR_SERVICE_TIMEOUT_SECONDS);
           buildEventBus.post(CommandEvent.finished(startedEvent, exitCode));
         } catch (Throwable t) {
           LOG.debug(t, "Failing build on exception.");
@@ -1468,33 +1501,13 @@ public final class Main {
       String... args)
       throws IOException, InterruptedException {
     try {
-
-      // Reset logging each time we run a command while daemonized.
-      // This will cause us to write a new log per command.
-      if (context.isPresent()) {
-        LOG.debug("Rotating log.");
-        LogConfig.flushLogs();
-        LogConfig.setupLogging();
-      }
-
-      if (LOG.isDebugEnabled()) {
-        Long gitCommitTimestamp = Long.getLong("buck.git_commit_timestamp");
-        String buildDateStr;
-        if (gitCommitTimestamp == null) {
-          buildDateStr = "(unknown)";
-        } else {
-          buildDateStr = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US).format(
-              new Date(TimeUnit.SECONDS.toMillis(gitCommitTimestamp)));
-        }
-        String buildRev = System.getProperty("buck.git_commit", "(unknown)");
-        LOG.debug(
-            "Starting up (build date %s, rev %s), args: %s",
-            buildDateStr,
-            buildRev,
-            Arrays.toString(args));
-        LOG.debug("System properties: %s", System.getProperties());
-      }
-      return runMainWithExitCode(buildId, projectRoot, context, clientEnvironment, args);
+      return runMainWithExitCode(
+          buildId,
+          projectRoot,
+          context,
+          clientEnvironment,
+          /* setupLogging */ true,
+          args);
     } catch (HumanReadableException e) {
       Console console = new Console(Verbosity.STANDARD_INFORMATION,
           stdOut,

@@ -25,7 +25,6 @@ import com.facebook.buck.counters.TagSetCounter;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.PerfEventId;
 import com.facebook.buck.event.SimplePerfEvent;
-import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.WatchEvents;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.json.JsonObjectHashing;
@@ -34,7 +33,6 @@ import com.facebook.buck.model.BuckVersion;
 import com.facebook.buck.model.BuildFileTree;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
-import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.model.FilesystemBackedBuildFileTree;
 import com.facebook.buck.model.Flavored;
 import com.facebook.buck.model.UnflavoredBuildTarget;
@@ -46,6 +44,7 @@ import com.facebook.buck.rules.ConstructorArgMarshalException;
 import com.facebook.buck.rules.ConstructorArgMarshaller;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.rules.VisibilityPattern;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.concurrent.AutoCloseableLock;
@@ -369,12 +368,7 @@ class DaemonicParserState implements ParsePipeline.Cache {
       if (description instanceof Flavored) {
         if (!((Flavored) description).hasFlavors(
             ImmutableSet.copyOf(target.getFlavors()))) {
-          throw new HumanReadableException(
-              "Unrecognized flavor in target %s while parsing %s%s.",
-              target,
-              UnflavoredBuildTarget.BUILD_TARGET_PREFIX,
-              MorePaths.pathWithUnixSeparators(
-                  target.getBasePath().resolve(cell.getBuildFileName())));
+          throw UnexpectedFlavorException.createWithSuggestions(cell, target);
         }
       } else {
         LOG.warn(
@@ -416,7 +410,7 @@ class DaemonicParserState implements ParsePipeline.Cache {
     Object constructorArg = description.createUnpopulatedConstructorArg();
     try {
       ImmutableSet.Builder<BuildTarget> declaredDeps = ImmutableSet.builder();
-      ImmutableSet.Builder<BuildTargetPattern> visibilityPatterns =
+      ImmutableSet.Builder<VisibilityPattern> visibilityPatterns =
           ImmutableSet.builder();
       try (SimplePerfEvent.Scope scope = SimplePerfEvent.scope(
           eventBus,

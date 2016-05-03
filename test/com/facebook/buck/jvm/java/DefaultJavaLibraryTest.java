@@ -30,8 +30,8 @@ import com.facebook.buck.android.AndroidLibrary;
 import com.facebook.buck.android.AndroidLibraryBuilder;
 import com.facebook.buck.android.AndroidPlatformTarget;
 import com.facebook.buck.artifact_cache.NoopArtifactCache;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.event.BuckEventBusFactory;
+import com.facebook.buck.io.HashingDeterministicJarWriter;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
@@ -46,6 +46,7 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
@@ -91,6 +92,7 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Ordering;
 import com.google.common.hash.Hashing;
+import com.google.common.io.ByteSource;
 
 import org.easymock.EasyMock;
 import org.hamcrest.Matchers;
@@ -101,12 +103,14 @@ import org.junit.rules.TemporaryFolder;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.zip.ZipOutputStream;
 
 import javax.annotation.Nullable;
 
@@ -146,7 +150,6 @@ public class DefaultJavaLibraryTest {
         new BuildRuleResolver(
             TargetGraph.EMPTY,
             new DefaultTargetNodeToBuildRuleTransformer());
-    ProjectFilesystem projectFilesystem = new ProjectFilesystem(tmp.getRoot().toPath());
     BuildRule libraryRule = AndroidLibraryBuilder
         .createBuilder(buildTarget)
         .addSrc(src)
@@ -155,7 +158,7 @@ public class DefaultJavaLibraryTest {
 
     String bootclasspath = "effects.jar" + File.pathSeparator + "maps.jar" +
         File.pathSeparator + "usb.jar" + File.pathSeparator;
-    BuildContext context = createBuildContext(libraryRule, bootclasspath, projectFilesystem);
+    BuildContext context = createBuildContext(libraryRule, bootclasspath);
 
     List<Step> steps = javaLibrary.getBuildSteps(context, new FakeBuildableContext());
 
@@ -653,11 +656,7 @@ public class DefaultJavaLibraryTest {
         Optional.of(AbstractJavacOptions.SpoolMode.DIRECT_TO_JAR),
         /* postprocessClassesCommands */ ImmutableList.<String>of());
 
-    ProjectFilesystem projectFilesystem = new ProjectFilesystem(tmp.getRoot().toPath());
-    BuildContext buildContext = createBuildContext(
-        javaLibraryBuildRule,
-        /* bootclasspath */ null,
-        projectFilesystem);
+    BuildContext buildContext = createBuildContext(javaLibraryBuildRule, /* bootclasspath */ null);
 
     ImmutableList<Step> steps =
         javaLibraryBuildRule.getBuildSteps(buildContext, new FakeBuildableContext());
@@ -681,11 +680,7 @@ public class DefaultJavaLibraryTest {
         Optional.of(AbstractJavacOptions.SpoolMode.DIRECT_TO_JAR),
         /* postprocessClassesCommands */ ImmutableList.of("process_class_files.py"));
 
-    ProjectFilesystem projectFilesystem = new ProjectFilesystem(tmp.getRoot().toPath());
-    BuildContext buildContext = createBuildContext(
-        javaLibraryBuildRule,
-        /* bootclasspath */ null,
-        projectFilesystem);
+    BuildContext buildContext = createBuildContext(javaLibraryBuildRule, /* bootclasspath */ null);
 
     ImmutableList<Step> steps =
         javaLibraryBuildRule.getBuildSteps(buildContext, new FakeBuildableContext());
@@ -709,11 +704,7 @@ public class DefaultJavaLibraryTest {
         Optional.of(AbstractJavacOptions.SpoolMode.INTERMEDIATE_TO_DISK),
         /* postprocessClassesCommands */ ImmutableList.<String>of());
 
-    ProjectFilesystem projectFilesystem = new ProjectFilesystem(tmp.getRoot().toPath());
-    BuildContext buildContext = createBuildContext(
-        javaLibraryBuildRule,
-        /* bootclasspath */ null,
-        projectFilesystem);
+    BuildContext buildContext = createBuildContext(javaLibraryBuildRule, /* bootclasspath */ null);
 
     ImmutableList<Step> steps =
         javaLibraryBuildRule.getBuildSteps(buildContext, new FakeBuildableContext());
@@ -822,9 +813,11 @@ public class DefaultJavaLibraryTest {
             .addSrc(Paths.get("Source.java"))
             .build(resolver, filesystem);
     filesystem.writeContentsToPath("JAR contents", dep.getPathToOutput());
-    filesystem.writeContentsToPath(
-        "ABI JAR contents",
-        pathResolver.deprecatedGetPath(dep.getAbiJar().get()));
+    writeAbiJar(
+        filesystem,
+        pathResolver.deprecatedGetPath(dep.getAbiJar().get()),
+        "Source.class",
+        "ABI JAR contents");
     JavaLibrary library =
         (JavaLibrary) JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:lib"))
             .addDep(dep.getBuildTarget())
@@ -873,9 +866,11 @@ public class DefaultJavaLibraryTest {
         (JavaLibrary) JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:dep"))
             .addSrc(Paths.get("Source.java"))
             .build(resolver, filesystem);
-    filesystem.writeContentsToPath(
-        "changed ABI JAR contents",
-        pathResolver.deprecatedGetPath(dep.getAbiJar().get()));
+    writeAbiJar(
+        filesystem,
+        pathResolver.deprecatedGetPath(dep.getAbiJar().get()),
+        "Source.class",
+        "changed ABI JAR contents");
     library =
         (JavaLibrary) JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:lib"))
             .addDep(dep.getBuildTarget())
@@ -910,9 +905,11 @@ public class DefaultJavaLibraryTest {
             .addSrc(Paths.get("Source1.java"))
             .build(resolver, filesystem);
     filesystem.writeContentsToPath("JAR contents", exportedDep.getPathToOutput());
-    filesystem.writeContentsToPath(
-        "ABI JAR contents",
-        pathResolver.deprecatedGetPath(exportedDep.getAbiJar().get()));
+    writeAbiJar(
+        filesystem,
+        pathResolver.deprecatedGetPath(exportedDep.getAbiJar().get()),
+        "Source1.class",
+        "ABI JAR contents");
     JavaLibrary dep =
         (JavaLibrary) JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:dep"))
             .addExportedDep(exportedDep.getBuildTarget())
@@ -970,9 +967,11 @@ public class DefaultJavaLibraryTest {
         (JavaLibrary) JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:edep"))
             .addSrc(Paths.get("Source1.java"))
             .build(resolver, filesystem);
-    filesystem.writeContentsToPath(
-        "changed ABI JAR contents",
-        pathResolver.deprecatedGetPath(exportedDep.getAbiJar().get()));
+    writeAbiJar(
+        filesystem,
+        pathResolver.deprecatedGetPath(exportedDep.getAbiJar().get()),
+        "Source1.class",
+        "changed ABI JAR contents");
     dep =
         (JavaLibrary) JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:dep"))
             .addExportedDep(exportedDep.getBuildTarget())
@@ -1011,9 +1010,11 @@ public class DefaultJavaLibraryTest {
             .addSrc(Paths.get("Source1.java"))
             .build(resolver, filesystem);
     filesystem.writeContentsToPath("JAR contents", exportedDep.getPathToOutput());
-    filesystem.writeContentsToPath(
-        "ABI JAR contents",
-        pathResolver.deprecatedGetPath(exportedDep.getAbiJar().get()));
+    writeAbiJar(
+        filesystem,
+        pathResolver.deprecatedGetPath(exportedDep.getAbiJar().get()),
+        "Source1.class",
+        "ABI JAR contents");
     JavaLibrary dep2 =
         (JavaLibrary) JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:dep2"))
             .addExportedDep(exportedDep.getBuildTarget())
@@ -1079,9 +1080,11 @@ public class DefaultJavaLibraryTest {
         (JavaLibrary) JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:edep"))
             .addSrc(Paths.get("Source1.java"))
             .build(resolver, filesystem);
-    filesystem.writeContentsToPath(
-        "changed ABI JAR contents",
-        pathResolver.deprecatedGetPath(exportedDep.getAbiJar().get()));
+    writeAbiJar(
+        filesystem,
+        pathResolver.deprecatedGetPath(exportedDep.getAbiJar().get()),
+        "Source1.class",
+        "changed ABI JAR contents");
     dep2 =
         (JavaLibrary) JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:dep2"))
             .addExportedDep(exportedDep.getBuildTarget())
@@ -1266,10 +1269,20 @@ public class DefaultJavaLibraryTest {
     return (JavaLibrary) rule;
   }
 
+  private void writeAbiJar(
+      ProjectFilesystem filesystem,
+      Path abiJarPath,
+      String fileName,
+      String fileContents) throws IOException {
+    try (HashingDeterministicJarWriter jar = new HashingDeterministicJarWriter(
+        new ZipOutputStream(filesystem.newFileOutputStream(abiJarPath)))) {
+      jar
+        .writeEntry(fileName, ByteSource.wrap(fileContents.getBytes(StandardCharsets.UTF_8)));
+    }
+  }
+
   // test.
-  private BuildContext createBuildContext(BuildRule javaLibrary,
-                                          @Nullable String bootclasspath,
-                                          @Nullable ProjectFilesystem projectFilesystem) {
+  private BuildContext createBuildContext(BuildRule javaLibrary, @Nullable String bootclasspath) {
     AndroidPlatformTarget platformTarget = EasyMock.createMock(AndroidPlatformTarget.class);
     ImmutableList<Path> bootclasspathEntries = (bootclasspath == null)
         ? ImmutableList.of(Paths.get("I am not used"))
@@ -1277,10 +1290,6 @@ public class DefaultJavaLibraryTest {
     expect(platformTarget.getBootclasspathEntries()).andReturn(bootclasspathEntries)
         .anyTimes();
     replay(platformTarget);
-
-    if (projectFilesystem == null) {
-      projectFilesystem = EasyMock.createMock(ProjectFilesystem.class);
-    }
 
     // TODO(bolinfest): Create a utility that populates a BuildContext.Builder with fakes.
     return ImmutableBuildContext.builder()
@@ -1374,7 +1383,7 @@ public class DefaultJavaLibraryTest {
     public ImmutableList<String> buildAndGetCompileParameters() throws IOException {
       ProjectFilesystem projectFilesystem = new ProjectFilesystem(tmp.getRoot().toPath());
       BuildRule javaLibrary = createJavaLibraryRule(projectFilesystem);
-      buildContext = createBuildContext(javaLibrary, /* bootclasspath */ null, projectFilesystem);
+      buildContext = createBuildContext(javaLibrary, /* bootclasspath */ null);
       List<Step> steps = javaLibrary.getBuildSteps(
           buildContext, new FakeBuildableContext());
       JavacStep javacCommand = lastJavacCommand(steps);

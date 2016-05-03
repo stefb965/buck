@@ -91,13 +91,12 @@ public class AutodepsCommand extends AbstractCommand {
             .buildTargetGraphForTargetNodeSpecs(
                 params.getBuckEventBus(),
                 cell,
-                getEnableProfiling(),
+                getEnableParserProfiling(),
                 executorService,
                 ImmutableList.of(
                     TargetNodePredicateSpec.of(
                         Predicates.<TargetNode<?>>alwaysTrue(),
-                        BuildFileSpec.fromRecursivePath(
-                            Paths.get("")))),
+                        BuildFileSpec.fromRecursivePath(Paths.get(""), cell.getRoot()))),
                 /* ignoreBuckAutodepsFiles */ true).getTargetGraph();
       } catch (BuildTargetException | BuildFileParseException e) {
         params.getBuckEventBus().post(ConsoleEvent.severe(

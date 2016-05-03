@@ -364,7 +364,29 @@ public class ParserTest {
     thrown.expect(HumanReadableException.class);
     thrown.expectMessage(
         "Unrecognized flavor in target //java/com/facebook:foo#doesNotExist while parsing " +
-            "//java/com/facebook/BUCK.");
+            "//java/com/facebook/BUCK");
+    parser.buildTargetGraph(
+        eventBus,
+        cell,
+        false,
+        executorService,
+        ImmutableSortedSet.of(flavored));
+  }
+
+  @Test
+  public void shouldThrowAnExceptionWhenAnUnknownFlavorIsSeenAndShowSuggestions()
+      throws BuildFileParseException, BuildTargetException, InterruptedException, IOException {
+    BuildTarget flavored = BuildTarget.builder(cellRoot, "//java/com/facebook", "foo")
+        .addFlavors(ImmutableFlavor.of("android-unknown"))
+        .build();
+
+    thrown.expect(HumanReadableException.class);
+    thrown.expectMessage(
+        "Unrecognized flavor in target //java/com/facebook:foo#android-unknown while parsing " +
+            "//java/com/facebook/BUCK\nHere are some things you can try to get the following " +
+            "flavors to work::\nandroid-unknown : Make sure you have the Android SDK/NDK " +
+            "installed and set up. " +
+            "See https://buckbuild.com/setup/install.html#locate-android-sdk\n");
     parser.buildTargetGraph(
         eventBus,
         cell,
@@ -2010,10 +2032,14 @@ public class ParserTest {
         ImmutableList.of(
             TargetNodePredicateSpec.of(
                 Predicates.alwaysTrue(),
-                BuildFileSpec.fromRecursivePath(Paths.get("bar"))),
+                BuildFileSpec.fromRecursivePath(
+                    Paths.get("bar"),
+                    cell.getRoot())),
             TargetNodePredicateSpec.of(
                 Predicates.alwaysTrue(),
-                BuildFileSpec.fromRecursivePath(Paths.get("foo")))),
+                BuildFileSpec.fromRecursivePath(
+                    Paths.get("foo"),
+                    cell.getRoot()))),
         SpeculativeParsing.of(true),
         Parser.ApplyDefaultFlavorsMode.ENABLED);
   }
@@ -2187,7 +2213,9 @@ public class ParserTest {
                 ImmutableList.of(
                     TargetNodePredicateSpec.of(
                         filter,
-                        BuildFileSpec.fromRecursivePath(Paths.get("")))),
+                        BuildFileSpec.fromRecursivePath(
+                            Paths.get(""),
+                            cell.getRoot()))),
                 /* ignoreBuckAutodepsFiles */ false)
                 .getTargetGraph().getNodes())
         .filter(filter)

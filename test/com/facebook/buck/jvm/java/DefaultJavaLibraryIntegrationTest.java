@@ -317,9 +317,11 @@ public class DefaultJavaLibraryIntegrationTest {
     assertThat(utilRuleKey, not(equalTo(getContents(utilRuleKeyPath))));
     assertThat(utilAbiRuleKey,
         not(equalTo(getContents(utilAbiRuleKeyPath))));
+    workspace.getBuildLog().assertTargetBuiltLocally(utilTarget.toString());
 
     assertThat(bizRuleKey, not(equalTo(getContents(bizRuleKeyPath))));
     assertEquals(bizAbiRuleKey, getContents(bizAbiRuleKeyPath));
+    workspace.getBuildLog().assertTargetHadMatchingDepfileRuleKey(bizTarget.toString());
 
     assertThat(
         "util.jar should have been rewritten, so its file size should have changed.",
@@ -370,7 +372,7 @@ public class DefaultJavaLibraryIntegrationTest {
     // but still rebuild //:main because the code of the annotation processor has changed
     workspace.getBuildLog().assertTargetBuiltLocally("//:util");
     workspace.getBuildLog().assertTargetBuiltLocally("//:main");
-    workspace.getBuildLog().assertTargetHadMatchingInputRuleKey("//:annotation_processor");
+    workspace.getBuildLog().assertTargetHadMatchingDepfileRuleKey("//:annotation_processor");
   }
 
   @Test
@@ -403,6 +405,107 @@ public class DefaultJavaLibraryIntegrationTest {
     workspace.getBuildLog().assertTargetHadMatchingRuleKey("//:util");
     workspace.getBuildLog().assertTargetBuiltLocally("//:main");
     workspace.getBuildLog().assertTargetBuiltLocally("//:annotation_processor");
+  }
+
+  @Test
+  public void testFileChangeThatDoesNotModifyAbiOfAUsedClassAvoidsRebuild() throws IOException {
+    workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "dep_file_rule_key", tmp);
+    workspace.setUp();
+
+    // Run `buck build` to create the dep file
+    BuildTarget bizTarget = BuildTargetFactory.newInstance("//:biz");
+    // Warm the used classes file
+    ProcessResult buildResult =
+        workspace.runBuckCommand("build", bizTarget.getFullyQualifiedName());
+    buildResult.assertSuccess("Successful build should exit with 0.");
+
+    workspace.getBuildLog().assertTargetBuiltLocally("//:biz");
+    workspace.getBuildLog().assertTargetBuiltLocally("//:util");
+
+    // Edit MoreUtil.java in a way that changes its ABI
+    workspace.replaceFileContents("MoreUtil.java", "printHelloWorld", "printHelloWorld2");
+
+    // Run `buck build` again.
+    ProcessResult buildResult2 = workspace.runBuckCommand("build", "//:biz");
+    buildResult2.assertSuccess("Successful build should exit with 0.");
+
+    // If all goes well, we'll fetch //:biz's dep file from the cache and realize we don't need
+    // to rebuild it because //:biz didn't use MoreUtil.
+    workspace.getBuildLog().assertTargetBuiltLocally("//:util");
+    workspace.getBuildLog().assertTargetHadMatchingDepfileRuleKey("//:biz");
+  }
+
+  @Test
+  public void testFileChangeThatDoesNotModifyAbiOfAUsedClassAvoidsRebuildEvenWithBuckClean()
+      throws IOException {
+    workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "dep_file_rule_key", tmp);
+    workspace.setUp();
+    workspace.enableDirCache();
+
+    // Run `buck build` to warm the cache.
+    BuildTarget bizTarget = BuildTargetFactory.newInstance("//:biz");
+    // Warm the used classes file
+    ProcessResult buildResult =
+        workspace.runBuckCommand("build", bizTarget.getFullyQualifiedName());
+    buildResult.assertSuccess("Successful build should exit with 0.");
+
+    workspace.getBuildLog().assertTargetBuiltLocally("//:biz");
+    workspace.getBuildLog().assertTargetBuiltLocally("//:util");
+
+    // Run `buck clean` so that we're forced to fetch the dep file from the cache.
+    ProcessResult cleanResult = workspace.runBuckCommand("clean");
+    cleanResult.assertSuccess("Successful clean should exit with 0.");
+
+    // Edit MoreUtil.java in a way that changes its ABI
+    workspace.replaceFileContents("MoreUtil.java", "printHelloWorld", "printHelloWorld2");
+
+    // Run `buck build` again.
+    ProcessResult buildResult2 = workspace.runBuckCommand("build", "//:biz");
+    buildResult2.assertSuccess("Successful build should exit with 0.");
+
+    // If all goes well, we'll fetch //:biz's dep file from the cache and realize we don't need
+    // to rebuild it because //:biz didn't use MoreUtil.
+    workspace.getBuildLog().assertTargetBuiltLocally("//:util");
+    workspace.getBuildLog().assertTargetWasFetchedFromCacheByManifestMatch("//:biz");
+  }
+
+  // Yes, we actually had the bug against which this test is guarding.
+  @Test
+  public void testAddedSourceFileInvalidatesManifest() throws IOException {
+
+    workspace = TestDataHelper.createProjectWorkspaceForScenario(this, "manifest_key", tmp);
+    workspace.setUp();
+    workspace.enableDirCache();
+
+    // Run `buck build` to warm the cache.
+    BuildTarget mainTarget = BuildTargetFactory.newInstance("//:main");
+    // Warm the used classes file
+    ProcessResult buildResult =
+        workspace.runBuckCommand("build", mainTarget.getFullyQualifiedName());
+    buildResult.assertSuccess("Successful build should exit with 0.");
+
+    workspace.getBuildLog().assertTargetBuiltLocally("//:main");
+
+    // Run `buck clean` so that we're forced to fetch the dep file from the cache.
+    ProcessResult cleanResult = workspace.runBuckCommand("clean");
+    cleanResult.assertSuccess("Successful clean should exit with 0.");
+
+    // Add a new source file
+    workspace.writeContentsToPath(
+        "package com.example; public class NewClass { }",
+        "NewClass.java");
+
+    // Run `buck build` again.
+    ProcessResult buildResult2 = workspace.runBuckCommand(
+        "build",
+        mainTarget.getFullyQualifiedName());
+    buildResult2.assertSuccess("Successful build should exit with 0.");
+
+    // The new source file should result in a different manifest being downloaded and thus a
+    // cache miss.
+    workspace.getBuildLog().assertTargetBuiltLocally("//:main");
   }
 
   @Test
