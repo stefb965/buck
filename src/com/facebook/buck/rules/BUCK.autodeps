@@ -1,5 +1,11 @@
-#@# GENERATED FILE: DO NOT MODIFY c6bca060d07c82d428396b36ba15136ad8b9ddb3 #@#
+#@# GENERATED FILE: DO NOT MODIFY c070e9f7d1a6a811e791255e7e6a3996f14e1586 #@#
 {
+  "Sha1HashCode" : {
+    "deps" : [ ],
+    "exported_deps" : [
+      "//third-party/java/guava:guava"
+    ]
+  },
   "action_graph_cache" : {
     "deps" : [
       "//src/com/facebook/buck/graph:graph",
@@ -45,6 +51,7 @@
       "//src/com/facebook/buck/model:build_id",
       "//src/com/facebook/buck/model:model",
       "//src/com/facebook/buck/parser:rule_pattern",
+      "//src/com/facebook/buck/rules:Sha1HashCode",
       "//src/com/facebook/buck/rules:rule_key",
       "//src/com/facebook/buck/rules/coercer:types",
       "//src/com/facebook/buck/step:step",
