@@ -125,7 +125,7 @@ public class NdkCxxPlatformIntegrationTest {
         Optional.<String>absent(),
         Optional.<String>absent(),
         new DefaultPropertyFinder(projectFilesystem, ImmutableMap.copyOf(System.getenv())));
-    Optional<Path> ndkDir = resolver.findAndroidNdkDir();
+    Optional<Path> ndkDir = resolver.getNdkOrAbsent();
     assertTrue(ndkDir.isPresent());
     assertTrue(java.nio.file.Files.exists(ndkDir.get()));
     return ndkDir.get();
@@ -163,12 +163,13 @@ public class NdkCxxPlatformIntegrationTest {
   @Test
   public void testWorkingDirectoryAndNdkHeaderPathsAreSanitized() throws IOException {
     ProjectWorkspace workspace = setupWorkspace("ndk_debug_paths");
+    ProjectFilesystem filesystem = new ProjectFilesystem(workspace.getDestPath());
     BuildTarget target =
         BuildTargetFactory.newInstance(String.format("//:lib#android-%s,static", arch));
     workspace.runBuckBuild(target.getFullyQualifiedName()).assertSuccess();
     Path lib =
         workspace.getPath(
-            BuildTargets.getGenPath(target, "%s/lib" + target.getShortName() + ".a"));
+            BuildTargets.getGenPath(filesystem, target, "%s/lib" + target.getShortName() + ".a"));
     String contents =
         MorePaths.asByteSource(lib)
             .asCharSource(Charsets.ISO_8859_1)

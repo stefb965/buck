@@ -54,7 +54,6 @@ import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.ImmutableBuildContext;
 import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.RuleKeyBuilderFactory;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePaths;
@@ -72,7 +71,6 @@ import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.timing.DefaultClock;
 import com.facebook.buck.util.Ansi;
-import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ObjectMappers;
@@ -118,8 +116,6 @@ import javax.annotation.Nullable;
 public class DefaultJavaLibraryTest {
   private static final String ANNOTATION_SCENARIO_TARGET =
       "//android/java/src/com/facebook:fb";
-  private static final String ANNOTATION_SCENARIO_GEN_PATH_POSTIX =
-      BuckConstant.getAnnotationDir() + "/android/java/src/com/facebook/__fb_gen__";
 
   @Rule
   public TemporaryFolder tmp = new TemporaryFolder();
@@ -127,13 +123,17 @@ public class DefaultJavaLibraryTest {
 
   @Before
   public void stubOutBuildContext() {
+    ProjectFilesystem filesystem = new ProjectFilesystem(tmp.getRoot().toPath());
     StepRunner stepRunner = createNiceMock(StepRunner.class);
     JavaPackageFinder packageFinder = createNiceMock(JavaPackageFinder.class);
     replay(packageFinder, stepRunner);
 
-    annotationScenarioGenPath = new File(
-        tmp.getRoot(),
-        ANNOTATION_SCENARIO_GEN_PATH_POSTIX).getAbsolutePath();
+    annotationScenarioGenPath =
+        filesystem
+            .resolve(filesystem.getBuckPaths().getAnnotationDir())
+            .resolve("android/java/src/com/facebook/__fb_gen__")
+            .toAbsolutePath()
+            .toString();
   }
 
   /** Make sure that when isAndroidLibrary is true, that the Android bootclasspath is used. */
@@ -303,6 +303,7 @@ public class DefaultJavaLibraryTest {
   public void testGetClasspathEntriesMap() throws Exception {
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     BuildTarget libraryOneTarget = BuildTargetFactory.newInstance("//:libone");
     BuildRule libraryOne = JavaLibraryBuilder.createBuilder(libraryOneTarget)
@@ -327,11 +328,11 @@ public class DefaultJavaLibraryTest {
     assertEquals(
         ImmutableSetMultimap.of(
             getJavaLibrary(libraryOne),
-            root.resolve(DefaultJavaLibrary.getOutputJarPath(libraryOneTarget)),
+            root.resolve(DefaultJavaLibrary.getOutputJarPath(libraryOneTarget, filesystem)),
             getJavaLibrary(libraryTwo),
-            root.resolve(DefaultJavaLibrary.getOutputJarPath(libraryTwoTarget)),
+            root.resolve(DefaultJavaLibrary.getOutputJarPath(libraryTwoTarget, filesystem)),
             getJavaLibrary(parent),
-            root.resolve(DefaultJavaLibrary.getOutputJarPath(parentTarget))),
+            root.resolve(DefaultJavaLibrary.getOutputJarPath(parentTarget, filesystem))),
         ((HasClasspathEntries) parent).getTransitiveClasspathEntries());
   }
 
@@ -486,6 +487,7 @@ public class DefaultJavaLibraryTest {
   public void testExportedDeps() throws Exception {
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     BuildTarget nonIncludedTarget = BuildTargetFactory.newInstance("//:not_included");
     BuildRule notIncluded = JavaLibraryBuilder
@@ -529,23 +531,23 @@ public class DefaultJavaLibraryTest {
             "classpath when compiling itself.",
         ImmutableSetMultimap.of(
             getJavaLibrary(notIncluded),
-            root.resolve(DefaultJavaLibrary.getOutputJarPath(nonIncludedTarget))),
+            root.resolve(DefaultJavaLibrary.getOutputJarPath(nonIncludedTarget, filesystem))),
         getJavaLibrary(notIncluded).getOutputClasspathEntries());
 
     assertEquals(
         ImmutableSetMultimap.of(
             getJavaLibrary(included),
-            root.resolve(DefaultJavaLibrary.getOutputJarPath(includedTarget))),
+            root.resolve(DefaultJavaLibrary.getOutputJarPath(includedTarget, filesystem))),
         getJavaLibrary(included).getOutputClasspathEntries());
 
     assertEquals(
         ImmutableSetMultimap.of(
             getJavaLibrary(included),
-            root.resolve(DefaultJavaLibrary.getOutputJarPath(includedTarget)),
+            root.resolve(DefaultJavaLibrary.getOutputJarPath(includedTarget, filesystem)),
             getJavaLibrary(libraryOne),
-            root.resolve(DefaultJavaLibrary.getOutputJarPath(libraryOneTarget)),
+            root.resolve(DefaultJavaLibrary.getOutputJarPath(libraryOneTarget, filesystem)),
             getJavaLibrary(libraryOne),
-            root.resolve(DefaultJavaLibrary.getOutputJarPath(includedTarget))),
+            root.resolve(DefaultJavaLibrary.getOutputJarPath(includedTarget, filesystem))),
         getJavaLibrary(libraryOne).getOutputClasspathEntries());
 
     assertEquals(
@@ -553,15 +555,15 @@ public class DefaultJavaLibraryTest {
             "both libone.jar and libtwo.jar in its classpath when compiling itself.",
         ImmutableSetMultimap.of(
             getJavaLibrary(libraryOne),
-            root.resolve(DefaultJavaLibrary.getOutputJarPath(libraryOneTarget)),
+            root.resolve(DefaultJavaLibrary.getOutputJarPath(libraryOneTarget, filesystem)),
             getJavaLibrary(libraryOne),
-            root.resolve(DefaultJavaLibrary.getOutputJarPath(includedTarget)),
+            root.resolve(DefaultJavaLibrary.getOutputJarPath(includedTarget, filesystem)),
             getJavaLibrary(libraryTwo),
-            root.resolve(DefaultJavaLibrary.getOutputJarPath(libraryOneTarget)),
+            root.resolve(DefaultJavaLibrary.getOutputJarPath(libraryOneTarget, filesystem)),
             getJavaLibrary(libraryTwo),
-            root.resolve(DefaultJavaLibrary.getOutputJarPath(libraryTwoTarget)),
+            root.resolve(DefaultJavaLibrary.getOutputJarPath(libraryTwoTarget, filesystem)),
             getJavaLibrary(libraryTwo),
-            root.resolve(DefaultJavaLibrary.getOutputJarPath(includedTarget))),
+            root.resolve(DefaultJavaLibrary.getOutputJarPath(includedTarget, filesystem))),
         getJavaLibrary(libraryTwo).getOutputClasspathEntries());
 
     assertEquals(
@@ -570,22 +572,22 @@ public class DefaultJavaLibraryTest {
         ImmutableSetMultimap.<JavaLibrary, Path>builder()
             .put(
                 getJavaLibrary(included),
-                root.resolve(DefaultJavaLibrary.getOutputJarPath(includedTarget)))
+                root.resolve(DefaultJavaLibrary.getOutputJarPath(includedTarget, filesystem)))
             .put(
                 getJavaLibrary(notIncluded),
-                root.resolve(DefaultJavaLibrary.getOutputJarPath(nonIncludedTarget)))
+                root.resolve(DefaultJavaLibrary.getOutputJarPath(nonIncludedTarget, filesystem)))
             .putAll(
                 getJavaLibrary(libraryOne),
-                root.resolve(DefaultJavaLibrary.getOutputJarPath(includedTarget)),
-                root.resolve(DefaultJavaLibrary.getOutputJarPath(libraryOneTarget)))
+                root.resolve(DefaultJavaLibrary.getOutputJarPath(includedTarget, filesystem)),
+                root.resolve(DefaultJavaLibrary.getOutputJarPath(libraryOneTarget, filesystem)))
             .putAll(
                 getJavaLibrary(libraryTwo),
-                root.resolve(DefaultJavaLibrary.getOutputJarPath(includedTarget)),
-                root.resolve(DefaultJavaLibrary.getOutputJarPath(nonIncludedTarget)),
-                root.resolve(DefaultJavaLibrary.getOutputJarPath(libraryOneTarget)),
-                root.resolve(DefaultJavaLibrary.getOutputJarPath(libraryTwoTarget)))
+                root.resolve(DefaultJavaLibrary.getOutputJarPath(includedTarget, filesystem)),
+                root.resolve(DefaultJavaLibrary.getOutputJarPath(nonIncludedTarget, filesystem)),
+                root.resolve(DefaultJavaLibrary.getOutputJarPath(libraryOneTarget, filesystem)),
+                root.resolve(DefaultJavaLibrary.getOutputJarPath(libraryTwoTarget, filesystem)))
             .put(getJavaLibrary(parent),
-                root.resolve(DefaultJavaLibrary.getOutputJarPath(parentTarget)))
+                root.resolve(DefaultJavaLibrary.getOutputJarPath(parentTarget, filesystem)))
             .build(),
         getJavaLibrary(parent).getTransitiveClasspathEntries());
 
@@ -605,7 +607,7 @@ public class DefaultJavaLibraryTest {
             "-classpath when compiling itself.",
         ImmutableSetMultimap.of(
             getJavaLibrary(parent),
-            root.resolve(DefaultJavaLibrary.getOutputJarPath(parentTarget))),
+            root.resolve(DefaultJavaLibrary.getOutputJarPath(parentTarget, filesystem))),
         getJavaLibrary(parent).getOutputClasspathEntries());
   }
 
@@ -740,14 +742,12 @@ public class DefaultJavaLibraryTest {
             .addSrc(new BuildTargetSourcePath(genSrc.getBuildTarget()))
             .build(resolver, filesystem);
     DefaultFileHashCache originalHashCache = new DefaultFileHashCache(filesystem);
-    RuleKeyBuilderFactory originalRuleKeyBuilderFactory =
-        new DefaultRuleKeyBuilderFactory(originalHashCache, pathResolver);
     InputBasedRuleKeyBuilderFactory factory =
         new InputBasedRuleKeyBuilderFactory(
+            0,
             originalHashCache,
-            pathResolver,
-            originalRuleKeyBuilderFactory);
-    RuleKey originalRuleKey = factory.build(library);
+            pathResolver);
+    RuleKey originalRuleKey = factory.build(library).get();
 
     // Now change the genrule such that its rule key changes, but it's output stays the same (since
     // we don't change it).  This should *not* affect the input-based rule key of the consuming
@@ -764,14 +764,12 @@ public class DefaultJavaLibraryTest {
             .addSrc(new BuildTargetSourcePath(genSrc.getBuildTarget()))
             .build(resolver, filesystem);
     DefaultFileHashCache unaffectedHashCache = new DefaultFileHashCache(filesystem);
-    RuleKeyBuilderFactory unaffectedRuleKeyBuilderFactory =
-        new DefaultRuleKeyBuilderFactory(unaffectedHashCache, pathResolver);
     factory =
         new InputBasedRuleKeyBuilderFactory(
+            0,
             unaffectedHashCache,
-            pathResolver,
-            unaffectedRuleKeyBuilderFactory);
-    RuleKey unaffectedRuleKey = factory.build(library);
+            pathResolver);
+    RuleKey unaffectedRuleKey = factory.build(library).get();
     assertThat(originalRuleKey, equalTo(unaffectedRuleKey));
 
     // Now actually modify the source, which should make the input-based rule key change.
@@ -788,14 +786,12 @@ public class DefaultJavaLibraryTest {
             .addSrc(new BuildTargetSourcePath(genSrc.getBuildTarget()))
             .build(resolver, filesystem);
     DefaultFileHashCache affectedHashCache = new DefaultFileHashCache(filesystem);
-    RuleKeyBuilderFactory affectedRuleKeyBuilderFactory =
-        new DefaultRuleKeyBuilderFactory(affectedHashCache, pathResolver);
     factory =
         new InputBasedRuleKeyBuilderFactory(
+            0,
             affectedHashCache,
-            pathResolver,
-            affectedRuleKeyBuilderFactory);
-    RuleKey affectedRuleKey = factory.build(library);
+            pathResolver);
+    RuleKey affectedRuleKey = factory.build(library).get();
     assertThat(originalRuleKey, Matchers.not(equalTo(affectedRuleKey)));
   }
 
@@ -825,14 +821,12 @@ public class DefaultJavaLibraryTest {
             .addDep(dep.getBuildTarget())
             .build(resolver, filesystem);
     DefaultFileHashCache originalHashCache = new DefaultFileHashCache(filesystem);
-    RuleKeyBuilderFactory originalRuleKeyBuilderFactory =
-        new DefaultRuleKeyBuilderFactory(originalHashCache, pathResolver);
     InputBasedRuleKeyBuilderFactory factory =
         new InputBasedRuleKeyBuilderFactory(
+            0,
             originalHashCache,
-            pathResolver,
-            originalRuleKeyBuilderFactory);
-    RuleKey originalRuleKey = factory.build(library);
+            pathResolver);
+    RuleKey originalRuleKey = factory.build(library).get();
 
     // Now change the Java library dependency such that its rule key changes, and change its JAR
     // contents, but keep its ABI JAR the same.  This should *not* affect the input-based rule key
@@ -850,14 +844,12 @@ public class DefaultJavaLibraryTest {
             .addDep(dep.getBuildTarget())
             .build(resolver, filesystem);
     DefaultFileHashCache unaffectedHashCache = new DefaultFileHashCache(filesystem);
-    RuleKeyBuilderFactory unaffectedRuleKeyBuilderFactory =
-        new DefaultRuleKeyBuilderFactory(unaffectedHashCache, pathResolver);
     factory =
         new InputBasedRuleKeyBuilderFactory(
+            0,
             unaffectedHashCache,
-            pathResolver,
-            unaffectedRuleKeyBuilderFactory);
-    RuleKey unaffectedRuleKey = factory.build(library);
+            pathResolver);
+    RuleKey unaffectedRuleKey = factory.build(library).get();
     assertThat(originalRuleKey, equalTo(unaffectedRuleKey));
 
     // Now actually change the Java library dependency's ABI JAR.  This *should* affect the
@@ -878,14 +870,12 @@ public class DefaultJavaLibraryTest {
             .addDep(dep.getBuildTarget())
             .build(resolver, filesystem);
     DefaultFileHashCache affectedHashCache = new DefaultFileHashCache(filesystem);
-    RuleKeyBuilderFactory affectedRuleKeyBuilderFactory =
-        new DefaultRuleKeyBuilderFactory(affectedHashCache, pathResolver);
     factory =
         new InputBasedRuleKeyBuilderFactory(
+            0,
             affectedHashCache,
-            pathResolver,
-            affectedRuleKeyBuilderFactory);
-    RuleKey affectedRuleKey = factory.build(library);
+            pathResolver);
+    RuleKey affectedRuleKey = factory.build(library).get();
     assertThat(originalRuleKey, Matchers.not(equalTo(affectedRuleKey)));
   }
 
@@ -921,14 +911,12 @@ public class DefaultJavaLibraryTest {
             .addDep(dep.getBuildTarget())
             .build(resolver, filesystem);
     DefaultFileHashCache originalHashCache = new DefaultFileHashCache(filesystem);
-    RuleKeyBuilderFactory originalRuleKeyBuilderFactory =
-        new DefaultRuleKeyBuilderFactory(originalHashCache, pathResolver);
     InputBasedRuleKeyBuilderFactory factory =
         new InputBasedRuleKeyBuilderFactory(
+            0,
             originalHashCache,
-            pathResolver,
-            originalRuleKeyBuilderFactory);
-    RuleKey originalRuleKey = factory.build(library);
+            pathResolver);
+    RuleKey originalRuleKey = factory.build(library).get();
 
     // Now change the exported Java library dependency such that its rule key changes, and change
     // its JAR contents, but keep its ABI JAR the same.  This should *not* affect the input-based
@@ -951,14 +939,12 @@ public class DefaultJavaLibraryTest {
             .addDep(dep.getBuildTarget())
             .build(resolver, filesystem);
     DefaultFileHashCache unaffectedHashCache = new DefaultFileHashCache(filesystem);
-    RuleKeyBuilderFactory unaffectedRuleKeyBuilderFactory =
-        new DefaultRuleKeyBuilderFactory(unaffectedHashCache, pathResolver);
     factory =
         new InputBasedRuleKeyBuilderFactory(
+            0,
             unaffectedHashCache,
-            pathResolver,
-            unaffectedRuleKeyBuilderFactory);
-    RuleKey unaffectedRuleKey = factory.build(library);
+            pathResolver);
+    RuleKey unaffectedRuleKey = factory.build(library).get();
     assertThat(originalRuleKey, equalTo(unaffectedRuleKey));
 
     // Now actually change the exproted Java library dependency's ABI JAR.  This *should* affect
@@ -983,14 +969,12 @@ public class DefaultJavaLibraryTest {
             .addDep(dep.getBuildTarget())
             .build(resolver, filesystem);
     DefaultFileHashCache affectedHashCache = new DefaultFileHashCache(filesystem);
-    RuleKeyBuilderFactory affectedRuleKeyBuilderFactory =
-        new DefaultRuleKeyBuilderFactory(affectedHashCache, pathResolver);
     factory =
         new InputBasedRuleKeyBuilderFactory(
+            0,
             affectedHashCache,
-            pathResolver,
-            affectedRuleKeyBuilderFactory);
-    RuleKey affectedRuleKey = factory.build(library);
+            pathResolver);
+    RuleKey affectedRuleKey = factory.build(library).get();
     assertThat(originalRuleKey, Matchers.not(equalTo(affectedRuleKey)));
   }
 
@@ -1030,14 +1014,12 @@ public class DefaultJavaLibraryTest {
             .addDep(dep1.getBuildTarget())
             .build(resolver, filesystem);
     DefaultFileHashCache originalHashCache = new DefaultFileHashCache(filesystem);
-    RuleKeyBuilderFactory originalRuleKeyBuilderFactory =
-        new DefaultRuleKeyBuilderFactory(originalHashCache, pathResolver);
     InputBasedRuleKeyBuilderFactory factory =
         new InputBasedRuleKeyBuilderFactory(
+            0,
             originalHashCache,
-            pathResolver,
-            originalRuleKeyBuilderFactory);
-    RuleKey originalRuleKey = factory.build(library);
+            pathResolver);
+    RuleKey originalRuleKey = factory.build(library).get();
 
     // Now change the exported Java library dependency such that its rule key changes, and change
     // its JAR contents, but keep its ABI JAR the same.  This should *not* affect the input-based
@@ -1064,14 +1046,12 @@ public class DefaultJavaLibraryTest {
             .addDep(dep1.getBuildTarget())
             .build(resolver, filesystem);
     DefaultFileHashCache unaffectedHashCache = new DefaultFileHashCache(filesystem);
-    RuleKeyBuilderFactory unaffectedRuleKeyBuilderFactory =
-        new DefaultRuleKeyBuilderFactory(unaffectedHashCache, pathResolver);
     factory =
         new InputBasedRuleKeyBuilderFactory(
+            0,
             unaffectedHashCache,
-            pathResolver,
-            unaffectedRuleKeyBuilderFactory);
-    RuleKey unaffectedRuleKey = factory.build(library);
+            pathResolver);
+    RuleKey unaffectedRuleKey = factory.build(library).get();
     assertThat(originalRuleKey, equalTo(unaffectedRuleKey));
 
     // Now actually change the exproted Java library dependency's ABI JAR.  This *should* affect
@@ -1100,14 +1080,12 @@ public class DefaultJavaLibraryTest {
             .addDep(dep1.getBuildTarget())
             .build(resolver, filesystem);
     DefaultFileHashCache affectedHashCache = new DefaultFileHashCache(filesystem);
-    RuleKeyBuilderFactory affectedRuleKeyBuilderFactory =
-        new DefaultRuleKeyBuilderFactory(affectedHashCache, pathResolver);
     factory =
         new InputBasedRuleKeyBuilderFactory(
+            0,
             affectedHashCache,
-            pathResolver,
-            affectedRuleKeyBuilderFactory);
-    RuleKey affectedRuleKey = factory.build(library);
+            pathResolver);
+    RuleKey affectedRuleKey = factory.build(library).get();
     assertThat(originalRuleKey, Matchers.not(equalTo(affectedRuleKey)));
   }
 
@@ -1206,12 +1184,14 @@ public class DefaultJavaLibraryTest {
         "becgkaifhjd.txt", "bkhajdifcge.txt", "cabfghjekid.txt", "chkdbafijge.txt")) {
       fileHashes.put(filename, Hashing.sha1().hashString(filename, Charsets.UTF_8).toString());
     }
-    RuleKeyBuilderFactory ruleKeyBuilderFactory1 =
+    DefaultRuleKeyBuilderFactory ruleKeyBuilderFactory1 =
         new DefaultRuleKeyBuilderFactory(
+            0,
             FakeFileHashCache.createFromStrings(fileHashes.build()),
             pathResolver1);
-    RuleKeyBuilderFactory ruleKeyBuilderFactory2 =
+    DefaultRuleKeyBuilderFactory ruleKeyBuilderFactory2 =
         new DefaultRuleKeyBuilderFactory(
+            0,
             FakeFileHashCache.createFromStrings(fileHashes.build()),
             pathResolver2);
 

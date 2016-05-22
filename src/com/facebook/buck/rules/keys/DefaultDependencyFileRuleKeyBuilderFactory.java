@@ -20,7 +20,6 @@ import com.facebook.buck.model.Pair;
 import com.facebook.buck.rules.ArchiveMemberSourcePath;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.RuleKeyBuilderFactory;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.util.cache.FileHashCache;
@@ -45,15 +44,15 @@ public class DefaultDependencyFileRuleKeyBuilderFactory
   private final SourcePathResolver pathResolver;
 
   public DefaultDependencyFileRuleKeyBuilderFactory(
+      int seed,
       FileHashCache fileHashCache,
-      SourcePathResolver pathResolver,
-      RuleKeyBuilderFactory ruleKeyBuilderFactory) {
-    super(fileHashCache, pathResolver, ruleKeyBuilderFactory, InputHandling.IGNORE);
+      SourcePathResolver pathResolver) {
+    super(seed, fileHashCache, pathResolver, InputHandling.IGNORE);
     this.pathResolver = pathResolver;
   }
 
   @Override
-  public Pair<RuleKey, ImmutableSet<SourcePath>> build(
+  public Optional<Pair<RuleKey, ImmutableSet<SourcePath>>> build(
       BuildRule rule,
       Optional<ImmutableSet<SourcePath>> possibleDepFileSourcePaths,
       ImmutableList<DependencyFileEntry> depFileEntries) throws IOException {
@@ -61,7 +60,7 @@ public class DefaultDependencyFileRuleKeyBuilderFactory
   }
 
   @Override
-  public Pair<RuleKey, ImmutableSet<SourcePath>> buildManifestKey(BuildRule rule)
+  public Optional<Pair<RuleKey, ImmutableSet<SourcePath>>> buildManifestKey(BuildRule rule)
       throws IOException {
     SupportsDependencyFileRuleKey depFileSupportingRule = (SupportsDependencyFileRuleKey) rule;
 
@@ -81,7 +80,7 @@ public class DefaultDependencyFileRuleKeyBuilderFactory
      *         appeared in the dep file
      * @throws IOException
      */
-    public Pair<RuleKey, ImmutableSet<SourcePath>> build(
+    public Optional<Pair<RuleKey, ImmutableSet<SourcePath>>> build(
         Optional<ImmutableSet<SourcePath>> possibleDepFileSourcePaths) throws IOException {
       ImmutableSet<SourcePath> inputs = builder.getInputsSoFar();
 
@@ -99,7 +98,12 @@ public class DefaultDependencyFileRuleKeyBuilderFactory
             possibleDepFileSourcePaths.get()));
       }
 
-      return new Pair<>(builder.build(), depFileInputs);
+      Optional<RuleKey> ruleKey = builder.build();
+      if (ruleKey.isPresent()) {
+        return Optional.of(new Pair<>(ruleKey.get(), depFileInputs));
+      } else {
+        return Optional.absent();
+      }
     }
   }
 
@@ -115,7 +119,7 @@ public class DefaultDependencyFileRuleKeyBuilderFactory
       builder = new BuilderWrapper(newInstance(rule));
     }
 
-    public Pair<RuleKey, ImmutableSet<SourcePath>> build(
+    public Optional<Pair<RuleKey, ImmutableSet<SourcePath>>> build(
         Optional<ImmutableSet<SourcePath>> possibleDepFileSourcePaths,
         ImmutableList<DependencyFileEntry> depFileEntries) throws IOException {
 
@@ -127,7 +131,12 @@ public class DefaultDependencyFileRuleKeyBuilderFactory
       builder.addToRuleKey(nonDepFileSourcePaths);
       builder.addToRuleKey(depFileSourcePaths);
 
-      return new Pair<>(builder.build(), ImmutableSet.copyOf(depFileSourcePaths));
+      Optional<RuleKey> ruleKey = builder.build();
+      if (ruleKey.isPresent()) {
+        return Optional.of(new Pair<>(ruleKey.get(), ImmutableSet.copyOf(depFileSourcePaths)));
+      } else {
+        return Optional.absent();
+      }
     }
 
     private ImmutableList<SourcePath> getNonDepFileSourcePaths(
@@ -210,7 +219,7 @@ public class DefaultDependencyFileRuleKeyBuilderFactory
       this.builder = builder;
     }
 
-    public RuleKey build() {
+    public Optional<RuleKey> build() {
       return builder.build();
     }
 

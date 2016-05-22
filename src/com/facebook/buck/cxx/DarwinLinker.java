@@ -21,7 +21,7 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.RuleKeyBuilder;
+import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.Tool;
@@ -44,7 +44,7 @@ import java.util.Set;
 /**
  * A specialization of {@link Linker} containing information specific to the Darwin implementation.
  */
-public class DarwinLinker implements Linker {
+public class DarwinLinker implements Linker, HasLinkerMap {
 
   private final Tool tool;
 
@@ -91,16 +91,27 @@ public class DarwinLinker implements Linker {
   @Override
   public Iterable<Arg> linkerMap(Path output) {
     // Build up the arguments to pass to the linker.
-    ImmutableList.Builder<Arg> argsBuilder = ImmutableList.builder();
+    return StringArg.from(
+        "-Xlinker", "-map", "-Xlinker", linkerMapPath(output).toString());
+  }
 
-    Path linkMapPath = Paths.get(output + "-LinkMap.txt");
-    argsBuilder.addAll(StringArg.from("-Xlinker", "-map", "-Xlinker", linkMapPath.toString()));
-    return argsBuilder.build();
+  @Override
+  public Path linkerMapPath(Path output) {
+    return Paths.get(output + "-LinkMap.txt");
   }
 
   @Override
   public Iterable<String> soname(String arg) {
     return Linkers.iXlinker("-install_name", "@rpath/" + arg);
+  }
+
+  @Override
+  public Iterable<Arg> fileList(Path fileListPath) {
+    return ImmutableList.<Arg>of(
+        new StringArg("-Xlinker"),
+        new StringArg("-filelist"),
+        new StringArg("-Xlinker"),
+        new StringArg(fileListPath.toString()));
   }
 
   @Override
@@ -144,8 +155,8 @@ public class DarwinLinker implements Linker {
   }
 
   @Override
-  public RuleKeyBuilder appendToRuleKey(RuleKeyBuilder builder) {
-    return builder
+  public void appendToRuleKey(RuleKeyObjectSink sink) {
+    sink
         .setReflectively("tool", tool)
         .setReflectively("type", getClass().getSimpleName());
   }
@@ -221,8 +232,8 @@ public class DarwinLinker implements Linker {
     }
 
     @Override
-    public RuleKeyBuilder appendToRuleKey(RuleKeyBuilder builder) {
-      return builder.setReflectively("symbolFiles", symbolFiles);
+    public void appendToRuleKey(RuleKeyObjectSink sink) {
+      sink.setReflectively("symbolFiles", symbolFiles);
     }
 
   }

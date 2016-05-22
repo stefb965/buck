@@ -1,11 +1,10 @@
-#@# GENERATED FILE: DO NOT MODIFY 8b84efa985f6f3c223a7093e95816b26d9b8801e #@#
+#@# GENERATED FILE: DO NOT MODIFY af31503984862d1349c86713eb019cdad0116025 #@#
 {
   "cache_handler" : {
     "deps" : [
       "//src/com/facebook/buck/artifact_cache:binary_protocol",
       "//src/com/facebook/buck/log:api",
-      "//src/com/facebook/buck/rules:rule_key",
-      "//src/com/facebook/buck/util:constants"
+      "//src/com/facebook/buck/rules:rule_key"
     ],
     "exported_deps" : [
       "//src/com/facebook/buck/artifact_cache:artifact_cache",
@@ -22,7 +21,6 @@
       "//src/com/facebook/buck/log:api",
       "//src/com/facebook/buck/parser:parser",
       "//src/com/facebook/buck/rules:rules",
-      "//src/com/facebook/buck/step:step",
       "//src/com/facebook/buck/util:constants",
       "//src/com/facebook/buck/util:exceptions",
       "//third-party/java/gson:gson"

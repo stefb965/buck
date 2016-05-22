@@ -25,8 +25,10 @@ import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
 import com.facebook.buck.cxx.HeaderVisibility;
 import com.facebook.buck.cxx.NativeTestable;
+import com.facebook.buck.cxx.ProvidesLinkedBinaryDeps;
 import com.facebook.buck.file.WriteFile;
 import com.facebook.buck.io.MorePaths;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
@@ -38,6 +40,7 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.Tool;
@@ -65,6 +68,8 @@ import com.google.common.util.concurrent.Futures;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -74,7 +79,7 @@ import java.util.Set;
  */
 public class AppleBundle
     extends AbstractBuildRule
-    implements NativeTestable, BuildRuleWithAppleBundle, BuildRuleWithBinary {
+    implements NativeTestable, BuildRuleWithAppleBundle, BuildRuleWithBinary, HasRuntimeDeps {
 
   private static final Logger LOG = Logger.get(AppleBundle.class);
   private static final String CODE_SIGN_ENTITLEMENTS = "CODE_SIGN_ENTITLEMENTS";
@@ -105,16 +110,7 @@ public class AppleBundle
   private final AppleBundleDestinations destinations;
 
   @AddToRuleKey
-  private final Set<SourcePath> resourceDirs;
-
-  @AddToRuleKey
-  private final Set<SourcePath> resourceFiles;
-
-  @AddToRuleKey
-  private final Set<SourcePath> dirsContainingResourceDirs;
-
-  @AddToRuleKey
-  private final Optional<ImmutableSet<SourcePath>> resourceVariantFiles;
+  private final AppleBundleResources resources;
 
   @AddToRuleKey
   private final Set<SourcePath> frameworks;
@@ -174,11 +170,8 @@ public class AppleBundle
       Optional<BuildRule> unstrippedBinaryRule,
       Optional<AppleDsym> appleDsym,
       AppleBundleDestinations destinations,
-      Set<SourcePath> resourceDirs,
-      Set<SourcePath> resourceFiles,
-      Set<SourcePath> dirsContainingResourceDirs,
+      AppleBundleResources resources,
       ImmutableMap<SourcePath, String> extensionBundlePaths,
-      Optional<ImmutableSet<SourcePath>> resourceVariantFiles,
       Set<SourcePath> frameworks,
       AppleCxxPlatform appleCxxPlatform,
       Optional<AppleAssetCatalog> assetCatalog,
@@ -196,16 +189,14 @@ public class AppleBundle
     this.unstrippedBinaryRule = unstrippedBinaryRule;
     this.appleDsym = appleDsym;
     this.destinations = destinations;
-    this.resourceDirs = resourceDirs;
-    this.resourceFiles = resourceFiles;
-    this.dirsContainingResourceDirs = dirsContainingResourceDirs;
+    this.resources = resources;
     this.extensionBundlePaths = extensionBundlePaths;
-    this.resourceVariantFiles = resourceVariantFiles;
     this.frameworks = frameworks;
     this.ibtool = appleCxxPlatform.getIbtool();
     this.assetCatalog = assetCatalog;
     this.binaryName = getBinaryName(getBuildTarget(), this.productName);
-    this.bundleRoot = getBundleRoot(getBuildTarget(), this.binaryName, this.extension);
+    this.bundleRoot =
+        getBundleRoot(getProjectFilesystem(), getBuildTarget(), this.binaryName, this.extension);
     this.binaryPath = this.destinations.getExecutablesPath()
         .resolve(this.binaryName);
     this.tests = ImmutableSortedSet.copyOf(tests);
@@ -242,9 +233,13 @@ public class AppleBundle
     }
   }
 
-  public static Path getBundleRoot(BuildTarget buildTarget, String binaryName, String extension) {
+  public static Path getBundleRoot(
+      ProjectFilesystem filesystem,
+      BuildTarget buildTarget,
+      String binaryName,
+      String extension) {
     return BuildTargets
-        .getGenPath(buildTarget, "%s")
+        .getGenPath(filesystem, buildTarget, "%s")
         .resolve(binaryName + "." + extension);
   }
 
@@ -294,7 +289,7 @@ public class AppleBundle
 
     Path infoPlistInputPath = getResolver().getAbsolutePath(infoPlist);
     Path infoPlistSubstitutionTempPath =
-        BuildTargets.getScratchPath(getBuildTarget(), "%s.plist");
+        BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s.plist");
     Path infoPlistOutputPath = metadataPath.resolve("Info.plist");
 
     stepsBuilder.add(
@@ -335,9 +330,12 @@ public class AppleBundle
     Path resourcesDestinationPath = bundleRoot.resolve(this.destinations.getResourcesPath());
     if (
         !Iterables.isEmpty(
-            Iterables.concat(resourceDirs, dirsContainingResourceDirs, resourceFiles))) {
+            Iterables.concat(
+                resources.getResourceDirs(),
+                resources.getDirsContainingResourceDirs(),
+                resources.getResourceFiles()))) {
       stepsBuilder.add(new MkdirStep(getProjectFilesystem(), resourcesDestinationPath));
-      for (SourcePath dir : resourceDirs) {
+      for (SourcePath dir : resources.getResourceDirs()) {
         stepsBuilder.add(
             CopyStep.forDirectory(
                 getProjectFilesystem(),
@@ -345,7 +343,7 @@ public class AppleBundle
                 resourcesDestinationPath,
                 CopyStep.DirectoryMode.DIRECTORY_AND_CONTENTS));
       }
-      for (SourcePath dir : dirsContainingResourceDirs) {
+      for (SourcePath dir : resources.getDirsContainingResourceDirs()) {
         stepsBuilder.add(
             CopyStep.forDirectory(
                 getProjectFilesystem(),
@@ -353,7 +351,7 @@ public class AppleBundle
                 resourcesDestinationPath,
                 CopyStep.DirectoryMode.CONTENTS_ONLY));
       }
-      for (SourcePath file : resourceFiles) {
+      for (SourcePath file : resources.getResourceFiles()) {
         // TODO(shs96c): Check that this work cross-cell
         Path resolvedFilePath = getResolver().getRelativePath(file);
         Path destinationPath = resourcesDestinationPath.resolve(resolvedFilePath.getFileName());
@@ -363,26 +361,24 @@ public class AppleBundle
 
     addStepsToCopyExtensionBundlesDependencies(stepsBuilder);
 
-    if (resourceVariantFiles.isPresent()) {
-      for (SourcePath variantSourcePath : resourceVariantFiles.get()) {
-        // TODO(shs96c): Ensure this works cross-cell, as relative path begins with "buck-out"
-        Path variantFilePath = getResolver().getRelativePath(variantSourcePath);
+    for (SourcePath variantSourcePath : resources.getResourceVariantFiles()) {
+      // TODO(shs96c): Ensure this works cross-cell, as relative path begins with "buck-out"
+      Path variantFilePath = getResolver().getRelativePath(variantSourcePath);
 
-        Path variantDirectory = variantFilePath.getParent();
-        if (variantDirectory == null || !variantDirectory.toString().endsWith(".lproj")) {
-          throw new HumanReadableException(
-              "Variant files have to be in a directory with name ending in '.lproj', " +
-                  "but '%s' is not.",
-              variantFilePath);
-        }
-
-        Path bundleVariantDestinationPath =
-            resourcesDestinationPath.resolve(variantDirectory.getFileName());
-        stepsBuilder.add(new MkdirStep(getProjectFilesystem(), bundleVariantDestinationPath));
-
-        Path destinationPath = bundleVariantDestinationPath.resolve(variantFilePath.getFileName());
-        addResourceProcessingSteps(variantFilePath, destinationPath, stepsBuilder);
+      Path variantDirectory = variantFilePath.getParent();
+      if (variantDirectory == null || !variantDirectory.toString().endsWith(".lproj")) {
+        throw new HumanReadableException(
+            "Variant files have to be in a directory with name ending in '.lproj', " +
+                "but '%s' is not.",
+            variantFilePath);
       }
+
+      Path bundleVariantDestinationPath =
+          resourcesDestinationPath.resolve(variantDirectory.getFileName());
+      stepsBuilder.add(new MkdirStep(getProjectFilesystem(), bundleVariantDestinationPath));
+
+      Path destinationPath = bundleVariantDestinationPath.resolve(variantFilePath.getFileName());
+      addResourceProcessingSteps(variantFilePath, destinationPath, stepsBuilder);
     }
 
     if (!frameworks.isEmpty()) {
@@ -428,7 +424,7 @@ public class AppleBundle
       }
 
       final Path signingEntitlementsTempPath =
-          BuildTargets.getScratchPath(getBuildTarget(), "%s.xcent");
+          BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s.xcent");
 
       final ProvisioningProfileCopyStep provisioningProfileCopyStep =
           new ProvisioningProfileCopyStep(
@@ -560,7 +556,9 @@ public class AppleBundle
     stepsBuilder.add(new MoveStep(getProjectFilesystem(), dsymSourcePath, dsymDestinationPath));
 
     String dwarfFilename =
-        AppleDsym.getDwarfFilenameForDsymTarget(appleDsym.get().getBuildTarget());
+        AppleDsym.getDwarfFilenameForDsymTarget(
+            appleDsym.get().getBuildTarget(),
+            appleDsym.get().getProjectFilesystem());
     if (unstrippedBinaryRule.isPresent()) {
       Path unstrippedOutput = unstrippedBinaryRule.get().getPathToOutput();
       Preconditions.checkNotNull(
@@ -676,7 +674,10 @@ public class AppleBundle
       stepsBuilder.add(
           new SwiftStdlibStep(
               getProjectFilesystem().getRootPath(),
-              BuildTargets.getScratchPath(getBuildTarget(), "__swift_temp__%s"),
+              BuildTargets.getScratchPath(
+                  getProjectFilesystem(),
+                  getBuildTarget(),
+                  "__swift_temp__%s"),
               bundleRoot.resolve(Paths.get("Frameworks")),
               swiftStdlibCommand.build(),
               codeSignIdentitySupplier)
@@ -694,7 +695,7 @@ public class AppleBundle
           destinationPath);
 
       Path compiledStoryboardPath =
-          BuildTargets.getScratchPath(getBuildTarget(), "%s.storyboardc");
+          BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s.storyboardc");
       stepsBuilder.add(
           new IbtoolStep(
               getProjectFilesystem(),
@@ -817,5 +818,21 @@ public class AppleBundle
   @Override
   public BuildRule getBinaryBuildRule() {
     return binary.get();
+  }
+
+  @Override
+  public ImmutableSortedSet<BuildRule> getRuntimeDeps() {
+    if (binary.get() instanceof ProvidesLinkedBinaryDeps) {
+      List<BuildRule> linkDeps = new ArrayList<>();
+      linkDeps.addAll(((ProvidesLinkedBinaryDeps) binary.get()).getCompileDeps());
+      linkDeps.addAll(((ProvidesLinkedBinaryDeps) binary.get()).getStaticLibraryDeps());
+      if (linkDeps.size() > 0) {
+        return ImmutableSortedSet.<BuildRule>naturalOrder()
+            .add(binary.get())
+            .addAll(linkDeps)
+            .build();
+      }
+    }
+    return ImmutableSortedSet.of();
   }
 }

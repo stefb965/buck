@@ -32,7 +32,9 @@ import com.facebook.buck.cxx.Linkers;
 import com.facebook.buck.cxx.NativeLinkable;
 import com.facebook.buck.cxx.NativeLinkableInput;
 import com.facebook.buck.cxx.NativeLinkables;
+import com.facebook.buck.file.WriteFile;
 import com.facebook.buck.graph.AbstractBreadthFirstThrowingTraversal;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
@@ -46,24 +48,23 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.RuleKeyBuilder;
+import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.WriteStringTemplateRule;
 import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.Tool;
+import com.facebook.buck.rules.WriteStringTemplateRule;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.PackagedResource;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Function;
+import com.google.common.base.Charsets;
 import com.google.common.base.Optional;
 import com.google.common.base.Predicates;
 import com.google.common.base.Suppliers;
@@ -76,7 +77,9 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
+import com.google.common.io.Resources;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -89,8 +92,9 @@ public class LuaBinaryDescription implements
 
   private static final BuildRuleType TYPE = BuildRuleType.of("lua_binary");
 
-  private static final String STARTER = "starter.lua.in";
-  private static final String NATIVE_STARTER_CXX_SOURCE = "native-starter.cpp.in";
+  private static final String STARTER = "com/facebook/buck/lua/starter.lua.in";
+  private static final String NATIVE_STARTER_CXX_SOURCE =
+      "com/facebook/buck/lua/native-starter.cpp.in";
 
   private final LuaConfig luaConfig;
   private final CxxBuckConfig cxxBuckConfig;
@@ -118,8 +122,19 @@ public class LuaBinaryDescription implements
     return new Arg();
   }
 
-  private Path getOutputPath(BuildTarget target) {
-    return BuildTargets.getGenPath(target, "%s" + luaConfig.getExtension());
+  private Path getOutputPath(BuildTarget target, ProjectFilesystem filesystem) {
+    return BuildTargets.getGenPath(
+        filesystem,
+        target,
+        "%s" + luaConfig.getExtension());
+  }
+
+  private String getNativeStarterCxxSourceTemplate() {
+    try {
+      return Resources.toString(Resources.getResource(NATIVE_STARTER_CXX_SOURCE), Charsets.UTF_8);
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
   }
 
   private CxxSource getNativeStarterCxxSource(
@@ -128,32 +143,50 @@ public class LuaBinaryDescription implements
       SourcePathResolver pathResolver,
       final CxxPlatform cxxPlatform,
       final String mainModule,
-      final Path relativeModulesDir) {
+      final Optional<Path> relativeModulesDir) {
+
+    BuildTarget templateTarget =
+        BuildTarget.builder(baseParams.getBuildTarget())
+            .addFlavors(ImmutableFlavor.of("native-starter-cxx-source-template"))
+            .build();
+    ruleResolver.addToIndex(
+        new WriteFile(
+            baseParams.copyWithChanges(
+                templateTarget,
+                Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
+                Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+            pathResolver,
+            getNativeStarterCxxSourceTemplate(),
+            BuildTargets.getGenPath(
+                baseParams.getProjectFilesystem(),
+                templateTarget,
+                "%s/native-starter.cpp.in"),
+            /* executable */ false));
+
     BuildTarget target =
         BuildTarget.builder(baseParams.getBuildTarget())
             .addFlavors(ImmutableFlavor.of("native-starter-cxx-source"))
             .build();
-    Path output = BuildTargets.getGenPath(target, "%s/native-starter.cpp");
+    Path output =
+        BuildTargets.getGenPath(baseParams.getProjectFilesystem(), target, "%s/native-starter.cpp");
     ruleResolver.addToIndex(
         WriteStringTemplateRule.from(
             baseParams,
             pathResolver,
             target,
             output,
-            new PathSourcePath(
-                baseParams.getProjectFilesystem(),
-                LuaBinaryDescription.class + "/" + NATIVE_STARTER_CXX_SOURCE,
-                new PackagedResource(
-                    baseParams.getProjectFilesystem(),
-                    LuaBinaryDescription.class,
-                    NATIVE_STARTER_CXX_SOURCE)),
+            new BuildTargetSourcePath(templateTarget),
             ImmutableMap.of(
                 "MAIN_MODULE",
                 Escaper.escapeAsPythonString(mainModule),
                 "MODULES_DIR",
-                Escaper.escapeAsPythonString(relativeModulesDir.toString()),
+                relativeModulesDir.isPresent() ?
+                    Escaper.escapeAsPythonString(relativeModulesDir.get().toString()) :
+                    "NULL",
                 "EXT_SUFFIX",
-                Escaper.escapeAsPythonString(cxxPlatform.getSharedLibraryExtension()))));
+                Escaper.escapeAsPythonString(cxxPlatform.getSharedLibraryExtension())),
+            /* executable */ false));
+
     return CxxSource.of(
         CxxSource.Type.CXX,
         new BuildTargetSourcePath(target),
@@ -196,14 +229,15 @@ public class LuaBinaryDescription implements
             luaConfig.getLuaCxxLibrary(ruleResolver));
   }
 
-  private Tool getNativeStarter(
+  private SourcePath getNativeStarter(
       BuildRuleParams baseParams,
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
       CxxPlatform cxxPlatform,
+      Path output,
       Optional<BuildTarget> nativeStarterLibrary,
       String mainModule,
-      Path relativeModulesDir,
+      Optional<Path> relativeModulesDir,
       Optional<Path> relativeNativeLibsDir)
       throws NoSuchBuildTargetException {
     BuildTarget target =
@@ -212,7 +246,6 @@ public class LuaBinaryDescription implements
             .build();
     Iterable<? extends AbstractCxxLibrary> nativeStarterDeps =
         getNativeStarterDeps(ruleResolver, nativeStarterLibrary);
-    Path output = getOutputPath(baseParams.getBuildTarget());
     ImmutableMap<CxxPreprocessAndCompile, SourcePath> objects =
         CxxSourceRuleFactory.requirePreprocessAndCompileRules(
             baseParams,
@@ -273,23 +306,48 @@ public class LuaBinaryDescription implements
                         ImmutableList.<com.facebook.buck.rules.args.Arg>of())
                 .addAllArgs(SourcePathArg.from(pathResolver, objects.values()))
                 .build()));
-    return new CommandTool.Builder()
-        .addArg(new SourcePathArg(pathResolver, new BuildTargetSourcePath(target)))
-        .build();
+    return new BuildTargetSourcePath(target);
   }
 
-  private Tool getPureStarter(
+  private String getPureStarterTemplate() {
+    try {
+      return Resources.toString(Resources.getResource(STARTER), Charsets.UTF_8);
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  private SourcePath getPureStarter(
       BuildRuleParams baseParams,
       BuildRuleResolver ruleResolver,
       final SourcePathResolver pathResolver,
       final CxxPlatform cxxPlatform,
+      Path output,
       final String mainModule,
-      final Path relativeModulesDir) {
+      final Optional<Path> relativeModulesDir) {
+
+    BuildTarget templateTarget =
+        BuildTarget.builder(baseParams.getBuildTarget())
+            .addFlavors(ImmutableFlavor.of("starter-template"))
+            .build();
+    ruleResolver.addToIndex(
+        new WriteFile(
+            baseParams.copyWithChanges(
+                templateTarget,
+                Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
+                Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+            pathResolver,
+            getPureStarterTemplate(),
+            BuildTargets.getGenPath(
+                baseParams.getProjectFilesystem(),
+                templateTarget,
+                "%s/starter.lua.in"),
+            /* executable */ false));
+
     BuildTarget target =
         BuildTarget.builder(baseParams.getBuildTarget())
             .addFlavors(ImmutableFlavor.of("pure-starter"))
             .build();
-    final Path output = getOutputPath(baseParams.getBuildTarget());
     final Tool lua = luaConfig.getLua(ruleResolver);
     ruleResolver.addToIndex(
         WriteStringTemplateRule.from(
@@ -297,25 +355,21 @@ public class LuaBinaryDescription implements
             pathResolver,
             target,
             output,
-            new PathSourcePath(
-                baseParams.getProjectFilesystem(),
-                LuaBinaryDescription.class + "/" + STARTER,
-                new PackagedResource(
-                    baseParams.getProjectFilesystem(),
-                    LuaBinaryDescription.class,
-                    STARTER)),
+            new BuildTargetSourcePath(templateTarget),
             ImmutableMap.of(
                 "SHEBANG",
                 lua.getCommandPrefix(pathResolver).get(0),
                 "MAIN_MODULE",
                 Escaper.escapeAsPythonString(mainModule),
                 "MODULES_DIR",
-                Escaper.escapeAsPythonString(relativeModulesDir.toString()),
+                relativeModulesDir.isPresent() ?
+                    Escaper.escapeAsPythonString(relativeModulesDir.get().toString()) :
+                    "nil",
                 "EXT_SUFFIX",
-                Escaper.escapeAsPythonString(cxxPlatform.getSharedLibraryExtension()))));
-    return new CommandTool.Builder(lua)
-        .addArg(new SourcePathArg(pathResolver, new BuildTargetSourcePath(target)))
-        .build();
+                Escaper.escapeAsPythonString(cxxPlatform.getSharedLibraryExtension())),
+            /* executable */ true));
+
+    return new BuildTargetSourcePath(target);
   }
 
   private StarterType getStarterType(LuaPackageComponents components) {
@@ -323,15 +377,16 @@ public class LuaBinaryDescription implements
         .or(components.getNativeLibraries().isEmpty() ? StarterType.PURE : StarterType.NATIVE);
   }
 
-  private Tool getStarter(
+  private SourcePath getStarter(
       BuildRuleParams baseParams,
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
       CxxPlatform cxxPlatform,
+      Path output,
       StarterType starterType,
       Optional<BuildTarget> nativeStarterLibrary,
       String mainModule,
-      Path relativeModulesDir,
+      Optional<Path> relativeModulesDir,
       Optional<Path> relativeNativeLibsDir)
       throws NoSuchBuildTargetException {
     switch (starterType) {
@@ -346,6 +401,7 @@ public class LuaBinaryDescription implements
             ruleResolver,
             pathResolver,
             cxxPlatform,
+            output,
             mainModule,
             relativeModulesDir);
       case NATIVE:
@@ -354,6 +410,7 @@ public class LuaBinaryDescription implements
             ruleResolver,
             pathResolver,
             cxxPlatform,
+            output,
             nativeStarterLibrary,
             mainModule,
             relativeModulesDir,
@@ -445,7 +502,7 @@ public class LuaBinaryDescription implements
     BuildTarget linkTreeTarget = params.getBuildTarget().withAppendedFlavors(flavor);
     Path linkTreeRoot =
         params.getProjectFilesystem().resolve(
-            BuildTargets.getGenPath(linkTreeTarget, "%s"));
+            BuildTargets.getGenPath(params.getProjectFilesystem(), linkTreeTarget, "%s"));
     return resolver.addToIndex(
         SymlinkTree.from(
             params.copyWithChanges(
@@ -467,7 +524,7 @@ public class LuaBinaryDescription implements
       String mainModule,
       final LuaPackageComponents components)
       throws NoSuchBuildTargetException {
-    Path output = getOutputPath(params.getBuildTarget());
+    Path output = getOutputPath(params.getBuildTarget(), params.getProjectFilesystem());
 
     final SymlinkTree modulesLinkTree =
         resolver.addToIndex(
@@ -476,7 +533,7 @@ public class LuaBinaryDescription implements
                 resolver,
                 pathResolver,
                 ImmutableFlavor.of("modules-link-tree"), components.getModules()));
-    Path relativeModulesLinkTreeRoot =
+    final Path relativeModulesLinkTreeRoot =
         output.getParent().relativize(
             params.getProjectFilesystem().getRootPath().relativize(modulesLinkTree.getRoot()));
 
@@ -498,24 +555,25 @@ public class LuaBinaryDescription implements
                       .relativize(symlinkTree.getRoot())));
     }
 
-    final Tool starter =
+    final SourcePath starter =
         getStarter(
             params,
             resolver,
             pathResolver,
             cxxPlatform,
+            output,
             starterType,
             nativeStarterLibrary,
             mainModule,
-            relativeModulesLinkTreeRoot,
+            Optional.of(relativeModulesLinkTreeRoot),
             relativeNativeLibsLinkTreeRoot);
     return new Tool() {
 
       @Override
       public ImmutableCollection<BuildRule> getDeps(SourcePathResolver resolver) {
         return ImmutableSortedSet.<BuildRule>naturalOrder()
-            .addAll(starter.getDeps(pathResolver))
-            .addAll(components.getDeps(pathResolver))
+            .addAll(pathResolver.filterBuildRuleInputs(starter))
+            .addAll(components.getDeps(resolver))
             .add(modulesLinkTree)
             .addAll(nativeLibsLinktree)
             .build();
@@ -524,14 +582,14 @@ public class LuaBinaryDescription implements
       @Override
       public ImmutableCollection<SourcePath> getInputs() {
         return ImmutableSortedSet.<SourcePath>naturalOrder()
-            .addAll(starter.getInputs())
+            .add(starter)
             .addAll(components.getInputs())
             .build();
       }
 
       @Override
       public ImmutableList<String> getCommandPrefix(SourcePathResolver resolver) {
-        return starter.getCommandPrefix(resolver);
+        return ImmutableList.of(resolver.getAbsolutePath(starter).toString());
       }
 
       @Override
@@ -540,13 +598,114 @@ public class LuaBinaryDescription implements
       }
 
       @Override
-      public RuleKeyBuilder appendToRuleKey(RuleKeyBuilder builder) {
-        return builder
+      public void appendToRuleKey(RuleKeyObjectSink sink) {
+        sink
             .setReflectively("starter", starter)
             .setReflectively("components", components);
       }
 
     };
+  }
+
+  private Tool getStandaloneBinary(
+      BuildRuleParams params,
+      BuildRuleResolver resolver,
+      final SourcePathResolver pathResolver,
+      CxxPlatform cxxPlatform,
+      StarterType starterType,
+      Optional<BuildTarget> nativeStarterLibrary,
+      String mainModule,
+      final LuaPackageComponents components)
+      throws NoSuchBuildTargetException {
+    Path output = getOutputPath(params.getBuildTarget(), params.getProjectFilesystem());
+
+    Optional<SourcePath> nativeStarter = Optional.absent();
+    if (starterType == StarterType.NATIVE) {
+      nativeStarter =
+          Optional.of(
+              getNativeStarter(
+                  params,
+                  resolver,
+                  pathResolver,
+                  cxxPlatform,
+                  BuildTargets.getGenPath(
+                      params.getProjectFilesystem(),
+                      params.getBuildTarget(),
+                      "%s-native-starter"),
+                  nativeStarterLibrary,
+                  mainModule,
+                  Optional.<Path>absent(),
+                  Optional.<Path>absent()));
+    }
+
+    Tool lua = luaConfig.getLua(resolver);
+    Tool packager = luaConfig.getPackager().resolve(resolver);
+
+    LuaStandaloneBinary binary =
+        resolver.addToIndex(
+            new LuaStandaloneBinary(
+                params.copyWithChanges(
+                    params.getBuildTarget().withAppendedFlavors(ImmutableFlavor.of("binary")),
+                    Suppliers.ofInstance(
+                        ImmutableSortedSet.<BuildRule>naturalOrder()
+                            .addAll(pathResolver.filterBuildRuleInputs(nativeStarter.asSet()))
+                            .addAll(components.getDeps(pathResolver))
+                            .addAll(lua.getDeps(pathResolver))
+                            .addAll(packager.getDeps(pathResolver))
+                            .build()),
+                    Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+                pathResolver,
+                packager,
+                ImmutableList.<String>of(),
+                output,
+                nativeStarter,
+                components,
+                mainModule,
+                lua,
+                luaConfig.shouldCacheBinaries()));
+
+    return new CommandTool.Builder()
+        .addArg(new SourcePathArg(pathResolver, new BuildTargetSourcePath(binary.getBuildTarget())))
+        .build();
+  }
+
+  private Tool getBinary(
+      BuildRuleParams params,
+      BuildRuleResolver resolver,
+      final SourcePathResolver pathResolver,
+      CxxPlatform cxxPlatform,
+      StarterType starterType,
+      Optional<BuildTarget> nativeStarterLibrary,
+      String mainModule,
+      final LuaPackageComponents components)
+      throws NoSuchBuildTargetException {
+    switch (luaConfig.getPackageStyle()) {
+      case STANDALONE:
+        return getStandaloneBinary(
+            params,
+            resolver,
+            pathResolver,
+            cxxPlatform,
+            starterType,
+            nativeStarterLibrary,
+            mainModule,
+            components);
+      case INPLACE:
+        return getInPlaceBinary(
+            params,
+            resolver,
+            pathResolver,
+            cxxPlatform,
+            starterType,
+            nativeStarterLibrary,
+            mainModule,
+            components);
+    }
+    throw new IllegalStateException(
+        String.format(
+            "%s: unexpected package style %s",
+            params.getBuildTarget(),
+            luaConfig.getPackageStyle()));
   }
 
   @Override
@@ -570,7 +729,7 @@ public class LuaBinaryDescription implements
               getNativeStarterDeps(resolver, nativeStarterLibrary));
     }
     Tool binary =
-        getInPlaceBinary(
+        getBinary(
             params,
             resolver,
             pathResolver,
@@ -582,7 +741,7 @@ public class LuaBinaryDescription implements
     return new LuaBinary(
         params.appendExtraDeps(binary.getDeps(pathResolver)),
         pathResolver,
-        getOutputPath(params.getBuildTarget()),
+        getOutputPath(params.getBuildTarget(), params.getProjectFilesystem()),
         binary,
         args.mainModule,
         components,
@@ -592,9 +751,14 @@ public class LuaBinaryDescription implements
   @Override
   public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
-      Function<Optional<String>, Path> cellRoots,
+      CellPathResolver cellRoots,
       Arg constructorArg) {
-    return getNativeStarterDepTargets();
+    ImmutableSet.Builder<BuildTarget> targets = ImmutableSet.builder();
+    if (luaConfig.getPackageStyle() == LuaConfig.PackageStyle.STANDALONE) {
+      targets.addAll(luaConfig.getPackager().getParseTimeDeps());
+    }
+    targets.addAll(getNativeStarterDepTargets());
+    return targets.build();
   }
 
   public enum StarterType {

@@ -19,6 +19,7 @@ package com.facebook.buck.rules;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.io.ArchiveMemberPath;
+import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
@@ -40,9 +41,8 @@ public class DefaultRuleKeyLoggerTest {
 
   private static class TestAppendable implements RuleKeyAppendable {
     @Override
-    public RuleKeyBuilder appendToRuleKey(RuleKeyBuilder builder) {
-      builder.setReflectively("appendableKey", "appendableValue");
-      return builder;
+    public void appendToRuleKey(RuleKeyObjectSink sink) {
+      sink.setReflectively("appendableKey", "appendableValue");
     }
   }
 
@@ -88,6 +88,7 @@ public class DefaultRuleKeyLoggerTest {
     assertThat(
         fixture.getLogger().getCurrentLogElements(),
         Matchers.contains(
+            "number(0):", "key(buck.seed):",
             "string(\"//:foo\"):", "key(name):",
             "string(\"test_rule\"):", "key(buck.type):",
             "string(\"N/A\"):", "key(buckVersionUid):"));
@@ -106,13 +107,17 @@ public class DefaultRuleKeyLoggerTest {
 
     fixture.getRuleKeyBuilderFactory().build(fakeRule);
 
+    String expectedPath = "path(" +
+        MorePaths.pathWithPlatformSeparators("foo/bar/path/1") +
+        ":f1134a34c0de):";
     assertThat(
         fixture.getLogger().getCurrentLogElements(),
         Matchers.contains(
+            "number(0):", "key(buck.seed):",
             "string(\"//:foo\"):", "key(name):",
             "string(\"test_rule\"):", "key(buck.type):",
             "string(\"N/A\"):", "key(buckVersionUid):",
-            "path(foo/bar/path/1:f1134a34c0de):", "key(pathField):",
+            expectedPath, "key(pathField):",
             "string(\"testString\"):", "key(stringField):"));
   }
 
@@ -129,13 +134,17 @@ public class DefaultRuleKeyLoggerTest {
 
     fixture.getRuleKeyBuilderFactory().build(fakeRule);
 
+    String expectedArchiveMember = "archiveMember(" +
+        MorePaths.pathWithPlatformSeparators("foo/bar/path/1") +
+        "!/member:f1134a34c0de):";
     assertThat(
         fixture.getLogger().getCurrentLogElements(),
         Matchers.contains(
+            "number(0):", "key(buck.seed):",
             "string(\"//:foo\"):", "key(name):",
             "string(\"test_rule\"):", "key(buck.type):",
             "string(\"N/A\"):", "key(buckVersionUid):",
-            "archiveMember(foo/bar/path/1!/member:f1134a34c0de):", "key(pathField):"));
+            expectedArchiveMember, "key(pathField):"));
 
   }
 
@@ -155,6 +164,7 @@ public class DefaultRuleKeyLoggerTest {
     assertThat(
         fixture.getLogger().getCurrentLogElements(),
         Matchers.contains(
+            "number(0):", "key(buck.seed):",
             "string(\"//:foo\"):", "key(name):",
             "string(\"test_rule\"):", "key(buck.type):",
             "string(\"N/A\"):", "key(buckVersionUid):",
@@ -165,7 +175,7 @@ public class DefaultRuleKeyLoggerTest {
   private class Fixture {
     private SourcePathResolver pathResolver;
     private DefaultRuleKeyLogger logger;
-    private RuleKeyBuilderFactory ruleKeyBuilderFactory;
+    private RuleKeyBuilderFactory<RuleKey> ruleKeyBuilderFactory;
 
     public Fixture() {
       pathResolver = new SourcePathResolver(
@@ -205,10 +215,10 @@ public class DefaultRuleKeyLoggerTest {
         }
       };
       logger = new DefaultRuleKeyLogger();
-      ruleKeyBuilderFactory = new DefaultRuleKeyBuilderFactory(hashCache, pathResolver) {
+      ruleKeyBuilderFactory = new DefaultRuleKeyBuilderFactory(0, hashCache, pathResolver) {
         @Override
-        protected RuleKeyBuilder newBuilder(BuildRule rule) {
-          return new RuleKeyBuilder(pathResolver, hashCache, this, logger);
+        protected RuleKeyBuilder<RuleKey> newBuilder(BuildRule rule) {
+          return new UncachedRuleKeyBuilder(pathResolver, hashCache, this, logger);
         }
       };
     }
@@ -221,7 +231,7 @@ public class DefaultRuleKeyLoggerTest {
       return logger;
     }
 
-    public RuleKeyBuilderFactory getRuleKeyBuilderFactory() {
+    public RuleKeyBuilderFactory<RuleKey> getRuleKeyBuilderFactory() {
       return ruleKeyBuilderFactory;
     }
   }

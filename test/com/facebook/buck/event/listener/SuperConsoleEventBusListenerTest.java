@@ -28,7 +28,6 @@ import com.facebook.buck.artifact_cache.ArtifactCacheEvent;
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.artifact_cache.DirArtifactCacheEvent;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.cli.CommandEvent;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.distributed.DistBuildStatus;
@@ -54,10 +53,10 @@ import com.facebook.buck.rules.BuildRuleKeys;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleStatus;
 import com.facebook.buck.rules.BuildRuleSuccessType;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeRuleKeyBuilderFactory;
 import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.RuleKeyBuilderFactory;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TestRunEvent;
@@ -74,7 +73,6 @@ import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.timing.IncrementingFakeClock;
-import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.environment.DefaultExecutionEnvironment;
 import com.google.common.base.Functions;
@@ -86,7 +84,6 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
-import com.google.common.eventbus.EventBus;
 import com.google.common.hash.HashCode;
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
@@ -144,7 +141,6 @@ public class SuperConsoleEventBusListenerTest {
     );
     Clock fakeClock = new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1));
     BuckEventBus eventBus = BuckEventBusFactory.newInstance(fakeClock);
-    EventBus rawEventBus = BuckEventBusFactory.getEventBusFor(eventBus);
     TestConsole console = new TestConsole();
 
     BuildTarget fakeTarget = BuildTargetFactory.newInstance("//banana:stand");
@@ -177,10 +173,12 @@ public class SuperConsoleEventBusListenerTest {
 
     ProjectBuildFileParseEvents.Started parseEventStarted =
         new ProjectBuildFileParseEvents.Started();
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             parseEventStarted,
-            0L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+            0L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
     validateConsole(console, listener, 0L, ImmutableList.of(
         "[+] PARSING BUCK FILES...0.0s"));
 
@@ -188,39 +186,48 @@ public class SuperConsoleEventBusListenerTest {
         console, listener, 100L, ImmutableList.of(
             "[+] PARSING BUCK FILES...0.1s"));
 
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             new ProjectBuildFileParseEvents.Finished(parseEventStarted),
-            200L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+            200L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
     validateConsole(
         console, listener, 200L, ImmutableList.of(
             "[-] PARSING BUCK FILES...FINISHED 0.2s"));
 
     BuildEvent.Started buildEventStarted = BuildEvent.started(buildArgs);
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             buildEventStarted,
-            200L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+            200L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
     ParseEvent.Started parseStarted = ParseEvent.started(buildTargets);
-    rawEventBus.post(configureTestEventAtTime(
-        parseStarted,
-        200L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            parseStarted,
+            200L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     validateConsole(console, listener, 300L, ImmutableList.of(
         "[+] PROCESSING BUCK FILES...0.1s"));
 
-    rawEventBus.post(
-        configureTestEventAtTime(ParseEvent.finished(parseStarted,
-            Optional.<TargetGraph>absent()),
-            300L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            ParseEvent.finished(parseStarted, Optional.<TargetGraph>absent()),
+            300L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
     ActionGraphEvent.Started actionGraphStarted = ActionGraphEvent.started();
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             actionGraphStarted,
             300L,
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             ActionGraphEvent.finished(actionGraphStarted),
             400L,
@@ -233,9 +240,12 @@ public class SuperConsoleEventBusListenerTest {
         DOWNLOAD_STRING,
         "[+] BUILDING...0.1s"));
 
-    rawEventBus.post(configureTestEventAtTime(
-        BuildRuleEvent.started(fakeRule),
-        600L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            BuildRuleEvent.started(fakeRule),
+            600L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     validateConsole(console, listener, 700L, ImmutableList.of(
         parsingLine,
@@ -245,18 +255,24 @@ public class SuperConsoleEventBusListenerTest {
 
     ArtifactCompressionEvent.Started compressStarted = ArtifactCompressionEvent.started(
         ArtifactCompressionEvent.Operation.COMPRESS, ImmutableSet.<RuleKey>of());
-    rawEventBus.post(configureTestEventAtTime(
-        compressStarted,
-        701L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            compressStarted,
+            701L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     validateConsole(console, listener, 702L, ImmutableList.of(parsingLine,
         DOWNLOAD_STRING,
         "[+] BUILDING...0.3s",
         " |=> //banana:stand...  0.1s (running artifact_compress[0.0s])"));
 
-    rawEventBus.post(configureTestEventAtTime(
-        ArtifactCompressionEvent.finished(compressStarted),
-        703L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            ArtifactCompressionEvent.finished(compressStarted),
+            703L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     validateConsole(console, listener, 704L, ImmutableList.of(parsingLine,
         DOWNLOAD_STRING,
@@ -269,19 +285,26 @@ public class SuperConsoleEventBusListenerTest {
     ArtifactCacheEvent.Started dirFetchStarted = dirArtifactCacheEventFactory
         .newFetchStartedEvent(ImmutableSet.<RuleKey>of());
 
-    rawEventBus.post(configureTestEventAtTime(
-        dirFetchStarted,
-        740L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            dirFetchStarted,
+            740L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     validateConsole(console, listener, 741L, ImmutableList.of(parsingLine,
         DOWNLOAD_STRING,
         "[+] BUILDING...0.3s",
         " |=> //banana:stand...  0.1s (running dir_artifact_fetch[0.0s])"));
 
-    rawEventBus.post(configureTestEventAtTime(
-        dirArtifactCacheEventFactory.newFetchFinishedEvent(
-            dirFetchStarted, CacheResult.hit("dir")),
-        742L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            dirArtifactCacheEventFactory.newFetchFinishedEvent(
+                dirFetchStarted,
+                CacheResult.hit("dir")),
+            742L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     validateConsole(console, listener, 800L, ImmutableList.of(parsingLine,
         DOWNLOAD_STRING,
@@ -293,36 +316,49 @@ public class SuperConsoleEventBusListenerTest {
     UUID stepUuid = UUID.randomUUID();
     StepEvent.Started stepEventStarted =
         StepEvent.started(stepShortName, stepDescription, stepUuid);
-    rawEventBus.post(configureTestEventAtTime(
-        stepEventStarted,
-        800L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            stepEventStarted,
+            800L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     validateConsole(console, listener, 900L, ImmutableList.of(parsingLine,
         DOWNLOAD_STRING,
         "[+] BUILDING...0.5s",
         " |=> //banana:stand...  0.3s (running doing_something[0.1s])"));
 
-    rawEventBus.post(configureTestEventAtTime(StepEvent.finished(stepEventStarted, 0),
-        900L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
-    rawEventBus.post(configureTestEventAtTime(
-        BuildRuleEvent.finished(
-            fakeRule,
-            BuildRuleKeys.of(new RuleKey("aaaa")),
-            BuildRuleStatus.SUCCESS,
-            CacheResult.miss(),
-            Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
-            Optional.<HashCode>absent(),
-            Optional.<Long>absent()),
-        1000L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            StepEvent.finished(stepEventStarted, 0),
+            900L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            BuildRuleEvent.finished(
+                fakeRule,
+                BuildRuleKeys.of(new RuleKey("aaaa")),
+                BuildRuleStatus.SUCCESS,
+                CacheResult.miss(),
+                Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
+                Optional.<HashCode>absent(),
+                Optional.<Long>absent()),
+            1000L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     validateConsole(console, listener, 1000L, ImmutableList.of(parsingLine,
         DOWNLOAD_STRING,
         "[+] BUILDING...0.6s",
         " |=> IDLE"));
 
-    rawEventBus.post(configureTestEventAtTime(
-        BuildRuleEvent.started(cachedRule),
-        1010L, TimeUnit.MILLISECONDS, /* threadId */ 2L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            BuildRuleEvent.started(cachedRule),
+            1010L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 2L));
 
     validateConsole(console, listener, 1100L, ImmutableList.of(parsingLine,
         DOWNLOAD_STRING,
@@ -330,20 +366,26 @@ public class SuperConsoleEventBusListenerTest {
         " |=> IDLE",
         " |=> //chicken:dance...  0.1s (checking local cache)"));
 
-    rawEventBus.post(configureTestEventAtTime(
-        BuildRuleEvent.finished(
-            cachedRule,
-            BuildRuleKeys.of(new RuleKey("aaaa")),
-            BuildRuleStatus.SUCCESS,
-            CacheResult.miss(),
-            Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
-            Optional.<HashCode>absent(),
-            Optional.<Long>absent()),
-        1120L, TimeUnit.MILLISECONDS, /* threadId */ 2L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            BuildRuleEvent.finished(
+                cachedRule,
+                BuildRuleKeys.of(new RuleKey("aaaa")),
+                BuildRuleStatus.SUCCESS,
+                CacheResult.miss(),
+                Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
+                Optional.<HashCode>absent(),
+                Optional.<Long>absent()),
+            1120L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 2L));
 
-    rawEventBus.post(configureTestEventAtTime(
-        BuildEvent.finished(buildEventStarted, 0),
-        1234L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            BuildEvent.finished(buildEventStarted, 0),
+            1234L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     final String buildingLine = "[-] BUILDING...FINISHED 0.8s";
 
@@ -351,9 +393,12 @@ public class SuperConsoleEventBusListenerTest {
         FINISHED_DOWNLOAD_STRING,
         buildingLine));
 
-    rawEventBus.post(configureTestEventAtTime(
-        ConsoleEvent.severe("I've made a huge mistake."),
-        1500L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            ConsoleEvent.severe("I've made a huge mistake."),
+            1500L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     validateConsoleWithLogLines(
         console,
@@ -366,21 +411,27 @@ public class SuperConsoleEventBusListenerTest {
         ImmutableList.of("I've made a huge mistake."));
 
     InstallEvent.Started installEventStarted = InstallEvent.started(fakeTarget);
-    rawEventBus.post(configureTestEventAtTime(
-        installEventStarted,
-        2500L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            installEventStarted,
+            2500L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     validateConsole(console, listener, 3000L, ImmutableList.of(parsingLine,
         FINISHED_DOWNLOAD_STRING,
         buildingLine,
         "[+] INSTALLING...0.5s"));
 
-    rawEventBus.post(configureTestEventAtTime(
-        InstallEvent.finished(
-            installEventStarted,
-            true, Optional.<Long>absent(),
-            Optional.<String>absent()),
-        4000L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            InstallEvent.finished(
+                installEventStarted,
+                true, Optional.<Long>absent(),
+                Optional.<String>absent()),
+            4000L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     final String installingFinished = "[-] INSTALLING...FINISHED 1.5s";
 
@@ -389,11 +440,11 @@ public class SuperConsoleEventBusListenerTest {
         buildingLine,
         installingFinished));
 
-    HttpArtifactCacheEvent.Scheduled storeScheduledOne = postStoreScheduled(
-        rawEventBus, 0L, TARGET_ONE, 6000L);
+    HttpArtifactCacheEvent.Scheduled storeScheduledOne =
+        postStoreScheduled(eventBus, 0L, TARGET_ONE, 6000L);
 
-    HttpArtifactCacheEvent.Scheduled storeScheduledTwo = postStoreScheduled(
-        rawEventBus, 0L, TARGET_TWO, 6010L);
+    HttpArtifactCacheEvent.Scheduled storeScheduledTwo =
+        postStoreScheduled(eventBus, 0L, TARGET_TWO, 6010L);
 
     validateConsole(console, listener, 6011L, ImmutableList.of(parsingLine,
         FINISHED_DOWNLOAD_STRING,
@@ -402,7 +453,7 @@ public class SuperConsoleEventBusListenerTest {
         "[+] HTTP CACHE UPLOAD...0.0s (0 COMPLETE/0 FAILED/0 UPLOADING/2 PENDING)"));
 
     HttpArtifactCacheEvent.Started storeStartedOne =
-        postStoreStarted(rawEventBus, 0, 6015L, storeScheduledOne);
+        postStoreStarted(eventBus, 0, 6015L, storeScheduledOne);
 
     validateConsole(console, listener, 7000, ImmutableList.of(parsingLine,
         FINISHED_DOWNLOAD_STRING,
@@ -410,7 +461,7 @@ public class SuperConsoleEventBusListenerTest {
         installingFinished,
         "[+] HTTP CACHE UPLOAD...1.0s (0 COMPLETE/0 FAILED/1 UPLOADING/1 PENDING)"));
 
-    postStoreFinished(rawEventBus, 0, 7020L, true, storeStartedOne);
+    postStoreFinished(eventBus, 0, 7020L, true, storeStartedOne);
 
     validateConsole(console, listener, 7020, ImmutableList.of(parsingLine,
         FINISHED_DOWNLOAD_STRING,
@@ -419,8 +470,8 @@ public class SuperConsoleEventBusListenerTest {
         "[+] HTTP CACHE UPLOAD...1.0s (1 COMPLETE/0 FAILED/0 UPLOADING/1 PENDING)"));
 
     HttpArtifactCacheEvent.Started storeStartedTwo =
-        postStoreStarted(rawEventBus, 0, 7030L, storeScheduledTwo);
-    postStoreFinished(rawEventBus, 0, 7030L, false, storeStartedTwo);
+        postStoreStarted(eventBus, 0, 7030L, storeScheduledTwo);
+    postStoreFinished(eventBus, 0, 7030L, false, storeStartedTwo);
 
     validateConsole(console, listener, 7040, ImmutableList.of(parsingLine,
         FINISHED_DOWNLOAD_STRING,
@@ -445,7 +496,6 @@ public class SuperConsoleEventBusListenerTest {
     );
     Clock fakeClock = new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1));
     BuckEventBus eventBus = BuckEventBusFactory.newInstance(fakeClock);
-    EventBus rawEventBus = BuckEventBusFactory.getEventBusFor(eventBus);
     TestConsole console = new TestConsole();
 
     BuildTarget fakeTarget = BuildTargetFactory.newInstance("//banana:stand");
@@ -475,7 +525,7 @@ public class SuperConsoleEventBusListenerTest {
             logPath,
             timeZone);
     ProgressEstimator e = new ProgressEstimator(
-        getStorageForTest().getParent().getParent(),
+        getStorageForTest(),
         eventBus,
         ObjectMappers.newDefaultInstance());
     listener.setProgressEstimator(e);
@@ -483,33 +533,40 @@ public class SuperConsoleEventBusListenerTest {
 
     BuildEvent.RuleCountCalculated ruleCountCalculated =
         BuildEvent.ruleCountCalculated(ImmutableSet.<BuildTarget>of(), 10);
-    rawEventBus.post(ruleCountCalculated);
+    eventBus.post(ruleCountCalculated);
 
     BuildEvent.Started buildEventStarted = BuildEvent.started(buildArgs);
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             buildEventStarted,
-            200L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+            200L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
     ParseEvent.Started parseStarted = ParseEvent.started(buildTargets);
-    rawEventBus.post(configureTestEventAtTime(
-        parseStarted,
-        200L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            parseStarted,
+            200L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     validateConsole(console, listener, 300L, ImmutableList.of(
         "[+] PROCESSING BUCK FILES...0.1s"));
 
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(ParseEvent.finished(parseStarted,
             Optional.<TargetGraph>absent()),
-            300L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+            300L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
     ActionGraphEvent.Started actionGraphStarted = ActionGraphEvent.started();
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             actionGraphStarted,
             300L,
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             ActionGraphEvent.finished(actionGraphStarted),
             400L,
@@ -522,9 +579,12 @@ public class SuperConsoleEventBusListenerTest {
         "[+] BUILDING...0.1s" + " [0%] (0/10 JOBS, 0 UPDATED, " +
             "0 [0.0%] CACHE MISS)"));
 
-    rawEventBus.post(configureTestEventAtTime(
-        BuildRuleEvent.started(fakeRule),
-        600L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            BuildRuleEvent.started(fakeRule),
+            600L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     validateConsole(console, listener, 800L, ImmutableList.of(parsingLine,
         DOWNLOAD_STRING,
@@ -537,9 +597,12 @@ public class SuperConsoleEventBusListenerTest {
     UUID stepUuid = UUID.randomUUID();
     StepEvent.Started stepEventStarted =
         StepEvent.started(stepShortName, stepDescription, stepUuid);
-    rawEventBus.post(configureTestEventAtTime(
-        stepEventStarted,
-        800L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            stepEventStarted,
+            800L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     validateConsole(console, listener, 900L, ImmutableList.of(parsingLine,
         DOWNLOAD_STRING,
@@ -547,27 +610,37 @@ public class SuperConsoleEventBusListenerTest {
             "0 [0.0%] CACHE MISS)",
         " |=> //banana:stand...  0.3s (running doing_something[0.1s])"));
 
-    rawEventBus.post(configureTestEventAtTime(StepEvent.finished(stepEventStarted, 0),
-        900L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
-    rawEventBus.post(configureTestEventAtTime(
-        BuildRuleEvent.finished(
-            fakeRule,
-            BuildRuleKeys.of(new RuleKey("aaaa")),
-            BuildRuleStatus.SUCCESS,
-            CacheResult.miss(),
-            Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
-            Optional.<HashCode>absent(),
-            Optional.<Long>absent()),
-        1000L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            StepEvent.finished(stepEventStarted, 0),
+            900L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            BuildRuleEvent.finished(
+                fakeRule,
+                BuildRuleKeys.of(new RuleKey("aaaa")),
+                BuildRuleStatus.SUCCESS,
+                CacheResult.miss(),
+                Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
+                Optional.<HashCode>absent(),
+                Optional.<Long>absent()),
+            1000L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     validateConsole(console, listener, 1000L, ImmutableList.of(parsingLine,
         DOWNLOAD_STRING,
         "[+] BUILDING...0.6s [1%] (1/10 JOBS, 1 UPDATED, 1 [10.0%] CACHE MISS)",
         " |=> IDLE"));
 
-    rawEventBus.post(configureTestEventAtTime(
-        BuildRuleEvent.started(cachedRule),
-        1010L, TimeUnit.MILLISECONDS, /* threadId */ 2L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            BuildRuleEvent.started(cachedRule),
+            1010L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 2L));
 
     validateConsole(console, listener, 1100L, ImmutableList.of(parsingLine,
         DOWNLOAD_STRING,
@@ -575,20 +648,26 @@ public class SuperConsoleEventBusListenerTest {
         " |=> IDLE",
         " |=> //chicken:dance...  0.1s (checking local cache)"));
 
-    rawEventBus.post(configureTestEventAtTime(
-        BuildRuleEvent.finished(
-            cachedRule,
-            BuildRuleKeys.of(new RuleKey("aaaa")),
-            BuildRuleStatus.SUCCESS,
-            CacheResult.miss(),
-            Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
-            Optional.<HashCode>absent(),
-            Optional.<Long>absent()),
-        1120L, TimeUnit.MILLISECONDS, /* threadId */ 2L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            BuildRuleEvent.finished(
+                cachedRule,
+                BuildRuleKeys.of(new RuleKey("aaaa")),
+                BuildRuleStatus.SUCCESS,
+                CacheResult.miss(),
+                Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
+                Optional.<HashCode>absent(),
+                Optional.<Long>absent()),
+            1120L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 2L));
 
-    rawEventBus.post(configureTestEventAtTime(
-        BuildEvent.finished(buildEventStarted, 0),
-        1234L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            BuildEvent.finished(buildEventStarted, 0),
+            1234L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     final String buildingLine = "[-] BUILDING...FINISHED 0.8s" +
         " [100%] (2/10 JOBS, 2 UPDATED, 2 [20.0%] CACHE MISS)";
@@ -602,7 +681,6 @@ public class SuperConsoleEventBusListenerTest {
   public void testSimpleDistBuildWithProgress() throws IOException {
     Clock fakeClock = new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1));
     BuckEventBus eventBus = BuckEventBusFactory.newInstance(fakeClock);
-    EventBus rawEventBus = BuckEventBusFactory.getEventBusFor(eventBus);
     TestConsole console = new TestConsole();
 
     BuildTarget fakeTarget = BuildTargetFactory.newInstance("//banana:stand");
@@ -624,7 +702,7 @@ public class SuperConsoleEventBusListenerTest {
             logPath,
             timeZone);
     ProgressEstimator e = new ProgressEstimator(
-        getStorageForTest().getParent().getParent(),
+        getStorageForTest(),
         eventBus,
         ObjectMappers.newDefaultInstance());
     listener.setProgressEstimator(e);
@@ -632,10 +710,12 @@ public class SuperConsoleEventBusListenerTest {
 
     ProjectBuildFileParseEvents.Started parseEventStarted =
         new ProjectBuildFileParseEvents.Started();
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             parseEventStarted,
-            0L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+            0L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
     validateConsole(console, listener, 0L, ImmutableList.of(
         "[+] PARSING BUCK FILES...0.0s"));
 
@@ -643,40 +723,49 @@ public class SuperConsoleEventBusListenerTest {
         console, listener, 100L, ImmutableList.of(
             "[+] PARSING BUCK FILES...0.1s"));
 
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             new ProjectBuildFileParseEvents.Finished(parseEventStarted),
-            200L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+            200L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
     validateConsole(
         console, listener, 200L, ImmutableList.of(
             "[-] PARSING BUCK FILES...FINISHED 0.2s"));
 
     // trigger a distributed build instead of a local build
     BuildEvent.Started buildEventStarted = BuildEvent.started(buildArgs, true);
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             buildEventStarted,
-            200L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+            200L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
     ParseEvent.Started parseStarted = ParseEvent.started(buildTargets);
-    rawEventBus.post(configureTestEventAtTime(
-        parseStarted,
-        200L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            parseStarted,
+            200L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     validateConsole(console, listener, 300L, ImmutableList.of(
         "[+] PROCESSING BUCK FILES...0.1s"));
 
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(ParseEvent.finished(parseStarted,
             Optional.<TargetGraph>absent()),
-            300L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+            300L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
     ActionGraphEvent.Started actionGraphStarted = ActionGraphEvent.started();
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             actionGraphStarted,
             300L,
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             ActionGraphEvent.finished(actionGraphStarted),
             400L,
@@ -690,15 +779,18 @@ public class SuperConsoleEventBusListenerTest {
         "[+] DISTBUILD STATUS: INIT...",
         "[+] BUILDING...0.1s [0%]"));
 
-    rawEventBus.post(configureTestEventAtTime(
-        new DistBuildStatusEvent(
-          DistBuildStatus.builder()
-            .setStatus(BuildStatus.QUEUED)
-            .setMessage("step 1")
-            .setETAMillis(2000)
-            .setLogBook(Optional.<List<LogRecord>>absent())
-            .build()
-        ), 800L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            new DistBuildStatusEvent(
+                DistBuildStatus.builder()
+                    .setStatus(BuildStatus.QUEUED)
+                    .setMessage("step 1")
+                    .setETAMillis(2000)
+                    .setLogBook(Optional.<List<LogRecord>>absent())
+                    .build()),
+            800L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     validateConsole(console, listener, 900L, ImmutableList.of(
         parsingLine,
@@ -715,15 +807,18 @@ public class SuperConsoleEventBusListenerTest {
     final String distDebugLine = "Distributed build debug info:";
     final String logLine1 = "[1970-01-01 00:00:00.000] buck-client";
 
-    rawEventBus.post(configureTestEventAtTime(
-        new DistBuildStatusEvent(
-            DistBuildStatus.builder()
-                .setStatus(BuildStatus.BUILDING)
-                .setMessage("step 2")
-                .setETAMillis(1800)
-                .setLogBook(debugLogs)
-                .build()
-        ), 1000L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            new DistBuildStatusEvent(
+                DistBuildStatus.builder()
+                    .setStatus(BuildStatus.BUILDING)
+                    .setMessage("step 2")
+                    .setETAMillis(1800)
+                    .setLogBook(debugLogs)
+                    .build()),
+            1000L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     validateConsole(console, listener, 1100L, ImmutableList.of(
         distDebugLine,
@@ -740,15 +835,18 @@ public class SuperConsoleEventBusListenerTest {
     debugLogs.add(log);
     final String logLine2 = "[1970-01-01 00:00:00.100] buck-frontend";
 
-    rawEventBus.post(configureTestEventAtTime(
-        new DistBuildStatusEvent(
-            DistBuildStatus.builder()
-                .setStatus(BuildStatus.BUILDING)
-                .setMessage("step 2")
-                .setETAMillis(1600)
-                .setLogBook(debugLogs)
-                .build()
-        ), 1200L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            new DistBuildStatusEvent(
+                DistBuildStatus.builder()
+                    .setStatus(BuildStatus.BUILDING)
+                    .setMessage("step 2")
+                    .setETAMillis(1600)
+                    .setLogBook(debugLogs)
+                    .build()),
+            1200L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     validateConsole(console, listener, 1300L, ImmutableList.of(
         distDebugLine,
@@ -772,15 +870,18 @@ public class SuperConsoleEventBusListenerTest {
     debugLogs.add(log);
     final String logLine4 = "[1970-01-01 00:00:00.300] build_slave_end";
 
-    rawEventBus.post(configureTestEventAtTime(
-        new DistBuildStatusEvent(
-            DistBuildStatus.builder()
-                .setStatus(BuildStatus.FINISHED_SUCCESSFULLY)
-                .setMessage("step 3")
-                .setETAMillis(0)
-                .setLogBook(debugLogs)
-                .build()
-        ), 1400L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            new DistBuildStatusEvent(
+                DistBuildStatus.builder()
+                    .setStatus(BuildStatus.FINISHED_SUCCESSFULLY)
+                    .setMessage("step 3")
+                    .setETAMillis(0)
+                    .setLogBook(debugLogs)
+                    .build()),
+            1400L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     final String distbuildLine = "[-] DISTBUILD STATUS: FINISHED_SUCCESSFULLY... (step 3)";
     validateConsole(console, listener, 1500L, ImmutableList.of(
@@ -794,9 +895,12 @@ public class SuperConsoleEventBusListenerTest {
         distbuildLine,
         "[+] BUILDING...1.1s [100%]"));
 
-    rawEventBus.post(configureTestEventAtTime(
-        BuildEvent.finished(buildEventStarted, 0),
-        1600L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            BuildEvent.finished(buildEventStarted, 0),
+            1600L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     final String buildingLine = "[-] BUILDING...FINISHED 1.2s [100%]";
 
@@ -811,9 +915,12 @@ public class SuperConsoleEventBusListenerTest {
         distbuildLine,
         buildingLine));
 
-    rawEventBus.post(configureTestEventAtTime(
-        ConsoleEvent.severe("I've made a huge mistake."),
-        1700L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            ConsoleEvent.severe("I've made a huge mistake."),
+            1700L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     validateConsoleWithLogLines(
         console,
@@ -839,7 +946,6 @@ public class SuperConsoleEventBusListenerTest {
     );
     Clock fakeClock = new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1));
     BuckEventBus eventBus = BuckEventBusFactory.newInstance(fakeClock);
-    EventBus rawEventBus = BuckEventBusFactory.getEventBusFor(eventBus);
     TestConsole console = new TestConsole();
 
     BuildTarget testTarget = BuildTargetFactory.newInstance("//:test");
@@ -867,10 +973,12 @@ public class SuperConsoleEventBusListenerTest {
 
     ProjectBuildFileParseEvents.Started parseEventStarted =
         new ProjectBuildFileParseEvents.Started();
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             parseEventStarted,
-            0L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+            0L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
     validateConsole(console, listener, 0L, ImmutableList.of(
         "[+] PARSING BUCK FILES...0.0s"));
 
@@ -878,39 +986,48 @@ public class SuperConsoleEventBusListenerTest {
         console, listener, 100L, ImmutableList.of(
             "[+] PARSING BUCK FILES...0.1s"));
 
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             new ProjectBuildFileParseEvents.Finished(parseEventStarted),
-            200L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+            200L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
     validateConsole(
         console, listener, 200L, ImmutableList.of(
             "[-] PARSING BUCK FILES...FINISHED 0.2s"));
 
     BuildEvent.Started buildEventStarted = BuildEvent.started(testArgs);
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             buildEventStarted,
-            200L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+            200L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
     ParseEvent.Started parseStarted = ParseEvent.started(testTargets);
-    rawEventBus.post(configureTestEventAtTime(
-        parseStarted,
-        200L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            parseStarted,
+            200L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     validateConsole(console, listener, 300L, ImmutableList.of(
         "[+] PROCESSING BUCK FILES...0.1s"));
 
-    rawEventBus.post(
-        configureTestEventAtTime(ParseEvent.finished(parseStarted,
-            Optional.<TargetGraph>absent()),
-            300L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            ParseEvent.finished(parseStarted, Optional.<TargetGraph>absent()),
+            300L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
     ActionGraphEvent.Started actionGraphStarted = ActionGraphEvent.started();
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             actionGraphStarted,
             300L,
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             ActionGraphEvent.finished(actionGraphStarted),
             400L,
@@ -923,9 +1040,12 @@ public class SuperConsoleEventBusListenerTest {
         DOWNLOAD_STRING,
         "[+] BUILDING...0.1s"));
 
-    rawEventBus.post(configureTestEventAtTime(
-        BuildRuleEvent.started(testBuildRule),
-        600L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            BuildRuleEvent.started(testBuildRule),
+            600L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
 
     validateConsole(console, listener, 800L, ImmutableList.of(parsingLine,
@@ -933,7 +1053,7 @@ public class SuperConsoleEventBusListenerTest {
         "[+] BUILDING...0.4s",
         " |=> //:test...  0.2s (checking local cache)"));
 
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             BuildRuleEvent.finished(
                 testBuildRule,
@@ -947,9 +1067,12 @@ public class SuperConsoleEventBusListenerTest {
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
 
-    rawEventBus.post(configureTestEventAtTime(
-        BuildEvent.finished(buildEventStarted, 0),
-        1234L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            BuildEvent.finished(buildEventStarted, 0),
+            1234L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     final String buildingLine = "[-] BUILDING...FINISHED 0.8s";
 
@@ -957,7 +1080,7 @@ public class SuperConsoleEventBusListenerTest {
         FINISHED_DOWNLOAD_STRING,
         buildingLine));
 
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             TestRunEvent.started(
                 true, // isRunAllTests
@@ -978,7 +1101,7 @@ public class SuperConsoleEventBusListenerTest {
             buildingLine,
             "[+] TESTING...0.5s"));
 
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             TestRuleEvent.started(testTarget),
             3100L,
@@ -1001,7 +1124,7 @@ public class SuperConsoleEventBusListenerTest {
         "step_name",
         "step_desc",
         stepUuid);
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             stepEventStarted,
             3300L,
@@ -1019,7 +1142,7 @@ public class SuperConsoleEventBusListenerTest {
             "[+] TESTING...0.9s",
             " |=> //:test...  0.3s (running step_name[0.1s])"));
 
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             StepEvent.finished(stepEventStarted, 0),
             3500L,
@@ -1039,7 +1162,7 @@ public class SuperConsoleEventBusListenerTest {
 
     UUID testUUID = new UUID(2, 3);
 
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             TestSummaryEvent.started(testUUID, "TestClass", "Foo"),
             3700L,
@@ -1067,7 +1190,7 @@ public class SuperConsoleEventBusListenerTest {
             null, // stacktrace
             null, // stdOut
             null); // stdErr
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             TestSummaryEvent.finished(
                 testUUID,
@@ -1087,7 +1210,7 @@ public class SuperConsoleEventBusListenerTest {
             "[+] TESTING...1.5s (1 PASS/0 FAIL)",
             " |=> //:test...  0.9s"));
 
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             TestRunEvent.finished(
                 ImmutableSet.copyOf(testArgs),
@@ -1134,7 +1257,6 @@ public class SuperConsoleEventBusListenerTest {
     );
     Clock fakeClock = new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1));
     BuckEventBus eventBus = BuckEventBusFactory.newInstance(fakeClock);
-    EventBus rawEventBus = BuckEventBusFactory.getEventBusFor(eventBus);
     TestConsole console = new TestConsole();
 
     BuildTarget testTarget = BuildTargetFactory.newInstance("//:test");
@@ -1162,10 +1284,12 @@ public class SuperConsoleEventBusListenerTest {
 
     ProjectBuildFileParseEvents.Started parseEventStarted =
         new ProjectBuildFileParseEvents.Started();
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             parseEventStarted,
-            0L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+            0L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
     validateConsole(console, listener, 0L, ImmutableList.of(
         "[+] PARSING BUCK FILES...0.0s"));
 
@@ -1173,39 +1297,48 @@ public class SuperConsoleEventBusListenerTest {
         console, listener, 100L, ImmutableList.of(
             "[+] PARSING BUCK FILES...0.1s"));
 
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             new ProjectBuildFileParseEvents.Finished(parseEventStarted),
-            200L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+            200L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
     validateConsole(
         console, listener, 200L, ImmutableList.of(
             "[-] PARSING BUCK FILES...FINISHED 0.2s"));
 
     BuildEvent.Started buildEventStarted = BuildEvent.started(testArgs);
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             buildEventStarted,
-            200L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+            200L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
     ParseEvent.Started parseStarted = ParseEvent.started(testTargets);
-    rawEventBus.post(configureTestEventAtTime(
-        parseStarted,
-        200L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            parseStarted,
+            200L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     validateConsole(console, listener, 300L, ImmutableList.of(
         "[+] PROCESSING BUCK FILES...0.1s"));
 
-    rawEventBus.post(
-        configureTestEventAtTime(ParseEvent.finished(parseStarted,
-            Optional.<TargetGraph>absent()),
-            300L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            ParseEvent.finished(parseStarted, Optional.<TargetGraph>absent()),
+            300L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
     ActionGraphEvent.Started actionGraphStarted = ActionGraphEvent.started();
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             actionGraphStarted,
             300L,
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             ActionGraphEvent.finished(actionGraphStarted),
             400L,
@@ -1218,9 +1351,12 @@ public class SuperConsoleEventBusListenerTest {
         DOWNLOAD_STRING,
         "[+] BUILDING...0.1s"));
 
-    rawEventBus.post(configureTestEventAtTime(
-        BuildRuleEvent.started(testBuildRule),
-        600L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            BuildRuleEvent.started(testBuildRule),
+            600L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
 
     validateConsole(console, listener, 800L, ImmutableList.of(parsingLine,
@@ -1228,20 +1364,26 @@ public class SuperConsoleEventBusListenerTest {
         "[+] BUILDING...0.4s",
         " |=> //:test...  0.2s (checking local cache)"));
 
-    rawEventBus.post(configureTestEventAtTime(
-        BuildRuleEvent.finished(
-            testBuildRule,
-            BuildRuleKeys.of(new RuleKey("aaaa")),
-            BuildRuleStatus.SUCCESS,
-            CacheResult.miss(),
-            Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
-            Optional.<HashCode>absent(),
-            Optional.<Long>absent()),
-        1000L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            BuildRuleEvent.finished(
+                testBuildRule,
+                BuildRuleKeys.of(new RuleKey("aaaa")),
+                BuildRuleStatus.SUCCESS,
+                CacheResult.miss(),
+                Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
+                Optional.<HashCode>absent(),
+                Optional.<Long>absent()),
+            1000L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
-    rawEventBus.post(configureTestEventAtTime(
-        BuildEvent.finished(buildEventStarted, 0),
-        1234L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            BuildEvent.finished(buildEventStarted, 0),
+            1234L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     final String buildingLine = "[-] BUILDING...FINISHED 0.8s";
 
@@ -1249,7 +1391,7 @@ public class SuperConsoleEventBusListenerTest {
         FINISHED_DOWNLOAD_STRING,
         buildingLine));
 
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             TestRunEvent.started(
                 true, // isRunAllTests
@@ -1270,7 +1412,7 @@ public class SuperConsoleEventBusListenerTest {
             buildingLine,
             "[+] TESTING...0.5s"));
 
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             TestRuleEvent.started(testTarget),
             3100L,
@@ -1293,7 +1435,7 @@ public class SuperConsoleEventBusListenerTest {
         "step_name",
         "step_desc",
         stepUuid);
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             stepEventStarted,
             3300L,
@@ -1311,7 +1453,7 @@ public class SuperConsoleEventBusListenerTest {
             "[+] TESTING...0.9s",
             " |=> //:test...  0.3s (running step_name[0.1s])"));
 
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             StepEvent.finished(stepEventStarted, 0),
             3500L,
@@ -1331,7 +1473,7 @@ public class SuperConsoleEventBusListenerTest {
 
     UUID testUUID = new UUID(2, 3);
 
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             TestSummaryEvent.started(testUUID, "TestClass", "Foo"),
             3700L,
@@ -1359,11 +1501,9 @@ public class SuperConsoleEventBusListenerTest {
             null, // stacktrace
             null, // stdOut
             null); // stdErr
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
-            TestSummaryEvent.finished(
-                testUUID,
-                testResultSummary),
+            TestSummaryEvent.finished(testUUID, testResultSummary),
             3900L,
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
@@ -1379,7 +1519,7 @@ public class SuperConsoleEventBusListenerTest {
             "[+] TESTING...1.5s (0 PASS/1 SKIP/0 FAIL)",
             " |=> //:test...  0.9s"));
 
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             TestRunEvent.finished(
                 ImmutableSet.copyOf(testArgs),
@@ -1387,10 +1527,7 @@ public class SuperConsoleEventBusListenerTest {
                     TestResults.of(
                         testTarget,
                         ImmutableList.of(
-                            new TestCaseSummary(
-                                "TestClass",
-                                ImmutableList.of(
-                                    testResultSummary))),
+                            new TestCaseSummary("TestClass", ImmutableList.of(testResultSummary))),
                         ImmutableSet.<String>of(), // contacts
                         ImmutableSet.<String>of()))), // labels
             4100L,
@@ -1426,7 +1563,6 @@ public class SuperConsoleEventBusListenerTest {
     );
     Clock fakeClock = new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1));
     BuckEventBus eventBus = BuckEventBusFactory.newInstance(fakeClock);
-    EventBus rawEventBus = BuckEventBusFactory.getEventBusFor(eventBus);
     TestConsole console = new TestConsole();
 
     BuildTarget testTarget = BuildTargetFactory.newInstance("//:test");
@@ -1454,10 +1590,12 @@ public class SuperConsoleEventBusListenerTest {
 
     ProjectBuildFileParseEvents.Started parseEventStarted =
         new ProjectBuildFileParseEvents.Started();
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             parseEventStarted,
-            0L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+            0L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
     validateConsole(console, listener, 0L, ImmutableList.of(
         "[+] PARSING BUCK FILES...0.0s"));
 
@@ -1465,39 +1603,48 @@ public class SuperConsoleEventBusListenerTest {
         console, listener, 100L, ImmutableList.of(
             "[+] PARSING BUCK FILES...0.1s"));
 
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             new ProjectBuildFileParseEvents.Finished(parseEventStarted),
-            200L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+            200L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
     validateConsole(
         console, listener, 200L, ImmutableList.of(
             "[-] PARSING BUCK FILES...FINISHED 0.2s"));
 
     BuildEvent.Started buildEventStarted = BuildEvent.started(testArgs);
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             buildEventStarted,
-            200L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+            200L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
     ParseEvent.Started parseStarted = ParseEvent.started(testTargets);
-    rawEventBus.post(configureTestEventAtTime(
-        parseStarted,
-        200L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            parseStarted,
+            200L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     validateConsole(console, listener, 300L, ImmutableList.of(
         "[+] PROCESSING BUCK FILES...0.1s"));
 
-    rawEventBus.post(
-        configureTestEventAtTime(ParseEvent.finished(parseStarted,
-            Optional.<TargetGraph>absent()),
-            300L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            ParseEvent.finished(parseStarted, Optional.<TargetGraph>absent()),
+            300L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
     ActionGraphEvent.Started actionGraphStarted = ActionGraphEvent.started();
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             actionGraphStarted,
             300L,
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             ActionGraphEvent.finished(actionGraphStarted),
             400L,
@@ -1510,9 +1657,12 @@ public class SuperConsoleEventBusListenerTest {
         DOWNLOAD_STRING,
         "[+] BUILDING...0.1s"));
 
-    rawEventBus.post(configureTestEventAtTime(
-        BuildRuleEvent.started(testBuildRule),
-        600L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            BuildRuleEvent.started(testBuildRule),
+            600L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
 
     validateConsole(console, listener, 800L, ImmutableList.of(parsingLine,
@@ -1520,20 +1670,26 @@ public class SuperConsoleEventBusListenerTest {
         "[+] BUILDING...0.4s",
         " |=> //:test...  0.2s (checking local cache)"));
 
-    rawEventBus.post(configureTestEventAtTime(
-        BuildRuleEvent.finished(
-            testBuildRule,
-            BuildRuleKeys.of(new RuleKey("aaaa")),
-            BuildRuleStatus.SUCCESS,
-            CacheResult.miss(),
-            Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
-            Optional.<HashCode>absent(),
-            Optional.<Long>absent()),
-        1000L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            BuildRuleEvent.finished(
+                testBuildRule,
+                BuildRuleKeys.of(new RuleKey("aaaa")),
+                BuildRuleStatus.SUCCESS,
+                CacheResult.miss(),
+                Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
+                Optional.<HashCode>absent(),
+                Optional.<Long>absent()),
+            1000L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
-    rawEventBus.post(configureTestEventAtTime(
-        BuildEvent.finished(buildEventStarted, 0),
-        1234L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            BuildEvent.finished(buildEventStarted, 0),
+            1234L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     final String buildingLine = "[-] BUILDING...FINISHED 0.8s";
 
@@ -1541,7 +1697,7 @@ public class SuperConsoleEventBusListenerTest {
         FINISHED_DOWNLOAD_STRING,
         buildingLine));
 
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             TestRunEvent.started(
                 true, // isRunAllTests
@@ -1562,7 +1718,7 @@ public class SuperConsoleEventBusListenerTest {
             buildingLine,
             "[+] TESTING...0.5s"));
 
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             TestRuleEvent.started(testTarget),
             3100L,
@@ -1585,7 +1741,7 @@ public class SuperConsoleEventBusListenerTest {
         "step_name",
         "step_desc",
         stepUuid);
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             stepEventStarted,
             3300L,
@@ -1603,7 +1759,7 @@ public class SuperConsoleEventBusListenerTest {
             "[+] TESTING...0.9s",
             " |=> //:test...  0.3s (running step_name[0.1s])"));
 
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             StepEvent.finished(stepEventStarted, 0),
             3500L,
@@ -1623,7 +1779,7 @@ public class SuperConsoleEventBusListenerTest {
 
     UUID testUUID = new UUID(2, 3);
 
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             TestSummaryEvent.started(testUUID, "TestClass", "Foo"),
             3700L,
@@ -1651,7 +1807,7 @@ public class SuperConsoleEventBusListenerTest {
             null, // stacktrace
             "Message on stdout", // stdOut
             "Message on stderr"); // stdErr
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             TestSummaryEvent.finished(
                 testUUID,
@@ -1673,7 +1829,7 @@ public class SuperConsoleEventBusListenerTest {
         ImmutableList.of(
             "FAILURE TestClass Foo: Foo.java:47: Assertion failure: 'foo' != 'bar'"));
 
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             TestRunEvent.finished(
                 ImmutableSet.copyOf(testArgs),
@@ -1727,7 +1883,6 @@ public class SuperConsoleEventBusListenerTest {
     );
     Clock fakeClock = new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1));
     BuckEventBus eventBus = BuckEventBusFactory.newInstance(fakeClock);
-    EventBus rawEventBus = BuckEventBusFactory.getEventBusFor(eventBus);
     TestConsole console = new TestConsole();
 
     BuildTarget fakeTarget = BuildTargetFactory.newInstance("//banana:stand");
@@ -1741,7 +1896,7 @@ public class SuperConsoleEventBusListenerTest {
     String stepDescription = "working hard";
     UUID stepUuid = UUID.randomUUID();
 
-    RuleKeyBuilderFactory ruleKeyBuilderFactory = new FakeRuleKeyBuilderFactory(
+    FakeRuleKeyBuilderFactory ruleKeyBuilderFactory = new FakeRuleKeyBuilderFactory(
         ImmutableMap.of(
             fakeTarget, new RuleKey("aaaa")));
     SuperConsoleEventBusListener listener =
@@ -1761,7 +1916,7 @@ public class SuperConsoleEventBusListenerTest {
 
     // Start the build.
     BuildEvent.Started buildEventStarted = BuildEvent.started(buildArgs);
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             buildEventStarted,
             0L,
@@ -1771,19 +1926,19 @@ public class SuperConsoleEventBusListenerTest {
     // Start and stop parsing.
     String parsingLine = "[-] PROCESSING BUCK FILES...FINISHED 0.0s";
     ParseEvent.Started parseStarted = ParseEvent.started(buildTargets);
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             parseStarted,
             0L,
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             ParseEvent.finished(parseStarted, Optional.<TargetGraph>absent()),
             0L,
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             ActionGraphEvent.finished(ActionGraphEvent.started()),
             0L,
@@ -1791,7 +1946,7 @@ public class SuperConsoleEventBusListenerTest {
             /* threadId */ 0L));
 
     // Start the rule.
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             BuildRuleEvent.started(fakeRule),
             0L,
@@ -1801,13 +1956,13 @@ public class SuperConsoleEventBusListenerTest {
     // Post events that run a step for 100ms.
     StepEvent.Started stepEventStarted =
         StepEvent.started(stepShortName, stepDescription, stepUuid);
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             stepEventStarted,
             0L,
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             StepEvent.finished(stepEventStarted, /* exitCode */ 0),
             100L,
@@ -1815,7 +1970,7 @@ public class SuperConsoleEventBusListenerTest {
             /* threadId */ 0L));
 
     // Suspend the rule.
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             BuildRuleEvent.suspended(fakeRule, ruleKeyBuilderFactory),
             100L,
@@ -1834,7 +1989,7 @@ public class SuperConsoleEventBusListenerTest {
             " |=> IDLE"));
 
     // Resume the rule.
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             BuildRuleEvent.resumed(fakeRule, ruleKeyBuilderFactory),
             300L,
@@ -1856,7 +2011,7 @@ public class SuperConsoleEventBusListenerTest {
     // Post events that run another step.
     StepEvent.Started step2EventStarted =
         StepEvent.started(stepShortName, stepDescription, stepUuid);
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             step2EventStarted,
             400L,
@@ -1875,13 +2030,13 @@ public class SuperConsoleEventBusListenerTest {
             " |=> //banana:stand...  0.3s (running doing_something[0.1s])"));
 
     // Finish the step and rule.
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             StepEvent.finished(step2EventStarted, /* exitCode */ 0),
             600L,
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             BuildRuleEvent.finished(
                 fakeRule,
@@ -1911,7 +2066,6 @@ public class SuperConsoleEventBusListenerTest {
   public void debugConsoleEventShouldNotPrintLogLineToConsole() {
     Clock fakeClock = new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1));
     BuckEventBus eventBus = BuckEventBusFactory.newInstance(fakeClock);
-    EventBus rawEventBus = BuckEventBusFactory.getEventBusFor(eventBus);
     TestConsole console = new TestConsole();
 
     SuperConsoleEventBusListener listener =
@@ -1929,10 +2083,12 @@ public class SuperConsoleEventBusListenerTest {
             timeZone);
     eventBus.register(listener);
 
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             ConsoleEvent.fine("I'll get you Bluths - Hel-loh"),
-            0L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+            0L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
     validateConsole(console, listener, 0L, ImmutableList.<String>of());
   }
 
@@ -1940,7 +2096,6 @@ public class SuperConsoleEventBusListenerTest {
   public void testProjectGeneration() {
     Clock fakeClock = new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1));
     BuckEventBus eventBus = BuckEventBusFactory.newInstance(fakeClock);
-    EventBus rawEventBus = BuckEventBusFactory.getEventBusFor(eventBus);
     TestConsole console = new TestConsole();
     SuperConsoleEventBusListener listener =
         new SuperConsoleEventBusListener(
@@ -1957,18 +2112,22 @@ public class SuperConsoleEventBusListenerTest {
             timeZone);
     eventBus.register(listener);
 
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             ProjectGenerationEvent.started(),
-            0L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+            0L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     validateConsole(console, listener, 0L, ImmutableList.of(
         "[+] GENERATING PROJECT...0.0s"));
 
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             new ProjectGenerationEvent.Finished(),
-            0L, TimeUnit.MILLISECONDS, 0L));
+            0L,
+            TimeUnit.MILLISECONDS,
+            0L));
 
     validateConsole(console, listener, 0L, ImmutableList.of(
         "[-] GENERATING PROJECT...FINISHED 0.0s"));
@@ -1976,10 +2135,7 @@ public class SuperConsoleEventBusListenerTest {
 
   private Path getStorageForTest() throws IOException {
     tmp.create();
-    return tmp.getRootPath()
-        .resolve("/tmp/estimatortests/")
-        .resolve(BuckConstant.getBuckOutputPath())
-        .resolve(ProgressEstimator.PROGRESS_ESTIMATIONS_JSON);
+    return tmp.newFile().toPath();
   }
 
   @Test
@@ -1998,7 +2154,6 @@ public class SuperConsoleEventBusListenerTest {
 
     Clock fakeClock = new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1));
     BuckEventBus eventBus = BuckEventBusFactory.newInstance(fakeClock);
-    EventBus rawEventBus = BuckEventBusFactory.getEventBusFor(eventBus);
     TestConsole console = new TestConsole();
     SuperConsoleEventBusListener listener =
         new SuperConsoleEventBusListener(
@@ -2014,40 +2169,50 @@ public class SuperConsoleEventBusListenerTest {
             logPath,
             timeZone);
     ProgressEstimator e = new ProgressEstimator(
-        getStorageForTest().getParent().getParent(),
+        storagePath,
         eventBus,
         ObjectMappers.newDefaultInstance());
     listener.setProgressEstimator(e);
     eventBus.register(listener);
 
-    rawEventBus.post(CommandEvent.started("project",
-        ImmutableList.of("arg1", "arg2"),
-        false));
+    eventBus.post(
+        CommandEvent.started(
+            "project",
+            ImmutableList.of("arg1", "arg2"),
+            false));
 
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             ProjectGenerationEvent.started(),
-            0L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+            0L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     validateConsole(console, listener, 0L, ImmutableList.of(
         "[+] GENERATING PROJECT...0.0s"));
 
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             ProjectGenerationEvent.processed(),
-            0L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
-    rawEventBus.post(
+            0L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             ProjectGenerationEvent.processed(),
-            100L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+            100L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     validateConsole(console, listener, 100L, ImmutableList.of(
         "[+] GENERATING PROJECT...0.1s [20%]"));
 
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             new ProjectGenerationEvent.Finished(),
-            200L, TimeUnit.MILLISECONDS, 0L));
+            200L,
+            TimeUnit.MILLISECONDS,
+            0L));
 
     validateConsole(console, listener, 0L, ImmutableList.of(
         "[-] GENERATING PROJECT...FINISHED 0.2s [100%]"));
@@ -2057,7 +2222,6 @@ public class SuperConsoleEventBusListenerTest {
   public void testPostingEventBeforeAnyLines() {
     Clock fakeClock = new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1));
     BuckEventBus eventBus = BuckEventBusFactory.newInstance(fakeClock);
-    EventBus rawEventBus = BuckEventBusFactory.getEventBusFor(eventBus);
     TestConsole console = new TestConsole();
     SuperConsoleEventBusListener listener =
         new SuperConsoleEventBusListener(
@@ -2074,7 +2238,7 @@ public class SuperConsoleEventBusListenerTest {
             timeZone);
     eventBus.register(listener);
 
-    rawEventBus.post(ConsoleEvent.info("Hello world!"));
+    eventBus.post(ConsoleEvent.info("Hello world!"));
 
     validateConsoleWithLogLines(
         console,
@@ -2083,18 +2247,22 @@ public class SuperConsoleEventBusListenerTest {
         ImmutableList.<String>of(),
         ImmutableList.of("Hello world!"));
 
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             ProjectGenerationEvent.started(),
-            0L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+            0L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     validateConsole(console, listener, 0L, ImmutableList.of(
         "[+] GENERATING PROJECT...0.0s"));
 
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             new ProjectGenerationEvent.Finished(),
-            0L, TimeUnit.MILLISECONDS, 0L));
+            0L,
+            TimeUnit.MILLISECONDS,
+            0L));
 
     validateConsole(console, listener, 0L, ImmutableList.of(
         "[-] GENERATING PROJECT...FINISHED 0.0s"));
@@ -2240,7 +2408,6 @@ public class SuperConsoleEventBusListenerTest {
   public void timestampsInLocaleWithDecimalCommaFormatCorrectly() {
     Clock fakeClock = new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1));
     BuckEventBus eventBus = BuckEventBusFactory.newInstance(fakeClock);
-    EventBus rawEventBus = BuckEventBusFactory.getEventBusFor(eventBus);
     TestConsole console = new TestConsole();
     SuperConsoleEventBusListener listener =
         new SuperConsoleEventBusListener(
@@ -2258,18 +2425,22 @@ public class SuperConsoleEventBusListenerTest {
             timeZone);
     eventBus.register(listener);
 
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             ProjectGenerationEvent.started(),
-            0L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+            0L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     validateConsole(console, listener, 0L, ImmutableList.of(
                         "[+] GENERATING PROJECT...0,0s"));
 
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             new ProjectGenerationEvent.Finished(),
-            0L, TimeUnit.MILLISECONDS, 0L));
+            0L,
+            TimeUnit.MILLISECONDS,
+            0L));
 
     validateConsole(console, listener, 0L, ImmutableList.of(
                         "[-] GENERATING PROJECT...FINISHED 0,0s"));
@@ -2279,7 +2450,6 @@ public class SuperConsoleEventBusListenerTest {
   public void testBuildTimeDoesNotDisplayNegativeOffset() {
     Clock fakeClock = new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1));
     BuckEventBus eventBus = BuckEventBusFactory.newInstance(fakeClock);
-    EventBus rawEventBus = BuckEventBusFactory.getEventBusFor(eventBus);
     TestConsole console = new TestConsole();
 
     BuildTarget fakeTarget = BuildTargetFactory.newInstance("//banana:stand");
@@ -2304,29 +2474,43 @@ public class SuperConsoleEventBusListenerTest {
     // Do a full parse and action graph cycle before the build event starts
     // This sequencing occurs when running `buck project`
     ParseEvent.Started parseStarted = ParseEvent.started(buildTargets);
-    rawEventBus.post(configureTestEventAtTime(
-        parseStarted,
-        100L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
-    rawEventBus.post(configureTestEventAtTime(
-        ParseEvent.finished(parseStarted, Optional.<TargetGraph>absent()),
-        200L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            parseStarted,
+            100L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            ParseEvent.finished(parseStarted, Optional.<TargetGraph>absent()),
+            200L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     ActionGraphEvent.Started actionGraphStarted = ActionGraphEvent.started();
-    rawEventBus.post(configureTestEventAtTime(
-        actionGraphStarted,
-        200L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            actionGraphStarted,
+            200L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     validateConsole(console, listener, 200L, ImmutableList.of("[+] PROCESSING BUCK FILES...0.1s"));
 
-    rawEventBus.post(configureTestEventAtTime(
-        ActionGraphEvent.finished(actionGraphStarted),
-        300L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            ActionGraphEvent.finished(actionGraphStarted),
+            300L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
     BuildEvent.Started buildEventStarted = BuildEvent.started(buildArgs);
-    rawEventBus.post(
+    eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             buildEventStarted,
-            300L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+            300L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
 
 
     final String parsingLine = "[-] PROCESSING BUCK FILES...FINISHED 0.2s";

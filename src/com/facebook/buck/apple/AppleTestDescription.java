@@ -39,23 +39,21 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
-import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.zip.UnzipStep;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
@@ -67,7 +65,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
 
 import java.nio.file.Path;
@@ -160,13 +157,11 @@ public class AppleTestDescription implements
       params = params.withoutFlavor(debugFormat.getFlavor());
     }
 
-    String extension = args.extension.isLeft() ?
-        args.extension.getLeft().toFileExtension() :
-        args.extension.getRight();
-    if (!AppleBundleExtensions.VALID_XCTOOL_BUNDLE_EXTENSIONS.contains(extension)) {
+    if (!AppleBundleExtensions.VALID_XCTOOL_BUNDLE_EXTENSIONS
+        .contains(args.extension.toFileExtension())) {
       throw new HumanReadableException(
           "Invalid bundle extension for apple_test rule: %s (must be one of %s)",
-          extension,
+          args.extension,
           AppleBundleExtensions.VALID_XCTOOL_BUNDLE_EXTENSIONS);
     }
     boolean createBundle = Sets.intersection(
@@ -252,33 +247,7 @@ public class AppleTestDescription implements
           cxxPlatform.getFlavor().getName());
     }
 
-    ImmutableSet.Builder<SourcePath> resourceDirsBuilder = ImmutableSet.builder();
-    ImmutableSet.Builder<SourcePath> dirsContainingResourceDirsBuilder = ImmutableSet.builder();
-    ImmutableSet.Builder<SourcePath> resourceFilesBuilder = ImmutableSet.builder();
-    ImmutableSet.Builder<SourcePath> resourceVariantFilesBuilder = ImmutableSet.builder();
-
-    AppleResources.collectResourceDirsAndFiles(
-        targetGraph,
-        Preconditions.checkNotNull(targetGraph.get(params.getBuildTarget())),
-        resourceDirsBuilder,
-        dirsContainingResourceDirsBuilder,
-        resourceFilesBuilder,
-        resourceVariantFilesBuilder);
-
-    ImmutableSet<SourcePath> resourceDirs = resourceDirsBuilder.build();
-    ImmutableSet<SourcePath> dirsContainingResourceDirs = dirsContainingResourceDirsBuilder.build();
-    ImmutableSet<SourcePath> resourceFiles = resourceFilesBuilder.build();
-    ImmutableSet<SourcePath> resourceVariantFiles = resourceVariantFilesBuilder.build();
     SourcePathResolver sourcePathResolver = new SourcePathResolver(resolver);
-
-    Optional<AppleAssetCatalog> assetCatalog =
-        AppleDescriptions.createBuildRuleForTransitiveAssetCatalogDependencies(
-            targetGraph,
-            params,
-            sourcePathResolver,
-            appleCxxPlatform.getAppleSdk().getApplePlatform(),
-            appleCxxPlatform.getActool());
-
     String platformName = appleCxxPlatform.getAppleSdk().getApplePlatform().getName();
 
     BuildRule bundle = AppleDescriptions.createAppleBundle(
@@ -296,18 +265,7 @@ public class AppleTestDescription implements
             Suppliers.ofInstance(
                 ImmutableSortedSet.<BuildRule>naturalOrder()
                     .add(library)
-                    .addAll(assetCatalog.asSet())
                     .addAll(params.getDeclaredDeps().get())
-                    .addAll(
-                        BuildRules.toBuildRulesFor(
-                            params.getBuildTarget(),
-                            resolver,
-                            SourcePaths.filterBuildTargetSourcePaths(
-                                Iterables.concat(
-                                    resourceFiles,
-                                    resourceDirs,
-                                    dirsContainingResourceDirs,
-                                    resourceVariantFiles))))
                     .build()),
             params.getExtraDeps()),
         resolver,
@@ -332,7 +290,8 @@ public class AppleTestDescription implements
           BuildTarget.builder(xctoolZipBuildRule.getBuildTarget())
               .addFlavors(UNZIP_XCTOOL_FLAVOR)
               .build();
-      final Path outputDirectory = BuildTargets.getGenPath(unzipXctoolTarget, "%s/unzipped");
+      final Path outputDirectory =
+          BuildTargets.getGenPath(params.getProjectFilesystem(), unzipXctoolTarget, "%s/unzipped");
       if (!resolver.getRuleOptional(unzipXctoolTarget).isPresent()) {
         BuildRuleParams unzipXctoolParams =
             params.copyWithChanges(
@@ -385,7 +344,7 @@ public class AppleTestDescription implements
         sourcePathResolver,
         bundle,
         testHostApp,
-        extension,
+        args.extension,
         args.contacts.get(),
         args.labels.get(),
         args.getRunTestSeparately(),
@@ -427,7 +386,7 @@ public class AppleTestDescription implements
   @Override
   public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
-      Function<Optional<String>, Path> cellRoots,
+      CellPathResolver cellRoots,
       AppleTestDescription.Arg constructorArg) {
     // TODO(bhamiltoncx, Coneko): This should technically only be a runtime dependency;
     // doing this adds it to the extra deps in BuildRuleParams passed to
@@ -449,7 +408,7 @@ public class AppleTestDescription implements
     public Optional<BuildTarget> testHostApp;
 
     // Bundle related fields.
-    public Either<AppleBundleExtension, String> extension;
+    public AppleBundleExtension extension;
     public SourcePath infoPlist;
     public Optional<ImmutableMap<String, String>> infoPlistSubstitutions;
     public Optional<String> xcodeProductType;
@@ -459,7 +418,7 @@ public class AppleTestDescription implements
 
     @Override
     public Either<AppleBundleExtension, String> getExtension() {
-      return extension;
+      return Either.ofLeft(extension);
     }
 
     @Override

@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY c070e9f7d1a6a811e791255e7e6a3996f14e1586 #@#
+#@# GENERATED FILE: DO NOT MODIFY ba19aa8c5b799f44407ee24c2843fadaf0c10f31 #@#
 {
   "Sha1HashCode" : {
     "deps" : [ ],
@@ -37,7 +37,6 @@
     "deps" : [
       "//src/com/facebook/buck/android:exceptions",
       "//src/com/facebook/buck/log:api",
-      "//src/com/facebook/buck/util:constants",
       "//src/com/facebook/buck/util/hash:hash",
       "//third-party/java/immutables:processor"
     ],
@@ -52,6 +51,7 @@
       "//src/com/facebook/buck/model:model",
       "//src/com/facebook/buck/parser:rule_pattern",
       "//src/com/facebook/buck/rules:Sha1HashCode",
+      "//src/com/facebook/buck/rules:interfaces",
       "//src/com/facebook/buck/rules:rule_key",
       "//src/com/facebook/buck/rules/coercer:types",
       "//src/com/facebook/buck/step:step",
@@ -76,6 +76,12 @@
       "//third-party/java/guava:guava"
     ]
   },
+  "interfaces" : {
+    "deps" : [ ],
+    "exported_deps" : [
+      "//third-party/java/guava:guava"
+    ]
+  },
   "rule_key" : {
     "deps" : [
       "//third-party/java/jsr:jsr305"
@@ -89,7 +95,6 @@
       "//src/com/facebook/buck/log:api",
       "//src/com/facebook/buck/rules:build_event",
       "//src/com/facebook/buck/step/fs:fs",
-      "//src/com/facebook/buck/util:constants",
       "//src/com/facebook/buck/util:exceptions",
       "//src/com/facebook/buck/util:object_mapper",
       "//src/com/facebook/buck/util:util",
@@ -189,6 +194,7 @@
       "//src/com/facebook/buck/json:json",
       "//src/com/facebook/buck/model:model",
       "//src/com/facebook/buck/rules:build_rule",
+      "//src/com/facebook/buck/rules:interfaces",
       "//src/com/facebook/buck/timing:timing",
       "//src/com/facebook/buck/util:io",
       "//third-party/java/guava:guava"

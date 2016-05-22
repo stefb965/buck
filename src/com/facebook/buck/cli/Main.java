@@ -99,7 +99,7 @@ import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.cache.ProjectFileHashCache;
 import com.facebook.buck.util.cache.StackedFileHashCache;
 import com.facebook.buck.util.cache.WatchedFileHashCache;
-import com.facebook.buck.util.concurrent.MoreExecutors;
+import com.facebook.buck.util.concurrent.MostExecutors;
 import com.facebook.buck.util.concurrent.TimeSpan;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.BuildEnvironmentDescription;
@@ -124,6 +124,7 @@ import com.google.common.reflect.ClassPath;
 import com.google.common.util.concurrent.AbstractScheduledService;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.ServiceManager;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.martiansoftware.nailgun.NGClientListener;
 import com.martiansoftware.nailgun.NGContext;
 import com.martiansoftware.nailgun.NGServer;
@@ -153,15 +154,16 @@ import java.text.SimpleDateFormat;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 import javax.annotation.Nullable;
@@ -193,6 +195,11 @@ public final class Main {
       new TimeSpan(5, TimeUnit.MINUTES);
 
   /**
+   * Number of maximum threads for network operations.
+   */
+  private static final int MAX_NETWORK_THREADS = 23;
+
+  /**
    * Path to a directory of static content that should be served by the {@link WebServer}.
    */
   private static final String STATIC_CONTENT_DIRECTORY = System.getProperty(
@@ -204,7 +211,6 @@ public final class Main {
   private final InputStream stdIn;
   private final PrintStream stdOut;
   private final PrintStream stdErr;
-  private final ImmutableList<BuckEventListener> externalEventsListeners;
 
   private final Architecture architecture;
 
@@ -272,7 +278,7 @@ public final class Main {
           new DefaultFileHashCache(
               new ProjectFilesystem(
                   cell.getFilesystem().getRootPath(),
-                  Optional.of(ImmutableSet.of(BuckConstant.getBuckOutputPath())),
+                  Optional.of(ImmutableSet.of(cell.getFilesystem().getBuckPaths().getBuckOut())),
                   ImmutableSet.<ProjectFilesystem.PathOrGlobMatcher>of()));
       this.fileEventBus = new EventBus("file-change-events");
 
@@ -525,23 +531,16 @@ public final class Main {
   }
 
   @VisibleForTesting
-  public Main(PrintStream stdOut, PrintStream stdErr, InputStream stdIn) {
-    this(stdOut, stdErr, stdIn, ImmutableList.<BuckEventListener>of());
-  }
-
-  @VisibleForTesting
   public Main(
       PrintStream stdOut,
       PrintStream stdErr,
-      InputStream stdIn,
-      List<BuckEventListener> externalEventsListeners) {
+      InputStream stdIn) {
     this.stdOut = stdOut;
     this.stdErr = stdErr;
     this.stdIn = stdIn;
     this.architecture = Architecture.detect();
     this.platform = Platform.detect();
     this.objectMapper = ObjectMappers.newDefaultInstance();
-    this.externalEventsListeners = ImmutableList.copyOf(externalEventsListeners);
   }
 
   private void flushEventListeners(
@@ -663,27 +662,14 @@ public final class Main {
       return 1;
     }
 
-    // Setup filesystem and buck config.
-    Path canonicalRootPath = projectRoot.toRealPath().normalize();
-    Config config = Configs.createDefaultConfig(canonicalRootPath, command.getConfigOverrides());
-    ProjectFilesystem filesystem = new ProjectFilesystem(canonicalRootPath, config);
-    BuckConfig buckConfig = new BuckConfig(
-        config,
-        filesystem,
-        architecture,
-        platform,
-        clientEnvironment);
-
     // Setup logging.
     if (setupLogging) {
 
       // Reset logging each time we run a command while daemonized.
       // This will cause us to write a new log per command.
-      if (context.isPresent()) {
-        LOG.debug("Rotating log.");
-        LogConfig.flushLogs();
-        LogConfig.setupLogging();
-      }
+      LOG.debug("Rotating log.");
+      LogConfig.flushLogs();
+      LogConfig.setupLogging(command.getLogConfig());
 
       if (LOG.isDebugEnabled()) {
         Long gitCommitTimestamp = Long.getLong("buck.git_commit_timestamp");
@@ -703,6 +689,17 @@ public final class Main {
         LOG.debug("System properties: %s", System.getProperties());
       }
     }
+
+    // Setup filesystem and buck config.
+    Path canonicalRootPath = projectRoot.toRealPath().normalize();
+    Config config = Configs.createDefaultConfig(canonicalRootPath, command.getConfigOverrides());
+    ProjectFilesystem filesystem = new ProjectFilesystem(canonicalRootPath, config);
+    BuckConfig buckConfig = new BuckConfig(
+        config,
+        filesystem,
+        architecture,
+        platform,
+        clientEnvironment);
 
     // Setup the console.
     Verbosity verbosity = VerbosityParser.parse(args);
@@ -749,10 +746,10 @@ public final class Main {
               filesystem,
               console,
               buildId,
-              BuckConstant.getAnnotationPath(),
-              BuckConstant.getGenPath(),
-              BuckConstant.getScratchPath(),
-              BuckConstant.getResPath());
+              filesystem.getBuckPaths().getAnnotationDir(),
+              filesystem.getBuckPaths().getGenDir(),
+              filesystem.getBuckPaths().getScratchDir(),
+              filesystem.getBuckPaths().getResDir());
           shouldCleanUpTrash = true;
           filesystem.mkdirs(BuckConstant.getCurrentVersionFile().getParent());
           filesystem.writeContentsToPath(
@@ -837,7 +834,8 @@ public final class Main {
               new DefaultFileHashCache(
                   new ProjectFilesystem(
                       rootCell.getFilesystem().getRootPath(),
-                      Optional.of(ImmutableSet.of(BuckConstant.getBuckOutputPath())),
+                      Optional.of(
+                          ImmutableSet.of(rootCell.getFilesystem().getBuckPaths().getBuckOut())),
                       ImmutableSet.<ProjectFilesystem.PathOrGlobMatcher>of()));
         }
 
@@ -877,21 +875,23 @@ public final class Main {
         TestConfig testConfig = new TestConfig(buckConfig);
         ArtifactCacheBuckConfig cacheBuckConfig = new ArtifactCacheBuckConfig(buckConfig);
 
-        ExecutorService diskIoExecutorService = MoreExecutors.newSingleThreadExecutor("Disk I/O");
+        ExecutorService diskIoExecutorService = MostExecutors.newSingleThreadExecutor("Disk I/O");
         ListeningExecutorService httpWriteExecutorService =
             getHttpWriteExecutorService(cacheBuckConfig);
         ScheduledExecutorService counterAggregatorExecutor =
-            MoreExecutors.newSingleThreadScheduledExecutor("CounterAggregatorThread");
+            MostExecutors.newSingleThreadScheduledExecutor("CounterAggregatorThread");
         VersionControlStatsGenerator vcStatsGenerator;
 
         // Eventually, we'll want to get allow websocket and/or nailgun clients to specify locale
         // when connecting. For now, we'll use the default from the server environment.
         Locale locale = Locale.getDefault();
 
-        // create a cached thread pool for cpu intensive tasks
+        // Create a cached thread pool for cpu intensive tasks
         Map<ExecutionContext.ExecutorPool, ListeningExecutorService> executors = new HashMap<>();
         executors.put(ExecutionContext.ExecutorPool.CPU, listeningDecorator(
                 Executors.newCachedThreadPool()));
+        // Create a thread pool for network I/O tasks
+        executors.put(ExecutionContext.ExecutorPool.NETWORK, getNetworkExecutorService());
 
         // The order of resources in the try-with-resources block is important: the BuckEventBus
         // must be the last resource, so that it is closed first and can deliver its queued events
@@ -934,10 +934,12 @@ public final class Main {
                   executionEnvironment.getWifiSsid(),
                   httpWriteExecutorService));
 
-          ProgressEstimator progressEstimator = new ProgressEstimator(
-              filesystem.getRootPath(),
-              buildEventBus,
-              objectMapper);
+          ProgressEstimator progressEstimator =
+              new ProgressEstimator(
+                  filesystem.resolve(filesystem.getBuckPaths().getBuckOut())
+                      .resolve(ProgressEstimator.PROGRESS_ESTIMATIONS_JSON),
+                  buildEventBus,
+                  objectMapper);
           consoleListener.setProgressEstimator(progressEstimator);
 
           BuildEnvironmentDescription buildEnvironmentDescription =
@@ -1179,7 +1181,7 @@ public final class Main {
   private static ListeningExecutorService getHttpWriteExecutorService(
       ArtifactCacheBuckConfig buckConfig) {
     if (buckConfig.hasAtLeastOneWriteableCache()) {
-      ExecutorService executorService = MoreExecutors.newMultiThreadExecutor(
+      ExecutorService executorService = MostExecutors.newMultiThreadExecutor(
           "HTTP Write",
           buckConfig.getHttpMaxConcurrentWrites());
 
@@ -1187,6 +1189,21 @@ public final class Main {
     } else {
       return newDirectExecutorService();
     }
+  }
+
+  private static ListeningExecutorService getNetworkExecutorService() {
+    ThreadPoolExecutor networkExecutor = new ThreadPoolExecutor(
+        /* corePoolSize */ MAX_NETWORK_THREADS,
+        /* maximumPoolSize */ MAX_NETWORK_THREADS,
+        /* keepAliveTime */ 500L, TimeUnit.MILLISECONDS,
+        /* workQueue */ new LinkedBlockingQueue<Runnable>(MAX_NETWORK_THREADS),
+        /* threadFactory */ new ThreadFactoryBuilder()
+        .setNameFormat("Network I/O" + "-%d")
+        .build(),
+        /* handler */ new ThreadPoolExecutor.CallerRunsPolicy());
+    networkExecutor.allowCoreThreadTimeOut(true);
+
+    return listeningDecorator(networkExecutor);
   }
 
   @VisibleForTesting
@@ -1216,7 +1233,7 @@ public final class Main {
           throw exception;
         }
 
-        Optional<Path> androidSdkDirOption = androidDirectoryResolver.findAndroidSdkDirSafe();
+        Optional<Path> androidSdkDirOption = androidDirectoryResolver.getSdkOrAbsent();
         if (!androidSdkDirOption.isPresent()) {
           exception = new NoAndroidSdkException();
           throw exception;
@@ -1402,8 +1419,6 @@ public final class Main {
     loadListenersFromBuckConfig(eventListenersBuilder, projectFilesystem, config);
 
 
-
-
     Optional<URI> remoteLogUrl = config.getRemoteLogUrl();
     boolean shouldSample = config.getRemoteLogSampleRate()
         .transform(BuildIdSampler.CREATE_FUNCTION)
@@ -1432,8 +1447,6 @@ public final class Main {
     }
 
     eventListenersBuilder.add(new LoadBalancerEventsListener(counterRegistry));
-
-    eventListenersBuilder.addAll(externalEventsListeners);
 
     ImmutableList<BuckEventListener> eventListeners = eventListenersBuilder.build();
 

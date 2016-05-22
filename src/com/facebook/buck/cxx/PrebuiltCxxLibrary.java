@@ -31,6 +31,7 @@ import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.args.Arg;
+import com.facebook.buck.rules.args.FileListableLinkerInputArg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
@@ -65,6 +66,8 @@ public class PrebuiltCxxLibrary
   private final Function<? super CxxPlatform, ImmutableList<String>> exportedLinkerFlags;
   private final Optional<String> soname;
   private final boolean linkWithoutSoname;
+  private final ImmutableSet<FrameworkPath> frameworks;
+  private final ImmutableSet<FrameworkPath> libraries;
   private final boolean forceStatic;
   private final boolean headerOnly;
   private final boolean linkWhole;
@@ -92,6 +95,8 @@ public class PrebuiltCxxLibrary
       Function<? super CxxPlatform, ImmutableList<String>> exportedLinkerFlags,
       Optional<String> soname,
       boolean linkWithoutSoname,
+      ImmutableSet<FrameworkPath> frameworks,
+      ImmutableSet<FrameworkPath> libraries,
       boolean forceStatic,
       boolean headerOnly,
       boolean linkWhole,
@@ -110,6 +115,8 @@ public class PrebuiltCxxLibrary
     this.exportedLinkerFlags = exportedLinkerFlags;
     this.soname = soname;
     this.linkWithoutSoname = linkWithoutSoname;
+    this.frameworks = frameworks;
+    this.libraries = libraries;
     this.forceStatic = forceStatic;
     this.headerOnly = headerOnly;
     this.linkWhole = linkWhole;
@@ -220,6 +227,7 @@ public class PrebuiltCxxLibrary
         }
         builder.putAllPreprocessorFlags(
             Preconditions.checkNotNull(exportedPreprocessorFlags.apply(cxxPlatform)));
+        builder.addAllFrameworks(frameworks);
         final Iterable<SourcePath> includePaths = Iterables.transform(
             includeDirs,
             new Function<String, SourcePath>() {
@@ -326,7 +334,7 @@ public class PrebuiltCxxLibrary
           Linker linker = cxxPlatform.getLd().resolve(ruleResolver);
           linkerArgsBuilder.addAll(linker.linkWhole(staticLibrary));
         } else {
-          linkerArgsBuilder.add(staticLibrary);
+          linkerArgsBuilder.add(FileListableLinkerInputArg.withSourcePathArg(staticLibrary));
         }
       }
     }
@@ -334,8 +342,8 @@ public class PrebuiltCxxLibrary
 
     return NativeLinkableInput.of(
         linkerArgs,
-        ImmutableSet.<FrameworkPath>of(),
-        ImmutableSet.<FrameworkPath>of());
+        Preconditions.checkNotNull(frameworks),
+        Preconditions.checkNotNull(libraries));
   }
 
   @Override
@@ -381,7 +389,7 @@ public class PrebuiltCxxLibrary
       throws NoSuchBuildTargetException {
     String resolvedSoname = getSoname(cxxPlatform);
     ImmutableMap.Builder<String, SourcePath> solibs = ImmutableMap.builder();
-    if (!headerOnly && !provided && getPreferredLinkage(cxxPlatform) != Linkage.STATIC) {
+    if (!headerOnly && !provided) {
       SourcePath sharedLibrary = requireSharedLibrary(cxxPlatform);
       solibs.put(resolvedSoname, sharedLibrary);
     }

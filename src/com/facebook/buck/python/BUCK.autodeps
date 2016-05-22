@@ -1,8 +1,8 @@
-#@# GENERATED FILE: DO NOT MODIFY fb312efc1992e40a07e4a27a8f5870af149e0818 #@#
+#@# GENERATED FILE: DO NOT MODIFY e0b47a7292070391bc59832b7465ddcffad738d4 #@#
 {
   "config" : {
     "deps" : [
-      "//src/com/facebook/buck/cxx:platform",
+      "//src/com/facebook/buck/rules:command_tool",
       "//src/com/facebook/buck/util:exceptions",
       "//src/com/facebook/buck/util:util",
       "//third-party/java/jsr:jsr305"
@@ -42,6 +42,7 @@
       "//src/com/facebook/buck/python:config",
       "//src/com/facebook/buck/python:support",
       "//src/com/facebook/buck/rules:build_rule",
+      "//src/com/facebook/buck/rules:interfaces",
       "//src/com/facebook/buck/rules:rules",
       "//src/com/facebook/buck/rules/coercer:coercer",
       "//src/com/facebook/buck/rules/macros:macros",

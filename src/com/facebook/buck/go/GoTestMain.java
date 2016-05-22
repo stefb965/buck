@@ -55,12 +55,16 @@ public class GoTestMain extends AbstractBuildRule {
     this.testSources = testSources;
     this.testPackage = testPackage;
     this.output = BuildTargets.getScratchPath(
-        getBuildTarget(), "%s/" + getBuildTarget().getShortName() + "_test_main.go");
+        getProjectFilesystem(),
+        getBuildTarget(),
+        "%s/" + getBuildTarget().getShortName() + "_test_main.go");
   }
 
   @Override
   public ImmutableList<Step> getBuildSteps(
-      BuildContext context, BuildableContext buildableContext) {
+      BuildContext context,
+      BuildableContext buildableContext) {
+    buildableContext.recordArtifact(output);
     return ImmutableList.of(
         new MkdirStep(getProjectFilesystem(), output.getParent()),
         new GoTestMainStep(

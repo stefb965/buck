@@ -25,12 +25,15 @@ import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.testutil.integration.ZipInspector;
 import com.facebook.buck.util.CapturingPrintStream;
 import com.facebook.buck.util.ObjectMappers;
+import com.facebook.buck.util.versioncontrol.NoOpCmdLineInterface;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Optional;
 
 import org.junit.Rule;
 import org.junit.Test;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.nio.file.Path;
 
 
@@ -48,11 +51,18 @@ public class InteractiveReportIntegrationTest {
     ProjectFilesystem filesystem = workspace.asCell().getFilesystem();
     ObjectMapper objectMapper = ObjectMappers.newDefaultInstance();
     BuckConfig buckConfig = workspace.asCell().getBuckConfig();
-    DefectReporter defectReporter = new DefectReporter(
+    DefectReporter defectReporter = new DefaultDefectReporter(
         filesystem,
         objectMapper,
         RageBuckConfig.create(buckConfig));
     CapturingPrintStream outputStream = new CapturingPrintStream();
+    ExtraInfoCollector extraInfoCollector = new ExtraInfoCollector() {
+      @Override
+      public Optional<ExtraInfoResult> run()
+          throws IOException, InterruptedException, ExtraInfoExecutionException {
+        return Optional.absent();
+      }
+    };
     ByteArrayInputStream inputStream =
         new ByteArrayInputStream("report text\n0,1\n".getBytes("UTF-8"));
     InteractiveReport interactiveReport =
@@ -61,7 +71,9 @@ public class InteractiveReportIntegrationTest {
             filesystem,
             outputStream,
             inputStream,
-            TestBuildEnvironmentDescription.INSTANCE);
+            TestBuildEnvironmentDescription.INSTANCE,
+            VcsInfoCollector.create(new NoOpCmdLineInterface()),
+            extraInfoCollector);
     DefectSubmitResult defectSubmitResult = interactiveReport.collectAndSubmitResult();
     Path reportFile = filesystem.resolve(defectSubmitResult.getReportLocalLocation().get());
 

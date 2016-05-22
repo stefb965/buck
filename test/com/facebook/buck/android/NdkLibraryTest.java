@@ -20,13 +20,13 @@ import static com.facebook.buck.rules.BuildableProperties.Kind.ANDROID;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.TargetGraph;
@@ -34,7 +34,6 @@ import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.MoreAsserts;
-import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.DefaultPropertyFinder;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Optional;
@@ -73,7 +72,7 @@ public class NdkLibraryTest {
         .build();
     ndkBuildCommand = new ExecutableFinder().getOptionalExecutable(
         Paths.get("ndk-build"),
-        resolver.findAndroidNdkDir().get()).get().toAbsolutePath().toString();
+        resolver.getNdkOrAbsent().get()).get().toAbsolutePath().toString();
   }
 
   @Test
@@ -94,12 +93,15 @@ public class NdkLibraryTest {
 
     assertTrue(ndkLibrary.getProperties().is(ANDROID));
     assertTrue(ndkLibrary.isAsset());
-    assertEquals(Paths.get(BuckConstant.getGenDir(), basePath, "__libbase"),
+    assertEquals(
+        projectFilesystem.getBuckPaths().getGenDir().resolve(basePath).resolve("__libbase"),
         ndkLibrary.getLibraryPath());
 
     List<Step> steps = ndkLibrary.getBuildSteps(context, new FakeBuildableContext());
 
-    String libbase = Paths.get(BuckConstant.getScratchDir(), basePath, "__libbase").toString();
+    String libbase =
+        projectFilesystem.getBuckPaths().getScratchDir().resolve(basePath).resolve("__libbase")
+            .toString();
     MoreAsserts.assertShellCommands(
         "ndk_library() should invoke ndk-build on the given path with some -j value",
         ImmutableList.of(
@@ -117,7 +119,7 @@ public class NdkLibraryTest {
                 Paths.get(basePath).toString(),
                 /* APP_PROJECT_PATH */ projectFilesystem.resolve(libbase) + File.separator,
                 /* APP_BUILD_SCRIPT */ projectFilesystem.resolve(
-                    NdkLibraryDescription.getGeneratedMakefilePath(target)),
+                    NdkLibraryDescription.getGeneratedMakefilePath(target, projectFilesystem)),
                 /* NDK_OUT */ projectFilesystem.resolve(libbase) + File.separator,
                 /* NDK_LIBS_OUT */ projectFilesystem.resolve(Paths.get(libbase, "libs")),
                 /* host-echo-build-step */ Platform.detect() == Platform.WINDOWS ? "@REM" : "@#")

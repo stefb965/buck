@@ -19,6 +19,7 @@ package com.facebook.buck.python;
 import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.file.WriteFile;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
@@ -32,6 +33,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.Label;
@@ -45,7 +47,6 @@ import com.facebook.buck.rules.macros.MacroHandler;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
@@ -119,8 +120,10 @@ public class PythonTestDescription implements
   }
 
   @VisibleForTesting
-  protected static Path getTestModulesListPath(BuildTarget buildTarget) {
-    return BuildTargets.getGenPath(buildTarget, "%s").resolve(getTestModulesListName());
+  protected static Path getTestModulesListPath(
+      BuildTarget buildTarget,
+      ProjectFilesystem filesystem) {
+    return BuildTargets.getGenPath(filesystem, buildTarget, "%s").resolve(getTestModulesListName());
   }
 
   @VisibleForTesting
@@ -239,7 +242,7 @@ public class PythonTestDescription implements
     BuildRule testModulesBuildRule = createTestModulesSourceBuildRule(
         params,
         resolver,
-        getTestModulesListPath(params.getBuildTarget()),
+        getTestModulesListPath(params.getBuildTarget(), params.getProjectFilesystem()),
         testModules);
     resolver.addToIndex(testModulesBuildRule);
 
@@ -378,7 +381,7 @@ public class PythonTestDescription implements
   @Override
   public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
-      Function<Optional<String>, Path> cellRoots,
+      CellPathResolver cellRoots,
       Arg constructorArg) {
     ImmutableList.Builder<BuildTarget> targets = ImmutableList.builder();
 

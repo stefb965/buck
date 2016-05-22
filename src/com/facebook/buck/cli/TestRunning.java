@@ -16,30 +16,28 @@
 
 package com.facebook.buck.cli;
 
-import static com.facebook.buck.jvm.java.JacocoConstants.JACOCO_OUTPUT_DIR;
-
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.DefaultJavaPackageFinder;
 import com.facebook.buck.jvm.java.GenerateCodeCoverageReportStep;
-import com.facebook.buck.jvm.java.JavaRuntimeLauncher;
+import com.facebook.buck.jvm.java.JacocoConstants;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaLibrary;
+import com.facebook.buck.jvm.java.JavaRuntimeLauncher;
 import com.facebook.buck.jvm.java.JavaTest;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.model.HasTests;
-import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildEngine;
 import com.facebook.buck.rules.BuildResult;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleSuccessType;
 import com.facebook.buck.rules.IndividualTestEvent;
-import com.facebook.buck.rules.TestStatusMessageEvent;
 import com.facebook.buck.rules.TestRule;
 import com.facebook.buck.rules.TestRunEvent;
+import com.facebook.buck.rules.TestStatusMessageEvent;
 import com.facebook.buck.rules.TestSummaryEvent;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -124,7 +122,6 @@ public class TestRunning {
   public static int runTests(
       final CommandRunnerParams params,
       Iterable<TestRule> tests,
-      BuildContext buildContext,
       ExecutionContext executionContext,
       final TestRunningOptions options,
       ListeningExecutorService service,
@@ -148,7 +145,9 @@ public class TestRunning {
           // TODO(t8220837): Support tests in multiple repos
           JavaLibrary library = rulesUnderTest.iterator().next();
           stepRunner.runStepForBuildTarget(
-              new MakeCleanDirectoryStep(library.getProjectFilesystem(), JACOCO_OUTPUT_DIR),
+              new MakeCleanDirectoryStep(
+                  library.getProjectFilesystem(),
+                  JacocoConstants.getJacocoOutputDir(library.getProjectFilesystem())),
               Optional.<BuildTarget>absent());
         } catch (StepFailedException e) {
           params.getBuckEventBus().post(
@@ -192,7 +191,8 @@ public class TestRunning {
           executionContext,
           testRuleKeyFileHelper,
           options.isResultsCacheEnabled(),
-          !options.getTestSelectorList().isEmpty());
+          !options.getTestSelectorList().isEmpty(),
+          !options.getEnvironmentOverrides().isEmpty());
 
       final Map<String, UUID> testUUIDMap = new HashMap<>();
       final AtomicReference<TestStatusMessageEvent.Started> currentTestStatusMessageEvent =
@@ -282,7 +282,6 @@ public class TestRunning {
         ImmutableList.Builder<Step> stepsBuilder = ImmutableList.builder();
         Preconditions.checkState(buildEngine.isRuleBuilt(test.getBuildTarget()));
         List<Step> testSteps = test.runTests(
-            buildContext,
             executionContext,
             options,
             testReportingCallback);
@@ -451,7 +450,7 @@ public class TestRunning {
                     .getDefaultJavaOptions()
                     .getJavaRuntimeLauncher(),
                 params.getCell().getFilesystem(),
-                JACOCO_OUTPUT_DIR,
+                JacocoConstants.getJacocoOutputDir(params.getCell().getFilesystem()),
                 options.getCoverageReportFormat(),
                 options.getCoverageReportTitle()),
             Optional.<BuildTarget>absent());
@@ -590,7 +589,8 @@ public class TestRunning {
       ExecutionContext executionContext,
       TestRuleKeyFileHelper testRuleKeyFileHelper,
       boolean isResultsCacheEnabled,
-      boolean isRunningWithTestSelectors)
+      boolean isRunningWithTestSelectors,
+      boolean hasEnvironmentOverrides)
       throws IOException, ExecutionException, InterruptedException {
     boolean isTestRunRequired;
     BuildResult result;
@@ -603,11 +603,14 @@ public class TestRunning {
       // we should always run each test (and never look at the cache.)
       // TODO(edwardspeyer) When #3090004 and #3436849 are closed we can respect the cache again.
       isTestRunRequired = true;
+    } else if (hasEnvironmentOverrides) {
+      // This is rather obtuse, ideally the environment overrides can be hashed and compared...
+      isTestRunRequired = true;
     } else if (((result = cachingBuildEngine.getBuildRuleResult(
         test.getBuildTarget())) != null) &&
             result.getSuccess() == BuildRuleSuccessType.MATCHING_RULE_KEY &&
             isResultsCacheEnabled &&
-            test.hasTestResultFiles(executionContext) &&
+            test.hasTestResultFiles() &&
             testRuleKeyFileHelper.isRuleKeyInDir(test)) {
       // If this build rule's artifacts (which includes the rule's output and its test result
       // files) are up to date, then no commands are necessary to run the tests. The test result
@@ -821,7 +824,7 @@ public class TestRunning {
     Set<String> srcFolders = Sets.newHashSet();
     loopThroughSourcePath:
     for (Path javaSrcPath : javaSrcs) {
-      if (MorePaths.isGeneratedFile(javaSrcPath)) {
+      if (MorePaths.isGeneratedFile(filesystem, javaSrcPath)) {
         continue;
       }
 

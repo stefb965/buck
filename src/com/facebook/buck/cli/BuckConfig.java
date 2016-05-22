@@ -16,6 +16,8 @@
 
 package com.facebook.buck.cli;
 
+import static java.lang.Integer.parseInt;
+
 import com.facebook.buck.config.Config;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
@@ -29,6 +31,7 @@ import com.facebook.buck.rules.BinaryBuildRuleToolProvider;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CachingBuildEngine;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.ConstantToolProvider;
 import com.facebook.buck.rules.HashedFileTool;
 import com.facebook.buck.rules.PathSourcePath;
@@ -39,11 +42,11 @@ import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.AnsiEnvironmentChecking;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.PatternAndMessage;
 import com.facebook.buck.util.SampleRate;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.EnvironmentFilter;
 import com.facebook.buck.util.environment.Platform;
-import com.facebook.buck.util.PatternAndMessage;
 import com.facebook.buck.util.network.HostnameFetching;
 import com.google.common.annotations.Beta;
 import com.google.common.annotations.VisibleForTesting;
@@ -90,9 +93,6 @@ public class BuckConfig {
    */
   private static final Pattern ALIAS_PATTERN = Pattern.compile("[a-zA-Z_-][a-zA-Z0-9_-]*");
 
-  @VisibleForTesting
-  static final String BUCK_BUCKD_DIR_KEY = "buck.buckd_dir";
-
   private static final String DEFAULT_MAX_TRACES = "25";
 
   private static final ImmutableMap<String, ImmutableSet<String>> IGNORE_FIELDS_FOR_DAEMON_RESTART =
@@ -110,10 +110,10 @@ public class BuckConfig {
     }
   };
 
-  private final Function<Optional<String>, Path> cellToPath =
-      new Function<Optional<String>, Path>() {
+  private final CellPathResolver cellToPath =
+      new CellPathResolver() {
         @Override
-        public Path apply(Optional<String> cellName) {
+        public Path getCellPath(Optional<String> cellName) {
           if (!cellName.isPresent()) {
             return projectFilesystem.getRootPath();
           }
@@ -217,7 +217,7 @@ public class BuckConfig {
     return config.getListWithoutComments(section, field, splitChar);
   }
 
-  public Function<Optional<String>, Path> getCellRoots() {
+  public CellPathResolver getCellRoots() {
     return cellToPath;
   }
 
@@ -462,7 +462,7 @@ public class BuckConfig {
   }
 
   public int getMaxTraces() {
-    return Integer.parseInt(getValue("log", "max_traces").or(DEFAULT_MAX_TRACES));
+    return parseInt(getValue("log", "max_traces").or(DEFAULT_MAX_TRACES));
   }
 
   public boolean getCompressTraces() {
@@ -590,7 +590,7 @@ public class BuckConfig {
     if (sampleRate.isPresent()) {
       return SampleRate.of(sampleRate.get());
     }
-    return SampleRate.of(0.75f);
+    return SampleRate.of(0.50f);
   }
 
   public Optional<ImmutableSet<PatternAndMessage>> getUnexpectedFlavorsMessages() {
@@ -736,6 +736,10 @@ public class BuckConfig {
    */
   public String getLocalCacheDirectory() {
     return getValue("cache", "dir").or(BuckConstant.getDefaultCacheDir());
+  }
+
+  public int getKeySeed() {
+    return parseInt(getValue("cache", "key_seed").or("0"));
   }
 
   /**
@@ -915,6 +919,10 @@ public class BuckConfig {
 
   public ImmutableSet<String> getSections() {
     return config.getSectionToEntries().keySet();
+  }
+
+  public ImmutableMap<String, ImmutableMap<String, String>> getRawConfigForDistBuild() {
+    return config.getSectionToEntries();
   }
 
   public ImmutableMap<String, ImmutableMap<String, String>> getRawConfigForParser() {

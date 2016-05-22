@@ -62,6 +62,7 @@ import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.cli.DownloadConfig;
 import com.facebook.buck.cxx.CxxBinaryDescription;
 import com.facebook.buck.cxx.CxxBuckConfig;
+import com.facebook.buck.cxx.CxxGenruleDescription;
 import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPlatforms;
@@ -340,7 +341,7 @@ public class KnownBuildRuleTypes {
         FlavorDomain.from("Apple C++ Platform", appleCxxPlatforms);
 
     // Setup the NDK C/C++ platforms.
-    Optional<Path> ndkRoot = androidDirectoryResolver.findAndroidNdkDir();
+    Optional<Path> ndkRoot = androidDirectoryResolver.getNdkOrAbsent();
     ImmutableMap.Builder<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform> ndkCxxPlatformsBuilder =
         ImmutableMap.builder();
     if (ndkRoot.isPresent()) {
@@ -460,7 +461,7 @@ public class KnownBuildRuleTypes {
     if (downloadConfig.isDownloadAtRuntimeOk()) {
       downloader = StackedDownloader.createFromConfig(
           config,
-          androidDirectoryResolver.findAndroidSdkDirSafe());
+          androidDirectoryResolver.getSdkOrAbsent());
     } else {
       // Or just set one that blows up
       downloader = new ExplodingDownloader();
@@ -504,7 +505,7 @@ public class KnownBuildRuleTypes {
             defaultCxxPlatform,
             codeSignIdentityStore,
             provisioningProfileStore,
-            appleConfig.getDefaultDebugInfoFormat());
+            appleConfig.getDefaultDebugInfoFormatForLibraries());
     builder.register(appleLibraryDescription);
 
     AppleBinaryDescription appleBinaryDescription =
@@ -513,7 +514,7 @@ public class KnownBuildRuleTypes {
             platformFlavorsToAppleCxxPlatforms,
             codeSignIdentityStore,
             provisioningProfileStore,
-            appleConfig.getDefaultDebugInfoFormat());
+            appleConfig.getDefaultDebugInfoFormatForBinaries());
     builder.register(appleBinaryDescription);
 
     SwiftLibraryDescription swiftLibraryDescription =
@@ -578,7 +579,7 @@ public class KnownBuildRuleTypes {
             defaultCxxPlatform,
             codeSignIdentityStore,
             provisioningProfileStore,
-            appleConfig.getDefaultDebugInfoFormat());
+            appleConfig.getDefaultDebugInfoFormatForBinaries());
     builder.register(appleBundleDescription);
     builder.register(new AppleResourceDescription());
     builder.register(
@@ -591,11 +592,12 @@ public class KnownBuildRuleTypes {
             codeSignIdentityStore,
             provisioningProfileStore,
             appleConfig.getAppleDeveloperDirectorySupplierForTests(processExecutor),
-            appleConfig.getDefaultDebugInfoFormat()));
+            appleConfig.getDefaultDebugInfoFormatForTests()));
     builder.register(new CoreDataModelDescription());
     builder.register(new CSharpLibraryDescription());
     builder.register(cxxBinaryDescription);
     builder.register(cxxLibraryDescription);
+    builder.register(new CxxGenruleDescription(cxxPlatforms));
     builder.register(new CxxLuaExtensionDescription(luaConfig, cxxBuckConfig, cxxPlatforms));
     builder.register(
         new CxxPythonExtensionDescription(pythonPlatforms, cxxBuckConfig, cxxPlatforms));

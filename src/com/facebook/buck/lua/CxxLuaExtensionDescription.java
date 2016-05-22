@@ -33,6 +33,7 @@ import com.facebook.buck.cxx.HeaderVisibility;
 import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.cxx.NativeLinkable;
 import com.facebook.buck.cxx.NativeLinkableInput;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
@@ -43,6 +44,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
@@ -53,7 +55,6 @@ import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -99,8 +100,12 @@ public class CxxLuaExtensionDescription implements
   }
 
   @VisibleForTesting
-  protected Path getExtensionPath(BuildTarget target, CxxPlatform cxxPlatform) {
-    return BuildTargets.getGenPath(getExtensionTarget(target, cxxPlatform.getFlavor()), "%s")
+  protected Path getExtensionPath(
+      ProjectFilesystem filesystem,
+      BuildTarget target,
+      CxxPlatform cxxPlatform) {
+    return BuildTargets
+        .getGenPath(filesystem, getExtensionTarget(target, cxxPlatform.getFlavor()), "%s")
         .resolve(getExtensionName(target, cxxPlatform));
   }
 
@@ -192,6 +197,7 @@ public class CxxLuaExtensionDescription implements
     String extensionName = getExtensionName(params.getBuildTarget(), cxxPlatform);
     Path extensionPath =
         getExtensionPath(
+            params.getProjectFilesystem(),
             params.getBuildTarget(),
             cxxPlatform);
     return CxxLinkableEnhancer.createCxxLinkableBuildRule(
@@ -297,7 +303,7 @@ public class CxxLuaExtensionDescription implements
   @Override
   public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
-      Function<Optional<String>, Path> cellRoots,
+      CellPathResolver cellRoots,
       Arg constructorArg) {
     ImmutableSet.Builder<BuildTarget> deps = ImmutableSet.builder();
 

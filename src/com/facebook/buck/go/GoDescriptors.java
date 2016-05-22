@@ -18,6 +18,7 @@ package com.facebook.buck.go;
 
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.Linker;
+import com.facebook.buck.graph.AbstractBreadthFirstThrowingTraversal;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
@@ -107,7 +108,9 @@ abstract class GoDescriptors {
       ImmutableSet<SourcePath> srcs,
       List<String> compilerFlags,
       List<String> assemblerFlags,
-      GoPlatform platform) throws NoSuchBuildTargetException {
+      GoPlatform platform,
+      Iterable<BuildTarget> deps)
+      throws NoSuchBuildTargetException {
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
 
     Preconditions.checkState(
@@ -117,7 +120,7 @@ abstract class GoDescriptors {
         params.getBuildTarget(),
         resolver,
         platform,
-        params.getDeclaredDeps().get());
+        deps);
 
     BuildTarget target = createSymlinkTreeTarget(params.getBuildTarget());
     SymlinkTree symlinkTree = makeSymlinkTree(
@@ -202,7 +205,9 @@ abstract class GoDescriptors {
         srcs,
         compilerFlags,
         assemblerFlags,
-        platform);
+        platform,
+        FluentIterable.from(params.getDeclaredDeps().get())
+            .transform(HasBuildTarget.TO_TARGET));
     resolver.addToIndex(library);
 
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
@@ -334,19 +339,21 @@ abstract class GoDescriptors {
   }
 
   private static ImmutableSet<GoLinkable> requireGoLinkables(
-      final BuildTarget sourceTarget, final BuildRuleResolver resolver, final GoPlatform platform,
-      ImmutableSet<BuildRule> rules)
+      final BuildTarget sourceTarget,
+      final BuildRuleResolver resolver,
+      final GoPlatform platform,
+      Iterable<BuildTarget> targets)
       throws NoSuchBuildTargetException {
-    return FluentIterable.from(rules).transform(new Function<BuildRule, GoLinkable>() {
+    final ImmutableSet.Builder<GoLinkable> linkables = ImmutableSet.builder();
+    new AbstractBreadthFirstThrowingTraversal<BuildTarget, NoSuchBuildTargetException>(targets) {
       @Override
-      public GoLinkable apply(BuildRule input) {
-        try {
-          return requireGoLinkable(sourceTarget, resolver, platform, input.getBuildTarget());
-        } catch (NoSuchBuildTargetException e) {
-          throw new RuntimeException(e);
-        }
+      public Iterable<BuildTarget> visit(BuildTarget target) throws NoSuchBuildTargetException {
+        GoLinkable linkable = requireGoLinkable(sourceTarget, resolver, platform, target);
+        linkables.add(linkable);
+        return linkable.getExportedDeps();
       }
-    }).toSet();
+    }.start();
+    return linkables.build();
   }
 
   private static SymlinkTree makeSymlinkTree(
@@ -376,6 +383,7 @@ abstract class GoDescriptors {
         pathResolver.filterBuildRuleInputs(treeMap.values()));
 
     Path root = params.getBuildTarget().getCellPath().resolve(BuildTargets.getScratchPath(
+        params.getProjectFilesystem(),
         params.getBuildTarget(),
         "__%s__tree"));
 

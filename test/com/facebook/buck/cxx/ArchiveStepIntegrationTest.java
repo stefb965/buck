@@ -32,6 +32,7 @@ import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.step.fs.FileScrubberStep;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
+import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -58,6 +59,7 @@ public class ArchiveStepIntegrationTest {
   @Test
   @SuppressWarnings("PMD.AvoidUsingOctalValues")
   public void thatGeneratedArchivesAreDeterministic() throws IOException, InterruptedException {
+    assumeTrue(Platform.detect() == Platform.MACOS || Platform.detect() == Platform.LINUX);
     ProjectFilesystem filesystem = new ProjectFilesystem(tmp.getRoot().toPath());
     CxxPlatform platform = DefaultCxxPlatforms.build(
         new CxxBuckConfig(FakeBuckConfig.builder().build()));
@@ -88,9 +90,9 @@ public class ArchiveStepIntegrationTest {
     // Execute the archive step and verify it ran successfully.
     ExecutionContext executionContext = TestExecutionContext.newInstance();
     TestConsole console = (TestConsole) executionContext.getConsole();
-    int exitCode = archiveStep.execute(executionContext);
+    int exitCode = archiveStep.execute(executionContext).getExitCode();
     assertEquals("archive step failed: " + console.getTextWrittenToStdErr(), 0, exitCode);
-    exitCode = fileScrubberStep.execute(executionContext);
+    exitCode = fileScrubberStep.execute(executionContext).getExitCode();
     assertEquals("archive scrub step failed: " + console.getTextWrittenToStdErr(), 0, exitCode);
 
     // Now read the archive entries and verify that the timestamp, UID, and GID fields are
@@ -131,7 +133,7 @@ public class ArchiveStepIntegrationTest {
     // Execute the archive step and verify it ran successfully.
     ExecutionContext executionContext = TestExecutionContext.newInstance();
     TestConsole console = (TestConsole) executionContext.getConsole();
-    int exitCode = archiveStep.execute(executionContext);
+    int exitCode = archiveStep.execute(executionContext).getExitCode();
     assertEquals("archive step failed: " + console.getTextWrittenToStdErr(), 0, exitCode);
 
     // Now read the archive entries and verify that the timestamp, UID, and GID fields are
@@ -144,6 +146,7 @@ public class ArchiveStepIntegrationTest {
 
   @Test
   public void inputDirs() throws IOException, InterruptedException {
+    assumeTrue(Platform.detect() == Platform.MACOS || Platform.detect() == Platform.LINUX);
     ProjectFilesystem filesystem = new ProjectFilesystem(tmp.getRoot().toPath());
     CxxPlatform platform =
         DefaultCxxPlatforms.build(new CxxBuckConfig(FakeBuckConfig.builder().build()));
@@ -173,7 +176,7 @@ public class ArchiveStepIntegrationTest {
     // Execute the archive step and verify it ran successfully.
     ExecutionContext executionContext = TestExecutionContext.newInstance();
     TestConsole console = (TestConsole) executionContext.getConsole();
-    int exitCode = archiveStep.execute(executionContext);
+    int exitCode = archiveStep.execute(executionContext).getExitCode();
     assertEquals("archive step failed: " + console.getTextWrittenToStdErr(), 0, exitCode);
 
     // Now read the archive entries and verify that the timestamp, UID, and GID fields are
@@ -187,6 +190,7 @@ public class ArchiveStepIntegrationTest {
 
   @Test
   public void thinArchives() throws IOException, InterruptedException {
+    assumeTrue(Platform.detect() == Platform.MACOS || Platform.detect() == Platform.LINUX);
     ProjectFilesystem filesystem = new ProjectFilesystem(tmp.getRoot().toPath());
     CxxPlatform platform =
         DefaultCxxPlatforms.build(new CxxBuckConfig(FakeBuckConfig.builder().build()));
@@ -221,7 +225,7 @@ public class ArchiveStepIntegrationTest {
     // Execute the archive step and verify it ran successfully.
     ExecutionContext executionContext = TestExecutionContext.newInstance();
     TestConsole console = (TestConsole) executionContext.getConsole();
-    int exitCode = archiveStep.execute(executionContext);
+    int exitCode = archiveStep.execute(executionContext).getExitCode();
     assertEquals("archive step failed: " + console.getTextWrittenToStdErr(), 0, exitCode);
 
     // Verify that the thin header is present.

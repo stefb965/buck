@@ -22,6 +22,7 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
+import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -53,10 +54,10 @@ public class ClosureCompilerStep extends ShellStep {
   }
 
   @Override
-  public int execute(ExecutionContext context) throws InterruptedException {
-    int exitCode = super.execute(context);
+  public StepExecutionResult execute(ExecutionContext context) throws InterruptedException {
+    StepExecutionResult exitCode = super.execute(context);
 
-    if (exitCode == 0) {
+    if (exitCode.isSuccess()) {
       return exitCode;
     }
     File file = output.toFile();

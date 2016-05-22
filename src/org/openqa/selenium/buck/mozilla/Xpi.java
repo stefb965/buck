@@ -75,10 +75,11 @@ public class Xpi extends AbstractBuildRule {
     this.platforms = Preconditions.checkNotNull(platforms);
 
     this.output = BuildTargets.getGenPath(
+        getProjectFilesystem(),
         getBuildTarget(),
         String.format("%%s/%s.xpi", getBuildTarget().getShortName()));
 
-    this.scratch = BuildTargets.getScratchPath(getBuildTarget(), "%s-xpi");
+    this.scratch = BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s-xpi");
   }
 
   @Override

@@ -46,7 +46,7 @@ import java.util.Stack;
 
 import javax.annotation.Nullable;
 
-public class RuleKeyBuilder {
+public abstract class RuleKeyBuilder<T> implements RuleKeyObjectSink {
 
   @VisibleForTesting
   static final byte SEPARATOR = '\0';
@@ -56,36 +56,31 @@ public class RuleKeyBuilder {
   private final SourcePathResolver resolver;
   private final Hasher hasher;
   private final FileHashCache hashCache;
-  private final RuleKeyBuilderFactory defaultRuleKeyBuilderFactory;
   private final RuleKeyLogger ruleKeyLogger;
   private Stack<String> keyStack;
 
   public RuleKeyBuilder(
       SourcePathResolver resolver,
       FileHashCache hashCache,
-      RuleKeyBuilderFactory defaultRuleKeyBuilderFactory,
       RuleKeyLogger ruleKeyLogger) {
     this.resolver = resolver;
     this.hasher = new AppendingHasher(Hashing.sha1(), /* numHashers */ 2);
     this.hashCache = hashCache;
-    this.defaultRuleKeyBuilderFactory = defaultRuleKeyBuilderFactory;
     this.keyStack = new Stack<>();
     this.ruleKeyLogger = ruleKeyLogger;
   }
 
   public RuleKeyBuilder(
       SourcePathResolver resolver,
-      FileHashCache hashCache,
-      RuleKeyBuilderFactory defaultRuleKeyBuilderFactory) {
+      FileHashCache hashCache) {
     this(resolver,
         hashCache,
-        defaultRuleKeyBuilderFactory,
         logger.isVerboseEnabled() ?
             new DefaultRuleKeyLogger() :
             new NullRuleKeyLogger());
   }
 
-  private RuleKeyBuilder feed(byte[] bytes) {
+  private RuleKeyBuilder<T> feed(byte[] bytes) {
     while (!keyStack.isEmpty()) {
       String key = keyStack.pop();
       hasher.putBytes(key.getBytes(StandardCharsets.UTF_8));
@@ -97,7 +92,7 @@ public class RuleKeyBuilder {
     return this;
   }
 
-  protected RuleKeyBuilder setSourcePath(SourcePath sourcePath) {
+  protected RuleKeyBuilder<T> setSourcePath(SourcePath sourcePath) {
     if (sourcePath instanceof ArchiveMemberSourcePath) {
       ArchiveMemberSourcePath archiveMemberSourcePath = (ArchiveMemberSourcePath) sourcePath;
       try {
@@ -135,7 +130,7 @@ public class RuleKeyBuilder {
     }
   }
 
-  protected RuleKeyBuilder setNonHashingSourcePath(SourcePath sourcePath) {
+  protected RuleKeyBuilder<T> setNonHashingSourcePath(SourcePath sourcePath) {
     String pathForKey;
     if (sourcePath instanceof ResourceSourcePath) {
       pathForKey = ((ResourceSourcePath) sourcePath).getResourceIdentifier();
@@ -148,35 +143,18 @@ public class RuleKeyBuilder {
     return this;
   }
 
-  protected RuleKeyBuilder setBuildRule(BuildRule rule) {
-    return setSingleValue(defaultRuleKeyBuilderFactory.build(rule));
-  }
-
   /**
-   * Implementations can override this to provide context-specific caching.
-   *
-   * @return the {@link RuleKey} to be used for the given {@code appendable}.
+   * Implementations should ask their factories to compute the rule key for the {@link BuildRule}
+   * and call {@link #setSingleValue(Object)} on it.
    */
-  protected RuleKey getAppendableRuleKey(
-      SourcePathResolver resolver,
-      FileHashCache hashCache,
-      RuleKeyAppendable appendable) {
-    RuleKeyBuilder subKeyBuilder = new RuleKeyBuilder(
-        resolver,
-        hashCache,
-        defaultRuleKeyBuilderFactory);
-    appendable.appendToRuleKey(subKeyBuilder);
-    return subKeyBuilder.build();
+  protected abstract RuleKeyBuilder<T> setBuildRule(BuildRule rule);
+
+  protected RuleKeyBuilder<T> setAppendableRuleKey(String key, RuleKey ruleKey) {
+    return setReflectively(key + ".appendableSubKey", ruleKey);
   }
 
-  public RuleKeyBuilder setAppendableRuleKey(String key, RuleKeyAppendable appendable) {
-    setReflectively(
-        key + ".appendableSubKey",
-        getAppendableRuleKey(resolver, hashCache, appendable));
-    return this;
-  }
-
-  public RuleKeyBuilder setReflectively(String key, @Nullable Object val) {
+  @Override
+  public RuleKeyBuilder<T> setReflectively(String key, @Nullable Object val) {
     if (val instanceof RuleKeyAppendable) {
       setAppendableRuleKey(key, (RuleKeyAppendable) val);
       if (!(val instanceof BuildRule)) {
@@ -258,7 +236,8 @@ public class RuleKeyBuilder {
   // that's being used for compilation or some such). This does mean that if a user renames a
   // file without changing the contents, we have a cache miss. We're going to assume that this
   // doesn't happen that often in practice.
-  public RuleKeyBuilder setPath(Path absolutePath, Path ideallyRelative) throws IOException {
+  @Override
+  public RuleKeyBuilder<T> setPath(Path absolutePath, Path ideallyRelative) throws IOException {
     // TODO(shs96c): Enable this precondition once setPath(Path) has been removed.
     // Preconditions.checkState(absolutePath.isAbsolute());
     HashCode sha1 = hashCache.get(absolutePath);
@@ -282,7 +261,7 @@ public class RuleKeyBuilder {
     return this;
   }
 
-  public RuleKeyBuilder setArchiveMemberPath(
+  public RuleKeyBuilder<T> setArchiveMemberPath(
       ArchiveMemberPath absoluteArchiveMemberPath,
       ArchiveMemberPath relativeArchiveMemberPath) throws IOException {
     Preconditions.checkState(absoluteArchiveMemberPath.isAbsolute());
@@ -301,7 +280,7 @@ public class RuleKeyBuilder {
     return this;
   }
 
-  protected RuleKeyBuilder setSingleValue(@Nullable Object val) {
+  protected RuleKeyBuilder<T> setSingleValue(@Nullable Object val) {
 
     if (val == null) { // Null value first
       ruleKeyLogger.addNullValue();
@@ -393,10 +372,12 @@ public class RuleKeyBuilder {
     return this;
   }
 
-  public RuleKey build() {
+  protected RuleKey buildRuleKey() {
     RuleKey ruleKey = new RuleKey(hasher.hash());
     ruleKeyLogger.registerRuleKey(ruleKey);
     return ruleKey;
   }
+
+  public abstract T build();
 
 }

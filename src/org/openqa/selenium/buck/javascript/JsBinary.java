@@ -88,8 +88,8 @@ public class JsBinary extends AbstractBuildRule implements
     this.externs = Preconditions.checkNotNull(externs);
     this.flags = Preconditions.checkNotNull(flags);
 
-    this.output = BuildTargets.getGenPath(getBuildTarget(), "%s.js");
-    this.joyPath = BuildTargets.getGenPath(getBuildTarget(), "%s.deps");
+    this.output = BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s.js");
+    this.joyPath = BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s.deps");
 
     buildOutputInitializer = new BuildOutputInitializer<>(getBuildTarget(), this);
   }

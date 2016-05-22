@@ -21,10 +21,10 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.RuleKeyBuilder;
-import com.facebook.buck.rules.RuleKeyBuilderFactory;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.util.cache.FileHashCache;
+import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
@@ -45,22 +45,23 @@ import javax.annotation.Nullable;
  * @see SupportsInputBasedRuleKey
  */
 public class InputBasedRuleKeyBuilderFactory
-    extends ReflectiveRuleKeyBuilderFactory<InputBasedRuleKeyBuilderFactory.Builder> {
+    extends ReflectiveRuleKeyBuilderFactory<
+        InputBasedRuleKeyBuilderFactory.Builder,
+        Optional<RuleKey>> {
 
   private final FileHashCache fileHashCache;
   private final SourcePathResolver pathResolver;
   private final InputHandling inputHandling;
-  private final RuleKeyBuilderFactory defaultRuleKeyBuilderFactory;
   private final LoadingCache<RuleKeyAppendable, Result> cache;
 
   protected InputBasedRuleKeyBuilderFactory(
+      int seed,
       FileHashCache hashCache,
       SourcePathResolver pathResolver,
-      RuleKeyBuilderFactory defaultRuleKeyBuilderFactory,
       InputHandling inputHandling) {
+    super(seed);
     this.fileHashCache = hashCache;
     this.pathResolver = pathResolver;
-    this.defaultRuleKeyBuilderFactory = defaultRuleKeyBuilderFactory;
     this.inputHandling = inputHandling;
 
     // Build the cache around the sub-rule-keys and their dep lists.
@@ -77,10 +78,10 @@ public class InputBasedRuleKeyBuilderFactory
   }
 
   public InputBasedRuleKeyBuilderFactory(
+      int seed,
       FileHashCache hashCache,
-      SourcePathResolver pathResolver,
-      RuleKeyBuilderFactory defaultRuleKeyBuilderFactory) {
-    this(hashCache, pathResolver, defaultRuleKeyBuilderFactory, InputHandling.HASH);
+      SourcePathResolver pathResolver) {
+    this(seed, hashCache, pathResolver, InputHandling.HASH);
   }
 
   @Override
@@ -90,7 +91,7 @@ public class InputBasedRuleKeyBuilderFactory
       // Construct the rule key, verifying that all the deps we saw when constructing it
       // are explicit dependencies of the rule.
       @Override
-      public RuleKey build() {
+      public Optional<RuleKey> build() {
         Result result = buildResult();
         for (BuildRule usedDep : result.getDeps()) {
           Preconditions.checkState(
@@ -100,48 +101,48 @@ public class InputBasedRuleKeyBuilderFactory
               usedDep.getBuildTarget(),
               rule.getDeps());
         }
-        return result.getRuleKey();
+        return Optional.of(result.getRuleKey());
       }
 
     };
   }
 
-  public class Builder extends RuleKeyBuilder {
+  public class Builder extends RuleKeyBuilder<Optional<RuleKey>> {
 
     private final ImmutableList.Builder<Iterable<BuildRule>> deps = ImmutableList.builder();
     private final ImmutableList.Builder<Iterable<SourcePath>> inputs = ImmutableList.builder();
 
     private Builder() {
-      super(pathResolver, fileHashCache, defaultRuleKeyBuilderFactory);
+      super(pathResolver, fileHashCache);
     }
 
     @Override
-    protected RuleKey getAppendableRuleKey(
-        SourcePathResolver resolver,
-        FileHashCache hashCache,
-        RuleKeyAppendable appendable) {
+    public Builder setAppendableRuleKey(String key, RuleKeyAppendable appendable) {
       Result result = cache.getUnchecked(appendable);
       deps.add(result.getDeps());
       inputs.add(result.getInputs());
-      return result.getRuleKey();
+      setAppendableRuleKey(key, result.getRuleKey());
+      return this;
     }
 
     @Override
-    public RuleKeyBuilder setReflectively(String key, @Nullable Object val) {
+    public Builder setReflectively(String key, @Nullable Object val) {
       if (val instanceof ArchiveDependencySupplier) {
-        return super.setReflectively(
+        super.setReflectively(
             key,
             ((ArchiveDependencySupplier) val).getArchiveMembers(pathResolver));
+      } else {
+        super.setReflectively(key, val);
       }
 
-      return super.setReflectively(key, val);
+      return this;
     }
 
     // Input-based rule keys are evaluated after all dependencies for a rule are available on
     // disk, and so we can always resolve the `Path` packaged in a `SourcePath`.  We hash this,
     // rather than the rule key from it's `BuildRule`.
     @Override
-    protected RuleKeyBuilder setSourcePath(SourcePath sourcePath) {
+    protected Builder setSourcePath(SourcePath sourcePath) {
       if (inputHandling == InputHandling.HASH) {
         deps.add(pathResolver.getRule(sourcePath).asSet());
 
@@ -167,7 +168,7 @@ public class InputBasedRuleKeyBuilderFactory
     // inputs.  If we see a `BuildRule` when generating the rule key, this is likely a break in
     // that contract, so check for that.
     @Override
-    protected RuleKeyBuilder setBuildRule(BuildRule rule) {
+    protected Builder setBuildRule(BuildRule rule) {
       throw new IllegalStateException(
           String.format(
               "Input-based rule key builders cannot process build rules. " +
@@ -182,9 +183,14 @@ public class InputBasedRuleKeyBuilderFactory
     // Build the rule key and the list of deps found from this builder.
     protected Result buildResult() {
       return new Result(
-          super.build(),
+          buildRuleKey(),
           Iterables.concat(deps.build()),
           Iterables.concat(inputs.build()));
+    }
+
+    @Override
+    public Optional<RuleKey> build() {
+      return Optional.of(buildRuleKey());
     }
 
   }

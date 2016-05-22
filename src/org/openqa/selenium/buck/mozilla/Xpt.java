@@ -55,7 +55,7 @@ public class Xpt extends AbstractBuildRule {
     this.src = Preconditions.checkNotNull(src);
     Path relativePath = resolver.getRelativePath(src);
     String name = Files.getNameWithoutExtension(relativePath.toString()) + ".xpt";
-    this.out = BuildTargets.getGenPath(getBuildTarget(), name);
+    this.out = BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), name);
   }
 
   @Override

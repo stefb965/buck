@@ -39,6 +39,7 @@ import com.facebook.buck.rules.TestRule;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
+import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.TargetDevice;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
@@ -221,7 +222,7 @@ public class JavaTest
   }
 
   private Path getClassPathFile() {
-    return BuildTargets.getGenPath(getBuildTarget(), "%s/classpath-file");
+    return BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s/classpath-file");
   }
 
   private JUnitStep getJUnitStep(
@@ -237,7 +238,7 @@ public class JavaTest
 
     ImmutableList<String> properVmArgs = amendVmArgs(
         this.vmArgs,
-        executionContext.getTargetDeviceOptional());
+        executionContext.getTargetDevice());
 
     BuckEventBus buckEventBus = executionContext.getBuckEventBus();
     BuildId buildId = buckEventBus.getBuildId();
@@ -276,10 +277,9 @@ public class JavaTest
    */
   @Override
   public ImmutableList<Step> runTests(
-      BuildContext buildContext,
       ExecutionContext executionContext,
       TestRunningOptions options,
-      TestRule.TestReportingCallback testReportingCallback) {
+      TestReportingCallback testReportingCallback) {
 
     // If no classes were generated, then this is probably a java_test() that declares a number of
     // other java_test() rules as deps, functioning as a test suite. In this case, simply return an
@@ -354,7 +354,7 @@ public class JavaTest
   }
 
   @Override
-  public boolean hasTestResultFiles(ExecutionContext executionContext) {
+  public boolean hasTestResultFiles() {
     // It is possible that this rule was not responsible for running any tests because all tests
     // were run by its deps. In this case, return an empty TestResults.
     Set<String> testClassNames = getClassNamesForSources();
@@ -378,20 +378,20 @@ public class JavaTest
 
   @Override
   public Path getPathToTestOutputDirectory() {
-    List<String> pathsList = Lists.newArrayList();
-    pathsList.add(getBuildTarget().getBaseNameWithSlash());
-    pathsList.add(
-        String.format("__java_test_%s_output__", getBuildTarget().getShortNameAndFlavorPostfix()));
+    Path path =
+        BuildTargets.getGenPath(
+            getProjectFilesystem(),
+            getBuildTarget(),
+            "__java_test_%s_output__");
 
     // Putting the one-time test-sub-directory below the usual directory has the nice property that
     // doing a test run without "--one-time-output" will tidy up all the old one-time directories!
     String subdir = BuckConstant.oneTimeTestSubdirectory;
     if (subdir != null && !subdir.isEmpty()) {
-      pathsList.add(subdir);
+      path = path.resolve(subdir);
     }
 
-    String[] pathsArray = pathsList.toArray(new String[pathsList.size()]);
-    return Paths.get(BuckConstant.getGenDir(), pathsArray);
+    return path;
   }
 
   private Path getPathToTmpDirectory() {
@@ -405,7 +405,11 @@ public class JavaTest
                   getBuildTarget().getShortNameAndFlavorPostfix()));
       LOG.debug("Using overridden test temp dir base %s", base);
     } else {
-      base = BuildTargets.getScratchPath(getBuildTarget(), "__java_test_%s_tmp__");
+      base =
+          BuildTargets.getScratchPath(
+              getProjectFilesystem(),
+              getBuildTarget(),
+              "__java_test_%s_tmp__");
       LOG.debug("Using standard test temp dir base %s", base);
     }
     String subdir = BuckConstant.oneTimeTestSubdirectory;
@@ -663,7 +667,7 @@ public class JavaTest
         .add(
             new AbstractExecutionStep("write classpath file") {
               @Override
-              public int execute(ExecutionContext context) throws IOException {
+              public StepExecutionResult execute(ExecutionContext context) throws IOException {
                 ImmutableSet<Path> classpathEntries = ImmutableSet.<Path>builder()
                     .addAll(getTransitiveClasspathEntries().values())
                     .addAll(additionalClasspathEntries)
@@ -672,7 +676,7 @@ public class JavaTest
                 getProjectFilesystem().writeLinesToPath(
                     Iterables.transform(classpathEntries, Functions.toStringFunction()),
                     getClassPathFile());
-                return 0;
+                return StepExecutionResult.SUCCESS;
               }
             })
         .build();

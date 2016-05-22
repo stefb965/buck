@@ -21,8 +21,6 @@ import com.facebook.buck.dalvik.EstimateLinearAllocStep;
 import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.HasBuildTarget;
-import com.facebook.buck.rules.RuleKeyBuilderFactory;
-import com.facebook.buck.rules.keys.AbiRule;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildOutputInitializer;
@@ -33,9 +31,12 @@ import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.Sha1HashCode;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.keys.AbiRule;
+import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
+import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.util.ObjectMappers;
@@ -152,7 +153,7 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRule
     String stepName = hasClassesToDx ? "record_dx_success" : "record_empty_dx";
     AbstractExecutionStep recordArtifactAndMetadataStep = new AbstractExecutionStep(stepName) {
       @Override
-      public int execute(ExecutionContext context) throws IOException {
+      public StepExecutionResult execute(ExecutionContext context) throws IOException {
         if (hasClassesToDx) {
           buildableContext.recordArtifact(getPathToDex());
         }
@@ -166,7 +167,7 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRule
             context.getObjectMapper().writeValueAsString(
                 Maps.transformValues(classNamesToHashes, Functions.toStringFunction())));
 
-        return 0;
+        return StepExecutionResult.SUCCESS;
       }
     };
     steps.add(recordArtifactAndMetadataStep);
@@ -211,7 +212,7 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRule
   }
 
   public Path getPathToDex() {
-    return BuildTargets.getGenPath(getBuildTarget(), "%s.dex.jar");
+    return BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s.dex.jar");
   }
 
   public boolean hasOutput() {
@@ -233,7 +234,7 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRule
    * of this buildable is the hash of the {@code .class} files for {@link #javaLibrary}.
    */
   @Override
-  public Sha1HashCode getAbiKeyForDeps(RuleKeyBuilderFactory defaultRuleKeyBuilderFactory) {
+  public Sha1HashCode getAbiKeyForDeps(DefaultRuleKeyBuilderFactory defaultRuleKeyBuilderFactory) {
     return computeAbiKey(javaLibrary.getClassNamesToHashes());
   }
 

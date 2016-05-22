@@ -18,16 +18,17 @@ package com.facebook.buck.jvm.java;
 
 import static org.junit.Assert.assertEquals;
 
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKeyBuilder;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.UncachedRuleKeyBuilder;
 import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
@@ -103,15 +104,15 @@ public class ExternalJavacTest extends EasyMockSupport {
     BuildRuleParams params = new FakeBuildRuleParamsBuilder("//example:target").build();
     BuildRule buildRule = new NoopBuildRule(params, pathResolver);
     DefaultRuleKeyBuilderFactory fakeRuleKeyBuilderFactory =
-        new DefaultRuleKeyBuilderFactory(fileHashCache, pathResolver);
+        new DefaultRuleKeyBuilderFactory(0, fileHashCache, pathResolver);
 
-    RuleKey javacKey = new RuleKeyBuilder(
+    RuleKey javacKey = new UncachedRuleKeyBuilder(
         pathResolver,
         fileHashCache,
         fakeRuleKeyBuilderFactory)
         .setReflectively("javac", javac.toString())
         .build();
-    RuleKeyBuilder builder = fakeRuleKeyBuilderFactory.newInstance(buildRule);
+    RuleKeyBuilder<RuleKey> builder = fakeRuleKeyBuilderFactory.newInstance(buildRule);
     builder.setReflectively("key.appendableSubKey", javacKey);
     RuleKey expected = builder.build();
 
@@ -153,15 +154,15 @@ public class ExternalJavacTest extends EasyMockSupport {
     BuildRuleParams params = new FakeBuildRuleParamsBuilder("//example:target").build();
     BuildRule buildRule = new NoopBuildRule(params, pathResolver);
     DefaultRuleKeyBuilderFactory fakeRuleKeyBuilderFactory =
-        new DefaultRuleKeyBuilderFactory(fileHashCache, pathResolver);
+        new DefaultRuleKeyBuilderFactory(0, fileHashCache, pathResolver);
 
-    RuleKey javacKey = new RuleKeyBuilder(
+    RuleKey javacKey = new UncachedRuleKeyBuilder(
         pathResolver,
         fileHashCache,
         fakeRuleKeyBuilderFactory)
         .setReflectively("javac.version", javacVersion.toString())
         .build();
-    RuleKeyBuilder builder = fakeRuleKeyBuilderFactory.newInstance(buildRule);
+    RuleKeyBuilder<RuleKey> builder = fakeRuleKeyBuilderFactory.newInstance(buildRule);
     builder.setReflectively("key.appendableSubKey", javacKey);
     RuleKey expected = builder.build();
 

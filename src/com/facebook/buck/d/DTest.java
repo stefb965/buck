@@ -119,6 +119,7 @@ public class DTest extends AbstractBuildRule implements
   @Override
   public Path getPathToTestOutputDirectory() {
     return BuildTargets.getGenPath(
+        getProjectFilesystem(),
         getBuildTarget(),
         "__test_%s_output__");
   }
@@ -138,7 +139,7 @@ public class DTest extends AbstractBuildRule implements
   }
 
   @Override
-  public boolean hasTestResultFiles(ExecutionContext executionContext) {
+  public boolean hasTestResultFiles() {
     return getProjectFilesystem().isFile(getPathToTestOutput());
   }
 
@@ -215,10 +216,9 @@ public class DTest extends AbstractBuildRule implements
 
   @Override
   public ImmutableList<Step> runTests(
-      BuildContext buildContext,
       ExecutionContext executionContext,
       TestRunningOptions options,
-      TestRule.TestReportingCallback testReportingCallback) {
+      TestReportingCallback testReportingCallback) {
     if (options.isDryRun()) {
       return ImmutableList.of();
     } else {

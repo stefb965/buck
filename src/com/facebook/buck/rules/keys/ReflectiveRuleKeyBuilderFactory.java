@@ -19,7 +19,6 @@ package com.facebook.buck.rules.keys;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuckVersion;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.RuleKeyBuilder;
 import com.facebook.buck.rules.RuleKeyBuilderFactory;
@@ -31,21 +30,23 @@ import com.google.common.collect.ImmutableCollection;
 
 import java.util.concurrent.ExecutionException;
 
-public abstract class ReflectiveRuleKeyBuilderFactory<T extends RuleKeyBuilder>
-    implements RuleKeyBuilderFactory {
+public abstract class ReflectiveRuleKeyBuilderFactory<T extends RuleKeyBuilder<U>, U>
+    implements RuleKeyBuilderFactory<U> {
 
   private static final Logger LOG = Logger.get(ReflectiveRuleKeyBuilderFactory.class);
 
+  private final int seed;
   private final LoadingCache<Class<? extends BuildRule>, ImmutableCollection<AlterRuleKey>>
       knownFields;
-  private final LoadingCache<BuildRule, RuleKey> knownRules;
+  private final LoadingCache<BuildRule, U> knownRules;
 
-  public ReflectiveRuleKeyBuilderFactory() {
-    knownFields = CacheBuilder.newBuilder().build(new ReflectiveAlterKeyLoader());
-    knownRules = CacheBuilder.newBuilder().weakKeys().build(
-        new CacheLoader<BuildRule, RuleKey>() {
+  public ReflectiveRuleKeyBuilderFactory(int seed) {
+    this.seed = seed;
+    this.knownFields = CacheBuilder.newBuilder().build(new ReflectiveAlterKeyLoader());
+    this.knownRules = CacheBuilder.newBuilder().weakKeys().build(
+        new CacheLoader<BuildRule, U>() {
           @Override
-          public RuleKey load(BuildRule key) throws Exception {
+          public U load(BuildRule key) throws Exception {
             return newInstance(key).build();
           }
         });
@@ -59,6 +60,7 @@ public abstract class ReflectiveRuleKeyBuilderFactory<T extends RuleKeyBuilder>
   @Override
   public T newInstance(BuildRule buildRule) {
     T builder = newBuilder(buildRule);
+    builder.setReflectively("buck.seed", seed);
     builder.setReflectively("name", buildRule.getBuildTarget().getFullyQualifiedName());
     // Keyed as "buck.type" rather than "type" in case a build rule has its own "type" argument.
     builder.setReflectively("buck.type", buildRule.getType());
@@ -86,7 +88,7 @@ public abstract class ReflectiveRuleKeyBuilderFactory<T extends RuleKeyBuilder>
   }
 
   @Override
-  public final RuleKey build(BuildRule buildRule) {
+  public final U build(BuildRule buildRule) {
     try {
       return knownRules.getUnchecked(buildRule);
     } catch (RuntimeException e) {

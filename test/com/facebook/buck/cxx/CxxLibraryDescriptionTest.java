@@ -48,7 +48,7 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.Arg;
-import com.facebook.buck.rules.args.SourcePathArg;
+import com.facebook.buck.rules.args.FileListableLinkerInputArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
@@ -79,6 +79,7 @@ import java.util.regex.Pattern;
 public class CxxLibraryDescriptionTest {
 
   private static Optional<SourcePath> getHeaderMaps(
+      ProjectFilesystem filesystem,
       BuildTarget target,
       BuildRuleResolver resolver,
       CxxPlatform cxxPlatform,
@@ -92,6 +93,7 @@ public class CxxLibraryDescriptionTest {
                   cxxPlatform.getFlavor(),
                   headerVisibility),
               CxxDescriptionEnhancer.getHeaderMapPath(
+                  filesystem,
                   target,
                   cxxPlatform.getFlavor(),
                   headerVisibility)));
@@ -210,6 +212,7 @@ public class CxxLibraryDescriptionTest {
         publicHeaders.getHeaderMap(),
         Matchers.equalTo(
             getHeaderMaps(
+                filesystem,
                 target,
                 resolver,
                 cxxPlatform,
@@ -242,6 +245,7 @@ public class CxxLibraryDescriptionTest {
         privateHeaders.getHeaderMap(),
         Matchers.equalTo(
             getHeaderMaps(
+                filesystem,
                 target,
                 resolver,
                 cxxPlatform,
@@ -526,6 +530,7 @@ public class CxxLibraryDescriptionTest {
         publicHeaders.getHeaderMap(),
         Matchers.equalTo(
             getHeaderMaps(
+                filesystem,
                 target,
                 resolver,
                 cxxPlatform,
@@ -763,9 +768,8 @@ public class CxxLibraryDescriptionTest {
             CxxLibraryBuilder.createDefaultPlatform(),
             Linker.LinkableDepType.STATIC_PIC);
     Arg firstArg = nativeLinkableInput.getArgs().get(0);
-    assertThat(firstArg, instanceOf(SourcePathArg.class));
-    SourcePathArg sourcePathArg = (SourcePathArg) firstArg;
-    ImmutableCollection<BuildRule> deps = sourcePathArg.getDeps(new SourcePathResolver(resolver));
+    assertThat(firstArg, instanceOf(FileListableLinkerInputArg.class));
+    ImmutableCollection<BuildRule> deps = firstArg.getDeps(new SourcePathResolver(resolver));
     assertThat(deps.size(), is(1));
     BuildRule buildRule = deps.asList().get(0);
     assertThat(
@@ -1314,6 +1318,22 @@ public class CxxLibraryDescriptionTest {
             SourceWithFlags.of(new PathSourcePath(filesystem, Paths.get("test.cpp")))));
     Archive lib = (Archive) libBuilder.build(resolver, filesystem);
     assertThat(lib.getContents(), Matchers.equalTo(Archive.Contents.THIN));
+  }
+
+  @Test
+  public void forceStatic() throws Exception {
+    ProjectFilesystem filesystem = new FakeProjectFilesystem();
+    CxxLibraryBuilder cxxLibraryBuilder =
+        new CxxLibraryBuilder(BuildTargetFactory.newInstance("//:rule"))
+            .setPreferredLinkage(NativeLinkable.Linkage.STATIC);
+    BuildRuleResolver resolver =
+        new BuildRuleResolver(
+            TargetGraphFactory.newInstance(cxxLibraryBuilder.build()),
+            new DefaultTargetNodeToBuildRuleTransformer());
+    CxxLibrary rule = (CxxLibrary) cxxLibraryBuilder.build(resolver, filesystem);
+    assertThat(
+        rule.getPreferredLinkage(CxxPlatformUtils.DEFAULT_PLATFORM),
+        Matchers.equalTo(NativeLinkable.Linkage.STATIC));
   }
 
 }

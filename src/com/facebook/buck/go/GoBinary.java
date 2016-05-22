@@ -71,7 +71,9 @@ public class GoBinary extends AbstractBuildRule implements BinaryBuildRule {
     this.mainObject = mainObject;
     this.platform = platform;
     this.output = BuildTargets.getGenPath(
-        params.getBuildTarget(), "%s/" + params.getBuildTarget().getShortName());
+        getProjectFilesystem(),
+        params.getBuildTarget(),
+        "%s/" + params.getBuildTarget().getShortName());
     this.linkerFlags = linkerFlags;
   }
 
@@ -89,7 +91,11 @@ public class GoBinary extends AbstractBuildRule implements BinaryBuildRule {
 
   @Override
   public ImmutableList<Step> getBuildSteps(
-      BuildContext context, BuildableContext buildableContext) {
+      BuildContext context,
+      BuildableContext buildableContext) {
+
+    buildableContext.recordArtifact(output);
+
     // There is no way to specify real-ld environment variables to the go linker - just hope
     // that the two sets don't collide.
     ImmutableList<String> cxxLinkerCommand = ImmutableList.of();

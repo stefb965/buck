@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY 4bd746dbb9cbdddcc55dbadd17ad4406402a7330 #@#
+#@# GENERATED FILE: DO NOT MODIFY 5456a1f7298c9369245aebe8417c37a59098cdef #@#
 {
   "rules" : {
     "deps" : [
@@ -22,6 +22,7 @@
       "//src/com/facebook/buck/rules:action_graph_cache",
       "//src/com/facebook/buck/rules:build_rule",
       "//src/com/facebook/buck/rules:command_tool",
+      "//src/com/facebook/buck/rules:interfaces",
       "//src/com/facebook/buck/rules:rule_key",
       "//src/com/facebook/buck/rules:rules",
       "//src/com/facebook/buck/rules:target_graph_hashing",
@@ -43,6 +44,7 @@
       "//src/com/facebook/buck/util:util",
       "//src/com/facebook/buck/util/cache:cache",
       "//src/com/facebook/buck/util/concurrent:concurrent",
+      "//src/com/facebook/buck/util/environment:platform",
       "//src/com/facebook/buck/zip:stream",
       "//test/com/facebook/buck/android:utils",
       "//test/com/facebook/buck/artifact_cache:testutil",
@@ -103,6 +105,7 @@
       "//src/com/facebook/buck/parser:rule_pattern",
       "//src/com/facebook/buck/rules:Sha1HashCode",
       "//src/com/facebook/buck/rules:build_rule",
+      "//src/com/facebook/buck/rules:interfaces",
       "//src/com/facebook/buck/rules:rule_key",
       "//src/com/facebook/buck/rules:rules",
       "//src/com/facebook/buck/rules:types",

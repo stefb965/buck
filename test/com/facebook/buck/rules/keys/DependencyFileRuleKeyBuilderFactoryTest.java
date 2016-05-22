@@ -33,7 +33,7 @@ import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKeyAppendable;
-import com.facebook.buck.rules.RuleKeyBuilder;
+import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
@@ -77,38 +77,32 @@ public class DependencyFileRuleKeyBuilderFactoryTest {
         ImmutableMap.of(
             output,
             HashCode.fromInt(0)));
-    DefaultRuleKeyBuilderFactory defaultRuleKeyBuilderFactory1 = new DefaultRuleKeyBuilderFactory(
-        hashCache,
-        pathResolver);
 
     RuleKey inputKey1 =
         new DefaultDependencyFileRuleKeyBuilderFactory(
+            0,
             hashCache,
-            pathResolver,
-            defaultRuleKeyBuilderFactory1)
+            pathResolver)
             .build(
                 rule,
                 Optional.<ImmutableSet<SourcePath>>absent(),
-                ImmutableList.<DependencyFileEntry>of()).getFirst();
+                ImmutableList.<DependencyFileEntry>of()).get().getFirst();
 
     // Now, build a rule key with a different hash for the output for the above rule.
     hashCache = new FakeFileHashCache(
         ImmutableMap.of(
             output,
             HashCode.fromInt(1)));
-    DefaultRuleKeyBuilderFactory defaultRuleKeyBuilderFactory2 = new DefaultRuleKeyBuilderFactory(
-        hashCache,
-        pathResolver);
 
     RuleKey inputKey2 =
         new DefaultDependencyFileRuleKeyBuilderFactory(
+            0,
             hashCache,
-            pathResolver,
-            defaultRuleKeyBuilderFactory2)
+            pathResolver)
             .build(
                 rule,
                 Optional.<ImmutableSet<SourcePath>>absent(),
-                ImmutableList.<DependencyFileEntry>of()).getFirst();
+                ImmutableList.<DependencyFileEntry>of()).get().getFirst();
 
     assertThat(inputKey1, Matchers.equalTo(inputKey2));
   }
@@ -134,38 +128,32 @@ public class DependencyFileRuleKeyBuilderFactoryTest {
         ImmutableMap.of(
             filesystem.resolve(output),
             HashCode.fromInt(0)));
-    DefaultRuleKeyBuilderFactory defaultRuleKeyBuilderFactory1 = new DefaultRuleKeyBuilderFactory(
-        hashCache,
-        pathResolver);
 
     RuleKey inputKey1 =
         new DefaultDependencyFileRuleKeyBuilderFactory(
+            0,
             hashCache,
-            pathResolver,
-            defaultRuleKeyBuilderFactory1)
+            pathResolver)
             .build(
                 rule,
                 Optional.<ImmutableSet<SourcePath>>absent(),
-                ImmutableList.<DependencyFileEntry>of()).getFirst();
+                ImmutableList.<DependencyFileEntry>of()).get().getFirst();
 
     // Now, build a rule key with a different hash for the output for the above rule.
     hashCache = new FakeFileHashCache(
         ImmutableMap.of(
             filesystem.resolve(output),
             HashCode.fromInt(1)));
-    DefaultRuleKeyBuilderFactory defaultRuleKeyBuilderFactory2 = new DefaultRuleKeyBuilderFactory(
-        hashCache,
-        pathResolver);
 
     RuleKey inputKey2 =
         new DefaultDependencyFileRuleKeyBuilderFactory(
+            0,
             hashCache,
-            pathResolver,
-            defaultRuleKeyBuilderFactory2)
+            pathResolver)
             .build(
                 rule,
                 Optional.<ImmutableSet<SourcePath>>absent(),
-                ImmutableList.<DependencyFileEntry>of()).getFirst();
+                ImmutableList.<DependencyFileEntry>of()).get().getFirst();
 
     assertThat(inputKey1, Matchers.equalTo(inputKey2));
   }
@@ -199,16 +187,14 @@ public class DependencyFileRuleKeyBuilderFactoryTest {
         ImmutableMap.of(
             filesystem.resolve(output),
             HashCode.fromInt(0)));
-    DefaultRuleKeyBuilderFactory defaultRuleKeyBuilderFactory1 = new DefaultRuleKeyBuilderFactory(
-        hashCache,
-        pathResolver);
 
     RuleKey manifestKey1 =
         new DefaultDependencyFileRuleKeyBuilderFactory(
+            0,
             hashCache,
-            pathResolver,
-            defaultRuleKeyBuilderFactory1)
+            pathResolver)
             .buildManifestKey(rule)
+            .get()
             .getFirst();
 
     // Now, build a rule key with a different hash for the output for the above rule.
@@ -216,16 +202,14 @@ public class DependencyFileRuleKeyBuilderFactoryTest {
         ImmutableMap.of(
             filesystem.resolve(output),
             HashCode.fromInt(1)));
-    DefaultRuleKeyBuilderFactory defaultRuleKeyBuilderFactory2 = new DefaultRuleKeyBuilderFactory(
-        hashCache,
-        pathResolver);
 
     RuleKey manifestKey2 =
         new DefaultDependencyFileRuleKeyBuilderFactory(
+            0,
             hashCache,
-            pathResolver,
-            defaultRuleKeyBuilderFactory2)
+            pathResolver)
             .buildManifestKey(rule)
+            .get()
             .getFirst();
 
     assertThat(manifestKey1, Matchers.equalTo(manifestKey2));
@@ -251,16 +235,14 @@ public class DependencyFileRuleKeyBuilderFactoryTest {
         ImmutableMap.of(
             filesystem.resolve(localInput),
             HashCode.fromInt(0)));
-    DefaultRuleKeyBuilderFactory defaultRuleKeyBuilderFactory1 = new DefaultRuleKeyBuilderFactory(
-        hashCache,
-        pathResolver);
 
     RuleKey manifestKey1 =
         new DefaultDependencyFileRuleKeyBuilderFactory(
+            0,
             hashCache,
-            pathResolver,
-            defaultRuleKeyBuilderFactory1)
+            pathResolver)
             .buildManifestKey(rule)
+            .get()
             .getFirst();
 
     // Now, build a rule key with a different hash for the localInput for the above rule.
@@ -268,16 +250,14 @@ public class DependencyFileRuleKeyBuilderFactoryTest {
         ImmutableMap.of(
             filesystem.resolve(localInput),
             HashCode.fromInt(1)));
-    DefaultRuleKeyBuilderFactory defaultRuleKeyBuilderFactory2 = new DefaultRuleKeyBuilderFactory(
-        hashCache,
-        pathResolver);
 
     RuleKey manifestKey2 =
         new DefaultDependencyFileRuleKeyBuilderFactory(
+            0,
             hashCache,
-            pathResolver,
-            defaultRuleKeyBuilderFactory2)
+            pathResolver)
             .buildManifestKey(rule)
+            .get()
             .getFirst();
 
     assertThat(manifestKey1, Matchers.not(Matchers.equalTo(manifestKey2)));
@@ -345,8 +325,8 @@ public class DependencyFileRuleKeyBuilderFactoryTest {
     }
 
     @Override
-    public RuleKeyBuilder appendToRuleKey(RuleKeyBuilder builder) {
-      return builder.setReflectively("input", input);
+    public void appendToRuleKey(RuleKeyObjectSink sink) {
+      sink.setReflectively("input", input);
     }
 
   }

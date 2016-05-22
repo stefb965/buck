@@ -34,13 +34,11 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
-import com.facebook.buck.util.BuckConstant;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
-import java.nio.file.Paths;
 
 /**
  * Buildable for generating a .java file from an .aidl file. Example:
@@ -82,7 +80,7 @@ public class GenAidl extends AbstractBuildRule {
     this.aidlFilePath = aidlFilePath;
     this.importPath = importPath;
     BuildTarget buildTarget = params.getBuildTarget();
-    this.genPath = BuildTargets.getGenPath(buildTarget, "%s");
+    this.genPath = BuildTargets.getGenPath(getProjectFilesystem(), buildTarget, "%s");
     this.output = genPath.resolve(
         String.format("lib%s%s", buildTarget.getShortNameAndFlavorPostfix(), SRC_ZIP));
   }
@@ -107,7 +105,7 @@ public class GenAidl extends AbstractBuildRule {
     commands.add(new MakeCleanDirectoryStep(getProjectFilesystem(), genPath));
 
     BuildTarget target = getBuildTarget();
-    Path outputDirectory = BuildTargets.getScratchPath(target, "__%s.aidl");
+    Path outputDirectory = BuildTargets.getScratchPath(getProjectFilesystem(), target, "__%s.aidl");
     commands.add(new MakeCleanDirectoryStep(getProjectFilesystem(), outputDirectory));
 
     AidlStep command = new AidlStep(
@@ -119,7 +117,7 @@ public class GenAidl extends AbstractBuildRule {
     commands.add(command);
 
     // Files must ultimately be written to GEN_DIR to be used as source paths.
-    Path genDirectory = Paths.get(BuckConstant.getGenDir(), importPath);
+    Path genDirectory = getProjectFilesystem().getBuckPaths().getGenDir().resolve(importPath);
 
     // Warn the user if the genDirectory is not under the output directory.
     if (!importPath.startsWith(target.getBasePath().toString())) {

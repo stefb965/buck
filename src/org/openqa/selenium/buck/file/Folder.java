@@ -56,6 +56,7 @@ public class Folder extends AbstractBuildRule {
     BuildTarget target = getBuildTarget();
     this.folderName = Preconditions.checkNotNull(Paths.get(folderName));
     this.output = BuildTargets.getGenPath(
+        getProjectFilesystem(),
         target,
         String.format("%s/%%s.src.zip", target.getShortName()));
     this.srcs = Preconditions.checkNotNull(srcs);
@@ -68,7 +69,10 @@ public class Folder extends AbstractBuildRule {
 
     steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), output.getParent()));
 
-    Path scratch = BuildTargets.getScratchPath(getBuildTarget(), "%s-scratch/" + folderName);
+    Path scratch = BuildTargets.getScratchPath(
+        getProjectFilesystem(),
+        getBuildTarget(),
+        "%s-scratch/" + folderName);
     steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), scratch));
 
     SrcZipAwareFileBundler bundler = new SrcZipAwareFileBundler(getBuildTarget());

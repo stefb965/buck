@@ -24,14 +24,15 @@ import static org.junit.Assert.assertNotNull;
 import com.facebook.buck.cxx.CxxCompilationDatabaseEntry;
 import com.facebook.buck.cxx.CxxCompilationDatabaseUtils;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -81,6 +82,7 @@ public class CompilationDatabaseIntegrationTest {
     BuildTarget target = BuildTargetFactory.newInstance(
         "//Libraries/EXExample:EXExample#compilation-database,iphonesimulator-x86_64");
     Path compilationDatabase = workspace.buildAndReturnOutput(target.getFullyQualifiedName());
+    ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     // Parse the compilation_database.json file.
     Map<String, CxxCompilationDatabaseEntry> fileToEntry =
@@ -91,6 +93,7 @@ public class CompilationDatabaseIntegrationTest {
     String pathToPrivateHeaders =
         BuildTargets
             .getGenPath(
+                filesystem,
                 target.withFlavors(
                     ImmutableFlavor.of("iphonesimulator-x86_64"),
                     CxxDescriptionEnhancer.HEADER_SYMLINK_TREE_FLAVOR),
@@ -99,6 +102,7 @@ public class CompilationDatabaseIntegrationTest {
     String pathToPublicHeaders =
         BuildTargets
             .getGenPath(
+                filesystem,
                 target.withFlavors(
                     ImmutableFlavor.of("iphonesimulator-x86_64"),
                     CxxDescriptionEnhancer.EXPORTED_HEADER_SYMLINK_TREE_FLAVOR),
@@ -107,13 +111,14 @@ public class CompilationDatabaseIntegrationTest {
     Iterable<String> includes = ImmutableList.of(
         pathToPrivateHeaders,
         pathToPublicHeaders,
-        BuckConstant.getBuckOutputDirectory());
+        filesystem.getBuckPaths().getBuckOut().toString());
 
     // Verify the entries in the compilation database.
     assertFlags(
         "Libraries/EXExample/EXExample/EXExampleModel.m",
         BuildTargets
             .getGenPath(
+                filesystem,
                 target.withFlavors(
                     ImmutableFlavor.of("iphonesimulator-x86_64"),
                     ImmutableFlavor.of("compile-pic-" + sanitize("EXExample/EXExampleModel.m.o"))),
@@ -128,6 +133,7 @@ public class CompilationDatabaseIntegrationTest {
         "Libraries/EXExample/EXExample/EXUser.mm",
         BuildTargets
             .getGenPath(
+                filesystem,
                 target.withFlavors(
                     ImmutableFlavor.of("iphonesimulator-x86_64"),
                     ImmutableFlavor.of("compile-pic-" + sanitize("EXExample/EXUser.mm.o"))),
@@ -142,6 +148,7 @@ public class CompilationDatabaseIntegrationTest {
         "Libraries/EXExample/EXExample/Categories/NSString+Palindrome.m",
         BuildTargets
             .getGenPath(
+                filesystem,
                 target.withFlavors(
                     ImmutableFlavor.of("iphonesimulator-x86_64"),
                     ImmutableFlavor.of(
@@ -162,6 +169,7 @@ public class CompilationDatabaseIntegrationTest {
     BuildTarget target = BuildTargetFactory.newInstance(
         "//Apps/Weather:Weather#iphonesimulator-x86_64,compilation-database");
     Path compilationDatabase = workspace.buildAndReturnOutput(target.getFullyQualifiedName());
+    ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     // Parse the compilation_database.json file.
     Map<String, CxxCompilationDatabaseEntry> fileToEntry =
@@ -173,6 +181,7 @@ public class CompilationDatabaseIntegrationTest {
     String pathToPrivateHeaders =
         BuildTargets
             .getGenPath(
+                filesystem,
                 target.withFlavors(
                     ImmutableFlavor.of("iphonesimulator-x86_64"),
                     CxxDescriptionEnhancer.HEADER_SYMLINK_TREE_FLAVOR),
@@ -181,6 +190,7 @@ public class CompilationDatabaseIntegrationTest {
     String pathToPublicHeaders =
         BuildTargets
             .getGenPath(
+                filesystem,
                 BuildTargetFactory.newInstance(
                     "//Libraries/EXExample:EXExample#iphonesimulator-x86_64," +
                         CxxDescriptionEnhancer.EXPORTED_HEADER_SYMLINK_TREE_FLAVOR),
@@ -189,12 +199,13 @@ public class CompilationDatabaseIntegrationTest {
     Iterable<String> includes = ImmutableList.of(
         pathToPrivateHeaders,
         pathToPublicHeaders,
-        BuckConstant.getBuckOutputDirectory());
+        filesystem.getBuckPaths().getBuckOut().toString());
 
     assertFlags(
         "Apps/Weather/Weather/EXViewController.m",
         BuildTargets
             .getGenPath(
+                filesystem,
                 target.withFlavors(
                     ImmutableFlavor.of("iphonesimulator-x86_64"),
                     ImmutableFlavor.of(
@@ -210,6 +221,7 @@ public class CompilationDatabaseIntegrationTest {
         "Apps/Weather/Weather/main.m",
         BuildTargets
             .getGenPath(
+                filesystem,
                 target.withFlavors(
                     ImmutableFlavor.of("iphonesimulator-x86_64"),
                     ImmutableFlavor.of(

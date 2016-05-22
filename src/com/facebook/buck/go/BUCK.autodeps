@@ -1,8 +1,9 @@
-#@# GENERATED FILE: DO NOT MODIFY 58478fdf7284f6b35d9033b22714dd82fd6df432 #@#
+#@# GENERATED FILE: DO NOT MODIFY c5d0505cbece4849fbe32a411937fbc8ba00d0eb #@#
 {
   "go" : {
     "deps" : [
       "//src/com/facebook/buck/cxx:rules",
+      "//src/com/facebook/buck/graph:graph",
       "//src/com/facebook/buck/io:executable-finder",
       "//src/com/facebook/buck/log:api",
       "//src/com/facebook/buck/rules:command_tool",
@@ -21,6 +22,7 @@
       "//src/com/facebook/buck/model:model",
       "//src/com/facebook/buck/parser:rule_pattern",
       "//src/com/facebook/buck/rules:build_rule",
+      "//src/com/facebook/buck/rules:interfaces",
       "//src/com/facebook/buck/rules:rules",
       "//src/com/facebook/buck/shell:steps",
       "//src/com/facebook/buck/step:step",

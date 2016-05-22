@@ -16,11 +16,16 @@
 
 package com.facebook.buck.shell;
 
+import static org.junit.Assume.assumeTrue;
+
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
+import com.facebook.buck.util.environment.Platform;
 
 import org.junit.Before;
 import org.junit.Rule;
@@ -38,6 +43,7 @@ public class WorkerToolRuleIntegrationTest {
 
   @Before
   public void setUp() throws IOException {
+    assumeTrue(Platform.detect() == Platform.MACOS || Platform.detect() == Platform.LINUX);
     workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this,
         "worker_tool_test",
@@ -55,6 +61,7 @@ public class WorkerToolRuleIntegrationTest {
    */
   @Test
   public void testGenrulesThatUseWorkerMacros() throws Exception {
+    ProjectFilesystem filesystem = new FakeProjectFilesystem();
     BuildTarget target1 = workspace.newBuildTarget("//:test1");
     BuildTarget target2 = workspace.newBuildTarget("//:test2");
     BuildTarget target3 = workspace.newBuildTarget("//:test3");
@@ -67,12 +74,12 @@ public class WorkerToolRuleIntegrationTest {
         .assertSuccess();
     workspace.verify(
         Paths.get("test1_output.expected"),
-        BuildTargets.getGenPath(target1, "%s"));
+        BuildTargets.getGenPath(filesystem, target1, "%s"));
     workspace.verify(
         Paths.get("test2_output.expected"),
-        BuildTargets.getGenPath(target2, "%s"));
+        BuildTargets.getGenPath(filesystem, target2, "%s"));
     workspace.verify(
         Paths.get("test3_output.expected"),
-        BuildTargets.getGenPath(target3, "%s"));
+        BuildTargets.getGenPath(filesystem, target3, "%s"));
   }
 }

@@ -18,14 +18,13 @@ package com.facebook.buck.cxx;
 
 import static org.junit.Assert.assertNotNull;
 
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.RuleKeyBuilderFactory;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
@@ -67,8 +66,8 @@ public class PrebuiltCxxLibraryTest {
         Linker.LinkableDepType.STATIC);
 
     DefaultFileHashCache originalHashCache = new DefaultFileHashCache(filesystem);
-    RuleKeyBuilderFactory factory =
-        new DefaultRuleKeyBuilderFactory(originalHashCache, pathResolver);
+    DefaultRuleKeyBuilderFactory factory =
+        new DefaultRuleKeyBuilderFactory(0, originalHashCache, pathResolver);
 
     RuleKey ruleKey = factory.build(lib);
     assertNotNull(ruleKey);

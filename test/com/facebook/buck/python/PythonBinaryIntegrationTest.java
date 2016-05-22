@@ -21,22 +21,21 @@ import static org.hamcrest.Matchers.endsWith;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.not;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeThat;
 
 import com.facebook.buck.cli.BuckConfig;
+import com.facebook.buck.cli.FakeBuckConfig;
+import com.facebook.buck.config.Config;
 import com.facebook.buck.config.Configs;
 import com.facebook.buck.config.RawConfig;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.config.Config;
-import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.DefaultCxxPlatforms;
-import com.facebook.buck.event.BuckEventListener;
-import com.facebook.buck.io.FakeExecutableFinder;
+import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.testutil.ParameterizedTests;
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
@@ -57,27 +56,40 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Map;
 
 @RunWith(Parameterized.class)
 public class PythonBinaryIntegrationTest {
 
-  @Parameterized.Parameters(name = "{0},{1}")
+  @Parameterized.Parameters(name = "{0}(dir={1}),{2}")
   public static Collection<Object[]> data() {
-    return ParameterizedTests.getPermutations(
-        Arrays.asList(PythonBuckConfig.PackageStyle.values()),
-        Arrays.asList(NativeLinkStrategy.values()));
+    ImmutableList.Builder<Object[]> validPermutations = ImmutableList.builder();
+    for (PythonBuckConfig.PackageStyle packageStyle : PythonBuckConfig.PackageStyle.values()) {
+      for (boolean pexDirectory : new boolean[]{true, false}) {
+        if (packageStyle == PythonBuckConfig.PackageStyle.INPLACE && pexDirectory) {
+          continue;
+        }
+
+        for (NativeLinkStrategy linkStrategy : NativeLinkStrategy.values()) {
+          validPermutations.add(new Object[]{packageStyle, pexDirectory, linkStrategy});
+        }
+      }
+    }
+    return validPermutations.build();
   }
 
   @Parameterized.Parameter
   public PythonBuckConfig.PackageStyle packageStyle;
 
   @Parameterized.Parameter(value = 1)
+  public boolean pexDirectory;
+
+  @Parameterized.Parameter(value = 2)
   public NativeLinkStrategy nativeLinkStrategy;
 
   @Rule
@@ -89,10 +101,12 @@ public class PythonBinaryIntegrationTest {
   public void setUp() throws IOException {
     workspace = TestDataHelper.createProjectWorkspaceForScenario(this, "python_binary", tmp);
     workspace.setUp();
+    String pexFlags = pexDirectory ? "--directory" : "";
     workspace.writeContentsToPath(
         "[python]\n" +
             "  package_style = " + packageStyle.toString().toLowerCase() + "\n" +
-            "  native_link_strategy = " + nativeLinkStrategy.toString().toLowerCase() + "\n",
+            "  native_link_strategy = " + nativeLinkStrategy.toString().toLowerCase() + "\n" +
+            "  pex_flags = " + pexFlags + "\n",
         ".buckconfig");
     PythonBuckConfig config = getPythonBuckConfig();
     assertThat(config.getPackageStyle(), equalTo(packageStyle));
@@ -117,7 +131,8 @@ public class PythonBinaryIntegrationTest {
     Files.createSymbolicLink(
         link,
         workspace.getPath(Splitter.on(" ").splitToList(output).get(1)).toAbsolutePath());
-    ProcessExecutor.Result result = workspace.runCommand(link.toString());
+    ProcessExecutor.Result result = workspace.runCommand(
+        getPythonBuckConfig().getPythonInterpreter(), link.toString());
     assertThat(
         result.getStdout().or("") + result.getStderr().or(""),
         result.getExitCode(),
@@ -131,6 +146,18 @@ public class PythonBinaryIntegrationTest {
     assertThat(
         result.getStdout(),
         containsString("HELLO WORLD"));
+  }
+
+  @Test
+  public void testOutput() throws IOException {
+    workspace.runBuckBuild("//:bin").assertSuccess();
+
+    File output = workspace.getPath("buck-out/gen/bin.pex").toFile();
+    if (pexDirectory) {
+      assertTrue(output.isDirectory());
+    } else {
+      assertTrue(output.isFile());
+    }
   }
 
   @Test
@@ -193,7 +220,6 @@ public class PythonBinaryIntegrationTest {
         workspace.runBuckCommandWithEnvironmentAndContext(
             workspace.getPath(""),
             Optional.<NGContext>absent(),
-            Optional.<BuckEventListener>absent(),
             Optional.of(
                 ImmutableMap.<String, String>builder()
                     .putAll(env)
@@ -213,7 +239,6 @@ public class PythonBinaryIntegrationTest {
         workspace.runBuckCommandWithEnvironmentAndContext(
             workspace.getPath(""),
             Optional.<NGContext>absent(),
-            Optional.<BuckEventListener>absent(),
             Optional.of(ImmutableMap.copyOf(env)),
             "run",
             ":bin-with-native-libs")
@@ -309,10 +334,10 @@ public class PythonBinaryIntegrationTest {
             new ProjectFilesystem(tmp.getRootPath()),
             Architecture.detect(),
             Platform.detect(),
-            ImmutableMap.<String, String>of());
+            ImmutableMap.copyOf(System.getenv()));
     return new PythonBuckConfig(
         buckConfig,
-        new FakeExecutableFinder(ImmutableList.<Path>of()));
+        new ExecutableFinder());
   }
 
 }

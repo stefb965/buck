@@ -19,6 +19,8 @@ package com.facebook.buck.android;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -65,9 +67,12 @@ public class AssembleDirectoriesTest {
     Files.write(tmp.resolve("folder_b/c.txt"), "".getBytes(UTF_8));
     Files.write(tmp.resolve("folder_b/d.txt"), "".getBytes(UTF_8));
 
-    BuildRuleParams buildRuleParams = new FakeBuildRuleParamsBuilder("//:output_folder")
-        .setProjectFilesystem(filesystem)
-        .build();
+    BuildTarget target =
+        BuildTargetFactory.newInstance(filesystem.getRootPath(), "//:output_folder");
+    BuildRuleParams buildRuleParams =
+        new FakeBuildRuleParamsBuilder(target)
+            .setProjectFilesystem(filesystem)
+            .build();
     ImmutableList<SourcePath> directories = ImmutableList.<SourcePath>of(
         new FakeSourcePath(filesystem, "folder_a"), new FakeSourcePath(filesystem, "folder_b"));
     AssembleDirectories assembleDirectories = new AssembleDirectories(
@@ -82,7 +87,7 @@ public class AssembleDirectoriesTest {
         FakeBuildContext.NOOP_CONTEXT,
         new FakeBuildableContext());
     for (Step step : steps) {
-      assertEquals(0, step.execute(context));
+      assertEquals(0, step.execute(context).getExitCode());
     }
     Path outputFile = filesystem.resolve(assembleDirectories.getPathToOutput());
     try (DirectoryStream<Path> dir = Files.newDirectoryStream(outputFile)) {

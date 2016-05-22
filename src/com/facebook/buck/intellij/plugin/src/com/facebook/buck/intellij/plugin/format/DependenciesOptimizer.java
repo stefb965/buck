@@ -35,8 +35,9 @@ import java.util.List;
  * A utility class for sorting buck dependencies alphabetically.
  */
 public class DependenciesOptimizer {
-
   private static final String DEPENDENCIES_KEYWORD = "deps";
+  private static final String PROVIDED_DEPENDENCIES_KEYWORD = "provided_deps";
+  private static final String EXPORTED_DEPENDENCIES_KEYWORD = "exported_deps";
 
   private DependenciesOptimizer() {
   }
@@ -60,7 +61,10 @@ public class DependenciesOptimizer {
     @Override
     public void visitProperty(@NotNull BuckProperty property) {
       BuckPropertyLvalue lValue = property.getPropertyLvalue();
-      if (lValue == null || !lValue.getText().equals(DEPENDENCIES_KEYWORD)) {
+      if (lValue == null ||
+          (!DEPENDENCIES_KEYWORD.equals(lValue.getText()) &&
+          !PROVIDED_DEPENDENCIES_KEYWORD.equals(lValue.getText()) &&
+          !EXPORTED_DEPENDENCIES_KEYWORD.equals(lValue.getText()))) {
         return;
       }
 
@@ -100,10 +104,22 @@ public class DependenciesOptimizer {
    * e.g :inner, //world:empty, //world/asia:jp, @mars, @moon
    */
   private static int compareDependencyStrings(String baseString, String anotherString) {
-    for (int i = 0; i < Math.min(baseString.length(), anotherString.length()); ++i) {
+    int endBaseString = baseString.length();
+    int endAnotherString = anotherString.length();
+    int i = 0;
+    int j = 0;
+    while (i < endBaseString && j < endAnotherString) {
       char c1 = baseString.charAt(i);
-      char c2 = anotherString.charAt(i);
-      if (c1 == c2) {
+      char c2 = anotherString.charAt(j);
+      if (c1 == ' ') {
+        i++;
+        continue;
+      } else if (c2 == ' ') {
+        j++;
+        continue;
+      } else if (c1 == c2) {
+        i++;
+        j++;
         continue;
       } else if (c1 == ':') {
         return -1;

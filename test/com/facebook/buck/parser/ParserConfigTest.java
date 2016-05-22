@@ -24,21 +24,31 @@ import static org.junit.Assert.assertTrue;
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.cli.BuckConfigTestUtils;
 import com.facebook.buck.cli.FakeBuckConfig;
+import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
+import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Joiner;
+import com.google.common.collect.ImmutableSet;
 
 import org.hamcrest.Matchers;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ExpectedException;
 
 import java.io.IOException;
 import java.io.Reader;
 import java.io.StringReader;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
 
 public class ParserConfigTest {
 
   @Rule
   public DebuggableTemporaryFolder temporaryFolder = new DebuggableTemporaryFolder();
+
+  @Rule
+  public ExpectedException thrown = ExpectedException.none();
 
   @Test
   public void testGetAllowEmptyGlobs() throws IOException {
@@ -78,14 +88,14 @@ public class ParserConfigTest {
     BuckConfig config = FakeBuckConfig.builder()
         .setSections(
             "[project]",
-            "parsing_threads = 3",
+            "parsing_threads = 2",
             "parallel_parsing = true")
         .build();
 
     ParserConfig parserConfig = new ParserConfig(config);
 
     assertTrue(parserConfig.getEnableParallelParsing());
-    assertEquals(3, parserConfig.getNumParsingThreads());
+    assertEquals(2, parserConfig.getNumParsingThreads());
   }
 
   @Test
@@ -101,5 +111,34 @@ public class ParserConfigTest {
 
     assertFalse(parserConfig.getEnableParallelParsing());
     assertEquals(1, parserConfig.getNumParsingThreads());
+  }
+
+  @Test
+  public void shouldGetReadOnlyDirs() throws IOException {
+    temporaryFolder.newFolder("tmp");
+    temporaryFolder.newFolder("tmp2");
+    ArrayList<String> readOnlyPaths = new ArrayList<String>(2);
+    readOnlyPaths.add(temporaryFolder.getRootPath() + "/tmp");
+    readOnlyPaths.add(temporaryFolder.getRootPath() + "/tmp2");
+
+    ParserConfig parserConfig = new ParserConfig(FakeBuckConfig.builder()
+        .setSections(
+            "[project]",
+            "read_only_paths = " + readOnlyPaths.get(0) + "," + readOnlyPaths.get(1))
+        .build());
+
+    assertEquals(
+        parserConfig.getReadOnlyPaths(),
+        ImmutableSet.<Path>of(Paths.get(readOnlyPaths.get(0)), Paths.get(readOnlyPaths.get(1))));
+
+    String notExistingDir = temporaryFolder.getRootPath() + "/not/existing/path";
+    parserConfig = new ParserConfig(FakeBuckConfig.builder()
+        .setSections("[project]", "read_only_paths = " + notExistingDir)
+        .build());
+
+    thrown.expect(HumanReadableException.class);
+    thrown.expectMessage("Path " + MorePaths.pathWithPlatformSeparators(notExistingDir) +
+        ", specified under read_only_paths does not exist.");
+    parserConfig.getReadOnlyPaths();
   }
 }

@@ -69,15 +69,16 @@ public class CalculateAbiTest {
 
     DefaultFileHashCache initialHashCache = new DefaultFileHashCache(filesystem);
     DefaultRuleKeyBuilderFactory initialRuleKeyBuilderFactory = new DefaultRuleKeyBuilderFactory(
+        0,
         initialHashCache,
         pathResolver);
     RuleKey initialKey = initialRuleKeyBuilderFactory.build(calculateAbi);
     RuleKey initialInputKey =
         new InputBasedRuleKeyBuilderFactory(
+            0,
             initialHashCache,
-            pathResolver,
-            initialRuleKeyBuilderFactory)
-            .build(calculateAbi);
+            pathResolver)
+            .build(calculateAbi).get();
 
     // Write something to the library source and geneated JAR, so they exist to generate rule keys.
     filesystem.writeContentsToPath("new stuff", input);
@@ -91,15 +92,16 @@ public class CalculateAbiTest {
 
     DefaultFileHashCache alteredHashCache = new DefaultFileHashCache(filesystem);
     DefaultRuleKeyBuilderFactory alteredRuleKeyBuilderFactory = new DefaultRuleKeyBuilderFactory(
+        0,
         alteredHashCache,
         pathResolver);
     RuleKey alteredKey = alteredRuleKeyBuilderFactory.build(calculateAbi);
     RuleKey alteredInputKey =
         new InputBasedRuleKeyBuilderFactory(
+            0,
             alteredHashCache,
-            pathResolver,
-            alteredRuleKeyBuilderFactory)
-            .build(calculateAbi);
+            pathResolver)
+            .build(calculateAbi).get();
 
     assertThat(initialKey, Matchers.not(Matchers.equalTo(alteredKey)));
     assertThat(initialInputKey, Matchers.not(Matchers.equalTo(alteredInputKey)));
@@ -133,15 +135,16 @@ public class CalculateAbiTest {
 
     DefaultFileHashCache initialHashCache = new DefaultFileHashCache(filesystem);
     DefaultRuleKeyBuilderFactory initialRuleKeyBuilderFactory = new DefaultRuleKeyBuilderFactory(
+        0,
         initialHashCache,
         pathResolver);
     RuleKey initialKey = initialRuleKeyBuilderFactory.build(calculateAbi);
     RuleKey initialInputKey =
         new InputBasedRuleKeyBuilderFactory(
+            0,
             initialHashCache,
-            pathResolver,
-            initialRuleKeyBuilderFactory)
-            .build(calculateAbi);
+            pathResolver)
+            .build(calculateAbi).get();
 
     // Write something to the library source and geneated JAR, so they exist to generate rule keys.
     filesystem.writeContentsToPath("new stuff", input);
@@ -154,15 +157,16 @@ public class CalculateAbiTest {
 
     DefaultFileHashCache alteredHashCache = new DefaultFileHashCache(filesystem);
     DefaultRuleKeyBuilderFactory alteredRuleKeyBuilderFactory = new DefaultRuleKeyBuilderFactory(
+        0,
         alteredHashCache,
         pathResolver);
     RuleKey alteredKey = alteredRuleKeyBuilderFactory.build(calculateAbi);
     RuleKey alteredInputKey =
         new InputBasedRuleKeyBuilderFactory(
+            0,
             alteredHashCache,
-            pathResolver,
-            alteredRuleKeyBuilderFactory)
-            .build(calculateAbi);
+            pathResolver)
+            .build(calculateAbi).get();
 
     assertThat(initialKey, Matchers.not(Matchers.equalTo(alteredKey)));
     assertThat(initialInputKey, Matchers.equalTo(alteredInputKey));

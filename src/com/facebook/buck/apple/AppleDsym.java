@@ -17,6 +17,7 @@ package com.facebook.buck.apple;
 
 import com.facebook.buck.cxx.CxxStrip;
 import com.facebook.buck.cxx.StripStyle;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
@@ -33,6 +34,7 @@ import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
+import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.google.common.base.Function;
@@ -80,15 +82,20 @@ public class AppleDsym
     checkFlavorCorrectness(params.getBuildTarget());
   }
 
-  public static Path getDsymOutputPath(BuildTarget target) {
+  public static Path getDsymOutputPath(BuildTarget target, ProjectFilesystem filesystem) {
     AppleDsym.checkFlavorCorrectness(target);
-    return BuildTargets.getGenPath(target, "%s." + AppleBundleExtension.DSYM.toFileExtension());
+    return BuildTargets.getGenPath(
+        filesystem,
+        target,
+        "%s." + AppleBundleExtension.DSYM.toFileExtension());
   }
 
-  public static String getDwarfFilenameForDsymTarget(BuildTarget dsymTarget) {
+  public static String getDwarfFilenameForDsymTarget(
+      BuildTarget dsymTarget,
+      ProjectFilesystem filesystem) {
     AppleDsym.checkFlavorCorrectness(dsymTarget);
     BuildTarget target = dsymTarget.withoutFlavors(ImmutableSet.of(AppleDsym.RULE_FLAVOR));
-    return BuildTargets.getGenPath(target, "%s").getFileName().toString();
+    return BuildTargets.getGenPath(filesystem, target, "%s").getFileName().toString();
   }
 
   private static void checkFlavorCorrectness(BuildTarget buildTarget) {
@@ -135,13 +142,14 @@ public class AppleDsym
     return ImmutableList.<Step>of(
         new Step() {
           @Override
-          public int execute(ExecutionContext context) throws IOException, InterruptedException {
+          public StepExecutionResult execute(ExecutionContext context)
+              throws IOException, InterruptedException {
             ImmutableList<String> lldbCommandPrefix = lldb.getCommandPrefix(getResolver());
             ProcessExecutorParams params = ProcessExecutorParams
                 .builder()
                 .addCommand(lldbCommandPrefix.toArray(new String[lldbCommandPrefix.size()]))
                 .build();
-            return context.getProcessExecutor().launchAndExecute(
+            return StepExecutionResult.of(context.getProcessExecutor().launchAndExecute(
                 params,
                 ImmutableSet.<ProcessExecutor.Option>of(),
                 Optional.of(
@@ -149,7 +157,7 @@ public class AppleDsym
                         getResolver().getAbsolutePath(unstrippedBinarySourcePath),
                         dsymOutputPath)),
                 Optional.<Long>absent(),
-                Optional.<Function<Process, Void>>absent()).getExitCode();
+                Optional.<Function<Process, Void>>absent()).getExitCode());
           }
 
           @Override

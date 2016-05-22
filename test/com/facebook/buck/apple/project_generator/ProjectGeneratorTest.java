@@ -32,6 +32,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assume.assumeTrue;
 
 import com.dd.plist.NSDictionary;
 import com.dd.plist.NSString;
@@ -46,6 +47,7 @@ import com.facebook.buck.apple.AppleResourceDescription;
 import com.facebook.buck.apple.AppleTestBuilder;
 import com.facebook.buck.apple.AppleTestDescription;
 import com.facebook.buck.apple.CoreDataModelBuilder;
+import com.facebook.buck.apple.FakeAppleRuleDescriptions;
 import com.facebook.buck.apple.XcodePostbuildScriptBuilder;
 import com.facebook.buck.apple.XcodePrebuildScriptBuilder;
 import com.facebook.buck.apple.clang.HeaderMap;
@@ -66,6 +68,7 @@ import com.facebook.buck.apple.xcode.xcodeproj.PBXVariantGroup;
 import com.facebook.buck.apple.xcode.xcodeproj.ProductType;
 import com.facebook.buck.apple.xcode.xcodeproj.SourceTreePath;
 import com.facebook.buck.apple.xcode.xcodeproj.XCBuildConfiguration;
+import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.cxx.CxxBuckConfig;
@@ -109,8 +112,8 @@ import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.timing.IncrementingFakeClock;
 import com.facebook.buck.timing.SettableFakeClock;
-import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
@@ -170,6 +173,7 @@ public class ProjectGeneratorTest {
 
   @Before
   public void setUp() throws InterruptedException, IOException {
+    assumeTrue(Platform.detect() == Platform.MACOS || Platform.detect() == Platform.LINUX);
     clock = new SettableFakeClock(0, 0);
     fakeProjectFilesystem = new FakeProjectFilesystem(clock);
     projectCell = (new TestCellBuilder())
@@ -788,7 +792,7 @@ public class ProjectGeneratorTest {
                     "Default",
                     ImmutableMap.<String, String>of())))
         .setInfoPlist(new FakeSourcePath("Info.plist"))
-        .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.XCTEST))
+        .setExtension(AppleBundleExtension.XCTEST)
         .setDeps(Optional.of(ImmutableSortedSet.of(libraryTarget)))
         .build();
 
@@ -854,7 +858,7 @@ public class ProjectGeneratorTest {
                     "Default",
                     ImmutableMap.<String, String>of())))
         .setInfoPlist(new FakeSourcePath("Info.plist"))
-        .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.XCTEST))
+        .setExtension(AppleBundleExtension.XCTEST)
         .setDeps(Optional.of(ImmutableSortedSet.of(bundleTarget)))
         .build();
 
@@ -919,7 +923,7 @@ public class ProjectGeneratorTest {
                 ImmutableSortedMap.of(
                     "Default",
                     ImmutableMap.<String, String>of())))
-        .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.XCTEST))
+        .setExtension(AppleBundleExtension.XCTEST)
         .setInfoPlist(new FakeSourcePath("Info.plist"))
         .setDeps(Optional.of(ImmutableSortedSet.of(bundleTarget)))
         .build();
@@ -1586,7 +1590,7 @@ public class ProjectGeneratorTest {
     BuildTarget testTarget = BuildTarget.builder(rootPath, "//foo", "xctest").build();
     TargetNode<?> testNode = AppleTestBuilder
         .createBuilder(testTarget)
-        .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.XCTEST))
+        .setExtension(AppleBundleExtension.XCTEST)
         .setConfigs(Optional.of(configs))
         .setInfoPlist(new FakeSourcePath("Info.plist"))
         .setSrcs(
@@ -1661,7 +1665,7 @@ public class ProjectGeneratorTest {
     BuildTarget testTarget = BuildTarget.builder(rootPath, "//foo", "xctest").build();
     TargetNode<?> testNode = AppleTestBuilder
         .createBuilder(testTarget)
-        .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.XCTEST))
+        .setExtension(AppleBundleExtension.XCTEST)
         .setConfigs(Optional.of(configs))
         .setInfoPlist(new FakeSourcePath("Info.plist"))
         .setSrcs(
@@ -1748,7 +1752,7 @@ public class ProjectGeneratorTest {
     BuildTarget testTarget = BuildTarget.builder(rootPath, "//foo", "xctest").build();
     TargetNode<?> testNode = AppleTestBuilder
         .createBuilder(testTarget)
-        .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.XCTEST))
+        .setExtension(AppleBundleExtension.XCTEST)
         .setConfigs(Optional.of(configs))
         .setInfoPlist(new FakeSourcePath("Info.plist"))
         .setSrcs(
@@ -1822,7 +1826,7 @@ public class ProjectGeneratorTest {
     BuildTarget testTarget = BuildTarget.builder(rootPath, "//foo", "xctest").build();
     TargetNode<?> testNode = AppleTestBuilder
         .createBuilder(testTarget)
-        .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.XCTEST))
+        .setExtension(AppleBundleExtension.XCTEST)
         .setConfigs(Optional.of(configs))
         .setInfoPlist(new FakeSourcePath("Info.plist"))
         .setSrcs(
@@ -1892,7 +1896,7 @@ public class ProjectGeneratorTest {
     BuildTarget testTarget = BuildTarget.builder(rootPath, "//foo", "xctest").build();
     TargetNode<?> testNode = AppleTestBuilder
         .createBuilder(testTarget)
-        .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.XCTEST))
+        .setExtension(AppleBundleExtension.XCTEST)
         .setConfigs(Optional.of(configs))
         .setInfoPlist(new FakeSourcePath("Info.plist"))
         .setSrcs(
@@ -1939,7 +1943,7 @@ public class ProjectGeneratorTest {
     BuildTarget testTarget = BuildTarget.builder(rootPath, "//foo", "xctest").build();
     TargetNode<?> testNode = AppleTestBuilder
         .createBuilder(testTarget)
-        .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.XCTEST))
+        .setExtension(AppleBundleExtension.XCTEST)
         .setInfoPlist(new FakeSourcePath("Info.plist"))
         .build();
 
@@ -3140,7 +3144,7 @@ public class ProjectGeneratorTest {
                 rootPath,
                 "//foo",
                 "libraryTestStatic").build())
-            .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.XCTEST))
+            .setExtension(AppleBundleExtension.XCTEST)
             .setInfoPlist(new FakeSourcePath("Info.plist"))
             .build();
     TargetNode<AppleTestDescription.Arg> libraryTestNotStatic =
@@ -3149,7 +3153,7 @@ public class ProjectGeneratorTest {
                 rootPath,
                 "//foo",
                 "libraryTestNotStatic").build())
-            .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.XCTEST))
+            .setExtension(AppleBundleExtension.XCTEST)
             .setInfoPlist(new FakeSourcePath("Info.plist"))
             .build();
 
@@ -3218,7 +3222,7 @@ public class ProjectGeneratorTest {
             .build();
     TargetNode<AppleTestDescription.Arg> xctest1 =
         AppleTestBuilder.createBuilder(BuildTarget.builder(rootPath, "//foo", "xctest1").build())
-            .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.XCTEST))
+            .setExtension(AppleBundleExtension.XCTEST)
             .setInfoPlist(new FakeSourcePath("Info.plist"))
             .setDeps(Optional.of(ImmutableSortedSet.of(dep1.getBuildTarget())))
             .setFrameworks(
@@ -3232,7 +3236,7 @@ public class ProjectGeneratorTest {
             .build();
     TargetNode<AppleTestDescription.Arg> xctest2 =
         AppleTestBuilder.createBuilder(BuildTarget.builder(rootPath, "//foo", "xctest2").build())
-            .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.XCTEST))
+            .setExtension(AppleBundleExtension.XCTEST)
             .setInfoPlist(new FakeSourcePath("Info.plist"))
             .setDeps(Optional.of(ImmutableSortedSet.of(dep2.getBuildTarget())))
             .build();
@@ -3285,7 +3289,8 @@ public class ProjectGeneratorTest {
     assertHasSingletonSourcesPhaseWithSourcesAndFlags(
         target,
         ImmutableMap.of(
-            BuckConstant.getGenPath().resolve("xcode-scripts/emptyFile.c").toString(),
+            projectFilesystem.getBuckPaths().getGenDir().resolve("xcode-scripts/emptyFile.c")
+                .toString(),
             Optional.<String>absent()));
     ProjectGeneratorTestUtils.assertHasSingletonFrameworksPhaseWithFrameworkEntries(
         target,
@@ -3408,7 +3413,7 @@ public class ProjectGeneratorTest {
                 ImmutableSortedMap.of(
                     "Debug",
                     ImmutableMap.<String, String>of())))
-        .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.XCTEST))
+        .setExtension(AppleBundleExtension.XCTEST)
         .setInfoPlist(new FakeSourcePath("Info.plist"))
         .setTestHostApp(Optional.of(hostAppTarget))
         .build();
@@ -3452,7 +3457,7 @@ public class ProjectGeneratorTest {
                 ImmutableSortedMap.of(
                     "Debug",
                     ImmutableMap.<String, String>of())))
-        .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.XCTEST))
+        .setExtension(AppleBundleExtension.XCTEST)
         .setInfoPlist(new FakeSourcePath("Info.plist"))
         .setTestHostApp(Optional.of(hostAppTarget))
         .build();
@@ -3807,7 +3812,7 @@ public class ProjectGeneratorTest {
         .build();
     TargetNode<?> testNode = AppleTestBuilder
         .createBuilder(testTarget)
-        .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.XCTEST))
+        .setExtension(AppleBundleExtension.XCTEST)
         .setConfigs(
             Optional.of(
                 ImmutableSortedMap.of(
@@ -3978,7 +3983,7 @@ public class ProjectGeneratorTest {
     BuildTarget testTarget = BuildTarget.builder(rootPath, "//foo", "xctest").build();
     TargetNode<?> testNode = AppleTestBuilder
         .createBuilder(testTarget)
-        .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.XCTEST))
+        .setExtension(AppleBundleExtension.XCTEST)
         .setConfigs(Optional.of(configs))
         .setInfoPlist(new FakeSourcePath("Info.plist"))
         .setSrcs(
@@ -4172,6 +4177,71 @@ public class ProjectGeneratorTest {
             ImmutableSortedSet.of("framework_1.framework", "framework_2.framework")));
   }
 
+  @Test
+  public void testAppBundleDoesntLinkFrameworkWrappedWithResource() throws Exception {
+    BuildTarget frameworkTarget = BuildTarget.builder(rootPath, "//foo", "framework")
+        .addFlavors(
+            FakeAppleRuleDescriptions.DEFAULT_MACOSX_X86_64_PLATFORM.getFlavor(),
+            CxxDescriptionEnhancer.SHARED_FLAVOR)
+        .build();
+    BuildTarget frameworkBinaryTarget = BuildTarget.builder(rootPath, "//foo", "framework_bin")
+        .addFlavors(
+            FakeAppleRuleDescriptions.DEFAULT_MACOSX_X86_64_PLATFORM.getFlavor(),
+            CxxDescriptionEnhancer.SHARED_FLAVOR)
+        .build();
+    TargetNode<?> frameworkBinaryNode = AppleLibraryBuilder
+        .createBuilder(frameworkBinaryTarget)
+        .build();
+    TargetNode<?> frameworkNode = AppleBundleBuilder
+        .createBuilder(frameworkTarget)
+        .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.FRAMEWORK))
+        .setInfoPlist(new FakeSourcePath("Info.plist"))
+        .setBinary(frameworkBinaryTarget)
+        .build();
+    BuildTarget resourceTarget = BuildTarget.builder(rootPath, "//foo", "res")
+        .build();
+    SourcePath sourcePath = new BuildTargetSourcePath(frameworkTarget);
+    TargetNode<?> resourceNode = AppleResourceBuilder
+        .createBuilder(resourceTarget)
+        .setFiles(ImmutableSet.<SourcePath>of())
+        .setDirs(ImmutableSet.<SourcePath>of(sourcePath))
+        .build();
+    BuildTarget binaryTarget = BuildTarget.builder(rootPath, "//foo", "bin").build();
+    TargetNode<?> binaryNode = AppleBinaryBuilder
+        .createBuilder(binaryTarget)
+        .setDeps(Optional.of(ImmutableSortedSet.of(resourceTarget)))
+        .build();
+    BuildTarget bundleTarget = BuildTarget.builder(rootPath, "//foo", "bundle")
+        .addFlavors(FakeAppleRuleDescriptions.DEFAULT_MACOSX_X86_64_PLATFORM.getFlavor())
+        .build();
+    TargetNode<?> bundleNode = AppleBundleBuilder
+        .createBuilder(bundleTarget)
+        .setExtension(Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.APP))
+        .setInfoPlist(new FakeSourcePath("Info.plist"))
+        .setBinary(binaryTarget)
+        .build();
+    ImmutableSet <TargetNode<?>> nodes = ImmutableSet.<TargetNode<?>>of(
+        frameworkBinaryNode,
+        frameworkNode,
+        resourceNode,
+        binaryNode,
+        bundleNode);
+    final TargetGraph targetGraph = TargetGraphFactory.newInstance(ImmutableSet.copyOf(nodes));
+    ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
+        nodes,
+        ImmutableSet.<ProjectGenerator.Option>of(),
+        getSourcePathResolverWithRulesForNodeFunction(targetGraph));
+    projectGenerator.createXcodeProjects();
+    PBXTarget target = assertTargetExistsAndReturnTarget(
+        projectGenerator.getGeneratedProject(),
+        bundleTarget.getFullyQualifiedName());
+    assertEquals(target.getProductType(), ProductType.APPLICATION);
+    for (PBXBuildPhase buildPhase : target.getBuildPhases()) {
+      assertFalse(buildPhase instanceof PBXCopyFilesBuildPhase);
+    }
+    assertThat(target.getBuildPhases().size(), Matchers.equalTo(1));
+  }
+
   private ProjectGenerator createProjectGeneratorForCombinedProject(
       Iterable<TargetNode<?>> nodes) {
     return createProjectGeneratorForCombinedProject(
@@ -4182,6 +4252,18 @@ public class ProjectGeneratorTest {
   private ProjectGenerator createProjectGeneratorForCombinedProject(
       Iterable<TargetNode<?>> nodes,
       ImmutableSet<ProjectGenerator.Option> projectGeneratorOptions) {
+    final TargetGraph targetGraph = TargetGraphFactory.newInstance(ImmutableSet.copyOf(nodes));
+    return createProjectGeneratorForCombinedProject(
+        nodes,
+        projectGeneratorOptions,
+        getSourcePathResolverForNodeFunction(targetGraph)
+    );
+  }
+
+  private ProjectGenerator createProjectGeneratorForCombinedProject(
+      Iterable<TargetNode<?>> nodes,
+      ImmutableSet<ProjectGenerator.Option> projectGeneratorOptions,
+      Function<? super TargetNode<?>, SourcePathResolver> sourcePathResolverForNode) {
     ImmutableSet<BuildTarget> initialBuildTargets = FluentIterable
         .from(nodes)
         .transform(HasBuildTarget.TO_TARGET)
@@ -4203,7 +4285,7 @@ public class ProjectGeneratorTest {
         ImmutableMap.<String, String>of(),
         PLATFORMS,
         DEFAULT_PLATFORM,
-        getSourcePathResolverForNodeFunction(targetGraph),
+        sourcePathResolverForNode,
         getFakeBuckEventBus(),
         false,
         halideBuckConfig,
@@ -4219,6 +4301,23 @@ public class ProjectGeneratorTest {
             new BuildRuleResolver(
                 targetGraph,
                 new DefaultTargetNodeToBuildRuleTransformer()));
+      }
+    };
+  }
+
+  private Function<TargetNode<?>, SourcePathResolver> getSourcePathResolverWithRulesForNodeFunction(
+      final TargetGraph targetGraph) throws NoSuchBuildTargetException {
+    final BuildRuleResolver ruleResolver = new BuildRuleResolver(
+        targetGraph,
+        new DefaultTargetNodeToBuildRuleTransformer());
+    for (TargetNode<?> node : targetGraph.getNodes()) {
+      ruleResolver.requireRule(node.getBuildTarget());
+      ruleResolver.requireRule(node.getBuildTarget().withFlavors());
+    }
+    return new Function<TargetNode<?>, SourcePathResolver>() {
+      @Override
+      public SourcePathResolver apply(TargetNode<?> input) {
+        return new SourcePathResolver(ruleResolver);
       }
     };
   }

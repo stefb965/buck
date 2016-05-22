@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY bac75bf592ccad053d17e0b9d2fa0e9074a1e592 #@#
+#@# GENERATED FILE: DO NOT MODIFY 919954723a3f3685613dd0d6958cf168eb21fac7 #@#
 {
   "listener" : {
     "deps" : [
@@ -63,6 +63,7 @@
       "//test/com/facebook/buck/event:testutil"
     ],
     "exported_deps" : [
+      "//src/com/facebook/buck/event:event",
       "//src/com/facebook/buck/event/listener:listener",
       "//third-party/java/guava:guava"
     ]

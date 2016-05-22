@@ -31,6 +31,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.PathSourcePath;
@@ -39,6 +40,7 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
+import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
@@ -117,7 +119,7 @@ public class PrebuiltCxxLibraryDescription implements
   private static String expandMacros(
       MacroHandler handler,
       BuildTarget target,
-      Function<Optional<String>, Path> cellNames,
+      CellPathResolver cellNames,
       BuildRuleResolver ruleResolver,
       String arg) {
     try {
@@ -147,7 +149,7 @@ public class PrebuiltCxxLibraryDescription implements
 
   public static SourcePath getApplicableSourcePath(
       final BuildTarget target,
-      final Function<Optional<String>, Path> cellRoots,
+      final CellPathResolver cellRoots,
       final ProjectFilesystem filesystem,
       final BuildRuleResolver ruleResolver,
       final CxxPlatform cxxPlatform,
@@ -196,7 +198,7 @@ public class PrebuiltCxxLibraryDescription implements
 
   public static String getSoname(
       BuildTarget target,
-      Function<Optional<String>, Path> cellNames,
+      CellPathResolver cellNames,
       BuildRuleResolver ruleResolver,
       CxxPlatform cxxPlatform,
       Optional<String> soname,
@@ -216,7 +218,7 @@ public class PrebuiltCxxLibraryDescription implements
 
   private static SourcePath getLibraryPath(
       final BuildTarget target,
-      final Function<Optional<String>, Path> cellRoots,
+      final CellPathResolver cellRoots,
       final ProjectFilesystem filesystem,
       final BuildRuleResolver ruleResolver,
       final CxxPlatform cxxPlatform,
@@ -243,7 +245,7 @@ public class PrebuiltCxxLibraryDescription implements
 
   public static SourcePath getSharedLibraryPath(
       BuildTarget target,
-      Function<Optional<String>, Path> cellNames,
+      CellPathResolver cellNames,
       final ProjectFilesystem filesystem,
       BuildRuleResolver ruleResolver,
       CxxPlatform cxxPlatform,
@@ -262,7 +264,7 @@ public class PrebuiltCxxLibraryDescription implements
 
   public static SourcePath getStaticLibraryPath(
       BuildTarget target,
-      Function<Optional<String>, Path> cellNames,
+      CellPathResolver cellNames,
       final ProjectFilesystem filesystem,
       BuildRuleResolver ruleResolver,
       CxxPlatform cxxPlatform,
@@ -281,7 +283,7 @@ public class PrebuiltCxxLibraryDescription implements
 
   public static SourcePath getStaticPicLibraryPath(
       BuildTarget target,
-      Function<Optional<String>, Path> cellNames,
+      CellPathResolver cellNames,
       final ProjectFilesystem filesystem,
       BuildRuleResolver ruleResolver,
       CxxPlatform cxxPlatform,
@@ -392,7 +394,8 @@ public class PrebuiltCxxLibraryDescription implements
         .build();
 
     // If not, setup a single link rule to link it from the static lib.
-    Path builtSharedLibraryPath = BuildTargets.getGenPath(sharedTarget, "%s").resolve(soname);
+    Path builtSharedLibraryPath =
+        BuildTargets.getGenPath(params.getProjectFilesystem(), sharedTarget, "%s").resolve(soname);
     return CxxLinkableEnhancer.createCxxLinkableBuildRule(
         cxxBuckConfig,
         cxxPlatform,
@@ -519,6 +522,8 @@ public class PrebuiltCxxLibraryDescription implements
         },
         args.soname,
         args.linkWithoutSoname.or(false),
+        args.frameworks.or(ImmutableSortedSet.<FrameworkPath>of()),
+        args.libraries.or(ImmutableSortedSet.<FrameworkPath>of()),
         args.forceStatic.or(false),
         args.headerOnly.or(false),
         args.linkWhole.or(false),
@@ -546,7 +551,7 @@ public class PrebuiltCxxLibraryDescription implements
   @Override
   public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
-      Function<Optional<String>, Path> cellRoots,
+      CellPathResolver cellRoots,
       PrebuiltCxxLibraryDescription.Arg constructorArg) {
     ImmutableSet.Builder<BuildTarget> targets = ImmutableSet.builder();
 
@@ -563,7 +568,7 @@ public class PrebuiltCxxLibraryDescription implements
 
   private ImmutableList<BuildRule> getBuildRules(
       BuildTarget target,
-      Function<Optional<String>, Path> cellNames,
+      CellPathResolver cellNames,
       BuildRuleResolver ruleResolver,
       Iterable<String> paramValues) {
     ImmutableList.Builder<BuildRule> builder = ImmutableList.builder();
@@ -581,7 +586,7 @@ public class PrebuiltCxxLibraryDescription implements
 
   private void addDepsFromParam(
       BuildTarget target,
-      Function<Optional<String>, Path> cellNames,
+      CellPathResolver cellNames,
       String paramValue,
       ImmutableSet.Builder<BuildTarget> targets) {
     try {
@@ -615,6 +620,8 @@ public class PrebuiltCxxLibraryDescription implements
     public Optional<PatternMatchedCollection<ImmutableList<String>>> exportedPlatformLinkerFlags;
     public Optional<String> soname;
     public Optional<Boolean> linkWithoutSoname;
+    public Optional<ImmutableSortedSet<FrameworkPath>> frameworks;
+    public Optional<ImmutableSortedSet<FrameworkPath>> libraries;
     public Optional<ImmutableSortedSet<BuildTarget>> deps;
     public Optional<ImmutableSortedSet<BuildTarget>> exportedDeps;
   }

@@ -1,17 +1,17 @@
 /*
  * Copyright 2014-present Facebook, Inc.
  *
- *  Licensed under the Apache License, Version 2.0 (the "License"); you may
- *  not use this file except in compliance with the License. You may obtain
- *  a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may
+ * not use this file except in compliance with the License. You may obtain
+ * a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *  Unless required by applicable law or agreed to in writing, software
- *  distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- *  WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- *  License for the specific language governing permissions and limitations
- *  under the License.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+ * License for the specific language governing permissions and limitations
+ * under the License.
  */
 
 package com.facebook.buck.android;
@@ -27,12 +27,13 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.RuleKeyAppendable;
-import com.facebook.buck.rules.RuleKeyBuilder;
+import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
+import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
@@ -111,7 +112,10 @@ public class CopyNativeLibraries extends AbstractBuildRule {
   }
 
   private Path getBinPath() {
-    return BuildTargets.getScratchPath(getBuildTarget(), "__native_libs_%s__");
+    return BuildTargets.getScratchPath(
+        getProjectFilesystem(),
+        getBuildTarget(),
+        "__native_libs_%s__");
   }
 
   @VisibleForTesting
@@ -184,7 +188,7 @@ public class CopyNativeLibraries extends AbstractBuildRule {
     steps.add(
         new AbstractExecutionStep("hash_native_libs") {
           @Override
-          public int execute(ExecutionContext context) {
+          public StepExecutionResult execute(ExecutionContext context) {
             ProjectFilesystem filesystem = getProjectFilesystem();
             ImmutableList.Builder<String> metadataLines = ImmutableList.builder();
             try {
@@ -196,9 +200,9 @@ public class CopyNativeLibraries extends AbstractBuildRule {
               filesystem.writeLinesToPath(metadataLines.build(), pathToMetadataTxt);
             } catch (IOException e) {
               context.logError(e, "There was an error hashing native libraries.");
-              return 1;
+              return StepExecutionResult.ERROR;
             }
-            return 0;
+            return StepExecutionResult.SUCCESS;
           }
         });
 
@@ -246,17 +250,18 @@ public class CopyNativeLibraries extends AbstractBuildRule {
         steps.add(
             new Step() {
               @Override
-              public int execute(ExecutionContext context) {
+              public StepExecutionResult execute(ExecutionContext context) {
                 // TODO(shs96c): Using a projectfilesystem here is almost definitely wrong.
                 // This is because each library may come from different build rules, which may be in
                 // different cells --- this check works by coincidence.
                 if (!filesystem.exists(libSourceDir)) {
-                  return 0;
+                  return StepExecutionResult.SUCCESS;
                 }
-                if (mkDirStep.execute(context) == 0 && copyStep.execute(context) == 0) {
-                  return 0;
+                if (mkDirStep.execute(context).isSuccess() &&
+                    copyStep.execute(context).isSuccess()) {
+                  return StepExecutionResult.SUCCESS;
                 }
-                return 1;
+                return StepExecutionResult.ERROR;
               }
 
               @Override
@@ -282,7 +287,7 @@ public class CopyNativeLibraries extends AbstractBuildRule {
     steps.add(
         new AbstractExecutionStep("rename_native_executables") {
           @Override
-          public int execute(ExecutionContext context) {
+          public StepExecutionResult execute(ExecutionContext context) {
             final ImmutableSet.Builder<Path> executablesBuilder = ImmutableSet.builder();
             try {
               filesystem.walkRelativeFileTree(destinationDir, new SimpleFileVisitor<Path>() {
@@ -303,9 +308,9 @@ public class CopyNativeLibraries extends AbstractBuildRule {
               }
             } catch (IOException e) {
               context.logError(e, "Renaming native executables failed.");
-              return 1;
+              return StepExecutionResult.ERROR;
             }
-            return 0;
+            return StepExecutionResult.SUCCESS;
           }
         });
   }
@@ -341,8 +346,8 @@ public class CopyNativeLibraries extends AbstractBuildRule {
     public abstract TargetCpuType getTargetCpuType();
 
     @Override
-    public RuleKeyBuilder appendToRuleKey(RuleKeyBuilder builder) {
-      return builder
+    public void appendToRuleKey(RuleKeyObjectSink sink) {
+      sink
           .setReflectively("sourcePath", getSourcePath())
           .setReflectively("strippedObjectName", getStrippedObjectName())
           .setReflectively("targetCpuType", getTargetCpuType());

@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY 430752b15036d64f4979ac06e8f575b08ba4254b #@#
+#@# GENERATED FILE: DO NOT MODIFY abfe4e43263c848b75af772be206f2502d861b7b #@#
 {
   "aar-integration" : {
     "deps" : [
@@ -48,6 +48,7 @@
   },
   "instrumentation-integration" : {
     "deps" : [
+      "//src/com/facebook/buck/io:io",
       "//src/com/facebook/buck/model:model",
       "//test/com/facebook/buck/android:testutil",
       "//test/com/facebook/buck/model:testutil",
@@ -58,6 +59,7 @@
   },
   "integration" : {
     "deps" : [
+      "//src/com/facebook/buck/android:exceptions",
       "//src/com/facebook/buck/android:rules",
       "//src/com/facebook/buck/android:steps",
       "//src/com/facebook/buck/android:utils",
@@ -74,6 +76,7 @@
       "//test/com/facebook/buck/android:testutil",
       "//test/com/facebook/buck/artifact_cache:testutil",
       "//test/com/facebook/buck/model:testutil",
+      "//test/com/facebook/buck/testutil:testutil",
       "//test/com/facebook/buck/testutil/integration:integration",
       "//third-party/java/guava:guava",
       "//third-party/java/hamcrest:java-hamcrest",
@@ -163,6 +166,7 @@
       "//src/com/facebook/buck/parser:rule_pattern",
       "//src/com/facebook/buck/rules:Sha1HashCode",
       "//src/com/facebook/buck/rules:build_rule",
+      "//src/com/facebook/buck/rules:interfaces",
       "//src/com/facebook/buck/rules:rule_key",
       "//src/com/facebook/buck/rules:rules",
       "//src/com/facebook/buck/rules/args:args",
@@ -173,7 +177,6 @@
       "//src/com/facebook/buck/step:step",
       "//src/com/facebook/buck/step/fs:fs",
       "//src/com/facebook/buck/timing:timing",
-      "//src/com/facebook/buck/util:constants",
       "//src/com/facebook/buck/util:exceptions",
       "//src/com/facebook/buck/util:io",
       "//src/com/facebook/buck/util:object_mapper",

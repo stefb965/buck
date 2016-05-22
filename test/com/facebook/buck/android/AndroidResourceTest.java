@@ -123,9 +123,9 @@ public class AndroidResourceTest {
             "java/src/com/facebook/base/res/drawable/A.xml", "dddddddddd",
             "java/src/com/facebook/base/res/drawable/C.xml", "eeeeeeeeee"
         ));
-    RuleKey ruleKey1 = new DefaultRuleKeyBuilderFactory(hashCache, pathResolver).build(
+    RuleKey ruleKey1 = new DefaultRuleKeyBuilderFactory(0, hashCache, pathResolver).build(
         androidResource1);
-    RuleKey ruleKey2 = new DefaultRuleKeyBuilderFactory(hashCache, pathResolver).build(
+    RuleKey ruleKey2 = new DefaultRuleKeyBuilderFactory(0, hashCache, pathResolver).build(
         androidResource2);
 
     assertNotEquals(
@@ -255,10 +255,10 @@ public class AndroidResourceTest {
         "something",
         pathResolver.getRelativePath(dep.getPathToTextSymbolsFile()));
     RuleKey original = new InputBasedRuleKeyBuilderFactory(
+        0,
         fileHashCache,
-        pathResolver,
-        new DefaultRuleKeyBuilderFactory(fileHashCache, pathResolver))
-        .build(resource);
+        pathResolver)
+        .build(resource).get();
 
     fileHashCache.invalidateAll();
 
@@ -266,10 +266,10 @@ public class AndroidResourceTest {
         "something else",
         pathResolver.getRelativePath(dep.getPathToTextSymbolsFile()));
     RuleKey changed = new InputBasedRuleKeyBuilderFactory(
+        0,
         fileHashCache,
-        pathResolver,
-        new DefaultRuleKeyBuilderFactory(fileHashCache, pathResolver))
-        .build(resource);
+        pathResolver)
+        .build(resource).get();
 
     assertThat(original, Matchers.not(Matchers.equalTo(changed)));
   }

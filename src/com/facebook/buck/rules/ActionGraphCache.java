@@ -27,7 +27,7 @@ import com.facebook.buck.model.Pair;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.keys.ContentAgnosticRuleKeyBuilderFactory;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.concurrent.MoreExecutors;
+import com.facebook.buck.util.concurrent.MostExecutors;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -80,7 +80,7 @@ public class ActionGraphCache {
         /* maximumPoolSize */ 1,
         /* keepAliveTime */ 0L, TimeUnit.MILLISECONDS,
         /* workQueue */ new LinkedBlockingQueue<Runnable>(),
-        /* threadFactory */ new MoreExecutors.NamedAndPriorityThreadFactory(
+        /* threadFactory */ new MostExecutors.NamedAndPriorityThreadFactory(
             "ActionGraphCache-RuleCheck",
             Thread.MIN_PRIORITY),
         /* handler */ new ThreadPoolExecutor.DiscardPolicy()));
@@ -114,7 +114,8 @@ public class ActionGraphCache {
   public ActionGraphAndResolver getActionGraph(
       final BuckEventBus eventBus,
       final boolean checkActionGraphs,
-      final TargetGraph targetGraph) {
+      final TargetGraph targetGraph,
+      int keySeed) {
     ActionGraphEvent.Started started = ActionGraphEvent.started();
     eventBus.post(started);
     try {
@@ -122,7 +123,11 @@ public class ActionGraphCache {
         cacheHitCounter.inc();
         LOG.info("ActionGraph cache hit.");
         if (checkActionGraphs) {
-          spawnThreadToCompareActionGraphs(eventBus, lastActionGraph.getSecond(), targetGraph);
+          spawnThreadToCompareActionGraphs(
+              eventBus,
+              lastActionGraph.getSecond(),
+              targetGraph,
+              keySeed);
         }
       } else {
         cacheMissCounter.inc();
@@ -214,10 +219,11 @@ public class ActionGraphCache {
 
   private static Map<BuildRule, RuleKey> getRuleKeysFromBuildRules(
       Iterable<BuildRule> buildRules,
-      BuildRuleResolver buildRuleResolver) {
+      BuildRuleResolver buildRuleResolver,
+      int keySeed) {
     SourcePathResolver pathResolver = new SourcePathResolver(buildRuleResolver);
     ContentAgnosticRuleKeyBuilderFactory factory =
-        new ContentAgnosticRuleKeyBuilderFactory(pathResolver);
+        new ContentAgnosticRuleKeyBuilderFactory(keySeed, pathResolver);
 
     HashMap<BuildRule, RuleKey> ruleKeysMap = new HashMap<>();
     for (BuildRule rule : buildRules) {
@@ -238,7 +244,8 @@ public class ActionGraphCache {
   private void spawnThreadToCompareActionGraphs(
       final BuckEventBus eventBus,
       final ActionGraphAndResolver lastActionGraphAndResolver,
-      final TargetGraph targetGraph) {
+      final TargetGraph targetGraph,
+      final int keySeed) {
     // If a check already runs on a previous command do not interrupt and skip the test of this one.
     if (!checkAlreadyRunning.compareAndSet(false, true)) {
       return;
@@ -263,10 +270,12 @@ public class ActionGraphCache {
 
           Map<BuildRule, RuleKey> lastActionGraphRuleKeys = getRuleKeysFromBuildRules(
               lastActionGraphAndResolver.getActionGraph().getNodes(),
-              lastActionGraphAndResolver.getResolver());
+              lastActionGraphAndResolver.getResolver(),
+              keySeed);
           Map<BuildRule, RuleKey> newActionGraphRuleKeys = getRuleKeysFromBuildRules(
               newActionGraph.getSecond().getActionGraph().getNodes(),
-              newActionGraph.getSecond().getResolver());
+              newActionGraph.getSecond().getResolver(),
+              keySeed);
 
           if (!lastActionGraphRuleKeys.equals(newActionGraphRuleKeys)) {
             actionGraphsMismatch.inc();

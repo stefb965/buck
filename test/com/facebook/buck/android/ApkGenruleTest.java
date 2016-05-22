@@ -21,7 +21,6 @@ import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.artifact_cache.ArtifactCache;
 import com.facebook.buck.event.BuckEventBusFactory;
-import com.facebook.buck.io.MorePathsForTests;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
@@ -39,6 +38,7 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.ExopackageInfo;
 import com.facebook.buck.rules.FakeBuildRule;
@@ -63,10 +63,8 @@ import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.timing.Clock;
-import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.environment.Platform;
-import com.google.common.base.Function;
 import com.google.common.base.Functions;
 import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
@@ -79,6 +77,7 @@ import org.easymock.EasyMock;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.nio.file.FileSystem;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
@@ -90,18 +89,21 @@ public class ApkGenruleTest {
       ProjectFilesystem filesystem) throws NoSuchBuildTargetException {
     // Create a java_binary that depends on a java_library so it is possible to create a
     // java_binary rule with a classpath entry and a main class.
-    BuildTarget libAndroidTarget = BuildTargetFactory.newInstance("//:lib-android");
+    BuildTarget libAndroidTarget =
+        BuildTargetFactory.newInstance(filesystem.getRootPath(), "//:lib-android");
     BuildRule androidLibRule = JavaLibraryBuilder.createBuilder(libAndroidTarget)
         .addSrc(Paths.get("java/com/facebook/util/Facebook.java"))
         .build(ruleResolver, filesystem);
 
-    BuildTarget keystoreTarget = BuildTargetFactory.newInstance("//keystore:debug");
+    BuildTarget keystoreTarget =
+        BuildTargetFactory.newInstance(filesystem.getRootPath(), "//keystore:debug");
     Keystore keystore = (Keystore) KeystoreBuilder.createBuilder(keystoreTarget)
         .setStore(new FakeSourcePath(filesystem, "keystore/debug.keystore"))
         .setProperties(new FakeSourcePath(filesystem, "keystore/debug.keystore.properties"))
         .build(ruleResolver, filesystem);
 
-    AndroidBinaryBuilder.createBuilder(BuildTargetFactory.newInstance("//:fb4a"))
+    AndroidBinaryBuilder
+        .createBuilder(BuildTargetFactory.newInstance(filesystem.getRootPath(), "//:fb4a"))
         .setManifest(new FakeSourcePath("AndroidManifest.xml"))
         .setOriginalDeps(ImmutableSortedSet.of(androidLibRule.getBuildTarget()))
         .setKeystore(keystore.getBuildTarget())
@@ -112,6 +114,7 @@ public class ApkGenruleTest {
   @SuppressWarnings("PMD.AvoidUsingHardCodedIP")
   public void testCreateAndRunApkGenrule() throws IOException, NoSuchBuildTargetException {
     ProjectFilesystem projectFilesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
+    FileSystem fileSystem = projectFilesystem.getRootPath().getFileSystem();
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     createSampleAndroidBinaryRule(ruleResolver, projectFilesystem);
@@ -119,16 +122,20 @@ public class ApkGenruleTest {
     // From the Python object, create a ApkGenruleBuildRuleFactory to create a ApkGenrule.Builder
     // that builds a ApkGenrule from the Python object.
     BuildTargetParser parser = EasyMock.createNiceMock(BuildTargetParser.class);
-    final BuildTarget apkTarget = BuildTargetFactory.newInstance("//:fb4a");
+    final BuildTarget apkTarget =
+        BuildTargetFactory.newInstance(projectFilesystem.getRootPath(), "//:fb4a");
 
     EasyMock.expect(
         parser.parse(
             EasyMock.eq(":fb4a"),
             EasyMock.anyObject(BuildTargetPatternParser.class),
-            EasyMock.<Function<Optional<String>, Path>>anyObject()))
+            EasyMock.<CellPathResolver>anyObject()))
         .andStubReturn(apkTarget);
     EasyMock.replay(parser);
-    BuildTarget buildTarget = BuildTargetFactory.newInstance("//src/com/facebook:sign_fb4a");
+    BuildTarget buildTarget =
+        BuildTargetFactory.newInstance(
+            projectFilesystem.getRootPath(),
+            "//src/com/facebook:sign_fb4a");
     ApkGenruleDescription description = new ApkGenruleDescription();
     ApkGenruleDescription.Arg arg = description.createUnpopulatedConstructorArg();
     arg.apk = new FakeInstallable(apkTarget, new SourcePathResolver(ruleResolver)).getBuildTarget();
@@ -137,8 +144,10 @@ public class ApkGenruleTest {
     arg.cmdExe = Optional.of("");
     arg.out = "signed_fb4a.apk";
     arg.srcs = Optional.of(ImmutableList.<SourcePath>of(
-        new PathSourcePath(projectFilesystem, Paths.get("src/com/facebook/signer.py")),
-        new PathSourcePath(projectFilesystem, Paths.get("src/com/facebook/key.properties"))));
+        new PathSourcePath(projectFilesystem, fileSystem.getPath("src/com/facebook/signer.py")),
+        new PathSourcePath(
+            projectFilesystem,
+            fileSystem.getPath("src/com/facebook/key.properties"))));
     arg.tests = Optional.of(ImmutableSortedSet.<BuildTarget>of());
     BuildRuleParams params = new FakeBuildRuleParamsBuilder(buildTarget)
         .setProjectFilesystem(projectFilesystem).build();
@@ -148,10 +157,9 @@ public class ApkGenruleTest {
 
     // Verify all of the observers of the Genrule.
     String expectedApkOutput =
-        MorePathsForTests.rootRelativePath(
-            "/opt/src/buck/" +
-                BuckConstant.getGenDir() +
-            "/src/com/facebook/sign_fb4a/sign_fb4a.apk").toString();
+        projectFilesystem.resolve(
+            projectFilesystem.getBuckPaths().getGenDir().toString() +
+             "/src/com/facebook/sign_fb4a/sign_fb4a.apk").toString();
     assertEquals(expectedApkOutput,
         apkGenrule.getAbsoluteOutputFilePath());
     assertEquals(
@@ -172,8 +180,8 @@ public class ApkGenruleTest {
         .setEventBus(BuckEventBusFactory.newInstance())
         .build();
     Iterable<Path> expectedInputsToCompareToOutputs = ImmutableList.of(
-        Paths.get("src/com/facebook/signer.py"),
-        Paths.get("src/com/facebook/key.properties"));
+        fileSystem.getPath("src/com/facebook/signer.py"),
+        fileSystem.getPath("src/com/facebook/key.properties"));
     MoreAsserts.assertIterablesEquals(
         expectedInputsToCompareToOutputs,
         apkGenrule.getSrcs());
@@ -192,14 +200,15 @@ public class ApkGenruleTest {
             "rm",
             "-r",
             "-f",
-            "/opt/src/buck/" + apkGenrule.getPathToOutput()),
+            expectedApkOutput),
         rmCommand.getShellCommand());
 
     Step secondStep = steps.get(1);
     assertTrue(secondStep instanceof MkdirStep);
     MkdirStep mkdirCommand = (MkdirStep) secondStep;
-    Path mkdirDir = projectFilesystem.resolve(BuckConstant.getGenDir() +
-        "/src/com/facebook/sign_fb4a");
+    Path mkdirDir =
+        projectFilesystem.resolve(
+            projectFilesystem.getBuckPaths().getGenDir().resolve("src/com/facebook/sign_fb4a"));
     assertEquals(
         "Second command should make sure the output directory exists.",
         mkdirDir,
@@ -208,7 +217,7 @@ public class ApkGenruleTest {
     Step thirdStep = steps.get(2);
     assertTrue(thirdStep instanceof MakeCleanDirectoryStep);
     MakeCleanDirectoryStep secondMkdirCommand = (MakeCleanDirectoryStep) thirdStep;
-    Path relativePathToTmpDir = BuckConstant.getGenPath().resolve(
+    Path relativePathToTmpDir = projectFilesystem.getBuckPaths().getGenDir().resolve(
         "src/com/facebook/sign_fb4a__tmp");
     assertEquals(
         "Third command should make sure the temp directory exists.",
@@ -218,7 +227,7 @@ public class ApkGenruleTest {
     Step fourthStep = steps.get(3);
     assertTrue(fourthStep instanceof MakeCleanDirectoryStep);
     MakeCleanDirectoryStep thirdMkdirCommand = (MakeCleanDirectoryStep) fourthStep;
-    Path relativePathToSrcDir = BuckConstant.getGenPath().resolve(
+    Path relativePathToSrcDir = projectFilesystem.getBuckPaths().getGenDir().resolve(
         "src/com/facebook/sign_fb4a__srcs");
     assertEquals(
         "Fourth command should make sure the temp directory exists.",
@@ -226,12 +235,14 @@ public class ApkGenruleTest {
         thirdMkdirCommand.getPath());
 
     MkdirAndSymlinkFileStep linkSource1 = (MkdirAndSymlinkFileStep) steps.get(4);
-    assertEquals(Paths.get("src/com/facebook/signer.py"), linkSource1.getSource());
-    assertEquals(Paths.get(relativePathToSrcDir + "/signer.py"), linkSource1.getTarget());
+    assertEquals(fileSystem.getPath("src/com/facebook/signer.py"), linkSource1.getSource());
+    assertEquals(fileSystem.getPath(relativePathToSrcDir + "/signer.py"), linkSource1.getTarget());
 
     MkdirAndSymlinkFileStep linkSource2 = (MkdirAndSymlinkFileStep) steps.get(5);
-    assertEquals(Paths.get("src/com/facebook/key.properties"), linkSource2.getSource());
-    assertEquals(Paths.get(relativePathToSrcDir + "/key.properties"), linkSource2.getTarget());
+    assertEquals(fileSystem.getPath("src/com/facebook/key.properties"), linkSource2.getSource());
+    assertEquals(
+        fileSystem.getPath(relativePathToSrcDir + "/key.properties"),
+        linkSource2.getTarget());
 
     Step seventhStep = steps.get(6);
     assertTrue(seventhStep instanceof ShellStep);
@@ -240,7 +251,9 @@ public class ApkGenruleTest {
     ImmutableMap<String, String> environmentVariables = genruleCommand.getEnvironmentVariables(
         executionContext);
     assertEquals(new ImmutableMap.Builder<String, String>()
-        .put("APK", "/opt/src/buck/" + BuildTargets.getGenPath(apkTarget, "%s.apk").toString())
+        .put(
+            "APK", projectFilesystem.resolve(
+                BuildTargets.getGenPath(projectFilesystem, apkTarget, "%s.apk")).toString())
         .put("OUT", expectedApkOutput).build(),
         environmentVariables);
     assertEquals(

@@ -17,13 +17,24 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.log.LogConfigSetup;
+import com.facebook.buck.rage.AbstractReport;
 import com.facebook.buck.rage.AutomatedReport;
-import com.facebook.buck.rage.DefectReporter;
+import com.facebook.buck.rage.DefaultDefectReporter;
+import com.facebook.buck.rage.DefaultExtraInfoCollector;
 import com.facebook.buck.rage.DefectSubmitResult;
+import com.facebook.buck.rage.ExtraInfoCollector;
 import com.facebook.buck.rage.InteractiveReport;
 import com.facebook.buck.rage.RageBuckConfig;
 import com.facebook.buck.rage.RageConfig;
+import com.facebook.buck.rage.VcsInfoCollector;
 import com.facebook.buck.util.DirtyPrintStreamDecorator;
+import com.facebook.buck.util.PrintStreamProcessExecutorFactory;
+import com.facebook.buck.util.ProcessExecutor;
+import com.facebook.buck.util.versioncontrol.DefaultVersionControlCmdLineInterfaceFactory;
+import com.facebook.buck.util.versioncontrol.VersionControlBuckConfig;
+import com.facebook.buck.util.versioncontrol.VersionControlCmdLineInterfaceFactory;
+import com.google.common.base.Optional;
 
 import org.kohsuke.args4j.Option;
 
@@ -34,29 +45,51 @@ public class RageCommand extends AbstractCommand {
   @Option(name = "--non-interactive", usage = "Force the command to run in non-interactive mode.")
   private boolean nonInteractive = false;
 
+  @Option(name = "--gather-vcs-info", usage = "Gather information from the Version Control " +
+      "System in non-interactive mode.")
+  private boolean gatherVcsInfo = false;
+
   @Override
   public int runWithoutHelp(CommandRunnerParams params) throws IOException, InterruptedException {
     ProjectFilesystem filesystem = params.getCell().getFilesystem();
-    RageConfig rageConfig = RageBuckConfig.create(params.getBuckConfig());
+    BuckConfig buckConfig = params.getBuckConfig();
+    RageConfig rageConfig = RageBuckConfig.create(buckConfig);
     DirtyPrintStreamDecorator stdOut = params.getConsole().getStdOut();
+    ProcessExecutor processExecutor = new ProcessExecutor(params.getConsole());
 
-    DefectSubmitResult defectSubmitResult;
+    VersionControlCmdLineInterfaceFactory vcsFactory =
+        new DefaultVersionControlCmdLineInterfaceFactory(
+            params.getCell().getFilesystem().getRootPath(),
+            new PrintStreamProcessExecutorFactory(),
+            new VersionControlBuckConfig(buckConfig),
+            buckConfig.getEnvironment());
+
+    Optional<VcsInfoCollector> vcsInfoCollector =
+        VcsInfoCollector.create(vcsFactory.createCmdLineInterface());
+
+    ExtraInfoCollector extraInfoCollector =
+        new DefaultExtraInfoCollector(rageConfig, filesystem, processExecutor);
+
+    AbstractReport report;
     if (params.getConsole().getAnsi().isAnsiTerminal() && !nonInteractive) {
-      InteractiveReport interactiveReport = new InteractiveReport(
-          new DefectReporter(filesystem, params.getObjectMapper(), rageConfig),
+      report = new InteractiveReport(
+          new DefaultDefectReporter(filesystem, params.getObjectMapper(), rageConfig),
           filesystem,
           stdOut,
           params.getStdIn(),
-          params.getBuildEnvironmentDescription());
-      defectSubmitResult = interactiveReport.collectAndSubmitResult();
+          params.getBuildEnvironmentDescription(),
+          vcsInfoCollector,
+          extraInfoCollector);
     } else {
-      AutomatedReport automatedReport = new AutomatedReport(
-          new DefectReporter(filesystem, params.getObjectMapper(), rageConfig),
+      report = new AutomatedReport(
+          new DefaultDefectReporter(filesystem, params.getObjectMapper(), rageConfig),
           filesystem,
           stdOut,
-          params.getBuildEnvironmentDescription());
-      defectSubmitResult = automatedReport.collectAndSubmitResult();
+          params.getBuildEnvironmentDescription(),
+          gatherVcsInfo ? vcsInfoCollector : Optional.<VcsInfoCollector>absent(),
+          extraInfoCollector);
     }
+    DefectSubmitResult defectSubmitResult = report.collectAndSubmitResult();
 
     stdOut.printf("Report saved to %s\n", defectSubmitResult.getReportSubmitLocation());
     if (defectSubmitResult.getReportSubmitMessage().isPresent()) {
@@ -73,5 +106,12 @@ public class RageCommand extends AbstractCommand {
   @Override
   public String getShortDescription() {
     return "create a defect report";
+  }
+
+  @Override
+  public LogConfigSetup getLogConfig() {
+    return LogConfigSetup.builder()
+        .setLogFilePrefix("rage-")
+        .build();
   }
 }

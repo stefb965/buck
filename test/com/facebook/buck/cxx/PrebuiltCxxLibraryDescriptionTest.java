@@ -22,6 +22,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
@@ -38,6 +39,7 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.args.Arg;
+import com.facebook.buck.rules.args.FileListableLinkerInputArg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
@@ -153,10 +155,11 @@ public class PrebuiltCxxLibraryDescriptionTest {
 
     // Verify static native linkable input.
     NativeLinkableInput expectedStaticLinkableInput = NativeLinkableInput.of(
-        ImmutableList.<Arg>of(
-            new SourcePathArg(
-                pathResolver,
-                new PathSourcePath(filesystem, getStaticLibraryPath(arg)))),
+        ImmutableList.of(
+            FileListableLinkerInputArg.withSourcePathArg(
+                new SourcePathArg(
+                    pathResolver,
+                    new PathSourcePath(filesystem, getStaticLibraryPath(arg))))),
         ImmutableSet.<FrameworkPath>of(),
         ImmutableSet.<FrameworkPath>of());
     assertEquals(
@@ -314,7 +317,7 @@ public class PrebuiltCxxLibraryDescriptionTest {
 
     ProjectFilesystem filesystem = new AllExistingProjectFilesystem();
 
-    Function<Optional<String>, Path> cellRoots = TestCellBuilder.createCellRoots(filesystem);
+    CellPathResolver cellRoots = TestCellBuilder.createCellRoots(filesystem);
     Optional<String> libName = Optional.of("test");
     Optional<String> libDir = Optional.of("$(location //other:gen_lib)/");
 
@@ -436,7 +439,7 @@ public class PrebuiltCxxLibraryDescriptionTest {
 
     ProjectFilesystem filesystem = new AllExistingProjectFilesystem();
 
-    Function<Optional<String>, Path> cellRoots = TestCellBuilder.createCellRoots(filesystem);
+    CellPathResolver cellRoots = TestCellBuilder.createCellRoots(filesystem);
 
     CxxPlatform platform1 =
         CxxPlatformUtils.DEFAULT_PLATFORM
@@ -661,18 +664,9 @@ public class PrebuiltCxxLibraryDescriptionTest {
         (PrebuiltCxxLibrary) new PrebuiltCxxLibraryBuilder(TARGET)
             .setForceStatic(true)
             .build(resolver, filesystem);
-    NativeLinkableInput nativeLinkableInput =
-        prebuiltCxxLibrary.getNativeLinkableInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM,
-            Linker.LinkableDepType.STATIC);
     assertThat(
-        Arg.stringify(nativeLinkableInput.getArgs()).get(0),
-        Matchers.endsWith(".a"));
-    assertThat(
-        prebuiltCxxLibrary.getSharedLibraries(
-            CxxPlatformUtils.DEFAULT_PLATFORM)
-            .entrySet(),
-        Matchers.empty());
+        prebuiltCxxLibrary.getPreferredLinkage(CxxPlatformUtils.DEFAULT_PLATFORM),
+        Matchers.equalTo(NativeLinkable.Linkage.STATIC));
   }
 
   @Test

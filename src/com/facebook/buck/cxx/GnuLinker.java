@@ -27,7 +27,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.RuleKeyBuilder;
+import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.Tool;
@@ -99,13 +99,13 @@ public class GnuLinker implements Linker {
   }
 
   @Override
-  public Iterable<Arg> linkerMap(Path output) {
-    return ImmutableList.<Arg>of();
+  public Iterable<String> soname(String arg) {
+    return Linkers.iXlinker("-soname", arg);
   }
 
   @Override
-  public Iterable<String> soname(String arg) {
-    return Linkers.iXlinker("-soname", arg);
+  public Iterable<Arg> fileList(Path fileListPath) {
+    return ImmutableList.of();
   }
 
   @Override
@@ -167,8 +167,8 @@ public class GnuLinker implements Linker {
   }
 
   @Override
-  public RuleKeyBuilder appendToRuleKey(RuleKeyBuilder builder) {
-    return builder
+  public void appendToRuleKey(RuleKeyObjectSink sink) {
+    sink
         .setReflectively("tool", tool)
         .setReflectively("type", getClass().getSimpleName());
   }
@@ -189,7 +189,10 @@ public class GnuLinker implements Linker {
     }
 
     private Path getLinkerScript() {
-      return BuildTargets.getGenPath(getBuildTarget(), "%s/linker_script.txt");
+      return BuildTargets.getGenPath(
+          getProjectFilesystem(),
+          getBuildTarget(),
+          "%s/linker_script.txt");
     }
 
     @Override

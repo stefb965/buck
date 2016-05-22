@@ -29,6 +29,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.ImplicitFlavorsInferringDescription;
@@ -304,6 +305,7 @@ public class CxxLibraryDescription implements
         params.getBuildTarget(),
         cxxPlatform);
     Path sharedLibraryPath = CxxDescriptionEnhancer.getSharedLibraryPath(
+        params.getProjectFilesystem(),
         params.getBuildTarget(),
         sharedLibrarySoname,
         cxxPlatform);
@@ -381,6 +383,7 @@ public class CxxLibraryDescription implements
         PatternMatchedCollection.<ImmutableList<String>>of());
     arg.cxxRuntimeType = Optional.absent();
     arg.forceStatic = Optional.absent();
+    arg.preferredLinkage = Optional.absent();
     arg.linkWhole = Optional.absent();
     arg.headerNamespace = Optional.absent();
     arg.soname = Optional.absent();
@@ -479,6 +482,7 @@ public class CxxLibraryDescription implements
 
     Path staticLibraryPath =
         CxxDescriptionEnhancer.getStaticLibraryPath(
+            params.getProjectFilesystem(),
             params.getBuildTarget(),
             cxxPlatform.getFlavor(),
             pic);
@@ -794,7 +798,9 @@ public class CxxLibraryDescription implements
         args.supportedPlatformsRegex,
         args.frameworks.or(ImmutableSortedSet.<FrameworkPath>of()),
         args.libraries.or(ImmutableSortedSet.<FrameworkPath>of()),
-        args.forceStatic.or(false) ? NativeLinkable.Linkage.STATIC : NativeLinkable.Linkage.ANY,
+        args.forceStatic.or(false)
+            ? NativeLinkable.Linkage.STATIC
+            : args.preferredLinkage.or(NativeLinkable.Linkage.ANY),
         args.linkWhole.or(false),
         args.soname,
         args.tests.get(),
@@ -809,7 +815,7 @@ public class CxxLibraryDescription implements
   @Override
   public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
-      Function<Optional<String>, Path> cellRoots,
+      CellPathResolver cellRoots,
       Arg constructorArg) {
     ImmutableSet.Builder<BuildTarget> deps = ImmutableSet.builder();
 
@@ -933,6 +939,7 @@ public class CxxLibraryDescription implements
     public Optional<Boolean> forceStatic;
     public Optional<Boolean> linkWhole;
     public Optional<Boolean> canBeAsset;
+    public Optional<NativeLinkable.Linkage> preferredLinkage;
   }
 
 }

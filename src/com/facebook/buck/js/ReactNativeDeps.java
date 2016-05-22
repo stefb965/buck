@@ -1,17 +1,17 @@
 /*
  * Copyright 2015-present Facebook, Inc.
  *
- *  Licensed under the Apache License, Version 2.0 (the "License"); you may
- *  not use this file except in compliance with the License. You may obtain
- *  a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may
+ * not use this file except in compliance with the License. You may obtain
+ * a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *  Unless required by applicable law or agreed to in writing, software
- *  distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- *  WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- *  License for the specific language governing permissions and limitations
- *  under the License.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+ * License for the specific language governing permissions and limitations
+ * under the License.
  */
 
 package com.facebook.buck.js;
@@ -34,6 +34,7 @@ import com.facebook.buck.rules.Tool;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
+import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
@@ -90,7 +91,7 @@ public class ReactNativeDeps extends AbstractBuildRule
     this.entryPath = entryPath;
     this.platform = platform;
     this.packagerFlags = packagerFlags;
-    this.outputDir = BuildTargets.getGenPath(getBuildTarget(), "%s");
+    this.outputDir = BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s");
     this.inputsHashFile = outputDir.resolve("inputs_hash.txt");
     this.outputInitializer = new BuildOutputInitializer<>(ruleParams.getBuildTarget(), this);
   }
@@ -101,7 +102,8 @@ public class ReactNativeDeps extends AbstractBuildRule
       final BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
-    final Path output = BuildTargets.getScratchPath(getBuildTarget(), "__%s/deps.txt");
+    final Path output =
+        BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "__%s/deps.txt");
     steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), output.getParent()));
 
     appendWorkerSteps(steps, output);
@@ -110,7 +112,7 @@ public class ReactNativeDeps extends AbstractBuildRule
 
     steps.add(new AbstractExecutionStep("hash_js_inputs") {
       @Override
-      public int execute(ExecutionContext context) throws IOException {
+      public StepExecutionResult execute(ExecutionContext context) throws IOException {
         ImmutableList<Path> paths;
         try {
           paths = FluentIterable.from(getProjectFilesystem().readLines(output))
@@ -119,7 +121,7 @@ public class ReactNativeDeps extends AbstractBuildRule
               .toSortedList(Ordering.natural());
         } catch (IOException e) {
           context.logError(e, "Error reading output of the 'react-native-deps' step.");
-          return 1;
+          return StepExecutionResult.ERROR;
         }
 
         FluentIterable<SourcePath> unlistedSrcs =
@@ -132,7 +134,7 @@ public class ReactNativeDeps extends AbstractBuildRule
                   "included in 'srcs':\n%s",
               entryPath,
               Joiner.on('\n').join(unlistedSrcs));
-          return 1;
+          return StepExecutionResult.ERROR;
         }
 
         Hasher hasher = Hashing.sha1().newHasher();
@@ -141,14 +143,14 @@ public class ReactNativeDeps extends AbstractBuildRule
             hasher.putUnencodedChars(getProjectFilesystem().computeSha1(path));
           } catch (IOException e) {
             context.logError(e, "Error hashing input file: %s", path);
-            return 1;
+            return StepExecutionResult.ERROR;
           }
         }
 
         String inputsHash = hasher.hash().toString();
         buildableContext.addMetadata(METADATA_KEY_FOR_INPUTS_HASH, inputsHash);
         getProjectFilesystem().writeContentsToPath(inputsHash, inputsHashFile);
-        return 0;
+        return StepExecutionResult.SUCCESS;
       }
     });
 
@@ -156,7 +158,8 @@ public class ReactNativeDeps extends AbstractBuildRule
   }
 
   private void appendWorkerSteps(ImmutableList.Builder<Step> stepBuilder, Path outputFile) {
-    final Path tmpDir = BuildTargets.getScratchPath(getBuildTarget(), "%s__tmp");
+    final Path tmpDir =
+        BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s__tmp");
     stepBuilder.add(new MakeCleanDirectoryStep(getProjectFilesystem(), tmpDir));
     ReactNativeDepsWorkerStep workerStep = new ReactNativeDepsWorkerStep(
         getProjectFilesystem(),

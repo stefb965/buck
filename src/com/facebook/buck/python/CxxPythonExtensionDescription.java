@@ -35,6 +35,7 @@ import com.facebook.buck.cxx.Linkers;
 import com.facebook.buck.cxx.NativeLinkable;
 import com.facebook.buck.cxx.NativeLinkableInput;
 import com.facebook.buck.cxx.SharedNativeLinkTarget;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
@@ -45,6 +46,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
@@ -56,7 +58,6 @@ import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
@@ -123,8 +124,13 @@ public class CxxPythonExtensionDescription implements
   }
 
   @VisibleForTesting
-  protected Path getExtensionPath(BuildTarget target, Flavor pythonPlatform, Flavor platform) {
-    return BuildTargets.getGenPath(getExtensionTarget(target, pythonPlatform, platform), "%s")
+  protected Path getExtensionPath(
+      ProjectFilesystem filesystem,
+      BuildTarget target,
+      Flavor pythonPlatform,
+      Flavor platform) {
+    return BuildTargets
+        .getGenPath(filesystem, getExtensionTarget(target, pythonPlatform, platform), "%s")
         .resolve(getExtensionName(target));
   }
 
@@ -250,6 +256,7 @@ public class CxxPythonExtensionDescription implements
     String extensionName = getExtensionName(params.getBuildTarget());
     Path extensionPath =
         getExtensionPath(
+            params.getProjectFilesystem(),
             params.getBuildTarget(),
             pythonPlatform.getFlavor(),
             cxxPlatform.getFlavor());
@@ -417,7 +424,7 @@ public class CxxPythonExtensionDescription implements
   @Override
   public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
-      Function<Optional<String>, Path> cellRoots,
+      CellPathResolver cellRoots,
       Arg constructorArg) {
     ImmutableSet.Builder<BuildTarget> deps = ImmutableSet.builder();
 

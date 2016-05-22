@@ -27,6 +27,7 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
+import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.fs.MkdirAndSymlinkFileStep;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
@@ -35,7 +36,6 @@ import com.google.common.collect.ImmutableList;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Collection;
 
 public class CopyResourcesStep implements Step {
@@ -63,14 +63,15 @@ public class CopyResourcesStep implements Step {
   }
 
   @Override
-  public int execute(ExecutionContext context) throws IOException, InterruptedException {
+  public StepExecutionResult execute(ExecutionContext context)
+      throws IOException, InterruptedException {
     for (Step step : buildSteps()) {
-      int result = step.execute(context);
-      if (result != 0) {
+      StepExecutionResult result = step.execute(context);
+      if (!result.isSuccess()) {
         return result;
       }
     }
-    return 0;
+    return StepExecutionResult.SUCCESS;
   }
 
   @VisibleForTesting
@@ -113,9 +114,9 @@ public class CopyResourcesStep implements Step {
                   ((HasOutputName) underlyingRule.get()).getOutputName()));
         } else {
           Path genOutputParent =
-              BuildTargets.getGenPath(underlyingTarget, "%s").getParent();
+              BuildTargets.getGenPath(filesystem, underlyingTarget, "%s").getParent();
           Path scratchOutputParent =
-              BuildTargets.getScratchPath(underlyingTarget, "%s").getParent();
+              BuildTargets.getScratchPath(filesystem, underlyingTarget, "%s").getParent();
           Optional<Path> outputPath =
               MorePaths.stripPrefix(relativePathToResource, genOutputParent)
                   .or(MorePaths.stripPrefix(relativePathToResource, scratchOutputParent));
@@ -130,7 +131,9 @@ public class CopyResourcesStep implements Step {
         resource = MorePaths.pathWithUnixSeparators(relativePathToResource);
       }
 
-      Path javaPackageAsPath = javaPackageFinder.findJavaPackageFolder(Paths.get(resource));
+      Path javaPackageAsPath =
+          javaPackageFinder.findJavaPackageFolder(
+              outputDirectory.getFileSystem().getPath(resource));
 
       Path relativeSymlinkPath;
       if ("".equals(javaPackageAsPath.toString())) {
@@ -148,14 +151,16 @@ public class CopyResourcesStep implements Step {
               javaPackageAsPath);
           // Handle the case where we depend on the output of another BuildRule. In that case, just
           // grab the output and put in the same package as this target would be in.
-          relativeSymlinkPath = Paths.get(
-              String.format(
-                  "%s%s%s",
-                  targetPackageDir,
-                  targetPackageDir.isEmpty() ? "" : "/",
-                  resolver.getRelativePath(rawResource).getFileName()));
+          relativeSymlinkPath =
+              outputDirectory.getFileSystem().getPath(
+                  String.format(
+                      "%s%s%s",
+                      targetPackageDir,
+                      targetPackageDir.isEmpty() ? "" : "/",
+                      resolver.getRelativePath(rawResource).getFileName()));
         } else {
-          relativeSymlinkPath = Paths.get(resource.substring(lastIndex));
+          relativeSymlinkPath =
+              outputDirectory.getFileSystem().getPath(resource.substring(lastIndex));
         }
       }
       Path target = outputDirectory.resolve(relativeSymlinkPath);

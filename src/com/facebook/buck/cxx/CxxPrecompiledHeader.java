@@ -23,7 +23,7 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.RuleKeyAppendable;
-import com.facebook.buck.rules.RuleKeyBuilder;
+import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.keys.SupportsDependencyFileRuleKey;
@@ -98,22 +98,22 @@ public class CxxPrecompiledHeader
   }
 
   @Override
-  public RuleKeyBuilder appendToRuleKey(RuleKeyBuilder builder) {
-    builder.setReflectively("compilationDirectory", sanitizer.getCompilationDirectory());
-    builder.setReflectively(
+  public void appendToRuleKey(RuleKeyObjectSink sink) {
+    sink.setReflectively("compilationDirectory", sanitizer.getCompilationDirectory());
+    sink.setReflectively(
         "compilerFlagsPlatform",
         sanitizer.sanitizeFlags(compilerFlags.getPlatformFlags()));
-    builder.setReflectively(
+    sink.setReflectively(
         "compilerFlagsRule",
         sanitizer.sanitizeFlags(compilerFlags.getRuleFlags()));
-    return builder;
   }
 
   @Override
   public ImmutableList<Step> getBuildSteps(
       BuildContext context,
       BuildableContext buildableContext) {
-    Path scratchDir = BuildTargets.getScratchPath(getBuildTarget(), "%s_tmp");
+    Path scratchDir =
+        BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s_tmp");
     return ImmutableList.of(
         new MkdirStep(getProjectFilesystem(), output.getParent()),
         new MakeCleanDirectoryStep(getProjectFilesystem(), scratchDir),

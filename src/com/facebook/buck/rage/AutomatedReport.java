@@ -18,53 +18,55 @@ package com.facebook.buck.rage;
 
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.util.environment.BuildEnvironmentDescription;
-import com.google.common.base.Function;
-import com.google.common.collect.FluentIterable;
-import com.google.common.collect.ImmutableList;
+import com.facebook.buck.util.versioncontrol.VersionControlCommandFailedException;
+import com.google.common.base.Optional;
+import com.google.common.collect.ImmutableSet;
 
 import java.io.IOException;
 import java.io.PrintStream;
-import java.nio.file.Path;
 
 /**
  * Responsible for gathering logs and other interesting information from buck without user
  * interaction.
  */
-public class AutomatedReport {
-  private final DefectReporter defectReporter;
-  private final BuildEnvironmentDescription buildEnvironmentDescription;
+public class AutomatedReport extends AbstractReport {
   private final BuildLogHelper buildLogHelper;
+  private final Optional<VcsInfoCollector> vcsInfoCollector;
   private final PrintStream output;
 
   public AutomatedReport(
       DefectReporter defectReporter,
       ProjectFilesystem filesystem,
       PrintStream output,
-      BuildEnvironmentDescription buildEnvironmentDescription) {
-    this.defectReporter = defectReporter;
-    this.output = output;
-    this.buildEnvironmentDescription = buildEnvironmentDescription;
+      BuildEnvironmentDescription buildEnvironmentDescription,
+      Optional<VcsInfoCollector> vcsInfoCollector,
+      ExtraInfoCollector extraInfoCollector) {
+    super(defectReporter, buildEnvironmentDescription, output, extraInfoCollector);
+    this.vcsInfoCollector = vcsInfoCollector;
     this.buildLogHelper = new BuildLogHelper(filesystem);
+    this.output = output;
   }
 
-  public DefectSubmitResult collectAndSubmitResult() throws IOException {
-    ImmutableList<BuildLogEntry> buildLogs = buildLogHelper.getBuildLogs();
+  @Override
+  protected ImmutableSet<BuildLogEntry> promptForBuildSelection() throws IOException {
+    return ImmutableSet.copyOf(buildLogHelper.getBuildLogs());
+  }
 
-    DefectReport defectReport = DefectReport.builder()
-        .setBuildEnvironmentDescription(buildEnvironmentDescription)
-        .setIncludedPaths(
-            FluentIterable.from(buildLogs)
-                .transform(
-                    new Function<BuildLogEntry, Path>() {
-                      @Override
-                      public Path apply(BuildLogEntry input) {
-                        return input.getRelativePath();
-                      }
-                    })
-                .toSet())
-        .build();
+  @Override
+  protected Optional<SourceControlInfo> getSourceControlInfo()
+      throws IOException, InterruptedException {
+    try {
+      if (vcsInfoCollector.isPresent()) {
+        return Optional.of(vcsInfoCollector.get().gatherScmInformation());
+      }
+    } catch (VersionControlCommandFailedException e) {
+      output.printf("Failed to get source control information: %s, proceeding regardless.\n", e);
+    }
+    return Optional.absent();
+  }
 
-    output.println("Writing report, please wait..");
-    return defectReporter.submitReport(defectReport);
+  @Override
+  protected Optional<UserReport> getUserReport() throws IOException {
+    return Optional.absent();
   }
 }

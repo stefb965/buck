@@ -16,13 +16,13 @@
 
 package com.facebook.buck.apple;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.js.IosReactNativeLibraryDescription;
 import com.facebook.buck.js.ReactNativeBundle;
 import com.facebook.buck.js.ReactNativeLibraryArgs;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildTargetSourcePath;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.google.common.base.Function;
@@ -62,13 +62,11 @@ public class AppleResources {
         .toSet();
   }
 
-  public static <T> void collectResourceDirsAndFiles(
+  public static <T> AppleBundleResources collectResourceDirsAndFiles(
       TargetGraph targetGraph,
-      TargetNode<T> targetNode,
-      ImmutableSet.Builder<SourcePath> resourceDirs,
-      ImmutableSet.Builder<SourcePath> dirsContainingResourceDirs,
-      ImmutableSet.Builder<SourcePath> resourceFiles,
-      ImmutableSet.Builder<SourcePath> bundleVariantFiles) {
+      TargetNode<T> targetNode) {
+    AppleBundleResources.Builder builder = AppleBundleResources.builder();
+
     ImmutableSet<BuildRuleType> types =
         ImmutableSet.of(AppleResourceDescription.TYPE, IosReactNativeLibraryDescription.TYPE);
 
@@ -79,28 +77,30 @@ public class AppleResources {
             targetNode,
             Optional.of(types));
 
+    ProjectFilesystem filesystem = targetNode.getRuleFactoryParams().getProjectFilesystem();
+
     for (TargetNode<?> resourceNode : resourceNodes) {
       Object constructorArg = resourceNode.getConstructorArg();
       if (constructorArg instanceof AppleResourceDescription.Arg) {
         AppleResourceDescription.Arg appleResource = (AppleResourceDescription.Arg) constructorArg;
-        resourceDirs.addAll(appleResource.dirs);
-        resourceFiles.addAll(appleResource.files);
+        builder.addAllResourceDirs(appleResource.dirs);
+        builder.addAllResourceFiles(appleResource.files);
         if (appleResource.variants.isPresent()) {
-          bundleVariantFiles.addAll(appleResource.variants.get());
+          builder.addAllResourceVariantFiles(appleResource.variants.get());
         }
       } else {
         Preconditions.checkState(constructorArg instanceof ReactNativeLibraryArgs);
         BuildTarget buildTarget = resourceNode.getBuildTarget();
-
-        dirsContainingResourceDirs.add(
+        builder.addDirsContainingResourceDirs(
             new BuildTargetSourcePath(
                 buildTarget,
-                ReactNativeBundle.getPathToJSBundleDir(buildTarget)),
+                ReactNativeBundle.getPathToJSBundleDir(buildTarget, filesystem)),
             new BuildTargetSourcePath(
                 buildTarget,
-                ReactNativeBundle.getPathToResources(buildTarget)));
+                ReactNativeBundle.getPathToResources(buildTarget, filesystem)));
       }
     }
+    return builder.build();
   }
 
   public static ImmutableSet<AppleResourceDescription.Arg> collectDirectResources(

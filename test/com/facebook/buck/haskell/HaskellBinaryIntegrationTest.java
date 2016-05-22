@@ -57,6 +57,10 @@ public class HaskellBinaryIntegrationTest {
   @Parameterized.Parameter(value = 0)
   public Linker.LinkableDepType linkStyle;
 
+  private String getLinkFlavor() {
+    return linkStyle.toString().toLowerCase().replace('_', '-');
+  }
+
   @Before
   public void setUp() throws IOException {
 
@@ -74,7 +78,7 @@ public class HaskellBinaryIntegrationTest {
   @Test
   public void simple() throws IOException {
     ProjectWorkspace.ProcessResult result =
-        workspace.runBuckCommand("run", "//:foo#default," + linkStyle.toString().toLowerCase());
+        workspace.runBuckCommand("run", "//:foo#default," + getLinkFlavor());
     result.assertSuccess();
     assertThat(result.getStdout(), Matchers.equalTo("5"));
   }
@@ -84,7 +88,7 @@ public class HaskellBinaryIntegrationTest {
     ProjectWorkspace.ProcessResult result =
         workspace.runBuckCommand(
             "run",
-            "//:dependent#default," + linkStyle.toString().toLowerCase());
+            "//:dependent#default," + getLinkFlavor());
     result.assertSuccess();
     assertThat(result.getStdout(), Matchers.equalTo("5"));
   }
@@ -94,9 +98,20 @@ public class HaskellBinaryIntegrationTest {
     ProjectWorkspace.ProcessResult result =
         workspace.runBuckCommand(
             "run",
-            "//:foreign#default," + linkStyle.toString().toLowerCase());
+            "//:foreign#default," + getLinkFlavor());
     result.assertSuccess();
     assertThat(result.getStdout(), Matchers.equalTo("hello world"));
+  }
+
+  @Test
+  public void cxxGenrule() throws IOException {
+    ProjectWorkspace.ProcessResult result =
+        workspace.runBuckCommand(
+            "run",
+            "-c", "cxx.cppflags=-some-flag",
+            "//:gen_main#default," + getLinkFlavor());
+    result.assertSuccess();
+    assertThat(result.getStdout().trim(), Matchers.equalTo("-some-flag"));
   }
 
 }

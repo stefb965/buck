@@ -46,6 +46,7 @@ import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 
@@ -62,19 +63,24 @@ public class HaskellDescriptionUtils {
    */
   private static HaskellCompileRule createCompileRule(
       BuildTarget target,
-      BuildRuleParams baseParams,
+      final BuildRuleParams baseParams,
       final BuildRuleResolver resolver,
       SourcePathResolver pathResolver,
       final CxxPlatform cxxPlatform,
       HaskellConfig haskellConfig,
       final CxxSourceRuleFactory.PicType picType,
       Optional<String> main,
+      Optional<HaskellPackageInfo> packageInfo,
       ImmutableList<String> flags,
-      ImmutableList<SourcePath> sources)
+      HaskellSources sources)
       throws NoSuchBuildTargetException {
 
     final Map<BuildTarget, ImmutableList<String>> depFlags = new TreeMap<>();
     final Map<BuildTarget, ImmutableList<SourcePath>> depIncludes = new TreeMap<>();
+    final ImmutableSortedMap.Builder<String, HaskellPackage> exposedPackagesBuilder =
+        ImmutableSortedMap.naturalOrder();
+    final ImmutableSortedMap.Builder<String, HaskellPackage> packagesBuilder =
+        ImmutableSortedMap.naturalOrder();
     new AbstractBreadthFirstThrowingTraversal<BuildRule, NoSuchBuildTargetException>(
         baseParams.getDeps()) {
       private final ImmutableSet<BuildRule> empty = ImmutableSet.of();
@@ -87,16 +93,23 @@ public class HaskellDescriptionUtils {
               ((HaskellCompileDep) rule).getCompileInput(cxxPlatform, picType);
           depFlags.put(rule.getBuildTarget(), compileInput.getFlags());
           depIncludes.put(rule.getBuildTarget(), compileInput.getIncludes());
+
+          // We add packages from first-order deps as expose modules, and transitively included
+          // packages as hidden ones.
+          boolean firstOrderDep = baseParams.getDeps().contains(rule);
+          for (HaskellPackage pkg : compileInput.getPackages()) {
+            if (firstOrderDep) {
+              exposedPackagesBuilder.put(pkg.getInfo().getIdentifier(), pkg);
+            } else {
+              packagesBuilder.put(pkg.getInfo().getIdentifier(), pkg);
+            }
+          }
         }
         return deps;
       }
     }.start();
 
     Tool compiler = haskellConfig.getCompiler().resolve(resolver);
-    ImmutableList<Arg> args =
-        ImmutableList.<Arg>builder()
-            .addAll(SourcePathArg.from(pathResolver, sources))
-            .build();
 
     ImmutableList<String> compileFlags =
         ImmutableList.<String>builder()
@@ -108,6 +121,9 @@ public class HaskellDescriptionUtils {
     ImmutableList<SourcePath> includes =
         ImmutableList.copyOf(Iterables.concat(depIncludes.values()));
 
+    ImmutableSortedMap<String, HaskellPackage> exposedPackages = exposedPackagesBuilder.build();
+    ImmutableSortedMap<String, HaskellPackage> packages = packagesBuilder.build();
+
     return new HaskellCompileRule(
         baseParams.copyWithChanges(
             target,
@@ -115,9 +131,13 @@ public class HaskellDescriptionUtils {
                 ImmutableSortedSet.<BuildRule>naturalOrder()
                     .addAll(compiler.getDeps(pathResolver))
                     .addAll(pathResolver.filterBuildRuleInputs(includes))
+                    .addAll(sources.getDeps(pathResolver))
                     .addAll(
-                        FluentIterable.from(args)
-                            .transformAndConcat(Arg.getDepsFunction(pathResolver)))
+                        FluentIterable.from(exposedPackages.values())
+                            .transformAndConcat(HaskellPackage.getDepsFunction(pathResolver)))
+                    .addAll(
+                        FluentIterable.from(packages.values())
+                            .transformAndConcat(HaskellPackage.getDepsFunction(pathResolver)))
                     .build()),
             Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
         pathResolver,
@@ -125,8 +145,11 @@ public class HaskellDescriptionUtils {
         compileFlags,
         picType,
         main,
+        packageInfo,
         includes,
-        args);
+        exposedPackages,
+        packages,
+        sources);
   }
 
   protected static BuildTarget getCompileBuildTarget(
@@ -147,8 +170,9 @@ public class HaskellDescriptionUtils {
       HaskellConfig haskellConfig,
       CxxSourceRuleFactory.PicType picType,
       Optional<String> main,
+      Optional<HaskellPackageInfo> packageInfo,
       ImmutableList<String> flags,
-      ImmutableList<SourcePath> srcs)
+      HaskellSources srcs)
       throws NoSuchBuildTargetException {
 
     BuildTarget target = getCompileBuildTarget(params.getBuildTarget(), cxxPlatform, picType);
@@ -170,6 +194,7 @@ public class HaskellDescriptionUtils {
             haskellConfig,
             picType,
             main,
+            packageInfo,
             flags,
             srcs));
   }
@@ -238,7 +263,10 @@ public class HaskellDescriptionUtils {
                 baseParams.copyWithBuildTarget(emptyModuleTarget),
                 pathResolver,
                 "module Unused where",
-                BuildTargets.getGenPath(emptyModuleTarget, "%s/Unused.hs"),
+                BuildTargets.getGenPath(
+                    baseParams.getProjectFilesystem(),
+                    emptyModuleTarget,
+                    "%s/Unused.hs"),
                 /* executable */ false));
     HaskellCompileRule emptyCompiledModule =
         resolver.addToIndex(
@@ -251,9 +279,11 @@ public class HaskellDescriptionUtils {
                 haskellConfig,
                 CxxSourceRuleFactory.PicType.PIC,
                 Optional.<String>absent(),
+                Optional.<HaskellPackageInfo>absent(),
                 ImmutableList.<String>of(),
-                ImmutableList.<SourcePath>of(
-                    new BuildTargetSourcePath(emptyModule.getBuildTarget()))));
+                HaskellSources.builder()
+                    .putModuleMap("Unused", new BuildTargetSourcePath(emptyModule.getBuildTarget()))
+                    .build()));
     BuildTarget emptyArchiveTarget =
         target.withAppendedFlavors(ImmutableFlavor.of("empty-archive"));
     Archive emptyArchive =
@@ -265,8 +295,11 @@ public class HaskellDescriptionUtils {
                 cxxPlatform.getAr(),
                 cxxPlatform.getRanlib(),
                 Archive.Contents.NORMAL,
-                BuildTargets.getGenPath(emptyArchiveTarget, "%s/libempty.a"),
-                ImmutableList.of(emptyCompiledModule.getObjectDirPath())));
+                BuildTargets.getGenPath(
+                    baseParams.getProjectFilesystem(),
+                    emptyArchiveTarget,
+                    "%s/libempty.a"),
+                emptyCompiledModule.getObjects()));
     argsBuilder.add(
         new SourcePathArg(pathResolver, new BuildTargetSourcePath(emptyArchive.getBuildTarget())));
 

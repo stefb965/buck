@@ -17,7 +17,7 @@
 package com.facebook.buck.apple;
 
 import com.facebook.buck.rules.RuleKeyAppendable;
-import com.facebook.buck.rules.RuleKeyBuilder;
+import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 
 import org.immutables.value.Value;
@@ -47,8 +47,8 @@ abstract class AbstractAppleBundleDestinations implements RuleKeyAppendable {
   public abstract Path getWatchAppPath();
 
   @Override
-  public RuleKeyBuilder appendToRuleKey(RuleKeyBuilder builder) {
-    return builder
+  public void appendToRuleKey(RuleKeyObjectSink sink) {
+    sink
         .setReflectively("metadata_path", getMetadataPath().toString())
         .setReflectively("resources_path", getResourcesPath().toString())
         .setReflectively("executables_path", getExecutablesPath().toString())
@@ -74,7 +74,7 @@ abstract class AbstractAppleBundleDestinations implements RuleKeyAppendable {
           .setMetadataPath(IOS_CONTENTS_PATH)
           .setResourcesPath(IOS_CONTENTS_PATH)
           .setExecutablesPath(IOS_CONTENTS_PATH)
-          .setFrameworksPath(IOS_CONTENTS_PATH)
+          .setFrameworksPath(IOS_CONTENTS_PATH.resolve("Frameworks"))
           .setPlugInsPath(IOS_CONTENTS_PATH.resolve("PlugIns"))
           .setWatchAppPath(IOS_CONTENTS_PATH.resolve("Watch"))
           .build();

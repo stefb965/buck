@@ -31,6 +31,7 @@ import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.args.Arg;
+import com.facebook.buck.rules.args.FileListableLinkerInputArg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.google.common.base.Function;
@@ -209,7 +210,21 @@ public class CxxLibrary
     linkerArgsBuilder.addAll(Preconditions.checkNotNull(exportedLinkerFlags.apply(cxxPlatform)));
 
     if (!headerOnly.apply(cxxPlatform)) {
-      if (type != Linker.LinkableDepType.SHARED || linkage == Linkage.STATIC) {
+      boolean isStatic;
+      switch (linkage) {
+        case STATIC:
+          isStatic = true;
+          break;
+        case SHARED:
+          isStatic = false;
+          break;
+        case ANY:
+          isStatic = type != Linker.LinkableDepType.SHARED;
+          break;
+        default:
+          throw new IllegalStateException("unhandled linkage type: " + linkage);
+      }
+      if (isStatic) {
         Archive archive =
             (Archive) requireBuildRule(
                 cxxPlatform.getFlavor(),
@@ -220,7 +235,13 @@ public class CxxLibrary
           Linker linker = cxxPlatform.getLd().resolve(ruleResolver);
           linkerArgsBuilder.addAll(linker.linkWhole(archive.toArg()));
         } else {
-          linkerArgsBuilder.add(archive.toArg());
+          Arg libraryArg = archive.toArg();
+          if (libraryArg instanceof SourcePathArg) {
+            linkerArgsBuilder.add(
+                FileListableLinkerInputArg.withSourcePathArg((SourcePathArg) libraryArg));
+          } else {
+            linkerArgsBuilder.add(libraryArg);
+          }
         }
       } else {
         BuildRule rule =
@@ -281,9 +302,6 @@ public class CxxLibrary
   public ImmutableMap<String, SourcePath> getSharedLibraries(
       CxxPlatform cxxPlatform) throws NoSuchBuildTargetException {
     if (headerOnly.apply(cxxPlatform)) {
-      return ImmutableMap.of();
-    }
-    if (linkage == Linkage.STATIC) {
       return ImmutableMap.of();
     }
     if (!isPlatformSupported(cxxPlatform)) {

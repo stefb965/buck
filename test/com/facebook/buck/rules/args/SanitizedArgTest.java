@@ -18,11 +18,13 @@ package com.facebook.buck.rules.args;
 
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKeyBuilder;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.UncachedRuleKeyBuilder;
 import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
@@ -34,16 +36,16 @@ import org.junit.Test;
 
 public class SanitizedArgTest {
 
-  private RuleKeyBuilder createRuleKeyBuilder() {
+  private RuleKeyBuilder<RuleKey> createRuleKeyBuilder() {
     FakeProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     FileHashCache fileHashCache = new DefaultFileHashCache(projectFilesystem);
     SourcePathResolver resolver = new SourcePathResolver(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
      );
-    return new RuleKeyBuilder(
+    return new UncachedRuleKeyBuilder(
         resolver,
         new DefaultFileHashCache(projectFilesystem),
-        new DefaultRuleKeyBuilderFactory(fileHashCache, resolver));
+        new DefaultRuleKeyBuilderFactory(0, fileHashCache, resolver));
   }
 
   @Test
@@ -58,9 +60,13 @@ public class SanitizedArgTest {
   public void appendToRuleKey() {
     SanitizedArg arg1 = new SanitizedArg(Functions.constant("sanitized"), "unsanitized 1");
     SanitizedArg arg2 = new SanitizedArg(Functions.constant("sanitized"), "unsanitized 2");
+    RuleKeyBuilder<RuleKey> builder1 = createRuleKeyBuilder();
+    RuleKeyBuilder<RuleKey> builder2 = createRuleKeyBuilder();
+    arg1.appendToRuleKey(builder1);
+    arg2.appendToRuleKey(builder2);
     assertThat(
-        arg1.appendToRuleKey(createRuleKeyBuilder()).build(),
-        Matchers.equalTo(arg2.appendToRuleKey(createRuleKeyBuilder()).build()));
+        builder1.build(),
+        Matchers.equalTo(builder2.build()));
   }
 
 }

@@ -27,6 +27,7 @@ import com.facebook.buck.cxx.CxxLink;
 import com.facebook.buck.cxx.CxxPlatformUtils;
 import com.facebook.buck.cxx.PrebuiltCxxLibraryBuilder;
 import com.facebook.buck.io.AlwaysFoundExecutableFinder;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.FlavorDomain;
@@ -52,6 +53,7 @@ import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.shell.ShBinaryBuilder;
 import com.facebook.buck.step.Step;
+import com.facebook.buck.testutil.AllExistingProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.google.common.base.Functions;
 import com.google.common.base.Optional;
@@ -76,7 +78,7 @@ public class PythonBinaryDescriptionTest {
   private static final PythonPlatform PY2 =
       PythonPlatform.of(
           ImmutableFlavor.of("py2"),
-          new PythonEnvironment(Paths.get("python2"), PythonVersion.of("2.6")),
+          new PythonEnvironment(Paths.get("python2"), PythonVersion.of("CPython", "2.6")),
           Optional.of(PYTHON2_DEP_TARGET));
 
   @Test
@@ -218,12 +220,12 @@ public class PythonBinaryDescriptionTest {
     PythonPlatform platform1 =
         PythonPlatform.of(
             ImmutableFlavor.of("pyPlat1"),
-            new PythonEnvironment(Paths.get("python2.6"), PythonVersion.of("2.6")),
+            new PythonEnvironment(Paths.get("python2.6"), PythonVersion.of("CPython", "2.6.9")),
             Optional.<BuildTarget>absent());
     PythonPlatform platform2 =
         PythonPlatform.of(
             ImmutableFlavor.of("pyPlat2"),
-            new PythonEnvironment(Paths.get("python2.7"), PythonVersion.of("2.7")),
+            new PythonEnvironment(Paths.get("python2.7"), PythonVersion.of("CPython", "2.7.11")),
             Optional.<BuildTarget>absent());
     PythonBinaryBuilder builder =
         PythonBinaryBuilder.create(
@@ -708,6 +710,55 @@ public class PythonBinaryDescriptionTest {
       assertThat(
           Arg.stringify(link.getArgs()),
           Matchers.hasItem("-flag"));
+    }
+  }
+
+  @Test
+  public void explicitDepOnlinkWholeLibPullsInSharedLibrary() throws Exception {
+    for (final NativeLinkStrategy strategy : NativeLinkStrategy.values()) {
+      ProjectFilesystem filesystem = new AllExistingProjectFilesystem();
+      CxxLibraryBuilder cxxLibraryBuilder =
+          new CxxLibraryBuilder(BuildTargetFactory.newInstance("//:dep1"))
+              .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(new FakeSourcePath("test.c"))))
+              .setForceStatic(true);
+      PrebuiltCxxLibraryBuilder prebuiltCxxLibraryBuilder =
+          new PrebuiltCxxLibraryBuilder(BuildTargetFactory.newInstance("//:dep2"))
+              .setForceStatic(true);
+      PythonBuckConfig config =
+          new PythonBuckConfig(
+              FakeBuckConfig.builder().build(),
+              new AlwaysFoundExecutableFinder()) {
+            @Override
+            public NativeLinkStrategy getNativeLinkStrategy() {
+              return strategy;
+            }
+          };
+      PythonBinaryBuilder binaryBuilder =
+          new PythonBinaryBuilder(
+              BuildTargetFactory.newInstance("//:bin"),
+              config,
+              PythonTestUtils.PYTHON_PLATFORMS,
+              CxxPlatformUtils.DEFAULT_PLATFORM,
+              CxxPlatformUtils.DEFAULT_PLATFORMS);
+      binaryBuilder.setMainModule("main");
+      binaryBuilder.setDeps(
+          ImmutableSortedSet.of(
+              cxxLibraryBuilder.getTarget(),
+              prebuiltCxxLibraryBuilder.getTarget()));
+      BuildRuleResolver resolver =
+          new BuildRuleResolver(
+              TargetGraphFactory.newInstance(
+                  cxxLibraryBuilder.build(),
+                  prebuiltCxxLibraryBuilder.build(),
+                  binaryBuilder.build()),
+              new DefaultTargetNodeToBuildRuleTransformer());
+      cxxLibraryBuilder.build(resolver);
+      prebuiltCxxLibraryBuilder.build(resolver, filesystem);
+      PythonBinary binary = (PythonBinary) binaryBuilder.build(resolver);
+      assertThat(
+          "Using " + strategy,
+          binary.getComponents().getNativeLibraries().keySet(),
+          Matchers.hasItems(Paths.get("libdep1.so"), Paths.get("libdep2.so")));
     }
   }
 

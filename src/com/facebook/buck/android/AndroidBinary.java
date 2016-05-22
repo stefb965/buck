@@ -25,8 +25,8 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.AccumulateClassNamesStep;
 import com.facebook.buck.jvm.java.Classpaths;
 import com.facebook.buck.jvm.java.HasClasspathEntries;
-import com.facebook.buck.jvm.java.JavaRuntimeLauncher;
 import com.facebook.buck.jvm.java.JavaLibrary;
+import com.facebook.buck.jvm.java.JavaRuntimeLauncher;
 import com.facebook.buck.jvm.java.Keystore;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
@@ -40,17 +40,18 @@ import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.ExopackageInfo;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.InstallableApk;
-import com.facebook.buck.rules.RuleKeyBuilderFactory;
 import com.facebook.buck.rules.Sha1HashCode;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.coercer.ManifestEntries;
 import com.facebook.buck.rules.keys.AbiRule;
+import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
 import com.facebook.buck.shell.AbstractGenruleStep;
 import com.facebook.buck.shell.SymlinkFilesIntoDirectoryStep;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
+import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
@@ -273,7 +274,7 @@ public class AndroidBinary
     this.preprocessJavaClassesBash = preprocessJavaClassesBash;
     this.rulesToExcludeFromDex = rulesToExcludeFromDex;
     this.enhancementResult = enhancementResult;
-    this.primaryDexPath = getPrimaryDexPath(params.getBuildTarget());
+    this.primaryDexPath = getPrimaryDexPath(params.getBuildTarget(), getProjectFilesystem());
     this.reorderClassesIntraDex = reorderClassesIntraDex;
     this.dexReorderToolFile = dexReorderToolFile;
     this.dexReorderDataDumpFile = dexReorderDataDumpFile;
@@ -296,8 +297,8 @@ public class AndroidBinary
     }
   }
 
-  public static Path getPrimaryDexPath(BuildTarget buildTarget) {
-    return BuildTargets.getScratchPath(buildTarget, ".dex/%s/classes.dex");
+  public static Path getPrimaryDexPath(BuildTarget buildTarget, ProjectFilesystem filesystem) {
+    return BuildTargets.getScratchPath(filesystem, buildTarget, ".dex/%s/classes.dex");
   }
 
   @Override
@@ -455,7 +456,7 @@ public class AndroidBinary
             // Step that populates a list of libraries and writes a metadata.txt to decompress.
             new AbstractExecutionStep("write_metadata_for_asset_libraries") {
               @Override
-              public int execute(ExecutionContext context) {
+              public StepExecutionResult execute(ExecutionContext context) {
                 ProjectFilesystem filesystem = getProjectFilesystem();
                 try {
                   // Walk file tree to find libraries
@@ -491,9 +492,9 @@ public class AndroidBinary
                   }
                 } catch (IOException e) {
                   context.logError(e, "Writing metadata for asset libraries failed.");
-                  return 1;
+                  return StepExecutionResult.ERROR;
                 }
-                return 0;
+                return StepExecutionResult.SUCCESS;
               }
             });
       }
@@ -502,7 +503,7 @@ public class AndroidBinary
         steps.add(
             new AbstractExecutionStep("rename_asset_libraries_as_temp_files") {
               @Override
-              public int execute(ExecutionContext context) {
+              public StepExecutionResult execute(ExecutionContext context) {
                 try {
                   ProjectFilesystem filesystem = getProjectFilesystem();
                   for (Path libPath : inputAssetLibrariesBuilder.build()) {
@@ -510,10 +511,10 @@ public class AndroidBinary
                     filesystem.move(libPath, tempPath);
                     outputAssetLibrariesBuilder.add(tempPath);
                   }
-                  return 0;
+                  return StepExecutionResult.SUCCESS;
                 } catch (IOException e) {
                   context.logError(e, "Renaming asset libraries failed");
-                  return 1;
+                  return StepExecutionResult.ERROR;
                 }
               }
             }
@@ -611,7 +612,7 @@ public class AndroidBinary
   }
 
   @Override
-  public Sha1HashCode getAbiKeyForDeps(RuleKeyBuilderFactory defaultRuleKeyBuilderFactory) {
+  public Sha1HashCode getAbiKeyForDeps(DefaultRuleKeyBuilderFactory defaultRuleKeyBuilderFactory) {
     // For non-exopackages, there is no benefit to the ABI optimization, so we want to disable it.
     // Returning our RuleKey has this effect because we will never get an ABI match after a
     // RuleKey miss.
@@ -757,7 +758,7 @@ public class AndroidBinary
     steps.add(
         new AbstractExecutionStep("collect_all_class_names") {
           @Override
-          public int execute(ExecutionContext context) {
+          public StepExecutionResult execute(ExecutionContext context) {
             for (Path path : classPathEntriesToDex) {
               Optional<ImmutableSortedMap<String, HashCode>> hashes =
                   AccumulateClassNamesStep.calculateClassHashes(
@@ -765,11 +766,11 @@ public class AndroidBinary
                       getProjectFilesystem(),
                       path);
               if (!hashes.isPresent()) {
-                return 1;
+                return StepExecutionResult.ERROR;
               }
               builder.putAll(hashes.get());
             }
-            return 0;
+            return StepExecutionResult.SUCCESS;
           }
         });
 
@@ -798,7 +799,8 @@ public class AndroidBinary
   }
 
   public String getUnsignedApkPath() {
-    return BuildTargets.getGenPath(getBuildTarget(), "%s.unsigned.apk").toString();
+    return BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s.unsigned.apk")
+        .toString();
   }
 
   /** The APK at this path will be signed, but not zipaligned. */
@@ -812,7 +814,7 @@ public class AndroidBinary
   }
 
   private Path getBinPath(String format) {
-    return BuildTargets.getScratchPath(getBuildTarget(), format);
+    return BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), format);
   }
 
   @VisibleForTesting
@@ -1078,7 +1080,10 @@ public class AndroidBinary
 
   @Override
   public Path getManifestPath() {
-    return BuildTargets.getGenPath(getBuildTarget(), "%s/AndroidManifest.xml");
+    return BuildTargets.getGenPath(
+        getProjectFilesystem(),
+        getBuildTarget(),
+        "%s/AndroidManifest.xml");
   }
 
   boolean shouldSplitDex() {

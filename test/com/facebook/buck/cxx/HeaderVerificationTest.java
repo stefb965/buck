@@ -24,9 +24,9 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKeyBuilder;
-import com.facebook.buck.rules.RuleKeyBuilderFactory;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.UncachedRuleKeyBuilder;
 import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
@@ -43,8 +43,9 @@ public class HeaderVerificationTest {
                 TargetGraph.EMPTY,
                 new DefaultTargetNodeToBuildRuleTransformer()));
     DefaultFileHashCache fileHashCache = new DefaultFileHashCache(new FakeProjectFilesystem());
-    RuleKeyBuilderFactory factory = new DefaultRuleKeyBuilderFactory(fileHashCache, resolver);
-    RuleKeyBuilder builder = new RuleKeyBuilder(resolver, fileHashCache, factory);
+    DefaultRuleKeyBuilderFactory factory =
+        new DefaultRuleKeyBuilderFactory(0, fileHashCache, resolver);
+    RuleKeyBuilder<RuleKey> builder = new UncachedRuleKeyBuilder(resolver, fileHashCache, factory);
     builder.setReflectively("headerVerification", headerVerification);
     return builder.build();
   }

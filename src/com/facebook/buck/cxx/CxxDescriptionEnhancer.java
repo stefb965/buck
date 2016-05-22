@@ -16,8 +16,9 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
+import com.facebook.buck.io.MorePaths;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.json.JsonConcatenate;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
@@ -31,13 +32,14 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CommandTool;
-import com.facebook.buck.rules.RuleKeyBuilder;
+import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
+import com.facebook.buck.rules.args.FileListableLinkerInputArg;
 import com.facebook.buck.rules.args.MacroArg;
 import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
 import com.facebook.buck.rules.args.SourcePathArg;
@@ -48,6 +50,7 @@ import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
 import com.facebook.buck.rules.macros.MacroExpander;
 import com.facebook.buck.rules.macros.MacroHandler;
+import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Functions;
@@ -64,6 +67,7 @@ import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.io.Files;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -111,6 +115,7 @@ public class CxxDescriptionEnhancer {
             headerVisibility);
     Path headerSymlinkTreeRoot =
         CxxDescriptionEnhancer.getHeaderSymlinkTreePath(
+            params.getProjectFilesystem(),
             params.getBuildTarget(),
             cxxPlatform.getFlavor(),
             headerVisibility);
@@ -120,6 +125,7 @@ public class CxxDescriptionEnhancer {
       headerMapLocation =
           Optional.of(
               getHeaderMapPath(
+                  params.getProjectFilesystem(),
                   params.getBuildTarget(),
                   cxxPlatform.getFlavor(),
                   headerVisibility));
@@ -186,13 +192,15 @@ public class CxxDescriptionEnhancer {
    * @return the absolute {@link Path} to use for the symlink tree of headers.
    */
   public static Path getHeaderSymlinkTreePath(
+      ProjectFilesystem filesystem,
       BuildTarget target,
       Flavor platform,
       HeaderVisibility headerVisibility) {
     return target.getCellPath().resolve(
         BuildTargets.getGenPath(
-        createHeaderSymlinkTreeTarget(target, platform, headerVisibility),
-        "%s"));
+            filesystem,
+            createHeaderSymlinkTreeTarget(target, platform, headerVisibility),
+            "%s"));
   }
 
   public static Flavor getHeaderSymlinkTreeFlavor(HeaderVisibility headerVisibility) {
@@ -210,10 +218,12 @@ public class CxxDescriptionEnhancer {
    * @return the {@link Path} to use for the header map for the given symlink tree.
    */
   public static Path getHeaderMapPath(
+      ProjectFilesystem filesystem,
       BuildTarget target,
       Flavor platform,
       HeaderVisibility headerVisibility) {
     return BuildTargets.getGenPath(
+        filesystem,
         createHeaderSymlinkTreeTarget(target, platform, headerVisibility),
         "%s.hmap");
   }
@@ -332,7 +342,7 @@ public class CxxDescriptionEnhancer {
         platformSrcs.getMatchingValues(cxxPlatform.getFlavor().toString())) {
       putAllSources(sourcesWithFlags, sources, resolver, buildTarget);
     }
-    return CxxCompilableEnhancer.resolveCxxSources(sources.build());
+    return resolveCxxSources(sources.build());
   }
 
   private static void putAllSources(
@@ -374,6 +384,12 @@ public class CxxDescriptionEnhancer {
               testable.getCxxPreprocessorInput(
                   cxxPlatform,
                   HeaderVisibility.PRIVATE));
+
+          // Add any dependent headers
+          cxxPreprocessorInputFromTestedRulesBuilder.addAll(
+              CxxPreprocessables.getTransitiveCxxPreprocessorInput(
+                  cxxPlatform,
+                  ImmutableList.of(rule)));
         }
       }
     }
@@ -422,11 +438,13 @@ public class CxxDescriptionEnhancer {
   }
 
   public static Path getStaticLibraryPath(
+      ProjectFilesystem filesystem,
       BuildTarget target,
       Flavor platform,
       CxxSourceRuleFactory.PicType pic) {
     String name = String.format("lib%s.a", target.getShortName());
-    return BuildTargets.getGenPath(createStaticLibraryBuildTarget(target, platform, pic), "%s")
+    return BuildTargets
+        .getGenPath(filesystem, createStaticLibraryBuildTarget(target, platform, pic), "%s")
         .resolve(name);
   }
 
@@ -480,17 +498,19 @@ public class CxxDescriptionEnhancer {
   }
 
   public static Path getSharedLibraryPath(
+      ProjectFilesystem filesystem,
       BuildTarget target,
       String soname,
       CxxPlatform platform) {
     return BuildTargets.getGenPath(
+        filesystem,
         createSharedLibraryBuildTarget(target, platform.getFlavor()),
         "%s/" + soname);
   }
 
   @VisibleForTesting
-  protected static Path getLinkOutputPath(BuildTarget target) {
-    return BuildTargets.getGenPath(target, "%s");
+  protected static Path getLinkOutputPath(BuildTarget target, ProjectFilesystem filesystem) {
+    return BuildTargets.getGenPath(filesystem, target, "%s");
   }
 
   @VisibleForTesting
@@ -510,8 +530,8 @@ public class CxxDescriptionEnhancer {
           CxxFlags.getTranslateMacrosFn(cxxPlatform);
 
       @Override
-      public RuleKeyBuilder appendToRuleKey(RuleKeyBuilder builder) {
-        return builder.setReflectively("translateMacrosFn", translateMacrosFn);
+      public void appendToRuleKey(RuleKeyObjectSink sink) {
+        sink.setReflectively("translateMacrosFn", translateMacrosFn);
       }
 
       @Override
@@ -591,7 +611,7 @@ public class CxxDescriptionEnhancer {
       Optional<Linker.CxxRuntimeType> cxxRuntimeType)
       throws NoSuchBuildTargetException {
     SourcePathResolver sourcePathResolver = new SourcePathResolver(resolver);
-    Path linkOutput = getLinkOutputPath(params.getBuildTarget());
+    Path linkOutput = getLinkOutputPath(params.getBuildTarget(), params.getProjectFilesystem());
     ImmutableList.Builder<Arg> argsBuilder = ImmutableList.builder();
     CommandTool.Builder executableBuilder = new CommandTool.Builder();
 
@@ -667,6 +687,7 @@ public class CxxDescriptionEnhancer {
                   params,
                   sourcePathResolver,
                   cxxPlatform,
+                  params.getDeps(),
                   Predicates.instanceOf(NativeLinkable.class)));
 
       // Embed a origin-relative library path into the binary so it can find the shared libraries.
@@ -690,7 +711,18 @@ public class CxxDescriptionEnhancer {
     }
 
     // Add object files into the args.
-    argsBuilder.addAll(SourcePathArg.from(sourcePathResolver, objects.values()));
+    ImmutableList<SourcePathArg> objectArgs =
+        FluentIterable
+            .from(SourcePathArg.from(sourcePathResolver, objects.values()))
+            .transform(new Function<Arg, SourcePathArg>() {
+              @Override
+              public SourcePathArg apply(Arg input) {
+                Preconditions.checkArgument(input instanceof SourcePathArg);
+                return (SourcePathArg) input;
+              }
+            })
+            .toList();
+    argsBuilder.addAll(FileListableLinkerInputArg.from(objectArgs));
 
     BuildTarget linkRuleTarget = createCxxLinkTarget(params.getBuildTarget());
 
@@ -809,7 +841,9 @@ public class CxxDescriptionEnhancer {
           stripStyle,
           new BuildTargetSourcePath(unstrippedBinaryRule.getBuildTarget()),
           stripTool,
-          CxxDescriptionEnhancer.getLinkOutputPath(stripRuleParams.getBuildTarget()));
+          CxxDescriptionEnhancer.getLinkOutputPath(
+              stripRuleParams.getBuildTarget(),
+              params.getProjectFilesystem()));
       resolver.addToIndex(cxxStrip);
       return cxxStrip;
     }
@@ -1079,9 +1113,11 @@ public class CxxDescriptionEnhancer {
    * @return the {@link Path} to use for the symlink tree of headers.
    */
   public static Path getSharedLibrarySymlinkTreePath(
+      ProjectFilesystem filesystem,
       BuildTarget target,
       Flavor platform) {
     return target.getCellPath().resolve(BuildTargets.getGenPath(
+        filesystem,
         createSharedLibrarySymlinkTreeTarget(target, platform),
         "%s"));
   }
@@ -1094,7 +1130,9 @@ public class CxxDescriptionEnhancer {
       BuildRuleParams params,
       SourcePathResolver pathResolver,
       CxxPlatform cxxPlatform,
-      Predicate<Object> traverse) throws NoSuchBuildTargetException {
+      Iterable<? extends BuildRule> deps,
+      Predicate<Object> traverse)
+      throws NoSuchBuildTargetException {
 
     BuildTarget symlinkTreeTarget =
         createSharedLibrarySymlinkTreeTarget(
@@ -1102,13 +1140,14 @@ public class CxxDescriptionEnhancer {
             cxxPlatform.getFlavor());
     Path symlinkTreeRoot =
         getSharedLibrarySymlinkTreePath(
+            params.getProjectFilesystem(),
             params.getBuildTarget(),
             cxxPlatform.getFlavor());
 
     ImmutableSortedMap<String, SourcePath> libraries =
         NativeLinkables.getTransitiveSharedLibraries(
             cxxPlatform,
-            params.getDeps(),
+            deps,
             traverse);
 
     ImmutableMap.Builder<Path, SourcePath> links = ImmutableMap.builder();
@@ -1138,4 +1177,33 @@ public class CxxDescriptionEnhancer {
         String.format("Unsupported LinkableDepType: '%s'", linkableDepType));
   }
 
+  /**
+   * Resolve the map of names to SourcePaths to a map of names to CxxSource objects.
+   */
+  private static ImmutableMap<String, CxxSource> resolveCxxSources(
+      ImmutableMap<String, SourceWithFlags> sources) {
+
+    ImmutableMap.Builder<String, CxxSource> cxxSources = ImmutableMap.builder();
+
+    // For each entry in the input C/C++ source, build a CxxSource object to wrap
+    // it's name, input path, and output object file path.
+    for (ImmutableMap.Entry<String, SourceWithFlags> ent : sources.entrySet()) {
+      String extension = Files.getFileExtension(ent.getKey());
+      Optional<CxxSource.Type> type = CxxSource.Type.fromExtension(extension);
+      if (!type.isPresent()) {
+        throw new HumanReadableException(
+            "invalid extension \"%s\": %s",
+            extension,
+            ent.getKey());
+      }
+      cxxSources.put(
+          ent.getKey(),
+          CxxSource.of(
+              type.get(),
+              ent.getValue().getSourcePath(),
+              ent.getValue().getFlags()));
+    }
+
+    return cxxSources.build();
+  }
 }

@@ -32,6 +32,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.io.MorePaths;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.DefaultJavaPackageFinder;
 import com.facebook.buck.jvm.java.FakeJavaLibrary;
 import com.facebook.buck.jvm.java.JavaLibrary;
@@ -43,7 +44,6 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CachingBuildEngine;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildEngine;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeTestRule;
@@ -64,7 +64,6 @@ import com.facebook.buck.test.TestResults;
 import com.facebook.buck.test.TestRunningOptions;
 import com.facebook.buck.test.result.type.ResultType;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.util.BuckConstant;
 import com.google.common.base.Optional;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -115,8 +114,9 @@ public class TestRunningTest {
    */
   @Test
   public void testGeneratedSourceFile() {
-    Path pathToGenFile = BuckConstant.getGenPath().resolve("GeneratedFile.java");
-    assertTrue(MorePaths.isGeneratedFile(pathToGenFile));
+    ProjectFilesystem filesystem = new FakeProjectFilesystem();
+    Path pathToGenFile = filesystem.getBuckPaths().getGenDir().resolve("GeneratedFile.java");
+    assertTrue(MorePaths.isGeneratedFile(filesystem, pathToGenFile));
 
     ImmutableSortedSet<Path> javaSrcs = ImmutableSortedSet.of(pathToGenFile);
     SourcePathResolver resolver = new SourcePathResolver(
@@ -147,8 +147,9 @@ public class TestRunningTest {
    */
   @Test
   public void testNonGeneratedSourceFile() {
+    ProjectFilesystem filesystem = new FakeProjectFilesystem();
     Path pathToNonGenFile = Paths.get("package/src/SourceFile1.java");
-    assertFalse(MorePaths.isGeneratedFile(pathToNonGenFile));
+    assertFalse(MorePaths.isGeneratedFile(filesystem, pathToNonGenFile));
 
     ImmutableSortedSet<Path> javaSrcs = ImmutableSortedSet.of(pathToNonGenFile);
     SourcePathResolver resolver = new SourcePathResolver(
@@ -177,8 +178,9 @@ public class TestRunningTest {
 
   @Test
   public void testNonGeneratedSourceFileWithoutPathElements() {
+    ProjectFilesystem filesystem = new FakeProjectFilesystem();
     Path pathToNonGenFile = Paths.get("package/src/SourceFile1.java");
-    assertFalse(MorePaths.isGeneratedFile(pathToNonGenFile));
+    assertFalse(MorePaths.isGeneratedFile(filesystem, pathToNonGenFile));
 
     ImmutableSortedSet<Path> javaSrcs = ImmutableSortedSet.of(pathToNonGenFile);
     SourcePathResolver resolver = new SourcePathResolver(
@@ -191,7 +193,7 @@ public class TestRunningTest {
     DefaultJavaPackageFinder defaultJavaPackageFinder =
         createMock(DefaultJavaPackageFinder.class);
     expect(defaultJavaPackageFinder.getPathsFromRoot()).andReturn(pathsFromRoot);
-    expect(defaultJavaPackageFinder.getPathElements()).andReturn(ImmutableSet.<String>of("/"));
+    expect(defaultJavaPackageFinder.getPathElements()).andReturn(ImmutableSet.of("/"));
 
     replay(defaultJavaPackageFinder);
 
@@ -206,8 +208,9 @@ public class TestRunningTest {
    */
   @Test
   public void testUnifiedSourceFile() {
+    ProjectFilesystem filesystem = new FakeProjectFilesystem();
     Path pathToNonGenFile = Paths.get("java/package/SourceFile1.java");
-    assertFalse(MorePaths.isGeneratedFile(pathToNonGenFile));
+    assertFalse(MorePaths.isGeneratedFile(filesystem, pathToNonGenFile));
 
     ImmutableSortedSet<Path> javaSrcs = ImmutableSortedSet.of(pathToNonGenFile);
     SourcePathResolver resolver = new SourcePathResolver(
@@ -240,7 +243,9 @@ public class TestRunningTest {
    */
   @Test
   public void testMixedSourceFile() {
-    Path pathToGenFile = BuckConstant.getGenPath().resolve("com/facebook/GeneratedFile.java");
+    ProjectFilesystem filesystem = new FakeProjectFilesystem();
+    Path pathToGenFile =
+        filesystem.getBuckPaths().getGenDir().resolve("com/facebook/GeneratedFile.java");
     Path pathToNonGenFile1 = Paths.get("package/src/SourceFile1.java");
     Path pathToNonGenFile2 = Paths.get("package/src-gen/SourceFile2.java");
 
@@ -393,10 +398,10 @@ public class TestRunningTest {
   @Test
   public void testIsTestRunRequiredForTestInDebugMode()
       throws IOException, ExecutionException, InterruptedException {
-    ExecutionContext executionContext = createMock(ExecutionContext.class);
-    expect(executionContext.isDebugEnabled()).andReturn(true);
-
-    replay(executionContext);
+    ExecutionContext executionContext = TestExecutionContext.newBuilder()
+        .setDebugEnabled(true)
+        .build();
+    assertTrue(executionContext.isDebugEnabled());
 
     assertTrue(
         "In debug mode, test should always run regardless of any cached results since " +
@@ -407,16 +412,15 @@ public class TestRunningTest {
             executionContext,
             createMock(TestRuleKeyFileHelper.class),
             true,
-            false));
-
-    verify(executionContext);
+            false,
+            /* hasEnvironmentOverrides */ false));
   }
 
   @Test
   public void testIsTestRunRequiredForTestBuiltFromCacheIfHasTestResultFiles()
       throws IOException, ExecutionException, InterruptedException {
-    ExecutionContext executionContext = createMock(ExecutionContext.class);
-    expect(executionContext.isDebugEnabled()).andReturn(false);
+    ExecutionContext executionContext = TestExecutionContext.newInstance();
+    assertFalse(executionContext.isDebugEnabled());
 
     FakeTestRule testRule = new FakeTestRule(
         ImmutableSet.of(Label.of("windows")),
@@ -432,7 +436,7 @@ public class TestRunningTest {
     BuildResult result = BuildResult.success(testRule, FETCHED_FROM_CACHE, CacheResult.hit("dir"));
     expect(cachingBuildEngine.getBuildRuleResult(BuildTargetFactory.newInstance("//:lulz")))
         .andReturn(result);
-    replay(executionContext, cachingBuildEngine);
+    replay(cachingBuildEngine);
 
     assertTrue(
         "A cache hit updates the build artifact but not the test results. " +
@@ -443,16 +447,17 @@ public class TestRunningTest {
             executionContext,
             createMock(TestRuleKeyFileHelper.class),
             /* results cache enabled */ true,
-            /* running with test selectors */ false));
+            /* running with test selectors */ false,
+            /* hasEnvironmentOverrides */ false));
 
-    verify(executionContext, cachingBuildEngine);
+    verify(cachingBuildEngine);
   }
 
   @Test
   public void testIsTestRunRequiredForTestBuiltLocally()
       throws IOException, ExecutionException, InterruptedException {
-    ExecutionContext executionContext = createMock(ExecutionContext.class);
-    expect(executionContext.isDebugEnabled()).andReturn(false);
+    ExecutionContext executionContext = TestExecutionContext.newInstance();
+    assertFalse(executionContext.isDebugEnabled());
 
     FakeTestRule testRule = new FakeTestRule(
         ImmutableSet.of(Label.of("windows")),
@@ -468,7 +473,7 @@ public class TestRunningTest {
     BuildResult result = BuildResult.success(testRule, BUILT_LOCALLY, CacheResult.miss());
     expect(cachingBuildEngine.getBuildRuleResult(BuildTargetFactory.newInstance("//:lulz")))
         .andReturn(result);
-    replay(executionContext, cachingBuildEngine);
+    replay(cachingBuildEngine);
 
     assertTrue(
         "A test built locally should always run regardless of any cached result. ",
@@ -478,16 +483,17 @@ public class TestRunningTest {
             executionContext,
             createMock(TestRuleKeyFileHelper.class),
             /* results cache enabled */ true,
-            /* running with test selectors */ false));
+            /* running with test selectors */ false,
+            /* hasEnvironmentOverrides */ false));
 
-    verify(executionContext, cachingBuildEngine);
+    verify(cachingBuildEngine);
   }
 
   @Test
   public void testIsTestRunRequiredIfRuleKeyNotPresent()
       throws IOException, ExecutionException, InterruptedException {
-    ExecutionContext executionContext = createMock(ExecutionContext.class);
-    expect(executionContext.isDebugEnabled()).andReturn(false);
+    ExecutionContext executionContext = TestExecutionContext.newInstance();
+    assertFalse(executionContext.isDebugEnabled());
 
     FakeTestRule testRule = new FakeTestRule(
         ImmutableSet.of(Label.of("windows")),
@@ -500,7 +506,7 @@ public class TestRunningTest {
         ImmutableSortedSet.<BuildRule>of()) {
 
       @Override
-      public boolean hasTestResultFiles(ExecutionContext context) {
+      public boolean hasTestResultFiles() {
         return true;
       }
     };
@@ -512,7 +518,7 @@ public class TestRunningTest {
     BuildResult result = BuildResult.success(testRule, MATCHING_RULE_KEY, CacheResult.miss());
     expect(cachingBuildEngine.getBuildRuleResult(BuildTargetFactory.newInstance("//:lulz")))
         .andReturn(result);
-    replay(executionContext, cachingBuildEngine, testRuleKeyFileHelper);
+    replay(cachingBuildEngine, testRuleKeyFileHelper);
 
     assertTrue(
         "A cached build should run the tests if the test output directory\'s rule key is not " +
@@ -523,9 +529,65 @@ public class TestRunningTest {
             executionContext,
             testRuleKeyFileHelper,
             /* results cache enabled */ true,
-            /* running with test selectors */ false));
+            /* running with test selectors */ false,
+            /* hasEnvironmentOverrides */ false));
 
-    verify(executionContext, cachingBuildEngine, testRuleKeyFileHelper);
+    verify(cachingBuildEngine, testRuleKeyFileHelper);
+  }
+
+  @Test
+  public void testRunAlwaysRequiredIfEnvironmentOverridesPresent() throws Exception {
+    ExecutionContext executionContext = TestExecutionContext.newBuilder()
+        .setDebugEnabled(false)
+        .build();
+
+    FakeTestRule testRule = new FakeTestRule(
+        ImmutableSet.of(Label.of("windows")),
+        BuildTargetFactory.newInstance("//:lulz"),
+        new SourcePathResolver(
+            new BuildRuleResolver(
+                TargetGraph.EMPTY,
+                new DefaultTargetNodeToBuildRuleTransformer())
+        ),
+        ImmutableSortedSet.<BuildRule>of()) {
+
+      @Override
+      public boolean hasTestResultFiles() {
+        return true;
+      }
+    };
+
+    TestRuleKeyFileHelper testRuleKeyFileHelper = createNiceMock(TestRuleKeyFileHelper.class);
+    expect(testRuleKeyFileHelper.isRuleKeyInDir(testRule)).andReturn(true).times(1);
+
+    CachingBuildEngine cachingBuildEngine = createMock(CachingBuildEngine.class);
+    BuildResult result = BuildResult.success(testRule, MATCHING_RULE_KEY, CacheResult.miss());
+    expect(cachingBuildEngine.getBuildRuleResult(BuildTargetFactory.newInstance("//:lulz")))
+        .andReturn(result).times(1);
+    replay(cachingBuildEngine, testRuleKeyFileHelper);
+
+    assertFalse(
+        "Test will normally not be rerun",
+        TestRunning.isTestRunRequiredForTest(
+            testRule,
+            cachingBuildEngine,
+            executionContext,
+            testRuleKeyFileHelper,
+            /* results cache enabled */ true,
+            /* running with test selectors */ false,
+            /* hasEnvironmentOverrides */ false));
+    assertTrue(
+        "Test will be rerun when environment overrides are present",
+        TestRunning.isTestRunRequiredForTest(
+            testRule,
+            cachingBuildEngine,
+            executionContext,
+            testRuleKeyFileHelper,
+            /* results cache enabled */ true,
+            /* running with test selectors */ false,
+            /* hasEnvironmentOverrides */ true));
+
+    verify(cachingBuildEngine, testRuleKeyFileHelper);
   }
 
   @Test
@@ -648,7 +710,6 @@ public class TestRunningTest {
     int ret = TestRunning.runTests(
         commandRunnerParams,
         ImmutableList.<TestRule>of(separateTest1, separateTest2, separateTest3),
-        FakeBuildContext.NOOP_CONTEXT,
         fakeExecutionContext,
         DEFAULT_OPTIONS,
         service,
@@ -893,7 +954,6 @@ public class TestRunningTest {
             parallelTest2,
             separateTest3,
             parallelTest3),
-        FakeBuildContext.NOOP_CONTEXT,
         fakeExecutionContext,
         DEFAULT_OPTIONS,
         service,
@@ -1017,7 +1077,6 @@ public class TestRunningTest {
     int ret = TestRunning.runTests(
         commandRunnerParams,
         ImmutableList.<TestRule>of(failingTest),
-        FakeBuildContext.NOOP_CONTEXT,
         fakeExecutionContext,
         DEFAULT_OPTIONS,
         service,

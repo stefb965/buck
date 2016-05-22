@@ -66,7 +66,10 @@ public class JsLibrary extends AbstractBuildRule implements
     this.deps = Preconditions.checkNotNull(deps);
     this.srcs = Preconditions.checkNotNull(srcs);
 
-    this.output = BuildTargets.getGenPath(getBuildTarget(), "/%s-library.deps");
+    this.output = BuildTargets.getGenPath(
+        getProjectFilesystem(),
+        getBuildTarget(),
+        "/%s-library.deps");
 
     buildOutputInitializer = new BuildOutputInitializer<>(getBuildTarget(), this);
   }

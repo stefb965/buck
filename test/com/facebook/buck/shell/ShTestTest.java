@@ -19,12 +19,12 @@ package com.facebook.buck.shell;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeSourcePath;
@@ -33,18 +33,19 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.Arg;
-import com.facebook.buck.step.ExecutionContext;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
-import org.easymock.EasyMock;
 import org.easymock.EasyMockSupport;
 import org.hamcrest.Matchers;
 import org.junit.After;
 import org.junit.Test;
+
+import java.io.IOException;
 
 public class ShTestTest extends EasyMockSupport {
 
@@ -55,8 +56,8 @@ public class ShTestTest extends EasyMockSupport {
   }
 
   @Test
-  public void testHasTestResultFiles() {
-    ProjectFilesystem filesystem = createMock(ProjectFilesystem.class);
+  public void testHasTestResultFiles() throws IOException {
+    ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     ShTest shTest = new ShTest(
         new FakeBuildRuleParamsBuilder("//test/com/example:my_sh_test")
@@ -73,15 +74,11 @@ public class ShTestTest extends EasyMockSupport {
         /* resources */ ImmutableSortedSet.<SourcePath>of(),
         Optional.<Long>absent(),
         /* labels */ ImmutableSet.<Label>of());
-
-    EasyMock.expect(filesystem.isFile(shTest.getPathToTestOutputResult())).andReturn(true);
-    ExecutionContext executionContext = createMock(ExecutionContext.class);
-
-    replayAll();
+    filesystem.touch(shTest.getPathToTestOutputResult());
 
     assertTrue(
         "hasTestResultFiles() should return true if result.json exists.",
-        shTest.hasTestResultFiles(executionContext));
+        shTest.hasTestResultFiles());
   }
 
   @Test

@@ -43,12 +43,19 @@ import java.nio.file.Path;
 
 public class CxxLink
     extends AbstractBuildRule
-    implements SupportsInputBasedRuleKey, ProvidesStaticLibraryDeps, OverrideScheduleRule {
+    implements SupportsInputBasedRuleKey, ProvidesLinkedBinaryDeps, OverrideScheduleRule {
 
   private static final Predicate<BuildRule> ARCHIVE_RULES_PREDICATE = new Predicate<BuildRule>() {
     @Override
     public boolean apply(BuildRule input) {
       return input instanceof Archive;
+    }
+  };
+
+  private static final Predicate<BuildRule> COMPILE_RULES_PREDICATE = new Predicate<BuildRule>() {
+    @Override
+    public boolean apply(BuildRule input) {
+      return input instanceof CxxPreprocessAndCompile;
     }
   };
 
@@ -90,9 +97,15 @@ public class CxxLink
       BuildContext context,
       BuildableContext buildableContext) {
     buildableContext.recordArtifact(output);
-    Path scratchDir = BuildTargets.getScratchPath(getBuildTarget(), "%s-tmp");
+    if (linker instanceof HasLinkerMap) {
+      buildableContext.recordArtifact(((HasLinkerMap) linker).linkerMapPath(output));
+    }
+    Path scratchDir =
+        BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s-tmp");
     Path argFilePath = getProjectFilesystem().getRootPath().resolve(
-        BuildTargets.getScratchPath(getBuildTarget(), "%s__argfile.txt"));
+        BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s__argfile.txt"));
+    Path fileListPath = getProjectFilesystem().getRootPath().resolve(
+        BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s__filelist.txt"));
 
     // Try to find all the cell roots used during the link.  This isn't technically correct since,
     // in theory not all inputs need to come from build rules, but it probably works in practice.
@@ -108,8 +121,10 @@ public class CxxLink
         new MakeCleanDirectoryStep(getProjectFilesystem(), scratchDir),
         new CxxPrepareForLinkStep(
             argFilePath,
+            fileListPath,
+            linker.fileList(fileListPath),
             output,
-            Arg.stringify(args)),
+            args),
         new CxxLinkStep(
             getProjectFilesystem().getRootPath(),
             linker.getEnvironment(getResolver()),
@@ -125,6 +140,11 @@ public class CxxLink
   @Override
   public ImmutableSet<BuildRule> getStaticLibraryDeps() {
     return FluentIterable.from(getDeps()).filter(ARCHIVE_RULES_PREDICATE).toSet();
+  }
+
+  @Override
+  public ImmutableSet<BuildRule> getCompileDeps() {
+    return FluentIterable.from(getDeps()).filter(COMPILE_RULES_PREDICATE).toSet();
   }
 
   @Override

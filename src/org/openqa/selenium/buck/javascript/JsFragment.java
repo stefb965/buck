@@ -59,8 +59,8 @@ public class JsFragment extends AbstractBuildRule {
     this.deps = deps;
     this.module = module;
     this.function = function;
-    this.output = BuildTargets.getGenPath(getBuildTarget(), "%s.js");
-    this.temp = BuildTargets.getScratchPath(getBuildTarget(), "%s-temp.js");
+    this.output = BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s.js");
+    this.temp = BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s-temp.js");
     this.compiler = compiler;
   }
 

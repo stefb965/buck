@@ -20,17 +20,17 @@ import static com.facebook.buck.android.AndroidResource.BuildOutput;
 import static com.facebook.buck.jvm.java.JavaCompilationConstants.ANDROID_JAVAC_OPTIONS;
 import static org.junit.Assert.assertEquals;
 
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.RuleKeyBuilderFactory;
 import com.facebook.buck.rules.Sha1HashCode;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
@@ -71,8 +71,8 @@ public class DummyRDotJavaTest {
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver pathResolver = new SourcePathResolver(ruleResolver);
-    RuleKeyBuilderFactory ruleKeyBuilderFactory =
-        new DefaultRuleKeyBuilderFactory(hashCache, pathResolver);
+    DefaultRuleKeyBuilderFactory ruleKeyBuilderFactory =
+        new DefaultRuleKeyBuilderFactory(0, hashCache, pathResolver);
     BuildRule resourceRule1 = ruleResolver.addToIndex(
         AndroidResourceRuleBuilder.newBuilder()
             .setResolver(pathResolver)
@@ -109,22 +109,26 @@ public class DummyRDotJavaTest {
     assertEquals("DummyRDotJava returns an incorrect number of Steps.", 9, steps.size());
 
     String rDotJavaSrcFolder =
-        BuildTargets.getScratchPath(dummyRDotJava.getBuildTarget(), "__%s_rdotjava_src__")
+        BuildTargets
+            .getScratchPath(filesystem, dummyRDotJava.getBuildTarget(), "__%s_rdotjava_src__")
             .toString();
     String rDotJavaBinFolder =
-        BuildTargets.getScratchPath(dummyRDotJava.getBuildTarget(), "__%s_rdotjava_bin__")
+        BuildTargets
+            .getScratchPath(filesystem, dummyRDotJava.getBuildTarget(), "__%s_rdotjava_bin__")
             .toString();
     String rDotJavaAbiFolder =
-        BuildTargets.getGenPath(dummyRDotJava.getBuildTarget(), "__%s_dummyrdotjava_abi__")
+        BuildTargets
+            .getGenPath(filesystem, dummyRDotJava.getBuildTarget(), "__%s_dummyrdotjava_abi__")
             .toString();
     String rDotJavaOutputFolder =
-        BuildTargets.getGenPath(dummyRDotJava.getBuildTarget(), "__%s_dummyrdotjava_output__")
+        BuildTargets
+            .getGenPath(filesystem, dummyRDotJava.getBuildTarget(), "__%s_dummyrdotjava_output__")
             .toString();
     String rDotJavaOutputJar =
-        String.format(
+        MorePaths.pathWithPlatformSeparators(String.format(
             "%s/%s.jar",
             rDotJavaOutputFolder,
-            dummyRDotJava.getBuildTarget().getShortNameAndFlavorPostfix());
+            dummyRDotJava.getBuildTarget().getShortNameAndFlavorPostfix()));
     String genFolder = Paths.get("buck-out/gen/java/base/").toString();
 
     List<String> sortedSymbolsFiles = FluentIterable.from(ImmutableList.of(
@@ -143,7 +147,7 @@ public class DummyRDotJavaTest {
         String.format("mkdir -p %s", filesystem.resolve(genFolder)),
         RDotJava.createJavacStepForDummyRDotJavaFiles(
             javaSourceFiles,
-            BuildTargets.getGenPath(dummyRDotJava.getBuildTarget(), "__%s__srcs"),
+            BuildTargets.getGenPath(filesystem, dummyRDotJava.getBuildTarget(), "__%s__srcs"),
             Paths.get(rDotJavaBinFolder),
             ANDROID_JAVAC_OPTIONS,
         /* buildTarget */ null,
@@ -185,7 +189,10 @@ public class DummyRDotJavaTest {
         /* forceFinalResourceIds */ false,
         Optional.<String>absent());
     assertEquals(
-        BuildTargets.getScratchPath(dummyRDotJava.getBuildTarget(), "__%s_rdotjava_bin__"),
+        BuildTargets.getScratchPath(
+            dummyRDotJava.getProjectFilesystem(),
+            dummyRDotJava.getBuildTarget(),
+            "__%s_rdotjava_bin__"),
         dummyRDotJava.getRDotJavaBinFolder());
   }
 

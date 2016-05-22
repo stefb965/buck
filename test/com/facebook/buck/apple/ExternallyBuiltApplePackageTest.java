@@ -22,6 +22,7 @@ import static org.hamcrest.Matchers.hasEntry;
 import static org.hamcrest.Matchers.hasItem;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -31,7 +32,6 @@ import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.RuleKeyBuilderFactory;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.Arg;
@@ -41,12 +41,14 @@ import com.facebook.buck.shell.AbstractGenruleStep;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeFileHashCache;
+import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import com.google.common.hash.HashCode;
 
+import org.junit.Before;
 import org.junit.Test;
 
 import java.nio.file.Paths;
@@ -69,6 +71,11 @@ public class ExternallyBuiltApplePackageTest {
             }
           },
           DEFAULT_IPHONEOS_I386_PLATFORM);
+
+  @Before
+  public void setUp() {
+    assumeTrue(Platform.detect() == Platform.MACOS || Platform.detect() == Platform.LINUX);
+  }
 
 
   @Test
@@ -153,8 +160,9 @@ public class ExternallyBuiltApplePackageTest {
         newRuleKeyBuilderFactory().build(packageWithSdkVersion.apply("fake")));
   }
 
-  private RuleKeyBuilderFactory newRuleKeyBuilderFactory() {
+  private DefaultRuleKeyBuilderFactory newRuleKeyBuilderFactory() {
     return new DefaultRuleKeyBuilderFactory(
+        0,
         new FakeFileHashCache(
             ImmutableMap.of(Paths.get(bundleLocation).toAbsolutePath(), HashCode.fromInt(5))),
         new SourcePathResolver(resolver));

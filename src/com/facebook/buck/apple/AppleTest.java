@@ -16,6 +16,7 @@
 
 package com.facebook.buck.apple;
 
+import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
@@ -59,8 +60,7 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -108,7 +108,7 @@ public class AppleTest
   private final Path testOutputPath;
   private final Path testLogsPath;
 
-  private final String testBundleExtension;
+  private final AppleBundleExtension testBundleExtension;
 
   private Optional<AppleTestXctoolStdoutReader> xctoolStdoutReader;
   private Optional<AppleTestXctestOutputReader> xctestOutputReader;
@@ -178,7 +178,7 @@ public class AppleTest
       Optional<Long> xctoolStutterTimeout,
       Tool xctest,
       Optional<Tool> otest,
-      Boolean useXctest,
+      boolean useXctest,
       String platformName,
       Optional<String> defaultDestinationSpecifier,
       Optional<ImmutableMap<String, String>> destinationSpecifier,
@@ -186,7 +186,7 @@ public class AppleTest
       SourcePathResolver resolver,
       BuildRule testBundle,
       Optional<AppleBundle> testHostApp,
-      String testBundleExtension,
+      AppleBundleExtension testBundleExtension,
       ImmutableSet<String> contacts,
       ImmutableSet<Label> labels,
       boolean runTestSeparately,
@@ -209,6 +209,10 @@ public class AppleTest
     this.labels = labels;
     this.runTestSeparately = runTestSeparately;
     this.testBundleExtension = testBundleExtension;
+    Preconditions.checkState(
+        AppleBundleExtensions.VALID_XCTOOL_BUNDLE_EXTENSIONS.contains(
+            testBundleExtension.toFileExtension()),
+        "Test bundle extension must be a valid test bundle extension");
     this.testOutputPath = getPathToTestOutputDirectory().resolve("test-output.json");
     this.testLogsPath = getPathToTestOutputDirectory().resolve("logs");
     this.xctoolStdoutReader = Optional.absent();
@@ -237,7 +241,7 @@ public class AppleTest
   }
 
   @Override
-  public boolean hasTestResultFiles(ExecutionContext executionContext) {
+  public boolean hasTestResultFiles() {
     return getProjectFilesystem().exists(testOutputPath);
   }
 
@@ -312,6 +316,7 @@ public class AppleTest
           new XctoolRunTestsStep(
               getProjectFilesystem(),
               getResolver().getAbsolutePath(xctool.get()),
+              options.getEnvironmentOverrides(),
               xctoolStutterTimeout,
               platformName,
               destinationSpecifierArg,
@@ -332,22 +337,16 @@ public class AppleTest
     } else {
       xctestOutputReader = Optional.of(new AppleTestXctestOutputReader(testReportingCallback));
 
-      Tool testRunningTool;
-      if (testBundleExtension.equals("xctest")) {
-        testRunningTool = xctest;
-      } else if (otest.isPresent()) {
-        testRunningTool = otest.get();
-      } else {
-        throw new HumanReadableException(
-            "Cannot run non-xctest bundle type %s (otest not present)",
-            testBundleExtension);
-      }
+      Tool testRunningTool = getTestRunningTool();
+      HashMap<String, String> environment = new HashMap<>();
+      environment.putAll(testRunningTool.getEnvironment(getResolver()));
+      environment.putAll(options.getEnvironmentOverrides());
       XctestRunTestsStep xctestStep =
           new XctestRunTestsStep(
               getProjectFilesystem(),
-              testRunningTool.getEnvironment(getResolver()),
+              ImmutableMap.copyOf(environment),
               testRunningTool.getCommandPrefix(getResolver()),
-              (testBundleExtension.equals("xctest") ? "-XCTest" : "-SenTest"),
+              (testBundleExtension.equals(AppleBundleExtension.XCTEST) ? "-XCTest" : "-SenTest"),
               resolvedTestBundleDirectory,
               resolvedTestOutputPath,
               xctestOutputReader,
@@ -363,7 +362,6 @@ public class AppleTest
 
   @Override
   public ImmutableList<Step> runTests(
-      BuildContext buildContext,
       ExecutionContext executionContext,
       TestRunningOptions options,
       TestReportingCallback testReportingCallback) {
@@ -423,21 +421,20 @@ public class AppleTest
   @Override
   public Path getPathToTestOutputDirectory() {
     // TODO(bhamiltoncx): Refactor the JavaTest implementation; this is identical.
-
-    List<String> pathsList = new ArrayList<>();
-    pathsList.add(getBuildTarget().getBaseNameWithSlash());
-    pathsList.add(
-        String.format("__apple_test_%s_output__", getBuildTarget().getShortNameAndFlavorPostfix()));
+    Path path =
+        BuildTargets.getGenPath(
+            getProjectFilesystem(),
+            getBuildTarget(),
+            "__apple_test_%s_output__");
 
     // Putting the one-time test-sub-directory below the usual directory has the nice property that
     // doing a test run without "--one-time-output" will tidy up all the old one-time directories!
     String subdir = BuckConstant.oneTimeTestSubdirectory;
     if (subdir != null && !subdir.isEmpty()) {
-      pathsList.add(subdir);
+      path = path.resolve(subdir);
     }
 
-    String[] pathsArray = pathsList.toArray(new String[pathsList.size()]);
-    return Paths.get(BuckConstant.getGenDir(), pathsArray);
+    return path;
   }
 
   @Override
@@ -485,6 +482,24 @@ public class AppleTest
   @Override
   public Path getPathToOutput() {
     return testBundle.getPathToOutput();
+  }
+
+  private Tool getTestRunningTool() {
+    switch (testBundleExtension) {
+      case XCTEST:
+        return xctest;
+      case OCTEST:
+        if (otest.isPresent()) {
+          return otest.get();
+        } else {
+          throw new HumanReadableException(
+              "Cannot run non-xctest bundle type %s (otest not present)",
+              testBundleExtension);
+        }
+        //$CASES-OMITTED$
+      default:
+        throw new IllegalStateException("should not happen, checked during construction");
+    }
   }
 
 }

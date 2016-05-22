@@ -27,7 +27,6 @@ import com.facebook.buck.android.AndroidLibraryBuilder;
 import com.facebook.buck.android.AndroidResourceRuleBuilder;
 import com.facebook.buck.android.NdkLibrary;
 import com.facebook.buck.android.NdkLibraryBuilder;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
@@ -42,9 +41,9 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.InMemoryBuildFileTree;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.ProjectConfig;
@@ -52,9 +51,10 @@ import com.facebook.buck.rules.ProjectConfigBuilder;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.ExecutionContext;
+import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.BuckTestConstant;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.ObjectMappers;
-import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -68,6 +68,7 @@ import org.hamcrest.Matchers;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -224,11 +225,13 @@ public class ProjectTest {
 
   @Test
   public void testGenerateRelativeGenPath() {
+    ProjectFilesystem filesystem = new FakeProjectFilesystem();
     Path basePathOfModule = Paths.get("android_res/com/facebook/gifts/");
     Path expectedRelativePathToGen =
         Paths.get("../../../../buck-out/android/android_res/com/facebook/gifts/gen");
     assertEquals(
-        expectedRelativePathToGen, Project.generateRelativeGenPath(basePathOfModule));
+        expectedRelativePathToGen,
+        Project.generateRelativeGenPath(filesystem, basePathOfModule));
   }
 
   /**
@@ -802,39 +805,30 @@ public class ProjectTest {
       intellijConfig = new IntellijConfig(FakeBuckConfig.builder().build());
     }
 
-    ActionGraph actionGraph = new ActionGraph(ruleResolver.getBuildRules());
-
     // Create the Project.
-    ExecutionContext executionContext = EasyMock.createMock(ExecutionContext.class);
-    ProjectFilesystem projectFilesystem = EasyMock.createMock(ProjectFilesystem.class);
-    EasyMock.expect(projectFilesystem.getRelativizer()).andStubReturn(
-        new Function<Path, Path>() {
-          @Override
-          public Path apply(@Nullable Path input) {
-            return Paths.get("").toAbsolutePath().relativize(input);
-          }
-        });
-    EasyMock.expect(projectFilesystem.getRootPath()).andStubReturn(Paths.get("").toAbsolutePath());
+    ExecutionContext executionContext = TestExecutionContext.newInstance();
+    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
 
     Properties keystoreProperties = new Properties();
     keystoreProperties.put("key.alias", "androiddebugkey");
     keystoreProperties.put("key.store.password", "android");
     keystoreProperties.put("key.alias.password", "android");
-    EasyMock.expect(projectFilesystem.readPropertiesFile(
-        Paths.get("keystore/debug.keystore.properties").toAbsolutePath()))
-        .andReturn(keystoreProperties).anyTimes();
+    try (OutputStream output =
+             projectFilesystem.newFileOutputStream(
+                 Paths.get("keystore/debug.keystore.properties"))) {
+      keystoreProperties.store(output, "");
+    }
 
     ImmutableMap<Path, String> basePathToAliasMap = ImmutableMap.of();
     Project project = new Project(
         new SourcePathResolver(ruleResolver),
         projectConfigs,
-        actionGraph,
         basePathToAliasMap,
         javaPackageFinder,
         executionContext,
         new InMemoryBuildFileTree(
             Iterables.transform(
-                actionGraph.getNodes(),
+                ruleResolver.getBuildRules(),
                 BuildTarget.TO_TARGET)),
         projectFilesystem,
         /* pathToDefaultAndroidManifest */ Optional.<String>absent(),
@@ -845,9 +839,7 @@ public class ProjectTest {
         true);
 
     // Execute Project's business logic.
-    EasyMock.replay(executionContext, projectFilesystem);
     List<SerializableModule> modules = new ArrayList<>(project.createModulesForProjectConfigs());
-    EasyMock.verify(executionContext, projectFilesystem);
 
     return new ProjectWithModules(project, ImmutableList.copyOf(modules));
   }
@@ -874,7 +866,7 @@ public class ProjectTest {
     //   src_target = ':foo-jni',
     // )
 
-    ProjectFilesystem projectFilesystem = EasyMock.createMock(ProjectFilesystem.class);
+    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     BuildTarget fooJni = BuildTargetFactory.newInstance("//third_party/java/foo/jni:foo-jni");
     NdkLibrary ndkLibrary =
         (NdkLibrary) new NdkLibraryBuilder(fooJni)
@@ -910,11 +902,8 @@ public class ProjectTest {
     SourcePathResolver resolver = new SourcePathResolver(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
      );
-    ProjectFilesystem projectFilesystem = EasyMock.createMock(ProjectFilesystem.class);
-    ImmutableSet<Path> ignorePaths = ImmutableSet.of(Paths.get("buck-out"), Paths.get(".git"));
-    EasyMock.expect(projectFilesystem.getRootPath()).andStubReturn(Paths.get("/opt/src/buck"));
-    EasyMock.expect(projectFilesystem.getIgnorePaths()).andReturn(ignorePaths);
-    EasyMock.replay(projectFilesystem);
+    ProjectFilesystem projectFilesystem =
+        FakeProjectFilesystem.createJavaOnlyFilesystem("/opt/src/buck");
 
     BuildTarget buildTarget = BuildTarget.builder(
         projectFilesystem.getRootPath(),
@@ -925,17 +914,24 @@ public class ProjectTest {
 
     Project.addRootExcludes(module, buildRule, projectFilesystem);
 
-    ImmutableSortedSet<SourceFolder> expectedExcludeFolders =
-        ImmutableSortedSet.orderedBy(SerializableModule.ALPHABETIZER)
-        .add(new SourceFolder("file://$MODULE_DIR$/.git", /* isTestSource */ false))
-        .add(new SourceFolder("file://$MODULE_DIR$/buck-out/bin", /* isTestSource */ false))
-        .add(new SourceFolder("file://$MODULE_DIR$/buck-out/log", /* isTestSource */ false))
-        .add(new SourceFolder("file://$MODULE_DIR$/buck-out/tmp", /* isTestSource */ false))
-        .build();
-    assertEquals("Specific subfolders of buck-out should be excluded rather than all of buck-out.",
-        expectedExcludeFolders,
+    ImmutableSortedSet.Builder<SourceFolder> expectedExcludeFolders =
+        ImmutableSortedSet.orderedBy(SerializableModule.ALPHABETIZER);
+    expectedExcludeFolders.add(
+        new SourceFolder("file://$MODULE_DIR$/buck-out/bin", /* isTestSource */ false));
+    expectedExcludeFolders.add(
+        new SourceFolder("file://$MODULE_DIR$/buck-out/log", /* isTestSource */ false));
+    expectedExcludeFolders.add(
+        new SourceFolder("file://$MODULE_DIR$/buck-out/tmp", /* isTestSource */ false));
+    for (Path ignorePath : projectFilesystem.getIgnorePaths()) {
+      if (!ignorePath.equals(projectFilesystem.getBuckPaths().getBuckOut()) &&
+          !ignorePath.equals(projectFilesystem.getBuckPaths().getGenDir())) {
+        expectedExcludeFolders.add(
+            new SourceFolder("file://$MODULE_DIR$/" + ignorePath, /* isTestSource */ false));
+      }
+    }
+    assertEquals(
+        "Specific subfolders of buck-out should be excluded rather than all of buck-out.",
+        expectedExcludeFolders.build(),
         module.excludeFolders);
-
-    EasyMock.verify(projectFilesystem);
   }
 }

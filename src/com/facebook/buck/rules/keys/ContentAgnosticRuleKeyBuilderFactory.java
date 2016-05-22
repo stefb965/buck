@@ -38,21 +38,22 @@ import javax.annotation.Nonnull;
  * and not the contents(hash) of the file.
  */
 public class ContentAgnosticRuleKeyBuilderFactory
-    extends ReflectiveRuleKeyBuilderFactory<RuleKeyBuilder> {
+    extends ReflectiveRuleKeyBuilderFactory<RuleKeyBuilder<RuleKey>, RuleKey> {
 
   private final FileHashCache fileHashCache;
   private final SourcePathResolver pathResolver;
   private final LoadingCache<RuleKeyAppendable, RuleKey> ruleKeyCache;
 
   public ContentAgnosticRuleKeyBuilderFactory(
-      SourcePathResolver pathResolver
-  ) {
+      int seed,
+      SourcePathResolver pathResolver) {
+    super(seed);
     // Build the cache around the sub-rule-keys and their dep lists.
     ruleKeyCache = CacheBuilder.newBuilder().weakKeys().build(
         new CacheLoader<RuleKeyAppendable, RuleKey>() {
           @Override
           public RuleKey load(@Nonnull RuleKeyAppendable appendable) throws Exception {
-            RuleKeyBuilder subKeyBuilder = newBuilder();
+            RuleKeyBuilder<RuleKey> subKeyBuilder = newBuilder();
             appendable.appendToRuleKey(subKeyBuilder);
             return subKeyBuilder.build();
           }
@@ -92,21 +93,31 @@ public class ContentAgnosticRuleKeyBuilderFactory
     };
   }
 
-  private RuleKeyBuilder newBuilder() {
-    return new RuleKeyBuilder(pathResolver, fileHashCache, this) {
+  private RuleKeyBuilder<RuleKey> newBuilder() {
+    return new RuleKeyBuilder<RuleKey>(pathResolver, fileHashCache) {
       @Override
-      protected RuleKey getAppendableRuleKey(
-          SourcePathResolver resolver,
-          FileHashCache hashCache,
+      protected RuleKeyBuilder<RuleKey> setBuildRule(BuildRule rule) {
+        return setSingleValue(ContentAgnosticRuleKeyBuilderFactory.this.build(rule));
+      }
+
+      @Override
+      public RuleKeyBuilder<RuleKey> setAppendableRuleKey(
+          String key,
           RuleKeyAppendable appendable) {
-        return ruleKeyCache.getUnchecked(appendable);
+        RuleKey subKey = ruleKeyCache.getUnchecked(appendable);
+        return setAppendableRuleKey(key, subKey);
+      }
+
+      @Override
+      public RuleKey build() {
+        return buildRuleKey();
       }
 
     };
   }
 
   @Override
-  protected RuleKeyBuilder newBuilder(final BuildRule rule) {
+  protected RuleKeyBuilder<RuleKey> newBuilder(final BuildRule rule) {
     return newBuilder();
   }
 }

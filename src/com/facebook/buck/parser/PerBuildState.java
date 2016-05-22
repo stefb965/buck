@@ -61,6 +61,7 @@ class PerBuildState implements AutoCloseable {
   private final ConstructorArgMarshaller marshaller;
   private final BuckEventBus eventBus;
   private final boolean enableProfiling;
+  private final boolean ignoreBuckAutodepsFiles;
 
   private final PrintStream stdout;
   private final PrintStream stderr;
@@ -97,6 +98,8 @@ class PerBuildState implements AutoCloseable {
     this.marshaller = marshaller;
     this.eventBus = eventBus;
     this.enableProfiling = enableProfiling;
+    this.ignoreBuckAutodepsFiles = ignoreBuckAutodepsFiles;
+
     this.cells = new ConcurrentHashMap<>();
     this.cellSymlinkAllowability = new ConcurrentHashMap<>();
     this.buildInputPathsUnderSymlink = Sets.newConcurrentHashSet();
@@ -239,6 +242,27 @@ class PerBuildState implements AutoCloseable {
             node.getBuildTarget(),
             newSymlinksEncountered);
       }
+
+      ImmutableSet<Path> readOnlyPaths =
+          new ParserConfig(getCell(node.getBuildTarget()).getBuckConfig()).getReadOnlyPaths();
+      Cell currentCell = cells.get(node.getBuildTarget().getCellPath());
+
+      if (!readOnlyPaths.isEmpty() && currentCell != null) {
+        Path cellRootPath = currentCell.getFilesystem().getRootPath();
+        for (Path readOnlyPath : readOnlyPaths) {
+          if (buildFile.startsWith(cellRootPath.resolve(readOnlyPath))) {
+            LOG.debug(
+                "Target %s is under a symlink (%s). It will be cached because it belongs " +
+                    "under %s, a read-only path white listed in .buckconfing. under [project]" +
+                    " read_only_paths",
+                node.getBuildTarget(),
+                newSymlinksEncountered,
+                readOnlyPath);
+            return;
+          }
+        }
+      }
+
       LOG.warn(
           "Disabling caching for target %s, because one or more input files are under a " +
               "symbolic link (%s). This will severely impact performance! To resolve this, use " +
@@ -286,9 +310,17 @@ class PerBuildState implements AutoCloseable {
     parsePipeline.close();
     projectBuildFileParserPool.close();
 
-    LOG.debug(
-        "Cleaning cache of build files with inputs under symlink %s",
-        buildInputPathsUnderSymlink);
+    if (ignoreBuckAutodepsFiles) {
+      LOG.debug("Invalidating all caches because buck autodeps ran.");
+      permState.invalidateAllCaches();
+      return;
+    }
+
+    if (!buildInputPathsUnderSymlink.isEmpty()) {
+      LOG.debug(
+          "Cleaning cache of build files with inputs under symlink %s",
+          buildInputPathsUnderSymlink);
+    }
     Set<Path> buildInputPathsUnderSymlinkCopy = new HashSet<>(buildInputPathsUnderSymlink);
     buildInputPathsUnderSymlink.clear();
     for (Path buildFilePath : buildInputPathsUnderSymlinkCopy) {

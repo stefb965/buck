@@ -32,12 +32,12 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
+import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.step.fs.WriteFileStep;
-import com.facebook.buck.util.BuckConstant;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -175,7 +175,7 @@ public class NdkLibrary extends AbstractBuildRule
     // them out.
     steps.add(new AbstractExecutionStep("cache_unstripped_so") {
       @Override
-      public int execute(ExecutionContext context) {
+      public StepExecutionResult execute(ExecutionContext context) {
         try {
           Set<Path> unstrippedSharedObjs = getProjectFilesystem()
               .getFilesUnderPath(
@@ -191,9 +191,9 @@ public class NdkLibrary extends AbstractBuildRule
           }
         } catch (IOException e) {
           context.logError(e, "Failed to cache intermediate artifacts of %s.", getBuildTarget());
-          return 1;
+          return StepExecutionResult.ERROR;
         }
-        return 0;
+        return StepExecutionResult.SUCCESS;
       }
     });
 
@@ -207,7 +207,10 @@ public class NdkLibrary extends AbstractBuildRule
    *     can be referenced via a {@link com.facebook.buck.rules.BuildTargetSourcePath} or somesuch.
    */
   private Path getBuildArtifactsDirectory(BuildTarget target, boolean isScratchDir) {
-    Path base = isScratchDir ? BuckConstant.getScratchPath() : BuckConstant.getGenPath();
+    Path base =
+        isScratchDir ?
+            getProjectFilesystem().getBuckPaths().getScratchDir() :
+            getProjectFilesystem().getBuckPaths().getGenDir();
     return base.resolve(target.getBasePath()).resolve(lastPathComponent);
   }
 

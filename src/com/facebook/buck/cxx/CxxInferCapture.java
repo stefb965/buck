@@ -23,13 +23,14 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.RuleKeyAppendable;
-import com.facebook.buck.rules.RuleKeyBuilder;
+import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.keys.SupportsDependencyFileRuleKey;
 import com.facebook.buck.shell.DefaultShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
+import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
@@ -80,7 +81,8 @@ public class CxxInferCapture
     this.output = output;
     this.preprocessorDelegate = preprocessorDelegate;
     this.inferConfig = inferConfig;
-    this.resultsDir = BuildTargets.getGenPath(this.getBuildTarget(), "infer-out-%s");
+    this.resultsDir =
+        BuildTargets.getGenPath(getProjectFilesystem(), this.getBuildTarget(), "infer-out-%s");
     this.sanitizer = sanitizer;
   }
 
@@ -133,10 +135,10 @@ public class CxxInferCapture
   }
 
   @Override
-  public RuleKeyBuilder appendToRuleKey(RuleKeyBuilder builder) {
+  public void appendToRuleKey(RuleKeyObjectSink sink) {
     // Sanitize any relevant paths in the flags we pass to the preprocessor, to prevent them
     // from contributing to the rule key.
-    return builder
+    sink
         .setReflectively(
             "platformPreprocessorFlags",
             sanitizer.sanitizeFlags(preprocessorFlags.getPlatformFlags()))
@@ -198,7 +200,8 @@ public class CxxInferCapture
     }
 
     @Override
-    public int execute(ExecutionContext context) throws IOException, InterruptedException {
+    public StepExecutionResult execute(ExecutionContext context)
+        throws IOException, InterruptedException {
       Depfiles.parseAndWriteBuckCompatibleDepfile(
           context,
           getProjectFilesystem(),
@@ -208,7 +211,7 @@ public class CxxInferCapture
           destDepfile,
           getResolver().deprecatedGetPath(input),
           output);
-      return 0;
+      return StepExecutionResult.SUCCESS;
     }
 
     @Override

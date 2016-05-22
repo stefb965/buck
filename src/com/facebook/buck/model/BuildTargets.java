@@ -16,7 +16,8 @@
 
 package com.facebook.buck.model;
 
-import com.facebook.buck.util.BuckConstant;
+import com.facebook.buck.io.BuckPaths;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableSet;
@@ -24,7 +25,6 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Sets;
 
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Set;
 
 /**
@@ -37,8 +37,8 @@ public class BuildTargets {
 
   /**
    * Return a path to a file in the buck-out/bin/ directory. {@code format} will be prepended with
-   * the {@link com.facebook.buck.util.BuckConstant#SCRATCH_DIR} and the target base path, then
-   * formatted with the target short name.
+   * the {@link BuckPaths#getScratchDir()} and the target base path, then formatted with the target
+   * short name.
    *
    * @param target The {@link BuildTarget} to scope this path to.
    * @param format {@link String#format} string for the path name.  It should contain one "%s",
@@ -46,19 +46,22 @@ public class BuildTargets {
    * @return A {@link java.nio.file.Path} under buck-out/bin, scoped to the base path of
    * {@code target}.
    */
-  public static Path getScratchPath(BuildTarget target, String format) {
-    return Paths.get(
+  public static Path getScratchPath(
+      ProjectFilesystem filesystem,
+      BuildTarget target,
+      String format) {
+    return filesystem.getRootPath().getFileSystem().getPath(
         String.format(
             "%s/%s" + format,
-            BuckConstant.getScratchDir(),
+            filesystem.getBuckPaths().getScratchDir(),
             target.getBasePathWithSlash(),
             target.getShortNameAndFlavorPostfix()));
   }
 
   /**
    * Return a path to a file in the buck-out/annotation/ directory. {@code format} will be prepended
-   * with the {@link com.facebook.buck.util.BuckConstant#ANNOTATION_DIR} and the target base path,
-   * then formatted with the target short name.
+   * with the {@link BuckPaths#getAnnotationDir()} and the target base path, then formatted with the
+   * target short name.
    *
    * @param target The {@link BuildTarget} to scope this path to.
    * @param format {@link String#format} string for the path name.  It should contain one "%s",
@@ -66,19 +69,22 @@ public class BuildTargets {
    * @return A {@link java.nio.file.Path} under buck-out/annotation, scoped to the base path of
    * {@code target}.
    */
-  public static Path getAnnotationPath(BuildTarget target, String format) {
-    return Paths.get(
+  public static Path getAnnotationPath(
+      ProjectFilesystem filesystem,
+      BuildTarget target,
+      String format) {
+    return filesystem.getRootPath().getFileSystem().getPath(
         String.format(
             "%s/%s" + format,
-            BuckConstant.getAnnotationDir(),
+            filesystem.getBuckPaths().getAnnotationDir(),
             target.getBasePathWithSlash(),
             target.getShortNameAndFlavorPostfix()));
   }
 
   /**
    * Return a path to a file in the buck-out/gen/ directory. {@code format} will be prepended with
-   * the {@link com.facebook.buck.util.BuckConstant#GEN_DIR} and the target base path, then
-   * formatted with the target short name.
+   * the {@link BuckPaths#getGenDir()} and the target base path, then formatted with the target
+   * short name.
    *
    * @param target The {@link BuildTarget} to scope this path to.
    * @param format {@link String#format} string for the path name.  It should contain one "%s",
@@ -86,11 +92,13 @@ public class BuildTargets {
    * @return A {@link java.nio.file.Path} under buck-out/gen, scoped to the base path of
    * {@code target}.
    */
-  public static Path getGenPath(BuildTarget target, String format) {
-    return Paths.get(String.format("%s/%s" + format,
-        BuckConstant.getGenDir(),
-        target.getBasePathWithSlash(),
-        target.getShortNameAndFlavorPostfix()));
+  public static Path getGenPath(ProjectFilesystem filesystem, BuildTarget target, String format) {
+    return filesystem.getRootPath().getFileSystem().getPath(
+        String.format(
+            "%s/%s" + format,
+            filesystem.getBuckPaths().getGenDir(),
+            target.getBasePathWithSlash(),
+            target.getShortNameAndFlavorPostfix()));
   }
 
   /**

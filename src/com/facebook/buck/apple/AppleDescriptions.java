@@ -22,10 +22,9 @@ import com.facebook.buck.cxx.CxxConstructorArg;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.cxx.CxxPlatform;
-import com.facebook.buck.cxx.CxxSource;
 import com.facebook.buck.cxx.CxxStrip;
 import com.facebook.buck.cxx.HeaderVisibility;
-import com.facebook.buck.cxx.ProvidesStaticLibraryDeps;
+import com.facebook.buck.cxx.ProvidesLinkedBinaryDeps;
 import com.facebook.buck.cxx.StripStyle;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
@@ -45,7 +44,6 @@ import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.Tool;
-import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.VisibleForTesting;
@@ -98,6 +96,7 @@ public class AppleDescriptions {
       TargetNode<? extends CxxLibraryDescription.Arg> targetNode,
       HeaderVisibility headerVisibility) {
     return BuildTargets.getGenPath(
+        targetNode.getRuleFactoryParams().getProjectFilesystem(),
         BuildTarget.of(targetNode.getBuildTarget().getUnflavoredBuildTarget()),
         "%s" + AppleHeaderVisibilities.getHeaderSymlinkTreeSuffix(headerVisibility));
   }
@@ -219,7 +218,7 @@ public class AppleDescriptions {
     output.srcs = arg.srcs;
     output.platformSrcs = arg.platformSrcs;
     output.headers = Optional.of(SourceList.ofNamedSources(headerMap));
-    output.platformHeaders = Optional.of(PatternMatchedCollection.<SourceList>of());
+    output.platformHeaders = arg.platformHeaders;
     output.prefixHeader = arg.prefixHeader;
     output.compilerFlags = arg.compilerFlags;
     output.platformCompilerFlags = arg.platformCompilerFlags;
@@ -235,7 +234,7 @@ public class AppleDescriptions {
     // This is intentionally an empty string; we put all prefixes into
     // the header map itself.
     output.headerNamespace = Optional.of("");
-    output.cxxRuntimeType = Optional.absent();
+    output.cxxRuntimeType = arg.cxxRuntimeType;
     output.tests = arg.tests;
   }
 
@@ -249,7 +248,7 @@ public class AppleDescriptions {
         output,
         arg,
         buildTarget);
-    output.linkStyle = Optional.absent();
+    output.linkStyle = arg.linkStyle;
   }
 
   public static void populateCxxLibraryDescriptionArg(
@@ -277,14 +276,14 @@ public class AppleDescriptions {
                 resolver.deprecatedPathFunction(),
                 headerPathPrefix,
                 arg)));
-    output.exportedPlatformHeaders = Optional.of(PatternMatchedCollection.<SourceList>of());
+    output.exportedPlatformHeaders = arg.exportedPlatformHeaders;
     output.exportedPlatformPreprocessorFlags = arg.exportedPlatformPreprocessorFlags;
-    output.exportedLangPreprocessorFlags = Optional.of(
-        ImmutableMap.<CxxSource.Type, ImmutableList<String>>of());
+    output.exportedLangPreprocessorFlags = arg.exportedLangPreprocessorFlags;
     output.exportedLinkerFlags = arg.exportedLinkerFlags;
     output.exportedPlatformLinkerFlags = arg.exportedPlatformLinkerFlags;
-    output.soname = Optional.absent();
-    output.forceStatic = Optional.of(false);
+    output.soname = arg.soname;
+    output.forceStatic = arg.forceStatic;
+    output.preferredLinkage = arg.preferredLinkage;
     output.linkWhole = arg.linkWhole;
     output.supportedPlatformsRegex = arg.supportedPlatformsRegex;
     output.canBeAsset = arg.canBeAsset;
@@ -351,7 +350,7 @@ public class AppleDescriptions {
       BuildRuleParams params,
       BuildRuleResolver resolver,
       BuildRule strippedBinaryRule,
-      ProvidesStaticLibraryDeps unstrippedBinaryRule,
+      ProvidesLinkedBinaryDeps unstrippedBinaryRule,
       AppleDebugFormat debugFormat,
       FlavorDomain<CxxPlatform> cxxPlatformFlavorDomain,
       CxxPlatform defaultCxxPlatform,
@@ -390,7 +389,7 @@ public class AppleDescriptions {
       AppleDebugFormat debugFormat,
       BuildRuleParams params,
       BuildRuleResolver resolver,
-      ProvidesStaticLibraryDeps unstrippedBinaryRule,
+      ProvidesLinkedBinaryDeps unstrippedBinaryRule,
       FlavorDomain<CxxPlatform> cxxPlatformFlavorDomain,
       CxxPlatform defaultCxxPlatform,
       FlavorDomain<AppleCxxPlatform> appleCxxPlatforms) {
@@ -420,7 +419,7 @@ public class AppleDescriptions {
   static AppleDsym createAppleDsym(
       BuildRuleParams params,
       BuildRuleResolver resolver,
-      ProvidesStaticLibraryDeps unstrippedBinaryBuildRule,
+      ProvidesLinkedBinaryDeps unstrippedBinaryBuildRule,
       FlavorDomain<CxxPlatform> cxxPlatformFlavorDomain,
       CxxPlatform defaultCxxPlatform,
       FlavorDomain<AppleCxxPlatform> appleCxxPlatforms) {
@@ -437,6 +436,7 @@ public class AppleDescriptions {
             Suppliers.ofInstance(
                 ImmutableSortedSet.<BuildRule>naturalOrder()
                     .add(unstrippedBinaryBuildRule)
+                    .addAll(unstrippedBinaryBuildRule.getCompileDeps())
                     .addAll(unstrippedBinaryBuildRule.getStaticLibraryDeps())
                     .build()),
             Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
@@ -444,7 +444,7 @@ public class AppleDescriptions {
         appleCxxPlatform.getDsymutil(),
         appleCxxPlatform.getLldb(),
         new BuildTargetSourcePath(unstrippedBinaryBuildRule.getBuildTarget()),
-        AppleDsym.getDsymOutputPath(params.getBuildTarget()));
+        AppleDsym.getDsymOutputPath(params.getBuildTarget(), params.getProjectFilesystem()));
     resolver.addToIndex(appleDsym);
     return appleDsym;
   }
@@ -478,21 +478,10 @@ public class AppleDescriptions {
         AppleBundleDestinations.platformDestinations(
             appleCxxPlatform.getAppleSdk().getApplePlatform());
 
-    ImmutableSet.Builder<SourcePath> bundleDirsBuilder = ImmutableSet.builder();
-    ImmutableSet.Builder<SourcePath> dirsContainingResourceDirsBuilder = ImmutableSet.builder();
-    ImmutableSet.Builder<SourcePath> bundleFilesBuilder = ImmutableSet.builder();
-    ImmutableSet.Builder<SourcePath> bundleVariantFilesBuilder = ImmutableSet.builder();
-    AppleResources.collectResourceDirsAndFiles(
+    AppleBundleResources collectedResources = AppleResources.collectResourceDirsAndFiles(
         targetGraph,
-        targetGraph.get(params.getBuildTarget()),
-        bundleDirsBuilder,
-        dirsContainingResourceDirsBuilder,
-        bundleFilesBuilder,
-        bundleVariantFilesBuilder);
-    ImmutableSet<SourcePath> bundleDirs = bundleDirsBuilder.build();
-    ImmutableSet<SourcePath> dirsContainingResourceDirs = dirsContainingResourceDirsBuilder.build();
-    ImmutableSet<SourcePath> bundleFiles = bundleFilesBuilder.build();
-    ImmutableSet<SourcePath> bundleVariantFiles = bundleVariantFilesBuilder.build();
+        targetGraph.get(params.getBuildTarget()));
+
     ImmutableSet.Builder<SourcePath> frameworksBuilder = ImmutableSet.builder();
     if (INCLUDE_FRAMEWORKS.getRequiredValue(params.getBuildTarget())) {
       for (BuildTarget dep : deps) {
@@ -553,7 +542,7 @@ public class AppleDescriptions {
 
     BuildRule targetDebuggableBinaryRule;
     Optional<AppleDsym> appleDsym;
-    if (unstrippedBinaryRule instanceof ProvidesStaticLibraryDeps) {
+    if (unstrippedBinaryRule instanceof ProvidesLinkedBinaryDeps) {
       BuildTarget binaryBuildTarget = getBinaryFromBuildRuleWithBinary(flavoredBinaryRule)
           .getBuildTarget()
           .withoutFlavors(AppleDebugFormat.FLAVOR_DOMAIN.getFlavors());
@@ -562,7 +551,7 @@ public class AppleDescriptions {
           binaryParams,
           resolver,
           getBinaryFromBuildRuleWithBinary(flavoredBinaryRule),
-          (ProvidesStaticLibraryDeps) unstrippedBinaryRule,
+          (ProvidesLinkedBinaryDeps) unstrippedBinaryRule,
           debugFormat,
           cxxPlatformFlavorDomain,
           defaultCxxPlatform,
@@ -571,7 +560,7 @@ public class AppleDescriptions {
           debugFormat,
           binaryParams,
           resolver,
-          (ProvidesStaticLibraryDeps) unstrippedBinaryRule,
+          (ProvidesLinkedBinaryDeps) unstrippedBinaryRule,
           cxxPlatformFlavorDomain,
           defaultCxxPlatform,
           appleCxxPlatforms);
@@ -593,10 +582,7 @@ public class AppleDescriptions {
                     SourcePaths.filterBuildTargetSourcePaths(
                         Iterables.concat(
                             ImmutableList.of(
-                                bundleFiles,
-                                bundleDirs,
-                                dirsContainingResourceDirs,
-                                bundleVariantFiles,
+                                collectedResources.getAll(),
                                 frameworks)))))
             .addAll(appleDsym.asSet())
             .build());
@@ -616,11 +602,8 @@ public class AppleDescriptions {
         Optional.of(unstrippedBinaryRule),
         appleDsym,
         destinations,
-        bundleDirs,
-        bundleFiles,
-        dirsContainingResourceDirs,
+        collectedResources,
         extensionBundlePaths,
-        Optional.of(bundleVariantFiles),
         frameworks,
         appleCxxPlatform,
         assetCatalog,
@@ -731,16 +714,16 @@ public class AppleDescriptions {
     for (BuildRule rule : deps) {
       if (rule instanceof BuildRuleWithAppleBundle) {
         AppleBundle appleBundle = ((BuildRuleWithAppleBundle) rule).getAppleBundle();
+        Path outputPath = Preconditions.checkNotNull(
+            appleBundle.getPathToOutput(),
+            "Path cannot be null for AppleBundle [%s].",
+            appleBundle);
+        SourcePath sourcePath = new BuildTargetSourcePath(
+            appleBundle.getBuildTarget(),
+            outputPath);
+
         if (AppleBundleExtension.APPEX.toFileExtension().equals(appleBundle.getExtension()) ||
             AppleBundleExtension.APP.toFileExtension().equals(appleBundle.getExtension())) {
-          Path outputPath = Preconditions.checkNotNull(
-              appleBundle.getPathToOutput(),
-              "Path cannot be null for AppleBundle [%s].",
-              appleBundle);
-          SourcePath sourcePath = new BuildTargetSourcePath(
-              appleBundle.getBuildTarget(),
-              outputPath);
-
           Path destinationPath;
 
           String platformName = appleBundle.getPlatformName();
@@ -756,6 +739,11 @@ public class AppleDescriptions {
           }
 
           extensionBundlePaths.put(sourcePath, destinationPath.toString());
+        } else if (
+            AppleBundleExtension.FRAMEWORK.toFileExtension().equals(appleBundle.getExtension())) {
+          extensionBundlePaths.put(
+              sourcePath,
+              destinations.getFrameworksPath().toString());
         }
       }
     }

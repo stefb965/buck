@@ -23,7 +23,7 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.android.AndroidPlatformTarget;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaBinaryRuleBuilder;
 import com.facebook.buck.jvm.java.JavaLibrary;
@@ -35,12 +35,12 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.RuleKeyBuilderFactory;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
@@ -55,7 +55,6 @@ import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.Ansi;
-import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.Verbosity;
@@ -116,35 +115,42 @@ public class GenruleTest {
 //    EasyMock.replay(parser);
 
     BuildTarget buildTarget =
-        BuildTargetFactory.newInstance("//src/com/facebook/katana:katana_manifest");
+        BuildTargetFactory.newInstance(
+            filesystem.getRootPath(),
+            "//src/com/facebook/katana:katana_manifest");
     BuildRule genrule = GenruleBuilder
         .newGenruleBuilder(buildTarget)
-        .setCmd("python convert_to_katana.py AndroidManifest.xml > $OUT")
+        .setBash("python convert_to_katana.py AndroidManifest.xml > $OUT")
+        .setCmdExe("python convert_to_katana.py AndroidManifest.xml > %OUT%")
         .setOut("AndroidManifest.xml")
         .setSrcs(
             ImmutableList.<SourcePath>of(
                 new PathSourcePath(
                     filesystem,
-                    Paths.get("src/com/facebook/katana/convert_to_katana.py")),
+                    filesystem.getRootPath().getFileSystem().getPath(
+                        "src/com/facebook/katana/convert_to_katana.py")),
                 new PathSourcePath(
                     filesystem,
-                    Paths.get("src/com/facebook/katana/AndroidManifest.xml"))))
+                    filesystem.getRootPath().getFileSystem().getPath(
+                        "src/com/facebook/katana/AndroidManifest.xml"))))
         .build(ruleResolver, filesystem);
 
     // Verify all of the observers of the Genrule.
     assertEquals(
-        BuckConstant.getGenPath().resolve(
+        filesystem.getBuckPaths().getGenDir().resolve(
             "src/com/facebook/katana/katana_manifest/AndroidManifest.xml"),
         genrule.getPathToOutput());
     assertEquals(
-        filesystem.resolve(BuckConstant.getGenDir() +
-            "/src/com/facebook/katana/katana_manifest/AndroidManifest.xml")
+        filesystem.resolve(filesystem.getBuckPaths().getGenDir().resolve(
+            "src/com/facebook/katana/katana_manifest/AndroidManifest.xml"))
             .toString(),
         ((Genrule) genrule).getAbsoluteOutputFilePath());
     BuildContext buildContext = null; // unused since there are no deps
     ImmutableList<Path> inputsToCompareToOutputs = ImmutableList.of(
-        Paths.get("src/com/facebook/katana/convert_to_katana.py"),
-        Paths.get("src/com/facebook/katana/AndroidManifest.xml"));
+        filesystem.getRootPath().getFileSystem().getPath(
+            "src/com/facebook/katana/convert_to_katana.py"),
+        filesystem.getRootPath().getFileSystem().getPath(
+            "src/com/facebook/katana/AndroidManifest.xml"));
     assertEquals(
         inputsToCompareToOutputs,
         ((Genrule) genrule).getSrcs());
@@ -165,8 +171,9 @@ public class GenruleTest {
             "rm",
             "-r",
             "-f",
-            "/opt/src/buck/" + BuckConstant.getGenDir() +
-            "/src/com/facebook/katana/katana_manifest/AndroidManifest.xml"),
+
+            filesystem.resolve(filesystem.getBuckPaths().getGenDir() +
+            "/src/com/facebook/katana/katana_manifest/AndroidManifest.xml").toString()),
         rmCommand.getShellCommand());
 
     Step secondStep = steps.get(1);
@@ -174,13 +181,14 @@ public class GenruleTest {
     MkdirStep mkdirCommand = (MkdirStep) secondStep;
     assertEquals(
         "Second command should make sure the output directory exists.",
-        filesystem.resolve(BuckConstant.getGenDir() + "/src/com/facebook/katana/katana_manifest"),
+        filesystem.resolve(filesystem.getBuckPaths().getGenDir() +
+            "/src/com/facebook/katana/katana_manifest"),
         mkdirCommand.getPath());
 
     Step mkTmpDir = steps.get(2);
     assertTrue(mkTmpDir instanceof MakeCleanDirectoryStep);
     MakeCleanDirectoryStep secondMkdirCommand = (MakeCleanDirectoryStep) mkTmpDir;
-    Path pathToTmpDir = BuckConstant.getGenPath().resolve(
+    Path pathToTmpDir = filesystem.getBuckPaths().getGenDir().resolve(
         "src/com/facebook/katana/katana_manifest__tmp");
     assertEquals(
         "Third command should create the temp directory to be written by the genrule.",
@@ -190,7 +198,7 @@ public class GenruleTest {
     Step mkSrcDir = steps.get(3);
     assertTrue(mkSrcDir instanceof MakeCleanDirectoryStep);
     MakeCleanDirectoryStep thirdMkdirCommand = (MakeCleanDirectoryStep) mkTmpDir;
-    Path pathToSrcDir = BuckConstant.getGenPath().resolve(
+    Path pathToSrcDir = filesystem.getBuckPaths().getGenDir().resolve(
         "src/com/facebook/katana/katana_manifest__srcs");
     assertEquals(
         "Fourth command should create the temp source directory to be written by the genrule.",
@@ -199,13 +207,21 @@ public class GenruleTest {
 
     MkdirAndSymlinkFileStep linkSource1 = (MkdirAndSymlinkFileStep) steps.get(4);
     assertEquals(
-        Paths.get("src/com/facebook/katana/convert_to_katana.py"),
+        filesystem.getRootPath().getFileSystem().getPath(
+            "src/com/facebook/katana/convert_to_katana.py"),
         linkSource1.getSource());
-    assertEquals(Paths.get(pathToSrcDir + "/convert_to_katana.py"), linkSource1.getTarget());
+    assertEquals(
+        filesystem.getRootPath().getFileSystem().getPath(pathToSrcDir + "/convert_to_katana.py"),
+        linkSource1.getTarget());
 
     MkdirAndSymlinkFileStep linkSource2 = (MkdirAndSymlinkFileStep) steps.get(5);
-    assertEquals(Paths.get("src/com/facebook/katana/AndroidManifest.xml"), linkSource2.getSource());
-    assertEquals(Paths.get(pathToSrcDir + "/AndroidManifest.xml"), linkSource2.getTarget());
+    assertEquals(
+        filesystem.getRootPath().getFileSystem().getPath(
+            "src/com/facebook/katana/AndroidManifest.xml"),
+        linkSource2.getSource());
+    assertEquals(
+        filesystem.getRootPath().getFileSystem().getPath(pathToSrcDir + "/AndroidManifest.xml"),
+        linkSource2.getTarget());
 
     Step sixthStep = steps.get(6);
     assertTrue(sixthStep instanceof ShellStep);
@@ -214,18 +230,27 @@ public class GenruleTest {
     assertEquals(ImmutableMap.<String, String>builder()
         .put("OUT",
             filesystem.resolve(
-                BuckConstant.getGenDir() +
-                    "/src/com/facebook/katana/katana_manifest/AndroidManifest.xml")
+                filesystem.getBuckPaths().getGenDir().resolve(
+                    "src/com/facebook/katana/katana_manifest/AndroidManifest.xml"))
                 .toString())
         .build(),
         genruleCommand.getEnvironmentVariables(executionContext));
-    assertEquals(
-        ImmutableList.of(
-            "/bin/bash",
-            "-e",
-            "-c",
-            "python convert_to_katana.py AndroidManifest.xml > $OUT"),
-        genruleCommand.getShellCommand(executionContext));
+    if (Platform.detect() == Platform.WINDOWS) {
+      assertEquals(
+          ImmutableList.of(
+              "cmd.exe",
+              "/c",
+              "python convert_to_katana.py AndroidManifest.xml > %OUT%"),
+          genruleCommand.getShellCommand(executionContext));
+    } else {
+      assertEquals(
+          ImmutableList.of(
+              "/bin/bash",
+              "-e",
+              "-c",
+              "python convert_to_katana.py AndroidManifest.xml > $OUT"),
+          genruleCommand.getShellCommand(executionContext));
+    }
   }
 
   private GenruleBuilder createGenruleBuilderThatUsesWorkerMacro(
@@ -272,6 +297,7 @@ public class GenruleTest {
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     BuildRule genrule = createGenruleBuilderThatUsesWorkerMacro(ruleResolver).build(ruleResolver);
+    ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     List<Step> steps = genrule.getBuildSteps(
         null, // BuildContext is unused because there are no deps
@@ -288,8 +314,9 @@ public class GenruleTest {
         workerShellStep.getEnvironmentVariables(executionContext),
         Matchers.hasEntry(
             "OUT",
-            new FakeProjectFilesystem()
-                .resolve(BuckConstant.getGenDir() + "/genrule_with_worker/output.txt")
+            filesystem
+                .resolve(filesystem.getBuckPaths().getGenDir())
+                .resolve("genrule_with_worker/output.txt")
                 .toString()));
   }
 
@@ -306,7 +333,8 @@ public class GenruleTest {
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     BuildRule genrule = GenruleBuilder
-        .newGenruleBuilder(BuildTargetFactory.newInstance("//:genrule_no_worker"))
+        .newGenruleBuilder(
+            BuildTargetFactory.newInstance(filesystem.getRootPath(), "//:genrule_no_worker"))
         .setCmd("echo hello >> $OUT")
         .setOut("output.txt")
         .build(ruleResolver, filesystem);
@@ -330,35 +358,63 @@ public class GenruleTest {
   }
 
   @Test
+  public void testGenruleWithWorkerMacroIncludesWorkerToolInDeps()
+      throws NoSuchBuildTargetException {
+    BuildRuleResolver ruleResolver =
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+
+    BuildRule shBinaryRule = new ShBinaryBuilder(
+        BuildTargetFactory.newInstance("//:my_exe"))
+        .setMain(new FakeSourcePath("bin/exe"))
+        .build(ruleResolver);
+
+    BuildRule workerToolRule = WorkerToolBuilder
+        .newWorkerToolBuilder(BuildTargetFactory.newInstance("//:worker_rule"))
+        .setExe(shBinaryRule.getBuildTarget())
+        .build(ruleResolver);
+
+    BuildRule genrule = GenruleBuilder
+        .newGenruleBuilder(BuildTargetFactory.newInstance("//:genrule_with_worker"))
+        .setCmd("$(worker :worker_rule) abc")
+        .setOut("output.txt")
+        .build(ruleResolver);
+
+    assertThat(genrule.getDeps(), Matchers.hasItems(shBinaryRule, workerToolRule));
+  }
+
+  @Test
   public void testDepsEnvironmentVariableIsComplete() throws Exception {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    BuildTarget depTarget = BuildTargetFactory.newInstance("//foo:bar");
+    BuildTarget depTarget = BuildTargetFactory.newInstance(filesystem.getRootPath(), "//foo:bar");
     BuildRule dep = new FakeBuildRule(depTarget, new SourcePathResolver(resolver)) {
       @Override
       public Path getPathToOutput() {
-        return Paths.get("buck-out/gen/foo/bar.jar");
+        return filesystem.getBuckPaths().getGenDir().resolve("foo/bar.jar");
       }
     };
     resolver.addToIndex(dep);
 
     BuildRule genrule = GenruleBuilder
         .newGenruleBuilder(
-            BuildTargetFactory.newInstance("//foo:baz"))
+            BuildTargetFactory.newInstance(filesystem.getRootPath(), "//foo:baz"))
         .setBash("cat $DEPS > $OUT")
+        .setCmdExe("echo %DEPS% > %OUT%")
         .setOut("deps.txt")
         .setSrcs(
             ImmutableList.<SourcePath>of(new BuildTargetSourcePath(dep.getBuildTarget())))
         .build(resolver, filesystem);
 
     AbstractGenruleStep genruleStep = ((Genrule) genrule).createGenruleStep();
-    ExecutionContext context = newEmptyExecutionContext(Platform.LINUX);
+    Platform platform = Platform.detect() == Platform.WINDOWS ?
+        Platform.WINDOWS : Platform.LINUX;
+    ExecutionContext context = newEmptyExecutionContext(platform);
     ImmutableMap<String, String> environmentVariables =
         genruleStep.getEnvironmentVariables(context);
     assertEquals(
         "Make sure that the use of $DEPS pulls in $GEN_DIR, as well.",
         ImmutableMap.of(
-            "DEPS", "$GEN_DIR/foo/bar.jar",
+            "DEPS", MorePaths.pathWithPlatformSeparators("$GEN_DIR/foo/bar.jar"),
             "GEN_DIR", filesystem.resolve("buck-out/gen").toString(),
             "OUT", filesystem.resolve("buck-out/gen/foo/baz/deps.txt").toString()),
         environmentVariables);
@@ -402,7 +458,8 @@ public class GenruleTest {
     ((Genrule) rule).addSymlinkCommands(builder);
     ImmutableList<Step> commands = builder.build();
 
-    String baseTmpPath = BuckConstant.getGenDir() + "/example__srcs/";
+    String baseTmpPath =
+        projectFilesystem.getBuckPaths().getGenDir().toString() + "/example__srcs/";
 
     assertEquals(3, commands.size());
     MkdirAndSymlinkFileStep linkCmd = (MkdirAndSymlinkFileStep) commands.get(0);
@@ -576,8 +633,8 @@ public class GenruleTest {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
-    RuleKeyBuilderFactory ruleKeyBuilderFactory =
-        new DefaultRuleKeyBuilderFactory(new NullFileHashCache(), pathResolver);
+    DefaultRuleKeyBuilderFactory ruleKeyBuilderFactory =
+        new DefaultRuleKeyBuilderFactory(0, new NullFileHashCache(), pathResolver);
 
     // Get a rule key for two genrules using two different output names, but are otherwise the
     // same.
@@ -618,15 +675,16 @@ public class GenruleTest {
     BuildRule rule = ruleBuilder.build(resolver);
     DefaultRuleKeyBuilderFactory defaultRuleKeyBuilderFactory =
         new DefaultRuleKeyBuilderFactory(
+            0,
             new DefaultFileHashCache(filesystem),
             new SourcePathResolver(resolver));
     InputBasedRuleKeyBuilderFactory inputBasedRuleKeyBuilderFactory =
         new InputBasedRuleKeyBuilderFactory(
+            0,
             new DefaultFileHashCache(filesystem),
-            new SourcePathResolver(resolver),
-            defaultRuleKeyBuilderFactory);
+            new SourcePathResolver(resolver));
     RuleKey originalRuleKey = defaultRuleKeyBuilderFactory.build(rule);
-    RuleKey originalInputRuleKey = inputBasedRuleKeyBuilderFactory.build(rule);
+    RuleKey originalInputRuleKey = inputBasedRuleKeyBuilderFactory.build(rule).get();
 
     // Change the genrule's command, which will change its normal rule key, but since we're keeping
     // its output the same, the input-based rule key for the consuming rule will stay the same.
@@ -641,15 +699,16 @@ public class GenruleTest {
     rule = ruleBuilder.build(resolver);
     defaultRuleKeyBuilderFactory =
         new DefaultRuleKeyBuilderFactory(
+            0,
             new DefaultFileHashCache(filesystem),
             new SourcePathResolver(resolver));
     inputBasedRuleKeyBuilderFactory =
         new InputBasedRuleKeyBuilderFactory(
+            0,
             new DefaultFileHashCache(filesystem),
-            new SourcePathResolver(resolver),
-            defaultRuleKeyBuilderFactory);
+            new SourcePathResolver(resolver));
     RuleKey unchangedRuleKey = defaultRuleKeyBuilderFactory.build(rule);
-    RuleKey unchangedInputBasedRuleKey = inputBasedRuleKeyBuilderFactory.build(rule);
+    RuleKey unchangedInputBasedRuleKey = inputBasedRuleKeyBuilderFactory.build(rule).get();
     assertThat(unchangedRuleKey, Matchers.not(Matchers.equalTo(originalRuleKey)));
     assertThat(unchangedInputBasedRuleKey, Matchers.equalTo(originalInputRuleKey));
 
@@ -665,10 +724,10 @@ public class GenruleTest {
     rule = ruleBuilder.build(resolver);
     inputBasedRuleKeyBuilderFactory =
         new InputBasedRuleKeyBuilderFactory(
+            0,
             new DefaultFileHashCache(filesystem),
-            new SourcePathResolver(resolver),
-            defaultRuleKeyBuilderFactory);
-    RuleKey changedInputBasedRuleKey = inputBasedRuleKeyBuilderFactory.build(rule);
+            new SourcePathResolver(resolver));
+    RuleKey changedInputBasedRuleKey = inputBasedRuleKeyBuilderFactory.build(rule).get();
     assertThat(changedInputBasedRuleKey, Matchers.not(Matchers.equalTo(originalInputRuleKey)));
   }
 
@@ -692,15 +751,16 @@ public class GenruleTest {
     BuildRule rule = ruleBuilder.build(resolver);
     DefaultRuleKeyBuilderFactory defaultRuleKeyBuilderFactory =
         new DefaultRuleKeyBuilderFactory(
+            0,
             new DefaultFileHashCache(filesystem),
             new SourcePathResolver(resolver));
     InputBasedRuleKeyBuilderFactory inputBasedRuleKeyBuilderFactory =
         new InputBasedRuleKeyBuilderFactory(
+            0,
             new DefaultFileHashCache(filesystem),
-            new SourcePathResolver(resolver),
-            defaultRuleKeyBuilderFactory);
+            new SourcePathResolver(resolver));
     RuleKey originalRuleKey = defaultRuleKeyBuilderFactory.build(rule);
-    RuleKey originalInputRuleKey = inputBasedRuleKeyBuilderFactory.build(rule);
+    RuleKey originalInputRuleKey = inputBasedRuleKeyBuilderFactory.build(rule).get();
 
     // Change the dep's resource list, which will change its normal rule key, but since we're
     // keeping its output the same, the input-based rule key for the consuming rule will stay the
@@ -719,15 +779,16 @@ public class GenruleTest {
     rule = ruleBuilder.build(resolver);
     defaultRuleKeyBuilderFactory =
         new DefaultRuleKeyBuilderFactory(
+            0,
             new DefaultFileHashCache(filesystem),
             new SourcePathResolver(resolver));
     inputBasedRuleKeyBuilderFactory =
         new InputBasedRuleKeyBuilderFactory(
+            0,
             new DefaultFileHashCache(filesystem),
-            new SourcePathResolver(resolver),
-            defaultRuleKeyBuilderFactory);
+            new SourcePathResolver(resolver));
     RuleKey unchangedRuleKey = defaultRuleKeyBuilderFactory.build(rule);
-    RuleKey unchangedInputBasedRuleKey = inputBasedRuleKeyBuilderFactory.build(rule);
+    RuleKey unchangedInputBasedRuleKey = inputBasedRuleKeyBuilderFactory.build(rule).get();
     assertThat(unchangedRuleKey, Matchers.not(Matchers.equalTo(originalRuleKey)));
     assertThat(unchangedInputBasedRuleKey, Matchers.equalTo(originalInputRuleKey));
 
@@ -742,10 +803,10 @@ public class GenruleTest {
     rule = ruleBuilder.build(resolver);
     inputBasedRuleKeyBuilderFactory =
         new InputBasedRuleKeyBuilderFactory(
+            0,
             new DefaultFileHashCache(filesystem),
-            new SourcePathResolver(resolver),
-            defaultRuleKeyBuilderFactory);
-    RuleKey changedInputBasedRuleKey = inputBasedRuleKeyBuilderFactory.build(rule);
+            new SourcePathResolver(resolver));
+    RuleKey changedInputBasedRuleKey = inputBasedRuleKeyBuilderFactory.build(rule).get();
     assertThat(changedInputBasedRuleKey, Matchers.not(Matchers.equalTo(originalInputRuleKey)));
   }
 
@@ -769,15 +830,16 @@ public class GenruleTest {
     BuildRule rule = ruleBuilder.build(resolver);
     DefaultRuleKeyBuilderFactory defaultRuleKeyBuilderFactory =
         new DefaultRuleKeyBuilderFactory(
+            0,
             new DefaultFileHashCache(filesystem),
             new SourcePathResolver(resolver));
     InputBasedRuleKeyBuilderFactory inputBasedRuleKeyBuilderFactory =
         new InputBasedRuleKeyBuilderFactory(
+            0,
             new DefaultFileHashCache(filesystem),
-            new SourcePathResolver(resolver),
-            defaultRuleKeyBuilderFactory);
+            new SourcePathResolver(resolver));
     RuleKey originalRuleKey = defaultRuleKeyBuilderFactory.build(rule);
-    RuleKey originalInputRuleKey = inputBasedRuleKeyBuilderFactory.build(rule);
+    RuleKey originalInputRuleKey = inputBasedRuleKeyBuilderFactory.build(rule).get();
 
     // Change the dep's resource root, which will change its normal rule key, but since we're
     // keeping its output JAR the same, the input-based rule key for the consuming rule will stay
@@ -792,15 +854,16 @@ public class GenruleTest {
     rule = ruleBuilder.build(resolver);
     defaultRuleKeyBuilderFactory =
         new DefaultRuleKeyBuilderFactory(
+            0,
             new DefaultFileHashCache(filesystem),
             new SourcePathResolver(resolver));
     inputBasedRuleKeyBuilderFactory =
         new InputBasedRuleKeyBuilderFactory(
+            0,
             new DefaultFileHashCache(filesystem),
-            new SourcePathResolver(resolver),
-            defaultRuleKeyBuilderFactory);
+            new SourcePathResolver(resolver));
     RuleKey unchangedRuleKey = defaultRuleKeyBuilderFactory.build(rule);
-    RuleKey unchangedInputBasedRuleKey = inputBasedRuleKeyBuilderFactory.build(rule);
+    RuleKey unchangedInputBasedRuleKey = inputBasedRuleKeyBuilderFactory.build(rule).get();
     assertThat(unchangedRuleKey, Matchers.not(Matchers.equalTo(originalRuleKey)));
     assertThat(unchangedInputBasedRuleKey, Matchers.equalTo(originalInputRuleKey));
 
@@ -815,10 +878,10 @@ public class GenruleTest {
     rule = ruleBuilder.build(resolver);
     inputBasedRuleKeyBuilderFactory =
         new InputBasedRuleKeyBuilderFactory(
+            0,
             new DefaultFileHashCache(filesystem),
-            new SourcePathResolver(resolver),
-            defaultRuleKeyBuilderFactory);
-    RuleKey changedInputBasedRuleKey = inputBasedRuleKeyBuilderFactory.build(rule);
+            new SourcePathResolver(resolver));
+    RuleKey changedInputBasedRuleKey = inputBasedRuleKeyBuilderFactory.build(rule).get();
     assertThat(changedInputBasedRuleKey, Matchers.not(Matchers.equalTo(originalInputRuleKey)));
   }
 

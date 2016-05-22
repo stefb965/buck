@@ -20,6 +20,7 @@ import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
+import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutorParams;
@@ -64,34 +65,25 @@ public class WorkerShellStep implements Step {
   }
 
   @Override
-  public int execute(final ExecutionContext context) throws InterruptedException {
+  public StepExecutionResult execute(final ExecutionContext context) throws InterruptedException {
     try {
       // Use the process's startup command as the key.
       String key = Joiner.on(' ').join(getCommand(context.getPlatform()));
       WorkerProcess process = getWorkerProcessForKey(key, context);
+      process.ensureLaunchAndHandshake();
+      WorkerJobResult result = process.submitAndWaitForJob(getExpandedJobArgs(context));
       Verbosity verbosity = context.getVerbosity();
-      try {
-        process.ensureLaunchAndHandshake();
-        WorkerJobResult result = process.submitAndWaitForJob(getExpandedJobArgs(context));
-        if (result.getStdout().isPresent() && !result.getStdout().get().isEmpty() &&
-            verbosity.shouldPrintOutput()) {
-          context.postEvent(ConsoleEvent.info("%s", result.getStdout().get()));
-        }
-        if (result.getStderr().isPresent() && !result.getStderr().get().isEmpty() &&
-            verbosity.shouldPrintStandardInformation()) {
-          context.postEvent(ConsoleEvent.warning("%s", result.getStderr().get()));
-        }
-        return result.getExitCode();
-      } finally {
-        String errorMessage = process.getStdErrorOutput();
-        if (!errorMessage.equals("") && verbosity.shouldPrintStandardInformation()) {
-          context.postEvent(
-              ConsoleEvent.warning("Stderr from external process:\n%s", errorMessage));
-        }
+      if (result.getStdout().isPresent() && !result.getStdout().get().isEmpty() &&
+          verbosity.shouldPrintOutput()) {
+        context.postEvent(ConsoleEvent.info("%s", result.getStdout().get()));
       }
+      if (result.getStderr().isPresent() && !result.getStderr().get().isEmpty() &&
+          verbosity.shouldPrintStandardInformation()) {
+        context.postEvent(ConsoleEvent.warning("%s", result.getStderr().get()));
+      }
+      return StepExecutionResult.of(result.getExitCode());
     } catch (IOException e) {
-      e.printStackTrace(context.getStdErr());
-      return 1;
+      throw new HumanReadableException(e, "Error communicating with external process.");
     }
   }
 

@@ -20,6 +20,7 @@ import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
+import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor.Option;
@@ -85,7 +86,7 @@ public abstract class ShellStep implements Step {
   }
 
   @Override
-  public int execute(ExecutionContext context) throws InterruptedException {
+  public StepExecutionResult execute(ExecutionContext context) throws InterruptedException {
     // Kick off a Process in which this ShellCommand will be run.
     ProcessExecutorParams.Builder builder = ProcessExecutorParams.builder();
 
@@ -106,7 +107,6 @@ public abstract class ShellStep implements Step {
       startTime = System.currentTimeMillis();
       exitCode = launchAndInteractWithProcess(context, builder.build());
     } catch (IOException e) {
-      e.printStackTrace(context.getStdErr());
       exitCode = 1;
     }
 
@@ -124,7 +124,7 @@ public abstract class ShellStep implements Step {
         stdout.or(""),
         stderr.or(""));
 
-    return exitCode;
+    return StepExecutionResult.of(exitCode, stderr);
   }
 
   @VisibleForTesting
@@ -173,10 +173,12 @@ public abstract class ShellStep implements Step {
     stderr = result.getStderr();
 
     Verbosity verbosity = context.getVerbosity();
-    if (stdout.isPresent() && !stdout.get().isEmpty() && shouldPrintStdout(verbosity)) {
+    if (stdout.isPresent() && !stdout.get().isEmpty() &&
+        (result.getExitCode() != 0 || shouldPrintStdout(verbosity))) {
       context.postEvent(ConsoleEvent.info("%s", stdout.get()));
     }
-    if (stderr.isPresent() && !stderr.get().isEmpty() && shouldPrintStderr(verbosity)) {
+    if (stderr.isPresent() && !stderr.get().isEmpty() &&
+        (result.getExitCode() != 0 || shouldPrintStderr(verbosity))) {
       context.postEvent(ConsoleEvent.warning("%s", stderr.get()));
     }
 
@@ -190,9 +192,7 @@ public abstract class ShellStep implements Step {
       options.add(Option.PRINT_STD_OUT);
       options.add(Option.PRINT_STD_ERR);
     }
-    if (context.getVerbosity() == Verbosity.SILENT) {
-      options.add(Option.IS_SILENT);
-    }
+    options.add(Option.IS_SILENT);
   }
 
   public long getDuration() {
@@ -268,7 +268,7 @@ public abstract class ShellStep implements Step {
    *     error and only if verbosity is set to standard information.
    */
   protected boolean shouldPrintStdout(Verbosity verbosity) {
-    return false;
+    return verbosity.shouldPrintOutput();
   }
 
   /**

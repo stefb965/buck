@@ -66,6 +66,8 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.PerfEventId;
 import com.facebook.buck.event.ProjectGenerationEvent;
 import com.facebook.buck.event.SimplePerfEvent;
+import com.facebook.buck.graph.AcyclicDepthFirstPostOrderTraversal;
+import com.facebook.buck.graph.GraphTraversable;
 import com.facebook.buck.halide.HalideBuckConfig;
 import com.facebook.buck.halide.HalideCompile;
 import com.facebook.buck.halide.HalideLibraryDescription;
@@ -94,7 +96,6 @@ import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.shell.ExportFileDescription;
-import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreIterables;
@@ -147,7 +148,9 @@ import java.nio.file.attribute.FileAttribute;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -623,8 +626,10 @@ public class ProjectGenerator {
 
     Optional<String> productName = getProductNameForTargetNode(targetNode);
     String binaryName = AppleBundle.getBinaryName(targetNode.getBuildTarget(), productName);
-    Path bundleDestination = getScratchPathForAppBundle(targetNode.getBuildTarget(), binaryName);
-    Path dsymDestination = getScratchPathForDsymBundle(targetNode.getBuildTarget(), binaryName);
+    Path bundleDestination =
+        getScratchPathForAppBundle(projectFilesystem, targetNode.getBuildTarget(), binaryName);
+    Path dsymDestination =
+        getScratchPathForDsymBundle(projectFilesystem, targetNode.getBuildTarget(), binaryName);
     Path resolvedBundleDestination = projectFilesystem.resolve(bundleDestination);
     Path resolvedDsymDestination = projectFilesystem.resolve(dsymDestination);
     Path fixUUIDScriptPath = getFixUUIDScriptPath(projectFilesystem);
@@ -662,7 +667,8 @@ public class ProjectGenerator {
 
     Optional<String> productName = getProductNameForTargetNode(targetNode);
     String binaryName = AppleBundle.getBinaryName(targetNode.getBuildTarget(), productName);
-    Path bundleDestination = getScratchPathForAppBundle(targetNode.getBuildTarget(), binaryName);
+    Path bundleDestination =
+        getScratchPathForAppBundle(projectFilesystem, targetNode.getBuildTarget(), binaryName);
     Path resolvedBundleDestination = projectFilesystem.resolve(bundleDestination);
 
     template.add("root_path", projectFilesystem.getRootPath());
@@ -672,15 +678,21 @@ public class ProjectGenerator {
     return template.render();
   }
 
-  static Path getScratchPathForAppBundle(BuildTarget targetToBuildWithBuck, String binaryName) {
+  static Path getScratchPathForAppBundle(
+      ProjectFilesystem filesystem,
+      BuildTarget targetToBuildWithBuck,
+      String binaryName) {
     return BuildTargets
-        .getScratchPath(targetToBuildWithBuck, "/%s-unsanitised")
+        .getScratchPath(filesystem, targetToBuildWithBuck, "/%s-unsanitised")
         .resolve(binaryName + ".app");
   }
 
-  static Path getScratchPathForDsymBundle(BuildTarget targetToBuildWithBuck, String binaryName) {
+  static Path getScratchPathForDsymBundle(
+      ProjectFilesystem filesystem,
+      BuildTarget targetToBuildWithBuck,
+      String binaryName) {
     return BuildTargets
-        .getScratchPath(targetToBuildWithBuck, "/%s-unsanitised")
+        .getScratchPath(filesystem, targetToBuildWithBuck, "/%s-unsanitised")
         .resolve(binaryName + ".dSYM");
   }
 
@@ -750,8 +762,8 @@ public class ProjectGenerator {
     return result;
   }
 
-  private static Path getHalideOutputPath(BuildTarget target) {
-    return  BuckConstant.getBuckOutputPath()
+  private static Path getHalideOutputPath(ProjectFilesystem filesystem, BuildTarget target) {
+    return filesystem.getBuckPaths().getBuckOut()
         .resolve("halide")
         .resolve(target.getBasePath())
         .resolve(target.getShortName());
@@ -762,7 +774,8 @@ public class ProjectGenerator {
       TargetNode<HalideLibraryDescription.Arg> targetNode) throws IOException {
     final BuildTarget buildTarget = targetNode.getBuildTarget();
     String productName = getProductNameForBuildTarget(buildTarget);
-    Path outputPath = getHalideOutputPath(buildTarget);
+    Path outputPath =
+        getHalideOutputPath(targetNode.getRuleFactoryParams().getProjectFilesystem(), buildTarget);
 
     Path scriptPath = halideBuckConfig.getXcodeCompileScriptPath();
     Optional<String> script = projectFilesystem.readFileIfItExists(scriptPath);
@@ -786,7 +799,7 @@ public class ProjectGenerator {
 
     BuildTarget compilerTarget =
         HalideLibraryDescription.createHalideCompilerBuildTarget(buildTarget);
-    Path compilerPath = BuildTargets.getGenPath(compilerTarget, "%s");
+    Path compilerPath = BuildTargets.getGenPath(projectFilesystem, compilerTarget, "%s");
     ImmutableMap<String, String> appendedConfig = ImmutableMap.<String, String>of();
     ImmutableMap<String, String> extraSettings = ImmutableMap.<String, String>of();
     ImmutableMap.Builder<String, String> defaultSettingsBuilder =
@@ -949,20 +962,35 @@ public class ProjectGenerator {
 
   private ImmutableSet<TargetNode<?>> getTransitiveFrameworkNodes(
       TargetNode<? extends HasAppleBundleFields> targetNode) {
-    return FluentIterable
-        .from(targetGraph.getSubgraph(ImmutableSet.of(targetNode)).getNodes())
-        .filter(new Predicate<TargetNode<?>>() {
-          @Override
-          public boolean apply(TargetNode<?> input) {
-            Optional<TargetNode<AppleBundleDescription.Arg>> appleBundleNode =
-                input.castArg(AppleBundleDescription.Arg.class);
-            if (!appleBundleNode.isPresent()) {
-              return false;
-            }
-            return isFrameworkBundle(appleBundleNode.get().getConstructorArg());
+    GraphTraversable<TargetNode<?>> graphTraversable = new GraphTraversable<TargetNode<?>>() {
+      @Override
+      public Iterator<TargetNode<?>> findChildren(TargetNode<?> node) {
+        if (node.getType() != AppleResourceDescription.TYPE) {
+          return targetGraph.getAll(node.getDeps()).iterator();
+        } else {
+          return Collections.emptyIterator();
+        }
+      }
+    };
+
+    final ImmutableSet.Builder<TargetNode<?>> filteredRules = ImmutableSet.builder();
+    AcyclicDepthFirstPostOrderTraversal<TargetNode<?>> traversal =
+        new AcyclicDepthFirstPostOrderTraversal<>(graphTraversable);
+    try {
+      for (TargetNode<?> node : traversal.traverse(ImmutableList.of(targetNode))) {
+        if (node != targetNode) {
+          Optional<TargetNode<AppleBundleDescription.Arg>> appleBundleNode =
+              node.castArg(AppleBundleDescription.Arg.class);
+          if (appleBundleNode.isPresent() &&
+              isFrameworkBundle(appleBundleNode.get().getConstructorArg())) {
+            filteredRules.add(node);
           }
-        })
-        .toSet();
+        }
+      }
+    } catch (AcyclicDepthFirstPostOrderTraversal.CycleException e) {
+      throw new RuntimeException(e);
+    }
+    return filteredRules.build();
   }
 
   /**
@@ -1293,7 +1321,10 @@ public class ProjectGenerator {
     ImmutableSet<Path> recursiveHeaderSearchPaths = collectRecursiveHeaderSearchPaths(targetNode);
     ImmutableSet<Path> headerMapBases = recursiveHeaderSearchPaths.isEmpty() ?
         ImmutableSet.<Path>of() :
-        ImmutableSet.of(pathRelativizer.outputDirToRootRelative(BuckConstant.getBuckOutputPath()));
+        ImmutableSet.of(
+            pathRelativizer.outputDirToRootRelative(
+                buildTargetNode.getRuleFactoryParams().getProjectFilesystem()
+                    .getBuckPaths().getBuckOut()));
 
     appendConfigsBuilder
         .put(
@@ -1526,7 +1557,7 @@ public class ProjectGenerator {
     return new Function<String, Path>() {
       @Override
       public Path apply(String input) {
-        return BuildTargets.getGenPath(buildTarget, "%s-" + input + ".xcconfig");
+        return BuildTargets.getGenPath(projectFilesystem, buildTarget, "%s-" + input + ".xcconfig");
       }
     };
   }
@@ -1556,9 +1587,9 @@ public class ProjectGenerator {
         sourcePathResolver)
         .setTargetName(productName)
         .setProduct(
-            dylibProductTypeByBundleExtension(key.getExtension().getLeft()).get(),
+            dylibProductTypeByBundleExtension(key.getExtension()).get(),
             productName,
-            Paths.get(productName + "." + getExtensionString(key.getExtension())))
+            Paths.get(productName + "." + key.getExtension().toFileExtension()))
         .setSourcesWithFlags(
             ImmutableSet.of(
                 SourceWithFlags.of(
@@ -1607,7 +1638,7 @@ public class ProjectGenerator {
         overrideBuildSettingsBuilder.build(),
         ImmutableMap.of(
             PRODUCT_NAME, productName,
-            "WRAPPER_EXTENSION", getExtensionString(key.getExtension())),
+            "WRAPPER_EXTENSION", key.getExtension().toFileExtension()),
         ImmutableMap.of(
             "FRAMEWORK_SEARCH_PATHS",
             Joiner.on(' ').join(collectRecursiveFrameworkSearchPaths(tests)),
@@ -1628,7 +1659,7 @@ public class ProjectGenerator {
       int combinedTestIndex) {
     return Joiner.on("-").join(
         "_BuckCombinedTest",
-        getExtensionString(key.getExtension()),
+        key.getExtension().toFileExtension(),
         combinedTestIndex);
 
   }
@@ -2172,7 +2203,8 @@ public class ProjectGenerator {
                   .headerOutputPath(
                       buildTarget.withFlavors(
                           HalideLibraryDescription.HALIDE_COMPILE_FLAVOR,
-                          defaultCxxPlatform.getFlavor()))
+                          defaultCxxPlatform.getFlavor()),
+                      projectFilesystem)
                   .getParent()));
     }
     return builder.build();
@@ -2574,7 +2606,9 @@ public class ProjectGenerator {
   }
 
   private Path emptyFileWithExtension(String extension) {
-    Path path = BuckConstant.getGenPath().resolve("xcode-scripts/emptyFile." + extension);
+    Path path =
+        projectFilesystem.getBuckPaths().getGenDir()
+            .resolve("xcode-scripts/emptyFile." + extension);
     if (!projectFilesystem.exists(path)) {
       try {
         projectFilesystem.createParentDirs(path);

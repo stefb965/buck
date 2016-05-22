@@ -39,11 +39,11 @@ import com.facebook.buck.rules.TargetNodes;
 import com.facebook.buck.rules.TestRule;
 import com.facebook.buck.step.AdbOptions;
 import com.facebook.buck.step.DefaultStepRunner;
+import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TargetDevice;
 import com.facebook.buck.step.TargetDeviceOptions;
 import com.facebook.buck.test.CoverageReportFormat;
 import com.facebook.buck.test.TestRunningOptions;
-import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ForwardingProcessListener;
 import com.facebook.buck.util.ListeningProcessExecutor;
@@ -70,7 +70,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -157,6 +159,14 @@ public class TestCommand extends BuildCommand {
           "Only run the tests targets that were specified on the command line (without adding " +
           "more tests by following dependencies).")
   private boolean shouldExcludeTransitiveTests;
+
+  @Option(
+      name = "--test-runner-env",
+      usage =
+          "Add or override an environment variable passed to the test runner. Later occurrences " +
+          "override earlier occurrences. Currently this only support Apple(ios/osx) tests.",
+      handler = EnvironmentOverrideOptionHandler.class)
+  private Map<String, String> environmentOverrides = new HashMap<>();
 
   @AdditionalOptions
   @SuppressFieldNotInitialized
@@ -257,6 +267,7 @@ public class TestCommand extends BuildCommand {
         .setPathToJavaAgent(Optional.fromNullable(pathToJavaAgent))
         .setCoverageReportFormat(coverageReportFormat)
         .setCoverageReportTitle(coverageReportTitle)
+        .setEnvironmentOverrides(environmentOverrides)
         .build();
   }
 
@@ -284,7 +295,6 @@ public class TestCommand extends BuildCommand {
       return TestRunning.runTests(
           params,
           testRules,
-          Preconditions.checkNotNull(build.getBuildContext()),
           build.getExecutionContext(),
           getTestRunningOptions(params),
           testPool.getExecutor(),
@@ -321,7 +331,8 @@ public class TestCommand extends BuildCommand {
     // Serialize the specs to a file to pass into the test runner.
     Path infoFile =
         params.getCell().getFilesystem()
-            .resolve(BuckConstant.getScratchPath().resolve("external_runner_specs.json"));
+            .resolve(params.getCell().getFilesystem().getBuckPaths().getScratchDir())
+            .resolve("external_runner_specs.json");
     Files.createDirectories(infoFile.getParent());
     Files.deleteIfExists(infoFile);
     params.getObjectMapper().writerWithDefaultPrettyPrinter().writeValue(infoFile.toFile(), specs);
@@ -335,6 +346,9 @@ public class TestCommand extends BuildCommand {
             .addAllCommand(withDashArguments)
             .setEnvironment(params.getEnvironment())
             .addCommand("--buck-test-info", infoFile.toString())
+            .addCommand(
+                "--jobs",
+                String.valueOf(getConcurrencyLimit(params.getBuckConfig()).threadLimit))
             .setDirectory(params.getCell().getFilesystem().getRootPath().toFile())
             .build();
     ForwardingProcessListener processListener =
@@ -452,7 +466,8 @@ public class TestCommand extends BuildCommand {
               BuildIdSampler.apply(
                   params.getBuckConfig().getActionGraphCacheCheckSampleRate(),
                   params.getBuckEventBus().getBuildId()),
-              targetGraph));
+              targetGraph,
+              params.getBuckConfig().getKeySeed()));
       // Look up all of the test rules in the action graph.
       Iterable<TestRule> testRules = Iterables.filter(
           actionGraphAndResolver.getActionGraph().getNodes(),
@@ -478,7 +493,10 @@ public class TestCommand extends BuildCommand {
               params.getBuckConfig().getBuildMaxDepFileCacheEntries(),
               params.getBuckConfig().getBuildArtifactCacheSizeLimit(),
               params.getObjectMapper(),
-              actionGraphAndResolver.getResolver());
+              actionGraphAndResolver.getResolver(),
+              Preconditions.checkNotNull(
+                  params.getExecutors().get(ExecutionContext.ExecutorPool.NETWORK)),
+              params.getBuckConfig().getKeySeed());
       try (Build build = createBuild(
           params.getBuckConfig(),
           actionGraphAndResolver.getActionGraph(),
@@ -597,5 +615,4 @@ public class TestCommand extends BuildCommand {
   public String getShortDescription() {
     return "builds and runs the tests for the specified target";
   }
-
 }

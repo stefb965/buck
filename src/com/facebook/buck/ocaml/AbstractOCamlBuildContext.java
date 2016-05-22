@@ -27,7 +27,7 @@ import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKeyAppendable;
-import com.facebook.buck.rules.RuleKeyBuilder;
+import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.Tool;
@@ -139,41 +139,55 @@ abstract class AbstractOCamlBuildContext implements RuleKeyAppendable {
         .asList();
   }
 
-  private static Path getArchiveNativeOutputPath(UnflavoredBuildTarget target) {
+  private static Path getArchiveNativeOutputPath(
+      UnflavoredBuildTarget target,
+      ProjectFilesystem filesystem) {
     return BuildTargets.getGenPath(
+        filesystem,
         BuildTarget.of(target),
         "%s/lib" + target.getShortName() + OCamlCompilables.OCAML_CMXA);
   }
 
-  private static Path getArchiveBytecodeOutputPath(UnflavoredBuildTarget target) {
+  private static Path getArchiveBytecodeOutputPath(
+      UnflavoredBuildTarget target,
+      ProjectFilesystem filesystem) {
     return BuildTargets.getGenPath(
+        filesystem,
         BuildTarget.of(target),
         "%s/lib" + target.getShortName() + OCamlCompilables.OCAML_CMA);
   }
 
   public Path getNativeOutput() {
-    return getNativeOutputPath(getBuildTarget(), isLibrary());
+    return getNativeOutputPath(getBuildTarget(), getProjectFilesystem(), isLibrary());
   }
 
-  public static Path getNativeOutputPath(UnflavoredBuildTarget target, boolean isLibrary) {
+  public static Path getNativeOutputPath(
+      UnflavoredBuildTarget target,
+      ProjectFilesystem filesystem,
+      boolean isLibrary) {
     if (isLibrary) {
-      return getArchiveNativeOutputPath(target);
+      return getArchiveNativeOutputPath(target, filesystem);
     } else {
       return BuildTargets.getScratchPath(
+          filesystem,
           BuildTarget.of(target),
           "%s/" + target.getShortName() + ".opt");
     }
   }
 
   public Path getBytecodeOutput() {
-    return getBytecodeOutputPath(getBuildTarget(), isLibrary());
+    return getBytecodeOutputPath(getBuildTarget(), getProjectFilesystem(), isLibrary());
   }
 
-  public static Path getBytecodeOutputPath(UnflavoredBuildTarget target, boolean isLibrary) {
+  public static Path getBytecodeOutputPath(
+      UnflavoredBuildTarget target,
+      ProjectFilesystem filesystem,
+      boolean isLibrary) {
     if (isLibrary) {
-      return getArchiveBytecodeOutputPath(target);
+      return getArchiveBytecodeOutputPath(target, filesystem);
     } else {
       return BuildTargets.getScratchPath(
+          filesystem,
           BuildTarget.of(target),
           "%s/" + target.getShortName());
     }
@@ -184,13 +198,14 @@ abstract class AbstractOCamlBuildContext implements RuleKeyAppendable {
   }
 
   public Path getCompileNativeOutputDir() {
-    return getCompileNativeOutputDir(getBuildTarget(), isLibrary());
+    return getCompileNativeOutputDir(getBuildTarget(), getProjectFilesystem(), isLibrary());
   }
 
   public static Path getCompileNativeOutputDir(
       UnflavoredBuildTarget buildTarget,
+      ProjectFilesystem filesystem,
       boolean isLibrary) {
-    return getNativeOutputPath(buildTarget, isLibrary).getParent().resolve(
+    return getNativeOutputPath(buildTarget, filesystem, isLibrary).getParent().resolve(
         OCAML_COMPILED_DIR);
   }
 
@@ -302,8 +317,8 @@ abstract class AbstractOCamlBuildContext implements RuleKeyAppendable {
   }
 
   @Override
-  public RuleKeyBuilder appendToRuleKey(RuleKeyBuilder builder) {
-    return builder
+  public void appendToRuleKey(RuleKeyObjectSink sink) {
+    sink
         .setReflectively("flags", getFlags())
         .setReflectively("input", getInput())
         .setReflectively("lexCompiler", getLexCompiler())

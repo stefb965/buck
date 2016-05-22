@@ -22,7 +22,6 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.artifact_cache.ArtifactCache;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
@@ -34,13 +33,13 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.ImmutableBuildContext;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.RuleKeyBuilderFactory;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
@@ -74,18 +73,19 @@ import java.util.concurrent.Callable;
 
 public class ExportFileTest {
 
+  private ProjectFilesystem projectFilesystem;
   private BuildContext context;
   private BuildTarget target;
 
   @Before
   public void createFixtures() {
-    target = BuildTargetFactory.newInstance("//:example.html");
+    projectFilesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
+    target = BuildTargetFactory.newInstance(projectFilesystem.getRootPath(), "//:example.html");
     context = getBuildContext();
   }
 
   @Test
   public void shouldSetSrcAndOutToNameParameterIfNeitherAreSet() throws Exception {
-    ProjectFilesystem projectFilesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
     ExportFile exportFile = (ExportFile) ExportFileBuilder.newExportFileBuilder(target)
         .build(
             new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()),
@@ -96,17 +96,19 @@ public class ExportFileTest {
     MoreAsserts.assertSteps(
         "The output directory should be created and then the file should be copied there.",
         ImmutableList.of(
-            "mkdir -p /opt/src/buck/buck-out/gen",
-            "rm -r -f /opt/src/buck/buck-out/gen/example.html",
-            "cp " + projectFilesystem.resolve("example.html") + " buck-out/gen/example.html"),
+            "mkdir -p " + projectFilesystem.resolve("buck-out/gen"),
+            "rm -r -f " + projectFilesystem.resolve("buck-out/gen/example.html"),
+            "cp " + projectFilesystem.resolve("example.html") + " " +
+                Paths.get("buck-out/gen/example.html")),
         steps,
         TestExecutionContext.newInstance());
-    assertEquals(Paths.get("buck-out/gen/example.html"), exportFile.getPathToOutput());
+    assertEquals(
+        projectFilesystem.getBuckPaths().getGenDir().resolve("example.html"),
+        exportFile.getPathToOutput());
   }
 
   @Test
   public void shouldSetOutToNameParamValueIfSrcIsSet() throws Exception {
-    ProjectFilesystem projectFilesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
     ExportFile exportFile = (ExportFile) ExportFileBuilder.newExportFileBuilder(target)
         .setOut("fish")
         .build(
@@ -118,17 +120,19 @@ public class ExportFileTest {
     MoreAsserts.assertSteps(
         "The output directory should be created and then the file should be copied there.",
         ImmutableList.of(
-            "mkdir -p /opt/src/buck/buck-out/gen",
-            "rm -r -f /opt/src/buck/buck-out/gen/fish",
-            "cp " + projectFilesystem.resolve("example.html") + " buck-out/gen/fish"),
+            "mkdir -p " + projectFilesystem.resolve("buck-out/gen"),
+            "rm -r -f " + projectFilesystem.resolve("buck-out/gen/fish"),
+            "cp " + projectFilesystem.resolve("example.html") + " " +
+                Paths.get("buck-out/gen/fish")),
         steps,
         TestExecutionContext.newInstance());
-    assertEquals(Paths.get("buck-out/gen/fish"), exportFile.getPathToOutput());
+    assertEquals(
+        projectFilesystem.getBuckPaths().getGenDir().resolve("fish"),
+        exportFile.getPathToOutput());
   }
 
   @Test
   public void shouldSetOutAndSrcAndNameParametersSeparately() throws Exception {
-    ProjectFilesystem projectFilesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
     ExportFile exportFile = (ExportFile) ExportFileBuilder.newExportFileBuilder(target)
         .setSrc(new PathSourcePath(projectFilesystem, Paths.get("chips")))
         .setOut("fish")
@@ -141,12 +145,15 @@ public class ExportFileTest {
     MoreAsserts.assertSteps(
         "The output directory should be created and then the file should be copied there.",
         ImmutableList.of(
-            "mkdir -p /opt/src/buck/buck-out/gen",
-            "rm -r -f /opt/src/buck/buck-out/gen/fish",
-            "cp " + projectFilesystem.resolve("chips") + " buck-out/gen/fish"),
+            "mkdir -p " + projectFilesystem.resolve("buck-out/gen"),
+            "rm -r -f " + projectFilesystem.resolve("buck-out/gen/fish"),
+            "cp " + projectFilesystem.resolve("chips") + " " +
+                Paths.get("buck-out/gen/fish")),
         steps,
         TestExecutionContext.newInstance());
-    assertEquals(Paths.get("buck-out/gen/fish"), exportFile.getPathToOutput());
+    assertEquals(
+        projectFilesystem.getBuckPaths().getGenDir().resolve("fish"),
+        exportFile.getPathToOutput());
   }
 
   @Test
@@ -159,7 +166,8 @@ public class ExportFileTest {
         .build(
             new BuildRuleResolver(
                 TargetGraph.EMPTY,
-                new DefaultTargetNodeToBuildRuleTransformer()));
+                new DefaultTargetNodeToBuildRuleTransformer()),
+            projectFilesystem);
 
     assertIterablesEquals(singleton(Paths.get("chips")), exportFile.getSource());
 
@@ -172,14 +180,17 @@ public class ExportFileTest {
                 new SourcePathResolver(ruleResolver)));
 
     builder.setSrc(new BuildTargetSourcePath(rule.getBuildTarget()));
-    exportFile = (ExportFile) builder.build(ruleResolver);
+    exportFile = (ExportFile) builder.build(ruleResolver, projectFilesystem);
     assertTrue(Iterables.isEmpty(exportFile.getSource()));
 
     builder.setSrc(null);
-    exportFile = (ExportFile) builder.build(
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
+    exportFile =
+        (ExportFile) builder.build(
+            new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()),
+            projectFilesystem);
     assertIterablesEquals(
-        singleton(Paths.get("example.html")), exportFile.getSource());
+        singleton(projectFilesystem.getRootPath().getFileSystem().getPath("example.html")),
+        exportFile.getSource());
   }
 
   @Test
@@ -189,7 +200,8 @@ public class ExportFileTest {
         .build(
             new BuildRuleResolver(
                 TargetGraph.EMPTY,
-                new DefaultTargetNodeToBuildRuleTransformer()));
+                new DefaultTargetNodeToBuildRuleTransformer()),
+            projectFilesystem);
 
     assertEquals("cake", exportFile.getOutputName());
   }
@@ -204,7 +216,8 @@ public class ExportFileTest {
     SourcePathResolver resolver = new SourcePathResolver(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
      );
-    RuleKeyBuilderFactory ruleKeyFactory = new DefaultRuleKeyBuilderFactory(hashCache, resolver);
+    DefaultRuleKeyBuilderFactory ruleKeyFactory =
+        new DefaultRuleKeyBuilderFactory(0, hashCache, resolver);
 
     filesystem.writeContentsToPath("I like cheese", temp);
 
@@ -230,7 +243,7 @@ public class ExportFileTest {
     resolver = new SourcePathResolver(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
     );
-    ruleKeyFactory = new DefaultRuleKeyBuilderFactory(hashCache, resolver);
+    ruleKeyFactory = new DefaultRuleKeyBuilderFactory(0, hashCache, resolver);
     RuleKey refreshed = ruleKeyFactory.build(rule);
 
     assertNotEquals(original, refreshed);

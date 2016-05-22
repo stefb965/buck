@@ -32,6 +32,7 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.SymlinkFileStep;
+import com.facebook.buck.step.fs.TouchStep;
 import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -91,13 +92,18 @@ public class GoCompile extends AbstractBuildRule {
     this.packer = packer;
     this.platform = platform;
     this.output = BuildTargets.getGenPath(
-        getBuildTarget(), "%s/" + getBuildTarget().getShortName() + ".a");
+        getProjectFilesystem(),
+        getBuildTarget(),
+        "%s/" + getBuildTarget().getShortName() + ".a");
   }
 
   @Override
   public ImmutableList<Step> getBuildSteps(
       BuildContext context,
       BuildableContext buildableContext) {
+
+    buildableContext.recordArtifact(output);
+
     ImmutableList.Builder<Path> compileSrcListBuilder = ImmutableList.builder();
     ImmutableList.Builder<Path> headerSrcListBuilder = ImmutableList.builder();
     ImmutableList.Builder<Path> asmSrcListBuilder = ImmutableList.builder();
@@ -124,7 +130,9 @@ public class GoCompile extends AbstractBuildRule {
 
     if (!asmSrcs.isEmpty()) {
       asmHeaderPath = Optional.of(BuildTargets.getScratchPath(
-          getBuildTarget(), "%s/" + getBuildTarget().getShortName() + "__asm_hdr")
+          getProjectFilesystem(),
+          getBuildTarget(),
+          "%s/" + getBuildTarget().getShortName() + "__asm_hdr")
           .resolve("go_asm.h"));
 
       steps.add(new MkdirStep(getProjectFilesystem(), asmHeaderPath.get().getParent()));
@@ -134,23 +142,29 @@ public class GoCompile extends AbstractBuildRule {
 
     boolean allowExternalReferences = !asmSrcs.isEmpty();
 
-    steps.add(new GoCompileStep(
-        getProjectFilesystem().getRootPath(),
-        compiler.getEnvironment(getResolver()),
-        compiler.getCommandPrefix(getResolver()),
-        compilerFlags,
-        packageName,
-        compileSrcs,
-        importPathMap,
-        ImmutableList.of(symlinkTree.getRoot()),
-        asmHeaderPath,
-        allowExternalReferences,
-        platform,
-        output));
+    if (compileSrcs.isEmpty()) {
+      steps.add(new TouchStep(getProjectFilesystem(), output));
+    } else {
+      steps.add(new GoCompileStep(
+          getProjectFilesystem().getRootPath(),
+          compiler.getEnvironment(getResolver()),
+          compiler.getCommandPrefix(getResolver()),
+          compilerFlags,
+          packageName,
+          compileSrcs,
+          importPathMap,
+          ImmutableList.of(symlinkTree.getRoot()),
+          asmHeaderPath,
+          allowExternalReferences,
+          platform,
+          output));
+    }
 
     if (!asmSrcs.isEmpty()) {
       Path asmIncludeDir = BuildTargets.getScratchPath(
-          getBuildTarget(), "%s/" + getBuildTarget().getShortName() + "__asm_includes");
+          getProjectFilesystem(),
+          getBuildTarget(),
+          "%s/" + getBuildTarget().getShortName() + "__asm_includes");
       steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), asmIncludeDir));
 
       if (!headerSrcs.isEmpty()) {
@@ -165,7 +179,9 @@ public class GoCompile extends AbstractBuildRule {
       }
 
       Path asmOutputDir = BuildTargets.getScratchPath(
-          getBuildTarget(), "%s/" + getBuildTarget().getShortName() + "__asm_compile");
+          getProjectFilesystem(),
+          getBuildTarget(),
+          "%s/" + getBuildTarget().getShortName() + "__asm_compile");
       steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), asmOutputDir));
 
       ImmutableList.Builder<Path> asmOutputs = ImmutableList.builder();

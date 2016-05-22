@@ -27,9 +27,11 @@ import static org.junit.Assume.assumeTrue;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxStrip;
 import com.facebook.buck.cxx.StripStyle;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
+import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
@@ -41,6 +43,7 @@ import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 
 import org.hamcrest.Matchers;
+import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 
@@ -54,6 +57,14 @@ public class AppleBinaryIntegrationTest {
   @Rule
   public TemporaryPaths tmp = new TemporaryPaths();
 
+  private ProjectFilesystem filesystem;
+
+  @Before
+  public void setUp() {
+    assumeTrue(Platform.detect() == Platform.MACOS || Platform.detect() == Platform.LINUX);
+    filesystem = new ProjectFilesystem(tmp.getRoot());
+  }
+
   @Test
   public void testAppleBinaryBuildsBinary() throws Exception {
     assumeTrue(Platform.detect() == Platform.MACOS);
@@ -64,7 +75,7 @@ public class AppleBinaryIntegrationTest {
     BuildTarget target = BuildTargetFactory.newInstance("//Apps/TestApp:TestApp");
     workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
 
-    Path outputPath = workspace.getPath(BuildTargets.getGenPath(target, "%s"));
+    Path outputPath = workspace.getPath(BuildTargets.getGenPath(filesystem, target, "%s"));
     assertThat(Files.exists(outputPath), is(true));
     assertThat(Files.exists(Paths.get(outputPath.toString() + "-LinkMap.txt")), is(true));
     assertThat(
@@ -84,7 +95,7 @@ public class AppleBinaryIntegrationTest {
 
     BuildTarget implicitTarget = target.withAppendedFlavors(
         ImmutableFlavor.of("iphoneos-arm64"));
-    Path outputPath = workspace.getPath(BuildTargets.getGenPath(implicitTarget, "%s"));
+    Path outputPath = workspace.getPath(BuildTargets.getGenPath(filesystem, implicitTarget, "%s"));
     assertThat(Files.exists(outputPath), is(true));
     assertThat(Files.exists(Paths.get(outputPath.toString() + "-LinkMap.txt")), is(true));
     assertThat(
@@ -107,7 +118,7 @@ public class AppleBinaryIntegrationTest {
 
     BuildTarget implicitTarget = target.withAppendedFlavors(
         ImmutableFlavor.of("iphoneos-arm64"));
-    Path outputPath = workspace.getPath(BuildTargets.getGenPath(implicitTarget, "%s"));
+    Path outputPath = workspace.getPath(BuildTargets.getGenPath(filesystem, implicitTarget, "%s"));
     assertThat(Files.exists(outputPath), is(true));
     assertThat(Files.exists(Paths.get(outputPath.toString() + "-LinkMap.txt")), is(true));
     assertThat(
@@ -129,7 +140,7 @@ public class AppleBinaryIntegrationTest {
         BuildTargetFactory.newInstance("//Apps/TestApp:TestAppWithNonstandardMain");
     workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
 
-    Path outputPath = workspace.getPath(BuildTargets.getGenPath(target, "%s"));
+    Path outputPath = workspace.getPath(BuildTargets.getGenPath(filesystem, target, "%s"));
     assertThat(Files.exists(outputPath), is(true));
     assertThat(
         workspace.runCommand("file", outputPath.toString()).getStdout().get(),
@@ -152,13 +163,13 @@ public class AppleBinaryIntegrationTest {
         AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR,
         AppleDebugFormat.DWARF_AND_DSYM.getFlavor());
     Path outputPath = workspace.getPath(
-        BuildTargets.getGenPath(appTarget, "%s")
+        BuildTargets.getGenPath(filesystem, appTarget, "%s")
             .resolve(appTarget.getShortName() + ".app"));
     assertThat(Files.exists(outputPath), is(true));
     assertThat(Files.exists(outputPath.resolve("Info.plist")), is(true));
 
     Path dsymPath = workspace.getPath(
-        BuildTargets.getGenPath(appTarget, "%s")
+        BuildTargets.getGenPath(filesystem, appTarget, "%s")
             .resolve(appTarget.getShortName() + ".app.dSYM"));
     assertThat(Files.exists(dsymPath), is(true));
     assertThat(
@@ -183,13 +194,13 @@ public class AppleBinaryIntegrationTest {
         AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR,
         AppleDebugFormat.NONE.getFlavor());
     Path outputPath = workspace.getPath(
-        BuildTargets.getGenPath(appTarget, "%s")
+        BuildTargets.getGenPath(filesystem, appTarget, "%s")
             .resolve(appTarget.getShortName() + ".app"));
     assertThat(Files.exists(outputPath), is(true));
     assertThat(Files.exists(outputPath.resolve("Info.plist")), is(true));
 
     Path dsymPath = workspace.getPath(
-        BuildTargets.getGenPath(appTarget, "%s")
+        BuildTargets.getGenPath(filesystem, appTarget, "%s")
             .resolve(appTarget.getShortName() + ".app.dSYM"));
     assertThat(Files.exists(dsymPath), is(false));
   }
@@ -205,7 +216,7 @@ public class AppleBinaryIntegrationTest {
     BuildTarget target = BuildTargetFactory.newInstance("//Apps/TestApp:TestApp#macosx-x86_64");
     workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
 
-    Path outputPath = workspace.getPath(BuildTargets.getGenPath(target, "%s"));
+    Path outputPath = workspace.getPath(BuildTargets.getGenPath(filesystem, target, "%s"));
     assertThat(Files.exists(outputPath), is(true));
     assertThat(
         workspace.runCommand("file", outputPath.toString()).getStdout().get(),
@@ -223,7 +234,7 @@ public class AppleBinaryIntegrationTest {
     BuildTarget target = BuildTargetFactory.newInstance("//Apps/TestApp:TestApp#macosx-x86_64");
     workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
 
-    Path outputPath = workspace.getPath(BuildTargets.getGenPath(target, "%s"));
+    Path outputPath = workspace.getPath(BuildTargets.getGenPath(filesystem, target, "%s"));
     assertThat(Files.exists(outputPath), is(true));
     assertThat(
         workspace.runCommand("file", outputPath.toString()).getStdout().get(),
@@ -244,6 +255,7 @@ public class AppleBinaryIntegrationTest {
 
     Path bundlePath = workspace.getPath(
         BuildTargets.getGenPath(
+            filesystem,
             target.withAppendedFlavors(
                 AppleDebugFormat.DWARF_AND_DSYM.getFlavor(),
                 AppleDescriptions.INCLUDE_FRAMEWORKS_FLAVOR),
@@ -275,7 +287,7 @@ public class AppleBinaryIntegrationTest {
     BuildTarget target = BuildTargetFactory.newInstance("//Apps/TestApp:TestApp#macosx-x86_64");
     workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
 
-    Path outputPath = workspace.getPath(BuildTargets.getGenPath(target, "%s"));
+    Path outputPath = workspace.getPath(BuildTargets.getGenPath(filesystem, target, "%s"));
     assertThat(Files.exists(outputPath), is(true));
     assertThat(
         workspace.runCommand("file", outputPath.toString()).getStdout().get(),
@@ -290,7 +302,7 @@ public class AppleBinaryIntegrationTest {
         this, "apple_binary_with_library_dependency_builds_something", tmp);
     workspace.setUp();
     ProjectWorkspace.ProcessResult buildResult =
-      workspace.runBuckCommand("build", "//Apps/TestApp:BadTestApp");
+        workspace.runBuckCommand("build", "//Apps/TestApp:BadTestApp");
     buildResult.assertFailure();
     String stderr = buildResult.getStderr();
     assertTrue(stderr.contains("bad-flag"));
@@ -305,7 +317,7 @@ public class AppleBinaryIntegrationTest {
     workspace.setUp();
 
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//Apps/TestApp:TestApp#default," +
-            CxxDescriptionEnhancer.HEADER_SYMLINK_TREE_FLAVOR);
+        CxxDescriptionEnhancer.HEADER_SYMLINK_TREE_FLAVOR);
     ProjectWorkspace.ProcessResult result = workspace.runBuckCommand(
         "build",
         buildTarget.getFullyQualifiedName());
@@ -316,7 +328,7 @@ public class AppleBinaryIntegrationTest {
     Path inputPath = projectRoot.resolve(
         buildTarget.getBasePath());
     Path outputPath = projectRoot.resolve(
-        BuildTargets.getGenPath(buildTarget, "%s"));
+        BuildTargets.getGenPath(filesystem, buildTarget, "%s"));
 
     assertIsSymbolicLink(
         outputPath.resolve("Header.h"),
@@ -335,7 +347,7 @@ public class AppleBinaryIntegrationTest {
     BuildTarget target = BuildTargetFactory.newInstance("//Apps/TestApp:TestApp");
     workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
 
-    Path outputPath = workspace.getPath(BuildTargets.getGenPath(target, "%s"));
+    Path outputPath = workspace.getPath(BuildTargets.getGenPath(filesystem, target, "%s"));
     assertThat(Files.exists(outputPath), is(true));
     assertThat(
         workspace.runCommand("file", outputPath.toString()).getStdout().get(),
@@ -348,13 +360,13 @@ public class AppleBinaryIntegrationTest {
 
     String expectedError =
         "Apps/TestApp/main.c:2:3: error: use of undeclared identifier 'SomeType'\n" +
-        "  SomeType a;\n" +
-        "  ^\n";
+            "  SomeType a;\n" +
+            "  ^\n";
     String expectedWarning =
         "Apps/TestApp/main.c:3:10: warning: implicit conversion from 'double' to 'int' changes " +
-        "value from 0.42 to 0 [-Wliteral-conversion]\n" +
-        "  return 0.42;\n" +
-        "  ~~~~~~ ^~~~\n";
+            "value from 0.42 to 0 [-Wliteral-conversion]\n" +
+            "  return 0.42;\n" +
+            "  ~~~~~~ ^~~~\n";
     String expectedSummary = "1 warning and 1 error generated.\n";
 
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
@@ -368,8 +380,8 @@ public class AppleBinaryIntegrationTest {
 
     assertTrue(
         stderr.contains(expectedError) &&
-        stderr.contains(expectedWarning) &&
-        stderr.contains(expectedSummary));
+            stderr.contains(expectedWarning) &&
+            stderr.contains(expectedSummary));
   }
 
   @Test
@@ -394,6 +406,7 @@ public class AppleBinaryIntegrationTest {
     second.assertSuccess();
 
     Path outputPath = BuildTargets.getGenPath(
+        filesystem,
         target.withFlavors(
             ImmutableFlavor.of("iphonesimulator-x86_64"),
             ImmutableFlavor.of("compile-" + sanitize("TestClass.m.o"))),
@@ -401,7 +414,7 @@ public class AppleBinaryIntegrationTest {
     MoreAsserts.assertContentsEqual(
         workspace.getPath(Paths.get("first").resolve(outputPath)),
         workspace.getPath(Paths.get("second").resolve(outputPath)));
-    outputPath = BuildTargets.getGenPath(target, "%s");
+    outputPath = BuildTargets.getGenPath(filesystem, target, "%s");
     MoreAsserts.assertContentsEqual(
         workspace.getPath(Paths.get("first").resolve(outputPath)),
         workspace.getPath(Paths.get("second").resolve(outputPath)));
@@ -430,6 +443,7 @@ public class AppleBinaryIntegrationTest {
     second.assertSuccess();
 
     Path outputPath = BuildTargets.getGenPath(
+        filesystem,
         target.withFlavors(
             ImmutableFlavor.of("iphonesimulator-x86_64"),
             ImmutableFlavor.of("compile-" + sanitize("TestClass.m.o"))),
@@ -438,6 +452,7 @@ public class AppleBinaryIntegrationTest {
         workspace.getPath(Paths.get("first").resolve(outputPath)),
         workspace.getPath(Paths.get("second").resolve(outputPath)));
     outputPath = BuildTargets.getGenPath(
+        filesystem,
         target.withoutFlavors(AppleDebugFormat.FLAVOR_DOMAIN.getFlavors()),
         "%s");
     MoreAsserts.assertContentsEqual(
@@ -446,6 +461,7 @@ public class AppleBinaryIntegrationTest {
 
     if (debugFormat != AppleDebugFormat.DWARF) {
       Path strippedPath = BuildTargets.getGenPath(
+          filesystem,
           target
               .withoutFlavors(AppleDebugFormat.FLAVOR_DOMAIN.getFlavors())
               .withAppendedFlavors(StripStyle.NON_GLOBAL_SYMBOLS.getFlavor(), CxxStrip.RULE_FLAVOR),
@@ -481,7 +497,7 @@ public class AppleBinaryIntegrationTest {
         "//:DemoAppBinary#iphonesimulator-i386,iphonesimulator-x86_64");
     workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
 
-    Path output = workspace.getPath(BuildTargets.getGenPath(target, "%s"));
+    Path output = workspace.getPath(BuildTargets.getGenPath(filesystem, target, "%s"));
     assertThat(Files.exists(output), is(true));
     assertThat(
         workspace.runCommand("file", output.toString()).getStdout().get(),
@@ -507,7 +523,7 @@ public class AppleBinaryIntegrationTest {
         .withAppendedFlavors(AppleDebugFormat.DWARF_AND_DSYM.getFlavor());
     BuildTarget dsymTarget = target.withAppendedFlavors(AppleDsym.RULE_FLAVOR);
     workspace.runBuckCommand("build", targetToBuild.getFullyQualifiedName()).assertSuccess();
-    Path output = workspace.getPath(AppleDsym.getDsymOutputPath(dsymTarget));
+    Path output = workspace.getPath(AppleDsym.getDsymOutputPath(dsymTarget, filesystem));
     AppleDsymTestUtil
         .checkDsymFileHasDebugSymbolsForMainForConcreteArchitectures(
             workspace,
@@ -526,14 +542,14 @@ public class AppleBinaryIntegrationTest {
     workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
     workspace.runBuckCommand("build",
         "--config",
-        "apple.default_debug_info_format=none",
+        "apple.default_debug_info_format_for_binaries=none",
         target.getFullyQualifiedName())
         .assertSuccess();
     BuildTarget appTarget = target.withFlavors(
         AppleDebugFormat.DWARF_AND_DSYM.getFlavor(),
         AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR);
     Path output = workspace.getPath(
-        BuildTargets.getGenPath(appTarget, "%s")
+        BuildTargets.getGenPath(filesystem, appTarget, "%s")
             .resolve(target.getShortName() + ".app.dSYM")
             .resolve("Contents/Resources/DWARF")
             .resolve(target.getShortName()));
@@ -541,7 +557,7 @@ public class AppleBinaryIntegrationTest {
     AppleDsymTestUtil.checkDsymFileHasDebugSymbolForMain(workspace, output);
 
     Path binaryOutput = workspace.getPath(
-        BuildTargets.getGenPath(appTarget, "%s")
+        BuildTargets.getGenPath(filesystem, appTarget, "%s")
             .resolve(target.getShortName() + ".app")
             .resolve(target.getShortName()));
     assertThat(Files.exists(binaryOutput), Matchers.equalTo(true));
@@ -565,7 +581,7 @@ public class AppleBinaryIntegrationTest {
         AppleDebugFormat.DWARF.getFlavor(),
         AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR);
     Path output = workspace.getPath(
-        BuildTargets.getGenPath(appTarget, "%s")
+        BuildTargets.getGenPath(filesystem, appTarget, "%s")
             .resolve(target.getShortName() + ".app")
             .resolve(target.getShortName()));
     assertThat(Files.exists(output), Matchers.equalTo(true));
@@ -573,6 +589,168 @@ public class AppleBinaryIntegrationTest {
     String stdout = hasSymbol.getStdout().or("");
     assertThat(stdout, containsString("t -[AppDelegate window]"));
     assertThat(stdout, containsString("U _UIApplicationMain"));
+  }
+
+  @Test
+  public void testBuildingWithDwarfProducesAllCompileRulesOnDisk() throws Exception {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "simple_application_bundle_dwarf_and_dsym", tmp);
+    workspace.setUp();
+    workspace.enableDirCache();
+
+    Flavor platformFlavor = ImmutableFlavor.of("iphonesimulator-x86_64");
+
+    BuildTarget target = BuildTargetFactory.newInstance("//:DemoApp")
+        .withAppendedFlavors(AppleDebugFormat.DWARF.getFlavor());
+    BuildTarget binaryTarget = BuildTargetFactory.newInstance("//:DemoAppBinary")
+        .withAppendedFlavors(platformFlavor, AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR);
+    workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
+    workspace.runBuckCommand("clean").assertSuccess();
+    workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
+
+    BuildTarget appTarget = target.withFlavors(
+        AppleDebugFormat.DWARF.getFlavor(),
+        AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR);
+
+    Path binaryOutput = workspace.getPath(
+        BuildTargets.getGenPath(filesystem, appTarget, "%s")
+            .resolve(target.getShortName() + ".app")
+            .resolve(target.getShortName()));
+
+    Path delegateFileOutput = workspace.getPath(
+        BuildTargets
+            .getGenPath(
+                filesystem,
+                binaryTarget.withFlavors(
+                    platformFlavor,
+                    ImmutableFlavor.of("compile-" + sanitize("AppDelegate.m.o")),
+                    AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR),
+                "%s")
+            .resolve("AppDelegate.m.o"));
+
+    Path mainFileOutput = workspace.getPath(
+        BuildTargets
+            .getGenPath(
+                filesystem,
+                binaryTarget.withFlavors(
+                    platformFlavor,
+                    ImmutableFlavor.of("compile-" + sanitize("main.m.o")),
+                    AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR),
+                "%s")
+            .resolve("main.m.o"));
+
+    assertThat(Files.exists(binaryOutput), Matchers.equalTo(true));
+    assertThat(Files.exists(delegateFileOutput), Matchers.equalTo(true));
+    assertThat(Files.exists(mainFileOutput), Matchers.equalTo(true));
+  }
+
+  @Test
+  public void testBuildingWithNoDebugDoesNotProduceAllCompileRulesOnDisk() throws Exception {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "simple_application_bundle_dwarf_and_dsym", tmp);
+    workspace.setUp();
+    workspace.enableDirCache();
+
+    Flavor platformFlavor = ImmutableFlavor.of("iphonesimulator-x86_64");
+
+    BuildTarget target = BuildTargetFactory.newInstance("//:DemoApp")
+        .withAppendedFlavors(AppleDebugFormat.NONE.getFlavor());
+    BuildTarget binaryTarget = BuildTargetFactory.newInstance("//:DemoAppBinary")
+        .withAppendedFlavors(platformFlavor, AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR);
+    workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
+    workspace.runBuckCommand("clean").assertSuccess();
+    workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
+
+    BuildTarget appTarget = target.withFlavors(
+        AppleDebugFormat.NONE.getFlavor(),
+        AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR);
+
+    Path binaryOutput = workspace.getPath(
+        BuildTargets.getGenPath(filesystem, appTarget, "%s")
+            .resolve(target.getShortName() + ".app")
+            .resolve(target.getShortName()));
+
+    Path delegateFileOutput = workspace.getPath(
+        BuildTargets
+            .getGenPath(
+                filesystem,
+                binaryTarget.withFlavors(
+                    platformFlavor,
+                    ImmutableFlavor.of("compile-" + sanitize("AppDelegate.m.o")),
+                    AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR),
+                "%s")
+            .resolve("AppDelegate.m.o"));
+
+    Path mainFileOutput = workspace.getPath(
+        BuildTargets
+            .getGenPath(
+                filesystem,
+                binaryTarget.withFlavors(
+                    platformFlavor,
+                    ImmutableFlavor.of("compile-" + sanitize("main.m.o")),
+                    AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR),
+                "%s")
+            .resolve("main.m.o"));
+
+    assertThat(Files.exists(binaryOutput), Matchers.equalTo(true));
+    assertThat(Files.exists(delegateFileOutput), Matchers.equalTo(false));
+    assertThat(Files.exists(mainFileOutput), Matchers.equalTo(false));
+  }
+
+  @Test
+  public void testBuildingWithDwarfAndDsymDoesNotProduceAllCompileRulesOnDisk() throws Exception {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "simple_application_bundle_dwarf_and_dsym", tmp);
+    workspace.setUp();
+    workspace.enableDirCache();
+
+    Flavor platformFlavor = ImmutableFlavor.of("iphonesimulator-x86_64");
+
+    BuildTarget target = BuildTargetFactory.newInstance("//:DemoApp")
+        .withAppendedFlavors(AppleDebugFormat.DWARF_AND_DSYM.getFlavor());
+    BuildTarget binaryTarget = BuildTargetFactory.newInstance("//:DemoAppBinary")
+        .withAppendedFlavors(platformFlavor, AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR);
+    workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
+    workspace.runBuckCommand("clean").assertSuccess();
+    workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
+
+    BuildTarget appTarget = target.withFlavors(
+        AppleDebugFormat.DWARF_AND_DSYM.getFlavor(),
+        AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR);
+
+    Path binaryOutput = workspace.getPath(
+        BuildTargets.getGenPath(filesystem, appTarget, "%s")
+            .resolve(target.getShortName() + ".app")
+            .resolve(target.getShortName()));
+
+    Path delegateFileOutput = workspace.getPath(
+        BuildTargets
+            .getGenPath(
+                filesystem,
+                binaryTarget.withFlavors(
+                    platformFlavor,
+                    ImmutableFlavor.of("compile-" + sanitize("AppDelegate.m.o")),
+                    AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR),
+                "%s")
+            .resolve("AppDelegate.m.o"));
+
+    Path mainFileOutput = workspace.getPath(
+        BuildTargets
+            .getGenPath(
+                filesystem,
+                binaryTarget.withFlavors(
+                    platformFlavor,
+                    ImmutableFlavor.of("compile-" + sanitize("main.m.o")),
+                    AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR),
+                "%s")
+            .resolve("main.m.o"));
+
+    assertThat(Files.exists(binaryOutput), Matchers.equalTo(true));
+    assertThat(Files.exists(delegateFileOutput), Matchers.equalTo(false));
+    assertThat(Files.exists(mainFileOutput), Matchers.equalTo(false));
   }
 
   @Test
@@ -585,13 +763,13 @@ public class AppleBinaryIntegrationTest {
     BuildTarget target = BuildTargetFactory.newInstance("//:DemoApp#no-debug");
     workspace.runBuckCommand("build",
         "--config",
-        "apple.default_debug_info_format=dwarf_and_dsym",
+        "apple.default_debug_info_format_for_binaries=dwarf_and_dsym",
         target.getFullyQualifiedName())
         .assertSuccess();
     assertThat(
         Files.exists(
             workspace.getPath(
-                BuildTargets.getGenPath(target, "%s")
+                BuildTargets.getGenPath(filesystem, target, "%s")
                     .resolve(target.getShortName() + ".app.dSYM")
                     .resolve("Contents/Resources/DWARF")
                     .resolve(target.getShortName()))),
@@ -601,6 +779,7 @@ public class AppleBinaryIntegrationTest {
             workspace.getPath(
                 BuildTargets
                     .getGenPath(
+                        filesystem,
                         target.withFlavors(AppleDebugFormat.DWARF_AND_DSYM.getFlavor()),
                         "%s")
                     .resolve(target.getShortName() + ".app.dSYM")
@@ -610,7 +789,7 @@ public class AppleBinaryIntegrationTest {
     assertThat(
         Files.exists(
             workspace.getPath(
-                BuildTargets.getGenPath(target.withFlavors(), "%s")
+                BuildTargets.getGenPath(filesystem, target.withFlavors(), "%s")
                     .resolve(target.getShortName() + ".app.dSYM")
                     .resolve("Contents/Resources/DWARF")
                     .resolve(target.getShortName()))),
@@ -620,7 +799,7 @@ public class AppleBinaryIntegrationTest {
         AppleDebugFormat.NONE.getFlavor(),
         AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR);
     Path binaryOutput = workspace.getPath(
-        BuildTargets.getGenPath(appTarget, "%s")
+        BuildTargets.getGenPath(filesystem, appTarget, "%s")
             .resolve(target.getShortName() + ".app")
             .resolve(target.getShortName()));
     assertThat(Files.exists(binaryOutput), Matchers.equalTo(true));
@@ -640,14 +819,14 @@ public class AppleBinaryIntegrationTest {
     BuildTarget target = BuildTargetFactory.newInstance("//:DemoApp");
     workspace.runBuckCommand("build",
         "--config",
-        "apple.default_debug_info_format=dwarf_and_dsym",
+        "apple.default_debug_info_format_for_binaries=dwarf_and_dsym",
         target.getFullyQualifiedName())
         .assertSuccess();
     BuildTarget appTarget = target.withFlavors(
         AppleDebugFormat.DWARF_AND_DSYM.getFlavor(),
         AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR);
     Path dwarfPath = workspace.getPath(
-        BuildTargets.getGenPath(appTarget, "%s")
+        BuildTargets.getGenPath(filesystem, appTarget, "%s")
             .resolve(appTarget.getShortName() + ".app.dSYM")
             .resolve("Contents/Resources/DWARF")
             .resolve(appTarget.getShortName()));
@@ -664,14 +843,14 @@ public class AppleBinaryIntegrationTest {
     BuildTarget target = BuildTargetFactory.newInstance("//:DemoApp");
     workspace.runBuckCommand("build",
         "--config",
-        "apple.default_debug_info_format=none",
+        "apple.default_debug_info_format_for_binaries=none",
         target.getFullyQualifiedName())
         .assertSuccess();
     BuildTarget appTarget = target.withFlavors(AppleDebugFormat.NONE.getFlavor());
     assertThat(
         Files.exists(
             workspace.getPath(
-                BuildTargets.getGenPath(appTarget, "%s")
+                BuildTargets.getGenPath(filesystem, appTarget, "%s")
                     .resolve(appTarget.getShortName() + ".app.dSYM")
                     .resolve("Contents/Resources/DWARF")
                     .resolve(appTarget.getShortName()))),

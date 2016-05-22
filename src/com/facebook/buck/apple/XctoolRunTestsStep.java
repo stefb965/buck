@@ -21,6 +21,7 @@ import com.facebook.buck.io.TeeInputStream;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
+import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.test.selectors.TestDescription;
 import com.facebook.buck.test.selectors.TestSelectorList;
 import com.facebook.buck.util.Console;
@@ -80,6 +81,7 @@ class XctoolRunTestsStep implements Step {
   private static final Logger LOG = Logger.get(XctoolRunTestsStep.class);
 
   private final ImmutableList<String> command;
+  private final ImmutableMap<String, String> environmentOverrides;
   private final Optional<Long> xctoolStutterTimeout;
   private final Path outputPath;
   private final Optional<? extends StdoutReadingCallback> stdoutReadingCallback;
@@ -151,6 +153,7 @@ class XctoolRunTestsStep implements Step {
   public XctoolRunTestsStep(
       ProjectFilesystem filesystem,
       Path xctoolPath,
+      ImmutableMap<String, String> environmentOverrides,
       Optional<Long> xctoolStutterTimeout,
       String sdkName,
       Optional<String> destinationSpecifier,
@@ -192,6 +195,7 @@ class XctoolRunTestsStep implements Step {
         destinationSpecifier,
         logicTestBundlePaths,
         appTestBundleToHostAppPaths);
+    this.environmentOverrides = environmentOverrides;
     this.xctoolStutterTimeout = xctoolStutterTimeout;
     this.outputPath = outputPath;
     this.stdoutReadingCallback = stdoutReadingCallback;
@@ -231,11 +235,12 @@ class XctoolRunTestsStep implements Step {
           logLevel.get());
     }
 
+    environment.putAll(this.environmentOverrides);
     return ImmutableMap.copyOf(environment);
   }
 
   @Override
-  public int execute(ExecutionContext context) throws InterruptedException {
+  public StepExecutionResult execute(ExecutionContext context) throws InterruptedException {
     ImmutableMap<String, String> env = getEnv(context);
 
     ProcessExecutorParams.Builder processExecutorParamsBuilder = ProcessExecutorParams.builder()
@@ -259,7 +264,7 @@ class XctoolRunTestsStep implements Step {
             xctoolFilterParamsBuilder);
         if (returnCode != 0) {
           context.getConsole().printErrorText("Failed to query tests with xctool");
-          return returnCode;
+          return StepExecutionResult.of(returnCode);
         }
         ImmutableList<String> xctoolFilterParams = xctoolFilterParamsBuilder.build();
         if (xctoolFilterParams.isEmpty()) {
@@ -268,13 +273,13 @@ class XctoolRunTestsStep implements Step {
                   Locale.US,
                   "No tests found matching specified filter (%s)",
                   testSelectorList.getExplanation()));
-          return 0;
+          return StepExecutionResult.SUCCESS;
         }
         processExecutorParamsBuilder.addAllCommand(xctoolFilterParams);
       } catch (IOException e) {
         context.getConsole().printErrorText("Failed to get list of tests from test bundle");
         context.getConsole().printBuildFailureWithStacktrace(e);
-        return 1;
+        return StepExecutionResult.ERROR;
       }
     }
 
@@ -337,13 +342,13 @@ class XctoolRunTestsStep implements Step {
           }
         }
 
-        return exitCode;
+        return StepExecutionResult.of(exitCode);
 
       } catch (Exception e) {
         LOG.error(e, "Exception while running %s", processExecutorParams.getCommand());
         MoreThrowables.propagateIfInterrupt(e);
         context.getConsole().printBuildFailureWithStacktrace(e);
-        return 1;
+        return StepExecutionResult.ERROR;
       }
     } finally {
       releaseStutterLock(stutterLockIsNotified);
