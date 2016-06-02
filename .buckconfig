@@ -2,11 +2,15 @@
     ; Indicates that any folder named src or test
     ; are folders that contain Java code.
     src_roots = src, test
+    source_level = 7
+    target_level = 7
 [alias]
     buck = //programs:buck
     buck-android-support = //src/com/facebook/buck/android/support:buck-android-support
     hmaptool = //src/com/facebook/buck/apple/clang:hmaptool
     maven-importer = //src/com/facebook/buck/maven:resolver
+[autodeps]
+   java-package-mappings = com.google.caliper => //third-party/java/caliper:caliper
 [buildfile]
     includes = //DEFS
 [cache]
@@ -50,4 +54,3 @@
       TEMP, \
       TMPDIR, \
       TMP
-       

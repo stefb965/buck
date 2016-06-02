@@ -30,6 +30,7 @@ import static org.junit.Assert.fail;
 
 import com.facebook.buck.android.AndroidBinary.ExopackageMode;
 import com.facebook.buck.android.NdkCxxPlatforms.TargetCpuType;
+import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.cxx.CxxPlatformUtils;
 import com.facebook.buck.jvm.core.HasJavaClassHashes;
@@ -139,6 +140,7 @@ public class AndroidBinaryGraphEnhancerTest {
         /* buildConfigValues */ BuildConfigFields.empty(),
         /* buildConfigValuesFile */ Optional.<SourcePath>absent(),
         /* xzCompressionLevel */ Optional.<Integer>absent(),
+        /* trimResourceIds */ false,
         /* nativePlatforms */ ImmutableMap.<TargetCpuType, NdkCxxPlatform>of(),
         AndroidBinary.RelinkerMode.DISABLED,
         MoreExecutors.newDirectExecutorService(),
@@ -158,8 +160,6 @@ public class AndroidBinaryGraphEnhancerTest {
         ImmutableSet.<SourcePath>of(),
         /* resourceUnionPackage */ Optional.<String>absent(),
         AndroidBinary.PackageType.DEBUG,
-        ANDROID_JAVAC_OPTIONS,
-        false,
         false,
         /* skipCrunchPngs */ false,
         /* manifestEntries */ ManifestEntries.empty());
@@ -177,12 +177,27 @@ public class AndroidBinaryGraphEnhancerTest {
             ((HasJavaClassHashes) javaLib), new FakeSourcePath("ignored"))
         .build();
 
+    ImmutableSet<DexProducedFromJavaLibrary> preDexedLibraries =
+        graphEnhancer.createPreDexRulesForLibraries(
+            /* preDexRulesNotInThePackageableCollection */
+              ImmutableList.<DexProducedFromJavaLibrary>of(),
+            collection);
+
+    BuildTarget fakeUberRDotJavaCompileTarget = BuildTargetFactory.newInstance(
+        "//fake:uber_r_dot_java#compile");
+    JavaLibrary fakeUberRDotJavaCompile = (JavaLibrary)
+        JavaLibraryBuilder.createBuilder(fakeUberRDotJavaCompileTarget).build(ruleResolver);
+    BuildTarget fakeUberRDotJavaDexTarget = BuildTargetFactory.newInstance(
+        "//fake:uber_r_dot_java#dex");
+    DexProducedFromJavaLibrary fakeUberRDotJavaDex = new DexProducedFromJavaLibrary(
+        new FakeBuildRuleParamsBuilder(fakeUberRDotJavaDexTarget).build(),
+        new SourcePathResolver(ruleResolver),
+        fakeUberRDotJavaCompile);
+    ruleResolver.addToIndex(fakeUberRDotJavaDex);
 
     BuildRule preDexMergeRule = graphEnhancer.createPreDexMergeRule(
-        aaptPackageResources,
-        /* preDexRulesNotInThePackageableCollection */ ImmutableList
-            .<DexProducedFromJavaLibrary>of(),
-        collection);
+        preDexedLibraries,
+        fakeUberRDotJavaDex);
     BuildTarget dexMergeTarget =
         BuildTargetFactory.newInstance("//java/com/example:apk#dex_merge");
     BuildRule dexMergeRule = ruleResolver.getRule(dexMergeTarget);
@@ -206,11 +221,12 @@ public class AndroidBinaryGraphEnhancerTest {
             "list.  And we should depend on uber_r_dot_java",
         Iterables.transform(dexMergeRule.getDeps(), HasBuildTarget.TO_TARGET),
         Matchers.allOf(
-            Matchers.hasItem(javaDep1BuildTarget),
+            Matchers.not(Matchers.hasItem(javaDep1BuildTarget)),
             Matchers.hasItem(javaDep1DexBuildTarget),
+            Matchers.not(Matchers.hasItem(javaDep2BuildTarget)),
             Matchers.not(Matchers.hasItem(javaDep2DexBuildTarget)),
             Matchers.hasItem(javaLibDexBuildTarget),
-            Matchers.hasItem(aaptPackageResources.getBuildTarget())));
+            Matchers.hasItem(fakeUberRDotJavaDex.getBuildTarget())));
   }
 
   @Test
@@ -264,6 +280,7 @@ public class AndroidBinaryGraphEnhancerTest {
         /* buildConfigValues */ BuildConfigFields.empty(),
         /* buildConfigValuesFiles */ Optional.<SourcePath>absent(),
         /* xzCompressionLevel */ Optional.<Integer>absent(),
+        /* trimResourceIds */ false,
         /* nativePlatforms */ ImmutableMap.<TargetCpuType, NdkCxxPlatform>of(),
         AndroidBinary.RelinkerMode.DISABLED,
         MoreExecutors.newDirectExecutorService(),
@@ -398,6 +415,7 @@ public class AndroidBinaryGraphEnhancerTest {
         /* buildConfigValues */ BuildConfigFields.empty(),
         /* buildConfigValuesFiles */ Optional.<SourcePath>absent(),
         /* xzCompressionLevel */ Optional.<Integer>absent(),
+        /* trimResourceIds */ false,
         /* nativePlatforms */ ImmutableMap.<TargetCpuType, NdkCxxPlatform>of(),
         AndroidBinary.RelinkerMode.DISABLED,
         MoreExecutors.newDirectExecutorService(),
@@ -448,6 +466,7 @@ public class AndroidBinaryGraphEnhancerTest {
         /* buildConfigValues */ BuildConfigFields.empty(),
         /* buildConfigValuesFiles */ Optional.<SourcePath>absent(),
         /* xzCompressionLevel */ Optional.<Integer>absent(),
+        /* trimResourceIds */ false,
         /* nativePlatforms */ ImmutableMap.<TargetCpuType, NdkCxxPlatform>of(),
         AndroidBinary.RelinkerMode.DISABLED,
         MoreExecutors.newDirectExecutorService(),
@@ -525,6 +544,7 @@ public class AndroidBinaryGraphEnhancerTest {
         /* buildConfigValues */ BuildConfigFields.empty(),
         /* buildConfigValuesFiles */ Optional.<SourcePath>absent(),
         /* xzCompressionLevel */ Optional.<Integer>absent(),
+        /* trimResourceIds */ false,
         /* nativePlatforms */ ImmutableMap.<TargetCpuType, NdkCxxPlatform>of(),
         AndroidBinary.RelinkerMode.DISABLED,
         MoreExecutors.newDirectExecutorService(),

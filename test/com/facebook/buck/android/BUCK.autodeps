@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY abfe4e43263c848b75af772be206f2502d861b7b #@#
+#@# GENERATED FILE: DO NOT MODIFY 5eaa472eb49f7007bb2aed5002b504cd7fd42a59 #@#
 {
   "aar-integration" : {
     "deps" : [
@@ -23,6 +23,7 @@
       "//src/com/facebook/buck/model:model",
       "//src/com/facebook/buck/rules:build_rule",
       "//src/com/facebook/buck/util:exceptions",
+      "//src/com/facebook/buck/util:object_mapper",
       "//src/com/facebook/buck/util:util",
       "//src/com/facebook/buck/util/environment:platform",
       "//src/com/facebook/buck/zip:stream",
@@ -189,6 +190,7 @@
       "//test/com/facebook/buck/cxx:testutil",
       "//test/com/facebook/buck/event:testutil",
       "//test/com/facebook/buck/io:testutil",
+      "//test/com/facebook/buck/jvm/java:fakepackagefinder",
       "//test/com/facebook/buck/jvm/java:javac-env",
       "//test/com/facebook/buck/jvm/java:testutil",
       "//test/com/facebook/buck/model:testutil",

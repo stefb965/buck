@@ -45,7 +45,7 @@ import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
-import com.facebook.buck.rules.macros.MacroException;
+import com.facebook.buck.model.MacroException;
 import com.facebook.buck.rules.macros.MacroExpander;
 import com.facebook.buck.rules.macros.MacroHandler;
 import com.facebook.buck.util.HumanReadableException;
@@ -287,7 +287,8 @@ public class CxxLibraryDescription implements
     BuildTarget sharedTarget =
         CxxDescriptionEnhancer.createSharedLibraryBuildTarget(
             params.getBuildTarget(),
-            cxxPlatform.getFlavor());
+            cxxPlatform.getFlavor(),
+            linkType);
 
     if (objects.isEmpty()) {
       return new NoopBuildRule(
@@ -306,9 +307,8 @@ public class CxxLibraryDescription implements
         cxxPlatform);
     Path sharedLibraryPath = CxxDescriptionEnhancer.getSharedLibraryPath(
         params.getProjectFilesystem(),
-        params.getBuildTarget(),
-        sharedLibrarySoname,
-        cxxPlatform);
+        sharedTarget,
+        sharedLibrarySoname);
     ImmutableList.Builder<String> extraLdFlagsBuilder = ImmutableList.builder();
     extraLdFlagsBuilder.addAll(linkerFlags);
     ImmutableList<String> extraLdFlags = extraLdFlagsBuilder.build();

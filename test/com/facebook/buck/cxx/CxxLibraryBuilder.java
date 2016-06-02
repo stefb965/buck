@@ -64,6 +64,18 @@ public class CxxLibraryBuilder extends
     return this;
   }
 
+  public CxxLibraryBuilder setExportedPreprocessorFlags(
+      ImmutableList<String> exportedPreprocessorFlags) {
+    arg.exportedPreprocessorFlags = Optional.of(exportedPreprocessorFlags);
+    return getThis();
+  }
+
+  public CxxLibraryBuilder setExportedPlatformPreprocessorFlags(
+      PatternMatchedCollection<ImmutableList<String>> exportedPlatformPreprocessorFlags) {
+    arg.exportedPlatformPreprocessorFlags = Optional.of(exportedPlatformPreprocessorFlags);
+    return this;
+  }
+
   public CxxLibraryBuilder setExportedLinkerFlags(ImmutableList<String> exportedLinkerFlags) {
     arg.exportedLinkerFlags = Optional.of(exportedLinkerFlags);
     return this;

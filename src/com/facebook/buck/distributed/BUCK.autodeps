@@ -1,10 +1,9 @@
-#@# GENERATED FILE: DO NOT MODIFY 160b4c85e1a186dcaa31da0a3dd4b5d0ddc085aa #@#
+#@# GENERATED FILE: DO NOT MODIFY 8e0ca911a59ecf63503fa8f0ca36573a4a08e9e0 #@#
 {
   "distributed" : {
     "deps" : [
       "//src/com/facebook/buck/config:config",
       "//src/com/facebook/buck/log:api",
-      "//src/com/facebook/buck/timing:timing",
       "//src/com/facebook/buck/util/environment:platform",
       "//third-party/java/immutables:processor"
     ],
@@ -16,6 +15,7 @@
       "//src/com/facebook/buck/slb:slb",
       "//src/com/facebook/buck/util/immutables:immutables",
       "//third-party/java/guava:guava",
+      "//third-party/java/okhttp:okhttp",
       "//third-party/java/thrift:libthrift"
     ]
   }

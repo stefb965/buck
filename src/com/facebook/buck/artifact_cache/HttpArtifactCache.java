@@ -17,28 +17,12 @@
 package com.facebook.buck.artifact_cache;
 
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent.Finished;
-import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent.Started;
-import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.io.BorrowablePath;
 import com.facebook.buck.io.LazyPath;
-import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.slb.HttpResponse;
-import com.facebook.buck.slb.HttpService;
-import com.google.common.base.Optional;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.io.ByteSource;
-import com.google.common.util.concurrent.Futures;
-import com.google.common.util.concurrent.ListenableFuture;
-import com.google.common.util.concurrent.ListeningExecutorService;
-import com.squareup.okhttp.MediaType;
-import com.squareup.okhttp.Request;
-import com.squareup.okhttp.RequestBody;
 
 import java.io.DataInputStream;
 import java.io.IOException;
@@ -46,61 +30,31 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
-import java.util.regex.Matcher;
-import java.util.Set;
 
+import okhttp3.MediaType;
+import okhttp3.Request;
+import okhttp3.RequestBody;
 import okio.BufferedSink;
 
-public class HttpArtifactCache implements ArtifactCache {
+public class HttpArtifactCache extends AbstractNetworkCache {
+
+  public static final MediaType OCTET_STREAM_CONTENT_TYPE =
+      MediaType.parse("application/octet-stream");
 
   /**
    * If the user is offline, then we do not want to print every connection failure that occurs.
    * However, in practice, it appears that some connection failures can be intermittent, so we
    * should print enough to provide a signal of how flaky the connection is.
    */
-  private static final Logger LOGGER = Logger.get(HttpArtifactCache.class);
-  private static final MediaType OCTET_STREAM = MediaType.parse("application/octet-stream");
+  private static final Logger LOG = Logger.get(HttpArtifactCache.class);
 
-  private final String name;
-  private final HttpService fetchClient;
-  private final HttpService storeClient;
-  private final boolean doStore;
-  private final ProjectFilesystem projectFilesystem;
-  private final BuckEventBus buckEventBus;
-  private final ListeningExecutorService httpWriteExecutorService;
-  private final String errorTextTemplate;
-  private final Optional<Long> maxStoreSize;
-
-  private final Set<String> seenErrors = Sets.newConcurrentHashSet();
-
-  public HttpArtifactCache(
-      String name,
-      HttpService fetchClient,
-      HttpService storeClient,
-      boolean doStore,
-      ProjectFilesystem projectFilesystem,
-      BuckEventBus buckEventBus,
-      ListeningExecutorService httpWriteExecutorService,
-      String errorTextTemplate,
-      Optional<Long> maxStoreSize) {
-    this.name = name;
-    this.fetchClient = fetchClient;
-    this.storeClient = storeClient;
-    this.doStore = doStore;
-    this.projectFilesystem = projectFilesystem;
-    this.buckEventBus = buckEventBus;
-    this.httpWriteExecutorService = httpWriteExecutorService;
-    this.errorTextTemplate = errorTextTemplate;
-    this.maxStoreSize = maxStoreSize;
+  public HttpArtifactCache(NetworkCacheArgs args) {
+    super(args);
   }
 
-  protected HttpResponse fetchCall(String path, Request.Builder requestBuilder) throws IOException {
-    return fetchClient.makeRequest(path, requestBuilder);
-  }
-
-  public CacheResult fetchImpl(
+  @Override
+  protected CacheResult fetchImpl(
       RuleKey ruleKey,
       LazyPath output,
       final Finished.Builder eventBuilder) throws IOException {
@@ -117,7 +71,7 @@ public class HttpArtifactCache implements ArtifactCache {
                new DataInputStream(new FullyReadOnCloseInputStream(response.getBody()))) {
 
         if (response.code() == HttpURLConnection.HTTP_NOT_FOUND) {
-          LOGGER.info("fetch(%s, %s): cache miss", response.requestUrl(), ruleKey);
+          LOG.info("fetch(%s, %s): cache miss", response.requestUrl(), ruleKey);
           return CacheResult.miss();
         }
 
@@ -168,60 +122,24 @@ public class HttpArtifactCache implements ArtifactCache {
         // Finally, move the temp file into it's final place.
         projectFilesystem.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
 
-        LOGGER.info("fetch(%s, %s): cache hit", response.requestUrl(), ruleKey);
+        LOG.info("fetch(%s, %s): cache hit", response.requestUrl(), ruleKey);
         return CacheResult.hit(name, fetchedData.getMetadata(), fetchedData.getResponseSizeBytes());
       }
     }
   }
 
   @Override
-  public CacheResult fetch(RuleKey ruleKey, LazyPath output) {
-    Started startedEvent = HttpArtifactCacheEvent.newFetchStartedEvent(ImmutableSet.<RuleKey>of());
-    buckEventBus.post(startedEvent);
-    Finished.Builder eventBuilder = HttpArtifactCacheEvent.newFinishedEventBuilder(startedEvent)
-        .setRuleKeys(Lists.newArrayList(ruleKey));
-
-    try {
-      CacheResult result = fetchImpl(ruleKey, output, eventBuilder);
-      buckEventBus.post(
-          eventBuilder
-              .setFetchResult(result)
-              .build());
-      return result;
-    } catch (IOException e) {
-      String msg = String.format("%s: %s", e.getClass().getName(), e.getMessage());
-      reportFailure(e, "fetch(%s): %s", ruleKey, msg);
-      CacheResult cacheResult = CacheResult.error(name, msg);
-      buckEventBus.post(eventBuilder
-          .setFetchResult(cacheResult)
-          .setErrorMessage(msg)
-          .build());
-      return cacheResult;
-    }
-  }
-
-  protected HttpResponse storeCall(Request.Builder requestBuilder) throws IOException {
-    return storeClient.makeRequest("/artifacts/key", requestBuilder);
-  }
-
   protected void storeImpl(
-      ImmutableSet<RuleKey> ruleKeys,
-      final ImmutableMap<String, String> metadata,
+      ArtifactInfo info,
       final Path file,
       final Finished.Builder eventBuilder)
       throws IOException {
-
-    if (maxStoreSize.isPresent() &&
-        projectFilesystem.getFileSize(file) > maxStoreSize.get()) {
-      return;
-    }
 
     // Build the request, hitting the multi-key endpoint.
     Request.Builder builder = new Request.Builder();
     final HttpArtifactCacheBinaryProtocol.StoreRequest storeRequest =
         new HttpArtifactCacheBinaryProtocol.StoreRequest(
-            ruleKeys,
-            metadata,
+            info,
             new ByteSource() {
               @Override
               public InputStream openStream() throws IOException {
@@ -236,7 +154,7 @@ public class HttpArtifactCache implements ArtifactCache {
         new RequestBody() {
           @Override
           public MediaType contentType() {
-            return OCTET_STREAM;
+            return OCTET_STREAM_CONTENT_TYPE;
           }
 
           @Override
@@ -260,7 +178,7 @@ public class HttpArtifactCache implements ArtifactCache {
         reportFailure(
             "store(%s, %s): unexpected response: %d",
             response.requestUrl(),
-            ruleKeys,
+            info.getRuleKeys(),
             response.code());
       }
 
@@ -268,112 +186,13 @@ public class HttpArtifactCache implements ArtifactCache {
     }
   }
 
-  @Override
-  public ListenableFuture<Void> store(
-      final ImmutableSet<RuleKey> ruleKeys,
-      final ImmutableMap<String, String> metadata,
-      final BorrowablePath output) {
-    if (!isStoreSupported()) {
-      return Futures.immediateFuture(null);
-    }
-
-    final HttpArtifactCacheEvent.Scheduled scheduled =
-        HttpArtifactCacheEvent.newStoreScheduledEvent(
-            ArtifactCacheEvent.getTarget(metadata), ruleKeys);
-    buckEventBus.post(scheduled);
-
-    final Path tmp;
-    try {
-      tmp = getPathForArtifact(output);
-    } catch (IOException e) {
-      LOGGER.error(e, "Failed to store artifact in temp file: " + output.getPath().toString());
-      return Futures.immediateFuture(null);
-    }
-
-    // HTTP Store operations are asynchronous.
-    return httpWriteExecutorService.submit(
-        new Runnable() {
-          @Override
-          public void run() {
-            Started startedEvent = HttpArtifactCacheEvent.newStoreStartedEvent(scheduled);
-            buckEventBus.post(startedEvent);
-            Finished.Builder finishedEventBuilder =
-                HttpArtifactCacheEvent.newFinishedEventBuilder(startedEvent)
-                    .setRuleKeys(ruleKeys);
-
-            try {
-              storeImpl(ruleKeys, metadata, tmp, finishedEventBuilder);
-              buckEventBus.post(finishedEventBuilder.build());
-
-            } catch (IOException e) {
-              reportFailure(
-                  e,
-                  "store(%s): %s: %s",
-                  ruleKeys,
-                  e.getClass().getName(),
-                  e.getMessage());
-
-              buckEventBus.post(
-                  finishedEventBuilder
-                      .setWasUploadSuccessful(false)
-                      .setErrorMessage(e.toString())
-                      .build());
-            }
-            try {
-              projectFilesystem.deleteFileAtPathIfExists(tmp);
-            } catch (IOException e) {
-              LOGGER.warn(e, "Failed to delete file %s", tmp);
-            }
-          }
-        },
-        /* result */ null
-    );
+  @VisibleForTesting
+  protected HttpResponse fetchCall(String path, Request.Builder requestBuilder) throws IOException {
+    return fetchClient.makeRequest(path, requestBuilder);
   }
 
-  /// depending on if we can borrow the output or not, we will either use output directly or
-  /// hold it temporary in hidden place
-  private Path getPathForArtifact(BorrowablePath output) throws IOException {
-    Path tmp;
-    if (output.canBorrow()) {
-      tmp = output.getPath();
-    } else {
-      Optional<Path> tmpDirPath = projectFilesystem.getPathRelativeToProjectRoot(Paths.get("tmp"));
-      projectFilesystem.mkdirs(tmpDirPath.get());
-      tmp = projectFilesystem.createTempFile(tmpDirPath.get(), "artifact", ".tmp");
-      projectFilesystem.copyFile(output.getPath(), tmp);
-    }
-    return tmp;
-  }
-
-  private void reportFailure(Exception exception, String format, Object... args) {
-    LOGGER.warn(exception, format, args);
-    reportFailureToEvenBus(format, args);
-  }
-
-  private void reportFailure(String format, Object... args) {
-    LOGGER.warn(format, args);
-    reportFailureToEvenBus(format, args);
-  }
-
-  private void reportFailureToEvenBus(String format, Object... args) {
-    if (seenErrors.add(format)) {
-      buckEventBus.post(ConsoleEvent.warning(
-          errorTextTemplate
-              .replaceAll("\\{cache_name}",
-                  Matcher.quoteReplacement(name))
-              .replaceAll("\\{error_message}",
-                  Matcher.quoteReplacement(String.format(format, args)))));
-    }
-  }
-
-  @Override
-  public boolean isStoreSupported() {
-    return doStore;
-  }
-
-  @Override
-  public void close() {
-    fetchClient.close();
-    storeClient.close();
+  @VisibleForTesting
+  protected HttpResponse storeCall(Request.Builder requestBuilder) throws IOException {
+    return storeClient.makeRequest("/artifacts/key", requestBuilder);
   }
 }

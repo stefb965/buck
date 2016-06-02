@@ -16,14 +16,15 @@
 
 package com.facebook.buck.rules.keys;
 
+import com.facebook.buck.hashing.FileHashLoader;
 import com.facebook.buck.rules.ArchiveMemberSourcePath;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.DependencyAggregation;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.RuleKeyBuilder;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.util.cache.FileHashCache;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.cache.CacheBuilder;
@@ -49,20 +50,23 @@ public class InputBasedRuleKeyBuilderFactory
         InputBasedRuleKeyBuilderFactory.Builder,
         Optional<RuleKey>> {
 
-  private final FileHashCache fileHashCache;
+  private final FileHashLoader fileHashLoader;
   private final SourcePathResolver pathResolver;
+  private final ArchiveHandling archiveHandling;
   private final InputHandling inputHandling;
   private final LoadingCache<RuleKeyAppendable, Result> cache;
 
   protected InputBasedRuleKeyBuilderFactory(
       int seed,
-      FileHashCache hashCache,
+      FileHashLoader hashLoader,
       SourcePathResolver pathResolver,
-      InputHandling inputHandling) {
+      InputHandling inputHandling,
+      ArchiveHandling archiveHandling) {
     super(seed);
-    this.fileHashCache = hashCache;
+    this.fileHashLoader = hashLoader;
     this.pathResolver = pathResolver;
     this.inputHandling = inputHandling;
+    this.archiveHandling = archiveHandling;
 
     // Build the cache around the sub-rule-keys and their dep lists.
     cache = CacheBuilder.newBuilder().weakKeys().build(
@@ -79,14 +83,24 @@ public class InputBasedRuleKeyBuilderFactory
 
   public InputBasedRuleKeyBuilderFactory(
       int seed,
-      FileHashCache hashCache,
+      FileHashLoader hashLoader,
       SourcePathResolver pathResolver) {
-    this(seed, hashCache, pathResolver, InputHandling.HASH);
+    this(seed, hashLoader, pathResolver, InputHandling.HASH, ArchiveHandling.ARCHIVES);
   }
 
   @Override
   protected Builder newBuilder(final BuildRule rule) {
+    final Iterable<DependencyAggregation> aggregatedRules =
+        Iterables.filter(rule.getDeps(), DependencyAggregation.class);
     return new Builder() {
+      private boolean hasEffectiveDirectDep(BuildRule dep) {
+        for (BuildRule aggregationRule : aggregatedRules) {
+          if (aggregationRule.getDeps().contains(dep)) {
+            return true;
+          }
+        }
+        return false;
+      }
 
       // Construct the rule key, verifying that all the deps we saw when constructing it
       // are explicit dependencies of the rule.
@@ -95,7 +109,7 @@ public class InputBasedRuleKeyBuilderFactory
         Result result = buildResult();
         for (BuildRule usedDep : result.getDeps()) {
           Preconditions.checkState(
-              rule.getDeps().contains(usedDep),
+              rule.getDeps().contains(usedDep) || hasEffectiveDirectDep(usedDep),
               "%s: %s not in deps (%s)",
               rule.getBuildTarget(),
               usedDep.getBuildTarget(),
@@ -113,7 +127,7 @@ public class InputBasedRuleKeyBuilderFactory
     private final ImmutableList.Builder<Iterable<SourcePath>> inputs = ImmutableList.builder();
 
     private Builder() {
-      super(pathResolver, fileHashCache);
+      super(pathResolver, fileHashLoader);
     }
 
     @Override
@@ -127,7 +141,8 @@ public class InputBasedRuleKeyBuilderFactory
 
     @Override
     public Builder setReflectively(String key, @Nullable Object val) {
-      if (val instanceof ArchiveDependencySupplier) {
+      if (val instanceof ArchiveDependencySupplier &&
+          archiveHandling == ArchiveHandling.MEMBERS) {
         super.setReflectively(
             key,
             ((ArchiveDependencySupplier) val).getArchiveMembers(pathResolver));
@@ -211,6 +226,23 @@ public class InputBasedRuleKeyBuilderFactory
      */
     IGNORE,
 
+  }
+
+  /**
+   * How to handle adding {@link ArchiveDependencySupplier}s to the {@link RuleKey}.
+   */
+  protected enum ArchiveHandling {
+
+    /**
+     * Add the archives (call {@link ArchiveDependencySupplier#get()}).
+     */
+    ARCHIVES,
+
+    /**
+     * Add all the members of the archives
+     * (call {@link ArchiveDependencySupplier#getArchiveMembers(SourcePathResolver)}).
+     */
+    MEMBERS,
   }
 
   protected static class Result {

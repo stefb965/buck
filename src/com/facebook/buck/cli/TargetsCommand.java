@@ -35,7 +35,6 @@ import com.facebook.buck.model.HasSourceUnderTest;
 import com.facebook.buck.model.HasTests;
 import com.facebook.buck.model.InMemoryBuildFileTree;
 import com.facebook.buck.parser.BuildFileSpec;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.TargetNodePredicateSpec;
@@ -263,43 +262,42 @@ public class TargetsCommand extends AbstractCommand {
       }
 
       return runWithExecutor(params, executor);
+    } catch (BuildTargetException | BuildFileParseException | CycleException e) {
+      params.getBuckEventBus().post(ConsoleEvent.severe(
+          MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
+      return 1;
     }
   }
 
   private int runWithExecutor(
       CommandRunnerParams params,
-      ListeningExecutorService executor) throws IOException, InterruptedException {
+      ListeningExecutorService executor)
+      throws IOException, InterruptedException, BuildFileParseException, BuildTargetException,
+      CycleException {
     Optional<ImmutableSet<BuildRuleType>> buildRuleTypes = getBuildRuleTypesFromParams(params);
     if (!buildRuleTypes.isPresent()) {
       return 1;
     }
 
-    ImmutableMap<BuildTarget, ShowOptions> showRulesResult =
-        ImmutableMap.of();
-
     if (isShowOutput() || isShowRuleKey() || isShowTargetHash()) {
-      try {
-        TargetGraphAndBuildTargets targetGraphAndBuildTargetsForShowRules =
-            buildTargetGraphAndTargetsForShowRules(params, executor, buildRuleTypes);
-        showRulesResult = computeShowRules(
-            params,
-            executor,
-            TargetGraphAndTargetNodes.fromTargetGraphAndBuildTargets(
-                targetGraphAndBuildTargetsForShowRules));
-      } catch (NoSuchBuildTargetException e) {
-        throw new HumanReadableException(
-            "Error getting rules: %s",
-            e.getHumanReadableErrorMessage());
-      } catch (BuildTargetException | BuildFileParseException | CycleException e) {
-        params.getBuckEventBus().post(ConsoleEvent.severe(
-                MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
-        return 1;
-      }
+      ImmutableMap<BuildTarget, ShowOptions> showRulesResult;
+      TargetGraphAndBuildTargets targetGraphAndBuildTargetsForShowRules =
+          buildTargetGraphAndTargetsForShowRules(params, executor, buildRuleTypes);
+      showRulesResult = computeShowRules(
+          params,
+          executor,
+          TargetGraphAndTargetNodes.fromTargetGraphAndBuildTargets(
+              targetGraphAndBuildTargetsForShowRules));
 
-      if (!getPrintJson()) {
+      if (getPrintJson()) {
+        Iterable<TargetNode<?>> matchingNodes =
+            targetGraphAndBuildTargetsForShowRules.getTargetGraph().getAll(
+                targetGraphAndBuildTargetsForShowRules.getBuildTargets());
+        printJsonForTargets(params, executor, matchingNodes, showRulesResult);
+      } else {
         printShowRules(showRulesResult, params);
-        return 0;
       }
+      return 0;
     }
 
     // Parse the entire action graph, or (if targets are specified),
@@ -310,18 +308,15 @@ public class TargetsCommand extends AbstractCommand {
     // know which targets can refer to the specified targets or their dependencies in their
     // 'source_under_test'. Once we migrate from 'source_under_test' to 'tests', this should no
     // longer be necessary.
-    Optional<TargetGraphAndBuildTargets> graphAndTargets =
+    TargetGraphAndBuildTargets graphAndTargets =
         buildTargetGraphAndTargets(params, executor);
-    if (!graphAndTargets.isPresent()) {
-      return 1;
-    }
 
     SortedMap<String, TargetNode<?>> matchingNodes = getMatchingNodes(
         params,
-        graphAndTargets.get(),
+        graphAndTargets,
         buildRuleTypes);
 
-    return printResults(params, executor, matchingNodes, showRulesResult);
+    return printResults(params, executor, matchingNodes);
   }
 
   private TargetGraphAndBuildTargets buildTargetGraphAndTargetsForShowRules(
@@ -376,17 +371,14 @@ public class TargetsCommand extends AbstractCommand {
   private int printResults(
       CommandRunnerParams params,
       ListeningExecutorService executor,
-      SortedMap<String, TargetNode<?>> matchingNodes,
-      ImmutableMap<BuildTarget, ShowOptions> showRulesResult)
-      throws IOException, InterruptedException {
+      SortedMap<String, TargetNode<?>> matchingNodes)
+      throws IOException, InterruptedException, BuildFileParseException {
     if (getPrintJson()) {
-      try {
-        printJsonForTargets(params, executor, matchingNodes, showRulesResult);
-      } catch (BuildFileParseException e) {
-        params.getBuckEventBus().post(ConsoleEvent.severe(
-                MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
-        return 1;
-      }
+      printJsonForTargets(
+          params,
+          executor,
+          matchingNodes.values(),
+          ImmutableMap.<BuildTarget, ShowOptions>of());
     } else if (isPrint0()) {
       printNullDelimitedTargets(matchingNodes.keySet(), params.getConsole().getStdOut());
     } else {
@@ -430,46 +422,40 @@ public class TargetsCommand extends AbstractCommand {
     return matchingNodes;
   }
 
-  private Optional<TargetGraphAndBuildTargets> buildTargetGraphAndTargets(
+  private TargetGraphAndBuildTargets buildTargetGraphAndTargets(
       CommandRunnerParams params,
-      ListeningExecutorService executor) throws IOException, InterruptedException {
-    try {
-      boolean ignoreBuckAutodepsFiles = false;
-      if (getArguments().isEmpty() || isDetectTestChanges()) {
-        return Optional.of(TargetGraphAndBuildTargets.builder()
-            .setBuildTargets(ImmutableSet.<BuildTarget>of())
-            .setTargetGraph(params.getParser()
-                .buildTargetGraphForTargetNodeSpecs(
-                    params.getBuckEventBus(),
-                    params.getCell(),
-                    getEnableParserProfiling(),
-                    executor,
-                    ImmutableList.of(
-                        TargetNodePredicateSpec.of(
-                            Predicates.<TargetNode<?>>alwaysTrue(),
-                            BuildFileSpec.fromRecursivePath(
-                                Paths.get(""),
-                                params.getCell().getRoot()))),
-                    ignoreBuckAutodepsFiles,
-                    Parser.ApplyDefaultFlavorsMode.ENABLED).getTargetGraph()).build());
-      } else {
-        return Optional.of(
-            params.getParser()
-                .buildTargetGraphForTargetNodeSpecs(
-                    params.getBuckEventBus(),
-                    params.getCell(),
-                    getEnableParserProfiling(),
-                    executor,
-                    parseArgumentsAsTargetNodeSpecs(
-                        params.getBuckConfig(),
-                        getArguments()),
-                    ignoreBuckAutodepsFiles,
-                Parser.ApplyDefaultFlavorsMode.ENABLED));
-      }
-    } catch (BuildTargetException | BuildFileParseException e) {
-      params.getBuckEventBus().post(ConsoleEvent.severe(
-              MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
-      return Optional.absent();
+      ListeningExecutorService executor)
+      throws IOException, InterruptedException, BuildFileParseException, BuildTargetException {
+    boolean ignoreBuckAutodepsFiles = false;
+    if (getArguments().isEmpty() || isDetectTestChanges()) {
+      return TargetGraphAndBuildTargets.builder()
+          .setBuildTargets(ImmutableSet.<BuildTarget>of())
+          .setTargetGraph(params.getParser()
+              .buildTargetGraphForTargetNodeSpecs(
+                  params.getBuckEventBus(),
+                  params.getCell(),
+                  getEnableParserProfiling(),
+                  executor,
+                  ImmutableList.of(
+                      TargetNodePredicateSpec.of(
+                          Predicates.<TargetNode<?>>alwaysTrue(),
+                          BuildFileSpec.fromRecursivePath(
+                              Paths.get(""),
+                              params.getCell().getRoot()))),
+                  ignoreBuckAutodepsFiles,
+                  Parser.ApplyDefaultFlavorsMode.ENABLED).getTargetGraph()).build();
+    } else {
+      return params.getParser()
+          .buildTargetGraphForTargetNodeSpecs(
+              params.getBuckEventBus(),
+              params.getCell(),
+              getEnableParserProfiling(),
+              executor,
+              parseArgumentsAsTargetNodeSpecs(
+                  params.getBuckConfig(),
+                  getArguments()),
+              ignoreBuckAutodepsFiles,
+              Parser.ApplyDefaultFlavorsMode.ENABLED);
     }
   }
 
@@ -650,18 +636,17 @@ public class TargetsCommand extends AbstractCommand {
   void printJsonForTargets(
       CommandRunnerParams params,
       ListeningExecutorService executor,
-      SortedMap<String, TargetNode<?>> buildIndex,
+      Iterable<TargetNode<?>> targetNodes,
       ImmutableMap<BuildTarget, ShowOptions> showRulesResult)
       throws BuildFileParseException, IOException, InterruptedException {
     // Print the JSON representation of the build node for the specified target(s).
     params.getConsole().getStdOut().println("[");
 
     ObjectMapper mapper = params.getObjectMapper();
-    Iterator<Entry<String, TargetNode<?>>> mapIterator = buildIndex.entrySet().iterator();
+    Iterator<TargetNode<?>> targetNodeIterator = targetNodes.iterator();
 
-    while (mapIterator.hasNext()) {
-      Entry<String, TargetNode<?>> current = mapIterator.next();
-      TargetNode<?> targetNode = current.getValue();
+    while (targetNodeIterator.hasNext()) {
+      TargetNode<?> targetNode = targetNodeIterator.next();
       SortedMap<String, Object> sortedTargetRule;
       sortedTargetRule = params.getParser().getRawTargetNode(
           params.getBuckEventBus(),
@@ -700,7 +685,7 @@ public class TargetsCommand extends AbstractCommand {
         throw new RuntimeException(e);
       }
       String output = stringWriter.getBuffer().toString();
-      if (mapIterator.hasNext()) {
+      if (targetNodeIterator.hasNext()) {
         output += ",";
       }
       params.getConsole().getStdOut().println(output);

@@ -18,6 +18,7 @@ package com.facebook.buck.artifact_cache;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.NetworkEvent.BytesReceivedEvent;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.log.Logger;
 import com.facebook.buck.slb.HttpLoadBalancer;
 import com.facebook.buck.slb.HttpService;
 import com.facebook.buck.slb.LoadBalancedService;
@@ -31,13 +32,13 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.ListeningExecutorService;
-import com.squareup.okhttp.ConnectionPool;
-import com.squareup.okhttp.Interceptor;
-import com.squareup.okhttp.MediaType;
-import com.squareup.okhttp.OkHttpClient;
-import com.squareup.okhttp.Request;
-import com.squareup.okhttp.Response;
-import com.squareup.okhttp.ResponseBody;
+import okhttp3.ConnectionPool;
+import okhttp3.Interceptor;
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
+import okhttp3.ResponseBody;
 
 import java.io.IOException;
 import java.net.URI;
@@ -55,6 +56,26 @@ import okio.Source;
  * Creates instances of the {@link ArtifactCache}.
  */
 public class ArtifactCaches {
+
+  private static final Logger LOG = Logger.get(ArtifactCaches.class);
+
+  private interface NetworkCacheFactory {
+    ArtifactCache newInstance(NetworkCacheArgs args);
+  }
+
+  private static final NetworkCacheFactory HTTP_PROTOCOL = new NetworkCacheFactory() {
+    @Override
+    public ArtifactCache newInstance(NetworkCacheArgs args) {
+      return new HttpArtifactCache(args);
+    }
+  };
+
+  private static final NetworkCacheFactory THRIFT_PROTOCOL = new NetworkCacheFactory() {
+    @Override
+    public ArtifactCache newInstance(NetworkCacheArgs args) {
+      return new ThriftArtifactCache(args);
+    }
+  };
 
   private ArtifactCaches() {
   }
@@ -140,18 +161,25 @@ public class ArtifactCaches {
                   projectFilesystem));
           break;
         case http:
-          for (HttpCacheEntry cacheEntry : buckConfig.getHttpCaches()) {
-            if (!cacheEntry.isWifiUsableForDistributedCache(wifiSsid)) {
-              continue;
-            }
-            builder.add(createHttpArtifactCache(
-                    cacheEntry,
-                    buckConfig.getHostToReportToRemoteCacheServer(),
-                    buckEventBus,
-                    projectFilesystem,
-                    httpWriteExecutorService,
-                    buckConfig));
-          }
+          initializeDistributedCaches(
+              buckConfig,
+              buckEventBus,
+              projectFilesystem,
+              wifiSsid,
+              httpWriteExecutorService,
+              builder,
+              HTTP_PROTOCOL);
+          break;
+
+        case thrift_over_http:
+          initializeDistributedCaches(
+              buckConfig,
+              buckEventBus,
+              projectFilesystem,
+              wifiSsid,
+              httpWriteExecutorService,
+              builder,
+              THRIFT_PROTOCOL);
           break;
       }
     }
@@ -176,6 +204,31 @@ public class ArtifactCaches {
         buckConfig.getTwoLevelCachingMaximumSize());
 
     return result;
+  }
+
+  private static void initializeDistributedCaches(
+      ArtifactCacheBuckConfig buckConfig,
+      BuckEventBus buckEventBus,
+      ProjectFilesystem projectFilesystem,
+      Optional<String> wifiSsid,
+      ListeningExecutorService httpWriteExecutorService,
+      ImmutableList.Builder<ArtifactCache> builder,
+      NetworkCacheFactory factory) {
+    for (HttpCacheEntry cacheEntry : buckConfig.getHttpCaches()) {
+      if (!cacheEntry.isWifiUsableForDistributedCache(wifiSsid)) {
+        LOG.warn("HTTP cache is disabled because WiFi is not usable.");
+        continue;
+      }
+
+      builder.add(createHttpArtifactCache(
+              cacheEntry,
+              buckConfig.getHostToReportToRemoteCacheServer(),
+              buckEventBus,
+              projectFilesystem,
+              httpWriteExecutorService,
+              buckConfig,
+              factory));
+    }
   }
 
   private static ArtifactCache createDirArtifactCache(
@@ -212,11 +265,12 @@ public class ArtifactCaches {
       final BuckEventBus buckEventBus,
       ProjectFilesystem projectFilesystem,
       ListeningExecutorService httpWriteExecutorService,
-      ArtifactCacheBuckConfig config) {
+      ArtifactCacheBuckConfig config,
+      NetworkCacheFactory factory) {
 
     // Setup the default client to use.
-    OkHttpClient storeClient = new OkHttpClient();
-    storeClient.networkInterceptors().add(
+    OkHttpClient.Builder storeClientBuilder = new OkHttpClient.Builder();
+    storeClientBuilder.networkInterceptors().add(
         new Interceptor() {
           @Override
           public Response intercept(Chain chain) throws IOException {
@@ -228,22 +282,20 @@ public class ArtifactCaches {
           }
         });
     int timeoutSeconds = cacheDescription.getTimeoutSeconds();
-    storeClient.setConnectTimeout(timeoutSeconds, TimeUnit.SECONDS);
-    storeClient.setConnectionPool(
+    storeClientBuilder.connectTimeout(timeoutSeconds, TimeUnit.SECONDS);
+    storeClientBuilder.connectionPool(
         new ConnectionPool(
             /* maxIdleConnections */ (int) config.getThreadPoolSize(),
-            /* keepAliveDurationMs */ config.getThreadPoolKeepAliveDurationMillis()));
-
-    // For fetches, use a client with a read timeout.
-    OkHttpClient fetchClient = storeClient.clone();
-    fetchClient.setReadTimeout(timeoutSeconds, TimeUnit.SECONDS);
+            /* keepAliveDurationMs */ config.getThreadPoolKeepAliveDurationMillis(),
+            TimeUnit.MILLISECONDS)
+        );
 
     final ImmutableMap<String, String> readHeaders = cacheDescription.getReadHeaders();
     final ImmutableMap<String, String> writeHeaders = cacheDescription.getWriteHeaders();
 
     // If write headers are specified, add them to every default client request.
     if (!writeHeaders.isEmpty()) {
-      storeClient.networkInterceptors().add(
+      storeClientBuilder.networkInterceptors().add(
           new Interceptor() {
             @Override
             public Response intercept(Chain chain) throws IOException {
@@ -254,9 +306,15 @@ public class ArtifactCaches {
           });
     }
 
+    OkHttpClient storeClient = storeClientBuilder.build();
+
+    // For fetches, use a client with a read timeout.
+    OkHttpClient.Builder fetchClientBuilder = storeClient.newBuilder();
+    fetchClientBuilder.readTimeout(timeoutSeconds, TimeUnit.SECONDS);
+
     // If read headers are specified, add them to every read client request.
     if (!readHeaders.isEmpty()) {
-      fetchClient.networkInterceptors().add(
+      fetchClientBuilder.networkInterceptors().add(
           new Interceptor() {
             @Override
             public Response intercept(Chain chain) throws IOException {
@@ -267,7 +325,7 @@ public class ArtifactCaches {
           });
     }
 
-    fetchClient.networkInterceptors().add((new Interceptor() {
+    fetchClientBuilder.networkInterceptors().add((new Interceptor() {
       @Override
       public Response intercept(Chain chain) throws IOException {
         Response originalResponse = chain.proceed(chain.request());
@@ -276,6 +334,7 @@ public class ArtifactCaches {
             .build();
       }
     }));
+    OkHttpClient fetchClient = fetchClientBuilder.build();
 
     HttpService fetchService;
     HttpService storeService;
@@ -312,16 +371,18 @@ public class ArtifactCaches {
         })
         .or("http");
     boolean doStore = cacheDescription.getCacheReadMode().isDoStore();
-    return new HttpArtifactCache(
-        cacheName,
-        fetchService,
-        storeService,
-        doStore,
-        projectFilesystem,
-        buckEventBus,
-        httpWriteExecutorService,
-        cacheDescription.getErrorMessageFormat(),
-        Optional.<Long>absent());
+    return factory.newInstance(
+        NetworkCacheArgs.builder()
+            .setThriftEndpointPath(config.getHybridThriftEndpoint())
+            .setCacheName(cacheName)
+            .setFetchClient(fetchService)
+            .setStoreClient(storeService)
+            .setDoStore(doStore)
+            .setProjectFilesystem(projectFilesystem)
+            .setBuckEventBus(buckEventBus)
+            .setHttpWriteExecutorService(httpWriteExecutorService)
+            .setErrorTextTemplate(cacheDescription.getErrorMessageFormat())
+            .build());
   }
 
   private static class ProgressResponseBody extends ResponseBody {
@@ -344,12 +405,12 @@ public class ArtifactCaches {
     }
 
     @Override
-    public long contentLength() throws IOException {
+    public long contentLength() {
       return responseBody.contentLength();
     }
 
     @Override
-    public BufferedSource source() throws IOException {
+    public BufferedSource source() {
       return bufferedSource;
     }
 

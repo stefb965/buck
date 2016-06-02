@@ -27,11 +27,12 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.android.relinker.Symbols;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultOnDiskBuildInfo;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.testutil.integration.BuckBuildLog;
@@ -40,15 +41,19 @@ import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.testutil.integration.ZipInspector;
 import com.facebook.buck.util.DefaultPropertyFinder;
+import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.zip.ZipConstants;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableCollection;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.Hashing;
 
 import org.apache.commons.compress.archivers.zip.ZipUtil;
 import org.hamcrest.Matchers;
+import org.hamcrest.collection.IsIn;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.ClassRule;
@@ -62,8 +67,12 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.Date;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipInputStream;
@@ -72,6 +81,8 @@ public class AndroidBinaryIntegrationTest {
 
   @ClassRule
   public static TemporaryPaths projectFolderWithPrebuiltTargets = new TemporaryPaths();
+
+  private static ProjectWorkspace workspaceWithPrebuiltTargets;
 
   @Rule
   public TemporaryPaths tmpFolder = new TemporaryPaths();
@@ -87,18 +98,19 @@ public class AndroidBinaryIntegrationTest {
   public static void setUpOnce() throws IOException {
     AssumeAndroidPlatform.assumeSdkIsAvailable();
     AssumeAndroidPlatform.assumeNdkIsAvailable();
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+    workspaceWithPrebuiltTargets = TestDataHelper.createProjectWorkspaceForScenario(
         new AndroidBinaryIntegrationTest(),
         "android_project",
         projectFolderWithPrebuiltTargets);
-    workspace.setUp();
-    workspace.runBuckBuild(SIMPLE_TARGET).assertSuccess();
+    workspaceWithPrebuiltTargets.setUp();
+    workspaceWithPrebuiltTargets.runBuckBuild(SIMPLE_TARGET).assertSuccess();
   }
 
   @Before
   public void setUp() throws IOException {
-    workspace = new ProjectWorkspace(
-        projectFolderWithPrebuiltTargets.getRoot(), tmpFolder.getRoot());
+    workspace = ProjectWorkspace.cloneExistingWorkspaceIntoNewFolder(
+        workspaceWithPrebuiltTargets,
+        tmpFolder);
     workspace.setUp();
     filesystem = new ProjectFilesystem(workspace.getDestPath());
   }
@@ -183,6 +195,23 @@ public class AndroidBinaryIntegrationTest {
   }
 
   @Test
+  public void testNotAllJavaLibrariesFetched() throws IOException {
+    String target = "//apps/multidex:app_with_deeper_deps";
+    workspace.runBuckCommand("build", target).assertSuccess();
+    workspace.replaceFileContents(
+        "java/com/sample/app/MyApplication.java",
+        "package com",
+        "package\ncom");
+
+    workspace.resetBuildLogFile();
+    workspace.runBuckCommand("build", target).assertSuccess();
+    BuckBuildLog buildLog = workspace.getBuildLog();
+
+    buildLog.assertTargetBuiltLocally(target);
+    buildLog.assertTargetIsAbsent("//java/com/sample/lib:lib");
+  }
+
+  @Test
   public void testPreprocessorForcesReDex() throws IOException {
     String target = "//java/com/preprocess:disassemble";
     Path outputFile = workspace.buildAndReturnOutput(target);
@@ -198,6 +227,21 @@ public class AndroidBinaryIntegrationTest {
     output = new String(Files.readAllBytes(outputFile), UTF_8);
     assertThat(output, containsString("content=3"));
   }
+
+  @Test
+  public void testDxFindsReferencedResources() throws IOException {
+    DefaultOnDiskBuildInfo buildInfo = new DefaultOnDiskBuildInfo(
+        BuildTargetFactory.newInstance("//java/com/sample/lib:lib#dex"),
+        new ProjectFilesystem(tmpFolder.getRoot()),
+        ObjectMappers.newDefaultInstance());
+    Optional<ImmutableList<String>> resourcesFromMetadata =
+        buildInfo.getValues(DexProducedFromJavaLibrary.REFERENCED_RESOURCES);
+    assertTrue(resourcesFromMetadata.isPresent());
+    assertEquals(
+        ImmutableSet.of("title", "top_layout"),
+        ImmutableSet.copyOf(resourcesFromMetadata.get()));
+  }
+
 
   @Test
   public void testCxxLibraryDep() throws IOException {
@@ -520,8 +564,14 @@ public class AndroidBinaryIntegrationTest {
   }
 
   @Test
+  public void testApkWithNoResourcesBuildsCorrectly() throws IOException {
+    workspace.runBuckBuild("//apps/sample:app_with_no_res").assertSuccess();
+    workspace.runBuckBuild("//apps/sample:app_with_no_res_or_predex").assertSuccess();
+  }
+
+  @Test
   public void testApkEmptyResDirectoriesBuildsCorrectly() throws IOException {
-    workspace.runBuckBuild("//apps/sample:app_no_res").assertSuccess();
+    workspace.runBuckBuild("//apps/sample:app_with_aar_and_no_res").assertSuccess();
   }
 
   @Test
@@ -545,5 +595,67 @@ public class AndroidBinaryIntegrationTest {
         "error message for invalid keystore key alias is incorrect.",
         result.getStderr(),
         containsRegex("The keystore \\[.*\\] key\\.alias \\[.*\\].*does not exist"));
+  }
+
+  @Test
+  public void testResourcesTrimming() throws IOException {
+    // Enable trimming.
+    workspace.replaceFileContents(
+        "apps/multidex/BUCK",
+        "# ARGS_FOR_APP",
+        "trim_resource_ids = True,  # ARGS_FOR_APP");
+    workspace.runBuckCommand("build", "//apps/multidex:disassemble_app_r_dot_java").assertSuccess();
+    // Make sure we only see what we expect.
+    verifyTrimmedRDotJava(ImmutableSet.of("top_layout", "title"));
+
+    // Make a change.
+    workspace.replaceFileContents(
+        "java/com/sample/lib/Sample.java",
+        "R.layout.top_layout",
+        "0 /* NO RESOURCE HERE */");
+
+    // Make sure everything gets rebuilt, and we only see what we expect.
+    workspace.resetBuildLogFile();
+    workspace.runBuckCommand("build", "//apps/multidex:disassemble_app_r_dot_java").assertSuccess();
+    BuckBuildLog buildLog = workspace.getBuildLog();
+    buildLog.assertTargetBuiltLocally("//apps/multidex:app#compile_uber_r_dot_java");
+    buildLog.assertTargetBuiltLocally("//apps/multidex:app#dex_uber_r_dot_java");
+    verifyTrimmedRDotJava(ImmutableSet.of("title"));
+
+    // Turn off trimming and turn on exopackage, and rebuilt.
+    workspace.replaceFileContents(
+        "apps/multidex/BUCK",
+        "trim_resource_ids = True,  # ARGS_FOR_APP",
+        "exopackage_modes = ['secondary_dex'],  # ARGS_FOR_APP");
+    workspace.runBuckCommand("build", SIMPLE_TARGET).assertSuccess();
+
+    // Make a change.
+    workspace.replaceFileContents(
+        "java/com/sample/lib/Sample.java",
+        "0 /* NO RESOURCE HERE */",
+        "R.layout.top_layout");
+
+    // rebuilt and verify that we get an ABI hit.
+    workspace.resetBuildLogFile();
+    workspace.runBuckCommand("build", SIMPLE_TARGET).assertSuccess();
+    buildLog = workspace.getBuildLog();
+    buildLog.assertTargetHadMatchingDepsAbi(SIMPLE_TARGET);
+  }
+
+  public static final Pattern SMALI_STATIC_FINAL_INT_PATTERN = Pattern.compile(
+      "\\.field public static final (\\w+):I = 0x[0-9A-fa-f]+");
+
+  private void verifyTrimmedRDotJava(ImmutableSet<String> expected) throws IOException {
+    List<String> lines = filesystem.readLines(
+        Paths.get("buck-out/gen/apps/multidex/disassemble_app_r_dot_java/all_r_fields.smali"));
+
+    ImmutableSet.Builder<String> found = ImmutableSet.builder();
+    for (String line : lines) {
+      Matcher m = SMALI_STATIC_FINAL_INT_PATTERN.matcher(line);
+      assertTrue("Could not match line: " + line, m.matches());
+      assertThat(m.group(1), IsIn.in(expected));
+      found.add(m.group(1));
+    }
+    assertEquals(expected, found.build());
   }
 }

@@ -18,6 +18,7 @@ android_binary(
   manifest = 'AndroidManifest.xml',
   keystore = '//keystores:debug',
   use_split_dex = True,
+  # ARGS_FOR_APP
   dex_compression = 'jar',
   primary_dex_patterns = [
     '/MyApplication^',
@@ -28,6 +29,15 @@ android_binary(
     '//native/fakenative/jni:fakenative',
     '//native/mybinary/jni:mybinary',
   ],
+)
+
+genrule(
+  name = 'disassemble_app_r_dot_java',
+  bash = ' && '.join([
+      '$(exe //third-party/smali:baksmali) -o $TMP $(location :app)',
+      'cat $TMP/com/sample*/R*.smali | grep ^.field > $OUT',
+      ]),
+  out = 'all_r_fields.smali',
 )
 
 android_binary(
@@ -43,6 +53,16 @@ android_binary(
     '//java/com/sample/lib:lib',
     '//native/fakenative/jni:fakenative',
     '//native/mybinary/jni:mybinary',
+  ],
+)
+
+android_binary(
+  name = 'app_with_deeper_deps',
+  manifest = 'AndroidManifest.xml',
+  keystore = '//keystores:debug',
+  deps = [
+    '//java/com/sample/app:app',
+    '//java/com/sample/lib:lib_depending_on_main_lib',
   ],
 )
 

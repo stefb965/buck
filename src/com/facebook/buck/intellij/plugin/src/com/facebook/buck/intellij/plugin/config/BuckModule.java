@@ -16,9 +16,9 @@
 
 package com.facebook.buck.intellij.plugin.config;
 
-import com.facebook.buck.intellij.plugin.debugger.AndroidDebugger;
-import com.facebook.buck.intellij.plugin.file.BuckFileType;
 import com.facebook.buck.intellij.plugin.autodeps.BuckAutoDepsContributor;
+import com.facebook.buck.intellij.plugin.debugger.AndroidDebugger;
+import com.facebook.buck.intellij.plugin.file.BuckFileUtil;
 import com.facebook.buck.intellij.plugin.ui.BuckEventsConsumer;
 import com.facebook.buck.intellij.plugin.ui.BuckToolWindowFactory;
 import com.facebook.buck.intellij.plugin.ui.BuckUIManager;
@@ -33,23 +33,17 @@ import com.intellij.ide.ui.UISettings;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.components.ProjectComponent;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.fileTypes.FileNameMatcher;
-import com.intellij.openapi.fileTypes.FileType;
-import com.intellij.openapi.fileTypes.FileTypeManager;
-import com.intellij.openapi.fileTypes.UnknownFileType;
-import com.intellij.openapi.fileTypes.impl.FileTypeManagerImpl;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiDocumentManager;
 
 import java.io.IOException;
-import java.util.List;
 
 public final class BuckModule implements ProjectComponent {
 
     private Project mProject;
     private BuckClient mClient = new BuckClient();
     private BuckEventsHandler mEventHandler;
-    private BuckEventsConsumer mBu;
+    private BuckEventsConsumer mBuckEventsConsumer;
     private static final Logger LOG = Logger.getInstance(BuckModule.class);
 
     public BuckModule(final Project project) {
@@ -62,11 +56,15 @@ public final class BuckModule implements ProjectComponent {
                     ApplicationManager.getApplication().invokeLater(new Runnable() {
                         @Override
                         public void run() {
-                        BuckToolWindowFactory.outputConsoleMessage(
-                            project,
-                            "Connected to buck!\n",
-                            ConsoleViewContentType.SYSTEM_OUTPUT
-                        );
+                            // If we connected to Buck and then closed the project, before getting
+                            // the success message
+                            if (!project.isDisposed()) {
+                                BuckToolWindowFactory.outputConsoleMessage(
+                                    project,
+                                    "Connected to buck!\n",
+                                    ConsoleViewContentType.SYSTEM_OUTPUT
+                                );
+                            }
                         }
                     });
                 }
@@ -77,11 +75,14 @@ public final class BuckModule implements ProjectComponent {
                     ApplicationManager.getApplication().invokeLater(new Runnable() {
                         @Override
                         public void run() {
-                        BuckToolWindowFactory.outputConsoleMessage(
-                            project,
-                            "Disconnected from buck!\n",
-                            ConsoleViewContentType.SYSTEM_OUTPUT
-                        );
+                            // If we haven't closed the project, then we show the message
+                            if (!project.isDisposed()) {
+                                BuckToolWindowFactory.outputConsoleMessage(
+                                    project,
+                                    "Disconnected from buck!\n",
+                                    ConsoleViewContentType.SYSTEM_OUTPUT
+                                );
+                            }
                         }
                     });
                     BuckModule mod = project.getComponent(BuckModule.class);
@@ -93,6 +94,8 @@ public final class BuckModule implements ProjectComponent {
         if (!UISettings.getInstance().SHOW_MAIN_TOOLBAR) {
             BuckPluginNotifications.notifyActionToolbar(mProject);
         }
+
+        mBuckEventsConsumer = new BuckEventsConsumer(project);
     }
 
     @Override
@@ -117,6 +120,9 @@ public final class BuckModule implements ProjectComponent {
     public void projectClosed() {
         disconnect();
         AndroidDebugger.disconnect();
+        if (mBuckEventsConsumer != null) {
+            mBuckEventsConsumer.detach();
+        }
     }
 
     public boolean isConnected() {
@@ -125,9 +131,6 @@ public final class BuckModule implements ProjectComponent {
 
     public void disconnect() {
         if (mClient.isConnected()) {
-            if (mBu != null) {
-                mBu.detach();
-            }
             mClient.disconnect();
         }
     }
@@ -150,45 +153,20 @@ public final class BuckModule implements ProjectComponent {
                     } catch (IOException e) {
                         LOG.error(e);
                     } catch (HumanReadableException e) {
-                        if (mBu == null) {
-                          attach(new BuckEventsConsumer(mProject), "");
-                        }
-                        mBu.consumeConsoleEvent(e.toString());
+                        mBuckEventsConsumer.consumeConsoleEvent(e.toString());
                     }
                 }
             }
         });
-
-        ApplicationManager.getApplication().runWriteAction(new Runnable() {
-            @Override
-            public void run() {
-                FileTypeManager fileTypeManager = FileTypeManagerImpl.getInstance();
-
-              FileType fileType = fileTypeManager
-                  .getFileTypeByFileName(BuckFileType.INSTANCE.getDefaultExtension());
-
-              // Remove all FileType associations for BUCK files that are not BuckFileType
-              while (!(fileType instanceof  BuckFileType || fileType instanceof UnknownFileType)) {
-                List<FileNameMatcher> fileNameMatchers = fileTypeManager.getAssociations(fileType);
-
-                for (FileNameMatcher fileNameMatcher : fileNameMatchers) {
-                  if (fileNameMatcher.accept(BuckFileType.INSTANCE.getDefaultExtension())) {
-                    fileTypeManager.removeAssociation(fileType, fileNameMatcher);
-                  }
-                }
-
-                fileType = fileTypeManager
-                    .getFileTypeByFileName(BuckFileType.INSTANCE.getDefaultExtension());
-              }
-            }
-        });
+        BuckFileUtil.setBuckFileType();
     }
 
-    public void attach(BuckEventsConsumer bu, String target) {
-        if (mBu != null) {
-            mBu.detach();
-        }
-        mBu = bu;
-        mBu.attach(target, BuckUIManager.getInstance(mProject).getTreeModel());
+    public void attach(String target) {
+        mBuckEventsConsumer.detach();
+        mBuckEventsConsumer.attach(target, BuckUIManager.getInstance(mProject).getTreeModel());
+    }
+
+    public BuckEventsConsumer getBuckEventsConsumer() {
+        return mBuckEventsConsumer;
     }
 }

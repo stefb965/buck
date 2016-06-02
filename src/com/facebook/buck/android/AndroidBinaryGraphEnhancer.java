@@ -23,8 +23,11 @@ import com.facebook.buck.android.FilterResourcesStep.ResourceFilter;
 import com.facebook.buck.android.NdkCxxPlatforms.TargetCpuType;
 import com.facebook.buck.android.ResourcesFilter.ResourceCompressionMode;
 import com.facebook.buck.cxx.CxxBuckConfig;
+import com.facebook.buck.jvm.java.DefaultJavaLibrary;
 import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.jvm.java.JavacOptions;
+import com.facebook.buck.jvm.java.JavacOptionsAmender;
+import com.facebook.buck.jvm.java.JavacToJarStepFactory;
 import com.facebook.buck.jvm.java.Keystore;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
@@ -68,10 +71,17 @@ public class AndroidBinaryGraphEnhancer {
   private static final Flavor CALCULATE_ABI_FLAVOR = ImmutableFlavor.of("calculate_exopackage_abi");
   public static final Flavor PACKAGE_STRING_ASSETS_FLAVOR =
       ImmutableFlavor.of("package_string_assets");
+  private static final Flavor TRIM_UBER_R_DOT_JAVA_FLAVOR =
+      ImmutableFlavor.of("trim_uber_r_dot_java");
+  private static final Flavor COMPILE_UBER_R_DOT_JAVA_FLAVOR =
+      ImmutableFlavor.of("compile_uber_r_dot_java");
+  private static final Flavor DEX_UBER_R_DOT_JAVA_FLAVOR =
+      ImmutableFlavor.of("dex_uber_r_dot_java");
 
   private final BuildTarget originalBuildTarget;
   private final ImmutableSortedSet<BuildRule> originalDeps;
   private final BuildRuleParams buildRuleParams;
+  private final boolean trimResourceIds;
   private final ManifestEntries manifestEntries;
   private final BuildRuleResolver ruleResolver;
   private final SourcePathResolver pathResolver;
@@ -121,6 +131,7 @@ public class AndroidBinaryGraphEnhancer {
       BuildConfigFields buildConfigValues,
       Optional<SourcePath> buildConfigValuesFile,
       Optional<Integer> xzCompressionLevel,
+      boolean trimResourceIds,
       ImmutableMap<TargetCpuType, NdkCxxPlatform> nativePlatforms,
       RelinkerMode relinkerMode,
       ListeningExecutorService dxExecutorService,
@@ -152,6 +163,7 @@ public class AndroidBinaryGraphEnhancer {
     this.buildConfigValuesFile = buildConfigValuesFile;
     this.dxExecutorService = dxExecutorService;
     this.xzCompressionLevel = xzCompressionLevel;
+    this.trimResourceIds = trimResourceIds;
     this.nativeLibsEnhancer =
         new AndroidNativeLibsPackageableGraphEnhancer(
             ruleResolver,
@@ -240,8 +252,6 @@ public class AndroidBinaryGraphEnhancer {
         packageableCollection.getAssetsDirectories(),
         resourceUnionPackage,
         packageType,
-        javacOptions,
-        shouldPreDex,
         shouldBuildStringSourceMap,
         skipCrunchPngs,
         manifestEntries);
@@ -278,15 +288,6 @@ public class AndroidBinaryGraphEnhancer {
       enhancedDeps.add(packageStringAssets.get());
     }
 
-    // TODO(natthu): Try to avoid re-building the collection by passing UberRDotJava directly.
-    if (packageableCollection.getResourceDetails().hasResources()) {
-      collector.addClasspathEntry(
-          aaptPackageResources,
-          new BuildTargetSourcePath(
-              aaptPackageResources.getBuildTarget(),
-              aaptPackageResources.getPathToCompiledRDotJavaFiles()));
-    }
-
     // BuildConfig deps should not be added for instrumented APKs because BuildConfig.class has
     // already been added to the APK under test.
     ImmutableList<DexProducedFromJavaLibrary> preDexBuildConfigs;
@@ -308,17 +309,81 @@ public class AndroidBinaryGraphEnhancer {
       buildConfigJarFiles = buildConfigJarFilesBuilder.build();
     }
 
-    packageableCollection = collector.build();
+    ImmutableSet<DexProducedFromJavaLibrary> preDexedLibraries = ImmutableSet.of();
+    if (shouldPreDex) {
+      preDexedLibraries = createPreDexRulesForLibraries(
+          // TODO(dreiss): Put R.java here.
+          preDexBuildConfigs,
+          packageableCollection);
+    }
+
+    // Create rule to trim uber R.java sources.
+    Collection<DexProducedFromJavaLibrary> preDexedLibrariesForResourceIdFiltering =
+        trimResourceIds ? preDexedLibraries : ImmutableList.<DexProducedFromJavaLibrary>of();
+    BuildRuleParams paramsForTrimUberRDotJava = buildRuleParams.copyWithChanges(
+        createBuildTargetWithFlavor(TRIM_UBER_R_DOT_JAVA_FLAVOR),
+        Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>naturalOrder()
+            .add(aaptPackageResources)
+            .addAll(preDexedLibrariesForResourceIdFiltering)
+            .build()),
+        /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
+    TrimUberRDotJava trimUberRDotJava = new TrimUberRDotJava(
+        paramsForTrimUberRDotJava,
+        pathResolver,
+        aaptPackageResources,
+        preDexedLibrariesForResourceIdFiltering);
+    ruleResolver.addToIndex(trimUberRDotJava);
+
+    // Create rule to compile uber R.java sources.
+    BuildTarget compileUberRDotJavaTarget =
+        createBuildTargetWithFlavor(COMPILE_UBER_R_DOT_JAVA_FLAVOR);
+    BuildRuleParams paramsForCompileUberRDotJava = buildRuleParams.copyWithChanges(
+        compileUberRDotJavaTarget,
+        Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of(trimUberRDotJava)),
+        /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
+    JavaLibrary compileUberRDotJava = new DefaultJavaLibrary(
+        paramsForCompileUberRDotJava,
+        pathResolver,
+        ImmutableSet.of(
+            new BuildTargetSourcePath(
+                trimUberRDotJava.getBuildTarget(),
+                trimUberRDotJava.getPathToOutput())),
+        /* resources */ ImmutableSet.<SourcePath>of(),
+        javacOptions.getGeneratedSourceFolderName(),
+        /* proguardConfig */ Optional.<SourcePath>absent(),
+        /* postprocessClassesCommands */ ImmutableList.<String>of(),
+        /* exportedDeps */ ImmutableSortedSet.<BuildRule>of(),
+        /* providedDeps */ ImmutableSortedSet.<BuildRule>of(),
+        // Because the Uber R.java has no method bodies or private methods or fields,
+        // we can just use its output as the ABI.
+        new BuildTargetSourcePath(compileUberRDotJavaTarget),
+        /* trackClassUsage */ false,
+        /* additionalClasspathEntries */ ImmutableSet.<Path>of(),
+        new JavacToJarStepFactory(javacOptions, JavacOptionsAmender.IDENTITY),
+        /* resourcesRoot */ Optional.<Path>absent(),
+        /* mavenCoords */ Optional.<String>absent(),
+        ImmutableSortedSet.<BuildTarget>of());
+    ruleResolver.addToIndex(compileUberRDotJava);
+
+    // Create rule to dex uber R.java sources.
+    BuildRuleParams paramsForDexUberRDotJava = buildRuleParams.copyWithChanges(
+        createBuildTargetWithFlavor(DEX_UBER_R_DOT_JAVA_FLAVOR),
+        Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of(compileUberRDotJava)),
+          /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
+    DexProducedFromJavaLibrary dexUberRDotJava =
+        new DexProducedFromJavaLibrary(paramsForDexUberRDotJava, pathResolver, compileUberRDotJava);
+    ruleResolver.addToIndex(dexUberRDotJava);
 
     Optional<PreDexMerge> preDexMerge = Optional.absent();
     if (shouldPreDex) {
       preDexMerge = Optional.of(createPreDexMergeRule(
-              aaptPackageResources,
-              preDexBuildConfigs,
-              packageableCollection));
+              preDexedLibraries,
+              dexUberRDotJava));
       enhancedDeps.add(preDexMerge.get());
     } else {
       enhancedDeps.addAll(getTargetsAsRules(packageableCollection.getJavaLibrariesToDex()));
+      // If not pre-dexing, AndroidBinary needs to ProGuard and/or dex the compiled R.java.
+      enhancedDeps.add(compileUberRDotJava);
     }
 
     // Add dependencies on all the build rules generating third-party JARs.  This is mainly to
@@ -357,6 +422,7 @@ public class AndroidBinaryGraphEnhancer {
     return AndroidGraphEnhancementResult.builder()
         .setPackageableCollection(packageableCollection)
         .setAaptPackageResources(aaptPackageResources)
+        .setCompiledUberRDotJava(compileUberRDotJava)
         .setCopyNativeLibraries(copyNativeLibraries)
         .setPackageStringAssets(packageStringAssets)
         .setPreDexMerge(preDexMerge)
@@ -455,11 +521,33 @@ public class AndroidBinaryGraphEnhancer {
    */
   @VisibleForTesting
   PreDexMerge createPreDexMergeRule(
-      AaptPackageResources aaptPackageResources,
+      ImmutableSet<DexProducedFromJavaLibrary> allPreDexDeps,
+      DexProducedFromJavaLibrary dexForUberRDotJava) {
+    BuildRuleParams paramsForPreDexMerge = buildRuleParams.copyWithChanges(
+        createBuildTargetWithFlavor(DEX_MERGE_FLAVOR),
+        Suppliers.ofInstance(
+            ImmutableSortedSet.<BuildRule>naturalOrder()
+                .addAll(getDexMergeDeps(dexForUberRDotJava, allPreDexDeps))
+                .build()),
+        /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
+    PreDexMerge preDexMerge = new PreDexMerge(
+        paramsForPreDexMerge,
+        pathResolver,
+        primaryDexPath,
+        dexSplitMode,
+        allPreDexDeps,
+        dexForUberRDotJava,
+        dxExecutorService,
+        xzCompressionLevel);
+    ruleResolver.addToIndex(preDexMerge);
+
+    return preDexMerge;
+  }
+
+  @VisibleForTesting
+  ImmutableSet<DexProducedFromJavaLibrary> createPreDexRulesForLibraries(
       Iterable<DexProducedFromJavaLibrary> preDexRulesNotInThePackageableCollection,
       AndroidPackageableCollection packageableCollection) {
-    ImmutableSortedSet.Builder<JavaLibrary> javaLibraryDepsBuilder =
-        ImmutableSortedSet.naturalOrder();
     ImmutableSet.Builder<DexProducedFromJavaLibrary> preDexDeps = ImmutableSet.builder();
     preDexDeps.addAll(preDexRulesNotInThePackageableCollection);
     for (BuildTarget buildTarget : packageableCollection.getJavaLibrariesToDex()) {
@@ -469,11 +557,6 @@ public class AndroidBinaryGraphEnhancer {
 
       BuildRule libraryRule = ruleResolver.getRule(buildTarget);
 
-      // Skip uber R.java since AaptPackageResources takes care of dexing.
-      if (libraryRule.equals(aaptPackageResources)) {
-        continue;
-      }
-
       Preconditions.checkState(libraryRule instanceof JavaLibrary);
       JavaLibrary javaLibrary = (JavaLibrary) libraryRule;
 
@@ -482,9 +565,6 @@ public class AndroidBinaryGraphEnhancer {
       if (javaLibrary.getPathToOutput() == null) {
         continue;
       }
-
-      // Take note of the rule so we add it to the enhanced deps.
-      javaLibraryDepsBuilder.add(javaLibrary);
 
       // See whether the corresponding IntermediateDexRule has already been added to the
       // ruleResolver.
@@ -509,29 +589,7 @@ public class AndroidBinaryGraphEnhancer {
       ruleResolver.addToIndex(preDex);
       preDexDeps.add(preDex);
     }
-
-    ImmutableSet<DexProducedFromJavaLibrary> allPreDexDeps = preDexDeps.build();
-
-    BuildRuleParams paramsForPreDexMerge = buildRuleParams.copyWithChanges(
-        createBuildTargetWithFlavor(DEX_MERGE_FLAVOR),
-        Suppliers.ofInstance(
-            ImmutableSortedSet.<BuildRule>naturalOrder()
-                .addAll(getDexMergeDeps(aaptPackageResources, allPreDexDeps))
-                .addAll(javaLibraryDepsBuilder.build())
-                .build()),
-        /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
-    PreDexMerge preDexMerge = new PreDexMerge(
-        paramsForPreDexMerge,
-        pathResolver,
-        primaryDexPath,
-        dexSplitMode,
-        allPreDexDeps,
-        aaptPackageResources,
-        dxExecutorService,
-        xzCompressionLevel);
-    ruleResolver.addToIndex(preDexMerge);
-
-    return preDexMerge;
+    return preDexDeps.build();
   }
 
   private BuildTarget createBuildTargetWithFlavor(Flavor flavor) {
@@ -561,10 +619,10 @@ public class AndroidBinaryGraphEnhancer {
   }
 
   private ImmutableSortedSet<BuildRule> getDexMergeDeps(
-      AaptPackageResources aaptPackageResources,
+      DexProducedFromJavaLibrary dexForUberRDotJava,
       ImmutableSet<DexProducedFromJavaLibrary> preDexDeps) {
     ImmutableSet.Builder<BuildTarget> targets = ImmutableSet.builder();
-    targets.add(aaptPackageResources.getBuildTarget());
+    targets.add(dexForUberRDotJava.getBuildTarget());
     for (DexProducedFromJavaLibrary preDex : preDexDeps) {
       targets.add(preDex.getBuildTarget());
     }

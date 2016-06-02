@@ -16,6 +16,8 @@
 
 package com.facebook.buck.distributed;
 
+import java.io.IOException;
+
 // TODO(ruibm): Currently this class only implements dummy behaviour to mock the distbuild.
 public class DistributedBuild {
 
@@ -25,7 +27,7 @@ public class DistributedBuild {
     this.distBuildService = distBuildService;
   }
 
-  public int executeAndPrintFailuresToEventBus() {
+  public int executeAndPrintFailuresToEventBus() throws IOException {
     distBuildService.submitJob();
     return 0;
   }

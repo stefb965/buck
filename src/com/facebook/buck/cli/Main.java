@@ -124,7 +124,6 @@ import com.google.common.reflect.ClassPath;
 import com.google.common.util.concurrent.AbstractScheduledService;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.ServiceManager;
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.martiansoftware.nailgun.NGClientListener;
 import com.martiansoftware.nailgun.NGContext;
 import com.martiansoftware.nailgun.NGServer;
@@ -160,10 +159,8 @@ import java.util.TimeZone;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 import javax.annotation.Nullable;
@@ -193,11 +190,6 @@ public final class Main {
 
   private static final TimeSpan HANG_DETECTOR_TIMEOUT =
       new TimeSpan(5, TimeUnit.MINUTES);
-
-  /**
-   * Number of maximum threads for network operations.
-   */
-  private static final int MAX_NETWORK_THREADS = 23;
 
   /**
    * Path to a directory of static content that should be served by the {@link WebServer}.
@@ -891,7 +883,7 @@ public final class Main {
         executors.put(ExecutionContext.ExecutorPool.CPU, listeningDecorator(
                 Executors.newCachedThreadPool()));
         // Create a thread pool for network I/O tasks
-        executors.put(ExecutionContext.ExecutorPool.NETWORK, getNetworkExecutorService());
+        executors.put(ExecutionContext.ExecutorPool.NETWORK, newDirectExecutorService());
 
         // The order of resources in the try-with-resources block is important: the BuckEventBus
         // must be the last resource, so that it is closed first and can deliver its queued events
@@ -1191,21 +1183,6 @@ public final class Main {
     }
   }
 
-  private static ListeningExecutorService getNetworkExecutorService() {
-    ThreadPoolExecutor networkExecutor = new ThreadPoolExecutor(
-        /* corePoolSize */ MAX_NETWORK_THREADS,
-        /* maximumPoolSize */ MAX_NETWORK_THREADS,
-        /* keepAliveTime */ 500L, TimeUnit.MILLISECONDS,
-        /* workQueue */ new LinkedBlockingQueue<Runnable>(MAX_NETWORK_THREADS),
-        /* threadFactory */ new ThreadFactoryBuilder()
-        .setNameFormat("Network I/O" + "-%d")
-        .build(),
-        /* handler */ new ThreadPoolExecutor.CallerRunsPolicy());
-    networkExecutor.allowCoreThreadTimeOut(true);
-
-    return listeningDecorator(networkExecutor);
-  }
-
   @VisibleForTesting
   static Supplier<AndroidPlatformTarget> createAndroidPlatformTargetSupplier(
       final AndroidDirectoryResolver androidDirectoryResolver,
@@ -1216,7 +1193,7 @@ public final class Main {
     // and passes it from above all the way through, but it is not parameterized by Cell.
     //
     // TODO(bolinfest): Every build rule that uses AndroidPlatformTarget must include the result
-    // of its getName() method in its RuleKey.
+    // of its getCacheName() method in its RuleKey.
     return new Supplier<AndroidPlatformTarget>() {
 
       @Nullable

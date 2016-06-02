@@ -1,0 +1,32 @@
+#@# GENERATED FILE: DO NOT MODIFY c67f37c648bdb79d7bbdff3a3fd7fa146a246d22 #@#
+{
+  "macho" : {
+    "deps" : [
+      "//src/com/facebook/buck/cxx:platform",
+      "//src/com/facebook/buck/cxx:rules",
+      "//src/com/facebook/buck/io:io",
+      "//src/com/facebook/buck/macho:macho",
+      "//src/com/facebook/buck/model:model",
+      "//src/com/facebook/buck/util:io",
+      "//src/com/facebook/buck/util/environment:platform",
+      "//test/com/facebook/buck/macho:testutil",
+      "//test/com/facebook/buck/model:testutil",
+      "//test/com/facebook/buck/testutil/integration:integration",
+      "//third-party/java/guava:guava",
+      "//third-party/java/hamcrest:hamcrest-junit",
+      "//third-party/java/hamcrest:java-hamcrest",
+      "//third-party/java/junit:junit"
+    ],
+    "exported_deps" : [ ]
+  },
+  "testutil" : {
+    "deps" : [
+      "//third-party/java/guava:guava",
+      "//third-party/java/hamcrest:java-hamcrest",
+      "//third-party/java/junit:junit"
+    ],
+    "exported_deps" : [
+      "//src/com/facebook/buck/macho:macho"
+    ]
+  }
+}

@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY ea93d0cbfa7fed590d17166ce9b0898802170714 #@#
+#@# GENERATED FILE: DO NOT MODIFY 8b33305f0d18773a2b66849b99a2784ecdba8027 #@#
 {
   "exceptions" : {
     "deps" : [
@@ -68,6 +68,7 @@
       "//src/com/facebook/buck/util:object_mapper",
       "//src/com/facebook/buck/zip:constants",
       "//src/com/facebook/buck/zip:steps",
+      "//src/com/facebook/buck/zip:stream",
       "//third-party/java/aosp:aosp",
       "//third-party/java/ddmlib:ddmlib",
       "//third-party/java/immutables:processor",
@@ -83,7 +84,6 @@
       "//src/com/facebook/buck/cxx:platform",
       "//src/com/facebook/buck/cxx:rules",
       "//src/com/facebook/buck/io:io",
-      "//src/com/facebook/buck/jvm/core:classhash",
       "//src/com/facebook/buck/jvm/java:rules",
       "//src/com/facebook/buck/jvm/java:steps",
       "//src/com/facebook/buck/jvm/java:support",

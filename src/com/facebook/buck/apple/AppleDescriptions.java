@@ -320,8 +320,28 @@ public class AppleDescriptions {
     ImmutableSortedSet.Builder<SourcePath> assetCatalogDirsBuilder =
         ImmutableSortedSet.naturalOrder();
 
+    Optional<String> appIcon = Optional.absent();
+    Optional<String> launchImage = Optional.absent();
+
     for (AppleAssetCatalogDescription.Arg arg : assetCatalogArgs) {
       assetCatalogDirsBuilder.addAll(arg.dirs);
+      if (arg.appIcon.isPresent()) {
+        if (appIcon.isPresent()) {
+          throw new HumanReadableException("At most one asset catalog in the dependencies of %s " +
+              "can have a app_icon", params.getBuildTarget());
+        }
+
+        appIcon = arg.appIcon;
+      }
+
+      if (arg.launchImage.isPresent()) {
+        if (launchImage.isPresent()) {
+          throw new HumanReadableException("At most one asset catalog in the dependencies of %s " +
+              "can have a launch_image", params.getBuildTarget());
+        }
+
+        launchImage = arg.launchImage;
+      }
     }
 
     ImmutableSortedSet<SourcePath> assetCatalogDirs =
@@ -343,6 +363,8 @@ public class AppleDescriptions {
             applePlatform.getName(),
             actool,
             assetCatalogDirs,
+            appIcon,
+            launchImage,
             MERGED_ASSET_CATALOG_NAME));
   }
 
@@ -530,14 +552,6 @@ public class AppleDescriptions {
         .withoutFlavors(ImmutableSet.of(AppleDebuggableBinary.RULE_FLAVOR))
         .withoutFlavors(AppleDebugFormat.FLAVOR_DOMAIN.getFlavors())
         .withoutFlavors(ImmutableSet.of(AppleBinaryDescription.APP_FLAVOR));
-    if (unstrippedTarget.getFlavors().contains(CxxDescriptionEnhancer.MACH_O_BUNDLE_FLAVOR)) {
-      unstrippedTarget = unstrippedTarget
-          .withoutFlavors(ImmutableSet.of(CxxDescriptionEnhancer.MACH_O_BUNDLE_FLAVOR))
-          .withAppendedFlavors(CxxDescriptionEnhancer.SHARED_FLAVOR);
-    }
-    if (unstrippedTarget.getFlavors().contains(AppleTestDescription.BUNDLE_FLAVOR)) {
-      unstrippedTarget = unstrippedTarget.withAppendedFlavors(AppleDebuggableBinary.RULE_FLAVOR);
-    }
     BuildRule unstrippedBinaryRule = resolver.requireRule(unstrippedTarget);
 
     BuildRule targetDebuggableBinaryRule;

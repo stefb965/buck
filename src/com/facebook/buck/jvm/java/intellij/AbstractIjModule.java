@@ -16,6 +16,7 @@
 
 package com.facebook.buck.jvm.java.intellij;
 
+import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
@@ -49,7 +50,7 @@ abstract class AbstractIjModule implements IjProjectElement {
   @Override
   @Value.Derived
   public String getName() {
-    return Util.intelliJModuleNameFromPath(getModuleBasePath());
+    return Util.intelliJModuleNameFromPath(MorePaths.pathWithUnixSeparators(getModuleBasePath()));
   }
 
   @Override
@@ -143,18 +144,5 @@ abstract class AbstractIjModule implements IjProjectElement {
       scope = IjDependencyListBuilder.Scope.TEST;
     }
     dependencyListBuilder.addModule(getName(), scope, false /* exported */);
-  }
-
-  /**
-   * There are source folders if they are specified, generated, or if the Android facet is enabled
-   * (because it may create R java files or other derived source code artifacts).
-   *
-   * @return true if this module will contain source code.
-   */
-  @Value.Derived
-  public boolean hasSourceFolders() {
-    return !getFolders().isEmpty() ||
-           !getGeneratedSourceCodeFolders().isEmpty() ||
-           getAndroidFacet().isPresent();
   }
 }

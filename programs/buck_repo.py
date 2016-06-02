@@ -9,8 +9,9 @@ import textwrap
 
 from timing import monotonic_time_nanos
 from tracing import Tracing
-from buck_tool import BuckTool, which, check_output, JAVA_MAX_HEAP_SIZE_MB
+from buck_tool import BuckTool, check_output, JAVA_MAX_HEAP_SIZE_MB
 from buck_tool import BuckToolException, RestartBuck
+from subprocutils import which
 import buck_version
 
 JAVA_CLASSPATHS = [
@@ -66,8 +67,8 @@ JAVA_CLASSPATHS = [
     "third-party/java/nailgun/nailgun-server-0.9.2-SNAPSHOT.jar",
     "third-party/java/nuprocess/nuprocess-1.0.5-SNAPSHOT.jar",
     "third-party/java/ObjCBridge/ObjCBridge.jar",
-    "third-party/java/okhttp/okhttp-2.7.4.jar",
-    "third-party/java/okio/okio-1.6.0.jar",
+    "third-party/java/okhttp/okhttp-3.3.0.jar",
+    "third-party/java/okio/okio-1.8.0.jar",
     "third-party/java/servlet-api/javax.servlet-api-3.1.0.jar",
     "third-party/java/slf4j/slf4j-jdk14-1.7.5.jar",
     "third-party/java/stringtemplate/ST-4.0.8.jar",
@@ -86,6 +87,8 @@ JAVA_CLASSPATHS = [
     "third-party/java/slf4j/slf4j-api-1.7.5.jar",
     "third-party/java/plexus/plexus-utils-3.0.20.jar",
     "third-party/java/plexus/plexus-interpolation-1.21.jar",
+    "third-party/java/eden/eden.jar",
+    "third-party/java/eden/java-thrift-dependencies.jar",
 ]
 
 RESOURCES = {
