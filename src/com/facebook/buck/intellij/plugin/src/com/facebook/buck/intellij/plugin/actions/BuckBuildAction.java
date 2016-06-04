@@ -21,6 +21,7 @@ import com.facebook.buck.intellij.plugin.build.BuckBuildManager;
 import com.facebook.buck.intellij.plugin.build.BuckCommand;
 import com.facebook.buck.intellij.plugin.config.BuckModule;
 import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.project.Project;
 
 import icons.BuckIcons;
 
@@ -37,23 +38,24 @@ public class BuckBuildAction extends BuckBaseAction {
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
-    BuckBuildManager buildManager = BuckBuildManager.getInstance(e.getProject());
+  public void executeOnPooledThread(final AnActionEvent e) {
+        Project project = e.getProject();
+        BuckBuildManager buildManager = BuckBuildManager.getInstance(project);
 
-    String target = buildManager.getCurrentSavedTarget(e.getProject());
-    if (target == null) {
-      buildManager.showNoTargetMessage(e.getProject());
-      return;
-    }
+        String target = buildManager.getCurrentSavedTarget(project);
+        // Initiate a buck build
+        BuckModule buckModule = project.getComponent(BuckModule.class);
+        buckModule.attach(target);
 
-    // Initiate a buck build
-    BuckModule buckModule = e.getProject().getComponent(BuckModule.class);
-    buckModule.attach(target);
+        if (target == null) {
+          buildManager.showNoTargetMessage(project);
+          return;
+        }
 
-    BuckBuildCommandHandler handler = new BuckBuildCommandHandler(
-        e.getProject(),
-        e.getProject().getBaseDir(),
-        BuckCommand.BUILD);
+        BuckBuildCommandHandler handler = new BuckBuildCommandHandler(
+            project,
+            project.getBaseDir(),
+            BuckCommand.BUILD);
     handler.command().addParameter(target);
     buildManager.runBuckCommandWhileConnectedToBuck(handler, ACTION_TITLE, buckModule);
   }

@@ -19,6 +19,8 @@ package com.facebook.buck.cxx;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assume.assumeThat;
 
+import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
@@ -130,6 +132,30 @@ public class CxxGenruleIntegrationTest {
             Matchers.containsString("-a-ld-flag"),
             Matchers.containsString("libc.a"),
             Matchers.containsString("-c-ld-flag")));
+  }
+
+  @Test
+  public void platformName() throws IOException {
+    workspace.replaceFileContents("BUCK", "@CMD@", "echo -- $(platform-name)");
+    Path output = workspace.buildAndReturnOutput("//:rule#default");
+    assertThat(
+        workspace.getFileContents(output),
+        Matchers.containsString("default"));
+  }
+
+  @Test
+  public void locationPlatform() throws Exception {
+    workspace.replaceFileContents("BUCK", "@CMD@", "echo -- $(location-platform :binary)");
+    Path output = workspace.buildAndReturnOutput("//:rule#default");
+    assertThat(
+        workspace.getFileContents(output),
+        Matchers.containsString(
+            BuildTargets
+                .getGenPath(
+                    workspace.asCell().getFilesystem(),
+                    BuildTargetFactory.newInstance("//:binary#default"),
+                    "%s")
+                .toString()));
   }
 
 }

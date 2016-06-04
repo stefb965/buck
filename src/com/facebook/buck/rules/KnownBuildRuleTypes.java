@@ -569,7 +569,11 @@ public class KnownBuildRuleTypes {
     builder.register(new AndroidResourceDescription());
     builder.register(new ApkGenruleDescription());
     builder.register(new AppleAssetCatalogDescription());
-    builder.register(new ApplePackageDescription(appleConfig, platformFlavorsToAppleCxxPlatforms));
+    builder.register(
+        new ApplePackageDescription(
+            appleConfig,
+            defaultCxxPlatform,
+            platformFlavorsToAppleCxxPlatforms));
     AppleBundleDescription appleBundleDescription =
         new AppleBundleDescription(
             appleBinaryDescription,
@@ -660,7 +664,12 @@ public class KnownBuildRuleTypes {
             testTempDirOverride));
     builder.register(new KeystoreDescription());
     builder.register(
-        new LuaBinaryDescription(luaConfig, cxxBuckConfig, defaultCxxPlatform, cxxPlatforms));
+        new LuaBinaryDescription(
+            luaConfig,
+            cxxBuckConfig,
+            defaultCxxPlatform,
+            cxxPlatforms,
+            pythonPlatforms));
     builder.register(new LuaLibraryDescription());
     builder.register(new NdkLibraryDescription(ndkVersion, ndkCxxPlatforms));
     OCamlBuckConfig ocamlBuckConfig = new OCamlBuckConfig(platform, config);
