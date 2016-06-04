@@ -16,8 +16,11 @@
 
 package org.openqa.selenium.buck.javascript;
 
+
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractDescriptionArg;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
@@ -25,23 +28,22 @@ import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.TargetGraph;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.util.Collections;
-import java.util.List;
 
-public class JsBinaryDescription implements
-    Description<JsBinaryDescription.Arg>,
-    ImplicitDepsInferringDescription<JsBinaryDescription.Arg> {
+public class JsTestDescription implements
+    Description<JsTestDescription.Arg>,
+    ImplicitDepsInferringDescription<JsTestDescription.Arg> {
 
-  private static final BuildRuleType TYPE = BuildRuleType.of("js_binary");
+  private static final BuildRuleType TYPE = BuildRuleType.of("js_test");
+
   private final JavascriptConfig config;
 
-  public JsBinaryDescription(JavascriptConfig config) {
+  public JsTestDescription(JavascriptConfig config) {
     this.config = config;
   }
 
@@ -56,39 +58,24 @@ public class JsBinaryDescription implements
   }
 
   @Override
-  public <A extends Arg> JsBinary createBuildRule(
+  public <A extends Arg> BuildRule createBuildRule(
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
-      A args) {
-    return new JsBinary(
-        params,
-        new SourcePathResolver(resolver),
-        config.getClosureCompiler(args.compiler, new SourcePathResolver(resolver)),
-        params.getDeclaredDeps(),
-        args.srcs,
-        args.defines,
-        args.flags,
-        args.externs,
-        args.noFormat);
+      A args) throws NoSuchBuildTargetException {
+    return null;
   }
 
   @Override
   public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
-      BuildTarget buildTarget,
-      CellPathResolver cellRoots,
-      Arg arg) {
+      BuildTarget buildTarget, CellPathResolver cellRoots, Arg arg) {
     SourcePath compiler = config.getClosureCompilerSourcePath(arg.compiler);
     return SourcePaths.filterBuildTargetSourcePaths(Collections.singleton(compiler));
   }
 
-  public static class Arg extends AbstractDescriptionArg {
-    public Optional<List<String>> defines;
-    public Optional<List<SourcePath>> externs;
-    public Optional<List<String>> flags;
-    public Optional<Boolean> noFormat;
-    public ImmutableSortedSet<SourcePath> srcs;
+  static class Arg extends AbstractDescriptionArg {
     public Optional<SourcePath> compiler;
+    public ImmutableSortedSet<SourcePath> srcs;
 
     public Optional<ImmutableSortedSet<BuildTarget>> deps;
   }

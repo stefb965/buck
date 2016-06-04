@@ -66,6 +66,8 @@ public class JsBinary extends AbstractBuildRule implements
   private final Optional<List<SourcePath>> externs;
   @AddToRuleKey
   private final Optional<List<String>> flags;
+  @AddToRuleKey
+  private final boolean prettyPrint;
   private JavascriptDependencies joy;
   private final BuildOutputInitializer<JavascriptDependencies> buildOutputInitializer;
 
@@ -77,7 +79,8 @@ public class JsBinary extends AbstractBuildRule implements
       ImmutableSortedSet<SourcePath> srcs,
       Optional<List<String>> defines,
       Optional<List<String>> flags,
-      Optional<List<SourcePath>> externs) {
+      Optional<List<SourcePath>> externs,
+      Optional<Boolean> noFormat) {
     super(params, resolver);
 
     this.compiler = compiler;
@@ -87,6 +90,7 @@ public class JsBinary extends AbstractBuildRule implements
     this.defines = Preconditions.checkNotNull(defines);
     this.externs = Preconditions.checkNotNull(externs);
     this.flags = Preconditions.checkNotNull(flags);
+    this.prettyPrint = !noFormat.or(Boolean.FALSE);  // Bloody double negatives
 
     this.output = BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s.js");
     this.joyPath = BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s.deps");
@@ -156,7 +160,7 @@ public class JsBinary extends AbstractBuildRule implements
             .defines(defines)
             .externs(externs)
             .flags(flags)
-            .prettyPrint()
+            .prettyPrint(prettyPrint)
             .sources(requiredSources)
             .output(output)
             .build();

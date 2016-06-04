@@ -115,6 +115,13 @@ public class ClosureCompilerStep extends ShellStep {
       return this;
     }
 
+    public Builder prettyPrint(boolean isPretty) {
+      if (isPretty) {
+        prettyPrint();
+      }
+      return this;
+    }
+
     public Builder sources(Iterable<Path> paths) {
       for (Path path : paths) {
         cmd.add("--js='" + path + "'");
