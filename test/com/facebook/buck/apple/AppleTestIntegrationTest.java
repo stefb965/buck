@@ -41,11 +41,8 @@ import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 
-<<<<<<< HEAD
-import org.junit.Ignore;
-=======
 import org.junit.Before;
->>>>>>> facebook/master
+import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
