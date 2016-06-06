@@ -27,6 +27,7 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.ExecutableFinder;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.json.ProjectBuildFileParser;
 import com.facebook.buck.json.ProjectBuildFileParserFactory;
@@ -37,6 +38,7 @@ import com.facebook.buck.rules.ConstructorArgMarshaller;
 import com.facebook.buck.rules.KnownBuildRuleTypes;
 import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.timing.FakeClock;
 import com.facebook.buck.util.Console;
@@ -239,6 +241,7 @@ public class ProjectBuildFileParserTest {
         Console console,
         ImmutableMap<String, String> environment,
         BuckEventBus buckEventBus,
+        ProjectFilesystem filesystem,
         boolean ignoreBuckAutodepsFiles) {
       PythonBuckConfig config = new PythonBuckConfig(
           FakeBuckConfig.builder().setEnvironment(environment).build(),
@@ -369,6 +372,7 @@ public class ProjectBuildFileParserTest {
             ImmutableMap.<String, String>of(),
             ImmutableMap.<String, ImmutableMap<String, String>>of(),
             buckEventBus,
+            new FakeProjectFilesystem(),
             processExecutor,
             /* ignoreBuckAutodepsFiles */ false);
       }

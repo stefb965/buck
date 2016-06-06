@@ -302,6 +302,7 @@ public class Cell {
         console,
         config.getEnvironment(),
         eventBus,
+        getFilesystem(),
         ignoreBuckAutodepsFiles);
   }
 

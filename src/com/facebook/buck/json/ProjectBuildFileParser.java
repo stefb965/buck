@@ -25,6 +25,7 @@ import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.PerfEventId;
 import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.io.MorePaths;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.rules.BuckPyFunction;
 import com.facebook.buck.rules.ConstructorArgMarshaller;
@@ -32,6 +33,7 @@ import com.facebook.buck.rules.Description;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.InputStreamConsumer;
 import com.facebook.buck.util.MoreThrowables;
+import com.facebook.buck.util.PackagedResource;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.Threads;
@@ -60,7 +62,6 @@ import java.io.Writer;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -77,21 +78,13 @@ public class ProjectBuildFileParser implements AutoCloseable {
 
   /** Path to the buck.py script that is used to evaluate a build file. */
   private static final String BUCK_PY_RESOURCE = "com/facebook/buck/json/buck.py";
-
-  private static final Path PATH_TO_PATHLIB_PY = Paths.get(
-      System.getProperty(
-          "buck.path_to_pathlib_py",
-          "third-party/py/pathlib/pathlib.py"));
-
-  private static final Path PATH_TO_PYWATCHMAN = Paths.get(
-      System.getProperty(
-          "buck.path_to_pywatchman",
-          "third-party/py/pywatchman"));
-
+  
   private static final Logger LOG = Logger.get(ProjectBuildFileParser.class);
 
   private final ImmutableMap<String, String> environment;
 
+  private PackagedResource pathlib;
+  private PackagedResource pywatchman;
   private Optional<Path> pathToBuckPy;
   private Supplier<Path> rawConfigJson;
 
@@ -121,6 +114,7 @@ public class ProjectBuildFileParser implements AutoCloseable {
       ImmutableMap<String, String> environment,
       final ImmutableMap<String, ImmutableMap<String, String>> rawConfig,
       BuckEventBus buckEventBus,
+      ProjectFilesystem filesystem,
       ProcessExecutor processExecutor,
       boolean ignoreBuckAutodepsFiles) {
     this.pathToBuckPy = Optional.absent();
@@ -152,6 +146,11 @@ public class ProjectBuildFileParser implements AutoCloseable {
                 }
               }
             });
+
+    this.pathlib =
+        new PackagedResource(filesystem, ProjectBuildFileParser.class, "pathlib-archive.zip");
+    this.pywatchman =
+        new PackagedResource(filesystem, ProjectBuildFileParser.class, "pywatchman-archive.zip");
   }
 
   public void setEnableProfiling(boolean enableProfiling) {
@@ -530,8 +529,8 @@ public class ProjectBuildFileParser implements AutoCloseable {
 
     try (Writer out = Files.newBufferedWriter(buckDotPy, UTF_8)) {
       URL resource = Resources.getResource(BUCK_PY_RESOURCE);
-      String pathlibDir = PATH_TO_PATHLIB_PY.getParent().toString();
-      String watchmanDir = PATH_TO_PYWATCHMAN.toString();
+      String pathlibDir = pathlib.get().toString();
+      String watchmanDir = pywatchman.get().toString();
       out.write(
           "from __future__ import with_statement\n" +
           "import sys\n" +

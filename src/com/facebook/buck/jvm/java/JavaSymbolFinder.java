@@ -155,6 +155,7 @@ public class JavaSymbolFinder {
         console,
         environment,
         buckEventBus,
+        projectFilesystem,
         /* ignoreBuckAutodepsFiles */ false)) {
       for (Path sourceFile : sourceFilePaths) {
         for (Path buckFile : possibleBuckFilesForSourceFile(sourceFile)) {

@@ -29,6 +29,8 @@ java_immutables_library(
   ],
   resources = [
     'buck.py',
+    '//third-party/py/pywatchman:pywatchman-archive',
+    '//third-party/py/pathlib:pathlib-archive',
   ],
   autodeps = True,
   visibility = [

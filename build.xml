@@ -391,6 +391,17 @@
          destfile="${classes.dir}/com/facebook/buck/cli/quickstart/ios/ios-template.zip"
          excludes="BUCK"
          defaultexcludes="no"/>
+
+    <mkdir dir="${classes.dir}/com/facebook/buck/json"/>
+    <zip basedir="third-party/py/pathlib"
+         destfile="${classes.dir}/com/facebook/buck/json/pathlib-archive.zip"
+         includes="*.py"
+         defaultexcludes="no"/>
+    <zip basedir="third-party/py/pywatchman"
+         destfile="${classes.dir}/com/facebook/buck/json/pywatchman-archive.zip"
+         includes="pywatchman/*.py"
+         defaultexcludes="no"/>
+
     <mkdir dir="${classes.dir}/com/facebook/buck/android"/>
     <copy file="${third-party.dir}/java/ddmlib/ddmlib-22.5.3.jar"
           tofile="${classes.dir}/com/facebook/buck/android/ddmlib.jar"/>
