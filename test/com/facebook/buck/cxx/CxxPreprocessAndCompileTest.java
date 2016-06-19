@@ -91,7 +91,7 @@ public class CxxPreprocessAndCompileTest {
   private static final Preprocessor DEFAULT_PREPROCESSOR =
       new DefaultPreprocessor(new HashedFileTool(Paths.get("preprocessor")));
   private static final Compiler DEFAULT_COMPILER =
-      new DefaultCompiler(new HashedFileTool(Paths.get("compiler")));
+      new GccCompiler(new HashedFileTool(Paths.get("compiler")));
   private static final Preprocessor PREPROCESSOR_WITH_COLOR_SUPPORT =
       new PreprocessorWithColorSupport(new HashedFileTool(Paths.get("preprocessor")));
   private static final Compiler COMPILER_WITH_COLOR_SUPPORT =
@@ -111,7 +111,7 @@ public class CxxPreprocessAndCompileTest {
               .putNameToPathMap(Paths.get("test.h"), new FakeSourcePath("foo/test.h"))
               .build());
   private static final DebugPathSanitizer DEFAULT_SANITIZER =
-      CxxPlatforms.DEFAULT_DEBUG_PATH_SANITIZER;
+      CxxPlatformUtils.DEFAULT_DEBUG_PATH_SANITIZER;
   private static final Path DEFAULT_WORKING_DIR = Paths.get(System.getProperty("user.dir"));
   private static final
   RuleKeyAppendableFunction<FrameworkPath, Path> DEFAULT_FRAMEWORK_PATH_SEARCH_PATH_FUNCTION =
@@ -171,7 +171,7 @@ public class CxxPreprocessAndCompileTest {
             new CompilerDelegate(
                 pathResolver,
                 DEFAULT_SANITIZER,
-                new DefaultCompiler(new HashedFileTool(Paths.get("different"))),
+                new GccCompiler(new HashedFileTool(Paths.get("different"))),
                 DEFAULT_TOOL_FLAGS),
             DEFAULT_OUTPUT,
             DEFAULT_INPUT,
@@ -479,7 +479,7 @@ public class CxxPreprocessAndCompileTest {
             new CompilerDelegate(
                 pathResolver,
                 DEFAULT_SANITIZER,
-                new DefaultCompiler(compilerTool),
+                new GccCompiler(compilerTool),
                 CxxToolFlags.of()),
             DEFAULT_OUTPUT,
             DEFAULT_INPUT,

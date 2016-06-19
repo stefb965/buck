@@ -22,6 +22,12 @@ import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.ConstantToolProvider;
 import com.facebook.buck.rules.Tool;
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableBiMap;
+
+import java.io.File;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 public class CxxPlatformUtils {
 
@@ -35,12 +41,20 @@ public class CxxPlatformUtils {
   private static final PreprocessorProvider DEFAULT_PREPROCESSOR_PROVIDER =
       new PreprocessorProvider(
           new ConstantToolProvider(DEFAULT_TOOL),
-          CxxToolProvider.Type.DEFAULT);
+          CxxToolProvider.Type.GCC);
 
   private static final CompilerProvider DEFAULT_COMPILER_PROVIDER =
       new CompilerProvider(
           new ConstantToolProvider(DEFAULT_TOOL),
-          CxxToolProvider.Type.DEFAULT);
+          CxxToolProvider.Type.GCC);
+
+  @VisibleForTesting
+  static final DebugPathSanitizer DEFAULT_DEBUG_PATH_SANITIZER =
+      new DebugPathSanitizer(
+          250,
+          File.separatorChar,
+          Paths.get("."),
+          ImmutableBiMap.<Path, Path>of());
 
   public static final CxxPlatform DEFAULT_PLATFORM =
       CxxPlatform.builder()
@@ -65,7 +79,7 @@ public class CxxPlatformUtils {
           .setSymbolNameTool(new PosixNmSymbolNameTool(DEFAULT_TOOL))
           .setSharedLibraryExtension("so")
           .setSharedLibraryVersionedExtensionFormat("so.%s")
-          .setDebugPathSanitizer(CxxPlatforms.DEFAULT_DEBUG_PATH_SANITIZER)
+          .setDebugPathSanitizer(DEFAULT_DEBUG_PATH_SANITIZER)
           .build();
 
     public static final FlavorDomain<CxxPlatform> DEFAULT_PLATFORMS =

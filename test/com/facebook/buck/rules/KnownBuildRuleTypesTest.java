@@ -45,6 +45,7 @@ import com.facebook.buck.util.FakeProcess;
 import com.facebook.buck.util.FakeProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
+import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -143,6 +144,7 @@ public class KnownBuildRuleTypesTest {
     arg.javacJar = Optional.absent();
     arg.compiler = Optional.absent();
     arg.extraArguments = Optional.absent();
+    arg.removeClasses = Optional.absent();
     arg.proguardConfig = Optional.absent();
     arg.annotationProcessorDeps = Optional.of(ImmutableSortedSet.<BuildTarget>of());
     arg.annotationProcessorParams = Optional.of(ImmutableList.<String>of());
@@ -171,8 +173,13 @@ public class KnownBuildRuleTypesTest {
   @Test
   public void whenJavacIsSetInBuckConfigConfiguredRulesCreateJavaLibraryRuleWithDifferentRuleKey()
       throws IOException, NoSuchBuildTargetException, InterruptedException {
-    final File javac = temporaryFolder.newFile();
-    assertTrue(javac.setExecutable(true));
+    final File javac;
+    if (Platform.detect() == Platform.WINDOWS) {
+      javac = new File("C:/Windows/system32/rundll32.exe");
+    } else {
+      javac = temporaryFolder.newFile();
+      assertTrue(javac.setExecutable(true));
+    }
 
     ImmutableMap<String, ImmutableMap<String, String>> sections = ImmutableMap.of(
         "tools", ImmutableMap.of("javac", javac.toString()));

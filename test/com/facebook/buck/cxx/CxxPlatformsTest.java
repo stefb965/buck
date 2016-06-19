@@ -55,11 +55,11 @@ public class CxxPlatformsTest {
     CompilerProvider compiler =
         new CompilerProvider(
             Paths.get("borland"),
-            Optional.of(CxxToolProvider.Type.DEFAULT));
+            Optional.of(CxxToolProvider.Type.GCC));
     PreprocessorProvider preprocessor =
         new PreprocessorProvider(
             Paths.get("borland"),
-            Optional.of(CxxToolProvider.Type.DEFAULT));
+            Optional.of(CxxToolProvider.Type.GCC));
     CxxPlatform borlandCxx452Platform =
       CxxPlatform.builder()
           .setFlavor(ImmutableFlavor.of("borland_cxx_452"))
@@ -79,7 +79,7 @@ public class CxxPlatformsTest {
           .setRanlib(new HashedFileTool(Paths.get("borland")))
           .setSharedLibraryExtension(".so")
           .setSharedLibraryVersionedExtensionFormat(".so.%s")
-          .setDebugPathSanitizer(CxxPlatforms.DEFAULT_DEBUG_PATH_SANITIZER)
+          .setDebugPathSanitizer(CxxPlatformUtils.DEFAULT_DEBUG_PATH_SANITIZER)
           .build();
 
     BuckConfig buckConfig = FakeBuckConfig.builder().setSections(sections).build();

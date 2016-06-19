@@ -82,7 +82,7 @@ import javax.annotation.concurrent.Immutable;
 @Immutable
 public class BuckConfig {
 
-  public static final String DEFAULT_BUCK_CONFIG_OVERRIDE_FILE_NAME = ".buckconfig.local";
+  public static final String BUCK_CONFIG_OVERRIDE_FILE_NAME = ".buckconfig.local";
 
   private static final String ALIAS_SECTION_HEADER = "alias";
 
@@ -466,6 +466,10 @@ public class BuckConfig {
     return parseInt(getValue("log", "max_traces").or(DEFAULT_MAX_TRACES));
   }
 
+  public boolean isChromeTraceCreationEnabled() {
+    return getBooleanValue("log", "chrome_trace_generation", true);
+  }
+
   public boolean getCompressTraces() {
     return getBooleanValue("log", "compress_traces", false);
   }
@@ -730,6 +734,13 @@ public class BuckConfig {
    */
   public Optional<Long> getBuildArtifactCacheSizeLimit() {
     return getLong("build", "artifact_cache_size_limit");
+  }
+
+  /**
+   * @return the maximum size of files input based rule keys will be willing to hash.
+   */
+  public long getBuildInputRuleKeyFileSizeLimit() {
+    return getLong("build", "input_rule_key_file_size_limit").or(Long.MAX_VALUE);
   }
 
   /**

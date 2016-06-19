@@ -27,6 +27,7 @@ import com.facebook.buck.event.ThrowableConsoleEvent;
 import com.facebook.buck.io.BorrowablePath;
 import com.facebook.buck.io.LazyPath;
 import com.facebook.buck.io.MoreFiles;
+import com.facebook.buck.io.PathOrGlobMatcher;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
@@ -156,6 +157,7 @@ public class CachingBuildEngine implements BuildEngine {
       DepFiles depFiles,
       long maxDepFileCacheEntries,
       Optional<Long> artifactCacheSizeLimit,
+      final long inputRuleKeyFileSizeLimit,
       ObjectMapper objectMapper,
       final BuildRuleResolver resolver,
       final int keySeed) {
@@ -176,7 +178,11 @@ public class CachingBuildEngine implements BuildEngine {
         .build(new CacheLoader<ProjectFilesystem, RuleKeyFactories>() {
           @Override
           public RuleKeyFactories load(@Nonnull  ProjectFilesystem filesystem) throws Exception {
-            return RuleKeyFactories.build(keySeed, fileHashCaches.get(filesystem), resolver);
+            return RuleKeyFactories.build(
+                keySeed,
+                fileHashCaches.get(filesystem),
+                resolver,
+                inputRuleKeyFileSizeLimit);
           }
         });
   }
@@ -234,12 +240,12 @@ public class CachingBuildEngine implements BuildEngine {
         .build(new CacheLoader<ProjectFilesystem, FileHashCache>() {
           @Override
           public FileHashCache load(@Nonnull  ProjectFilesystem filesystem) {
-            FileHashCache cellCache = new DefaultFileHashCache(filesystem);
-            FileHashCache buckOutCache = new DefaultFileHashCache(
+            FileHashCache cellCache = DefaultFileHashCache.createDefaultFileHashCache(filesystem);
+            FileHashCache buckOutCache = DefaultFileHashCache.createBuckOutFileHashCache(
                 new ProjectFilesystem(
                     filesystem.getRootPath(),
-                    Optional.of(ImmutableSet.of(filesystem.getBuckPaths().getBuckOut())),
-                    ImmutableSet.<ProjectFilesystem.PathOrGlobMatcher>of()));
+                    ImmutableSet.<PathOrGlobMatcher>of()),
+                filesystem.getBuckPaths().getBuckOut());
             return new StackedFileHashCache(
                 ImmutableList.of(defaultCache, cellCache, buckOutCache));
           }
@@ -1727,7 +1733,8 @@ public class CachingBuildEngine implements BuildEngine {
     public static RuleKeyFactories build(
         int seed,
         FileHashCache fileHashCache,
-        BuildRuleResolver ruleResolver) {
+        BuildRuleResolver ruleResolver,
+        long inputRuleKeyFileSizeLimit) {
       SourcePathResolver pathResolver = new SourcePathResolver(ruleResolver);
       DefaultRuleKeyBuilderFactory defaultRuleKeyBuilderFactory = new DefaultRuleKeyBuilderFactory(
           seed,
@@ -1739,7 +1746,8 @@ public class CachingBuildEngine implements BuildEngine {
           new InputBasedRuleKeyBuilderFactory(
               seed,
               fileHashCache,
-              pathResolver),
+              pathResolver,
+              inputRuleKeyFileSizeLimit),
           new AbiRuleKeyBuilderFactory(
               seed,
               fileHashCache,

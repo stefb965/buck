@@ -49,6 +49,7 @@ import com.facebook.buck.event.listener.SuperConsoleEventBusListener;
 import com.facebook.buck.httpserver.WebServer;
 import com.facebook.buck.io.AsynchronousDirectoryContentsCleaner;
 import com.facebook.buck.io.MoreFiles;
+import com.facebook.buck.io.PathOrGlobMatcher;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.io.TempDirectoryCreator;
 import com.facebook.buck.io.Watchman;
@@ -96,13 +97,13 @@ import com.facebook.buck.util.WatchmanWatcher;
 import com.facebook.buck.util.WatchmanWatcherException;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.FileHashCache;
-import com.facebook.buck.util.cache.ProjectFileHashCache;
 import com.facebook.buck.util.cache.StackedFileHashCache;
 import com.facebook.buck.util.cache.WatchedFileHashCache;
 import com.facebook.buck.util.concurrent.MostExecutors;
 import com.facebook.buck.util.concurrent.TimeSpan;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.BuildEnvironmentDescription;
+import com.facebook.buck.util.environment.CommandMode;
 import com.facebook.buck.util.environment.DefaultExecutionEnvironment;
 import com.facebook.buck.util.environment.EnvironmentFilter;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
@@ -178,7 +179,7 @@ public final class Main {
   public static final int BUSY_EXIT_CODE = 2;
 
   private static final Optional<String> BUCKD_LAUNCH_TIME_NANOS =
-    Optional.fromNullable(System.getProperty("buck.buckd_launch_time_nanos"));
+      Optional.fromNullable(System.getProperty("buck.buckd_launch_time_nanos"));
   private static final String BUCK_BUILD_ID_ENV_VAR = "BUCK_BUILD_ID";
 
   private static final String BUCKD_COLOR_DEFAULT_ENV_VAR = "BUCKD_COLOR_DEFAULT";
@@ -190,6 +191,7 @@ public final class Main {
 
   private static final TimeSpan HANG_DETECTOR_TIMEOUT =
       new TimeSpan(5, TimeUnit.MINUTES);
+
 
   /**
    * Path to a directory of static content that should be served by the {@link WebServer}.
@@ -222,8 +224,11 @@ public final class Main {
 
   // This is a hack to work around a perf issue where generated Xcode IDE files
   // trip WatchmanWatcher, causing buck project to take a long time to run.
-  private static final ImmutableSet<String> DEFAULT_IGNORE_GLOBS =
-      ImmutableSet.of("*.pbxproj", "*.xcscheme", "*.xcworkspacedata");
+  private static final ImmutableSet<PathOrGlobMatcher> DEFAULT_IGNORE_GLOBS =
+      ImmutableSet.of(
+          new PathOrGlobMatcher("*.pbxproj"),
+          new PathOrGlobMatcher("*.xcscheme"),
+          new PathOrGlobMatcher("*.xcworkspacedata"));
 
   private static final Logger LOG = Logger.get(Main.class);
 
@@ -253,7 +258,7 @@ public final class Main {
     private final Cell cell;
     private final Parser parser;
     private final DefaultFileHashCache hashCache;
-    private final DefaultFileHashCache buckOutHashCache;
+    private final FileHashCache buckOutHashCache;
     private final EventBus fileEventBus;
     private final Optional<WebServer> webServer;
     private final UUID watchmanQueryUUID;
@@ -267,11 +272,11 @@ public final class Main {
       this.cell = cell;
       this.hashCache = new WatchedFileHashCache(cell.getFilesystem());
       this.buckOutHashCache =
-          new DefaultFileHashCache(
+          DefaultFileHashCache.createBuckOutFileHashCache(
               new ProjectFilesystem(
                   cell.getFilesystem().getRootPath(),
-                  Optional.of(ImmutableSet.of(cell.getFilesystem().getBuckPaths().getBuckOut())),
-                  ImmutableSet.<ProjectFilesystem.PathOrGlobMatcher>of()));
+                  ImmutableSet.<PathOrGlobMatcher>of()),
+              cell.getFilesystem().getBuckPaths().getBuckOut());
       this.fileEventBus = new EventBus("file-change-events");
 
       actionGraphCache = new ActionGraphCache();
@@ -356,11 +361,11 @@ public final class Main {
       return actionGraphCache;
     }
 
-    private DefaultFileHashCache getFileHashCache() {
+    private FileHashCache getFileHashCache() {
       return hashCache;
     }
 
-    private DefaultFileHashCache getBuckOutHashCache() {
+    private FileHashCache getBuckOutHashCache() {
       return buckOutHashCache;
     }
 
@@ -410,7 +415,9 @@ public final class Main {
       }
     }
 
-    /** @return true if the web server was started successfully. */
+    /**
+     * @return true if the web server was started successfully.
+     */
     private boolean initWebServer() {
       if (webServer.isPresent()) {
         Optional<ArtifactCache> servedCache = ArtifactCaches.newServedCache(
@@ -450,7 +457,8 @@ public final class Main {
     }
   }
 
-  @Nullable private static volatile Daemon daemon;
+  @Nullable
+  private static volatile Daemon daemon;
 
   /**
    * Get or create Daemon.
@@ -459,7 +467,7 @@ public final class Main {
   static Daemon getDaemon(
       Cell cell,
       ObjectMapper objectMapper)
-      throws IOException, InterruptedException  {
+      throws IOException, InterruptedException {
     Path rootPath = cell.getFilesystem().getRootPath();
     Optional<WebServer> webServer = Optional.absent();
     if (daemon == null) {
@@ -624,7 +632,6 @@ public final class Main {
   }
 
   /**
-   *
    * @param buildId an identifier for this command execution.
    * @param context an optional NGContext that is present if running inside a Nailgun server.
    * @param args command line arguments
@@ -636,10 +643,9 @@ public final class Main {
       Path projectRoot,
       Optional<NGContext> context,
       ImmutableMap<String, String> clientEnvironment,
-      boolean setupLogging,
+      CommandMode commandMode,
       String... args)
       throws IOException, InterruptedException {
-
     // Parse the command line args.
     BuckCommand command = new BuckCommand();
     AdditionalOptionsCmdLineParser cmdLineParser = new AdditionalOptionsCmdLineParser(command);
@@ -655,7 +661,7 @@ public final class Main {
     }
 
     // Setup logging.
-    if (setupLogging) {
+    if (commandMode.isLoggingEnabled()) {
 
       // Reset logging each time we run a command while daemonized.
       // This will cause us to write a new log per command.
@@ -783,7 +789,13 @@ public final class Main {
 
       ParserConfig parserConfig = new ParserConfig(buckConfig);
       try (Watchman watchman =
-          buildWatchman(context, parserConfig, projectRoot, clientEnvironment, console, clock)) {
+               buildWatchman(
+                   context,
+                   parserConfig,
+                   projectRoot,
+                   clientEnvironment,
+                   console,
+                   clock)) {
         final boolean isDaemon = context.isPresent() && (watchman != Watchman.NULL_WATCHMAN);
 
         if (!isDaemon && shouldCleanUpTrash) {
@@ -815,20 +827,19 @@ public final class Main {
             // TODO(bhamiltoncx): Thread through properties from client environment.
             System.getProperties());
 
-        ProjectFileHashCache cellHashCache;
-        ProjectFileHashCache buckOutHashCache;
+        FileHashCache cellHashCache;
+        FileHashCache buckOutHashCache;
         if (isDaemon) {
           cellHashCache = getFileHashCacheFromDaemon(rootCell);
           buckOutHashCache = getBuckOutFileHashCacheFromDaemon(rootCell);
         } else {
-          cellHashCache = new DefaultFileHashCache(rootCell.getFilesystem());
+          cellHashCache = DefaultFileHashCache.createDefaultFileHashCache(rootCell.getFilesystem());
           buckOutHashCache =
-              new DefaultFileHashCache(
+              DefaultFileHashCache.createBuckOutFileHashCache(
                   new ProjectFilesystem(
                       rootCell.getFilesystem().getRootPath(),
-                      Optional.of(
-                          ImmutableSet.of(rootCell.getFilesystem().getBuckPaths().getBuckOut())),
-                      ImmutableSet.<ProjectFilesystem.PathOrGlobMatcher>of()));
+                      ImmutableSet.<PathOrGlobMatcher>of()),
+                  rootCell.getFilesystem().getBuckPaths().getBuckOut());
         }
 
         // Build up the hash cache, which is a collection of the stateful cell cache and some
@@ -840,9 +851,8 @@ public final class Main {
         // A cache which caches hashes of cell-relative paths which may have been ignore by
         // the main cell cache, and only serves to prevent rehashing the same file multiple
         // times in a single run.
-        allCaches.add(new DefaultFileHashCache(
+        allCaches.add(DefaultFileHashCache.createDefaultFileHashCache(
                 new ProjectFilesystem(rootCell.getFilesystem().getRootPath())));
-
         for (Path root : FileSystems.getDefault().getRootDirectories()) {
           if (!root.toFile().exists()) {
             // On Windows, it is possible that the system will have a
@@ -855,7 +865,8 @@ public final class Main {
           // A cache which caches hashes of absolute paths which my be accessed by certain
           // rules (e.g. /usr/bin/gcc), and only serves to prevent rehashing the same file
           // multiple times in a single run.
-          allCaches.add(new DefaultFileHashCache(new ProjectFilesystem(root)));
+          allCaches.add(
+              DefaultFileHashCache.createDefaultFileHashCache(new ProjectFilesystem(root)));
         }
 
         FileHashCache fileHashCache = new StackedFileHashCache(allCaches.build());
@@ -881,7 +892,7 @@ public final class Main {
         // Create a cached thread pool for cpu intensive tasks
         Map<ExecutionContext.ExecutorPool, ListeningExecutorService> executors = new HashMap<>();
         executors.put(ExecutionContext.ExecutorPool.CPU, listeningDecorator(
-                Executors.newCachedThreadPool()));
+            Executors.newCachedThreadPool()));
         // Create a thread pool for network I/O tasks
         executors.put(ExecutionContext.ExecutorPool.NETWORK, newDirectExecutorService());
 
@@ -988,8 +999,10 @@ public final class Main {
               WatchmanWatcher watchmanWatcher = new WatchmanWatcher(
                   watchman.getWatchRoot().or(canonicalRootPath.toString()),
                   daemon.getFileEventBus(),
-                  filesystem.getIgnorePaths(),
-                  DEFAULT_IGNORE_GLOBS,
+                  ImmutableSet.<PathOrGlobMatcher>builder()
+                      .addAll(filesystem.getIgnorePaths())
+                      .addAll(DEFAULT_IGNORE_GLOBS)
+                      .build(),
                   watchman,
                   daemon.getWatchmanQueryUUID());
               parser = getParserFromDaemon(
@@ -1108,7 +1121,7 @@ public final class Main {
             TRASH_CLEANER.startCleaningDirectory();
           }
           // shut down the cached thread pools
-          for (ExecutionContext.ExecutorPool p: executors.keySet()) {
+          for (ExecutionContext.ExecutorPool p : executors.keySet()) {
             closeExecutorService(p.toString(), executors.get(p), EXECUTOR_SERVICES_TIMEOUT_SECONDS);
           }
         }
@@ -1274,13 +1287,13 @@ public final class Main {
     return daemon.getParser();
   }
 
-  private DefaultFileHashCache getFileHashCacheFromDaemon(Cell cell)
+  private FileHashCache getFileHashCacheFromDaemon(Cell cell)
       throws IOException, InterruptedException {
     Daemon daemon = getDaemon(cell, objectMapper);
     return daemon.getFileHashCache();
   }
 
-  private DefaultFileHashCache getBuckOutFileHashCacheFromDaemon(Cell cell)
+  private FileHashCache getBuckOutFileHashCacheFromDaemon(Cell cell)
       throws IOException, InterruptedException {
     Daemon daemon = getDaemon(cell, objectMapper);
     return daemon.getBuckOutHashCache();
@@ -1351,7 +1364,8 @@ public final class Main {
           eventListeners.add(listener);
         }
       } catch (ReflectiveOperationException e) {
-        throw new HumanReadableException("Error loading event listener class '%s': %s: %s",
+        throw new HumanReadableException(
+            "Error loading event listener class '%s': %s: %s",
             className,
             e.getClass(),
             e.getMessage());
@@ -1378,16 +1392,21 @@ public final class Main {
             .add(new JavaUtilsLoggingBuildListener())
             .add(consoleEventBusListener)
             .add(new LoggingBuildListener());
-    try {
-      eventListenersBuilder.add(new ChromeTraceBuildListener(
-          projectFilesystem,
-          buildId,
-          clock,
-          objectMapper,
-          config.getMaxTraces(),
-          config.getCompressTraces()));
-    } catch (IOException e) {
-      LOG.error("Unable to create ChromeTrace listener!");
+
+    if (config.isChromeTraceCreationEnabled()) {
+      try {
+        eventListenersBuilder.add(new ChromeTraceBuildListener(
+            projectFilesystem,
+            buildId,
+            clock,
+            objectMapper,
+            config.getMaxTraces(),
+            config.getCompressTraces()));
+      } catch (IOException e) {
+        LOG.error("Unable to create ChromeTrace listener!");
+      }
+    } else {
+      LOG.warn("::: ChromeTrace listener disabled");
     }
     if (webServer.isPresent()) {
       eventListenersBuilder.add(webServer.get().createListener());
@@ -1414,13 +1433,13 @@ public final class Main {
     if (!javaBuckConfig.getSkipCheckingMissingDeps()) {
       JavacOptions javacOptions = javaBuckConfig.getDefaultJavacOptions();
       eventListenersBuilder.add(MissingSymbolsHandler.createListener(
-              projectFilesystem,
-              knownBuildRuleTypes.getAllDescriptions(),
-              config,
-              buckEvents,
-              console,
-              javacOptions,
-              environment));
+          projectFilesystem,
+          knownBuildRuleTypes.getAllDescriptions(),
+          config,
+          buckEvents,
+          console,
+          javacOptions,
+          environment));
     }
 
     eventListenersBuilder.add(new LoadBalancerEventsListener(counterRegistry));
@@ -1470,7 +1489,8 @@ public final class Main {
           locale,
           testLogPath,
           TimeZone.getDefault());
-      superConsole.startRenderScheduler(SUPER_CONSOLE_REFRESH_RATE.getDuration(),
+      superConsole.startRenderScheduler(
+          SUPER_CONSOLE_REFRESH_RATE.getDuration(),
           SUPER_CONSOLE_REFRESH_RATE.getUnit());
       return superConsole;
     }
@@ -1488,6 +1508,7 @@ public final class Main {
       Path projectRoot,
       Optional<NGContext> context,
       ImmutableMap<String, String> clientEnvironment,
+      CommandMode commandMode,
       String... args)
       throws IOException, InterruptedException {
     try {
@@ -1496,10 +1517,11 @@ public final class Main {
           projectRoot,
           context,
           clientEnvironment,
-          /* setupLogging */ true,
+          commandMode,
           args);
     } catch (HumanReadableException e) {
-      Console console = new Console(Verbosity.STANDARD_INFORMATION,
+      Console console = new Console(
+          Verbosity.STANDARD_INFORMATION,
           stdOut,
           stdErr,
           new Ansi(
@@ -1542,17 +1564,17 @@ public final class Main {
     // which is not safe in a multithreaded environment if the thread held a lock or
     // resource which other threads need.)
     Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
-        @Override
-        public void uncaughtException(Thread t, Throwable e) {
-          LOG.error(e, "Uncaught exception from thread %s", t);
-          if (context.isPresent()) {
-            // Shut down the Nailgun server and make sure it stops trapping System.exit().
-            //
-            // We pass false for exitVM because otherwise Nailgun exits with code 0.
-            context.get().getNGServer().shutdown(/* exitVM */ false);
-          }
-          System.exit(FAIL_EXIT_CODE);
+      @Override
+      public void uncaughtException(Thread t, Throwable e) {
+        LOG.error(e, "Uncaught exception from thread %s", t);
+        if (context.isPresent()) {
+          // Shut down the Nailgun server and make sure it stops trapping System.exit().
+          //
+          // We pass false for exitVM because otherwise Nailgun exits with code 0.
+          context.get().getNGServer().shutdown(/* exitVM */ false);
         }
+        System.exit(FAIL_EXIT_CODE);
+      }
     });
   }
 
@@ -1574,7 +1596,7 @@ public final class Main {
 
     try {
       commandThreadAssociation =
-        new CommandThreadAssociation(buildId.toString());
+          new CommandThreadAssociation(buildId.toString());
       // Redirect console logs to the (possibly remote) stderr stream.
       // We do this for both the daemon and non-daemon case so we can
       // unregister the stream when finished.
@@ -1582,7 +1604,13 @@ public final class Main {
           buildId.toString(),
           stdErr,
           Optional.<OutputStream>absent() /* originalOutputStream */);
-      exitCode = tryRunMainWithExitCode(buildId, projectRoot, context, clientEnvironment, args);
+      exitCode = tryRunMainWithExitCode(
+          buildId,
+          projectRoot,
+          context,
+          clientEnvironment,
+          CommandMode.RELEASE,
+          args);
     } catch (Throwable t) {
       LOG.error(t, "Uncaught exception at top level");
     } finally {
@@ -1695,7 +1723,7 @@ public final class Main {
    */
   public static void nailMain(final NGContext context) throws InterruptedException {
     try (DaemonSlayer.ExecuteCommandHandle handle =
-            DaemonSlayer.getSlayer(context).executeCommand()) {
+             DaemonSlayer.getSlayer(context).executeCommand()) {
       new Main(context.out, context.err, context.in)
           .runMainThenExit(context.getArgs(), Optional.of(context));
     }
@@ -1717,7 +1745,8 @@ public final class Main {
       }
     }
 
-    @Nullable private static volatile DaemonSlayerInstance daemonSlayerInstance;
+    @Nullable
+    private static volatile DaemonSlayerInstance daemonSlayerInstance;
 
     public static DaemonSlayer getSlayer(NGContext context) {
       if (daemonSlayerInstance == null) {
@@ -1778,5 +1807,4 @@ public final class Main {
           slayerTimeout.getUnit());
     }
   }
-
 }

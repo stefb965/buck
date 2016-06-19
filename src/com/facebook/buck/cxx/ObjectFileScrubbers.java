@@ -16,7 +16,7 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.io.FileScrubber;
+import com.facebook.buck.io.FileContentsScrubber;
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -40,17 +40,22 @@ public class ObjectFileScrubbers {
   public static final byte[] GLOBAL_THIN_HEADER = "!<thin>\n".getBytes(Charsets.US_ASCII);
   public static final byte[] END_OF_FILE_HEADER_MARKER = {0x60, 0x0A};
 
+  public enum PaddingStyle {
+    LEFT,
+    RIGHT,
+  };
+
   private ObjectFileScrubbers() {}
 
-  private static boolean checkHeader(byte[] header) throws FileScrubber.ScrubException {
+  private static boolean checkHeader(byte[] header) throws FileContentsScrubber.ScrubException {
     checkArchive(
         Arrays.equals(GLOBAL_HEADER, header) || Arrays.equals(GLOBAL_THIN_HEADER, header),
         "invalid global header");
     return Arrays.equals(GLOBAL_THIN_HEADER, header);
   }
 
-  public static FileScrubber createDateUidGidScrubber() {
-    return new FileScrubber() {
+  public static FileContentsScrubber createDateUidGidScrubber(final PaddingStyle paddingStyle) {
+    return new FileContentsScrubber() {
 
       /**
        * Efficiently modifies the archive backed by the given buffer to remove any non-deterministic
@@ -92,11 +97,15 @@ public class ObjectFileScrubbers {
             String fileName = new String(getBytes(buffer, 16), Charsets.US_ASCII).trim();
 
             // Inject 0's for the non-deterministic meta-data entries.
-            /* File modification timestamp */ putIntAsDecimalString(buffer, 12, 0);
-            /* Owner ID */ putIntAsDecimalString(buffer, 6, 0);
-            /* Group ID */ putIntAsDecimalString(buffer, 6, 0);
+            /* File modification timestamp */ putIntAsDecimalString(
+                buffer,
+                12,
+                ObjectFileCommonModificationDate.COMMON_MODIFICATION_TIME_STAMP,
+                paddingStyle);
+            /* Owner ID */ putIntAsDecimalString(buffer, 6, 0, paddingStyle);
+            /* Group ID */ putIntAsDecimalString(buffer, 6, 0, paddingStyle);
 
-            /* File mode */ putIntAsOctalString(buffer, 8, 0100644);
+            /* File mode */ putIntAsOctalString(buffer, 8, 0100644, paddingStyle);
             long fileSize = getDecimalStringAsLong(buffer, 10);
 
             // Lastly, grab the file magic entry and verify it's accurate.
@@ -188,9 +197,15 @@ public class ObjectFileScrubbers {
     return new String(bytes, Charsets.US_ASCII);
   }
 
-  public static void putSpaceLeftPaddedString(ByteBuffer buffer, int len, String value) {
+  private static void putSpaceLeftPaddedString(ByteBuffer buffer, int len, String value) {
     Preconditions.checkState(value.length() <= len);
     value = Strings.padStart(value, len, ' ');
+    buffer.put(value.getBytes(Charsets.US_ASCII));
+  }
+
+  private static void putSpaceRightPaddedString(ByteBuffer buffer, int len, String value) {
+    Preconditions.checkState(value.length() <= len);
+    value = Strings.padEnd(value, len, ' ');
     buffer.put(value.getBytes(Charsets.US_ASCII));
   }
 
@@ -198,12 +213,28 @@ public class ObjectFileScrubbers {
     buffer.put(bytes);
   }
 
-  public static void putIntAsOctalString(ByteBuffer buffer, int len, int value) {
-    putSpaceLeftPaddedString(buffer, len, String.format("0%o", value));
+  public static void putIntAsOctalString(
+      ByteBuffer buffer,
+      int len,
+      int value,
+      PaddingStyle paddingStyle) {
+    if (paddingStyle == PaddingStyle.LEFT) {
+      putSpaceLeftPaddedString(buffer, len, String.format("0%o", value));
+    } else {
+      putSpaceRightPaddedString(buffer, len, String.format("0%o", value));
+    }
   }
 
-  public static void putIntAsDecimalString(ByteBuffer buffer, int len, int value) {
-    putSpaceLeftPaddedString(buffer, len, String.format("%d", value));
+  public static void putIntAsDecimalString(
+      ByteBuffer buffer,
+      int len,
+      int value,
+      PaddingStyle paddingStyle) {
+    if (paddingStyle == PaddingStyle.LEFT) {
+      putSpaceLeftPaddedString(buffer, len, String.format("%d", value));
+    } else {
+      putSpaceRightPaddedString(buffer, len, String.format("%d", value));
+    }
   }
 
   public static void putLittleEndianLong(ByteBuffer buffer, long value) {
@@ -226,9 +257,9 @@ public class ObjectFileScrubbers {
   }
 
   public static void checkArchive(boolean expression, String msg)
-      throws FileScrubber.ScrubException {
+      throws FileContentsScrubber.ScrubException {
     if (!expression) {
-      throw new FileScrubber.ScrubException(msg);
+      throw new FileContentsScrubber.ScrubException(msg);
     }
   }
 

@@ -40,7 +40,8 @@ public class CompilerProvider extends CxxToolProvider<Compiler> {
       case CLANG:
         return new ClangCompiler(tool);
       case DEFAULT:
-        return new DefaultCompiler(tool);
+      case GCC:
+        return new GccCompiler(tool);
     }
     throw new IllegalStateException();
   }

@@ -23,6 +23,7 @@ import com.facebook.buck.command.Build;
 import com.facebook.buck.distributed.DistBuildConfig;
 import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.DistributedBuild;
+import com.facebook.buck.distributed.DistributedBuildFileHashes;
 import com.facebook.buck.distributed.DistributedBuildState;
 import com.facebook.buck.distributed.thrift.BuildJobState;
 import com.facebook.buck.distributed.thrift.FrontendRequest;
@@ -37,7 +38,7 @@ import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.parser.Parser;
+import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.ActionGraphAndResolver;
 import com.facebook.buck.rules.BuildEngine;
@@ -45,7 +46,9 @@ import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CachingBuildEngine;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraphAndBuildTargets;
+import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
 import com.facebook.buck.slb.ClientSideSlb;
 import com.facebook.buck.slb.HttpService;
 import com.facebook.buck.slb.LoadBalancedService;
@@ -76,7 +79,6 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.ListeningExecutorService;
-import okhttp3.OkHttpClient;
 
 import org.apache.thrift.TException;
 import org.apache.thrift.protocol.TProtocol;
@@ -96,6 +98,8 @@ import java.util.Map;
 
 import javax.annotation.Nullable;
 
+import okhttp3.OkHttpClient;
+
 public class BuildCommand extends AbstractCommand {
 
   private static final String KEEP_GOING_LONG_ARG = "--keep-going";
@@ -106,6 +110,7 @@ public class BuildCommand extends AbstractCommand {
   private static final String SHALLOW_LONG_ARG = "--shallow";
   private static final String REPORT_ABSOLUTE_PATHS = "--report-absolute-paths";
   private static final String SHOW_OUTPUT_LONG_ARG = "--show-output";
+  private static final String SHOW_RULEKEY_LONG_ARG = "--show-rulekey";
   private static final String DISTRIBUTED_LONG_ARG = "--distributed";
   private static final String DISTRIBUTED_STATE_DUMP_LONG_ARG = "--distributed-state-dump";
 
@@ -162,6 +167,11 @@ public class BuildCommand extends AbstractCommand {
       name = SHOW_OUTPUT_LONG_ARG,
       usage = "Print the absolute path to the output for each of the built rules.")
   private boolean showOutput;
+
+  @Option(
+      name = SHOW_RULEKEY_LONG_ARG,
+      usage = "Print the rulekey for each of the built rules.")
+  private boolean showRuleKey;
 
   @Option(
       name = DISTRIBUTED_LONG_ARG,
@@ -345,7 +355,7 @@ public class BuildCommand extends AbstractCommand {
 
     int exitCode;
     if (useDistributedBuild) {
-      exitCode = executeDistributedBuild(params);
+      exitCode = executeDistributedBuild(params, executorService);
     } else {
       // Parse the build files to create a ActionGraph.
       ActionGraphAndResolver actionGraphAndResolver =
@@ -354,7 +364,7 @@ public class BuildCommand extends AbstractCommand {
         return 1;
       }
       exitCode = executeLocalBuild(params, actionGraphAndResolver, executorService);
-      if (exitCode == 0 && showOutput) {
+      if (exitCode == 0 && (showOutput || showRuleKey)) {
         showOutputs(params, actionGraphAndResolver);
       }
     }
@@ -363,7 +373,9 @@ public class BuildCommand extends AbstractCommand {
     return exitCode;
   }
 
-  private int executeDistributedBuild(CommandRunnerParams params) throws IOException {
+  private int executeDistributedBuild(
+      CommandRunnerParams params,
+      WeightedListeningExecutorService executorService) throws IOException, InterruptedException {
     ProjectFilesystem filesystem = params.getCell().getFilesystem();
 
     if (distributedBuildStateFile != null) {
@@ -387,8 +399,20 @@ public class BuildCommand extends AbstractCommand {
                   "Done loading state. Aliases: %s",
                   buckConfig.getAliases()));
         } else {
+          ActionGraphAndResolver actionGraphAndResolver =
+              createActionGraphAndResolver(params, executorService);
+          if (actionGraphAndResolver == null) {
+            return 1;
+          }
           BuckConfig buckConfig = params.getBuckConfig();
-          BuildJobState jobState = DistributedBuildState.dump(buckConfig);
+          BuildJobState jobState = DistributedBuildState.dump(
+              buckConfig,
+              new DistributedBuildFileHashes(
+                  actionGraphAndResolver.getActionGraph(),
+                  new SourcePathResolver(actionGraphAndResolver.getResolver()),
+                  params.getFileHashCache(),
+                  executorService,
+                  params.getBuckConfig().getKeySeed()));
           jobState.write(protocol);
           transport.flush();
         }
@@ -417,15 +441,25 @@ public class BuildCommand extends AbstractCommand {
   private void showOutputs(
       CommandRunnerParams params,
       ActionGraphAndResolver actionGraphAndResolver) {
+    Optional<DefaultRuleKeyBuilderFactory> ruleKeyBuilderFactory =
+        Optional.absent();
+    if (showRuleKey) {
+      ruleKeyBuilderFactory = Optional.of(
+          new DefaultRuleKeyBuilderFactory(
+              params.getBuckConfig().getKeySeed(),
+              params.getFileHashCache(),
+              new SourcePathResolver(actionGraphAndResolver.getResolver())));
+    }
     params.getConsole().getStdOut().println("The outputs are:");
     for (BuildTarget buildTarget : buildTargets) {
       try {
         BuildRule rule = actionGraphAndResolver.getResolver().requireRule(buildTarget);
         Optional<Path> outputPath = TargetsCommand.getUserFacingOutputPath(rule);
         params.getConsole().getStdOut().printf(
-            "%s %s\n",
+            "%s%s%s\n",
             rule.getFullyQualifiedName(),
-            outputPath.transform(Functions.toStringFunction()).or(""));
+            showRuleKey ? " " + ruleKeyBuilderFactory.get().build(rule).toString() : "",
+            showOutput ? " " + outputPath.transform(Functions.toStringFunction()).or("") : "");
       } catch (NoSuchBuildTargetException e) {
         throw new HumanReadableException(MoreExceptions.getHumanReadableOrLocalizedMessage(e));
       }
@@ -452,6 +486,7 @@ public class BuildCommand extends AbstractCommand {
     }
 
     // Parse the build files to create a ActionGraph.
+    ParserConfig parserConfig = new ParserConfig(params.getBuckConfig());
     ActionGraphAndResolver actionGraphAndResolver;
     try {
       TargetGraphAndBuildTargets result = params.getParser()
@@ -464,7 +499,7 @@ public class BuildCommand extends AbstractCommand {
                   params.getBuckConfig(),
                   getArguments()),
               /* ignoreBuckAutodepsFiles */ false,
-              Parser.ApplyDefaultFlavorsMode.ENABLED);
+              parserConfig.getDefaultFlavorsMode());
       buildTargets = result.getBuildTargets();
       buildTargetsHaveBeenCalculated = true;
       actionGraphAndResolver = Preconditions.checkNotNull(
@@ -526,6 +561,7 @@ public class BuildCommand extends AbstractCommand {
             params.getBuckConfig().getBuildDepFiles(),
             params.getBuckConfig().getBuildMaxDepFileCacheEntries(),
             params.getBuckConfig().getBuildArtifactCacheSizeLimit(),
+            params.getBuckConfig().getBuildInputRuleKeyFileSizeLimit(),
             params.getObjectMapper(),
             actionGraphAndResolver.getResolver(),
             params.getBuckConfig().getKeySeed()),

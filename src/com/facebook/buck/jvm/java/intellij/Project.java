@@ -34,6 +34,7 @@ import com.facebook.buck.android.NdkLibrary;
 import com.facebook.buck.cxx.CxxLibrary;
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.io.MorePaths;
+import com.facebook.buck.io.PathOrGlobMatcher;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.jvm.java.JavaBinary;
@@ -330,7 +331,7 @@ public class Project {
     module.isIntelliJPlugin = projectConfig.getIsIntelliJPlugin();
 
     Path relativePath = projectConfig.getBuildTarget().getBasePath();
-    module.pathToImlFile = relativePath.resolve(String.format("%s.iml", module.name));
+    module.pathToImlFile = relativePath.resolve(module.name + ".iml");
 
     // List the module source as the first dependency.
     boolean includeSourceFolder = true;
@@ -603,8 +604,7 @@ public class Project {
           Path pathToTarget = resolver.getRelativePath(path);
           Path relativePath = basePath.relativize(Paths.get(""))
             .resolve(pathToTarget).getParent();
-          String url = String.format("file://$MODULE_DIR$/%s",
-              MorePaths.pathWithUnixSeparators(relativePath));
+          String url = "file://$MODULE_DIR$/" + MorePaths.pathWithUnixSeparators(relativePath);
           SerializableModule.SourceFolder sourceFolder =
               new SerializableModule.SourceFolder(url, isTestSource, "");
           module.sourceFolders.add(sourceFolder);
@@ -659,8 +659,10 @@ public class Project {
       module.sourceFolders.add(sourceFolder);
     } else {
       for (SourceRoot sourceRoot : sourceRoots) {
-        SerializableModule.SourceFolder sourceFolder = new SerializableModule.SourceFolder(
-            String.format("file://$MODULE_DIR$/%s", sourceRoot.getName()), isTestSource);
+        SerializableModule.SourceFolder sourceFolder =
+            new SerializableModule.SourceFolder(
+              "file://$MODULE_DIR$/" + sourceRoot.getName(),
+              isTestSource);
         module.sourceFolders.add(sourceFolder);
       }
     }
@@ -685,7 +687,9 @@ public class Project {
       ProjectFilesystem projectFilesystem) {
     // If in the root of the project, specify ignored paths.
     if (buildRule != null && buildRule.getBuildTarget().getBasePathWithSlash().isEmpty()) {
-      for (Path path : projectFilesystem.getIgnorePaths()) {
+      for (Path path : FluentIterable.from(projectFilesystem.getIgnorePaths())
+          .filter(PathOrGlobMatcher.isPath())
+          .transform(PathOrGlobMatcher.toPath())) {
         // It turns out that ignoring all of buck-out causes problems in IntelliJ: it forces an
         // extra "modules" folder to appear at the top of the navigation pane that competes with the
         // ordinary file tree, making navigation a real pain. The hypothesis is that this is because
@@ -713,7 +717,7 @@ public class Project {
   private static void addRootExclude(SerializableModule module, Path path) {
     module.excludeFolders.add(
         new SerializableModule.SourceFolder(
-            String.format("file://$MODULE_DIR$/%s", MorePaths.pathWithUnixSeparators(path)),
+            "file://$MODULE_DIR$/" + MorePaths.pathWithUnixSeparators(path),
             /* isTestSource */ false));
   }
 

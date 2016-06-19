@@ -1,18 +1,24 @@
-#@# GENERATED FILE: DO NOT MODIFY 8e0ca911a59ecf63503fa8f0ca36573a4a08e9e0 #@#
+#@# GENERATED FILE: DO NOT MODIFY 75e1c89b1d79badfcfebe93accb9a0e571cc0478 #@#
 {
   "distributed" : {
     "deps" : [
       "//src/com/facebook/buck/config:config",
       "//src/com/facebook/buck/log:api",
       "//src/com/facebook/buck/util/environment:platform",
-      "//third-party/java/immutables:processor"
+      "//third-party/java/immutables:processor",
+      "//third-party/java/jsr:jsr305"
     ],
     "exported_deps" : [
       "//src-gen:thrift",
       "//src/com/facebook/buck/cli:config",
       "//src/com/facebook/buck/event:event",
+      "//src/com/facebook/buck/hashing:hashing",
       "//src/com/facebook/buck/io:io",
+      "//src/com/facebook/buck/rules:build_rule",
+      "//src/com/facebook/buck/rules:rule_key",
+      "//src/com/facebook/buck/rules/keys:keys",
       "//src/com/facebook/buck/slb:slb",
+      "//src/com/facebook/buck/util/cache:cache",
       "//src/com/facebook/buck/util/immutables:immutables",
       "//third-party/java/guava:guava",
       "//third-party/java/okhttp:okhttp",

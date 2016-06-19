@@ -16,6 +16,7 @@
 
 package com.facebook.buck.model;
 
+import com.facebook.buck.io.PathOrGlobMatcher;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.util.BuckConstant;
 import com.google.common.base.Optional;
@@ -31,7 +32,6 @@ import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Collection;
-import java.util.Set;
 
 /**
  * Class to allow looking up parents and children of build files.
@@ -71,13 +71,15 @@ public class FilesystemBackedBuildFileTree extends BuildFileTree {
     // When we find one, we can stop crawling anything under the directory it's in.
     final ImmutableSet.Builder<Path> childPaths = ImmutableSet.builder();
     final Path basePath = target.getBasePath();
-    final Set<Path> ignoredPaths = projectFilesystem.getIgnorePaths();
+    final ImmutableSet<PathOrGlobMatcher> ignoredPaths = projectFilesystem.getIgnorePaths();
     try {
       projectFilesystem.walkRelativeFileTree(basePath, new SimpleFileVisitor<Path>() {
             @Override
             public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
-              if (ignoredPaths.contains(dir)) {
-                return FileVisitResult.SKIP_SUBTREE;
+              for (PathOrGlobMatcher ignoredPath : ignoredPaths) {
+                if (ignoredPath.matches(dir)) {
+                  return FileVisitResult.SKIP_SUBTREE;
+                }
               }
               if (dir.equals(basePath)) {
                 return FileVisitResult.CONTINUE;

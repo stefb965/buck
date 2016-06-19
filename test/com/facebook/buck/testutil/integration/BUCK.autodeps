@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY 78e24bad979267081c17c459119b8c7d21c63c69 #@#
+#@# GENERATED FILE: DO NOT MODIFY 36e1738b11aad6f52521a2bf762c71c788f8e7fc #@#
 {
   "integration" : {
     "deps" : [
@@ -17,6 +17,7 @@
       "//src/com/facebook/buck/util:constants",
       "//src/com/facebook/buck/util:util",
       "//src/com/facebook/buck/util/environment:env-filter",
+      "//src/com/facebook/buck/util/environment:environment",
       "//src/com/facebook/buck/util/environment:platform",
       "//test/com/facebook/buck/jvm/java:javac-env",
       "//test/com/facebook/buck/model:testutil",
@@ -28,10 +29,10 @@
     "exported_deps" : [
       "//src/com/facebook/buck/artifact_cache:artifact_cache",
       "//src/com/facebook/buck/model:model",
-      "//src/com/facebook/buck/rules:Sha1HashCode",
       "//src/com/facebook/buck/rules:build_rule",
       "//src/com/facebook/buck/rules:types",
       "//src/com/facebook/buck/util:io",
+      "//src/com/facebook/buck/util/sha1:sha1",
       "//third-party/java/guava:guava",
       "//third-party/java/jetty:jetty",
       "//third-party/java/jsr:jsr305",

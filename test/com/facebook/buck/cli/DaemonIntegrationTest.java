@@ -27,7 +27,6 @@ import static org.junit.Assert.fail;
 import static org.junit.Assume.assumeFalse;
 import static org.junit.Assume.assumeTrue;
 
-import com.facebook.buck.android.AssumeAndroidPlatform;
 import com.facebook.buck.android.FakeAndroidDirectoryResolver;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.io.Watchman;
@@ -43,6 +42,7 @@ import com.facebook.buck.timing.FakeClock;
 import com.facebook.buck.util.CapturingPrintStream;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ObjectMappers;
+import com.facebook.buck.util.environment.CommandMode;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Charsets;
 import com.google.common.base.Optional;
@@ -244,6 +244,7 @@ public class DaemonIntegrationTest {
               tmp.getRootPath(),
               Optional.<NGContext>of(new TestContext()),
               ImmutableMap.copyOf(System.getenv()),
+              CommandMode.TEST,
               args);
           assertEquals("Unexpected exit code.", expectedExitCode, exitCode);
         } catch (IOException e) {
@@ -384,8 +385,6 @@ public class DaemonIntegrationTest {
   @Test
   public void whenAppBuckFileRemovedThenRebuildFails()
       throws IOException, InterruptedException {
-    AssumeAndroidPlatform.assumeSdkIsAvailable();
-
     final ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "file_watching", tmp);
     workspace.setUp();
@@ -402,7 +401,6 @@ public class DaemonIntegrationTest {
   @Test
   public void whenActivityBuckFileRemovedThenRebuildFails()
       throws IOException, InterruptedException {
-    AssumeAndroidPlatform.assumeSdkIsAvailable();
     final ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "file_watching", tmp);
     workspace.setUp();
@@ -418,7 +416,6 @@ public class DaemonIntegrationTest {
   @Test
   public void whenSourceInputRemovedThenRebuildFails()
       throws IOException, InterruptedException {
-    AssumeAndroidPlatform.assumeNdkIsAvailable();
     final ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "file_watching", tmp);
     workspace.setUp();
@@ -440,7 +437,6 @@ public class DaemonIntegrationTest {
   @Test
   public void whenSourceInputInvalidatedThenRebuildFails()
       throws IOException, InterruptedException {
-    AssumeAndroidPlatform.assumeSdkIsAvailable();
     final ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "file_watching", tmp);
     workspace.setUp();
@@ -459,7 +455,6 @@ public class DaemonIntegrationTest {
   @Test
   public void whenAppBuckFileInvalidatedThenRebuildFails()
       throws IOException, InterruptedException {
-    AssumeAndroidPlatform.assumeSdkIsAvailable();
     final ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "file_watching", tmp);
     workspace.setUp();
@@ -518,7 +513,6 @@ public class DaemonIntegrationTest {
   @Test
   public void whenBuckBuiltTwiceLogIsPresent()
       throws IOException, InterruptedException {
-    AssumeAndroidPlatform.assumeSdkIsAvailable();
     final ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "file_watching", tmp);
     workspace.setUp();

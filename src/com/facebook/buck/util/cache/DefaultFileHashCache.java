@@ -46,20 +46,48 @@ import javax.annotation.Nonnull;
 public class DefaultFileHashCache implements ProjectFileHashCache {
 
   private final ProjectFilesystem projectFilesystem;
+  private final Optional<Path> buckOutPath;
 
   @VisibleForTesting
   final LoadingCache<Path, HashCodeAndFileType> loadingCache;
 
-  public DefaultFileHashCache(ProjectFilesystem projectFilesystem) {
-    this.projectFilesystem = projectFilesystem;
+  @VisibleForTesting
+  final LoadingCache<Path, Long> sizeCache;
 
-    this.loadingCache = CacheBuilder.newBuilder()
-        .build(new CacheLoader<Path, HashCodeAndFileType>() {
-          @Override
-          public HashCodeAndFileType load(@Nonnull Path path) throws Exception {
-            return getHashCodeAndFileType(path);
-          }
-        });
+  @VisibleForTesting
+  DefaultFileHashCache(
+      ProjectFilesystem projectFilesystem,
+      Optional<Path> buckOutPath) {
+    this.projectFilesystem = projectFilesystem;
+    this.buckOutPath = buckOutPath;
+
+    this.loadingCache =
+        CacheBuilder.newBuilder().build(
+            new CacheLoader<Path, HashCodeAndFileType>() {
+              @Override
+              public HashCodeAndFileType load(@Nonnull Path path) throws Exception {
+                return getHashCodeAndFileType(path);
+              }
+            });
+
+    this.sizeCache =
+        CacheBuilder.newBuilder().build(
+            new CacheLoader<Path, Long>() {
+              @Override
+              public Long load(@Nonnull Path path) throws Exception {
+                return getPathSize(path);
+              }
+            });
+  }
+
+  public static FileHashCache createBuckOutFileHashCache(
+      ProjectFilesystem projectFilesystem,
+      Path buckOutPath) {
+    return new DefaultFileHashCache(projectFilesystem, Optional.of(buckOutPath));
+  }
+
+  public static FileHashCache createDefaultFileHashCache(ProjectFilesystem projectFilesystem) {
+    return new DefaultFileHashCache(projectFilesystem, Optional.<Path>absent());
   }
 
   private HashCodeAndFileType getHashCodeAndFileType(Path path) throws IOException {
@@ -90,6 +118,14 @@ public class DefaultFileHashCache implements ProjectFileHashCache {
     return source.hash(Hashing.sha1());
   }
 
+  private long getPathSize(Path path) throws IOException {
+    long size = 0;
+    for (Path child : projectFilesystem.getFilesUnderPath(path)) {
+      size += projectFilesystem.getFileSize(child);
+    }
+    return size;
+  }
+
   private HashCodeAndFileType getDirHashCode(Path path) throws IOException {
     Hasher hasher = Hashing.sha1().newHasher();
     ImmutableSet<Path> children =
@@ -100,7 +136,7 @@ public class DefaultFileHashCache implements ProjectFileHashCache {
   public Path resolvePath(Path path) {
     Preconditions.checkState(path.isAbsolute());
     Optional<Path> relativePath = projectFilesystem.getPathRelativeToProjectRoot(path);
-    Preconditions.checkState(!projectFilesystem.isIgnored(relativePath.get()));
+    Preconditions.checkState(!isIgnored(relativePath.get()));
     return relativePath.get();
   }
 
@@ -112,7 +148,14 @@ public class DefaultFileHashCache implements ProjectFileHashCache {
     }
     return loadingCache.getIfPresent(relativePath.get()) != null ||
         (projectFilesystem.exists(relativePath.get()) &&
-        !projectFilesystem.isIgnored(relativePath.get()));
+        !isIgnored(relativePath.get()));
+  }
+
+  private boolean isIgnored(Path path) {
+    if (buckOutPath.isPresent()) {
+      return path.startsWith(buckOutPath.get());
+    }
+    return projectFilesystem.isIgnored(path);
   }
 
   @Override
@@ -130,11 +173,13 @@ public class DefaultFileHashCache implements ProjectFileHashCache {
       }
       loadingCache.invalidate(path);
     }
+    sizeCache.invalidate(path);
   }
 
   @Override
   public void invalidateAll() {
     loadingCache.invalidateAll();
+    sizeCache.invalidateAll();
   }
 
   /**
@@ -151,6 +196,17 @@ public class DefaultFileHashCache implements ProjectFileHashCache {
       throw Throwables.propagate(e.getCause());
     }
     return Preconditions.checkNotNull(sha1, "Failed to find a HashCode for %s.", path);
+  }
+
+  @Override
+  public long getSize(Path rawPath) throws IOException {
+    Path path = resolvePath(rawPath);
+    try {
+      return sizeCache.get(path.normalize());
+    } catch (ExecutionException e) {
+      Throwables.propagateIfInstanceOf(e.getCause(), IOException.class);
+      throw Throwables.propagate(e.getCause());
+    }
   }
 
   @Override

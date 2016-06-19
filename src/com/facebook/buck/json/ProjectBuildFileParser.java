@@ -109,10 +109,9 @@ public class ProjectBuildFileParser implements AutoCloseable {
   @Nullable private ProjectBuildFileParseEvents.Started projectBuildFileParseEventStarted;
 
   protected ProjectBuildFileParser(
-      ProjectBuildFileParserOptions options,
+      final ProjectBuildFileParserOptions options,
       ConstructorArgMarshaller marshaller,
       ImmutableMap<String, String> environment,
-      final ImmutableMap<String, ImmutableMap<String, String>> rawConfig,
       BuckEventBus buckEventBus,
       ProjectFilesystem filesystem,
       ProcessExecutor processExecutor,
@@ -138,7 +137,7 @@ public class ProjectBuildFileParser implements AutoCloseable {
                   Files.createDirectories(rawConfigJson.getParent());
                   try (OutputStream output =
                            new BufferedOutputStream(Files.newOutputStream(rawConfigJson))) {
-                    bserSerializer.serializeToStream(rawConfig, output);
+                    bserSerializer.serializeToStream(options.getRawConfig(), output);
                   }
                   return rawConfigJson;
                 } catch (IOException e) {

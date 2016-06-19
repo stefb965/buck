@@ -43,6 +43,10 @@ enum BuildStatus {
   FAILED = 4,
 }
 
+##############################################################################
+## Buck client build state
+##############################################################################
+
 struct BuildJob {
   1: optional BuildId buildId;
   2: optional DebugInfo debug;
@@ -62,8 +66,27 @@ struct BuildJobStateBuckConfig {
   4: optional string platform;
 }
 
+struct PathWithUnixSeparators {
+  1: string path;
+}
+
+struct BuildJobStateFileHashEntry {
+  1: optional PathWithUnixSeparators path;
+  2: optional string archiveMemberPath; // Only present if this is a path to an archive member.
+  3: optional string hashCode; // The SHA1 hash of the content.
+  4: optional bool isDirectory;
+  // The paths to source files are relative, the paths to tools, SDKs, etc.. are absolute.
+  5: optional bool pathIsAbsolute;
+}
+
+struct BuildJobStateFileHashes {
+  1: optional string fileSystemRootName;
+  2: optional list<BuildJobStateFileHashEntry> entries;
+}
+
 struct BuildJobState {
   1: optional BuildJobStateBuckConfig buckConfig;
+  2: optional list<BuildJobStateFileHashes> fileHashes;
 }
 
 ##############################################################################

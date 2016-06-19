@@ -33,11 +33,12 @@ import static org.junit.Assert.fail;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.FakeWatchmanClient;
+import com.facebook.buck.io.MorePaths;
+import com.facebook.buck.io.PathOrGlobMatcher;
 import com.facebook.buck.io.Watchman;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.timing.FakeClock;
 import com.google.common.base.Optional;
-import com.google.common.collect.Lists;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -50,6 +51,7 @@ import org.hamcrest.Matchers;
 import org.junit.After;
 import org.junit.Test;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -108,7 +110,7 @@ public class WatchmanWatcherTest {
         StandardWatchEventKinds.ENTRY_MODIFY,
         eventCapture.getValue().kind());
     assertEquals("Path should match watchman output.",
-        "foo/bar/baz",
+        MorePaths.pathWithPlatformSeparators("foo/bar/baz"),
         eventCapture.getValue().context().toString());
   }
 
@@ -205,10 +207,10 @@ public class WatchmanWatcherTest {
         ImmutableSet.<String>builder());
     verify(eventBus);
     assertEquals("Path should match watchman output.",
-        "foo/bar/baz",
+        MorePaths.pathWithPlatformSeparators("foo/bar/baz"),
         firstEvent.getValue().context().toString());
     assertEquals("Path should match watchman output.",
-        "foo/bar/boz",
+        MorePaths.pathWithPlatformSeparators("foo/bar/boz"),
         secondEvent.getValue().context().toString());
   }
 
@@ -421,8 +423,7 @@ public class WatchmanWatcherTest {
         "path/to/repo",
         Optional.of("project"),
         "uuid",
-        Lists.<Path>newArrayList(),
-        Lists.<String>newArrayList(),
+        ImmutableSet.<PathOrGlobMatcher>of(),
         ImmutableSet.of(Watchman.Capability.DIRNAME));
 
     assertThat(
@@ -436,8 +437,9 @@ public class WatchmanWatcherTest {
         "/path/to/repo",
         Optional.<String>absent(),
         "uuid",
-        Lists.newArrayList(Paths.get("foo"), Paths.get("bar/baz")),
-        Lists.<String>newArrayList(),
+        ImmutableSet.<PathOrGlobMatcher>of(
+            new PathOrGlobMatcher(Paths.get("foo")),
+            new PathOrGlobMatcher(Paths.get("bar/baz"))),
         ImmutableSet.of(Watchman.Capability.DIRNAME));
     assertEquals(
         ImmutableList.of(
@@ -451,7 +453,9 @@ public class WatchmanWatcherTest {
                         "anyof",
                         ImmutableList.of("type", "d"),
                         ImmutableList.of("dirname", "foo"),
-                        ImmutableList.of("dirname", "bar/baz"))),
+                        ImmutableList.of(
+                            "dirname",
+                            MorePaths.pathWithPlatformSeparators("bar/baz")))),
                 "empty_on_fresh_instance", true,
                 "fields", ImmutableList.of("name", "exists", "new"))),
         query);
@@ -463,8 +467,9 @@ public class WatchmanWatcherTest {
         "/path/to/repo",
         Optional.<String>absent(),
         "uuid",
-        Lists.newArrayList(Paths.get("foo"), Paths.get("bar/baz")),
-        Lists.<String>newArrayList(),
+        ImmutableSet.<PathOrGlobMatcher>of(
+            new PathOrGlobMatcher(Paths.get("foo")),
+            new PathOrGlobMatcher(Paths.get("bar/baz"))),
         ImmutableSet.<Watchman.Capability>of());
     assertEquals(
         ImmutableList.of(
@@ -477,8 +482,14 @@ public class WatchmanWatcherTest {
                     ImmutableList.of(
                         "anyof",
                         ImmutableList.of("type", "d"),
-                        ImmutableList.of("match", "foo/*", "wholename"),
-                        ImmutableList.of("match", "bar/baz/*", "wholename"))),
+                        ImmutableList.of(
+                            "match",
+                            "foo" + File.separator + "*",
+                            "wholename"),
+                        ImmutableList.of(
+                            "match",
+                            "bar" + File.separator + "baz" + File.separator + "*",
+                            "wholename"))),
                 "empty_on_fresh_instance", true,
                 "fields", ImmutableList.of("name", "exists", "new"))),
         query);
@@ -486,17 +497,19 @@ public class WatchmanWatcherTest {
 
   @Test
   public void watchmanQueryRelativizesExcludePaths() {
+    String watchRoot = Paths.get("/path/to/repo").toAbsolutePath().toString();
     List<Object> query = WatchmanWatcher.createQuery(
-        "/path/to/repo",
+        watchRoot,
         Optional.<String>absent(),
         "uuid",
-        Lists.newArrayList(Paths.get("/path/to/repo/foo"), Paths.get("/path/to/repo/bar/baz")),
-        Lists.<String>newArrayList(),
+        ImmutableSet.<PathOrGlobMatcher>of(
+            new PathOrGlobMatcher(Paths.get("/path/to/repo/foo").toAbsolutePath()),
+            new PathOrGlobMatcher(Paths.get("/path/to/repo/bar/baz").toAbsolutePath())),
         ImmutableSet.of(Watchman.Capability.DIRNAME));
     assertEquals(
         ImmutableList.of(
             "query",
-            "/path/to/repo",
+            watchRoot,
             ImmutableMap.of(
                 "since", "n:buckduuid",
                 "expression", ImmutableList.of(
@@ -505,7 +518,9 @@ public class WatchmanWatcherTest {
                         "anyof",
                         ImmutableList.of("type", "d"),
                         ImmutableList.of("dirname", "foo"),
-                        ImmutableList.of("dirname", "bar/baz"))),
+                        ImmutableList.of(
+                            "dirname",
+                            MorePaths.pathWithPlatformSeparators("bar/baz")))),
                 "empty_on_fresh_instance", true,
                 "fields", ImmutableList.of("name", "exists", "new"))),
         query);
@@ -517,8 +532,8 @@ public class WatchmanWatcherTest {
         "/path/to/repo",
         Optional.<String>absent(),
         "uuid",
-        Lists.<Path>newArrayList(),
-        Lists.newArrayList("*.pbxproj"),
+        ImmutableSet.<PathOrGlobMatcher>of(
+            new PathOrGlobMatcher("*.pbxproj")),
         ImmutableSet.of(Watchman.Capability.DIRNAME));
     assertEquals(
         ImmutableList.of(

@@ -52,6 +52,7 @@ import com.facebook.buck.util.DefaultPropertyFinder;
 import com.facebook.buck.util.MoreStrings;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.environment.Architecture;
+import com.facebook.buck.util.environment.CommandMode;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
@@ -386,7 +387,6 @@ public class ProjectWorkspace {
     InputStream stdin = new ByteArrayInputStream("".getBytes());
 
     // Construct a limited view of the parent environment for the child.
-    //
     // TODO(#5754812): we should eventually get tests working without requiring these be set.
     ImmutableList<String> inheritedEnvVars = ImmutableList.of(
         "ANDROID_HOME",
@@ -429,7 +429,7 @@ public class ProjectWorkspace {
           repoRoot,
           context,
           env.or(sanizitedEnv),
-          /* setupLogging */ false,
+          CommandMode.TEST,
           args);
     } catch (InterruptedException e) {
       e.printStackTrace(stderr);

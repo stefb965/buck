@@ -16,19 +16,20 @@
 
 package com.facebook.buck.test;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
-
-import com.facebook.buck.testutil.integration.TemporaryPaths;
-
-import org.junit.Rule;
-import org.junit.Test;
-
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+
+import com.facebook.buck.testutil.integration.TemporaryPaths;
+import org.junit.Rule;
+import org.junit.Test;
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.hamcrest.CoreMatchers.containsString;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 public class XmlTestResultParserTest {
 
@@ -57,6 +58,106 @@ public class XmlTestResultParserTest {
           "Error parsing test result data in " + xmlFile.toAbsolutePath() + ".\n" +
               "File contents:\n" + xml,
           e.getMessage());
+    }
+  }
+
+  @Test
+  public void testParsingAndroidSeparatesClassesInResults() throws Throwable {
+    String xml =
+        "<?xml version='1.1' encoding='UTF-8' standalone='no'?>\n" +
+        "<testsuite name='com.facebook.foo.bar'>\n" +
+        "  <testcase name='a' classname='Bar' time='0.0'/>\n" +
+        "  <testcase name='b' classname='Bar' time='1.2'/>\n" +
+        "  <testcase name='c' classname='Foo' time='3.2'/>\n" +
+        "</testsuite>\n";
+
+    Path xmlFile = tmp.newFile("result.xml");
+    Files.write(xmlFile, xml.getBytes(UTF_8));
+
+    List<TestCaseSummary> summary = XmlTestResultParser.parseAndroid(xmlFile, "android-5554");
+
+    assertEquals(2, summary.size());
+
+    assertEquals("Bar (android-5554)", summary.get(0).getTestCaseName());
+    assertEquals("Foo (android-5554)", summary.get(1).getTestCaseName());
+
+    assertEquals(2, summary.get(0).getTestResults().size());
+    assertEquals(1, summary.get(1).getTestResults().size());
+  }
+
+  @Test
+  public void testParsesMessageFromFailure() throws Throwable {
+    String xml =
+        "<?xml version='1.1' encoding='UTF-8' standalone='no'?>\n" +
+        "<testsuite name='com.facebook.foo.bar'>\n" +
+        "  <testcase name='a' classname='Bar' time='0.0'>\n" +
+        "    <failure>com.foo: Error Message\nblehbleh\n</failure>\n" +
+        "  </testcase>\n" +
+        "</testsuite>\n";
+
+    Path xmlFile = tmp.newFile("result.xml");
+    Files.write(xmlFile, xml.getBytes(UTF_8));
+
+    List<TestCaseSummary> summary = XmlTestResultParser.parseAndroid(xmlFile, "android-5554");
+
+    assertEquals("Error Message", summary.get(0).getTestResults().get(0).getMessage());
+  }
+
+  @Test
+  public void testParsesEmptyMessageFromFailure() throws Throwable {
+    String xml =
+        "<?xml version='1.1' encoding='UTF-8' standalone='no'?>\n" +
+        "<testsuite name='com.facebook.foo.bar'>\n" +
+        "  <testcase name='a' classname='Bar' time='0.0'>\n" +
+        "    <failure>com.foo\nblehbleh\n</failure>\n" +
+        "  </testcase>\n" +
+        "</testsuite>\n";
+
+    Path xmlFile = tmp.newFile("result.xml");
+    Files.write(xmlFile, xml.getBytes(UTF_8));
+
+    List<TestCaseSummary> summary = XmlTestResultParser.parseAndroid(xmlFile, "android-5554");
+
+    assertEquals("", summary.get(0).getTestResults().get(0).getMessage());
+  }
+
+  @Test
+  public void testColonInMEssage() throws Throwable {
+    String xml =
+        "<?xml version='1.1' encoding='UTF-8' standalone='no'?>\n" +
+        "<testsuite name='com.facebook.foo.bar'>\n" +
+        "  <testcase name='a' classname='Bar' time='0.0'>\n" +
+        "    <failure>com.foo: Error: Message\nblehbleh\n</failure>\n" +
+        "  </testcase>\n" +
+        "</testsuite>\n";
+
+    Path xmlFile = tmp.newFile("result.xml");
+    Files.write(xmlFile, xml.getBytes(UTF_8));
+
+    List<TestCaseSummary> summary = XmlTestResultParser.parseAndroid(xmlFile, "android-5554");
+
+    assertEquals("Error: Message", summary.get(0).getTestResults().get(0).getMessage());
+  }
+
+  @Test
+  public void testThrowsIfTheresAFailureNodeOnTestSuite() throws Throwable {
+    String xml =
+        "<?xml version='1.1' encoding='UTF-8' standalone='no'?>\n" +
+        "<testsuite name='com.facebook.foo.bar'>\n" +
+        "  <testcase name='a' classname='Bar' time='0.0' />\n" +
+        "  <failure>Instrumentation failed with RuntimeException</failure>\n" +
+        "</testsuite>\n";
+
+    Path xmlFile = tmp.newFile("result.xml");
+    Files.write(xmlFile, xml.getBytes(UTF_8));
+
+    try {
+      XmlTestResultParser.parseAndroid(xmlFile, "android-5554");
+      fail("expected exception");
+    } catch (TestProcessCrashed e) {
+      assertThat(
+        e.getMessage(),
+        containsString("Instrumentation failed with RuntimeException"));
     }
   }
 }

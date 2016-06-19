@@ -138,8 +138,8 @@ import com.facebook.buck.shell.ExportFileDescription;
 import com.facebook.buck.shell.GenruleDescription;
 import com.facebook.buck.shell.ShBinaryDescription;
 import com.facebook.buck.shell.ShTestDescription;
-import com.facebook.buck.swift.SwiftLibraryDescription;
 import com.facebook.buck.shell.WorkerToolDescription;
+import com.facebook.buck.swift.SwiftLibraryDescription;
 import com.facebook.buck.thrift.ThriftBuckConfig;
 import com.facebook.buck.thrift.ThriftCxxEnhancer;
 import com.facebook.buck.thrift.ThriftJavaEnhancer;
@@ -340,6 +340,8 @@ public class KnownBuildRuleTypes {
     FlavorDomain<AppleCxxPlatform> platformFlavorsToAppleCxxPlatforms =
         FlavorDomain.from("Apple C++ Platform", appleCxxPlatforms);
 
+    CxxBuckConfig cxxBuckConfig = new CxxBuckConfig(config);
+
     // Setup the NDK C/C++ platforms.
     Optional<Path> ndkRoot = androidDirectoryResolver.getNdkOrAbsent();
     ImmutableMap.Builder<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform> ndkCxxPlatformsBuilder =
@@ -359,6 +361,7 @@ public class KnownBuildRuleTypes {
               .build();
       ndkCxxPlatformsBuilder.putAll(
           NdkCxxPlatforms.getPlatforms(
+              cxxBuckConfig,
               new ProjectFilesystem(ndkRoot.get()),
               compiler,
               androidConfig.getNdkCxxRuntime().or(NdkCxxPlatforms.DEFAULT_CXX_RUNTIME),
@@ -370,7 +373,6 @@ public class KnownBuildRuleTypes {
         ndkCxxPlatformsBuilder.build();
 
     // Construct the C/C++ config wrapping the buck config.
-    CxxBuckConfig cxxBuckConfig = new CxxBuckConfig(config);
     ImmutableMap.Builder<Flavor, CxxPlatform> cxxPlatformsBuilder = ImmutableMap.builder();
 
     // If an Android NDK is present, add platforms for that.  This is mostly useful for
@@ -534,7 +536,7 @@ public class KnownBuildRuleTypes {
     ListeningExecutorService dxExecutorService =
         MoreExecutors.listeningDecorator(
             Executors.newFixedThreadPool(
-                SmartDexingStep.determineOptimalThreadCount(),
+                javaConfig.getDxThreadCount().or(SmartDexingStep.determineOptimalThreadCount()),
                 new CommandThreadFactory("SmartDexing")));
 
 

@@ -50,7 +50,6 @@ import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.parser.BuildFileSpec;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.BuildTargetPatternParser;
-import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.SpeculativeParsing;
 import com.facebook.buck.parser.TargetNodePredicateSpec;
@@ -227,6 +226,12 @@ public class ProjectCommand extends BuildCommand {
   private boolean runIjCleaner = false;
 
   @Option(
+      name = "--exclude-artifacts",
+      usage = "Don't include references to the artifacts created by compiling a target in" +
+          "the module representing that target.")
+  private boolean excludeArtifacts = false;
+
+  @Option(
       name = "--focus",
       depends = "--build-with-buck",
       usage = "Space separated list of build target full qualified names that should be part of " +
@@ -367,6 +372,7 @@ public class ProjectCommand extends BuildCommand {
       ImmutableSet<BuildTarget> passedInTargetsSet;
       TargetGraph projectGraph;
       try {
+        ParserConfig parserConfig = new ParserConfig(params.getBuckConfig());
         passedInTargetsSet = params.getParser()
             .resolveTargetSpecs(
                 params.getBuckEventBus(),
@@ -377,7 +383,7 @@ public class ProjectCommand extends BuildCommand {
                     params.getBuckConfig(),
                     getArguments()),
                 SpeculativeParsing.of(true),
-                Parser.ApplyDefaultFlavorsMode.ENABLED);
+                parserConfig.getDefaultFlavorsMode());
         needsFullRecursiveParse = needsFullRecursiveParse || passedInTargetsSet.isEmpty();
         projectGraph = getProjectGraphForIde(
             params,
@@ -566,7 +572,7 @@ public class ProjectCommand extends BuildCommand {
         getIntellijAggregationMode(params.getBuckConfig()),
         params.getBuckConfig());
 
-    ImmutableSet<BuildTarget> requiredBuildTargets = project.write(runIjCleaner);
+    ImmutableSet<BuildTarget> requiredBuildTargets = project.write(runIjCleaner, excludeArtifacts);
 
     if (requiredBuildTargets.isEmpty()) {
       return 0;
@@ -1024,7 +1030,7 @@ public class ProjectCommand extends BuildCommand {
               "  ide_prompt = false\n\n",
           params.getCell().getFilesystem()
               .getRootPath()
-              .resolve(BuckConfig.DEFAULT_BUCK_CONFIG_OVERRIDE_FILE_NAME)
+              .resolve(BuckConfig.BUCK_CONFIG_OVERRIDE_FILE_NAME)
               .toAbsolutePath());
     } else {
       LOG.debug(
