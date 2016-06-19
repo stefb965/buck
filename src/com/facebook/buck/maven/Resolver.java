@@ -107,7 +107,10 @@ public class Resolver {
 
     ImmutableList.Builder<RemoteRepository> builder = ImmutableList.builder();
     for (int i = 0; i < repoUrls.length; i++) {
-      builder.add(AetherUtil.toRemoteRepository(repoUrls[i]));
+      builder.add(AetherUtil.toRemoteRepository(
+          repoUrls[i],
+          Optional.<String>absent(),
+          Optional.<String>absent()));
     }
     this.repos = builder.build();
 

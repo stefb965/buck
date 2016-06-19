@@ -57,6 +57,8 @@ public class PublisherTest {
     publisher = new Publisher(
         filesystem,
         /* remoteRepoUrl */ Optional.<URL>absent(),
+        /* username */ Optional.<String>absent(),
+        /* password */ Optional.<String>absent(),
         /* dryRun */ true);
 
     ruleResolver = new BuildRuleResolver(

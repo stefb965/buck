@@ -76,6 +76,19 @@ public class PublishCommand extends BuildCommand {
       usage = "Just print the artifacts to be published")
   private boolean dryRun = false;
 
+  @Option(
+      name = "--username",
+      aliases = "-u",
+      usage = "User name to use to authenticate with the server")
+  private String username;
+
+  @Option(
+      name = "--password",
+      aliases = "-p",
+      usage = "Password to use to authenticate with the server")
+  private String password;
+
+
   @Override
   public int runWithoutHelp(CommandRunnerParams params) throws IOException, InterruptedException {
 
@@ -134,6 +147,8 @@ public class PublishCommand extends BuildCommand {
     Publisher publisher = new Publisher(
         params.getCell().getFilesystem(),
         Optional.fromNullable(remoteRepo),
+        Optional.fromNullable(username),
+        Optional.fromNullable(password),
         dryRun);
 
     try {
