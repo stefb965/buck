@@ -14,6 +14,7 @@ from buck_tool import BuckToolException, RestartBuck
 from subprocutils import which
 import buck_version
 
+
 JAVA_CLASSPATHS = [
     "build/abi_processor/classes",
     "build/classes",
@@ -91,7 +92,6 @@ JAVA_CLASSPATHS = [
     "third-party/java/eden/eden.jar",
     "third-party/java/eden/java-thrift-dependencies.jar",
 ]
-
 RESOURCES = {
     "abi_processor_classes": "build/abi_processor/classes",
     "android_agent_path": "assets/android/agent.apk",

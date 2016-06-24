@@ -27,7 +27,6 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
-import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.base.Suppliers;
@@ -162,6 +161,8 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
         final SourcePathResolver resolver,
         ImmutableSortedSet<SourcePath> topLevelSrcs,
         Optional<String> mavenCoords) {
+      // TODO(simons): This is overly broad, since we also pull in any defs from resources.
+      // Should just be deps, exported_deps, provided_deps.
       TraversedDeps traversedDeps = TraversedDeps.traverse(params.getDeps());
 
       params = adjustParams(params, traversedDeps);
@@ -215,7 +216,9 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
 
       ImmutableSortedSet.Builder<JavaLibrary> candidates = ImmutableSortedSet.naturalOrder();
       for (final BuildRule root : roots) {
-        Preconditions.checkState(root instanceof HasClasspathEntries);
+        if (!(root instanceof HasClasspathEntries)) {
+          continue;
+        }
         candidates.addAll(FluentIterable
             .from(((HasClasspathEntries) root).getTransitiveClasspathDeps())
             .filter(new Predicate<JavaLibrary>() {
