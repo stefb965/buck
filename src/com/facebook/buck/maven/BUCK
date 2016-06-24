@@ -22,6 +22,10 @@ java_library(
   name = 'util',
   srcs = UTIL_SRCS,
   autodeps = True,
+  deps = [
+    '//third-party/java/aether:aether-util',
+    '//third-party/java/guava:guava',
+  ],
   visibility = ['PUBLIC'],
 )
 
