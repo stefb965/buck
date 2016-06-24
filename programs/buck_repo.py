@@ -86,6 +86,7 @@ JAVA_CLASSPATHS = [
     "third-party/java/maven/maven-aether-provider-3.2.5.jar",
     "third-party/java/maven/maven-model-3.2.5.jar",
     "third-party/java/maven/maven-model-builder-3.2.5.jar",
+    "third-party/java/maven/maven-repository-metadata-3.2.5.jar",
     "third-party/java/slf4j/slf4j-api-1.7.5.jar",
     "third-party/java/plexus/plexus-utils-3.0.20.jar",
     "third-party/java/plexus/plexus-interpolation-1.21.jar",
