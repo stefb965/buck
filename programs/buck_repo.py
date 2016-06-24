@@ -30,6 +30,7 @@ JAVA_CLASSPATHS = [
     "third-party/java/args4j/args4j-2.0.30.jar",
     "third-party/java/asm/asm-debug-all-5.0.3.jar",
     "third-party/java/closure-templates/soy-excluding-deps.jar",
+    "third-party/java/commons-codec/commons-codec-1.6.jar",
     "third-party/java/commons-compress/commons-compress-1.8.1.jar",
     "third-party/java/commons-logging/commons-logging-1.2.jar",
     "third-party/java/concurrent-locks/concurrent-locks-1.0.0.jar",
