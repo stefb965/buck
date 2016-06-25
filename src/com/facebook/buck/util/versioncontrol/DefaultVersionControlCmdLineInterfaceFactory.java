@@ -18,9 +18,12 @@ package com.facebook.buck.util.versioncontrol;
 
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.ProcessExecutorFactory;
+import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableMap;
 
 import java.nio.file.Path;
+import java.util.Set;
+import java.util.TreeSet;
 
 public class DefaultVersionControlCmdLineInterfaceFactory
     implements VersionControlCmdLineInterfaceFactory {
@@ -28,6 +31,7 @@ public class DefaultVersionControlCmdLineInterfaceFactory
 
   private final Path projectRoot;
   private final ProcessExecutorFactory processExecutorFactory;
+  private final String gitCmd;
   private final String hgCmd;
   private final ImmutableMap<String, String> environment;
 
@@ -39,25 +43,38 @@ public class DefaultVersionControlCmdLineInterfaceFactory
     this.projectRoot = projectRoot;
     this.processExecutorFactory = processExecutorFactory;
     this.hgCmd = buckConfig.getHgCmd();
+    this.gitCmd = buckConfig.getGitCmd();
     this.environment = environment;
   }
 
   @Override
   public VersionControlCmdLineInterface createCmdLineInterface() throws InterruptedException {
-      HgCmdLineInterface hgCmdLineInterface =
-          new HgCmdLineInterface(processExecutorFactory, projectRoot.toFile(), hgCmd, environment);
+    return findWorkableVcs(
+        new NoOpCmdLineInterface(),
+        new GitCmdLineInterface(processExecutorFactory, projectRoot, gitCmd, environment),
+        new HgCmdLineInterface(processExecutorFactory, projectRoot, hgCmd, environment));
+  }
 
+  private VersionControlCmdLineInterface findWorkableVcs(
+      VersionControlCmdLineInterface fallback,
+      VersionControlCmdLineInterface... possibilities) throws InterruptedException {
+
+    Set<String> vcsNames = new TreeSet<>();
+    for (VersionControlCmdLineInterface vcs : possibilities) {
       try {
-        hgCmdLineInterface.currentRevisionId();
-        LOG.debug("Using HgCmdLineInterface.");
-        return hgCmdLineInterface;
-      } catch (VersionControlCommandFailedException ex) {
-        LOG.warn("Mercurial is the only VCS supported for VCS stats generation, however " +
-                "current project (which has enabled VCS stats generation in its .buckconfig) " +
-                "does not appear to be a Mercurial repository: \n%s", ex);
+        vcs.currentRevisionId();
+        LOG.debug("Using " + vcs.getHumanReadableName());
+        return vcs;
+      } catch (VersionControlCommandFailedException e) {
+        vcsNames.add(vcs.getHumanReadableName());
       }
+    }
+
+    LOG.warn("The only supported VCSs are: %s, however the " +
+        "current project (which has enabled VCS stats generation in its .buckconfig) " +
+        "does not appear to any of those", Joiner.on(", ").join(vcsNames));
 
     LOG.debug("Using NoOpCmdLineInterface.");
-    return new NoOpCmdLineInterface();
+    return fallback;
   }
 }

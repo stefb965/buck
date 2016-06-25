@@ -60,7 +60,7 @@ public class SwiftCompileStep implements Step {
 
   private ProcessExecutorParams makeProcessExecutorParams() {
     ProcessExecutorParams.Builder builder = ProcessExecutorParams.builder();
-    builder.setDirectory(compilerCwd.toAbsolutePath().toFile());
+    builder.setDirectory(compilerCwd.toAbsolutePath());
     builder.setEnvironment(compilerEnvironment);
     builder.setCommand(compilerCommand);
     return builder.build();

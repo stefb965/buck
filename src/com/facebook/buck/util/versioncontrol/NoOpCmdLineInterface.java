@@ -22,6 +22,12 @@ import com.google.common.collect.ImmutableSet;
  * This is used if the project being built doesn't use a supported VCS.
  */
 public class NoOpCmdLineInterface implements VersionControlCmdLineInterface {
+
+  @Override
+  public String getHumanReadableName() {
+    return "No VCS";
+  }
+
   @Override
   public boolean isSupportedVersionControlSystem() {
     return false;

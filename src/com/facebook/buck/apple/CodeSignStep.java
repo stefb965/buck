@@ -75,7 +75,7 @@ class CodeSignStep implements Step {
                     "--sign", getIdentityArg(codeSignIdentitySupplier.get()),
                     "--entitlements", pathToSigningEntitlements.toString(),
                     pathToSign.toString()))
-            .setDirectory(workingDirectory.toFile())
+            .setDirectory(workingDirectory)
             .build();
     // Must specify that stdout is expected or else output may be wrapped in Ansi escape chars.
     Set<ProcessExecutor.Option> options = EnumSet.of(ProcessExecutor.Option.EXPECTING_STD_OUT);

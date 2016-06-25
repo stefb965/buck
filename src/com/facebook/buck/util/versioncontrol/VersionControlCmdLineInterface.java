@@ -22,6 +22,8 @@ import com.google.common.collect.ImmutableSet;
  * Provides meta-data about the version control repository the project being built is using.
  */
 public interface VersionControlCmdLineInterface {
+  String getHumanReadableName();
+
   /***
    *
    * @return true if project is using version control, and we support it (i.e. hg)

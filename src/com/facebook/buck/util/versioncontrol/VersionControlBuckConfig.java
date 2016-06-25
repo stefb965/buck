@@ -42,15 +42,23 @@ public class VersionControlBuckConfig {
   public static final String VC_SECTION_KEY = "version_control";
 
   public static final String GENERATE_STATISTICS_KEY = "generate_statistics";
-  public static final String HG_CMD_SETTING_KEY = "hg_cmd";
+
+  public static final String GIT_CMD_DEFAULT = "git";
+  public static final String GIT_CMD_SETTING_KEY = "git_cmd";
 
   public static final String HG_CMD_DEFAULT = "hg";
+  public static final String HG_CMD_SETTING_KEY = "hg_cmd";
+
   public static final boolean GENERATE_STATISTICS_DEFAULT = false;
 
   private final BuckConfig delegate;
 
   public VersionControlBuckConfig(BuckConfig delegate) {
     this.delegate = delegate;
+  }
+
+  public String getGitCmd() {
+    return getValue(VC_SECTION_KEY, GIT_CMD_SETTING_KEY, GIT_CMD_DEFAULT);
   }
 
   public String getHgCmd() {

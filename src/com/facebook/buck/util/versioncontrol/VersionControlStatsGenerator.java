@@ -18,6 +18,7 @@ package com.facebook.buck.util.versioncontrol;
 
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.log.Logger;
+import com.google.common.collect.Iterables;
 
 import java.util.concurrent.ExecutorService;
 
@@ -65,7 +66,7 @@ public class VersionControlStatsGenerator {
       return;
     }
 
-    int workingDirectoryChanges = vcCmdLineInterface.changedFiles(".").size();
+    int workingDirectoryChanges = Iterables.size(vcCmdLineInterface.changedFiles("."));
 
     String currentRevisionId = vcCmdLineInterface.currentRevisionId();
     String latestMasterRevisionId = vcCmdLineInterface.revisionId("master");
