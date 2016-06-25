@@ -23,6 +23,7 @@ import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.DirectoryTraversal;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.Pair;
+import com.facebook.buck.step.BuildStamp;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.zip.CustomZipOutputStream;
 import com.facebook.buck.zip.ZipConstants;
@@ -42,6 +43,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.Enumeration;
 import java.util.Map;
 import java.util.Set;
@@ -136,6 +139,23 @@ public class JarDirectoryStepHelper {
 
       manifest.getMainAttributes().put(Attributes.Name.MAIN_CLASS, mainClass.get());
     }
+
+    // Add build stamp information
+    BuildStamp buildStamp = context.getBuildStamper().getBuildStamp();
+    Attributes buildInfoAttrs = manifest.getAttributes("Build-Info");
+    if (buildInfoAttrs == null) {
+      buildInfoAttrs = new Attributes();
+    }
+
+    long epochDate = buildStamp.getBuildTimestamp();
+    Date date = new Date(epochDate);
+    String formattedDate = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z").format(date);
+
+    buildInfoAttrs.put(new Attributes.Name("Build-Revision"), buildStamp.getRevision());
+    buildInfoAttrs.put(new Attributes.Name("Build-Time"), formattedDate);
+    buildInfoAttrs.put(new Attributes.Name("Build-Timestamp"), String.valueOf(epochDate));
+
+    manifest.getEntries().put("Build-Info", buildInfoAttrs);
 
     JarEntry manifestEntry = new JarEntry(JarFile.MANIFEST_NAME);
 

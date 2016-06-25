@@ -87,6 +87,9 @@ abstract class AbstractExecutionContext implements Closeable {
   @Value.Parameter
   abstract Optional<AdbOptions> getAdbOptions();
 
+  @Value.Parameter
+  abstract BuildStamper getBuildStamper();
+
   /**
    * Returns an {@link AndroidPlatformTarget} if the user specified one via {@code local.properties}
    * or some other mechanism. If the user failed to specify one, an exception will be thrown.

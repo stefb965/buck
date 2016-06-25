@@ -56,6 +56,7 @@ import com.facebook.buck.slb.ThriftOverHttpService;
 import com.facebook.buck.slb.ThriftOverHttpServiceConfig;
 import com.facebook.buck.slb.ThriftService;
 import com.facebook.buck.step.AdbOptions;
+import com.facebook.buck.step.BuildStamper;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TargetDevice;
 import com.facebook.buck.step.TargetDeviceOptions;
@@ -267,6 +268,7 @@ public class BuildCommand extends AbstractCommand {
       Optional<TargetDevice> targetDevice,
       Platform platform,
       ImmutableMap<String, String> environment,
+      BuildStamper stamper,
       ObjectMapper objectMapper,
       Clock clock,
       Optional<AdbOptions> adbOptions,
@@ -288,6 +290,7 @@ public class BuildCommand extends AbstractCommand {
         isCodeCoverageEnabled(),
         isDebugEnabled(),
         shouldReportAbsolutePaths(),
+        stamper,
         eventBus,
         platform,
         environment,
@@ -571,6 +574,7 @@ public class BuildCommand extends AbstractCommand {
         Optional.<TargetDevice>absent(),
         params.getPlatform(),
         params.getEnvironment(),
+        params.getBuildStamper(),
         params.getObjectMapper(),
         params.getClock(),
         Optional.<AdbOptions>absent(),

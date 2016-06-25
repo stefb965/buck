@@ -69,6 +69,7 @@ import com.facebook.buck.rules.KnownBuildRuleTypes;
 import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
+import com.facebook.buck.step.BuildStamper;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.test.TestConfig;
 import com.facebook.buck.test.TestResultSummaryVerbosity;
@@ -111,6 +112,7 @@ import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.network.RemoteLoggerFactory;
 import com.facebook.buck.util.versioncontrol.DefaultVersionControlCmdLineInterfaceFactory;
 import com.facebook.buck.util.versioncontrol.VersionControlBuckConfig;
+import com.facebook.buck.util.versioncontrol.VersionControlCmdLineInterfaceFactory;
 import com.facebook.buck.util.versioncontrol.VersionControlStatsGenerator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
@@ -965,17 +967,18 @@ public final class Main {
               counterRegistry);
 
           VersionControlBuckConfig vcBuckConfig = new VersionControlBuckConfig(buckConfig);
+          VersionControlCmdLineInterfaceFactory vcsFactory =
+              new DefaultVersionControlCmdLineInterfaceFactory(
+                  rootCell.getFilesystem().getRootPath(),
+                  new PrintStreamProcessExecutorFactory(),
+                  vcBuckConfig,
+                  buckConfig.getEnvironment());
 
           if (!command.isReadOnly() && vcBuckConfig.shouldGenerateStatistics()) {
             vcStatsGenerator = new VersionControlStatsGenerator(
                 diskIoExecutorService,
-                new DefaultVersionControlCmdLineInterfaceFactory(
-                    rootCell.getFilesystem().getRootPath(),
-                    new PrintStreamProcessExecutorFactory(),
-                    vcBuckConfig,
-                    buckConfig.getEnvironment()),
-                buildEventBus
-            );
+                vcsFactory,
+                buildEventBus);
 
             vcStatsGenerator.generateStatsAsync();
           }
@@ -1081,6 +1084,7 @@ public final class Main {
                   parser,
                   platform,
                   clientEnvironment,
+                  new BuildStamper(vcsFactory),
                   rootCell.getBuckConfig().createDefaultJavaPackageFinder(),
                   objectMapper,
                   clock,

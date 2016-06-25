@@ -36,6 +36,7 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.ImmutableBuildContext;
 import com.facebook.buck.step.AdbOptions;
+import com.facebook.buck.step.BuildStamper;
 import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.StepFailedException;
@@ -116,6 +117,7 @@ public class Build implements Closeable {
       boolean isCodeCoverageEnabled,
       boolean isDebugEnabled,
       boolean shouldReportAbsolutePaths,
+      BuildStamper stamper,
       BuckEventBus eventBus,
       Platform platform,
       ImmutableMap<String, String> environment,
@@ -144,6 +146,7 @@ public class Build implements Closeable {
         .setAdbOptions(adbOptions)
         .setTargetDeviceOptions(targetDeviceOptions)
         .setExecutors(executors)
+        .setBuildStamper(stamper)
         .build();
     this.artifactCache = artifactCache;
     this.buildEngine = buildEngine;

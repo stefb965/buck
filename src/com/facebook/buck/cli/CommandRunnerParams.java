@@ -24,6 +24,7 @@ import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.rules.ActionGraphCache;
 import com.facebook.buck.rules.Cell;
+import com.facebook.buck.step.BuildStamper;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.util.Console;
@@ -54,6 +55,7 @@ class CommandRunnerParams {
   private final Platform platform;
   private final Supplier<AndroidPlatformTarget> androidPlatformTargetSupplier;
   private final Cell cell;
+  private final BuildStamper stamper;
   private final JavaPackageFinder javaPackageFinder;
   private final ObjectMapper objectMapper;
   private final Clock clock;
@@ -75,6 +77,7 @@ class CommandRunnerParams {
       Parser parser,
       Platform platform,
       ImmutableMap<String, String> environment,
+      BuildStamper stamper,
       JavaPackageFinder javaPackageFinder,
       ObjectMapper objectMapper,
       Clock clock,
@@ -94,6 +97,7 @@ class CommandRunnerParams {
     this.platform = platform;
     this.androidPlatformTargetSupplier = androidPlatformTargetSupplier;
     this.environment = environment;
+    this.stamper = stamper;
     this.javaPackageFinder = javaPackageFinder;
     this.objectMapper = objectMapper;
     this.clock = clock;
@@ -182,4 +186,7 @@ class CommandRunnerParams {
     return actionGraphCache;
   }
 
+  public BuildStamper getBuildStamper() {
+    return stamper;
+  }
 }

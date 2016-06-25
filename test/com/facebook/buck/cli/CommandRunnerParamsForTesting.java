@@ -34,6 +34,7 @@ import com.facebook.buck.rules.ConstructorArgMarshaller;
 import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.step.ExecutionContext;
+import com.facebook.buck.step.FakeBuildStamper;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.timing.DefaultClock;
 import com.facebook.buck.util.Console;
@@ -100,6 +101,7 @@ public class CommandRunnerParamsForTesting {
             typeCoercerFactory, new ConstructorArgMarshaller(typeCoercerFactory)),
         platform,
         environment,
+        new FakeBuildStamper(),
         javaPackageFinder,
         objectMapper,
         new DefaultClock(),

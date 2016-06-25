@@ -121,6 +121,7 @@ public class FetchCommand extends BuildCommand {
           Optional.<TargetDevice>absent(),
           params.getPlatform(),
           params.getEnvironment(),
+          params.getBuildStamper(),
           params.getObjectMapper(),
           params.getClock(),
           Optional.<AdbOptions>absent(),

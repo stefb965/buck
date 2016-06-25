@@ -31,6 +31,7 @@ import com.facebook.buck.rules.ActionGraphCache;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.step.ExecutionContext;
+import com.facebook.buck.step.FakeBuildStamper;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.timing.DefaultClock;
@@ -120,6 +121,7 @@ public class CleanCommandTest extends EasyMockSupport {
         createMock(Parser.class),
         Platform.detect(),
         ImmutableMap.copyOf(System.getenv()),
+        new FakeBuildStamper(),
         new FakeJavaPackageFinder(),
         ObjectMappers.newDefaultInstance(),
         new DefaultClock(),

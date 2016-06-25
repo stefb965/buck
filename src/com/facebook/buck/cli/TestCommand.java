@@ -508,6 +508,7 @@ public class TestCommand extends BuildCommand {
           getTargetDeviceOptional(),
           params.getPlatform(),
           params.getEnvironment(),
+          params.getBuildStamper(),
           params.getObjectMapper(),
           params.getClock(),
           Optional.of(getAdbOptions(params.getBuckConfig())),

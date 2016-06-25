@@ -25,6 +25,7 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.rules.ActionGraphCache;
+import com.facebook.buck.step.FakeBuildStamper;
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
 
 import org.junit.Rule;
@@ -124,6 +125,7 @@ public class ReplCommandIntegrationTest {
         createMock(Parser.class),
         Platform.detect(),
         ImmutableMap.copyOf(System.getenv()),
+        new FakeBuildStamper(),
         new FakeJavaPackageFinder(),
         ObjectMappers.newDefaultInstance(),
         new DefaultClock(),
