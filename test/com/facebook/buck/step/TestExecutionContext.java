@@ -49,6 +49,7 @@ public class TestExecutionContext {
         .setBuckEventBus(BuckEventBusFactory.newInstance())
         .setPlatform(Platform.detect())
         .setEnvironment(ImmutableMap.copyOf(System.getenv()))
+        .setBuildStamper(new FakeBuildStamper())
         .setJavaPackageFinder(new FakeJavaPackageFinder())
         .setObjectMapper(ObjectMappers.newDefaultInstance())
         .setClassLoaderCache(testClassLoaderCache)

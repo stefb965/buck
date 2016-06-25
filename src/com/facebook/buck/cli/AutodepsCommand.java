@@ -134,6 +134,7 @@ public class AutodepsCommand extends AbstractCommand {
           .setJavaPackageFinder(params.getJavaPackageFinder())
           .setObjectMapper(params.getObjectMapper())
           .setPlatform(params.getPlatform())
+          .setBuildStamper(params.getBuildStamper())
           .build();
       StepRunner stepRunner = new DefaultStepRunner(executionContext);
 
