@@ -1,8 +1,8 @@
-#@# GENERATED FILE: DO NOT MODIFY 3a5eae8163e3ee03ca6b53660e60b9349130c79c #@#
+#@# GENERATED FILE: DO NOT MODIFY f9a8037a7f5c490527f0a4cd7fe908f2d22007d5 #@#
 {
   "cache" : {
     "deps" : [
-      "//src/com/facebook/buck/config:config",
+      "//src/com/facebook/buck/config:base-config",
       "//src/com/facebook/buck/io:io",
       "//src/com/facebook/buck/util/cache:cache",
       "//test/com/facebook/buck/config:testutil",

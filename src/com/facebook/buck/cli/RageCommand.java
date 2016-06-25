@@ -61,7 +61,7 @@ public class RageCommand extends AbstractCommand {
         new DefaultVersionControlCmdLineInterfaceFactory(
             params.getCell().getFilesystem().getRootPath(),
             new PrintStreamProcessExecutorFactory(),
-            new VersionControlBuckConfig(buckConfig),
+            new VersionControlBuckConfig(buckConfig.getRawConfig()),
             buckConfig.getEnvironment());
 
     Optional<VcsInfoCollector> vcsInfoCollector =

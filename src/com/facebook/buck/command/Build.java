@@ -36,7 +36,7 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.ImmutableBuildContext;
 import com.facebook.buck.step.AdbOptions;
-import com.facebook.buck.step.BuildStamper;
+import com.facebook.buck.util.versioncontrol.BuildStamper;
 import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.StepFailedException;

@@ -1,8 +1,8 @@
-#@# GENERATED FILE: DO NOT MODIFY 75e1c89b1d79badfcfebe93accb9a0e571cc0478 #@#
+#@# GENERATED FILE: DO NOT MODIFY b3df1e67a18b0a013b9886772af0f961345551d3 #@#
 {
   "distributed" : {
     "deps" : [
-      "//src/com/facebook/buck/config:config",
+      "//src/com/facebook/buck/config:base-config",
       "//src/com/facebook/buck/log:api",
       "//src/com/facebook/buck/util/environment:platform",
       "//third-party/java/immutables:processor",

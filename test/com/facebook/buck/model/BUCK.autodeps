@@ -1,8 +1,8 @@
-#@# GENERATED FILE: DO NOT MODIFY dc3eced513ffaee8ff8e909d6118cfd465d7d6ad #@#
+#@# GENERATED FILE: DO NOT MODIFY 8d2e875d94534f343ad9e14dfdd47b0d9430b01c #@#
 {
   "model" : {
     "deps" : [
-      "//src/com/facebook/buck/config:config",
+      "//src/com/facebook/buck/config:base-config",
       "//src/com/facebook/buck/io:io",
       "//src/com/facebook/buck/model:macros",
       "//src/com/facebook/buck/model:model",

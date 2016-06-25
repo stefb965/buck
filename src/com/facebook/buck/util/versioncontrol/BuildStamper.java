@@ -1,9 +1,5 @@
-package com.facebook.buck.step;
+package com.facebook.buck.util.versioncontrol;
 
-import com.facebook.buck.timing.DefaultClock;
-import com.facebook.buck.util.versioncontrol.VersionControlCmdLineInterface;
-import com.facebook.buck.util.versioncontrol.VersionControlCmdLineInterfaceFactory;
-import com.facebook.buck.util.versioncontrol.VersionControlCommandFailedException;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 
@@ -17,7 +13,7 @@ public class BuildStamper {
         VersionControlCmdLineInterface vcs = vcsFactory.createCmdLineInterface();
         String revisionId = vcs.currentRevisionId();
         long revisionTimestamp = vcs.timestampSeconds(revisionId);
-        long currentTimestamp = new DefaultClock().currentTimeMillis();
+        long currentTimestamp = System.currentTimeMillis();
 
         return BuildStamp.builder()
             .setRevision(revisionId)

@@ -37,7 +37,7 @@ public class VersionControlBuckConfigTest {
         ImmutableMap.of(
             VersionControlBuckConfig.VC_SECTION_KEY,
             ImmutableMap.of(VersionControlBuckConfig.HG_CMD_SETTING_KEY, HG_CMD))).build();
-    VersionControlBuckConfig config = new VersionControlBuckConfig(buckConfig);
+    VersionControlBuckConfig config = new VersionControlBuckConfig(buckConfig.getRawConfig());
     assertThat(HG_CMD, is(equalTo(config.getHgCmd())));
   }
 
@@ -47,7 +47,7 @@ public class VersionControlBuckConfigTest {
         ImmutableMap.of(
             VersionControlBuckConfig.VC_SECTION_KEY,
             ImmutableMap.<String, String>of())).build();
-    VersionControlBuckConfig config = new VersionControlBuckConfig(buckConfig);
+    VersionControlBuckConfig config = new VersionControlBuckConfig(buckConfig.getRawConfig());
     assertThat(VersionControlBuckConfig.HG_CMD_DEFAULT, is(equalTo(config.getHgCmd())));
   }
 
@@ -58,7 +58,7 @@ public class VersionControlBuckConfigTest {
             VersionControlBuckConfig.VC_SECTION_KEY,
             ImmutableMap.of(
                 VersionControlBuckConfig.GENERATE_STATISTICS_KEY, GENERATE_STATISTICS))).build();
-    VersionControlBuckConfig config = new VersionControlBuckConfig(buckConfig);
+    VersionControlBuckConfig config = new VersionControlBuckConfig(buckConfig.getRawConfig());
     assertThat(GENERATE_STATISTICS_RESULT, is(equalTo(config.shouldGenerateStatistics())));
   }
 
@@ -68,7 +68,7 @@ public class VersionControlBuckConfigTest {
         ImmutableMap.of(
             VersionControlBuckConfig.VC_SECTION_KEY,
             ImmutableMap.<String, String>of())).build();
-    VersionControlBuckConfig config = new VersionControlBuckConfig(buckConfig);
+    VersionControlBuckConfig config = new VersionControlBuckConfig(buckConfig.getRawConfig());
     assertThat(
         VersionControlBuckConfig.GENERATE_STATISTICS_DEFAULT,
         is(equalTo(config.shouldGenerateStatistics())));

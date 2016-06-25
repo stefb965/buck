@@ -1,4 +1,5 @@
 PUBLIC_SRCS = [
+  'AbstractBuildStamp.java',
   'AbstractVersionControlStats.java',
   'VersionControlBuckConfig.java',
   'VersionControlCmdLineInterface.java',
@@ -13,6 +14,7 @@ java_immutables_library(
   name = 'versioncontrol',
   srcs = PUBLIC_SRCS,
   immutable_types = [
+    'BuildStamp',
     'VersionControlStats',
   ],
   tests = [
@@ -34,8 +36,8 @@ java_library(
   ],
   autodeps = True,
   visibility = [
-   '//src/com/facebook/buck/util/versioncontrol:versioncontrol',
-   '//src/com/facebook/buck/cli:cli',
+    '//src/com/facebook/buck/cli:cli',
+    '//src/com/facebook/buck/step:step',
    '//test/com/facebook/buck/util/versioncontrol/...',
   ],
 )

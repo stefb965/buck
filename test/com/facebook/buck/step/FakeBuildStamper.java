@@ -1,5 +1,6 @@
 package com.facebook.buck.step;
 
+import com.facebook.buck.util.versioncontrol.BuildStamper;
 import com.facebook.buck.util.versioncontrol.NoOpCmdLineInterface;
 import com.facebook.buck.util.versioncontrol.VersionControlCmdLineInterface;
 import com.facebook.buck.util.versioncontrol.VersionControlCmdLineInterfaceFactory;

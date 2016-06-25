@@ -1,9 +1,9 @@
-#@# GENERATED FILE: DO NOT MODIFY c4288834a010b83ac020dacf42e60436faac39d2 #@#
+#@# GENERATED FILE: DO NOT MODIFY 9db041d03878f32a54a083edcc791279200060f5 #@#
 {
   "io" : {
     "deps" : [
       "//src/com/facebook/buck/bser:bser",
-      "//src/com/facebook/buck/config:config",
+      "//src/com/facebook/buck/config:base-config",
       "//src/com/facebook/buck/io:executable-finder",
       "//src/com/facebook/buck/io:io",
       "//src/com/facebook/buck/io:watchman",

@@ -16,7 +16,7 @@
 
 package com.facebook.buck.util.versioncontrol;
 
-import com.facebook.buck.cli.BuckConfig;
+import com.facebook.buck.config.Config;
 import com.google.common.base.Optional;
 
 /***
@@ -51,9 +51,9 @@ public class VersionControlBuckConfig {
 
   public static final boolean GENERATE_STATISTICS_DEFAULT = false;
 
-  private final BuckConfig delegate;
+  private final Config delegate;
 
-  public VersionControlBuckConfig(BuckConfig delegate) {
+  public VersionControlBuckConfig(Config delegate) {
     this.delegate = delegate;
   }
 

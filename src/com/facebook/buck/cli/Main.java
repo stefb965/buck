@@ -69,7 +69,7 @@ import com.facebook.buck.rules.KnownBuildRuleTypes;
 import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
-import com.facebook.buck.step.BuildStamper;
+import com.facebook.buck.util.versioncontrol.BuildStamper;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.test.TestConfig;
 import com.facebook.buck.test.TestResultSummaryVerbosity;
@@ -966,7 +966,7 @@ public final class Main {
               clientEnvironment,
               counterRegistry);
 
-          VersionControlBuckConfig vcBuckConfig = new VersionControlBuckConfig(buckConfig);
+          VersionControlBuckConfig vcBuckConfig = new VersionControlBuckConfig(config);
           VersionControlCmdLineInterfaceFactory vcsFactory =
               new DefaultVersionControlCmdLineInterfaceFactory(
                   rootCell.getFilesystem().getRootPath(),

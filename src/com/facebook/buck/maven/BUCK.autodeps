@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY da736b36e84217d8f487c62e78c8bfe1b9f228e6 #@#
+#@# GENERATED FILE: DO NOT MODIFY 26bf4eea5b12e72cb94024238db3ee7d7add92fe #@#
 {
   "maven" : {
     "deps" : [
@@ -27,12 +27,14 @@
       "//third-party/java/aether:aether-connector-basic",
       "//third-party/java/aether:aether-impl",
       "//third-party/java/aether:aether-transport-http",
+      "//third-party/java/aether:aether-util",
       "//third-party/java/maven:maven-aether-provider",
       "//third-party/java/slf4j:slf4j-api"
     ],
     "exported_deps" : [
       "//third-party/java/aether:aether-api",
-      "//third-party/java/aether:aether-spi"
+      "//third-party/java/aether:aether-spi",
+      "//third-party/java/guava:guava"
     ]
   }
 }

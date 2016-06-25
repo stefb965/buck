@@ -2,6 +2,9 @@ standard_java_library(
   immutable_types = [
     'ExecutionContext',
   ],
+#   deps = [
+#     '//src/com/facebook/buck/util/versioncontrol:impl',
+#   ],
   tests = [
     '//test/com/facebook/buck/step:step',
   ],

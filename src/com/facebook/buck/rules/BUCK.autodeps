@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY 2f5df9dad5bbd89aeb9b13363d4159c9112d15a3 #@#
+#@# GENERATED FILE: DO NOT MODIFY a31a39c1640882cec7e1ca708e402a8d8426c95c #@#
 {
   "action_graph_cache" : {
     "deps" : [
@@ -141,6 +141,7 @@
       "//src/com/facebook/buck/android:steps",
       "//src/com/facebook/buck/apple:platform",
       "//src/com/facebook/buck/apple:rules",
+      "//src/com/facebook/buck/config:base-config",
       "//src/com/facebook/buck/config:config",
       "//src/com/facebook/buck/d:d",
       "//src/com/facebook/buck/dotnet:dotnet",

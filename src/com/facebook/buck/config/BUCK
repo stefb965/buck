@@ -1,5 +1,25 @@
-standard_java_library(
+BASE_CONFIG_SRCS = [
+  'AbstractRawConfig.java',
+  'Config.java',
+]
+
+java_immutables_library(
+  name = 'base-config',
+  srcs = BASE_CONFIG_SRCS,
   immutable_types = [
     'RawConfig',
-  ]
+  ],
+  deps = [
+    '//src/com/facebook/buck/model:macros',
+    '//src/com/facebook/buck/util:exceptions',
+    '//third-party/java/guava:guava',
+  ],
+  visibility = ['PUBLIC'],
+)
+
+java_library(
+  name = 'config',
+  srcs = glob(['*.java'], excludes=BASE_CONFIG_SRCS),
+  autodeps = True,
+  visibility = ['PUBLIC'],
 )

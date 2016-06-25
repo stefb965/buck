@@ -1,8 +1,9 @@
-#@# GENERATED FILE: DO NOT MODIFY 2f08a281c2aaacb6e011823441d414fcd6acb3d0 #@#
+#@# GENERATED FILE: DO NOT MODIFY 6bdff3d6f043dd34f1062c5663b9cc4d9f87a4f1 #@#
 {
   "lua" : {
     "deps" : [
       "//src/com/facebook/buck/cli:config",
+      "//src/com/facebook/buck/config:base-config",
       "//src/com/facebook/buck/config:config",
       "//src/com/facebook/buck/cxx:platform",
       "//src/com/facebook/buck/cxx:rules",

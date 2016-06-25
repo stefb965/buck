@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY 372b90d175738246f0d51ec6271ac1e609d03842 #@#
+#@# GENERATED FILE: DO NOT MODIFY 786b41e8816e25fd8d98a4ff8ef8aac7348525e9 #@#
 {
   "step" : {
     "deps" : [
@@ -29,6 +29,7 @@
     ],
     "exported_deps" : [
       "//src/com/facebook/buck/step:step",
+      "//src/com/facebook/buck/util/versioncontrol:versioncontrol",
       "//third-party/java/guava:guava"
     ]
   }

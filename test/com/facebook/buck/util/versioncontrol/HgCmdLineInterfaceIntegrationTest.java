@@ -207,7 +207,7 @@ public class HgCmdLineInterfaceIntegrationTest {
         new DefaultVersionControlCmdLineInterfaceFactory(
             tempFolder.getRoot().toPath(),
             new TestProcessExecutorFactory(),
-            new VersionControlBuckConfig(FakeBuckConfig.builder().build()),
+            new VersionControlBuckConfig(FakeBuckConfig.builder().build().getRawConfig()),
             ImmutableMap.<String, String>of());
     VersionControlCmdLineInterface cmdLineInterface = vcFactory.createCmdLineInterface();
     assertEquals(NoOpCmdLineInterface.class, cmdLineInterface.getClass());
@@ -242,7 +242,7 @@ public class HgCmdLineInterfaceIntegrationTest {
         new DefaultVersionControlCmdLineInterfaceFactory(
             repoRootDir,
             new TestProcessExecutorFactory(),
-            new VersionControlBuckConfig(FakeBuckConfig.builder().build()),
+            new VersionControlBuckConfig(FakeBuckConfig.builder().build().getRawConfig()),
             ImmutableMap.<String, String>of());
     return vcFactory.createCmdLineInterface();
   }

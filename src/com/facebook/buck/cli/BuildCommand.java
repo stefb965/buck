@@ -56,7 +56,7 @@ import com.facebook.buck.slb.ThriftOverHttpService;
 import com.facebook.buck.slb.ThriftOverHttpServiceConfig;
 import com.facebook.buck.slb.ThriftService;
 import com.facebook.buck.step.AdbOptions;
-import com.facebook.buck.step.BuildStamper;
+import com.facebook.buck.util.versioncontrol.BuildStamper;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TargetDevice;
 import com.facebook.buck.step.TargetDeviceOptions;

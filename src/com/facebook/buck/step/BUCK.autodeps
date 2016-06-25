@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY 798736f0957b0b3da916aa5da9055264788a45d0 #@#
+#@# GENERATED FILE: DO NOT MODIFY 983b065362debaad2894c71f66747f8783b455bf #@#
 {
   "step" : {
     "deps" : [
@@ -20,6 +20,7 @@
       "//src/com/facebook/buck/util/concurrent:concurrent",
       "//src/com/facebook/buck/util/environment:platform",
       "//src/com/facebook/buck/util/immutables:immutables",
+      "//src/com/facebook/buck/util/versioncontrol:impl",
       "//third-party/java/guava:guava",
       "//third-party/java/jackson:jackson-databind",
       "//third-party/java/jsr:jsr305"

@@ -1,10 +1,10 @@
-#@# GENERATED FILE: DO NOT MODIFY 97a6c2e24038768e822dc6810cd7f6a8af45ef9b #@#
+#@# GENERATED FILE: DO NOT MODIFY 0e6af4284133a201abbffce74ad7da0c52d875b8 #@#
 {
   "distributed" : {
     "deps" : [
       "//src-gen:thrift",
       "//src/com/facebook/buck/cli:config",
-      "//src/com/facebook/buck/config:config",
+      "//src/com/facebook/buck/config:base-config",
       "//src/com/facebook/buck/distributed:distributed",
       "//src/com/facebook/buck/event:event",
       "//src/com/facebook/buck/io:io",

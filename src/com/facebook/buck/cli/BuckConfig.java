@@ -946,6 +946,10 @@ public class BuckConfig {
     return config.getSectionToEntries().keySet();
   }
 
+  public Config getRawConfig() {
+    return config;
+  }
+
   public ImmutableMap<String, ImmutableMap<String, String>> getRawConfigForDistBuild() {
     return config.getSectionToEntries();
   }

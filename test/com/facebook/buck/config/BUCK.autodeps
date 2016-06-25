@@ -1,7 +1,8 @@
-#@# GENERATED FILE: DO NOT MODIFY bd57fd484f6ae21a23b79916f60fa1689c125494 #@#
+#@# GENERATED FILE: DO NOT MODIFY bedae59dcd05396409f7aa0f5823e65ccb4bfff9 #@#
 {
   "config" : {
     "deps" : [
+      "//src/com/facebook/buck/config:base-config",
       "//src/com/facebook/buck/config:config",
       "//src/com/facebook/buck/util:exceptions",
       "//test/com/facebook/buck/config:testutil",
@@ -13,10 +14,11 @@
   },
   "testutil" : {
     "deps" : [
+      "//src/com/facebook/buck/config:config",
       "//third-party/java/guava:guava"
     ],
     "exported_deps" : [
-      "//src/com/facebook/buck/config:config"
+      "//src/com/facebook/buck/config:base-config"
     ]
   }
 }

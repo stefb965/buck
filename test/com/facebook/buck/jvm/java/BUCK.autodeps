@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY 78ffd9b9a7ef4e498e7c5dbeb84372727d062711 #@#
+#@# GENERATED FILE: DO NOT MODIFY 8a3d769f8be292a70d546f7c56f6d0c547eab1e3 #@#
 {
   "fakepackagefinder" : {
     "deps" : [ ],
@@ -23,6 +23,7 @@
       "//src/com/facebook/buck/artifact_cache:artifact_cache",
       "//src/com/facebook/buck/cli:cli",
       "//src/com/facebook/buck/cli:config",
+      "//src/com/facebook/buck/config:base-config",
       "//src/com/facebook/buck/config:config",
       "//src/com/facebook/buck/event:event",
       "//src/com/facebook/buck/io:executable-finder",

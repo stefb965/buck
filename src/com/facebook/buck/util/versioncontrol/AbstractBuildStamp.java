@@ -1,4 +1,4 @@
-package com.facebook.buck.step;
+package com.facebook.buck.util.versioncontrol;
 
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 

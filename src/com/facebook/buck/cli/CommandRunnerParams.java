@@ -24,7 +24,7 @@ import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.rules.ActionGraphCache;
 import com.facebook.buck.rules.Cell;
-import com.facebook.buck.step.BuildStamper;
+import com.facebook.buck.util.versioncontrol.BuildStamper;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.util.Console;
