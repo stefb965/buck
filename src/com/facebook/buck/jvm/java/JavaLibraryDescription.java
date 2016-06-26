@@ -23,6 +23,7 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.Flavored;
 import com.facebook.buck.model.HasTests;
+import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -47,12 +48,14 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 
 import java.nio.file.Path;
+import java.util.Collections;
 
 public class JavaLibraryDescription implements Description<JavaLibraryDescription.Arg>, Flavored {
 
   public static final BuildRuleType TYPE = BuildRuleType.of("java_library");
   public static final ImmutableSet<Flavor> SUPPORTED_FLAVORS = ImmutableSet.of(
       JavaLibrary.SRC_JAR,
+      JavaLibrary.JAVADOC,
       JavaLibrary.MAVEN_JAR);
 
   @VisibleForTesting
@@ -81,10 +84,10 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
   public <A extends Arg> BuildRule createBuildRule(
       TargetGraph targetGraph,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
+      final BuildRuleResolver resolver,
       A args) {
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
-    BuildTarget target = params.getBuildTarget();
+    final BuildTarget target = params.getBuildTarget();
 
     // We know that the flavour we're being asked to create is valid, since the check is done when
     // creating the action graph from the target graph.
@@ -124,6 +127,41 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
       }
     }
 
+    if (flavors.contains(JavaLibrary.JAVADOC)) {
+      // The javadoc jar needs the compiled jar to work from too.
+      BuildRule library = null;
+      try {
+        library = resolver.requireRule(BuildTarget.of(target.getUnflavoredBuildTarget()));
+      } catch (NoSuchBuildTargetException e) {
+        throw new RuntimeException("ARGH!");
+      }
+
+      paramsWithMavenFlavor = paramsWithMavenFlavor.appendExtraDeps(Collections.singleton(library));
+
+      args.mavenCoords = args.mavenCoords.transform(
+          new Function<String, String>() {
+            @Override
+            public String apply(String input) {
+              return AetherUtil.addClassifier(input, AetherUtil.CLASSIFIER_JAVADOC);
+            }
+          });
+
+      if (!flavors.contains(JavaLibrary.MAVEN_JAR)) {
+        return new JavaDocJar(
+            params,
+            pathResolver,
+            args.srcs.get(),
+            args.mavenCoords);
+      } else {
+        return MavenUberJar.JavadocJar.create(
+            Preconditions.checkNotNull(paramsWithMavenFlavor),
+            pathResolver,
+            args.srcs.get(),
+            args.mavenCoords
+        );
+      }
+    }
+
     JavacOptions javacOptions = JavacOptionsFactory.create(
         defaultOptions,
         params,
@@ -135,51 +173,64 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
     BuildTarget abiJarTarget = params.getBuildTarget().withAppendedFlavors(CalculateAbi.FLAVOR);
 
     ImmutableSortedSet<BuildRule> exportedDeps = resolver.getAllRules(args.exportedDeps.get());
-    DefaultJavaLibrary defaultJavaLibrary =
-        resolver.addToIndex(
-            new DefaultJavaLibrary(
-                params.appendExtraDeps(
+
+    DefaultJavaLibrary newJavaLibrary = new DefaultJavaLibrary(
+        params.appendExtraDeps(
+            Iterables.concat(
+                BuildRules.getExportedRules(
                     Iterables.concat(
-                        BuildRules.getExportedRules(
-                            Iterables.concat(
-                                params.getDeclaredDeps().get(),
-                                exportedDeps,
-                                resolver.getAllRules(args.providedDeps.get()))),
-                        pathResolver.filterBuildRuleInputs(
-                            javacOptions.getInputs(pathResolver)))),
-                pathResolver,
-                args.srcs.get(),
-                validateResources(
-                    pathResolver,
-                    params.getProjectFilesystem(),
-                    args.resources.get()),
-                javacOptions.getGeneratedSourceFolderName(),
-                args.proguardConfig.transform(
-                    SourcePaths.toSourcePath(params.getProjectFilesystem())),
-                args.postprocessClassesCommands.get(),
-                exportedDeps,
-                resolver.getAllRules(args.providedDeps.get()),
-                new BuildTargetSourcePath(abiJarTarget),
-                javacOptions.trackClassUsage(),
-                /* additionalClasspathEntries */ ImmutableSet.<Path>of(),
-                new JavacToJarStepFactory(javacOptions, JavacOptionsAmender.IDENTITY),
-                args.resourcesRoot,
-                args.mavenCoords,
-                args.tests.get(),
-                javacOptions.getClassesToRemoveFromJar()));
-
-    resolver.addToIndex(
-        CalculateAbi.of(
-            abiJarTarget,
-            pathResolver,
-            params,
-            new BuildTargetSourcePath(defaultJavaLibrary.getBuildTarget())));
-
-    addGwtModule(
-        resolver,
+                        params.getDeclaredDeps().get(),
+                        exportedDeps,
+                        resolver.getAllRules(args.providedDeps.get()))),
+                pathResolver.filterBuildRuleInputs(
+                    javacOptions.getInputs(pathResolver)))),
         pathResolver,
-        params,
-        args);
+        args.srcs.get(),
+        validateResources(
+            pathResolver,
+            params.getProjectFilesystem(),
+            args.resources.get()),
+        javacOptions.getGeneratedSourceFolderName(),
+        args.proguardConfig.transform(
+            SourcePaths.toSourcePath(params.getProjectFilesystem())),
+        args.postprocessClassesCommands.get(),
+        exportedDeps,
+        resolver.getAllRules(args.providedDeps.get()),
+        new BuildTargetSourcePath(abiJarTarget),
+        javacOptions.trackClassUsage(),
+                /* additionalClasspathEntries */ ImmutableSet.<Path>of(),
+        new JavacToJarStepFactory(javacOptions, JavacOptionsAmender.IDENTITY),
+        args.resourcesRoot,
+        args.mavenCoords,
+        args.tests.get(),
+        javacOptions.getClassesToRemoveFromJar());
+
+
+    DefaultJavaLibrary defaultJavaLibrary = newJavaLibrary;
+
+    try {
+      defaultJavaLibrary = resolver.addToIndex(newJavaLibrary);
+    } catch (IllegalStateException ise) {
+    }
+
+    try {
+      resolver.addToIndex(
+          CalculateAbi.of(
+              abiJarTarget,
+              pathResolver,
+              params,
+              new BuildTargetSourcePath(defaultJavaLibrary.getBuildTarget())));
+    } catch (IllegalStateException ise) {
+    }
+
+    try {
+      addGwtModule(
+          resolver,
+          pathResolver,
+          params,
+          args);
+    } catch (IllegalStateException ise) {
+    }
 
     if (!flavors.contains(JavaLibrary.MAVEN_JAR)) {
       return defaultJavaLibrary;

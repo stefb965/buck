@@ -16,6 +16,8 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.log.Logger;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
@@ -25,6 +27,7 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
+import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
@@ -38,6 +41,8 @@ import com.google.common.collect.Ordering;
 import com.google.common.collect.Sets;
 
 import java.nio.file.Path;
+import java.util.HashSet;
+import java.util.Set;
 
 import javax.annotation.Nullable;
 
@@ -47,6 +52,8 @@ import javax.annotation.Nullable;
  * @see #create
  */
 public class MavenUberJar extends AbstractBuildRule implements MavenPublishable {
+
+  private final static Logger LOG = Logger.get(MavenUberJar.class);
 
   private final Optional<String> mavenCoords;
   private final TraversedDeps traversedDeps;
@@ -199,6 +206,109 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
     }
   }
 
+  public static class JavadocJar extends JavaDocJar implements MavenPublishable {
+
+    private final TraversedDeps traversedDeps;
+
+    public JavadocJar(
+        BuildRuleParams params,
+        SourcePathResolver resolver,
+        ImmutableSortedSet<SourcePath> srcs,
+        Optional<String> mavenCoords,
+        TraversedDeps traversedDeps) {
+      super(params, resolver, srcs, mavenCoords);
+      this.traversedDeps = traversedDeps;
+    }
+
+    public static JavadocJar create(
+        BuildRuleParams params,
+        final SourcePathResolver resolver,
+        ImmutableSortedSet<SourcePath> topLevelSrcs,
+        Optional<String> mavenCoords) {
+      // We need to keep a reference to the original target, since we need the classpath from it
+      // for everything to work.
+
+      // We then need to walk the transitive deps, removing anything that belongs to another maven
+      // coordinate.
+
+      // TODO(simons): This is overly broad, since we also pull in any defs from resources.
+      // Should just be deps, exported_deps, provided_deps.
+      Set<JavaLibrary> allTransitiveDeps = new HashSet<>();
+      Set<JavaLibrary> mavenCoordinates = new HashSet<>();
+      BuildTarget parent = BuildTarget.of(params.getBuildTarget().getUnflavoredBuildTarget());
+      for (BuildRule rule : params.getDeps()) {
+        if (!(rule instanceof JavaLibrary)) {
+          continue;
+        }
+        if (rule.getBuildTarget().equals(parent)) {
+          continue; // Otherwise we filter ourselves out. *facepalm*
+        }
+        JavaLibrary javaLibrary = (JavaLibrary) rule;
+        ImmutableSet<JavaLibrary> transitiveDeps = javaLibrary.getTransitiveClasspathDeps();
+
+        allTransitiveDeps.addAll(transitiveDeps);
+
+        mavenCoordinates.addAll(
+            FluentIterable.from(transitiveDeps)
+                .filter(JavaLibrary.class)
+                .filter(new Predicate<JavaLibrary>() {
+                  @Override
+                  public boolean apply(@Nullable JavaLibrary input) {
+                    return input.getMavenCoords().isPresent();
+                  }
+                })
+                .transformAndConcat(new Function<JavaLibrary, ImmutableSet<JavaLibrary>>() {
+                  @Nullable
+                  @Override
+                  public ImmutableSet<JavaLibrary> apply(@Nullable JavaLibrary input) {
+                    return input.getTransitiveClasspathDeps();
+                  }
+                })
+                .toSet());
+      }
+      Set<BuildRule> depsToIncludeInDocs = FluentIterable
+          .from(Sets.difference(allTransitiveDeps, mavenCoordinates))
+          .filter(BuildRule.class)
+          .toSet();
+
+//      params = params.copyWithDeps(
+//          Suppliers.ofInstance(
+//              FluentIterable.from(depsToIncludeInDocs)
+//                  .toSortedSet(Ordering.<BuildRule>natural())),
+//          Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
+
+      ImmutableSortedSet<SourcePath> sourcePaths =
+          FluentIterable
+              .from(depsToIncludeInDocs)
+              .filter(HasSources.class)
+              .transformAndConcat(
+                  new Function<HasSources, Iterable<SourcePath>>() {
+                    @Override
+                    public Iterable<SourcePath> apply(HasSources input) {
+                      return input.getSources();
+                    }
+                  })
+              .append(topLevelSrcs)
+              .toSortedSet(Ordering.natural());
+      return new JavadocJar(
+          params,
+          resolver,
+          sourcePaths,
+          mavenCoords,
+          new TraversedDeps(FluentIterable.from(allTransitiveDeps).filter(HasMavenCoordinates.class).toSet(), depsToIncludeInDocs));
+    }
+
+    @Override
+    public Iterable<HasMavenCoordinates> getMavenDeps() {
+      return traversedDeps.mavenDeps;
+    }
+
+    @Override
+    public Iterable<BuildRule> getPackagedDependencies() {
+      return traversedDeps.packagedDeps;
+    }
+  }
+
   private static class TraversedDeps {
     public final Iterable<HasMavenCoordinates> mavenDeps;
     public final Iterable<BuildRule> packagedDeps;
@@ -208,6 +318,8 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
         Iterable<BuildRule> packagedDeps) {
       this.mavenDeps = mavenDeps;
       this.packagedDeps = packagedDeps;
+
+      LOG.info("Packaged deps are: " + packagedDeps);
     }
 
     private static TraversedDeps traverse(ImmutableSet<? extends BuildRule> roots) {
@@ -219,14 +331,39 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
         if (!(root instanceof HasClasspathEntries)) {
           continue;
         }
-        candidates.addAll(FluentIterable
-            .from(((HasClasspathEntries) root).getTransitiveClasspathDeps())
-            .filter(new Predicate<JavaLibrary>() {
-              @Override
-              public boolean apply(JavaLibrary buildRule) {
-                return !root.equals(buildRule);
+        if (root instanceof PrebuiltJar) {
+          if (!((PrebuiltJar)root).getMavenCoords().isPresent()) {
+            throw new HumanReadableException("Jar dependency in maven doesn't have a maven coordinate: "
+                + root.getBuildTarget());
+          }
+        } else {
+          candidates.addAll(FluentIterable
+              .from(((DefaultJavaLibrary) root).getDeclaredClasspathDeps())
+              .filter(new Predicate<JavaLibrary>() {
+                @Override
+                public boolean apply(JavaLibrary buildRule) {
+                  return !root.equals(buildRule);
+                }
+              }));
+
+          Set<JavaLibrary> dependencies = new HashSet<JavaLibrary>(){{
+            this.addAll(((DefaultJavaLibrary) root).getDeclaredClasspathDeps());
+          }};
+          while (!dependencies.isEmpty()) {
+            JavaLibrary dep = dependencies.iterator().next();
+            dependencies.remove(dep);
+            if (!dep.getMavenCoords().isPresent()) {
+              if (!(dep instanceof DefaultJavaLibrary)) {
+                throw new HumanReadableException("Jar dependency in maven doesn't have a maven coordinate: "
+                    + dep.getBuildTarget());
               }
-            }));
+              for (JavaLibrary nestedDependency : ((DefaultJavaLibrary)dep).getDeclaredClasspathDeps()) {
+                candidates.add(nestedDependency);
+                dependencies.add(nestedDependency);
+              }
+            }
+          }
+        }
       }
       ImmutableSortedSet.Builder<JavaLibrary> removals = ImmutableSortedSet.naturalOrder();
       for (JavaLibrary javaLibrary : candidates.build()) {
