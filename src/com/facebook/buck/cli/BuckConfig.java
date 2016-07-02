@@ -19,6 +19,7 @@ package com.facebook.buck.cli;
 import static java.lang.Integer.parseInt;
 
 import com.facebook.buck.config.Config;
+import com.facebook.buck.config.CellConfig;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.DefaultJavaPackageFinder;
@@ -462,12 +463,18 @@ public class BuckConfig {
     return Long.parseLong(getValue("test", "timeout").or("0"));
   }
 
+  private static final String LOG_SECTION = "log";
+
   public int getMaxTraces() {
-    return parseInt(getValue("log", "max_traces").or(DEFAULT_MAX_TRACES));
+    return parseInt(getValue(LOG_SECTION, "max_traces").or(DEFAULT_MAX_TRACES));
   }
 
   public boolean isChromeTraceCreationEnabled() {
-    return getBooleanValue("log", "chrome_trace_generation", true);
+    return getBooleanValue(LOG_SECTION, "chrome_trace_generation", true);
+  }
+
+  public boolean isRuleKeyLoggerEnabled() {
+    return getBooleanValue(LOG_SECTION, "rule_key_logger_enabled", false);
   }
 
   public boolean getCompressTraces() {
@@ -543,13 +550,6 @@ public class BuckConfig {
         return new Ansi(
             AnsiEnvironmentChecking.environmentSupportsAnsiEscapes(platform, environment));
     }
-  }
-
-  /**
-   * @return the depth of a local build chain which should trigger skipping the cache.
-   */
-  public Optional<Long> getSkipLocalBuildChainDepth() {
-    return getLong("cache", "skip_local_build_chain_depth");
   }
 
   @Nullable
@@ -640,6 +640,10 @@ public class BuckConfig {
     return config.getUrl(section, field);
   }
 
+  public CellConfig getConfigOverrides() {
+    return config.getConfigOverrides();
+  }
+
   private <T> T required(String section, String field, Optional<T> value) {
     if (!value.isPresent()) {
       throw new HumanReadableException(String.format(
@@ -704,17 +708,6 @@ public class BuckConfig {
   }
 
   /**
-   * @return the dependency scheduling order
-   */
-  public CachingBuildEngine.DependencySchedulingOrder getDependencySchedulingOrder() {
-    return getEnum(
-        "build",
-        "dependency_scheduling_order",
-        CachingBuildEngine.DependencySchedulingOrder.class)
-        .or(CachingBuildEngine.DependencySchedulingOrder.RANDOM);
-  }
-
-  /**
    * @return the mode with which to run the build engine.
    */
   public CachingBuildEngine.DepFiles getBuildDepFiles() {
@@ -752,17 +745,6 @@ public class BuckConfig {
 
   public int getKeySeed() {
     return parseInt(getValue("cache", "key_seed").or("0"));
-  }
-
-  /**
-   * @return the selected execution order of the build work queue.
-   */
-  public WorkQueueExecutionOrder getWorkQueueExecutionOrder() {
-    return getEnum(
-        "build",
-        "work_queue_execution_order",
-        WorkQueueExecutionOrder.class)
-        .or(WorkQueueExecutionOrder.LIFO);
   }
 
   /**

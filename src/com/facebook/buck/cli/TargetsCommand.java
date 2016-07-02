@@ -145,7 +145,8 @@ public class TargetsCommand extends AbstractCommand {
 
   @Option(name = "--show-output",
       aliases = {"--show_output"},
-      usage = "Print the path to the output for each rule after the rule name.")
+      usage = "Print the path to the output, relative to the cell path, for each rule after the " +
+          "rule name. Use '--show-cell-path' to obtain the full absolute path.")
   private boolean isShowOutput;
 
   @Option(name = "--show-rulekey",
@@ -282,7 +283,6 @@ public class TargetsCommand extends AbstractCommand {
 
     try (CommandThreadManager pool = new CommandThreadManager(
         "Targets",
-        params.getBuckConfig().getWorkQueueExecutionOrder(),
         getConcurrencyLimit(params.getBuckConfig()))) {
       ListeningExecutorService executor = pool.getExecutor();
 

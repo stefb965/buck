@@ -1,14 +1,12 @@
-#@# GENERATED FILE: DO NOT MODIFY dee6cdc328675926cf85d12e741c55768c3e5c6c #@#
+#@# GENERATED FILE: DO NOT MODIFY e6f31caa8dcddf8614d2de706ad888bedbe81d67 #@#
 {
   "impl" : {
     "deps" : [
       "//src/com/facebook/buck/log:api",
-      "//src/com/facebook/buck/util:io",
-      "//third-party/java/immutables:processor"
+      "//src/com/facebook/buck/util:io"
     ],
     "exported_deps" : [
       "//src/com/facebook/buck/util:util",
-      "//src/com/facebook/buck/util/immutables:immutables",
       "//src/com/facebook/buck/util/versioncontrol:versioncontrol",
       "//third-party/java/guava:guava"
     ]

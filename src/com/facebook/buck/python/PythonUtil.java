@@ -18,11 +18,12 @@ package com.facebook.buck.python;
 
 import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.CxxPlatform;
+import com.facebook.buck.cxx.NativeLinkTarget;
+import com.facebook.buck.cxx.NativeLinkTargetMode;
 import com.facebook.buck.cxx.NativeLinkables;
 import com.facebook.buck.cxx.OmnibusLibraries;
 import com.facebook.buck.cxx.OmnibusLibrary;
 import com.facebook.buck.cxx.OmnibusRoot;
-import com.facebook.buck.cxx.SharedNativeLinkTarget;
 import com.facebook.buck.cxx.NativeLinkable;
 import com.facebook.buck.cxx.Omnibus;
 import com.facebook.buck.graph.AbstractBreadthFirstThrowingTraversal;
@@ -145,14 +146,15 @@ public class PythonUtil {
       CxxBuckConfig cxxBuckConfig,
       final CxxPlatform cxxPlatform,
       ImmutableList<? extends Arg> extraLdflags,
-      final NativeLinkStrategy nativeLinkStrategy)
+      final NativeLinkStrategy nativeLinkStrategy,
+      final ImmutableSet<BuildTarget> preloadDeps)
       throws NoSuchBuildTargetException {
 
     final PythonPackageComponents.Builder allComponents =
         new PythonPackageComponents.Builder(params.getBuildTarget());
 
     final Map<BuildTarget, CxxPythonExtension> extensions = new LinkedHashMap<>();
-    final Map<BuildTarget, SharedNativeLinkTarget> nativeLinkTargetRoots = new LinkedHashMap<>();
+    final Map<BuildTarget, NativeLinkTarget> nativeLinkTargetRoots = new LinkedHashMap<>();
     final Map<BuildTarget, NativeLinkable> nativeLinkableRoots = new LinkedHashMap<>();
     final Set<BuildTarget> excludedNativeLinkableRoots = new LinkedHashSet<>();
 
@@ -167,10 +169,10 @@ public class PythonUtil {
       @Override
       public Iterable<BuildRule> visit(BuildRule rule) throws NoSuchBuildTargetException {
         Iterable<BuildRule> deps = empty;
-        Optional<SharedNativeLinkTarget> linkTarget =
+        Optional<NativeLinkTarget> linkTarget =
             nativeLinkStrategy == NativeLinkStrategy.MERGED ?
-                NativeLinkables.getSharedNativeLinkTarget(rule, cxxPlatform) :
-                Optional.<SharedNativeLinkTarget>absent();
+                NativeLinkables.getNativeLinkTarget(rule, cxxPlatform) :
+                Optional.<NativeLinkTarget>absent();
         if (rule instanceof CxxPythonExtension) {
           extensions.put(rule.getBuildTarget(), (CxxPythonExtension) rule);
         } else if (rule instanceof PythonPackagable) {
@@ -188,7 +190,7 @@ public class PythonUtil {
             }
           }
           deps = rule.getDeps();
-        } else if (linkTarget.isPresent()) {
+        } else if (linkTarget.isPresent() && !preloadDeps.contains(rule.getBuildTarget())) {
           nativeLinkTargetRoots.put(linkTarget.get().getBuildTarget(), linkTarget.get());
         } else if (rule instanceof NativeLinkable) {
           nativeLinkableRoots.put(rule.getBuildTarget(), (NativeLinkable) rule);
@@ -201,8 +203,8 @@ public class PythonUtil {
     // excluded native linkable roots.
     if (nativeLinkStrategy == NativeLinkStrategy.MERGED) {
 
-      // Recursively expand the excluded nodes, as we'll need this full list to know which roots
-      // to exclude from omnibus linking.
+      // Recursively expand the excluded nodes including any preloaded deps, as we'll need this full
+      // list to know which roots to exclude from omnibus linking.
       final Set<BuildTarget> transitivelyExcludedNativeLinkables = new HashSet<>();
       new AbstractBreadthFirstTraversal<NativeLinkable>(
           Iterables.transform(excludedNativeLinkableRoots, Functions.forMap(nativeLinkableRoots))) {
@@ -216,9 +218,9 @@ public class PythonUtil {
       }.start();
 
       // Include all native link targets we found which aren't explicitly excluded.
-      Map<BuildTarget, SharedNativeLinkTarget> includedNativeLinkTargetRoots =
+      Map<BuildTarget, NativeLinkTarget> includedNativeLinkTargetRoots =
           new LinkedHashMap<>();
-      for (Map.Entry<BuildTarget, SharedNativeLinkTarget> ent : nativeLinkTargetRoots.entrySet()) {
+      for (Map.Entry<BuildTarget, NativeLinkTarget> ent : nativeLinkTargetRoots.entrySet()) {
         if (!transitivelyExcludedNativeLinkables.contains(ent.getKey())) {
           includedNativeLinkTargetRoots.put(ent.getKey(), ent.getValue());
         }
@@ -227,7 +229,7 @@ public class PythonUtil {
       // All C/C++ python extensions are included native link targets.
       Map<BuildTarget, CxxPythonExtension> includedExtensions = new LinkedHashMap<>();
       for (CxxPythonExtension extension : extensions.values()) {
-        SharedNativeLinkTarget target = extension.getNativeLinkTarget(pythonPlatform);
+        NativeLinkTarget target = extension.getNativeLinkTarget(pythonPlatform);
         includedExtensions.put(target.getBuildTarget(), extension);
         includedNativeLinkTargetRoots.put(target.getBuildTarget(), target);
       }
@@ -252,9 +254,16 @@ public class PythonUtil {
         if (extension != null) {
           allComponents.addModule(extension.getModule(), root.getValue().getPath(), root.getKey());
         } else {
+          NativeLinkTarget target =
+              Preconditions.checkNotNull(
+                  nativeLinkTargetRoots.get(root.getKey()),
+                  "%s: linked unexpected omnibus root: %s",
+                  params.getBuildTarget(),
+                  root.getKey());
+          NativeLinkTargetMode mode = target.getNativeLinkTargetMode(cxxPlatform);
           String soname =
               Preconditions.checkNotNull(
-                  root.getValue().getSoname().orNull(),
+                  mode.getLibraryName().orNull(),
                   "%s: omnibus library for %s was built without soname",
                   params.getBuildTarget(),
                   root.getKey());
@@ -283,7 +292,7 @@ public class PythonUtil {
         extensionNativeDeps.putAll(
             Maps.uniqueIndex(
                 entry.getValue().getNativeLinkTarget(pythonPlatform)
-                    .getSharedNativeLinkTargetDeps(cxxPlatform),
+                    .getNativeLinkTargetDeps(cxxPlatform),
                 HasBuildTarget.TO_TARGET));
       }
 

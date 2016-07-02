@@ -1,4 +1,5 @@
 BASE_CONFIG_SRCS = [
+  'AbstractCellConfig.java',
   'AbstractRawConfig.java',
   'Config.java',
 ]
@@ -7,6 +8,7 @@ java_immutables_library(
   name = 'base-config',
   srcs = BASE_CONFIG_SRCS,
   immutable_types = [
+    'CellConfig',
     'RawConfig',
   ],
   deps = [

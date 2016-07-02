@@ -18,7 +18,6 @@ package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPlatforms;
-import com.facebook.buck.io.DefaultDirectoryTraverser;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.ImmutableFlavor;
@@ -42,10 +41,12 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
+import java.util.regex.Pattern;
 
 public class JavaBinaryDescription implements
     Description<JavaBinaryDescription.Args>,
@@ -110,8 +111,7 @@ public class JavaBinaryDescription implements
         args.manifestFile.orNull(),
         args.mergeManifests.or(true),
         args.metaInfDirectory.orNull(),
-        args.blacklist.or(ImmutableSortedSet.<String>of()),
-        new DefaultDirectoryTraverser(),
+        args.blacklist.or(ImmutableSet.<Pattern>of()),
         transitiveClasspathEntries);
 
     // If we're packaging native libraries, construct the rule to build the fat JAR, which packages
@@ -155,6 +155,6 @@ public class JavaBinaryDescription implements
     @Beta
     public Optional<Path> metaInfDirectory;
     @Beta
-    public Optional<ImmutableSortedSet<String>> blacklist;
+    public Optional<ImmutableSet<Pattern>> blacklist;
   }
 }

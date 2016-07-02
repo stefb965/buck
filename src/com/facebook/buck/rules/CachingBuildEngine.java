@@ -117,8 +117,6 @@ public class CachingBuildEngine implements BuildEngine {
 
   // The default weight to use in the executor when building a rule locally.
   private static final int DEFAULT_BUILD_WEIGHT = 1;
-  @VisibleForTesting
-  static final int MAX_TEST_NETWORK_THREADS = 5;
 
   private static final Logger LOG = Logger.get(CachingBuildEngine.class);
 
@@ -140,7 +138,6 @@ public class CachingBuildEngine implements BuildEngine {
 
   private final WeightedListeningExecutorService service;
   private final BuildMode buildMode;
-  private final DependencySchedulingOrder dependencySchedulingOrder;
   private final DepFiles depFiles;
   private final long maxDepFileCacheEntries;
   private final ObjectMapper objectMapper;
@@ -153,7 +150,6 @@ public class CachingBuildEngine implements BuildEngine {
       WeightedListeningExecutorService service,
       final FileHashCache fileHashCache,
       BuildMode buildMode,
-      DependencySchedulingOrder dependencySchedulingOrder,
       DepFiles depFiles,
       long maxDepFileCacheEntries,
       Optional<Long> artifactCacheSizeLimit,
@@ -166,7 +162,6 @@ public class CachingBuildEngine implements BuildEngine {
 
     this.service = service;
     this.buildMode = buildMode;
-    this.dependencySchedulingOrder = dependencySchedulingOrder;
     this.depFiles = depFiles;
     this.maxDepFileCacheEntries = maxDepFileCacheEntries;
     this.artifactCacheSizeLimit = artifactCacheSizeLimit;
@@ -195,7 +190,6 @@ public class CachingBuildEngine implements BuildEngine {
       WeightedListeningExecutorService service,
       FileHashCache fileHashCache,
       BuildMode buildMode,
-      DependencySchedulingOrder dependencySchedulingOrder,
       DepFiles depFiles,
       long maxDepFileCacheEntries,
       Optional<Long> artifactCacheSizeLimit,
@@ -206,7 +200,6 @@ public class CachingBuildEngine implements BuildEngine {
 
     this.service = service;
     this.buildMode = buildMode;
-    this.dependencySchedulingOrder = dependencySchedulingOrder;
     this.depFiles = depFiles;
     this.maxDepFileCacheEntries = maxDepFileCacheEntries;
     this.artifactCacheSizeLimit = artifactCacheSizeLimit;
@@ -281,16 +274,7 @@ public class CachingBuildEngine implements BuildEngine {
       ConcurrentLinkedQueue<ListenableFuture<Void>> asyncCallbacks) {
     List<ListenableFuture<BuildResult>> depResults =
         Lists.newArrayListWithExpectedSize(rule.getDeps().size());
-    Iterable<BuildRule> deps = rule.getDeps();
-    switch (dependencySchedulingOrder) {
-      case SORTED:
-        deps = ImmutableSortedSet.copyOf(deps);
-        break;
-      case RANDOM:
-        deps = shuffled(deps);
-        break;
-    }
-    for (BuildRule dep : deps) {
+    for (BuildRule dep : shuffled(rule.getDeps())) {
       depResults.add(getBuildRuleResultWithRuntimeDeps(dep, context, asyncCallbacks));
     }
     return Futures.allAsList(depResults);
@@ -1355,11 +1339,11 @@ public class CachingBuildEngine implements BuildEngine {
 
     // Build the dep-file rule key.  If any inputs are no longer on disk, this means something
     // changed and a dep-file based rule key can't be calculated.
-
     ImmutableList<DependencyFileEntry> inputs =
         FluentIterable.from(depFile.get()).transform(MoreFunctions.fromJsonFunction(
             objectMapper,
             DependencyFileEntry.class)).toList();
+
     try {
       return this.ruleKeyFactories.getUnchecked(rule.getProjectFilesystem())
           .depFileRuleKeyBuilderFactory.build(
@@ -1679,18 +1663,6 @@ public class CachingBuildEngine implements BuildEngine {
     // the top-level build targets from the remote cache, without building missing or changed
     // dependencies locally.
     POPULATE_FROM_REMOTE_CACHE,
-  }
-
-  /**
-   * The order in which to schedule dependency execution.
-   */
-  public enum DependencySchedulingOrder {
-
-    // Schedule dependencies based on their natural ordering.
-    SORTED,
-
-    // Schedule dependencies in random order.
-    RANDOM,
   }
 
   /**

@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY 919954723a3f3685613dd0d6958cf168eb21fac7 #@#
+#@# GENERATED FILE: DO NOT MODIFY 819e56f08f6637a0248e0c66d2e2b6b68797a372 #@#
 {
   "listener" : {
     "deps" : [
@@ -14,6 +14,7 @@
       "//src/com/facebook/buck/json:json",
       "//src/com/facebook/buck/jvm/java:support",
       "//src/com/facebook/buck/jvm/java/tracing:tracing",
+      "//src/com/facebook/buck/log:log",
       "//src/com/facebook/buck/model:build_id",
       "//src/com/facebook/buck/model:model",
       "//src/com/facebook/buck/parser:parser",
@@ -31,6 +32,7 @@
       "//src/com/facebook/buck/util:io",
       "//src/com/facebook/buck/util:object_mapper",
       "//src/com/facebook/buck/util:tristate",
+      "//src/com/facebook/buck/util/concurrent:concurrent",
       "//src/com/facebook/buck/util/environment:environment",
       "//src/com/facebook/buck/util/network:network",
       "//test/com/facebook/buck/cli:FakeBuckConfig",

@@ -30,7 +30,6 @@ import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.keys.AbiRule;
@@ -39,6 +38,7 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.WriteFileStep;
+import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
@@ -66,6 +66,8 @@ public class DummyRDotJava extends AbstractBuildRule
   private final boolean forceFinalResourceIds;
   @AddToRuleKey
   private final Optional<String> unionPackage;
+  @AddToRuleKey
+  private final Optional<String> finalRName;
 
   public DummyRDotJava(
       BuildRuleParams params,
@@ -74,7 +76,8 @@ public class DummyRDotJava extends AbstractBuildRule
       SourcePath abiJar,
       JavacOptions javacOptions,
       boolean forceFinalResourceIds,
-      Optional<String> unionPackage) {
+      Optional<String> unionPackage,
+      Optional<String> finalRName) {
     super(params, resolver);
     // Sort the input so that we get a stable ABI for the same set of resources.
     this.androidResourceDeps = FluentIterable.from(androidResourceDeps)
@@ -84,6 +87,7 @@ public class DummyRDotJava extends AbstractBuildRule
     this.javacOptions = javacOptions;
     this.forceFinalResourceIds = forceFinalResourceIds;
     this.unionPackage = unionPackage;
+    this.finalRName = finalRName;
   }
 
   @Override
@@ -119,9 +123,29 @@ public class DummyRDotJava extends AbstractBuildRule
           androidResourceDeps,
           rDotJavaSrcFolder,
           forceFinalResourceIds,
-          unionPackage);
+          unionPackage,
+          /* rName */ Optional.<String>absent());
       steps.add(mergeStep);
-      javaSourceFilePaths = mergeStep.getRDotJavaFiles();
+
+      if (!finalRName.isPresent()) {
+        javaSourceFilePaths = mergeStep.getRDotJavaFiles();
+      } else {
+        MergeAndroidResourcesStep mergeFinalRStep =
+            MergeAndroidResourcesStep.createStepForDummyRDotJava(
+                getProjectFilesystem(),
+                getResolver(),
+                androidResourceDeps,
+                rDotJavaSrcFolder,
+                /* forceFinalResourceIds */ true,
+                unionPackage,
+                finalRName);
+        steps.add(mergeFinalRStep);
+
+        javaSourceFilePaths = ImmutableSortedSet.<Path>naturalOrder()
+            .addAll(mergeStep.getRDotJavaFiles())
+            .addAll(mergeFinalRStep.getRDotJavaFiles())
+            .build();
+      }
     }
 
     // Clear out the directory where the .class files will be generated.
@@ -157,8 +181,8 @@ public class DummyRDotJava extends AbstractBuildRule
             getProjectFilesystem(),
             outputJar,
             ImmutableSortedSet.of(rDotJavaClassesFolder),
-            null,
-            null));
+            /* mainClass */ null,
+            /* manifestFile */ null));
     buildableContext.recordArtifact(outputJar);
 
     steps.add(

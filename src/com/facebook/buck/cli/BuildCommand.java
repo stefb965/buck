@@ -315,7 +315,6 @@ public class BuildCommand extends AbstractCommand {
 
     try (CommandThreadManager pool = new CommandThreadManager(
         "Build",
-        params.getBuckConfig().getWorkQueueExecutionOrder(),
         getConcurrencyLimit(params.getBuckConfig()))) {
       return run(params, pool.getExecutor(), ImmutableSet.<String>of());
     }
@@ -357,19 +356,21 @@ public class BuildCommand extends AbstractCommand {
     }
 
     int exitCode;
-    if (useDistributedBuild) {
-      exitCode = executeDistributedBuild(params, executorService);
-    } else {
-      // Parse the build files to create a ActionGraph.
-      ActionGraphAndResolver actionGraphAndResolver =
-          createActionGraphAndResolver(params, executorService);
-      if (actionGraphAndResolver == null) {
-        return 1;
+    try {
+      if (useDistributedBuild) {
+        exitCode = executeDistributedBuild(params, executorService);
+      } else {
+        // Parse the build files to create a ActionGraph.
+        ActionGraphAndResolver actionGraphAndResolver =
+            createActionGraphAndResolver(params, executorService);
+        exitCode = executeLocalBuild(params, actionGraphAndResolver, executorService);
+        if (exitCode == 0 && (showOutput || showRuleKey)) {
+          showOutputs(params, actionGraphAndResolver);
+        }
       }
-      exitCode = executeLocalBuild(params, actionGraphAndResolver, executorService);
-      if (exitCode == 0 && (showOutput || showRuleKey)) {
-        showOutputs(params, actionGraphAndResolver);
-      }
+    } catch (ActionGraphCreationException e) {
+      params.getConsole().printBuildFailure(e.getMessage());
+      exitCode = 1;
     }
     params.getBuckEventBus().post(BuildEvent.finished(started, exitCode));
 
@@ -378,7 +379,8 @@ public class BuildCommand extends AbstractCommand {
 
   private int executeDistributedBuild(
       CommandRunnerParams params,
-      WeightedListeningExecutorService executorService) throws IOException, InterruptedException {
+      WeightedListeningExecutorService executorService)
+      throws IOException, InterruptedException, ActionGraphCreationException {
     ProjectFilesystem filesystem = params.getCell().getFilesystem();
 
     if (distributedBuildStateFile != null) {
@@ -404,18 +406,16 @@ public class BuildCommand extends AbstractCommand {
         } else {
           ActionGraphAndResolver actionGraphAndResolver =
               createActionGraphAndResolver(params, executorService);
-          if (actionGraphAndResolver == null) {
-            return 1;
-          }
           BuckConfig buckConfig = params.getBuckConfig();
+          DistributedBuildFileHashes distributedBuildFileHashes = new DistributedBuildFileHashes(
+              actionGraphAndResolver.getActionGraph(),
+              new SourcePathResolver(actionGraphAndResolver.getResolver()),
+              params.getFileHashCache(),
+              executorService,
+              params.getBuckConfig().getKeySeed());
           BuildJobState jobState = DistributedBuildState.dump(
               buckConfig,
-              new DistributedBuildFileHashes(
-                  actionGraphAndResolver.getActionGraph(),
-                  new SourcePathResolver(actionGraphAndResolver.getResolver()),
-                  params.getFileHashCache(),
-                  executorService,
-                  params.getBuckConfig().getKeySeed()));
+              distributedBuildFileHashes);
           jobState.write(protocol);
           transport.flush();
         }
@@ -469,13 +469,11 @@ public class BuildCommand extends AbstractCommand {
     }
   }
 
-  @Nullable
   public ActionGraphAndResolver createActionGraphAndResolver(
       CommandRunnerParams params,
       ListeningExecutorService executor)
-      throws IOException, InterruptedException {
+      throws IOException, InterruptedException, ActionGraphCreationException {
     if (getArguments().isEmpty()) {
-      params.getConsole().printBuildFailure("Must specify at least one build target.");
 
       // If there are aliases defined in .buckconfig, suggest that the user
       // build one of them. We show the user only the first 10 aliases.
@@ -485,7 +483,7 @@ public class BuildCommand extends AbstractCommand {
             "Try building one of the following targets:\n%s",
             Joiner.on(' ').join(Iterators.limit(aliases.iterator(), 10)))));
       }
-      return null;
+      throw new ActionGraphCreationException("Must specify at least one build target.");
     }
 
     // Parse the build files to create a ActionGraph.
@@ -514,9 +512,7 @@ public class BuildCommand extends AbstractCommand {
               result.getTargetGraph(),
               params.getBuckConfig().getKeySeed()));
     } catch (BuildTargetException | BuildFileParseException e) {
-      params.getBuckEventBus().post(ConsoleEvent.severe(
-          MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
-      return null;
+      throw new ActionGraphCreationException(MoreExceptions.getHumanReadableOrLocalizedMessage(e));
     }
 
     // If the user specified an explicit build target, use that.
@@ -530,9 +526,8 @@ public class BuildCommand extends AbstractCommand {
       ImmutableSet<BuildTarget> actionGraphTargets =
           ImmutableSet.copyOf(Iterables.transform(actionGraphRules, HasBuildTarget.TO_TARGET));
       if (!actionGraphTargets.contains(explicitTarget)) {
-        params.getBuckEventBus().post(ConsoleEvent.severe(
-            "Targets specified via `--just-build` must be a subset of action graph."));
-        return null;
+        throw new ActionGraphCreationException(
+            "Targets specified via `--just-build` must be a subset of action graph.");
       }
       buildTargets = ImmutableSet.of(explicitTarget);
     }
@@ -560,7 +555,6 @@ public class BuildCommand extends AbstractCommand {
             executor,
             params.getFileHashCache(),
             getBuildEngineMode().or(params.getBuckConfig().getBuildEngineMode()),
-            params.getBuckConfig().getDependencySchedulingOrder(),
             params.getBuckConfig().getBuildDepFiles(),
             params.getBuckConfig().getBuildMaxDepFileCacheEntries(),
             params.getBuckConfig().getBuildArtifactCacheSizeLimit(),
@@ -629,5 +623,11 @@ public class BuildCommand extends AbstractCommand {
       builder.add(REPORT_ABSOLUTE_PATHS);
     }
     return builder.build();
+  }
+
+  public static class ActionGraphCreationException extends Exception {
+    public ActionGraphCreationException(String message) {
+      super(message);
+    }
   }
 }

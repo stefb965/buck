@@ -14,30 +14,14 @@
  * under the License.
  */
 
-package com.facebook.buck.cli;
+package com.facebook.buck.cxx;
 
-import com.facebook.buck.util.concurrent.LinkedBlockingStack;
+import com.google.common.base.Optional;
 
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedBlockingQueue;
-
-public enum WorkQueueExecutionOrder {
-
-  FIFO {
-    @Override
-    public BlockingQueue<Runnable> newWorkQueue() {
-      return new LinkedBlockingQueue<>();
-    }
-  },
-
-  LIFO {
-    @Override
-    public BlockingQueue<Runnable> newWorkQueue() {
-      return new LinkedBlockingStack<>();
-    }
-  },
-
-  ;
-
-  public abstract BlockingQueue<Runnable> newWorkQueue();
+/**
+ * Helper interface for nodes which conditionally support the {@link NativeLinkTarget}
+ * interface.
+ */
+public interface CanProvideNativeLinkTarget {
+  Optional<NativeLinkTarget> getNativeLinkTarget(CxxPlatform cxxPlatform);
 }

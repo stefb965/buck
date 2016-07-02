@@ -49,12 +49,16 @@ the top-level target you've built."""
 
 class KeyValueDiff(object):
     ORDER_ONLY = "Only order of entries differs: [{left}] vs [{right}]."
+    ORDER_ONLY_REMAINING = ("Only order of remaining entries differs: " +
+                            "[{left}] vs [{right}].")
     ORDER_AND_CASE_ONLY = ("Only order and letter casing (Upper Case vs " +
                            "lower case) of entries differs:")
 
-    def __init__(self):
+    def __init__(self, left_format=None, right_format=None):
         self._left = []
         self._right = []
+        self._left_format = left_format or '-[%s]'
+        self._right_format = right_format or '+[%s]'
 
     def append(self, left, right):
         self._left.append(left)
@@ -75,14 +79,35 @@ class KeyValueDiff(object):
             differences = []
             for k in sorted(left_lower_index.keys()):
                 if left_lower_index[k] != right_lower_index[k]:
-                    differences.append('-[%s]' % left_lower_index[k])
-                    differences.append('+[%s]' % right_lower_index[k])
+                    differences.append(
+                            self._left_format % left_lower_index[k])
+                    differences.append(
+                            self._right_format % right_lower_index[k])
             return ([KeyValueDiff.ORDER_AND_CASE_ONLY] + differences)
 
-        result = []
-        for l, r in map(None, self._left, self._right):
-            result.append('-[%s]' % l)
-            result.append('+[%s]' % r)
+        left_set = set(self._left)
+        right_set = set(self._right)
+        left_only = left_set.difference(right_set)
+        right_only = right_set.difference(left_set)
+
+        left_common = filter(lambda i: i not in left_only, self._left)
+        right_common = filter(lambda i: i not in right_only, self._right)
+
+        left_not_in_order = []
+        right_not_in_order = []
+        for l, r in map(None, left_common, right_common):
+            if l == r:
+                continue
+            left_not_in_order.append(l)
+            right_not_in_order.append(r)
+
+        result = [self._left_format % v for v in sorted(left_only)]
+        result.extend([self._right_format % v for v in sorted(right_only)])
+        if len(left_not_in_order) > 0:
+            result.append(KeyValueDiff.ORDER_ONLY_REMAINING.format(
+                left=', '.join(left_not_in_order),
+                right=', '.join(right_not_in_order)))
+
         return result
 
 
@@ -220,10 +245,12 @@ def diffInternal(
         left_info,
         right_s,
         right_info,
-        verbose):
+        verbose,
+        format_tuple):
     keys = set(left_s.keys()).union(set(right_s.keys()))
     changed_key_pairs_with_labels = set()
-    changed_key_pairs_with_values = collections.defaultdict(KeyValueDiff)
+    changed_key_pairs_with_values = collections.defaultdict(
+            lambda: KeyValueDiff(format_tuple[0], format_tuple[1]))
     changed_key_pairs_with_labels_for_key = set()
     report = []
     for key in keys:
@@ -277,7 +304,7 @@ def diffInternal(
     return (report, changed_key_pairs_with_labels)
 
 
-def diff(name, left_info, right_info, verbose):
+def diff(name, left_info, right_info, verbose, format_tuple=None):
     left_key = left_info.getKeyForName(name)
     right_key = right_info.getKeyForName(name)
     if left_key is None:
@@ -299,7 +326,8 @@ def diff(name, left_info, right_info, verbose):
             left_info,
             right_info.getByKey(right_key),
             right_info,
-            verbose)
+            verbose,
+            format_tuple or (None, None))
         for e in changed_key_pairs_with_labels:
             label, ref_pair = e
             if ref_pair in seen_keys:

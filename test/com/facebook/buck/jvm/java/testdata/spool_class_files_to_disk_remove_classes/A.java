@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-present Facebook, Inc.
+ * Copyright 2016-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may
  * not use this file except in compliance with the License. You may obtain
@@ -14,14 +14,11 @@
  * under the License.
  */
 
-package com.facebook.buck.cxx;
+package test.pkg;
 
-import com.google.common.base.Optional;
+class A {
+  private B b;
 
-/**
- * Helper interface for nodes which conditionally support the {@link SharedNativeLinkTarget}
- * interface.
- */
-public interface CanProvideSharedNativeLinkTarget {
-  Optional<SharedNativeLinkTarget> getSharedNativeLinkTarget(CxxPlatform cxxPlatform);
+  public static void Main(String ... arg) {
+  }
 }

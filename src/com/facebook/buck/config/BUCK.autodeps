@@ -1,13 +1,15 @@
-#@# GENERATED FILE: DO NOT MODIFY ce8feb1d18aaf9147b9f3807c47ddc5aae254d03 #@#
+#@# GENERATED FILE: DO NOT MODIFY 69bf48082f1b7b5eaf305bbb8e6d4e27af5792e1 #@#
 {
   "config" : {
     "deps" : [
       "//src/com/facebook/buck/log:api",
       "//src/com/facebook/buck/util:exceptions",
+      "//third-party/java/immutables:processor",
       "//third-party/java/ini4j:ini4j"
     ],
     "exported_deps" : [
       "//src/com/facebook/buck/config:base-config",
+      "//src/com/facebook/buck/util/immutables:immutables",
       "//third-party/java/guava:guava"
     ]
   }

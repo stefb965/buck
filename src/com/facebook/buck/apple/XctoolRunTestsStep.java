@@ -26,18 +26,20 @@ import com.facebook.buck.test.selectors.TestDescription;
 import com.facebook.buck.test.selectors.TestSelectorList;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.Escaper;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreThrowables;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
+import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
-import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Multimap;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.LinkedListMultimap;
+import com.google.common.collect.Multimap;
 import com.google.common.io.ByteStreams;
 import com.google.common.io.CharStreams;
 
@@ -46,6 +48,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Collection;
@@ -91,6 +95,7 @@ class XctoolRunTestsStep implements Step {
   private final Optional<Path> logDirectory;
   private final Optional<String> logLevelEnvironmentVariable;
   private final Optional<String> logLevel;
+  private final Optional<Long> timeoutInMs;
 
   // Helper class to parse the output of `xctool -listTestsOnly` then
   // store it in a multimap of {target: [testDesc1, testDesc2, ...], ... } pairs.
@@ -166,7 +171,8 @@ class XctoolRunTestsStep implements Step {
       Optional<String> logDirectoryEnvironmentVariable,
       Optional<Path> logDirectory,
       Optional<String> logLevelEnvironmentVariable,
-      Optional<String> logLevel) {
+      Optional<String> logLevel,
+      Optional<Long> timeoutInMs) {
     Preconditions.checkArgument(
         !(logicTestBundlePaths.isEmpty() &&
           appTestBundleToHostAppPaths.isEmpty()),
@@ -175,19 +181,6 @@ class XctoolRunTestsStep implements Step {
         appTestBundleToHostAppPaths);
 
     this.filesystem = filesystem;
-
-    // Each test bundle must have one of these extensions. (xctool
-    // depends on them to choose which test runner to use.)
-    Preconditions.checkArgument(
-        AppleBundleExtensions.allPathsHaveValidTestExtensions(logicTestBundlePaths),
-        "Extension of all logic tests must be one of %s (got %s)",
-        AppleBundleExtensions.VALID_XCTOOL_BUNDLE_EXTENSIONS,
-        logicTestBundlePaths);
-    Preconditions.checkArgument(
-        AppleBundleExtensions.allPathsHaveValidTestExtensions(appTestBundleToHostAppPaths.keySet()),
-        "Extension of all app tests must be one of %s (got %s)",
-        AppleBundleExtensions.VALID_XCTOOL_BUNDLE_EXTENSIONS,
-        appTestBundleToHostAppPaths.keySet());
 
     this.command = createCommandArgs(
         xctoolPath,
@@ -205,6 +198,7 @@ class XctoolRunTestsStep implements Step {
     this.logDirectory = logDirectory;
     this.logLevelEnvironmentVariable = logLevelEnvironmentVariable;
     this.logLevel = logLevel;
+    this.timeoutInMs = timeoutInMs;
   }
 
   @Override
@@ -297,28 +291,19 @@ class XctoolRunTestsStep implements Step {
         ProcessExecutor.LaunchedProcess launchedProcess =
             context.getProcessExecutor().launchProcess(processExecutorParams);
 
-        int exitCode;
-        String stderr;
-        try (OutputStream outputStream = filesystem.newFileOutputStream(
-            outputPath);
-             TeeInputStream stdoutWrapperStream = new TeeInputStream(
-                 launchedProcess.getInputStream(), outputStream);
-             InputStreamReader stderrReader = new InputStreamReader(
-                 launchedProcess.getErrorStream(),
-                 StandardCharsets.UTF_8);
-             BufferedReader bufferedStderrReader = new BufferedReader(stderrReader)) {
-          if (stdoutReadingCallback.isPresent()) {
-            // The caller is responsible for reading all the data, which TeeInputStream will
-            // copy to outputStream.
-            stdoutReadingCallback.get().readStdout(stdoutWrapperStream);
-          } else {
-            // Nobody's going to read from stdoutWrapperStream, so close it and copy
-            // the process's stdout to outputPath directly.
-            stdoutWrapperStream.close();
-            ByteStreams.copy(launchedProcess.getInputStream(), outputStream);
-          }
-          stderr = CharStreams.toString(bufferedStderrReader).trim();
-          exitCode = waitForProcessAndGetExitCode(context.getProcessExecutor(), launchedProcess);
+        int exitCode = -1;
+        String stderr = "Unexpected termination";
+        try {
+          ProcessOutputReader outputReader = new ProcessOutputReader(launchedProcess);
+          Thread readerThread = new Thread(outputReader);
+          readerThread.start();
+          exitCode = waitForProcessAndGetExitCode(
+              context.getProcessExecutor(),
+              launchedProcess,
+              timeoutInMs
+          );
+          readerThread.join(timeoutInMs.or(1000L));
+          stderr = outputReader.getStdErr();
           LOG.debug("Finished running command, exit code %d, stderr %s", exitCode, stderr);
         } finally {
           context.getProcessExecutor().destroyLaunchedProcess(launchedProcess);
@@ -352,6 +337,54 @@ class XctoolRunTestsStep implements Step {
       }
     } finally {
       releaseStutterLock(stutterLockIsNotified);
+    }
+  }
+
+  class ProcessOutputReader implements Runnable {
+
+    private final ProcessExecutor.LaunchedProcess launchedProcess;
+    private String stderr = "";
+
+    public ProcessOutputReader(ProcessExecutor.LaunchedProcess launchedProcess) {
+      this.launchedProcess = launchedProcess;
+    }
+
+    @Override
+    public void run() {
+      try (OutputStream outputStream = filesystem.newFileOutputStream(
+          outputPath);
+           TeeInputStream stdoutWrapperStream = new TeeInputStream(
+               launchedProcess.getInputStream(), outputStream);
+           InputStreamReader stderrReader = new InputStreamReader(
+               launchedProcess.getErrorStream(),
+               StandardCharsets.UTF_8);
+           BufferedReader bufferedStderrReader = new BufferedReader(stderrReader)) {
+        if (stdoutReadingCallback.isPresent()) {
+          // The caller is responsible for reading all the data, which TeeInputStream will
+          // copy to outputStream.
+          stdoutReadingCallback.get().readStdout(stdoutWrapperStream);
+        } else {
+          // Nobody's going to read from stdoutWrapperStream, so close it and copy
+          // the process's stdout to outputPath directly.
+          stdoutWrapperStream.close();
+          ByteStreams.copy(launchedProcess.getInputStream(), outputStream);
+        }
+
+        stderr = CharStreams.toString(bufferedStderrReader).trim();
+      } catch (IOException e) {
+        StringWriter stackTraceOut = new StringWriter();
+        e.printStackTrace(new PrintWriter(stackTraceOut));
+        stderr = stackTraceOut.getBuffer().toString();
+      } finally {
+        if (stderr == null) {
+          stderr = "Internal error: error output not set.";
+        }
+      }
+
+    }
+
+    public String getStdErr() {
+      return stderr;
     }
   }
 
@@ -473,9 +506,27 @@ class XctoolRunTestsStep implements Step {
 
   private static int waitForProcessAndGetExitCode(
       ProcessExecutor processExecutor,
-      ProcessExecutor.LaunchedProcess launchedProcess)
+      ProcessExecutor.LaunchedProcess launchedProcess,
+      Optional<Long> timeoutInMs)
       throws InterruptedException {
-    int processExitCode = processExecutor.waitForLaunchedProcess(launchedProcess);
+    int processExitCode;
+    if (timeoutInMs.isPresent()) {
+      ProcessExecutor.Result processResult = processExecutor.waitForLaunchedProcessWithTimeout(
+          launchedProcess,
+          timeoutInMs.get(),
+          Optional.<Function<Process, Void>>absent()
+      );
+      if (processResult.isTimedOut()) {
+       throw new HumanReadableException(
+            "Timed out after %d ms running test command",
+            timeoutInMs.or(-1L)
+        );
+      } else {
+        processExitCode = processResult.getExitCode();
+      }
+    } else {
+      processExitCode = processExecutor.waitForLaunchedProcess(launchedProcess);
+    }
     if (processExitCode == 0 || processExitCode == 1) {
       // Test failure is denoted by xctool returning 1. Unfortunately, there's no way
       // to distinguish an internal xctool error from a test failure:

@@ -82,9 +82,6 @@ public class AppleTest
   private final Tool xctest;
 
   @AddToRuleKey
-  private final Optional<Tool> otest;
-
-  @AddToRuleKey
   private final boolean useXctest;
 
   @AddToRuleKey
@@ -108,7 +105,7 @@ public class AppleTest
   private final Path testOutputPath;
   private final Path testLogsPath;
 
-  private final AppleBundleExtension testBundleExtension;
+  private Optional<Long> testRuleTimeoutMs;
 
   private Optional<AppleTestXctoolStdoutReader> xctoolStdoutReader;
   private Optional<AppleTestXctestOutputReader> xctestOutputReader;
@@ -177,7 +174,6 @@ public class AppleTest
       Optional<SourcePath> xctool,
       Optional<Long> xctoolStutterTimeout,
       Tool xctest,
-      Optional<Tool> otest,
       boolean useXctest,
       String platformName,
       Optional<String> defaultDestinationSpecifier,
@@ -186,20 +182,19 @@ public class AppleTest
       SourcePathResolver resolver,
       BuildRule testBundle,
       Optional<AppleBundle> testHostApp,
-      AppleBundleExtension testBundleExtension,
       ImmutableSet<String> contacts,
       ImmutableSet<Label> labels,
       boolean runTestSeparately,
       Supplier<Optional<Path>> xcodeDeveloperDirSupplier,
       String testLogDirectoryEnvironmentVariable,
       String testLogLevelEnvironmentVariable,
-      String testLogLevel) {
+      String testLogLevel,
+      Optional<Long> testRuleTimeoutMs) {
     super(params, resolver);
     this.xctool = xctool;
     this.xctoolStutterTimeout = xctoolStutterTimeout;
     this.useXctest = useXctest;
     this.xctest = xctest;
-    this.otest = otest;
     this.platformName = platformName;
     this.defaultDestinationSpecifier = defaultDestinationSpecifier;
     this.destinationSpecifier = destinationSpecifier;
@@ -208,11 +203,7 @@ public class AppleTest
     this.contacts = contacts;
     this.labels = labels;
     this.runTestSeparately = runTestSeparately;
-    this.testBundleExtension = testBundleExtension;
-    Preconditions.checkState(
-        AppleBundleExtensions.VALID_XCTOOL_BUNDLE_EXTENSIONS.contains(
-            testBundleExtension.toFileExtension()),
-        "Test bundle extension must be a valid test bundle extension");
+    this.testRuleTimeoutMs = testRuleTimeoutMs;
     this.testOutputPath = getPathToTestOutputDirectory().resolve("test-output.json");
     this.testLogsPath = getPathToTestOutputDirectory().resolve("logs");
     this.xctoolStdoutReader = Optional.absent();
@@ -329,7 +320,8 @@ public class AppleTest
               Optional.of(testLogDirectoryEnvironmentVariable),
               Optional.of(resolvedTestLogsPath),
               Optional.of(testLogLevelEnvironmentVariable),
-              Optional.of(testLogLevel));
+              Optional.of(testLogLevel),
+              testRuleTimeoutMs);
       steps.add(xctoolStep);
       externalSpec.setType("xctool-" + (testHostApp.isPresent() ? "application" : "logic"));
       externalSpec.setCommand(xctoolStep.getCommand());
@@ -337,16 +329,14 @@ public class AppleTest
     } else {
       xctestOutputReader = Optional.of(new AppleTestXctestOutputReader(testReportingCallback));
 
-      Tool testRunningTool = getTestRunningTool();
       HashMap<String, String> environment = new HashMap<>();
-      environment.putAll(testRunningTool.getEnvironment(getResolver()));
+      environment.putAll(xctest.getEnvironment(getResolver()));
       environment.putAll(options.getEnvironmentOverrides());
       XctestRunTestsStep xctestStep =
           new XctestRunTestsStep(
               getProjectFilesystem(),
               ImmutableMap.copyOf(environment),
-              testRunningTool.getCommandPrefix(getResolver()),
-              (testBundleExtension.equals(AppleBundleExtension.XCTEST) ? "-XCTest" : "-SenTest"),
+              xctest.getCommandPrefix(getResolver()),
               resolvedTestBundleDirectory,
               resolvedTestOutputPath,
               xctestOutputReader,
@@ -482,24 +472,6 @@ public class AppleTest
   @Override
   public Path getPathToOutput() {
     return testBundle.getPathToOutput();
-  }
-
-  private Tool getTestRunningTool() {
-    switch (testBundleExtension) {
-      case XCTEST:
-        return xctest;
-      case OCTEST:
-        if (otest.isPresent()) {
-          return otest.get();
-        } else {
-          throw new HumanReadableException(
-              "Cannot run non-xctest bundle type %s (otest not present)",
-              testBundleExtension);
-        }
-        //$CASES-OMITTED$
-      default:
-        throw new IllegalStateException("should not happen, checked during construction");
-    }
   }
 
 }

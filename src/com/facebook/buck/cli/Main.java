@@ -43,6 +43,7 @@ import com.facebook.buck.event.listener.LoadBalancerEventsListener;
 import com.facebook.buck.event.listener.LoggingBuildListener;
 import com.facebook.buck.event.listener.ProgressEstimator;
 import com.facebook.buck.event.listener.RemoteLogUploaderEventListener;
+import com.facebook.buck.event.listener.RuleKeyLoggerListener;
 import com.facebook.buck.event.listener.SimpleConsoleEventBusListener;
 import com.facebook.buck.event.listener.SuperConsoleConfig;
 import com.facebook.buck.event.listener.SuperConsoleEventBusListener;
@@ -55,7 +56,9 @@ import com.facebook.buck.io.TempDirectoryCreator;
 import com.facebook.buck.io.Watchman;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavacOptions;
-import com.facebook.buck.log.CommandThreadAssociation;
+import com.facebook.buck.log.CommandThreadFactory;
+import com.facebook.buck.log.GlobalStateManager;
+import com.facebook.buck.log.InvocationInfo;
 import com.facebook.buck.log.LogConfig;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuckVersion;
@@ -692,7 +695,10 @@ public final class Main {
 
     // Setup filesystem and buck config.
     Path canonicalRootPath = projectRoot.toRealPath().normalize();
-    Config config = Configs.createDefaultConfig(canonicalRootPath, command.getConfigOverrides());
+    Config config = Configs.createDefaultConfig(
+        Optional.<String>absent(),
+        canonicalRootPath,
+        command.getConfigOverrides());
     ProjectFilesystem filesystem = new ProjectFilesystem(canonicalRootPath, config);
     BuckConfig buckConfig = new BuckConfig(
         config,
@@ -854,7 +860,7 @@ public final class Main {
         // the main cell cache, and only serves to prevent rehashing the same file multiple
         // times in a single run.
         allCaches.add(DefaultFileHashCache.createDefaultFileHashCache(
-                new ProjectFilesystem(rootCell.getFilesystem().getRootPath())));
+            new ProjectFilesystem(rootCell.getFilesystem().getRootPath())));
         for (Path root : FileSystems.getDefault().getRootDirectories()) {
           if (!root.toFile().exists()) {
             // On Windows, it is possible that the system will have a
@@ -901,13 +907,13 @@ public final class Main {
         // The order of resources in the try-with-resources block is important: the BuckEventBus
         // must be the last resource, so that it is closed first and can deliver its queued events
         // to the other resources before they are closed.
-        try (ConsoleLogLevelOverrider consoleLogLevelOverrider =
-                 new ConsoleLogLevelOverrider(buildId.toString(), verbosity);
-             ConsoleHandlerRedirector consoleHandlerRedirector =
-                 new ConsoleHandlerRedirector(
-                     buildId.toString(),
-                     console.getStdErr(),
-                     Optional.<OutputStream>of(stdErr));
+        InvocationInfo invocationInfo =
+            InvocationInfo.of(buildId, command.getSubCommandNameForLogging());
+        try (Closeable loggersSetup = GlobalStateManager.singleton().setupLoggers(
+            invocationInfo,
+            console.getStdErr(),
+            Optional.<OutputStream>of(stdErr),
+            Optional.<Verbosity>of(verbosity));
              AbstractConsoleEventBusListener consoleListener =
                  createConsoleEventListener(
                      clock,
@@ -955,7 +961,7 @@ public final class Main {
           eventListeners = addEventListeners(
               buildEventBus,
               rootCell.getFilesystem(),
-              buildId,
+              invocationInfo,
               rootCell.getBuckConfig(),
               webServer,
               clock,
@@ -1381,7 +1387,7 @@ public final class Main {
   private ImmutableList<BuckEventListener> addEventListeners(
       BuckEventBus buckEvents,
       ProjectFilesystem projectFilesystem,
-      BuildId buildId,
+      InvocationInfo invocationInfo,
       BuckConfig config,
       Optional<WebServer> webServer,
       Clock clock,
@@ -1401,7 +1407,7 @@ public final class Main {
       try {
         eventListenersBuilder.add(new ChromeTraceBuildListener(
             projectFilesystem,
-            buildId,
+            invocationInfo,
             clock,
             objectMapper,
             config.getMaxTraces(),
@@ -1418,11 +1424,18 @@ public final class Main {
 
     loadListenersFromBuckConfig(eventListenersBuilder, projectFilesystem, config);
 
+    if (config.isRuleKeyLoggerEnabled()) {
+      eventListenersBuilder.add(new RuleKeyLoggerListener(
+          projectFilesystem,
+          invocationInfo,
+          MostExecutors.newSingleThreadExecutor(
+              new CommandThreadFactory(getClass().getName()))));
+    }
 
     Optional<URI> remoteLogUrl = config.getRemoteLogUrl();
     boolean shouldSample = config.getRemoteLogSampleRate()
         .transform(BuildIdSampler.CREATE_FUNCTION)
-        .transform(MoreFunctions.<BuildId, Boolean>applyFunction(buildId))
+        .transform(MoreFunctions.<BuildId, Boolean>applyFunction(invocationInfo.getBuildId()))
         .or(true);
     if (remoteLogUrl.isPresent() && shouldSample) {
       eventListenersBuilder.add(
@@ -1589,25 +1602,10 @@ public final class Main {
     int exitCode = FAIL_EXIT_CODE;
     BuildId buildId = getBuildId(context);
 
-    // Note that try-with-resources blocks close their resources *before*
-    // executing catch or finally blocks. That means we can't use one here,
-    // since those blocks may need to log.
-    CommandThreadAssociation commandThreadAssociation = null;
-    ConsoleHandlerRedirector consoleHandlerRedirector = null;
-
     // Get the client environment, either from this process or from the Nailgun context.
     ImmutableMap<String, String> clientEnvironment = getClientEnvironment(context);
 
     try {
-      commandThreadAssociation =
-          new CommandThreadAssociation(buildId.toString());
-      // Redirect console logs to the (possibly remote) stderr stream.
-      // We do this for both the daemon and non-daemon case so we can
-      // unregister the stream when finished.
-      consoleHandlerRedirector = new ConsoleHandlerRedirector(
-          buildId.toString(),
-          stdErr,
-          Optional.<OutputStream>absent() /* originalOutputStream */);
       exitCode = tryRunMainWithExitCode(
           buildId,
           projectRoot,
@@ -1619,12 +1617,6 @@ public final class Main {
       LOG.error(t, "Uncaught exception at top level");
     } finally {
       LogConfig.flushLogs();
-      if (commandThreadAssociation != null) {
-        commandThreadAssociation.stop();
-      }
-      if (consoleHandlerRedirector != null) {
-        consoleHandlerRedirector.close();
-      }
       // Exit explicitly so that non-daemon threads (of which we use many) don't
       // keep the VM alive.
       System.exit(exitCode);

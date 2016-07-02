@@ -19,12 +19,11 @@ package com.facebook.buck.jvm.java;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.io.DefaultDirectoryTraverser;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
@@ -39,6 +38,7 @@ import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.regex.Pattern;
 
 public class JavaBinaryTest {
 
@@ -85,8 +85,7 @@ public class JavaBinaryTest {
                 null,
                 /* merge manifests */ true,
                 null,
-                /* blacklist */ ImmutableSet.<String>of(),
-                new DefaultDirectoryTraverser(),
+                /* blacklist */ ImmutableSet.<Pattern>of(),
                 ImmutableSetMultimap.<JavaLibrary, Path>of()));
 
     // Strip the trailing "." from the absolute path to the current directory.

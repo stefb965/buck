@@ -16,9 +16,10 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.log.Logger;
+import com.facebook.buck.util.PatternsMatcher;
 import com.facebook.buck.zip.CustomZipEntry;
 import com.facebook.buck.zip.CustomZipOutputStream;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
@@ -41,24 +42,25 @@ import javax.tools.StandardJavaFileManager;
  */
 public class JavaInMemoryFileManager extends ForwardingJavaFileManager<StandardJavaFileManager>
     implements StandardJavaFileManager {
+  private static final Logger LOG = Logger.get(JavaInMemoryFileManager.class);
 
   private CustomZipOutputStream jarOutputStream;
   private StandardJavaFileManager delegate;
   private Semaphore jarFileSemaphore = new Semaphore(1);
   private Set<String> directoryPaths;
   private Set<String> javaFileForOutputPaths;
-  private ImmutableList<Pattern> classesToRemoveFromJar;
+  private PatternsMatcher classesToRemoveFromJar;
 
   public JavaInMemoryFileManager(
       StandardJavaFileManager standardManager,
       CustomZipOutputStream jarOutputStream,
-      ImmutableList<Pattern> classesToRemoveFromJar) {
+      ImmutableSet<Pattern> classesToRemoveFromJar) {
     super(standardManager);
     this.delegate = standardManager;
     this.jarOutputStream = jarOutputStream;
     this.directoryPaths = new HashSet<>();
     this.javaFileForOutputPaths = new HashSet<>();
-    this.classesToRemoveFromJar = classesToRemoveFromJar;
+    this.classesToRemoveFromJar = new PatternsMatcher(classesToRemoveFromJar);
   }
 
   /**
@@ -88,7 +90,22 @@ public class JavaInMemoryFileManager extends ForwardingJavaFileManager<StandardJ
       String className,
       JavaFileObject.Kind kind,
       FileObject sibling) throws IOException {
-    // Create the directories that are part of the class name path.
+
+    // Use the normal FileObject that writes to the disk for source files.
+    if (kind.equals(JavaFileObject.Kind.SOURCE)) {
+      return delegate.getJavaFileForOutput(location, className, kind, sibling);
+    }
+
+    // If the class is to be removed from the Jar create a NoOp FileObject.
+    if (classesToRemoveFromJar.hasPatterns() &&
+        classesToRemoveFromJar.matches(className.toString())) {
+      LOG.info(
+          "%s was excluded from the Jar because it matched a remove_classes pattern.",
+          className.toString());
+      return createJavaNoOpFileObject(getPath(className, kind), kind);
+    }
+
+    // Create the directories that are part of the class name path
     for (int i = 0; i < className.length(); ++i) {
       if (className.charAt(i) == '.') {
         String directoryPath = getPath(className.substring(0, i + 1));
@@ -97,19 +114,6 @@ public class JavaInMemoryFileManager extends ForwardingJavaFileManager<StandardJ
         }
         createDirectory(directoryPath);
         directoryPaths.add(directoryPath);
-      }
-    }
-
-    // Use the normal FileObject that writes to the disk for source files.
-    if (kind.equals(JavaFileObject.Kind.SOURCE)) {
-      return delegate.getJavaFileForOutput(location, className, kind, sibling);
-    }
-
-    // If the class is to be removed from the jar create a NoOp FileObject that will not output
-    // anything.
-    for (Pattern pattern : classesToRemoveFromJar) {
-      if (pattern.matcher(className.toString()).find()) {
-        return createJavaNoOpFileObject(getPath(className, kind), kind);
       }
     }
 

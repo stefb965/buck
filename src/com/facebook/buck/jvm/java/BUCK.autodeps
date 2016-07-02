@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY 68749df6ed1e1acc1cc3040defaa45ca6bbc1a60 #@#
+#@# GENERATED FILE: DO NOT MODIFY bd57fd4f7ae1ef74f6848952e0c4b5f029ec2a6b #@#
 {
   "autodeps" : {
     "deps" : [
@@ -106,6 +106,7 @@
       "//src/com/facebook/buck/step/fs:fs",
       "//src/com/facebook/buck/util/environment:platform",
       "//src/com/facebook/buck/util/sha1:sha1",
+      "//src/com/facebook/buck/util/versioncontrol:versioncontrol",
       "//third-party/java/immutables:processor",
       "//third-party/java/jsr:jsr305"
     ],

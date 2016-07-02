@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-present Facebook, Inc.
+ * Copyright 2016-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may
  * not use this file except in compliance with the License. You may obtain
@@ -14,17 +14,13 @@
  * under the License.
  */
 
-package com.facebook.buck.io;
+package test.pkg;
 
-import java.io.IOException;
+class B {
+  int x;
+  MemberD lol;
 
-public class DefaultDirectoryTraverser implements DirectoryTraverser {
-
-  public DefaultDirectoryTraverser() {}
-
-  @Override
-  public void traverse(DirectoryTraversal traversal) throws IOException {
-    traversal.traverse();
+  public class MemberD {
+    int y;
   }
-
 }

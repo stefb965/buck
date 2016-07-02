@@ -1,18 +1,22 @@
 package com.facebook.buck.util.versioncontrol;
 
+import static java.io.File.separator;
+
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorFactory;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
+import com.google.common.base.Predicate;
 import com.google.common.base.Splitter;
+import com.google.common.base.Strings;
+import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
 import java.io.ByteArrayOutputStream;
-import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Path;
@@ -60,6 +64,35 @@ public class GitCmdLineInterface implements VersionControlCmdLineInterface {
   }
 
   @Override
+  public String diffBetweenRevisions(
+      String revisionIdOne,
+      String revisionIdTwo) throws VersionControlCommandFailedException, InterruptedException {
+    return null;
+  }
+
+  @Override
+  public ImmutableSet<String> untrackedFiles() throws VersionControlCommandFailedException, InterruptedException {
+    String[] allUntrackedFiles =
+        executeCommand(gitCmd, "git", "ls-files", "--others", "--exclude-standard")
+            .trim()
+            .split(separator);
+    return FluentIterable.of(
+        allUntrackedFiles)
+        .filter(new Predicate<String>() {
+          @Override
+          public boolean apply(String input) {
+            return !Strings.isNullOrEmpty(input);
+          }
+        })
+        .toSet();
+  }
+
+  @Override
+  public ImmutableMap<String, String> allBookmarks() throws VersionControlCommandFailedException, InterruptedException {
+    return null;
+  }
+
+  @Override
   public String commonAncestor(
       String revisionIdOne,
       String revisionIdTwo) throws VersionControlCommandFailedException, InterruptedException {
@@ -79,7 +112,7 @@ public class GitCmdLineInterface implements VersionControlCmdLineInterface {
         "--name-only",
         getRevisionId(fromRevisionId),
         "HEAD");
-    return ImmutableSet.copyOf(Splitter.on(File.separator).omitEmptyStrings().split(rawData));
+    return ImmutableSet.copyOf(Splitter.on(separator).omitEmptyStrings().split(rawData));
   }
 
   @Override

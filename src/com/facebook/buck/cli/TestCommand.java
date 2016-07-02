@@ -289,7 +289,6 @@ public class TestCommand extends BuildCommand {
     try (
         CommandThreadManager testPool = new CommandThreadManager(
             "Test-Run",
-            params.getBuckConfig().getWorkQueueExecutionOrder(),
             concurrencyLimit)) {
       return TestRunning.runTests(
           params,
@@ -370,7 +369,6 @@ public class TestCommand extends BuildCommand {
 
     try (CommandThreadManager pool = new CommandThreadManager(
         "Test",
-        params.getBuckConfig().getWorkQueueExecutionOrder(),
         getConcurrencyLimit(params.getBuckConfig()))) {
       // Post the build started event, setting it to the Parser recorded start time if appropriate.
       BuildEvent.Started started = BuildEvent.started(getArguments());
@@ -488,7 +486,6 @@ public class TestCommand extends BuildCommand {
               pool.getExecutor(),
               params.getFileHashCache(),
               getBuildEngineMode().or(params.getBuckConfig().getBuildEngineMode()),
-              params.getBuckConfig().getDependencySchedulingOrder(),
               params.getBuckConfig().getBuildDepFiles(),
               params.getBuckConfig().getBuildMaxDepFileCacheEntries(),
               params.getBuckConfig().getBuildArtifactCacheSizeLimit(),

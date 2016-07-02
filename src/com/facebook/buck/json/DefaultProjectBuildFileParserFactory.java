@@ -43,7 +43,6 @@ public class DefaultProjectBuildFileParserFactory implements ProjectBuildFilePar
         marshaller,
         environment,
         buckEventBus,
-        filesystem,
         new ProcessExecutor(console),
         ignoreBuckAutodepsFiles);
   }
