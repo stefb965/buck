@@ -167,7 +167,8 @@ public class Pom {
 
   private static void updateDependency(Dependency dependency, Artifact providedMavenCoordinates) {
     dependency.setVersion(providedMavenCoordinates.getVersion());
-    if (StringUtils.isNotEmpty(providedMavenCoordinates.getClassifier())) {
+    if (providedMavenCoordinates.getClassifier() != null &&
+        !"".equals(providedMavenCoordinates.getClassifier())) {
       dependency.setClassifier(providedMavenCoordinates.getClassifier());
     }
   }
