@@ -56,6 +56,7 @@ abstract class AbstractExecutionContext implements Closeable {
   public enum ExecutorPool {
     CPU,
     NETWORK,
+    PROJECT,
   }
 
   @Value.Parameter

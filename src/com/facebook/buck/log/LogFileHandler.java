@@ -19,13 +19,12 @@ package com.facebook.buck.log;
 import com.google.common.annotations.VisibleForTesting;
 
 import java.io.IOException;
-import java.io.OutputStreamWriter;
-import java.util.logging.FileHandler;
+import java.io.Writer;
+import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
 
-public class LogFileHandler extends FileHandler {
-  private static final Logger LOG = Logger.get(LogFileHandler.class);
+public class LogFileHandler extends Handler {
 
   private final LogFileHandlerState state;
 
@@ -34,26 +33,41 @@ public class LogFileHandler extends FileHandler {
   }
 
   @VisibleForTesting
-  LogFileHandler(LogFileHandlerState state,
-      LogFormatter formatter) throws IOException, SecurityException {
+  LogFileHandler(LogFileHandlerState state, LogFormatter formatter)
+      throws IOException, SecurityException {
     this.state = state;
     setFormatter(formatter);
   }
 
   @Override
-  public synchronized void publish(LogRecord record) {
+  public void publish(LogRecord record) {
     String commandId = state.threadIdToCommandId(record.getThreadID());
     String formattedMsg = getFormatter().format(record);
-    for (OutputStreamWriter writer : state.getWriters(commandId)) {
+    for (Writer writer : state.getWriters(commandId)) {
       try {
         writer.write(formattedMsg);
         if (record.getLevel().intValue() >= Level.SEVERE.intValue()) {
           writer.flush();
         }
-      } catch (IOException e) {
+      } catch (IOException e) { // NOPMD
         // There's a chance the writer may have been concurrently closed.
-        LOG.error(e, formattedMsg);
       }
     }
+  }
+
+  @Override
+  public void flush() {
+    for (Writer writer : state.getWriters(null)) {
+      try {
+        writer.flush();
+      } catch (IOException e) { // NOPMD
+        // There's a chance the writer may have been concurrently closed.
+      }
+    }
+  }
+
+  @Override
+  public void close() throws SecurityException {
+    // The streams are controlled globally by the GlobalStateManager.
   }
 }

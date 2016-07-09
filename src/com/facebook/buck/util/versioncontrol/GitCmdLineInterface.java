@@ -58,6 +58,15 @@ public class GitCmdLineInterface implements VersionControlCmdLineInterface {
   }
 
   @Override
+  public Optional<String> revisionIdOrAbsent(String name) throws InterruptedException {
+    try {
+      return Optional.of(revisionId(name));
+    } catch (VersionControlCommandFailedException e) {
+      return Optional.absent();
+    }
+  }
+
+  @Override
   public String currentRevisionId()
       throws VersionControlCommandFailedException, InterruptedException {
     return executeCommand(gitCmd, "rev-parse", "--short", "HEAD", "--");
@@ -104,6 +113,16 @@ public class GitCmdLineInterface implements VersionControlCmdLineInterface {
   }
 
   @Override
+  public Optional<String> commonAncestorOrAbsent(String revisionIdOne, String revisionIdTwo)
+      throws InterruptedException {
+    try {
+      return Optional.of(commonAncestor(revisionIdOne, revisionIdTwo));
+    } catch (VersionControlCommandFailedException e) {
+      return Optional.absent();
+    }
+  }
+
+  @Override
   public ImmutableSet<String> changedFiles(String fromRevisionId)
       throws VersionControlCommandFailedException, InterruptedException {
     String rawData = executeCommand(
@@ -130,6 +149,25 @@ public class GitCmdLineInterface implements VersionControlCmdLineInterface {
     } catch (NumberFormatException e) {
       return -1;
     }
+  }
+
+  @Override
+  public ImmutableSet<String> trackedBookmarksOffRevisionId(
+      String tipRevisionId,
+      String revisionId,
+      ImmutableSet<String> bookmarks) throws InterruptedException {
+    Optional<String> commonAncestor = commonAncestorOrAbsent(tipRevisionId, revisionId);
+    if (!commonAncestor.isPresent()) {
+      return ImmutableSet.of();
+    }
+
+    ImmutableSet.Builder<String> bookmarkSetBuilder = ImmutableSet.builder();
+    for (String bookmark : bookmarks) {
+      if (revisionIdOrAbsent(bookmark).equals(commonAncestor)) {
+        bookmarkSetBuilder.add(bookmark);
+      }
+    }
+    return bookmarkSetBuilder.build();
   }
 
   private String getRevisionId(String possibleMercurialRef) {

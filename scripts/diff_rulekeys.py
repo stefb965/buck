@@ -6,10 +6,12 @@ from __future__ import unicode_literals
 import argparse
 import codecs
 import collections
+import hashlib
 import os
 import re
 
 RULE_LINE_REGEX = re.compile(r'.*(\[[^\]+]\])*\s+RuleKey\s+(.*)')
+PATH_VALUE_REGEX = re.compile(r'path\(([^:]+):\w+\)')
 LOGGER_NAME = 'com.facebook.buck.rules.RuleKeyBuilder'
 TAG_NAME = 'RuleKey'
 
@@ -59,10 +61,21 @@ class KeyValueDiff(object):
         self._right = []
         self._left_format = left_format or '-[%s]'
         self._right_format = right_format or '+[%s]'
+        self._interesting_paths = set()
 
     def append(self, left, right):
         self._left.append(left)
         self._right.append(right)
+
+    def getInterestingPaths(self):
+        return self._interesting_paths
+
+    def _filterPathValue(self, value):
+        match = PATH_VALUE_REGEX.search(value)
+        if match:
+            return match.groups()[0]
+        else:
+            return None
 
     def diff(self):
         if self._left == self._right:
@@ -100,6 +113,11 @@ class KeyValueDiff(object):
                 continue
             left_not_in_order.append(l)
             right_not_in_order.append(r)
+
+        self._interesting_paths.update(
+                filter(None,
+                       map(self._filterPathValue,
+                           left_only.union(right_only))))
 
         result = [self._left_format % v for v in sorted(left_only)]
         result.extend([self._right_format % v for v in sorted(right_only)])
@@ -239,6 +257,24 @@ def extractRuleKeyRefs(values, struct_info):
     return [(v, extract(v)) for v in values]
 
 
+def reportOnInterestingPaths(paths):
+    result = []
+    for path in paths:
+        if not os.path.exists(path):
+            result.append(' %s does not exist' % path)
+        else:
+            h = hashlib.sha1()
+            with open(path, 'rb') as f:
+                while True:
+                    buf = f.read(128 * 1204)
+                    if len(buf) == 0:
+                        break
+                    h.update(buf)
+            result.append(
+                    ' %s exists and hashes to %s' % (path, h.hexdigest()))
+
+    return result
+
 def diffInternal(
         label,
         left_s,
@@ -246,12 +282,14 @@ def diffInternal(
         right_s,
         right_info,
         verbose,
-        format_tuple):
+        format_tuple,
+        check_paths):
     keys = set(left_s.keys()).union(set(right_s.keys()))
     changed_key_pairs_with_labels = set()
     changed_key_pairs_with_values = collections.defaultdict(
             lambda: KeyValueDiff(format_tuple[0], format_tuple[1]))
     changed_key_pairs_with_labels_for_key = set()
+    interesting_paths = set()
     report = []
     for key in keys:
         if key is None:
@@ -262,8 +300,10 @@ def diffInternal(
         left_with_keys = extractRuleKeyRefs(left_values, left_info)
         right_with_keys = extractRuleKeyRefs(right_values, right_info)
 
-        both_with_keys = zip(left_with_keys, right_with_keys)
-        for (left_v, left_key), (right_v, right_key) in both_with_keys:
+        both_with_keys = map(None, left_with_keys, right_with_keys)
+        for l, r in both_with_keys:
+            (left_v, left_key) = l or ('<missing>', None)
+            (right_v, right_key) = r or ('<missing>', None)
             if left_v == right_v:
                 continue
             if left_key is not None and right_key is not None:
@@ -288,15 +328,20 @@ def diffInternal(
         value_pairs = changed_key_pairs_with_values[key]
         report.append('  (' + key + '):')
         report.extend(['    ' + l for l in value_pairs.diff()])
+        interesting_paths.update(value_pairs.getInterestingPaths())
 
     changed_key_pairs_with_labels.update(
         changed_key_pairs_with_labels_for_key)
     if len(changed_key_pairs_with_labels_for_key) > 0:
-        changed_labels = [label for (label, _) in
+        changed_labels = [l for (l, _) in
                           changed_key_pairs_with_labels_for_key]
         if verbose:
             report.append('  (' + key + ') : changed because of ' +
                           ','.join(sorted(changed_labels)))
+
+    if check_paths and len(interesting_paths) > 0:
+        report.append('Information on paths the script has seen:')
+        report.extend(reportOnInterestingPaths(interesting_paths))
 
     if len(report) > 0:
         report = ['Change details for [' + label + ']'] + report
@@ -304,7 +349,12 @@ def diffInternal(
     return (report, changed_key_pairs_with_labels)
 
 
-def diff(name, left_info, right_info, verbose, format_tuple=None):
+def diff(name,
+         left_info,
+         right_info,
+         verbose,
+         format_tuple=None,
+         check_paths=False):
     left_key = left_info.getKeyForName(name)
     right_key = right_info.getKeyForName(name)
     if left_key is None:
@@ -313,11 +363,11 @@ def diff(name, left_info, right_info, verbose, format_tuple=None):
     if right_key is None:
         raise Exception('Right log does not contain ' + name + '. Did you ' +
                         'forget to enable logging? (see help).')
-    queue = set([(name, (left_key, right_key))])
+    queue = collections.deque([(name, (left_key, right_key))])
     result = []
     seen_keys = set()
     while len(queue) > 0:
-        p = queue.pop()
+        p = queue.popleft()
         label, ref_pair = p
         (left_key, right_key) = ref_pair
         report, changed_key_pairs_with_labels = diffInternal(
@@ -327,13 +377,14 @@ def diff(name, left_info, right_info, verbose, format_tuple=None):
             right_info.getByKey(right_key),
             right_info,
             verbose,
-            format_tuple or (None, None))
-        for e in changed_key_pairs_with_labels:
+            format_tuple or (None, None),
+            check_paths)
+        for e in sorted(changed_key_pairs_with_labels):
             label, ref_pair = e
             if ref_pair in seen_keys:
                 continue
             seen_keys.add(ref_pair)
-            queue.add(e)
+            queue.append(e)
 
         result += report
     return result

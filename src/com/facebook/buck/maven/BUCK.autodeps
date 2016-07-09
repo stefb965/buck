@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY be45b4d6cb19cedb8336ff9ffe598158f9667df2 #@#
+#@# GENERATED FILE: DO NOT MODIFY 1ced027b7b2f599db193600b72aa971f25d75bb1 #@#
 {
   "maven" : {
     "deps" : [
@@ -28,8 +28,8 @@
     "deps" : [
       "//third-party/java/aether:aether-connector-basic",
       "//third-party/java/aether:aether-impl",
-      "//third-party/java/aether:aether-transport-http",
       "//third-party/java/aether:aether-transport-file",
+      "//third-party/java/aether:aether-transport-http",
       "//third-party/java/aether:aether-util",
       "//third-party/java/jackson:jackson-databind",
       "//third-party/java/maven:maven-aether-provider",

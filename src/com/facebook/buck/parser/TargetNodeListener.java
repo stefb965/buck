@@ -21,6 +21,6 @@ import com.facebook.buck.rules.TargetNode;
 import java.io.IOException;
 import java.nio.file.Path;
 
-interface TargetNodeListener {
+public interface TargetNodeListener {
   void onCreate(Path buildFile, TargetNode<?> node) throws IOException;
 }

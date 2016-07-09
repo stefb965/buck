@@ -16,13 +16,8 @@
 
 package com.facebook.buck.testutil.integration;
 
-import com.google.common.base.Preconditions;
-
-import org.junit.Assert;
 import org.junit.rules.TemporaryFolder;
 
-import java.io.File;
-import java.io.IOException;
 import java.nio.file.Path;
 
 /**
@@ -38,51 +33,9 @@ import java.nio.file.Path;
  */
 public class DebuggableTemporaryFolder extends TemporaryFolder implements TemporaryRoot {
 
-  private String name;
-  private boolean doNotDeleteOnExit;
-
-  public DebuggableTemporaryFolder() {}
-  public DebuggableTemporaryFolder(File parentFolder) {
-    super(parentFolder);
-  }
-
-  /**
-   * If invoked, the directory created by this {@link TemporaryFolder} will not be deleted when the
-   * test finishes.
-   * @return {@code this}
-   */
-  public DebuggableTemporaryFolder doNotDeleteOnExit() {
-    this.doNotDeleteOnExit = true;
-    return this;
-  }
-
-  /**
-   * Name to use to identify this {@link TemporaryFolder} when writing log messages to stdout.
-   * @return {@code this}
-   */
-  public DebuggableTemporaryFolder setName(String name) {
-    this.name = Preconditions.checkNotNull(name);
-    return this;
-  }
-
-  @Override
-  public void after() {
-    if (doNotDeleteOnExit) {
-      String name = this.name == null ? "TemporaryFolder" : this.name;
-      System.out.printf("%s available at %s.\n", name, getRoot());
-    } else {
-      super.after();
-    }
-  }
-
   @Override
   public Path getRootPath() {
     return getRoot().toPath();
   }
 
-  public File newExecutableFile() throws IOException {
-    File file = newFile();
-    Assert.assertTrue(file.setExecutable(true));
-    return file;
-  }
 }

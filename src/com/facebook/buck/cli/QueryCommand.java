@@ -22,6 +22,7 @@ import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryException;
+import com.facebook.buck.query.QueryExpression;
 import com.facebook.buck.query.QueryTarget;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.util.MoreExceptions;
@@ -44,6 +45,7 @@ import org.kohsuke.args4j.Option;
 
 import java.io.IOException;
 import java.io.StringWriter;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.SortedMap;
@@ -188,8 +190,19 @@ public class QueryCommand extends AbstractCommand {
       return 1;
     }
 
-    TreeMultimap<String, QueryTarget> queryResultMap = TreeMultimap.create();
+    // Do an initial pass over the query arguments and parse them into their expressions so we can
+    // preload all the target patterns from every argument in one go, as doing them one-by-one is
+    // really inefficient.
+    Set<String> targetLiterals = new LinkedHashSet<>();
+    for (String input : inputsFormattedAsBuildTargets) {
+      String query = queryFormat.replace("%s", input);
+      QueryExpression expr = QueryExpression.parse(query, env);
+      expr.collectTargetPatterns(targetLiterals);
+    }
+    env.preloadTargetPatterns(targetLiterals, executor);
 
+    // Now execute the query on the arguments one-by-one.
+    TreeMultimap<String, QueryTarget> queryResultMap = TreeMultimap.create();
     for (String input : inputsFormattedAsBuildTargets) {
       String query = queryFormat.replace("%s", input);
       Set<QueryTarget> queryResult = env.evaluateQuery(query, executor);
@@ -349,6 +362,16 @@ public class QueryCommand extends AbstractCommand {
   /** @return the equivalent 'buck query' call to 'buck audit tests'. */
   static String buildAuditTestsQueryExpression(List<String> arguments, boolean jsonOutput) {
     StringBuilder queryBuilder = new StringBuilder("buck query \"testsof('%s')\" ");
+    queryBuilder.append(getEscapedArgumentsListAsString(arguments));
+    if (jsonOutput) {
+      queryBuilder.append(" --json");
+    }
+    return queryBuilder.toString();
+  }
+
+  /** @return the equivalent 'buck query' call to 'buck audit owner'. */
+  static String buildAuditOwnerQueryExpression(List<String> arguments, boolean jsonOutput) {
+    StringBuilder queryBuilder = new StringBuilder("buck query \"owner('%s')\" ");
     queryBuilder.append(getEscapedArgumentsListAsString(arguments));
     if (jsonOutput) {
       queryBuilder.append(" --json");

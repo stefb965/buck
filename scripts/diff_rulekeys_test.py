@@ -54,6 +54,15 @@ class TestRuleKeyDiff(unittest.TestCase):
             ["Only order and letter casing (Upper Case vs lower case) of " +
              "entries differs:", '-[B]', '+[b]'])
 
+    def test_key_value_diff_paths(self):
+        list_diff = KeyValueDiff()
+        list_diff.append('path(a.java:123)', 'path(a.java:322)')
+        list_diff.append('path(C.java:123)', 'path(c.java:123)')
+        list_diff.diff()
+        self.assertEqual(
+                set(list_diff.getInterestingPaths()),
+                set(['a.java', 'c.java', 'C.java']))
+
     def test_structure_info(self):
         line = ("[v] RuleKey 00aa=string(\"//:rule\"):key(name):" +
                 "number(1):key(version):string(\"Rule\"):key(buck.type):")
@@ -87,12 +96,34 @@ class TestRuleKeyDiff(unittest.TestCase):
                       RuleKeyStructureInfo(MockFile([left_line])),
                       RuleKeyStructureInfo(MockFile([right_line])),
                       False,
-                      format_tuple=('l(%s)', 'r{%s}'))
+                      format_tuple=('l(%s)', 'r{%s}'),
+                      check_paths=True)
         expected = [
                 'Change details for [//:lib]',
                 '  (srcs):',
                 '    l(path(JavaLib1.java:ll))',
-                '    r{path(JavaLib1.java:rr)}']
+                '    r{path(JavaLib1.java:rr)}',
+                'Information on paths the script has seen:',
+                ' JavaLib1.java does not exist']
+        self.assertEqual(result, expected)
+
+    def test_length_diff(self):
+        line = ("[v] RuleKey {key}=string(\"//:lib\"):key(name):" +
+                "{srcs}:" +
+                "string(\"t\"):key(buck.type):")
+        left_srcs = ["path(%s):key(srcs)" % p for p in ['a:1', 'b:2', 'c:3']]
+        left_line = line.format(key="aabb", srcs=":".join(left_srcs))
+        right_srcs = left_srcs[:-1]
+        right_line = line.format(key="axbb", srcs=":".join(right_srcs))
+        result = diff("//:lib",
+                      RuleKeyStructureInfo(MockFile([left_line])),
+                      RuleKeyStructureInfo(MockFile([right_line])),
+                      False)
+        expected = [
+                'Change details for [//:lib]',
+                '  (srcs):',
+                '    -[path(c:3)]',
+                '    +[<missing>]']
         self.assertEqual(result, expected)
 
 if __name__ == '__main__':

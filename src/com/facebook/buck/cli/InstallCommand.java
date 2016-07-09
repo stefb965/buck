@@ -51,12 +51,17 @@ import com.facebook.buck.step.TargetDeviceOptions;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreExceptions;
 import com.facebook.buck.util.Optionals;
+import com.facebook.buck.util.PrintStreamProcessExecutorFactory;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.UnixUserIdFetcher;
+import com.facebook.buck.util.versioncontrol.BuildStamper;
+import com.facebook.buck.util.versioncontrol.DefaultVersionControlCmdLineInterfaceFactory;
+import com.facebook.buck.util.versioncontrol.VersionControlBuckConfig;
 import com.facebook.infer.annotation.Assertions;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
+import com.google.common.base.Functions;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
@@ -236,6 +241,12 @@ public class InstallCommand extends BuildCommand {
             .setAdbOptions(Optional.of(adbOptions(params.getBuckConfig())))
             .setTargetDeviceOptions(Optional.of(targetDeviceOptions()))
             .setExecutors(params.getExecutors())
+            .setBuildStamper(
+                new BuildStamper(new DefaultVersionControlCmdLineInterfaceFactory(
+                    params.getCell().getRoot(),
+                    new PrintStreamProcessExecutorFactory(),
+                    new VersionControlBuckConfig(params.getBuckConfig().getRawConfig()),
+                    params.getEnvironment())))
             .build();
         exitCode = installApk(params, (InstallableApk) buildRule, executionContext);
         if (exitCode != 0) {
@@ -291,16 +302,19 @@ public class InstallCommand extends BuildCommand {
             getArguments()).get(index);
 
         BuildTarget target =
-            FluentIterable.from(
-                params.getParser().resolveTargetSpecs(
-                    params.getBuckEventBus(),
-                    params.getCell(),
-                    getEnableParserProfiling(),
-                    executor,
-                    ImmutableList.of(spec),
-                    SpeculativeParsing.of(false),
-                    parserConfig.getDefaultFlavorsMode()))
-            .first().get();
+            FluentIterable
+                .from(
+                    params.getParser().resolveTargetSpecs(
+                        params.getBuckEventBus(),
+                        params.getCell(),
+                        getEnableParserProfiling(),
+                        executor,
+                        ImmutableList.of(spec),
+                        SpeculativeParsing.of(false),
+                        parserConfig.getDefaultFlavorsMode()))
+                .transformAndConcat(Functions.<ImmutableSet<BuildTarget>>identity())
+                .first()
+                .get();
 
         TargetNode<?> node = params.getParser().getTargetNode(
             params.getBuckEventBus(),

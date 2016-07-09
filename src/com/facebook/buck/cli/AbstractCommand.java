@@ -27,7 +27,11 @@ import com.facebook.buck.parser.TargetNodeSpec;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.PrintStreamProcessExecutorFactory;
 import com.facebook.buck.util.concurrent.ConcurrencyLimit;
+import com.facebook.buck.util.versioncontrol.BuildStamper;
+import com.facebook.buck.util.versioncontrol.DefaultVersionControlCmdLineInterfaceFactory;
+import com.facebook.buck.util.versioncontrol.VersionControlBuckConfig;
 import com.google.common.base.Optional;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
@@ -242,6 +246,12 @@ public abstract class AbstractCommand implements Command {
         .setJavaPackageFinder(params.getJavaPackageFinder())
         .setObjectMapper(params.getObjectMapper())
         .setExecutors(params.getExecutors())
+        .setBuildStamper(
+            new BuildStamper(new DefaultVersionControlCmdLineInterfaceFactory(
+                params.getCell().getRoot(),
+                new PrintStreamProcessExecutorFactory(),
+                new VersionControlBuckConfig(params.getBuckConfig().getRawConfig()),
+                params.getEnvironment())))
         .build();
   }
 

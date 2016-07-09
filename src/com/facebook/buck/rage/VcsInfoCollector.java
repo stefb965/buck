@@ -16,10 +16,13 @@
 
 package com.facebook.buck.rage;
 
+import static com.facebook.buck.util.versioncontrol.VersionControlStatsGenerator.TRACKED_BOOKMARKS;
+
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.util.versioncontrol.VersionControlCmdLineInterface;
 import com.facebook.buck.util.versioncontrol.VersionControlCommandFailedException;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSet;
 
@@ -31,6 +34,7 @@ import org.immutables.value.Value;
 public class VcsInfoCollector {
 
   private static final Logger LOG = Logger.get(InteractiveReport.class);
+  private static final String REMOTE_MASTER = "remote/master";
 
   private final VersionControlCmdLineInterface vcCmdLineInterface;
 
@@ -48,28 +52,55 @@ public class VcsInfoCollector {
 
   public SourceControlInfo gatherScmInformation()
       throws InterruptedException, VersionControlCommandFailedException {
+    String currentRevisionId = vcCmdLineInterface.currentRevisionId();
+    Optional<String> masterRevisionId = getMasterRevisionId();
+    Optional<String> diffBase = masterRevisionId;
+
     Optional<ImmutableSet<String>> filesChangedFromMasterBranchPoint = Optional.absent();
-    try {
-      filesChangedFromMasterBranchPoint =
-          Optional.of(vcCmdLineInterface.changedFiles("ancestor(., remote/master)"));
-    } catch (VersionControlCommandFailedException e) {
-      // It's fine if the user doesn't have a remote/master bookmark.
-      LOG.info(e, "Couldn't get files changed");
+    ImmutableSet<String> diffBaseBookmarks = ImmutableSet.of();
+    Optional<String> producedDiff = Optional.absent();
+
+    if (masterRevisionId.isPresent()) {
+      diffBaseBookmarks = vcCmdLineInterface.trackedBookmarksOffRevisionId(
+          masterRevisionId.get(),
+          currentRevisionId,
+          TRACKED_BOOKMARKS);
+    }
+    if (!diffBaseBookmarks.isEmpty()) {
+      diffBase = Optional.of(vcCmdLineInterface.revisionId(diffBaseBookmarks.iterator().next()));
+      filesChangedFromMasterBranchPoint = Optional.of(
+          vcCmdLineInterface.changedFiles(diffBase.get()));
+      producedDiff = Optional.of(
+          vcCmdLineInterface.diffBetweenRevisions(currentRevisionId, diffBase.get()));
     }
 
-    String currentRevisionId = vcCmdLineInterface.currentRevisionId();
     return SourceControlInfo.builder()
         .setCurrentRevisionId(currentRevisionId)
+        .setBasedOffWhichTracked(diffBaseBookmarks)
+        .setRevisionIdOffTracked(diffBase)
+        .setDiff(producedDiff)
         .setDirtyFiles(vcCmdLineInterface.changedFiles("."))
         .setFilesChangedFromMasterBranchPoint(filesChangedFromMasterBranchPoint)
         .build();
   }
 
+  private Optional<String> getMasterRevisionId() throws InterruptedException {
+    try {
+      return Optional.of(vcCmdLineInterface.revisionId(REMOTE_MASTER));
+    } catch (VersionControlCommandFailedException e) {
+      LOG.info("Couldn't locate %s bookmark. Some information won't be available.", REMOTE_MASTER);
+    }
+    return Optional.absent();
+  }
 
   @Value.Immutable
   @BuckStyleImmutable
   interface AbstractSourceControlInfo {
     String getCurrentRevisionId();
+    ImmutableSet<String> getBasedOffWhichTracked();
+    Optional<String> getRevisionIdOffTracked();
+    @JsonIgnore
+    Optional<String> getDiff();
     ImmutableSet<String> getDirtyFiles();
     Optional<ImmutableSet<String>> getFilesChangedFromMasterBranchPoint();
   }

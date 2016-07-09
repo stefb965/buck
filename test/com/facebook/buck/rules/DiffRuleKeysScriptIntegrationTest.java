@@ -22,7 +22,6 @@ import com.facebook.buck.log.LogFormatter;
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Joiner;
@@ -44,8 +43,6 @@ import java.util.logging.Logger;
 
 public class DiffRuleKeysScriptIntegrationTest {
 
-  private static final Path LOG_FILE_PATH = BuckConstant.getLogPath().resolve("buck.log");
-
   @Rule
   public DebuggableTemporaryFolder tmp = new DebuggableTemporaryFolder();
   private Logger ruleKeyBuilderLogger;
@@ -58,7 +55,7 @@ public class DiffRuleKeysScriptIntegrationTest {
     ruleKeyBuilderLogger = Logger.getLogger(RuleKeyBuilder.class.getName());
     previousRuleKeyBuilderLevel = ruleKeyBuilderLogger.getLevel();
     ruleKeyBuilderLogger.setLevel(Level.FINER);
-    Path fullLogFilePath = tmp.getRootPath().resolve(LOG_FILE_PATH);
+    Path fullLogFilePath = tmp.getRootPath().resolve(getLogFilePath());
     Files.createDirectories(fullLogFilePath.getParent());
     FileHandler handler = new FileHandler(fullLogFilePath.toString());
     handler.setFormatter(new LogFormatter());
@@ -87,6 +84,29 @@ public class DiffRuleKeysScriptIntegrationTest {
         "  (srcs):",
         "    -[path(JavaLib1.java:e3506ff7c11f638458d08120d54f186dc79ddada)]",
         "    +[path(JavaLib1.java:7d82c86f964af479abefa21da1f19b1030649314)]",
+        "");
+    assertThat(
+        runRuleKeyDiffer(workspace).getStdout(),
+        Matchers.equalTo(Optional.of(expectedResult)));
+  }
+
+  @Test
+  public void pathAdded() throws Exception {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "diff_rulekeys_script", tmp);
+    workspace.setUp();
+
+    invokeBuckCommand(workspace, "buck-0.log");
+    workspace.writeContentsToPath(
+        "public class JavaLib3 { /* change */ }",
+        "JavaLib3.java");
+    invokeBuckCommand(workspace, "buck-1.log");
+
+    String expectedResult = Joiner.on('\n').join(
+        "Change details for [//:java_lib_2]",
+        "  (srcs):",
+        "    -[<missing>]",
+        "    +[path(JavaLib3.java:3396c5e71e9fad8e8f177af9d842f1b9b67bfb46)]",
         "");
     assertThat(
         runRuleKeyDiffer(workspace).getStdout(),
@@ -148,11 +168,17 @@ public class DiffRuleKeysScriptIntegrationTest {
     assertThat(
         runRuleKeyDiffer(workspace).getStdout().get(),
         Matchers.stringContainsInOrder(
-            "Change details for [//:java_lib_2->abiClasspath]",
-            "  (buck.declaredDeps):",
-            "    -[ruleKey(sha1=", /* some rulekey */ ")]",
+            "Change details for [//:java_lib_2]",
+            "  (abiClasspath):",
+            "    -[<missing>]",
             "    +[ruleKey(sha1=", /* some rulekey */ ")]",
-            "Change details for [//:java_lib_2->buck.extraDeps]",
+            "  (buck.declaredDeps):",
+            "    -[<missing>]",
+            "    +[ruleKey(sha1=", /* some rulekey */ ")]",
+            "  (buck.extraDeps):",
+            "    -[<missing>]",
+            "    +[ruleKey(sha1=", /* some rulekey */ ")]",
+            "Change details for [//:java_lib_2->abiClasspath]",
             "  (binaryJar):",
             "    -[ruleKey(sha1=", /* some rulekey */ ")]",
             "    +[ruleKey(sha1=", /* some rulekey */ ")]",
@@ -196,10 +222,13 @@ public class DiffRuleKeysScriptIntegrationTest {
         "--show-rulekey",
         "//:java_lib_2");
     buckCommandResult.assertSuccess();
-    String fullLogContents = workspace.getFileContents(LOG_FILE_PATH.toString());
+    String fullLogContents = workspace.getFileContents(getLogFilePath());
     String logContentsForThisInvocation = fullLogContents.substring(lastPositionInLog);
     lastPositionInLog += logContentsForThisInvocation.length();
     workspace.writeContentsToPath(logContentsForThisInvocation, logOut);
   }
 
+  private Path getLogFilePath() {
+    return tmp.getRootPath().resolve("buck.test.log");
+  }
 }

@@ -16,10 +16,14 @@
 
 package com.facebook.buck.log;
 
-import java.io.OutputStreamWriter;
+import java.io.Writer;
 
 import javax.annotation.Nullable;
 
 public interface LogFileHandlerState extends ThreadIdToCommandIdMapper {
-  Iterable<OutputStreamWriter> getWriters(@Nullable String commandId);
+  /**
+   * @param commandId If null all available writers will be returned.
+   * @return Writers related to the argument commandId.
+   */
+  Iterable<Writer> getWriters(@Nullable String commandId);
 }

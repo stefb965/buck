@@ -22,6 +22,7 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.HasPostBuildSteps;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
@@ -32,11 +33,11 @@ import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
 
-public class CxxInferCaptureTransitive extends AbstractBuildRule implements HasRuntimeDeps {
+public class CxxInferCaptureTransitive extends AbstractBuildRule
+    implements HasRuntimeDeps, HasPostBuildSteps {
 
   private ImmutableSet<CxxInferCapture> captureRules;
   private Path outputDirectory;
-  private Path depsOutput;
 
   public CxxInferCaptureTransitive(
       BuildRuleParams params,
@@ -46,7 +47,6 @@ public class CxxInferCaptureTransitive extends AbstractBuildRule implements HasR
     this.captureRules = captureRules;
     this.outputDirectory =
         BuildTargets.getGenPath(getProjectFilesystem(), this.getBuildTarget(), "infer-%s");
-    this.depsOutput = this.outputDirectory.resolve("infer-deps.txt");
   }
 
   public ImmutableSet<CxxInferCapture> getCaptureRules() {
@@ -63,20 +63,27 @@ public class CxxInferCaptureTransitive extends AbstractBuildRule implements HasR
   @Override
   public ImmutableList<Step> getBuildSteps(
       BuildContext context, BuildableContext buildableContext) {
-    buildableContext.recordArtifact(depsOutput);
+    return ImmutableList.<Step>builder()
+        .add(new MkdirStep(getProjectFilesystem(), outputDirectory))
+        .build();
+  }
+
+  @Override
+  public Path getPathToOutput() {
+    return outputDirectory;
+  }
+
+  @Override
+  public ImmutableList<Step> getPostBuildSteps(
+      BuildContext context, BuildableContext buildableContext) {
     return ImmutableList.<Step>builder()
         .add(new MkdirStep(getProjectFilesystem(), outputDirectory))
         .add(
             CxxCollectAndLogInferDependenciesStep.fromCaptureOnlyRule(
                 this,
                 getProjectFilesystem(),
-                depsOutput)
+                this.outputDirectory.resolve("infer-deps.txt"))
         )
         .build();
-  }
-
-  @Override
-  public Path getPathToOutput() {
-    return depsOutput;
   }
 }

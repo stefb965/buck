@@ -190,9 +190,21 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
     }
 
     ImmutableMap<StripLinkable, StrippedObjectDescription> strippedLibsMap =
-        generateStripRules(nativeLinkableLibs);
+        generateStripRules(
+            buildRuleParams,
+            pathResolver,
+            ruleResolver,
+            originalBuildTarget,
+            nativePlatforms,
+            nativeLinkableLibs);
     ImmutableMap<StripLinkable, StrippedObjectDescription> strippedLibsAssetsMap =
-        generateStripRules(nativeLinkableLibsAssets);
+        generateStripRules(
+            buildRuleParams,
+            pathResolver,
+            ruleResolver,
+            originalBuildTarget,
+            nativePlatforms,
+            nativeLinkableLibsAssets);
 
     BuildTarget targetForCopyNativeLibraries = BuildTarget.builder(originalBuildTarget)
         .addFlavors(COPY_NATIVE_LIBS_FLAVOR)
@@ -223,7 +235,14 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
             cpuFilters));
   }
 
-  private ImmutableMap<StripLinkable, StrippedObjectDescription> generateStripRules(
+  // Note: this method produces rules that will be shared between multiple apps,
+  // so be careful not to let information about this particular app slip into the definitions.
+  private static ImmutableMap<StripLinkable, StrippedObjectDescription> generateStripRules(
+      BuildRuleParams buildRuleParams,
+      SourcePathResolver pathResolver,
+      BuildRuleResolver ruleResolver,
+      BuildTarget appRuleTarget,
+      ImmutableMap<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform> nativePlatforms,
       ImmutableMap<Pair<NdkCxxPlatforms.TargetCpuType, String>, SourcePath> libs) {
     ImmutableMap.Builder<StripLinkable, StrippedObjectDescription> result = ImmutableMap.builder();
     for (Map.Entry<Pair<NdkCxxPlatforms.TargetCpuType, String>, SourcePath> entry :
@@ -234,9 +253,20 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
       NdkCxxPlatform platform =
           Preconditions.checkNotNull(nativePlatforms.get(targetCpuType));
 
+      // To be safe, default to using the app rule target as the base for the strip rule.
+      // This will be used for stripping the C++ runtime.  We could use something more easily
+      // shareable (like just using the app's containing directory, or even the repo root),
+      // but stripping the C++ runtime is pretty fast, so just keep the safe old behavior for now.
+      BuildTarget baseBuildTarget = appRuleTarget;
+      // But if we're stripping a cxx_library, use that library as the base of the target
+      // to allow sharing the rule between all apps that depend on it.
+      if (sourcePath instanceof BuildTargetSourcePath) {
+        baseBuildTarget = ((BuildTargetSourcePath) sourcePath).getTarget();
+      }
+
       String sharedLibrarySoName = entry.getKey().getSecond();
-      BuildTarget targetForStripRule = BuildTarget.builder(originalBuildTarget)
-          .addFlavors(ImmutableFlavor.of("strip"))
+      BuildTarget targetForStripRule = BuildTarget.builder(baseBuildTarget)
+          .addFlavors(ImmutableFlavor.of("android-strip"))
           .addFlavors(ImmutableFlavor.of(Flavor.replaceInvalidCharacters(sharedLibrarySoName)))
           .addFlavors(ImmutableFlavor.of(Flavor.replaceInvalidCharacters(targetCpuType.name())))
           .build();

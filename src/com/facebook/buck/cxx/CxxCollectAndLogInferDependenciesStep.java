@@ -17,7 +17,6 @@
 package com.facebook.buck.cxx;
 
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
@@ -30,8 +29,6 @@ import java.io.IOException;
 import java.nio.file.Path;
 
 public final class CxxCollectAndLogInferDependenciesStep implements Step {
-
-  private static final String SPLIT_TOKEN = "\t";
 
   private Optional<CxxInferAnalyze> analysisRule;
   private Optional<CxxInferCaptureTransitive> captureOnlyRule;
@@ -71,18 +68,10 @@ public final class CxxCollectAndLogInferDependenciesStep implements Step {
         outputFile);
   }
 
-  private String computeOutput(
-      BuildTarget target,
-      Path output) {
-    return target.toString() +
-        SPLIT_TOKEN +
-        target.getFlavors().toString() +
-        SPLIT_TOKEN +
-        output.toString();
-  }
-
   private String processCaptureRule(CxxInferCapture captureRule) {
-    return computeOutput(captureRule.getBuildTarget(), captureRule.getPathToOutput());
+    return InferLogLine.fromBuildTarget(
+        captureRule.getBuildTarget(), captureRule.getAbsolutePathToOutput())
+      .toString();
   }
 
   private ImmutableList<String> processCaptureOnlyRule(CxxInferCaptureTransitive captureOnlyRule) {
@@ -96,7 +85,10 @@ public final class CxxCollectAndLogInferDependenciesStep implements Step {
   private void processAnalysisRuleHelper(
       CxxInferAnalyze analysisRule,
       ImmutableList.Builder<String> accumulator) {
-    accumulator.add(computeOutput(analysisRule.getBuildTarget(), analysisRule.getResultsDir()));
+    accumulator.add(
+        InferLogLine.fromBuildTarget(
+            analysisRule.getBuildTarget(), analysisRule.getAbsolutePathToResultsDir())
+            .toString());
     accumulator.addAll(
         FluentIterable.from(analysisRule.getCaptureRules()).transform(
             new Function<CxxInferCapture, String>() {

@@ -197,7 +197,6 @@ public final class Main {
   private static final TimeSpan HANG_DETECTOR_TIMEOUT =
       new TimeSpan(5, TimeUnit.MINUTES);
 
-
   /**
    * Path to a directory of static content that should be served by the {@link WebServer}.
    */
@@ -662,6 +661,7 @@ public final class Main {
       // required the console to print the message that parsing has failed. So just write to stderr
       // and be done with it.
       stdErr.println(e.getLocalizedMessage());
+      stdErr.println("For help see 'buck --help'.");
       return 1;
     }
 
@@ -903,17 +903,25 @@ public final class Main {
             Executors.newCachedThreadPool()));
         // Create a thread pool for network I/O tasks
         executors.put(ExecutionContext.ExecutorPool.NETWORK, newDirectExecutorService());
+        executors.put(
+            ExecutionContext.ExecutorPool.PROJECT,
+            listeningDecorator(
+                MostExecutors.newMultiThreadExecutor(
+                    "Project",
+                    buckConfig.getNumThreads())));
 
         // The order of resources in the try-with-resources block is important: the BuckEventBus
         // must be the last resource, so that it is closed first and can deliver its queued events
         // to the other resources before they are closed.
-        InvocationInfo invocationInfo =
-            InvocationInfo.of(buildId, command.getSubCommandNameForLogging());
+        InvocationInfo invocationInfo = InvocationInfo.of(
+            buildId,
+            command.getSubCommandNameForLogging(),
+            filesystem.getBuckPaths().getLogDir());
         try (Closeable loggersSetup = GlobalStateManager.singleton().setupLoggers(
             invocationInfo,
             console.getStdErr(),
             Optional.<OutputStream>of(stdErr),
-            Optional.<Verbosity>of(verbosity));
+            Optional.of(verbosity));
              AbstractConsoleEventBusListener consoleListener =
                  createConsoleEventListener(
                      clock,
@@ -923,7 +931,7 @@ public final class Main {
                      executionEnvironment,
                      webServer,
                      locale,
-                     BuckConstant.getLogPath().resolve("test.log"));
+                     filesystem.getBuckPaths().getLogDir().resolve("test.log"));
              TempDirectoryCreator tempDirectoryCreator =
                  new TempDirectoryCreator(testTempDirOverride);
              AsyncCloseable asyncCloseable = new AsyncCloseable(diskIoExecutorService);
@@ -934,6 +942,8 @@ public final class Main {
                  buildEventBus,
                  buckConfig.getCountersFirstFlushIntervalMillis(),
                  buckConfig.getCountersFlushIntervalMillis())) {
+
+          LOG.debug(invocationInfo.toLogLine(args));
 
           buildEventBus.register(HANG_MONITOR.getHangMonitor());
 
