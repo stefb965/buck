@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY b5641fa9e6846c7a36c0389893fd181898a85cdc #@#
+#@# GENERATED FILE: DO NOT MODIFY 8edb71a26949f48b69c6bfa91a513a365618ccc8 #@#
 {
   "cli" : {
     "deps" : [
@@ -57,6 +57,7 @@
       "//src/com/facebook/buck/util:watchman",
       "//src/com/facebook/buck/util/environment:env-filter",
       "//src/com/facebook/buck/util/network:network",
+      "//src/com/facebook/buck/util/shutdown:shutdown",
       "//src/com/facebook/buck/util/versioncontrol:versioncontrol",
       "//third-party/java/immutables:processor",
       "//third-party/java/jackson:jackson-core",

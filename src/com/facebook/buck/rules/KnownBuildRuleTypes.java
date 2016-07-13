@@ -140,6 +140,11 @@ import com.facebook.buck.shell.ShBinaryDescription;
 import com.facebook.buck.shell.ShTestDescription;
 import com.facebook.buck.shell.WorkerToolDescription;
 import com.facebook.buck.swift.SwiftLibraryDescription;
+import com.facebook.buck.thrift.ThriftBuckConfig;
+import com.facebook.buck.thrift.ThriftCxxEnhancer;
+import com.facebook.buck.thrift.ThriftJavaEnhancer;
+import com.facebook.buck.thrift.ThriftLibraryDescription;
+import com.facebook.buck.thrift.ThriftPythonEnhancer;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.environment.Platform;
@@ -296,10 +301,10 @@ public class KnownBuildRuleTypes {
     if (hostCxxPlatform.isPresent()) {
       ImmutableFlavor hostFlavor = ImmutableFlavor.of(hostCxxPlatform.get());
       if (cxxPlatforms.containsKey(hostFlavor)) {
-        return CxxPlatforms.copyPlatformWithFlavorAndConfig(
-            cxxPlatforms.get(hostFlavor),
-            cxxBuckConfig,
-            DefaultCxxPlatforms.FLAVOR);
+        return CxxPlatform.builder()
+            .from(cxxPlatforms.get(hostFlavor))
+            .setFlavor(DefaultCxxPlatforms.FLAVOR)
+            .build();
       }
     }
 
@@ -398,21 +403,6 @@ public class KnownBuildRuleTypes {
         cxxBuckConfig,
         cxxPlatformsMap,
         systemDefaultCxxPlatform);
-
-    // Add platforms for each cxx flavor obtained from the buck config files
-    // from sections of the form cxx#{flavor name}
-    ImmutableSet<Flavor> cxxFlavors = CxxBuckConfig.getCxxFlavors(config);
-    for (Flavor flavor: cxxFlavors) {
-      CxxBuckConfig flavoredCxxBuckConfig =  new CxxBuckConfig(config, flavor);
-      CxxPlatform defaultPlatformForFlavor = CxxPlatforms.getConfigDefaultCxxPlatform(
-          flavoredCxxBuckConfig,
-          cxxPlatformsMap,
-          systemDefaultCxxPlatform);
-      cxxPlatformsBuilder.put(flavor, CxxPlatforms.copyPlatformWithFlavorAndConfig(
-          defaultPlatformForFlavor,
-          flavoredCxxBuckConfig,
-          flavor));
-    }
 
     cxxPlatformsMap = cxxPlatformsBuilder.build();
 
@@ -709,6 +699,23 @@ public class KnownBuildRuleTypes {
         testTempDirOverride));
     builder.register(new ShBinaryDescription());
     builder.register(new ShTestDescription(defaultTestRuleTimeoutMs));
+    ThriftBuckConfig thriftBuckConfig = new ThriftBuckConfig(config);
+    builder.register(
+        new ThriftLibraryDescription(
+            thriftBuckConfig,
+            ImmutableList.of(
+                new ThriftJavaEnhancer(thriftBuckConfig, defaultJavacOptions),
+                new ThriftCxxEnhancer(
+                    thriftBuckConfig,
+                    cxxLibraryDescription,
+                    /* cpp2 */ false),
+                new ThriftCxxEnhancer(
+                    thriftBuckConfig,
+                    cxxLibraryDescription,
+                    /* cpp2 */ true),
+                new ThriftPythonEnhancer(thriftBuckConfig, ThriftPythonEnhancer.Type.NORMAL),
+                new ThriftPythonEnhancer(thriftBuckConfig, ThriftPythonEnhancer.Type.TWISTED),
+                new ThriftPythonEnhancer(thriftBuckConfig, ThriftPythonEnhancer.Type.ASYNCIO))));
     builder.register(new WorkerToolDescription());
     builder.register(new XcodePostbuildScriptDescription());
     builder.register(new XcodePrebuildScriptDescription());

@@ -163,8 +163,6 @@ public class CxxPlatformsTest {
         getPlatformLinker(LinkerProvider.Type.GNU).getType(), is(LinkerProvider.Type.GNU));
     assertThat("WINDOWS linker was not a GnuLinker instance",
         getPlatformLinker(LinkerProvider.Type.WINDOWS).getType(), is(LinkerProvider.Type.WINDOWS));
-    assertThat("UNKNOWN linker was not a UnknownLinker instance",
-        getPlatformLinker(LinkerProvider.Type.UNKNOWN).getType(), is(LinkerProvider.Type.UNKNOWN));
   }
 
   @Test
@@ -207,8 +205,6 @@ public class CxxPlatformsTest {
         getPlatformArchiver(Platform.LINUX), instanceOf(GnuArchiver.class));
     assertThat("WINDOWS archiver was not a GnuArchiver instance",
         getPlatformArchiver(Platform.WINDOWS), instanceOf(GnuArchiver.class));
-    assertThat("UNKNOWN archiver was not a UnknownArchiver instance",
-        getPlatformArchiver(Platform.UNKNOWN), instanceOf(UnknownArchiver.class));
   }
 
   @Test
