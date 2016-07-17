@@ -59,6 +59,9 @@ public class JavaDocStep implements Step {
     } catch (IOException e) {
       LOG.error("Failed to execute javadoc command: %s\n\nstderr: %s", getDescription(context), context.getStdErr());
     }
+    if (exitCode != 0) {
+      LOG.error("Failed to execute javadoc command: %s\n\nstderr: %s", getDescription(context), context.getStdErr());
+    }
     return StepExecutionResult.of(exitCode);
   }
 

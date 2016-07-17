@@ -76,6 +76,10 @@ public class JavaDocJar extends AbstractBuildRule implements HasMavenCoordinates
       BuildContext context, BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
+    if (sources.size() == 0) {
+      return ImmutableList.of();
+    }
+
     Path javadocOutput = output.getParent().resolve("javadoc");
     steps.add(new RmStep(getProjectFilesystem(), javadocOutput, /* force deletion */ true, true));
     steps.add(new RmStep(getProjectFilesystem(), output, true));
