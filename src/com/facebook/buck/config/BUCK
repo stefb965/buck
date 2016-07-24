@@ -13,6 +13,7 @@ java_immutables_library(
   ],
   deps = [
     '//src/com/facebook/buck/model:macros',
+    '//src/com/facebook/buck/rules:relative_cell_name',
     '//src/com/facebook/buck/util:exceptions',
     '//third-party/java/guava:guava',
   ],
