@@ -1,7 +1,8 @@
-#@# GENERATED FILE: DO NOT MODIFY 5e8cd1cfdb6603b27abdee9593a26e4800034d13 #@#
+#@# GENERATED FILE: DO NOT MODIFY c4ce31f502841d234b9aa067e71e7ba09c1305a3 #@#
 {
   "FakeBuckConfig" : {
     "deps" : [
+      "//src/com/facebook/buck/rules:default_cell_path_resolver",
       "//test/com/facebook/buck/config:testutil",
       "//test/com/facebook/buck/testutil:testutil"
     ],
@@ -41,6 +42,7 @@
       "//src/com/facebook/buck/query:query",
       "//src/com/facebook/buck/rules:action_graph_cache",
       "//src/com/facebook/buck/rules:build_rule",
+      "//src/com/facebook/buck/rules:relative_cell_name",
       "//src/com/facebook/buck/rules:rule_key",
       "//src/com/facebook/buck/rules:rules",
       "//src/com/facebook/buck/rules:types",
@@ -53,6 +55,7 @@
       "//src/com/facebook/buck/util:exceptions",
       "//src/com/facebook/buck/util:io",
       "//src/com/facebook/buck/util:object_mapper",
+      "//src/com/facebook/buck/util:watchman",
       "//src/com/facebook/buck/util/cache:cache",
       "//src/com/facebook/buck/util/concurrent:concurrent",
       "//src/com/facebook/buck/util/environment:environment",
@@ -109,6 +112,7 @@
       "//src/com/facebook/buck/parser:config",
       "//src/com/facebook/buck/parser:parser",
       "//src/com/facebook/buck/rules:action_graph_cache",
+      "//src/com/facebook/buck/rules:default_cell_path_resolver",
       "//src/com/facebook/buck/rules/coercer:coercer",
       "//src/com/facebook/buck/step:step",
       "//src/com/facebook/buck/timing:timing",

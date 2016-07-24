@@ -11,6 +11,7 @@ import __future__
 from collections import namedtuple
 from pathlib import Path, PureWindowsPath, PurePath
 from pywatchman import bser
+import copy
 import StringIO
 import cProfile
 import functools
@@ -26,6 +27,7 @@ import re
 import subprocess
 import sys
 import traceback
+import copy
 
 # When build files are executed, the functions in this file tagged with
 # @provide_for_build will be provided in the build file's local symbol table.
@@ -42,6 +44,10 @@ import traceback
 BUILD_FUNCTIONS = []
 
 VERIFY_AUTODEPS_SIGNATURE = False
+
+# Wait this many seconds on recv() or send() in the pywatchman client
+# if not otherwise specified in .buckconfig
+DEFAULT_WATCHMAN_QUERY_TIMEOUT = 5.0
 
 class SyncCookieState(object):
     """
@@ -72,7 +78,8 @@ class BuildFileContext(object):
 
     def __init__(self, project_root, base_path, dirname, autodeps, allow_empty_globs, ignore_paths,
                  watchman_client, watchman_watch_root, watchman_project_prefix,
-                 sync_cookie_state, watchman_error):
+                 sync_cookie_state, watchman_error, watchman_glob_stat_results,
+                 enable_build_file_sandboxing):
         self.globals = {}
         self.includes = set()
         self.used_configs = {}
@@ -87,6 +94,8 @@ class BuildFileContext(object):
         self.watchman_project_prefix = watchman_project_prefix
         self.sync_cookie_state = sync_cookie_state
         self.watchman_error = watchman_error
+        self.watchman_glob_stat_results = watchman_glob_stat_results
+        self._enable_build_file_sandboxing = enable_build_file_sandboxing
         self.diagnostics = set()
         self.rules = {}
 
@@ -198,6 +207,9 @@ class memoized(object):
     '''Decorator. Caches a function's return value each time it is called.
     If called later with the same arguments, the cached value is returned
     (not reevaluated).
+
+    Makes a defensive copy of the cached value each time it's returned,
+    so callers mutating the result do not poison the cache.
     '''
     def __init__(self, func):
         self.func = func
@@ -205,12 +217,12 @@ class memoized(object):
 
     def __call__(self, *args):
         args_key = repr(args)
-        if args_key in self.cache:
-            return self.cache[args_key]
-        else:
+        value = self.cache.get(args_key)
+        if value is None:
             value = self.func(*args)
             self.cache[args_key] = value
-            return value
+        # Return a copy to ensure callers mutating the result don't poison the cache.
+        return copy.deepcopy(value)
 
     def __repr__(self):
         '''Return the function's docstring.'''
@@ -245,7 +257,8 @@ def glob(includes, excludes=[], include_dotfiles=False, build_env=None, search_b
                 build_env.watchman_project_prefix,
                 build_env.sync_cookie_state,
                 build_env.watchman_client,
-                build_env.diagnostics)
+                build_env.diagnostics,
+                build_env.watchman_glob_stat_results)
         except build_env.watchman_error as e:
             build_env.diagnostics.add(
                 DiagnosticMessageAndLevel(
@@ -338,18 +351,26 @@ def subdir_glob(glob_specs, excludes=[], prefix=None, build_env=None, search_bas
     return merge_maps(*results)
 
 
+COLLAPSE_SLASHES = re.compile(r'/+')
+
 def format_watchman_query_params(includes, excludes, include_dotfiles, relative_root):
     match_exprs = ["allof", "exists", ["anyof", ["type", "f"], ["type", "l"]]]
     match_flags = {}
+
     if include_dotfiles:
         match_flags["includedotfiles"] = True
     if includes:
         match_exprs.append(
-            ["anyof"] + [["match", i, "wholename", match_flags] for i in includes])
+            ["anyof"] +
+            # Collapse multiple consecutive slashes in pattern until fix in
+            # https://github.com/facebook/watchman/pull/310/ is available
+            [["match", COLLAPSE_SLASHES.sub('/', i), "wholename", match_flags] for i in includes])
     if excludes:
         match_exprs.append(
             ["not",
-                ["anyof"] + [["match", x, "wholename", match_flags] for x in excludes]])
+             ["anyof"] +
+             [["match", COLLAPSE_SLASHES.sub('/', x), "wholename", match_flags]
+              for x in excludes]])
 
     return {
         "relative_root": relative_root,
@@ -363,7 +384,8 @@ def format_watchman_query_params(includes, excludes, include_dotfiles, relative_
 
 @memoized
 def glob_watchman(includes, excludes, include_dotfiles, base_path, watchman_watch_root,
-                  watchman_project_prefix, sync_cookie_state, watchman_client, diagnostics):
+                  watchman_project_prefix, sync_cookie_state, watchman_client, diagnostics,
+                  watchman_glob_stat_results):
     assert includes, "The includes argument must be a non-empty list of strings."
 
     if watchman_project_prefix:
@@ -389,7 +411,26 @@ def glob_watchman(includes, excludes, include_dotfiles, base_path, watchman_watc
                 message='Watchman warning: {0}'.format(res.get('warning')),
                 level='warning'))
     result = res.get('files', [])
+    if watchman_glob_stat_results:
+        result = stat_results(base_path, result, diagnostics)
     return sorted(result)
+
+
+def stat_results(base_path, result, diagnostics):
+    statted_result = []
+    for path in result:
+        # We really shouldn't have to stat() every result from Watchman, but
+        # occasionally it returns non-existent files.
+        resolved_path = os.path.join(base_path, path)
+        if os.path.exists(resolved_path):
+            statted_result.append(path)
+        else:
+            diagnostics.add(
+                DiagnosticMessageAndLevel(
+                    message='Watchman query returned non-existent file: {0}'.format(
+                        resolved_path),
+                    level='warning'))
+    return statted_result
 
 
 def glob_internal(includes, excludes, project_root_relative_excludes, include_dotfiles, search_base, project_root):
@@ -480,7 +521,8 @@ class BuildFileProcessor(object):
 
     def __init__(self, project_root, watchman_watch_root, watchman_project_prefix, build_file_name,
                  allow_empty_globs, ignore_buck_autodeps_files, watchman_client, watchman_error,
-                 implicit_includes=[], extra_funcs=[], configs={}, ignore_paths=[]):
+                 watchman_glob_stat_results, enable_build_file_sandboxing, implicit_includes=[],
+                 extra_funcs=[], configs={}, ignore_paths=[]):
         self._cache = {}
         self._build_env_stack = []
         self._sync_cookie_state = SyncCookieState()
@@ -492,8 +534,10 @@ class BuildFileProcessor(object):
         self._implicit_includes = implicit_includes
         self._allow_empty_globs = allow_empty_globs
         self._ignore_buck_autodeps_files = ignore_buck_autodeps_files
+        self._enable_build_file_sandboxing = enable_build_file_sandboxing
         self._watchman_client = watchman_client
         self._watchman_error = watchman_error
+        self._watchman_glob_stat_results = watchman_glob_stat_results
         self._configs = configs
         self._ignore_paths = ignore_paths
 
@@ -638,6 +682,20 @@ class BuildFileProcessor(object):
         if self._build_env_stack:
             self._update_functions(self._build_env_stack[-1])
 
+    def custom_import(self, enable_build_file_sandboxing, path):
+        """
+        Returns customised `__import__` function.
+        """
+
+        original_import = __builtin__.__import__
+
+        def _import(name, globals=None, locals=None, fromlist=(), level=0):
+            if enable_build_file_sandboxing:
+                print 'Importing module %s in file %s is discouraged' % (name, path)
+            return original_import(name, globals, locals, fromlist, level)
+
+        return _import
+
     def _process(self, build_env, path, implicit_includes=[]):
         """
         Process a build file or include at the given path.
@@ -690,7 +748,15 @@ class BuildFileProcessor(object):
         # exist in sys.modules.
         future_features = __future__.absolute_import.compiler_flag
         code = compile(contents, path, 'exec', future_features, 1)
+
+        # Override '__import__' function.
+        original_import = __builtin__.__import__
+        __builtin__.__import__ = self.custom_import(self._enable_build_file_sandboxing, path)
+
         exec(code, module.__dict__)
+
+        # Restore original `__builtin__.__import__`
+        __builtin__.__import__ = original_import
 
         # Restore the previous build context.
         self._pop_build_env()
@@ -744,7 +810,9 @@ class BuildFileProcessor(object):
             self._watchman_watch_root,
             self._watchman_project_prefix,
             self._sync_cookie_state,
-            self._watchman_error)
+            self._watchman_error,
+            self._watchman_glob_stat_results,
+            self._enable_build_file_sandboxing)
 
         # If the .autodeps file has been successfully parsed, then treat it as if it were
         # a file loaded via include_defs() in that a change to the .autodeps file should
@@ -969,6 +1037,11 @@ def main():
         dest='use_watchman_glob',
         help='Invokes `watchman query` to get lists of files instead of globbing in-process.')
     parser.add_option(
+        '--watchman_glob_stat_results',
+        action='store_true',
+        dest='watchman_glob_stat_results',
+        help='Invokes `stat()` to sanity check result of `watchman query`.')
+    parser.add_option(
         '--watchman_watch_root',
         action='store',
         type='string',
@@ -1015,6 +1088,10 @@ def main():
         '--profile',
         action='store_true',
         help='Profile every buck file execution')
+    parser.add_option(
+        '--enable_build_file_sandboxing',
+        action='store_true',
+        help='Limits abilities of buck files')
     (options, args) = parser.parse_args()
 
     # Even though project_root is absolute path, it may not be concise. For
@@ -1036,6 +1113,8 @@ def main():
             # pywatchman expects a timeout as a nonnegative floating-point
             # value in seconds.
             client_args['timeout'] = max(0.0, options.watchman_query_timeout_ms / 1000.0)
+        else:
+            client_args['timeout'] = DEFAULT_WATCHMAN_QUERY_TIMEOUT
         if options.watchman_socket_path is not None:
             client_args['sockpath'] = options.watchman_socket_path
             client_args['transport'] = 'local'
@@ -1063,6 +1142,8 @@ def main():
         options.ignore_buck_autodeps_files,
         watchman_client,
         watchman_error,
+        options.watchman_glob_stat_results,
+        options.enable_build_file_sandboxing,
         implicit_includes=options.include or [],
         configs=configs,
         ignore_paths=ignore_paths)

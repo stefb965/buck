@@ -68,8 +68,10 @@ import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.rules.ActionGraphCache;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.ConstructorArgMarshaller;
+import com.facebook.buck.rules.DefaultCellPathResolver;
 import com.facebook.buck.rules.KnownBuildRuleTypes;
 import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
+import com.facebook.buck.rules.RelativeCellName;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.util.versioncontrol.BuildStamper;
@@ -85,7 +87,6 @@ import com.facebook.buck.util.AsyncCloseable;
 import com.facebook.buck.util.BgProcessKiller;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.Console;
-import com.facebook.buck.util.DefaultPropertyFinder;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.InterruptionFailedException;
 import com.facebook.buck.util.Libc;
@@ -95,13 +96,11 @@ import com.facebook.buck.util.PkillProcessManager;
 import com.facebook.buck.util.PrintStreamProcessExecutorFactory;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessManager;
-import com.facebook.buck.util.PropertyFinder;
 import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.WatchmanWatcher;
 import com.facebook.buck.util.WatchmanWatcherException;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.FileHashCache;
-import com.facebook.buck.util.shutdown.NonReentrantSystemExit;
 import com.facebook.buck.util.cache.StackedFileHashCache;
 import com.facebook.buck.util.cache.WatchedFileHashCache;
 import com.facebook.buck.util.concurrent.MostExecutors;
@@ -114,6 +113,7 @@ import com.facebook.buck.util.environment.EnvironmentFilter;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.network.RemoteLoggerFactory;
+import com.facebook.buck.util.shutdown.NonReentrantSystemExit;
 import com.facebook.buck.util.versioncontrol.DefaultVersionControlCmdLineInterfaceFactory;
 import com.facebook.buck.util.versioncontrol.VersionControlBuckConfig;
 import com.facebook.buck.util.versioncontrol.VersionControlCmdLineInterfaceFactory;
@@ -144,7 +144,6 @@ import org.kohsuke.args4j.CmdLineException;
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.io.PrintStream;
 import java.net.MalformedURLException;
 import java.net.URI;
@@ -281,9 +280,7 @@ public final class Main {
       this.hashCache = new WatchedFileHashCache(cell.getFilesystem());
       this.buckOutHashCache =
           DefaultFileHashCache.createBuckOutFileHashCache(
-              new ProjectFilesystem(
-                  cell.getFilesystem().getRootPath(),
-                  ImmutableSet.<PathOrGlobMatcher>of()),
+              new ProjectFilesystem(cell.getFilesystem().getRootPath()),
               cell.getFilesystem().getBuckPaths().getBuckOut());
       this.fileEventBus = new EventBus("file-change-events");
 
@@ -406,7 +403,9 @@ public final class Main {
     private void watchFileSystem(
         CommandEvent commandEvent,
         BuckEventBus eventBus,
-        WatchmanWatcher watchmanWatcher) throws IOException, InterruptedException {
+        WatchmanWatcher watchmanWatcher,
+        WatchmanWatcher.FreshInstanceAction watchmanFreshInstanceAction)
+      throws IOException, InterruptedException {
 
       // Synchronize on parser object so that all outstanding watch events are processed
       // as a single, atomic Parser cache update and are not interleaved with Parser cache
@@ -416,7 +415,10 @@ public final class Main {
         parser.recordParseStartTime(eventBus);
         fileEventBus.post(commandEvent);
         ImmutableSet.Builder<String> encounteredWatchmanWarningsBuilder = ImmutableSet.builder();
-        watchmanWatcher.postEvents(eventBus, encounteredWatchmanWarningsBuilder);
+        watchmanWatcher.postEvents(
+            eventBus,
+            encounteredWatchmanWarningsBuilder,
+            watchmanFreshInstanceAction);
 
         // TODO(bhamiltoncx): Pass encountered Watchman warnings to parser so Watchman glob can
         // ignore them.
@@ -551,92 +553,58 @@ public final class Main {
     this.objectMapper = ObjectMappers.newDefaultInstance();
   }
 
-  private void flushEventListeners(
-      Console console,
-      BuildId buildId,
-      ImmutableList<BuckEventListener> eventListeners)
-      throws InterruptedException {
-    for (BuckEventListener eventListener : eventListeners) {
-      try {
-        eventListener.outputTrace(buildId);
-      } catch (RuntimeException e) {
-        PrintStream stdErr = console.getStdErr();
-        stdErr.println("Ignoring non-fatal error!  The stack trace is below:");
-        e.printStackTrace(stdErr);
+  /* Define all error handling surrounding main command */
+  private void runMainThenExit(String[] args, Optional<NGContext> context) {
+    installUncaughtExceptionHandler(context);
+
+    Path projectRoot = Paths.get(".");
+    int exitCode = FAIL_EXIT_CODE;
+    BuildId buildId = getBuildId(context);
+
+    // Only post an overflow event if Watchman indicates a fresh instance event
+    // after our initial query.
+    WatchmanWatcher.FreshInstanceAction watchmanFreshInstanceAction =
+        daemon == null
+          ? WatchmanWatcher.FreshInstanceAction.NONE
+          : WatchmanWatcher.FreshInstanceAction.POST_OVERFLOW_EVENT;
+
+    // Get the client environment, either from this process or from the Nailgun context.
+    ImmutableMap<String, String> clientEnvironment = getClientEnvironment(context);
+
+    try {
+      CommandMode commandMode = CommandMode.RELEASE;
+      exitCode = runMainWithExitCode(
+          buildId,
+          projectRoot,
+          context,
+          clientEnvironment,
+          commandMode,
+          watchmanFreshInstanceAction,
+          args);
+    } catch (HumanReadableException e) {
+      Console console = new Console(
+          Verbosity.STANDARD_INFORMATION,
+          stdOut,
+          stdErr,
+          new Ansi(
+              AnsiEnvironmentChecking.environmentSupportsAnsiEscapes(platform, clientEnvironment)));
+      console.printBuildFailure(e.getHumanReadableErrorMessage());
+    } catch (InterruptionFailedException e) { // Command could not be interrupted.
+      if (context.isPresent()) {
+        context.get().getNGServer().shutdown(true); // Exit process to halt command execution.
       }
-    }
-  }
-
-  private static Optional<Path> getTestTempDirOverride(
-      BuckConfig config,
-      ImmutableMap<String, String> clientEnvironment,
-      String tmpDirName) {
-    Optional<ImmutableList<String>> testTempDirEnvVars = config.getTestTempDirEnvVars();
-    if (!testTempDirEnvVars.isPresent()) {
-      return Optional.absent();
-    } else {
-      for (String envVar : testTempDirEnvVars.get()) {
-        String val = clientEnvironment.get(envVar);
-        if (val != null) {
-          return Optional.of(Paths.get(val).resolve(tmpDirName));
-        }
+    } catch (Throwable t) {
+      LOG.error(t, "Uncaught exception at top level");
+    } finally {
+      if (context.isPresent()) {
+        System.gc(); // Let VM return memory to OS
       }
-      return Optional.of(Paths.get("/tmp").resolve(tmpDirName));
+      LOG.debug("Done.");
+      LogConfig.flushLogs();
+      // Exit explicitly so that non-daemon threads (of which we use many) don't
+      // keep the VM alive.
+      System.exit(exitCode);
     }
-  }
-
-  private static void moveToTrash(
-      ProjectFilesystem filesystem,
-      Console console,
-      BuildId buildId,
-      Path... pathsToMove) throws IOException {
-    Path trashPath = BuckConstant.getTrashPath().resolve(buildId.toString());
-    filesystem.mkdirs(trashPath);
-    for (Path pathToMove : pathsToMove) {
-      try {
-        // Technically this might throw AtomicMoveNotSupportedException,
-        // but we're moving a path within buck-out, so we don't expect this
-        // to throw.
-        //
-        // If it does throw, we'll complain loudly and synchronously delete
-        // the file instead.
-        filesystem.move(
-            pathToMove,
-            trashPath.resolve(pathToMove.getFileName()),
-            StandardCopyOption.ATOMIC_MOVE);
-      } catch (NoSuchFileException e) {
-        LOG.verbose(e, "Ignoring missing path %s", pathToMove);
-      } catch (AtomicMoveNotSupportedException e) {
-        console.getStdErr().format(
-            "Atomic moves not supported, falling back to synchronous delete: %s",
-            e);
-        MoreFiles.deleteRecursivelyIfExists(pathToMove);
-      }
-    }
-  }
-
-  private static final Watchman buildWatchman(
-      Optional<NGContext> context,
-      ParserConfig parserConfig,
-      Path projectRoot,
-      ImmutableMap<String, String> clientEnvironment,
-      Console console,
-      Clock clock) throws InterruptedException, IOException {
-    Watchman watchman;
-    if (context.isPresent() || parserConfig.getGlobHandler() == ParserConfig.GlobHandler.WATCHMAN) {
-      watchman = Watchman.build(projectRoot, clientEnvironment, console, clock);
-
-      LOG.debug(
-          "Watchman capabilities: %s Watch root: %s Project prefix: %s Glob handler config: %s ",
-          watchman.getCapabilities(),
-          watchman.getWatchRoot(),
-          watchman.getProjectPrefix(),
-          parserConfig.getGlobHandler());
-
-    } else {
-      watchman = Watchman.NULL_WATCHMAN;
-    }
-    return watchman;
   }
 
   /**
@@ -652,8 +620,10 @@ public final class Main {
       Optional<NGContext> context,
       ImmutableMap<String, String> clientEnvironment,
       CommandMode commandMode,
+      WatchmanWatcher.FreshInstanceAction watchmanFreshInstanceAction,
       String... args)
       throws IOException, InterruptedException {
+
     // Parse the command line args.
     BuckCommand command = new BuckCommand();
     AdditionalOptionsCmdLineParser cmdLineParser = new AdditionalOptionsCmdLineParser(command);
@@ -700,16 +670,16 @@ public final class Main {
     // Setup filesystem and buck config.
     Path canonicalRootPath = projectRoot.toRealPath().normalize();
     Config config = Configs.createDefaultConfig(
-        Optional.<String>absent(),
         canonicalRootPath,
-        command.getConfigOverrides());
+        command.getConfigOverrides().getForCell(RelativeCellName.ROOT_CELL_NAME));
     ProjectFilesystem filesystem = new ProjectFilesystem(canonicalRootPath, config);
     BuckConfig buckConfig = new BuckConfig(
         config,
         filesystem,
         architecture,
         platform,
-        clientEnvironment);
+        clientEnvironment,
+        new DefaultCellPathResolver(filesystem.getRootPath(), config));
 
     // Setup the console.
     Verbosity verbosity = VerbosityParser.parse(args);
@@ -768,16 +738,13 @@ public final class Main {
         }
       }
 
-      PropertyFinder propertyFinder = new DefaultPropertyFinder(
-          filesystem,
-          clientEnvironment);
       AndroidBuckConfig androidBuckConfig = new AndroidBuckConfig(buckConfig, platform);
       AndroidDirectoryResolver androidDirectoryResolver =
           new DefaultAndroidDirectoryResolver(
-              filesystem,
+              filesystem.getRootPath().getFileSystem(),
+              clientEnvironment,
               androidBuckConfig.getBuildToolsVersion(),
-              androidBuckConfig.getNdkVersion(),
-              propertyFinder);
+              androidBuckConfig.getNdkVersion());
 
       ProcessExecutor processExecutor = new ProcessExecutor(console);
 
@@ -828,6 +795,7 @@ public final class Main {
             console,
             watchman,
             buckConfig,
+            command.getConfigOverrides(),
             factory,
             androidDirectoryResolver,
             clock);
@@ -841,6 +809,13 @@ public final class Main {
 
         FileHashCache cellHashCache;
         FileHashCache buckOutHashCache;
+        // TODO(Coneko, ruibm, andrewjcg): Determine whether we can use the existing filesystem
+        // object that is in scope instead of creating a new rootCellProjectFilesystem. The primary
+        // difference appears to be that filesystem is created with a Config that is used to produce
+        // ImmutableSet<PathOrGlobMatcher> and BuckPaths for the ProjectFilesystem, whereas this one
+        // uses the defaults.
+        ProjectFilesystem rootCellProjectFilesystem = new ProjectFilesystem(
+            rootCell.getFilesystem().getRootPath());
         if (isDaemon) {
           cellHashCache = getFileHashCacheFromDaemon(rootCell);
           buckOutHashCache = getBuckOutFileHashCacheFromDaemon(rootCell);
@@ -848,9 +823,7 @@ public final class Main {
           cellHashCache = DefaultFileHashCache.createDefaultFileHashCache(rootCell.getFilesystem());
           buckOutHashCache =
               DefaultFileHashCache.createBuckOutFileHashCache(
-                  new ProjectFilesystem(
-                      rootCell.getFilesystem().getRootPath(),
-                      ImmutableSet.<PathOrGlobMatcher>of()),
+                  rootCellProjectFilesystem,
                   rootCell.getFilesystem().getBuckPaths().getBuckOut());
         }
 
@@ -863,8 +836,7 @@ public final class Main {
         // A cache which caches hashes of cell-relative paths which may have been ignore by
         // the main cell cache, and only serves to prevent rehashing the same file multiple
         // times in a single run.
-        allCaches.add(DefaultFileHashCache.createDefaultFileHashCache(
-            new ProjectFilesystem(rootCell.getFilesystem().getRootPath())));
+        allCaches.add(DefaultFileHashCache.createDefaultFileHashCache(rootCellProjectFilesystem));
         for (Path root : FileSystems.getDefault().getRootDirectories()) {
           if (!root.toFile().exists()) {
             // On Windows, it is possible that the system will have a
@@ -924,8 +896,8 @@ public final class Main {
         try (Closeable loggersSetup = GlobalStateManager.singleton().setupLoggers(
             invocationInfo,
             console.getStdErr(),
-            Optional.<OutputStream>of(stdErr),
-            Optional.of(verbosity));
+            stdErr,
+            verbosity);
              AbstractConsoleEventBusListener consoleListener =
                  createConsoleEventListener(
                      clock,
@@ -1033,7 +1005,8 @@ public final class Main {
                   rootCell,
                   startedEvent,
                   buildEventBus,
-                  watchmanWatcher);
+                  watchmanWatcher,
+                  watchmanFreshInstanceAction);
             } catch (WatchmanWatcherException | IOException e) {
               buildEventBus.post(
                   ConsoleEvent.warning(
@@ -1057,13 +1030,6 @@ public final class Main {
           //
           // The counters will be unregistered once the counter registry is closed.
           counterRegistry.registerCounters(parser.getCounters());
-
-          // Because the ActionGraphCache is potentially constructed before the CounterRegistry,
-          // we need to manually register its counters after it's created. We register the counters
-          // of the ActionGraphCache only if we run the daemon.
-          if (context.isPresent()) {
-            counterRegistry.registerCounters(actionGraphCache.getCounters());
-          }
 
           JavaUtilsLoggingBuildListener.ensureLogFileIsWritten(rootCell.getFilesystem());
 
@@ -1165,6 +1131,94 @@ public final class Main {
         commandSemaphore.release();
       }
     }
+  }
+
+  private void flushEventListeners(
+      Console console,
+      BuildId buildId,
+      ImmutableList<BuckEventListener> eventListeners)
+      throws InterruptedException {
+    for (BuckEventListener eventListener : eventListeners) {
+      try {
+        eventListener.outputTrace(buildId);
+      } catch (RuntimeException e) {
+        PrintStream stdErr = console.getStdErr();
+        stdErr.println("Ignoring non-fatal error!  The stack trace is below:");
+        e.printStackTrace(stdErr);
+      }
+    }
+  }
+
+  private static Optional<Path> getTestTempDirOverride(
+      BuckConfig config,
+      ImmutableMap<String, String> clientEnvironment,
+      String tmpDirName) {
+    Optional<ImmutableList<String>> testTempDirEnvVars = config.getTestTempDirEnvVars();
+    if (!testTempDirEnvVars.isPresent()) {
+      return Optional.absent();
+    } else {
+      for (String envVar : testTempDirEnvVars.get()) {
+        String val = clientEnvironment.get(envVar);
+        if (val != null) {
+          return Optional.of(Paths.get(val).resolve(tmpDirName));
+        }
+      }
+      return Optional.of(Paths.get("/tmp").resolve(tmpDirName));
+    }
+  }
+
+  private static void moveToTrash(
+      ProjectFilesystem filesystem,
+      Console console,
+      BuildId buildId,
+      Path... pathsToMove) throws IOException {
+    Path trashPath = BuckConstant.getTrashPath().resolve(buildId.toString());
+    filesystem.mkdirs(trashPath);
+    for (Path pathToMove : pathsToMove) {
+      try {
+        // Technically this might throw AtomicMoveNotSupportedException,
+        // but we're moving a path within buck-out, so we don't expect this
+        // to throw.
+        //
+        // If it does throw, we'll complain loudly and synchronously delete
+        // the file instead.
+        filesystem.move(
+            pathToMove,
+            trashPath.resolve(pathToMove.getFileName()),
+            StandardCopyOption.ATOMIC_MOVE);
+      } catch (NoSuchFileException e) {
+        LOG.verbose(e, "Ignoring missing path %s", pathToMove);
+      } catch (AtomicMoveNotSupportedException e) {
+        console.getStdErr().format(
+            "Atomic moves not supported, falling back to synchronous delete: %s",
+            e);
+        MoreFiles.deleteRecursivelyIfExists(pathToMove);
+      }
+    }
+  }
+
+  private static final Watchman buildWatchman(
+      Optional<NGContext> context,
+      ParserConfig parserConfig,
+      Path projectRoot,
+      ImmutableMap<String, String> clientEnvironment,
+      Console console,
+      Clock clock) throws InterruptedException, IOException {
+    Watchman watchman;
+    if (context.isPresent() || parserConfig.getGlobHandler() == ParserConfig.GlobHandler.WATCHMAN) {
+      watchman = Watchman.build(projectRoot, clientEnvironment, console, clock);
+
+      LOG.debug(
+          "Watchman capabilities: %s Watch root: %s Project prefix: %s Glob handler config: %s ",
+          watchman.getCapabilities(),
+          watchman.getWatchRoot(),
+          watchman.getProjectPrefix(),
+          parserConfig.getGlobHandler());
+
+    } else {
+      watchman = Watchman.NULL_WATCHMAN;
+    }
+    return watchman;
   }
 
   private static void closeExecutorService(
@@ -1303,11 +1357,17 @@ public final class Main {
       Cell cell,
       CommandEvent commandEvent,
       BuckEventBus eventBus,
-      WatchmanWatcher watchmanWatcher) throws IOException, InterruptedException {
+      WatchmanWatcher watchmanWatcher,
+      WatchmanWatcher.FreshInstanceAction watchmanFreshInstanceAction)
+    throws IOException, InterruptedException {
     // Wire up daemon to new client and get cached Parser.
-    Daemon daemon = getDaemon(cell, objectMapper);
-    daemon.watchClient(context.get());
-    daemon.watchFileSystem(commandEvent, eventBus, watchmanWatcher);
+    Daemon daemonForParser = getDaemon(cell, objectMapper);
+    daemonForParser.watchClient(context.get());
+    daemonForParser.watchFileSystem(
+        commandEvent,
+        eventBus,
+        watchmanWatcher,
+        watchmanFreshInstanceAction);
     return daemon.getParser();
   }
 
@@ -1399,7 +1459,7 @@ public final class Main {
 
   @SuppressWarnings("PMD.PrematureDeclaration")
   private ImmutableList<BuckEventListener> addEventListeners(
-      BuckEventBus buckEvents,
+      BuckEventBus buckEventBus,
       ProjectFilesystem projectFilesystem,
       InvocationInfo invocationInfo,
       BuckConfig config,
@@ -1467,7 +1527,7 @@ public final class Main {
           projectFilesystem,
           knownBuildRuleTypes.getAllDescriptions(),
           config,
-          buckEvents,
+          buckEventBus,
           console,
           javacOptions,
           environment));
@@ -1478,7 +1538,7 @@ public final class Main {
     ImmutableList<BuckEventListener> eventListeners = eventListenersBuilder.build();
 
     for (BuckEventListener eventListener : eventListeners) {
-      buckEvents.register(eventListener);
+      buckEventBus.register(eventListener);
     }
 
     return eventListeners;
@@ -1534,46 +1594,6 @@ public final class Main {
         executionEnvironment);
   }
 
-  @VisibleForTesting
-  int tryRunMainWithExitCode(
-      BuildId buildId,
-      Path projectRoot,
-      Optional<NGContext> context,
-      ImmutableMap<String, String> clientEnvironment,
-      CommandMode commandMode,
-      String... args)
-      throws IOException, InterruptedException {
-    try {
-      return runMainWithExitCode(
-          buildId,
-          projectRoot,
-          context,
-          clientEnvironment,
-          commandMode,
-          args);
-    } catch (HumanReadableException e) {
-      Console console = new Console(
-          Verbosity.STANDARD_INFORMATION,
-          stdOut,
-          stdErr,
-          new Ansi(
-              AnsiEnvironmentChecking.environmentSupportsAnsiEscapes(platform, clientEnvironment)));
-      console.printBuildFailure(e.getHumanReadableErrorMessage());
-      return FAIL_EXIT_CODE;
-    } catch (InterruptionFailedException e) { // Command could not be interrupted.
-      if (context.isPresent()) {
-        context.get().getNGServer().shutdown(true); // Exit process to halt command execution.
-      }
-      return FAIL_EXIT_CODE;
-    } finally {
-      final boolean isDaemon = context.isPresent();
-      if (isDaemon) {
-        System.gc(); // Let VM return memory to OS
-      }
-      LOG.debug("Done.");
-    }
-  }
-
   private static BuildId getBuildId(Optional<NGContext> context) {
     String specifiedBuildId;
     if (context.isPresent()) {
@@ -1608,34 +1628,6 @@ public final class Main {
         NON_REENTRANT_SYSTEM_EXIT.shutdownSoon(FAIL_EXIT_CODE);
       }
     });
-  }
-
-  private void runMainThenExit(String[] args, Optional<NGContext> context) {
-    installUncaughtExceptionHandler(context);
-
-    Path projectRoot = Paths.get(".");
-    int exitCode = FAIL_EXIT_CODE;
-    BuildId buildId = getBuildId(context);
-
-    // Get the client environment, either from this process or from the Nailgun context.
-    ImmutableMap<String, String> clientEnvironment = getClientEnvironment(context);
-
-    try {
-      exitCode = tryRunMainWithExitCode(
-          buildId,
-          projectRoot,
-          context,
-          clientEnvironment,
-          CommandMode.RELEASE,
-          args);
-    } catch (Throwable t) {
-      LOG.error(t, "Uncaught exception at top level");
-    } finally {
-      LogConfig.flushLogs();
-      // Exit explicitly so that non-daemon threads (of which we use many) don't
-      // keep the VM alive.
-      System.exit(exitCode);
-    }
   }
 
   public static void main(String[] args) {

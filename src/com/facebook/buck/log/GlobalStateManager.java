@@ -17,8 +17,8 @@
 package com.facebook.buck.log;
 
 import com.facebook.buck.model.BuildId;
+import com.facebook.buck.util.DirectoryCleaner;
 import com.facebook.buck.util.Verbosity;
-import com.google.common.base.Optional;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 
@@ -44,6 +44,8 @@ public class GlobalStateManager {
 
   private static final GlobalStateManager SINGLETON = new GlobalStateManager();
   private static final String DEFAULT_LOG_FILE_WRITER_KEY = "DEFAULT";
+  private static final DirectoryCleaner LOG_FILE_DIR_CLEANER = LogFileHandler.newCleaner(
+      LogFileHandler.getMaxSizeBytes(), LogFileHandler.getMaxLogCount());
 
   // Shared global state.
   private final ConcurrentMap<Long, String> threadIdToCommandId;
@@ -67,15 +69,15 @@ public class GlobalStateManager {
 
     rotateDefaultLogFileWriter(
         InvocationInfo.of(new BuildId(), "launch",
-            AbstractLogConfigSetup.DEFAULT_SETUP.getLogDir())
+            LogConfigSetup.DEFAULT_SETUP.getLogDir())
             .getLogFilePath());
   }
 
   public Closeable setupLoggers(
-      InvocationInfo info,
+      final InvocationInfo info,
       OutputStream consoleHandlerStream,
-      final Optional<OutputStream> consoleHandlerOriginalStream,
-      final Optional<Verbosity> consoleHandlerVerbosity) {
+      final OutputStream consoleHandlerOriginalStream,
+      final Verbosity consoleHandlerVerbosity) {
     ReferenceCountedWriter writer = rotateDefaultLogFileWriter(info.getLogFilePath());
 
     final long threadId = Thread.currentThread().getId();
@@ -88,8 +90,7 @@ public class GlobalStateManager {
     commandIdToConsoleHandlerWriter.put(
         commandId,
         ConsoleHandler.utf8OutputStreamWriter(consoleHandlerStream));
-    if (consoleHandlerVerbosity.isPresent() &&
-        Verbosity.ALL.equals(consoleHandlerVerbosity.get())) {
+    if (Verbosity.ALL.equals(consoleHandlerVerbosity)) {
       commandIdToConsoleHandlerLevel.put(commandId, Level.ALL);
     }
 
@@ -120,13 +121,9 @@ public class GlobalStateManager {
         }
 
         // Tear down the ConsoleHandler state.
-        if (consoleHandlerOriginalStream.isPresent()) {
-          commandIdToConsoleHandlerWriter.put(
-              commandId,
-              ConsoleHandler.utf8OutputStreamWriter(consoleHandlerOriginalStream.get()));
-        } else {
-          commandIdToConsoleHandlerWriter.remove(commandId);
-        }
+        commandIdToConsoleHandlerWriter.put(
+            commandId,
+            ConsoleHandler.utf8OutputStreamWriter(consoleHandlerOriginalStream));
         commandIdToConsoleHandlerLevel.remove(commandId);
 
         // Tear down the shared state.
@@ -136,6 +133,12 @@ public class GlobalStateManager {
           if (commandId.equals(threadIdToCommandId.get(threadId))) {
             threadIdToCommandId.remove(threadId);
           }
+        }
+
+        try {
+          LOG_FILE_DIR_CLEANER.clean(info.getLogDirectoryPath().getParent());
+        } catch (IOException e) {
+          LOG.info(e, "It's possible another concurrent buck command removed the file.");
         }
       }
     };

@@ -1,10 +1,11 @@
-#@# GENERATED FILE: DO NOT MODIFY e8e6353dbb992ed6affe5c23c45f5efa814733df #@#
+#@# GENERATED FILE: DO NOT MODIFY 2880bb89d1ace01d849089d7e904d0c1def994c4 #@#
 {
   "distributed" : {
     "deps" : [
       "//src/com/facebook/buck/config:base-config",
       "//src/com/facebook/buck/graph:graph",
       "//src/com/facebook/buck/log:api",
+      "//src/com/facebook/buck/rules:default_cell_path_resolver",
       "//src/com/facebook/buck/util/environment:platform",
       "//third-party/java/immutables:processor",
       "//third-party/java/jackson:jackson-core",
@@ -19,13 +20,12 @@
       "//src/com/facebook/buck/model:model",
       "//src/com/facebook/buck/parser:parser",
       "//src/com/facebook/buck/rules:build_rule",
+      "//src/com/facebook/buck/rules:caching_build_engine_delegates",
       "//src/com/facebook/buck/rules:rule_key",
       "//src/com/facebook/buck/rules:types",
       "//src/com/facebook/buck/rules/coercer:coercer",
       "//src/com/facebook/buck/rules/keys:keys",
       "//src/com/facebook/buck/slb:slb",
-      "//src/com/facebook/buck/timing:timing",
-      "//src/com/facebook/buck/util:io",
       "//src/com/facebook/buck/util/cache:cache",
       "//src/com/facebook/buck/util/immutables:immutables",
       "//third-party/java/guava:guava",

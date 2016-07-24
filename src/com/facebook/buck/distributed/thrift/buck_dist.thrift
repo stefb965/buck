@@ -87,35 +87,34 @@ struct BuildJobStateFileHashEntry {
   4: optional bool isDirectory;
   // The paths to source files are relative, the paths to tools, SDKs, etc.. are absolute.
   5: optional bool pathIsAbsolute;
+  6: optional binary contents;
 }
 
 struct BuildJobStateFileHashes {
-  1: optional string fileSystemRootName;
+  1: optional i32 cellIndex;
   2: optional list<BuildJobStateFileHashEntry> entries;
 }
 
 struct BuildJobStateTargetNode {
-  1: optional i32 fileSystemRootIndex;
+  1: optional i32 cellIndex;
   2: optional string rawNode;
   3: optional BuildJobStateBuildTarget buildTarget;
 }
 
+struct BuildJobStateCell {
+  // This is just so we can generate a user-friendly path, we should not rely on this being unique.
+  1: optional string nameHint;
+  2: optional BuildJobStateBuckConfig config;
+}
+
 struct BuildJobStateTargetGraph {
-  1: optional map<i32, string> fileSystemRoots;
-  3: optional list<BuildJobStateTargetNode> nodes;
+  1: optional list<BuildJobStateTargetNode> nodes;
 }
 
 struct BuildJobState {
-  1: optional BuildJobStateBuckConfig buckConfig;
+  1: optional map<i32, BuildJobStateCell> cells;
   2: optional list<BuildJobStateFileHashes> fileHashes;
   3: optional BuildJobStateTargetGraph targetGraph;
-}
-
-enum RuleKeyStatus {
-  UNKNOWN = 0,
-  NEVER_STORED = 1,
-  STORED_WITHIN_SLA = 2,
-  OUTSIDE_SLA = 3,
 }
 
 ##############################################################################
@@ -138,16 +137,6 @@ struct BuildStatusResponse {
   1: optional BuildJob buildJob;
 }
 
-# Analyses the presence of RuleKeys in the buckcache.
-struct AnalyseRuleKeysRequest {
-  1: optional list<string> ruleKeys;
-}
-
-# Returns the status of all ruleKeys in the request in the same exact order.
-struct AnalyseRuleKeysResponse {
-  1: optional list<RuleKeyStatus> statuses;
-}
-
 ##############################################################################
 ## Top-Level Buck-Frontend HTTP body thrift Request/Response format
 ##############################################################################
@@ -164,7 +153,6 @@ struct FrontendRequest {
   1: optional FrontendRequestType type = FrontendRequestType.UNKNOWN;
   2: optional StartBuildRequest startBuild;
   3: optional BuildStatusRequest buildStatus;
-  6: optional AnalyseRuleKeysRequest analyseRuleKeysRequest;
 
   // [100-199] Values are reserved for the buck cache request types.
 }
@@ -176,7 +164,6 @@ struct FrontendResponse {
   10: optional FrontendRequestType type = FrontendRequestType.UNKNOWN;
   11: optional StartBuildResponse startBuild;
   12: optional BuildStatusResponse buildStatus;
-  15: optional AnalyseRuleKeysResponse analyseRuleKeysResponse;
 
   // [100-199] Values are reserved for the buck cache request types.
 }

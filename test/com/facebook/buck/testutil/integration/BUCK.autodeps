@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY eefeb8f3843fa690816c9d2c5e3222567b4bbb65 #@#
+#@# GENERATED FILE: DO NOT MODIFY b753148e7d4aa261029f05ece6fa33cce8ee8625 #@#
 {
   "integration" : {
     "deps" : [
@@ -14,9 +14,11 @@
       "//src/com/facebook/buck/io:watchman",
       "//src/com/facebook/buck/log:api",
       "//src/com/facebook/buck/model:build_id",
+      "//src/com/facebook/buck/rules:default_cell_path_resolver",
       "//src/com/facebook/buck/timing:timing",
       "//src/com/facebook/buck/util:constants",
       "//src/com/facebook/buck/util:util",
+      "//src/com/facebook/buck/util:watchman",
       "//src/com/facebook/buck/util/environment:env-filter",
       "//src/com/facebook/buck/util/environment:environment",
       "//src/com/facebook/buck/util/environment:platform",

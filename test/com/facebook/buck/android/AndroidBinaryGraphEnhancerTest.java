@@ -64,6 +64,7 @@ import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
@@ -74,6 +75,7 @@ import org.junit.Test;
 
 import java.nio.file.Paths;
 import java.util.EnumSet;
+import java.util.Set;
 
 public class AndroidBinaryGraphEnhancerTest {
 
@@ -147,7 +149,11 @@ public class AndroidBinaryGraphEnhancerTest {
         AndroidBinary.RelinkerMode.DISABLED,
         MoreExecutors.newDirectExecutorService(),
         /* manifestEntries */ ManifestEntries.empty(),
-        CxxPlatformUtils.DEFAULT_CONFIG);
+        CxxPlatformUtils.DEFAULT_CONFIG,
+        new APKModuleGraph(
+            TargetGraph.EMPTY,
+            originalParams.getBuildTarget(),
+            Optional.<Set<BuildTarget>>absent()));
 
     BuildTarget aaptPackageResourcesTarget =
         BuildTargetFactory.newInstance("//java/com/example:apk#aapt_package");
@@ -170,8 +176,12 @@ public class AndroidBinaryGraphEnhancerTest {
 
     AndroidPackageableCollection collection = new AndroidPackageableCollector(
             /* collectionRoot */ apkTarget,
-        ImmutableSet.of(javaDep2BuildTarget),
-            /* resourcesToExclude */ ImmutableSet.<BuildTarget>of())
+            ImmutableSet.of(javaDep2BuildTarget),
+            /* resourcesToExclude */ ImmutableSet.<BuildTarget>of(),
+            new APKModuleGraph(
+                TargetGraph.EMPTY,
+                apkTarget,
+                Optional.<Set<BuildTarget>>absent()))
         .addClasspathEntry(
             ((HasJavaClassHashes) javaDep1), new FakeSourcePath("ignored"))
         .addClasspathEntry(
@@ -180,7 +190,7 @@ public class AndroidBinaryGraphEnhancerTest {
             ((HasJavaClassHashes) javaLib), new FakeSourcePath("ignored"))
         .build();
 
-    ImmutableSet<DexProducedFromJavaLibrary> preDexedLibraries =
+    ImmutableMultimap<APKModule, DexProducedFromJavaLibrary> preDexedLibraries =
         graphEnhancer.createPreDexRulesForLibraries(
             /* preDexRulesNotInThePackageableCollection */
               ImmutableList.<DexProducedFromJavaLibrary>of(),
@@ -289,7 +299,11 @@ public class AndroidBinaryGraphEnhancerTest {
         AndroidBinary.RelinkerMode.DISABLED,
         MoreExecutors.newDirectExecutorService(),
         /* manifestEntries */ ManifestEntries.empty(),
-        CxxPlatformUtils.DEFAULT_CONFIG);
+        CxxPlatformUtils.DEFAULT_CONFIG,
+        new APKModuleGraph(
+            TargetGraph.EMPTY,
+            originalParams.getBuildTarget(),
+            Optional.<Set<BuildTarget>>absent()));
     replay(keystore);
     AndroidGraphEnhancementResult result = graphEnhancer.createAdditionalBuildables();
 
@@ -425,7 +439,11 @@ public class AndroidBinaryGraphEnhancerTest {
         AndroidBinary.RelinkerMode.DISABLED,
         MoreExecutors.newDirectExecutorService(),
         /* manifestEntries */ ManifestEntries.empty(),
-        CxxPlatformUtils.DEFAULT_CONFIG);
+        CxxPlatformUtils.DEFAULT_CONFIG,
+        new APKModuleGraph(
+            TargetGraph.EMPTY,
+            originalParams.getBuildTarget(),
+            Optional.<Set<BuildTarget>>absent()));
     graphEnhancer.createAdditionalBuildables();
 
     BuildRule aaptPackageResourcesRule = findRuleOfType(ruleResolver, AaptPackageResources.class);
@@ -477,7 +495,11 @@ public class AndroidBinaryGraphEnhancerTest {
         AndroidBinary.RelinkerMode.DISABLED,
         MoreExecutors.newDirectExecutorService(),
         /* manifestEntries */ ManifestEntries.empty(),
-        CxxPlatformUtils.DEFAULT_CONFIG);
+        CxxPlatformUtils.DEFAULT_CONFIG,
+        new APKModuleGraph(
+            TargetGraph.EMPTY,
+            originalParams.getBuildTarget(),
+            Optional.<Set<BuildTarget>>absent()));
     graphEnhancer.createAdditionalBuildables();
 
     ResourcesFilter resourcesFilter = findRuleOfType(ruleResolver, ResourcesFilter.class);
@@ -556,7 +578,11 @@ public class AndroidBinaryGraphEnhancerTest {
         AndroidBinary.RelinkerMode.DISABLED,
         MoreExecutors.newDirectExecutorService(),
         /* manifestEntries */ ManifestEntries.empty(),
-        CxxPlatformUtils.DEFAULT_CONFIG);
+        CxxPlatformUtils.DEFAULT_CONFIG,
+        new APKModuleGraph(
+            TargetGraph.EMPTY,
+            originalParams.getBuildTarget(),
+            Optional.<Set<BuildTarget>>absent()));
     graphEnhancer.createAdditionalBuildables();
 
 

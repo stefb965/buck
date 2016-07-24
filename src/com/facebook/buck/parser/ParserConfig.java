@@ -47,6 +47,12 @@ public class ParserConfig {
     ;
   }
 
+  public enum WatchmanGlobSanityCheck {
+    NONE,
+    STAT,
+    ;
+  }
+
   public enum AllowSymlinks {
     ALLOW,
     WARN,
@@ -150,6 +156,11 @@ public class ParserConfig {
     return delegate.getEnum("project", "glob_handler", GlobHandler.class).or(GlobHandler.PYTHON);
   }
 
+  public WatchmanGlobSanityCheck getWatchmanGlobSanityCheck() {
+    return delegate.getEnum("project", "watchman_glob_sanity_check", WatchmanGlobSanityCheck.class)
+        .or(WatchmanGlobSanityCheck.STAT);
+  }
+
   public Optional<Long> getWatchmanQueryTimeoutMs() {
     return delegate.getLong("project", "watchman_query_timeout_ms");
   }
@@ -174,6 +185,10 @@ public class ParserConfig {
   public ApplyDefaultFlavorsMode getDefaultFlavorsMode() {
     return delegate.getEnum("project", "default_flavors_mode", ApplyDefaultFlavorsMode.class)
         .or(ApplyDefaultFlavorsMode.ENABLED);
+  }
+
+  public boolean getEnableBuildFileSandboxing() {
+    return delegate.getBooleanValue("project", "enable_build_file_sandboxing", false);
   }
 
 }

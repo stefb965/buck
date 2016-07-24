@@ -16,21 +16,18 @@
 
 package com.facebook.buck.rules;
 
-import com.facebook.buck.counters.Counter;
-import com.facebook.buck.counters.IntegerCounter;
+import com.facebook.buck.event.ActionGraphEvent;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.PerfEventId;
 import com.facebook.buck.event.SimplePerfEvent;
+import com.facebook.buck.event.WatchmanEvent;
 import com.facebook.buck.graph.AbstractBottomUpTraversal;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.keys.ContentAgnosticRuleKeyBuilderFactory;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.concurrent.MostExecutors;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.MapDifference;
 import com.google.common.collect.Maps;
 import com.google.common.eventbus.Subscribe;
@@ -39,11 +36,7 @@ import java.nio.file.StandardWatchEventKinds;
 import java.nio.file.WatchEvent;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.Stack;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.annotation.Nullable;
@@ -55,52 +48,12 @@ import javax.annotation.Nullable;
 public class ActionGraphCache {
   private static final Logger LOG = Logger.get(ActionGraphCache.class);
 
-  private static final String COUNTER_CATEGORY = "buck_action_graph_cache";
-  private static final String CACHE_HIT_COUNTER_NAME = "cache_hit";
-  private static final String CACHE_MISS_COUNTER_NAME = "cache_miss";
-  private static final String NEW_AND_CACHED_ACTIONGRAPHS_MISMATCH_NAME =
-      "new_and_cached_actiongraphs_mismatch";
-
-  private final IntegerCounter cacheHitCounter;
-  private final IntegerCounter cacheMissCounter;
-  private final IntegerCounter actionGraphsMismatch;
-
-  private static final int MAX_MISMATCH_RULES_TO_PRINT = 10;
-
   @Nullable
   private Pair<TargetGraph, ActionGraphAndResolver> lastActionGraph;
-  // RuleKey checking is done in a separate thread so it doesn't slow down critical path by much.
-  private ExecutorService checkExecutor;
-  private AtomicBoolean checkAlreadyRunning;
-  public ActionGraphCache() {
-    // Setting corePoolSize to 0 kills the thread every time the checking task is finished.
-    // Setting thread priority to minimum so it doesn't content with buck's main work.
-    this(new ThreadPoolExecutor(
-        /* corePoolSize */ 0,
-        /* maximumPoolSize */ 1,
-        /* keepAliveTime */ 0L, TimeUnit.MILLISECONDS,
-        /* workQueue */ new LinkedBlockingQueue<Runnable>(),
-        /* threadFactory */ new MostExecutors.NamedAndPriorityThreadFactory(
-            "ActionGraphCache-RuleCheck",
-            Thread.MIN_PRIORITY),
-        /* handler */ new ThreadPoolExecutor.DiscardPolicy()));
-  }
+  private Stack<WatchmanEvent> watchmanEventsStack;
 
-  public ActionGraphCache(ExecutorService checkExecutor) {
-    this.cacheHitCounter = new IntegerCounter(
-        COUNTER_CATEGORY,
-        CACHE_HIT_COUNTER_NAME,
-        ImmutableMap.<String, String>of());
-    this.cacheMissCounter = new IntegerCounter(
-        COUNTER_CATEGORY,
-        CACHE_MISS_COUNTER_NAME,
-        ImmutableMap.<String, String>of());
-    this.actionGraphsMismatch = new IntegerCounter(
-        COUNTER_CATEGORY,
-        NEW_AND_CACHED_ACTIONGRAPHS_MISMATCH_NAME,
-        ImmutableMap.<String, String>of());
-    this.checkExecutor = checkExecutor;
-    this.checkAlreadyRunning = new AtomicBoolean(false);
+  public ActionGraphCache() {
+    watchmanEventsStack = new Stack<WatchmanEvent>();
   }
 
   /**
@@ -120,17 +73,13 @@ public class ActionGraphCache {
     eventBus.post(started);
     try {
       if (lastActionGraph != null && lastActionGraph.getFirst().equals(targetGraph)) {
-        cacheHitCounter.inc();
+        eventBus.post(ActionGraphEvent.Cache.hit());
         LOG.info("ActionGraph cache hit.");
         if (checkActionGraphs) {
-          spawnThreadToCompareActionGraphs(
-              eventBus,
-              lastActionGraph.getSecond(),
-              targetGraph,
-              keySeed);
+          compareActionGraphs(eventBus, lastActionGraph.getSecond(), targetGraph, keySeed);
         }
       } else {
-        cacheMissCounter.inc();
+        eventBus.post(ActionGraphEvent.Cache.miss());
         if (lastActionGraph == null) {
           LOG.info("ActionGraph cache miss. Cache was empty.");
         } else {
@@ -145,6 +94,10 @@ public class ActionGraphCache {
       }
     } finally {
       eventBus.post(ActionGraphEvent.finished(started));
+
+      while (!watchmanEventsStack.isEmpty()) {
+        eventBus.post(watchmanEventsStack.pop());
+      }
     }
     return lastActionGraph.getSecond();
   }
@@ -235,100 +188,79 @@ public class ActionGraphCache {
 
   /**
    * Compares the cached ActionGraph with a newly generated from the targetGraph. The comparison
-   * is done by generating and comparing content agnostic RuleKeys. This takes time so we spawn it
-   * to another thread. In case of mismatch, the mismatching BuildRules are printed.
+   * is done by generating and comparing content agnostic RuleKeys. In case of mismatch, the
+   * mismatching BuildRules are printed and the building process is stopped.
    * @param eventBus Buck's event bus.
    * @param lastActionGraphAndResolver The cached version of the graph that gets compared.
    * @param targetGraph Used to generate the actionGraph that gets compared with lastActionGraph.
    */
-  private void spawnThreadToCompareActionGraphs(
+  private void compareActionGraphs(
       final BuckEventBus eventBus,
       final ActionGraphAndResolver lastActionGraphAndResolver,
       final TargetGraph targetGraph,
       final int keySeed) {
-    // If a check already runs on a previous command do not interrupt and skip the test of this one.
-    if (!checkAlreadyRunning.compareAndSet(false, true)) {
-      return;
-    }
+    try (SimplePerfEvent.Scope scope = SimplePerfEvent.scope(
+        eventBus,
+        PerfEventId.of("ActionGraphCacheCheck"))) {
+      // We check that the lastActionGraph is not null because it's possible we had a
+      // invalidateCache() between the scheduling and the execution of this task.
+      LOG.info("ActionGraph integrity check spawned.");
+      Pair<TargetGraph, ActionGraphAndResolver> newActionGraph =
+          new Pair<TargetGraph, ActionGraphAndResolver>(
+              targetGraph,
+              createActionGraph(
+                  eventBus,
+                  new DefaultTargetNodeToBuildRuleTransformer(),
+                  targetGraph));
 
-    checkExecutor.execute(new Runnable() {
-      @Override
-      public void run() {
-        try (SimplePerfEvent.Scope scope = SimplePerfEvent.scope(
-            eventBus,
-            PerfEventId.of("ActionGraphCacheCheck"))) {
-          // We check that the lastActionGraph is not null because it's possible we had a
-          // invalidateCache() between the scheduling and the execution of this task.
-          LOG.info("ActionGraph integrity check spawned.");
-          Pair<TargetGraph, ActionGraphAndResolver> newActionGraph =
-              new Pair<TargetGraph, ActionGraphAndResolver>(
-                  targetGraph,
-                  createActionGraph(
-                      eventBus,
-                      new DefaultTargetNodeToBuildRuleTransformer(),
-                      targetGraph));
+      Map<BuildRule, RuleKey> lastActionGraphRuleKeys = getRuleKeysFromBuildRules(
+          lastActionGraphAndResolver.getActionGraph().getNodes(),
+          lastActionGraphAndResolver.getResolver(),
+          keySeed);
+      Map<BuildRule, RuleKey> newActionGraphRuleKeys = getRuleKeysFromBuildRules(
+          newActionGraph.getSecond().getActionGraph().getNodes(),
+          newActionGraph.getSecond().getResolver(),
+          keySeed);
 
-          Map<BuildRule, RuleKey> lastActionGraphRuleKeys = getRuleKeysFromBuildRules(
-              lastActionGraphAndResolver.getActionGraph().getNodes(),
-              lastActionGraphAndResolver.getResolver(),
-              keySeed);
-          Map<BuildRule, RuleKey> newActionGraphRuleKeys = getRuleKeysFromBuildRules(
-              newActionGraph.getSecond().getActionGraph().getNodes(),
-              newActionGraph.getSecond().getResolver(),
-              keySeed);
-
-          if (!lastActionGraphRuleKeys.equals(newActionGraphRuleKeys)) {
-            actionGraphsMismatch.inc();
-            invalidateCache();
-            String mismatchInfo = "RuleKeys of cached and new ActionGraph don't match:\n";
-            MapDifference<BuildRule, RuleKey> mismatchedRules =
-                Maps.difference(lastActionGraphRuleKeys, newActionGraphRuleKeys);
-            mismatchInfo +=
-                "Number of nodes in common/differing: " + mismatchedRules.entriesInCommon().size() +
-                    "/" + mismatchedRules.entriesDiffering().size() + "\n" +
-                    "Entries only in the cached ActionGraph: " +
-                    mismatchedRules.entriesOnlyOnLeft().size() +
-                    "Entries only in the newly created ActionGraph: " +
-                    mismatchedRules.entriesOnlyOnRight().size() +
-                "The first " + MAX_MISMATCH_RULES_TO_PRINT + " rules that did not match:\n";
-
-            int rulesAlreadyPrinted = 0;
-            for (BuildRule rule : mismatchedRules.entriesDiffering().keySet()) {
-              if (++rulesAlreadyPrinted == MAX_MISMATCH_RULES_TO_PRINT) {
-                break;
-              }
-              mismatchInfo += rule.toString() + "\n";
-            }
-            LOG.error(mismatchInfo);
-          }
-        } finally {
-          checkAlreadyRunning.set(false);
-        }
+      if (!lastActionGraphRuleKeys.equals(newActionGraphRuleKeys)) {
+        invalidateCache();
+        String mismatchInfo = "RuleKeys of cached and new ActionGraph don't match:\n";
+        MapDifference<BuildRule, RuleKey> mismatchedRules =
+            Maps.difference(lastActionGraphRuleKeys, newActionGraphRuleKeys);
+        mismatchInfo +=
+            "Number of nodes in common/differing: " + mismatchedRules.entriesInCommon().size() +
+                "/" + mismatchedRules.entriesDiffering().size() + "\n" +
+                "Entries only in the cached ActionGraph: " +
+                mismatchedRules.entriesOnlyOnLeft().size() +
+                "Entries only in the newly created ActionGraph: " +
+                mismatchedRules.entriesOnlyOnRight().size() +
+                "The rules that did not match:\n";
+        mismatchInfo += mismatchedRules.entriesDiffering().keySet().toString();
+        LOG.error(mismatchInfo);
+        throw new RuntimeException(mismatchInfo);
       }
-    });
-  }
-
-  public void invalidateBasedOn(WatchEvent<?> event) throws InterruptedException {
-    if (!isFileContentModificationEvent(event)) {
-      LOG.info("ActionGraph cache invalidation due to Watchman event %s.", event);
-      invalidateCache();
     }
   }
 
   @Subscribe
-  private static boolean isFileContentModificationEvent(WatchEvent<?> event) {
-    return event.kind() == StandardWatchEventKinds.ENTRY_MODIFY;
+  public void invalidateBasedOn(WatchEvent<?> event) throws InterruptedException {
+    // We invalidate in every case except a modify event.
+    if (event.kind() != StandardWatchEventKinds.ENTRY_MODIFY) {
+      LOG.info("ActionGraphCache invalidation due to Watchman event %s.", event);
+      invalidateCache();
+
+      if (event.kind() == StandardWatchEventKinds.OVERFLOW) {
+        watchmanEventsStack.add(WatchmanEvent.overflow());
+      } else if (event.kind() == StandardWatchEventKinds.ENTRY_CREATE) {
+        watchmanEventsStack.add(WatchmanEvent.fileCreation());
+      } else if (event.kind() == StandardWatchEventKinds.ENTRY_DELETE) {
+        watchmanEventsStack.add(WatchmanEvent.fileDeletion());
+      }
+    }
   }
 
   private void invalidateCache() {
     lastActionGraph = null;
-  }
-
-  public ImmutableList<Counter> getCounters() {
-    return ImmutableList.<Counter>of(
-        cacheHitCounter,
-        cacheMissCounter,
-        actionGraphsMismatch);
   }
 
   @VisibleForTesting

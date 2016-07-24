@@ -49,14 +49,16 @@ class EntryAccounting {
   private static final int DATA_DESCRIPTOR_FLAG = 1 << 3;
   private static final int UTF8_NAMES_FLAG = 1 << 11;
   private static final int ARBITRARY_SIZE = 1024;
+  private static final byte[] emptyBytes = new byte[]{};
 
   private final ZipEntry entry;
   private final Method method;
   private Hasher crc = Hashing.crc32().newHasher();
   private long offset;
+  private long length = 0;
   private long externalAttributes = 0;
 
-  /*
+  /**
    * General purpose bit flag:
    *  Bit 00: encrypted file
    *  Bit 01: compression option
@@ -75,6 +77,7 @@ class EntryAccounting {
    *  Defaults to indicate that names are stored as UTF8.
    */
   private int flags = UTF8_NAMES_FLAG;
+
   private final Deflater deflater = new Deflater(Deflater.DEFAULT_COMPRESSION, true);
   private final byte[] buffer = new byte[ARBITRARY_SIZE];
 
@@ -91,10 +94,6 @@ class EntryAccounting {
       deflater.setLevel(((CustomZipEntry) entry).getCompressionLevel());
       externalAttributes = ((CustomZipEntry) entry).getExternalAttributes();
     }
-  }
-
-  public void updateCrc(byte[] b, int off, int len) {
-    crc = crc.putBytes(b, off, len);
   }
 
   /**
@@ -119,10 +118,6 @@ class EntryAccounting {
         instance.get(Calendar.HOUR_OF_DAY) << 11 |
         instance.get(Calendar.MINUTE) << 5 |
         instance.get(Calendar.SECOND) >> 1;
-  }
-
-  private boolean isDeflated() {
-    return method == Method.DEFLATE;
   }
 
   public String getName() {
@@ -153,16 +148,12 @@ class EntryAccounting {
     return entry.getCrc();
   }
 
-  public void calculateCrc() {
-    entry.setCrc(crc.hash().padToLong());
-  }
-
   public int getCompressionMethod() {
     return method.compressionMethod;
   }
 
   public int getRequiredExtractVersion() {
-    int requiredExtractVersion = method.getRequiredExtractVersion();
+    int requiredExtractVersion = method.requiredVersion;
     // Set the creator system indicator if we have UNIX-style file attributes.
     // http://forensicswiki.org/wiki/Zip#External_file_attributes
     if (externalAttributes >= (1 << 16)) {
@@ -176,9 +167,7 @@ class EntryAccounting {
   }
 
   public long writeLocalFileHeader(OutputStream out) throws IOException {
-    if (method == Method.DEFLATE) {
-      flags |= DATA_DESCRIPTOR_FLAG;
-
+    if (method == Method.DEFLATE && entry instanceof CustomZipEntry) {
       // See http://www.pkware.com/documents/casestudies/APPNOTE.TXT (section 4.4.4)
       // Essentially, we're about to set bits 1 and 2 to indicate to tools such as zipinfo which
       // level of compression we're using. If we've not set a compression level, then we're using
@@ -191,18 +180,20 @@ class EntryAccounting {
       // | Normal   |   0   |   0   |
       // | Best     |   1   |   0   |
       // +----------+-------+-------+
-      if (entry instanceof CustomZipEntry) {
-        int level = ((CustomZipEntry) entry).getCompressionLevel();
-        switch (level) {
-          case Deflater.BEST_COMPRESSION:
-            flags |= (1 << 1);
-            break;
+      int level = ((CustomZipEntry) entry).getCompressionLevel();
+      switch (level) {
+        case Deflater.BEST_COMPRESSION:
+          flags |= (1 << 1);
+          break;
 
-          case Deflater.BEST_SPEED:
-            flags |= (1 << 2);
-            break;
-        }
+        case Deflater.BEST_SPEED:
+          flags |= (1 << 2);
+          break;
       }
+    }
+
+    if (requiresDataDescriptor()) {
+      flags |= DATA_DESCRIPTOR_FLAG;
     }
 
     try (ByteArrayOutputStream stream = new ByteArrayOutputStream()) {
@@ -213,8 +204,10 @@ class EntryAccounting {
       ByteIo.writeShort(stream, getCompressionMethod());
       ByteIo.writeInt(stream, getTime());
 
-      // In deflate mode, we don't know the size or CRC of the data.
-      if (isDeflated()) {
+      // If we don't know the size or CRC of the data in advance (such as when in deflate mode),
+      // we write zeros now, and append the actual values (the data descriptor) after the entry
+      // bytes has been fully written.
+      if (requiresDataDescriptor()) {
         ByteIo.writeInt(stream, 0);
         ByteIo.writeInt(stream, 0);
         ByteIo.writeInt(stream, 0);
@@ -235,9 +228,9 @@ class EntryAccounting {
     }
   }
 
-  private byte[] close() throws IOException {
-    if (!isDeflated()) {
-      return new byte[0];
+  private byte[] getDataDescriptor() throws IOException {
+    if (!requiresDataDescriptor()) {
+      return emptyBytes;
     }
 
     try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
@@ -245,7 +238,6 @@ class EntryAccounting {
       ByteIo.writeInt(out, getCrc());
       ByteIo.writeInt(out, getCompressedSize());
       ByteIo.writeInt(out, getSize());
-
       return out.toByteArray();
     }
   }
@@ -258,83 +250,93 @@ class EntryAccounting {
     return written;
   }
 
-  public long write(OutputStream out, byte[] b, int off, int len) throws IOException {
+  public void write(OutputStream out, byte[] b, int off, int len) throws IOException {
+    if (len == 0) {
+      return;
+    }
     updateCrc(b, off, len);
 
-    if (!isDeflated()) {
+    if (method == Method.STORE) {
       out.write(b, off, len);
-      return len;
+      length += len;
+    } else if (method == Method.DEFLATE) {
+      Preconditions.checkState(!deflater.finished());
+      deflater.setInput(b, off, len);
+      while (!deflater.needsInput()) {
+        deflate(out);
+      }
     }
-
-    if (len == 0) {
-      return 0;
-    }
-
-    Preconditions.checkState(!deflater.finished());
-    deflater.setInput(b, off, len);
-
-    while (!deflater.needsInput()) {
-      deflate(out);
-    }
-    return 0; // We calculate how many bytes we write when closing deflated entries.
   }
 
-  public long close(OutputStream out) throws IOException {
-    if (!isDeflated()) {
-      // If we're not doing deflation, end the deflater to free native resources.
-      deflater.end();
-      // Nothing left to do.
-      return 0;
+  /**
+   * Finish the entry and return the total number of compressed bytes written
+   * (not counting the local file header, but counting the data descriptor if present).
+   * Must be called exactly once.
+   */
+  public long finish(OutputStream out) throws IOException {
+    if (method == Method.STORE) {
+      Preconditions.checkState(
+          entry.getSize() == length && entry.getCompressedSize() == length,
+          "Number of bytes written differs from what is specified in the entry.");
+      Preconditions.checkState(
+          entry.getCrc() == calculateCrc(),
+          "CRC of bytes written differs from what is specified in the entry.");
+    } else if (method == Method.DEFLATE) {
+      deflater.finish();
+      while (!deflater.finished()) {
+        deflate(out);
+      }
+      entry.setSize(deflater.getBytesRead());
+      entry.setCompressedSize(deflater.getBytesWritten());
+      entry.setCrc(calculateCrc());
     }
 
-    deflater.finish();
-    while (!deflater.finished()) {
-      deflate(out);
-    }
-    entry.setSize(deflater.getBytesRead());
-    entry.setCompressedSize(deflater.getBytesWritten());
-    calculateCrc();
-
+    // regardless of the method used, end the deflater to free native resources.
     deflater.end();
 
-    byte[] closeBytes = close();
-    out.write(closeBytes);
+    // write the data descriptor if required
+    byte[] dataDescriptor = getDataDescriptor();
+    out.write(dataDescriptor);
 
-    return entry.getCompressedSize() + closeBytes.length;
+    return entry.getCompressedSize() + dataDescriptor.length;
   }
 
+  private boolean requiresDataDescriptor() {
+    return method == Method.DEFLATE;
+  }
 
-  private static enum Method {
-    DEFLATE(ZipEntry.DEFLATED, 20, 8),
-    STORE(ZipEntry.STORED, 10, 0),
+  private void updateCrc(byte[] b, int off, int len) {
+    crc = crc.putBytes(b, off, len);
+  }
+
+  private long calculateCrc() {
+    return crc.hash().padToLong();
+  }
+
+  private enum Method {
+    DEFLATE(20, 8),
+    STORE(10, 0),
     ;
 
-    private final int zipEntryMethod;
     private final int requiredVersion;
     private final int compressionMethod;
 
-    private Method(int zipEntryMethod, int requiredVersion, int compressionMethod) {
-      this.zipEntryMethod = zipEntryMethod;
+    Method(int requiredVersion, int compressionMethod) {
       this.requiredVersion = requiredVersion;
       this.compressionMethod = compressionMethod;
     }
 
-    public int getRequiredExtractVersion() {
-      return requiredVersion;
-    }
-
     public static Method detect(int fromZipMethod) {
-      if (fromZipMethod == -1) {
-        return DEFLATE;
+      switch (fromZipMethod) {
+        case -1:
+          return DEFLATE;
+        case ZipEntry.DEFLATED:
+          return DEFLATE;
+        case ZipEntry.STORED:
+          return STORE;
+        default:
+          throw new IllegalArgumentException("Cannot determine zip method from: " + fromZipMethod);
       }
-
-      for (Method value : values()) {
-        if (value.zipEntryMethod == fromZipMethod) {
-          return value;
-        }
-      }
-
-      throw new IllegalArgumentException("Cannot determine zip method from: " + fromZipMethod);
     }
   }
 

@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY 76fed6c27dd9b85b5b307274f4f0e540ed0197f0 #@#
+#@# GENERATED FILE: DO NOT MODIFY bc4e6bf25ee454182332627fe10df95ba6e7ec42 #@#
 {
   "executable-finder" : {
     "deps" : [
@@ -24,6 +24,7 @@
     ],
     "exported_deps" : [
       "//src/com/facebook/buck/config:base-config",
+      "//src/com/facebook/buck/io:ProjectFilesystemDelegate",
       "//src/com/facebook/buck/io:executable-finder",
       "//src/com/facebook/buck/util/immutables:immutables",
       "//third-party/java/guava:guava",

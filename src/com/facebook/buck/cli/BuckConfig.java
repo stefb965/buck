@@ -19,7 +19,6 @@ package com.facebook.buck.cli;
 import static java.lang.Integer.parseInt;
 
 import com.facebook.buck.config.Config;
-import com.facebook.buck.config.CellConfig;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.DefaultJavaPackageFinder;
@@ -112,24 +111,7 @@ public class BuckConfig {
     }
   };
 
-  private final CellPathResolver cellToPath =
-      new CellPathResolver() {
-        @Override
-        public Path getCellPath(Optional<String> cellName) {
-          if (!cellName.isPresent()) {
-            return projectFilesystem.getRootPath();
-          }
-          Optional<Path> root = getPath("repositories", cellName.get(), false);
-          if (!root.isPresent()) {
-            throw new HumanReadableException(
-                "Unable to find repository '%s' in cell rooted at: %s",
-                cellName.get(),
-                projectFilesystem.getRootPath());
-          }
-          Path path = MorePaths.expandHomeDir(root.get());
-          return projectFilesystem.resolve(path).normalize();
-        }
-      };
+  private final CellPathResolver cellPathResolver;
 
   private final Architecture architecture;
 
@@ -149,7 +131,9 @@ public class BuckConfig {
       ProjectFilesystem projectFilesystem,
       Architecture architecture,
       Platform platform,
-      ImmutableMap<String, String> environment) {
+      ImmutableMap<String, String> environment,
+      CellPathResolver cellPathResolver) {
+    this.cellPathResolver = cellPathResolver;
     this.config = config;
     this.projectFilesystem = projectFilesystem;
     this.architecture = architecture;
@@ -220,7 +204,7 @@ public class BuckConfig {
   }
 
   public CellPathResolver getCellRoots() {
-    return cellToPath;
+    return cellPathResolver;
   }
 
   public Optional<ImmutableList<String>> getOptionalListWithoutComments(
@@ -481,6 +465,11 @@ public class BuckConfig {
     return getBooleanValue("log", "compress_traces", false);
   }
 
+  public ProjectTestsMode xcodeProjectTestsMode() {
+    return getEnum("project", "xcode_project_tests_mode", ProjectTestsMode.class)
+        .or(ProjectTestsMode.WITH_TESTS);
+  }
+
   public boolean getRestartAdbOnFailure() {
     return Boolean.parseBoolean(getValue("adb", "adb_restart_on_failure").or("true"));
   }
@@ -590,12 +579,8 @@ public class BuckConfig {
     return Optional.absent();
   }
 
-  public SampleRate getActionGraphCacheCheckSampleRate() {
-    Optional<Float> sampleRate = config.getFloat("cache", "action_graph_cache_check_rate");
-    if (sampleRate.isPresent()) {
-      return SampleRate.of(sampleRate.get());
-    }
-    return SampleRate.of(0.25f);
+  public boolean isActionGraphCheckingEnabled() {
+    return getBooleanValue("cache", "action_graph_cache_check_enabled", false);
   }
 
   public Optional<ImmutableSet<PatternAndMessage>> getUnexpectedFlavorsMessages() {
@@ -638,10 +623,6 @@ public class BuckConfig {
 
   public Optional<URI> getUrl(String section, String field) {
     return config.getUrl(section, field);
-  }
-
-  public CellConfig getConfigOverrides() {
-    return config.getConfigOverrides();
   }
 
   private <T> T required(String section, String field, Optional<T> value) {
@@ -985,4 +966,13 @@ public class BuckConfig {
     }
     return Optional.of(ImmutableList.copyOf(Splitter.on(' ').splitToList(value.get())));
   }
+
+  /**
+   * @return whether to symlink the default output location (`buck-out`) to the user-provided
+   *         override for compatibility.
+   */
+  public boolean getBuckOutCompatLink() {
+    return getBooleanValue("project", "buck_out_compat_link", false);
+  }
+
 }

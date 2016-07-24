@@ -31,11 +31,11 @@ import com.facebook.buck.rules.ActionGraphCache;
 import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.CachingBuildEngine;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.LocalCachingBuildEngineDelegate;
 import com.facebook.buck.rules.TargetGraphAndBuildTargets;
 import com.facebook.buck.step.AdbOptions;
 import com.facebook.buck.step.TargetDevice;
 import com.facebook.buck.step.TargetDeviceOptions;
-import com.facebook.buck.util.DefaultPropertyFinder;
 import com.facebook.buck.util.MoreExceptions;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -101,10 +101,11 @@ public class FetchCommand extends BuildCommand {
           params.getBuckConfig(),
           actionGraphAndResolver.getActionGraph(),
           actionGraphAndResolver.getResolver(),
+          params.getCell(),
           params.getAndroidPlatformTargetSupplier(),
           new CachingBuildEngine(
+              new LocalCachingBuildEngineDelegate(params.getFileHashCache()),
               pool.getExecutor(),
-              params.getFileHashCache(),
               getBuildEngineMode().or(params.getBuckConfig().getBuildEngineMode()),
               params.getBuckConfig().getBuildDepFiles(),
               params.getBuckConfig().getBuildMaxDepFileCacheEntries(),
@@ -146,10 +147,10 @@ public class FetchCommand extends BuildCommand {
 
   private FetchTargetNodeToBuildRuleTransformer createFetchTransformer(CommandRunnerParams params) {
     DefaultAndroidDirectoryResolver resolver = new DefaultAndroidDirectoryResolver(
-        params.getCell().getFilesystem(),
+        params.getCell().getRoot().getFileSystem(),
+        params.getEnvironment(),
         Optional.<String>absent(),
-        Optional.<String>absent(),
-        new DefaultPropertyFinder(params.getCell().getFilesystem(), params.getEnvironment()));
+        Optional.<String>absent());
 
     Optional<Path> sdkDir = resolver.getSdkOrAbsent();
 

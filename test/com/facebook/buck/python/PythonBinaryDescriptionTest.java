@@ -18,6 +18,7 @@ package com.facebook.buck.python;
 
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.cxx.NativeLinkStrategy;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.cli.FakeBuckConfig;
@@ -169,7 +170,7 @@ public class PythonBinaryDescriptionTest {
   }
 
   @Test
-  public void pexExtension() throws Exception {
+  public void extensionConfig() throws Exception {
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bin");
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
@@ -190,6 +191,22 @@ public class PythonBinaryDescriptionTest {
     PythonBinary binary =
         (PythonBinary) builder
             .setMainModule("main")
+            .build(resolver);
+    assertThat(
+        Preconditions.checkNotNull(binary.getPathToOutput()).toString(),
+        Matchers.endsWith(".different_extension"));
+  }
+
+  @Test
+  public void extensionParameter() throws Exception {
+    BuildTarget target = BuildTargetFactory.newInstance("//foo:bin");
+    BuildRuleResolver resolver =
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    PythonBinaryBuilder builder = PythonBinaryBuilder.create(target);
+    PythonBinary binary =
+        (PythonBinary) builder
+            .setMainModule("main")
+            .setExtension(".different_extension")
             .build(resolver);
     assertThat(
         Preconditions.checkNotNull(binary.getPathToOutput()).toString(),

@@ -32,6 +32,7 @@ import com.facebook.buck.rules.CachingBuildEngine;
 import com.facebook.buck.rules.ExternalTestRunnerRule;
 import com.facebook.buck.rules.ExternalTestRunnerTestSpec;
 import com.facebook.buck.rules.Label;
+import com.facebook.buck.rules.LocalCachingBuildEngineDelegate;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphAndBuildTargets;
 import com.facebook.buck.rules.TargetNode;
@@ -461,9 +462,7 @@ public class TestCommand extends BuildCommand {
       ActionGraphAndResolver actionGraphAndResolver = Preconditions.checkNotNull(
           params.getActionGraphCache().getActionGraph(
               params.getBuckEventBus(),
-              BuildIdSampler.apply(
-                  params.getBuckConfig().getActionGraphCacheCheckSampleRate(),
-                  params.getBuckEventBus().getBuildId()),
+              params.getBuckConfig().isActionGraphCheckingEnabled(),
               targetGraph,
               params.getBuckConfig().getKeySeed()));
       // Look up all of the test rules in the action graph.
@@ -483,8 +482,8 @@ public class TestCommand extends BuildCommand {
 
       CachingBuildEngine cachingBuildEngine =
           new CachingBuildEngine(
+              new LocalCachingBuildEngineDelegate(params.getFileHashCache()),
               pool.getExecutor(),
-              params.getFileHashCache(),
               getBuildEngineMode().or(params.getBuckConfig().getBuildEngineMode()),
               params.getBuckConfig().getBuildDepFiles(),
               params.getBuckConfig().getBuildMaxDepFileCacheEntries(),
@@ -497,6 +496,7 @@ public class TestCommand extends BuildCommand {
           params.getBuckConfig(),
           actionGraphAndResolver.getActionGraph(),
           actionGraphAndResolver.getResolver(),
+          params.getCell(),
           params.getAndroidPlatformTargetSupplier(),
           cachingBuildEngine,
           params.getArtifactCache(),

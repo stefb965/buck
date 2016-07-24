@@ -29,6 +29,7 @@ import com.facebook.buck.model.FilesystemBackedBuildFileTree;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.ConstructorArgMarshaller;
 import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.rules.TargetNodeFactory;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.testutil.TestConsole;
@@ -402,7 +403,8 @@ public class ParsePipelineTest {
               return buildFileParser;
             }
           });
-      final TargetNodeListener nodeListener = new TargetNodeListener() {
+      final TargetNodeListener<TargetNode<?>> nodeListener =
+          new TargetNodeListener<TargetNode<?>>() {
         @Override
         public void onCreate(Path buildFile, TargetNode<?> node) throws IOException {
         }
@@ -421,9 +423,9 @@ public class ParsePipelineTest {
           DefaultParserTargetNodeFactory.createForParser(
               eventBus,
               constructorArgMarshaller,
-              coercerFactory,
               buildFileTrees,
-              nodeListener),
+              nodeListener,
+              new TargetNodeFactory(coercerFactory)),
           this.executorService,
           this.eventBus,
           this.projectBuildFileParserPool,

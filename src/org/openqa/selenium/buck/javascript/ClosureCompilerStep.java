@@ -29,6 +29,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 
@@ -54,7 +55,8 @@ public class ClosureCompilerStep extends ShellStep {
   }
 
   @Override
-  public StepExecutionResult execute(ExecutionContext context) throws InterruptedException {
+  public StepExecutionResult execute(ExecutionContext context)
+      throws InterruptedException, IOException {
     StepExecutionResult exitCode = super.execute(context);
 
     if (exitCode.isSuccess()) {

@@ -18,6 +18,7 @@ package com.facebook.buck.parser;
 
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.event.ParsingEvent;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.json.ProjectBuildFileParser;
@@ -27,6 +28,7 @@ import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.ConstructorArgMarshaller;
 import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.rules.TargetNodeFactory;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.HumanReadableException;
@@ -75,7 +77,6 @@ class PerBuildState implements AutoCloseable {
    * paths contain an element which exists in {@code symlinkExistenceCache}.
    */
   private final Set<Path> buildInputPathsUnderSymlink;
-  private final TargetNodeListener symlinkCheckers;
 
   /**
    * Cache of (symlink path: symlink target) pairs used to avoid repeatedly
@@ -110,7 +111,7 @@ class PerBuildState implements AutoCloseable {
     this.stderr = new PrintStream(ByteStreams.nullOutputStream());
     this.console = new Console(Verbosity.STANDARD_INFORMATION, stdout, stderr, Ansi.withoutTty());
 
-    this.symlinkCheckers = new TargetNodeListener() {
+    TargetNodeListener<TargetNode<?>> symlinkCheckers = new TargetNodeListener<TargetNode<?>>() {
       @Override
       public void onCreate(Path buildFile, TargetNode<?> node) throws IOException {
         registerInputsUnderSymlinks(buildFile, node);
@@ -131,9 +132,9 @@ class PerBuildState implements AutoCloseable {
         DefaultParserTargetNodeFactory.createForParser(
             eventBus,
             marshaller,
-            permState.getTypeCoercerFactory(),
             permState.getBuildFileTrees(),
-            symlinkCheckers),
+            symlinkCheckers,
+            new TargetNodeFactory(permState.getTypeCoercerFactory())),
         parserConfig.getEnableParallelParsing() ?
             executorService :
             MoreExecutors.newDirectExecutorService(),
@@ -253,7 +254,7 @@ class PerBuildState implements AutoCloseable {
       }
 
       // If we're not explicitly forbidding symlinks, either warn to the console or the log file
-      // depennding on the config setting.
+      // depending on the config setting.
       String msg =
           String.format(
               "Disabling caching for target %s, because one or more input files are under a " +
@@ -267,6 +268,7 @@ class PerBuildState implements AutoCloseable {
         LOG.warn(msg);
       }
 
+      eventBus.post(ParsingEvent.symlinkInvalidation());
       buildInputPathsUnderSymlink.add(buildFile);
     }
   }

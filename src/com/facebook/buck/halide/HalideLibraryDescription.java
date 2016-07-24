@@ -21,8 +21,10 @@ import com.facebook.buck.cxx.CxxBinary;
 import com.facebook.buck.cxx.CxxBinaryDescription;
 import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
+import com.facebook.buck.cxx.CxxFlags;
 import com.facebook.buck.cxx.CxxLinkAndCompileRules;
 import com.facebook.buck.cxx.CxxPlatform;
+import com.facebook.buck.cxx.CxxPlatforms;
 import com.facebook.buck.cxx.CxxSource;
 import com.facebook.buck.cxx.CxxSourceRuleFactory;
 import com.facebook.buck.cxx.CxxStrip;
@@ -35,6 +37,7 @@ import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.Flavored;
 import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
+import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -59,6 +62,7 @@ import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
+import java.util.regex.Pattern;
 
 public class HalideLibraryDescription
     implements Description<HalideLibraryDescription.Arg>, Flavored {
@@ -184,7 +188,8 @@ public class HalideLibraryDescription
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
-      CxxPlatform platform) throws NoSuchBuildTargetException {
+      CxxPlatform platform,
+      Optional<String> functionNameOverride) throws NoSuchBuildTargetException {
     BuildRule halideCompile = ruleResolver.requireRule(
         params.getBuildTarget().withFlavors(HALIDE_COMPILE_FLAVOR, platform.getFlavor()));
     BuildTarget buildTarget = halideCompile.getBuildTarget();
@@ -203,22 +208,46 @@ public class HalideLibraryDescription
         ImmutableList.<SourcePath>of(
             new BuildTargetSourcePath(
                 buildTarget,
-                HalideCompile.objectOutputPath(buildTarget, params.getProjectFilesystem()))));
+                HalideCompile.objectOutputPath(
+                    buildTarget,
+                    params.getProjectFilesystem(),
+                    functionNameOverride))));
+  }
+
+  private Optional<ImmutableList<String>> expandInvocationFlags(
+      Optional<ImmutableList<String>> optionalFlags,
+      CxxPlatform platform) {
+    if (optionalFlags.isPresent()) {
+      RuleKeyAppendableFunction<String, String> macroMapper =
+          CxxFlags.getTranslateMacrosFn(platform);
+      ImmutableList<String> flags = optionalFlags.get();
+      ImmutableList.Builder<String> builder = ImmutableList.builder();
+      for (String flag : flags) {
+        builder.add(macroMapper.apply(flag));
+      }
+      optionalFlags = Optional.of(builder.build());
+    }
+    return optionalFlags;
   }
 
   private BuildRule createHalideCompile(
       BuildRuleParams params,
       BuildRuleResolver resolver,
       SourcePathResolver pathResolver,
-      CxxPlatform platform) throws NoSuchBuildTargetException {
+      CxxPlatform platform,
+      Optional<ImmutableList<String>> compilerInvocationFlags,
+      Optional<String> functionName) throws NoSuchBuildTargetException {
     CxxBinary halideCompiler = (CxxBinary) resolver.requireRule(
         params.getBuildTarget().withFlavors(HALIDE_COMPILER_FLAVOR));
+
     return new HalideCompile(
         params.copyWithExtraDeps(
             Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of(halideCompiler))),
         pathResolver,
         halideCompiler.getExecutableCommand(),
-        halideBuckConfig.getHalideTargetForPlatform(platform));
+        halideBuckConfig.getHalideTargetForPlatform(platform),
+        expandInvocationFlags(compilerInvocationFlags, platform),
+        functionName);
   }
 
   @Override
@@ -235,8 +264,10 @@ public class HalideLibraryDescription
       BuildTarget compileTarget = resolver
           .requireRule(target.withFlavors(HALIDE_COMPILE_FLAVOR, cxxPlatform.getFlavor()))
           .getBuildTarget();
-      Path outputPath =
-          HalideCompile.headerOutputPath(compileTarget, params.getProjectFilesystem());
+      Path outputPath = HalideCompile.headerOutputPath(
+          compileTarget,
+          params.getProjectFilesystem(),
+          args.functionName);
       headersBuilder.put(
           outputPath.getFileName(),
           new BuildTargetSourcePath(compileTarget, outputPath));
@@ -249,9 +280,9 @@ public class HalideLibraryDescription
           HeaderVisibility.PUBLIC);
     } else if (flavors.contains(HALIDE_COMPILER_FLAVOR)) {
       // We always want to build the halide "compiler" for the host platform, so
-      // we use the "default" flavor here, regardless of the flavors on the build
+      // we use the host flavor here, regardless of the flavors on the build
       // target.
-      CxxPlatform hostCxxPlatform = cxxPlatforms.getValue(ImmutableFlavor.of("default"));
+      CxxPlatform hostCxxPlatform = cxxPlatforms.getValue(CxxPlatforms.getHostFlavor());
       Preconditions.checkState(args.srcs.isPresent());
       final ImmutableSortedSet<BuildTarget> compilerDeps =
           args.compilerDeps.or(ImmutableSortedSet.<BuildTarget>of());
@@ -278,7 +309,8 @@ public class HalideLibraryDescription
           params,
           resolver,
           new SourcePathResolver(resolver),
-          cxxPlatform);
+          cxxPlatform,
+          args.functionName);
     } else if (flavors.contains(CxxDescriptionEnhancer.SHARED_FLAVOR)) {
       throw new HumanReadableException(
           "halide_library '%s' does not support shared libraries as output",
@@ -292,18 +324,24 @@ public class HalideLibraryDescription
                   ImmutableSortedSet.<BuildRule>of())),
           resolver,
           new SourcePathResolver(resolver),
-          cxxPlatform);
+          cxxPlatform,
+          args.compilerInvocationFlags,
+          args.functionName);
     }
 
     return new HalideLibrary(
         params,
         resolver,
-        new SourcePathResolver(resolver));
+        new SourcePathResolver(resolver),
+        args.supportedPlatformsRegex);
   }
 
   @SuppressFieldNotInitialized
   public class Arg extends CxxBinaryDescription.Arg {
     public Optional<ImmutableSortedSet<BuildTarget>> compilerDeps;
     public Optional<ImmutableSortedMap<String, ImmutableMap<String, String>>> configs;
+    public Optional<Pattern> supportedPlatformsRegex;
+    public Optional<ImmutableList<String>> compilerInvocationFlags;
+    public Optional<String> functionName;
   }
 }

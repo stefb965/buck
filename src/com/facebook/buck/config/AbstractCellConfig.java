@@ -15,13 +15,25 @@
  */
 package com.facebook.buck.config;
 
+import com.facebook.buck.rules.RelativeCellName;
 import com.facebook.buck.util.immutables.BuckStyleTuple;
+import com.google.common.base.Functions;
+import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Predicates;
+import com.google.common.collect.FluentIterable;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMultimap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Multimaps;
 
 import org.immutables.value.Value;
 
+import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -33,7 +45,10 @@ import java.util.Map;
 @Value.Immutable
 @BuckStyleTuple
 abstract class AbstractCellConfig {
-  public abstract ImmutableMap<Optional<String>, ImmutableMap<String, ImmutableMap<String, String>>>
+  public static final RelativeCellName ALL_CELLS_OVERRIDE =
+      RelativeCellName.of(ImmutableSet.of(RelativeCellName.ALL_CELLS_SPECIAL_NAME));
+
+  public abstract ImmutableMap<RelativeCellName, ImmutableMap<String, ImmutableMap<String, String>>>
     getValues();
 
   /**
@@ -41,12 +56,12 @@ abstract class AbstractCellConfig {
    *
    * @return The contents of the raw config with the cell-view filter
    */
-  public RawConfig getForCell(Optional<String> cellName) {
+  public RawConfig getForCell(RelativeCellName cellName) {
     ImmutableMap<String, ImmutableMap<String, String>> config = Optional
       .fromNullable(getValues().get(cellName))
       .or(ImmutableMap.<String, ImmutableMap<String, String>>of());
     ImmutableMap<String, ImmutableMap<String, String>> starConfig = Optional
-      .fromNullable(getValues().get(Optional.of("*")))
+      .fromNullable(getValues().get(ALL_CELLS_OVERRIDE))
       .or(ImmutableMap.<String, ImmutableMap<String, String>>of());
     return RawConfig.builder()
       .putAll(starConfig)
@@ -55,11 +70,71 @@ abstract class AbstractCellConfig {
   }
 
   /**
+   * Translates the 'cell name'->override map into a 'Path'->override map.
+   * @param pathMapping a map containing paths to all of the cells we want to query.
+   * @return 'Path'->override map
+   */
+  public ImmutableMap<Path, RawConfig> getOverridesByPath(
+      ImmutableMap<RelativeCellName, Path> pathMapping) throws MalformedOverridesException {
+
+    ImmutableSet<RelativeCellName> relativeNamesOfCellsWithOverrides =
+        FluentIterable.from(getValues().keySet())
+            .filter(Predicates.not(Predicates.equalTo(ALL_CELLS_OVERRIDE)))
+            .toSet();
+    ImmutableSet.Builder<Path> pathsWithOverrides = ImmutableSet.builder();
+    for (RelativeCellName cellWithOverride : relativeNamesOfCellsWithOverrides) {
+      if (!pathMapping.containsKey(cellWithOverride)) {
+        throw new MalformedOverridesException(
+            String.format("Trying to override settings for unknown cell %s", cellWithOverride));
+      }
+      pathsWithOverrides.add(pathMapping.get(cellWithOverride));
+    }
+
+
+    ImmutableMultimap<Path, RelativeCellName> pathToRelativeName =
+        Multimaps.index(pathMapping.keySet(), Functions.forMap(pathMapping));
+
+    for (Path pathWithOverrides : pathsWithOverrides.build()) {
+      ImmutableCollection<RelativeCellName> namesForPath = pathToRelativeName.get(
+          pathWithOverrides);
+      if (namesForPath.size() > 1) {
+        throw new MalformedOverridesException(
+            String.format("Configuration override is ambiguous: cell rooted at %s is reachable " +
+                "as [%s]. Please override the config by placing a .buckconfig.local file in the " +
+                "cell's root folder.",
+                pathWithOverrides,
+                Joiner.on(',').join(namesForPath)));
+      }
+    }
+
+    Map<Path, RawConfig> overridesByPath = new HashMap<>();
+    for (Map.Entry<RelativeCellName, Path> entry : pathMapping.entrySet()) {
+      RelativeCellName cellRelativeName = entry.getKey();
+      Path cellPath = entry.getValue();
+      RawConfig configFromOtherRelativeName = overridesByPath.get(cellPath);
+      RawConfig config = getForCell(cellRelativeName);
+      if (configFromOtherRelativeName != null) {
+        Preconditions.checkState(
+            configFromOtherRelativeName.equals(config),
+            "Attempting to create cell %s at %s with conflicting overrides [%s] vs [%s].",
+            cellRelativeName,
+            cellPath,
+            configFromOtherRelativeName,
+            config);
+      } else {
+        overridesByPath.put(cellPath, config);
+      }
+    }
+
+    return ImmutableMap.copyOf(overridesByPath);
+  }
+
+  /**
    * Returns an empty config.
    */
   public static CellConfig of() {
     return CellConfig.of(
-        ImmutableMap.<Optional<String>, ImmutableMap<String, ImmutableMap<String, String>>>of());
+        ImmutableMap.<RelativeCellName, ImmutableMap<String, ImmutableMap<String, String>>>of());
   }
 
   public static Builder builder() {
@@ -72,14 +147,14 @@ abstract class AbstractCellConfig {
    * Unless otherwise stated, duplicate keys overwrites earlier ones.
    */
   public static class Builder {
-    private Map<Optional<String>, Map<String, Map<String, String>>> values =
+    private Map<RelativeCellName, Map<String, Map<String, String>>> values =
         Maps.newLinkedHashMap();
 
     /**
      * Merge raw config values into this config.
      */
     public <M extends Map<String, String>> Builder putAll(
-        Optional<String> cellName, Map<String, M> config) {
+        RelativeCellName cellName, Map<String, M> config) {
       for (Map.Entry<String, M> entry : config.entrySet()) {
         requireSection(cellName, entry.getKey()).putAll(entry.getValue());
       }
@@ -90,28 +165,28 @@ abstract class AbstractCellConfig {
      * Merge the values from another {@code RawConfig}.
      */
     public Builder putAll(RawConfig config) {
-      return putAll(Optional.<String>absent(), config.getValues());
+      return putAll(RelativeCellName.ROOT_CELL_NAME, config.getValues());
     }
 
     /**
      * Merge the values from another {@code RawConfig}.
      */
-    public Builder putAll(Optional<String> cell, RawConfig config) {
+    public Builder putAll(RelativeCellName cell, RawConfig config) {
       return putAll(cell, config.getValues());
     }
 
     /**
      * Put a single value.
      */
-    public Builder put(Optional<String> cell, String section, String key, String value) {
+    public Builder put(RelativeCellName cell, String section, String key, String value) {
       requireSection(cell, section).put(key, value);
       return this;
     }
 
     public CellConfig build() {
-      ImmutableMap.Builder<Optional<String>, ImmutableMap<String, ImmutableMap<String, String>>>
+      ImmutableMap.Builder<RelativeCellName, ImmutableMap<String, ImmutableMap<String, String>>>
         builder = ImmutableMap.builder();
-      for (Optional<String> cell : values.keySet()) {
+      for (RelativeCellName cell : values.keySet()) {
         ImmutableMap.Builder<String, ImmutableMap<String, String>> rawBuilder =
             ImmutableMap.builder();
         Map<String, Map<String, String>> config = values.get(cell);
@@ -129,7 +204,7 @@ abstract class AbstractCellConfig {
     /**
      * Get a section or create it if it doesn't exist.
      */
-    private Map<String, Map<String, String>> requireCell(Optional<String> cellName) {
+    private Map<String, Map<String, String>> requireCell(RelativeCellName cellName) {
       Map<String, Map<String, String>> cell = values.get(cellName);
       if (cell == null) {
         cell = Maps.newLinkedHashMap();
@@ -141,7 +216,7 @@ abstract class AbstractCellConfig {
     /**
      * Get a section or create it if it doesn't exist.
      */
-    private Map<String, String> requireSection(Optional<String> cellName, String sectionName) {
+    private Map<String, String> requireSection(RelativeCellName cellName, String sectionName) {
       Map<String, Map<String, String>> cell = requireCell(cellName);
       Map<String, String> section = cell.get(sectionName);
       if (section == null) {
@@ -153,4 +228,9 @@ abstract class AbstractCellConfig {
 
   }
 
+  public static class MalformedOverridesException extends Exception {
+    public MalformedOverridesException(String message) {
+      super(message);
+    }
+  }
 }

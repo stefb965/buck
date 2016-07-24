@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY 8a3d769f8be292a70d546f7c56f6d0c547eab1e3 #@#
+#@# GENERATED FILE: DO NOT MODIFY 0b56dcc01a6bb693b59c45e1822b11b56e9495d7 #@#
 {
   "fakepackagefinder" : {
     "deps" : [ ],
@@ -44,6 +44,7 @@
       "//src/com/facebook/buck/parser:rule_pattern",
       "//src/com/facebook/buck/python:config",
       "//src/com/facebook/buck/rules:build_rule",
+      "//src/com/facebook/buck/rules:default_cell_path_resolver",
       "//src/com/facebook/buck/rules:rule_key",
       "//src/com/facebook/buck/rules:rules",
       "//src/com/facebook/buck/rules/coercer:coercer",

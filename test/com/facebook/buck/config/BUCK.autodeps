@@ -1,9 +1,10 @@
-#@# GENERATED FILE: DO NOT MODIFY bedae59dcd05396409f7aa0f5823e65ccb4bfff9 #@#
+#@# GENERATED FILE: DO NOT MODIFY 890799f13945e582e3c35740aa531c7035a00b8f #@#
 {
   "config" : {
     "deps" : [
       "//src/com/facebook/buck/config:base-config",
       "//src/com/facebook/buck/config:config",
+      "//src/com/facebook/buck/rules:relative_cell_name",
       "//src/com/facebook/buck/util:exceptions",
       "//test/com/facebook/buck/config:testutil",
       "//third-party/java/guava:guava",

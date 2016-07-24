@@ -26,14 +26,15 @@ import static org.junit.Assume.assumeThat;
 
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.cli.FakeBuckConfig;
-import com.facebook.buck.config.CellConfig;
 import com.facebook.buck.config.Config;
 import com.facebook.buck.config.Configs;
 import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.DefaultCxxPlatforms;
+import com.facebook.buck.cxx.NativeLinkStrategy;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultCellPathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
@@ -46,7 +47,6 @@ import com.google.common.base.Optional;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Maps;
 import com.martiansoftware.nailgun.NGContext;
 
 import org.hamcrest.Matchers;
@@ -61,7 +61,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
-import java.util.Map;
 
 @RunWith(Parameterized.class)
 public class PythonBinaryIntegrationTest {
@@ -212,19 +211,13 @@ public class PythonBinaryIntegrationTest {
     workspace.writeContentsToPath(
         String.format("import os; print(os.environ.get('%s'))", nativeLibsEnvVarName),
         "main_with_native_libs.py");
-    Map<String, String> env = Maps.newHashMap(System.getenv());
-    env.remove(nativeLibsEnvVarName);
 
     // Pre-set library path.
     String nativeLibsEnvVar =
-        workspace.runBuckCommandWithEnvironmentAndContext(
+        workspace.runBuckCommandWithEnvironmentOverridesAndContext(
             workspace.getPath(""),
             Optional.<NGContext>absent(),
-            Optional.of(
-                ImmutableMap.<String, String>builder()
-                    .putAll(env)
-                    .put(nativeLibsEnvVarName, originalNativeLibsEnvVar)
-                    .build()),
+            ImmutableMap.<String, String>of(nativeLibsEnvVarName, originalNativeLibsEnvVar),
             "run",
             ":bin-with-native-libs")
             .assertSuccess()
@@ -236,10 +229,10 @@ public class PythonBinaryIntegrationTest {
 
     // Empty library path.
     nativeLibsEnvVar =
-        workspace.runBuckCommandWithEnvironmentAndContext(
+        workspace.runBuckCommandWithEnvironmentOverridesAndContext(
             workspace.getPath(""),
             Optional.<NGContext>absent(),
-            Optional.of(ImmutableMap.copyOf(env)),
+            ImmutableMap.<String, String>of(),
             "run",
             ":bin-with-native-libs")
             .assertSuccess()
@@ -340,14 +333,15 @@ public class PythonBinaryIntegrationTest {
   }
 
   private PythonBuckConfig getPythonBuckConfig() throws IOException {
-    Config rawConfig = Configs.createDefaultConfig(tmp.getRootPath(), CellConfig.of());
+    Config rawConfig = Configs.createDefaultConfig(tmp.getRootPath());
     BuckConfig buckConfig =
         new BuckConfig(
             rawConfig,
             new ProjectFilesystem(tmp.getRootPath()),
             Architecture.detect(),
             Platform.detect(),
-            ImmutableMap.copyOf(System.getenv()));
+            ImmutableMap.copyOf(System.getenv()),
+            new DefaultCellPathResolver(tmp.getRootPath(), rawConfig));
     return new PythonBuckConfig(
         buckConfig,
         new ExecutableFinder());

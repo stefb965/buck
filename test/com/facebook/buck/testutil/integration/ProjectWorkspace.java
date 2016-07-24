@@ -44,14 +44,15 @@ import com.facebook.buck.model.BuildId;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.Cell;
+import com.facebook.buck.rules.DefaultCellPathResolver;
 import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.timing.DefaultClock;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.CapturingPrintStream;
-import com.facebook.buck.util.DefaultPropertyFinder;
 import com.facebook.buck.util.MoreStrings;
 import com.facebook.buck.util.ProcessExecutor;
+import com.facebook.buck.util.WatchmanWatcher;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.CommandMode;
 import com.facebook.buck.util.environment.Platform;
@@ -77,7 +78,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.channels.Channels;
 import java.nio.file.FileAlreadyExistsException;
-import java.nio.file.FileSystems;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
@@ -89,7 +89,9 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import javax.annotation.Nullable;
 
@@ -190,14 +192,6 @@ public class ProjectWorkspace {
     } catch (FileAlreadyExistsException | NoSuchFileException e) {
       // If the current version file already exists we don't need to create it
       // If buck-out doesn't exist we don't need to stamp it
-    }
-
-    // If there's a local.properties in the host project but not in the destination, make a copy.
-    Path localProperties = FileSystems.getDefault().getPath("local.properties");
-    Path destLocalProperties = destPath.resolve(localProperties.getFileName());
-
-    if (localProperties.toFile().exists() && !destLocalProperties.toFile().exists()) {
-      Files.copy(localProperties, destLocalProperties);
     }
 
     if (Platform.detect() == Platform.WINDOWS) {
@@ -335,19 +329,28 @@ public class ProjectWorkspace {
    */
   public ProcessResult runBuckCommand(String... args)
       throws IOException {
-    return runBuckCommandWithEnvironmentAndContext(
+    return runBuckCommandWithEnvironmentOverridesAndContext(
         destPath,
         Optional.<NGContext>absent(),
-        Optional.<ImmutableMap<String, String>>absent(),
+        ImmutableMap.<String, String>of(),
+        args);
+  }
+
+  public ProcessResult runBuckCommand(ImmutableMap<String, String> environment, String... args)
+      throws IOException {
+    return runBuckCommandWithEnvironmentOverridesAndContext(
+        destPath,
+        Optional.<NGContext>absent(),
+        environment,
         args);
   }
 
   public ProcessResult runBuckCommand(Path repoRoot, String... args)
       throws IOException {
-    return runBuckCommandWithEnvironmentAndContext(
+    return runBuckCommandWithEnvironmentOverridesAndContext(
         repoRoot,
         Optional.<NGContext>absent(),
-        Optional.<ImmutableMap<String, String>>absent(),
+        ImmutableMap.<String, String>of(),
         args);
   }
 
@@ -378,32 +381,32 @@ public class ProjectWorkspace {
         new ExecutableFinder(Platform.detect()).getOptionalExecutable(
             Paths.get("watchman"),
             ImmutableMap.copyOf(System.getenv())).isPresent());
-    return runBuckCommandWithEnvironmentAndContext(
+    return runBuckCommandWithEnvironmentOverridesAndContext(
         destPath,
         Optional.of(context),
-        Optional.<ImmutableMap<String, String>>absent(),
+        ImmutableMap.<String, String>of(),
         stderr,
         args);
   }
 
-  public ProcessResult runBuckCommandWithEnvironmentAndContext(
+  public ProcessResult runBuckCommandWithEnvironmentOverridesAndContext(
       Path repoRoot,
       Optional<NGContext> context,
-      Optional<ImmutableMap<String, String>> env,
+      ImmutableMap<String, String> environmentOverrides,
       String... args)
       throws IOException {
-    return runBuckCommandWithEnvironmentAndContext(
+    return runBuckCommandWithEnvironmentOverridesAndContext(
         repoRoot,
         context,
-        env,
+        environmentOverrides,
         new CapturingPrintStream(),
         args);
   }
 
-  public ProcessResult runBuckCommandWithEnvironmentAndContext(
+  public ProcessResult runBuckCommandWithEnvironmentOverridesAndContext(
       Path repoRoot,
       Optional<NGContext> context,
-      Optional<ImmutableMap<String, String>> env,
+      ImmutableMap<String, String> environmentOverrides,
       CapturingPrintStream stderr,
       String... args)
     throws IOException {
@@ -437,14 +440,15 @@ public class ProjectWorkspace {
 
         // TODO(#6586154): set TMP variable for ShellSteps
         "TMP");
-    ImmutableMap.Builder<String, String> envBuilder = ImmutableMap.builder();
+    Map<String, String> envBuilder = new HashMap<>();
     for (String variable : inheritedEnvVars) {
       String value = System.getenv(variable);
       if (value != null) {
         envBuilder.put(variable, value);
       }
     }
-    ImmutableMap<String, String> sanizitedEnv = envBuilder.build();
+    envBuilder.putAll(environmentOverrides);
+    ImmutableMap<String, String> sanizitedEnv = ImmutableMap.copyOf(envBuilder);
 
     Main main = new Main(stdout, stderr, stdin);
     int exitCode;
@@ -453,8 +457,9 @@ public class ProjectWorkspace {
           new BuildId(),
           repoRoot,
           context,
-          env.or(sanizitedEnv),
+          sanizitedEnv,
           CommandMode.TEST,
+          WatchmanWatcher.FreshInstanceAction.NONE,
           args);
     } catch (InterruptedException e) {
       e.printStackTrace(stderr);
@@ -570,21 +575,28 @@ public class ProjectWorkspace {
   }
 
   public Cell asCell() throws IOException, InterruptedException {
-    Config config = Configs.createDefaultConfig(getDestPath(), CellConfig.of());
+    Config config = Configs.createDefaultConfig(getDestPath());
 
     ProjectFilesystem filesystem = new ProjectFilesystem(getDestPath(), config);
     TestConsole console = new TestConsole();
     ImmutableMap<String, String> env = ImmutableMap.copyOf(System.getenv());
     DefaultAndroidDirectoryResolver directoryResolver = new DefaultAndroidDirectoryResolver(
-        filesystem,
+        filesystem.getRootPath().getFileSystem(),
+        env,
         Optional.<String>absent(),
-        Optional.<String>absent(),
-        new DefaultPropertyFinder(filesystem, env));
+        Optional.<String>absent());
     return Cell.createCell(
         filesystem,
         console,
         Watchman.NULL_WATCHMAN,
-        new BuckConfig(config, filesystem, Architecture.detect(), Platform.detect(), env),
+        new BuckConfig(
+            config,
+            filesystem,
+            Architecture.detect(),
+            Platform.detect(),
+            env,
+            new DefaultCellPathResolver(filesystem.getRootPath(), config)),
+        CellConfig.of(),
         new KnownBuildRuleTypesFactory(
             new ProcessExecutor(console),
             directoryResolver,

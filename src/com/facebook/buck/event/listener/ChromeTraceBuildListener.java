@@ -19,6 +19,7 @@ package com.facebook.buck.event.listener;
 import com.facebook.buck.artifact_cache.ArtifactCacheConnectEvent;
 import com.facebook.buck.artifact_cache.ArtifactCacheEvent;
 import com.facebook.buck.cli.CommandEvent;
+import com.facebook.buck.event.ActionGraphEvent;
 import com.facebook.buck.event.ArtifactCompressionEvent;
 import com.facebook.buck.event.BuckEvent;
 import com.facebook.buck.event.BuckEventListener;
@@ -39,12 +40,10 @@ import com.facebook.buck.log.InvocationInfo;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.parser.ParseEvent;
-import com.facebook.buck.rules.ActionGraphEvent;
 import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleEvent;
 import com.facebook.buck.rules.TestSummaryEvent;
-import com.facebook.buck.simulate.SimulateEvent;
 import com.facebook.buck.step.StepEvent;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.util.BestCompressionGZIPOutputStream;
@@ -255,28 +254,6 @@ public class ChromeTraceBuildListener implements BuckEventListener {
     } catch (IOException e) {
       throw new HumanReadableException(e, "Unable to write trace file: " + e);
     }
-  }
-
-  @Subscribe
-  public void commandSimulateStarted(SimulateEvent.Started started) {
-    writeChromeTraceEvent("buck",
-        started.getEventName(),
-        ChromeTraceEvent.Phase.BEGIN,
-        ImmutableMap.of(
-            "build_target", started.getTarget().toString()
-        ),
-        started);
-  }
-
-  @Subscribe
-  public void commandSimulateFinished(SimulateEvent.Finished finished) {
-    writeChromeTraceEvent("buck",
-        finished.getEventName(),
-        ChromeTraceEvent.Phase.END,
-        ImmutableMap.of(
-            "build_target", finished.getTarget().toString()
-        ),
-        finished);
   }
 
   @Subscribe

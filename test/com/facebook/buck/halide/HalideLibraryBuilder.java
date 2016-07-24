@@ -20,17 +20,20 @@ import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.cxx.AbstractCxxSourceBuilder;
 import com.facebook.buck.cxx.CxxPlatform;
+import com.facebook.buck.cxx.CxxPlatforms;
 import com.facebook.buck.cxx.CxxPlatformUtils;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
-import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.google.common.base.Optional;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.regex.Pattern;
 
 public class HalideLibraryBuilder extends
     AbstractCxxSourceBuilder<HalideLibraryDescription.Arg, HalideLibraryBuilder> {
@@ -72,24 +75,51 @@ public class HalideLibraryBuilder extends
     return new HalideBuckConfig(buckConfig);
   }
 
+  public static CxxPlatform createDefaultPlatform() {
+    return CxxPlatform.builder()
+        .from(CxxPlatformUtils.DEFAULT_PLATFORM)
+        .setFlagMacros(ImmutableMap.<String, String>of("TEST_MACRO", "test_macro_expansion"))
+        .build();
+  }
+
   // The #halide-compiler version of the HalideLibrary rule expects to be able
-  // to find a CxxFlavor called "default", which we assume is the flavor to use
-  // when building for the host architecture. AbstractCxxBuilder doesn't create
-  // the "default" flavor, so we "override" the createDefaultPlatforms() method
-  // here.
+  // to find a CxxFlavor to use when building for the host architecture.
+  // AbstractCxxBuilder doesn't create the default host flavor, so we "override"
+  // the createDefaultPlatforms() method here.
   public static FlavorDomain<CxxPlatform> createDefaultPlatforms() {
-    Flavor defaultFlavor = ImmutableFlavor.of("default");
-    CxxPlatform cxxPlatform = CxxPlatformUtils.DEFAULT_PLATFORM;
+    Flavor hostFlavor = CxxPlatforms.getHostFlavor();
+    CxxPlatform hostCxxPlatform = CxxPlatform.builder()
+        .from(CxxPlatformUtils.DEFAULT_PLATFORM)
+        .setFlavor(hostFlavor)
+        .build();
+
+    CxxPlatform defaultCxxPlatform = createDefaultPlatform();
+
     return new FlavorDomain<>(
         "C/C++ Platform",
         ImmutableMap.<Flavor, CxxPlatform>builder()
-            .put(defaultFlavor, cxxPlatform)
-            .put(cxxPlatform.getFlavor(), cxxPlatform)
+            .put(defaultCxxPlatform.getFlavor(), defaultCxxPlatform)
+            .put(hostCxxPlatform.getFlavor(), hostCxxPlatform)
             .build());
   }
 
   @Override
   protected HalideLibraryBuilder getThis() {
+    return this;
+  }
+
+  public HalideLibraryBuilder setSupportedPlatformsRegex(Pattern supportedPlatformsRegex) {
+    arg.supportedPlatformsRegex = Optional.of(supportedPlatformsRegex);
+    return this;
+  }
+
+  public HalideLibraryBuilder setCompilerInvocationFlags(ImmutableList<String> flags) {
+    arg.compilerInvocationFlags = Optional.of(flags);
+    return this;
+  }
+
+  public HalideLibraryBuilder setFunctionNameOverride(String functionName) {
+    arg.functionName = Optional.of(functionName);
     return this;
   }
 

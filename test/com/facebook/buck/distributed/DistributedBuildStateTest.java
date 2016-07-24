@@ -26,7 +26,9 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.json.BuildFileParseException;
+import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.DefaultParserTargetNodeFactory;
 import com.facebook.buck.parser.Parser;
@@ -35,23 +37,25 @@ import com.facebook.buck.parser.ParserTargetNodeFactory;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.ConstructorArgMarshaller;
+import com.facebook.buck.rules.DefaultCellPathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.rules.TargetNodeFactory;
 import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.TestConsole;
+import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.facebook.buck.timing.FakeClock;
 import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.environment.Architecture;
@@ -60,6 +64,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Function;
 import com.google.common.base.Functions;
 import com.google.common.base.Optional;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -72,7 +77,7 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
 import java.io.IOException;
-import java.nio.file.Paths;
+import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.Executors;
 
@@ -85,30 +90,40 @@ public class DistributedBuildStateTest {
 
   @Test
   public void canReconstructConfig() throws IOException, InterruptedException {
-    ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
+    ProjectFilesystem filesystem = createJavaOnlyFilesystem("/saving");
+
+    Config config = new Config(ConfigBuilder.rawFromLines());
     BuckConfig buckConfig = new BuckConfig(
-        new Config(ConfigBuilder.rawFromLines()),
+        config,
         filesystem,
         Architecture.detect(),
         Platform.detect(),
         ImmutableMap.<String, String>builder()
             .putAll(System.getenv())
             .put("envKey", "envValue")
-            .build());
-    Cell cell = new TestCellBuilder()
+            .build(),
+        new DefaultCellPathResolver(filesystem.getRootPath(), config));
+    Cell rootCellWhenSaving = new TestCellBuilder()
         .setFilesystem(filesystem)
         .setBuckConfig(buckConfig)
         .build();
 
     BuildJobState dump = DistributedBuildState.dump(
-        buckConfig,
+        new DistributedBuildCellIndexer(rootCellWhenSaving),
         emptyActionGraph(),
-        defaultCodec(cell, Optional.<Parser>absent()),
-        TargetGraph.EMPTY);
-    DistributedBuildState distributedBuildState = new DistributedBuildState(dump);
+        createDefaultCodec(rootCellWhenSaving, Optional.<Parser>absent()),
+        createTargetGraph(filesystem));
 
+
+    Cell rootCellWhenLoading = new TestCellBuilder()
+        .setFilesystem(createJavaOnlyFilesystem("/loading"))
+        .build();
+    DistributedBuildState distributedBuildState =
+        DistributedBuildState.load(dump, rootCellWhenLoading);
+    ImmutableMap<Integer, Cell> cells = distributedBuildState.getCells();
+    assertThat(cells, Matchers.aMapWithSize(1));
     assertThat(
-        distributedBuildState.createBuckConfig(filesystem),
+        cells.get(0).getBuckConfig(),
         Matchers.equalTo(buckConfig));
   }
 
@@ -140,71 +155,122 @@ public class DistributedBuildStateTest {
         ImmutableSet.of(
             BuildTargetFactory.newInstance(projectFilesystem.getRootPath(), "//:lib")));
 
-
-    DistributedBuildTargetGraphCodec targetGraphCodec = defaultCodec(cell, Optional.of(parser));
+    DistributedBuildTargetGraphCodec targetGraphCodec =
+        createDefaultCodec(cell, Optional.of(parser));
     BuildJobState dump = DistributedBuildState.dump(
-        buckConfig,
+        new DistributedBuildCellIndexer(cell),
         emptyActionGraph(),
         targetGraphCodec,
         targetGraph);
-    DistributedBuildState distributedBuildState = new DistributedBuildState(dump);
 
+    Cell rootCellWhenLoading = new TestCellBuilder()
+        .setFilesystem(createJavaOnlyFilesystem("/loading"))
+        .build();
+    DistributedBuildState distributedBuildState =
+        DistributedBuildState.load(dump, rootCellWhenLoading);
     TargetGraph reconstructedGraph = distributedBuildState.createTargetGraph(targetGraphCodec);
     assertThat(reconstructedGraph.getNodes(), Matchers.hasSize(1));
     TargetNode<JavaLibraryDescription.Arg> reconstructedJavaLibrary =
         FluentIterable.from(reconstructedGraph.getNodes()).get(0)
         .castArg(JavaLibraryDescription.Arg.class).get();
+    ProjectFilesystem reconstructedCellFilesystem =
+        distributedBuildState.getCells().get(0).getFilesystem();
     assertThat(
         reconstructedJavaLibrary.getConstructorArg().srcs.get(),
         Matchers.<SourcePath>contains(
             new PathSourcePath(
-                reconstructedJavaLibrary.getRuleFactoryParams().getProjectFilesystem(),
-                Paths.get("A.java"))));
+                reconstructedCellFilesystem,
+                reconstructedCellFilesystem.getRootPath().getFileSystem().getPath("A.java"))));
   }
 
   @Test
   public void throwsOnPlatformMismatch() throws IOException, InterruptedException {
-    ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
+    ProjectFilesystem filesystem = createJavaOnlyFilesystem("/opt/buck");
+    Config config = new Config(ConfigBuilder.rawFromLines());
     BuckConfig buckConfig = new BuckConfig(
-        new Config(ConfigBuilder.rawFromLines()),
+        config,
         filesystem,
         Architecture.MIPSEL,
         Platform.UNKNOWN,
         ImmutableMap.<String, String>builder()
             .putAll(System.getenv())
             .put("envKey", "envValue")
-            .build());
+            .build(),
+        new DefaultCellPathResolver(filesystem.getRootPath(), config));
     Cell cell = new TestCellBuilder()
         .setFilesystem(filesystem)
         .setBuckConfig(buckConfig)
         .build();
 
     BuildJobState dump = DistributedBuildState.dump(
-        buckConfig,
+        new DistributedBuildCellIndexer(cell),
         emptyActionGraph(),
-        defaultCodec(cell, Optional.<Parser>absent()),
-        TargetGraph.EMPTY);
-    DistributedBuildState distributedBuildState = new DistributedBuildState(dump);
+        createDefaultCodec(cell, Optional.<Parser>absent()),
+        createTargetGraph(filesystem));
 
     expectedException.expect(IllegalStateException.class);
-    distributedBuildState.createBuckConfig(filesystem);
+    DistributedBuildState.load(dump, cell);
   }
 
-  private DistributedBuildFileHashes emptyActionGraph() {
+  @Test
+  public void worksCrossCell() throws IOException, InterruptedException {
+    ProjectFilesystem parentFs = createJavaOnlyFilesystem("/saving");
+    Path cell1Root = parentFs.resolve("cell1");
+    Path cell2Root = parentFs.resolve("cell2");
+    parentFs.mkdirs(cell1Root);
+    parentFs.mkdirs(cell2Root);
+    ProjectFilesystem cell1Filesystem = new ProjectFilesystem(cell1Root);
+    ProjectFilesystem cell2Filesystem = new ProjectFilesystem(cell2Root);
+
+    Config config = new Config(ConfigBuilder.rawFromLines(
+        "[repositories]",
+        "cell2 = " + cell2Root.toString()));
+    BuckConfig buckConfig = new BuckConfig(
+        config,
+        cell1Filesystem,
+        Architecture.detect(),
+        Platform.detect(),
+        ImmutableMap.<String, String>builder()
+            .putAll(System.getenv())
+            .put("envKey", "envValue")
+            .build(),
+        new DefaultCellPathResolver(cell1Root, config));
+    Cell rootCellWhenSaving = new TestCellBuilder()
+        .setFilesystem(cell1Filesystem)
+        .setBuckConfig(buckConfig)
+        .build();
+
+    BuildJobState dump = DistributedBuildState.dump(
+        new DistributedBuildCellIndexer(rootCellWhenSaving),
+        emptyActionGraph(),
+        createDefaultCodec(rootCellWhenSaving, Optional.<Parser>absent()),
+        createCrossCellTargetGraph(cell1Filesystem, cell2Filesystem));
+
+    Cell rootCellWhenLoading = new TestCellBuilder()
+        .setFilesystem(createJavaOnlyFilesystem("/loading"))
+        .build();
+    DistributedBuildState distributedBuildState =
+        DistributedBuildState.load(dump, rootCellWhenLoading);
+    ImmutableMap<Integer, Cell> cells = distributedBuildState.getCells();
+    assertThat(cells, Matchers.aMapWithSize(2));
+  }
+
+  private DistributedBuildFileHashes emptyActionGraph() throws IOException {
     ActionGraph actionGraph = new ActionGraph(ImmutableList.<BuildRule>of());
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver sourcePathResolver = new SourcePathResolver(ruleResolver);
-    ProjectFilesystem projectFilesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
+    ProjectFilesystem projectFilesystem = createJavaOnlyFilesystem("/opt/buck");
     return new DistributedBuildFileHashes(
         actionGraph,
         sourcePathResolver,
         DefaultFileHashCache.createDefaultFileHashCache(projectFilesystem),
+        Functions.constant(0),
         MoreExecutors.newDirectExecutorService(),
         /* keySeed */ 0);
   }
 
-  private DistributedBuildTargetGraphCodec defaultCodec(
+  private static DistributedBuildTargetGraphCodec createDefaultCodec(
       final Cell cell,
       final Optional<Parser> parser) {
     final ObjectMapper objectMapper = ObjectMappers.newDefaultInstance();
@@ -233,19 +299,45 @@ public class DistributedBuildStateTest {
 
     DistributedBuildTypeCoercerFactory typeCoercerFactory =
         new DistributedBuildTypeCoercerFactory(objectMapper);
-    ParserTargetNodeFactory parserTargetNodeFactory =
+    ParserTargetNodeFactory<TargetNode<?>> parserTargetNodeFactory =
         DefaultParserTargetNodeFactory.createForDistributedBuild(
             eventBus,
             new ConstructorArgMarshaller(typeCoercerFactory),
-            typeCoercerFactory);
+            new TargetNodeFactory(typeCoercerFactory));
 
     return new DistributedBuildTargetGraphCodec(
-        new TestConsole(),
-        new FakeClock(0),
-        cell.getFilesystem(),
-        cell,
         objectMapper,
         parserTargetNodeFactory,
         nodeToRawNode);
+  }
+
+  private static TargetGraph createTargetGraph(ProjectFilesystem filesystem) {
+    return TargetGraphFactory.newInstance(
+        JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:foo"), filesystem)
+            .build());
+  }
+
+  private static TargetGraph createCrossCellTargetGraph(
+      ProjectFilesystem cellOneFilesystem,
+      ProjectFilesystem cellTwoFilesystem) {
+    Preconditions.checkArgument(!cellOneFilesystem.equals(cellTwoFilesystem));
+    BuildTarget target = BuildTargetFactory.newInstance(cellTwoFilesystem, "//:foo");
+    return TargetGraphFactory.newInstance(
+        JavaLibraryBuilder.createBuilder(
+            BuildTargetFactory.newInstance(cellOneFilesystem, "//:foo"),
+            cellOneFilesystem)
+            .addSrc(new BuildTargetSourcePath(target))
+            .build(),
+        JavaLibraryBuilder.createBuilder(
+            target,
+            cellTwoFilesystem)
+            .build()
+        );
+  }
+
+  private static ProjectFilesystem createJavaOnlyFilesystem(String rootPath) throws IOException {
+    ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem(rootPath);
+    filesystem.mkdirs(filesystem.getBuckPaths().getBuckOut());
+    return filesystem;
   }
 }

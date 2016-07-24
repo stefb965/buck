@@ -31,6 +31,7 @@ import com.facebook.buck.cxx.DebugPathSanitizer;
 import com.facebook.buck.cxx.DefaultLinkerProvider;
 import com.facebook.buck.cxx.LinkerProvider;
 import com.facebook.buck.cxx.Linkers;
+import com.facebook.buck.cxx.PosixNmSymbolNameTool;
 import com.facebook.buck.cxx.PreprocessorProvider;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.log.Logger;
@@ -251,6 +252,11 @@ public class AppleCxxPlatforms {
         "apple-ibtool",
         version);
 
+    Tool momc = VersionedTool.of(
+        getToolPath("momc", toolSearchPaths, executableFinder),
+        "apple-momc",
+        version);
+
     Tool xctest = VersionedTool.of(
         getToolPath("xctest", toolSearchPaths, executableFinder),
         "apple-xctest",
@@ -303,6 +309,7 @@ public class AppleCxxPlatforms {
     ImmutableMap.Builder<String, String> macrosBuilder = ImmutableMap.builder();
     macrosBuilder.put("SDKROOT", sdkPaths.getSdkPath().toString());
     macrosBuilder.put("PLATFORM_DIR", sdkPaths.getPlatformPath().toString());
+    macrosBuilder.put("CURRENT_ARCH", targetArchitecture);
     if (sdkPaths.getDeveloperPath().isPresent()) {
       macrosBuilder.put("DEVELOPER_DIR", sdkPaths.getDeveloperPath().get().toString());
     }
@@ -380,7 +387,7 @@ public class AppleCxxPlatforms {
         strip,
         new BsdArchiver(ar),
         ranlib,
-        nm,
+        new PosixNmSymbolNameTool(nm),
         cflagsBuilder.build(),
         ImmutableList.<String>of(),
         cflags,
@@ -415,6 +422,7 @@ public class AppleCxxPlatforms {
         .setBuildVersion(buildVersion)
         .setActool(actool)
         .setIbtool(ibtool)
+        .setMomc(momc)
         .setXctest(xctest)
         .setDsymutil(dsymutil)
         .setLipo(lipo)
