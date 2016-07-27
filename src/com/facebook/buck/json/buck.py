@@ -11,6 +11,7 @@ import __future__
 from collections import namedtuple
 from pathlib import Path, PureWindowsPath, PurePath
 from pywatchman import bser
+from contextlib import contextmanager
 import copy
 import StringIO
 import cProfile
@@ -27,7 +28,7 @@ import re
 import subprocess
 import sys
 import traceback
-import copy
+import types
 
 # When build files are executed, the functions in this file tagged with
 # @provide_for_build will be provided in the build file's local symbol table.
@@ -48,6 +49,8 @@ VERIFY_AUTODEPS_SIGNATURE = False
 # Wait this many seconds on recv() or send() in the pywatchman client
 # if not otherwise specified in .buckconfig
 DEFAULT_WATCHMAN_QUERY_TIMEOUT = 5.0
+
+ORIGINAL_IMPORT = __builtin__.__import__
 
 class SyncCookieState(object):
     """
@@ -78,8 +81,7 @@ class BuildFileContext(object):
 
     def __init__(self, project_root, base_path, dirname, autodeps, allow_empty_globs, ignore_paths,
                  watchman_client, watchman_watch_root, watchman_project_prefix,
-                 sync_cookie_state, watchman_error, watchman_glob_stat_results,
-                 enable_build_file_sandboxing):
+                 sync_cookie_state, watchman_error, watchman_glob_stat_results):
         self.globals = {}
         self.includes = set()
         self.used_configs = {}
@@ -95,7 +97,6 @@ class BuildFileContext(object):
         self.sync_cookie_state = sync_cookie_state
         self.watchman_error = watchman_error
         self.watchman_glob_stat_results = watchman_glob_stat_results
-        self._enable_build_file_sandboxing = enable_build_file_sandboxing
         self.diagnostics = set()
         self.rules = {}
 
@@ -137,7 +138,7 @@ class LazyBuildEnvPartial(object):
         return self.func(*args, **updated_kwargs)
 
 
-DiagnosticMessageAndLevel = namedtuple('DiagnosticMessageAndLevel', ['message', 'level'])
+Diagnostic = namedtuple('Diagnostic', ['message', 'level', 'source'])
 
 
 def provide_for_build(func):
@@ -261,9 +262,10 @@ def glob(includes, excludes=[], include_dotfiles=False, build_env=None, search_b
                 build_env.watchman_glob_stat_results)
         except build_env.watchman_error as e:
             build_env.diagnostics.add(
-                DiagnosticMessageAndLevel(
-                    message='Watchman error, falling back to slow glob: {0}'.format(e),
-                    level='error'))
+                Diagnostic(
+                    message=str(e),
+                    level='error',
+                    source='watchman'))
             try:
                 build_env.watchman_client.close()
             except:
@@ -405,11 +407,20 @@ def glob_watchman(includes, excludes, include_dotfiles, base_path, watchman_watc
 
     query = ["query", watchman_watch_root, query_params]
     res = watchman_client.query(*query)
-    if res.get('warning'):
+    error_message = res.get('error')
+    if error_message is not None:
         diagnostics.add(
-            DiagnosticMessageAndLevel(
-                message='Watchman warning: {0}'.format(res.get('warning')),
-                level='warning'))
+            Diagnostic(
+                message=error_message,
+                level='error',
+                source='watchman'))
+    warning_message = res.get('warning')
+    if warning_message is not None:
+        diagnostics.add(
+            Diagnostic(
+                message=warning_message,
+                level='warning',
+                source='watchman'))
     result = res.get('files', [])
     if watchman_glob_stat_results:
         result = stat_results(base_path, result, diagnostics)
@@ -426,10 +437,11 @@ def stat_results(base_path, result, diagnostics):
             statted_result.append(path)
         else:
             diagnostics.add(
-                DiagnosticMessageAndLevel(
+                Diagnostic(
                     message='Watchman query returned non-existent file: {0}'.format(
                         resolved_path),
-                    level='warning'))
+                    level='warning',
+                    source='watchman'))
     return statted_result
 
 
@@ -562,7 +574,10 @@ class BuildFileProcessor(object):
         keys = getattr(mod, '__all__', mod.__dict__.keys())
 
         for key in keys:
-            if not key.startswith('_') and key not in hidden:
+            # Block copying modules unless they were specified in '__all__'
+            block_copying_module = not hasattr(mod, '__all__') and isinstance(
+                mod.__dict__[key], types.ModuleType)
+            if not key.startswith('_') and key not in hidden and not block_copying_module:
                 dst[key] = mod.__dict__[key]
 
     def _update_functions(self, build_env):
@@ -682,19 +697,50 @@ class BuildFileProcessor(object):
         if self._build_env_stack:
             self._update_functions(self._build_env_stack[-1])
 
-    def custom_import(self, enable_build_file_sandboxing, path):
+    def _custom_import(self):
         """
-        Returns customised `__import__` function.
+        Returns customised '__import__' function that blocks importing modules.
         """
-
-        original_import = __builtin__.__import__
 
         def _import(name, globals=None, locals=None, fromlist=(), level=0):
-            if enable_build_file_sandboxing:
-                print 'Importing module %s in file %s is discouraged' % (name, path)
-            return original_import(name, globals, locals, fromlist, level)
+            raise ImportError(
+                'Importing module %s is forbidden. ' % name +
+                'If you really need to import this module read about ' +
+                'allow_unsafe_import() function'
+            )
+            # TODO(mlowicki): this looks like a good place for implementing things like global
+            # whitelist or wrapping imported modules.
+            # Importing a module may cause more '__import__' calls if the module uses other
+            # modules. Such calls should not be blocked if the top-level import was allowed.
+            # Restoring original '__import__' may be used to avoid that:
+            # with allow_unsafe_import(build_env=build_env):
+            #     return ORIGINAL_IMPORT(name, globals, locals, fromlist, level)
 
         return _import
+
+    @contextmanager
+    def _allow_unsafe_import(self, allow=True):
+        """
+        Controls behavior of 'import' in a context.
+        Default value for 'allow' is True, which corresponds to default 'import' behavior, False
+        overrides that with 'custom_import()' if sandboxing is enabled.
+
+        :param allow: True if default 'import' behavior should be allowed in the context
+        """
+
+        # Override '__import__' function. It might have already been overriden if current file
+        # was included by other build file, original '__import__' is stored in 'ORIGINAL_IMPORT'.
+        previous_import = __builtin__.__import__
+        if allow or not self._enable_build_file_sandboxing:
+            __builtin__.__import__ = ORIGINAL_IMPORT
+        else:
+            __builtin__.__import__ = self._custom_import()
+
+        try:
+            yield
+        finally:
+            # Restore previous '__builtin__.__import__'
+            __builtin__.__import__ = previous_import
 
     def _process(self, build_env, path, implicit_includes=[]):
         """
@@ -723,6 +769,9 @@ class BuildFileProcessor(object):
         # Install the 'read_config' function into our global object.
         default_globals['read_config'] = self._read_config
 
+        # Install the 'allow_unsafe_import' function into our global object.
+        default_globals['allow_unsafe_import'] = self._allow_unsafe_import
+
         # If any implicit includes were specified, process them first.
         for include in implicit_includes:
             include_path = self._get_include_path(include)
@@ -749,14 +798,9 @@ class BuildFileProcessor(object):
         future_features = __future__.absolute_import.compiler_flag
         code = compile(contents, path, 'exec', future_features, 1)
 
-        # Override '__import__' function.
-        original_import = __builtin__.__import__
-        __builtin__.__import__ = self.custom_import(self._enable_build_file_sandboxing, path)
-
-        exec(code, module.__dict__)
-
-        # Restore original `__builtin__.__import__`
-        __builtin__.__import__ = original_import
+        # Execute code with overriden import
+        with self._allow_unsafe_import(False):
+            exec(code, module.__dict__)
 
         # Restore the previous build context.
         self._pop_build_env()
@@ -811,8 +855,7 @@ class BuildFileProcessor(object):
             self._watchman_project_prefix,
             self._sync_cookie_state,
             self._watchman_error,
-            self._watchman_glob_stat_results,
-            self._enable_build_file_sandboxing)
+            self._watchman_glob_stat_results)
 
         # If the .autodeps file has been successfully parsed, then treat it as if it were
         # a file loaded via include_defs() in that a change to the .autodeps file should
@@ -822,7 +865,10 @@ class BuildFileProcessor(object):
 
         if invalid_signature_error_message:
             build_env.diagnostics.add(
-                DiagnosticMessageAndLevel(message=invalid_signature_error_message, level='fatal'))
+                Diagnostic(
+                    message=invalid_signature_error_message,
+                    level='fatal',
+                    source='autodeps'))
 
         return self._process(
             build_env,
@@ -927,6 +973,7 @@ def encode_result(values, diagnostics, profile):
             encoded_diagnostics.append({
                 'message': d.message,
                 'level': d.level,
+                'source': d.source,
             })
         result['diagnostics'] = encoded_diagnostics
     if profile is not None:
@@ -966,9 +1013,10 @@ def process_with_diagnostics(build_file, build_file_processor, to_parent,
         # Control-C and sys.exit() don't emit diagnostics.
         if not (e is KeyboardInterrupt or e is SystemExit):
             diagnostics.add(
-                DiagnosticMessageAndLevel(
+                Diagnostic(
                     message=format_traceback_and_exception(),
-                    level='fatal'))
+                    level='fatal',
+                    source='parse'))
         raise e
     finally:
         if profile is not None:

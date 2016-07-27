@@ -17,10 +17,11 @@
 package com.facebook.buck.json;
 
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.WatchmanDiagnosticCache;
 import com.facebook.buck.rules.ConstructorArgMarshaller;
 import com.facebook.buck.util.Console;
 import com.google.common.collect.ImmutableMap;
+
 
 /**
  * Simple concrete factory so that a parser can be constructed on demand of the parse phase
@@ -37,6 +38,6 @@ public interface ProjectBuildFileParserFactory {
       Console console,
       ImmutableMap<String, String> environment,
       BuckEventBus buckEventBus,
-      ProjectFilesystem filesystem,
-      boolean ignoreBuckAutodepsFiles);
+      boolean ignoreBuckAutodepsFiles,
+      WatchmanDiagnosticCache watchmanDiagnosticCache);
 }

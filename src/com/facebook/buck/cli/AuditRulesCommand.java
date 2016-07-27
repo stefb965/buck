@@ -18,6 +18,7 @@ package com.facebook.buck.cli;
 
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.WatchmanDiagnosticCache;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.json.DefaultProjectBuildFileParserFactory;
 import com.facebook.buck.json.ProjectBuildFileParser;
@@ -127,8 +128,8 @@ public class AuditRulesCommand extends AbstractCommand {
         params.getConsole(),
         params.getEnvironment(),
         params.getBuckEventBus(),
-        projectFilesystem,
-        /* ignoreBuckAutodepsFiles */ false)) {
+        /* ignoreBuckAutodepsFiles */ false,
+        new WatchmanDiagnosticCache())) {
       PrintStream out = params.getConsole().getStdOut();
       for (String pathToBuildFile : getArguments()) {
         if (!json) {

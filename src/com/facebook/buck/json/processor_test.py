@@ -6,7 +6,7 @@ import tempfile
 import sys
 import StringIO
 
-from .buck import BuildFileProcessor, DiagnosticMessageAndLevel, add_rule
+from .buck import BuildFileProcessor, Diagnostic, add_rule
 
 
 def foo_rule(name, srcs=[], visibility=[], build_env=None):
@@ -300,7 +300,7 @@ class BuckTest(unittest.TestCase):
 
             def query(self, *args):
                 self.query_invoked = True
-                raise FakeWatchmanError("whoops")
+                raise FakeWatchmanError("Nobody watches the watchmen")
 
             def close(self):
                 pass
@@ -325,9 +325,10 @@ class BuckTest(unittest.TestCase):
         self.assertTrue(self.watchman_client.query_invoked)
         self.assertEqual(['Foo.java'], rules[0]['srcs'])
         self.assertEqual(
-            set([DiagnosticMessageAndLevel(
-                'Watchman error, falling back to slow glob: whoops',
-                'error')]),
+            set([Diagnostic(
+                message='Nobody watches the watchmen',
+                level='error',
+                source='watchman')]),
             diagnostics)
 
     def test_watchman_glob_warning_adds_diagnostic(self):
@@ -356,7 +357,10 @@ class BuckTest(unittest.TestCase):
         rules = build_file_processor.process(build_file.path, diagnostics)
         self.assertEqual(['Foo.java'], rules[0]['srcs'])
         self.assertEqual(
-            set([DiagnosticMessageAndLevel('Watchman warning: This is a warning', 'warning')]),
+            set([Diagnostic(
+                message='This is a warning',
+                level='warning',
+                source='watchman')]),
             diagnostics)
 
     def test_read_config(self):
@@ -404,24 +408,102 @@ class BuckTest(unittest.TestCase):
             os.path.join(self.project_root, dep.path) in
             get_includes_from_results(results))
 
-    def test_enabled_sandboxing_prints_warnings(self):
+    def test_import_works_without_sandboxing(self):
+        self.enable_build_file_sandboxing = False
+        build_file = ProjectFile(
+            path='BUCK',
+            contents=(
+                'import ssl',
+            ))
+        self.write_files(build_file)
+        build_file_processor = self.create_build_file_processor()
+        build_file_processor.install_builtins(__builtin__.__dict__)
+        build_file_processor.process(build_file.path, set())
+
+    def test_enabled_sandboxing_blocks_import(self):
         self.enable_build_file_sandboxing = True
         build_file = ProjectFile(
             path='BUCK',
-            contents=('import ssl'))
-        py_file = ProjectFile(path='foo.py', contents=())
-        self.write_files(build_file, py_file)
+            contents=(
+                'import ssl',
+            ))
+        self.write_files(build_file)
         build_file_processor = self.create_build_file_processor()
         build_file_processor.install_builtins(__builtin__.__dict__)
-        diagnostics = set()
+        self.assertRaises(
+            ImportError,
+            build_file_processor.process,
+            build_file.path, set())
 
-        try:
-            out = StringIO.StringIO()
-            sys.stdout = out
-            build_file_path = os.path.join(self.project_root, build_file.path)
-            build_file_processor.process(build_file.path, diagnostics)
-            self.assertEqual(
-                sys.stdout.getvalue().strip(),
-                'Importing module ssl in file %s is discouraged' % build_file_path)
-        finally:
-            sys.stdout = sys.__stdout__
+    def test_allow_unsafe_import_allows_to_import(self):
+        """
+        Verify that `allow_unsafe_import()` allows to import specified modules
+        """
+        self.enable_build_file_sandboxing = True
+        # Importing httplib results in `__import__()` calls for other modules, e.g. socket, sys
+        build_file = ProjectFile(
+            path='BUCK',
+            contents=(
+                'with allow_unsafe_import():',
+                '    import math, httplib',
+            ))
+        self.write_files(build_file)
+        build_file_processor = self.create_build_file_processor()
+        build_file_processor.install_builtins(__builtin__.__dict__)
+        build_file_processor.process(build_file.path, set())
+
+    def test_modules_are_not_copied_unless_specified(self):
+        """
+        Test that modules are not copied by 'include_defs' unless specified in '__all__'.
+        """
+
+        include_def = ProjectFile(
+            path='inc_def',
+            contents=(
+                'import math',
+                'def math_pi():',
+                '    return math.pi',
+            ))
+        self.write_files(include_def)
+
+        # Module math should not be accessible
+        build_file = ProjectFile(
+            path='BUCK',
+            contents=(
+                'include_defs({0!r})'.format(include_def.name),
+                'assert(round(math.pi, 2) == 3.14)',
+            ))
+        self.write_file(build_file)
+        build_file_processor = self.create_build_file_processor()
+        self.assertRaises(
+            NameError,
+            build_file_processor.process,
+            build_file.path, set())
+
+        # Confirm that math_pi() works
+        build_file = ProjectFile(
+            path='BUCK',
+            contents=(
+                'include_defs({0!r})'.format(include_def.name),
+                'assert(round(math_pi(), 2) == 3.14)',
+            ))
+        self.write_file(build_file)
+        build_file_processor = self.create_build_file_processor()
+        build_file_processor.process(build_file.path, set())
+
+        # If specified in '__all__', math should be accessible
+        include_def = ProjectFile(
+            path='inc_def',
+            contents=(
+                '__all__ = ["math"]',
+                'import math',
+            ))
+        build_file = ProjectFile(
+            path='BUCK',
+            contents=(
+                'include_defs({0!r})'.format(include_def.name),
+                'assert(round(math.pi, 2) == 3.14)',
+            ))
+        self.write_files(include_def, build_file)
+        build_file_processor = self.create_build_file_processor()
+        build_file_processor.process(build_file.path, set())
