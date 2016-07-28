@@ -30,7 +30,10 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 
 import org.apache.maven.model.Dependency;
+import org.apache.maven.model.Developer;
+import org.apache.maven.model.License;
 import org.apache.maven.model.Model;
+import org.apache.maven.model.Scm;
 import org.apache.maven.model.building.DefaultModelBuilderFactory;
 import org.apache.maven.model.building.DefaultModelBuildingRequest;
 import org.apache.maven.model.building.ModelBuilder;
@@ -116,6 +119,7 @@ public class Pom {
 
   private Model constructModel() throws IOException {
     File file = path.toFile();
+    Model model;
     if (file.isFile()) {
       ModelBuildingRequest modelBuildingRequest = new DefaultModelBuildingRequest()
           .setPomFile(file);
@@ -126,15 +130,94 @@ public class Pom {
         // Would contain extra stuff: <build/>, <repositories/>, <pluginRepositories/>, <reporting/>
         // model = modelBuildingResult.getEffectiveModel();
 
-        return Preconditions.checkNotNull(modelBuildingResult.getRawModel());
+        model = Preconditions.checkNotNull(modelBuildingResult.getRawModel());
       } catch (ModelBuildingException e) {
         throw new RuntimeException(e);
       }
     } else {
-      Model model = new Model();
+      model = new Model();
       model.setModelVersion(POM_MODEL_VERSION);
-      return model;
     }
+
+    model.setUrl("http://www.seleniumhq.org/");
+
+    model.setDescription(
+        "Selenium automates browsers. That's it! " +
+        "What you do with that power is entirely up to you.");
+
+    License license = new License();
+    license.setName("The Apache Software License, Version 2.0");
+    license.setUrl("http://www.apache.org/licenses/LICENSE-2.0.txt");
+    license.setDistribution("repo");
+    model.addLicense(license);
+
+    Scm scm = new Scm();
+    scm.setUrl("https://github.com/SeleniumHQ/selenium/");
+    scm.setConnection("scm:git:git@github.com:SeleniumHQ/selenium.git");
+    scm.setDeveloperConnection("scm:git:git@github.com:SeleniumHQ/selenium.git");
+    model.setScm(scm);
+
+    Developer developer = new Developer();
+    developer.setName("Simon Stewart");
+    developer.setId("simon.m.stewart");
+    developer.addRole("Owner");
+    model.addDeveloper(developer);
+
+    developer = new Developer();
+    developer.setName("Daniel Wagner-Hall");
+    developer.setId("dawagner");
+    developer.addRole("Committer");
+    model.addDeveloper(developer);
+
+    developer = new Developer();
+    developer.setName("Eran Mes");
+    developer.setId("eran.mes@gmail.com");
+    developer.addRole("Committer");
+    model.addDeveloper(developer);
+
+    developer = new Developer();
+    developer.setName("Jim Evans");
+    developer.setId("james.h.evans.jr");
+    developer.addRole("Committer");
+    model.addDeveloper(developer);
+
+    developer = new Developer();
+    developer.setName("Jari Bakken");
+    developer.setId("jari.bakken");
+    developer.addRole("Committer");
+    model.addDeveloper(developer);
+
+    developer = new Developer();
+    developer.setName("Michael Tamm");
+    developer.setId("michael.tamm2");
+    developer.addRole("Committer");
+    model.addDeveloper(developer);
+
+    developer = new Developer();
+    developer.setName("David Burns");
+    developer.setId("theautomatedtester");
+    developer.addRole("Committer");
+    model.addDeveloper(developer);
+
+    developer = new Developer();
+    developer.setName("Kristian Rosenvold");
+    developer.setId("krosenvold");
+    developer.addRole("Committer");
+    model.addDeveloper(developer);
+
+    developer = new Developer();
+    developer.setName("Luke Inman-Semerau");
+    developer.setId("lsemerau");
+    developer.addRole("Committer");
+    model.addDeveloper(developer);
+
+    developer = new Developer();
+    developer.setName("Alexei Barantsev");
+    developer.setId("barancev");
+    developer.addRole("Committer");
+    model.addDeveloper(developer);
+
+    return model;
   }
 
   private void updateModel(Artifact mavenCoordinates, Iterable<Artifact> deps) {
