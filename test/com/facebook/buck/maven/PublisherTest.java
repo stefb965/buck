@@ -59,6 +59,7 @@ public class PublisherTest {
         /* remoteRepoUrl */ Optional.<URL>absent(),
         /* username */ Optional.<String>absent(),
         /* password */ Optional.<String>absent(),
+        /* pgp passphrase */ Optional.<String>absent(),
         /* dryRun */ true);
 
     ruleResolver = new BuildRuleResolver(
@@ -68,7 +69,7 @@ public class PublisherTest {
 
   @Test
   public void errorRaisedForDuplicateFirstOrderDeps()
-      throws DeploymentException, NoSuchBuildTargetException {
+      throws DeploymentException, NoSuchBuildTargetException, InterruptedException {
     // Construct a graph that looks like this.  A and B have maven coordinates set.
     // A   B
     //  \ /
@@ -115,7 +116,7 @@ public class PublisherTest {
 
   @Test
   public void errorRaisedForDuplicateFirstOrderAndTransitiveDep()
-      throws DeploymentException, NoSuchBuildTargetException {
+      throws DeploymentException, NoSuchBuildTargetException, InterruptedException {
     // Construct a graph that looks like this.  A and B have maven coordinates set.
     // A   B
     // |   |
@@ -168,7 +169,7 @@ public class PublisherTest {
 
   @Test
   public void errorRaisedForDuplicateTransitiveDeps()
-      throws DeploymentException, NoSuchBuildTargetException {
+      throws DeploymentException, NoSuchBuildTargetException, InterruptedException {
     // Construct a graph that looks like this.  A and B have maven coordinates set.
     // A   B
     // |   |
