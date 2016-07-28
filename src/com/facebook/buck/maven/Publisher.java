@@ -17,8 +17,8 @@
 package com.facebook.buck.maven;
 
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.jvm.java.Javadoc;
 import com.facebook.buck.jvm.java.MavenPublishable;
-import com.facebook.buck.jvm.java.MavenUberJar;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.rules.BuildRule;
@@ -163,7 +163,7 @@ public class Publisher {
           .resolve(relativePathToOutput)
           .toFile();
 
-      if (!mainItem.exists() && publishable instanceof MavenUberJar.JavadocJar) {
+      if (!mainItem.exists() && publishable instanceof Javadoc) {
         continue;
       }
 

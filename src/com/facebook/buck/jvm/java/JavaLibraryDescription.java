@@ -23,7 +23,6 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.Flavored;
 import com.facebook.buck.model.HasTests;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -130,35 +129,45 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
     if (flavors.contains(JavaLibrary.JAVADOC)) {
       // The javadoc jar needs the compiled jar to work from too.
       BuildRule library = null;
-      try {
-        library = resolver.requireRule(BuildTarget.of(target.getUnflavoredBuildTarget()));
-      } catch (NoSuchBuildTargetException e) {
-        throw new RuntimeException("ARGH!");
+      BuildTarget unflavored = BuildTarget.of(target.getUnflavoredBuildTarget());
+      Optional<BuildRule> ruleOptional = resolver.getRuleOptional(unflavored);
+      if (ruleOptional.isPresent()) {
+        library = ruleOptional.get();
+      } else {
+        library = createBuildRule(
+            targetGraph,
+            params.copyWithBuildTarget(unflavored),
+            resolver,
+            args);
       }
 
-      paramsWithMavenFlavor = paramsWithMavenFlavor.appendExtraDeps(Collections.singleton(library));
-
-      args.mavenCoords = args.mavenCoords.transform(
-          new Function<String, String>() {
-            @Override
-            public String apply(String input) {
-              return AetherUtil.addClassifier(input, AetherUtil.CLASSIFIER_JAVADOC);
-            }
-          });
-
       if (!flavors.contains(JavaLibrary.MAVEN_JAR)) {
-        return new JavaDocJar(
-            params,
+        return new Javadoc(
+            params.appendExtraDeps(Collections.singleton(library)),
             pathResolver,
-            args.srcs.get(),
-            args.mavenCoords);
+            args.mavenCoords,
+            args.mavenPomTemplate.transform(pathResolver.getAbsolutePathFunction()),
+            RuleGatherer.SINGLE_JAR);
       } else {
-        return MavenUberJar.JavadocJar.create(
-            Preconditions.checkNotNull(paramsWithMavenFlavor),
+        paramsWithMavenFlavor =
+            paramsWithMavenFlavor.appendExtraDeps(Collections.singleton(library));
+
+        args.mavenCoords = args.mavenCoords.transform(
+            new Function<String, String>() {
+              @Override
+              public String apply(String input) {
+                return AetherUtil.addClassifier(input, AetherUtil.CLASSIFIER_JAVADOC);
+              }
+            });
+
+        // We need the default java library too.
+        return new Javadoc(
+            Preconditions.checkNotNull(paramsWithMavenFlavor)
+                .appendExtraDeps(Collections.singleton(library)),
             pathResolver,
-            args.srcs.get(),
-            args.mavenCoords
-        );
+            args.mavenCoords,
+            args.mavenPomTemplate.transform(pathResolver.getAbsolutePathFunction()),
+            RuleGatherer.MAVEN_JAR);
       }
     }
 
@@ -246,7 +255,7 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
 
   /**
    * Creates a {@link BuildRule} with the {@link JavaLibrary#GWT_MODULE_FLAVOR}, if appropriate.
-   * <p>
+   * <p/>
    * If {@code arg.srcs} or {@code arg.resources} is non-empty, then the return value will not be
    * absent.
    */
@@ -307,7 +316,8 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
     public Optional<ImmutableSortedSet<BuildTarget>> exportedDeps;
     public Optional<ImmutableSortedSet<BuildTarget>> deps;
 
-    @Hint(isDep = false) public Optional<ImmutableSortedSet<BuildTarget>> tests;
+    @Hint(isDep = false)
+    public Optional<ImmutableSortedSet<BuildTarget>> tests;
 
     @Override
     public ImmutableSortedSet<BuildTarget> getTests() {

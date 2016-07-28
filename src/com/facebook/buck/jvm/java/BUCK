@@ -108,8 +108,8 @@ java_library(
     'JarFattener.java',
     'JavaBinary.java',
     'JavaBinaryDescription.java',
-    'JavaDocJar.java',
     'JavacOptionsFactory.java',
+    'Javadoc.java',
     'JvmLibraryArg.java',
     'JavaLibraryDescription.java',
     'JavaLibraryClasspathProvider.java',
@@ -122,6 +122,7 @@ java_library(
     'MavenUberJar.java',
     'PrebuiltJar.java',
     'PrebuiltJarDescription.java',
+    'RuleGatherer.java',
     'ZipArchiveDependencySupplier.java',
   ],
   tests = [
