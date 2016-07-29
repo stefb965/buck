@@ -29,10 +29,22 @@ import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 
+import org.apache.maven.model.Build;
+import org.apache.maven.model.CiManagement;
+import org.apache.maven.model.Contributor;
 import org.apache.maven.model.Dependency;
+import org.apache.maven.model.DependencyManagement;
 import org.apache.maven.model.Developer;
+import org.apache.maven.model.DistributionManagement;
+import org.apache.maven.model.IssueManagement;
 import org.apache.maven.model.License;
+import org.apache.maven.model.MailingList;
 import org.apache.maven.model.Model;
+import org.apache.maven.model.Organization;
+import org.apache.maven.model.Parent;
+import org.apache.maven.model.Prerequisites;
+import org.apache.maven.model.Profile;
+import org.apache.maven.model.Repository;
 import org.apache.maven.model.Scm;
 import org.apache.maven.model.building.DefaultModelBuilderFactory;
 import org.apache.maven.model.building.DefaultModelBuildingRequest;
@@ -51,7 +63,12 @@ import java.io.OutputStreamWriter;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Properties;
+
+import javax.annotation.Nullable;
 
 public class Pom {
 
@@ -74,7 +91,8 @@ public class Pom {
     applyBuildRule();
   }
 
-  public static Path generatePomFile(MavenPublishable rule) throws IOException {
+  public static Path generatePomFile(MavenPublishable rule)
+      throws IOException {
     Path pom = getPomPath(rule);
     generatePomFile(rule, pom);
     return pom;
@@ -117,105 +135,163 @@ public class Pom {
     updateModel(artifact, deps);
   }
 
+  private Model constructModel(File file, @Nullable Model model) {
+    ModelBuilder modelBuilder = MODEL_BUILDER_FACTORY.newInstance();
+
+    try {
+      ModelBuildingRequest req = new DefaultModelBuildingRequest().setPomFile(file);
+      ModelBuildingResult modelBuildingResult = modelBuilder.build(req);
+
+      Model constructed = Preconditions.checkNotNull(modelBuildingResult.getRawModel());
+
+      return merge(model, constructed);
+    } catch (ModelBuildingException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
   private Model constructModel() throws IOException {
     File file = path.toFile();
-    Model model;
-    if (file.isFile()) {
-      ModelBuildingRequest modelBuildingRequest = new DefaultModelBuildingRequest()
-          .setPomFile(file);
-      ModelBuilder modelBuilder = MODEL_BUILDER_FACTORY.newInstance();
-      try {
-        ModelBuildingResult modelBuildingResult = modelBuilder.build(modelBuildingRequest);
+    Model model = new Model();
+    model.setModelVersion(POM_MODEL_VERSION);
 
-        // Would contain extra stuff: <build/>, <repositories/>, <pluginRepositories/>, <reporting/>
-        // model = modelBuildingResult.getEffectiveModel();
-
-        model = Preconditions.checkNotNull(modelBuildingResult.getRawModel());
-      } catch (ModelBuildingException e) {
-        throw new RuntimeException(e);
-      }
-    } else {
-      model = new Model();
-      model.setModelVersion(POM_MODEL_VERSION);
+    if (publishable.getTemplatePom().isPresent()) {
+      model = constructModel(publishable.getTemplatePom().get().toFile(), model);
     }
 
-    model.setUrl("http://www.seleniumhq.org/");
+    if (file.isFile()) {
+      model = constructModel(file, model);
+    }
 
-    model.setDescription(
-        "Selenium automates browsers. That's it! " +
-        "What you do with that power is entirely up to you.");
+    return model;
+  }
 
-    License license = new License();
-    license.setName("The Apache Software License, Version 2.0");
-    license.setUrl("http://www.apache.org/licenses/LICENSE-2.0.txt");
-    license.setDistribution("repo");
-    model.addLicense(license);
+  private Model merge(Model first, @Nullable Model second) {
+    if (second == null) {
+      return first;
+    }
 
-    Scm scm = new Scm();
-    scm.setUrl("https://github.com/SeleniumHQ/selenium/");
-    scm.setConnection("scm:git:git@github.com:SeleniumHQ/selenium.git");
-    scm.setDeveloperConnection("scm:git:git@github.com:SeleniumHQ/selenium.git");
-    model.setScm(scm);
+    Model model = first.clone();
 
-    Developer developer = new Developer();
-    developer.setName("Simon Stewart");
-    developer.setId("simon.m.stewart");
-    developer.addRole("Owner");
-    model.addDeveloper(developer);
+    //---- Values from ModelBase
 
-    developer = new Developer();
-    developer.setName("Daniel Wagner-Hall");
-    developer.setId("dawagner");
-    developer.addRole("Committer");
-    model.addDeveloper(developer);
+    List<String> modules = second.getModules();
+    if (modules != null) {
+      for (String module : modules) {
+        model.addModule(module);
+      }
+    }
 
-    developer = new Developer();
-    developer.setName("Eran Mes");
-    developer.setId("eran.mes@gmail.com");
-    developer.addRole("Committer");
-    model.addDeveloper(developer);
+    DistributionManagement distributionManagement = second.getDistributionManagement();
+    if (distributionManagement != null) {
+      model.setDistributionManagement(distributionManagement);
+    }
 
-    developer = new Developer();
-    developer.setName("Jim Evans");
-    developer.setId("james.h.evans.jr");
-    developer.addRole("Committer");
-    model.addDeveloper(developer);
+    Properties properties = second.getProperties();
+    if (properties != null) {
+      for (Map.Entry<Object, Object> entry : properties.entrySet()) {
+        model.addProperty((String) entry.getKey(), (String) entry.getValue());
+      }
+    }
 
-    developer = new Developer();
-    developer.setName("Jari Bakken");
-    developer.setId("jari.bakken");
-    developer.addRole("Committer");
-    model.addDeveloper(developer);
+    DependencyManagement dependencyManagement = second.getDependencyManagement();
+    if (dependencyManagement != null) {
+      model.setDependencyManagement(dependencyManagement);
+    }
 
-    developer = new Developer();
-    developer.setName("Michael Tamm");
-    developer.setId("michael.tamm2");
-    developer.addRole("Committer");
-    model.addDeveloper(developer);
+    List<Dependency> dependencies = second.getDependencies();
+    if (dependencies != null) {
+      for (Dependency dependency : dependencies) {
+        model.addDependency(dependency);
+      }
+    }
 
-    developer = new Developer();
-    developer.setName("David Burns");
-    developer.setId("theautomatedtester");
-    developer.addRole("Committer");
-    model.addDeveloper(developer);
+    List<Repository> repositories = second.getRepositories();
+    if (repositories != null) {
+      for (Repository repository : repositories) {
+        model.addRepository(repository);
+      }
+    }
 
-    developer = new Developer();
-    developer.setName("Kristian Rosenvold");
-    developer.setId("krosenvold");
-    developer.addRole("Committer");
-    model.addDeveloper(developer);
+    List<Repository> pluginRepositories = second.getPluginRepositories();
+    if (pluginRepositories != null) {
+      for (Repository pluginRepository : pluginRepositories) {
+        model.addPluginRepository(pluginRepository);
+      }
+    }
 
-    developer = new Developer();
-    developer.setName("Luke Inman-Semerau");
-    developer.setId("lsemerau");
-    developer.addRole("Committer");
-    model.addDeveloper(developer);
+    // Ignore reports, reporting, and locations
 
-    developer = new Developer();
-    developer.setName("Alexei Barantsev");
-    developer.setId("barancev");
-    developer.addRole("Committer");
-    model.addDeveloper(developer);
+    //----- From Model
+    Parent parent = second.getParent();
+    if (parent != null) {
+      model.setParent(parent);
+    }
+
+    Organization organization = second.getOrganization();
+    if (organization != null) {
+      model.setOrganization(organization);
+    }
+
+    List<License> licenses = second.getLicenses();
+    if (licenses != null) {
+      for (License license : licenses) {
+        model.addLicense(license);
+      }
+    }
+
+    List<Developer> developers = second.getDevelopers();
+    if (developers != null) {
+      for (Developer developer : developers) {
+        model.addDeveloper(developer);
+      }
+    }
+
+    List<Contributor> contributors = second.getContributors();
+    if (contributors != null) {
+      for (Contributor contributor : contributors) {
+        model.addContributor(contributor);
+      }
+    }
+
+    List<MailingList> mailingLists = second.getMailingLists();
+    if (mailingLists != null) {
+      for (MailingList mailingList : mailingLists) {
+        model.addMailingList(mailingList);
+      }
+    }
+
+    Prerequisites prerequisites = second.getPrerequisites();
+    if (prerequisites != null) {
+      model.setPrerequisites(prerequisites);
+    }
+
+    Scm scm = second.getScm();
+    if (scm != null) {
+      model.setScm(scm);
+    }
+
+    IssueManagement issueManagement = second.getIssueManagement();
+    if (issueManagement != null) {
+      model.setIssueManagement(issueManagement);
+    }
+
+    CiManagement ciManagement = second.getCiManagement();
+    if (ciManagement != null) {
+      model.setCiManagement(ciManagement);
+    }
+
+    Build build = second.getBuild();
+    if (build != null) {
+      model.setBuild(build);
+    }
+
+    List<Profile> profiles = second.getProfiles();
+    if (profiles != null) {
+      for (Profile profile : profiles) {
+        model.addProfile(profile);
+      }
+    }
 
     return model;
   }

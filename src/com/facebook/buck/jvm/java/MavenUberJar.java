@@ -56,16 +56,20 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
   private final static Logger LOG = Logger.get(MavenUberJar.class);
 
   private final Optional<String> mavenCoords;
+  private final Optional<Path> pomTemplate;
   private final TraversedDeps traversedDeps;
 
   private MavenUberJar(
       TraversedDeps traversedDeps,
       BuildRuleParams params,
       SourcePathResolver resolver,
-      Optional<String> mavenCoords) {
+      Optional<String> mavenCoords,
+      Optional<SourcePath> mavenPomTemplate) {
     super(params, resolver);
     this.traversedDeps = traversedDeps;
     this.mavenCoords = mavenCoords;
+
+    this.pomTemplate = mavenPomTemplate.transform(getResolver().getAbsolutePathFunction());
   }
 
   private static BuildRuleParams adjustParams(BuildRuleParams params, TraversedDeps traversedDeps) {
@@ -87,13 +91,15 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
       JavaLibrary rootRule,
       BuildRuleParams params,
       SourcePathResolver resolver,
-      Optional<String> mavenCoords) {
+      Optional<String> mavenCoords,
+      Optional<SourcePath> mavenPomTemplate) {
     TraversedDeps traversedDeps = TraversedDeps.traverse(ImmutableSet.of(rootRule));
     return new MavenUberJar(
         traversedDeps,
         adjustParams(params, traversedDeps),
         resolver,
-        mavenCoords);
+        mavenCoords,
+        mavenPomTemplate);
   }
 
   @Override
@@ -132,6 +138,11 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
   @Override
   public Path getPathToOutput() {
     return DefaultJavaLibrary.getOutputJarPath(getBuildTarget(), getProjectFilesystem());
+  }
+
+  @Override
+  public Optional<Path> getTemplatePom() {
+    return pomTemplate;
   }
 
   @Override
@@ -203,6 +214,11 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
     @Override
     public Iterable<BuildRule> getPackagedDependencies() {
       return traversedDeps.packagedDeps;
+    }
+
+    @Override
+    public Optional<Path> getTemplatePom() {
+      return Optional.absent();
     }
   }
 
@@ -306,6 +322,11 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
     @Override
     public Iterable<BuildRule> getPackagedDependencies() {
       return traversedDeps.packagedDeps;
+    }
+
+    @Override
+    public Optional<Path> getTemplatePom() {
+      return Optional.absent();
     }
   }
 

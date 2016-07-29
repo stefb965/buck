@@ -239,7 +239,8 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
           defaultJavaLibrary,
           Preconditions.checkNotNull(paramsWithMavenFlavor),
           pathResolver,
-          args.mavenCoords);
+          args.mavenCoords,
+          args.mavenPomTemplate);
     }
   }
 
@@ -298,6 +299,7 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
     @Hint(isInput = false)
     public Optional<Path> resourcesRoot;
     public Optional<String> mavenCoords;
+    public Optional<SourcePath> mavenPomTemplate;
 
     public Optional<Boolean> autodeps;
     public Optional<ImmutableSortedSet<String>> generatedSymbols;
