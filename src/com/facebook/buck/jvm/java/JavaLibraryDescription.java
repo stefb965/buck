@@ -122,7 +122,8 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
             Preconditions.checkNotNull(paramsWithMavenFlavor),
             pathResolver,
             args.srcs.get(),
-            args.mavenCoords);
+            args.mavenCoords,
+            args.mavenPomTemplate.transform(pathResolver.getAbsolutePathFunction()));
       }
     }
 

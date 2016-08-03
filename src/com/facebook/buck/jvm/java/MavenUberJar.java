@@ -162,22 +162,26 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
   public static class SourceJar extends JavaSourceJar implements MavenPublishable {
 
     private final TraversedDeps traversedDeps;
+    private final Optional<Path> mavenPomTemplate;
 
     public SourceJar(
         BuildRuleParams params,
         SourcePathResolver resolver,
         ImmutableSortedSet<SourcePath> srcs,
         Optional<String> mavenCoords,
+        Optional<Path> mavenPomTemplate,
         TraversedDeps traversedDeps) {
       super(params, resolver, srcs, mavenCoords);
       this.traversedDeps = traversedDeps;
+      this.mavenPomTemplate = mavenPomTemplate;
     }
 
     public static SourceJar create(
         BuildRuleParams params,
         final SourcePathResolver resolver,
         ImmutableSortedSet<SourcePath> topLevelSrcs,
-        Optional<String> mavenCoords) {
+        Optional<String> mavenCoords,
+        Optional<Path> mavenPomTemplate) {
       // TODO(simons): This is overly broad, since we also pull in any defs from resources.
       // Should just be deps, exported_deps, provided_deps.
       TraversedDeps traversedDeps = TraversedDeps.traverse(params.getDeps());
@@ -202,6 +206,7 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
           resolver,
           sourcePaths,
           mavenCoords,
+          mavenPomTemplate,
           traversedDeps);
     }
 
@@ -217,107 +222,9 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
 
     @Override
     public Optional<Path> getTemplatePom() {
-      return Optional.absent();
+      return mavenPomTemplate;
     }
   }
-
-//  public static class JavadocJar extends JavaDocJar implements MavenPublishable {
-//
-//    private final TraversedDeps traversedDeps;
-//
-//    public JavadocJar(
-//        BuildRuleParams params,
-//        SourcePathResolver resolver,
-//        ImmutableSortedSet<SourcePath> srcs,
-//        Optional<String> mavenCoords,
-//        TraversedDeps traversedDeps) {
-//      super(params, resolver, srcs, mavenCoords);
-//      this.traversedDeps = traversedDeps;
-//    }
-//
-//    public static JavadocJar create(
-//        BuildRuleParams params,
-//        final SourcePathResolver resolver,
-//        ImmutableSortedSet<SourcePath> topLevelSrcs,
-//        Optional<String> mavenCoords) {
-//      // We need to keep a reference to the original target, since we need the classpath from it
-//      // for everything to work.
-//
-//      // We then need to walk the transitive deps, removing anything that belongs to another maven
-//      // coordinate.
-//
-//      // TODO(simons): This is overly broad, since we also pull in any defs from resources.
-//      // Should just be deps, exported_deps, provided_deps.
-//      Set<JavaLibrary> allTransitiveDeps = new HashSet<>();
-//      Set<JavaLibrary> mavenCoordinates = new HashSet<>();
-//
-//      BuildTarget parent = BuildTarget.of(params.getBuildTarget().getUnflavoredBuildTarget());
-//      for (BuildRule rule : params.getDeps()) {
-//        if (!(rule instanceof JavaLibrary)) {
-//          continue;
-//        }
-//        if (rule.getBuildTarget().equals(parent)) {
-//          continue; // Otherwise we filter ourselves out. *facepalm*
-//        }
-//        JavaLibrary javaLibrary = (JavaLibrary) rule;
-//        ImmutableSet<JavaLibrary> transitiveDeps = javaLibrary.getTransitiveClasspathDeps();
-//
-//        allTransitiveDeps.addAll(transitiveDeps);
-//
-//        mavenCoordinates.addAll(
-//            FluentIterable.from(transitiveDeps)
-//                .filter(JavaLibrary.class)
-//                .filter(new Predicate<JavaLibrary>() {
-//                  @Override
-//                  public boolean apply(@Nullable JavaLibrary input) {
-//                    return input.getMavenCoords().isPresent();
-//                  }
-//                })
-//                .transformAndConcat(new Function<JavaLibrary, ImmutableSet<JavaLibrary>>() {
-//                  @Nullable
-//                  @Override
-//                  public ImmutableSet<JavaLibrary> apply(@Nullable JavaLibrary input) {
-//                    return input.getTransitiveClasspathDeps();
-//                  }
-//                })
-//                .toSet());
-//      }
-//      Set<BuildRule> depsToIncludeInDocs = FluentIterable
-//          .from(Sets.difference(allTransitiveDeps, mavenCoordinates))
-//          .filter(BuildRule.class)
-//          .toSet();
-//
-//      ImmutableSortedSet<SourcePath> sourcePaths =
-//          FluentIterable
-//              .from(depsToIncludeInDocs)
-//              .filter(HasSources.class)
-//              .transformAndConcat(
-//                  new Function<HasSources, Iterable<SourcePath>>() {
-//                    @Override
-//                    public Iterable<SourcePath> apply(HasSources input) {
-//                      return input.getSources();
-//                    }
-//                  })
-//              .append(topLevelSrcs)
-//              .toSortedSet(Ordering.natural());
-//      return new JavadocJar(
-//          params,
-//          resolver,
-//          sourcePaths,
-//          mavenCoords,
-//          new TraversedDeps(FluentIterable.from(allTransitiveDeps).filter(HasMavenCoordinates.class).toSet(), depsToIncludeInDocs));
-//    }
-//
-//    @Override
-//    public Iterable<HasMavenCoordinates> getMavenDeps() {
-//      return traversedDeps.mavenDeps;
-//    }
-//
-//    @Override
-//    public Iterable<BuildRule> getPackagedDependencies() {
-//      return traversedDeps.packagedDeps;
-//    }
-//  }
 
   private static class TraversedDeps {
     public final Iterable<HasMavenCoordinates> mavenDeps;
