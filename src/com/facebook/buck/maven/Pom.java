@@ -63,10 +63,12 @@ import java.io.OutputStreamWriter;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
+import java.util.Set;
 
 import javax.annotation.Nullable;
 
@@ -234,23 +236,50 @@ public class Pom {
     }
 
     List<License> licenses = second.getLicenses();
+    Set<String> currentLicenseUrls = new HashSet<>();
+    if (model.getLicenses() != null) {
+      for (License license : model.getLicenses()) {
+        currentLicenseUrls.add(license.getUrl());
+      }
+    }
     if (licenses != null) {
       for (License license : licenses) {
-        model.addLicense(license);
+        if (!currentLicenseUrls.contains(license.getUrl())) {
+          model.addLicense(license);
+          currentLicenseUrls.add(license.getUrl());
+        }
       }
     }
 
     List<Developer> developers = second.getDevelopers();
+    Set<String> currentDevelopers = new HashSet<>();
+    if (model.getDevelopers() != null) {
+      for (Developer developer : model.getDevelopers()) {
+        currentDevelopers.add(developer.getName());
+      }
+    }
     if (developers != null) {
       for (Developer developer : developers) {
-        model.addDeveloper(developer);
+        if (!currentDevelopers.contains(developer.getName())) {
+          model.addDeveloper(developer);
+          currentDevelopers.add(developer.getName());
+        }
       }
     }
 
     List<Contributor> contributors = second.getContributors();
+    Set<String> currentContributors = new HashSet<>();
+    if (model.getContributors() != null) {
+      for (Contributor contributor : model.getContributors()) {
+        currentDevelopers.add(contributor.getName());
+      }
+    }
     if (contributors != null) {
       for (Contributor contributor : contributors) {
-        model.addContributor(contributor);
+        if (!currentContributors.contains(contributor.getName())) {
+          model.addContributor(contributor);
+          currentContributors.add(contributor.getName());
+        }
       }
     }
 
@@ -271,6 +300,16 @@ public class Pom {
       model.setScm(scm);
     }
 
+    String url = second.getUrl();
+    if (url != null) {
+      model.setUrl(url);
+    }
+
+    String description = second.getDescription();
+    if (description != null) {
+      model.setDescription(description);
+    }
+
     IssueManagement issueManagement = second.getIssueManagement();
     if (issueManagement != null) {
       model.setIssueManagement(issueManagement);
@@ -287,9 +326,18 @@ public class Pom {
     }
 
     List<Profile> profiles = second.getProfiles();
+    Set<String> currentProfileIds = new HashSet<>();
+    if (model.getProfiles() != null) {
+      for (Profile profile : model.getProfiles()) {
+        currentProfileIds.add(profile.getId());
+      }
+    }
     if (profiles != null) {
       for (Profile profile : profiles) {
-        model.addProfile(profile);
+        if (!currentProfileIds.contains(profile.getId())) {
+          model.addProfile(profile);
+          currentProfileIds.add(profile.getId());
+        }
       }
     }
 
