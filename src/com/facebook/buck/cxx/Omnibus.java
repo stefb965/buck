@@ -49,6 +49,7 @@ import com.google.common.collect.Sets;
 
 import org.immutables.value.Value;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -71,6 +72,14 @@ public class Omnibus {
     return BuildTarget.builder(base)
         .addFlavors(ImmutableFlavor.of(Flavor.replaceInvalidCharacters(root.toString())))
         .build();
+  }
+
+  private static BuildTarget getDummyRootTarget(BuildTarget root) {
+    return root.withAppendedFlavors(ImmutableFlavor.of("dummy"));
+  }
+
+  private static boolean shouldCreateDummyRoot(NativeLinkTarget target, CxxPlatform cxxPlatform) {
+    return target.getNativeLinkTargetMode(cxxPlatform).getType() == Linker.LinkType.EXECUTABLE;
   }
 
   private static Iterable<NativeLinkable> getDeps(
@@ -260,7 +269,9 @@ public class Omnibus {
       ImmutableList<? extends Arg> extraLdflags,
       OmnibusSpec spec,
       SourcePath omnibus,
-      NativeLinkTarget root)
+      NativeLinkTarget root,
+      BuildTarget rootTargetBase,
+      Optional<Path> output)
       throws NoSuchBuildTargetException {
 
     ImmutableList.Builder<Arg> argsBuilder = ImmutableList.builder();
@@ -334,7 +345,7 @@ public class Omnibus {
     }
 
     // Create the root library rule using the arguments assembled above.
-    BuildTarget rootTarget = getRootTarget(params.getBuildTarget(), root.getBuildTarget());
+    BuildTarget rootTarget = getRootTarget(params.getBuildTarget(), rootTargetBase);
     NativeLinkTargetMode rootTargetMode = root.getNativeLinkTargetMode(cxxPlatform);
     CxxLink rootLinkRule;
     switch (rootTargetMode.getType()) {
@@ -350,13 +361,14 @@ public class Omnibus {
                 ruleResolver,
                 pathResolver,
                 rootTarget,
-                BuildTargets.getGenPath(params.getProjectFilesystem(), rootTarget, "%s")
-                    .resolve(
-                        rootSoname.or(
-                            String.format(
-                                "%s.%s",
-                                rootTarget.getShortName(),
-                                cxxPlatform.getSharedLibraryExtension()))),
+                output.or(
+                    BuildTargets.getGenPath(params.getProjectFilesystem(), rootTarget, "%s")
+                        .resolve(
+                            rootSoname.or(
+                                String.format(
+                                    "%s.%s",
+                                    rootTarget.getShortName(),
+                                    cxxPlatform.getSharedLibraryExtension())))),
                 rootSoname,
                 argsBuilder.build());
        break;
@@ -372,8 +384,9 @@ public class Omnibus {
                 ruleResolver,
                 pathResolver,
                 rootTarget,
-                BuildTargets.getGenPath(params.getProjectFilesystem(), rootTarget, "%s")
-                    .resolve(rootTarget.getShortName()),
+                output.or(
+                    BuildTargets.getGenPath(params.getProjectFilesystem(), rootTarget, "%s")
+                        .resolve(rootTarget.getShortName())),
                 argsBuilder.build(),
                 Linker.LinkableDepType.SHARED,
                 Optional.<Linker.CxxRuntimeType>absent());
@@ -393,6 +406,56 @@ public class Omnibus {
 
     ruleResolver.addToIndex(rootLinkRule);
     return OmnibusRoot.of(new BuildTargetSourcePath(rootTarget));
+  }
+
+  protected static OmnibusRoot createRoot(
+      BuildRuleParams params,
+      BuildRuleResolver ruleResolver,
+      SourcePathResolver pathResolver,
+      CxxBuckConfig cxxBuckConfig,
+      CxxPlatform cxxPlatform,
+      ImmutableList<? extends Arg> extraLdflags,
+      OmnibusSpec spec,
+      SourcePath omnibus,
+      NativeLinkTarget root)
+      throws NoSuchBuildTargetException {
+    return createRoot(
+        params,
+        ruleResolver,
+        pathResolver,
+        cxxBuckConfig,
+        cxxPlatform,
+        extraLdflags,
+        spec,
+        omnibus,
+        root,
+        root.getBuildTarget(),
+        root.getNativeLinkTargetOutputPath(cxxPlatform));
+  }
+
+  protected static OmnibusRoot createDummyRoot(
+      BuildRuleParams params,
+      BuildRuleResolver ruleResolver,
+      SourcePathResolver pathResolver,
+      CxxBuckConfig cxxBuckConfig,
+      CxxPlatform cxxPlatform,
+      ImmutableList<? extends Arg> extraLdflags,
+      OmnibusSpec spec,
+      SourcePath omnibus,
+      NativeLinkTarget root)
+      throws NoSuchBuildTargetException {
+    return createRoot(
+        params,
+        ruleResolver,
+        pathResolver,
+        cxxBuckConfig,
+        cxxPlatform,
+        extraLdflags,
+        spec,
+        omnibus,
+        root,
+        getDummyRootTarget(root.getBuildTarget()),
+        Optional.<Path>absent());
   }
 
   private static ImmutableList<Arg> createUndefinedSymbolsArgs(
@@ -441,11 +504,14 @@ public class Omnibus {
     List<SourcePath> undefinedSymbolsOnlyRoots = new ArrayList<>();
     for (BuildTarget target :
          Sets.difference(spec.getRoots().keySet(), spec.getGraph().getNodes())) {
+      NativeLinkTarget linkTarget = Preconditions.checkNotNull(spec.getRoots().get(target));
       undefinedSymbolsOnlyRoots.add(
           new BuildTargetSourcePath(
               getRootTarget(
                   params.getBuildTarget(),
-                  target)));
+                  shouldCreateDummyRoot(linkTarget, cxxPlatform) ?
+                      getDummyRootTarget(target) :
+                      target)));
     }
     argsBuilder.addAll(
         createUndefinedSymbolsArgs(
@@ -562,21 +628,39 @@ public class Omnibus {
 
     // Create rule for each of the root nodes, linking against the dummy omnibus library above.
     for (NativeLinkTarget target : spec.getRoots().values()) {
-      OmnibusRoot root =
-          createRoot(
-              params,
-              ruleResolver,
-              pathResolver,
-              cxxBuckConfig,
-              cxxPlatform,
-              extraLdflags,
-              spec,
-              dummyOmnibus,
-              target);
-      libs.putRoots(target.getBuildTarget(), root);
+
+      // For executable roots, some platforms can't properly build them when there are any
+      // unresolved symbols, so we initially link a dummy root just to provide a way to grab the
+      // undefined symbol list we need to build the real omnibus library.
+      if (shouldCreateDummyRoot(target, cxxPlatform)) {
+        createDummyRoot(
+            params,
+            ruleResolver,
+            pathResolver,
+            cxxBuckConfig,
+            cxxPlatform,
+            extraLdflags,
+            spec,
+            dummyOmnibus,
+            target);
+      } else {
+        OmnibusRoot root =
+            createRoot(
+                params,
+                ruleResolver,
+                pathResolver,
+                cxxBuckConfig,
+                cxxPlatform,
+                extraLdflags,
+                spec,
+                dummyOmnibus,
+                target);
+        libs.putRoots(target.getBuildTarget(), root);
+      }
     }
 
     // If there are any body nodes, generate the giant merged omnibus library.
+    Optional<SourcePath> realOmnibus = Optional.absent();
     if (!spec.getBody().isEmpty()) {
       OmnibusLibrary omnibus =
           createOmnibus(
@@ -588,6 +672,26 @@ public class Omnibus {
               extraLdflags,
               spec);
       libs.addLibraries(omnibus);
+      realOmnibus = Optional.of(omnibus.getPath());
+    }
+
+    // Do another pass over executable roots, building the real DSO which links to the real omnibus.
+    // See the comment above in the first pass for more details.
+    for (NativeLinkTarget target : spec.getRoots().values()) {
+      if (shouldCreateDummyRoot(target, cxxPlatform)) {
+        OmnibusRoot root =
+            createRoot(
+                params,
+                ruleResolver,
+                pathResolver,
+                cxxBuckConfig,
+                cxxPlatform,
+                extraLdflags,
+                spec,
+                realOmnibus.or(dummyOmnibus),
+                target);
+        libs.putRoots(target.getBuildTarget(), root);
+      }
     }
 
     // Lastly, add in any shared libraries from excluded nodes the normal way.
