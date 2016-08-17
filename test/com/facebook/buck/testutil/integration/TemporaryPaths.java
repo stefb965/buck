@@ -32,7 +32,7 @@ import java.util.Arrays;
  * Apes the API of JUnit's <code>TemporaryFolder</code> but returns {@link Path} references and can
  * be made to not delete itself after test execution.
  */
-public class TemporaryPaths extends ExternalResource implements TemporaryRoot {
+public class TemporaryPaths extends ExternalResource {
 
   private final boolean keepContents;
   private Path root;
@@ -52,11 +52,6 @@ public class TemporaryPaths extends ExternalResource implements TemporaryRoot {
 
   public Path getRoot() {
     return root;
-  }
-
-  @Override
-  public Path getRootPath() {
-    return getRoot();
   }
 
   public Path newFolder() throws IOException {
@@ -113,6 +108,12 @@ public class TemporaryPaths extends ExternalResource implements TemporaryRoot {
 
   public Path newExecutableFile() throws IOException {
     Path newFile = newFile();
+    MoreFiles.makeExecutable(newFile);
+    return newFile;
+  }
+
+  public Path newExecutableFile(String name) throws IOException {
+    Path newFile = newFile(name);
     MoreFiles.makeExecutable(newFile);
     return newFile;
   }

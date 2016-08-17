@@ -17,6 +17,7 @@
 package com.facebook.buck.lua;
 
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeThat;
 import static org.junit.Assume.assumeTrue;
 
@@ -27,6 +28,7 @@ import com.facebook.buck.config.Configs;
 import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.DefaultCxxPlatforms;
+import com.facebook.buck.cxx.NativeLinkStrategy;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.FakeExecutableFinder;
 import com.facebook.buck.io.ProjectFilesystem;
@@ -36,8 +38,8 @@ import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.testutil.ParameterizedTests;
-import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
+import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.BgProcessKiller;
 import com.facebook.buck.util.ObjectMappers;
@@ -72,17 +74,21 @@ public class LuaBinaryIntegrationTest {
   private Path lua;
   private boolean luaDevel;
 
-  @Parameterized.Parameters(name = "{0}")
+  @Parameterized.Parameters(name = "{0} {1}")
   public static Collection<Object[]> data() {
     return ParameterizedTests.getPermutations(
-        Arrays.asList(LuaBinaryDescription.StarterType.values()));
+        Arrays.asList(LuaBinaryDescription.StarterType.values()),
+        Arrays.asList(NativeLinkStrategy.values()));
   }
 
   @Parameterized.Parameter
   public LuaBinaryDescription.StarterType starterType;
 
+  @Parameterized.Parameter(value = 1)
+  public NativeLinkStrategy nativeLinkStrategy;
+
   @Rule
-  public DebuggableTemporaryFolder tmp = new DebuggableTemporaryFolder();
+  public TemporaryPaths tmp = new TemporaryPaths();
 
   @Before
   public void setUp() throws Exception {
@@ -132,10 +138,12 @@ public class LuaBinaryIntegrationTest {
         Joiner.on(System.lineSeparator()).join(
             ImmutableList.of(
                 "[lua]",
-                "  starter_type = " + starterType.toString().toLowerCase())),
+                "  starter_type = " + starterType.toString().toLowerCase(),
+                "  native_link_strategy = " + nativeLinkStrategy.toString().toLowerCase())),
         ".buckconfig");
     LuaBuckConfig config = getLuaBuckConfig();
     assertThat(config.getStarterType(), Matchers.equalTo(Optional.of(starterType)));
+    assertThat(config.getNativeLinkStrategy(), Matchers.equalTo(nativeLinkStrategy));
   }
 
   @Test
@@ -246,16 +254,55 @@ public class LuaBinaryIntegrationTest {
         Matchers.equalTo(ImmutableSet.of("simple.lua")));
   }
 
+  @Test
+  @SuppressWarnings("PMD.UseAssertEqualsInsteadOfAssertTrue")
+  public void switchingBetweenPacakgedFormats() throws Exception {
+
+    // Run an inital build using the standalone packaging style.
+    String standaloneFirst =
+        workspace.getFileContents(
+            workspace.buildAndReturnOutput(
+                "-c", "lua.package_style=standalone",
+                "-c", "lua.packager=//:packager",
+                "//:simple"));
+
+    // Now rebuild with just changing to an in-place packaging style.
+    String inplaceFirst =
+        workspace.getFileContents(
+            workspace.buildAndReturnOutput(
+                "-c", "lua.package_style=inplace",
+                "//:simple"));
+
+    // Now rebuild again, switching back to standalone, and verify the output matches the original
+    // build's output.
+    String standaloneSecond =
+        workspace.getFileContents(
+            workspace.buildAndReturnOutput(
+                "-c", "lua.package_style=standalone",
+                "-c", "lua.packager=//:packager",
+                "//:simple"));
+    assertTrue(standaloneFirst.equals(standaloneSecond));
+
+    // Now rebuild again, switching back to in-place, and verify the output matches the original
+    // build's output.
+    String inplaceSecond =
+        workspace.getFileContents(
+            workspace.buildAndReturnOutput(
+                "-c", "lua.package_style=inplace",
+                "//:simple"));
+    assertTrue(inplaceFirst.equals(inplaceSecond));
+  }
+
   private LuaBuckConfig getLuaBuckConfig() throws IOException {
-    Config rawConfig = Configs.createDefaultConfig(tmp.getRootPath());
+    Config rawConfig = Configs.createDefaultConfig(tmp.getRoot());
     BuckConfig buckConfig =
         new BuckConfig(
             rawConfig,
-            new ProjectFilesystem(tmp.getRootPath()),
+            new ProjectFilesystem(tmp.getRoot()),
             Architecture.detect(),
             Platform.detect(),
             ImmutableMap.<String, String>of(),
-            new DefaultCellPathResolver(tmp.getRootPath(), rawConfig));
+            new DefaultCellPathResolver(tmp.getRoot(), rawConfig));
     return new LuaBuckConfig(
         buckConfig,
         new FakeExecutableFinder(ImmutableList.<Path>of()));

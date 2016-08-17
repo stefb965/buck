@@ -35,7 +35,10 @@ import com.facebook.buck.counters.CounterRegistryImpl;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.event.DaemonEvent;
 import com.facebook.buck.event.listener.AbstractConsoleEventBusListener;
+import com.facebook.buck.event.listener.BroadcastEventListener;
+import com.facebook.buck.event.listener.CacheRateStatsListener;
 import com.facebook.buck.event.listener.ChromeTraceBuildListener;
 import com.facebook.buck.event.listener.FileSerializationEventBusListener;
 import com.facebook.buck.event.listener.JavaUtilsLoggingBuildListener;
@@ -52,7 +55,6 @@ import com.facebook.buck.io.AsynchronousDirectoryContentsCleaner;
 import com.facebook.buck.io.MoreFiles;
 import com.facebook.buck.io.PathOrGlobMatcher;
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.io.TempDirectoryCreator;
 import com.facebook.buck.io.Watchman;
 import com.facebook.buck.io.WatchmanDiagnosticCache;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
@@ -75,7 +77,6 @@ import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
 import com.facebook.buck.rules.RelativeCellName;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
-import com.facebook.buck.util.versioncontrol.BuildStamper;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.test.TestConfig;
 import com.facebook.buck.test.TestResultSummaryVerbosity;
@@ -115,6 +116,7 @@ import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.network.RemoteLoggerFactory;
 import com.facebook.buck.util.shutdown.NonReentrantSystemExit;
+import com.facebook.buck.util.versioncontrol.BuildStamper;
 import com.facebook.buck.util.versioncontrol.DefaultVersionControlCmdLineInterfaceFactory;
 import com.facebook.buck.util.versioncontrol.VersionControlBuckConfig;
 import com.facebook.buck.util.versioncontrol.VersionControlCmdLineInterfaceFactory;
@@ -227,13 +229,49 @@ public final class Main {
   // http://wiki.fasterxml.com/JacksonBestPracticesPerformance
   private final ObjectMapper objectMapper;
 
-  // This is a hack to work around a perf issue where generated Xcode IDE files
-  // trip WatchmanWatcher, causing buck project to take a long time to run.
+  // Ignore changes to generated Xcode project files and editors' backup files
+  // so we don't dump buckd caches on every command.
   private static final ImmutableSet<PathOrGlobMatcher> DEFAULT_IGNORE_GLOBS =
       ImmutableSet.of(
-          new PathOrGlobMatcher("*.pbxproj"),
-          new PathOrGlobMatcher("*.xcscheme"),
-          new PathOrGlobMatcher("*.xcworkspacedata"));
+          new PathOrGlobMatcher("**/*.pbxproj"),
+          new PathOrGlobMatcher("**/*.xcscheme"),
+          new PathOrGlobMatcher("**/*.xcworkspacedata"),
+          // Various editors' temporary files
+          new PathOrGlobMatcher("**/*~"),
+          // Emacs
+          new PathOrGlobMatcher("**/#*#"),
+          new PathOrGlobMatcher("**/.#*"),
+          // Vim
+          new PathOrGlobMatcher("**/*.swo"),
+          new PathOrGlobMatcher("**/*.swp"),
+          new PathOrGlobMatcher("**/*.swpx"),
+          new PathOrGlobMatcher("**/*.un~"),
+          new PathOrGlobMatcher("**/.netrhwist"),
+          // Eclipse
+          new PathOrGlobMatcher(".idea"),
+          new PathOrGlobMatcher(".iml"),
+          new PathOrGlobMatcher("**/*.pydevproject"),
+          new PathOrGlobMatcher(".project"),
+          new PathOrGlobMatcher(".metadata"),
+          new PathOrGlobMatcher("**/*.tmp"),
+          new PathOrGlobMatcher("**/*.bak"),
+          new PathOrGlobMatcher("**/*~.nib"),
+          new PathOrGlobMatcher(".classpath"),
+          new PathOrGlobMatcher(".settings"),
+          new PathOrGlobMatcher(".loadpath"),
+          new PathOrGlobMatcher(".externalToolBuilders"),
+          new PathOrGlobMatcher(".cproject"),
+          new PathOrGlobMatcher(".buildpath"),
+          // Mac OS temp files
+          new PathOrGlobMatcher(".DS_Store"),
+          new PathOrGlobMatcher(".AppleDouble"),
+          new PathOrGlobMatcher(".LSOverride"),
+          new PathOrGlobMatcher(".Spotlight-V100"),
+          new PathOrGlobMatcher(".Trashes"),
+          // Windows
+          new PathOrGlobMatcher("$RECYCLE.BIN"),
+          // Sublime
+          new PathOrGlobMatcher(".*.sublime-workspace"));
 
   private static final Logger LOG = Logger.get(Main.class);
 
@@ -271,6 +309,7 @@ public final class Main {
     private final Optional<WebServer> webServer;
     private final UUID watchmanQueryUUID;
     private final ActionGraphCache actionGraphCache;
+    private final BroadcastEventListener broadcastEventListener;
 
     public Daemon(
         Cell cell,
@@ -285,10 +324,12 @@ public final class Main {
               cell.getFilesystem().getBuckPaths().getBuckOut());
       this.fileEventBus = new EventBus("file-change-events");
 
-      actionGraphCache = new ActionGraphCache();
+      this.broadcastEventListener = new BroadcastEventListener();
+      this.actionGraphCache = new ActionGraphCache(broadcastEventListener);
 
       TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory(objectMapper);
       this.parser = new Parser(
+          this.broadcastEventListener,
           new ParserConfig(cell.getBuckConfig()),
           typeCoercerFactory,
           new ConstructorArgMarshaller(typeCoercerFactory));
@@ -367,6 +408,10 @@ public final class Main {
       return actionGraphCache;
     }
 
+    private BroadcastEventListener getBroadcastEventListener() {
+      return broadcastEventListener;
+    }
+
     private FileHashCache getFileHashCache() {
       return hashCache;
     }
@@ -407,7 +452,7 @@ public final class Main {
         WatchmanWatcher watchmanWatcher,
         WatchmanWatcher.FreshInstanceAction watchmanFreshInstanceAction,
         WatchmanDiagnosticCache watchmanDiagnosticCache)
-      throws IOException, InterruptedException {
+        throws IOException, InterruptedException {
 
       // Synchronize on parser object so that all outstanding watch events are processed
       // as a single, atomic Parser cache update and are not interleaved with Parser cache
@@ -512,6 +557,17 @@ public final class Main {
     return daemon;
   }
 
+  private static BroadcastEventListener getBroadcastEventListener(
+      boolean isDaemon,
+      Cell rootCell,
+      ObjectMapper objectMapper)
+      throws IOException, InterruptedException {
+    if (isDaemon) {
+      return getDaemon(rootCell, objectMapper).getBroadcastEventListener();
+    }
+    return new BroadcastEventListener();
+  }
+
   private static boolean shouldReuseWebServer(Cell newCell) {
     if (newCell == null || daemon == null || daemon.cell == null) {
       return false;
@@ -563,8 +619,8 @@ public final class Main {
     // after our initial query.
     WatchmanWatcher.FreshInstanceAction watchmanFreshInstanceAction =
         daemon == null
-          ? WatchmanWatcher.FreshInstanceAction.NONE
-          : WatchmanWatcher.FreshInstanceAction.POST_OVERFLOW_EVENT;
+            ? WatchmanWatcher.FreshInstanceAction.NONE
+            : WatchmanWatcher.FreshInstanceAction.POST_OVERFLOW_EVENT;
 
     // Get the client environment, either from this process or from the Nailgun context.
     ImmutableMap<String, String> clientEnvironment = getClientEnvironment(context);
@@ -608,7 +664,7 @@ public final class Main {
   /**
    * @param buildId an identifier for this command execution.
    * @param context an optional NGContext that is present if running inside a Nailgun server.
-   * @param args command line arguments
+   * @param args    command line arguments
    * @return an exit code or {@code null} if this is a process that should not exit
    */
   @SuppressWarnings("PMD.PrematureDeclaration")
@@ -716,7 +772,10 @@ public final class Main {
 
         Optional<String> currentVersion =
             filesystem.readFileIfItExists(BuckConstant.getCurrentVersionFile());
-        if (!currentVersion.isPresent() || !currentVersion.get().equals(BuckVersion.getVersion())) {
+        if (!currentVersion.isPresent() ||
+            !currentVersion.get().equals(BuckVersion.getVersion()) ||
+            (filesystem.isSymLink(filesystem.getBuckPaths().getGenDir()) ^
+                buckConfig.getBuckOutCompatLink())) {
           // Migrate any version-dependent directories (which might be
           // huge) to a trash directory so we can delete it
           // asynchronously after the command is done.
@@ -745,15 +804,6 @@ public final class Main {
               androidBuckConfig.getNdkVersion());
 
       ProcessExecutor processExecutor = new ProcessExecutor(console);
-
-      Optional<Path> testTempDirOverride = getTestTempDirOverride(
-          buckConfig,
-          clientEnvironment,
-          "buck-" + buildId.toString());
-      if (testTempDirOverride.isPresent()) {
-        // We'll create this directory a little later using TempDirectoryCreator.
-        LOG.debug("Using test temp dir override %s", testTempDirOverride.get());
-      }
 
       Clock clock;
       if (BUCKD_LAUNCH_TIME_NANOS.isPresent()) {
@@ -785,8 +835,7 @@ public final class Main {
 
         KnownBuildRuleTypesFactory factory = new KnownBuildRuleTypesFactory(
             processExecutor,
-            androidDirectoryResolver,
-            testTempDirOverride);
+            androidDirectoryResolver);
 
         WatchmanDiagnosticCache watchmanDiagnosticCache = new WatchmanDiagnosticCache();
 
@@ -856,9 +905,7 @@ public final class Main {
 
         FileHashCache fileHashCache = new StackedFileHashCache(allCaches.build());
 
-        Optional<WebServer> webServer = getWebServerIfDaemon(
-            context,
-            rootCell);
+        Optional<WebServer> webServer = getWebServerIfDaemon(context, rootCell);
 
         TestConfig testConfig = new TestConfig(buckConfig);
         ArtifactCacheBuckConfig cacheBuckConfig = new ArtifactCacheBuckConfig(buckConfig);
@@ -867,7 +914,8 @@ public final class Main {
         ListeningExecutorService httpWriteExecutorService =
             getHttpWriteExecutorService(cacheBuckConfig);
         ScheduledExecutorService counterAggregatorExecutor =
-            MostExecutors.newSingleThreadScheduledExecutor("CounterAggregatorThread");
+            Executors.newSingleThreadScheduledExecutor(new CommandThreadFactory(
+                "CounterAggregatorThread"));
         VersionControlStatsGenerator vcStatsGenerator;
 
         // Eventually, we'll want to get allow websocket and/or nailgun clients to specify locale
@@ -886,6 +934,11 @@ public final class Main {
                 MostExecutors.newMultiThreadExecutor(
                     "Project",
                     buckConfig.getNumThreads())));
+
+        // Create and register the event buses that should listen to broadcast events.
+        // If the build doesn't have a daemon create a new instance.
+        BroadcastEventListener broadcastEventListener =
+            getBroadcastEventListener(isDaemon, rootCell, objectMapper);
 
         // The order of resources in the try-with-resources block is important: the BuckEventBus
         // must be the last resource, so that it is closed first and can deliver its queued events
@@ -909,10 +962,11 @@ public final class Main {
                      webServer,
                      locale,
                      filesystem.getBuckPaths().getLogDir().resolve("test.log"));
-             TempDirectoryCreator tempDirectoryCreator =
-                 new TempDirectoryCreator(testTempDirOverride);
              AsyncCloseable asyncCloseable = new AsyncCloseable(diskIoExecutorService);
              BuckEventBus buildEventBus = new BuckEventBus(clock, buildId);
+             BroadcastEventListener.BroadcastEventBusClosable broadcastEventBusClosable =
+                 broadcastEventListener.addEventBus(buildEventBus);
+
              // NOTE: This will only run during the lifetime of the process and will flush on close.
              CounterRegistry counterRegistry = new CounterRegistryImpl(
                  counterAggregatorExecutor,
@@ -959,6 +1013,11 @@ public final class Main {
               clientEnvironment,
               counterRegistry);
 
+          // This needs to be after the registration of the event listener so they can pick it up.
+          if (watchmanFreshInstanceAction == WatchmanWatcher.FreshInstanceAction.NONE) {
+            buildEventBus.post(DaemonEvent.newDaemonInstance());
+          }
+
           VersionControlBuckConfig vcBuckConfig = new VersionControlBuckConfig(config);
           VersionControlCmdLineInterfaceFactory vcsFactory =
               new DefaultVersionControlCmdLineInterfaceFactory(
@@ -988,8 +1047,9 @@ public final class Main {
 
           // Create or get Parser and invalidate cached command parameters.
           Parser parser = null;
+          ActionGraphCache actionGraphCache = null;
 
-          if (isDaemon && watchman != Watchman.NULL_WATCHMAN) {
+          if (isDaemon) {
             try {
               Daemon daemon = getDaemon(rootCell, objectMapper);
               WatchmanWatcher watchmanWatcher = new WatchmanWatcher(
@@ -1009,6 +1069,7 @@ public final class Main {
                   watchmanWatcher,
                   watchmanFreshInstanceAction,
                   watchmanDiagnosticCache);
+              actionGraphCache = daemon.getActionGraphCache();
             } catch (WatchmanWatcherException | IOException e) {
               buildEventBus.post(
                   ConsoleEvent.warning(
@@ -1017,15 +1078,18 @@ public final class Main {
             }
           }
 
+          if (actionGraphCache == null) {
+            actionGraphCache = new ActionGraphCache(broadcastEventListener);
+          }
+
           if (parser == null) {
             TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory(objectMapper);
             parser = new Parser(
+                broadcastEventListener,
                 new ParserConfig(rootCell.getBuckConfig()),
                 typeCoercerFactory,
                 new ConstructorArgMarshaller(typeCoercerFactory));
           }
-
-          ActionGraphCache actionGraphCache = getActionGraphCacheFromDaemon(context, rootCell);
 
           // Because the Parser is potentially constructed before the CounterRegistry,
           // we need to manually register its counters after it's created.
@@ -1148,24 +1212,6 @@ public final class Main {
         stdErr.println("Ignoring non-fatal error!  The stack trace is below:");
         e.printStackTrace(stdErr);
       }
-    }
-  }
-
-  private static Optional<Path> getTestTempDirOverride(
-      BuckConfig config,
-      ImmutableMap<String, String> clientEnvironment,
-      String tmpDirName) {
-    Optional<ImmutableList<String>> testTempDirEnvVars = config.getTestTempDirEnvVars();
-    if (!testTempDirEnvVars.isPresent()) {
-      return Optional.absent();
-    } else {
-      for (String envVar : testTempDirEnvVars.get()) {
-        String val = clientEnvironment.get(envVar);
-        if (val != null) {
-          return Optional.of(Paths.get(val).resolve(tmpDirName));
-        }
-      }
-      return Optional.of(Paths.get("/tmp").resolve(tmpDirName));
     }
   }
 
@@ -1362,7 +1408,7 @@ public final class Main {
       WatchmanWatcher watchmanWatcher,
       WatchmanWatcher.FreshInstanceAction watchmanFreshInstanceAction,
       WatchmanDiagnosticCache watchmanDiagnosticCache)
-    throws IOException, InterruptedException {
+      throws IOException, InterruptedException {
     // Wire up daemon to new client and get cached Parser.
     Daemon daemonForParser = getDaemon(cell, objectMapper);
     daemonForParser.watchClient(context.get());
@@ -1396,16 +1442,6 @@ public final class Main {
       return daemon.getWebServer();
     }
     return Optional.absent();
-  }
-
-  private ActionGraphCache getActionGraphCacheFromDaemon(
-      Optional<NGContext> context,
-      Cell cell)
-      throws IOException, InterruptedException {
-    if (context.isPresent()) {
-      return getDaemon(cell, objectMapper).getActionGraphCache();
-    }
-    return new ActionGraphCache();
   }
 
   private void loadListenersFromBuckConfig(
@@ -1538,6 +1574,7 @@ public final class Main {
     }
 
     eventListenersBuilder.add(new LoadBalancerEventsListener(counterRegistry));
+    eventListenersBuilder.add(new CacheRateStatsListener(buckEventBus));
 
     ImmutableList<BuckEventListener> eventListeners = eventListenersBuilder.build();
 

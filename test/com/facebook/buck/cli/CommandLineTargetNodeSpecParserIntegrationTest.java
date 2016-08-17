@@ -18,11 +18,10 @@ package com.facebook.buck.cli;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.fail;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
+import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.HumanReadableException;
@@ -38,7 +37,7 @@ import java.io.IOException;
 public class CommandLineTargetNodeSpecParserIntegrationTest {
 
   @Rule
-  public DebuggableTemporaryFolder tmp = new DebuggableTemporaryFolder();
+  public TemporaryPaths tmp = new TemporaryPaths();
 
   @Test
   public void trailingDotDotDotBuild() throws IOException {
@@ -130,16 +129,9 @@ public class CommandLineTargetNodeSpecParserIntegrationTest {
         ImmutableSet.of("//simple:simple"),
         ImmutableSet.copyOf(Splitter.on('\n').omitEmptyStrings().split(result.getStdout())));
 
-    // Check for a failure case.
-    try {
-      workspace.runBuckCommand("targets", "//simple:.");
-      fail("exepcted to fail");
-    } catch (HumanReadableException e) {
-      assertThat(
-          e.getMessage(),
-          Matchers.containsString(
-              "No rule found when resolving target //simple:. in build file //simple/BUCK"));
-    }
+    result = workspace.runBuckCommand("targets", "//simple:.");
+    result.assertFailure(
+        "No rule found when resolving target //simple:. in build file //simple/BUCK");
   }
 
   @Test

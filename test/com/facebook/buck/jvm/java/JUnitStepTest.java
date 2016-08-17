@@ -16,6 +16,8 @@
 
 package com.facebook.buck.jvm.java;
 
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.hasEntry;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.io.MorePaths;
@@ -63,13 +65,11 @@ public class JUnitStepTest {
         modulePath);
 
     Path directoryForTestResults = Paths.get("buck-out/gen/theresults/");
-    Path directoryForTemp = Paths.get("buck-out/gen/thetmp/");
     Path testRunnerClasspath = Paths.get("build/classes/junit");
     ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
     Path classpathFile = filesystem.resolve("foo");
 
       JUnitJvmArgs args = JUnitJvmArgs.builder()
-        .setTmpDirectory(directoryForTemp)
         .setBuildId(pretendBuildId)
         .setBuckModuleBaseSourceCodePath(modulePath)
         .setClasspathFile(classpathFile)
@@ -84,6 +84,7 @@ public class JUnitStepTest {
         filesystem,
         /* nativeLibsEnvironment */ ImmutableMap.<String, String>of(),
         /* testRuleTimeoutMs*/ Optional.<Long>absent(),
+        ImmutableMap.<String, String>of(),
         new ExternalJavaRuntimeLauncher("/foo/bar/custom/java"),
         args);
 
@@ -98,7 +99,6 @@ public class JUnitStepTest {
     MoreAsserts.assertListEquals(
         ImmutableList.of(
             "/foo/bar/custom/java",
-            "-Djava.io.tmpdir=" + filesystem.resolve(directoryForTemp),
             "-Dbuck.testrunner_classes=" + testRunnerClasspath,
             buildIdArg,
             modulePathArg,
@@ -120,6 +120,40 @@ public class JUnitStepTest {
   }
 
   @Test
+  public void testGetEnvironmentVariables() {
+    BuildId pretendBuildId = new BuildId("pretend-build-id");
+    Path modulePath = Paths.get("module/submodule");
+
+    Path directoryForTestResults = Paths.get("buck-out/gen/theresults/");
+    Path testRunnerClasspath = Paths.get("build/classes/junit");
+    ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
+    Path classpathFile = filesystem.resolve("foo");
+
+    JUnitJvmArgs args = JUnitJvmArgs.builder()
+        .setBuildId(pretendBuildId)
+        .setBuckModuleBaseSourceCodePath(modulePath)
+        .setClasspathFile(classpathFile)
+        .setTestRunnerClasspath(testRunnerClasspath)
+        .setExtraJvmArgs(ImmutableList.<String>of())
+        .setTestType(TestType.JUNIT)
+        .setDirectoryForTestResults(directoryForTestResults)
+        .addAllTestClasses(ImmutableList.<String>of())
+        .build();
+
+    JUnitStep junit = new JUnitStep(
+        filesystem,
+        /* nativeLibsEnvironment */ ImmutableMap.<String, String>of(),
+        /* testRuleTimeoutMs*/ Optional.<Long>absent(),
+        ImmutableMap.<String, String>of("FOO", "BAR"),
+        new ExternalJavaRuntimeLauncher("/foo/bar/custom/java"),
+        args);
+
+    ImmutableMap<String, String> observedEnvironment =
+        junit.getEnvironmentVariables(TestExecutionContext.newInstance());
+    assertThat(observedEnvironment, hasEntry("FOO", "BAR"));
+  }
+
+  @Test
   public void ensureThatDebugFlagCausesJavaDebugCommandFlagToBeAdded() {
     String testClass1 = "com.facebook.buck.shell.JUnitCommandTest";
     String testClass2 = "com.facebook.buck.shell.InstrumentCommandTest";
@@ -138,14 +172,12 @@ public class JUnitStepTest {
         modulePath);
 
     Path directoryForTestResults = Paths.get("buck-out/gen/theresults/");
-    Path directoryForTemp = Paths.get("buck-out/gen/thetmp/");
     Path testRunnerClasspath = Paths.get("build/classes/junit");
 
     ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
     Path classpathFile = filesystem.resolve("foo");
 
     JUnitJvmArgs args = JUnitJvmArgs.builder()
-        .setTmpDirectory(directoryForTemp)
         .setClasspathFile(classpathFile)
         .setBuildId(pretendBuildId)
         .setBuckModuleBaseSourceCodePath(modulePath)
@@ -161,6 +193,7 @@ public class JUnitStepTest {
         filesystem,
         ImmutableMap.<String, String>of(),
         /* testRuleTimeoutMs*/ Optional.<Long>absent(),
+        ImmutableMap.<String, String>of(),
         new ExternalJavaRuntimeLauncher("/foo/bar/custom/java"),
         args);
 
@@ -174,7 +207,6 @@ public class JUnitStepTest {
     MoreAsserts.assertListEquals(
         ImmutableList.of(
             "/foo/bar/custom/java",
-            "-Djava.io.tmpdir=" + filesystem.resolve(directoryForTemp),
             "-Dbuck.testrunner_classes=" + testRunnerClasspath,
             buildIdArg,
             modulePathArg,

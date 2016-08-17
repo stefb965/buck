@@ -26,6 +26,7 @@ struct ArtifactMetadata {
   3: optional string buildTarget;
   4: optional string repository;
   5: optional string artifactPayloadCrc32;
+  6: optional string scheduleType;
 }
 
 struct BuckCacheStoreRequest {
@@ -42,6 +43,7 @@ struct BuckCacheStoreResponse {
 struct BuckCacheFetchRequest {
   1: optional RuleKey ruleKey;
   2: optional string repository;
+  3: optional string scheduleType;
 }
 
 struct BuckCacheFetchResponse {

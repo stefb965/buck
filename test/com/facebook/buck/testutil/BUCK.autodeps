@@ -1,8 +1,9 @@
-#@# GENERATED FILE: DO NOT MODIFY 0dd0b271530e295c7c87f9ab49027edc9b848620 #@#
+#@# GENERATED FILE: DO NOT MODIFY ce96d6bdc9153c9720bd5c3706acb715791d573f #@#
 {
   "testutil" : {
     "deps" : [
       "//src/com/facebook/buck/graph:graph",
+      "//src/com/facebook/buck/io:DefaultProjectFilesystemDelegate",
       "//src/com/facebook/buck/shell:steps",
       "//src/com/facebook/buck/util:tristate",
       "//src/com/facebook/buck/util/environment:platform",
@@ -18,6 +19,7 @@
       "//src/com/facebook/buck/util:io",
       "//src/com/facebook/buck/util/cache:cache",
       "//src/com/facebook/buck/util/environment:environment",
+      "//src/com/facebook/buck/util/sha1:sha1",
       "//src/com/facebook/buck/zip:stream",
       "//third-party/java/guava:guava",
       "//third-party/java/hamcrest:java-hamcrest",

@@ -21,6 +21,7 @@ import com.facebook.buck.event.BuckEvent;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.PerfEventId;
 import com.facebook.buck.event.SimplePerfEvent;
+import com.facebook.buck.event.listener.BroadcastEventListener;
 import com.facebook.buck.graph.AcyclicDepthFirstPostOrderTraversal;
 import com.facebook.buck.graph.GraphTraversable;
 import com.facebook.buck.graph.MutableDirectedGraph;
@@ -29,13 +30,14 @@ import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
-import com.facebook.buck.model.HasDefaultFlavors;
 import com.facebook.buck.model.Flavor;
+import com.facebook.buck.model.HasDefaultFlavors;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.ConstructorArgMarshaller;
 import com.facebook.buck.rules.ImplicitFlavorsInferringDescription;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphAndBuildTargets;
+import com.facebook.buck.rules.TargetGroup;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.util.HumanReadableException;
@@ -45,6 +47,7 @@ import com.google.common.base.Function;
 import com.google.common.base.Functions;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Predicate;
 import com.google.common.base.Throwables;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -52,9 +55,10 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Iterators;
 import com.google.common.collect.LinkedHashMultimap;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
-import com.google.common.collect.Sets;
 import com.google.common.eventbus.Subscribe;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -70,7 +74,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
-import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.concurrent.ExecutionException;
@@ -90,17 +93,27 @@ public class Parser {
   private final ConstructorArgMarshaller marshaller;
 
   public Parser(
+      BroadcastEventListener broadcastEventListener,
       ParserConfig parserConfig,
       TypeCoercerFactory typeCoercerFactory,
       ConstructorArgMarshaller marshaller) {
     this.permState = new DaemonicParserState(
+        broadcastEventListener,
         typeCoercerFactory,
         parserConfig.getNumParsingThreads());
     this.marshaller = marshaller;
   }
 
+  protected DaemonicParserState getPermState() {
+    return permState;
+  }
+
+  protected ConstructorArgMarshaller getMarshaller() {
+    return marshaller;
+  }
+
   @VisibleForTesting
-  ImmutableList<Map<String, Object>> getRawTargetNodes(
+  ImmutableSet<Map<String, Object>> getRawTargetNodes(
       BuckEventBus eventBus,
       Cell cell,
       boolean enableProfiling,
@@ -112,8 +125,7 @@ public class Parser {
     try (
         PerBuildState state =
             new PerBuildState(
-                permState,
-                marshaller,
+                this,
                 eventBus,
                 executor,
                 cell,
@@ -141,8 +153,7 @@ public class Parser {
         buildFile);
 
     try (PerBuildState state = new PerBuildState(
-        permState,
-        marshaller,
+        this,
         eventBus,
         executor,
         cell,
@@ -163,8 +174,7 @@ public class Parser {
     try (
         PerBuildState state =
             new PerBuildState(
-                permState,
-                marshaller,
+                this,
                 eventBus,
                 executor,
                 cell,
@@ -185,7 +195,7 @@ public class Parser {
 
     try {
       Cell owningCell = cell.getCell(targetNode.getBuildTarget());
-      ImmutableList<Map<String, Object>> allRawNodes = getRawTargetNodes(
+      ImmutableSet<Map<String, Object>> allRawNodes = getRawTargetNodes(
           eventBus,
           owningCell,
           enableProfiling,
@@ -234,8 +244,7 @@ public class Parser {
 
     try (final PerBuildState state =
              new PerBuildState(
-                 permState,
-                 marshaller,
+                 this,
                  eventBus,
                  executor,
                  rootCell,
@@ -250,7 +259,7 @@ public class Parser {
     }
   }
 
-  private TargetGraph buildTargetGraph(
+  protected TargetGraph buildTargetGraph(
       final PerBuildState state,
       final BuckEventBus eventBus,
       final Iterable<BuildTarget> toExplore,
@@ -259,6 +268,11 @@ public class Parser {
 
     if (Iterables.isEmpty(toExplore)) {
       return TargetGraph.EMPTY;
+    }
+
+    final Map<BuildTarget, TargetGroup> groups = Maps.newHashMap();
+    for (TargetGroup group : state.getAllGroups()) {
+      groups.put(group.getBuildTarget(), group);
     }
 
     final MutableDirectedGraph<TargetNode<?>> graph = new MutableDirectedGraph<>();
@@ -271,46 +285,63 @@ public class Parser {
       @Override
       public Iterator<BuildTarget> findChildren(BuildTarget target) {
         TargetNode<?> node;
-        try (SimplePerfEvent.Scope scope = getTargetNodeEventScope(eventBus, target)) {
-          try {
-            node = state.getTargetNode(target);
-          } catch (BuildFileParseException | BuildTargetException e) {
-            throw new RuntimeException(e);
-          }
+        try {
+          node = state.getTargetNode(target);
+        } catch (BuildFileParseException | BuildTargetException e) {
+          throw new RuntimeException(e);
         }
 
         if (ignoreBuckAutodepsFiles) {
           return Collections.emptyIterator();
         }
 
-        Set<BuildTarget> deps = Sets.newHashSet();
+        // this second lookup loop may *seem* pointless, but it allows us to report which node is
+        // referring to a node we can't find - something that's very difficult in this Traversable
+        // visitor pattern otherwise.
+        // it's also work we need to do anyways. the getTargetNode() result is cached, so that
+        // when we come around and re-visit that node there won't actually be any work performed.
         for (BuildTarget dep : node.getDeps()) {
-          TargetNode<?> depTargetNode;
-          try (SimplePerfEvent.Scope scope = getTargetNodeEventScope(eventBus, dep)) {
-            try {
-              depTargetNode = state.getTargetNode(dep);
-            } catch (BuildFileParseException | BuildTargetException | HumanReadableException e) {
-              throw new HumanReadableException(
-                  e,
-                  "Couldn't get dependency '%s' of target '%s':\n%s",
-                  dep,
-                  target,
-                  e.getMessage());
-            }
+          try {
+            state.getTargetNode(dep);
+          } catch (BuildFileParseException | BuildTargetException | HumanReadableException e) {
+            throw new HumanReadableException(
+                e,
+                "Couldn't get dependency '%s' of target '%s':\n%s",
+                dep,
+                target,
+                e.getMessage());
           }
-          depTargetNode.checkVisibility(node);
-          deps.add(dep);
         }
-        return deps.iterator();
+        return node.getDeps().iterator();
       }
     };
 
-    AcyclicDepthFirstPostOrderTraversal<BuildTarget> traversal =
+    GraphTraversable<BuildTarget> groupExpander = new GraphTraversable<BuildTarget>() {
+      @Override
+      public Iterator<BuildTarget> findChildren(BuildTarget target) {
+        TargetGroup group = groups.get(target);
+        Preconditions.checkNotNull(
+            group,
+            "SANITY FAILURE: Tried to expand group %s but it doesn't exist.",
+            target);
+        return Iterators.filter(group.iterator(), new Predicate<BuildTarget>() {
+          @Override
+          public boolean apply(BuildTarget input) {
+            return groups.containsKey(input);
+          }
+        });
+      }
+    };
+
+    AcyclicDepthFirstPostOrderTraversal<BuildTarget> targetGroupExpansion =
+        new AcyclicDepthFirstPostOrderTraversal<>(groupExpander);
+
+    AcyclicDepthFirstPostOrderTraversal<BuildTarget> targetNodeTraversal =
         new AcyclicDepthFirstPostOrderTraversal<>(traversable);
 
     TargetGraph targetGraph = null;
     try {
-      for (BuildTarget target : traversal.traverse(toExplore)) {
+      for (BuildTarget target : targetNodeTraversal.traverse(toExplore)) {
         TargetNode<?> targetNode = state.getTargetNode(target);
 
         Preconditions.checkNotNull(targetNode, "No target node found for %s", target);
@@ -327,7 +358,31 @@ public class Parser {
           graph.addEdge(targetNode, state.getTargetNode(dep));
         }
       }
-      targetGraph = new TargetGraph(graph, ImmutableMap.copyOf(index));
+
+      for (BuildTarget groupTarget : targetGroupExpansion.traverse(groups.keySet())) {
+        ImmutableMap<BuildTarget, Iterable<BuildTarget>> replacements = Maps.toMap(
+            groupExpander.findChildren(groupTarget),
+            new Function<BuildTarget, Iterable<BuildTarget>>() {
+              @Override
+              public Iterable<BuildTarget> apply(BuildTarget target) {
+                TargetGroup group = groups.get(target);
+                Preconditions.checkNotNull(
+                    group,
+                    "SANITY FAILURE: Tried to expand group %s but it doesn't exist.",
+                    target);
+                return group;
+              }
+            });
+        if (!replacements.isEmpty()) {
+          // TODO(csarbora): Stop duplicating target lists
+          groups.put(groupTarget, groups.get(groupTarget).withReplacedTargets(replacements));
+        }
+      }
+
+      targetGraph = new TargetGraph(
+          graph,
+          ImmutableMap.copyOf(index),
+          ImmutableSet.copyOf(groups.values()));
       return targetGraph;
     } catch (AcyclicDepthFirstPostOrderTraversal.CycleException e) {
       throw new HumanReadableException(e.getMessage());
@@ -382,8 +437,7 @@ public class Parser {
 
     try (PerBuildState state =
              new PerBuildState(
-                 permState,
-                 marshaller,
+                 this,
                  eventBus,
                  executor,
                  rootCell,
@@ -426,8 +480,7 @@ public class Parser {
 
     try (PerBuildState state =
             new PerBuildState(
-                permState,
-                marshaller,
+                this,
                 eventBus,
                 executor,
                 rootCell,
@@ -612,15 +665,6 @@ public class Parser {
     return target.withFlavors(defaultFlavors);
   }
 
-  static SimplePerfEvent.Scope getTargetNodeEventScope(
-      BuckEventBus eventBus,
-      BuildTarget buildTarget) {
-    return SimplePerfEvent.scope(
-        eventBus,
-        PerfEventId.of("GetTargetNode"),
-        "target", buildTarget);
-  }
-
   @Subscribe
   public void onFileSystemChange(WatchEvent<?> event) throws InterruptedException {
     LOG.debug(
@@ -644,8 +688,4 @@ public class Parser {
     return permState.getCounters();
   }
 
-  @VisibleForTesting
-  DaemonicParserState getPermState() {
-    return permState;
-  }
 }

@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY 52eef54d009b330207c32eb55223cb8f0dc4e820 #@#
+#@# GENERATED FILE: DO NOT MODIFY d12b2a1a60110706bbf4619303c0d04ad547658d #@#
 {
   "cli" : {
     "deps" : [
@@ -19,6 +19,7 @@
       "//src/com/facebook/buck/cxx:platform",
       "//src/com/facebook/buck/cxx:rules",
       "//src/com/facebook/buck/distributed:distributed",
+      "//src/com/facebook/buck/event/listener:BroadcastEventListener",
       "//src/com/facebook/buck/event/listener:listener",
       "//src/com/facebook/buck/file:downloader",
       "//src/com/facebook/buck/file:file",
@@ -128,6 +129,7 @@
       "//src/com/facebook/buck/event:event",
       "//src/com/facebook/buck/io:io",
       "//src/com/facebook/buck/jvm/java:packagefinder",
+      "//src/com/facebook/buck/log:log",
       "//src/com/facebook/buck/model:model",
       "//src/com/facebook/buck/rules:build_rule",
       "//src/com/facebook/buck/rules:interfaces",

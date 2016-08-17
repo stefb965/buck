@@ -29,14 +29,12 @@ import com.google.common.collect.ImmutableMap;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.concurrent.TimeUnit;
-
 import java.util.Map;
 
 /**
  * A step that compiles Swift sources to a single module.
  */
-public class SwiftCompileStep implements Step {
+class SwiftCompileStep implements Step {
 
   private static final Logger LOG = Logger.get(SwiftCompileStep.class);
 
@@ -44,7 +42,7 @@ public class SwiftCompileStep implements Step {
   private final ImmutableMap<String, String> compilerEnvironment;
   private final ImmutableList<String> compilerCommand;
 
-  public SwiftCompileStep(
+  SwiftCompileStep(
       Path compilerCwd,
       Map<String, String> compilerEnvironment,
       Iterable<String> compilerCommand) {
@@ -76,7 +74,7 @@ public class SwiftCompileStep implements Step {
     try {
       LOG.debug("%s", compilerCommand);
       ListeningProcessExecutor.LaunchedProcess process = executor.launchProcess(params, listener);
-      int result = executor.waitForProcess(process, Long.MAX_VALUE, TimeUnit.SECONDS);
+      int result = executor.waitForProcess(process);
       if (result != 0) {
         LOG.error("Error running %s: %s", getDescription(context), listener.getStderr());
       }

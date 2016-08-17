@@ -25,12 +25,12 @@ import com.facebook.buck.jvm.java.classes.FileLike;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -40,7 +40,7 @@ import java.util.Map;
 public class EstimateLinearAllocStepTest {
 
   @Rule
-  public TemporaryFolder tmp = new TemporaryFolder();
+  public TemporaryPaths tmp = new TemporaryPaths();
 
   private LinearAllocEstimator linearAllocEstimator = new FakeLinearAllocEstimator(
       ImmutableMap.<String, Integer>builder()
@@ -64,7 +64,7 @@ public class EstimateLinearAllocStepTest {
     tmp.newFile(pathWithPlatformSeparators("dir/com/example/not_a_class.png"));
     tmp.newFile(pathWithPlatformSeparators("dir/com/example/subpackage/Baz.class"));
 
-    ProjectFilesystem filesystem = new FakeProjectFilesystem(tmp.getRoot());
+    ProjectFilesystem filesystem = new ProjectFilesystem(tmp.getRoot());
     ExecutionContext context = TestExecutionContext.newInstance();
 
     Path pathToJarOrClassesDirectory = Paths.get(name);
@@ -120,7 +120,8 @@ public class EstimateLinearAllocStepTest {
 
     @Override
     public int getEstimate(FileLike fileLike) throws IOException {
-      return Preconditions.checkNotNull(relativePathToCostMap.get(fileLike.getRelativePath()));
+      return Preconditions.checkNotNull(
+          relativePathToCostMap.get(pathWithPlatformSeparators(fileLike.getRelativePath())));
     }
   }
 }

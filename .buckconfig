@@ -38,21 +38,10 @@
       .*\.swp$, \
       ^#.*#$, .*~$, \
       .*___jb_bak___$, .*___jb_old___$,
-    ; Forbid symlinks for source files so Buck doesn't have to dump its
+    ; Forbid symlinks for source files so Buck does not have to dump its
     ; cache every time it encounters one.
     allow_symlinks = forbid
+    enable_build_file_sandboxing = true
 [test]
     ; Maximum timeout of 1 minute per test.
     timeout = 60000
-    ; Since watchman ignores buck-out and we need to use it for globs in
-    ; Buck's own integration tests, use a directory outside buck-out
-    ; for java.io.tmpdir when running tests.
-    temp_dir_env_vars = \
-      BUCK_ORIG_TEMPDIR, \
-      BUCK_ORIG_TEMP, \
-      BUCK_ORIG_TMPDIR, \
-      BUCK_ORIG_TMP, \
-      TEMPDIR, \
-      TEMP, \
-      TMPDIR, \
-      TMP

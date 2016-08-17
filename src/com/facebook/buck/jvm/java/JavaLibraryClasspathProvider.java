@@ -27,18 +27,19 @@ import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.Sets;
 
 import java.nio.file.Path;
+import java.util.Set;
 
 public class JavaLibraryClasspathProvider {
 
   private JavaLibraryClasspathProvider() {
   }
 
-  public static ImmutableSetMultimap<JavaLibrary, Path> getOutputClasspathEntries(
+  public static ImmutableSet<Path> getOutputClasspathJars(
       JavaLibrary javaLibraryRule,
       SourcePathResolver resolver,
       Optional<SourcePath> outputJar) {
-    ImmutableSetMultimap.Builder<JavaLibrary, Path> outputClasspathBuilder =
-        ImmutableSetMultimap.builder();
+    ImmutableSet.Builder<Path> outputClasspathBuilder =
+        ImmutableSet.builder();
     Iterable<JavaLibrary> javaExportedLibraryDeps;
     if (javaLibraryRule instanceof ExportDependencies) {
       javaExportedLibraryDeps =
@@ -48,17 +49,11 @@ public class JavaLibraryClasspathProvider {
     }
 
     for (JavaLibrary rule : javaExportedLibraryDeps) {
-      outputClasspathBuilder.putAll(rule, rule.getOutputClasspathEntries().values());
-      // If we have any exported deps, add an entry mapping ourselves to to their,
-      // classpaths so when suggesting libraries to add we know that adding this library
-      // would pull in it's deps.
-      outputClasspathBuilder.putAll(
-          javaLibraryRule,
-          rule.getOutputClasspathEntries().values());
+      outputClasspathBuilder.addAll(rule.getOutputClasspathEntries());
     }
 
     if (outputJar.isPresent()) {
-      outputClasspathBuilder.put(javaLibraryRule, resolver.getAbsolutePath(outputJar.get()));
+      outputClasspathBuilder.add(resolver.getAbsolutePath(outputJar.get()));
     }
 
     return outputClasspathBuilder.build();
@@ -71,12 +66,12 @@ public class JavaLibraryClasspathProvider {
     final ImmutableSetMultimap.Builder<JavaLibrary, Path> classpathEntries =
         ImmutableSetMultimap.builder();
     ImmutableSetMultimap<JavaLibrary, Path> classpathEntriesForDeps =
-        Classpaths.getClasspathEntries(javaLibraryRule.getDepsForTransitiveClasspathEntries());
+        getClasspathEntries(javaLibraryRule.getDepsForTransitiveClasspathEntries());
 
     ImmutableSetMultimap<JavaLibrary, Path> classpathEntriesForExportedsDeps;
     if (javaLibraryRule instanceof ExportDependencies) {
       classpathEntriesForExportedsDeps =
-          Classpaths.getClasspathEntries(((ExportDependencies) javaLibraryRule).getExportedDeps());
+          getClasspathEntries(((ExportDependencies) javaLibraryRule).getExportedDeps());
     } else {
       classpathEntriesForExportedsDeps = ImmutableSetMultimap.of();
     }
@@ -104,7 +99,7 @@ public class JavaLibraryClasspathProvider {
     ImmutableSet.Builder<JavaLibrary> classpathDeps = ImmutableSet.builder();
 
     classpathDeps.addAll(
-        Classpaths.getClasspathDeps(
+        getClasspathDeps(
             javaLibrary.getDepsForTransitiveClasspathEntries()));
 
     classpathDeps.add(javaLibrary);
@@ -121,7 +116,7 @@ public class JavaLibraryClasspathProvider {
         javaLibraryRule.getDepsForTransitiveClasspathEntries());
 
     for (JavaLibrary rule : javaLibraryDeps) {
-      for (Path path : rule.getOutputClasspathEntries().values()) {
+      for (Path path : rule.getOutputClasspathEntries()) {
         classpathEntries.put(rule, rule.getProjectFilesystem().resolve(path));
       }
     }
@@ -130,5 +125,48 @@ public class JavaLibraryClasspathProvider {
 
   static FluentIterable<JavaLibrary> getJavaLibraryDeps(Iterable<BuildRule> deps) {
     return FluentIterable.from(deps).filter(JavaLibrary.class);
+  }
+
+  /**
+   * Include the classpath entries from all JavaLibraryRules that have a direct line of lineage
+   * to this rule through other JavaLibraryRules. For example, in the following dependency graph:
+   *
+   *        A
+   *      /   \
+   *     B     C
+   *    / \   / \
+   *    D E   F G
+   *
+   * If all of the nodes correspond to BuildRules that implement JavaLibraryRule except for
+   * B (suppose B is a Genrule), then A's classpath will include C, F, and G, but not D and E.
+   * This is because D and E are used to generate B, but do not contribute .class files to things
+   * that depend on B. However, if C depended on E as well as F and G, then E would be included in
+   * A's classpath.
+   */
+  public static ImmutableSetMultimap<JavaLibrary, Path> getClasspathEntries(
+      Set<BuildRule> deps) {
+    final ImmutableSetMultimap.Builder<JavaLibrary, Path> classpathEntries =
+        ImmutableSetMultimap.builder();
+    for (BuildRule dep : deps) {
+      JavaLibrary library = null;
+      if (dep instanceof JavaLibrary) {
+        library = (JavaLibrary) dep;
+      }
+
+      if (library != null) {
+        classpathEntries.putAll(library.getTransitiveClasspathEntries());
+      }
+    }
+    return classpathEntries.build();
+  }
+
+  public static ImmutableSet<JavaLibrary> getClasspathDeps(Iterable<BuildRule> deps) {
+    ImmutableSet.Builder<JavaLibrary> classpathDeps = ImmutableSet.builder();
+    for (BuildRule dep : deps) {
+      if (dep instanceof JavaLibrary) {
+        classpathDeps.addAll(((JavaLibrary) dep).getTransitiveClasspathDeps());
+      }
+    }
+    return classpathDeps.build();
   }
 }

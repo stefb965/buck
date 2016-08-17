@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY 7b430c252bc19ed49db808136adc6664d29bcf75 #@#
+#@# GENERATED FILE: DO NOT MODIFY a58cdd93430a12eed675d8bddabfdc954214ddeb #@#
 {
   "rules" : {
     "deps" : [
@@ -9,6 +9,7 @@
       "//src/com/facebook/buck/config:base-config",
       "//src/com/facebook/buck/cxx:platform",
       "//src/com/facebook/buck/event:event",
+      "//src/com/facebook/buck/event/listener:BroadcastEventListener",
       "//src/com/facebook/buck/file:rules",
       "//src/com/facebook/buck/graph:graph",
       "//src/com/facebook/buck/io:io",
@@ -43,6 +44,7 @@
       "//src/com/facebook/buck/util:io",
       "//src/com/facebook/buck/util:object_mapper",
       "//src/com/facebook/buck/util:util",
+      "//src/com/facebook/buck/util:watchman",
       "//src/com/facebook/buck/util/cache:cache",
       "//src/com/facebook/buck/util/concurrent:concurrent",
       "//src/com/facebook/buck/util/environment:platform",

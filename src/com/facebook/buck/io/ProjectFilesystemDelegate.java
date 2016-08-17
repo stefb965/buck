@@ -16,9 +16,19 @@
 
 package com.facebook.buck.io;
 
+import com.facebook.buck.util.sha1.Sha1HashCode;
+
+import java.io.IOException;
+import java.nio.file.Path;
+
 /**
  * Delegate that a {@link ProjectFilesystem} can use to leverage a specialized implementation of
  * certain filesystem operations, tailored to the underlying filesystem. Use of the delegate is
  * often motivated by performance reasons.
  */
-public interface ProjectFilesystemDelegate {}
+public interface ProjectFilesystemDelegate {
+
+  Sha1HashCode computeSha1(Path pathRelativeToProjectRootOrJustAbsolute) throws IOException;
+
+  Path getPathForRelativePath(Path pathRelativeToProjectRoot);
+}

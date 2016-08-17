@@ -20,8 +20,8 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeThat;
 
-import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
+import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Splitter;
@@ -40,7 +40,7 @@ public class ConfiguredBuckOutIntegrationTest {
   private ProjectWorkspace workspace;
 
   @Rule
-  public DebuggableTemporaryFolder tmp = new DebuggableTemporaryFolder();
+  public TemporaryPaths tmp = new TemporaryPaths();
 
   @Before
   public void setUp() throws IOException {
@@ -84,6 +84,22 @@ public class ConfiguredBuckOutIntegrationTest {
     assertThat(
         Files.readSymbolicLink(workspace.resolve("buck-out/gen")),
         Matchers.equalTo(workspace.getDestPath().getFileSystem().getPath("../something/gen")));
+  }
+
+  @Test
+  public void verifyTogglingConfiguredBuckOut() throws IOException {
+    assumeThat(Platform.detect(), Matchers.not(Matchers.is(Platform.WINDOWS)));
+    workspace.runBuckBuild(
+        "-c", "project.buck_out=something",
+        "-c", "project.buck_out_compat_link=true",
+        "//:dummy")
+        .assertSuccess();
+    workspace.runBuckBuild("//:dummy").assertSuccess();
+    workspace.runBuckBuild(
+        "-c", "project.buck_out=something",
+        "-c", "project.buck_out_compat_link=true",
+        "//:dummy")
+        .assertSuccess();
   }
 
 }

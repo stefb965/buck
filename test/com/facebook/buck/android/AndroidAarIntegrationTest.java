@@ -21,7 +21,7 @@ import static org.junit.Assert.assertThat;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
+import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.testutil.integration.ZipInspector;
@@ -39,14 +39,14 @@ import java.util.jar.JarFile;
 public class AndroidAarIntegrationTest {
 
   @Rule
-  public DebuggableTemporaryFolder tmp = new DebuggableTemporaryFolder();
+  public TemporaryPaths tmp = new TemporaryPaths();
 
   private ProjectFilesystem filesystem;
 
   @Before
   public void setUp() throws IOException {
     AssumeAndroidPlatform.assumeSdkIsAvailable();
-    filesystem = new ProjectFilesystem(tmp.getRootPath());
+    filesystem = new ProjectFilesystem(tmp.getRoot());
   }
 
   @Test
@@ -77,7 +77,7 @@ public class AndroidAarIntegrationTest {
         workspace.getFileContents("res/values/A.xml").trim()
     );
 
-    Path contents = tmp.getRootPath().resolve("aar-contents");
+    Path contents = tmp.getRoot().resolve("aar-contents");
     Unzip.extractZipFile(aar, contents, Unzip.ExistingFileMode.OVERWRITE);
     try (JarFile classes = new JarFile(contents.resolve("classes.jar").toFile())) {
       assertThat(classes.getJarEntry("com/example/HelloWorld.class"), Matchers.notNullValue());

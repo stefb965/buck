@@ -20,12 +20,12 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.rules.keys.AbiRule;
 import com.facebook.buck.rules.FakeBuildableContext;
+import com.facebook.buck.rules.keys.AbiRule;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.Zip;
-import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
+import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.google.common.collect.ImmutableMap;
 
@@ -40,11 +40,11 @@ import java.nio.file.Paths;
 public class CalculateAbiStepTest {
 
   @Rule
-  public DebuggableTemporaryFolder temp = new DebuggableTemporaryFolder();
+  public TemporaryPaths temp = new TemporaryPaths();
 
   @Test
   public void shouldCalculateAbiFromAStubJar() throws IOException {
-    Path outDir = temp.newFolder().toPath().toAbsolutePath();
+    Path outDir = temp.newFolder().toAbsolutePath();
     ProjectFilesystem filesystem = new ProjectFilesystem(outDir);
 
     Path directory = TestDataHelper.getTestDataDirectory(this);
@@ -59,7 +59,7 @@ public class CalculateAbiStepTest {
     FakeBuildableContext context = new FakeBuildableContext();
     new CalculateAbiStep(context, filesystem, binJar, abiJar).execute(executionContext);
 
-    String expectedHash = filesystem.computeSha1(Paths.get("abi.jar"));
+    String expectedHash = filesystem.computeSha1(Paths.get("abi.jar")).getHash();
     ImmutableMap<String, Object> metadata = context.getRecordedMetadata();
     Object seenHash = metadata.get(AbiRule.ABI_KEY_ON_DISK_METADATA);
 
@@ -76,14 +76,14 @@ public class CalculateAbiStepTest {
 
   @Test
   public void fallsBackToCalculatingAbiFromInputJarIfClassFileIsMalformed() throws IOException {
-    Path outDir = temp.newFolder().toPath().toAbsolutePath();
+    Path outDir = temp.newFolder().toAbsolutePath();
     ProjectFilesystem filesystem = new ProjectFilesystem(outDir);
 
     Path binJar = outDir.resolve("bad.jar");
     try (Zip zip = new Zip(binJar, true)){
       zip.add("Broken.class", "cafebabe bacon and cheese".getBytes(UTF_8));
     }
-    String expectedHash = filesystem.computeSha1(binJar);
+    String expectedHash = filesystem.computeSha1(binJar).getHash();
 
     Path abiJar = outDir.resolve("abi.jar");
 

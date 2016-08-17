@@ -37,7 +37,7 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
-import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
+import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.timing.FakeClock;
 import com.facebook.buck.util.ObjectMappers;
@@ -68,7 +68,7 @@ import java.util.zip.ZipEntry;
 
 public class PrebuiltJarSymbolsFinderTest {
   @Rule
-  public DebuggableTemporaryFolder tmp = new DebuggableTemporaryFolder();
+  public TemporaryPaths tmp = new TemporaryPaths();
 
   @Test
   public void extractSymbolsFromBinaryJar() throws IOException {
@@ -112,7 +112,7 @@ public class PrebuiltJarSymbolsFinderTest {
   public void contentsOfBinaryJarShouldAffectRuleKey() throws IOException {
     // The path to the JAR file to use as the binaryJar of the PrebuiltJarSymbolsFinder.
     final Path relativePathToJar = Paths.get("common.jar");
-    final Path absolutePathToJar = tmp.getRootPath().resolve(relativePathToJar);
+    final Path absolutePathToJar = tmp.getRoot().resolve(relativePathToJar);
 
     // Mock out calls to a SourcePathResolver so we can create a legitimate
     // DefaultRuleKeyBuilderFactory.
@@ -151,7 +151,7 @@ public class PrebuiltJarSymbolsFinderTest {
               finder,
               /* generatedSymbols */ ImmutableSortedSet.<String>of(),
               ObjectMappers.newDefaultInstance(),
-              new ProjectFilesystem(tmp.getRootPath())
+              new ProjectFilesystem(tmp.getRoot())
           );
         } catch (IOException e) {
           throw new RuntimeException(e);
@@ -188,9 +188,9 @@ public class PrebuiltJarSymbolsFinderTest {
   public void generatedBinaryJarShouldNotAffectRuleKey() {
     SourcePathResolver pathResolver = null;
 
-    File jarFile = new File(tmp.getRoot(), "common.jar");
+    Path jarFile = tmp.getRoot().resolve("common.jar");
     Map<Path, HashCode> pathsToHashes = ImmutableMap.of(
-        jarFile.toPath(),
+        jarFile,
         HashCode.fromString(Strings.repeat("abcd", 10)));
     FakeFileHashCache fileHashCache = new FakeFileHashCache(pathsToHashes);
 
@@ -199,7 +199,7 @@ public class PrebuiltJarSymbolsFinderTest {
         createFinderForGeneratedJar("//foo:jar_genrule1"),
         /* generatedSymbols */ ImmutableSortedSet.<String>of(),
         ObjectMappers.newDefaultInstance(),
-        new ProjectFilesystem(tmp.getRootPath())
+        new ProjectFilesystem(tmp.getRoot())
     );
 
     RuleKey key1 = new DefaultRuleKeyBuilderFactory(0, fileHashCache, pathResolver).newInstance(
@@ -210,7 +210,7 @@ public class PrebuiltJarSymbolsFinderTest {
         createFinderForGeneratedJar("//foo:jar_genrule2"),
         /* generatedSymbols */ ImmutableSortedSet.<String>of(),
         ObjectMappers.newDefaultInstance(),
-        new ProjectFilesystem(tmp.getRootPath())
+        new ProjectFilesystem(tmp.getRoot())
     );
     RuleKey key2 = new DefaultRuleKeyBuilderFactory(0, fileHashCache, pathResolver).newInstance(
         javaSymbolsRule2).build();
@@ -227,10 +227,10 @@ public class PrebuiltJarSymbolsFinderTest {
       String jarFileName,
       Iterable<String> entries) throws IOException {
     Clock clock = new FakeClock(1);
-    File jarFile = tmp.newFile(jarFileName);
+    Path jarFile = tmp.newFile(jarFileName);
     try (
         OutputStream stream = new BufferedOutputStream(
-            java.nio.file.Files.newOutputStream(jarFile.toPath()));
+            java.nio.file.Files.newOutputStream(jarFile));
         CustomZipOutputStream out =
              ZipOutputStreams.newOutputStream(
                  stream,
@@ -241,7 +241,7 @@ public class PrebuiltJarSymbolsFinderTest {
       }
     }
 
-    ProjectFilesystem filesystem = new ProjectFilesystem(tmp.getRootPath());
+    ProjectFilesystem filesystem = new ProjectFilesystem(tmp.getRoot());
     SourcePath sourcePath = new PathSourcePath(filesystem, Paths.get(jarFileName));
     return new PrebuiltJarSymbolsFinder(sourcePath);
   }

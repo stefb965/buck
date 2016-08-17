@@ -114,7 +114,7 @@ public class PrebuiltJar extends AbstractBuildRule
             if (!provided) {
               classpathEntries.put(PrebuiltJar.this, getResolver().getAbsolutePath(getBinaryJar()));
             }
-            classpathEntries.putAll(Classpaths.getClasspathEntries(
+            classpathEntries.putAll(JavaLibraryClasspathProvider.getClasspathEntries(
                 PrebuiltJar.this.getDeclaredDeps()));
             return classpathEntries.build();
           }
@@ -126,11 +126,13 @@ public class PrebuiltJar extends AbstractBuildRule
               @Override
               public ImmutableSet<JavaLibrary> get() {
                 if (provided) {
-                  return Classpaths.getClasspathDeps(PrebuiltJar.this.getDeclaredDeps());
+                  return JavaLibraryClasspathProvider.getClasspathDeps(
+                      PrebuiltJar.this.getDeclaredDeps());
                 }
                 return ImmutableSet.<JavaLibrary>builder()
                     .add(PrebuiltJar.this)
-                    .addAll(Classpaths.getClasspathDeps(PrebuiltJar.this.getDeclaredDeps()))
+                    .addAll(JavaLibraryClasspathProvider.getClasspathDeps(
+                        PrebuiltJar.this.getDeclaredDeps()))
                     .build();
               }
             });
@@ -197,10 +199,8 @@ public class PrebuiltJar extends AbstractBuildRule
   }
 
   @Override
-  public ImmutableSetMultimap<JavaLibrary, Path> getOutputClasspathEntries() {
-    return ImmutableSetMultimap.<JavaLibrary, Path>of(
-        this,
-        getResolver().getAbsolutePath(getBinaryJar()));
+  public ImmutableSet<Path> getOutputClasspathEntries() {
+    return ImmutableSet.of(getResolver().getAbsolutePath(getBinaryJar()));
   }
 
   @Override

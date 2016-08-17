@@ -20,7 +20,7 @@ import static org.hamcrest.CoreMatchers.not;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assume.assumeThat;
 
-import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
+import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.ProcessExecutor;
@@ -38,7 +38,7 @@ import java.nio.file.Path;
 public class JavaBinaryIntegrationTest {
 
   @Rule
-  public DebuggableTemporaryFolder tmp = new DebuggableTemporaryFolder();
+  public TemporaryPaths tmp = new TemporaryPaths();
 
   @Before
   public void checkPlatform() {
@@ -93,7 +93,7 @@ public class JavaBinaryIntegrationTest {
         TestDataHelper.createProjectWorkspaceForScenario(this, "fat_jar", tmp);
     workspace.setUp();
     Path jar = workspace.buildAndReturnOutput("//:bin-alternate-java");
-    String javaHomeArg = "-Dbuck.fatjar.java.home=" + tmp.getRootPath().toString();
+    String javaHomeArg = "-Dbuck.fatjar.java.home=" + tmp.getRoot().toString();
     ProcessExecutor.Result result = workspace.runJar(jar, ImmutableList.of(javaHomeArg));
     assertEquals("Running java wrapper\nRunning inner jar", result.getStdout().get().trim());
   }

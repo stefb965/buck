@@ -19,6 +19,7 @@ package com.facebook.buck.io;
 import com.facebook.buck.config.Config;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.facebook.buck.zip.CustomZipEntry;
 import com.facebook.buck.zip.CustomZipOutputStream;
 import com.facebook.buck.zip.ZipOutputStreams;
@@ -140,7 +141,6 @@ public class ProjectFilesystem {
    */
   private final Supplier<Path> tmpDir;
 
-  @SuppressWarnings("unused")
   private final ProjectFilesystemDelegate delegate;
 
   // Defaults to false, and so paths should be valid.
@@ -153,8 +153,8 @@ public class ProjectFilesystem {
 
   /**
    * This constructor is restricted to {@code protected} because it is generally best to let
-   * {@link ProjectFilesystemDelegateFactory#newInstance(Path)} create an appropriate delegate.
-   * Currently, the only case in which we need to override this behavior is in unit tests.
+   * {@link ProjectFilesystemDelegateFactory#newInstance(Path, BuckPaths)} create an appropriate
+   * delegate. Currently, the only case in which we need to override this behavior is in unit tests.
    */
   protected ProjectFilesystem(Path root, ProjectFilesystemDelegate delegate) {
     this(
@@ -187,7 +187,15 @@ public class ProjectFilesystem {
         root,
         blackListedPaths,
         buckPaths,
-        ProjectFilesystemDelegateFactory.newInstance(root));
+        ProjectFilesystemDelegateFactory.newInstance(root, buckPaths));
+  }
+
+  /**
+   * For testing purposes, subclasses might want to skip some of the verification done by the
+   * constructor on its arguments.
+   */
+  protected boolean shouldVerifyConstructorArguments() {
+    return true;
   }
 
   private ProjectFilesystem(
@@ -196,9 +204,11 @@ public class ProjectFilesystem {
       ImmutableSet<PathOrGlobMatcher> blackListedPaths,
       BuckPaths buckPaths,
       ProjectFilesystemDelegate delegate) {
-    Preconditions.checkArgument(Files.isDirectory(root));
-    Preconditions.checkState(vfs.equals(root.getFileSystem()));
-    Preconditions.checkArgument(root.isAbsolute());
+    if (shouldVerifyConstructorArguments()) {
+      Preconditions.checkArgument(Files.isDirectory(root), "%s must be a directory", root);
+      Preconditions.checkState(vfs.equals(root.getFileSystem()));
+      Preconditions.checkArgument(root.isAbsolute());
+    }
     this.projectRoot = MorePaths.normalize(root);
     this.delegate = delegate;
     this.pathAbsolutifier = new Function<Path, Path>() {
@@ -350,7 +360,7 @@ public class ProjectFilesystem {
     return builder.build();
   }
 
-  public Path getRootPath() {
+  public final Path getRootPath() {
     return projectRoot;
   }
 
@@ -358,23 +368,11 @@ public class ProjectFilesystem {
    * @return the specified {@code path} resolved against {@link #getRootPath()} to an absolute path.
    */
   public Path resolve(Path path) {
-    return MorePaths.normalize(resolvePathFromOtherVfs(path).toAbsolutePath());
+    return MorePaths.normalize(getPathForRelativePath(path).toAbsolutePath());
   }
 
   public Path resolve(String path) {
     return MorePaths.normalize(getRootPath().resolve(path).toAbsolutePath());
-  }
-
-  /**
-   * We often create {@link Path} instances using
-   * {@link java.nio.file.Paths#get(String, String...)}, but there's no guarantee that the
-   * underlying {@link FileSystem} is the default one.
-   */
-  protected Path resolvePathFromOtherVfs(Path path) {
-    if (path.getFileSystem().equals(getRootPath().getFileSystem())) {
-      return getRootPath().resolve(path);
-    }
-    return getRootPath().resolve(path.toString());
   }
 
   /**
@@ -405,8 +403,8 @@ public class ProjectFilesystem {
         : getPathForRelativePath(pathRelativeToProjectRoot).toFile();
   }
 
-  public Path getPathForRelativePath(Path pathRelativeToProjectRootOrJustAbsolute) {
-    return resolvePathFromOtherVfs(pathRelativeToProjectRootOrJustAbsolute);
+  public Path getPathForRelativePath(Path pathRelativeToProjectRoot) {
+    return delegate.getPathForRelativePath(pathRelativeToProjectRoot);
   }
 
   public Path getPathForRelativePath(String pathRelativeToProjectRoot) {
@@ -573,6 +571,14 @@ public class ProjectFilesystem {
    */
   public void walkFileTree(Path root, FileVisitor<Path> fileVisitor) throws IOException {
     Files.walkFileTree(root, wrapWithIgnoringFileVisitor(fileVisitor));
+  }
+
+  public void walkFileTree(
+      Path root,
+      Set<FileVisitOption> options,
+      int maxDepth,
+      FileVisitor<Path> fileVisitor) throws IOException {
+    Files.walkFileTree(root, options, maxDepth, wrapWithIgnoringFileVisitor(fileVisitor));
   }
 
   public ImmutableSet<Path> getFilesUnderPath(Path pathRelativeToProjectRoot) throws IOException {
@@ -804,7 +810,9 @@ public class ProjectFilesystem {
       byte[] bytes,
       Path pathRelativeToProjectRoot,
       FileAttribute<?>... attrs) throws IOException {
-    try (OutputStream outputStream = newFileOutputStream(pathRelativeToProjectRoot, attrs)) {
+    // No need to buffer writes when writing a single piece of data.
+    try (OutputStream outputStream =
+             newUnbufferedFileOutputStream(pathRelativeToProjectRoot, attrs)) {
       outputStream.write(bytes);
     }
   }
@@ -814,14 +822,21 @@ public class ProjectFilesystem {
       FileAttribute<?>... attrs)
       throws IOException {
     return new BufferedOutputStream(
-        Channels.newOutputStream(
-            Files.newByteChannel(
-                getPathForRelativePath(pathRelativeToProjectRoot),
-                ImmutableSet.<OpenOption>of(
-                    StandardOpenOption.CREATE,
-                    StandardOpenOption.TRUNCATE_EXISTING,
-                    StandardOpenOption.WRITE),
-                attrs)));
+        newUnbufferedFileOutputStream(pathRelativeToProjectRoot, attrs));
+  }
+
+  public OutputStream newUnbufferedFileOutputStream(
+      Path pathRelativeToProjectRoot,
+      FileAttribute<?>... attrs)
+      throws IOException {
+    return Channels.newOutputStream(
+        Files.newByteChannel(
+            getPathForRelativePath(pathRelativeToProjectRoot),
+            ImmutableSet.<OpenOption>of(
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING,
+                StandardOpenOption.WRITE),
+            attrs));
   }
 
   public <A extends BasicFileAttributes> A readAttributes(
@@ -952,9 +967,8 @@ public class ProjectFilesystem {
     return Files.newInputStream(file);
   }
 
-  public String computeSha1(Path pathRelativeToProjectRootOrJustAbsolute) throws IOException {
-    Path fileToHash = getPathForRelativePath(pathRelativeToProjectRootOrJustAbsolute);
-    return Hashing.sha1().hashBytes(Files.readAllBytes(fileToHash)).toString();
+  public Sha1HashCode computeSha1(Path pathRelativeToProjectRootOrJustAbsolute) throws IOException {
+    return delegate.computeSha1(pathRelativeToProjectRootOrJustAbsolute);
   }
 
   public String computeSha256(Path pathRelativeToProjectRoot) throws IOException {

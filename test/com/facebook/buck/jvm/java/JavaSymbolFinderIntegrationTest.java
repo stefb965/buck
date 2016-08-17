@@ -39,7 +39,7 @@ import com.facebook.buck.rules.DefaultKnownBuildRuleTypes;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.testutil.TestConsole;
-import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
+import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.ObjectMappers;
@@ -58,7 +58,7 @@ import java.io.IOException;
 public class JavaSymbolFinderIntegrationTest {
 
   @Rule
-  public DebuggableTemporaryFolder temporaryFolder = new DebuggableTemporaryFolder();
+  public TemporaryPaths temporaryFolder = new TemporaryPaths();
 
   @Test
   public void shouldFindTargetDefiningSymbol() throws IOException, InterruptedException {
@@ -66,7 +66,7 @@ public class JavaSymbolFinderIntegrationTest {
         this, "symbol_finder", temporaryFolder);
     workspace.setUp();
 
-    ProjectFilesystem projectFilesystem = new ProjectFilesystem(temporaryFolder.getRootPath());
+    ProjectFilesystem projectFilesystem = new ProjectFilesystem(temporaryFolder.getRoot());
     ImmutableMap<String, String> environment = ImmutableMap.copyOf(System.getenv());
     Config rawConfig =
         Configs.createDefaultConfig(projectFilesystem.getRootPath());

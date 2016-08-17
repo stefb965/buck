@@ -62,19 +62,16 @@ public class JavaTestDescription implements
   private final JavacOptions templateJavacOptions;
   private final Optional<Long> defaultTestRuleTimeoutMs;
   private final CxxPlatform cxxPlatform;
-  private final Optional<Path> testTempDirOverride;
 
   public JavaTestDescription(
       JavaOptions javaOptions,
       JavacOptions templateOptions,
       Optional<Long> defaultTestRuleTimeoutMs,
-      CxxPlatform cxxPlatform,
-      Optional<Path> testTempDirOverride) {
+      CxxPlatform cxxPlatform) {
     this.javaOptions = javaOptions;
     this.templateJavacOptions = templateOptions;
     this.defaultTestRuleTimeoutMs = defaultTestRuleTimeoutMs;
     this.cxxPlatform = cxxPlatform;
-    this.testTempDirOverride = testTempDirOverride;
   }
 
   @Override
@@ -151,10 +148,10 @@ public class JavaTestDescription implements
                 args.resourcesRoot,
                 args.mavenCoords,
                 args.testRuleTimeoutMs.or(defaultTestRuleTimeoutMs),
+                args.env.get(),
                 args.getRunTestSeparately(),
                 args.stdOutLogLevel,
-                args.stdErrLogLevel,
-                testTempDirOverride));
+                args.stdErrLogLevel));
 
     resolver.addToIndex(
         CalculateAbi.of(
@@ -210,10 +207,9 @@ public class JavaTestDescription implements
     public Optional<Boolean> runTestSeparately;
     public Optional<Level> stdErrLogLevel;
     public Optional<Level> stdOutLogLevel;
-    public Optional<String> pathToJavaAgent;
     public Optional<Boolean> useCxxLibraries;
     public Optional<Long> testRuleTimeoutMs;
-
+    public Optional<ImmutableMap<String, String>> env;
 
     @Override
     public ImmutableSortedSet<BuildTarget> getSourceUnderTest() {

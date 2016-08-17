@@ -54,6 +54,7 @@ import com.facebook.buck.apple.AppleToolchain;
 import com.facebook.buck.apple.AppleToolchainDiscovery;
 import com.facebook.buck.apple.CodeSignIdentityStore;
 import com.facebook.buck.apple.CoreDataModelDescription;
+import com.facebook.buck.apple.PrebuiltAppleFrameworkDescription;
 import com.facebook.buck.apple.ProvisioningProfileStore;
 import com.facebook.buck.apple.XcodePostbuildScriptDescription;
 import com.facebook.buck.apple.XcodePrebuildScriptDescription;
@@ -84,6 +85,7 @@ import com.facebook.buck.go.GoBinaryDescription;
 import com.facebook.buck.go.GoBuckConfig;
 import com.facebook.buck.go.GoLibraryDescription;
 import com.facebook.buck.go.GoTestDescription;
+import com.facebook.buck.groups.TargetGroupDescription;
 import com.facebook.buck.gwt.GwtBinaryDescription;
 import com.facebook.buck.halide.HalideBuckConfig;
 import com.facebook.buck.halide.HalideLibraryDescription;
@@ -235,13 +237,11 @@ public class KnownBuildRuleTypes {
   public static KnownBuildRuleTypes createInstance(
       BuckConfig config,
       ProcessExecutor processExecutor,
-      AndroidDirectoryResolver androidDirectoryResolver,
-      Optional<Path> testTempDirOverride) throws InterruptedException, IOException {
+      AndroidDirectoryResolver androidDirectoryResolver) throws InterruptedException, IOException {
     return createBuilder(
         config,
         processExecutor,
-        androidDirectoryResolver,
-        testTempDirOverride).build();
+        androidDirectoryResolver).build();
   }
 
   private static ImmutableList<AppleCxxPlatform> buildAppleCxxPlatforms(
@@ -270,7 +270,8 @@ public class KnownBuildRuleTypes {
     ImmutableMap<AppleSdk, AppleSdkPaths> sdkPaths = AppleSdkDiscovery.discoverAppleSdkPaths(
         appleDeveloperDirectory,
         extraPlatformPaths,
-        toolchains);
+        toolchains,
+        appleConfig);
 
     for (Map.Entry<AppleSdk, AppleSdkPaths> entry : sdkPaths.entrySet()) {
       AppleSdk sdk = entry.getKey();
@@ -297,8 +298,7 @@ public class KnownBuildRuleTypes {
   static Builder createBuilder(
       BuckConfig config,
       ProcessExecutor processExecutor,
-      AndroidDirectoryResolver androidDirectoryResolver,
-      Optional<Path> testTempDirOverride) throws InterruptedException, IOException {
+      AndroidDirectoryResolver androidDirectoryResolver) throws InterruptedException, IOException {
 
     Platform platform = Platform.detect();
 
@@ -390,11 +390,16 @@ public class KnownBuildRuleTypes {
     // Add platforms for each cxx flavor obtained from the buck config files
     // from sections of the form cxx#{flavor name}.
     // These platforms are overrides for existing system platforms.
+    ImmutableList<ImmutableFlavor> possibleHostFlavors = CxxPlatforms.getAllPossibleHostFlavors();
     HashMap<Flavor, CxxPlatform> cxxOverridePlatformsMap =
         new HashMap<Flavor, CxxPlatform>(cxxSystemPlatformsMap);
     ImmutableSet<Flavor> cxxFlavors = CxxBuckConfig.getCxxFlavors(config);
     for (Flavor flavor: cxxFlavors) {
       if (!cxxSystemPlatformsMap.containsKey(flavor)) {
+        if (possibleHostFlavors.contains(flavor)) {
+            // If a flavor is for an alternate host, it's safe to skip.
+            continue;
+        }
         throw new HumanReadableException(
             "Could not find platform for which overrides were specified: " + flavor);
       }
@@ -521,6 +526,9 @@ public class KnownBuildRuleTypes {
             provisioningProfileStore,
             appleConfig.getDefaultDebugInfoFormatForLibraries());
     builder.register(appleLibraryDescription);
+    PrebuiltAppleFrameworkDescription appleFrameworkDescription =
+        new PrebuiltAppleFrameworkDescription();
+    builder.register(appleFrameworkDescription);
 
     AppleBinaryDescription appleBinaryDescription =
         new AppleBinaryDescription(
@@ -653,9 +661,7 @@ public class KnownBuildRuleTypes {
             groovyBuckConfig,
             defaultJavaOptions,
             defaultJavacOptions,
-            defaultTestRuleTimeoutMs,
-            testTempDirOverride
-        )
+            defaultTestRuleTimeoutMs)
     );
     builder.register(new GwtBinaryDescription(defaultJavaOptions));
     builder.register(
@@ -675,8 +681,7 @@ public class KnownBuildRuleTypes {
             defaultJavaOptions,
             defaultJavacOptions,
             defaultTestRuleTimeoutMs,
-            defaultCxxPlatform,
-            testTempDirOverride));
+            defaultCxxPlatform));
     builder.register(new KeystoreDescription());
     builder.register(
         new LuaBinaryDescription(
@@ -713,8 +718,7 @@ public class KnownBuildRuleTypes {
             defaultJavaOptions,
             defaultJavacOptions,
             defaultTestRuleTimeoutMs,
-            defaultCxxPlatform,
-            testTempDirOverride));
+            defaultCxxPlatform));
     builder.register(new RustBinaryDescription(rustBuckConfig));
     builder.register(new RustLibraryDescription(rustBuckConfig));
     builder.register(new ScalaLibraryDescription(scalaConfig));
@@ -722,8 +726,7 @@ public class KnownBuildRuleTypes {
         scalaConfig,
         defaultJavaOptions,
         defaultTestRuleTimeoutMs,
-        defaultCxxPlatform,
-        testTempDirOverride));
+        defaultCxxPlatform));
     builder.register(new ShBinaryDescription());
     builder.register(new ShTestDescription(defaultTestRuleTimeoutMs));
     ThriftBuckConfig thriftBuckConfig = new ThriftBuckConfig(config);
@@ -748,6 +751,7 @@ public class KnownBuildRuleTypes {
     builder.register(new XcodePrebuildScriptDescription());
     builder.register(new XcodeWorkspaceConfigDescription());
     builder.register(new ZipDescription());
+    builder.register(new TargetGroupDescription());
 
     builder.setCxxPlatforms(cxxPlatforms);
     builder.setDefaultCxxPlatform(defaultCxxPlatform);

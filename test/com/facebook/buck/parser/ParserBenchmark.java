@@ -20,12 +20,13 @@ import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
+import com.facebook.buck.event.listener.BroadcastEventListener;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.ConstructorArgMarshaller;
 import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
-import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
+import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.util.ObjectMappers;
 import com.google.caliper.AfterExperiment;
 import com.google.caliper.BeforeExperiment;
@@ -39,6 +40,7 @@ import com.google.common.util.concurrent.MoreExecutors;
 
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 
 import java.nio.file.Files;
@@ -53,7 +55,8 @@ public class ParserBenchmark {
   @Param({"1", "2", "10"})
   private int threadCount = 1;
 
-  public DebuggableTemporaryFolder tempDir = new DebuggableTemporaryFolder();
+  @Rule
+  public TemporaryPaths tempDir = new TemporaryPaths();
 
   private Parser parser;
   private ProjectFilesystem filesystem;
@@ -69,8 +72,7 @@ public class ParserBenchmark {
 
   @BeforeExperiment
   public void setUpBenchmark() throws Exception {
-    tempDir.create();
-    Path root = tempDir.getRootPath();
+    Path root = tempDir.getRoot();
     Files.createDirectories(root);
     filesystem = new ProjectFilesystem(root);
 
@@ -119,6 +121,7 @@ public class ParserBenchmark {
         ObjectMappers.newDefaultInstance());
     ConstructorArgMarshaller marshaller = new ConstructorArgMarshaller(typeCoercerFactory);
     parser = new Parser(
+        new BroadcastEventListener(),
         new ParserConfig(config),
         typeCoercerFactory,
         marshaller);
@@ -127,7 +130,6 @@ public class ParserBenchmark {
   @After
   @AfterExperiment
   public void cleanup() {
-    tempDir.delete();
     executorService.shutdown();
   }
 

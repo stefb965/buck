@@ -36,6 +36,7 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.json.BuildFileParseException;
+import com.facebook.buck.log.CommandThreadFactory;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.model.HasBuildTarget;
@@ -53,8 +54,8 @@ import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CachingBuildEngine;
-import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.CachingBuildEngineDelegate;
+import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.ConstructorArgMarshaller;
 import com.facebook.buck.rules.LocalCachingBuildEngineDelegate;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -127,6 +128,7 @@ public class BuildCommand extends AbstractCommand {
   private static final String SHALLOW_LONG_ARG = "--shallow";
   private static final String REPORT_ABSOLUTE_PATHS = "--report-absolute-paths";
   private static final String SHOW_OUTPUT_LONG_ARG = "--show-output";
+  private static final String SHOW_FULL_OUTPUT_LONG_ARG = "--show-full-output";
   private static final String SHOW_RULEKEY_LONG_ARG = "--show-rulekey";
   private static final String DISTRIBUTED_LONG_ARG = "--distributed";
   private static final String DISTRIBUTED_STATE_DUMP_LONG_ARG = "--distributed-state-dump";
@@ -182,8 +184,13 @@ public class BuildCommand extends AbstractCommand {
 
   @Option(
       name = SHOW_OUTPUT_LONG_ARG,
-      usage = "Print the absolute path to the output for each of the built rules.")
+      usage = "Print the path to the output for each of the built rules relative to the cell.")
   private boolean showOutput;
+
+  @Option(
+      name = SHOW_FULL_OUTPUT_LONG_ARG,
+      usage = "Print the absolute path to the output for each of the built rules.")
+  private boolean showFullOutput;
 
   @Option(
       name = SHOW_RULEKEY_LONG_ARG,
@@ -382,7 +389,7 @@ public class BuildCommand extends AbstractCommand {
         ActionGraphAndResolver actionGraphAndResolver =
             createActionGraphAndResolver(params, executorService);
         exitCode = executeLocalBuild(params, actionGraphAndResolver, executorService);
-        if (exitCode == 0 && (showOutput || showRuleKey)) {
+        if (exitCode == 0 && (showOutput || showFullOutput || showRuleKey)) {
           showOutputs(params, actionGraphAndResolver);
         }
       }
@@ -418,7 +425,6 @@ public class BuildCommand extends AbstractCommand {
             new DistributedBuildTypeCoercerFactory(params.getObjectMapper());
         ParserTargetNodeFactory<TargetNode<?>> parserTargetNodeFactory =
             DefaultParserTargetNodeFactory.createForDistributedBuild(
-                params.getBuckEventBus(),
                 new ConstructorArgMarshaller(typeCoercerFactory),
                 new TargetNodeFactory(typeCoercerFactory));
         DistributedBuildTargetGraphCodec targetGraphCodec = new DistributedBuildTargetGraphCodec(
@@ -511,7 +517,8 @@ public class BuildCommand extends AbstractCommand {
     DistBuildConfig config = new DistBuildConfig(params.getBuckConfig());
     ClientSideSlb slb = config.getFrontendConfig().createHttpClientSideSlb(
         params.getClock(),
-        params.getBuckEventBus());
+        params.getBuckEventBus(),
+        new CommandThreadFactory("BuildCommand.HttpLoadBalancer"));
     OkHttpClient client = config.createOkHttpClient();
 
     try (HttpService httpService = new LoadBalancedService(slb, client, params.getBuckEventBus());
@@ -539,12 +546,14 @@ public class BuildCommand extends AbstractCommand {
     for (BuildTarget buildTarget : buildTargets) {
       try {
         BuildRule rule = actionGraphAndResolver.getResolver().requireRule(buildTarget);
-        Optional<Path> outputPath = TargetsCommand.getUserFacingOutputPath(rule);
+        Optional<Path> outputPath = TargetsCommand.getUserFacingOutputPath(rule, showFullOutput);
         params.getConsole().getStdOut().printf(
             "%s%s%s\n",
             rule.getFullyQualifiedName(),
             showRuleKey ? " " + ruleKeyBuilderFactory.get().build(rule).toString() : "",
-            showOutput ? " " + outputPath.transform(Functions.toStringFunction()).or("") : "");
+            showOutput || showFullOutput ?
+                " " + outputPath.transform(Functions.toStringFunction()).or("")
+                : "");
       } catch (NoSuchBuildTargetException e) {
         throw new HumanReadableException(MoreExceptions.getHumanReadableOrLocalizedMessage(e));
       }

@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY ccf6159ac8acf25918007d01eeee288a3c3d4fad #@#
+#@# GENERATED FILE: DO NOT MODIFY 7ee364d94223c6c774a3050b5f31b772dabf6cff #@#
 {
   "action_graph_cache" : {
     "deps" : [
@@ -13,6 +13,7 @@
     ],
     "exported_deps" : [
       "//src/com/facebook/buck/event:event",
+      "//src/com/facebook/buck/event/listener:BroadcastEventListener",
       "//src/com/facebook/buck/rules:build_rule",
       "//third-party/java/guava:guava"
     ]
@@ -181,6 +182,7 @@
       "//src/com/facebook/buck/file:downloader",
       "//src/com/facebook/buck/file:file",
       "//src/com/facebook/buck/go:go",
+      "//src/com/facebook/buck/groups:groups",
       "//src/com/facebook/buck/gwt:gwt",
       "//src/com/facebook/buck/halide:halide",
       "//src/com/facebook/buck/haskell:haskell",

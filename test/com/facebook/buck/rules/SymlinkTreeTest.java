@@ -35,7 +35,7 @@ import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.SymlinkTreeStep;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
+import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.google.common.base.Charsets;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableBiMap;
@@ -48,7 +48,6 @@ import org.hamcrest.junit.ExpectedException;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -58,7 +57,7 @@ import java.nio.file.Paths;
 public class SymlinkTreeTest {
 
   @Rule
-  public final TemporaryFolder tmpDir = new TemporaryFolder();
+  public final TemporaryPaths tmpDir = new TemporaryPaths();
 
   @Rule
   public final ExpectedException exception = ExpectedException.none();
@@ -78,12 +77,12 @@ public class SymlinkTreeTest {
 
     // Get the first file we're symlinking
     Path link1 = Paths.get("file");
-    Path file1 = tmpDir.newFile().toPath();
+    Path file1 = tmpDir.newFile();
     Files.write(file1, "hello world".getBytes(Charsets.UTF_8));
 
     // Get the second file we're symlinking
     Path link2 = Paths.get("directory", "then", "file");
-    Path file2 = tmpDir.newFile().toPath();
+    Path file2 = tmpDir.newFile();
     Files.write(file2, "hello world".getBytes(Charsets.UTF_8));
 
     // Setup the map representing the link tree.
@@ -91,11 +90,11 @@ public class SymlinkTreeTest {
         link1,
         new PathSourcePath(
             projectFilesystem,
-            MorePaths.relativize(tmpDir.getRoot().toPath(), file1)),
+            MorePaths.relativize(tmpDir.getRoot(), file1)),
         link2,
         new PathSourcePath(
             projectFilesystem,
-            MorePaths.relativize(tmpDir.getRoot().toPath(), file2)));
+            MorePaths.relativize(tmpDir.getRoot(), file2)));
 
     // The output path used by the buildable for the link tree.
     outputPath = projectFilesystem.resolve(
@@ -162,7 +161,7 @@ public class SymlinkTreeTest {
 
     // Also create a new BuildRule based around a SymlinkTree buildable with a different
     // link map.
-    Path aFile = tmpDir.newFile().toPath();
+    Path aFile = tmpDir.newFile();
     Files.write(aFile, "hello world".getBytes(Charsets.UTF_8));
     AbstractBuildRule modifiedSymlinkTreeBuildRule = new SymlinkTree(
         new FakeBuildRuleParamsBuilder(buildTarget).build(),
@@ -175,7 +174,7 @@ public class SymlinkTreeTest {
             Paths.get("different/link"),
             new PathSourcePath(
                 projectFilesystem,
-                MorePaths.relativize(tmpDir.getRoot().toPath(), aFile))));
+                MorePaths.relativize(tmpDir.getRoot(), aFile))));
     SourcePathResolver resolver = new SourcePathResolver(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
     );
@@ -324,7 +323,7 @@ public class SymlinkTreeTest {
                 Paths.get("../something"),
                 new PathSourcePath(
                     projectFilesystem,
-                    MorePaths.relativize(tmpDir.getRoot().toPath(), tmpDir.newFile().toPath()))));
+                    MorePaths.relativize(tmpDir.getRoot(), tmpDir.newFile()))));
     int exitCode = symlinkTree.getVerifiyStep().execute(TestExecutionContext.newInstance())
                    .getExitCode();
     assertThat(exitCode, Matchers.not(Matchers.equalTo(0)));
@@ -354,17 +353,17 @@ public class SymlinkTreeTest {
   }
 
   @Rule
-  public DebuggableTemporaryFolder tmp = new DebuggableTemporaryFolder();
+  public TemporaryPaths tmp = new TemporaryPaths();
 
   @Test
   public void resolveDuplicateRelativePaths() throws IOException {
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver resolver = new SourcePathResolver(ruleResolver);
-    tmp.getRootPath().resolve("one").toFile().mkdir();
-    tmp.getRootPath().resolve("two").toFile().mkdir();
-    ProjectFilesystem fsOne = new ProjectFilesystem(tmp.getRootPath().resolve("one"));
-    ProjectFilesystem fsTwo = new ProjectFilesystem(tmp.getRootPath().resolve("two"));
+    tmp.getRoot().resolve("one").toFile().mkdir();
+    tmp.getRoot().resolve("two").toFile().mkdir();
+    ProjectFilesystem fsOne = new ProjectFilesystem(tmp.getRoot().resolve("one"));
+    ProjectFilesystem fsTwo = new ProjectFilesystem(tmp.getRoot().resolve("two"));
 
     ImmutableBiMap<SourcePath, Path> expected = ImmutableBiMap.<SourcePath, Path>of(
         new FakeSourcePath(fsOne, "a/one.a"), Paths.get("a/one.a"),
@@ -385,12 +384,12 @@ public class SymlinkTreeTest {
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver resolver = new SourcePathResolver(ruleResolver);
-    tmp.getRootPath().resolve("a-fs").toFile().mkdir();
-    tmp.getRootPath().resolve("b-fs").toFile().mkdir();
-    tmp.getRootPath().resolve("c-fs").toFile().mkdir();
-    ProjectFilesystem fsOne = new ProjectFilesystem(tmp.getRootPath().resolve("a-fs"));
-    ProjectFilesystem fsTwo = new ProjectFilesystem(tmp.getRootPath().resolve("b-fs"));
-    ProjectFilesystem fsThree = new ProjectFilesystem(tmp.getRootPath().resolve("c-fs"));
+    tmp.getRoot().resolve("a-fs").toFile().mkdir();
+    tmp.getRoot().resolve("b-fs").toFile().mkdir();
+    tmp.getRoot().resolve("c-fs").toFile().mkdir();
+    ProjectFilesystem fsOne = new ProjectFilesystem(tmp.getRoot().resolve("a-fs"));
+    ProjectFilesystem fsTwo = new ProjectFilesystem(tmp.getRoot().resolve("b-fs"));
+    ProjectFilesystem fsThree = new ProjectFilesystem(tmp.getRoot().resolve("c-fs"));
 
     ImmutableBiMap<SourcePath, Path> expected = ImmutableBiMap.<SourcePath, Path>builder()
         .put(new FakeSourcePath(fsOne, "a/one.a"), Paths.get("a/one.a"))

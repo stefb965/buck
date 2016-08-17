@@ -55,19 +55,16 @@ public class GroovyTestDescription implements Description<GroovyTestDescription.
   private final JavaOptions javaOptions;
   private final JavacOptions defaultJavacOptions;
   private final Optional<Long> defaultTestRuleTimeoutMs;
-  private final Optional<Path> testTempDirOverride;
 
   public GroovyTestDescription(
       GroovyBuckConfig groovyBuckConfig,
       JavaOptions javaOptions,
       JavacOptions defaultJavacOptions,
-      Optional<Long> defaultTestRuleTimeoutMs,
-      Optional<Path> testTempDirOverride) {
+      Optional<Long> defaultTestRuleTimeoutMs) {
     this.groovyBuckConfig = groovyBuckConfig;
     this.javaOptions = javaOptions;
     this.defaultJavacOptions = defaultJavacOptions;
     this.defaultTestRuleTimeoutMs = defaultTestRuleTimeoutMs;
-    this.testTempDirOverride = testTempDirOverride;
   }
 
   @Override
@@ -134,9 +131,10 @@ public class GroovyTestDescription implements Description<GroovyTestDescription.
                 Optional.<Path>absent(),
                 Optional.<String>absent(),
                 args.testRuleTimeoutMs.or(defaultTestRuleTimeoutMs),
+                args.env.get(),
                 args.getRunTestSeparately(),
                 args.stdOutLogLevel,
-                args.stdErrLogLevel, testTempDirOverride));
+                args.stdErrLogLevel));
 
     resolver.addToIndex(
         CalculateAbi.of(
@@ -158,6 +156,7 @@ public class GroovyTestDescription implements Description<GroovyTestDescription.
     public Optional<Level> stdErrLogLevel;
     public Optional<Level> stdOutLogLevel;
     public Optional<Long> testRuleTimeoutMs;
+    public Optional<ImmutableMap<String, String>> env;
 
     public boolean getRunTestSeparately() {
       return runTestSeparately.or(false);

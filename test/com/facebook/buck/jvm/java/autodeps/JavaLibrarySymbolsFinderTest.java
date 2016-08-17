@@ -41,7 +41,7 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
-import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
+import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
@@ -62,7 +62,7 @@ import java.nio.file.Path;
 
 public class JavaLibrarySymbolsFinderTest {
   @Rule
-  public DebuggableTemporaryFolder tmp = new DebuggableTemporaryFolder();
+  public TemporaryPaths tmp = new TemporaryPaths();
 
   private static final JavaFileParser javaFileParser = JavaFileParser.createJavaFileParser(
       JavacOptions.builder()
@@ -77,7 +77,7 @@ public class JavaLibrarySymbolsFinderTest {
         "java_library_symbols_finder",
         tmp)
         .setUp();
-    ProjectFilesystem projectFilesystem = new ProjectFilesystem(tmp.getRootPath());
+    ProjectFilesystem projectFilesystem = new ProjectFilesystem(tmp.getRoot());
 
     ImmutableSortedSet<SourcePath> srcs = ImmutableSortedSet.<SourcePath>naturalOrder()
         .addAll(
@@ -108,7 +108,7 @@ public class JavaLibrarySymbolsFinderTest {
         "java_library_symbols_finder",
         tmp)
         .setUp();
-    final ProjectFilesystem projectFilesystem = new ProjectFilesystem(tmp.getRootPath());
+    final ProjectFilesystem projectFilesystem = new ProjectFilesystem(tmp.getRoot());
 
     Function<String, SourcePath> convert = new Function<String, SourcePath>() {
       @Override

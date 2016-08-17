@@ -50,7 +50,6 @@ import com.facebook.buck.test.TestRunningOptions;
 import com.facebook.buck.test.XmlTestResultParser;
 import com.facebook.buck.test.result.type.ResultType;
 import com.facebook.buck.test.selectors.TestSelectorList;
-import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.ZipFileTraversal;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Functions;
@@ -125,6 +124,9 @@ public class JavaTest
 
   private final Optional<Long> testRuleTimeoutMs;
 
+  @AddToRuleKey
+  private final ImmutableMap<String, String> env;
+
   private final Path pathToTestLogs;
 
   private static final int TEST_CLASSES_SHUFFLE_SEED = 0xFACEB00C;
@@ -136,8 +138,6 @@ public class JavaTest
 
   @AddToRuleKey
   private final boolean runTestSeparately;
-
-  private final Optional<Path> testTempDirOverride;
 
   public JavaTest(
       BuildRuleParams params,
@@ -160,10 +160,10 @@ public class JavaTest
       Optional<Path> resourcesRoot,
       Optional<String> mavenCoords,
       Optional<Long> testRuleTimeoutMs,
+      ImmutableMap<String, String> env,
       boolean runTestSeparately,
       Optional<Level> stdOutLogLevel,
-      Optional<Level> stdErrLogLevel,
-      Optional<Path> testTempDirOverride) {
+      Optional<Level> stdErrLogLevel) {
     super(
         params,
         resolver,
@@ -191,10 +191,10 @@ public class JavaTest
     this.additionalClasspathEntries = addtionalClasspathEntries;
     this.testType = testType;
     this.testRuleTimeoutMs = testRuleTimeoutMs;
+    this.env = env;
     this.runTestSeparately = runTestSeparately;
     this.stdOutLogLevel = stdOutLogLevel;
     this.stdErrLogLevel = stdErrLogLevel;
-    this.testTempDirOverride = testTempDirOverride;
     this.pathToTestLogs = getPathToTestOutputDirectory().resolve("logs.txt");
   }
 
@@ -231,7 +231,6 @@ public class JavaTest
       ExecutionContext executionContext,
       TestRunningOptions options,
       Optional<Path> outDir,
-      Optional<Path> tempDir,
       Optional<Path> robolectricLogPath) {
 
     Set<String> testClassNames = getClassNamesForSources();
@@ -248,7 +247,6 @@ public class JavaTest
     JUnitJvmArgs args = JUnitJvmArgs.builder()
         .setTestType(testType)
         .setDirectoryForTestResults(outDir)
-        .setTmpDirectory(tempDir)
         .setClasspathFile(getClassPathFile())
         .setTestRunnerClasspath(TESTRUNNER_CLASSES)
         .setCodeCoverageEnabled(executionContext.isCodeCoverageEnabled())
@@ -269,6 +267,7 @@ public class JavaTest
         getProjectFilesystem(),
         nativeLibsEnvironment,
         testRuleTimeoutMs,
+        env,
         javaRuntimeLauncher,
         args);
   }
@@ -294,15 +293,12 @@ public class JavaTest
 
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
     Path pathToTestOutput = getPathToTestOutputDirectory();
-    Path tmpDirectory = getPathToTmpDirectory();
     steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), pathToTestOutput));
-    steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), tmpDirectory));
     junit =
         getJUnitStep(
             executionContext,
             options,
             Optional.of(pathToTestOutput),
-            Optional.of(tmpDirectory),
             Optional.of(pathToTestLogs));
     steps.add(junit);
     return steps.build();
@@ -380,45 +376,10 @@ public class JavaTest
 
   @Override
   public Path getPathToTestOutputDirectory() {
-    Path path =
-        BuildTargets.getGenPath(
-            getProjectFilesystem(),
-            getBuildTarget(),
-            "__java_test_%s_output__");
-
-    // Putting the one-time test-sub-directory below the usual directory has the nice property that
-    // doing a test run without "--one-time-output" will tidy up all the old one-time directories!
-    String subdir = BuckConstant.oneTimeTestSubdirectory;
-    if (subdir != null && !subdir.isEmpty()) {
-      path = path.resolve(subdir);
-    }
-
-    return path;
-  }
-
-  private Path getPathToTmpDirectory() {
-    Path base;
-    if (testTempDirOverride.isPresent()) {
-      base = testTempDirOverride.get()
-          .resolve(getBuildTarget().getBasePath())
-          .resolve(
-              String.format(
-                  "__java_test_%s_tmp__",
-                  getBuildTarget().getShortNameAndFlavorPostfix()));
-      LOG.debug("Using overridden test temp dir base %s", base);
-    } else {
-      base =
-          BuildTargets.getScratchPath(
-              getProjectFilesystem(),
-              getBuildTarget(),
-              "__java_test_%s_tmp__");
-      LOG.debug("Using standard test temp dir base %s", base);
-    }
-    String subdir = BuckConstant.oneTimeTestSubdirectory;
-    if (subdir != null && !subdir.isEmpty()) {
-      base = base.resolve(subdir);
-    }
-    return base;
+    return BuildTargets.getGenPath(
+        getProjectFilesystem(),
+        getBuildTarget(),
+        "__java_test_%s_output__");
   }
 
   /**
@@ -647,7 +608,6 @@ public class JavaTest
         getJUnitStep(
             executionContext,
             options,
-            Optional.<Path>absent(),
             Optional.<Path>absent(),
             Optional.<Path>absent());
     return ExternalTestRunnerTestSpec.builder()

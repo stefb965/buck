@@ -75,7 +75,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
 
 import javax.annotation.Nullable;
 
@@ -136,15 +135,6 @@ public class TestCommand extends BuildCommand {
       name = "--dry-run",
       usage = "Print tests that match the given command line options, but don't run them.")
   private boolean isDryRun;
-
-  @Option(
-      name = "--one-time-output",
-      usage =
-          "Put test-results in a unique, one-time output directory.  " +
-          "This allows multiple tests to be run in parallel without interfering with each other, " +
-          "but at the expense of being unable to use cached results.  " +
-          "WARNING: this is experimental, and only works for Java tests!")
-  private boolean isUsingOneTimeOutput;
 
   @Option(
       name = "--shuffle",
@@ -255,7 +245,6 @@ public class TestCommand extends BuildCommand {
 
   private TestRunningOptions getTestRunningOptions(CommandRunnerParams params) {
     return TestRunningOptions.builder()
-        .setUsingOneTimeOutputDirectories(isUsingOneTimeOutput)
         .setCodeCoverageEnabled(isCodeCoverageEnabled)
         .setRunAllTests(isRunAllTests())
         .setTestSelectorList(testSelectorOptions.getTestSelectorList())
@@ -357,10 +346,10 @@ public class TestCommand extends BuildCommand {
     ListeningProcessExecutor.LaunchedProcess process =
         processExecutor.launchProcess(processExecutorParams, processListener);
     try {
-      return processExecutor.waitForProcess(process, Long.MAX_VALUE, TimeUnit.DAYS);
+      return processExecutor.waitForProcess(process);
     } finally {
       processExecutor.destroyProcess(process, /* force */ false);
-      processExecutor.waitForProcess(process, Long.MAX_VALUE, TimeUnit.DAYS);
+      processExecutor.waitForProcess(process);
     }
   }
 

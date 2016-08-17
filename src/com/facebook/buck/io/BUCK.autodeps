@@ -1,5 +1,41 @@
-#@# GENERATED FILE: DO NOT MODIFY bc4e6bf25ee454182332627fe10df95ba6e7ec42 #@#
+#@# GENERATED FILE: DO NOT MODIFY 06657eeaf8210f75cc80cb723c8a34dae7690605 #@#
 {
+  "BuckPaths" : {
+    "deps" : [
+      "//third-party/java/immutables:processor"
+    ],
+    "exported_deps" : [
+      "//src/com/facebook/buck/util/immutables:immutables"
+    ]
+  },
+  "DefaultProjectFilesystemDelegate" : {
+    "deps" : [
+      "//third-party/java/guava:guava"
+    ],
+    "exported_deps" : [
+      "//src/com/facebook/buck/io:ProjectFilesystemDelegate",
+      "//src/com/facebook/buck/util/sha1:sha1"
+    ]
+  },
+  "ProjectFilesystemDelegate" : {
+    "deps" : [ ],
+    "exported_deps" : [
+      "//src/com/facebook/buck/util/sha1:sha1"
+    ]
+  },
+  "ProjectFilesystemDelegateFactory" : {
+    "deps" : [
+      "//src/com/facebook/buck/eden:eden",
+      "//src/com/facebook/buck/io:DefaultProjectFilesystemDelegate",
+      "//src/com/facebook/buck/log:api",
+      "//src/com/facebook/buck/util/environment:platform",
+      "//third-party/java/jsr:jsr305"
+    ],
+    "exported_deps" : [
+      "//src/com/facebook/buck/io:BuckPaths",
+      "//src/com/facebook/buck/io:ProjectFilesystemDelegate"
+    ]
+  },
   "executable-finder" : {
     "deps" : [
       "//src/com/facebook/buck/log:api",
@@ -14,6 +50,7 @@
   },
   "io" : {
     "deps" : [
+      "//src/com/facebook/buck/io:ProjectFilesystemDelegateFactory",
       "//src/com/facebook/buck/log:api",
       "//src/com/facebook/buck/util:constants",
       "//src/com/facebook/buck/util:exceptions",
@@ -24,9 +61,11 @@
     ],
     "exported_deps" : [
       "//src/com/facebook/buck/config:base-config",
+      "//src/com/facebook/buck/io:BuckPaths",
       "//src/com/facebook/buck/io:ProjectFilesystemDelegate",
       "//src/com/facebook/buck/io:executable-finder",
       "//src/com/facebook/buck/util/immutables:immutables",
+      "//src/com/facebook/buck/util/sha1:sha1",
       "//third-party/java/guava:guava",
       "//third-party/java/jsr:jsr305"
     ]

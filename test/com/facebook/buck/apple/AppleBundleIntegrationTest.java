@@ -35,7 +35,7 @@ import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.BuckBuildLog;
-import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
+import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.FakeAppleDeveloperEnvironment;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
@@ -60,7 +60,7 @@ import java.nio.file.Paths;
 public class AppleBundleIntegrationTest {
 
   @Rule
-  public DebuggableTemporaryFolder tmp = new DebuggableTemporaryFolder();
+  public TemporaryPaths tmp = new TemporaryPaths();
 
   @Rule
   public ExpectedException thrown = ExpectedException.none();
@@ -69,7 +69,7 @@ public class AppleBundleIntegrationTest {
 
   @Before
   public void setUp() {
-    filesystem = new ProjectFilesystem(tmp.getRootPath());
+    filesystem = new ProjectFilesystem(tmp.getRoot());
   }
 
   private boolean checkCodeSigning(Path absoluteBundlePath)

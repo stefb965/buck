@@ -82,6 +82,7 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
     thriftRuleKey.setHashString(ruleKey.getHashCode().toString());
     fetchRequest.setRuleKey(thriftRuleKey);
     fetchRequest.setRepository(repository);
+    fetchRequest.setScheduleType(scheduleType);
 
     BuckCacheRequest cacheRequest = new BuckCacheRequest();
     cacheRequest.setType(BuckCacheRequestType.FETCH);
@@ -162,7 +163,7 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
     };
 
     BuckCacheStoreRequest storeRequest = new BuckCacheStoreRequest();
-    storeRequest.setMetadata(infoToMetadata(info, artifact, repository));
+    storeRequest.setMetadata(infoToMetadata(info, artifact, repository, scheduleType));
     PayloadInfo payloadInfo = new PayloadInfo();
     long artifactSizeBytes = artifact.size();
     payloadInfo.setSizeBytes(artifactSizeBytes);
@@ -212,14 +213,11 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
   }
 
   private static ArtifactMetadata infoToMetadata(
-      ArtifactInfo info, ByteSource file, String repository) throws IOException {
+      ArtifactInfo info, ByteSource file, String repository, String scheduleType)
+      throws IOException {
     ArtifactMetadata metadata = new ArtifactMetadata();
     if (info.getBuildTarget().isPresent()) {
       metadata.setBuildTarget(info.getBuildTarget().get().toString());
-    }
-
-    if (info.getRepository().isPresent()) {
-      metadata.setRepository(info.getRepository().get());
     }
 
     metadata.setRuleKeys(ImmutableList.copyOf(Iterables.transform(
@@ -239,6 +237,7 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
     metadata.setMetadata(info.getMetadata());
     metadata.setArtifactPayloadCrc32(ThriftArtifactCacheProtocol.computeCrc32(file));
     metadata.setRepository(repository);
+    metadata.setScheduleType(scheduleType);
 
     return metadata;
   }

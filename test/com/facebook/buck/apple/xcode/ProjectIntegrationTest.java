@@ -17,7 +17,7 @@
 package com.facebook.buck.apple.xcode;
 
 import com.facebook.buck.testutil.integration.BuckBuildLog;
-import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
+import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.HumanReadableException;
@@ -42,7 +42,7 @@ public class ProjectIntegrationTest {
   public ExpectedException thrown = ExpectedException.none();
 
   @Rule
-  public DebuggableTemporaryFolder temporaryFolder = new DebuggableTemporaryFolder();
+  public TemporaryPaths temporaryFolder = new TemporaryPaths();
 
   @Before
   public void setUp() {
@@ -324,9 +324,9 @@ public class ProjectIntegrationTest {
         "//App:TestAppBinary");
     result.assertSuccess();
 
-    String workspacePathString = temporaryFolder.getRootPath().toString();
+    String workspacePathString = temporaryFolder.getRoot().toString();
     workspacePathString += "/App/TestAppBinary.xcworkspace";
-    Path workspacePath = temporaryFolder.getRootPath().resolve(workspacePathString);
+    Path workspacePath = temporaryFolder.getRoot().resolve(workspacePathString);
 
     assertThat(Files.exists(workspacePath), Matchers.equalTo(true));
   }

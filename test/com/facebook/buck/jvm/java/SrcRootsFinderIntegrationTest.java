@@ -20,7 +20,7 @@ import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
+import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.google.common.collect.ImmutableSet;
 
 import org.junit.Rule;
@@ -32,11 +32,11 @@ import java.nio.file.Paths;
 public class SrcRootsFinderIntegrationTest {
 
   @Rule
-  public DebuggableTemporaryFolder temporaryFolder = new DebuggableTemporaryFolder();
+  public TemporaryPaths temporaryFolder = new TemporaryPaths();
 
   @Test
   public void shouldFindPathsRelativeToRoot() throws IOException {
-    ProjectFilesystem projectFilesystem = new ProjectFilesystem(temporaryFolder.getRootPath());
+    ProjectFilesystem projectFilesystem = new ProjectFilesystem(temporaryFolder.getRoot());
     SrcRootsFinder finder = new SrcRootsFinder(projectFilesystem);
     ImmutableSet<String> pathPatterns = ImmutableSet.of("/a/", "/b");
     assertThat(
@@ -47,7 +47,7 @@ public class SrcRootsFinderIntegrationTest {
 
   @Test
   public void shouldFindPathsMatchingPathElements() throws IOException {
-    ProjectFilesystem projectFilesystem = new ProjectFilesystem(temporaryFolder.getRootPath());
+    ProjectFilesystem projectFilesystem = new ProjectFilesystem(temporaryFolder.getRoot());
     projectFilesystem.mkdirs(Paths.get("java"));
     projectFilesystem.mkdirs(Paths.get("third-party/foo/src"));
     projectFilesystem.mkdirs(Paths.get("not/a/root"));

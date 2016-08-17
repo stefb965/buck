@@ -28,7 +28,7 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
+import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.google.common.base.Charsets;
@@ -96,7 +96,7 @@ public class NdkCxxPlatformIntegrationTest {
   public CxxPreprocessMode mode;
 
   @Rule
-  public DebuggableTemporaryFolder tmp = new DebuggableTemporaryFolder();
+  public TemporaryPaths tmp = new TemporaryPaths();
 
   private ProjectWorkspace setupWorkspace(String name) throws IOException {
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(this, name, tmp);
@@ -175,7 +175,7 @@ public class NdkCxxPlatformIntegrationTest {
             .read();
 
     // Verify that the working directory is sanitized.
-    assertFalse(contents.contains(tmp.getRootPath().toString()));
+    assertFalse(contents.contains(tmp.getRoot().toString()));
 
     // TODO(7534323): We don't currently support fixing up debug paths for the combined flow.
     if (mode != CxxPreprocessMode.COMBINED) {

@@ -16,6 +16,8 @@
 
 package com.facebook.buck.apple;
 
+import static com.facebook.buck.swift.SwiftUtil.Constants.SWIFT_EXTENSION;
+
 import com.facebook.buck.cxx.BuildRuleWithBinary;
 import com.facebook.buck.cxx.CxxBinaryDescription;
 import com.facebook.buck.cxx.CxxConstructorArg;
@@ -23,11 +25,10 @@ import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxStrip;
-import com.facebook.buck.cxx.HeaderVisibility;
 import com.facebook.buck.cxx.ProvidesLinkedBinaryDeps;
 import com.facebook.buck.cxx.StripStyle;
+import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Either;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
@@ -41,6 +42,7 @@ import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.Tool;
@@ -94,15 +96,6 @@ public class AppleDescriptions {
 
   /** Utility class: do not instantiate. */
   private AppleDescriptions() {}
-
-  public static Path getPathToHeaderSymlinkTree(
-      TargetNode<? extends CxxLibraryDescription.Arg> targetNode,
-      HeaderVisibility headerVisibility) {
-    return BuildTargets.getGenPath(
-        targetNode.getRuleFactoryParams().getProjectFilesystem(),
-        BuildTarget.of(targetNode.getBuildTarget().getUnflavoredBuildTarget()),
-        "%s" + AppleHeaderVisibilities.getHeaderSymlinkTreeSuffix(headerVisibility));
-  }
 
   public static Path getHeaderPathPrefix(
       AppleNativeTargetDescriptionArg arg,
@@ -218,7 +211,19 @@ public class AppleDescriptions {
                     arg))
             .build();
 
-    output.srcs = arg.srcs;
+    if (arg.srcs.isPresent()) {
+      ImmutableSortedSet.Builder<SourceWithFlags> nonSwiftSrcs = ImmutableSortedSet.naturalOrder();
+      for (SourceWithFlags src: arg.srcs.get()) {
+        if (!MorePaths.getFileExtension(resolver.getAbsolutePath(src.getSourcePath()))
+            .equalsIgnoreCase(SWIFT_EXTENSION)) {
+          nonSwiftSrcs.add(src);
+        }
+      }
+      output.srcs = Optional.of(nonSwiftSrcs.build());
+    } else {
+      output.srcs = Optional.absent();
+    }
+
     output.platformSrcs = arg.platformSrcs;
     output.headers = Optional.of(SourceList.ofNamedSources(headerMap));
     output.platformHeaders = arg.platformHeaders;
@@ -499,9 +504,15 @@ public class AppleDescriptions {
         params.getBuildTarget(),
         MultiarchFileInfos.create(appleCxxPlatforms, params.getBuildTarget()));
 
-    AppleBundleDestinations destinations =
-        AppleBundleDestinations.platformDestinations(
-            appleCxxPlatform.getAppleSdk().getApplePlatform());
+    AppleBundleDestinations destinations = null;
+
+    if (extension.isLeft() && extension.getLeft().equals(AppleBundleExtension.FRAMEWORK)) {
+      destinations = AppleBundleDestinations.platformFrameworkDestinations(
+          appleCxxPlatform.getAppleSdk().getApplePlatform());
+    } else {
+      destinations = AppleBundleDestinations.platformDestinations(
+                        appleCxxPlatform.getAppleSdk().getApplePlatform());
+    }
 
     AppleBundleResources collectedResources = AppleResources.collectResourceDirsAndFiles(
         targetGraph,

@@ -31,6 +31,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
 
 /**
  * Responsible for gathering logs and other interesting information from buck, driven by user
@@ -61,9 +65,26 @@ public class InteractiveReport extends AbstractReport {
   @Override
   protected ImmutableSet<BuildLogEntry> promptForBuildSelection() throws IOException {
     ImmutableList<BuildLogEntry> buildLogs = buildLogHelper.getBuildLogs();
+
+    // Commands with unknown args and buck rage should be excluded.
+    List<BuildLogEntry> interestingBuildLogs = new ArrayList<>();
+    for (BuildLogEntry entry : buildLogs) {
+      if (entry.getCommandArgs().isPresent() && !entry.getCommandArgs().get().contains("rage")) {
+        interestingBuildLogs.add(entry);
+      }
+    }
+
+    // Sort the interesting builds based on time, reverse order so the most recent is first.
+    Collections.sort(interestingBuildLogs, new Comparator<BuildLogEntry>() {
+      @Override
+      public int compare(BuildLogEntry o1, BuildLogEntry o2) {
+        return -o1.getLastModifiedTime().compareTo(o2.getLastModifiedTime());
+      }
+    });
+
     return input.selectRange(
         "Which buck invocations would you like to report?",
-        buildLogs,
+        interestingBuildLogs,
         new Function<BuildLogEntry, String>() {
           @Override
           public String apply(BuildLogEntry input) {
@@ -71,9 +92,9 @@ public class InteractiveReport extends AbstractReport {
                 input.getSize(),
                 SizeUnit.BYTES);
             return String.format(
-                "buck [%s] at %s (%.2f %s)",
-                input.getCommandArgs().or("unknown args"),
+                "\t%s\tbuck [%s] (%.2f %s)",
                 input.getLastModifiedTime(),
+                input.getCommandArgs().or("unknown command"),
                 humanReadableSize.getFirst(),
                 humanReadableSize.getSecond().getAbbreviation());
           }

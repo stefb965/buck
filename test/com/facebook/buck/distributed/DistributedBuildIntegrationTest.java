@@ -16,9 +16,8 @@
 
 package com.facebook.buck.distributed;
 
-import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
-import com.facebook.buck.testutil.integration.TemporaryRoot;
+import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 
 import org.junit.Rule;
@@ -28,24 +27,19 @@ import java.nio.file.Path;
 
 public class DistributedBuildIntegrationTest {
   @Rule
-  public DebuggableTemporaryFolder temporaryFolder = new DebuggableTemporaryFolder();
+  public TemporaryPaths temporaryFolder = new TemporaryPaths();
 
   @Test
   public void canBuildJavaCode() throws Exception {
-    final Path sourceFolderPath = temporaryFolder.newFolder("source").toPath();
-    Path stateFilePath = temporaryFolder.getRootPath().resolve("state_dump.bin");
-    final Path destinationFolderPath = temporaryFolder.newFolder("destination").toPath();
+    final Path sourceFolderPath = temporaryFolder.newFolder("source");
+    Path stateFilePath = temporaryFolder.getRoot().resolve("state_dump.bin");
+    final Path destinationFolderPath = temporaryFolder.newFolder("destination");
 
 
     ProjectWorkspace sourceWorkspace = TestDataHelper.createProjectWorkspaceForScenario(
         this,
         "simple_java_target",
-        new TemporaryRoot() {
-          @Override
-          public Path getRootPath() {
-            return sourceFolderPath;
-          }
-        });
+        sourceFolderPath);
     sourceWorkspace.setUp();
 
     sourceWorkspace.runBuckBuild(
@@ -58,12 +52,7 @@ public class DistributedBuildIntegrationTest {
     ProjectWorkspace destinationWorkspace = TestDataHelper.createProjectWorkspaceForScenario(
         this,
         "empty",
-        new TemporaryRoot() {
-          @Override
-          public Path getRootPath() {
-            return destinationFolderPath;
-          }
-        });
+        destinationFolderPath);
     destinationWorkspace.setUp();
 
     destinationWorkspace.runBuckBuild(

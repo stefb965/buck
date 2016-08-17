@@ -27,9 +27,9 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.io.MorePaths;
-import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.ProjectWorkspace.ProcessResult;
+import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ObjectMappers;
@@ -48,6 +48,7 @@ import org.junit.rules.ExpectedException;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.regex.Pattern;
 
@@ -60,7 +61,7 @@ public class TargetsCommandIntegrationTest {
       CharMatcher.inRange('0', '9').or(CharMatcher.inRange('a', 'f'));
 
   @Rule
-  public DebuggableTemporaryFolder tmp = new DebuggableTemporaryFolder();
+  public TemporaryPaths tmp = new TemporaryPaths();
 
   @Rule
   public ExpectedException thrown = ExpectedException.none();
@@ -187,7 +188,7 @@ public class TargetsCommandIntegrationTest {
     result.assertSuccess();
     assertEquals(
         "//:test " +
-        MorePaths.pathWithPlatformSeparators(tmp.getRootPath().toRealPath()) +
+        MorePaths.pathWithPlatformSeparators(tmp.getRoot().toRealPath()) +
         "\n",
         result.getStdout());
   }
@@ -206,7 +207,7 @@ public class TargetsCommandIntegrationTest {
     result.assertSuccess();
     assertEquals(
         "//:test " +
-        MorePaths.pathWithPlatformSeparators(tmp.getRootPath().toRealPath()) + " " +
+        MorePaths.pathWithPlatformSeparators(tmp.getRoot().toRealPath()) + " " +
         MorePaths.pathWithPlatformSeparators("buck-out/gen/test/test-output") +
         "\n",
         result.getStdout());
@@ -543,7 +544,7 @@ public class TargetsCommandIntegrationTest {
         "--referenced-file",
         ABSOLUTE_PATH_TO_FILE_OUTSIDE_THE_PROJECT_THAT_EXISTS_ON_THE_FS,
         "libs/guava.jar", // relative path in project
-        tmp.getRootPath().resolve("libs/junit.jar").toString()); // absolute path in project
+        tmp.getRoot().resolve("libs/junit.jar").toString()); // absolute path in project
     result.assertSuccess("Even though one referenced file is outside the project, " +
         "`buck targets` should succeed.");
     assertEquals(
@@ -648,8 +649,34 @@ public class TargetsCommandIntegrationTest {
     assertNotNull(cellPath);
     assertEquals(
       cellPath.asText(),
-      MorePaths.pathWithPlatformSeparators(tmp.getRootPath().toRealPath()));
+      MorePaths.pathWithPlatformSeparators(tmp.getRoot().toRealPath()));
   }
+
+  @Test
+  public void testJsonOutputWithShowFullOutput() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "output_path", tmp);
+    workspace.setUp();
+    ProcessResult result = workspace.runBuckCommand(
+        "targets", "--json", "--show-full-output", "//:test");
+    ObjectMapper objectMapper = ObjectMappers.newDefaultInstance();
+
+    // Parse the observed JSON.
+    JsonNode observed = objectMapper.readTree(
+        objectMapper.getFactory().createParser(result.getStdout())
+    );
+    assertTrue(observed.isArray());
+    JsonNode targetNode = observed.get(0);
+    assertTrue(targetNode.isObject());
+    JsonNode cellPath = targetNode.get("buck.outputPath");
+    assertNotNull(cellPath);
+
+    Path expectedPath = tmp.getRoot().resolve("buck-out/gen/test/test-output");
+    String expectedRootPath = MorePaths.pathWithPlatformSeparators(expectedPath);
+
+    assertEquals(expectedRootPath, cellPath.asText());
+  }
+
 
   @Test
   public void testShowAllTargets() throws IOException {

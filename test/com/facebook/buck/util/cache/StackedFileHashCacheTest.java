@@ -24,7 +24,7 @@ import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.io.HashingDeterministicJarWriter;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
+import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.google.common.collect.ImmutableList;
 import com.google.common.io.ByteSource;
 
@@ -43,10 +43,10 @@ public class StackedFileHashCacheTest {
 
   private static final String SOME_FILE_INSIDE_JAR = "SomeClass.class";
   @Rule
-  public DebuggableTemporaryFolder tmp = new DebuggableTemporaryFolder();
+  public TemporaryPaths tmp = new TemporaryPaths();
 
   @Rule
-  public DebuggableTemporaryFolder tmp2 = new DebuggableTemporaryFolder();
+  public TemporaryPaths tmp2 = new TemporaryPaths();
 
   @Rule
   public ExpectedException expectedException = ExpectedException.none();
@@ -85,13 +85,13 @@ public class StackedFileHashCacheTest {
   @Test
   public void usesSecondCache() throws IOException {
     Path path = Paths.get("world.txt");
-    Path fullPath = tmp2.getRootPath().resolve(path);
+    Path fullPath = tmp2.getRoot().resolve(path);
 
     FileHashCache innerCache =
-        DefaultFileHashCache.createDefaultFileHashCache(new ProjectFilesystem(tmp.getRootPath()));
+        DefaultFileHashCache.createDefaultFileHashCache(new ProjectFilesystem(tmp.getRoot()));
 
     // The second project filesystem has the file.
-    ProjectFilesystem filesystem2 = new ProjectFilesystem(tmp2.getRootPath());
+    ProjectFilesystem filesystem2 = new ProjectFilesystem(tmp2.getRoot());
     FileHashCache innerCache2 = DefaultFileHashCache.createDefaultFileHashCache(filesystem2);
     filesystem2.touch(path);
 
@@ -107,13 +107,13 @@ public class StackedFileHashCacheTest {
   @Test
   public void usesSecondCacheForArchivePath() throws IOException {
     Path path = Paths.get("world.jar");
-    Path fullPath = tmp2.getRootPath().resolve(path);
+    Path fullPath = tmp2.getRoot().resolve(path);
 
     FileHashCache innerCache =
-        DefaultFileHashCache.createDefaultFileHashCache(new ProjectFilesystem(tmp.getRootPath()));
+        DefaultFileHashCache.createDefaultFileHashCache(new ProjectFilesystem(tmp.getRoot()));
 
     // The second project filesystem has the file.
-    ProjectFilesystem filesystem2 = new ProjectFilesystem(tmp2.getRootPath());
+    ProjectFilesystem filesystem2 = new ProjectFilesystem(tmp2.getRoot());
     FileHashCache innerCache2 = DefaultFileHashCache.createDefaultFileHashCache(filesystem2);
     writeJarWithHashes(filesystem2, fullPath);
 
@@ -142,7 +142,7 @@ public class StackedFileHashCacheTest {
   @Test
   public void skipsFirstCacheForArchiveMemberPath() throws IOException {
     Path fullPath = Paths.get("world.jar");
-    ProjectFilesystem filesystem = new ProjectFilesystem(tmp.getRootPath());
+    ProjectFilesystem filesystem = new ProjectFilesystem(tmp.getRoot());
     writeJarWithHashes(filesystem, filesystem.resolve(fullPath));
     ArchiveMemberPath archiveMemberPath = ArchiveMemberPath.of(
         filesystem.resolve(fullPath),
@@ -159,8 +159,8 @@ public class StackedFileHashCacheTest {
         "[project]",
         "ignore = world.txt");
     Path path = Paths.get("world.txt");
-    Path fullPath = tmp.getRootPath().resolve(path);
-    ProjectFilesystem filesystem = new ProjectFilesystem(tmp.getRootPath(), config);
+    Path fullPath = tmp.getRoot().resolve(path);
+    ProjectFilesystem filesystem = new ProjectFilesystem(tmp.getRoot(), config);
     filesystem.touch(path);
     FileHashCache innerCache = DefaultFileHashCache.createDefaultFileHashCache(filesystem);
     StackedFileHashCache cache = new StackedFileHashCache(ImmutableList.of(innerCache));
@@ -174,7 +174,7 @@ public class StackedFileHashCacheTest {
         "[project]",
         "ignore = world.jar");
     Path fullPath = Paths.get("world.jar");
-    ProjectFilesystem filesystem = new ProjectFilesystem(tmp.getRootPath(), config);
+    ProjectFilesystem filesystem = new ProjectFilesystem(tmp.getRoot(), config);
     writeJarWithHashes(filesystem, filesystem.resolve(fullPath));
     ArchiveMemberPath archiveMemberPath = ArchiveMemberPath.of(
         filesystem.resolve(fullPath),

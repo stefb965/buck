@@ -28,7 +28,7 @@ import com.facebook.buck.io.MorePathsForTests;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
+import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.ProjectWorkspace.ProcessResult;
 import com.facebook.buck.testutil.integration.TestDataHelper;
@@ -56,7 +56,7 @@ import java.nio.file.Paths;
 public class BuckConfigTest {
 
   @Rule
-  public DebuggableTemporaryFolder temporaryFolder = new DebuggableTemporaryFolder();
+  public TemporaryPaths temporaryFolder = new TemporaryPaths();
 
   /**
    * Ensure that whichever alias is listed first in the file is the one used in the reverse map if
@@ -394,12 +394,8 @@ public class BuckConfigTest {
   }
 
   private BuckConfig createFromText(String... lines) throws IOException {
-    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem() {
-      @Override
-      public Path getRootPath() {
-        return MorePathsForTests.rootRelativePath("project/root");
-      }
-    };
+    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem(
+        MorePathsForTests.rootRelativePath("project/root"));
     StringReader reader = new StringReader(Joiner.on('\n').join(lines));
     return BuckConfigTestUtils.createFromReader(
         reader,

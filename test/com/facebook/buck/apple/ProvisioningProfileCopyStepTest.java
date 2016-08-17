@@ -30,7 +30,7 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
+import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Platform;
@@ -65,10 +65,13 @@ public class ProvisioningProfileCopyStepTest {
   @Rule
   public ExpectedException thrown = ExpectedException.none();
 
+  @Rule
+  public final TemporaryPaths tmp = new TemporaryPaths();
+
   @Before
   public void setUp() throws IOException {
     testdataDir = TestDataHelper.getTestDataDirectory(this).resolve("provisioning_profiles");
-    projectFilesystem = new FakeProjectFilesystem(testdataDir.toFile());
+    projectFilesystem = new FakeProjectFilesystem(testdataDir);
     Files.walkFileTree(
         testdataDir,
         new SimpleFileVisitor<Path>() {
@@ -81,9 +84,7 @@ public class ProvisioningProfileCopyStepTest {
             return FileVisitResult.CONTINUE;
           }
         });
-    DebuggableTemporaryFolder tmp = new DebuggableTemporaryFolder();
-    tmp.create();
-    tempOutputDir = tmp.getRootPath();
+    tempOutputDir = tmp.getRoot();
     outputFile = tempOutputDir.resolve("embedded.mobileprovision");
     xcentFile = Paths.get("test.xcent");
     executionContext = TestExecutionContext.newInstance();
@@ -193,13 +194,15 @@ public class ProvisioningProfileCopyStepTest {
 
     ProvisioningProfileMetadata selectedProfile = step.getSelectedProvisioningProfileFuture().get();
     ImmutableMap<String, NSObject> profileEntitlements = selectedProfile.getEntitlements();
-    assertTrue(profileEntitlements.containsKey("com.apple.security.application-groups"));
+    assertTrue(profileEntitlements.containsKey(
+        "com.apple.developer.icloud-container-development-container-identifiers"));
 
     Optional<String> xcentContents = projectFilesystem.readFileIfItExists(xcentFile);
     assertTrue(xcentContents.isPresent());
     NSDictionary xcentPlist = (NSDictionary)
         PropertyListParser.parse(xcentContents.get().getBytes());
-    assertFalse(xcentPlist.containsKey("com.apple.security.application-groups"));
+    assertFalse(xcentPlist.containsKey(
+        "com.apple.developer.icloud-container-development-container-identifiers"));
     assertEquals(xcentPlist.get("com.apple.developer.team-identifier"),
         profileEntitlements.get("com.apple.developer.team-identifier"));
   }
@@ -221,13 +224,15 @@ public class ProvisioningProfileCopyStepTest {
 
     ProvisioningProfileMetadata selectedProfile = step.getSelectedProvisioningProfileFuture().get();
     ImmutableMap<String, NSObject> profileEntitlements = selectedProfile.getEntitlements();
-    assertTrue(profileEntitlements.containsKey("com.apple.security.application-groups"));
+    assertTrue(profileEntitlements.containsKey(
+        "com.apple.developer.icloud-container-development-container-identifiers"));
 
     Optional<String> xcentContents = projectFilesystem.readFileIfItExists(xcentFile);
     assertTrue(xcentContents.isPresent());
     NSDictionary xcentPlist = (NSDictionary)
         PropertyListParser.parse(xcentContents.get().getBytes());
-    assertFalse(xcentPlist.containsKey("com.apple.security.application-groups"));
+    assertFalse(xcentPlist.containsKey(
+        "com.apple.developer.icloud-container-development-container-identifiers"));
     assertEquals(xcentPlist.get("com.apple.developer.team-identifier"),
         profileEntitlements.get("com.apple.developer.team-identifier"));
   }

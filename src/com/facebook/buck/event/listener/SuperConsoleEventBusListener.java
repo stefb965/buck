@@ -17,22 +17,23 @@
 package com.facebook.buck.event.listener;
 
 import com.facebook.buck.artifact_cache.ArtifactCacheEvent;
-import com.facebook.buck.artifact_cache.CacheResult;
-import com.facebook.buck.artifact_cache.CacheResultType;
 import com.facebook.buck.distributed.DistBuildStatus;
 import com.facebook.buck.distributed.DistBuildStatusEvent;
 import com.facebook.buck.distributed.thrift.BuildStatus;
 import com.facebook.buck.distributed.thrift.LogRecord;
+import com.facebook.buck.event.ActionGraphEvent;
 import com.facebook.buck.event.ArtifactCompressionEvent;
 import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.event.DaemonEvent;
 import com.facebook.buck.event.LeafEvent;
 import com.facebook.buck.event.NetworkEvent;
+import com.facebook.buck.event.ParsingEvent;
+import com.facebook.buck.event.WatchmanStatusEvent;
 import com.facebook.buck.httpserver.WebServer;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.BuildRuleEvent;
-import com.facebook.buck.rules.BuildRuleStatus;
 import com.facebook.buck.rules.TestRunEvent;
 import com.facebook.buck.rules.TestStatusMessageEvent;
 import com.facebook.buck.rules.TestSummaryEvent;
@@ -48,6 +49,7 @@ import com.facebook.buck.util.MoreIterables;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.facebook.buck.util.unit.SizeUnit;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Charsets;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
@@ -61,6 +63,7 @@ import com.google.common.eventbus.Subscribe;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 import java.io.IOException;
+import java.nio.charset.Charset;
 import java.nio.file.Path;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
@@ -94,6 +97,16 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
 
   private static final Logger LOG = Logger.get(SuperConsoleEventBusListener.class);
 
+  @VisibleForTesting
+  static final String EMOJI_BUNNY = "\uD83D\uDC07";
+  @VisibleForTesting
+  static final String EMOJI_SNAIL = "\uD83D\uDC0C";
+  @VisibleForTesting
+  static final String EMOJI_WHALE = "\uD83D\uDC33";
+  @VisibleForTesting
+  static final Optional<String> NEW_DAEMON_INSTANCE_MSG =
+      createParsingMessage(EMOJI_WHALE, "New buck daemon");
+
   private final Locale locale;
   private final Function<Long, String> formatTimeFunction;
   private final Optional<WebServer> webServer;
@@ -102,13 +115,6 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   private final ConcurrentMap<Long, Optional<? extends TestStatusMessageEvent>>
       threadsToRunningTestStatusMessageEvent;
   private final ConcurrentMap<Long, Optional<? extends LeafEvent>> threadsToRunningStep;
-
-  // Counts the rules that have updated rule keys.
-  private final AtomicInteger updated = new AtomicInteger(0);
-
-  // Counts the number of cache misses and errors, respectively.
-  private final AtomicInteger cacheMisses = new AtomicInteger(0);
-  private final AtomicInteger cacheErrors = new AtomicInteger(0);
 
   private final ConcurrentLinkedQueue<ConsoleEvent> logEvents;
 
@@ -138,6 +144,8 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   private Optional<DistBuildStatus> distBuildStatus;
   private final DateFormat dateFormat;
   private int lastNumLinesPrinted;
+
+  protected Optional<String> parsingStatus = Optional.absent();
 
   public SuperConsoleEventBusListener(
       SuperConsoleConfig config,
@@ -284,7 +292,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     }
 
     long parseTime = logEventPair("PROCESSING BUCK FILES",
-        /* suffix */ getParsingStatus(),
+        /* suffix */ parsingStatus,
         currentTimeMillis,
         /* offsetMs */ 0L,
         buckFilesProcessing.values(),
@@ -312,29 +320,26 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
       if (ruleCount.isPresent()) {
         List<String> columns = Lists.newArrayList();
         columns.add(String.format(locale, "%d/%d JOBS", numRulesCompleted.get(), ruleCount.get()));
-        columns.add(String.format(locale, "%d UPDATED", updated.get()));
-        if (ruleCount.isPresent() && ruleCount.get() > 0) {
-          // Measure CACHE HIT % based on total cache misses and the theoretical total number of
-          // build rules.
-          // REASON: If we only look at cache_misses and processed rules we are strongly biasing
-          // the result toward misses. Basically misses weight more than hits.
-          // One MISS will traverse all its dependency subtree potentially generating misses for
-          // all internal Nodes; worst case generating N cache_misses.
-          // One HIT will prevent any further traversal of dependency sub-tree nodes so it will
-          // only count as one cache_hit even though it saved us from fetching N nodes.
+        CacheRateStatsKeeper.CacheRateStatsUpdateEvent cacheRateStats =
+            cacheRateStatsKeeper.getStats();
+        columns.add(String.format(
+            locale,
+            "%d UPDATED",
+            cacheRateStats.getUpdatedRulesCount()));
+        if (ruleCount.or(0) > 0) {
           columns.add(
               String.format(
                   locale,
                   "%d [%.1f%%] CACHE MISS",
-                  cacheMisses.get(),
-                  100 * (double) cacheMisses.get() / ruleCount.get()));
-          if (cacheErrors.get() > 0) {
+                  cacheRateStats.getCacheMissCount(),
+                  cacheRateStats.getCacheMissRate()));
+          if (cacheRateStats.getCacheErrorCount() > 0) {
             columns.add(
                 String.format(
                     locale,
                     "%d [%.1f%%] CACHE ERRORS",
-                    cacheErrors.get(),
-                    100 * (double) cacheErrors.get() / updated.get()));
+                    cacheRateStats.getCacheErrorCount(),
+                    cacheRateStats.getCacheErrorRate()));
           }
         }
         jobSummary = "(" + Joiner.on(", ").join(columns) + ")";
@@ -628,30 +633,6 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
 
   @Override
   @Subscribe
-  public void buildRuleFinished(BuildRuleEvent.Finished finished) {
-    super.buildRuleFinished(finished);
-    if (finished.getStatus() == BuildRuleStatus.SUCCESS) {
-      CacheResult cacheResult = finished.getCacheResult();
-      switch (cacheResult.getType()) {
-        case MISS:
-          cacheMisses.incrementAndGet();
-          break;
-        case ERROR:
-          cacheErrors.incrementAndGet();
-          break;
-        case HIT:
-        case IGNORED:
-        case LOCAL_KEY_UNCHANGED_HIT:
-          break;
-      }
-      if (cacheResult.getType() != CacheResultType.LOCAL_KEY_UNCHANGED_HIT) {
-        updated.incrementAndGet();
-      }
-    }
-  }
-
-  @Override
-  @Subscribe
   public void buildRuleSuspended(BuildRuleEvent.Suspended suspended) {
     super.buildRuleSuspended(suspended);
   }
@@ -809,6 +790,65 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   @Subscribe
   public void bytesReceived(NetworkEvent.BytesReceivedEvent bytesReceivedEvent) {
     networkStatsKeeper.bytesReceived(bytesReceivedEvent);
+  }
+
+  @Subscribe
+  @SuppressWarnings("unused")
+  public void actionGraphCacheHit(ActionGraphEvent.Cache.Hit event) {
+    parsingStatus = createParsingMessage(EMOJI_BUNNY, "");
+  }
+
+  @Subscribe
+  public void watchmanOverflow(WatchmanStatusEvent.Overflow event) {
+    parsingStatus = createParsingMessage(EMOJI_SNAIL, event.getReason());
+  }
+
+  @Subscribe
+  @SuppressWarnings("unused")
+  public void watchmanFileCreation(WatchmanStatusEvent.FileCreation event) {
+    parsingStatus = createParsingMessage(EMOJI_SNAIL, "File added");
+  }
+
+  @Subscribe
+  @SuppressWarnings("unused")
+  public void watchmanFileDeletion(WatchmanStatusEvent.FileDeletion event) {
+    parsingStatus = createParsingMessage(EMOJI_SNAIL, "File removed");
+  }
+
+  @Subscribe
+  @SuppressWarnings("unused")
+  public void daemonNewInstance(DaemonEvent.NewDaemonInstance event) {
+    parsingStatus = NEW_DAEMON_INSTANCE_MSG;
+  }
+
+  @Subscribe
+  @SuppressWarnings("unused")
+  public void symlinkInvalidation(ParsingEvent.SymlinkInvalidation event) {
+    parsingStatus = createParsingMessage(EMOJI_WHALE, "Symlink caused cache invalidation");
+  }
+
+  @Subscribe
+  public void envVariableChange(ParsingEvent.EnvVariableChange event) {
+    parsingStatus = createParsingMessage(EMOJI_SNAIL, "Environment variable changes: " +
+        event.getDiff());
+  }
+
+  @VisibleForTesting
+  static Optional<String> createParsingMessage(String emoji, String reason) {
+    if (Charset.defaultCharset().equals(Charsets.UTF_8)) {
+      return Optional.of(emoji + "  " + reason);
+    } else {
+      if (emoji.equals(EMOJI_BUNNY)) {
+        return Optional.of("(FAST)");
+      } else {
+        return Optional.of("(SLOW) " + reason);
+      }
+    }
+  }
+
+  @VisibleForTesting
+  Optional<String> getParsingStatus() {
+    return parsingStatus;
   }
 
   @Override

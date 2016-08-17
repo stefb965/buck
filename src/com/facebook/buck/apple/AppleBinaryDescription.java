@@ -40,13 +40,17 @@ import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.ImplicitFlavorsInferringDescription;
 import com.facebook.buck.rules.MetadataProvidingDescription;
+import com.facebook.buck.rules.MixedWithSwift;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.swift.SwiftDescriptions;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Function;
+import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableMap;
@@ -66,7 +70,8 @@ public class AppleBinaryDescription implements
     Flavored,
     ImplicitDepsInferringDescription<AppleBinaryDescription.Arg>,
     ImplicitFlavorsInferringDescription,
-    MetadataProvidingDescription<AppleBinaryDescription.Arg> {
+    MetadataProvidingDescription<AppleBinaryDescription.Arg>,
+    MixedWithSwift<AppleBinaryDescription.Arg> {
 
   public static final BuildRuleType TYPE = BuildRuleType.of("apple_binary");
   public static final Flavor APP_FLAVOR = ImmutableFlavor.of("app");
@@ -396,13 +401,36 @@ public class AppleBinaryDescription implements
       BuildRuleResolver resolver,
       A args,
       Class<U> metadataClass) throws NoSuchBuildTargetException {
-    CxxBinaryDescription.Arg delegateArg = delegate.createUnpopulatedConstructorArg();
-    AppleDescriptions.populateCxxBinaryDescriptionArg(
-        new SourcePathResolver(resolver),
-        delegateArg,
-        args,
-        buildTarget);
-    return delegate.createMetadata(buildTarget, resolver, delegateArg, metadataClass);
+    if (!metadataClass.isAssignableFrom(FrameworkDependencies.class)) {
+      CxxBinaryDescription.Arg delegateArg = delegate.createUnpopulatedConstructorArg();
+      AppleDescriptions.populateCxxBinaryDescriptionArg(
+          new SourcePathResolver(resolver),
+          delegateArg,
+          args,
+          buildTarget);
+      return delegate.createMetadata(buildTarget, resolver, delegateArg, metadataClass);
+    }
+
+    Optional<Flavor> cxxPlatformFlavor = delegate.getCxxPlatforms().getFlavor(buildTarget);
+    Preconditions.checkState(
+        cxxPlatformFlavor.isPresent(),
+        "Could not find cxx platform in:\n%s",
+        Joiner.on(", ").join(buildTarget.getFlavors()));
+    ImmutableSet.Builder<SourcePath> sourcePaths = ImmutableSet.builder();
+    for (BuildTarget dep : args.deps.get()) {
+      Optional<FrameworkDependencies> frameworks =
+          resolver.requireMetadata(
+              BuildTarget.builder(dep)
+                  .addFlavors(AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR)
+                  .addFlavors(cxxPlatformFlavor.get())
+                  .build(),
+              FrameworkDependencies.class);
+      if (frameworks.isPresent()) {
+        sourcePaths.addAll(frameworks.get().getSourcePaths());
+      }
+    }
+
+    return Optional.of(metadataClass.cast(FrameworkDependencies.of(sourcePaths.build())));
   }
 
   @Override
@@ -443,6 +471,20 @@ public class AppleBinaryDescription implements
           constructorArg.linkerFlags.get(),
           constructorArg.platformLinkerFlags.get().getValues());
     }
+  }
+
+  @Override
+  public Optional<BuildRule> generateSwiftBuildRule(
+      BuildRuleParams params,
+      BuildRuleResolver buildRuleResolver,
+      Arg args) {
+    return SwiftDescriptions.generateCompanionSwiftBuildRule(
+        params,
+        buildRuleResolver,
+        args,
+        delegate.getDefaultCxxPlatform(),
+        delegate.getCxxPlatforms(),
+        platformFlavorsToAppleCxxPlatforms);
   }
 
   @SuppressFieldNotInitialized

@@ -1,0 +1,128 @@
+# Before merging:
+#
+#    A
+#   / \
+#  B   C
+#   \ /
+#    D
+#   / \
+#  E   F
+#
+#
+# After merging:
+#    1(AB)
+#    |\
+#    | C
+#    |/
+#    D
+#    |
+#    2(EF)
+#
+# Also, C and F each depend on a static and prebuilt library.
+
+cxx_library(
+  name = 'A',
+  srcs = ['A.c'],
+  soname = 'lib1a.so',
+  can_be_asset = True,
+  deps = [
+    ':B',
+    ':C',
+  ],
+  visibility = ['PUBLIC'],
+)
+
+cxx_library(
+  name = 'B',
+  srcs = ['B.c'],
+  soname = 'lib1b.so',
+  can_be_asset = True,
+  deps = [
+    ':D',
+  ],
+)
+
+cxx_library(
+  name = 'C',
+  srcs = ['C.c'],
+  deps = [
+    ':D',
+    ':static_for_C',
+    ':prebuilt_for_C',
+  ],
+)
+
+cxx_library(
+  name = 'D',
+  srcs = ['D.c'],
+  deps = [
+    ':E',
+    ':F',
+  ],
+)
+
+cxx_library(
+  name = 'E',
+  srcs = ['E.c'],
+  soname = 'lib2e.so',
+  deps = [
+  ],
+)
+
+cxx_library(
+  name = 'F',
+  srcs = ['F.c'],
+  soname = 'lib2f.so',
+  deps = [
+    ':static_for_F',
+    ':prebuilt_for_F',
+  ],
+)
+
+cxx_library(
+  name = 'static_for_C',
+  srcs = ['static_for_C.c'],
+  force_static = True,
+  deps = [
+  ],
+)
+
+cxx_library(
+  name = 'static_for_F',
+  srcs = ['static_for_F.c'],
+  force_static = True,
+  deps = [
+  ],
+)
+
+prebuilt_cxx_library(
+  name = 'prebuilt_for_C',
+  lib_dir = 'prebuilt_for_C/$(platform)',
+  deps = [
+  ],
+)
+
+prebuilt_cxx_library(
+  name = 'prebuilt_for_F',
+  lib_dir = 'prebuilt_for_F/$(platform)',
+  deps = [
+  ],
+)
+
+# Built manually to create .so file for prebuilt_for_C
+cxx_library(
+  name = 'prebuilt_for_C_src',
+  soname = 'libprebuilt_for_C.so',
+  srcs = ['prebuilt_for_C.c'],
+  deps = [
+  ],
+)
+
+# Built manually to create .so file for prebuilt_for_F
+cxx_library(
+  name = 'prebuilt_for_F_src',
+  soname = 'libprebuilt_for_F.so',
+  srcs = ['prebuilt_for_F.c'],
+  deps = [
+  ],
+)

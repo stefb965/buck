@@ -27,6 +27,7 @@ import static org.junit.Assume.assumeThat;
 
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
+import com.facebook.buck.event.listener.BroadcastEventListener;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.json.BuildFileParseException;
@@ -43,7 +44,6 @@ import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
-import com.facebook.buck.testutil.integration.TemporaryRoot;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ObjectMappers;
@@ -331,7 +331,8 @@ public class InterCellIntegrationTest {
     TypeCoercerFactory coercerFactory = new DefaultTypeCoercerFactory(
         ObjectMappers.newDefaultInstance());
     Parser parser = new Parser(
-        new ParserConfig(cells.getFirst().asCell().getBuckConfig()),
+        new BroadcastEventListener(),
+        new ParserConfig(primary.asCell().getBuckConfig()),
         coercerFactory,
         new ConstructorArgMarshaller(coercerFactory));
     BuckEventBus eventBus = BuckEventBusFactory.newInstance();
@@ -424,16 +425,10 @@ public class InterCellIntegrationTest {
 
   private ProjectWorkspace createWorkspace(String scenarioName) throws IOException {
     final Path tmpSubfolder = tmp.newFolder();
-    TemporaryRoot temporaryRoot = new TemporaryRoot() {
-      @Override
-      public Path getRootPath() {
-        return tmpSubfolder;
-      }
-    };
     ProjectWorkspace projectWorkspace = TestDataHelper.createProjectWorkspaceForScenario(
         this,
         scenarioName,
-        temporaryRoot);
+        tmpSubfolder);
     projectWorkspace.setUp();
     return projectWorkspace;
   }

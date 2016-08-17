@@ -22,8 +22,8 @@ import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.jvm.java.CalculateAbi;
 import com.facebook.buck.jvm.java.JavaOptions;
 import com.facebook.buck.jvm.java.JavaTestDescription;
-import com.facebook.buck.jvm.java.JavacOptionsFactory;
 import com.facebook.buck.jvm.java.JavacOptions;
+import com.facebook.buck.jvm.java.JavacOptionsFactory;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
@@ -55,19 +55,16 @@ public class RobolectricTestDescription implements Description<RobolectricTestDe
   private final JavacOptions templateOptions;
   private final Optional<Long> defaultTestRuleTimeoutMs;
   private final CxxPlatform cxxPlatform;
-  private final Optional<Path> testTempDirOverride;
 
   public RobolectricTestDescription(
       JavaOptions javaOptions,
       JavacOptions templateOptions,
       Optional<Long> defaultTestRuleTimeoutMs,
-      CxxPlatform cxxPlatform,
-      Optional<Path> testTempDirOverride) {
+      CxxPlatform cxxPlatform) {
     this.javaOptions = javaOptions;
     this.templateOptions = templateOptions;
     this.defaultTestRuleTimeoutMs = defaultTestRuleTimeoutMs;
     this.cxxPlatform = cxxPlatform;
-    this.testTempDirOverride = testTempDirOverride;
   }
 
   @Override
@@ -167,10 +164,10 @@ public class RobolectricTestDescription implements Description<RobolectricTestDe
                 args.mavenCoords,
                 dummyRDotJava,
                 args.testRuleTimeoutMs.or(defaultTestRuleTimeoutMs),
+                args.env.get(),
                 args.getRunTestSeparately(),
                 args.stdOutLogLevel,
-                args.stdErrLogLevel,
-                testTempDirOverride));
+                args.stdErrLogLevel));
 
     resolver.addToIndex(
         CalculateAbi.of(

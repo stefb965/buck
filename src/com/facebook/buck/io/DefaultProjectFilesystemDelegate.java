@@ -16,6 +16,13 @@
 
 package com.facebook.buck.io;
 
+import com.facebook.buck.util.sha1.Sha1HashCode;
+import com.google.common.hash.HashCode;
+import com.google.common.hash.Hashing;
+import com.google.common.io.ByteSource;
+
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Path;
 
 /**
@@ -24,10 +31,40 @@ import java.nio.file.Path;
  */
 public final class DefaultProjectFilesystemDelegate implements ProjectFilesystemDelegate {
 
-  @SuppressWarnings("unused")
   private final Path root;
 
   public DefaultProjectFilesystemDelegate(Path root) {
     this.root = root;
+  }
+
+  @Override
+  public Sha1HashCode computeSha1(Path pathRelativeToProjectRootOrJustAbsolute) throws IOException {
+    final Path fileToHash = getPathForRelativePath(pathRelativeToProjectRootOrJustAbsolute);
+
+    // Normally, we would just use `Files.hash(fileToHash.toFile(), Hashing.sha1())`, but if
+    // fileToHash is backed by Jimfs, its toFile() method throws an UnsupportedOperationException.
+    // Creating the input stream via java.nio.file.Files.newInputStream() avoids this issue.
+    ByteSource source =
+        new ByteSource() {
+          @Override
+          public InputStream openStream() throws IOException {
+            // No need to wrap with BufferedInputStream because ByteSource uses ByteStreams.copy(),
+            // which already buffers.
+            return java.nio.file.Files.newInputStream(fileToHash);
+          }
+        };
+    HashCode hashCode = source.hash(Hashing.sha1());
+    return Sha1HashCode.fromHashCode(hashCode);
+  }
+
+  @Override
+  public Path getPathForRelativePath(Path pathRelativeToProjectRoot) {
+    // We often create {@link Path} instances using
+    // {@link java.nio.file.Paths#get(String, String...)}, but there's no guarantee that the
+    // underlying {@link FileSystem} is the default one.
+    if (pathRelativeToProjectRoot.getFileSystem().equals(root.getFileSystem())) {
+      return root.resolve(pathRelativeToProjectRoot);
+    }
+    return root.resolve(pathRelativeToProjectRoot.toString());
   }
 }

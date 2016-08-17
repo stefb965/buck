@@ -16,7 +16,7 @@
 
 package com.facebook.buck.event;
 
-public class ParsingEvent extends AbstractBuckEvent {
+public class ParsingEvent extends AbstractBuckEvent implements BroadcastEvent {
   private final String eventName;
 
   public ParsingEvent(EventKey eventKey, String eventName) {
@@ -26,6 +26,10 @@ public class ParsingEvent extends AbstractBuckEvent {
 
   public static SymlinkInvalidation symlinkInvalidation() {
     return new SymlinkInvalidation();
+  }
+
+  public static EnvVariableChange environmentalChange(String diff) {
+    return new EnvVariableChange(diff);
   }
 
   @Override
@@ -41,6 +45,19 @@ public class ParsingEvent extends AbstractBuckEvent {
   public static class SymlinkInvalidation extends ParsingEvent {
     public SymlinkInvalidation() {
       super(EventKey.unique(), "SymlinkInvalidation");
+    }
+  }
+
+  public static class EnvVariableChange extends ParsingEvent {
+    private final String diff;
+
+    public EnvVariableChange(String diff) {
+      super(EventKey.unique(), "EnvVariableChange");
+      this.diff = diff;
+    }
+
+    public String getDiff() {
+      return diff;
     }
   }
 }

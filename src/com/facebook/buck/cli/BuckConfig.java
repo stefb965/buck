@@ -53,7 +53,6 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Objects;
 import com.google.common.base.Optional;
-import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.base.Splitter;
 import com.google.common.collect.FluentIterable;
@@ -215,6 +214,29 @@ public class BuckConfig {
   public Optional<ImmutableList<String>> getOptionalListWithoutComments(
       String section, String field, char splitChar) {
     return config.getOptionalListWithoutComments(section, field, splitChar);
+  }
+
+  public Optional<ImmutableList<Path>> getOptionalPathList(
+      String section, String field) {
+    Optional<ImmutableList<String>> rawPaths =
+        config.getOptionalListWithoutComments(section, field);
+
+    if (rawPaths.isPresent()) {
+      ImmutableList<Path> paths =
+          FluentIterable
+              .from(rawPaths.get())
+              .transform(
+                  new Function<String, Path>() {
+                    @Override
+                    public Path apply(String input) {
+                      return convertPath(input, true);
+                    }
+                  })
+              .toList();
+        return Optional.of(paths);
+    }
+
+    return Optional.<ImmutableList<Path>>absent();
   }
 
   @Nullable
@@ -500,21 +522,6 @@ public class BuckConfig {
    */
   public ImmutableList<String> getDefaultRawExcludedLabelSelectors() {
     return getListWithoutComments("test", "excluded_labels");
-  }
-
-  /**
-   * By default, running tests use a temporary directory under
-   * buck-out. Since this directory is ignored by Watchman and other
-   * tools, allow overriding this behavior for projects that need it
-   * by specifying one or more environment variables which are checked
-   * for a temporary directory to use.
-   */
-  public Optional<ImmutableList<String>> getTestTempDirEnvVars() {
-    if (!getValue("test", "temp_dir_env_vars").isPresent()) {
-      return Optional.absent();
-    } else {
-      return Optional.of(getListWithoutComments("test", "temp_dir_env_vars"));
-    }
   }
 
   /**
@@ -844,19 +851,6 @@ public class BuckConfig {
   }
 
   /**
-   * @return the number of threads Buck should use for network I/O. If the value is not specified
-   * in buckconfig the value is the number of cores of the machine.
-   */
-  public int getNumThreadsForNetwork() {
-    Optional<Integer> threads = config.getInteger("build", "network_threads");
-    if (threads.isPresent()) {
-      Preconditions.checkState(threads.get() > 0);
-      return threads.get();
-    }
-    return getDefaultMaximumNumberOfThreads();
-  }
-
-  /**
    * @return the maximum load limit that Buck should stay under on the system.
    */
   public float getLoadLimit() {
@@ -875,11 +869,10 @@ public class BuckConfig {
   public Optional<Path> getPath(String sectionName, String name, boolean isCellRootRelative) {
     Optional<String> pathString = getValue(sectionName, name);
     return pathString.isPresent() ?
-        isCellRootRelative ?
-            checkPathExists(
-                pathString.get(),
-                String.format("Overridden %s:%s path not found: ", sectionName, name)) :
-            Optional.of(getPathFromVfs(pathString.get())) :
+        Optional.of(convertPathWithError(
+            pathString.get(),
+            isCellRootRelative,
+            String.format("Overridden %s:%s path not found: ", sectionName, name))) :
         Optional.<Path>absent();
   }
 
@@ -895,6 +888,21 @@ public class BuckConfig {
 
   private Path getPathFromVfs(Path path) {
     return projectFilesystem.getRootPath().getFileSystem().getPath(path.toString());
+  }
+
+  private Path convertPathWithError(String pathString, boolean isCellRootRelative, String error) {
+    return isCellRootRelative ?
+        checkPathExists(
+            pathString,
+            error).get() :
+        getPathFromVfs(pathString);
+  }
+
+  private Path convertPath(String pathString, boolean isCellRootRelative) {
+    return convertPathWithError(
+        pathString,
+        isCellRootRelative,
+        isCellRootRelative ? "Cell-relative path not found: " : "Path not found: ");
   }
 
   public Optional<Path> checkPathExists(String pathString, String errorMsg) {

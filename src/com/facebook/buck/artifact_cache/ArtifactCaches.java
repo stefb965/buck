@@ -18,6 +18,7 @@ package com.facebook.buck.artifact_cache;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.NetworkEvent.BytesReceivedEvent;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.log.CommandThreadFactory;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.slb.HttpLoadBalancer;
 import com.facebook.buck.slb.HttpService;
@@ -32,13 +33,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.ListeningExecutorService;
-import okhttp3.ConnectionPool;
-import okhttp3.Interceptor;
-import okhttp3.MediaType;
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.Response;
-import okhttp3.ResponseBody;
 
 import java.io.IOException;
 import java.net.URI;
@@ -46,6 +40,13 @@ import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
+import okhttp3.ConnectionPool;
+import okhttp3.Interceptor;
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
+import okhttp3.ResponseBody;
 import okio.Buffer;
 import okio.BufferedSource;
 import okio.ForwardingSource;
@@ -341,7 +342,8 @@ public class ArtifactCaches {
       case CLIENT_SLB:
         HttpLoadBalancer clientSideSlb = config.getSlbConfig().createHttpClientSideSlb(
             new DefaultClock(),
-            buckEventBus);
+            buckEventBus,
+            new CommandThreadFactory("ArtifactCaches.HttpLoadBalancer"));
         fetchService =
             new RetryingHttpService(
                 buckEventBus,
@@ -375,6 +377,7 @@ public class ArtifactCaches {
             .setThriftEndpointPath(config.getHybridThriftEndpoint())
             .setCacheName(cacheName)
             .setRepository(config.getRepository())
+            .setScheduleType(config.getScheduleType())
             .setFetchClient(fetchService)
             .setStoreClient(storeService)
             .setDoStore(doStore)

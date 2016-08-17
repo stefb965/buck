@@ -19,7 +19,6 @@ package com.facebook.buck.rules;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.android.FakeAndroidDirectoryResolver;
 import com.facebook.buck.cli.BuckConfig;
@@ -35,7 +34,7 @@ import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
+import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.util.FakeProcess;
 import com.facebook.buck.util.FakeProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
@@ -54,16 +53,16 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
 
 public class KnownBuildRuleTypesTest {
 
   @ClassRule public static TemporaryFolder folder = new TemporaryFolder();
-  @Rule public DebuggableTemporaryFolder temporaryFolder = new DebuggableTemporaryFolder();
+  @Rule public TemporaryPaths temporaryFolder = new TemporaryPaths();
 
   private static final String FAKE_XCODE_DEV_PATH = "/Fake/Path/To/Xcode.app/Contents/Developer";
   private static final ImmutableMap<String, String> environment =
@@ -153,12 +152,11 @@ public class KnownBuildRuleTypesTest {
   @Test
   public void whenJavacIsSetInBuckConfigConfiguredRulesCreateJavaLibraryRuleWithDifferentRuleKey()
       throws Exception {
-    final File javac;
+    final Path javac;
     if (Platform.detect() == Platform.WINDOWS) {
-      javac = new File("C:/Windows/system32/rundll32.exe");
+      javac = Paths.get("C:/Windows/system32/rundll32.exe");
     } else {
-      javac = temporaryFolder.newFile();
-      assertTrue(javac.setExecutable(true));
+      javac = temporaryFolder.newExecutableFile();
     }
 
     ImmutableMap<String, ImmutableMap<String, String>> sections = ImmutableMap.of(
@@ -174,17 +172,15 @@ public class KnownBuildRuleTypesTest {
     KnownBuildRuleTypes configuredBuildRuleTypes = KnownBuildRuleTypes.createBuilder(
         buckConfig,
         processExecutor,
-        new FakeAndroidDirectoryResolver(),
-        Optional.<Path>absent())
+        new FakeAndroidDirectoryResolver())
         .build();
     DefaultJavaLibrary configuredRule = createJavaLibrary(configuredBuildRuleTypes);
 
     SourcePathResolver resolver = new SourcePathResolver(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
      );
-    Path javacPath = javac.toPath();
     FakeFileHashCache hashCache = new FakeFileHashCache(
-        ImmutableMap.of(javacPath, MorePaths.asByteSource(javacPath).hash(Hashing.sha1())));
+        ImmutableMap.of(javac, MorePaths.asByteSource(javac).hash(Hashing.sha1())));
     RuleKey configuredKey = new DefaultRuleKeyBuilderFactory(0, hashCache, resolver).build(
         configuredRule);
     RuleKey libraryKey = new DefaultRuleKeyBuilderFactory(0, hashCache, resolver).build(
@@ -240,11 +236,9 @@ public class KnownBuildRuleTypesTest {
     KnownBuildRuleTypes knownBuildRuleTypes1 = KnownBuildRuleTypes.createInstance(
         FakeBuckConfig.builder().build(),
         createExecutor(),
-        new FakeAndroidDirectoryResolver(),
-        Optional.<Path>absent());
+        new FakeAndroidDirectoryResolver());
 
-    final File javac = temporaryFolder.newFile();
-    javac.setExecutable(true);
+    final Path javac = temporaryFolder.newExecutableFile();
     ImmutableMap<String, ImmutableMap<String, String>> sections = ImmutableMap.of(
         "tools", ImmutableMap.of("javac", javac.toString()));
     BuckConfig buckConfig = FakeBuckConfig.builder().setSections(sections).build();
@@ -254,8 +248,7 @@ public class KnownBuildRuleTypesTest {
     KnownBuildRuleTypes knownBuildRuleTypes2 = KnownBuildRuleTypes.createInstance(
         buckConfig,
         processExecutor,
-        new FakeAndroidDirectoryResolver(),
-        Optional.<Path>absent());
+        new FakeAndroidDirectoryResolver());
 
     assertNotEquals(knownBuildRuleTypes1, knownBuildRuleTypes2);
   }
@@ -270,13 +263,27 @@ public class KnownBuildRuleTypesTest {
     KnownBuildRuleTypes.createBuilder(
         buckConfig,
         createExecutor(),
-        new FakeAndroidDirectoryResolver(),
-        Optional.<Path>absent()).build();
+        new FakeAndroidDirectoryResolver()).build();
+  }
+
+  @Test
+  public void canOverrideMultipleHostPlatforms() throws Exception {
+    ImmutableMap<String, ImmutableMap<String, String>> sections = ImmutableMap.of(
+        "cxx#linux-x86_64", ImmutableMap.of("cache_links", "true"),
+        "cxx#macosx-x86_64", ImmutableMap.of("cache_links", "true"),
+        "cxx#windows-x86_64", ImmutableMap.of("cache_links", "true"));
+    BuckConfig buckConfig = FakeBuckConfig.builder().setSections(sections).build();
+
+    // It should be legal to override multiple host platforms even though
+    // only one will be practically used in a build.
+    KnownBuildRuleTypes.createBuilder(
+        buckConfig,
+        createExecutor(),
+        new FakeAndroidDirectoryResolver()).build();
   }
 
   private ProcessExecutor createExecutor() throws IOException {
-    File javac = temporaryFolder.newFile();
-    javac.setExecutable(true);
+    Path javac = temporaryFolder.newExecutableFile();
     return createExecutor(javac.toString(), "");
   }
 

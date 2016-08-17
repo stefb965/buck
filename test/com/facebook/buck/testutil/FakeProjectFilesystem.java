@@ -22,6 +22,7 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.timing.FakeClock;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.google.common.base.Charsets;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
@@ -36,6 +37,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Ordering;
+import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
 import com.google.common.io.ByteStreams;
 import com.google.common.jimfs.Configuration;
@@ -232,12 +234,11 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   }
 
   public FakeProjectFilesystem() {
-    this(new FakeClock(0), DEFAULT_ROOT, ImmutableSet.<Path>of());
+    this(DEFAULT_ROOT);
   }
 
-  // We accept a File here since that's what's returned by TemporaryFolder.
-  public FakeProjectFilesystem(File root) {
-    this(new FakeClock(0), root.toPath(), ImmutableSet.<Path>of());
+  public FakeProjectFilesystem(Path root) {
+    this(new FakeClock(0), root, ImmutableSet.<Path>of());
   }
 
   public FakeProjectFilesystem(Clock clock) {
@@ -282,6 +283,11 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
 
     // Generally, tests don't care whether files exist.
     ignoreValidityOfPaths = true;
+  }
+
+  @Override
+  protected boolean shouldVerifyConstructorArguments() {
+    return false;
   }
 
   public FakeProjectFilesystem setIgnoreValidityOfPaths(boolean shouldIgnore) {
@@ -446,8 +452,8 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   }
 
   @Override
-  public void walkFileTree(Path root, FileVisitor<Path> fileVisitor) throws IOException {
-    throw new UnsupportedOperationException();
+  public void walkFileTree(Path searchRoot, FileVisitor<Path> fileVisitor) throws IOException {
+    walkRelativeFileTree(searchRoot, fileVisitor);
   }
 
   @Override
@@ -680,13 +686,16 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
    * Does not support symlinks.
    */
   @Override
-  public String computeSha1(Path pathRelativeToProjectRootOrJustAbsolute) throws IOException {
+  public Sha1HashCode computeSha1(Path pathRelativeToProjectRootOrJustAbsolute) throws IOException {
     if (!exists(pathRelativeToProjectRootOrJustAbsolute)) {
-      throw new FileNotFoundException(pathRelativeToProjectRootOrJustAbsolute.toString());
+      throw new NoSuchFileException(pathRelativeToProjectRootOrJustAbsolute.toString());
     }
-    return Hashing.sha1()
-        .hashBytes(getFileBytes(pathRelativeToProjectRootOrJustAbsolute))
-        .toString();
+
+    // Because this class is a fake, the file contents may not be available as a stream, so we load
+    // all of the contents into memory as a byte[] and then hash them.
+    byte[] fileContents = getFileBytes(pathRelativeToProjectRootOrJustAbsolute);
+    HashCode hashCode = Hashing.sha1().newHasher().putBytes(fileContents).hash();
+    return Sha1HashCode.fromHashCode(hashCode);
   }
 
   @Override

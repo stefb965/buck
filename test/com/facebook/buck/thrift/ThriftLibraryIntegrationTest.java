@@ -24,6 +24,7 @@ import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.config.CellConfig;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
+import com.facebook.buck.event.listener.BroadcastEventListener;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.io.Watchman;
@@ -51,7 +52,6 @@ import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.timing.DefaultClock;
 import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.ProcessExecutor;
-import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableMap;
@@ -96,6 +96,7 @@ public class ThriftLibraryIntegrationTest {
     TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory(
         ObjectMappers.newDefaultInstance());
     Parser parser = new Parser(
+        new BroadcastEventListener(),
         new ParserConfig(config),
         typeCoercerFactory,
         new ConstructorArgMarshaller(typeCoercerFactory));
@@ -108,8 +109,7 @@ public class ThriftLibraryIntegrationTest {
         CellConfig.of(),
         new KnownBuildRuleTypesFactory(
             new ProcessExecutor(new TestConsole()),
-            new FakeAndroidDirectoryResolver(),
-            Optional.<Path>absent()),
+            new FakeAndroidDirectoryResolver()),
         new FakeAndroidDirectoryResolver(),
         new DefaultClock(),
         new WatchmanDiagnosticCache());

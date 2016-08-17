@@ -43,6 +43,7 @@ import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Optional;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
@@ -59,19 +60,16 @@ public class ScalaTestDescription implements Description<ScalaTestDescription.Ar
   private final JavaOptions javaOptions;
   private final Optional<Long> defaultTestRuleTimeoutMs;
   private final CxxPlatform cxxPlatform;
-  private final Optional<Path> testTempDirOverride;
 
   public ScalaTestDescription(
       ScalaBuckConfig config,
       JavaOptions javaOptions,
       Optional<Long> defaultTestRuleTimeoutMs,
-      CxxPlatform cxxPlatform,
-      Optional<Path> testTempDirOverride) {
+      CxxPlatform cxxPlatform) {
     this.config = config;
     this.javaOptions = javaOptions;
     this.defaultTestRuleTimeoutMs = defaultTestRuleTimeoutMs;
     this.cxxPlatform = cxxPlatform;
-    this.testTempDirOverride = testTempDirOverride;
   }
 
   @Override
@@ -157,10 +155,10 @@ public class ScalaTestDescription implements Description<ScalaTestDescription.Ar
                 args.resourcesRoot,
                 args.mavenCoords,
                 args.testRuleTimeoutMs.or(defaultTestRuleTimeoutMs),
+                args.env.get(),
                 args.runTestSeparately.or(false),
                 args.stdOutLogLevel,
-                args.stdErrLogLevel,
-                testTempDirOverride));
+                args.stdErrLogLevel));
 
     resolver.addToIndex(
         CalculateAbi.of(
@@ -194,5 +192,6 @@ public class ScalaTestDescription implements Description<ScalaTestDescription.Ar
     public Optional<Level> stdOutLogLevel;
     public Optional<Boolean> useCxxLibraries;
     public Optional<Long> testRuleTimeoutMs;
+    public Optional<ImmutableMap<String, String>> env;
   }
 }

@@ -159,8 +159,7 @@ public class DLibraryDescription implements Description<DLibraryDescription.Arg>
         staticTarget,
         params,
         pathResolver,
-        cxxPlatform.getAr(),
-        cxxPlatform.getRanlib(),
+        cxxPlatform,
         cxxBuckConfig.getArchiveContents(),
         staticLibraryPath,
         compiledSources);
@@ -170,5 +169,6 @@ public class DLibraryDescription implements Description<DLibraryDescription.Arg>
   public static class Arg extends AbstractDescriptionArg {
     public SourceList srcs;
     public Optional<ImmutableSortedSet<BuildTarget>> deps;
+    public Optional<ImmutableList<String>> linkerFlags;
   }
 }

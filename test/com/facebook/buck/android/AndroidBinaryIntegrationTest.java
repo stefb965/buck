@@ -19,6 +19,7 @@ package com.facebook.buck.android;
 import static com.facebook.buck.testutil.RegexMatcher.containsRegex;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.hamcrest.CoreMatchers.containsString;
+import static org.hamcrest.CoreMatchers.not;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -37,6 +38,7 @@ import com.facebook.buck.rules.DefaultOnDiskBuildInfo;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.Tool;
 import com.facebook.buck.testutil.integration.BuckBuildLog;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
@@ -55,6 +57,7 @@ import com.google.common.hash.Hashing;
 import org.apache.commons.compress.archivers.zip.ZipUtil;
 import org.hamcrest.Matchers;
 import org.hamcrest.collection.IsIn;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.ClassRule;
@@ -338,7 +341,7 @@ public class AndroidBinaryIntegrationTest {
     zipInspector.assertFileDoesNotExist("lib/x86/libnative_cxx_bar.so");
   }
 
-  private Path unzip(Path tmpDir, Path zipPath, String name) throws IOException {
+  private static Path unzip(Path tmpDir, Path zipPath, String name) throws IOException {
     Path outPath = tmpDir.resolve(zipPath.getFileName());
     try (ZipFile zipFile = new ZipFile(zipPath.toFile())) {
       Files.copy(
@@ -350,7 +353,130 @@ public class AndroidBinaryIntegrationTest {
   }
 
   @Test
+  public void testNativeLibraryMerging() throws IOException, InterruptedException {
+    NdkCxxPlatform platform = getNdkCxxPlatform();
+    SourcePathResolver pathResolver = new SourcePathResolver(
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
+    );
+    Path tmpDir = tmpFolder.newFolder("merging_tmp");
+    SymbolGetter syms = new SymbolGetter(tmpDir, platform.getObjdump(), pathResolver);
+    SymbolsAndDtNeeded info;
+
+    workspace.replaceFileContents(
+        ".buckconfig",
+        "#cpu_abis",
+        "cpu_abis = x86");
+    Path apkPath = workspace.buildAndReturnOutput("//apps/sample:app_with_merged_libs");
+
+    ZipInspector zipInspector = new ZipInspector(apkPath);
+    zipInspector.assertFileDoesNotExist("lib/x86/lib1a.so");
+    zipInspector.assertFileDoesNotExist("lib/x86/lib1b.so");
+    zipInspector.assertFileDoesNotExist("lib/x86/lib2e.so");
+    zipInspector.assertFileDoesNotExist("lib/x86/lib2f.so");
+
+    info = syms.getSymbolsAndDtNeeded(apkPath, "lib/x86/lib1.so");
+    assertThat(info.symbols.global, Matchers.hasItem("A"));
+    assertThat(info.symbols.global, Matchers.hasItem("B"));
+    assertThat(info.dtNeeded, Matchers.hasItem("libnative_merge_C.so"));
+    assertThat(info.dtNeeded, Matchers.hasItem("libnative_merge_D.so"));
+    assertThat(info.dtNeeded, not(Matchers.hasItem("libnative_merge_B.so")));
+
+    info = syms.getSymbolsAndDtNeeded(apkPath, "lib/x86/libnative_merge_C.so");
+    assertThat(info.symbols.global, Matchers.hasItem("C"));
+    assertThat(info.symbols.global, Matchers.hasItem("static_func_C"));
+    assertThat(info.dtNeeded, Matchers.hasItem("libnative_merge_D.so"));
+    assertThat(info.dtNeeded, Matchers.hasItem("libprebuilt_for_C.so"));
+
+    info = syms.getSymbolsAndDtNeeded(apkPath, "lib/x86/libnative_merge_D.so");
+    assertThat(info.symbols.global, Matchers.hasItem("D"));
+    assertThat(info.dtNeeded, Matchers.hasItem("lib2.so"));
+    assertThat(info.dtNeeded, not(Matchers.hasItem("libnative_merge_E.so")));
+    assertThat(info.dtNeeded, not(Matchers.hasItem("libnative_merge_F.so")));
+
+    info = syms.getSymbolsAndDtNeeded(apkPath, "lib/x86/lib2.so");
+    assertThat(info.symbols.global, Matchers.hasItem("E"));
+    assertThat(info.symbols.global, Matchers.hasItem("F"));
+    assertThat(info.symbols.global, Matchers.hasItem("static_func_F"));
+    assertThat(info.dtNeeded, Matchers.hasItem("libprebuilt_for_F.so"));
+  }
+
+  @Test
+  public void testNativeLibraryMergeErrors() throws IOException, InterruptedException {
+    try {
+      workspace.runBuckBuild("//apps/sample:app_with_merge_lib_into_two_targets");
+      Assert.fail("No exception from trying to merge lib into two targets.");
+    } catch (RuntimeException e) {
+      assertThat(e.getMessage(), Matchers.containsString("into both"));
+    }
+
+    try {
+      workspace.runBuckBuild("//apps/sample:app_with_cross_asset_merged_libs");
+      Assert.fail("No exception from trying to merge between asset and non-asset.");
+    } catch (RuntimeException e) {
+      assertThat(e.getMessage(), Matchers.containsString("contains both asset and non-asset"));
+    }
+
+    // An older version of the code made this illegal.
+    // Keep the test around in case we want to restore this behavior.
+//    try {
+//      workspace.runBuckBuild("//apps/sample:app_with_merge_into_existing_lib");
+//      Assert.fail("No exception from trying to merge into existing name.");
+//    } catch (RuntimeException e) {
+//      assertThat(e.getMessage(), Matchers.containsString("already a library name"));
+//    }
+
+    try {
+      workspace.runBuckBuild("//apps/sample:app_with_circular_merged_libs");
+      Assert.fail("No exception from trying circular merged dep.");
+    } catch (RuntimeException e) {
+      assertThat(e.getMessage(), Matchers.containsString("Dependency cycle"));
+      assertThat(e.getCause().getMessage(), Matchers.containsString("Cycle found:"));
+    }
+  }
+
+
+  @Test
   public void testNativeRelinker() throws IOException, InterruptedException {
+    NdkCxxPlatform platform = getNdkCxxPlatform();
+    SourcePathResolver pathResolver = new SourcePathResolver(
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
+    );
+    Path tmpDir = tmpFolder.newFolder("xdso");
+    SymbolGetter syms = new SymbolGetter(tmpDir, platform.getObjdump(), pathResolver);
+    Symbols sym;
+
+    Path apkPath = workspace.buildAndReturnOutput("//apps/sample:app_xdso_dce");
+
+    sym = syms.getSymbols(apkPath, "lib/x86/libnative_xdsodce_top.so");
+    assertTrue(sym.global.contains("_Z10JNI_OnLoadii"));
+    assertTrue(sym.undefined.contains("_Z10midFromTopi"));
+    assertTrue(sym.undefined.contains("_Z10botFromTopi"));
+    assertFalse(sym.all.contains("_Z6unusedi"));
+
+    sym = syms.getSymbols(apkPath, "lib/x86/libnative_xdsodce_mid.so");
+    assertTrue(sym.global.contains("_Z10midFromTopi"));
+    assertTrue(sym.undefined.contains("_Z10botFromMidi"));
+    assertFalse(sym.all.contains("_Z6unusedi"));
+
+    sym = syms.getSymbols(apkPath, "lib/x86/libnative_xdsodce_bot.so");
+    assertTrue(sym.global.contains("_Z10botFromTopi"));
+    assertTrue(sym.global.contains("_Z10botFromMidi"));
+    assertFalse(sym.all.contains("_Z6unusedi"));
+
+    // Run some verification on the same apk with native_relinker disabled.
+    apkPath = workspace.buildAndReturnOutput("//apps/sample:app_no_xdso_dce");
+
+    sym = syms.getSymbols(apkPath, "lib/x86/libnative_xdsodce_top.so");
+    assertTrue(sym.all.contains("_Z6unusedi"));
+
+    sym = syms.getSymbols(apkPath, "lib/x86/libnative_xdsodce_mid.so");
+    assertTrue(sym.all.contains("_Z6unusedi"));
+
+    sym = syms.getSymbols(apkPath, "lib/x86/libnative_xdsodce_bot.so");
+    assertTrue(sym.all.contains("_Z6unusedi"));
+  }
+
+  private NdkCxxPlatform getNdkCxxPlatform() throws IOException, InterruptedException {
     // TODO(cjhopman): is this really the simplest way to get the objdump tool?
     AndroidDirectoryResolver androidResolver = new DefaultAndroidDirectoryResolver(
         workspace.asCell().getRoot().getFileSystem(),
@@ -374,67 +500,48 @@ public class AndroidBinaryIntegrationTest {
         NdkCxxPlatforms.DEFAULT_CPU_ABIS,
         Platform.detect()).values();
     assertFalse(platforms.isEmpty());
-    NdkCxxPlatform platform = platforms.iterator().next();
-
-    SourcePathResolver pathResolver = new SourcePathResolver(
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-    );
-
-    Path apkPath = workspace.buildAndReturnOutput("//apps/sample:app_xdso_dce");
-
-    ZipInspector zipInspector = new ZipInspector(apkPath);
-    zipInspector.assertFileExists("lib/x86/libnative_xdsodce_top.so");
-    zipInspector.assertFileExists("lib/x86/libnative_xdsodce_mid.so");
-    zipInspector.assertFileExists("lib/x86/libnative_xdsodce_bot.so");
-
-    Path tmpDir = tmpFolder.newFolder("xdso");
-    Path lib = unzip(
-        tmpDir, apkPath, "lib/x86/libnative_xdsodce_top.so");
-    Symbols sym = Symbols.getSymbols(platform.getObjdump(), pathResolver, lib);
-
-    assertTrue(sym.global.contains("_Z10JNI_OnLoadii"));
-    assertTrue(sym.undefined.contains("_Z10midFromTopi"));
-    assertTrue(sym.undefined.contains("_Z10botFromTopi"));
-    assertFalse(sym.all.contains("_Z6unusedi"));
-
-    lib = unzip(tmpDir, apkPath, "lib/x86/libnative_xdsodce_mid.so");
-    sym = Symbols.getSymbols(platform.getObjdump(), pathResolver, lib);
-
-    assertTrue(sym.global.contains("_Z10midFromTopi"));
-    assertTrue(sym.undefined.contains("_Z10botFromMidi"));
-    assertFalse(sym.all.contains("_Z6unusedi"));
-
-    lib = unzip(tmpDir, apkPath, "lib/x86/libnative_xdsodce_bot.so");
-    sym = Symbols.getSymbols(platform.getObjdump(), pathResolver, lib);
-
-    assertTrue(sym.global.contains("_Z10botFromTopi"));
-    assertTrue(sym.global.contains("_Z10botFromMidi"));
-    assertFalse(sym.all.contains("_Z6unusedi"));
-
-    // Run some verification on the same apk with native_relinker disabled.
-    apkPath = workspace.buildAndReturnOutput("//apps/sample:app_no_xdso_dce");
-    zipInspector = new ZipInspector(apkPath);
-    zipInspector.assertFileExists("lib/x86/libnative_xdsodce_top.so");
-    zipInspector.assertFileExists("lib/x86/libnative_xdsodce_mid.so");
-    zipInspector.assertFileExists("lib/x86/libnative_xdsodce_bot.so");
-
-    lib = unzip(
-        tmpDir, apkPath, "lib/x86/libnative_xdsodce_top.so");
-    sym = Symbols.getSymbols(platform.getObjdump(), pathResolver, lib);
-
-    assertTrue(sym.all.contains("_Z6unusedi"));
-
-    lib = unzip(tmpDir, apkPath, "lib/x86/libnative_xdsodce_mid.so");
-    sym = Symbols.getSymbols(platform.getObjdump(), pathResolver, lib);
-
-    assertTrue(sym.all.contains("_Z6unusedi"));
-
-    lib = unzip(tmpDir, apkPath, "lib/x86/libnative_xdsodce_bot.so");
-    sym = Symbols.getSymbols(platform.getObjdump(), pathResolver, lib);
-
-    assertTrue(sym.all.contains("_Z6unusedi"));
+    return platforms.iterator().next();
   }
 
+  private static class SymbolGetter {
+    private final Path tmpDir;
+    private final Tool objdump;
+    private final SourcePathResolver resolver;
+
+    private SymbolGetter(Path tmpDir, Tool objdump, SourcePathResolver resolver) {
+      this.tmpDir = tmpDir;
+      this.objdump = objdump;
+      this.resolver = resolver;
+    }
+
+    private Path unpack(Path apkPath, String libName) throws IOException {
+      new ZipInspector(apkPath).assertFileExists(libName);
+      return unzip(tmpDir, apkPath, libName);
+    }
+
+    Symbols getSymbols(Path apkPath, String libName) throws IOException, InterruptedException {
+      Path lib = unpack(apkPath, libName);
+      return Symbols.getSymbols(objdump, resolver, lib);
+    }
+
+    SymbolsAndDtNeeded getSymbolsAndDtNeeded(Path apkPath, String libName)
+        throws IOException, InterruptedException {
+      Path lib = unpack(apkPath, libName);
+      Symbols symbols = Symbols.getSymbols(objdump, resolver, lib);
+      ImmutableSet<String> dtNeeded = Symbols.getDtNeeded(objdump, resolver, lib);
+      return new SymbolsAndDtNeeded(symbols, dtNeeded);
+    }
+  }
+
+  private static class SymbolsAndDtNeeded {
+    final Symbols symbols;
+    final ImmutableSet<String> dtNeeded;
+
+    private SymbolsAndDtNeeded(Symbols symbols, ImmutableSet<String> dtNeeded) {
+      this.symbols = symbols;
+      this.dtNeeded = dtNeeded;
+    }
+  }
 
   @Test
   public void testHeaderOnlyCxxLibrary() throws IOException {

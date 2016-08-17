@@ -118,7 +118,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   private final ImmutableSortedSet<BuildRule> providedDeps;
   // Some classes need to override this when enhancing deps (see AndroidLibrary).
   private final ImmutableSet<Path> additionalClasspathEntries;
-  private final Supplier<ImmutableSetMultimap<JavaLibrary, Path>>
+  private final Supplier<ImmutableSet<Path>>
       outputClasspathEntriesSupplier;
   private final Supplier<ImmutableSetMultimap<JavaLibrary, Path>>
       transitiveClasspathEntriesSupplier;
@@ -287,10 +287,10 @@ public class DefaultJavaLibrary extends AbstractBuildRule
     }
 
     this.outputClasspathEntriesSupplier =
-        Suppliers.memoize(new Supplier<ImmutableSetMultimap<JavaLibrary, Path>>() {
+        Suppliers.memoize(new Supplier<ImmutableSet<Path>>() {
           @Override
-          public ImmutableSetMultimap<JavaLibrary, Path> get() {
-            return JavaLibraryClasspathProvider.getOutputClasspathEntries(
+          public ImmutableSet<Path> get() {
+            return JavaLibraryClasspathProvider.getOutputClasspathJars(
                 DefaultJavaLibrary.this,
                 getResolver(),
                 sourcePathForOutputJar());
@@ -409,7 +409,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   }
 
   @Override
-  public ImmutableSetMultimap<JavaLibrary, Path> getOutputClasspathEntries() {
+  public ImmutableSet<Path> getOutputClasspathEntries() {
     return outputClasspathEntriesSupplier.get();
   }
 
@@ -463,7 +463,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
             new Function<JavaLibrary, Collection<Path>>() {
               @Override
               public Collection<Path> apply(JavaLibrary input) {
-                return input.getOutputClasspathEntries().values();
+                return input.getOutputClasspathEntries();
               }
             })
         .filter(Predicates.notNull())

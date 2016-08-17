@@ -70,8 +70,8 @@ public abstract class AbstractReport {
   public final DefectSubmitResult collectAndSubmitResult()
       throws IOException, InterruptedException {
 
-    Optional<UserReport> userReport = getUserReport();
     ImmutableSet<BuildLogEntry> highlightedBuilds = promptForBuildSelection();
+    Optional<UserReport> userReport = getUserReport();
     Optional<SourceControlInfo> sourceControlInfo = getSourceControlInfo();
 
     ImmutableSet<Path> extraInfoPaths = ImmutableSet.of();
@@ -138,7 +138,9 @@ public abstract class AbstractReport {
     ImmutableSet<Path> knownUserLocalConfigs = ImmutableSet.of(
         Paths.get(BuckConfig.BUCK_CONFIG_OVERRIDE_FILE_NAME),
         LogConfigPaths.LOCAL_PATH,
-        Paths.get(".watchman.local"));
+        Paths.get(".watchman.local"),
+        Paths.get(".buckjavaargs.local"),
+        Paths.get(".bucklogging.local.properties"));
     Set<Path> foundUserlocalConfigs = new HashSet<>();
 
     for (Path localConfig : knownUserLocalConfigs) {

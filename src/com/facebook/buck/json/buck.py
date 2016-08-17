@@ -8,6 +8,7 @@
 import __builtin__
 import __future__
 
+import contextlib
 from collections import namedtuple
 from pathlib import Path, PureWindowsPath, PurePath
 from pywatchman import bser
@@ -85,6 +86,7 @@ class BuildFileContext(object):
         self.globals = {}
         self.includes = set()
         self.used_configs = {}
+        self.used_env_vars = {}
         self.project_root = project_root
         self.base_path = base_path
         self.dirname = dirname
@@ -112,6 +114,7 @@ class IncludeContext(object):
         self.globals = {}
         self.includes = set()
         self.used_configs = {}
+        self.used_env_vars = {}
         self.diagnostics = set()
 
 
@@ -204,38 +207,44 @@ def add_rule(rule, build_env):
     build_env.rules[rule_name] = rule
 
 
-class memoized(object):
+def memoized(deepcopy=True):
     '''Decorator. Caches a function's return value each time it is called.
     If called later with the same arguments, the cached value is returned
     (not reevaluated).
 
     Makes a defensive copy of the cached value each time it's returned,
-    so callers mutating the result do not poison the cache.
+    so callers mutating the result do not poison the cache, unless
+    deepcopy is set to False.
+
     '''
-    def __init__(self, func):
-        self.func = func
-        self.cache = {}
+    def decorator(func):
+        cache = {}
 
-    def __call__(self, *args):
-        args_key = repr(args)
-        value = self.cache.get(args_key)
-        if value is None:
-            value = self.func(*args)
-            self.cache[args_key] = value
-        # Return a copy to ensure callers mutating the result don't poison the cache.
-        return copy.deepcopy(value)
+        @functools.wraps(func)
+        def wrapped(*args, **kwargs):
+            # poor-man's cache key; the keyword args are sorted to avoid dictionary ordering
+            # issues (insertion and deletion order matters). Nested dictionaries will still cause
+            # cache misses.
+            args_key = repr(args) + repr(sorted(kwargs.items()))
+            _sentinel = object()
+            value = cache.get(args_key, _sentinel)
+            if value is _sentinel:
+                value = func(*args, **kwargs)
+                cache[args_key] = value
+            # Return a copy to ensure callers mutating the result don't poison the cache.
+            if deepcopy:
+                value = copy.deepcopy(value)
+            return value
 
-    def __repr__(self):
-        '''Return the function's docstring.'''
-        return self.func.__doc__
+        return wrapped
 
-    def __get__(self, obj, objtype):
-        '''Support instance methods.'''
-        return functools.partial(self.__call__, obj)
+    return decorator
 
 
 @provide_for_build
-def glob(includes, excludes=[], include_dotfiles=False, build_env=None, search_base=None):
+def glob(includes, excludes=None, include_dotfiles=False, build_env=None, search_base=None):
+    if excludes is None:
+        excludes = []
     assert build_env.type == BuildContextType.BUILD_FILE, (
         "Cannot use `glob()` at the top-level of an included file.")
     # Ensure the user passes lists of strings rather than just a string.
@@ -308,8 +317,10 @@ def merge_maps(*header_maps):
     return result
 
 
-def single_subdir_glob(dirpath, glob_pattern, excludes=[], prefix=None, build_env=None,
+def single_subdir_glob(dirpath, glob_pattern, excludes=None, prefix=None, build_env=None,
                        search_base=None):
+    if excludes is None:
+        excludes = []
     results = {}
     files = glob([os.path.join(dirpath, glob_pattern)],
                  excludes=excludes,
@@ -334,7 +345,7 @@ def single_subdir_glob(dirpath, glob_pattern, excludes=[], prefix=None, build_en
 
 
 @provide_for_build
-def subdir_glob(glob_specs, excludes=[], prefix=None, build_env=None, search_base=None):
+def subdir_glob(glob_specs, excludes=None, prefix=None, build_env=None, search_base=None):
     """
     Given a list of tuples, the form of (relative-sub-directory, glob-pattern),
     return a dict of sub-directory relative paths to full paths.  Useful for
@@ -343,6 +354,8 @@ def subdir_glob(glob_specs, excludes=[], prefix=None, build_env=None, search_bas
 
     If prefix is not None, prepends it it to each key in the dictionary.
     """
+    if excludes is None:
+        excludes = []
 
     results = []
 
@@ -384,7 +397,7 @@ def format_watchman_query_params(includes, excludes, include_dotfiles, relative_
     }
 
 
-@memoized
+@memoized()
 def glob_watchman(includes, excludes, include_dotfiles, base_path, watchman_watch_root,
                   watchman_project_prefix, sync_cookie_state, watchman_client, diagnostics,
                   watchman_glob_stat_results):
@@ -533,8 +546,18 @@ class BuildFileProcessor(object):
 
     def __init__(self, project_root, watchman_watch_root, watchman_project_prefix, build_file_name,
                  allow_empty_globs, ignore_buck_autodeps_files, watchman_client, watchman_error,
-                 watchman_glob_stat_results, enable_build_file_sandboxing, implicit_includes=[],
-                 extra_funcs=[], configs={}, ignore_paths=[]):
+                 watchman_glob_stat_results, enable_build_file_sandboxing, implicit_includes=None,
+                 extra_funcs=None, configs=None, env_vars=None, ignore_paths=None):
+        if implicit_includes is None:
+            implicit_includes = []
+        if extra_funcs is None:
+            extra_funcs = []
+        if configs is None:
+            configs = {}
+        if env_vars is None:
+            env_vars = {}
+        if ignore_paths is None:
+            ignore_paths = []
         self._cache = {}
         self._build_env_stack = []
         self._sync_cookie_state = SyncCookieState()
@@ -551,6 +574,7 @@ class BuildFileProcessor(object):
         self._watchman_error = watchman_error
         self._watchman_glob_stat_results = watchman_glob_stat_results
         self._configs = configs
+        self._env_vars = env_vars
         self._ignore_paths = ignore_paths
 
         lazy_functions = {}
@@ -558,6 +582,58 @@ class BuildFileProcessor(object):
             func_with_env = LazyBuildEnvPartial(func)
             lazy_functions[func.__name__] = func_with_env
         self._functions = lazy_functions
+        self._safe_modules_config = self._create_safe_modules_config()
+        self._safe_modules = {}
+        self._custom_import = self._create_custom_import()
+
+    def _wrap_env_var_read(self, read, real):
+        """
+        Return wrapper around function that reads an environment variable so
+        that the read is recorded.
+        """
+
+        @functools.wraps(real)
+        def wrapper(varname, *arg, **kwargs):
+            self._record_env_var(varname, read(varname))
+            return real(varname, *arg, **kwargs)
+
+        # Save the real function for restoration.
+        wrapper._real = real
+
+        return wrapper
+
+    @contextlib.contextmanager
+    def _with_env_interceptor(self, read, obj, attr):
+        """
+        Wrap a function, found at `obj.attr`, that reads an environment
+        variable in a new function which records the env var read.
+        """
+
+        real = getattr(obj, attr)
+        wrapped = self._wrap_env_var_read(read, real)
+        setattr(obj, attr, wrapped)
+        try:
+            yield
+        finally:
+            setattr(obj, attr, real)
+
+    @contextlib.contextmanager
+    def with_env_interceptors(self):
+        """
+        Install environment variable read interceptors into all known ways that
+        a build file can access the environment.
+        """
+
+        # Use a copy of the env to provide a function to get at the low-level
+        # environment.  The wrappers will use this when recording the env var.
+        read = dict(os.environ).get
+
+        # Install interceptors into the main ways a user can read the env.
+        with contextlib.nested(
+                self._with_env_interceptor(read, os.environ, '__contains__'),
+                self._with_env_interceptor(read, os.environ, '__getitem__'),
+                self._with_env_interceptor(read, os.environ, 'get')):
+            yield
 
     def _merge_globals(self, mod, dst):
         """
@@ -629,13 +705,29 @@ class BuildFileProcessor(object):
 
         return value
 
-    def _include_defs(self, name, implicit_includes=[]):
+    def _record_env_var(self, name, value):
+        """
+        Record a read of an environment variable.
+
+        This method is meant to wrap methods in `os.environ` when called from
+        any files or includes that we process.
+        """
+
+        # Grab the current build context from the top of the stack.
+        build_env = self._build_env_stack[-1]
+
+        # Lookup the value and record it in this build file's context.
+        build_env.used_env_vars[name] = value
+
+    def _include_defs(self, name, implicit_includes=None):
         """
         Pull the named include into the current caller's context.
 
         This method is meant to be installed into the globals of any files or
         includes that we process.
         """
+        if implicit_includes is None:
+            implicit_includes = []
 
         # Grab the current build context from the top of the stack.
         build_env = self._build_env_stack[-1]
@@ -664,6 +756,9 @@ class BuildFileProcessor(object):
 
         # Pull in any config settings used by the include.
         build_env.used_configs.update(inner_env.used_configs)
+
+        # Pull in any config settings used by the include.
+        build_env.used_env_vars.update(inner_env.used_env_vars)
 
     def _add_build_file_dep(self, name):
         """
@@ -697,24 +792,117 @@ class BuildFileProcessor(object):
         if self._build_env_stack:
             self._update_functions(self._build_env_stack[-1])
 
-    def _custom_import(self):
+    def _block_unsafe_function(self, module, name):
+        # Returns a function that ignores any arguments and raises AttributeError.
+        def func(*args, **kwargs):
+            raise AttributeError(
+                'Using function %s is forbidden in the safe version of ' % name +
+                'module %s. If you really need to use this function read about ' % module +
+                'allow_unsafe_import() that is documented at ' +
+                'https://buckbuild.com/function/allow_unsafe_import.html'
+            )
+
+        return func
+
+    def _install_whitelisted_parts(self, mod, safe_mod, whitelist):
         """
-        Returns customised '__import__' function that blocks importing modules.
+        Copy whitelisted globals from a module to its safe version.
+        Functions not on the whitelist are blocked to show a more meaningful error.
         """
 
-        def _import(name, globals=None, locals=None, fromlist=(), level=0):
+        mod_name = safe_mod.__name__
+        whitelist_set = set(whitelist)
+        for name in mod.__all__:
+            if name in whitelist_set:
+                # Check if a safe version is defined in case it's a submodule.
+                # If it's not defined the original submodule will be copied.
+                submodule_name = mod_name + '.' + name
+                if submodule_name in self._safe_modules_config:
+                    # Get a safe version of the submodule
+                    safe_mod.__dict__[name] = self._get_safe_module(submodule_name)
+                else:
+                    safe_mod.__dict__[name] = mod.__dict__[name]
+            elif callable(mod.__dict__[name]):
+                safe_mod.__dict__[name] = self._block_unsafe_function(mod_name, name)
+
+    def _create_safe_modules_config(self):
+        """
+        Safe modules configurations. Stores whitelisted parts for specified module.
+        Supports submodules, e.g. for a safe version of module 'foo' with submodule 'bar'
+        specify {'foo': ['bar', 'fun1', 'fun2'], 'foo.bar': ['fun3', fun4']}
+        """
+        config = {
+            'os': ['environ', 'getenv', 'path', 'sep', 'pathsep', 'linesep'],
+            'os.path': ['basename', 'commonprefix', 'dirname', 'isabs', 'join', 'normcase',
+                        'relpath', 'split', 'splitdrive', 'splitext', 'sep', 'pathsep'],
+            'pipes': ['quote'],
+        }
+        return config
+
+    def _get_safe_module(self, name):
+        """
+        Returns a safe version of the module.
+        """
+
+        assert name in self._safe_modules_config, (
+            "Safe version of module %s is not configured." % name)
+
+        # Return the safe version of the module if already created
+        if name in self._safe_modules:
+            return self._safe_modules[name]
+
+        # Build a new module for the safe version, non-empty 'fromlist' prevents
+        # returning top-level package (e.g. 'os' would be returned for 'os.path' without it)
+        mod = ORIGINAL_IMPORT(name, fromlist=[''])
+        safe_mod = imp.new_module(name)
+
+        # Install whitelisted parts of the module, block the rest to produce errors
+        # informing about the safe version.
+        self._install_whitelisted_parts(mod, safe_mod, self._safe_modules_config[name])
+
+        # Store the safe version of the module
+        self._safe_modules[name] = safe_mod
+
+        return safe_mod
+
+    def _create_custom_import(self):
+        """
+        Returns customised '__import__' function.
+        """
+
+        import_whitelist = set(['copy', 're', 'functools', 'itertools', 'json', 'hashlib',
+                                'types', 'string', 'ast', '__future__', 'collections',
+                                'operator', 'fnmatch', 'copy_reg'])
+
+        def _import(name, globals=None, locals=None, fromlist=(), level=-1):
+            """
+            Custom '__import__' function.
+            Returns safe version of a module if configured in '_safe_modules_config'.
+            Returns standard module if the module is whitelisted.
+            Blocks importing other modules.
+            """
+
+            if not fromlist:
+                # Return the top-level package if 'fromlist' is empty (e.g. 'os' for 'os.path'),
+                # which is how '__import__' works.
+                name = name.split('.')[0]
+
+            # Return safe version of the module if possible
+            if name in self._safe_modules_config:
+                return self._get_safe_module(name)
+
+            if name in import_whitelist:
+                # Importing a module may cause more '__import__' calls if the module uses other
+                # modules. Such calls should not be blocked if the top-level import was allowed.
+                with self._allow_unsafe_import():
+                    return ORIGINAL_IMPORT(name, globals, locals, fromlist, level)
+
             raise ImportError(
                 'Importing module %s is forbidden. ' % name +
                 'If you really need to import this module read about ' +
-                'allow_unsafe_import() function'
+                'allow_unsafe_import() function that is documented at ' +
+                'https://buckbuild.com/function/allow_unsafe_import.html'
             )
-            # TODO(mlowicki): this looks like a good place for implementing things like global
-            # whitelist or wrapping imported modules.
-            # Importing a module may cause more '__import__' calls if the module uses other
-            # modules. Such calls should not be blocked if the top-level import was allowed.
-            # Restoring original '__import__' may be used to avoid that:
-            # with allow_unsafe_import(build_env=build_env):
-            #     return ORIGINAL_IMPORT(name, globals, locals, fromlist, level)
 
         return _import
 
@@ -734,7 +922,7 @@ class BuildFileProcessor(object):
         if allow or not self._enable_build_file_sandboxing:
             __builtin__.__import__ = ORIGINAL_IMPORT
         else:
-            __builtin__.__import__ = self._custom_import()
+            __builtin__.__import__ = self._custom_import
 
         try:
             yield
@@ -742,10 +930,12 @@ class BuildFileProcessor(object):
             # Restore previous '__builtin__.__import__'
             __builtin__.__import__ = previous_import
 
-    def _process(self, build_env, path, implicit_includes=[]):
+    def _process(self, build_env, path, implicit_includes=None):
         """
         Process a build file or include at the given path.
         """
+        if implicit_includes is None:
+            implicit_includes = []
 
         # First check the cache.
         cached = self._cache.get(path)
@@ -808,10 +998,12 @@ class BuildFileProcessor(object):
         self._cache[path] = build_env, module
         return build_env, module
 
-    def _process_include(self, path, implicit_includes=[]):
+    def _process_include(self, path, implicit_includes=None):
         """
         Process the include file at the given path.
         """
+        if implicit_includes is None:
+            implicit_includes = []
 
         build_env = IncludeContext()
         return self._process(
@@ -819,10 +1011,12 @@ class BuildFileProcessor(object):
             path,
             implicit_includes=implicit_includes)
 
-    def _process_build_file(self, path, implicit_includes=[]):
+    def _process_build_file(self, path, implicit_includes=None):
         """
         Process the build file at the given path.
         """
+        if implicit_includes is None:
+            implicit_includes = []
 
         # Create the build file context, including the base path and directory
         # name of the given path.
@@ -948,6 +1142,9 @@ class BuildFileProcessor(object):
             configs.setdefault(section, {})
             configs[section][field] = value
         values.append({"__configs": configs})
+
+        # Add in used environment variables as a special meta rule.
+        values.append({"__env": build_env.used_env_vars})
 
         diagnostics.update(build_env.diagnostics)
 
@@ -1176,7 +1373,7 @@ def main():
                 for field, value in contents.iteritems():
                     configs[(section, field)] = value
 
-    ignore_paths = None
+    ignore_paths = []
     if options.ignore_paths is not None:
         with open(options.ignore_paths, 'rb') as f:
             ignore_paths = [make_glob(i) for i in bser.loads(f.read())]
@@ -1207,14 +1404,17 @@ def main():
         orig_excepthook = sys.excepthook
         sys.excepthook = silent_excepthook
 
-    for build_file in args:
-        process_with_diagnostics(build_file, buildFileProcessor, to_parent,
-                                 should_profile=options.profile)
+    # Process the build files with the env var interceptors installed.
+    with buildFileProcessor.with_env_interceptors():
 
-    # "for ... in sys.stdin" in Python 2.x hangs until stdin is closed.
-    for build_file in iter(sys.stdin.readline, ''):
-        process_with_diagnostics(build_file, buildFileProcessor, to_parent,
-                                 should_profile=options.profile)
+        for build_file in args:
+            process_with_diagnostics(build_file, buildFileProcessor, to_parent,
+                                     should_profile=options.profile)
+
+        # "for ... in sys.stdin" in Python 2.x hangs until stdin is closed.
+        for build_file in iter(sys.stdin.readline, ''):
+            process_with_diagnostics(build_file, buildFileProcessor, to_parent,
+                                     should_profile=options.profile)
 
     if options.quiet:
         sys.excepthook = orig_excepthook

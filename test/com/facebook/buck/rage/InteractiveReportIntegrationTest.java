@@ -19,7 +19,7 @@ package com.facebook.buck.rage;
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.testutil.TestBuildEnvironmentDescription;
-import com.facebook.buck.testutil.integration.DebuggableTemporaryFolder;
+import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.testutil.integration.ZipInspector;
@@ -40,7 +40,7 @@ import java.nio.file.Path;
 public class InteractiveReportIntegrationTest {
 
   @Rule
-  public DebuggableTemporaryFolder temporaryFolder = new DebuggableTemporaryFolder();
+  public TemporaryPaths temporaryFolder = new TemporaryPaths();
 
   @Test
   public void testReport() throws Exception {
@@ -64,7 +64,7 @@ public class InteractiveReportIntegrationTest {
       }
     };
     ByteArrayInputStream inputStream =
-        new ByteArrayInputStream("report text\n0,1\n".getBytes("UTF-8"));
+        new ByteArrayInputStream("0,1\nreport text\n".getBytes("UTF-8"));
     InteractiveReport interactiveReport =
         new InteractiveReport(
             defectReporter,
