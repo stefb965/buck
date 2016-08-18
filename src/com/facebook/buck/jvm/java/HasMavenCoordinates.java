@@ -17,8 +17,15 @@
 package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.rules.BuildRule;
+import com.google.common.base.Function;
 import com.google.common.base.Optional;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
+
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import javax.annotation.Nullable;
 
 public interface HasMavenCoordinates extends BuildRule {
 
@@ -27,7 +34,7 @@ public interface HasMavenCoordinates extends BuildRule {
    */
   Optional<String> getMavenCoords();
 
-  public static final Predicate<BuildRule> MAVEN_COORDS_PRESENT_PREDICATE =
+  Predicate<BuildRule> MAVEN_COORDS_PRESENT_PREDICATE =
       new Predicate<BuildRule>() {
     @Override
     public boolean apply(BuildRule input) {
@@ -35,4 +42,31 @@ public interface HasMavenCoordinates extends BuildRule {
           ((HasMavenCoordinates) input).getMavenCoords().isPresent();
     }
   };
+
+  Function<BuildRule, String> NORMALIZE_COORDINATE =
+      new Function<BuildRule, String>() {
+        @Override
+        @Nullable
+        public String apply(BuildRule deriveFrom) {
+          if (!(deriveFrom instanceof HasMavenCoordinates)) {
+            return null;
+          }
+
+          HasMavenCoordinates mavenCoords = (HasMavenCoordinates) deriveFrom;
+          if (!mavenCoords.getMavenCoords().isPresent()) {
+            return null;
+          }
+
+          String coords = mavenCoords.getMavenCoords().get();
+          Pattern p = Pattern.compile("([^: ]+):([^: ]+)(:([^: ]*)(:([^: ]+))?)?:([^: ]+)");
+          Matcher m = p.matcher(coords);
+
+          Preconditions.checkState(m.matches(), "Unable to parse maven coordinates: %s", coords);
+
+          return
+              m.group(1) + ':' + // group id
+              m.group(2) + ':' + // artifact id
+              m.group(7);        // version
+        }
+      };
 }

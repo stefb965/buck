@@ -16,12 +16,9 @@ import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.zip.ZipCompressionLevel;
 import com.facebook.buck.zip.ZipStep;
-import com.google.common.base.Function;
 import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -39,9 +36,7 @@ public class Javadoc extends AbstractBuildRule implements MavenPublishable {
   private final Path output;
   private final Optional<String> mavenCoords;
   private final Optional<Path> mavenPomTemplate;
-  private final ImmutableSortedSet<JavaLibrary> includedInJar;
-  private final ImmutableSortedSet<JavaLibrary> classpath;
-  private final Supplier<Iterable<HasMavenCoordinates>> mavenDeps;
+  private final RuleGatherer.GatheredDeps gatheredDeps;
 
   protected Javadoc(
       BuildRuleParams params,
@@ -60,24 +55,7 @@ public class Javadoc extends AbstractBuildRule implements MavenPublishable {
     this.mavenCoords = mavenCoords;
     this.mavenPomTemplate = mavenPomTemplate;
 
-    this.includedInJar = gatherer.gatherRules(this);
-    this.classpath = FluentIterable.from(getDeps())
-        .filter(HasClasspathEntries.class)
-        .transformAndConcat(
-            new Function<HasClasspathEntries, ImmutableSet<JavaLibrary>>() {
-              @Override
-              public ImmutableSet<JavaLibrary> apply(HasClasspathEntries input) {
-                return input.getTransitiveClasspathDeps();
-              }
-            })
-        .toSortedSet(Ordering.<JavaLibrary>natural());
-
-    this.mavenDeps = Suppliers.memoize(new Supplier<Iterable<HasMavenCoordinates>>() {
-      @Override
-      public Iterable<HasMavenCoordinates> get() {
-        return FluentIterable.from(classpath).filter(HasMavenCoordinates.class).toSet();
-      }
-    });
+    this.gatheredDeps = gatherer.gatherRules(this);
   }
 
   @Override
@@ -85,17 +63,7 @@ public class Javadoc extends AbstractBuildRule implements MavenPublishable {
       BuildContext context,
       BuildableContext buildableContext) {
 
-    ImmutableSet<SourcePath> sources = FluentIterable.from(includedInJar)
-        .filter(HasSources.class)
-        .transformAndConcat(
-            new Function<HasSources, ImmutableSortedSet<SourcePath>>() {
-
-              @Override
-              public ImmutableSortedSet<SourcePath> apply(HasSources input) {
-                return input.getSources();
-              }
-            })
-        .toSet();
+    ImmutableSet<SourcePath> sources = gatheredDeps.getSourceCode();
 
     buildableContext.recordArtifact(output);
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
@@ -129,12 +97,13 @@ public class Javadoc extends AbstractBuildRule implements MavenPublishable {
             "-d", javadocOutput.toString()));
 
     javaDocArgs.addAll(
-        FluentIterable.from(getResolver().filterInputsToCompareToOutput(sources))
+        FluentIterable.from(sources)
+            .transform(getResolver().getAbsolutePathFunction())
             .transform(Functions.toStringFunction())
             .toSortedSet(Ordering.<String>natural()));
 
     ImmutableSortedSet.Builder<Path> allJars = ImmutableSortedSet.naturalOrder();
-    for (JavaLibrary dep : classpath) {
+    for (JavaLibrary dep : gatheredDeps.getTransitiveClasspath()) {
       allJars.addAll(dep.getTransitiveClasspathEntries().values());
     }
 
@@ -164,7 +133,7 @@ public class Javadoc extends AbstractBuildRule implements MavenPublishable {
 
   @Override
   public Iterable<HasMavenCoordinates> getMavenDeps() {
-    return mavenDeps.get();
+    return gatheredDeps.getMavenDeps();
   }
 
   @Override
@@ -174,6 +143,6 @@ public class Javadoc extends AbstractBuildRule implements MavenPublishable {
 
   @Override
   public Iterable<BuildRule> getPackagedDependencies() {
-    return FluentIterable.from(includedInJar).filter(BuildRule.class).toSet();
+    return gatheredDeps.getRulesToPackage();
   }
 }
