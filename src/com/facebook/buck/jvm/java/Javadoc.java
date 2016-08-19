@@ -16,6 +16,7 @@ import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.zip.ZipCompressionLevel;
 import com.facebook.buck.zip.ZipStep;
+import com.google.common.base.Function;
 import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
@@ -63,7 +64,15 @@ public class Javadoc extends AbstractBuildRule implements MavenPublishable {
       BuildContext context,
       BuildableContext buildableContext) {
 
-    ImmutableSet<SourcePath> sources = gatheredDeps.getSourceCode();
+    ImmutableSet<SourcePath> sources = FluentIterable.from(gatheredDeps.getRulesToPackage())
+        .filter(HasSources.class)
+        .transformAndConcat(new Function<HasSources, Iterable<SourcePath>>() {
+          @Override
+          public Iterable<SourcePath> apply(HasSources input) {
+            return input.getSources();
+          }
+        })
+        .toSortedSet(Ordering.<SourcePath>natural());
 
     buildableContext.recordArtifact(output);
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
