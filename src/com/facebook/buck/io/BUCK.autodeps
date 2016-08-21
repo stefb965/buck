@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY 06657eeaf8210f75cc80cb723c8a34dae7690605 #@#
+#@# GENERATED FILE: DO NOT MODIFY 5c8117033998da12eb562f0254f46cb6f730f02e #@#
 {
   "BuckPaths" : {
     "deps" : [
@@ -32,7 +32,6 @@
       "//third-party/java/jsr:jsr305"
     ],
     "exported_deps" : [
-      "//src/com/facebook/buck/io:BuckPaths",
       "//src/com/facebook/buck/io:ProjectFilesystemDelegate"
     ]
   },
