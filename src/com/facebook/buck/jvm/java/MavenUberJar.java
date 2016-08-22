@@ -56,19 +56,27 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
 
   private final Optional<String> mavenCoords;
   private final Optional<Path> pomTemplate;
-  private final TraversedDeps traversedDeps;
+  private final RuleGatherer.GatheredDeps gatheredDeps;
 
   private MavenUberJar(
-      TraversedDeps traversedDeps,
+      RuleGatherer.GatheredDeps gatheredDeps,
       BuildRuleParams params,
       SourcePathResolver resolver,
       Optional<String> mavenCoords,
       Optional<SourcePath> mavenPomTemplate) {
     super(params, resolver);
-    this.traversedDeps = traversedDeps;
+    this.gatheredDeps = gatheredDeps;
     this.mavenCoords = mavenCoords;
 
     this.pomTemplate = mavenPomTemplate.transform(getResolver().getAbsolutePathFunction());
+  }
+
+  private static BuildRuleParams adjustParams(BuildRuleParams params, RuleGatherer.GatheredDeps traversedDeps) {
+    return params.copyWithDeps(
+        Suppliers.ofInstance(
+            FluentIterable.from(traversedDeps.getRulesToPackage())
+                .toSortedSet(Ordering.<BuildRule>natural())),
+        Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
   }
 
   private static BuildRuleParams adjustParams(BuildRuleParams params, TraversedDeps traversedDeps) {
@@ -92,10 +100,10 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
       SourcePathResolver resolver,
       Optional<String> mavenCoords,
       Optional<SourcePath> mavenPomTemplate) {
-    TraversedDeps traversedDeps = TraversedDeps.traverse(ImmutableSet.of(rootRule));
+    RuleGatherer.GatheredDeps gatheredDeps = RuleGatherer.MAVEN_JAR.gatherRules(rootRule);
     return new MavenUberJar(
-        traversedDeps,
-        adjustParams(params, traversedDeps),
+        gatheredDeps,
+        adjustParams(params, gatheredDeps),
         resolver,
         mavenCoords,
         mavenPomTemplate);
@@ -109,7 +117,7 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
     JarDirectoryStep mergeOutputsStep = new JarDirectoryStep(
         getProjectFilesystem(),
         pathToOutput,
-        toOutputPaths(traversedDeps.packagedDeps),
+        toOutputPaths(gatheredDeps.getRulesToPackage()),
         /* mainClass */ null,
         /* manifestFile */ null);
     return ImmutableList.of(mkOutputDirStep, mergeOutputsStep);
@@ -151,12 +159,12 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
 
   @Override
   public Iterable<HasMavenCoordinates> getMavenDeps() {
-    return traversedDeps.mavenDeps;
+    return gatheredDeps.getMavenDeps();
   }
 
   @Override
   public Iterable<BuildRule> getPackagedDependencies() {
-    return traversedDeps.packagedDeps;
+    return gatheredDeps.getRulesToPackage();
   }
 
   public static class SourceJar extends JavaSourceJar implements MavenPublishable {
