@@ -23,14 +23,15 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
@@ -44,7 +45,6 @@ import com.google.common.base.Optional;
 import com.google.common.base.Predicates;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSortedSet;
 
 import org.easymock.EasyMock;
 import org.junit.Test;
@@ -55,15 +55,18 @@ import java.nio.file.Paths;
 public class JavaSourceJarTest {
 
   @Test
-  public void outputNameShouldIndicateThatTheOutputIsASrcJar() {
+  public void outputNameShouldIndicateThatTheOutputIsASrcJar() throws NoSuchBuildTargetException {
+    BuildRuleResolver resolver = new BuildRuleResolver(
+        TargetGraph.EMPTY,
+        new DefaultTargetNodeToBuildRuleTransformer());
+
     JavaSourceJar rule = new JavaSourceJar(
-        new FakeBuildRuleParamsBuilder("//example:target").build(),
-        new SourcePathResolver(
-            new BuildRuleResolver(
-              TargetGraph.EMPTY,
-              new DefaultTargetNodeToBuildRuleTransformer())
-        ),
-        ImmutableSortedSet.<SourcePath>of(),
+        new FakeBuildRuleParamsBuilder("//example:target#src").build(),
+        new SourcePathResolver(resolver),
+        JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//example:target"))
+            .build(resolver),
+        RuleGatherer.SINGLE_JAR,
+        Optional.<Path>absent(),
         Optional.<String>absent());
 
     Path output = rule.getPathToOutput();
@@ -73,13 +76,16 @@ public class JavaSourceJarTest {
   }
 
   @Test
-  public void shouldOnlyIncludePathBasedSources() {
-    SourcePathResolver pathResolver = new SourcePathResolver(
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-    );
+  public void shouldOnlyIncludePathBasedSources() throws NoSuchBuildTargetException {
+    BuildRuleResolver resolver = new BuildRuleResolver(
+        TargetGraph.EMPTY,
+        new DefaultTargetNodeToBuildRuleTransformer());
+    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
     SourcePath fileBased = new FakeSourcePath("some/path/File.java");
-    SourcePath ruleBased = new BuildTargetSourcePath(
-        BuildTargetFactory.newInstance("//cheese:cake"));
+    BuildRule dep =
+        JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//cheese:cake"))
+            .build(resolver);
+    SourcePath ruleBased = new BuildTargetSourcePath(dep.getBuildTarget());
 
     JavaPackageFinder finderStub = createNiceMock(JavaPackageFinder.class);
     expect(finderStub.findJavaPackageFolder((Path) anyObject()))
@@ -89,10 +95,18 @@ public class JavaSourceJarTest {
     // No need to verify. It's a stub. I don't care about the interactions.
     EasyMock.replay(finderStub);
 
+    BuildRule lib = JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance(
+        "//example:target"))
+        .addSrc(ruleBased)
+        .addSrc(fileBased)
+        .build(resolver);
+
     JavaSourceJar rule = new JavaSourceJar(
-        new FakeBuildRuleParamsBuilder("//example:target").build(),
+        new FakeBuildRuleParamsBuilder("//example:target#src").build(),
         pathResolver,
-        ImmutableSortedSet.of(fileBased, ruleBased),
+        lib,
+        RuleGatherer.SINGLE_JAR,
+        Optional.<Path>absent(),
         Optional.<String>absent());
 
     BuildContext buildContext = FakeBuildContext.newBuilder()

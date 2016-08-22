@@ -162,7 +162,8 @@ public class Pom {
     }
 
     if (file.isFile()) {
-      model = constructModel(file, model);
+      Model fromFile = constructModel(file, model);
+      model = merge(model, fromFile);
     }
 
     return model;

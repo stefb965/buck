@@ -40,6 +40,7 @@ public class Javadoc extends AbstractBuildRule implements MavenPublishable {
   private final RuleGatherer.GatheredDeps gatheredDeps;
 
   protected Javadoc(
+      BuildRule javaLibrary,
       BuildRuleParams params,
       SourcePathResolver resolver,
       Optional<String> mavenCoords,
@@ -56,7 +57,7 @@ public class Javadoc extends AbstractBuildRule implements MavenPublishable {
     this.mavenCoords = mavenCoords;
     this.mavenPomTemplate = mavenPomTemplate;
 
-    this.gatheredDeps = gatherer.gatherRules(this);
+    this.gatheredDeps = gatherer.gatherRules(javaLibrary);
   }
 
   @Override

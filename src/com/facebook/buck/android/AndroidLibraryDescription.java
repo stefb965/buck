@@ -23,6 +23,7 @@ import com.facebook.buck.jvm.java.JavaLibraryDescription;
 import com.facebook.buck.jvm.java.JavaSourceJar;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacOptionsFactory;
+import com.facebook.buck.jvm.java.RuleGatherer;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.Flavored;
@@ -78,8 +79,29 @@ public class AndroidLibraryDescription
       BuildRuleResolver resolver,
       A args) {
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+
     if (params.getBuildTarget().getFlavors().contains(JavaLibrary.SRC_JAR)) {
-      return new JavaSourceJar(params, pathResolver, args.srcs.get(), args.mavenCoords);
+      BuildTarget unflavored = BuildTarget.of(params.getBuildTarget().getUnflavoredBuildTarget());
+      Optional<BuildRule> optionalBaseLibrary = resolver.getRuleOptional(unflavored);
+      BuildRule baseLibrary;
+      if (!optionalBaseLibrary.isPresent()) {
+        baseLibrary = createBuildRule(
+            targetGraph,
+            params.copyWithBuildTarget(unflavored),
+            resolver,
+            args);
+        resolver.addToIndex(baseLibrary);
+      } else {
+        baseLibrary = optionalBaseLibrary.get();
+      }
+
+      return new JavaSourceJar(
+          params,
+          pathResolver,
+          baseLibrary,
+          RuleGatherer.SINGLE_JAR,
+          args.mavenPomTemplate.transform(pathResolver.getAbsolutePathFunction()),
+          args.mavenCoords);
     }
 
     JavacOptions javacOptions = JavacOptionsFactory.create(

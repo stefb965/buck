@@ -16,14 +16,26 @@
 
 package com.facebook.buck.maven;
 
-import static org.easymock.EasyMock.expect;
-import static org.easymock.EasyMock.replay;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.jvm.java.HasMavenCoordinates;
+import com.facebook.buck.jvm.java.JavaLibrary;
+import com.facebook.buck.jvm.java.JavaLibraryBuilder;
+import com.facebook.buck.jvm.java.JavaSourceJar;
 import com.facebook.buck.jvm.java.MavenPublishable;
+import com.facebook.buck.jvm.java.RuleGatherer;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.parser.NoSuchBuildTargetException;
+import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
+import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSortedSet;
@@ -52,19 +64,25 @@ public class PomIntegrationTest extends EasyMockSupport {
   private static final MavenXpp3Writer MAVEN_XPP_3_WRITER = new MavenXpp3Writer();
   private static final MavenXpp3Reader MAVEN_XPP_3_READER = new MavenXpp3Reader();
   private static final String URL = "http://example.com";
+  private int count = 1;
 
   @Rule
   public TemporaryPaths tmp = new TemporaryPaths();
 
   @Test
   public void testMultipleInvocation() throws Exception{
+    BuildRuleResolver resolver = new BuildRuleResolver(
+        TargetGraph.EMPTY,
+        new DefaultTargetNodeToBuildRuleTransformer());
 
     // Setup: deps: com.example:with-deps:jar:1.0 -> com.othercorp:no-deps:jar:1.0
-    HasMavenCoordinates dep = mockMavenPublishable(
+    HasMavenCoordinates dep = createMavenPublishable(
+        resolver,
         "com.othercorp:no-deps:1.0",
         ImmutableSortedSet.<HasMavenCoordinates>of());
 
-    MavenPublishable item = mockMavenPublishable(
+    MavenPublishable item = createMavenPublishable(
+        resolver,
         "com.example:with-deps:1.0",
         ImmutableSortedSet.of(dep));
 
@@ -94,16 +112,39 @@ public class PomIntegrationTest extends EasyMockSupport {
     assertEquals(URL, pomModel.getUrl());
   }
 
-  private MavenPublishable mockMavenPublishable(
+  private MavenPublishable createMavenPublishable(
+      BuildRuleResolver resolver,
       String mavenCoords,
-      ImmutableSortedSet<HasMavenCoordinates> deps) {
-    MavenPublishable mavenPublishable = createNiceMock(MavenPublishable.class);
-    expect(mavenPublishable.getMavenCoords())
-        .andReturn(Optional.fromNullable(mavenCoords))
-        .anyTimes();
-    expect(mavenPublishable.getMavenDeps()).andReturn(deps).anyTimes();
-    replay(mavenPublishable);
-    return mavenPublishable;
+      ImmutableSortedSet<HasMavenCoordinates> deps) throws NoSuchBuildTargetException {
+    BuildTarget target = BuildTargetFactory.newInstance("//com/ex:test" + count++);
+    JavaLibraryBuilder builder =
+        JavaLibraryBuilder.createBuilder(target)
+        .setMavenCoords(mavenCoords);
+    for (HasMavenCoordinates dep : deps) {
+      builder.addDep(dep.getBuildTarget());
+    }
+    JavaLibrary javaLib = (JavaLibrary) builder.build(resolver);
+
+    BuildTarget flavored = BuildTarget.builder()
+        .from(target)
+        .addFlavors(JavaLibrary.MAVEN_JAR, JavaLibrary.SRC_JAR)
+        .build();
+    ImmutableSortedSet<BuildRule> declaredDeps = ImmutableSortedSet.<BuildRule>naturalOrder()
+        .addAll(deps)
+        .build();
+
+    BuildRuleParams params = new FakeBuildRuleParamsBuilder(flavored)
+        .setDeclaredDeps(declaredDeps)
+        .build();
+
+    String amendedCoords = AetherUtil.addClassifier(mavenCoords, AetherUtil.CLASSIFIER_SOURCES);
+
+    return resolver.addToIndex(new JavaSourceJar(
+        params,
+        new SourcePathResolver(resolver),
+        javaLib, RuleGatherer.MAVEN_JAR,
+        Optional.<Path>absent(),
+        Optional.of(amendedCoords)));
   }
 
   private static void serializePom(Model pomModel, File destination) throws IOException {
