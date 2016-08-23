@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY f1c13850640cc2dfe64790db34b37b14c6f517e8 #@#
+#@# GENERATED FILE: DO NOT MODIFY a8cf7c5803c7d5eb09e0ce4a3e1fd50f801748dc #@#
 {
   "maven" : {
     "deps" : [
@@ -30,7 +30,6 @@
       "//test/com/facebook/buck/testutil/integration:integration",
       "//third-party/java/aether:aether-api",
       "//third-party/java/args4j:args4j",
-      "//third-party/java/easymock:easymock",
       "//third-party/java/guava:guava",
       "//third-party/java/hamcrest:java-hamcrest",
       "//third-party/java/jackson:jackson-databind",

@@ -136,8 +136,8 @@ public abstract class BaseRunner {
       // Used in the OpenJDK and the Oracle JDK.
       factoryClass = "com.sun.org.apache.xalan.internal.xsltc.trax.TransformerFactoryImpl";
     }
+    // When we get this far, we're exiting, so no need to reset the property.
     System.setProperty("javax.xml.transform.TransformerFactory", factoryClass);
-
     TransformerFactory transformerFactory = TransformerFactory.newInstance();
     Transformer trans = transformerFactory.newTransformer();
     trans.setOutputProperty(OutputKeys.OMIT_XML_DECLARATION, "no");
