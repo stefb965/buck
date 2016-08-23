@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY 5c8117033998da12eb562f0254f46cb6f730f02e #@#
+#@# GENERATED FILE: DO NOT MODIFY a6f16099cee50b6bad3a007743db87a39c3d11b3 #@#
 {
   "BuckPaths" : {
     "deps" : [
@@ -29,7 +29,7 @@
       "//src/com/facebook/buck/io:DefaultProjectFilesystemDelegate",
       "//src/com/facebook/buck/log:api",
       "//src/com/facebook/buck/util/environment:platform",
-      "//third-party/java/jsr:jsr305"
+      "//third-party/java/guava:guava"
     ],
     "exported_deps" : [
       "//src/com/facebook/buck/io:ProjectFilesystemDelegate"

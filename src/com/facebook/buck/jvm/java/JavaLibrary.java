@@ -94,6 +94,8 @@ public interface JavaLibrary extends BuildRule, HasClasspathEntries,
 
   public Optional<Path> getGeneratedSourcePath();
 
+  public ImmutableSortedSet<SourcePath> getResources();
+
   public static class Data {
     private final ImmutableSortedMap<String, HashCode> classNamesToHashes;
 

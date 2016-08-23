@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY 72115175b4991432fd6c2c2b12a2116307857512 #@#
+#@# GENERATED FILE: DO NOT MODIFY f1c13850640cc2dfe64790db34b37b14c6f517e8 #@#
 {
   "maven" : {
     "deps" : [
@@ -25,6 +25,7 @@
       "//test/com/facebook/buck/jvm/java:testutil",
       "//test/com/facebook/buck/maven:testutil",
       "//test/com/facebook/buck/model:testutil",
+      "//test/com/facebook/buck/rules:testutil",
       "//test/com/facebook/buck/testutil:testutil",
       "//test/com/facebook/buck/testutil/integration:integration",
       "//third-party/java/aether:aether-api",
