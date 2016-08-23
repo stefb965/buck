@@ -409,10 +409,6 @@ public class DefaultJavaLibrary extends AbstractBuildRule
     return declaredClasspathEntriesSupplier.get();
   }
 
-  public ImmutableSet<JavaLibrary> getDeclaredClasspathDeps() {
-    return declaredClasspathEntriesSupplier.get().keySet();
-  }
-
   @Override
   public ImmutableSet<Path> getOutputClasspathEntries() {
     return outputClasspathEntriesSupplier.get();
