@@ -27,6 +27,7 @@ import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.Sets;
 
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Map;
 import java.util.Set;
 
@@ -96,8 +97,11 @@ public class JavaLibraryClasspathProvider {
 
     // Only add ourselves to the classpath if there's a jar to be built or we contribute to a maven
     // package
-    if (outputJar.isPresent() || javaLibraryRule.getMavenCoords().isPresent()) {
+    if (outputJar.isPresent()) {
       classpathEntries.put(javaLibraryRule, resolver.getAbsolutePath(outputJar.get()));
+    } else if (javaLibraryRule.getMavenCoords().isPresent()) {
+      // Put a garbage entry into the list
+      classpathEntries.put(javaLibraryRule, Paths.get("_DOES_NOT_EXIST_"));
     }
 
     return classpathEntries.build();
