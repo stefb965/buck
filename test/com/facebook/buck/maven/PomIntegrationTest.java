@@ -44,7 +44,6 @@ import org.apache.maven.model.Dependency;
 import org.apache.maven.model.Model;
 import org.apache.maven.model.io.xpp3.MavenXpp3Reader;
 import org.apache.maven.model.io.xpp3.MavenXpp3Writer;
-import org.easymock.EasyMockSupport;
 import org.junit.Rule;
 import org.junit.Test;
 import org.xml.sax.SAXException;
@@ -59,7 +58,7 @@ import java.util.List;
 
 import javax.xml.transform.TransformerException;
 
-public class PomIntegrationTest extends EasyMockSupport {
+public class PomIntegrationTest {
 
   private static final MavenXpp3Writer MAVEN_XPP_3_WRITER = new MavenXpp3Writer();
   private static final MavenXpp3Reader MAVEN_XPP_3_READER = new MavenXpp3Reader();
@@ -81,11 +80,15 @@ public class PomIntegrationTest extends EasyMockSupport {
         "com.othercorp:no-deps:1.0",
         ImmutableSortedSet.<HasMavenCoordinates>of());
 
-    MavenPublishable item = createMavenPublishable(
+    HasMavenCoordinates withDeps = createMavenPublishable(
         resolver,
         "com.example:with-deps:1.0",
         ImmutableSortedSet.of(dep));
 
+    MavenPublishable item = (MavenPublishable) resolver.getRule(
+        BuildTarget.builder().from(withDeps.getBuildTarget())
+            .addFlavors(JavaLibrary.SRC_JAR, JavaLibrary.MAVEN_JAR)
+            .build());
     Path pomPath = tmp.getRoot().resolve("pom.xml");
     File pomFile = pomPath.toFile();
     assertFalse(pomFile.exists());
@@ -112,14 +115,14 @@ public class PomIntegrationTest extends EasyMockSupport {
     assertEquals(URL, pomModel.getUrl());
   }
 
-  private MavenPublishable createMavenPublishable(
+  private JavaLibrary createMavenPublishable(
       BuildRuleResolver resolver,
       String mavenCoords,
       ImmutableSortedSet<HasMavenCoordinates> deps) throws NoSuchBuildTargetException {
     BuildTarget target = BuildTargetFactory.newInstance("//com/ex:test" + count++);
     JavaLibraryBuilder builder =
         JavaLibraryBuilder.createBuilder(target)
-        .setMavenCoords(mavenCoords);
+            .setMavenCoords(mavenCoords);
     for (HasMavenCoordinates dep : deps) {
       builder.addDep(dep.getBuildTarget());
     }
@@ -139,12 +142,15 @@ public class PomIntegrationTest extends EasyMockSupport {
 
     String amendedCoords = AetherUtil.addClassifier(mavenCoords, AetherUtil.CLASSIFIER_SOURCES);
 
-    return resolver.addToIndex(new JavaSourceJar(
+    resolver.addToIndex(new JavaSourceJar(
         params,
         new SourcePathResolver(resolver),
-        javaLib, RuleGatherer.MAVEN_JAR,
+        javaLib,
+        RuleGatherer.MAVEN_JAR,
         Optional.<Path>absent(),
         Optional.of(amendedCoords)));
+
+    return javaLib;
   }
 
   private static void serializePom(Model pomModel, File destination) throws IOException {
