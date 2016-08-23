@@ -192,21 +192,49 @@ public class JavaLibraryClasspathProviderTest {
 
   @Test
   public void getTransitiveClasspathDeps() throws Exception {
-    JavaLibrary aLib = (JavaLibrary) a;
+    // Add one transitive dep with its own dep, one maven-coordinate, one empty
+    ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
+    BuildRuleResolver ruleResolver = new BuildRuleResolver(
+        TargetGraph.EMPTY,
+        new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRule mavenCoord =
+        JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:maven-coord"), filesystem)
+            .setMavenCoords("group:identifer:1.0")
+            .build(ruleResolver);
+    BuildRule noOutput = makeRule(
+        "//:empty",
+        ImmutableSet.<String>of(),
+        ImmutableSet.<BuildRule>of(mavenCoord),
+        ruleResolver,
+        filesystem);
+    JavaLibrary dep = makeRule(
+        "//:dep",
+        ImmutableSet.of("Foo.java"),
+        ImmutableSet.<BuildRule>of(),
+        ruleResolver,
+        filesystem);
+    JavaLibrary root = makeRule(
+        "//:root",
+        ImmutableSet.<String>of(),
+        ImmutableSet.of(noOutput, dep),
+        ruleResolver,
+        filesystem);
+
+
     assertEquals(
         ImmutableSet.of(
-            c, e
+            dep, mavenCoord
         ),
         JavaLibraryClasspathProvider.getTransitiveClasspathDeps(
-            aLib) // a does not appear if outputJar not present
+            root) // Root does not have an output jar
     );
 
     assertEquals(
         ImmutableSet.of(
-            a, c, e
+            dep
         ),
         JavaLibraryClasspathProvider.getTransitiveClasspathDeps(
-            aLib));
+            dep)); // Whereas dep does have an output jar
   }
 
   @Test

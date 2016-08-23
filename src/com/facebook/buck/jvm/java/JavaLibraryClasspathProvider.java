@@ -27,6 +27,7 @@ import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.Sets;
 
 import java.nio.file.Path;
+import java.util.Map;
 import java.util.Set;
 
 public class JavaLibraryClasspathProvider {
@@ -65,7 +66,8 @@ public class JavaLibraryClasspathProvider {
       Optional<SourcePath> outputJar) {
     final ImmutableSetMultimap.Builder<JavaLibrary, Path> classpathEntries =
         ImmutableSetMultimap.builder();
-    ImmutableSetMultimap<JavaLibrary, Path> classpathEntriesForDeps =
+
+    ImmutableSetMultimap<JavaLibrary, Path> candidates =
         getClasspathEntries(javaLibraryRule.getDepsForTransitiveClasspathEntries());
 
     ImmutableSetMultimap<JavaLibrary, Path> classpathEntriesForExportedsDeps;
@@ -76,7 +78,12 @@ public class JavaLibraryClasspathProvider {
       classpathEntriesForExportedsDeps = ImmutableSetMultimap.of();
     }
 
-    classpathEntries.putAll(classpathEntriesForDeps);
+    for (Map.Entry<JavaLibrary, Path> entry : candidates.entries()) {
+      JavaLibrary library = entry.getKey();
+      if (library.getPathToOutput() != null || library.getMavenCoords().isPresent()) {
+        classpathEntries.put(entry);
+      }
+    }
 
     // If we have any exported deps, add an entry mapping ourselves to to their classpaths,
     // so when suggesting libraries to add we know that adding this library would pull in
@@ -87,8 +94,9 @@ public class JavaLibraryClasspathProvider {
           classpathEntriesForExportedsDeps.values());
     }
 
-    // Only add ourselves to the classpath if there's a jar to be built.
-    if (outputJar.isPresent()) {
+    // Only add ourselves to the classpath if there's a jar to be built or we contribute to a maven
+    // package
+    if (outputJar.isPresent() || javaLibraryRule.getMavenCoords().isPresent()) {
       classpathEntries.put(javaLibraryRule, resolver.getAbsolutePath(outputJar.get()));
     }
 
@@ -102,7 +110,11 @@ public class JavaLibraryClasspathProvider {
         getClasspathDeps(
             javaLibrary.getDepsForTransitiveClasspathEntries()));
 
-    classpathDeps.add(javaLibrary);
+    // Only add ourselves to the classpath if there's a jar to be built, or if we contribute to a
+    // set of maven coordinates.
+    if (javaLibrary.getPathToOutput() != null || javaLibrary.getMavenCoords().isPresent()) {
+      classpathDeps.add(javaLibrary);
+    }
 
     return classpathDeps.build();
   }
