@@ -267,6 +267,8 @@ public class JarDirectoryStepTest {
     Manifest fromUser = createManifestWithExampleSection(ImmutableMap.of("cake", "cheese"));
 
     Manifest seenManifest = jarDirectoryAndReadManifest(fromJar, fromUser, false);
+    // Remove the Build-Info from the seenManifest --- it always gets added
+    seenManifest.getEntries().remove("Build-Info");
 
     assertEquals(fromUser.getEntries(), seenManifest.getEntries());
   }
@@ -277,6 +279,8 @@ public class JarDirectoryStepTest {
     Manifest fromUser = createManifestWithExampleSection(ImmutableMap.of("cake", "cheese"));
 
     Manifest seenManifest = jarDirectoryAndReadManifest(fromJar, fromUser, true);
+    // Remove the Build-Info from the seenManifest --- it always gets added
+    seenManifest.getEntries().remove("Build-Info");
 
     Manifest expectedManifest = new Manifest(fromJar);
     expectedManifest.getEntries().putAll(fromUser.getEntries());
