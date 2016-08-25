@@ -146,7 +146,9 @@ public enum RuleGatherer {
       if (HasMavenCoordinates.MAVEN_COORDS_PRESENT_PREDICATE.apply(rule) &&
           !rule.equals(rootLibrary)) {
         if (rule instanceof JavaLibrary) {
+          // We hit an edge. Stop
           firstOrder.add((JavaLibrary) rule);
+          return ImmutableSortedSet.of();
         }
       }
 
