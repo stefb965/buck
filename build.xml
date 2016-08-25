@@ -133,8 +133,8 @@
     <include name="aether/aether-connector-basic-1.0.2.v20150114.jar" />
     <include name="aether/aether-impl-1.0.0.v20140518.jar" />
     <include name="aether/aether-spi-1.0.2.v20150114.jar" />
-    <include name="aether/aether-transport-http-1.0.2.v20150114.jar" />
     <include name="aether/aether-transport-file-1.0.2.v20150114.jar" />
+    <include name="aether/aether-transport-http-1.0.2.v20150114.jar" />
     <include name="aether/aether-util-1.0.2.v20150114.jar" />
     <include name="httpcomponents/httpclient-4.4.1.jar" />
     <include name="httpcomponents/httpcore-4.4.1.jar" />
@@ -381,28 +381,6 @@
   </macrodef>
 
   <target name="package-resources">
-    <mkdir dir="${classes.dir}/com/facebook/buck/cli/quickstart/android"/>
-    <zip basedir="src/com/facebook/buck/cli/quickstart/android"
-         destfile="${classes.dir}/com/facebook/buck/cli/quickstart/android/android-template.zip"
-         excludes="BUCK"
-         defaultexcludes="no"/>
-
-    <mkdir dir="${classes.dir}/com/facebook/buck/cli/quickstart/ios"/>
-    <zip basedir="src/com/facebook/buck/cli/quickstart/ios"
-         destfile="${classes.dir}/com/facebook/buck/cli/quickstart/ios/ios-template.zip"
-         excludes="BUCK"
-         defaultexcludes="no"/>
-
-    <mkdir dir="${classes.dir}/com/facebook/buck/json"/>
-    <zip basedir="third-party/py/pathlib"
-         destfile="${classes.dir}/com/facebook/buck/json/pathlib-archive.zip"
-         includes="*.py"
-         defaultexcludes="no"/>
-    <zip basedir="third-party/py/pywatchman"
-         destfile="${classes.dir}/com/facebook/buck/json/pywatchman-archive.zip"
-         includes="pywatchman/*.py"
-         defaultexcludes="no"/>
-
     <mkdir dir="${classes.dir}/com/facebook/buck/android"/>
     <copy file="${third-party.dir}/java/ddmlib/ddmlib-22.5.3.jar"
           tofile="${classes.dir}/com/facebook/buck/android/ddmlib.jar"/>
@@ -427,7 +405,6 @@
           -->
           <exclude name="com/facebook/buck/android/support/**" />
           <exclude name="com/facebook/buck/cli/bootstrapper/**" />
-          <exclude name="com/facebook/buck/cli/quickstart/**" />
           <exclude name="com/facebook/buck/event/api/**" />
           <exclude name="com/facebook/buck/intellij/plugin/**" />
           <exclude name="com/facebook/buck/testrunner/**" />
@@ -876,7 +853,6 @@
         <arg value="-notimestamp"/>
         <fileset dir="${src.dir}">
           <include name="**/*.java" />
-          <exclude name="com/facebook/buck/cli/quickstart/**" />
           <exclude name="com/facebook/buck/android/support/exopackage/**" />
           <exclude name="com/facebook/buck/intellij/plugin/**" />
         </fileset>
