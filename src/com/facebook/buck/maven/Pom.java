@@ -96,6 +96,7 @@ public class Pom {
   public static Path generatePomFile(MavenPublishable rule)
       throws IOException {
     Path pom = getPomPath(rule);
+    Files.deleteIfExists(pom);
     generatePomFile(rule, pom);
     return pom;
   }

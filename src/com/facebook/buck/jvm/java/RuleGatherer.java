@@ -85,8 +85,7 @@ public enum RuleGatherer {
           collector.getTransitiveClasspath(),
           collector.getFirstOrderMavenDeps());
     }
-  }
-  ;
+  };
 
   /**
    * Gather the rules that should be packaged into a single JAR once this rule finishes executing.
@@ -142,16 +141,23 @@ public enum RuleGatherer {
         if (rule instanceof JavaLibrary) {
           rootLibrary = (JavaLibrary) rule;
         }
-        return rule.getDeps();
       }
 
-      if (HasMavenCoordinates.MAVEN_COORDS_PRESENT_PREDICATE.apply(rule)) {
+      if (HasMavenCoordinates.MAVEN_COORDS_PRESENT_PREDICATE.apply(rule) &&
+          !rule.equals(rootLibrary)) {
         if (rule instanceof JavaLibrary) {
           firstOrder.add((JavaLibrary) rule);
         }
       }
 
-      return FluentIterable.from(rule.getDeps())
+      Iterable<BuildRule> deps = rule.getDeps();
+
+      firstOrder.addAll(FluentIterable.from(deps)
+          .filter(HasMavenCoordinates.MAVEN_COORDS_PRESENT_PREDICATE)
+          .filter(JavaLibrary.class)
+          .toSet());
+
+      return FluentIterable.from(deps)
           .filter(Predicates.not(HasMavenCoordinates.MAVEN_COORDS_PRESENT_PREDICATE))
           .toSet();
     }
