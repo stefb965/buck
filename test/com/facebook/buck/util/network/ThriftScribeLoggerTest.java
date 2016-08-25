@@ -14,7 +14,7 @@
  * under the License.
  */
 
-package com.facebook.buck.util.network.thrift;
+package com.facebook.buck.util.network;
 
 import static org.hamcrest.Matchers.hasItem;
 import static org.junit.Assert.assertEquals;
@@ -26,8 +26,8 @@ import com.facebook.buck.distributed.thrift.FrontendRequest;
 import com.facebook.buck.distributed.thrift.FrontendRequestType;
 import com.facebook.buck.distributed.thrift.FrontendResponse;
 import com.facebook.buck.distributed.thrift.LogRequestType;
+import com.facebook.buck.slb.ThriftException;
 import com.facebook.buck.slb.ThriftService;
-import com.facebook.buck.slb.ThriftServiceException;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
@@ -36,6 +36,8 @@ import com.google.common.util.concurrent.MoreExecutors;
 
 import org.hamcrest.Matchers;
 import org.hamcrest.collection.IsIterableWithSize;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 
 import java.io.IOException;
@@ -44,36 +46,39 @@ import javax.annotation.Nullable;
 
 public class ThriftScribeLoggerTest {
 
-  private static final String CATEGORY =  "TEST_CATEGORY";
+  private static final String CATEGORY = "TEST_CATEGORY";
   private static final ImmutableList<String> LINES = ImmutableList.of("t1", "t2");
 
-  private static final ListeningExecutorService EXECUTOR_SERVICE =
-      MoreExecutors.newDirectExecutorService();
-
+  private ListeningExecutorService executorService;
+  private ThriftScribeLogger logger;
   private FrontendRequest request;
+
+  @Before
+  public void setUp() {
+    executorService = MoreExecutors.newDirectExecutorService();
+  }
+
+  @After
+  public void tearDown() throws Exception {
+    logger.close();
+  }
 
   @Test
   public void handlingThriftCallSucceeding() throws Exception {
-    ThriftScribeLogger logger =
-        new ThriftScribeLogger(getNotThrowingThriftService(true), EXECUTOR_SERVICE);
+    logger = new ThriftScribeLogger(getNotThrowingThriftService(true), executorService);
     Futures.addCallback(logger.log(CATEGORY, LINES), getCallback(true));
-    logger.close();
   }
 
   @Test
   public void handlingThriftCallFailing() throws Exception {
-    ThriftScribeLogger logger =
-        new ThriftScribeLogger(getNotThrowingThriftService(false), EXECUTOR_SERVICE);
+    logger = new ThriftScribeLogger(getNotThrowingThriftService(false), executorService);
     Futures.addCallback(logger.log(CATEGORY, LINES), getCallback(false));
-    logger.close();
   }
 
   @Test
   public void handlingThriftCallThrowing() throws Exception {
-    ThriftScribeLogger logger =
-        new ThriftScribeLogger(getThrowingThriftService(), EXECUTOR_SERVICE);
+    logger = new ThriftScribeLogger(getThrowingThriftService(), executorService);
     Futures.addCallback(logger.log(CATEGORY, LINES), getCallback(false));
-    logger.close();
   }
 
   @Test
@@ -91,9 +96,8 @@ public class ThriftScribeLoggerTest {
           public void close() throws IOException {
           }
         };
-    ThriftScribeLogger logger = new ThriftScribeLogger(thriftService, EXECUTOR_SERVICE);
+    logger = new ThriftScribeLogger(thriftService, executorService);
     logger.log(CATEGORY, LINES);
-    logger.close();
 
     // Test request outside as otherwise an assertion could fail silently.
     assertEquals(request.getType(), FrontendRequestType.LOG);
@@ -127,8 +131,8 @@ public class ThriftScribeLoggerTest {
       @Override
       public void makeRequest(
           FrontendRequest frontendRequest,
-          FrontendResponse frontendResponse) throws ThriftServiceException {
-        throw new ThriftServiceException("Error");
+          FrontendResponse frontendResponse) throws ThriftException {
+        throw new ThriftException("Error");
       }
 
       @Override

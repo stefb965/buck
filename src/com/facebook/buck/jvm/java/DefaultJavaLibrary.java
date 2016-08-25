@@ -26,7 +26,6 @@ import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.jvm.core.SuggestBuildRules;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.HasTests;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
@@ -97,7 +96,7 @@ import javax.annotation.Nullable;
 public class DefaultJavaLibrary extends AbstractBuildRule
     implements JavaLibrary, HasClasspathEntries, ExportDependencies,
     InitializableFromDisk<JavaLibrary.Data>, AndroidPackageable,
-    SupportsInputBasedRuleKey, SupportsDependencyFileRuleKey, HasTests {
+    SupportsInputBasedRuleKey, SupportsDependencyFileRuleKey, JavaLibraryWithTests {
 
   private static final BuildableProperties OUTPUT_TYPE = new BuildableProperties(LIBRARY);
 
@@ -450,10 +449,11 @@ public class DefaultJavaLibrary extends AbstractBuildRule
 
     SuggestBuildRules suggestBuildRule =
         DefaultSuggestBuildRules.createSuggestBuildFunction(
-            JAR_RESOLVER, declaredClasspathEntries,
-            ImmutableSetMultimap.<JavaLibrary, Path>builder()
-                .putAll(getTransitiveClasspathEntries())
-                .putAll(this, additionalClasspathEntries)
+            JAR_RESOLVER,
+            declaredClasspathEntries.keySet(),
+            ImmutableSet.<JavaLibrary>builder()
+                .addAll(getTransitiveClasspathEntries().keySet())
+                .add(this)
                 .build(),
             context.getActionGraph().getNodes());
 

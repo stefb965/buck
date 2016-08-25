@@ -65,6 +65,7 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphAndTargets;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.step.ExecutionContext;
+import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreExceptions;
 import com.facebook.buck.util.ProcessManager;
@@ -993,7 +994,7 @@ public class ProjectCommand extends BuildCommand {
           appleConfig);
       generator.setGroupableTests(groupableTests);
       ListeningExecutorService executorService = params.getExecutors().get(
-          ExecutionContext.ExecutorPool.PROJECT);
+          ExecutorPool.PROJECT);
       Preconditions.checkNotNull(
           executorService,
           "CommandRunnerParams does not have executor for PROJECT pool");
@@ -1198,7 +1199,6 @@ public class ProjectCommand extends BuildCommand {
           graphRootsOrSourceTargets,
           projectGraph,
           isWithDependenciesTests);
-      // The test nodes for a recursively parsed project is the same regardless.
       if (!needsFullRecursiveParse) {
         projectGraph = params.getParser().buildTargetGraph(
             params.getBuckEventBus(),
@@ -1206,6 +1206,17 @@ public class ProjectCommand extends BuildCommand {
             getEnableParserProfiling(),
             executor,
             Sets.union(graphRoots, explicitTestTargets));
+      } else {
+        projectGraph = params.getParser().buildTargetGraph(
+            params.getBuckEventBus(),
+            params.getCell(),
+            getEnableParserProfiling(),
+            executor,
+            Sets.union(
+                FluentIterable.from(projectGraph.getNodes())
+                    .transform(HasBuildTarget.TO_TARGET)
+                    .toSet(),
+                explicitTestTargets));
       }
     }
 

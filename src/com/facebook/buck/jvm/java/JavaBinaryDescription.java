@@ -20,6 +20,7 @@ import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPlatforms;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
+import com.facebook.buck.model.HasTests;
 import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractDescriptionArg;
@@ -30,12 +31,12 @@ import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.Hint;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.annotations.Beta;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
@@ -147,14 +148,19 @@ public class JavaBinaryDescription implements
   }
 
   @SuppressFieldNotInitialized
-  public static class Args extends AbstractDescriptionArg {
+  public static class Args extends AbstractDescriptionArg implements HasTests {
     public Optional<ImmutableSortedSet<BuildTarget>> deps;
     public Optional<String> mainClass;
     public Optional<SourcePath> manifestFile;
     public Optional<Boolean> mergeManifests;
-    @Beta
     public Optional<Path> metaInfDirectory;
-    @Beta
     public Optional<ImmutableSet<Pattern>> blacklist;
+    @Hint(isDep = false) public Optional<ImmutableSortedSet<BuildTarget>> tests;
+
+    @Override
+    public ImmutableSortedSet<BuildTarget> getTests() {
+      return tests.get();
+    }
+
   }
 }

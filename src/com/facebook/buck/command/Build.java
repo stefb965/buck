@@ -43,6 +43,7 @@ import com.facebook.buck.step.AdbOptions;
 import com.facebook.buck.util.versioncontrol.BuildStamper;
 import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.step.ExecutionContext;
+import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.step.StepFailedException;
 import com.facebook.buck.step.TargetDevice;
 import com.facebook.buck.step.TargetDeviceOptions;
@@ -132,7 +133,7 @@ public class Build implements Closeable {
       ConcurrencyLimit concurrencyLimit,
       Optional<AdbOptions> adbOptions,
       Optional<TargetDeviceOptions> targetDeviceOptions,
-      Map<ExecutionContext.ExecutorPool, ListeningExecutorService> executors) {
+      Map<ExecutorPool, ListeningExecutorService> executors) {
     this.actionGraph = actionGraph;
     this.ruleResolver = ruleResolver;
     this.rootCell = rootCell;

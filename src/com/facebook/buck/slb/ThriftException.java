@@ -14,26 +14,20 @@
  * under the License.
  */
 
+package com.facebook.buck.slb;
 
-package com.facebook.buck.rules;
+import org.apache.thrift.TException;
 
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.HasTests;
-import com.google.common.collect.ImmutableSortedSet;
+import java.io.IOException;
 
-public class NoopBuildRuleWithTests extends NoopBuildRule implements HasTests {
-  private final ImmutableSortedSet<BuildTarget> tests;
-
-  public NoopBuildRuleWithTests(
-      BuildRuleParams params,
-      SourcePathResolver resolver,
-      ImmutableSortedSet<BuildTarget> tests) {
-    super(params, resolver);
-    this.tests = tests;
+// Convenience wrapper of the TException that inherits from IOException so the rest of the code
+// remains agnostic of the underlying data protocols we use for network operations.
+public class ThriftException extends IOException {
+  public ThriftException(TException exception) {
+    super(exception);
   }
 
-  @Override
-  public ImmutableSortedSet<BuildTarget> getTests() {
-    return tests;
+  public ThriftException(String message) {
+    super(message);
   }
 }

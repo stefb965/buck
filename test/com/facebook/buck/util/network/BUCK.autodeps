@@ -1,15 +1,17 @@
-#@# GENERATED FILE: DO NOT MODIFY 633e78dea2450117cd3341d714d7ed4142714245 #@#
+#@# GENERATED FILE: DO NOT MODIFY 46982c8b8a94014ac0f177015b4e461ce008cc59 #@#
 {
   "network" : {
     "deps" : [
+      "//src-gen:thrift",
+      "//src/com/facebook/buck/slb:slb",
       "//src/com/facebook/buck/util:io",
       "//src/com/facebook/buck/util:object_mapper",
       "//src/com/facebook/buck/util/network:network",
-      "//test/com/facebook/buck/testutil:testutil",
       "//test/com/facebook/buck/util:testutil",
       "//third-party/java/guava:guava",
       "//third-party/java/hamcrest:hamcrest-junit",
       "//third-party/java/hamcrest:java-hamcrest",
+      "//third-party/java/jsr:jsr305",
       "//third-party/java/junit:junit"
     ],
     "exported_deps" : [ ]

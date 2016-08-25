@@ -24,14 +24,14 @@ import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.rules.ActionGraphCache;
 import com.facebook.buck.rules.Cell;
-import com.facebook.buck.util.versioncontrol.BuildStamper;
-import com.facebook.buck.step.ExecutionContext;
+import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ProcessManager;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.environment.BuildEnvironmentDescription;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.util.versioncontrol.BuildStamper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Optional;
 import com.google.common.base.Supplier;
@@ -63,7 +63,7 @@ class CommandRunnerParams {
   private final Optional<WebServer> webServer;
   private final BuckConfig buckConfig;
   private final FileHashCache fileHashCache;
-  private final Map<ExecutionContext.ExecutorPool, ListeningExecutorService> executors;
+  private final Map<ExecutorPool, ListeningExecutorService> executors;
   private final BuildEnvironmentDescription buildEnvironmentDescription;
   private final ActionGraphCache actionGraphCache;
 
@@ -85,7 +85,7 @@ class CommandRunnerParams {
       Optional<WebServer> webServer,
       BuckConfig buckConfig,
       FileHashCache fileHashCache,
-      Map<ExecutionContext.ExecutorPool, ListeningExecutorService> executors,
+      Map<ExecutorPool, ListeningExecutorService> executors,
       BuildEnvironmentDescription buildEnvironmentDescription,
       ActionGraphCache actionGraphCache) {
     this.console = console;
@@ -174,7 +174,7 @@ class CommandRunnerParams {
     return fileHashCache;
   }
 
-  public Map<ExecutionContext.ExecutorPool, ListeningExecutorService> getExecutors() {
+  public Map<ExecutorPool, ListeningExecutorService> getExecutors() {
     return executors;
   }
 

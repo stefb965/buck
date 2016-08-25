@@ -32,6 +32,7 @@ import org.apache.thrift.transport.TIOStreamTransport;
 import org.apache.thrift.transport.TTransport;
 
 import java.io.InputStream;
+import java.io.OutputStream;
 
 public final class ThriftUtil {
   private static final Logger LOGGER = Logger.get(ThriftUtil.class);
@@ -54,7 +55,8 @@ public final class ThriftUtil {
         return new TBinaryProtocol.Factory();
 
       default:
-        throw new IllegalArgumentException(String.format("Unknown ThriftProtocol [%s].",
+        throw new IllegalArgumentException(String.format(
+            "Unknown ThriftProtocol [%s].",
             protocol.toString()));
     }
   }
@@ -63,23 +65,49 @@ public final class ThriftUtil {
     return getProtocolFactory(protocol).getProtocol(transport);
   }
 
-  public static byte[] serialize(ThriftProtocol protocol, TBase<?, ?> source) throws TException {
+  public static void serialize(
+      ThriftProtocol protocol,
+      TBase<?, ?> source,
+      OutputStream stream) throws ThriftException {
+    try (TTransport transport = new TIOStreamTransport(stream)) {
+      TProtocol thriftProtocol = getProtocolFactory(protocol).getProtocol(transport);
+      try {
+        source.write(thriftProtocol);
+      } catch (TException e) {
+        throw new ThriftException(e);
+      }
+    }
+  }
+
+  public static byte[] serialize(
+      ThriftProtocol protocol,
+      TBase<?, ?> source) throws ThriftException {
     TSerializer deserializer = new TSerializer(getProtocolFactory(protocol));
-    return deserializer.serialize(source);
+    try {
+      return deserializer.serialize(source);
+    } catch (TException e) {
+      throw new ThriftException(e);
+    }
   }
 
   public static void deserialize(ThriftProtocol protocol, byte[] source, TBase<?, ?> dest)
-      throws TException {
+      throws ThriftException {
     TDeserializer deserializer = new TDeserializer(getProtocolFactory(protocol));
     dest.clear();
-    deserializer.deserialize(dest, source);
+    try {
+      deserializer.deserialize(dest, source);
+    } catch (TException e) {
+      throw new ThriftException(e);
+    }
   }
 
   public static void deserialize(ThriftProtocol protocol, InputStream source, TBase<?, ?> dest)
-      throws TException {
+      throws ThriftException {
     try (TIOStreamTransport responseTransport = new TIOStreamTransport(source)) {
       TProtocol responseProtocol = newProtocolInstance(protocol, responseTransport);
       dest.read(responseProtocol);
+    } catch (TException e) {
+      throw new ThriftException(e);
     }
   }
 
@@ -88,7 +116,11 @@ public final class ThriftUtil {
     try {
       return new String(serializer.serialize(thriftObject));
     } catch (TException e) {
-      LOGGER.error(e, "Failed trying to serialize to debug JSON.");
+      LOGGER.error(
+          e,
+          String.format(
+              "Failed trying to serialize type [%s] to debug JSON.",
+              thriftObject.getClass().getName()));
       return "FAILED_TO_DESERIALIZE";
     }
   }

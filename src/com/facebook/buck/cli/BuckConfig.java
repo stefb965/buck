@@ -47,8 +47,7 @@ import com.facebook.buck.util.SampleRate;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.EnvironmentFilter;
 import com.facebook.buck.util.environment.Platform;
-import com.facebook.buck.util.network.HostnameFetching;
-import com.google.common.annotations.Beta;
+import com.facebook.buck.util.network.hostname.HostnameFetching;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Objects;
@@ -72,13 +71,10 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 import javax.annotation.Nullable;
-import javax.annotation.concurrent.Immutable;
 
 /**
  * Structured representation of data read from a {@code .buckconfig} file.
  */
-@Beta
-@Immutable
 public class BuckConfig {
 
   public static final String BUCK_CONFIG_OVERRIDE_FILE_NAME = ".buckconfig.local";

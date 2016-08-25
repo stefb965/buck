@@ -14,17 +14,10 @@
  * under the License.
  */
 
-package com.facebook.buck.slb;
+package com.facebook.buck.step;
 
-import java.io.IOException;
-
-public class ThriftServiceException extends IOException {
-
-  public ThriftServiceException(String message, Throwable innerException) {
-    super(message, innerException);
-  }
-
-  public ThriftServiceException(String message) {
-    super(message);
-  }
+public enum ExecutorPool {
+  CPU,
+  NETWORK,
+  PROJECT,
 }

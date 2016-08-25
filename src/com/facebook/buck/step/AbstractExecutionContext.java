@@ -53,12 +53,6 @@ import java.util.concurrent.ConcurrentMap;
 @BuckStyleImmutable
 abstract class AbstractExecutionContext implements Closeable {
 
-  public enum ExecutorPool {
-    CPU,
-    NETWORK,
-    PROJECT,
-  }
-
   @Value.Parameter
   abstract Console getConsole();
 

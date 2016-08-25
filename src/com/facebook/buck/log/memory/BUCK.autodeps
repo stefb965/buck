@@ -1,0 +1,12 @@
+#@# GENERATED FILE: DO NOT MODIFY 5d84a7475e59bd2e88c6fa64f53e284597cc7186 #@#
+{
+  "memory" : {
+    "deps" : [
+      "//src/com/facebook/buck/cli:config",
+      "//src/com/facebook/buck/log:api"
+    ],
+    "exported_deps" : [
+      "//third-party/java/guava:guava"
+    ]
+  }
+}

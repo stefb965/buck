@@ -517,6 +517,13 @@ public class KnownBuildRuleTypes {
             inferBuckConfig,
             cxxPlatforms);
 
+    SwiftLibraryDescription swiftLibraryDescription =
+        new SwiftLibraryDescription(
+            cxxPlatforms,
+            platformFlavorsToAppleCxxPlatforms,
+            defaultCxxPlatform);
+    builder.register(swiftLibraryDescription);
+
     CodeSignIdentityStore codeSignIdentityStore =
         CodeSignIdentityStore.fromSystem(processExecutor);
     ProvisioningProfileStore provisioningProfileStore =
@@ -525,6 +532,7 @@ public class KnownBuildRuleTypes {
     AppleLibraryDescription appleLibraryDescription =
         new AppleLibraryDescription(
             cxxLibraryDescription,
+            swiftLibraryDescription,
             platformFlavorsToAppleCxxPlatforms,
             defaultCxxPlatform,
             codeSignIdentityStore,
@@ -538,18 +546,12 @@ public class KnownBuildRuleTypes {
     AppleBinaryDescription appleBinaryDescription =
         new AppleBinaryDescription(
             cxxBinaryDescription,
+            swiftLibraryDescription,
             platformFlavorsToAppleCxxPlatforms,
             codeSignIdentityStore,
             provisioningProfileStore,
             appleConfig.getDefaultDebugInfoFormatForBinaries());
     builder.register(appleBinaryDescription);
-
-    SwiftLibraryDescription swiftLibraryDescription =
-        new SwiftLibraryDescription(
-            cxxPlatforms,
-            platformFlavorsToAppleCxxPlatforms,
-            defaultCxxPlatform);
-    builder.register(swiftLibraryDescription);
 
     HaskellBuckConfig haskellBuckConfig = new HaskellBuckConfig(config, executableFinder);
     builder.register(new HaskellLibraryDescription(haskellBuckConfig, cxxBuckConfig, cxxPlatforms));
