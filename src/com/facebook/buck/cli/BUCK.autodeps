@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY badaffe63daa164c8c0a6f25d466e93e63a7e8bf #@#
+#@# GENERATED FILE: DO NOT MODIFY 1dd417c2dcbadcd9660f09cd36f809a01d5c4107 #@#
 {
   "cli" : {
     "deps" : [
@@ -13,6 +13,7 @@
       "//src/com/facebook/buck/autodeps:model",
       "//src/com/facebook/buck/charset:charset",
       "//src/com/facebook/buck/cli:events",
+      "//src/com/facebook/buck/config:config",
       "//src/com/facebook/buck/counters:counters",
       "//src/com/facebook/buck/cxx:platform",
       "//src/com/facebook/buck/cxx:rules",
@@ -58,9 +59,7 @@
       "//src/com/facebook/buck/util:watchman",
       "//src/com/facebook/buck/util/environment:env-filter",
       "//src/com/facebook/buck/util/network:network",
-      "//src/com/facebook/buck/util/network/offline:offline",
       "//src/com/facebook/buck/util/shutdown:shutdown",
-      "//src/com/facebook/buck/util/versioncontrol:impl",
       "//src/com/facebook/buck/util/versioncontrol:versioncontrol",
       "//third-party/java/aosp:aosp",
       "//third-party/java/immutables:processor",
@@ -76,7 +75,7 @@
       "//src/com/facebook/buck/artifact_cache:artifact_cache",
       "//src/com/facebook/buck/cli:config",
       "//src/com/facebook/buck/command:command",
-      "//src/com/facebook/buck/config:config",
+      "//src/com/facebook/buck/config:base-config",
       "//src/com/facebook/buck/distributed:distributed",
       "//src/com/facebook/buck/event:event",
       "//src/com/facebook/buck/httpserver:httpserver",
@@ -108,6 +107,7 @@
       "//src/com/facebook/buck/util/environment:environment",
       "//src/com/facebook/buck/util/environment:platform",
       "//src/com/facebook/buck/util/immutables:immutables",
+      "//src/com/facebook/buck/util/versioncontrol:impl",
       "//third-party/java/aether:aether-api",
       "//third-party/java/args4j:args4j",
       "//third-party/java/guava:guava",
@@ -126,7 +126,7 @@
       "//src/com/facebook/buck/util/network/hostname:hostname"
     ],
     "exported_deps" : [
-      "//src/com/facebook/buck/config:config",
+      "//src/com/facebook/buck/config:base-config",
       "//src/com/facebook/buck/event:event",
       "//src/com/facebook/buck/io:io",
       "//src/com/facebook/buck/jvm/java:packagefinder",
