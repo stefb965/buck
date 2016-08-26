@@ -16,6 +16,7 @@
 
 package com.facebook.buck.distributed;
 
+import com.facebook.buck.distributed.thrift.BuckVersion;
 import com.facebook.buck.distributed.thrift.BuildId;
 import com.facebook.buck.distributed.thrift.BuildJob;
 import com.facebook.buck.distributed.thrift.BuildJobState;
@@ -24,6 +25,9 @@ import com.facebook.buck.distributed.thrift.BuildJobStateFileHashes;
 import com.facebook.buck.distributed.thrift.BuildStatusRequest;
 import com.facebook.buck.distributed.thrift.CASContainsRequest;
 import com.facebook.buck.distributed.thrift.CreateBuildRequest;
+import com.facebook.buck.distributed.thrift.FetchBuildGraphRequest;
+import com.facebook.buck.distributed.thrift.FetchSourceFilesRequest;
+import com.facebook.buck.distributed.thrift.FetchSourceFilesResponse;
 import com.facebook.buck.distributed.thrift.FileInfo;
 import com.facebook.buck.distributed.thrift.FrontendRequest;
 import com.facebook.buck.distributed.thrift.FrontendRequestType;
@@ -31,14 +35,15 @@ import com.facebook.buck.distributed.thrift.FrontendResponse;
 import com.facebook.buck.distributed.thrift.StartBuildRequest;
 import com.facebook.buck.distributed.thrift.StoreBuildGraphRequest;
 import com.facebook.buck.distributed.thrift.StoreLocalChangesRequest;
-import com.facebook.buck.slb.ThriftProtocol;
-import com.facebook.buck.slb.ThriftUtil;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 
+import java.io.ByteArrayInputStream;
+import java.io.Closeable;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -47,26 +52,14 @@ import java.util.Map;
 import java.util.concurrent.Callable;
 
 
-public class DistBuildService {
+public class DistBuildService implements Closeable {
+  private static final String BUCK_GIT_COMMIT_KEY = "buck.git_commit";
+
   private final FrontendService service;
-  private static final ThriftProtocol buildGraphSerializerProtocol = ThriftProtocol.BINARY;
 
   public DistBuildService(
       FrontendService service) {
     this.service = service;
-  }
-
-  private FrontendResponse makeRequestChecked(FrontendRequest request) throws IOException {
-    FrontendResponse response = service.makeRequest(request);
-    Preconditions.checkState(response.isSetWasSuccessful());
-    if (!response.wasSuccessful) {
-      throw new IOException(String.format(
-          "Request of type [%s] failed with error message [%s]",
-          request.type.toString(),
-          response.getErrorMessage()));
-    }
-    Preconditions.checkState(request.getType().equals(response.getType()));
-    return response;
   }
 
   public ListenableFuture<Void> uploadTargetGraph(
@@ -80,6 +73,9 @@ public class DistBuildService {
       public Void call() throws IOException {
         // Get rid of file contents from buildJobState
         for (BuildJobStateFileHashes cell : buildJobState.getFileHashes()) {
+          if (!cell.isSetEntries()) {
+            continue;
+          }
           for (BuildJobStateFileHashEntry file : cell.getEntries()) {
             file.unsetContents();
           }
@@ -88,8 +84,7 @@ public class DistBuildService {
         // Now serialize and send the whole buildJobState
         StoreBuildGraphRequest storeBuildGraphRequest = new StoreBuildGraphRequest();
         storeBuildGraphRequest.setBuildId(buildId);
-        storeBuildGraphRequest.setBuildGraph(
-            ThriftUtil.serialize(buildGraphSerializerProtocol, buildJobState));
+        storeBuildGraphRequest.setBuildGraph(BuildJobStateSerializer.serialize(buildJobState));
 
         FrontendRequest request = new FrontendRequest();
         request.setType(FrontendRequestType.STORE_BUILD_GRAPH);
@@ -109,6 +104,9 @@ public class DistBuildService {
       public Void call() throws IOException {
         Map<String, ByteBuffer> sha1ToFileContents = new HashMap<>();
         for (BuildJobStateFileHashes filesystem : fileHashes) {
+          if (!filesystem.isSetEntries()) {
+            continue;
+          }
           for (BuildJobStateFileHashEntry file : filesystem.entries) {
             // TODO(shivanker): Eventually, we won't have file contents in BuildJobState.
             // Then change this code to load file contents inline (only for missing files)
@@ -149,10 +147,21 @@ public class DistBuildService {
     });
   }
 
+  private String getBuckGitCommitHash() {
+    return System.getProperty(BUCK_GIT_COMMIT_KEY, "N/A");
+  }
+
+  private BuckVersion createBuckVersion(String version) {
+    BuckVersion buckVersion = new BuckVersion();
+    buckVersion.setVersion(version);
+    return buckVersion;
+  }
+
   public BuildJob createBuild() throws IOException {
     // Tell server to create the build and get the build id.
     CreateBuildRequest createTimeRequest = new CreateBuildRequest();
     createTimeRequest.setCreateTimestampMillis(System.currentTimeMillis());
+    createTimeRequest.setBuckVersion(createBuckVersion(getBuckGitCommitHash()));
     FrontendRequest request = new FrontendRequest();
     request.setType(FrontendRequestType.CREATE_BUILD);
     request.setCreateBuildRequest(createTimeRequest);
@@ -175,8 +184,7 @@ public class DistBuildService {
     return job;
   }
 
-  public BuildJob pollBuild(BuildId id) throws IOException {
-    // Create the poll for buildStatus request.
+  public BuildJob getCurrentBuildJobState(BuildId id) throws IOException {
     BuildStatusRequest statusRequest = new BuildStatusRequest();
     statusRequest.setBuildId(id);
     FrontendRequest request = new FrontendRequest();
@@ -189,4 +197,75 @@ public class DistBuildService {
     return job;
   }
 
+  public BuildJobState fetchBuildJobState(BuildId buildId) throws IOException {
+    FrontendRequest request = createFetchBuildGraphRequest(buildId);
+    FrontendResponse response = makeRequestChecked(request);
+
+    Preconditions.checkState(response.isSetFetchBuildGraphResponse());
+    Preconditions.checkState(response.getFetchBuildGraphResponse().isSetBuildGraph());
+    Preconditions.checkState(response.getFetchBuildGraphResponse().getBuildGraph().length > 0);
+
+    return BuildJobStateSerializer.deserialize(
+        response.getFetchBuildGraphResponse().getBuildGraph());
+  }
+
+  public static FrontendRequest createFetchBuildGraphRequest(BuildId buildId) {
+    FetchBuildGraphRequest fetchBuildGraphRequest = new FetchBuildGraphRequest();
+    fetchBuildGraphRequest.setBuildId(buildId);
+    FrontendRequest frontendRequest = new FrontendRequest();
+    frontendRequest.setType(FrontendRequestType.FETCH_BUILD_GRAPH);
+    frontendRequest.setFetchBuildGraphRequest(fetchBuildGraphRequest);
+    return frontendRequest;
+  }
+
+  public InputStream fetchSourceFile(String hashCode) throws IOException {
+    FrontendRequest request = createFetchSourceFileRequest(hashCode);
+    FrontendResponse response = makeRequestChecked(request);
+
+    Preconditions.checkState(response.isSetFetchSourceFilesResponse());
+    Preconditions.checkState(response.getFetchSourceFilesResponse().isSetFiles());
+    FetchSourceFilesResponse fetchSourceFilesResponse = response.getFetchSourceFilesResponse();
+    Preconditions.checkState(1 == fetchSourceFilesResponse.getFilesSize());
+    FileInfo file = fetchSourceFilesResponse.getFiles().get(0);
+    Preconditions.checkState(file.isSetContent());
+
+    return new ByteArrayInputStream(file.getContent());
+  }
+
+  public static FrontendRequest createFetchSourceFileRequest(String fileHash) {
+    FetchSourceFilesRequest fetchSourceFileRequest = new FetchSourceFilesRequest();
+    fetchSourceFileRequest.setContentHashesIsSet(true);
+    fetchSourceFileRequest.addToContentHashes(fileHash);
+    FrontendRequest frontendRequest = new FrontendRequest();
+    frontendRequest.setType(FrontendRequestType.FETCH_SRC_FILES);
+    frontendRequest.setFetchSourceFilesRequest(fetchSourceFileRequest);
+    return frontendRequest;
+  }
+
+  public static FrontendRequest createFrontendBuildStatusRequest(BuildId buildId) {
+    BuildStatusRequest buildStatusRequest = new BuildStatusRequest();
+    buildStatusRequest.setBuildId(buildId);
+    FrontendRequest frontendRequest = new FrontendRequest();
+    frontendRequest.setType(FrontendRequestType.BUILD_STATUS);
+    frontendRequest.setBuildStatusRequest(buildStatusRequest);
+    return frontendRequest;
+  }
+
+  @Override
+  public void close() throws IOException {
+    service.close();
+  }
+
+  private FrontendResponse makeRequestChecked(FrontendRequest request) throws IOException {
+    FrontendResponse response = service.makeRequest(request);
+    Preconditions.checkState(response.isSetWasSuccessful());
+    if (!response.wasSuccessful) {
+      throw new IOException(String.format(
+          "Stampede request of type [%s] failed with error message [%s].",
+          request.type.toString(),
+          response.getErrorMessage()));
+    }
+    Preconditions.checkState(request.getType().equals(response.getType()));
+    return response;
+  }
 }

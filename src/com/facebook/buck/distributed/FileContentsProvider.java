@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-present Facebook, Inc.
+ * Copyright 2016-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may
  * not use this file except in compliance with the License. You may obtain
@@ -14,17 +14,19 @@
  * under the License.
  */
 
-package com.facebook.buck.model;
+package com.facebook.buck.distributed;
 
-import com.google.common.collect.ImmutableSortedSet;
+import com.facebook.buck.distributed.thrift.BuildJobStateFileHashEntry;
+import com.google.common.base.Optional;
 
-/**
- * A constructor arg of test rules with a list of targets whose source is being tested.
- */
-public interface HasSourceUnderTest {
+import java.io.IOException;
+import java.io.InputStream;
+
+public interface FileContentsProvider {
+
   /**
-   * @return A list of {@link com.facebook.buck.model.BuildTarget}s whose source can be tested by
-   * running the test rule created from this constructor arg.
+   * @param entry to fetch the contents for.
+   * @return the stream to the file contents or Optional.absent() if the file could not be found.
    */
-  ImmutableSortedSet<BuildTarget> getSourceUnderTest();
+  Optional<InputStream> getFileContents(BuildJobStateFileHashEntry entry) throws IOException;
 }

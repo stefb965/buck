@@ -1,24 +1,31 @@
-#@# GENERATED FILE: DO NOT MODIFY 20ec067e4c31c64d6a5f53452354b18a68b0ce7a #@#
+#@# GENERATED FILE: DO NOT MODIFY 2de3da222ede70cce506831b9614eff311d73038 #@#
 {
   "distributed" : {
     "deps" : [
+      "//src/com/facebook/buck/android:utils",
+      "//src/com/facebook/buck/command:command",
       "//src/com/facebook/buck/config:base-config",
       "//src/com/facebook/buck/graph:graph",
+      "//src/com/facebook/buck/json:json",
       "//src/com/facebook/buck/log:api",
       "//src/com/facebook/buck/rules:default_cell_path_resolver",
-      "//src/com/facebook/buck/util/environment:platform",
+      "//src/com/facebook/buck/rules:rules",
+      "//src/com/facebook/buck/util:exceptions",
+      "//src/com/facebook/buck/util:util",
+      "//src/com/facebook/buck/util/versioncontrol:versioncontrol",
       "//third-party/java/immutables:processor",
-      "//third-party/java/jackson:jackson-core",
-      "//third-party/java/jsr:jsr305"
+      "//third-party/java/jackson:jackson-core"
     ],
     "exported_deps" : [
       "//src-gen:thrift",
+      "//src/com/facebook/buck/artifact_cache:artifact_cache",
       "//src/com/facebook/buck/cli:config",
       "//src/com/facebook/buck/event:event",
       "//src/com/facebook/buck/hashing:hashing",
       "//src/com/facebook/buck/io:io",
       "//src/com/facebook/buck/model:model",
       "//src/com/facebook/buck/parser:parser",
+      "//src/com/facebook/buck/rules:action_graph_cache",
       "//src/com/facebook/buck/rules:build_rule",
       "//src/com/facebook/buck/rules:caching_build_engine_delegates",
       "//src/com/facebook/buck/rules:rule_key",
@@ -26,13 +33,17 @@
       "//src/com/facebook/buck/rules/coercer:coercer",
       "//src/com/facebook/buck/rules/keys:keys",
       "//src/com/facebook/buck/slb:slb",
+      "//src/com/facebook/buck/step:step",
+      "//src/com/facebook/buck/timing:timing",
+      "//src/com/facebook/buck/util:io",
       "//src/com/facebook/buck/util/cache:cache",
       "//src/com/facebook/buck/util/concurrent:concurrent",
+      "//src/com/facebook/buck/util/environment:platform",
       "//src/com/facebook/buck/util/immutables:immutables",
       "//third-party/java/guava:guava",
       "//third-party/java/jackson:jackson-databind",
-      "//third-party/java/okhttp:okhttp",
-      "//third-party/java/thrift:libthrift"
+      "//third-party/java/jsr:jsr305",
+      "//third-party/java/okhttp:okhttp"
     ]
   }
 }

@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY 51c9cd34563d4eb8588bfbe25572265969251aa5 #@#
+#@# GENERATED FILE: DO NOT MODIFY 998d24c4b2053a5c7af224478cae1deddb2ec99e #@#
 {
   "distributed" : {
     "deps" : [
@@ -21,7 +21,6 @@
       "//src/com/facebook/buck/rules:types",
       "//src/com/facebook/buck/rules/coercer:coercer",
       "//src/com/facebook/buck/rules/coercer:types",
-      "//src/com/facebook/buck/slb:slb",
       "//src/com/facebook/buck/util:object_mapper",
       "//src/com/facebook/buck/util/cache:cache",
       "//src/com/facebook/buck/util/environment:platform",
