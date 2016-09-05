@@ -28,6 +28,7 @@ import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.PathOrGlobMatcher;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.io.WatchmanDiagnostic;
 import com.facebook.buck.io.WatchmanDiagnosticCache;
 import com.facebook.buck.json.BuildFileParseException;
@@ -40,6 +41,7 @@ import com.facebook.buck.rules.ConstructorArgMarshaller;
 import com.facebook.buck.rules.KnownBuildRuleTypes;
 import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.timing.FakeClock;
 import com.facebook.buck.util.Console;
@@ -319,6 +321,7 @@ public class ProjectBuildFileParserTest {
         Console console,
         ImmutableMap<String, String> environment,
         BuckEventBus buckEventBus,
+        ProjectFilesystem filesystem,
         boolean ignoreBuckAutodepsFiles,
         WatchmanDiagnosticCache watchmanDiagnosticCache) {
       PythonBuckConfig config = new PythonBuckConfig(
@@ -328,6 +331,7 @@ public class ProjectBuildFileParserTest {
           config.getPythonInterpreter(),
           new ProcessExecutor(console),
           BuckEventBusFactory.newInstance(),
+          filesystem,
           watchmanDiagnosticCache);
     }
 
@@ -347,6 +351,7 @@ public class ProjectBuildFileParserTest {
               },
               new TestConsole()),
           BuckEventBusFactory.newInstance(),
+          FakeProjectFilesystem.createJavaOnlyFilesystem(),
           watchmanDiagnosticCache);
     }
 
@@ -366,6 +371,7 @@ public class ProjectBuildFileParserTest {
               },
               new TestConsole()),
           BuckEventBusFactory.newInstance(),
+          FakeProjectFilesystem.createJavaOnlyFilesystem(),
           watchmanDiagnosticCache);
     }
 
@@ -386,6 +392,7 @@ public class ProjectBuildFileParserTest {
               },
               new TestConsole()),
           buckEventBus,
+          FakeProjectFilesystem.createJavaOnlyFilesystem(),
           watchmanDiagnosticCache);
     }
 
@@ -416,6 +423,7 @@ public class ProjectBuildFileParserTest {
               },
               new TestConsole()),
           buckEventBus,
+          FakeProjectFilesystem.createJavaOnlyFilesystem(),
           watchmanDiagnosticCache);
     }
 
@@ -446,6 +454,7 @@ public class ProjectBuildFileParserTest {
               },
               new TestConsole()),
           buckEventBus,
+          FakeProjectFilesystem.createJavaOnlyFilesystem(),
           watchmanDiagnosticCache);
     }
 
@@ -454,6 +463,7 @@ public class ProjectBuildFileParserTest {
           String pythonInterpreter,
           ProcessExecutor processExecutor,
           BuckEventBus buckEventBus,
+          ProjectFilesystem filesystem,
           WatchmanDiagnosticCache watchmanDiagnosticCache) {
         super(
             ProjectBuildFileParserOptions.builder()
@@ -471,6 +481,7 @@ public class ProjectBuildFileParserTest {
                 ObjectMappers.newDefaultInstance())),
             ImmutableMap.<String, String>of(),
             buckEventBus,
+            filesystem,
             processExecutor,
             /* ignoreBuckAutodepsFiles */ false,
             watchmanDiagnosticCache);
