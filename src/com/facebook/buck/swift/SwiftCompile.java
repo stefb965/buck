@@ -31,11 +31,15 @@ import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.Tool;
+import com.facebook.buck.rules.args.Arg;
+import com.facebook.buck.rules.args.SourcePathArg;
+import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.util.MoreIterables;
@@ -46,6 +50,7 @@ import com.google.common.base.Predicate;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 
@@ -77,6 +82,7 @@ class SwiftCompile
 
   private final boolean hasMainEntry;
   private final boolean enableObjcInterop;
+  private final Optional<SourcePath> bridgingHeader;
 
   private final Iterable<CxxPreprocessorInput> cxxPreprocessorInputs;
 
@@ -90,14 +96,15 @@ class SwiftCompile
       };
 
   SwiftCompile(
-      final CxxPlatform cxxPlatform,
+      CxxPlatform cxxPlatform,
       BuildRuleParams params,
       SourcePathResolver resolver,
       Tool swiftCompiler,
       String moduleName,
       Path outputPath,
       Iterable<SourcePath> srcs,
-      Optional<Boolean> enableObjcInterop) throws NoSuchBuildTargetException {
+      Optional<Boolean> enableObjcInterop,
+      Optional<SourcePath> bridgingHeader) throws NoSuchBuildTargetException {
     super(params, resolver);
     this.cxxPreprocessorInputs =
         CxxPreprocessables.getTransitiveCxxPreprocessorInput(cxxPlatform, params.getDeps());
@@ -112,6 +119,7 @@ class SwiftCompile
 
     this.srcs = ImmutableSortedSet.copyOf(srcs);
     this.enableObjcInterop = enableObjcInterop.or(true);
+    this.bridgingHeader = bridgingHeader;
     this.hasMainEntry = FluentIterable.from(srcs).firstMatch(new Predicate<SourcePath>() {
       @Override
       public boolean apply(SourcePath input) {
@@ -124,6 +132,12 @@ class SwiftCompile
   private SwiftCompileStep makeCompileStep() {
     ImmutableList.Builder<String> compilerCommand = ImmutableList.builder();
     compilerCommand.addAll(swiftCompiler.getCommandPrefix(getResolver()));
+
+    if (bridgingHeader.isPresent()) {
+      compilerCommand.add(
+          "-import-objc-header",
+          getResolver().getRelativePath(bridgingHeader.get()).toString());
+    }
 
     compilerCommand.addAll(
         MoreIterables.zipAndConcat(Iterables.cycle("-Xcc"),
@@ -178,14 +192,6 @@ class SwiftCompile
     return outputPath;
   }
 
-  Path getModulePath() {
-    return modulePath;
-  }
-
-  Path getObjectPath() {
-    return objectPath;
-  }
-
   /**
    * @return the arguments to add to the preprocessor command line to include the given header packs
    *     in preprocessor search path.
@@ -228,5 +234,17 @@ class SwiftCompile
     args.addAll(Iterables.transform(roots, PREPEND_INCLUDE_FLAG));
 
     return args.build();
+  }
+
+  ImmutableSet<Arg> getLinkArgs() {
+    return ImmutableSet.<Arg>builder()
+        .addAll(StringArg.from("-Xlinker", "-add_ast_path"))
+        .add(new SourcePathArg(
+            getResolver(),
+            new BuildTargetSourcePath(getBuildTarget(), modulePath)))
+        .add(new SourcePathArg(
+            getResolver(),
+            new BuildTargetSourcePath(getBuildTarget(), objectPath)))
+        .build();
   }
 }

@@ -173,13 +173,15 @@ public class CxxPrecompiledHeader
         inputType,
         Optional.of(
             new CxxPreprocessAndCompileStep.ToolCommand(
-                preprocessorDelegate.getCommand(compilerFlags),
+                preprocessorDelegate.getCommandPrefix(),
+                preprocessorDelegate.getArguments(compilerFlags),
                 preprocessorDelegate.getEnvironment(),
                 preprocessorDelegate.getFlagsForColorDiagnostics())),
         Optional.<CxxPreprocessAndCompileStep.ToolCommand>absent(),
         preprocessorDelegate.getHeaderPathNormalizer(),
         sanitizer,
         preprocessorDelegate.getHeaderVerification(),
-        scratchDir);
+        scratchDir,
+        true);
   }
 }

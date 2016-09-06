@@ -79,6 +79,7 @@ public class RageCommand extends AbstractCommand {
           params.getStdIn(),
           params.getBuildEnvironmentDescription(),
           vcsInfoCollector,
+          rageConfig,
           extraInfoCollector);
     } else {
       report = new AutomatedReport(
@@ -87,11 +88,16 @@ public class RageCommand extends AbstractCommand {
           stdOut,
           params.getBuildEnvironmentDescription(),
           gatherVcsInfo ? vcsInfoCollector : Optional.<VcsInfoCollector>absent(),
+          rageConfig,
           extraInfoCollector);
     }
     DefectSubmitResult defectSubmitResult = report.collectAndSubmitResult();
+    String uploadPrefix =
+        (defectSubmitResult.getReportSubmitLocation().startsWith("http://")) ?
+            ("Uploading report to") :
+            ("Report saved to");
 
-    stdOut.printf("Report saved to %s\n", defectSubmitResult.getReportSubmitLocation());
+    stdOut.printf("%s %s\n", uploadPrefix, defectSubmitResult.getReportSubmitLocation());
     if (defectSubmitResult.getReportSubmitMessage().isPresent()) {
       stdOut.println(defectSubmitResult.getReportSubmitMessage().get());
     }

@@ -10,6 +10,7 @@ from artificialproject.field_generators import (
     SourcePathSetGenerator,
     SourcesWithFlagsGenerator,
     StringGenerator,
+    VisibilityGenerator,
 )
 
 from artificialproject.random import weighted_choice
@@ -19,6 +20,7 @@ Context = collections.namedtuple('Context', [
     'input_target_data',
     'gen_targets_by_type',
     'output_repository',
+    'file_path_generator',
 ])
 
 
@@ -41,8 +43,13 @@ class TargetDataGenerator:
         def string(context):
             return StringGenerator()
 
+        def visibility(context):
+            return VisibilityGenerator()
+
         build_target_set = BuildTargetSetGenerator
         build_target = singleton(build_target_set)
+        paths = PathSetGenerator
+        path = singleton(paths)
         source_path_set = SourcePathSetGenerator
         source_path = singleton(source_path_set)
         sources_with_flags = SourcesWithFlagsGenerator
@@ -51,6 +58,7 @@ class TargetDataGenerator:
             '*.deps': build_target_set,
             '*.out': nullable(string),
             '*.srcs': source_path_set,
+            '*.visibility': visibility,
             'android_binary.keystore': build_target,
             'android_binary.manifest': source_path,
             'android_build_config.package': string,
@@ -64,6 +72,7 @@ class TargetDataGenerator:
             'keystore.properties': source_path,
             'keystore.store': source_path,
             'prebuilt_jar.binary_jar': source_path,
+            'prebuilt_native_library.native_libs': path,
             'sh_binary.main': source_path,
             'worker_tool.exe': build_target,
         }
@@ -107,16 +116,17 @@ class TargetDataGenerator:
             generator.add_sample(base_path, value)
 
     def generate(self):
+        base_path = self._context.file_path_generator.generate_package_path()
         result = {
             'name': self._target_name_generator(),
             'buck.type': self._type,
-            'buck.base_path': '',
+            'buck.base_path': base_path,
         }
         all_deps = set()
         for field, generator in self._generators.items():
             if generator is None:
                 continue
-            generated_field = generator.generate()
+            generated_field = generator.generate(base_path)
             result[field] = generated_field.value
             all_deps.update(generated_field.deps)
         result['.all_deps'] = all_deps

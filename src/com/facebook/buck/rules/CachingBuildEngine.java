@@ -49,6 +49,7 @@ import com.facebook.buck.util.MoreFunctions;
 import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.concurrent.MoreFutures;
+import com.facebook.buck.util.concurrent.ResourceAmounts;
 import com.facebook.buck.util.concurrent.WeightedListeningExecutorService;
 import com.facebook.buck.zip.Unzip;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -113,9 +114,6 @@ import javax.annotation.Nullable;
  * tries to fetch its output from an {@link ArtifactCache} to avoid doing any computation.
  */
 public class CachingBuildEngine implements BuildEngine {
-
-  // The default weight to use in the executor when building a rule locally.
-  private static final int DEFAULT_BUILD_WEIGHT = 1;
 
   private static final Logger LOG = Logger.get(CachingBuildEngine.class);
 
@@ -311,7 +309,7 @@ public class CachingBuildEngine implements BuildEngine {
                 }
               }
             },
-            DEFAULT_BUILD_WEIGHT * ruleScheduleInfo.getJobsMultiplier());
+            ResourceAmounts.of(ruleScheduleInfo.getJobsMultiplier(), 0, 0, 0));
       }
     };
   }
@@ -564,7 +562,8 @@ public class CachingBuildEngine implements BuildEngine {
             // metadata.
             if (success != BuildRuleSuccessType.BUILT_LOCALLY) {
               for (String str :
-                   onDiskBuildInfo.getValues(BuildInfo.METADATA_KEY_FOR_RECORDED_PATHS).get()) {
+                   onDiskBuildInfo.getValuesOrThrow(
+                       BuildInfo.METADATA_KEY_FOR_RECORDED_PATHS)) {
                 buildInfoRecorder.recordArtifact(Paths.get(str));
               }
             }

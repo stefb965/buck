@@ -27,11 +27,11 @@ class NullableGenerator:
             self._null_values.update([False])
             self._value_generator.add_sample(base_path, sample)
 
-    def generate(self):
+    def generate(self, base_path):
         if weighted_choice(self._null_values):
             return GeneratedField(None, [])
         else:
-            return self._value_generator.generate()
+            return self._value_generator.generate(base_path)
 
 
 class SingletonGenerator:
@@ -41,8 +41,8 @@ class SingletonGenerator:
     def add_sample(self, base_path, sample):
         self._set_generator.add_sample(base_path, [sample])
 
-    def generate(self):
-        field = self._set_generator.generate()
+    def generate(self, base_path):
+        field = self._set_generator.generate(base_path)
         assert len(field.value) == 1, field
         return GeneratedField(field.value[0], field.deps)
 
@@ -54,20 +54,34 @@ class StringGenerator:
         self._other_chars = collections.Counter()
 
     def add_sample(self, base_path, sample):
+        self.add_string_sample(sample)
+
+    def add_string_sample(self, sample):
         self._lengths.update([len(sample)])
         if sample:
             self._first_chars.update(sample[0])
         for ch in sample[1:]:
             self._other_chars.update(ch)
 
-    def generate(self):
+    def generate(self, base_path):
+        return GeneratedField(self.generate_string(), [])
+
+    def generate_string(self):
         length = weighted_choice(self._lengths)
         output = ''
         if length > 0:
             output += weighted_choice(self._first_chars)
         while len(output) < length:
             output += weighted_choice(self._other_chars)
-        return GeneratedField(output, [])
+        return output
+
+
+class VisibilityGenerator:
+    def add_sample(self, base_path, sample):
+        pass
+
+    def generate(self, base_path):
+        return GeneratedField(['PUBLIC'], [])
 
 
 class BuildTargetSetGenerator:
@@ -85,7 +99,7 @@ class BuildTargetSetGenerator:
             target_data = self._context.input_target_data[target]
             self._types.update([target_data['buck.type']])
 
-    def generate(self, force_length=None):
+    def generate(self, base_path, force_length=None):
         if force_length is not None:
             length = force_length
         else:
@@ -121,20 +135,23 @@ class PathSetGenerator:
             for component in components:
                 self._component_generator.add_sample(base_path, component)
 
-    def generate(self, force_length=None):
+    def generate(self, base_path, force_length=None):
         if force_length is not None:
             length = force_length
         else:
             length = weighted_choice(self._lengths)
-        output = [self._generate_path() for i in range(length)]
+        output = [self._generate_path(base_path) for i in range(length)]
         return GeneratedField(output, [])
 
-    def _generate_path(self):
+    def _generate_path(self, base_path):
         component_count = weighted_choice(self._component_counts)
-        components = [self._component_generator.generate().value
+        components = [self._component_generator.generate(base_path).value
                       for i in range(component_count)]
         path = os.path.join(*components)
-        full_path = os.path.join(self._context.output_repository, path)
+        full_path = os.path.join(
+                self._context.output_repository,
+                base_path,
+                path)
         if os.path.exists(full_path):
             raise GenerationFailedException()
         try:
@@ -164,7 +181,7 @@ class SourcePathSetGenerator:
                 self._build_target_values.update([False])
                 self._path_set_generator.add_sample(base_path, [source_path])
 
-    def generate(self):
+    def generate(self, base_path):
         length = weighted_choice(self._lengths)
         build_target_count = 0
         path_count = 0
@@ -174,8 +191,9 @@ class SourcePathSetGenerator:
             else:
                 path_count += 1
         build_targets = self._build_target_set_generator.generate(
-                force_length=build_target_count)
-        paths = self._path_set_generator.generate(force_length=path_count)
+                base_path, force_length=build_target_count)
+        paths = self._path_set_generator.generate(
+                base_path, force_length=path_count)
         assert len(build_targets.value) == build_target_count, (
                 build_targets, build_target_count)
         assert len(paths.value) == path_count, (paths, path_count)
@@ -206,16 +224,16 @@ class SourcesWithFlagsGenerator:
             for flag in flags:
                 self._flag_generator.add_sample(base_path, flag)
 
-    def generate(self):
-        source_paths = self._source_path_set_generator.generate()
-        output = [self._generate_source_with_flags(sp)
+    def generate(self, base_path):
+        source_paths = self._source_path_set_generator.generate(base_path)
+        output = [self._generate_source_with_flags(base_path, sp)
                   for sp in source_paths.value]
         return GeneratedField(output, source_paths.deps)
 
-    def _generate_source_with_flags(self, source_path):
+    def _generate_source_with_flags(self, base_path, source_path):
         flag_count = weighted_choice(self._flag_counts)
         if flag_count == 0:
             return source_path
-        flags = [self._flag_generator.generate().value
+        flags = [self._flag_generator.generate(base_path).value
                  for i in range(flag_count)]
         return [source_path, flags]

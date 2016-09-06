@@ -8,7 +8,7 @@ import subprocess
 import sys
 
 from artificialproject.field_generators import GenerationFailedException
-
+from artificialproject.file_path_generator import FilePathGenerator
 from artificialproject.target_generator import (
     Context,
     TargetGenerator,
@@ -49,7 +49,13 @@ def main():
     ], cwd=args.input_repo)
     project_data = json.loads(project_data_json.decode('utf8'))
     gen_targets_by_type = collections.defaultdict(list)
-    context = Context(project_data, gen_targets_by_type, args.output_repo)
+    file_path_generator = FilePathGenerator()
+    file_path_generator.analyze_project_data(project_data)
+    context = Context(
+            project_data,
+            gen_targets_by_type,
+            args.output_repo,
+            file_path_generator)
     target_generator = TargetGenerator(context)
     for target_name, target_data in project_data.items():
         target_generator.add_sample(target_data)
@@ -112,9 +118,6 @@ def main():
     print('Rejection rate: {:.2%}'.format(1.0 * rejected / count),
           file=sys.stderr)
 
-    for target in targets_by_name.values():
-        target['buck.base_path'] = ''
-
     print('Top target: //{}:{}'.format(
         generated_top_target['buck.base_path'], generated_top_target['name']),
         file=sys.stderr)
@@ -125,6 +128,7 @@ def main():
 
     for base_path, targets in targets_by_base_path.items():
         buck_file_path = os.path.join(args.output_repo, base_path, 'BUCK')
+        os.makedirs(os.path.dirname(buck_file_path), exist_ok=True)
         with open(buck_file_path, 'w') as buck_file:
             for target in targets:
                 buck_file.write('{}(\n'.format(target['buck.type']))

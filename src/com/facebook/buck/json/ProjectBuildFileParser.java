@@ -48,11 +48,9 @@ import com.google.common.collect.ImmutableSet;
 import org.immutables.value.Value;
 
 import java.io.BufferedOutputStream;
-import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.io.OutputStreamWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
@@ -78,7 +76,7 @@ public class ProjectBuildFileParser implements AutoCloseable {
   private Supplier<Path> ignorePathsJson;
 
   @Nullable private ProcessExecutor.LaunchedProcess buckPyProcess;
-  @Nullable private BufferedWriter buckPyStdinWriter;
+  @Nullable private BufferedOutputStream buckPyStdinWriter;
 
   private final ProjectBuildFileParserOptions options;
   private final ConstructorArgMarshaller marshaller;
@@ -236,7 +234,7 @@ public class ProjectBuildFileParser implements AutoCloseable {
           stderrConsumerTerminationFuture);
       stderrConsumerThread.start();
 
-      buckPyStdinWriter = new BufferedWriter(new OutputStreamWriter(stdin));
+      buckPyStdinWriter = new BufferedOutputStream(stdin);
     }
   }
 
@@ -274,14 +272,6 @@ public class ProjectBuildFileParser implements AutoCloseable {
 
     if (options.getWatchmanUseGlobGenerator()) {
       argBuilder.add("--watchman_use_glob_generator");
-    }
-
-    if (options.getWatchman().getProjectPrefix().isPresent()) {
-      argBuilder.add("--watchman_project_prefix", options.getWatchman().getProjectPrefix().get());
-    }
-
-    if (options.getWatchman().getWatchRoot().isPresent()) {
-      argBuilder.add("--watchman_watch_root", options.getWatchman().getWatchRoot().get());
     }
 
     if (options.getWatchman().getSocketPath().isPresent()) {
@@ -334,7 +324,7 @@ public class ProjectBuildFileParser implements AutoCloseable {
    */
   public List<Map<String, Object>> getAll(Path buildFile)
       throws BuildFileParseException, InterruptedException {
-    List<Map<String, Object>> result = getAllRulesAndMetaRules(buildFile);
+    ImmutableList<Map<String, Object>> result = getAllRulesAndMetaRules(buildFile);
 
     // Strip out the __includes, __configs, and __env meta rules, which are the last rules.
     return Collections.unmodifiableList(result.subList(0, result.size() - 3));
@@ -346,7 +336,7 @@ public class ProjectBuildFileParser implements AutoCloseable {
    *
    * @param buildFile should be an absolute path to a build file. Must have rootPath as its prefix.
    */
-  public List<Map<String, Object>> getAllRulesAndMetaRules(Path buildFile)
+  public ImmutableList<Map<String, Object>> getAllRulesAndMetaRules(Path buildFile)
       throws BuildFileParseException, InterruptedException {
     try {
       return getAllRulesInternal(buildFile);
@@ -357,7 +347,7 @@ public class ProjectBuildFileParser implements AutoCloseable {
   }
 
   @VisibleForTesting
-  protected List<Map<String, Object>> getAllRulesInternal(Path buildFile)
+  protected ImmutableList<Map<String, Object>> getAllRulesInternal(Path buildFile)
       throws IOException, BuildFileParseException {
     ensureNotClosed();
     initIfNeeded();
@@ -369,13 +359,15 @@ public class ProjectBuildFileParser implements AutoCloseable {
     ParseBuckFileEvent.Started parseBuckFileStarted = ParseBuckFileEvent.started(buildFile);
     buckEventBus.post(parseBuckFileStarted);
 
-    List<Map<String, Object>> values = null;
+    ImmutableList<Map<String, Object>> values = ImmutableList.of();
     String profile = "";
     try (AssertScopeExclusiveAccess.Scope scope = assertSingleThreadedParsing.scope()) {
-      String buildFileString = buildFile.toString();
-      LOG.verbose("Writing to buck.py stdin: %s", buildFileString);
-      buckPyStdinWriter.write(buildFileString);
-      buckPyStdinWriter.newLine();
+      bserSerializer.serializeToStream(
+          ImmutableMap.of(
+              "buildFile", buildFile.toString(),
+              "watchRoot", options.getWatchman().getWatchRoot().or(""),
+              "projectPrefix", options.getWatchman().getProjectPrefix().or("")),
+          buckPyStdinWriter);
       buckPyStdinWriter.flush();
 
       LOG.debug("Parsing output of process %s...", buckPyProcess);
@@ -407,7 +399,7 @@ public class ProjectBuildFileParser implements AutoCloseable {
   }
 
   @SuppressWarnings("unchecked")
-  private static BuildFilePythonResult handleDeserializedValue(Object deserializedValue)
+  private static BuildFilePythonResult handleDeserializedValue(@Nullable Object deserializedValue)
       throws IOException {
     if (!(deserializedValue instanceof Map<?, ?>)) {
       throw new IOException(
@@ -456,21 +448,33 @@ public class ProjectBuildFileParser implements AutoCloseable {
                 source));
       }
       if (source != null && source.equals("watchman")) {
-        handleWatchmanDiagnostic(level, message, buckEventBus, watchmanDiagnosticCache);
+        handleWatchmanDiagnostic(buildFile, level, message, buckEventBus, watchmanDiagnosticCache);
       } else {
+        String header;
+        if (source != null) {
+          header = buildFile + " (" + source + ")";
+        } else {
+          header = buildFile.toString();
+        }
         switch (level) {
+          case "debug":
+            LOG.debug("%s: %s", header, message);
+            break;
+          case "info":
+            LOG.info("%s: %s", header, message);
+            break;
           case "warning":
-            LOG.warn("Warning raised by BUCK file parser for file %s: %s", buildFile, message);
+            LOG.warn("Warning raised by BUCK file parser for file %s: %s", header, message);
             buckEventBus.post(
                 ConsoleEvent.warning("Warning raised by BUCK file parser: %s", message));
             break;
           case "error":
-            LOG.warn("Error raised by BUCK file parser for file %s: %s", buildFile, message);
+            LOG.warn("Error raised by BUCK file parser for file %s: %s", header, message);
             buckEventBus.post(
                 ConsoleEvent.severe("Error raised by BUCK file parser: %s", message));
             break;
           case "fatal":
-            LOG.warn("Fatal error raised by BUCK file parser for file %s: %s", buildFile, message);
+            LOG.warn("Fatal error raised by BUCK file parser for file %s: %s", header, message);
             throw BuildFileParseException.createForBuildFileParseError(
                 buildFile,
                 new IOException(message));
@@ -487,12 +491,22 @@ public class ProjectBuildFileParser implements AutoCloseable {
   }
 
   private static void handleWatchmanDiagnostic(
+      Path buildFile,
       String level,
       String message,
       BuckEventBus buckEventBus,
       WatchmanDiagnosticCache watchmanDiagnosticCache) {
     WatchmanDiagnostic.Level watchmanDiagnosticLevel;
     switch (level) {
+      // Watchman itself doesn't issue debug or info, but in case
+      // engineers hacking on stuff add calls, let's log them
+      // then return.
+      case "debug":
+        LOG.debug("%s (watchman): %s", buildFile, message);
+        return;
+      case "info":
+        LOG.info("%s (watchman): %s", buildFile, message);
+        return;
       case "warning":
         watchmanDiagnosticLevel = WatchmanDiagnostic.Level.WARNING;
         break;

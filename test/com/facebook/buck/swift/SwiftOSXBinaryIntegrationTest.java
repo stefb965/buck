@@ -16,6 +16,7 @@
 
 package com.facebook.buck.swift;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
@@ -27,7 +28,6 @@ import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 
-import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 
@@ -38,7 +38,6 @@ public class SwiftOSXBinaryIntegrationTest {
   @Rule
   public TemporaryPaths tmp = new TemporaryPaths();
 
-  @Ignore("t10220393")
   @Test
   public void swiftHelloWorldRunsAndPrintsMessageOnOSX() throws IOException {
     assumeThat(
@@ -59,7 +58,6 @@ public class SwiftOSXBinaryIntegrationTest {
         equalTo("Hello, \uD83C\uDF0E!\n"));
   }
 
-  @Ignore("t10220393")
   @Test
   public void changingSourceOfSwiftLibraryDepRelinksBinary() throws IOException {
     assumeThat(
@@ -105,5 +103,22 @@ public class SwiftOSXBinaryIntegrationTest {
     assertThat(
         runResult.getStdout(),
         equalTo("Hello Swift\n"));
+  }
+
+  @Test
+  public void swiftCallingObjCRunsAndPrintsMessageOnOSX() throws IOException {
+    assumeThat(
+        AppleNativeIntegrationTestUtils.isSwiftAvailable(ApplePlatform.MACOSX),
+        is(true));
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "swift_calls_objc", tmp);
+    workspace.setUp();
+
+    ProjectWorkspace.ProcessResult runResult = workspace.runBuckCommand(
+        "run", ":SwiftCallsObjC#macosx-x86_64");
+    runResult.assertSuccess();
+    assertThat(
+        runResult.getStdout(),
+        containsString("Hello ObjC\n"));
   }
 }

@@ -21,7 +21,6 @@ import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPreprocessables;
 import com.facebook.buck.cxx.CxxPreprocessorDep;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
-import com.facebook.buck.cxx.CxxSourceRuleFactory;
 import com.facebook.buck.cxx.HeaderSymlinkTree;
 import com.facebook.buck.cxx.HeaderVisibility;
 import com.facebook.buck.cxx.ImmutableCxxPreprocessorInputCacheKey;
@@ -81,13 +80,28 @@ public class PrebuiltHaskellLibraryDescription
       @Override
       public HaskellCompileInput getCompileInput(
           CxxPlatform cxxPlatform,
-          CxxSourceRuleFactory.PicType picType) throws NoSuchBuildTargetException {
+          Linker.LinkableDepType depType)
+          throws NoSuchBuildTargetException {
         return HaskellCompileInput.builder()
             .addAllFlags(args.exportedCompilerFlags.or(ImmutableList.<String>of()))
-            .addAllIncludes(
-                picType == CxxSourceRuleFactory.PicType.PDC ?
-                    args.staticInterfaces.asSet() :
-                    args.sharedInterfaces.asSet())
+            .addPackages(
+                HaskellPackage.builder()
+                    .setInfo(
+                        HaskellPackageInfo.of(
+                            getBuildTarget().getShortName(),
+                            args.version,
+                            args.id.or(
+                                String.format(
+                                    "%s-%s",
+                                    getBuildTarget().getShortName(),
+                                    args.version))))
+                    .setPackageDb(args.db)
+                    .addAllInterfaces(args.importDirs.or(ImmutableList.<SourcePath>of()))
+                    .addAllLibraries(
+                        depType == Linker.LinkableDepType.SHARED ?
+                            args.sharedLibs.or(ImmutableMap.<String, SourcePath>of()).values() :
+                            args.staticLibs.or(ImmutableList.<SourcePath>of()))
+                    .build())
             .build();
       }
 
@@ -169,14 +183,16 @@ public class PrebuiltHaskellLibraryDescription
 
   @SuppressFieldNotInitialized
   public class Arg {
-    public Optional<SourcePath> staticInterfaces;
-    public Optional<SourcePath> sharedInterfaces;
+    public String version;
+    public Optional<String> id;
+    public SourcePath db;
+    public Optional<ImmutableList<SourcePath>> importDirs;
     public Optional<ImmutableList<SourcePath>> staticLibs;
     public Optional<ImmutableMap<String, SourcePath>> sharedLibs;
-    public Optional<ImmutableSortedSet<BuildTarget>> deps;
     public Optional<ImmutableList<String>> exportedLinkerFlags;
     public Optional<ImmutableList<String>> exportedCompilerFlags;
     public Optional<ImmutableSortedSet<SourcePath>> cxxHeaderDirs;
+    public Optional<ImmutableSortedSet<BuildTarget>> deps;
   }
 
 }
