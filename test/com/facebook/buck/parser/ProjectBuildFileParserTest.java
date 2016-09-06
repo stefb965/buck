@@ -331,7 +331,6 @@ public class ProjectBuildFileParserTest {
           config.getPythonInterpreter(),
           new ProcessExecutor(console),
           BuckEventBusFactory.newInstance(),
-          filesystem,
           watchmanDiagnosticCache);
     }
 
@@ -351,7 +350,6 @@ public class ProjectBuildFileParserTest {
               },
               new TestConsole()),
           BuckEventBusFactory.newInstance(),
-          FakeProjectFilesystem.createJavaOnlyFilesystem(),
           watchmanDiagnosticCache);
     }
 
@@ -371,7 +369,6 @@ public class ProjectBuildFileParserTest {
               },
               new TestConsole()),
           BuckEventBusFactory.newInstance(),
-          FakeProjectFilesystem.createJavaOnlyFilesystem(),
           watchmanDiagnosticCache);
     }
 
@@ -392,7 +389,6 @@ public class ProjectBuildFileParserTest {
               },
               new TestConsole()),
           buckEventBus,
-          FakeProjectFilesystem.createJavaOnlyFilesystem(),
           watchmanDiagnosticCache);
     }
 
@@ -423,7 +419,6 @@ public class ProjectBuildFileParserTest {
               },
               new TestConsole()),
           buckEventBus,
-          FakeProjectFilesystem.createJavaOnlyFilesystem(),
           watchmanDiagnosticCache);
     }
 
@@ -454,7 +449,6 @@ public class ProjectBuildFileParserTest {
               },
               new TestConsole()),
           buckEventBus,
-          FakeProjectFilesystem.createJavaOnlyFilesystem(),
           watchmanDiagnosticCache);
     }
 
@@ -463,7 +457,6 @@ public class ProjectBuildFileParserTest {
           String pythonInterpreter,
           ProcessExecutor processExecutor,
           BuckEventBus buckEventBus,
-          ProjectFilesystem filesystem,
           WatchmanDiagnosticCache watchmanDiagnosticCache) {
         super(
             ProjectBuildFileParserOptions.builder()
@@ -481,7 +474,7 @@ public class ProjectBuildFileParserTest {
                 ObjectMappers.newDefaultInstance())),
             ImmutableMap.<String, String>of(),
             buckEventBus,
-            filesystem,
+            new FakeProjectFilesystem(projectRoot),
             processExecutor,
             /* ignoreBuckAutodepsFiles */ false,
             watchmanDiagnosticCache);

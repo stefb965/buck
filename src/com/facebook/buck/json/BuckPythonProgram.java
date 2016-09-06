@@ -27,6 +27,7 @@ import com.facebook.buck.rules.Description;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.PackagedResource;
 import com.google.common.base.Joiner;
+import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.io.Resources;
 
@@ -88,14 +89,16 @@ class BuckPythonProgram implements AutoCloseable {
     Path pathlibDir = new PackagedResource(
         filesystem,
         BuckPythonProgram.class,
-        PATHLIB_RESOURCE)
+        PATHLIB_RESOURCE,
+        Optional.of("pathlib"))
         .get()
         .toAbsolutePath();
 
     Path watchmanDir = new PackagedResource(
         filesystem,
         BuckPythonProgram.class,
-        WATCHMAN_RESOURCE)
+        WATCHMAN_RESOURCE,
+        Optional.of("pywatchman"))
         .get()
         .toAbsolutePath();
 
