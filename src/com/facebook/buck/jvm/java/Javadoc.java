@@ -147,7 +147,7 @@ public class Javadoc extends AbstractBuildRule implements MavenPublishable {
   }
 
   @Override
-  public Optional<Path> getTemplatePom() {
+  public Optional<Path> getPomTemplate() {
     return mavenPomTemplate;
   }
 

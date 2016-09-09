@@ -150,6 +150,8 @@ public class AndroidBinaryGraphEnhancerTest {
         /* trimResourceIds */ false,
         /* nativePlatforms */ ImmutableMap.<TargetCpuType, NdkCxxPlatform>of(),
         /* nativeLibraryMergeMap */ Optional.<Map<String, List<Pattern>>>absent(),
+        /* nativeLibraryMergeGlue */ Optional.<BuildTarget>absent(),
+        /* nativeLibraryMergeCodeGenerator */ Optional.<BuildTarget>absent(),
         AndroidBinary.RelinkerMode.DISABLED,
         MoreExecutors.newDirectExecutorService(),
         /* manifestEntries */ ManifestEntries.empty(),
@@ -196,8 +198,8 @@ public class AndroidBinaryGraphEnhancerTest {
 
     ImmutableMultimap<APKModule, DexProducedFromJavaLibrary> preDexedLibraries =
         graphEnhancer.createPreDexRulesForLibraries(
-            /* preDexRulesNotInThePackageableCollection */
-              ImmutableList.<DexProducedFromJavaLibrary>of(),
+              /* additionalJavaLibrariesToDex */
+              ImmutableList.<BuildRule>of(),
             collection);
 
     BuildTarget fakeUberRDotJavaCompileTarget = BuildTargetFactory.newInstance(
@@ -301,6 +303,8 @@ public class AndroidBinaryGraphEnhancerTest {
         /* trimResourceIds */ false,
         /* nativePlatforms */ ImmutableMap.<TargetCpuType, NdkCxxPlatform>of(),
         /* nativeLibraryMergeMap */ Optional.<Map<String, List<Pattern>>>absent(),
+        /* nativeLibraryMergeGlue */ Optional.<BuildTarget>absent(),
+        /* nativeLibraryMergeCodeGenerator */ Optional.<BuildTarget>absent(),
         AndroidBinary.RelinkerMode.DISABLED,
         MoreExecutors.newDirectExecutorService(),
         /* manifestEntries */ ManifestEntries.empty(),
@@ -442,6 +446,8 @@ public class AndroidBinaryGraphEnhancerTest {
         /* trimResourceIds */ false,
         /* nativePlatforms */ ImmutableMap.<TargetCpuType, NdkCxxPlatform>of(),
         /* nativeLibraryMergeMap */ Optional.<Map<String, List<Pattern>>>absent(),
+        /* nativeLibraryMergeGlue */ Optional.<BuildTarget>absent(),
+        /* nativeLibraryMergeCodeGenerator */ Optional.<BuildTarget>absent(),
         AndroidBinary.RelinkerMode.DISABLED,
         MoreExecutors.newDirectExecutorService(),
         /* manifestEntries */ ManifestEntries.empty(),
@@ -499,6 +505,8 @@ public class AndroidBinaryGraphEnhancerTest {
         /* trimResourceIds */ false,
         /* nativePlatforms */ ImmutableMap.<TargetCpuType, NdkCxxPlatform>of(),
         /* nativeLibraryMergeMap */ Optional.<Map<String, List<Pattern>>>absent(),
+        /* nativeLibraryMergeGlue */ Optional.<BuildTarget>absent(),
+        /* nativeLibraryMergeCodeGenerator */ Optional.<BuildTarget>absent(),
         AndroidBinary.RelinkerMode.DISABLED,
         MoreExecutors.newDirectExecutorService(),
         /* manifestEntries */ ManifestEntries.empty(),
@@ -583,6 +591,8 @@ public class AndroidBinaryGraphEnhancerTest {
         /* trimResourceIds */ false,
         /* nativePlatforms */ ImmutableMap.<TargetCpuType, NdkCxxPlatform>of(),
         /* nativeLibraryMergeMap */ Optional.<Map<String, List<Pattern>>>absent(),
+        /* nativeLibraryMergeGlue */ Optional.<BuildTarget>absent(),
+        /* nativeLibraryMergeCodeGenerator */ Optional.<BuildTarget>absent(),
         AndroidBinary.RelinkerMode.DISABLED,
         MoreExecutors.newDirectExecutorService(),
         /* manifestEntries */ ManifestEntries.empty(),

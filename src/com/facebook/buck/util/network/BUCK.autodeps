@@ -1,20 +1,14 @@
-#@# GENERATED FILE: DO NOT MODIFY ceab7b86092293c584886d4dbcba255772c6653a #@#
+#@# GENERATED FILE: DO NOT MODIFY 606da7477d16f3d3551059326d2096f50ad22065 #@#
 {
   "network" : {
     "deps" : [
-      "//src/com/facebook/buck/log:api",
-      "//src/com/facebook/buck/util:exceptions",
-      "//src/com/facebook/buck/util:util",
-      "//third-party/java/jackson:jackson-core"
+      "//src/com/facebook/buck/log:api"
     ],
     "exported_deps" : [
       "//src-gen:thrift",
       "//src/com/facebook/buck/cli:config",
       "//src/com/facebook/buck/slb:slb",
-      "//src/com/facebook/buck/util:io",
       "//third-party/java/guava:guava",
-      "//third-party/java/jackson:jackson-databind",
-      "//third-party/java/jsr:jsr305",
       "//third-party/java/okhttp:okhttp"
     ]
   }

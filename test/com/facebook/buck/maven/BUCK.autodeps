@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY a8cf7c5803c7d5eb09e0ce4a3e1fd50f801748dc #@#
+#@# GENERATED FILE: DO NOT MODIFY 59642dfb1e1fe94d5e3b33cdd974436ce34c5bc6 #@#
 {
   "maven" : {
     "deps" : [
@@ -19,6 +19,7 @@
       "//src/com/facebook/buck/python:config",
       "//src/com/facebook/buck/rules:build_rule",
       "//src/com/facebook/buck/rules/coercer:coercer",
+      "//src/com/facebook/buck/step:step",
       "//src/com/facebook/buck/util:object_mapper",
       "//test/com/facebook/buck/cli:FakeBuckConfig",
       "//test/com/facebook/buck/event:testutil",
@@ -33,6 +34,7 @@
       "//third-party/java/guava:guava",
       "//third-party/java/hamcrest:java-hamcrest",
       "//third-party/java/jackson:jackson-databind",
+      "//third-party/java/jsr:jsr305",
       "//third-party/java/junit:junit",
       "//third-party/java/maven:maven-model"
     ],

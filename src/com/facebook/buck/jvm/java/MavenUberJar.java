@@ -131,7 +131,7 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
   }
 
   @Override
-  public Optional<Path> getTemplatePom() {
+  public Optional<Path> getPomTemplate() {
     return pomTemplate;
   }
 

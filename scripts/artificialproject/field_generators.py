@@ -127,6 +127,9 @@ class PathSetGenerator:
     def add_sample(self, base_path, sample):
         self._lengths.update([len(sample)])
         for path in sample:
+            self._context.file_path_generator.add_package_file_sample(
+                    base_path,
+                    path)
             components = []
             while path:
                 path, component = os.path.split(path)
@@ -145,19 +148,15 @@ class PathSetGenerator:
 
     def _generate_path(self, base_path):
         component_count = weighted_choice(self._component_counts)
-        components = [self._component_generator.generate(base_path).value
-                      for i in range(component_count)]
-        path = os.path.join(*components)
+        path = self._context.file_path_generator.generate_path_in_package(
+                base_path,
+                component_count,
+                self._component_generator)
         full_path = os.path.join(
                 self._context.output_repository,
                 base_path,
                 path)
-        if os.path.exists(full_path):
-            raise GenerationFailedException()
-        try:
-            os.makedirs(os.path.dirname(full_path), exist_ok=True)
-        except (NotADirectoryError, FileExistsError):
-            raise GenerationFailedException()
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
         with open(full_path, 'w'):
             pass
         return path

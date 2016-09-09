@@ -43,6 +43,9 @@ import com.facebook.buck.util.AnsiEnvironmentChecking;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.PatternAndMessage;
+import com.facebook.buck.util.concurrent.ResourceAllocationFairness;
+import com.facebook.buck.util.concurrent.ResourceAmounts;
+import com.facebook.buck.util.concurrent.ResourceAmountsEstimator;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.EnvironmentFilter;
 import com.facebook.buck.util.environment.Platform;
@@ -79,6 +82,7 @@ public class BuckConfig {
   public static final String BUCK_CONFIG_OVERRIDE_FILE_NAME = ".buckconfig.local";
 
   private static final String ALIAS_SECTION_HEADER = "alias";
+  public static final String RESOURCES_SECTION_HEADER = "resources";
 
   private static final Float DEFAULT_THREAD_CORE_RATIO = Float.valueOf(1.0F);
 
@@ -958,5 +962,45 @@ public class BuckConfig {
   public boolean getBuckOutCompatLink() {
     return getBooleanValue("project", "buck_out_compat_link", false);
   }
+
+  public ResourceAllocationFairness getResourceAllocationFairness() {
+    return config.getEnum(
+        RESOURCES_SECTION_HEADER,
+        "resource_allocation_fairness",
+        ResourceAllocationFairness.class)
+        .or(ResourceAllocationFairness.FAIR);
+  }
+
+  public boolean isResourceAwareSchedulingEnabled() {
+    return config.getBooleanValue(
+        RESOURCES_SECTION_HEADER,
+        "resource_aware_scheduling_enabled",
+        false);
+  }
+
+  public int getManagedThreadCount() {
+    if (!isResourceAwareSchedulingEnabled()) {
+      return getNumThreads();
+    }
+    return config.getLong(RESOURCES_SECTION_HEADER, "managed_thread_count")
+        .or((long) ResourceAmountsEstimator.DEFAULT_MANAGED_THREAD_COUNT)
+        .intValue();
+  }
+
+  public ResourceAmounts getDefaultResourceAmounts() {
+    if (!isResourceAwareSchedulingEnabled()) {
+      return ResourceAmounts.of(1, 0, 0, 0);
+    }
+    return ResourceAmounts.of(
+        config.getInteger(RESOURCES_SECTION_HEADER, "default_cpu_amount")
+            .or(ResourceAmountsEstimator.DEFAULT_CPU_AMOUNT),
+        config.getInteger(RESOURCES_SECTION_HEADER, "default_memory_amount")
+            .or(ResourceAmountsEstimator.DEFAULT_MEMORY_AMOUNT),
+        config.getInteger(RESOURCES_SECTION_HEADER, "default_disk_io_amount")
+            .or(ResourceAmountsEstimator.DEFAULT_DISK_IO_AMOUNT),
+        config.getInteger(RESOURCES_SECTION_HEADER, "default_network_io_amount")
+            .or(ResourceAmountsEstimator.DEFAULT_NETWORK_IO_AMOUNT));
+  }
+
 
 }

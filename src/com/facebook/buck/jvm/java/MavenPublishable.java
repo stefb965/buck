@@ -39,5 +39,8 @@ public interface MavenPublishable extends HasMavenCoordinates {
    */
   Iterable<BuildRule> getPackagedDependencies();
 
-  Optional<Path> getTemplatePom();
+  /**
+   * @return A template for the pom.xml to be generated when publishing this artifact.
+   */
+  Optional<Path> getPomTemplate();
 }

@@ -58,9 +58,8 @@ import org.eclipse.aether.artifact.DefaultArtifact;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.OutputStream;
-import java.io.OutputStreamWriter;
-import java.nio.charset.Charset;
+import java.io.Writer;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashSet;
@@ -86,15 +85,14 @@ public class Pom {
   private final MavenPublishable publishable;
   private final Path path;
 
-  public Pom(Path path, MavenPublishable buildRule) throws IOException {
+  public Pom(Path path, MavenPublishable buildRule) {
     this.path = path;
     this.publishable = buildRule;
     this.model = constructModel();
     applyBuildRule();
   }
 
-  public static Path generatePomFile(MavenPublishable rule)
-      throws IOException {
+  public static Path generatePomFile(MavenPublishable rule) throws IOException {
     Path pom = getPomPath(rule);
     Files.deleteIfExists(pom);
     generatePomFile(rule, pom);
@@ -153,18 +151,17 @@ public class Pom {
     }
   }
 
-  private Model constructModel() throws IOException {
+  private Model constructModel() {
     File file = path.toFile();
     Model model = new Model();
     model.setModelVersion(POM_MODEL_VERSION);
 
-    if (publishable.getTemplatePom().isPresent()) {
-      model = constructModel(publishable.getTemplatePom().get().toFile(), model);
+    if (publishable.getPomTemplate().isPresent()) {
+      model = constructModel(publishable.getPomTemplate().get().toFile(), model);
     }
 
     if (file.isFile()) {
-      Model fromFile = constructModel(file, model);
-      model = merge(model, fromFile);
+      model = constructModel(file, model);
     }
 
     return model;
@@ -375,20 +372,15 @@ public class Pom {
 
   private static void updateDependency(Dependency dependency, Artifact providedMavenCoordinates) {
     dependency.setVersion(providedMavenCoordinates.getVersion());
-    if (providedMavenCoordinates.getClassifier() != null &&
-        !"".equals(providedMavenCoordinates.getClassifier())) {
-      dependency.setClassifier(providedMavenCoordinates.getClassifier());
-    }
+    dependency.setClassifier(providedMavenCoordinates.getClassifier());
   }
 
   public void flushToFile() throws IOException {
     getModel(); // Ensure model is initialized, reading file if necessary
-    flushTo(Files.newOutputStream(getPath()));
-  }
-
-  private void flushTo(OutputStream destination) throws IOException {
-    POM_WRITER.write(new OutputStreamWriter(destination,
-        Charset.forName(getModel().getModelEncoding())), getModel());
+    Files.createDirectories(getPath().getParent());
+    try (Writer writer = Files.newBufferedWriter(getPath(), StandardCharsets.UTF_8)) {
+      POM_WRITER.write(writer, getModel());
+    }
   }
 
   private static Optional<String> getMavenCoords(BuildRule buildRule) {

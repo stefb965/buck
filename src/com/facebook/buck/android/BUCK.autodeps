@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY 1d3e0238313d3652735bccc3d1c92dfef3b0cb20 #@#
+#@# GENERATED FILE: DO NOT MODIFY 813496bc709ac68aa23250681c831ae28a21228b #@#
 {
   "apkmodule" : {
     "deps" : [
@@ -140,6 +140,8 @@
       "//src/com/facebook/buck/dalvik/firstorder:firstorder",
       "//src/com/facebook/buck/graph:graph",
       "//src/com/facebook/buck/log:api",
+      "//src/com/facebook/buck/model:macros",
+      "//src/com/facebook/buck/rules/macros:macros",
       "//src/com/facebook/buck/step/fs:fs",
       "//src/com/facebook/buck/util:escaper",
       "//src/com/facebook/buck/util:exceptions",

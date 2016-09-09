@@ -80,6 +80,7 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
             ImmutableSet.<NdkCxxPlatforms.TargetCpuType>of(),
             CxxPlatformUtils.DEFAULT_CONFIG,
             /* nativeLibraryMergeMap */ Optional.<Map<String, List<Pattern>>>absent(),
+            /* nativeLibraryMergeGlue */ Optional.<BuildTarget>absent(),
             AndroidBinary.RelinkerMode.DISABLED
         );
 
@@ -96,7 +97,7 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
             ImmutableSet.<BuildRule>of(ndkLibrary)));
 
     Optional<CopyNativeLibraries> copyNativeLibrariesOptional =
-        enhancer.getCopyNativeLibraries(collector.build());
+        enhancer.enhance(collector.build()).getCopyNativeLibraries();
     CopyNativeLibraries copyNativeLibraries = copyNativeLibrariesOptional.get();
 
     assertThat(copyNativeLibraries.getStrippedObjectDescriptions(), Matchers.empty());
@@ -156,6 +157,7 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
             ImmutableSet.of(NdkCxxPlatforms.TargetCpuType.ARMV7),
             CxxPlatformUtils.DEFAULT_CONFIG,
             /* nativeLibraryMergeMap */ Optional.<Map<String, List<Pattern>>>absent(),
+            /* nativeLibraryMergeGlue */ Optional.<BuildTarget>absent(),
             AndroidBinary.RelinkerMode.DISABLED
         );
 
@@ -173,7 +175,7 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
 
     AndroidPackageableCollection packageableCollection = collector.build();
     Optional<CopyNativeLibraries> copyNativeLibrariesOptional =
-        enhancer.getCopyNativeLibraries(packageableCollection);
+        enhancer.enhance(packageableCollection).getCopyNativeLibraries();
     CopyNativeLibraries copyNativeLibraries = copyNativeLibrariesOptional.get();
 
     assertThat(

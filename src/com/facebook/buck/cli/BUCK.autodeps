@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY ed0c5e36428e0efc304e6b65cb5d58542ac6edc7 #@#
+#@# GENERATED FILE: DO NOT MODIFY 0aef13d934e337fbb4d1cbc760c223d3002483e0 #@#
 {
   "cli" : {
     "deps" : [
@@ -138,6 +138,7 @@
       "//src/com/facebook/buck/util:constants",
       "//src/com/facebook/buck/util:exceptions",
       "//src/com/facebook/buck/util:io",
+      "//src/com/facebook/buck/util/concurrent:concurrent",
       "//src/com/facebook/buck/util/environment:platform",
       "//third-party/java/guava:guava",
       "//third-party/java/jsr:jsr305"

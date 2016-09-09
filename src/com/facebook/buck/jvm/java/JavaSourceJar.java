@@ -117,7 +117,7 @@ public class JavaSourceJar extends AbstractBuildRule implements MavenPublishable
   }
 
   @Override
-  public Optional<Path> getTemplatePom() {
+  public Optional<Path> getPomTemplate() {
     return mavenPomTemplate;
   }
 
