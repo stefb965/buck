@@ -24,6 +24,8 @@ import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.step.ExecutionContext;
+import com.facebook.buck.util.versioncontrol.BuildStamp;
+import com.facebook.buck.util.versioncontrol.BuildStamper;
 import com.facebook.buck.zip.CustomZipOutputStream;
 import com.facebook.buck.zip.ZipConstants;
 import com.facebook.buck.zip.ZipOutputStreams;
@@ -44,6 +46,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.EnumSet;
 import java.util.Enumeration;
 import java.util.Map;
@@ -86,6 +90,7 @@ public class JarDirectoryStepHelper {
 
     Manifest manifest = createManifest(
         filesystem,
+        context.getBuildStamper(),
         entriesToJar,
         mainClass,
         manifestFile,
@@ -182,6 +187,7 @@ public class JarDirectoryStepHelper {
 
   private static Manifest createManifest(
       ProjectFilesystem filesystem,
+      BuildStamper stamper,
       ImmutableSortedSet<Path> entriesToJar,
       Optional<String> mainClass,
       Optional<Path> manifestFile,
@@ -231,6 +237,23 @@ public class JarDirectoryStepHelper {
     if (mainClass.isPresent()) {
       manifest.getMainAttributes().put(Attributes.Name.MAIN_CLASS, mainClass.get());
     }
+
+    // Add build stamp information
+    BuildStamp buildStamp = stamper.getBuildStamp();
+    Attributes buildInfoAttrs = manifest.getAttributes("Build-Info");
+    if (buildInfoAttrs == null) {
+      buildInfoAttrs = new Attributes();
+    }
+
+    long epochDate = buildStamp.getBuildTimestamp();
+    Date date = new Date(epochDate);
+    String formattedDate = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z").format(date);
+
+    buildInfoAttrs.putValue("Build-Revision", buildStamp.getRevision());
+    buildInfoAttrs.putValue("Build-Time", formattedDate);
+    buildInfoAttrs.putValue("Build-Timestamp", String.valueOf(epochDate));
+
+    manifest.getEntries().put("Build-Info", buildInfoAttrs);
 
     return manifest;
   }
