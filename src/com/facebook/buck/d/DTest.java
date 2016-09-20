@@ -46,8 +46,9 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
+import java.io.FileInputStream;
 import java.io.IOException;
-import java.nio.file.Files;
+import java.io.ObjectInputStream;
 import java.nio.file.Path;
 import java.util.concurrent.Callable;
 import java.util.regex.Matcher;
@@ -138,18 +139,17 @@ public class DTest extends AbstractBuildRule implements
   @Override
   public Callable<TestResults> interpretTestResults(
       final ExecutionContext executionContext,
-      boolean isUsingTestSelectors) {
+      boolean isUsingTestSelectors,
+      final boolean isDryRun) {
     return new Callable<TestResults>() {
       @Override
       public TestResults call() throws Exception {
         ResultType resultType = ResultType.FAILURE;
 
         // Successful exit indicates success.
-        try {
-          int exitCode = Integer.parseInt(
-              new String(Files.readAllBytes(
-                  getProjectFilesystem().resolve(
-                      getPathToTestExitCode()))));
+        try (ObjectInputStream objectIn = new ObjectInputStream(new FileInputStream(
+                getProjectFilesystem().resolve(getPathToTestExitCode()).toFile()))) {
+          int exitCode = objectIn.readInt();
           if (exitCode == 0) {
             resultType = ResultType.SUCCESS;
           }
@@ -210,14 +210,18 @@ public class DTest extends AbstractBuildRule implements
       ExecutionContext executionContext,
       TestRunningOptions options,
       TestReportingCallback testReportingCallback) {
-    return ImmutableList.of(
-        new MakeCleanDirectoryStep(getProjectFilesystem(), getPathToTestOutputDirectory()),
-        new DTestStep(
-            getProjectFilesystem(),
-            getShellCommand(),
-            getPathToTestExitCode(),
-            testRuleTimeoutMs,
-            getPathToTestOutput()));
+    if (options.isDryRun()) {
+      return ImmutableList.of();
+    } else {
+      return ImmutableList.of(
+          new MakeCleanDirectoryStep(getProjectFilesystem(), getPathToTestOutputDirectory()),
+          new DTestStep(
+              getProjectFilesystem(),
+              getShellCommand(),
+              getPathToTestExitCode(),
+              testRuleTimeoutMs,
+              getPathToTestOutput()));
+    }
   }
 
   @Override

@@ -1,8 +1,9 @@
-#@# GENERATED FILE: DO NOT MODIFY 8d2e875d94534f343ad9e14dfdd47b0d9430b01c #@#
+#@# GENERATED FILE: DO NOT MODIFY 6ad72788140ec4b8c48938598c3b0cf630aef59a #@#
 {
   "model" : {
     "deps" : [
       "//src/com/facebook/buck/config:base-config",
+      "//src/com/facebook/buck/io:MorePaths.java",
       "//src/com/facebook/buck/io:io",
       "//src/com/facebook/buck/model:macros",
       "//src/com/facebook/buck/model:model",

@@ -17,7 +17,7 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.io.MorePaths;
+import com.facebook.buck.io.MoreProjectFilesystems;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.DefaultJavaLibrary;
 import com.facebook.buck.jvm.java.DefaultJavaPackageFinder;
@@ -187,7 +187,8 @@ public class TestRunning {
           testRuleKeyFileHelper,
           options.isResultsCacheEnabled(),
           !options.getTestSelectorList().isEmpty(),
-          !options.getEnvironmentOverrides().isEmpty());
+          !options.getEnvironmentOverrides().isEmpty(),
+          options.isDryRun());
 
       final Map<String, UUID> testUUIDMap = new HashMap<>();
       final AtomicReference<TestStatusMessageEvent.Started> currentTestStatusMessageEvent =
@@ -296,7 +297,8 @@ public class TestRunning {
               isTestRunRequired,
               test.interpretTestResults(
                   executionContext,
-                  /*isUsingTestSelectors*/ !options.getTestSelectorList().isEmpty())),
+                  /*isUsingTestSelectors*/ !options.getTestSelectorList().isEmpty(),
+                  /*isDryRun*/ options.isDryRun())),
           testReportingCallback);
 
       // Always run the commands, even if the list of commands as empty. There may be zero
@@ -586,7 +588,8 @@ public class TestRunning {
       TestRuleKeyFileHelper testRuleKeyFileHelper,
       boolean isResultsCacheEnabled,
       boolean isRunningWithTestSelectors,
-      boolean hasEnvironmentOverrides)
+      boolean hasEnvironmentOverrides,
+      boolean isDryRun)
       throws IOException, ExecutionException, InterruptedException {
     boolean isTestRunRequired;
     BuildResult result;
@@ -601,6 +604,9 @@ public class TestRunning {
       isTestRunRequired = true;
     } else if (hasEnvironmentOverrides) {
       // This is rather obtuse, ideally the environment overrides can be hashed and compared...
+      isTestRunRequired = true;
+    } else if (isDryRun) {
+      // Test result caching does not work for dry runs, as the result file used is different.
       isTestRunRequired = true;
     } else if (((result = cachingBuildEngine.getBuildRuleResult(
         test.getBuildTarget())) != null) &&
@@ -629,7 +635,9 @@ public class TestRunning {
       if (test instanceof JavaTest) {
         // Look at the transitive dependencies for `tests` attribute that refers to this test.
         JavaTest javaTest = (JavaTest) test;
-        ImmutableSet<JavaLibrary> transitiveDeps = javaTest.getTransitiveClasspathDeps();
+
+        ImmutableSet<JavaLibrary> transitiveDeps =
+            javaTest.getCompiledTestsLibrary().getTransitiveClasspathDeps();
         for (JavaLibrary dep: transitiveDeps) {
           if (dep instanceof JavaLibraryWithTests) {
             ImmutableSortedSet<BuildTarget> depTests = ((JavaLibraryWithTests) dep).getTests();
@@ -807,7 +815,7 @@ public class TestRunning {
     Set<String> srcFolders = Sets.newHashSet();
     loopThroughSourcePath:
     for (Path javaSrcPath : javaSrcs) {
-      if (MorePaths.isGeneratedFile(filesystem, javaSrcPath)) {
+      if (MoreProjectFilesystems.isGeneratedFile(filesystem, javaSrcPath)) {
         continue;
       }
 

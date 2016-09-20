@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY 0aef13d934e337fbb4d1cbc760c223d3002483e0 #@#
+#@# GENERATED FILE: DO NOT MODIFY e64e57e9493e033bde6073a1a12b5999ca16eb15 #@#
 {
   "cli" : {
     "deps" : [
@@ -25,6 +25,7 @@
       "//src/com/facebook/buck/halide:halide",
       "//src/com/facebook/buck/hashing:hashing",
       "//src/com/facebook/buck/io:BuckPaths",
+      "//src/com/facebook/buck/io:MorePaths.java",
       "//src/com/facebook/buck/io:executable-finder",
       "//src/com/facebook/buck/io:watchman",
       "//src/com/facebook/buck/jvm/java:autodeps",
@@ -118,9 +119,9 @@
   },
   "config" : {
     "deps" : [
+      "//src/com/facebook/buck/io:MorePaths.java",
       "//src/com/facebook/buck/log:api",
       "//src/com/facebook/buck/parser:rule_pattern",
-      "//src/com/facebook/buck/rules:rules",
       "//src/com/facebook/buck/util/environment:env-filter",
       "//src/com/facebook/buck/util/network/hostname:hostname"
     ],
@@ -133,6 +134,7 @@
       "//src/com/facebook/buck/model:model",
       "//src/com/facebook/buck/rules:build_rule",
       "//src/com/facebook/buck/rules:interfaces",
+      "//src/com/facebook/buck/rules:rules",
       "//src/com/facebook/buck/slb:slb",
       "//src/com/facebook/buck/timing:timing",
       "//src/com/facebook/buck/util:constants",

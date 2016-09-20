@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY a58cdd93430a12eed675d8bddabfdc954214ddeb #@#
+#@# GENERATED FILE: DO NOT MODIFY f6b794a27240926782c8eae773650646951adbe0 #@#
 {
   "rules" : {
     "deps" : [
@@ -12,6 +12,7 @@
       "//src/com/facebook/buck/event/listener:BroadcastEventListener",
       "//src/com/facebook/buck/file:rules",
       "//src/com/facebook/buck/graph:graph",
+      "//src/com/facebook/buck/io:MorePaths.java",
       "//src/com/facebook/buck/io:io",
       "//src/com/facebook/buck/jvm/core:packagefinder",
       "//src/com/facebook/buck/jvm/java:rules",

@@ -114,7 +114,7 @@ public class Javadoc extends AbstractBuildRule implements MavenPublishable {
 
     ImmutableSortedSet.Builder<Path> allJars = ImmutableSortedSet.naturalOrder();
     for (JavaLibrary dep : gatheredDeps.getTransitiveClasspath()) {
-      allJars.addAll(dep.getTransitiveClasspathEntries().values());
+      allJars.addAll(dep.getTransitiveClasspaths());
     }
 
     steps.add(new JavaDocStep(Joiner.on(File.pathSeparator).join(allJars.build()), javaDocArgs));

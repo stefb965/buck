@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY 72bbe7afa77171dc1db2b3b396bb7238e1afce23 #@#
+#@# GENERATED FILE: DO NOT MODIFY 55e43f13dc91fe62484b8481803ac2594e2f3e11 #@#
 {
   "constants" : {
     "deps" : [
@@ -51,6 +51,7 @@
   },
   "util" : {
     "deps" : [
+      "//src/com/facebook/buck/io:MorePaths.java",
       "//src/com/facebook/buck/log:api",
       "//src/com/facebook/buck/util:exceptions",
       "//src/com/facebook/buck/zip:unzip",
@@ -67,6 +68,7 @@
   },
   "watchman" : {
     "deps" : [
+      "//src/com/facebook/buck/io:MorePaths.java",
       "//src/com/facebook/buck/log:api",
       "//src/com/facebook/buck/util:exceptions"
     ],

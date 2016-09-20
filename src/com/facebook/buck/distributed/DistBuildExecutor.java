@@ -82,7 +82,8 @@ public class DistBuildExecutor {
         config.getBuildInputRuleKeyFileSizeLimit(),
         args.getObjectMapper(),
         Preconditions.checkNotNull(actionGraphAndResolver).getResolver(),
-        config.getKeySeed());
+        config.getKeySeed(),
+        config.getResourceAwareSchedulingInfo());
 
     // TODO(ruibm): Fix this to work with Android.
     try (Build build = new Build(
@@ -114,7 +115,9 @@ public class DistBuildExecutor {
             4,
             1,
             config.getResourceAllocationFairness(),
-            4),
+            4,
+            config.getDefaultResourceAmounts(),
+            config.getMaximumResourceAmounts().withCpu(4)),
         Optional.<AdbOptions>absent(),
         Optional.<TargetDeviceOptions>absent(),
         args.getExecutors())) {

@@ -198,9 +198,13 @@ public class AnnotationProcessingParams implements RuleKeyAppendable {
           HasClasspathEntries hasClasspathEntries = (HasClasspathEntries) rule;
           ImmutableSet<JavaLibrary> entries = hasClasspathEntries.getTransitiveClasspathDeps();
           for (JavaLibrary entry : entries) {
-            inputs.add(new BuildTargetSourcePath(entry.getBuildTarget()));
+            // Libraries may merely re-export other libraries' class paths, instead of having one
+            // itself. In such cases do not add the library itself, and just move on.
+            if (entry.getPathToOutput() != null) {
+              inputs.add(new BuildTargetSourcePath(entry.getBuildTarget()));
+            }
           }
-          searchPathElements.addAll(hasClasspathEntries.getTransitiveClasspathEntries().values());
+          searchPathElements.addAll(hasClasspathEntries.getTransitiveClasspaths());
         } else {
           throw new HumanReadableException(
               "%1$s: Error adding '%2$s' to annotation_processing_deps: " +

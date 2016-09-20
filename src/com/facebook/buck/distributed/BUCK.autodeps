@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY 2de3da222ede70cce506831b9614eff311d73038 #@#
+#@# GENERATED FILE: DO NOT MODIFY add8947d75db69cbbe41ca671a83f0e6c1462a06 #@#
 {
   "distributed" : {
     "deps" : [
@@ -6,6 +6,7 @@
       "//src/com/facebook/buck/command:command",
       "//src/com/facebook/buck/config:base-config",
       "//src/com/facebook/buck/graph:graph",
+      "//src/com/facebook/buck/io:MorePaths.java",
       "//src/com/facebook/buck/json:json",
       "//src/com/facebook/buck/log:api",
       "//src/com/facebook/buck/rules:default_cell_path_resolver",

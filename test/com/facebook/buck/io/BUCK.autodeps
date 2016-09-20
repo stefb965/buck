@@ -1,9 +1,10 @@
-#@# GENERATED FILE: DO NOT MODIFY 9db041d03878f32a54a083edcc791279200060f5 #@#
+#@# GENERATED FILE: DO NOT MODIFY 82d5f8e83a2dde95f64e007b64cff0d95758b390 #@#
 {
   "io" : {
     "deps" : [
       "//src/com/facebook/buck/bser:bser",
       "//src/com/facebook/buck/config:base-config",
+      "//src/com/facebook/buck/io:MorePaths.java",
       "//src/com/facebook/buck/io:executable-finder",
       "//src/com/facebook/buck/io:io",
       "//src/com/facebook/buck/io:watchman",

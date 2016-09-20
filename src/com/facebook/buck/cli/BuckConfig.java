@@ -35,6 +35,7 @@ import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.ConstantToolProvider;
 import com.facebook.buck.rules.HashedFileTool;
 import com.facebook.buck.rules.PathSourcePath;
+import com.facebook.buck.rules.ResourceAwareSchedulingInfo;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.ToolProvider;
@@ -54,6 +55,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Objects;
 import com.google.common.base.Optional;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.base.Splitter;
 import com.google.common.collect.FluentIterable;
@@ -83,6 +85,7 @@ public class BuckConfig {
 
   private static final String ALIAS_SECTION_HEADER = "alias";
   public static final String RESOURCES_SECTION_HEADER = "resources";
+  public static final String RESOURCES_PER_RULE_SECTION_HEADER = "resources_per_rule";
 
   private static final Float DEFAULT_THREAD_CORE_RATIO = Float.valueOf(1.0F);
 
@@ -978,12 +981,44 @@ public class BuckConfig {
         false);
   }
 
+  public ResourceAwareSchedulingInfo getResourceAwareSchedulingInfo() {
+    return ResourceAwareSchedulingInfo.of(
+        isResourceAwareSchedulingEnabled(),
+        getDefaultResourceAmounts(),
+        getResourceAmountsPerRuleType());
+  }
+
+  public ImmutableMap<String, ResourceAmounts> getResourceAmountsPerRuleType() {
+    ImmutableMap.Builder<String, ResourceAmounts> result = ImmutableMap.builder();
+    ImmutableMap<String, String> entries = getEntriesForSection(RESOURCES_PER_RULE_SECTION_HEADER);
+    for (String ruleName : entries.keySet()) {
+      ImmutableList<String> configAmounts = getListWithoutComments(
+          RESOURCES_PER_RULE_SECTION_HEADER,
+          ruleName);
+      Preconditions.checkArgument(
+          configAmounts.size() == ResourceAmounts.RESOURCE_TYPE_COUNT,
+          "Buck config entry [%s].%s contains %s values, but expected to contain %s values " +
+              "in the following order: cpu, memory, disk_io, network_io",
+          RESOURCES_PER_RULE_SECTION_HEADER,
+          ruleName,
+          configAmounts.size(),
+          ResourceAmounts.RESOURCE_TYPE_COUNT);
+      ResourceAmounts amounts = ResourceAmounts.of(
+          Integer.valueOf(configAmounts.get(0)),
+          Integer.valueOf(configAmounts.get(1)),
+          Integer.valueOf(configAmounts.get(2)),
+          Integer.valueOf(configAmounts.get(3)));
+      result.put(ruleName, amounts);
+    }
+    return result.build();
+  }
+
   public int getManagedThreadCount() {
     if (!isResourceAwareSchedulingEnabled()) {
       return getNumThreads();
     }
     return config.getLong(RESOURCES_SECTION_HEADER, "managed_thread_count")
-        .or((long) ResourceAmountsEstimator.DEFAULT_MANAGED_THREAD_COUNT)
+        .or((long) getNumThreads() + getDefaultMaximumNumberOfThreads())
         .intValue();
   }
 
@@ -1002,5 +1037,18 @@ public class BuckConfig {
             .or(ResourceAmountsEstimator.DEFAULT_NETWORK_IO_AMOUNT));
   }
 
-
+  public ResourceAmounts getMaximumResourceAmounts() {
+    ResourceAmounts estimated = ResourceAmountsEstimator.getEstimatedAmounts();
+    return ResourceAmounts.of(
+        getNumThreads(estimated.getCpu()),
+        getInteger(
+            BuckConfig.RESOURCES_SECTION_HEADER,
+            "max_memory_resource").or(estimated.getMemory()),
+        getInteger(
+            BuckConfig.RESOURCES_SECTION_HEADER,
+            "max_disk_io_resource").or(estimated.getDiskIO()),
+        getInteger(
+            BuckConfig.RESOURCES_SECTION_HEADER,
+            "max_network_io_resource").or(estimated.getNetworkIO()));
+  }
 }

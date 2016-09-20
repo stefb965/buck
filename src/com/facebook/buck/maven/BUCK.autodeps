@@ -1,8 +1,9 @@
-#@# GENERATED FILE: DO NOT MODIFY b2521a12cf331991bc8ccd929516bec49c9ef86a #@#
+#@# GENERATED FILE: DO NOT MODIFY 91ec80a0f5cacbe4128e4945ab386148d65cf688 #@#
 {
   "maven" : {
     "deps" : [
       "//src/com/facebook/buck/graph:graph",
+      "//src/com/facebook/buck/io:MorePaths.java",
       "//src/com/facebook/buck/jvm/java:rules",
       "//src/com/facebook/buck/log:api",
       "//src/com/facebook/buck/model:model",

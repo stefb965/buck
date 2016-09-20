@@ -40,7 +40,6 @@ import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.ExopackageInfo;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.InstallableApk;
-import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.coercer.ManifestEntries;
@@ -56,6 +55,7 @@ import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.XzStep;
+import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.facebook.buck.zip.RepackZipEntriesStep;
 import com.facebook.buck.zip.ZipScrubberStep;
 import com.google.common.annotations.VisibleForTesting;
@@ -70,7 +70,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
@@ -872,13 +871,10 @@ public class AndroidBinary
       Set<Path> depsProguardConfigs,
       ImmutableList.Builder<Step> steps,
       BuildableContext buildableContext) {
-    final ImmutableSetMultimap<JavaLibrary, Path> classpathEntriesMap =
-        JavaLibraryClasspathProvider.getClasspathEntries(
-            ImmutableSet.<BuildRule>copyOf(rulesToExcludeFromDex));
     ImmutableSet.Builder<Path> additionalLibraryJarsForProguardBuilder = ImmutableSet.builder();
 
     for (JavaLibrary buildRule : rulesToExcludeFromDex) {
-      additionalLibraryJarsForProguardBuilder.addAll(classpathEntriesMap.get(buildRule));
+      additionalLibraryJarsForProguardBuilder.addAll(buildRule.getImmediateClasspaths());
     }
 
     // Create list of proguard Configs for the app project and its dependencies
@@ -1200,16 +1196,20 @@ public class AndroidBinary
   }
 
   @Override
-  public ImmutableSetMultimap<JavaLibrary, Path> getTransitiveClasspathEntries() {
+  public ImmutableSet<Path> getTransitiveClasspaths() {
     // This is used primarily for buck audit classpath.
-    return JavaLibraryClasspathProvider.getClasspathEntries(ImmutableSet.copyOf(
-        getResolver().filterBuildRuleInputs(enhancementResult.getClasspathEntriesToDex())));
+    return JavaLibraryClasspathProvider.getClasspathsFromLibraries(getTransitiveClasspathDeps());
   }
 
   @Override
   public ImmutableSet<JavaLibrary> getTransitiveClasspathDeps() {
     return JavaLibraryClasspathProvider.getClasspathDeps(ImmutableSet.copyOf(
         getResolver().filterBuildRuleInputs(enhancementResult.getClasspathEntriesToDex())));
+  }
+
+  @Override
+  public ImmutableSet<Path> getImmediateClasspaths() {
+    return ImmutableSet.of();
   }
 
   @Override

@@ -40,7 +40,6 @@ import com.facebook.buck.step.fs.MkdirStep;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
@@ -74,7 +73,8 @@ public class JavaBinary extends AbstractBuildRule
   @AddToRuleKey
   private final ImmutableSet<Pattern> blacklist;
 
-  private final ImmutableSetMultimap<JavaLibrary, Path> transitiveClasspathEntries;
+  private final ImmutableSet<JavaLibrary> transitiveClasspathDeps;
+  private final ImmutableSet<Path> transitiveClasspaths;
 
   public JavaBinary(
       BuildRuleParams params,
@@ -85,7 +85,8 @@ public class JavaBinary extends AbstractBuildRule
       boolean mergeManifests,
       @Nullable Path metaInfDirectory,
       ImmutableSet<Pattern> blacklist,
-      ImmutableSetMultimap<JavaLibrary, Path> transitiveClasspathEntries) {
+      ImmutableSet<JavaLibrary> transitiveClasspathDeps,
+      ImmutableSet<Path> transitiveClasspaths) {
     super(params, resolver);
     this.javaRuntimeLauncher = javaRuntimeLauncher;
     this.mainClass = mainClass;
@@ -95,7 +96,8 @@ public class JavaBinary extends AbstractBuildRule
         new PathSourcePath(getProjectFilesystem(), metaInfDirectory) :
         null;
     this.blacklist = blacklist;
-    this.transitiveClasspathEntries = transitiveClasspathEntries;
+    this.transitiveClasspathDeps = transitiveClasspathDeps;
+    this.transitiveClasspaths = transitiveClasspaths;
   }
 
   @Override
@@ -132,10 +134,10 @@ public class JavaBinary extends AbstractBuildRule
 
       includePaths = ImmutableSortedSet.<Path>naturalOrder()
           .add(stagingRoot)
-          .addAll(getTransitiveClasspathEntries().values())
+          .addAll(getTransitiveClasspaths())
           .build();
     } else {
-      includePaths = ImmutableSortedSet.copyOf(getTransitiveClasspathEntries().values());
+      includePaths = ImmutableSortedSet.copyOf(getTransitiveClasspaths());
     }
 
     Path outputFile = getPathToOutput();
@@ -155,13 +157,18 @@ public class JavaBinary extends AbstractBuildRule
   }
 
   @Override
-  public ImmutableSetMultimap<JavaLibrary, Path> getTransitiveClasspathEntries() {
-    return transitiveClasspathEntries;
+  public ImmutableSet<Path> getTransitiveClasspaths() {
+    return transitiveClasspaths;
   }
 
   @Override
   public ImmutableSet<JavaLibrary> getTransitiveClasspathDeps() {
-    return transitiveClasspathEntries.keySet();
+    return transitiveClasspathDeps;
+  }
+
+  @Override
+  public ImmutableSet<Path> getImmediateClasspaths() {
+    return ImmutableSet.of();
   }
 
   private Path getOutputDirectory() {

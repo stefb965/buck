@@ -44,7 +44,6 @@ import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
@@ -129,7 +128,7 @@ public class AndroidAar extends AbstractBuildRule implements HasClasspathEntries
         new JarDirectoryStep(
             getProjectFilesystem(),
             temp.resolve("classes.jar"),
-            ImmutableSortedSet.copyOf(getTransitiveClasspathEntries().values()),
+            ImmutableSortedSet.copyOf(getTransitiveClasspaths()),
             /* mainClass */ null,
             /* manifestFile */ null));
 
@@ -178,8 +177,8 @@ public class AndroidAar extends AbstractBuildRule implements HasClasspathEntries
   }
 
   @Override
-  public ImmutableSetMultimap<JavaLibrary, Path> getTransitiveClasspathEntries() {
-    return JavaLibraryClasspathProvider.getClasspathEntries(getDeps());
+  public ImmutableSet<Path> getTransitiveClasspaths() {
+    return JavaLibraryClasspathProvider.getClasspathsFromLibraries(getTransitiveClasspathDeps());
   }
 
   @Override
@@ -187,4 +186,8 @@ public class AndroidAar extends AbstractBuildRule implements HasClasspathEntries
     return JavaLibraryClasspathProvider.getClasspathDeps(getDeps());
   }
 
+  @Override
+  public ImmutableSet<Path> getImmediateClasspaths() {
+    return ImmutableSet.of();
+  }
 }

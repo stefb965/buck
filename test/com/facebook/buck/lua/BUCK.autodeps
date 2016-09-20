@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY b60fa712f33fc2264d8cadc2bbd207cea56cdd55 #@#
+#@# GENERATED FILE: DO NOT MODIFY ec324cadb2908c2d66efdd2a6911220dd183be69 #@#
 {
   "lua" : {
     "deps" : [
@@ -7,6 +7,7 @@
       "//src/com/facebook/buck/config:config",
       "//src/com/facebook/buck/cxx:platform",
       "//src/com/facebook/buck/cxx:rules",
+      "//src/com/facebook/buck/io:MorePaths.java",
       "//src/com/facebook/buck/io:executable-finder",
       "//src/com/facebook/buck/io:io",
       "//src/com/facebook/buck/lua:lua",

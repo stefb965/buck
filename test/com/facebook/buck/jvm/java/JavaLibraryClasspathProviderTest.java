@@ -56,6 +56,7 @@ public class JavaLibraryClasspathProviderTest {
   private BuildRule c;
   private BuildRule d;
   private BuildRule e;
+  private BuildRule z;
   private SourcePathResolver resolver;
   private Path basePath;
   private Function<Path, SourcePath> sourcePathFunction;
@@ -70,7 +71,7 @@ public class JavaLibraryClasspathProviderTest {
     basePath = filesystem.getRootPath();
 
     // Create our target graph. All nodes are JavaLibrary except b
-    //              a   (exports c)
+    // (exports c) az (no exports)
     //            /  \
     //(non java) b    c (exports e)
     //           |    |
@@ -110,6 +111,11 @@ public class JavaLibraryClasspathProviderTest {
         ruleResolver,
         filesystem);
 
+    z = makeRule("//foo:z",
+        ImmutableSet.of("foo", "a.java"),
+        ImmutableSet.of(b, c),
+        ruleResolver,
+        filesystem);
   }
 
   @Test
@@ -129,30 +135,24 @@ public class JavaLibraryClasspathProviderTest {
   }
 
   @Test
-  public void getClasspathEntries() throws Exception {
+  public void getClasspathFromLibraries() throws Exception {
     assertEquals(
-        ImmutableSetMultimap.builder()
-            .put(a, getFullOutput(a))
-            .put(a, getFullOutput(c))  // a exports c
-            .put(c, getFullOutput(e))  // c exports e
-            .put(a, getFullOutput(e))  // so a transitively has e
-            .put(c, getFullOutput(c))
-            .put(e, getFullOutput(e))
+        ImmutableSet.of(
+            getFullOutput(a),
+            getFullOutput(c),
+            getFullOutput(e)),
             // b is non-java so b and d do not appear
-            .build(),
-        JavaLibraryClasspathProvider.getClasspathEntries(ImmutableSet.of(a))
-    );
+        JavaLibraryClasspathProvider.getClasspathsFromLibraries(
+            JavaLibraryClasspathProvider.getClasspathDeps(ImmutableSet.of(a))));
 
     assertEquals(
-        ImmutableSetMultimap.of(
-            c, getFullOutput(c),
-            c, getFullOutput(e), // c exports e
-            e, getFullOutput(e),
-            d, getFullOutput(d)
-            // b is non-java so b and d do not appear
+        ImmutableSet.of(
+            getFullOutput(c),
+            getFullOutput(e), // c exports e
+            getFullOutput(d)
         ),
-        JavaLibraryClasspathProvider.getClasspathEntries(ImmutableSet.of(c, d))
-    );
+        JavaLibraryClasspathProvider.getClasspathsFromLibraries(
+            JavaLibraryClasspathProvider.getClasspathDeps(ImmutableSet.of(c, d))));
   }
 
   @Test
@@ -173,68 +173,34 @@ public class JavaLibraryClasspathProviderTest {
   }
 
   @Test
-  public void getTransitiveClasspathEntries() throws Exception {
+  public void getTransitiveClasspaths() throws Exception {
     JavaLibrary aLib = (JavaLibrary) a;
     assertEquals(
-        ImmutableSetMultimap.builder()
-            .put(a, getFullOutput(a))
-            .put(a, getFullOutput(c))  // a exports c
-            .put(c, getFullOutput(e))  // c exports e
-            .put(a, getFullOutput(e))  // so a transitively has e
-            .put(c, getFullOutput(c))
-            .put(e, getFullOutput(e))
+        ImmutableSet.builder()
+            .add(getFullOutput(a))
+            .add(getFullOutput(c))  // a exports c
+            .add(getFullOutput(e))  // c exports e
             // b is non-java so b and d do not appear
             .build(),
-        JavaLibraryClasspathProvider.getTransitiveClasspathEntries(
-            aLib, resolver, Optional.of(sourcePathFunction.apply(aLib.getPathToOutput())))
-    );
+        aLib.getTransitiveClasspaths());
   }
 
   @Test
   public void getTransitiveClasspathDeps() throws Exception {
-    // Add one transitive dep with its own dep, one maven-coordinate, one empty
-    ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
-    BuildRuleResolver ruleResolver = new BuildRuleResolver(
-        TargetGraph.EMPTY,
-        new DefaultTargetNodeToBuildRuleTransformer());
-    BuildRule mavenCoord =
-        JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:maven-coord"), filesystem)
-            .setMavenCoords("group:identifer:1.0")
-            .build(ruleResolver);
-    BuildRule noOutput = makeRule(
-        "//:empty",
-        ImmutableSet.<String>of(),
-        ImmutableSet.<BuildRule>of(mavenCoord),
-        ruleResolver,
-        filesystem);
-    JavaLibrary dep = makeRule(
-        "//:dep",
-        ImmutableSet.of("Foo.java"),
-        ImmutableSet.<BuildRule>of(),
-        ruleResolver,
-        filesystem);
-    JavaLibrary root = makeRule(
-        "//:root",
-        ImmutableSet.<String>of(),
-        ImmutableSet.of(noOutput, dep),
-        ruleResolver,
-        filesystem);
-
+    JavaLibrary lib = (JavaLibrary) z;
+    assertEquals(
+        "root does not appear if output jar not present.",
+        ImmutableSet.of(
+            c, e
+        ),
+        JavaLibraryClasspathProvider.getTransitiveClasspathDeps(lib));
 
     assertEquals(
+        "root does appear if output jar present.",
         ImmutableSet.of(
-            dep, mavenCoord
+            z, c, e
         ),
-        JavaLibraryClasspathProvider.getTransitiveClasspathDeps(
-            root) // Root does not have an output jar
-    );
-
-    assertEquals(
-        ImmutableSet.of(
-            dep
-        ),
-        JavaLibraryClasspathProvider.getTransitiveClasspathDeps(
-            dep)); // Whereas dep does have an output jar
+        JavaLibraryClasspathProvider.getTransitiveClasspathDeps(lib));
   }
 
   @Test

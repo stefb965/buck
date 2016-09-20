@@ -49,6 +49,7 @@ import com.facebook.buck.util.MoreFunctions;
 import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.concurrent.MoreFutures;
+import com.facebook.buck.util.concurrent.ResourceAmounts;
 import com.facebook.buck.util.concurrent.WeightedListeningExecutorService;
 import com.facebook.buck.zip.Unzip;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -115,6 +116,11 @@ import javax.annotation.Nullable;
 public class CachingBuildEngine implements BuildEngine {
 
   private static final Logger LOG = Logger.get(CachingBuildEngine.class);
+  public static final ResourceAmounts CACHE_CHECK_RESOURCE_AMOUNTS = ResourceAmounts.of(0, 0, 1, 1);
+  public static final ResourceAmounts RULE_KEY_COMPUTATION_RESOURCE_AMOUNTS = ResourceAmounts.of(
+      0, 0, 1, 0);
+  public static final ResourceAmounts SCHEDULING_MORE_WORK_RESOURCE_AMOUNTS = ResourceAmounts.ZERO;
+
 
   /**
    * These are the values returned by {@link #build(BuildContext, BuildRule)}.
@@ -142,7 +148,7 @@ public class CachingBuildEngine implements BuildEngine {
   private final Optional<Long> artifactCacheSizeLimit;
   private final LoadingCache<ProjectFilesystem, FileHashCache> fileHashCaches;
   private final LoadingCache<ProjectFilesystem, RuleKeyFactories> ruleKeyFactories;
-
+  private final ResourceAwareSchedulingInfo resourceAwareSchedulingInfo;
 
   public CachingBuildEngine(
       CachingBuildEngineDelegate cachingBuildEngineDelegate,
@@ -154,7 +160,8 @@ public class CachingBuildEngine implements BuildEngine {
       final long inputRuleKeyFileSizeLimit,
       ObjectMapper objectMapper,
       final BuildRuleResolver resolver,
-      final int keySeed) {
+      final int keySeed,
+      ResourceAwareSchedulingInfo resourceAwareSchedulingInfo) {
     this.cachingBuildEngineDelegate = cachingBuildEngineDelegate;
 
     this.ruleDeps = new RuleDepsCache(service);
@@ -180,6 +187,7 @@ public class CachingBuildEngine implements BuildEngine {
                 inputRuleKeyFileSizeLimit);
           }
         });
+    this.resourceAwareSchedulingInfo = resourceAwareSchedulingInfo;
   }
 
   /**
@@ -194,7 +202,8 @@ public class CachingBuildEngine implements BuildEngine {
       long maxDepFileCacheEntries,
       Optional<Long> artifactCacheSizeLimit,
       SourcePathResolver pathResolver,
-      final Function<? super ProjectFilesystem, RuleKeyFactories> ruleKeyFactoriesFunction) {
+      final Function<? super ProjectFilesystem, RuleKeyFactories> ruleKeyFactoriesFunction,
+      ResourceAwareSchedulingInfo resourceAwareSchedulingInfo) {
     this.cachingBuildEngineDelegate = cachingBuildEngineDelegate;
 
     this.ruleDeps = new RuleDepsCache(service);
@@ -216,6 +225,20 @@ public class CachingBuildEngine implements BuildEngine {
             return ruleKeyFactoriesFunction.apply(filesystem);
           }
         });
+    this.resourceAwareSchedulingInfo = resourceAwareSchedulingInfo;
+  }
+
+  /**
+   * We have a lot of places where tasks are submitted into a service implicitly. There is no way
+   * to assign custom weights to such tasks. By creating a temporary service with adjusted weights
+   * it is possible to trick the system and tweak the weights.
+   */
+  private WeightedListeningExecutorService serviceByAdjustingDefaultWeightsTo(
+      ResourceAmounts defaultAmounts) {
+    if (resourceAwareSchedulingInfo.isResourceAwareSchedulingEnabled()) {
+      return service.withDefaultAmounts(defaultAmounts);
+    }
+    return service;
   }
 
   private static Optional<UnskippedRulesTracker> createUnskippedRulesTracker(
@@ -288,7 +311,6 @@ public class CachingBuildEngine implements BuildEngine {
 
         // Otherwise, build the rule.  We re-submit via the service so that we schedule
         // it with the custom weight assigned to this rules steps.
-        RuleScheduleInfo ruleScheduleInfo = getRuleScheduleInfo(rule);
         return service.submit(
             new Callable<BuildResult>() {
               @Override
@@ -308,7 +330,7 @@ public class CachingBuildEngine implements BuildEngine {
                 }
               }
             },
-            ruleScheduleInfo.getResourceAmounts());
+            getRuleResourceAmounts(rule));
       }
     };
   }
@@ -483,7 +505,7 @@ public class CachingBuildEngine implements BuildEngine {
                       Functions.constant(input));
                 }
               },
-              service);
+              serviceByAdjustingDefaultWeightsTo(SCHEDULING_MORE_WORK_RESOURCE_AMOUNTS));
 
       // 4. Return to the current rule and check caches to see if we can avoid building
       // locally.
@@ -494,13 +516,13 @@ public class CachingBuildEngine implements BuildEngine {
           Futures.transformAsync(
               getDepResults,
               ruleAsyncFunction(rule, context, checkCachesCallback),
-              service);
+              serviceByAdjustingDefaultWeightsTo(CACHE_CHECK_RESOURCE_AMOUNTS));
 
       // 5. Build the current rule locally, if we have to.
       return Futures.transformAsync(
           checkCachesResult,
           buildLocally(rule, context, ruleKeyFactory, buildableContext, cacheResult),
-          service);
+          serviceByAdjustingDefaultWeightsTo(SCHEDULING_MORE_WORK_RESOURCE_AMOUNTS));
     }
   }
 
@@ -719,7 +741,10 @@ public class CachingBuildEngine implements BuildEngine {
           }
         };
     buildResult =
-        Futures.transformAsync(buildResult, ruleAsyncFunction(rule, context, callback), service);
+        Futures.transformAsync(
+            buildResult,
+            ruleAsyncFunction(rule, context, callback),
+            serviceByAdjustingDefaultWeightsTo(RULE_KEY_COMPUTATION_RESOURCE_AMOUNTS));
 
     // Handle either build success or failure.
     final SettableFuture<BuildResult> result = SettableFuture.create();
@@ -953,7 +978,7 @@ public class CachingBuildEngine implements BuildEngine {
                 return processBuildRule(rule, context, asyncCallbacks);
               }
             },
-            service);
+            serviceByAdjustingDefaultWeightsTo(SCHEDULING_MORE_WORK_RESOURCE_AMOUNTS));
     if (!(rule instanceof HasRuntimeDeps)) {
       results.put(rule.getBuildTarget(), result);
       return result;
@@ -1014,7 +1039,7 @@ public class CachingBuildEngine implements BuildEngine {
             return Futures.allAsList(results);
           }
         },
-        service);
+        serviceByAdjustingDefaultWeightsTo(SCHEDULING_MORE_WORK_RESOURCE_AMOUNTS));
   }
 
   @Override
@@ -1052,7 +1077,7 @@ public class CachingBuildEngine implements BuildEngine {
                   return Futures.allAsList(depKeys);
                 }
               },
-              service);
+              serviceByAdjustingDefaultWeightsTo(RULE_KEY_COMPUTATION_RESOURCE_AMOUNTS));
 
       final RuleKeyFactories keyFactories =
           ruleKeyFactories.getUnchecked(rule.getProjectFilesystem());
@@ -1072,7 +1097,7 @@ public class CachingBuildEngine implements BuildEngine {
               }
             }
           },
-          service);
+          serviceByAdjustingDefaultWeightsTo(RULE_KEY_COMPUTATION_RESOURCE_AMOUNTS));
 
       // Record the rule key future.
       ruleKeys.put(rule.getBuildTarget(), ruleKey);
@@ -1090,7 +1115,7 @@ public class CachingBuildEngine implements BuildEngine {
     ListenableFuture<BuildResult> resultFuture = MoreFutures.chainExceptions(
         registerTopLevelRule(rule, context.getEventBus()),
         getBuildRuleResultWithRuntimeDeps(rule, context, asyncCallbacks),
-        service);
+        serviceByAdjustingDefaultWeightsTo(SCHEDULING_MORE_WORK_RESOURCE_AMOUNTS));
     return Futures.transformAsync(
         resultFuture,
         new AsyncFunction<BuildResult, BuildResult>() {
@@ -1102,7 +1127,7 @@ public class CachingBuildEngine implements BuildEngine {
                 Functions.constant(result));
           }
         },
-        service);
+        serviceByAdjustingDefaultWeightsTo(SCHEDULING_MORE_WORK_RESOURCE_AMOUNTS));
   }
 
   private CacheResult tryToFetchArtifactFromBuildCacheAndOverlayOnTopOfProjectFilesystem(
@@ -1655,11 +1680,23 @@ public class CachingBuildEngine implements BuildEngine {
     return Optional.absent();
   }
 
-  private static RuleScheduleInfo getRuleScheduleInfo(BuildRule rule) {
-    if (rule instanceof OverrideScheduleRule) {
-      return ((OverrideScheduleRule) rule).getRuleScheduleInfo();
+  private ResourceAmounts getRuleResourceAmounts(BuildRule rule) {
+    if (resourceAwareSchedulingInfo.isResourceAwareSchedulingEnabled()) {
+      return resourceAwareSchedulingInfo.getResourceAmountsForRule(rule);
+    } else {
+      return getResourceAmountsForRuleWithCustomScheduleInfo(rule);
     }
-    return RuleScheduleInfo.DEFAULT;
+  }
+
+  private ResourceAmounts getResourceAmountsForRuleWithCustomScheduleInfo(BuildRule rule) {
+    Preconditions.checkArgument(!resourceAwareSchedulingInfo.isResourceAwareSchedulingEnabled());
+    RuleScheduleInfo ruleScheduleInfo;
+    if (rule instanceof OverrideScheduleRule) {
+      ruleScheduleInfo = ((OverrideScheduleRule) rule).getRuleScheduleInfo();
+    } else {
+      ruleScheduleInfo = RuleScheduleInfo.DEFAULT;
+    }
+    return ResourceAmounts.of(ruleScheduleInfo.getJobsMultiplier(), 0, 0, 0);
   }
 
   /**

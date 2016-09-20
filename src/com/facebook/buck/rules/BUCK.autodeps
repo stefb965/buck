@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY 71fcb73997bc7af38ea0432624f0b22770ed1b7a #@#
+#@# GENERATED FILE: DO NOT MODIFY 39c10cea8cce59e3ceffec3cea5385fca62076f8 #@#
 {
   "action_graph_cache" : {
     "deps" : [
@@ -29,6 +29,7 @@
   "build_rule" : {
     "deps" : [
       "//src/com/facebook/buck/android:exceptions",
+      "//src/com/facebook/buck/io:MorePaths.java",
       "//src/com/facebook/buck/log:api",
       "//src/com/facebook/buck/util/hash:hash",
       "//third-party/java/immutables:processor"
@@ -85,7 +86,7 @@
   "default_cell_path_resolver" : {
     "deps" : [
       "//src/com/facebook/buck/config:config",
-      "//src/com/facebook/buck/io:io",
+      "//src/com/facebook/buck/io:MorePaths.java",
       "//src/com/facebook/buck/log:api",
       "//src/com/facebook/buck/util:exceptions"
     ],
@@ -121,6 +122,7 @@
   },
   "rules" : {
     "deps" : [
+      "//src/com/facebook/buck/io:MorePaths.java",
       "//src/com/facebook/buck/log:api",
       "//src/com/facebook/buck/rules:build_event",
       "//src/com/facebook/buck/step/fs:fs",

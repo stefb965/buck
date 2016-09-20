@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY afefac538fff4b20b4b0c9e2fe18d5a7334680ef #@#
+#@# GENERATED FILE: DO NOT MODIFY 954d883b16619fddc3607a84e900e7d7eb730137 #@#
 {
   "FakeBuckConfig" : {
     "deps" : [
@@ -27,6 +27,7 @@
       "//src/com/facebook/buck/event:event",
       "//src/com/facebook/buck/event/listener:BroadcastEventListener",
       "//src/com/facebook/buck/httpserver:httpserver",
+      "//src/com/facebook/buck/io:MorePaths.java",
       "//src/com/facebook/buck/io:io",
       "//src/com/facebook/buck/io:watchman",
       "//src/com/facebook/buck/json:json",

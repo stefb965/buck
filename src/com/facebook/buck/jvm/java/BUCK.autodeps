@@ -1,8 +1,9 @@
-#@# GENERATED FILE: DO NOT MODIFY 7c2563df2ed426c42678141bfb13cc1bb4532313 #@#
+#@# GENERATED FILE: DO NOT MODIFY 3067949d09b21fb970891ef8f88b07410dab3815 #@#
 {
   "autodeps" : {
     "deps" : [
       "//src/com/facebook/buck/android:rules",
+      "//src/com/facebook/buck/io:MorePaths.java",
       "//src/com/facebook/buck/jvm/java:packagefinder",
       "//src/com/facebook/buck/jvm/java:rules",
       "//src/com/facebook/buck/log:api",
@@ -42,7 +43,7 @@
   },
   "packagefinder" : {
     "deps" : [
-      "//src/com/facebook/buck/io:io",
+      "//src/com/facebook/buck/io:MorePaths.java",
       "//src/com/facebook/buck/util:exceptions"
     ],
     "exported_deps" : [
@@ -56,6 +57,7 @@
       "//src/com/facebook/buck/cxx:rules",
       "//src/com/facebook/buck/event:event",
       "//src/com/facebook/buck/io:BuckPaths",
+      "//src/com/facebook/buck/io:MorePaths.java",
       "//src/com/facebook/buck/jvm/common:common",
       "//src/com/facebook/buck/jvm/core:packagefinder",
       "//src/com/facebook/buck/jvm/java:fat-jar-main",
@@ -98,6 +100,7 @@
   "steps" : {
     "deps" : [
       "//src/com/facebook/buck/event:event",
+      "//src/com/facebook/buck/io:MorePaths.java",
       "//src/com/facebook/buck/io:executable-finder",
       "//src/com/facebook/buck/jvm/java/abi:abi",
       "//src/com/facebook/buck/jvm/java/runner:runner",
@@ -106,7 +109,6 @@
       "//src/com/facebook/buck/step/fs:fs",
       "//src/com/facebook/buck/util/environment:platform",
       "//src/com/facebook/buck/util/sha1:sha1",
-      "//src/com/facebook/buck/util/versioncontrol:versioncontrol",
       "//third-party/java/immutables:processor",
       "//third-party/java/jsr:jsr305"
     ],

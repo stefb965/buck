@@ -1,8 +1,9 @@
-#@# GENERATED FILE: DO NOT MODIFY 983b065362debaad2894c71f66747f8783b455bf #@#
+#@# GENERATED FILE: DO NOT MODIFY 55f5eb455a33db674ef23abede0630cca3099103 #@#
 {
   "step" : {
     "deps" : [
       "//src/com/facebook/buck/log:api",
+      "//src/com/facebook/buck/util:exceptions",
       "//third-party/java/immutables:processor",
       "//third-party/java/jackson:jackson-annotations"
     ],
@@ -11,6 +12,7 @@
       "//src/com/facebook/buck/android:utils",
       "//src/com/facebook/buck/event:event",
       "//src/com/facebook/buck/event/external:external_lib",
+      "//src/com/facebook/buck/io:io",
       "//src/com/facebook/buck/jvm/core:packagefinder",
       "//src/com/facebook/buck/model:build_id",
       "//src/com/facebook/buck/model:model",

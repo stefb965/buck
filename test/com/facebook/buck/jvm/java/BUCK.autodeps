@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY 0b56dcc01a6bb693b59c45e1822b11b56e9495d7 #@#
+#@# GENERATED FILE: DO NOT MODIFY efdaaf1d22ecad1f24dbdb3eb3111e658639c6ed #@#
 {
   "fakepackagefinder" : {
     "deps" : [ ],
@@ -26,6 +26,7 @@
       "//src/com/facebook/buck/config:base-config",
       "//src/com/facebook/buck/config:config",
       "//src/com/facebook/buck/event:event",
+      "//src/com/facebook/buck/io:MorePaths.java",
       "//src/com/facebook/buck/io:executable-finder",
       "//src/com/facebook/buck/io:io",
       "//src/com/facebook/buck/json:json",

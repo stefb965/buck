@@ -1,7 +1,8 @@
-#@# GENERATED FILE: DO NOT MODIFY 79b3ac45aa2d5856a895c4f921d543e7974aa0c1 #@#
+#@# GENERATED FILE: DO NOT MODIFY e489bf81f2d1d73666773d21b7844d23b2b33470 #@#
 {
   "swift" : {
     "deps" : [
+      "//src/com/facebook/buck/io:MorePaths.java",
       "//src/com/facebook/buck/io:io",
       "//src/com/facebook/buck/log:api",
       "//src/com/facebook/buck/step/fs:fs",
@@ -11,6 +12,7 @@
     ],
     "exported_deps" : [
       "//src/com/facebook/buck/apple:platform",
+      "//src/com/facebook/buck/cli:config",
       "//src/com/facebook/buck/cxx:platform",
       "//src/com/facebook/buck/cxx:rules",
       "//src/com/facebook/buck/model:model",

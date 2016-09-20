@@ -119,8 +119,8 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   private final ImmutableSet<Path> additionalClasspathEntries;
   private final Supplier<ImmutableSet<Path>>
       outputClasspathEntriesSupplier;
-  private final Supplier<ImmutableSetMultimap<JavaLibrary, Path>>
-      transitiveClasspathEntriesSupplier;
+  private final Supplier<ImmutableSet<Path>>
+      transitiveClasspathsSupplier;
   private final Supplier<ImmutableSet<JavaLibrary>> transitiveClasspathDepsSupplier;
   private final Supplier<ImmutableSetMultimap<JavaLibrary, Path>>
       declaredClasspathEntriesSupplier;
@@ -296,14 +296,12 @@ public class DefaultJavaLibrary extends AbstractBuildRule
           }
         });
 
-    this.transitiveClasspathEntriesSupplier =
-        Suppliers.memoize(new Supplier<ImmutableSetMultimap<JavaLibrary, Path>>() {
+    this.transitiveClasspathsSupplier =
+        Suppliers.memoize(new Supplier<ImmutableSet<Path>>() {
           @Override
-          public ImmutableSetMultimap<JavaLibrary, Path> get() {
-            return JavaLibraryClasspathProvider.getTransitiveClasspathEntries(
-                DefaultJavaLibrary.this,
-                getResolver(),
-                sourcePathForOutputJar());
+          public ImmutableSet<Path> get() {
+            return JavaLibraryClasspathProvider.getClasspathsFromLibraries(
+                getTransitiveClasspathDeps());
           }
         });
 
@@ -389,13 +387,33 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   }
 
   @Override
-  public ImmutableSetMultimap<JavaLibrary, Path> getTransitiveClasspathEntries() {
-    return transitiveClasspathEntriesSupplier.get();
+  public ImmutableSet<Path> getTransitiveClasspaths() {
+    return transitiveClasspathsSupplier.get();
   }
 
   @Override
   public ImmutableSet<JavaLibrary> getTransitiveClasspathDeps() {
     return transitiveClasspathDepsSupplier.get();
+  }
+
+  @Override
+  public ImmutableSet<Path> getImmediateClasspaths() {
+    ImmutableSet.Builder<Path> builder = ImmutableSet.builder();
+
+    // Add any exported deps.
+    for (BuildRule exported : getExportedDeps()) {
+      if (exported instanceof JavaLibrary) {
+        builder.addAll(((JavaLibrary) exported).getTransitiveClasspaths());
+      }
+    }
+
+    // Add ourselves to the classpath if there's a jar to be built.
+    Optional<SourcePath> sourcePathForOutputJar = sourcePathForOutputJar();
+    if (sourcePathForOutputJar.isPresent()) {
+      builder.add(getResolver().getAbsolutePath(sourcePathForOutputJar.get()));
+    }
+
+    return builder.build();
   }
 
   /**
@@ -452,7 +470,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
             JAR_RESOLVER,
             declaredClasspathEntries.keySet(),
             ImmutableSet.<JavaLibrary>builder()
-                .addAll(getTransitiveClasspathEntries().keySet())
+                .addAll(getTransitiveClasspathDeps())
                 .add(this)
                 .build(),
             context.getActionGraph().getNodes());

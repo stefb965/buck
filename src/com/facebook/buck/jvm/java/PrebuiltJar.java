@@ -49,7 +49,6 @@ import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.hash.HashCode;
@@ -80,8 +79,7 @@ public class PrebuiltJar extends AbstractBuildRule
   @AddToRuleKey
   private final boolean provided;
   private final Path internalAbiJar;
-  private final Supplier<ImmutableSetMultimap<JavaLibrary, Path>>
-      transitiveClasspathEntriesSupplier;
+  private final Supplier<ImmutableSet<Path>> transitiveClasspathsSupplier;
   private final Supplier<ImmutableSet<JavaLibrary>> transitiveClasspathDepsSupplier;
 
   private final BuildOutputInitializer<Data> buildOutputInitializer;
@@ -108,18 +106,12 @@ public class PrebuiltJar extends AbstractBuildRule
     this.internalAbiJar =
         BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s-abi.jar");
 
-    transitiveClasspathEntriesSupplier =
-        Suppliers.memoize(new Supplier<ImmutableSetMultimap<JavaLibrary, Path>>() {
+    transitiveClasspathsSupplier =
+        Suppliers.memoize(new Supplier<ImmutableSet<Path>>() {
           @Override
-          public ImmutableSetMultimap<JavaLibrary, Path> get() {
-            ImmutableSetMultimap.Builder<JavaLibrary, Path> classpathEntries =
-                ImmutableSetMultimap.builder();
-            if (!provided) {
-              classpathEntries.put(PrebuiltJar.this, getResolver().getAbsolutePath(getBinaryJar()));
-            }
-            classpathEntries.putAll(JavaLibraryClasspathProvider.getClasspathEntries(
-                PrebuiltJar.this.getDeclaredDeps()));
-            return classpathEntries.build();
+          public ImmutableSet<Path> get() {
+            return JavaLibraryClasspathProvider.getClasspathsFromLibraries(
+                getTransitiveClasspathDeps());
           }
         });
 
@@ -194,13 +186,22 @@ public class PrebuiltJar extends AbstractBuildRule
   }
 
   @Override
-  public ImmutableSetMultimap<JavaLibrary, Path> getTransitiveClasspathEntries() {
-    return transitiveClasspathEntriesSupplier.get();
+  public ImmutableSet<Path> getTransitiveClasspaths() {
+    return transitiveClasspathsSupplier.get();
   }
 
   @Override
   public ImmutableSet<JavaLibrary> getTransitiveClasspathDeps() {
     return transitiveClasspathDepsSupplier.get();
+  }
+
+  @Override
+  public ImmutableSet<Path> getImmediateClasspaths() {
+    if (!provided) {
+      return ImmutableSet.of(getResolver().getAbsolutePath(getBinaryJar()));
+    } else {
+      return ImmutableSet.of();
+    }
   }
 
   @Override
