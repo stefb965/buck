@@ -443,11 +443,11 @@ public class ProjectFilesystem {
     }
 
     // TODO(bolinfest): Eliminate this temporary exemption for symbolic links.
-    if (Files.isSymbolicLink(file)) {
+    if (isSymLink(file)) {
       return file;
     }
 
-    if (!Files.exists(file)) {
+    if (!exists(file)) {
       throw new RuntimeException(
           String.format("Not an ordinary file: '%s'.", pathRelativeToProjectRoot));
     }
@@ -1045,7 +1045,7 @@ public class ProjectFilesystem {
    * Returns true if the file under {@code path} exists and is a symbolic
    * link, false otherwise.
    */
-  public boolean isSymLink(Path path) throws IOException {
+  public boolean isSymLink(Path path) {
     return Files.isSymbolicLink(getPathForRelativePath(path));
   }
 

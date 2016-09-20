@@ -191,37 +191,39 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
 
     ImmutableSortedSet<BuildRule> exportedDeps = resolver.getAllRules(args.exportedDeps.get());
 
-    return new DefaultJavaLibrary(
-        params.appendExtraDeps(
-            Iterables.concat(
-                BuildRules.getExportedRules(
-                    Iterables.concat(
-                        params.getDeclaredDeps().get(),
-                        exportedDeps,
-                        resolver.getAllRules(args.providedDeps.get()))),
-                pathResolver.filterBuildRuleInputs(
-                    javacOptions.getInputs(pathResolver)))),
-        pathResolver,
-        args.srcs.get(),
-        validateResources(
+    return
+        new DefaultJavaLibrary(
+            params.appendExtraDeps(
+                Iterables.concat(
+                    BuildRules.getExportedRules(
+                        Iterables.concat(
+                            params.getDeclaredDeps().get(),
+                            exportedDeps,
+                            resolver.getAllRules(args.providedDeps.get()))),
+                    pathResolver.filterBuildRuleInputs(
+                        javacOptions.getInputs(pathResolver)))),
             pathResolver,
-            params.getProjectFilesystem(),
-            args.resources.get()),
-        javacOptions.getGeneratedSourceFolderName(),
-        args.proguardConfig.transform(
-            SourcePaths.toSourcePath(params.getProjectFilesystem())),
-        args.postprocessClassesCommands.get(),
-        exportedDeps,
-        resolver.getAllRules(args.providedDeps.get()),
-        new BuildTargetSourcePath(abiJarTarget),
-        javacOptions.trackClassUsage(),
+            args.srcs.get(),
+            validateResources(
+                pathResolver,
+                params.getProjectFilesystem(),
+                args.resources.get()),
+            javacOptions.getGeneratedSourceFolderName(),
+            args.proguardConfig.transform(
+                SourcePaths.toSourcePath(params.getProjectFilesystem())),
+            args.postprocessClassesCommands.get(),
+            exportedDeps,
+            resolver.getAllRules(args.providedDeps.get()),
+            new BuildTargetSourcePath(abiJarTarget),
+            javacOptions.trackClassUsage(),
                 /* additionalClasspathEntries */ ImmutableSet.<Path>of(),
-        new JavacToJarStepFactory(javacOptions, JavacOptionsAmender.IDENTITY),
-        args.resourcesRoot,
-        args.mavenCoords,
-        args.tests.get(),
-        javacOptions.getClassesToRemoveFromJar());
-  }
+            new JavacToJarStepFactory(javacOptions, JavacOptionsAmender.IDENTITY),
+            args.resourcesRoot,
+            args.manifestFile,
+            args.mavenCoords,
+            args.tests.get(),
+            javacOptions.getClassesToRemoveFromJar());
+  };
 
   @SuppressFieldNotInitialized
   public static class Arg extends JvmLibraryArg implements HasTests {
@@ -233,6 +235,7 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
 
     @Hint(isInput = false)
     public Optional<Path> resourcesRoot;
+    public Optional<SourcePath> manifestFile;
     public Optional<String> mavenCoords;
     public Optional<SourcePath> mavenPomTemplate;
 
