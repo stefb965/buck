@@ -53,7 +53,6 @@ import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -276,17 +275,6 @@ public class CxxLibraryDescription implements
             cxxPlatform.getFlavor(),
             linkType);
 
-    if (objects.isEmpty()) {
-      return new NoopBuildRule(
-          new BuildRuleParams(
-              sharedTarget,
-              Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
-              Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
-              params.getProjectFilesystem(),
-              params.getCellRoots()),
-          pathResolver);
-    }
-
     String sharedLibrarySoname = CxxDescriptionEnhancer.getSharedLibrarySoname(
         soname,
         params.getBuildTarget(),
@@ -461,8 +449,8 @@ public class CxxLibraryDescription implements
       return new NoopBuildRule(
           new BuildRuleParams(
               staticTarget,
-              Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
-              Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
+              ImmutableSortedSet.<BuildRule>of(),
+              ImmutableSortedSet.<BuildRule>of(),
               params.getProjectFilesystem(),
               params.getCellRoots()),
           sourcePathResolver);
@@ -924,6 +912,8 @@ public class CxxLibraryDescription implements
     public Optional<Boolean> linkWhole;
     public Optional<Boolean> canBeAsset;
     public Optional<NativeLinkable.Linkage> preferredLinkage;
+    public Optional<Boolean> xcodePublicHeadersSymlinks;
+    public Optional<Boolean> xcodePrivateHeadersSymlinks;
 
     // These fields are passed through to SwiftLibrary for mixed C/Swift targets; they are not
     // used otherwise.

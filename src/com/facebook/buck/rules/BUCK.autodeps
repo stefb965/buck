@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY 39c10cea8cce59e3ceffec3cea5385fca62076f8 #@#
+#@# GENERATED FILE: DO NOT MODIFY 1c17cb6ade8a37fd1872d254a402dda8926fefb3 #@#
 {
   "action_graph_cache" : {
     "deps" : [
@@ -175,7 +175,6 @@
     "deps" : [
       "//src/com/facebook/buck/android:rules",
       "//src/com/facebook/buck/android:steps",
-      "//src/com/facebook/buck/apple:platform",
       "//src/com/facebook/buck/apple:rules",
       "//src/com/facebook/buck/config:config",
       "//src/com/facebook/buck/cxx:rules",
@@ -210,6 +209,7 @@
       "//src/com/facebook/buck/rust:rust",
       "//src/com/facebook/buck/shell:rules",
       "//src/com/facebook/buck/shell:worker",
+      "//src/com/facebook/buck/swift:platform",
       "//src/com/facebook/buck/swift:swift",
       "//src/com/facebook/buck/thrift:thrift",
       "//src/com/facebook/buck/util:exceptions",
@@ -222,6 +222,7 @@
     ],
     "exported_deps" : [
       "//src/com/facebook/buck/android:utils",
+      "//src/com/facebook/buck/apple:platform",
       "//src/com/facebook/buck/cli:config",
       "//src/com/facebook/buck/config:base-config",
       "//src/com/facebook/buck/cxx:platform",

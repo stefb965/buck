@@ -242,8 +242,8 @@ def memoized(deepcopy=True, keyfunc=None):
     return decorator
 
 
-@provide_for_build
-def glob(includes, excludes=None, include_dotfiles=False, build_env=None, search_base=None):
+def glob(includes, excludes=None, include_dotfiles=False, build_env=None, search_base=None,
+         allow_safe_import=None):
     if excludes is None:
         excludes = []
     assert build_env.type == BuildContextType.BUILD_FILE, (
@@ -320,14 +320,15 @@ def merge_maps(*header_maps):
 
 
 def single_subdir_glob(dirpath, glob_pattern, excludes=None, prefix=None, build_env=None,
-                       search_base=None):
+                       search_base=None, allow_safe_import=None):
     if excludes is None:
         excludes = []
     results = {}
     files = glob([os.path.join(dirpath, glob_pattern)],
                  excludes=excludes,
                  build_env=build_env,
-                 search_base=search_base)
+                 search_base=search_base,
+                 allow_safe_import=allow_safe_import)
     for f in files:
         if dirpath:
             key = f[len(dirpath) + 1:]
@@ -346,8 +347,8 @@ def single_subdir_glob(dirpath, glob_pattern, excludes=None, prefix=None, build_
     return results
 
 
-@provide_for_build
-def subdir_glob(glob_specs, excludes=None, prefix=None, build_env=None, search_base=None):
+def subdir_glob(glob_specs, excludes=None, prefix=None, build_env=None, search_base=None,
+                allow_safe_import=None):
     """
     Given a list of tuples, the form of (relative-sub-directory, glob-pattern),
     return a dict of sub-directory relative paths to full paths.  Useful for
@@ -363,7 +364,8 @@ def subdir_glob(glob_specs, excludes=None, prefix=None, build_env=None, search_b
 
     for dirpath, glob_pattern in glob_specs:
         results.append(
-            single_subdir_glob(dirpath, glob_pattern, excludes, prefix, build_env, search_base))
+            single_subdir_glob(dirpath, glob_pattern, excludes, prefix, build_env, search_base,
+                               allow_safe_import=allow_safe_import))
 
     return merge_maps(*results)
 
@@ -568,12 +570,12 @@ GENDEPS_SIGNATURE = re.compile(r'^#@# GENERATED FILE: DO NOT MODIFY ([a-f0-9]{40
 
 
 class BuildFileProcessor(object):
-
-    def __init__(self, project_root, build_file_name, allow_empty_globs,
-                 ignore_buck_autodeps_files, watchman_client, watchman_error,
-                 watchman_glob_stat_results, watchman_use_glob_generator,
-                 enable_build_file_sandboxing, project_import_whitelist=None,
-                 implicit_includes=None, extra_funcs=None, configs=None, env_vars=None,
+    def __init__(self, project_root, cell_roots, build_file_name,
+                 allow_empty_globs, ignore_buck_autodeps_files,
+                 watchman_client, watchman_error, watchman_glob_stat_results,
+                 watchman_use_glob_generator, enable_build_file_sandboxing,
+                 project_import_whitelist=None, implicit_includes=None,
+                 extra_funcs=None, configs=None, env_vars=None,
                  ignore_paths=None):
         if project_import_whitelist is None:
             project_import_whitelist = []
@@ -592,6 +594,7 @@ class BuildFileProcessor(object):
         self._sync_cookie_state = SyncCookieState()
 
         self._project_root = project_root
+        self._cell_roots = cell_roots
         self._build_file_name = build_file_name
         self._implicit_includes = implicit_includes
         self._allow_empty_globs = allow_empty_globs
@@ -702,16 +705,23 @@ class BuildFileProcessor(object):
             namespace[name] = function.invoke
 
     def _get_include_path(self, name):
-        """
-        Resolve the given include def name to a full path.
-        """
-
-        # Find the path from the include def name.
-        if not name.startswith('//'):
+        """Resolve the given include def name to a full path."""
+        match = re.match(r'^([A-Za-z0-9_]*)//(.*)$', name)
+        if match is None:
             raise ValueError(
-                'include_defs argument "%s" must begin with //' % name)
-        relative_path = name[2:]
-        return os.path.join(self._project_root, relative_path)
+                'include_defs argument {} should be in the form of '
+                '//path or cellname//path'.format(name))
+        cell_name = match.group(1)
+        relative_path = match.group(2)
+        if len(cell_name) > 0:
+            cell_root = self._cell_roots.get(cell_name)
+            if cell_root is None:
+                raise KeyError(
+                    'include_defs argument {} references an unknown cell named {}'
+                    'known cells: {!r}'.format(name, cell_name, self._cell_roots))
+            return os.path.normpath(os.path.join(cell_root, relative_path))
+        else:
+            return os.path.normpath(os.path.join(self._project_root, relative_path))
 
     def _read_config(self, section, field, default=None):
         """
@@ -733,6 +743,19 @@ class BuildFileProcessor(object):
             return default
 
         return value
+
+    def _glob(self, includes, excludes=None, include_dotfiles=False, search_base=None):
+        build_env = self._build_env_stack[-1]
+        return glob(
+            includes, excludes=excludes, include_dotfiles=include_dotfiles,
+            search_base=search_base, build_env=build_env,
+            allow_safe_import=self._allow_unsafe_import)
+
+    def _subdir_glob(self, glob_specs, excludes=None, prefix=None, search_base=None):
+        build_env = self._build_env_stack[-1]
+        return subdir_glob(
+            glob_specs, excludes=excludes, prefix=prefix, search_base=search_base,
+            build_env=build_env, allow_safe_import=self._allow_unsafe_import)
 
     def _record_env_var(self, name, value):
         """
@@ -1119,6 +1142,10 @@ class BuildFileProcessor(object):
         # Install the 'allow_unsafe_import' function into our global object.
         default_globals['allow_unsafe_import'] = self._allow_unsafe_import
 
+        # Install the 'glob' and 'glob_subdir' functions into our global object.
+        default_globals['glob'] = self._glob
+        default_globals['subdir_glob'] = self._subdir_glob
+
         # If any implicit includes were specified, process them first.
         for include in implicit_includes:
             include_path = self._get_include_path(include)
@@ -1333,7 +1360,19 @@ def encode_result(values, diagnostics, profile):
         result['diagnostics'] = encoded_diagnostics
     if profile is not None:
         result['profile'] = profile
-    return bser.dumps(result)
+    try:
+        return bser.dumps(result)
+    except Exception as e:
+        # Try again without the values
+        result['values'] = []
+        if 'diagnostics' not in result:
+            result['diagnostics'] = []
+        result['diagnostics'].append({
+            'message': format_traceback_and_exception(),
+            'level': 'fatal',
+            'source': 'parse',
+        })
+        return bser.dumps(result)
 
 
 def filter_tb(entries):
@@ -1403,6 +1442,30 @@ def silent_excepthook(exctype, value, tb):
     # no need to dump them again to stderr.
     pass
 
+
+def _optparse_store_kv(option, opt_str, value, parser):
+    """Optparse option callback which parses input as K=V, and store into dictionary.
+
+    :param optparse.Option option: Option instance
+    :param str opt_str: string representation of option flag
+    :param str value: argument value
+    :param optparse.OptionParser parser: parser instance
+    """
+    result = value.split('=', 1)
+    if len(result) != 2:
+        raise optparse.OptionError(
+            "Expected argument of to be in the form of X=Y".format(opt_str))
+    (k, v) = result
+
+    # Get or create the dictionary
+    dest_dict = getattr(parser.values, option.dest)
+    if dest_dict is None:
+        dest_dict = {}
+        setattr(parser.values, option.dest, dest_dict)
+
+    dest_dict[k] = v
+
+
 # Inexplicably, this script appears to run faster when the arguments passed
 # into it are absolute paths. However, we want the "buck.base_path" property
 # of each rule to be printed out to be the base path of the build target that
@@ -1436,6 +1499,16 @@ def main():
         action='store',
         type='string',
         dest='project_root')
+    parser.add_option(
+        '--cell_root',
+        action='callback',
+        type='string',
+        dest='cell_roots',
+        metavar='NAME=PATH',
+        help='Cell roots that can be referenced by includes.',
+        callback=_optparse_store_kv,
+        default={},
+    )
     parser.add_option(
         '--build_file_name',
         action='store',
@@ -1515,6 +1588,8 @@ def main():
     # relative path.
     options.project_root = cygwin_adjusted_path(options.project_root)
     project_root = os.path.abspath(options.project_root)
+    cell_roots = dict((k, os.path.abspath(cygwin_adjusted_path(v)))
+                      for (k, v) in options.cell_roots.iteritems())
 
     watchman_client = None
     watchman_error = None
@@ -1547,6 +1622,7 @@ def main():
 
     buildFileProcessor = BuildFileProcessor(
         project_root,
+        cell_roots,
         options.build_file_name,
         options.allow_empty_globs,
         options.ignore_buck_autodeps_files,

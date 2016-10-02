@@ -39,7 +39,6 @@ import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -147,7 +146,7 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
     if (target.getFlavors().contains(JavaLibrary.MAVEN_JAR)) {
       return MavenUberJar.create(
           (JavaLibrary) baseLibrary,
-          params.copyWithExtraDeps(Suppliers.ofInstance(ImmutableSortedSet.of(baseLibrary))),
+          params.copyWithExtraDeps(ImmutableSortedSet.of(baseLibrary)),
           pathResolver,
           args.mavenCoords.transform(
               new Function<String, String>() {
@@ -167,21 +166,6 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
       BuildRuleResolver resolver,
       SourcePathResolver pathResolver,
       A args) {
-    BuildTarget abiJarTarget = params.getBuildTarget().withAppendedFlavors(CalculateAbi.FLAVOR);
-    try {
-      resolver.addToIndex(
-          CalculateAbi.of(
-              abiJarTarget,
-              pathResolver,
-              params,
-              new BuildTargetSourcePath(params.getBuildTarget())));
-    } catch (IllegalStateException e) {
-      // The only way for the ABI to already be present is if the java library has been added
-      // already. This is a nicer error message.
-      throw new IllegalStateException(
-          "A build rule for this target has already been created: " + params.getBuildTarget());
-    }
-
     JavacOptions javacOptions = JavacOptionsFactory.create(
         defaultOptions,
         params,
@@ -189,41 +173,52 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
         pathResolver,
         args);
 
-    ImmutableSortedSet<BuildRule> exportedDeps = resolver.getAllRules(args.exportedDeps.get());
+    BuildTarget abiJarTarget = params.getBuildTarget().withAppendedFlavors(CalculateAbi.FLAVOR);
 
-    return
-        new DefaultJavaLibrary(
-            params.appendExtraDeps(
-                Iterables.concat(
-                    BuildRules.getExportedRules(
-                        Iterables.concat(
-                            params.getDeclaredDeps().get(),
-                            exportedDeps,
-                            resolver.getAllRules(args.providedDeps.get()))),
-                    pathResolver.filterBuildRuleInputs(
-                        javacOptions.getInputs(pathResolver)))),
-            pathResolver,
-            args.srcs.get(),
-            validateResources(
+    ImmutableSortedSet<BuildRule> exportedDeps = resolver.getAllRules(args.exportedDeps.get());
+    DefaultJavaLibrary defaultJavaLibrary =
+        resolver.addToIndex(
+            new DefaultJavaLibrary(
+                params.appendExtraDeps(
+                    Iterables.concat(
+                        BuildRules.getExportedRules(
+                            Iterables.concat(
+                                params.getDeclaredDeps(),
+                                exportedDeps,
+                                resolver.getAllRules(args.providedDeps.get()))),
+                        pathResolver.filterBuildRuleInputs(
+                            javacOptions.getInputs(pathResolver)))),
                 pathResolver,
-                params.getProjectFilesystem(),
-                args.resources.get()),
-            javacOptions.getGeneratedSourceFolderName(),
-            args.proguardConfig.transform(
-                SourcePaths.toSourcePath(params.getProjectFilesystem())),
-            args.postprocessClassesCommands.get(),
-            exportedDeps,
-            resolver.getAllRules(args.providedDeps.get()),
-            new BuildTargetSourcePath(abiJarTarget),
-            javacOptions.trackClassUsage(),
+                args.srcs.get(),
+                validateResources(
+                    pathResolver,
+                    params.getProjectFilesystem(),
+                    args.resources.get()),
+                javacOptions.getGeneratedSourceFolderName(),
+                args.proguardConfig.transform(
+                    SourcePaths.toSourcePath(params.getProjectFilesystem())),
+                args.postprocessClassesCommands.get(),
+                exportedDeps,
+                resolver.getAllRules(args.providedDeps.get()),
+                new BuildTargetSourcePath(abiJarTarget),
+                javacOptions.trackClassUsage(),
                 /* additionalClasspathEntries */ ImmutableSet.<Path>of(),
-            new JavacToJarStepFactory(javacOptions, JavacOptionsAmender.IDENTITY),
-            args.resourcesRoot,
-            args.manifestFile,
-            args.mavenCoords,
-            args.tests.get(),
-            javacOptions.getClassesToRemoveFromJar());
-  };
+                new JavacToJarStepFactory(javacOptions, JavacOptionsAmender.IDENTITY),
+                args.resourcesRoot,
+                args.manifestFile,
+                args.mavenCoords,
+                args.tests.get(),
+                javacOptions.getClassesToRemoveFromJar()));
+
+    resolver.addToIndex(
+        CalculateAbi.of(
+            abiJarTarget,
+            pathResolver,
+            params,
+            new BuildTargetSourcePath(defaultJavaLibrary.getBuildTarget())));
+
+    return defaultJavaLibrary;
+  }
 
   @SuppressFieldNotInitialized
   public static class Arg extends JvmLibraryArg implements HasTests {

@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY d72c7ad98d585b8b22762045968ebfe93432e739 #@#
+#@# GENERATED FILE: DO NOT MODIFY 1ca8cf7f6c5a946b012a6fd2a8061e301f133923 #@#
 {
   "platform" : {
     "deps" : [
@@ -10,6 +10,7 @@
       "//src/com/facebook/buck/cxx:platform",
       "//src/com/facebook/buck/model:model",
       "//src/com/facebook/buck/rules:build_rule",
+      "//src/com/facebook/buck/swift:platform",
       "//src/com/facebook/buck/util/immutables:immutables",
       "//third-party/java/guava:guava"
     ]
@@ -52,6 +53,7 @@
       "//src/com/facebook/buck/shell:rules",
       "//src/com/facebook/buck/shell:steps",
       "//src/com/facebook/buck/step:step",
+      "//src/com/facebook/buck/swift:platform",
       "//src/com/facebook/buck/swift:swift",
       "//src/com/facebook/buck/test:test",
       "//src/com/facebook/buck/test/selectors:selectors",

@@ -83,6 +83,7 @@
     <include name="android/sdklib.jar" />
     <include name="nailgun/nailgun-server-0.9.2-SNAPSHOT.jar" />
     <include name="jna/jna-4.2.0.jar" />
+    <include name="jna/jna-platform-4.2.0.jar" />
   </fileset>
 
   <fileset dir="${third-party.dir}/java" id="third-party.jars">
@@ -114,7 +115,7 @@
     <include name="icu4j/icu4j-54.1.1.jar" />
     <include name="immutables/value-2.1.18.jar" />
     <include name="infer-annotations/infer-annotations-1.5.jar" />
-    <include name="nuprocess/nuprocess-1.0.5-SNAPSHOT.jar" />
+    <include name="nuprocess/nuprocess-1.1.0.jar" />
     <include name="jacoco/org.jacoco.core-0.7.5.201505241946.jar" />
     <include name="jacoco/org.jacoco.report-0.7.5.201505241946.jar" />
     <include name="jetty/jetty-all-9.2.10.v20150310.jar" />
@@ -122,6 +123,7 @@
     <include name="jsr/javax.inject-1.jar" />
     <include name="okhttp/okhttp-3.3.0.jar" />
     <include name="okio/okio-1.8.0.jar" />
+    <include name="oshi/oshi-core-3.2.jar" />
     <include name="servlet-api/javax.servlet-api-3.1.0.jar" />
     <include name="slf4j/slf4j-jdk14-1.7.5.jar" /><!-- redirect slf4j to java.util.logging -->
     <include name="stringtemplate/ST-4.0.8.jar" />
@@ -361,7 +363,7 @@
           http://help.eclipse.org/kepler/index.jsp?topic=%2Forg.eclipse.jdt.doc.isv%2Freference%2Fapi%2Forg%2Feclipse%2Fjdt%2Fcore%2FJavaCore.html
           Apparently Eclipse refuses to publish traditional Javadoc with manageable URLs.
         -->
-        <compilerarg line="-properties ${eclipse.dir}/org.eclipse.jdt.core.prefs" />
+        <compilerarg line="-properties '${eclipse.dir}/org.eclipse.jdt.core.prefs'" />
         <compilerarg value="-Xlint:rawtypes" />
         <compilerarg value="-Xlint:unchecked" />
         <compilerarg value="-Xlint:serial" />

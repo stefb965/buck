@@ -17,11 +17,9 @@ package com.facebook.buck.rules.macros;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.MacroException;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.util.environment.Platform;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 
 /**
@@ -29,7 +27,7 @@ import com.google.common.collect.ImmutableList;
  * expand the value of the environment variable in place. Rather, the intention is for the variable
  * to be interpreted when a shell command is invoked.
  */
-public class EnvironmentVariableMacroExpander implements MacroExpander {
+public class EnvironmentVariableMacroExpander extends AbstractMacroExpander<String> {
 
   private final Platform platform;
 
@@ -38,47 +36,32 @@ public class EnvironmentVariableMacroExpander implements MacroExpander {
   }
 
   @Override
-  public String expand(
+  protected String parse(
       BuildTarget target,
       CellPathResolver cellNames,
-      BuildRuleResolver resolver,
-      String input) throws MacroException {
-    if (platform == Platform.WINDOWS) {
-      if ("pwd".equalsIgnoreCase(input)) {
-        input = "cd";
-      }
-      return "%" + input + "%";
-    } else {
-      return "${" + input + "}";
+      ImmutableList<String> input)
+      throws MacroException {
+    if (input.size() != 1) {
+      throw new MacroException(String.format("expected a single argument: %s", input));
     }
+    return input.get(0);
   }
 
   @Override
-  public ImmutableList<BuildRule> extractBuildTimeDeps(
+  public String expandFrom(
       BuildTarget target,
       CellPathResolver cellNames,
       BuildRuleResolver resolver,
-      String input)
+      String var)
       throws MacroException {
-    return ImmutableList.of();
-  }
-
-  @Override
-  public ImmutableList<BuildTarget> extractParseTimeDeps(
-      BuildTarget target,
-      CellPathResolver cellNames,
-      String input) throws MacroException {
-    return ImmutableList.of();
-  }
-
-  @Override
-  public Object extractRuleKeyAppendables(
-      BuildTarget target,
-      CellPathResolver cellNames,
-      BuildRuleResolver resolver,
-      String input)
-      throws MacroException {
-    return Optional.absent();
+    if (platform == Platform.WINDOWS) {
+      if ("pwd".equalsIgnoreCase(var)) {
+        var = "cd";
+      }
+      return "%" + var + "%";
+    } else {
+      return "${" + var + "}";
+    }
   }
 
 }

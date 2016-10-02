@@ -76,7 +76,11 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription implements
     if (result.get().getMacroType().equals("")) {
       throw new HumanReadableException("expected library reference");
     }
-    return Optional.of(new Pair<>(result.get().getMacroType(), result.get().getMacroInput()));
+    if (result.get().getMacroInput().size() != 1) {
+      throw new HumanReadableException("expected a single library reference argument");
+    }
+    return Optional.of(
+        new Pair<>(result.get().getMacroType(), result.get().getMacroInput().get(0)));
   }
 
   @Override
@@ -240,7 +244,7 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription implements
 
       @Override
       public Iterable<? extends NativeLinkable> getNativeLinkableDeps(CxxPlatform cxxPlatform) {
-        return FluentIterable.from(params.getDeclaredDeps().get())
+        return FluentIterable.from(params.getDeclaredDeps())
             .filter(NativeLinkable.class);
       }
 

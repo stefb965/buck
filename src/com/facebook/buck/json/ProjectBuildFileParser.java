@@ -297,6 +297,11 @@ public class ProjectBuildFileParser implements AutoCloseable {
     }
 
     argBuilder.add("--project_root", options.getProjectRoot().toAbsolutePath().toString());
+
+    for (ImmutableMap.Entry<String, Path> entry : options.getCellRoots().entrySet()) {
+      argBuilder.add("--cell_root", entry.getKey() + "=" + entry.getValue());
+    }
+
     argBuilder.add("--build_file_name", options.getBuildFileName());
 
     // Tell the parser not to print exceptions to stderr.
@@ -581,7 +586,7 @@ public class ProjectBuildFileParser implements AutoCloseable {
         }
 
         LOG.debug("Waiting for process %s to exit...", buckPyProcess);
-        int exitCode = processExecutor.waitForLaunchedProcess(buckPyProcess);
+        int exitCode = processExecutor.waitForLaunchedProcess(buckPyProcess).getExitCode();
         if (exitCode != 0) {
           LOG.warn("Process %s exited with error code %d", buckPyProcess, exitCode);
           throw BuildFileParseException.createForUnknownParseError(

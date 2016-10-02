@@ -38,20 +38,16 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.coercer.OCamlSource;
-import com.facebook.buck.util.Ansi;
-import com.facebook.buck.util.BgProcessKiller;
-import com.facebook.buck.util.CapturingPrintStream;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
-import com.facebook.buck.util.Verbosity;
+import com.facebook.buck.util.ProcessExecutorParams;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -60,7 +56,6 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Lists;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
 
@@ -264,8 +259,8 @@ public class OCamlRuleBuilder {
             : createOCamlLinkTarget(params.getBuildTarget());
     final BuildRuleParams compileParams = params.copyWithChanges(
         buildTarget,
-        /* declaredDeps */ Suppliers.ofInstance(allDeps),
-        /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
+        /* declaredDeps */ allDeps,
+        /* extraDeps */ ImmutableSortedSet.<BuildRule>of());
 
     ImmutableList.Builder<String> flagsBuilder = ImmutableList.builder();
     flagsBuilder.addAll(argFlags);
@@ -313,11 +308,10 @@ public class OCamlRuleBuilder {
     if (isLibrary) {
       return new OCamlStaticLibrary(
           params.copyWithDeps(
-              Suppliers.ofInstance(
-                  ImmutableSortedSet.<BuildRule>naturalOrder()
-                      .addAll(params.getDeclaredDeps().get())
-                      .add(ocamlLibraryBuild)
-                      .build()),
+              ImmutableSortedSet.<BuildRule>naturalOrder()
+                  .addAll(params.getDeclaredDeps())
+                  .add(ocamlLibraryBuild)
+                  .build(),
               params.getExtraDeps()),
           pathResolver,
           compileParams,
@@ -337,11 +331,10 @@ public class OCamlRuleBuilder {
     } else {
       return new OCamlBinary(
           params.copyWithDeps(
-              Suppliers.ofInstance(
-                  ImmutableSortedSet.<BuildRule>naturalOrder()
-                      .addAll(params.getDeclaredDeps().get())
-                      .add(ocamlLibraryBuild)
-                      .build()),
+              ImmutableSortedSet.<BuildRule>naturalOrder()
+                  .addAll(params.getDeclaredDeps())
+                  .add(ocamlLibraryBuild)
+                  .build(),
               params.getExtraDeps()),
           pathResolver,
           ocamlLibraryBuild);
@@ -389,26 +382,26 @@ public class OCamlRuleBuilder {
 
     final BuildRuleParams compileParams = params.copyWithChanges(
         buildTarget,
-        /* declaredDeps */ Suppliers.ofInstance(
-            ImmutableSortedSet.<BuildRule>naturalOrder()
-                .addAll(pathResolver.filterBuildRuleInputs(getInput(srcs)))
-                .addAll(
-                    FluentIterable.from(nativeLinkableInput.getArgs())
-                        .transformAndConcat(Arg.getDepsFunction(pathResolver)))
-                .addAll(
-                    FluentIterable.from(bytecodeLinkableInput.getArgs())
-                        .transformAndConcat(Arg.getDepsFunction(pathResolver)))
-                .addAll(
-                    FluentIterable.from(cLinkableInput.getArgs())
-                        .transformAndConcat(Arg.getDepsFunction(pathResolver)))
-                .addAll(
-                    pathResolver.filterBuildRuleInputs(
-                        ocamlBuckConfig.getCCompiler().resolve(resolver).getInputs()))
-                .addAll(
-                    pathResolver.filterBuildRuleInputs(
-                        ocamlBuckConfig.getCxxCompiler().resolve(resolver).getInputs()))
-                .build()),
-        /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
+        /* declaredDeps */
+        ImmutableSortedSet.<BuildRule>naturalOrder()
+            .addAll(pathResolver.filterBuildRuleInputs(getInput(srcs)))
+            .addAll(
+                FluentIterable.from(nativeLinkableInput.getArgs())
+                    .transformAndConcat(Arg.getDepsFunction(pathResolver)))
+            .addAll(
+                FluentIterable.from(bytecodeLinkableInput.getArgs())
+                    .transformAndConcat(Arg.getDepsFunction(pathResolver)))
+            .addAll(
+                FluentIterable.from(cLinkableInput.getArgs())
+                    .transformAndConcat(Arg.getDepsFunction(pathResolver)))
+            .addAll(
+                pathResolver.filterBuildRuleInputs(
+                    ocamlBuckConfig.getCCompiler().resolve(resolver).getInputs()))
+            .addAll(
+                pathResolver.filterBuildRuleInputs(
+                    ocamlBuckConfig.getCxxCompiler().resolve(resolver).getInputs()))
+            .build(),
+        /* extraDeps */ ImmutableSortedSet.<BuildRule>of());
 
     ImmutableList.Builder<String> flagsBuilder = ImmutableList.builder();
     flagsBuilder.addAll(argFlags);
@@ -467,11 +460,10 @@ public class OCamlRuleBuilder {
     if (isLibrary) {
       return new OCamlStaticLibrary(
           params.copyWithDeps(
-              Suppliers.ofInstance(
-                  ImmutableSortedSet.<BuildRule>naturalOrder()
-                      .addAll(params.getDeclaredDeps().get())
-                      .addAll(result.getRules())
-                      .build()),
+              ImmutableSortedSet.<BuildRule>naturalOrder()
+                  .addAll(params.getDeclaredDeps())
+                  .addAll(result.getRules())
+                  .build(),
               params.getExtraDeps()),
           pathResolver,
           compileParams,
@@ -488,11 +480,10 @@ public class OCamlRuleBuilder {
     } else {
       return new OCamlBinary(
           params.copyWithDeps(
-              Suppliers.ofInstance(
-                  ImmutableSortedSet.<BuildRule>naturalOrder()
-                      .addAll(params.getDeclaredDeps().get())
-                      .addAll(result.getRules())
-                      .build()),
+              ImmutableSortedSet.<BuildRule>naturalOrder()
+                  .addAll(params.getDeclaredDeps())
+                  .addAll(result.getRules())
+                  .build(),
               params.getExtraDeps()),
           pathResolver,
           result.getRules().get(0));
@@ -564,28 +555,22 @@ public class OCamlRuleBuilder {
   private static Optional<String> executeProcessAndGetStdout(
       Path baseDir,
       ImmutableList<String> cmd) throws IOException, InterruptedException {
-    try (
-        CapturingPrintStream stdout = new CapturingPrintStream();
-        CapturingPrintStream stderr = new CapturingPrintStream()) {
-
-      ImmutableSet.Builder<ProcessExecutor.Option> options = ImmutableSet.builder();
-      options.add(ProcessExecutor.Option.EXPECTING_STD_OUT);
-      Console console = new Console(Verbosity.SILENT, stdout, stderr, Ansi.withoutTty());
-      ProcessExecutor exe = new ProcessExecutor(console);
-      ProcessBuilder processBuilder = new ProcessBuilder(cmd);
-      processBuilder.directory(baseDir.toFile());
-      Process p = BgProcessKiller.startProcess(processBuilder);
-      ProcessExecutor.Result result = exe.execute(
-          p,
-          options.build(),
+    ImmutableSet.Builder<ProcessExecutor.Option> options = ImmutableSet.builder();
+    options.add(ProcessExecutor.Option.EXPECTING_STD_OUT);
+    ProcessExecutor exe = new ProcessExecutor(Console.createNullConsole());
+    ProcessExecutorParams params = ProcessExecutorParams.builder()
+        .setCommand(cmd)
+        .setDirectory(baseDir)
+        .build();
+    ProcessExecutor.Result result = exe.launchAndExecute(
+        params,
+        options.build(),
         /* stdin */ Optional.<String>absent(),
         /* timeOutMs */ Optional.<Long>absent(),
         /* timeOutHandler */ Optional.<Function<Process, Void>>absent());
-      if (result.getExitCode() != 0) {
-        throw new HumanReadableException(stderr.getContentsAsString(StandardCharsets.UTF_8));
-      }
-
-      return result.getStdout();
+    if (result.getExitCode() != 0) {
+      throw new HumanReadableException(result.getStderr().get());
     }
+    return result.getStdout();
   }
 }

@@ -27,7 +27,6 @@ import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
-import com.google.common.base.Splitter;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Ordering;
@@ -38,19 +37,21 @@ import com.google.common.collect.Ordering;
  * Matches either a relative or fully-qualified build target wrapped in <tt>$()</tt>, unless the
  * <code>$</code> is preceded by a backslash.
  */
-public abstract class BuildTargetsMacroExpander implements MacroExpander {
+public abstract class BuildTargetsMacroExpander
+    extends AbstractMacroExpander<ImmutableList<BuildTarget>> {
 
   protected abstract String expand(
       BuildRuleResolver resolver,
       ImmutableList<BuildRule> rule)
       throws MacroException;
 
-  private ImmutableList<BuildTarget> parse(
+  @Override
+  protected ImmutableList<BuildTarget> parse(
       BuildTarget target,
       CellPathResolver cellNames,
-      String input) {
+      ImmutableList<String> input) {
     ImmutableList.Builder<BuildTarget> targets = ImmutableList.builder();
-    for (String str : Splitter.on(' ').omitEmptyStrings().split(input)) {
+    for (String str : input) {
       targets.add(
           BuildTargetParser.INSTANCE.parse(
               str,
@@ -61,13 +62,11 @@ public abstract class BuildTargetsMacroExpander implements MacroExpander {
   }
 
   protected ImmutableList<BuildRule> resolve(
-      BuildTarget target,
-      CellPathResolver cellNames,
       BuildRuleResolver resolver,
-      String input)
+      ImmutableList<BuildTarget> input)
       throws MacroException {
     ImmutableList.Builder<BuildRule> rules = ImmutableList.builder();
-    for (BuildTarget ruleTarget : parse(target, cellNames, input)) {
+    for (BuildTarget ruleTarget : input) {
       Optional<BuildRule> rule = resolver.getRuleOptional(ruleTarget);
       if (!rule.isPresent()) {
         throw new MacroException(String.format("no rule %s", ruleTarget));
@@ -78,15 +77,13 @@ public abstract class BuildTargetsMacroExpander implements MacroExpander {
   }
 
   @Override
-  public String expand(
+  public String expandFrom(
       BuildTarget target,
       CellPathResolver cellNames,
       BuildRuleResolver resolver,
-      String input)
+      ImmutableList<BuildTarget> input)
       throws MacroException {
-    return expand(
-        resolver,
-        resolve(target, cellNames, resolver, input));
+    return expand(resolver, resolve(resolver, input));
   }
 
   protected ImmutableList<BuildRule> extractBuildTimeDeps(
@@ -97,30 +94,31 @@ public abstract class BuildTargetsMacroExpander implements MacroExpander {
   }
 
   @Override
-  public ImmutableList<BuildRule> extractBuildTimeDeps(
+  public ImmutableList<BuildRule> extractBuildTimeDepsFrom(
       BuildTarget target,
       CellPathResolver cellNames,
       BuildRuleResolver resolver,
-      String input)
+      ImmutableList<BuildTarget> input)
       throws MacroException {
-    return extractBuildTimeDeps(resolver, resolve(target, cellNames, resolver, input));
+    return extractBuildTimeDeps(resolver, resolve(resolver, input));
   }
 
   @Override
-  public ImmutableList<BuildTarget> extractParseTimeDeps(
+  public ImmutableList<BuildTarget> extractParseTimeDepsFrom(
       BuildTarget target,
       CellPathResolver cellNames,
-      String input) {
-    return parse(target, cellNames, input);
+      ImmutableList<BuildTarget> input) {
+    return input;
   }
 
   @Override
-  public Object extractRuleKeyAppendables(
+  public Object extractRuleKeyAppendablesFrom(
       BuildTarget target,
       CellPathResolver cellNames,
       BuildRuleResolver resolver,
-      String input) throws MacroException {
-    return FluentIterable.from(parse(target, cellNames, input))
+      ImmutableList<BuildTarget> input)
+      throws MacroException {
+    return FluentIterable.from(input)
         .transform(
             new Function<BuildTarget, SourcePath>() {
               @Override

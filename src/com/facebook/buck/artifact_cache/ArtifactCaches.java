@@ -254,6 +254,7 @@ public class ArtifactCaches {
 
     } catch (IOException e) {
       throw new HumanReadableException(
+          e,
           "Failure initializing artifact cache directory: %s",
           cacheDir);
     }
@@ -340,7 +341,7 @@ public class ArtifactCaches {
     HttpService storeService;
     switch (config.getLoadBalancingType()) {
       case CLIENT_SLB:
-        HttpLoadBalancer clientSideSlb = config.getSlbConfig().createHttpClientSideSlb(
+        HttpLoadBalancer clientSideSlb = config.getSlbConfig().createClientSideSlb(
             new DefaultClock(),
             buckEventBus,
             new CommandThreadFactory("ArtifactCaches.HttpLoadBalancer"));

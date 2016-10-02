@@ -45,6 +45,7 @@ import com.facebook.buck.event.listener.JavaUtilsLoggingBuildListener;
 import com.facebook.buck.event.listener.LoadBalancerEventsListener;
 import com.facebook.buck.event.listener.LoggingBuildListener;
 import com.facebook.buck.event.listener.ProgressEstimator;
+import com.facebook.buck.event.listener.PublicAnnouncementManager;
 import com.facebook.buck.event.listener.RuleKeyLoggerListener;
 import com.facebook.buck.event.listener.SimpleConsoleEventBusListener;
 import com.facebook.buck.event.listener.SuperConsoleConfig;
@@ -113,6 +114,8 @@ import com.facebook.buck.util.environment.DefaultExecutionEnvironment;
 import com.facebook.buck.util.environment.EnvironmentFilter;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.util.network.RemoteLogBuckConfig;
+import com.facebook.buck.util.perf.PerfStatsTracking;
 import com.facebook.buck.util.shutdown.NonReentrantSystemExit;
 import com.facebook.buck.util.versioncontrol.BuildStamper;
 import com.facebook.buck.util.versioncontrol.DefaultVersionControlCmdLineInterfaceFactory;
@@ -122,6 +125,7 @@ import com.facebook.buck.util.versioncontrol.VersionControlStatsGenerator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
+import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
@@ -556,6 +560,20 @@ public final class Main {
     return daemon;
   }
 
+  private WatchmanWatcher createWatchmanWatcher(
+      Daemon daemon,
+      String watchRoot,
+      EventBus fileChangeEventBus,
+      ImmutableSet<PathOrGlobMatcher> ignorePaths,
+      Watchman watchman) {
+    return new WatchmanWatcher(
+        watchRoot,
+        fileChangeEventBus,
+        ignorePaths,
+        watchman,
+        daemon.getWatchmanQueryUUID());
+  }
+
   private static BroadcastEventListener getBroadcastEventListener(
       boolean isDaemon,
       Cell rootCell,
@@ -745,6 +763,20 @@ public final class Main {
         platform,
         clientEnvironment,
         new DefaultCellPathResolver(filesystem.getRootPath(), config));
+    Optional<ImmutableList<String>> allowedJavaSpecificiationVersions =
+        buckConfig.getAllowedJavaSpecificationVersions();
+    if (allowedJavaSpecificiationVersions.isPresent()) {
+      String specificationVersion = System.getProperty("java.specification.version");
+      boolean javaSpecificationVersionIsAllowed = allowedJavaSpecificiationVersions
+          .get()
+          .contains(specificationVersion);
+      if (!javaSpecificationVersionIsAllowed) {
+        throw new HumanReadableException(
+            "Current Java version '%s' is not in the allowed java specification versions:\n%s",
+            specificationVersion,
+            Joiner.on(", ").join(allowedJavaSpecificiationVersions.get()));
+      }
+    }
 
     // Setup the console.
     Verbosity verbosity = VerbosityParser.parse(args);
@@ -853,14 +885,13 @@ public final class Main {
 
         WatchmanDiagnosticCache watchmanDiagnosticCache = new WatchmanDiagnosticCache();
 
-        Cell rootCell = Cell.createCell(
+        Cell rootCell = Cell.createRootCell(
             filesystem,
             console,
             watchman,
             buckConfig,
             command.getConfigOverrides(),
             factory,
-            androidDirectoryResolver,
             clock,
             watchmanDiagnosticCache);
 
@@ -986,7 +1017,10 @@ public final class Main {
                  counterAggregatorExecutor,
                  buildEventBus,
                  buckConfig.getCountersFirstFlushIntervalMillis(),
-                 buckConfig.getCountersFlushIntervalMillis())) {
+                 buckConfig.getCountersFlushIntervalMillis());
+             PerfStatsTracking perfStatsTracking = new PerfStatsTracking(
+                 buildEventBus,
+                 invocationInfo)) {
 
           LOG.debug(invocationInfo.toLogLine(args));
 
@@ -1025,6 +1059,18 @@ public final class Main {
               rootCell.getKnownBuildRuleTypes(),
               clientEnvironment,
               counterRegistry);
+
+          if (buckConfig.isPublicAnnouncementsEnabled()) {
+            PublicAnnouncementManager announcementManager = new PublicAnnouncementManager(
+                clock,
+                executionEnvironment,
+                buildEventBus,
+                consoleListener,
+                buckConfig.getRepository().or("unknown"),
+                new RemoteLogBuckConfig(buckConfig),
+                executors.get(ExecutorPool.CPU));
+            announcementManager.getAndPostAnnouncements();
+          }
 
           // This needs to be after the registration of the event listener so they can pick it up.
           if (watchmanFreshInstanceAction == WatchmanWatcher.FreshInstanceAction.NONE) {
@@ -1065,15 +1111,15 @@ public final class Main {
           if (isDaemon) {
             try {
               Daemon daemon = getDaemon(rootCell, objectMapper);
-              WatchmanWatcher watchmanWatcher = new WatchmanWatcher(
+              WatchmanWatcher watchmanWatcher = createWatchmanWatcher(
+                  daemon,
                   watchman.getWatchRoot().or(canonicalRootPath.toString()),
                   daemon.getFileEventBus(),
                   ImmutableSet.<PathOrGlobMatcher>builder()
                       .addAll(filesystem.getIgnorePaths())
                       .addAll(DEFAULT_IGNORE_GLOBS)
                       .build(),
-                  watchman,
-                  daemon.getWatchmanQueryUUID());
+                  watchman);
               parser = getParserFromDaemon(
                   context,
                   rootCell,

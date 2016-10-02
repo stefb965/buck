@@ -188,7 +188,7 @@ final class JavaBuildGraphProcessor {
       // Traverse the TargetGraph to find all of the auto-generated dependencies.
       JavaDepsFinder javaDepsFinder = JavaDepsFinder.createJavaDepsFinder(
           params.getBuckConfig(),
-          params.getCell().getCellRoots(),
+          params.getCell().getCellPathResolver(),
           params.getObjectMapper(),
           buildContext,
           buildEngine);

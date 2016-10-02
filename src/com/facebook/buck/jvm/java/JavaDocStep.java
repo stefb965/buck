@@ -20,11 +20,13 @@ import com.facebook.buck.log.Logger;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
-import com.facebook.buck.util.BgProcessKiller;
 import com.facebook.buck.util.ProcessExecutor;
+import com.facebook.buck.util.ProcessExecutorParams;
 import com.google.common.base.Joiner;
+import com.google.common.collect.ImmutableMap;
 
 import java.io.IOException;
+import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
 
@@ -35,26 +37,28 @@ public class JavaDocStep implements Step {
   private Logger LOG = Logger.get(JavaDocStep.class);
 
   public JavaDocStep(String... args) {
-    for (String arg : args) {
-      this.args.add(arg);
-    }
+    Collections.addAll(this.args, args);
   }
 
   public JavaDocStep(String classpath, List<String> args) {
     this.classpath = classpath;
     this.args.addAll(args);
-//    LOG.error(getDescription(null));
   }
 
   @Override
   public StepExecutionResult execute(ExecutionContext context) throws IOException, InterruptedException {
-    ProcessBuilder processBuilder = new ProcessBuilder(this.args);
-    processBuilder.environment().put("CLASSPATH", classpath);
+    ProcessExecutorParams params = ProcessExecutorParams.builder()
+        .addAllCommand(args)
+        .setEnvironment(
+            ImmutableMap.<String, String>builder()
+                .putAll(context.getEnvironment())
+                .put("CLASSPATH", this.classpath)
+                .build())
+        .build();
 
     int exitCode = -1;
     try {
-      Process p = BgProcessKiller.startProcess(processBuilder);
-      ProcessExecutor.Result result = context.getProcessExecutor().execute(p);
+      ProcessExecutor.Result result = context.getProcessExecutor().launchAndExecute(params);
       exitCode = result.getExitCode();
     } catch (IOException e) {
       LOG.error("Failed to execute javadoc command: %s\n\nstderr: %s", getDescription(context), context.getStdErr());

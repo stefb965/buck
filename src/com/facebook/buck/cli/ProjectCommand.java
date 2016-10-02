@@ -66,6 +66,7 @@ import com.facebook.buck.rules.TargetGraphAndTargets;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.ExecutorPool;
+import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreExceptions;
 import com.facebook.buck.util.ProcessManager;
@@ -253,6 +254,11 @@ public class ProjectCommand extends BuildCommand {
   private boolean skipBuild = false;
 
   @Option(
+      name = "--build",
+      usage = "Also build all the targets in the project.")
+  private boolean build = true;
+
+  @Option(
       name = "--focus",
       depends = "--build-with-buck",
       usage = "Space separated list of build target full qualified names that should be part of " +
@@ -353,6 +359,10 @@ public class ProjectCommand extends BuildCommand {
 
   public boolean isWithDependenciesTests(BuckConfig buckConfig) {
     return testsMode(buckConfig) == ProjectTestsMode.WITH_TESTS;
+  }
+
+  private boolean getSkipBuildFromConfig(BuckConfig buckConfig) {
+    return buckConfig.getBooleanValue("project", "skip_build", false);
   }
 
   private List<String> getInitialTargets(BuckConfig buckConfig) {
@@ -605,7 +615,8 @@ public class ProjectCommand extends BuildCommand {
       return 0;
     }
 
-    if (skipBuild) {
+    boolean skipBuilds = skipBuild || getSkipBuildFromConfig(params.getBuckConfig()) || !build;
+    if (skipBuilds) {
       ConsoleEvent.severe(
           "Please remember to buck build --deep the targets you intent to work with.");
       return 0;
@@ -957,9 +968,11 @@ public class ProjectCommand extends BuildCommand {
             inputNode);
       }
 
-      AppleConfig appleConfig = new AppleConfig(params.getBuckConfig());
-      HalideBuckConfig halideBuckConfig = new HalideBuckConfig(params.getBuckConfig());
-      CxxBuckConfig cxxBuckConfig = new CxxBuckConfig(params.getBuckConfig());
+      BuckConfig buckConfig = params.getBuckConfig();
+      AppleConfig appleConfig = new AppleConfig(buckConfig);
+      HalideBuckConfig halideBuckConfig = new HalideBuckConfig(buckConfig);
+      CxxBuckConfig cxxBuckConfig = new CxxBuckConfig(buckConfig);
+      SwiftBuckConfig swiftBuckConfig = new SwiftBuckConfig(buckConfig);
 
       CxxPlatform defaultCxxPlatform = params.getCell().getKnownBuildRuleTypes().
           getDefaultCxxPlatforms();
@@ -991,7 +1004,8 @@ public class ProjectCommand extends BuildCommand {
           params.getBuckEventBus(),
           halideBuckConfig,
           cxxBuckConfig,
-          appleConfig);
+          appleConfig,
+          swiftBuckConfig);
       generator.setGroupableTests(groupableTests);
       ListeningExecutorService executorService = params.getExecutors().get(
           ExecutorPool.PROJECT);
@@ -1021,7 +1035,7 @@ public class ProjectCommand extends BuildCommand {
       BuildTarget target = BuildTargetParser.INSTANCE.parse(
           fullyQualifiedName,
           BuildTargetPatternParser.fullyQualified(),
-          params.getCell().getCellRoots());
+          params.getCell().getCellPathResolver());
       builder.add(target);
     }
 

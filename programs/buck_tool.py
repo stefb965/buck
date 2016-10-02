@@ -17,6 +17,7 @@ from pynailgun import NailgunConnection, NailgunException
 from timing import monotonic_time_nanos
 from tracing import Tracing
 from subprocutils import check_output, CalledProcessError, which
+from sys import platform as os_platform
 
 MAX_BUCKD_RUN_COUNT = 64
 BUCKD_CLIENT_TIMEOUT_MILLIS = 60000
@@ -123,9 +124,29 @@ class BuckTool(object):
     def launch_buck(self, build_id):
         with Tracing('BuckRepo.launch_buck'):
             if not is_java8_or_9():
-                print("::: Buck requires Java 8 or higher, but the environment is set up " +
-                      "to use Java 7 or lower. Continuing anyway, but Buck might crash.",
-                      file=sys.stderr)
+                WARNING = '\033[93m'
+                ENDC = '\033[0m'
+                print(WARNING + "::: Buck requires Java 8 or higher." + ENDC, file=sys.stderr)
+                if os_platform == 'darwin':
+                    print("::: Available Java homes:", file=sys.stderr)
+                    check_output(['/usr/libexec/java_home', '-V'])
+                    if not os.environ.get("JAVA_HOME"):
+                        print(WARNING + "::: No Java home selected" + ENDC, file=sys.stderr)
+                    else:
+                        print(WARNING + "::: Selected Java home:" + ENDC, file=sys.stderr)
+                        print(
+                            WARNING + "::: {0}".format(os.environ.get("JAVA_HOME")) + ENDC,
+                            file=sys.stderr)
+                    print(
+                        WARNING +
+                        "::: Select a Java home version 1.8 or higher by setting the JAVA_HOME " +
+                        "environment variable to point to one" + ENDC,
+                        file=sys.stderr)
+
+                print(
+                    WARNING + "::: Continuing anyway in 30 seconds, but Buck might crash." + ENDC,
+                    file=sys.stderr)
+                time.sleep(30)
 
             if self._command_line.command == "clean" and not self._command_line.is_help():
                 self.kill_buckd()
@@ -284,7 +305,7 @@ class BuckTool(object):
             self._buck_project.update_buckd_run_count(0)
 
             # Give Java some time to create the listening socket.
-            for i in range(0, 100):
+            for i in range(0, 300):
                 if not os.path.exists(buck_socket_path):
                     time.sleep(0.01)
 
@@ -422,10 +443,11 @@ def is_java8_or_9():
     try:
         cmd = ['java', '-Xms64m', '-version']
         output = check_output(cmd, stderr=subprocess.STDOUT)
-        version_line = output.strip().splitlines()[0]
-        m = re.compile('(openjdk|java) version "(1\.(8|9)\.|9).*').match(version_line)
-        _java8_or_9 = bool(m)
-        return _java8_or_9
+        for version_line in output.strip().splitlines():
+            m = re.compile('(openjdk|java) version "(1\.(8|9)\.|9).*').match(version_line)
+            if bool(m):
+                return True
+        return False
     except CalledProcessError as e:
         print(e.output, file=sys.stderr)
         raise e

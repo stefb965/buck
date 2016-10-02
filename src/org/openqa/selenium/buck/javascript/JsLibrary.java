@@ -33,7 +33,6 @@ import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.WriteFileStep;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Supplier;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
@@ -51,7 +50,7 @@ public class JsLibrary extends AbstractBuildRule implements
 
   private final Path output;
   @AddToRuleKey
-  private final Supplier<ImmutableSortedSet<BuildRule>> deps;
+  private final ImmutableSortedSet<BuildRule> deps;
   @AddToRuleKey
   private final ImmutableSortedSet<SourcePath> srcs;
   private JavascriptDependencies joy;
@@ -60,7 +59,7 @@ public class JsLibrary extends AbstractBuildRule implements
   public JsLibrary(
       BuildRuleParams params,
       SourcePathResolver resolver,
-      Supplier<ImmutableSortedSet<BuildRule>> deps,
+      ImmutableSortedSet<BuildRule> deps,
       ImmutableSortedSet<SourcePath> srcs) {
     super(params, resolver);
     this.deps = Preconditions.checkNotNull(deps);
@@ -91,7 +90,7 @@ public class JsLibrary extends AbstractBuildRule implements
 
     allRequires.removeAll(allProvides);
 
-    for (BuildRule dep : deps.get()) {
+    for (BuildRule dep : deps) {
       Iterator<String> iterator = allRequires.iterator();
 
       if (!(dep instanceof HasJavascriptDependencies)) {

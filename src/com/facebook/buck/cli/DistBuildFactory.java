@@ -17,10 +17,10 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.distributed.DistBuildConfig;
-import com.facebook.buck.distributed.DistBuildExecutor;
+import com.facebook.buck.distributed.DistBuildSlaveExecutor;
 import com.facebook.buck.distributed.DistBuildExecutorArgs;
 import com.facebook.buck.distributed.DistBuildService;
-import com.facebook.buck.distributed.DistributedBuildState;
+import com.facebook.buck.distributed.DistBuildState;
 import com.facebook.buck.distributed.FileContentsProviders;
 import com.facebook.buck.distributed.FrontendService;
 import com.facebook.buck.distributed.thrift.BuildJobState;
@@ -46,10 +46,10 @@ public abstract class DistBuildFactory {
   public static FrontendService newFrontendService(
       CommandRunnerParams params) {
     DistBuildConfig config = new DistBuildConfig(params.getBuckConfig());
-    ClientSideSlb slb = config.getFrontendConfig().createHttpClientSideSlb(
+    ClientSideSlb slb = config.getFrontendConfig().createClientSideSlb(
         params.getClock(),
         params.getBuckEventBus(),
-        new CommandThreadFactory("DistBuildService"));
+        new CommandThreadFactory("StampedeNetworkThreadPool"));
     OkHttpClient client = config.createOkHttpClient();
 
     return new FrontendService(
@@ -59,13 +59,13 @@ public abstract class DistBuildFactory {
             params.getBuckEventBus())));
   }
 
-  public static DistBuildExecutor createDistBuildExecutor(
+  public static DistBuildSlaveExecutor createDistBuildExecutor(
       BuildJobState jobState,
       CommandRunnerParams params,
       WeightedListeningExecutorService executorService,
       DistBuildService service) throws IOException, InterruptedException {
-    DistributedBuildState state = DistributedBuildState.load(jobState, params.getCell());
-    DistBuildExecutor executor = new DistBuildExecutor(
+    DistBuildState state = DistBuildState.load(jobState, params.getCell());
+    DistBuildSlaveExecutor executor = new DistBuildSlaveExecutor(
         DistBuildExecutorArgs.builder()
             .setBuckEventBus(params.getBuckEventBus())
             .setPlatform(params.getPlatform())
@@ -81,6 +81,7 @@ public abstract class DistBuildFactory {
             .setConsole(params.getConsole())
             .setProvider(FileContentsProviders.createDefaultProvider(service))
             .setEnvironment(params.getEnvironment())
+            .setExecutors(params.getExecutors())
             .build());
     return executor;
   }

@@ -35,7 +35,6 @@ import com.facebook.buck.step.fs.WriteFileStep;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Supplier;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
@@ -57,7 +56,8 @@ public class JsBinary extends AbstractBuildRule implements
   private final Path output;
   @AddToRuleKey
   private final Tool compiler;
-  private final Supplier<ImmutableSortedSet<BuildRule>> deps;
+  @AddToRuleKey
+  private final ImmutableSortedSet<BuildRule> deps;
   @AddToRuleKey
   private final ImmutableSortedSet<SourcePath> srcs;
   @AddToRuleKey
@@ -75,7 +75,7 @@ public class JsBinary extends AbstractBuildRule implements
       BuildRuleParams params,
       SourcePathResolver resolver,
       Tool compiler,
-      Supplier<ImmutableSortedSet<BuildRule>> deps,
+      ImmutableSortedSet<BuildRule> deps,
       ImmutableSortedSet<SourcePath> srcs,
       Optional<List<String>> defines,
       Optional<List<String>> flags,
@@ -123,7 +123,7 @@ public class JsBinary extends AbstractBuildRule implements
     }
 
     Set<String> seen = Sets.newHashSet();
-    for (BuildRule dep : deps.get()) {
+    for (BuildRule dep : deps) {
       if (!(dep instanceof HasJavascriptDependencies)) {
         continue;
       }

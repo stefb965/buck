@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY f6b794a27240926782c8eae773650646951adbe0 #@#
+#@# GENERATED FILE: DO NOT MODIFY ad7a1c4ffa1d9e76d20077a569189c4e75853685 #@#
 {
   "rules" : {
     "deps" : [
@@ -88,7 +88,6 @@
       "//src/com/facebook/buck/model:build_id",
       "//src/com/facebook/buck/rules/coercer:coercer",
       "//src/com/facebook/buck/timing:timing",
-      "//src/com/facebook/buck/util:exceptions",
       "//src/com/facebook/buck/util:object_mapper",
       "//test/com/facebook/buck/android:utils",
       "//test/com/facebook/buck/cli:FakeBuckConfig",

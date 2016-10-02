@@ -20,6 +20,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
@@ -29,6 +30,7 @@ import org.junit.Test;
 
 import java.io.IOException;
 import java.util.EnumSet;
+import java.util.StringTokenizer;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class ProcessExecutorTest {
@@ -37,12 +39,12 @@ public class ProcessExecutorTest {
     CapturingPrintStream stdOut = new CapturingPrintStream();
     CapturingPrintStream stdErr = new CapturingPrintStream();
     Ansi ansi = Ansi.forceTty();
-    Console console = new Console(
-        Verbosity.ALL, stdOut, stdErr, ansi);
+    Console console = new Console(Verbosity.ALL, stdOut, stdErr, ansi);
     ProcessExecutor executor = new ProcessExecutor(console);
     String cmd = Platform.detect() == Platform.WINDOWS ?
         "cmd /C echo Hello" : "echo Hello";
-    ProcessExecutor.Result result = executor.execute(Runtime.getRuntime().exec(cmd));
+    ProcessExecutorParams params = ProcessExecutorParams.ofCommand(makeCommandArray(cmd));
+    ProcessExecutor.Result result = executor.launchAndExecute(params);
     assertEquals(ansi.asHighlightedFailureText("Hello\n"), result.getStdout().get());
     assertEquals("", result.getStderr().get());
   }
@@ -57,8 +59,9 @@ public class ProcessExecutorTest {
     Console console = new Console(
         Verbosity.ALL, stdOut, stdErr, ansi);
     ProcessExecutor executor = new ProcessExecutor(console);
-    ProcessExecutor.Result result = executor.execute(
-        Runtime.getRuntime().exec(cmd),
+    ProcessExecutorParams params = ProcessExecutorParams.ofCommand(makeCommandArray(cmd));
+    ProcessExecutor.Result result = executor.launchAndExecute(
+        params,
         EnumSet.of(ProcessExecutor.Option.EXPECTING_STD_OUT),
         /* stdin */ Optional.<String>absent(),
         /* timeOutMs */ Optional.<Long>absent(),
@@ -79,16 +82,15 @@ public class ProcessExecutorTest {
     Console console = new Console(
         Verbosity.ALL, stdOut, stdErr, ansi);
     ProcessExecutor executor = new ProcessExecutor(console);
-    executor.execute(Runtime.getRuntime().exec(cmd));
+    ProcessExecutorParams params = ProcessExecutorParams.ofCommand(makeCommandArray(cmd));
+    executor.launchAndExecute(params);
     assertFalse(stdOut.isDirty());
     assertFalse(stdErr.isDirty());
   }
 
   @Test
   public void testProcessTimeoutHandlerIsInvoked() throws IOException, InterruptedException {
-    Console console = new Console(
-        Verbosity.ALL, new CapturingPrintStream(), new CapturingPrintStream(), Ansi.withoutTty());
-    ProcessExecutor executor = new ProcessExecutor(console);
+    ProcessExecutor executor = new ProcessExecutor(new TestConsole(Verbosity.ALL));
 
     final AtomicBoolean called = new AtomicBoolean(false);
     Function<Process, Void> handler = new Function<Process, Void>() {
@@ -99,12 +101,10 @@ public class ProcessExecutorTest {
       }
     };
 
-    String command = "sleep 50";
-    if (Platform.detect() == Platform.WINDOWS) {
-      command = "ping -n 50 0.0.0.0";
-    }
-    ProcessExecutor.Result result = executor.execute(
-        Runtime.getRuntime().exec(command),
+    String cmd = (Platform.detect() == Platform.WINDOWS) ? "ping -n 50 0.0.0.0" : "sleep 50";
+    ProcessExecutorParams params = ProcessExecutorParams.ofCommand(makeCommandArray(cmd));
+    ProcessExecutor.Result result = executor.launchAndExecute(
+        params,
         /* options */ ImmutableSet.<ProcessExecutor.Option>builder().build(),
         /* stdin */ Optional.<String>absent(),
         /* timeOutMs */ Optional.of((long) 100),
@@ -119,9 +119,7 @@ public class ProcessExecutorTest {
 
   @Test
   public void testProcessTimeoutHandlerThrowsException() throws IOException, InterruptedException {
-    Console console = new Console(
-        Verbosity.ALL, new CapturingPrintStream(), new CapturingPrintStream(), Ansi.withoutTty());
-    ProcessExecutor executor = new ProcessExecutor(console);
+    ProcessExecutor executor = new ProcessExecutor(new TestConsole(Verbosity.ALL));
 
     Function<Process, Void> handler = new Function<Process, Void>() {
       @Override
@@ -130,12 +128,10 @@ public class ProcessExecutorTest {
       }
     };
 
-    String command = "sleep 50";
-    if (Platform.detect() == Platform.WINDOWS) {
-      command = "ping -n 50 0.0.0.0";
-    }
-    ProcessExecutor.Result result = executor.execute(
-        Runtime.getRuntime().exec(command),
+    String cmd = (Platform.detect() == Platform.WINDOWS) ? "ping -n 50 0.0.0.0" : "sleep 50";
+    ProcessExecutorParams params = ProcessExecutorParams.ofCommand(makeCommandArray(cmd));
+    ProcessExecutor.Result result = executor.launchAndExecute(
+        params,
         /* options */ ImmutableSet.<ProcessExecutor.Option>builder().build(),
         /* stdin */ Optional.<String>absent(),
         /* timeOutMs */ Optional.of((long) 100),
@@ -143,5 +139,14 @@ public class ProcessExecutorTest {
     assertTrue(
         "process was reported as timed out",
         result.isTimedOut());
+  }
+
+  private static String[] makeCommandArray(String command) {
+    StringTokenizer st = new StringTokenizer(command);
+    String[] cmdarray = new String[st.countTokens()];
+    for (int i = 0; st.hasMoreTokens(); i++) {
+      cmdarray[i] = st.nextToken();
+    }
+    return cmdarray;
   }
 }

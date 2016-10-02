@@ -101,9 +101,11 @@ import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.shell.ExportFileDescription;
+import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreIterables;
+import com.facebook.buck.util.MoreMaps;
 import com.facebook.buck.util.PackagedResource;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
@@ -314,6 +316,7 @@ public class ProjectGenerator {
   private final HalideBuckConfig halideBuckConfig;
   private final CxxBuckConfig cxxBuckConfig;
   private final AppleConfig appleConfig;
+  private final SwiftBuckConfig swiftBuckConfig;
   private final ImmutableList<BuildTarget> focusModules;
 
   public ProjectGenerator(
@@ -335,7 +338,8 @@ public class ProjectGenerator {
       BuckEventBus buckEventBus,
       HalideBuckConfig halideBuckConfig,
       CxxBuckConfig cxxBuckConfig,
-      AppleConfig appleConfig) {
+      AppleConfig appleConfig,
+      SwiftBuckConfig swiftBuckConfig) {
     this.sourcePathResolver = new Function<SourcePath, Path>() {
       @Override
       public Path apply(SourcePath input) {
@@ -388,6 +392,7 @@ public class ProjectGenerator {
     this.halideBuckConfig = halideBuckConfig;
     this.cxxBuckConfig = cxxBuckConfig;
     this.appleConfig = appleConfig;
+    this.swiftBuckConfig = swiftBuckConfig;
     this.focusModules = focusModules;
 
     for (BuildTarget focusedTarget : focusModules) {
@@ -943,7 +948,7 @@ public class ProjectGenerator {
     }
   }
 
-  PBXNativeTarget generateAppleBundleTarget(
+  private PBXNativeTarget generateAppleBundleTarget(
       PBXProject project,
       TargetNode<? extends HasAppleBundleFields> targetNode,
       TargetNode<? extends AppleNativeTargetDescriptionArg> binaryNode,
@@ -1177,6 +1182,8 @@ public class ProjectGenerator {
       mutator.setInfoPlist(Optional.of(bundleArg.getInfoPlist()));
     }
 
+    mutator.setBridgingHeader(arg.bridgingHeader);
+
     Optional<TargetNode<AppleNativeTargetDescriptionArg>> appleTargetNode =
         targetNode.castArg(AppleNativeTargetDescriptionArg.class);
     if (appleTargetNode.isPresent() && isFocusedOnTarget) {
@@ -1321,6 +1328,17 @@ public class ProjectGenerator {
     if (infoPlistOptional.isPresent()) {
       Path infoPlistPath = pathRelativizer.outputDirToRootRelative(infoPlistOptional.get());
       extraSettingsBuilder.put("INFOPLIST_FILE", infoPlistPath.toString());
+    }
+    if (arg.bridgingHeader.isPresent()) {
+      Path bridgingHeaderPath = pathRelativizer.outputDirToRootRelative(
+          sourcePathResolver.apply(arg.bridgingHeader.get()));
+      extraSettingsBuilder.put(
+          "SWIFT_OBJC_BRIDGING_HEADER",
+          Joiner.on('/').join("$(SRCROOT)", bridgingHeaderPath.toString()));
+    }
+    Optional<String> swiftVersion = swiftBuckConfig.getVersion();
+    if (swiftVersion.isPresent()) {
+      extraSettingsBuilder.put("SWIFT_VERSION", swiftVersion.get());
     }
     Optional<SourcePath> prefixHeaderOptional = targetNode.getConstructorArg().prefixHeader;
     if (prefixHeaderOptional.isPresent()) {
@@ -1493,16 +1511,17 @@ public class ProjectGenerator {
     }
 
     // -- phases
+    boolean headerMapDisabled = options.contains(Option.DISABLE_HEADER_MAPS);
     createHeaderSymlinkTree(
         sourcePathResolver,
         getPublicCxxHeaders(targetNode),
-        getPathToHeaderSymlinkTree(targetNode,
-            HeaderVisibility.PUBLIC));
+        getPathToHeaderSymlinkTree(targetNode, HeaderVisibility.PUBLIC),
+        arg.xcodePublicHeadersSymlinks.or(true) || headerMapDisabled);
     createHeaderSymlinkTree(
         sourcePathResolver,
         getPrivateCxxHeaders(targetNode),
-        getPathToHeaderSymlinkTree(targetNode,
-            HeaderVisibility.PRIVATE));
+        getPathToHeaderSymlinkTree(targetNode, HeaderVisibility.PRIVATE),
+        arg.xcodePrivateHeadersSymlinks.or(true) || headerMapDisabled);
 
     if (appleTargetNode.isPresent()) {
       // Use Core Data models from immediate dependencies only.
@@ -1805,15 +1824,14 @@ public class ProjectGenerator {
         combinedOverrideConfigs.put(entry.getKey(), settingPrefix + " " + entry.getValue());
       }
 
-      Iterable<Map.Entry<String, String>> entries = Iterables.concat(
-          targetLevelInlineSettings.entrySet(),
-          combinedOverrideConfigs.entrySet());
-
+      ImmutableSortedMap<String, String> mergedSettings = MoreMaps.mergeSorted(
+          targetLevelInlineSettings,
+          combinedOverrideConfigs);
       Path xcconfigPath = configurationNameToXcconfigPath.apply(configurationEntry.getKey());
       projectFilesystem.mkdirs(Preconditions.checkNotNull(xcconfigPath).getParent());
 
       StringBuilder stringBuilder = new StringBuilder();
-      for (Map.Entry<String, String> entry : entries) {
+      for (Map.Entry<String, String> entry : mergedSettings.entrySet()) {
         stringBuilder.append(entry.getKey());
         stringBuilder.append(" = ");
         stringBuilder.append(entry.getValue());
@@ -1873,7 +1891,8 @@ public class ProjectGenerator {
   private void createHeaderSymlinkTree(
       Function<SourcePath, Path> pathResolver,
       Map<Path, SourcePath> contents,
-      Path headerSymlinkTreeRoot) throws IOException {
+      Path headerSymlinkTreeRoot,
+      boolean shouldCreateHeadersSymlinks) throws IOException {
     LOG.verbose(
         "Building header symlink tree at %s with contents %s",
         headerSymlinkTreeRoot,
@@ -1891,7 +1910,8 @@ public class ProjectGenerator {
 
     Path hashCodeFilePath = headerSymlinkTreeRoot.resolve(".contents-hash");
     Optional<String> currentHashCode = projectFilesystem.readFileIfItExists(hashCodeFilePath);
-    String newHashCode = getHeaderSymlinkTreeHashCode(resolvedContents).toString();
+    String newHashCode =
+        getHeaderSymlinkTreeHashCode(resolvedContents, shouldCreateHeadersSymlinks).toString();
     if (Optional.of(newHashCode).equals(currentHashCode)) {
       LOG.debug(
           "Symlink tree at %s is up to date, not regenerating (key %s).",
@@ -1905,31 +1925,46 @@ public class ProjectGenerator {
           newHashCode);
       projectFilesystem.deleteRecursivelyIfExists(headerSymlinkTreeRoot);
       projectFilesystem.mkdirs(headerSymlinkTreeRoot);
-      for (Map.Entry<Path, Path> entry : resolvedContents.entrySet()) {
-        Path link = entry.getKey();
-        Path existing = entry.getValue();
-        projectFilesystem.createParentDirs(link);
-        projectFilesystem.createSymLink(link, existing, /* force */ false);
+      if (shouldCreateHeadersSymlinks) {
+        for (Map.Entry<Path, Path> entry : resolvedContents.entrySet()) {
+          Path link = entry.getKey();
+          Path existing = entry.getValue();
+          projectFilesystem.createParentDirs(link);
+          projectFilesystem.createSymLink(link, existing, /* force */ false);
+        }
       }
       projectFilesystem.writeContentsToPath(newHashCode, hashCodeFilePath);
 
       HeaderMap.Builder headerMapBuilder = new HeaderMap.Builder();
       for (Map.Entry<Path, SourcePath> entry : contents.entrySet()) {
-        headerMapBuilder.add(
-            entry.getKey().toString(),
-            Paths.get("../../")
-                .resolve(projectCell.getRoot().getFileName())
-                .resolve(headerSymlinkTreeRoot)
-                .resolve(entry.getKey()));
+        if (shouldCreateHeadersSymlinks) {
+          headerMapBuilder.add(
+              entry.getKey().toString(),
+              Paths.get("../../")
+                  .resolve(projectCell.getRoot().getFileName())
+                  .resolve(headerSymlinkTreeRoot)
+                  .resolve(entry.getKey()));
+        } else {
+          headerMapBuilder.add(
+              entry.getKey().toString(),
+              projectFilesystem.resolve(pathResolver.apply(entry.getValue())));
+        }
       }
       projectFilesystem.writeBytesToPath(headerMapBuilder.build().getBytes(), headerMapLocation);
     }
     headerSymlinkTrees.add(headerSymlinkTreeRoot);
   }
 
-  private HashCode getHeaderSymlinkTreeHashCode(ImmutableSortedMap<Path, Path> contents) {
+  private HashCode getHeaderSymlinkTreeHashCode(
+      ImmutableSortedMap<Path, Path> contents,
+      boolean shouldCreateHeadersSymlinks) {
     Hasher hasher = Hashing.sha1().newHasher();
     hasher.putBytes(BuckVersion.getVersion().getBytes(Charsets.UTF_8));
+    String symlinkState = shouldCreateHeadersSymlinks ? "symlinks-enabled" : "symlinks-disabled";
+    byte[] symlinkStateValue = symlinkState.getBytes(Charsets.UTF_8);
+    hasher.putInt(symlinkStateValue.length);
+    hasher.putBytes(symlinkStateValue);
+    hasher.putInt(0);
     for (Map.Entry<Path, Path> entry : contents.entrySet()) {
       byte[] key = entry.getKey().toString().getBytes(Charsets.UTF_8);
       byte[] value = entry.getValue().toString().getBytes(Charsets.UTF_8);

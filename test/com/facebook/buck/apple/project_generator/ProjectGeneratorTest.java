@@ -70,8 +70,6 @@ import com.facebook.buck.apple.xcode.xcodeproj.ProductType;
 import com.facebook.buck.apple.xcode.xcodeproj.SourceTreePath;
 import com.facebook.buck.apple.xcode.xcodeproj.XCBuildConfiguration;
 import com.facebook.buck.cli.BuckConfig;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
@@ -95,21 +93,24 @@ import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.Cell;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
-import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.shell.ExportFileBuilder;
 import com.facebook.buck.shell.ExportFileDescription;
+import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.testutil.AllExistingProjectFilesystem;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
@@ -171,6 +172,7 @@ public class ProjectGeneratorTest {
   private HalideBuckConfig halideBuckConfig;
   private CxxBuckConfig cxxBuckConfig;
   private AppleConfig appleConfig;
+  private SwiftBuckConfig swiftBuckConfig;
 
   @Rule
   public ExpectedException thrown = ExpectedException.none();
@@ -203,10 +205,13 @@ public class ProjectGeneratorTest {
             "cflags", "-Wno-deprecated -Wno-conversion",
             "cxxflags", "-Wundeclared-selector -Wno-objc-designated-initializers"),
         "apple", ImmutableMap.of(
-            "force_dsym_mode_in_build_with_buck", "false"));
+            "force_dsym_mode_in_build_with_buck", "false"),
+        "swift", ImmutableMap.of(
+            "version", "1.23"));
     BuckConfig config = FakeBuckConfig.builder().setSections(sections).build();
     cxxBuckConfig = new CxxBuckConfig(config);
     appleConfig = new AppleConfig(config);
+    swiftBuckConfig = new SwiftBuckConfig(config);
   }
 
   @Test
@@ -514,6 +519,51 @@ public class ProjectGeneratorTest {
         headerSymlinkTrees.get(1).toString(),
         is(equalTo("buck-out/gen/_project/CwkbTNOBmbhf7TdVehLAj7vKmzI-private-headers")));
     assertThatHeaderSymlinkTreeContains(
+        Paths.get("buck-out/gen/_project/CwkbTNOBmbhf7TdVehLAj7vKmzI-private-headers"),
+        ImmutableMap.<String, String>builder()
+            .put("foo/dir1/foo.h", "foo/dir1/foo.h")
+            .put("foo/dir2/baz.h", "foo/dir2/baz.h")
+            .build());
+  }
+
+  @Test
+  public void testCxxLibraryWithoutHeadersSymLinks() throws IOException {
+    BuildTarget buildTarget = BuildTarget.builder(rootPath, "//foo", "lib").build();
+    TargetNode<?> node = new CxxLibraryBuilder(buildTarget)
+        .setExportedHeaders(
+            ImmutableSortedSet.<SourcePath>of(
+                new FakeSourcePath("foo/dir1/bar.h")))
+        .setHeaders(
+            ImmutableSortedSet.<SourcePath>of(
+                new FakeSourcePath("foo/dir1/foo.h"),
+                new FakeSourcePath("foo/dir2/baz.h")))
+        .setSrcs(ImmutableSortedSet.<SourceWithFlags>of())
+        .setXcodePublicHeadersSymlinks(false)
+        .setXcodePrivateHeadersSymlinks(false)
+        .build();
+
+    ImmutableSet.Builder<ProjectGenerator.Option> optionsBuilder = ImmutableSet.builder();
+    ImmutableSet<ProjectGenerator.Option> projectGeneratorOptions = optionsBuilder.build();
+    ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
+        ImmutableSet.<TargetNode<?>>of(node),
+        projectGeneratorOptions);
+
+    projectGenerator.createXcodeProjects();
+
+    List<Path> headerSymlinkTrees = projectGenerator.getGeneratedHeaderSymlinkTrees();
+    assertThat(headerSymlinkTrees, hasSize(2));
+
+    assertThat(
+        headerSymlinkTrees.get(0).toString(),
+        is(equalTo("buck-out/gen/_project/CwkbTNOBmbhf7TdVehLAj7vKmzI-public-headers")));
+    assertThatHeaderMapWithoutSymLinksContains(
+        Paths.get("buck-out/gen/_project/CwkbTNOBmbhf7TdVehLAj7vKmzI-public-headers"),
+        ImmutableMap.of("foo/dir1/bar.h", "foo/dir1/bar.h"));
+
+    assertThat(
+        headerSymlinkTrees.get(1).toString(),
+        is(equalTo("buck-out/gen/_project/CwkbTNOBmbhf7TdVehLAj7vKmzI-private-headers")));
+    assertThatHeaderMapWithoutSymLinksContains(
         Paths.get("buck-out/gen/_project/CwkbTNOBmbhf7TdVehLAj7vKmzI-private-headers"),
         ImmutableMap.<String, String>builder()
             .put("foo/dir1/foo.h", "foo/dir1/foo.h")
@@ -989,6 +1039,29 @@ public class ProjectGeneratorTest {
           equalTo(Paths.get("../../")
                       .resolve(projectCell.getRoot().getFileName())
                       .resolve(link).toString()));
+    }
+  }
+
+  private void assertThatHeaderMapWithoutSymLinksContains(
+      Path root,
+      ImmutableMap<String, String> content)
+      throws IOException {
+    // Read the tree's header map.
+    byte[] headerMapBytes;
+    try (InputStream headerMapInputStream =
+             projectFilesystem.newFileInputStream(root.resolve(".hmap"))) {
+      headerMapBytes = ByteStreams.toByteArray(headerMapInputStream);
+    }
+    HeaderMap headerMap = HeaderMap.deserialize(headerMapBytes);
+    assertNotNull(headerMap);
+    assertThat(headerMap.getNumEntries(), equalTo(content.size()));
+    for (Map.Entry<String, String> entry : content.entrySet()) {
+      String key = entry.getKey();
+      Path target = Paths.get(entry.getValue()).toAbsolutePath();
+      // Check the header map
+      assertThat(
+          headerMap.lookup(key),
+          equalTo(target.toString()));
     }
   }
 
@@ -3452,7 +3525,8 @@ public class ProjectGeneratorTest {
         getFakeBuckEventBus(),
         halideBuckConfig,
         cxxBuckConfig,
-        appleConfig)
+        appleConfig,
+        swiftBuckConfig)
         .setTestsToGenerateAsStaticLibraries(ImmutableSet.of(xctest1, xctest2))
         .setAdditionalCombinedTestTargets(
             ImmutableMultimap.of(
@@ -3742,7 +3816,8 @@ public class ProjectGeneratorTest {
         getFakeBuckEventBus(),
         halideBuckConfig,
         cxxBuckConfig,
-        appleConfig);
+        appleConfig,
+        swiftBuckConfig);
     projectGenerator.createXcodeProjects();
 
     PBXTarget buildWithBuckTarget = null;
@@ -3847,7 +3922,8 @@ public class ProjectGeneratorTest {
         getFakeBuckEventBus(),
         halideBuckConfig,
         cxxBuckConfig,
-        appleConfig);
+        appleConfig,
+        swiftBuckConfig);
     projectGenerator.createXcodeProjects();
 
     PBXTarget buildWithBuckTarget = null;
@@ -3927,7 +4003,8 @@ public class ProjectGeneratorTest {
         getFakeBuckEventBus(),
         halideBuckConfig,
         cxxBuckConfig,
-        appleConfig);
+        appleConfig,
+        swiftBuckConfig);
     projectGenerator.createXcodeProjects();
 
     PBXTarget buildWithBuckTarget = null;
@@ -4493,6 +4570,69 @@ public class ProjectGeneratorTest {
     assertThat(target.getBuildPhases().size(), Matchers.equalTo(1));
   }
 
+  @Test
+  public void testGeneratedProjectStructureAndSettingsWithBridgingHeader() throws IOException {
+    BuildTarget buildTarget = BuildTarget.builder(rootPath, "//foo", "lib").build();
+    TargetNode<?> node = AppleLibraryBuilder
+        .createBuilder(buildTarget)
+        .setConfigs(
+            Optional.of(
+                ImmutableSortedMap.of(
+                    "Debug",
+                    ImmutableMap.<String, String>of())))
+        .setSrcs(Optional.of(ImmutableSortedSet.<SourceWithFlags>of()))
+        .setBridgingHeader(Optional.<SourcePath>of(new FakeSourcePath("BridgingHeader/header1.h")))
+        .build();
+
+    ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
+        ImmutableSet.<TargetNode<?>>of(node));
+
+    projectGenerator.createXcodeProjects();
+
+    // check if bridging header file existing in the project structure
+    PBXProject project = projectGenerator.getGeneratedProject();
+    PBXGroup targetGroup =
+        project.getMainGroup().getOrCreateChildGroupByName(buildTarget.getFullyQualifiedName());
+    PBXGroup sourcesGroup = targetGroup.getOrCreateChildGroupByName("Sources");
+
+    assertThat(sourcesGroup.getChildren(), hasSize(1));
+
+    PBXFileReference fileRefBridgingHeader =
+        (PBXFileReference) Iterables.get(sourcesGroup.getChildren(), 0);
+    assertEquals("header1.h", fileRefBridgingHeader.getName());
+
+    // check for bridging header build setting
+    PBXTarget target =
+        assertTargetExistsAndReturnTarget(project, "//foo:lib");
+    ImmutableMap<String, String> buildSettings = getBuildSettings(buildTarget, target, "Debug");
+    assertEquals("$(SRCROOT)/../BridgingHeader/header1.h",
+        buildSettings.get("SWIFT_OBJC_BRIDGING_HEADER"));
+  }
+
+  @Test
+  public void testGeneratedProjectSettingForSwiftVersion() throws IOException {
+    BuildTarget buildTarget = BuildTarget.builder(rootPath, "//foo", "lib").build();
+    TargetNode<?> node = AppleLibraryBuilder
+        .createBuilder(buildTarget)
+        .setConfigs(
+            Optional.of(
+                ImmutableSortedMap.of(
+                    "Debug",
+                    ImmutableMap.<String, String>of())))
+        .setSrcs(Optional.of(ImmutableSortedSet.<SourceWithFlags>of()))
+        .build();
+
+    ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
+        ImmutableSet.<TargetNode<?>>of(node));
+    projectGenerator.createXcodeProjects();
+    PBXProject project = projectGenerator.getGeneratedProject();
+
+    PBXTarget target =
+        assertTargetExistsAndReturnTarget(project, "//foo:lib");
+    ImmutableMap<String, String> buildSettings = getBuildSettings(buildTarget, target, "Debug");
+    assertThat(buildSettings.get("SWIFT_VERSION"), equalTo("1.23"));
+  }
+
   private ProjectGenerator createProjectGeneratorForCombinedProject(
       Iterable<TargetNode<?>> nodes) {
     return createProjectGeneratorForCombinedProject(
@@ -4540,7 +4680,8 @@ public class ProjectGeneratorTest {
         getFakeBuckEventBus(),
         halideBuckConfig,
         cxxBuckConfig,
-        appleConfig);
+        appleConfig,
+        swiftBuckConfig);
   }
 
   private Function<TargetNode<?>, SourcePathResolver> getSourcePathResolverForNodeFunction(

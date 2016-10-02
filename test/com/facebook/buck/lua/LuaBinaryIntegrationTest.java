@@ -41,8 +41,10 @@ import com.facebook.buck.testutil.ParameterizedTests;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.facebook.buck.util.BgProcessKiller;
+import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ObjectMappers;
+import com.facebook.buck.util.ProcessExecutor;
+import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.Platform;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -114,18 +116,20 @@ public class LuaBinaryIntegrationTest {
         DefaultCxxPlatforms.build(
             Platform.detect(),
             new CxxBuckConfig(FakeBuckConfig.builder().build()));
-    ProcessBuilder builder = new ProcessBuilder();
-    builder.command(
+    ProcessExecutorParams params = ProcessExecutorParams.builder()
+        .setCommand(
         ImmutableList.<String>builder()
             .addAll(
                 cxxPlatform.getCc().resolve(resolver)
                     .getCommandPrefix(new SourcePathResolver(resolver)))
             .add("-includelua.h", "-E", "-")
-            .build());
-    builder.redirectInput(ProcessBuilder.Redirect.PIPE);
-    Process process = BgProcessKiller.startProcess(builder);
-    process.getOutputStream().close();
-    int exitCode = process.waitFor();
+            .build())
+        .setRedirectInput(ProcessBuilder.Redirect.PIPE)
+        .build();
+    ProcessExecutor executor = new ProcessExecutor(Console.createNullConsole());
+    ProcessExecutor.LaunchedProcess launchedProcess = executor.launchProcess(params);
+    launchedProcess.getOutputStream().close();
+    int exitCode = executor.waitForLaunchedProcess(launchedProcess).getExitCode();
     luaDevel = exitCode == 0;
     if (starterType == LuaBinaryDescription.StarterType.NATIVE) {
       assumeTrue("Lua devel package required for native starter", luaDevel);
@@ -160,11 +164,11 @@ public class LuaBinaryIntegrationTest {
   @Test
   public void stderr() throws Exception {
     workspace.writeContentsToPath("require 'os'; io.stderr:write('hello world')", "simple.lua");
-    ProjectWorkspace.ProcessResult result =
-        workspace.runBuckCommand("run", "//:simple").assertSuccess();
+    Path path = workspace.buildAndReturnOutput("//:simple");
+    ProcessExecutor.Result result = workspace.runCommand(path.toString());
     assertThat(
-        result.getStdout() + result.getStderr(),
-        result.getStderr().trim(),
+        result.getStdout().or("") + result.getStderr().or(""),
+        result.getStderr().or("").trim(),
         Matchers.endsWith("hello world"));
   }
 

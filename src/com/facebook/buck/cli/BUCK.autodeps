@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY e64e57e9493e033bde6073a1a12b5999ca16eb15 #@#
+#@# GENERATED FILE: DO NOT MODIFY 64b9365b5072b827d061e1db6b2875105fc22377 #@#
 {
   "cli" : {
     "deps" : [
@@ -50,6 +50,7 @@
       "//src/com/facebook/buck/rules/keys:keys",
       "//src/com/facebook/buck/slb:slb",
       "//src/com/facebook/buck/step/fs:fs",
+      "//src/com/facebook/buck/swift:swift",
       "//src/com/facebook/buck/test:config",
       "//src/com/facebook/buck/test:report-format",
       "//src/com/facebook/buck/test/result/type:type",
@@ -59,6 +60,8 @@
       "//src/com/facebook/buck/util:util",
       "//src/com/facebook/buck/util:watchman",
       "//src/com/facebook/buck/util/environment:env-filter",
+      "//src/com/facebook/buck/util/network:network",
+      "//src/com/facebook/buck/util/perf:perf",
       "//src/com/facebook/buck/util/shutdown:shutdown",
       "//src/com/facebook/buck/util/versioncontrol:versioncontrol",
       "//third-party/java/aosp:aosp",

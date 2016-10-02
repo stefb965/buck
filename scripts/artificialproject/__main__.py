@@ -28,6 +28,14 @@ def get_transitive_deps(top_target_name, targets_by_name):
     return visited
 
 
+def target_has_output(target):
+    type = target['buck.type']
+    if type in ['java_library', 'android_library']:
+        srcs = target.get('srcs', [])
+        return len(srcs) != 0
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(
             description='Generate artificial Buck project.')
@@ -48,12 +56,16 @@ def main():
         '--output-attributes', '.*',
     ], cwd=args.input_repo)
     project_data = json.loads(project_data_json.decode('utf8'))
+    targets_by_name = {}
     gen_targets_by_type = collections.defaultdict(list)
+    gen_targets_with_output_by_type = collections.defaultdict(list)
     file_path_generator = FilePathGenerator()
     file_path_generator.analyze_project_data(project_data)
     context = Context(
             project_data,
+            targets_by_name,
             gen_targets_by_type,
+            gen_targets_with_output_by_type,
             args.output_repo,
             file_path_generator)
     target_generator = TargetGenerator(context)
@@ -70,7 +82,6 @@ def main():
 
     rejected = 0
     count = 0
-    targets_by_name = {}
     target_size = args.output_repo_size
     candidates = []
     while True:
@@ -82,6 +93,9 @@ def main():
         count += 1
         target_name = '//' + target['buck.base_path'] + ':' + target['name']
         gen_targets_by_type[target['buck.type']].append(target_name)
+        if target_has_output(target):
+            gen_targets_with_output_by_type[target['buck.type']].append(
+                    target_name)
         targets_by_name[target_name] = target
         if count % 100 == 0:
             try:

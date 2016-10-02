@@ -18,7 +18,6 @@ package com.facebook.buck.util.versioncontrol;
 
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.log.Logger;
-import com.google.common.collect.Iterables;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.concurrent.ExecutorService;
@@ -70,7 +69,7 @@ public class VersionControlStatsGenerator {
       return;
     }
 
-    int workingDirectoryChanges = Iterables.size(vcCmdLineInterface.changedFiles("."));
+    ImmutableSet<String> changedFiles = vcCmdLineInterface.changedFiles(".");
 
     String currentRevisionId = vcCmdLineInterface.currentRevisionId();
     String latestMasterRevisionId = vcCmdLineInterface.revisionId("master");
@@ -89,7 +88,7 @@ public class VersionControlStatsGenerator {
         branchedFromMasterRevisionId) * 1000;
 
     VersionControlStats versionControlStats = VersionControlStats.builder()
-        .setNumberOfWorkingDirectoryChanges(workingDirectoryChanges)
+        .setPathsChangedInWorkingDirectory(changedFiles)
         .setCurrentRevisionId(currentRevisionId)
         .setBranchedFromMasterRevisionId(branchedFromMasterRevisionId)
         .setBranchedFromMasterTsMillis(branchedFromMasterTsMillis)

@@ -70,7 +70,6 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -82,6 +81,7 @@ import com.google.common.collect.Maps;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -534,10 +534,9 @@ public class LuaBinaryDescription implements
         SymlinkTree.from(
             params.copyWithChanges(
                 linkTreeTarget,
-                Suppliers.ofInstance(
-                    ImmutableSortedSet.copyOf(
-                        pathResolver.filterBuildRuleInputs(components.values()))),
-                Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+                ImmutableSortedSet.copyOf(
+                    pathResolver.filterBuildRuleInputs(components.values())),
+                ImmutableSortedSet.<BuildRule>of()),
             pathResolver,
             root,
             components));
@@ -562,17 +561,26 @@ public class LuaBinaryDescription implements
                         return input.isEmpty() ? input : Pattern.quote(input);
                       }
                     })));
-    ImmutableSortedMap.Builder<String, SourcePath> builder = ImmutableSortedMap.naturalOrder();
+    Map<String, SourcePath> librariesPaths = new HashMap<>();
     for (Map.Entry<String, SourcePath> ent : libraries.entrySet()) {
       String name = ent.getKey();
-      builder.put(name, ent.getValue());
+
+      if (librariesPaths.containsKey(name) && librariesPaths.get(name) != ent.getValue()) {
+        throw new HumanReadableException(
+            "Library %s has multiple possible paths: %s and %s",
+            name,
+            ent.getValue(),
+            librariesPaths.get(name));
+      }
+
+      librariesPaths.put(name, ent.getValue());
       Matcher matcher = versionedExtension.matcher(name);
       String versionLessName = matcher.replaceAll(cxxPlatform.getSharedLibraryExtension());
       if (!versionLessName.equals(ent.getKey()) && !libraries.containsKey(versionLessName)) {
-        builder.put(versionLessName, ent.getValue());
+        librariesPaths.put(versionLessName, ent.getValue());
       }
     }
-    return builder.build();
+    return ImmutableSortedMap.copyOf(librariesPaths);
   }
 
   private Tool getInPlaceBinary(
@@ -706,14 +714,13 @@ public class LuaBinaryDescription implements
             new LuaStandaloneBinary(
                 params.copyWithChanges(
                     params.getBuildTarget().withAppendedFlavors(BINARY_FLAVOR),
-                    Suppliers.ofInstance(
-                        ImmutableSortedSet.<BuildRule>naturalOrder()
-                            .addAll(pathResolver.filterBuildRuleInputs(starter))
-                            .addAll(components.getDeps(pathResolver))
-                            .addAll(lua.getDeps(pathResolver))
-                            .addAll(packager.getDeps(pathResolver))
-                            .build()),
-                    Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+                    ImmutableSortedSet.<BuildRule>naturalOrder()
+                        .addAll(pathResolver.filterBuildRuleInputs(starter))
+                        .addAll(components.getDeps(pathResolver))
+                        .addAll(lua.getDeps(pathResolver))
+                        .addAll(packager.getDeps(pathResolver))
+                        .build(),
+                    ImmutableSortedSet.<BuildRule>of()),
                 pathResolver,
                 packager,
                 ImmutableList.<String>of(),
@@ -789,7 +796,7 @@ public class LuaBinaryDescription implements
             args.nativeStarterLibrary.or(luaConfig.getNativeStarterLibrary()),
             args.mainModule,
             args.packageStyle.or(luaConfig.getPackageStyle()),
-            params.getDeclaredDeps().get());
+            params.getDeclaredDeps());
     Tool binary =
         getBinary(
             params,

@@ -58,7 +58,6 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -229,6 +228,7 @@ public class AndroidBinaryDescription
         args.buildConfigValuesFile,
         Optional.<Integer>absent(),
         args.trimResourceIds.or(false),
+        args.keepResourcePattern,
         nativePlatforms,
         args.nativeLibraryMergeMap,
         args.nativeLibraryMergeGlue,
@@ -267,7 +267,7 @@ public class AndroidBinaryDescription
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
     return new AndroidBinary(
         params
-            .copyWithExtraDeps(Suppliers.ofInstance(result.getFinalDeps()))
+            .copyWithExtraDeps(result.getFinalDeps())
             .appendExtraDeps(
                 pathResolver.filterBuildRuleInputs(
                     result.getPackageableCollection().getProguardConfigs()))
@@ -395,6 +395,7 @@ public class AndroidBinaryDescription
     public Optional<List<String>> resourceFilter;
     public Optional<Set<RType>> bannedDuplicateResourceTypes;
     public Optional<Boolean> trimResourceIds;
+    public Optional<String> keepResourcePattern;
     public Optional<String> resourceUnionPackage;
     public Optional<ImmutableSet<String>> locales;
     public Optional<Boolean> buildStringSourceMap;
