@@ -39,6 +39,7 @@ import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -146,7 +147,7 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
     if (target.getFlavors().contains(JavaLibrary.MAVEN_JAR)) {
       return MavenUberJar.create(
           (JavaLibrary) baseLibrary,
-          params.copyWithExtraDeps(ImmutableSortedSet.of(baseLibrary)),
+          params.copyWithExtraDeps(Suppliers.ofInstance(ImmutableSortedSet.of(baseLibrary))),
           pathResolver,
           args.mavenCoords.transform(
               new Function<String, String>() {
@@ -183,7 +184,7 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
                     Iterables.concat(
                         BuildRules.getExportedRules(
                             Iterables.concat(
-                                params.getDeclaredDeps(),
+                                params.getDeclaredDeps().get(),
                                 exportedDeps,
                                 resolver.getAllRules(args.providedDeps.get()))),
                         pathResolver.filterBuildRuleInputs(

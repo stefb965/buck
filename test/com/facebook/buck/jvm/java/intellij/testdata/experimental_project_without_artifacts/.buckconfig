@@ -5,6 +5,4 @@
 [project]
   ignore = buck-out
   ide = intellij
-  disable_r_java_idea_generator = true
-[intellij_jdk_aliases]
-  6 = 1.6
+  exclude_artifacts = true

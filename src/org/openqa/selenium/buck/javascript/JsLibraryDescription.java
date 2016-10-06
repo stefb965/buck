@@ -51,7 +51,7 @@ public class JsLibraryDescription implements Description<JsLibraryDescription.Ar
     return new JsLibrary(
         params,
         new SourcePathResolver(resolver),
-        params.getDeclaredDeps(),
+        params.getDeclaredDeps().get(),
         args.srcs);
   }
 

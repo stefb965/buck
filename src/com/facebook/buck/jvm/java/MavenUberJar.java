@@ -28,6 +28,7 @@ import com.facebook.buck.step.fs.MkdirStep;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Predicates;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
@@ -61,11 +62,14 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
     this.pomTemplate = mavenPomTemplate.transform(getResolver().getAbsolutePathFunction());
   }
 
-  private static BuildRuleParams adjustParams(BuildRuleParams params, RuleGatherer.GatheredDeps traversedDeps) {
+  private static BuildRuleParams adjustParams(
+      BuildRuleParams params,
+      RuleGatherer.GatheredDeps traversedDeps) {
     return params.copyWithDeps(
-        FluentIterable.from(traversedDeps.getRulesToPackage())
-            .toSortedSet(Ordering.<BuildRule>natural()),
-        ImmutableSortedSet.<BuildRule>of());
+        Suppliers.ofInstance(
+            FluentIterable.from(traversedDeps.getRulesToPackage())
+                .toSortedSet(Ordering.<BuildRule>natural())),
+        Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
   }
 
   /**

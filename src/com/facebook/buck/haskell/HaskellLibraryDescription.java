@@ -158,7 +158,8 @@ public class HaskellLibraryDescription implements
             cxxPlatform.getFlavor(),
             depType == Linker.LinkableDepType.STATIC ?
                 CxxSourceRuleFactory.PicType.PDC :
-                CxxSourceRuleFactory.PicType.PIC),
+                CxxSourceRuleFactory.PicType.PIC,
+            cxxPlatform.getStaticLibraryExtension()),
         compileRule.getObjects());
   }
 
@@ -237,7 +238,7 @@ public class HaskellLibraryDescription implements
 
     ImmutableSortedMap.Builder<String, HaskellPackage> depPackagesBuilder =
         ImmutableSortedMap.naturalOrder();
-    for (BuildRule rule : baseParams.getDeclaredDeps()) {
+    for (BuildRule rule : baseParams.getDeclaredDeps().get()) {
       if (rule instanceof HaskellCompileDep) {
         ImmutableList<HaskellPackage> packages =
             ((HaskellCompileDep) rule).getCompileInput(cxxPlatform, depType).getPackages();
@@ -326,7 +327,7 @@ public class HaskellLibraryDescription implements
         Linker.LinkType.SHARED,
         ImmutableList.<String>of(),
         ImmutableList.copyOf(SourcePathArg.from(pathResolver, compileRule.getObjects())),
-        Iterables.filter(baseParams.getDeclaredDeps(), NativeLinkable.class),
+        Iterables.filter(baseParams.getDeclaredDeps().get(), NativeLinkable.class),
         Linker.LinkableDepType.SHARED);
   }
 

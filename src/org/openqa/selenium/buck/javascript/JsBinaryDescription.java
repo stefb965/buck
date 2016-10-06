@@ -65,7 +65,7 @@ public class JsBinaryDescription implements
         params,
         new SourcePathResolver(resolver),
         config.getClosureCompiler(args.compiler, new SourcePathResolver(resolver)),
-        params.getDeclaredDeps(),
+        params.getDeclaredDeps().get(),
         args.srcs,
         args.defines,
         args.flags,

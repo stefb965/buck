@@ -20,6 +20,7 @@ import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxSourceRuleFactory;
 import com.facebook.buck.cxx.CxxToolFlags;
+import com.facebook.buck.cxx.Preprocessor;
 import com.facebook.buck.cxx.PreprocessorFlags;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
@@ -44,6 +45,8 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
+import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -99,6 +102,9 @@ public class HaskellCompileRule extends AbstractBuildRule implements RuleKeyAppe
   @AddToRuleKey
   private final HaskellSources sources;
 
+  @AddToRuleKey
+  private final Preprocessor preprocessor;
+
   private HaskellCompileRule(
       BuildRuleParams buildRuleParams,
       SourcePathResolver resolver,
@@ -112,7 +118,8 @@ public class HaskellCompileRule extends AbstractBuildRule implements RuleKeyAppe
       ImmutableList<SourcePath> includes,
       ImmutableSortedMap<String, HaskellPackage> exposedPackages,
       ImmutableSortedMap<String, HaskellPackage> packages,
-      HaskellSources sources) {
+      HaskellSources sources,
+      Preprocessor preprocessor) {
     super(buildRuleParams, resolver);
     this.compiler = compiler;
     this.flags = flags;
@@ -125,6 +132,7 @@ public class HaskellCompileRule extends AbstractBuildRule implements RuleKeyAppe
     this.exposedPackages = exposedPackages;
     this.packages = packages;
     this.sources = sources;
+    this.preprocessor = preprocessor;
   }
 
   public static HaskellCompileRule from(
@@ -141,23 +149,30 @@ public class HaskellCompileRule extends AbstractBuildRule implements RuleKeyAppe
       final ImmutableList<SourcePath> includes,
       final ImmutableSortedMap<String, HaskellPackage> exposedPackages,
       final ImmutableSortedMap<String, HaskellPackage> packages,
-      final HaskellSources sources) {
+      final HaskellSources sources,
+      Preprocessor preprocessor) {
     return new HaskellCompileRule(
         baseParams.copyWithChanges(
             target,
-            ImmutableSortedSet.<BuildRule>naturalOrder()
-                .addAll(compiler.getDeps(resolver))
-                .addAll(ppFlags.getDeps(resolver))
-                .addAll(resolver.filterBuildRuleInputs(includes))
-                .addAll(sources.getDeps(resolver))
-                .addAll(
-                    FluentIterable.from(exposedPackages.values())
-                        .transformAndConcat(HaskellPackage.getDepsFunction(resolver)))
-                .addAll(
-                    FluentIterable.from(packages.values())
-                        .transformAndConcat(HaskellPackage.getDepsFunction(resolver)))
-                .build(),
-            ImmutableSortedSet.<BuildRule>of()),
+            Suppliers.memoize(
+                new Supplier<ImmutableSortedSet<BuildRule>>() {
+                  @Override
+                  public ImmutableSortedSet<BuildRule> get() {
+                    return ImmutableSortedSet.<BuildRule>naturalOrder()
+                        .addAll(compiler.getDeps(resolver))
+                        .addAll(ppFlags.getDeps(resolver))
+                        .addAll(resolver.filterBuildRuleInputs(includes))
+                        .addAll(sources.getDeps(resolver))
+                        .addAll(
+                            FluentIterable.from(exposedPackages.values())
+                                .transformAndConcat(HaskellPackage.getDepsFunction(resolver)))
+                        .addAll(
+                            FluentIterable.from(packages.values())
+                                .transformAndConcat(HaskellPackage.getDepsFunction(resolver)))
+                        .build();
+                  }
+                }),
+            Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
         resolver,
         compiler,
         flags,
@@ -169,7 +184,8 @@ public class HaskellCompileRule extends AbstractBuildRule implements RuleKeyAppe
         includes,
         exposedPackages,
         packages,
-        sources);
+        sources,
+        preprocessor);
   }
 
   @Override
@@ -253,7 +269,8 @@ public class HaskellCompileRule extends AbstractBuildRule implements RuleKeyAppe
         ppFlags.toToolFlags(
             getResolver(),
             Functions.<Path>identity(),
-            CxxDescriptionEnhancer.frameworkPathToSearchPath(cxxPlatform, getResolver()));
+            CxxDescriptionEnhancer.frameworkPathToSearchPath(cxxPlatform, getResolver()),
+            preprocessor);
     return MoreIterables.zipAndConcat(
         Iterables.cycle("-optP"),
         cxxToolFlags.getAllFlags());

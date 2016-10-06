@@ -37,6 +37,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
+import com.google.common.base.Suppliers;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
@@ -155,8 +156,8 @@ abstract class AbstractCxxSourceRuleFactory {
     } else {
       BuildRuleParams params = getParams().copyWithChanges(
           target,
-          getPreprocessDeps(),
-          ImmutableSortedSet.<BuildRule>of());
+          Suppliers.ofInstance(getPreprocessDeps()),
+          Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
       DependencyAggregation rule = new DependencyAggregation(params, getPathResolver());
       getResolver().addToIndex(rule);
       return rule;
@@ -246,17 +247,18 @@ abstract class AbstractCxxSourceRuleFactory {
         CxxPreprocessAndCompile.preprocess(
             getParams().copyWithChanges(
                 target,
-                new DepsBuilder(getPathResolver())
-                    .add(requireAggregatedPreprocessDepsRule())
-                    .add(preprocessorDelegateValue.getPreprocessorDelegate().getPreprocessor())
-                    // We shouldn't really need to depend on the compiler for preprocess-only
-                    // rules, but the `CxxPreprocessAndCompile` class adds the entire
-                    // `CompilerDelegate` to the rule key, which means the input-based rule key
-                    // factory expects to be included in the dep list.
-                    .add(compiler)
-                    .add(source)
-                    .build(),
-                ImmutableSortedSet.<BuildRule>of()),
+                Suppliers.ofInstance(
+                  new DepsBuilder(getPathResolver())
+                      .add(requireAggregatedPreprocessDepsRule())
+                      .add(preprocessorDelegateValue.getPreprocessorDelegate().getPreprocessor())
+                      // We shouldn't really need to depend on the compiler for preprocess-only
+                      // rules, but the `CxxPreprocessAndCompile` class adds the entire
+                      // `CompilerDelegate` to the rule key, which means the input-based rule key
+                      // factory expects to be included in the dep list.
+                      .add(compiler)
+                      .add(source)
+                      .build()),
+                Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
             getPathResolver(),
             preprocessorDelegateValue.getPreprocessorDelegate(),
             new CompilerDelegate(
@@ -287,7 +289,7 @@ abstract class AbstractCxxSourceRuleFactory {
    * @return the object file name for the given source name.
    */
   private String getCompileOutputName(String name) {
-    return getOutputName(name) + ".o";
+    return getOutputName(name) + "." + getCxxPlatform().getObjectFileExtension();
   }
 
   /**
@@ -398,11 +400,12 @@ abstract class AbstractCxxSourceRuleFactory {
     CxxPreprocessAndCompile result = CxxPreprocessAndCompile.compile(
         getParams().copyWithChanges(
             target,
-            new DepsBuilder(getPathResolver())
-                .add(compiler)
-                .add(source)
-                .build(),
-            ImmutableSortedSet.<BuildRule>of()),
+            Suppliers.ofInstance(
+                new DepsBuilder(getPathResolver())
+                    .add(compiler)
+                    .add(source)
+                    .build()),
+            Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
         getPathResolver(),
         new CompilerDelegate(
             getPathResolver(),
@@ -490,12 +493,13 @@ abstract class AbstractCxxSourceRuleFactory {
     CxxInferCapture result = new CxxInferCapture(
         getParams().copyWithChanges(
             target,
-            new DepsBuilder(getPathResolver())
-                .add(requireAggregatedPreprocessDepsRule())
-                .add(preprocessorDelegateValue.getPreprocessorDelegate().getPreprocessor())
-                .add(source)
-                .build(),
-            ImmutableSortedSet.<BuildRule>of()),
+            Suppliers.ofInstance(
+                new DepsBuilder(getPathResolver())
+                    .add(requireAggregatedPreprocessDepsRule())
+                    .add(preprocessorDelegateValue.getPreprocessorDelegate().getPreprocessor())
+                    .add(source)
+                    .build()),
+            Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
         getPathResolver(),
         CxxToolFlags.copyOf(
             CxxSourceTypes.getPlatformPreprocessFlags(getCxxPlatform(), source.getType()),
@@ -553,8 +557,8 @@ abstract class AbstractCxxSourceRuleFactory {
     CxxPreprocessAndCompile result = CxxPreprocessAndCompile.preprocessAndCompile(
         getParams().copyWithChanges(
             target,
-            depsBuilder.build(),
-            ImmutableSortedSet.<BuildRule>of()),
+            Suppliers.ofInstance(depsBuilder.build()),
+            Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
         getPathResolver(),
         preprocessorDelegate,
         new CompilerDelegate(
@@ -618,19 +622,32 @@ abstract class AbstractCxxSourceRuleFactory {
     Path output = BuildTargets.getGenPath(getParams().getProjectFilesystem(), target, "%s.gch");
     PreprocessorDelegate preprocessorDelegate =
         preprocessorDelegateCacheValue.getPreprocessorDelegate();
+    Compiler compiler =
+        CxxSourceTypes.getCompiler(
+            getCxxPlatform(),
+            CxxSourceTypes.getPreprocessorOutputType(source.getType()))
+            .resolve(getResolver());
+    CompilerDelegate compilerDelegate =
+        new CompilerDelegate(
+            getPathResolver(),
+            getCxxPlatform().getDebugPathSanitizer(),
+            compiler,
+            computeCompilerFlags(source.getType(), source.getFlags()));
     SourcePath path = Preconditions.checkNotNull(preprocessorDelegate.getPrefixHeader().get());
     CxxPrecompiledHeader rule = new CxxPrecompiledHeader(
         getParams().copyWithChanges(
             target,
-            new DepsBuilder(getPathResolver())
-                .add(requireAggregatedPreprocessDepsRule())
-                .add(preprocessorDelegate.getPreprocessor())
-                .add(path)
-                .build(),
-            ImmutableSortedSet.<BuildRule>of()),
+            Suppliers.ofInstance(
+              new DepsBuilder(getPathResolver())
+                  .add(requireAggregatedPreprocessDepsRule())
+                  .add(preprocessorDelegate.getPreprocessor())
+                  .add(path)
+                  .build()),
+            Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
         getPathResolver(),
         output,
         preprocessorDelegate,
+        compilerDelegate,
         compilerFlags,
         path,
         source.getType(),

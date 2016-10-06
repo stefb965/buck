@@ -35,6 +35,7 @@ import com.facebook.buck.step.fs.FileScrubberStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
@@ -130,11 +131,12 @@ public class Archive extends AbstractBuildRule implements SupportsInputBasedRule
     BuildRuleParams archiveParams =
         baseParams.copyWithChanges(
             target,
-            ImmutableSortedSet.<BuildRule>of(),
-            ImmutableSortedSet.<BuildRule>naturalOrder()
-                .addAll(resolver.filterBuildRuleInputs(inputs))
-                .addAll(archiver.getDeps(resolver))
-                .build());
+            Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
+            Suppliers.ofInstance(
+                ImmutableSortedSet.<BuildRule>naturalOrder()
+                    .addAll(resolver.filterBuildRuleInputs(inputs))
+                    .addAll(archiver.getDeps(resolver))
+                    .build()));
 
     return new Archive(
         archiveParams,
@@ -166,7 +168,9 @@ public class Archive extends AbstractBuildRule implements SupportsInputBasedRule
               .equals(getProjectFilesystem().getRootPath()));
     }
 
-    return ImmutableList.of(
+    ImmutableList.Builder<Step> builder = ImmutableList.<Step>builder();
+
+    builder.add(
         new MkdirStep(getProjectFilesystem(), output.getParent()),
         new RmStep(getProjectFilesystem(), output, /* shouldForceDeletion */ true),
         new ArchiveStep(
@@ -174,18 +178,28 @@ public class Archive extends AbstractBuildRule implements SupportsInputBasedRule
             archiver.getEnvironment(getResolver()),
             archiver.getCommandPrefix(getResolver()),
             archiverFlags,
-            contents,
+            archiver.getArchiveOptions(contents == Contents.THIN),
             output,
             FluentIterable.from(inputs)
                 .transform(getResolver().getRelativePathFunction())
-                .toList()),
-        new RanlibStep(
-            getProjectFilesystem(),
-            ranlib.getEnvironment(getResolver()),
-            ranlib.getCommandPrefix(getResolver()),
-            ranlibFlags,
-            output),
-        new FileScrubberStep(getProjectFilesystem(), output, archiver.getScrubbers()));
+                .toList(),
+            archiver));
+
+    if (archiver.isRanLibStepRequired()) {
+      builder.add(
+          new RanlibStep(
+              getProjectFilesystem(),
+              ranlib.getEnvironment(getResolver()),
+              ranlib.getCommandPrefix(getResolver()),
+              ranlibFlags,
+              output));
+    }
+
+    if (!archiver.getScrubbers().isEmpty()) {
+      builder.add(new FileScrubberStep(getProjectFilesystem(), output, archiver.getScrubbers()));
+    }
+
+    return builder.build();
   }
 
   /**

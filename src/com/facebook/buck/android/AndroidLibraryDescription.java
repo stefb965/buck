@@ -41,6 +41,7 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.DependencyMode;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Optional;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
@@ -114,7 +115,7 @@ public class AndroidLibraryDescription
     AndroidLibraryGraphEnhancer graphEnhancer = new AndroidLibraryGraphEnhancer(
         params.getBuildTarget(),
         params.copyWithExtraDeps(
-            resolver.getAllRules(args.exportedDeps.get())),
+            Suppliers.ofInstance(resolver.getAllRules(args.exportedDeps.get()))),
         javacOptions,
         DependencyMode.FIRST_ORDER,
         /* forceFinalResourceIds */ false,
@@ -134,11 +135,11 @@ public class AndroidLibraryDescription
       if (dummyRDotJava.isPresent()) {
         additionalClasspathEntries = ImmutableSet.of(dummyRDotJava.get().getPathToOutput());
         ImmutableSortedSet<BuildRule> newDeclaredDeps = ImmutableSortedSet.<BuildRule>naturalOrder()
-            .addAll(params.getDeclaredDeps())
+            .addAll(params.getDeclaredDeps().get())
             .add(dummyRDotJava.get())
             .build();
         params = params.copyWithDeps(
-            newDeclaredDeps,
+            Suppliers.ofInstance(newDeclaredDeps),
             params.getExtraDeps());
       }
 
@@ -152,7 +153,7 @@ public class AndroidLibraryDescription
                       Iterables.concat(
                           BuildRules.getExportedRules(
                               Iterables.concat(
-                                  params.getDeclaredDeps(),
+                                  params.getDeclaredDeps().get(),
                                   exportedDeps,
                                   resolver.getAllRules(args.providedDeps.get()))),
                           pathResolver.filterBuildRuleInputs(
