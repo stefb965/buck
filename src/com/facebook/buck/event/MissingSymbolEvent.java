@@ -60,7 +60,7 @@ public class MissingSymbolEvent extends AbstractBuckEvent {
   }
 
   @Override
-  protected String getValueString() {
+  public String getValueString() {
     return
         "Missing symbol: " + symbol;
   }

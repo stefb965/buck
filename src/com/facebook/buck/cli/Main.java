@@ -1677,13 +1677,15 @@ public final class Main {
           SUPER_CONSOLE_REFRESH_RATE.getUnit());
       return superConsole;
     }
-    return new SimpleConsoleEventBusListener(
+    SimpleConsoleEventBusListener consoleEventBusListener = new SimpleConsoleEventBusListener(
         console,
         clock,
         testResultSummaryVerbosity,
         locale,
         testLogPath,
         executionEnvironment);
+    consoleEventBusListener.startRenderScheduler(1, TimeUnit.SECONDS);
+    return consoleEventBusListener;
   }
 
   private static BuildId getBuildId(Optional<NGContext> context) {

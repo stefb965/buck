@@ -86,7 +86,8 @@ import java.util.logging.Level;
 import javax.annotation.Nullable;
 
 /**
- * Console that provides rich, updating ansi output about the current build.
+ * Console th
+ * at provides rich, updating ansi output about the current build.
  */
 public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListener {
   /**

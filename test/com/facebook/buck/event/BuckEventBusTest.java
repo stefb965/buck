@@ -132,7 +132,7 @@ public class BuckEventBusTest {
     }
 
     @Override
-    protected String getValueString() {
+    public String getValueString() {
       return null;
     }
 
@@ -156,7 +156,7 @@ public class BuckEventBusTest {
     }
 
     @Override
-    protected String getValueString() {
+    public String getValueString() {
       return "Test event, please ignore.";
     }
 
