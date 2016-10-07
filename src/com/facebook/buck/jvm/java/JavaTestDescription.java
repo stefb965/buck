@@ -166,6 +166,7 @@ public class JavaTestDescription implements
                   Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
               pathResolver,
               testsLibrary,
+              args.testClasses.get(),
               /* additionalClasspathEntries */ ImmutableSet.<Path>of(),
               args.labels.get(),
               args.contacts.get(),
@@ -226,6 +227,7 @@ public class JavaTestDescription implements
 
   @SuppressFieldNotInitialized
   public static class Arg extends JavaLibraryDescription.Arg {
+    public Optional<ImmutableSortedSet<String>> testClasses;
     public Optional<ImmutableSortedSet<String>> contacts;
     public Optional<ImmutableSortedSet<Label>> labels;
     public Optional<ImmutableList<String>> vmArgs;

@@ -128,6 +128,7 @@ public class RobolectricTest extends JavaTest {
         buildRuleParams,
         resolver,
         compiledTestsLibrary,
+        /* additional test classes */ ImmutableSortedSet.<String>of(),
         additionalClasspathEntries,
         labels,
         contacts,

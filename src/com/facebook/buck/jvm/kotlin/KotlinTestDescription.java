@@ -140,6 +140,7 @@ public class KotlinTestDescription implements Description<KotlinTestDescription.
                     Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
                 pathResolver,
                 testsLibrary,
+                /* additional test classes */ ImmutableSortedSet.<String>of(),
                 /* additionalClasspathEntries */ ImmutableSet.<Path>of(),
                 args.labels.get(),
                 args.contacts.get(),

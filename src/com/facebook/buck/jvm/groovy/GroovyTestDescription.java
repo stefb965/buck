@@ -145,6 +145,7 @@ public class GroovyTestDescription implements Description<GroovyTestDescription.
                     Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
                 pathResolver,
                 testsLibrary,
+                /* addtional test classes */ ImmutableSortedSet.<String>of(),
                 /* additionalClasspathEntries */ ImmutableSet.<Path>of(),
                 args.labels.get(),
                 args.contacts.get(),
