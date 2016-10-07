@@ -1,9 +1,10 @@
-#@# GENERATED FILE: DO NOT MODIFY ce8feb1d18aaf9147b9f3807c47ddc5aae254d03 #@#
+#@# GENERATED FILE: DO NOT MODIFY df73abdcd745d42418d9a85d1c2be8ff9ec8ec13 #@#
 {
   "config" : {
     "deps" : [
       "//src/com/facebook/buck/log:api",
       "//src/com/facebook/buck/util:exceptions",
+      "//third-party/java/immutables:processor",
       "//third-party/java/ini4j:ini4j"
     ],
     "exported_deps" : [

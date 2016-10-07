@@ -24,7 +24,6 @@ import com.facebook.buck.model.Either;
 import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.hash.AppendingHasher;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
@@ -64,7 +63,7 @@ public abstract class RuleKeyBuilder<T> implements RuleKeyObjectSink {
       FileHashLoader hashLoader,
       RuleKeyLogger ruleKeyLogger) {
     this.resolver = resolver;
-    this.hasher = new AppendingHasher(Hashing.sha1(), /* numHashers */ 2);
+    this.hasher = Hashing.sha1().newHasher();
     this.hashLoader = hashLoader;
     this.keyStack = new Stack<>();
     this.ruleKeyLogger = ruleKeyLogger;
@@ -85,6 +84,17 @@ public abstract class RuleKeyBuilder<T> implements RuleKeyObjectSink {
     hasher.putUnencodedChars(string);
   }
 
+  /**
+   * Feed an object to the hash being built.
+   *
+   * This method will use the object's {@link Object#toString()} method to serialize it so it might
+   * be unsuitable for some classes of objects, in particular passing objects that use the default
+   * implementation of {@link Object#toString()} might result in an unstable rule key. The string
+   * representation also might be missing some of the object's information or use ambiguous
+   * serialization which would make the rule key incomplete.
+   * @param object the object to feed to the rule key hash.
+   * @return This builder.
+   */
   private RuleKeyBuilder<T> feed(Object object) {
     return feed(object.toString());
   }

@@ -710,7 +710,7 @@ public class ProjectGenerator {
       BuildTarget targetToBuildWithBuck,
       String binaryName) {
     return BuildTargets
-        .getScratchPath(filesystem, targetToBuildWithBuck, "/%s-unsanitised")
+        .getScratchPath(filesystem, targetToBuildWithBuck, "%s-unsanitised")
         .resolve(binaryName + ".app");
   }
 
@@ -719,7 +719,7 @@ public class ProjectGenerator {
       BuildTarget targetToBuildWithBuck,
       String binaryName) {
     return BuildTargets
-        .getScratchPath(filesystem, targetToBuildWithBuck, "/%s-unsanitised")
+        .getScratchPath(filesystem, targetToBuildWithBuck, "%s-unsanitised")
         .resolve(binaryName + ".dSYM");
   }
 

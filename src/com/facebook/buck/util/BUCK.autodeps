@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY 55e43f13dc91fe62484b8481803ac2594e2f3e11 #@#
+#@# GENERATED FILE: DO NOT MODIFY 31c9e58c659fa6fc9148f7b66d34a179b8db16d3 #@#
 {
   "constants" : {
     "deps" : [
@@ -29,7 +29,9 @@
       "//src/com/facebook/buck/log:api",
       "//src/com/facebook/buck/util:escaper",
       "//src/com/facebook/buck/util:exceptions",
-      "//third-party/java/immutables:processor"
+      "//third-party/java/immutables:processor",
+      "//third-party/java/jna:jna-platform",
+      "//third-party/java/oshi:oshi-core"
     ],
     "exported_deps" : [
       "//src/com/facebook/buck/util/environment:platform",

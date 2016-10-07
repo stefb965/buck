@@ -98,7 +98,7 @@ public class CommandRunnerParamsForTesting {
         eventBus,
         new Parser(
             new BroadcastEventListener(),
-            new ParserConfig(cell.getBuckConfig()),
+            cell.getBuckConfig().getView(ParserConfig.class),
             typeCoercerFactory, new ConstructorArgMarshaller(typeCoercerFactory)),
         platform,
         environment,

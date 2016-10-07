@@ -573,7 +573,7 @@ public class BuildCommand extends AbstractCommand {
     }
 
     // Parse the build files to create a ActionGraph.
-    ParserConfig parserConfig = new ParserConfig(params.getBuckConfig());
+    ParserConfig parserConfig = params.getBuckConfig().getView(ParserConfig.class);
     try {
       return params.getParser()
           .buildTargetGraphForTargetNodeSpecs(

@@ -70,9 +70,6 @@ public class Cell {
   private final KnownBuildRuleTypes knownBuildRuleTypes;
   private final KnownBuildRuleTypesFactory knownBuildRuleTypesFactory;
   private final String pythonInterpreter;
-  private final String buildFileName;
-  private final boolean enforceBuckPackageBoundaries;
-  private final ImmutableSet<Pattern> tempFilePatterns;
   private final LoadingCache<Path, Cell> cellLoader;
   private final WatchmanDiagnosticCache watchmanDiagnosticCache;
 
@@ -97,11 +94,6 @@ public class Cell {
     this.filesystem = filesystem;
     this.watchman = watchman;
     this.config = config;
-
-    ParserConfig parserConfig = new ParserConfig(config);
-    this.buildFileName = parserConfig.getBuildFileName();
-    this.enforceBuckPackageBoundaries = parserConfig.getEnforceBuckPackageBoundary();
-    this.tempFilePatterns = parserConfig.getTempFilePatterns();
 
     PythonBuckConfig pythonConfig = new PythonBuckConfig(config, new ExecutableFinder());
     this.pythonInterpreter = pythonConfig.getPythonInterpreter();
@@ -204,7 +196,7 @@ public class Cell {
             rootConfig.getEnvironment(),
             cellPathResolver);
 
-        ParserConfig parserConfig = new ParserConfig(buckConfig);
+        ParserConfig parserConfig = buckConfig.getView(ParserConfig.class);
 
         Watchman.build(
             cellPath,
@@ -277,11 +269,11 @@ public class Cell {
   }
 
   public String getBuildFileName() {
-    return buildFileName;
+    return config.getView(ParserConfig.class).getBuildFileName();
   }
 
   public boolean isEnforcingBuckPackageBoundaries() {
-    return enforceBuckPackageBoundaries;
+    return config.getView(ParserConfig.class).getEnforceBuckPackageBoundary();
   }
 
   public Cell getCellIgnoringVisibilityCheck(Path cellPath) {
@@ -390,7 +382,7 @@ public class Cell {
   }
 
   private ProjectBuildFileParserFactory createBuildFileParserFactory() {
-    ParserConfig parserConfig = new ParserConfig(getBuckConfig());
+    ParserConfig parserConfig = getBuckConfig().getView(ParserConfig.class);
 
     boolean useWatchmanGlob =
         parserConfig.getGlobHandler() == ParserConfig.GlobHandler.WATCHMAN &&
@@ -446,7 +438,7 @@ public class Cell {
   }
 
   public Iterable<Pattern> getTempFilePatterns() {
-    return tempFilePatterns;
+    return config.getView(ParserConfig.class).getTempFilePatterns();
   }
 
   public CellPathResolver getCellPathResolver() {
@@ -461,7 +453,8 @@ public class Cell {
   public static class MissingBuildFileException extends BuildTargetException {
     public MissingBuildFileException(BuildTarget buildTarget, BuckConfig buckConfig) {
       super(String.format("No build file at %s when resolving target %s.",
-          buildTarget.getBasePathWithSlash() + new ParserConfig(buckConfig).getBuildFileName(),
+          buildTarget.getBasePath().resolve(
+              buckConfig.getView(ParserConfig.class).getBuildFileName()),
           buildTarget.getFullyQualifiedName()));
     }
 

@@ -1,4 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY 8c7e0c7c3eb9c5d8c6165f48326c419b118508ac #@#
+#@# GENERATED FILE: DO NOT MODIFY c2a4dfc1503c978ed83ce9b0ce68019946f518f0 #@#
 {
   "action_graph_cache" : {
     "deps" : [
@@ -30,7 +30,6 @@
     "deps" : [
       "//src/com/facebook/buck/io:MorePaths.java",
       "//src/com/facebook/buck/log:api",
-      "//src/com/facebook/buck/util/hash:hash",
       "//third-party/java/immutables:processor"
     ],
     "exported_deps" : [

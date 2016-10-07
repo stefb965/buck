@@ -16,7 +16,6 @@
 
 package com.facebook.buck.model;
 
-import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
@@ -98,17 +97,6 @@ abstract class AbstractUnflavoredBuildTarget implements Comparable<AbstractUnfla
   }
 
   /**
-   * Helper function for getting BuildTarget base names with a trailing slash if needed.
-   *
-   * If this build target were //third_party/java/guava:guava-latest, then this would return
-   * "//third_party/java/guava/".
-   */
-  public String getBaseNameWithSlash() {
-    String baseName = getBaseName();
-    return baseName.equals(BUILD_TARGET_PREFIX) ? baseName : baseName + "/";
-  }
-
-  /**
    * If this build target were //third_party/java/guava:guava-latest, then this would return the
    * {@link Path} "third_party/java/guava". This does not contain the "//" prefix so that it can be
    * appended to a file path.
@@ -118,14 +106,8 @@ abstract class AbstractUnflavoredBuildTarget implements Comparable<AbstractUnfla
         getBaseName().substring(BUILD_TARGET_PREFIX.length()));
   }
 
-  /**
-   * @return the value of {@link #getBasePath()} with a trailing slash, unless
-   *     {@link #getBasePath()} returns the empty string, in which case this also returns the empty
-   *     string
-   */
-  public String getBasePathWithSlash() {
-    String basePath = MorePaths.pathWithUnixSeparators(getBasePath());
-    return basePath.isEmpty() ? "" : basePath + "/";
+  public boolean isInCellRoot() {
+    return getBaseName().equals("//");
   }
 
   public static Builder builder(UnflavoredBuildTarget buildTarget) {

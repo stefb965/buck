@@ -55,7 +55,7 @@ public class JavaSourceJar extends AbstractBuildRule implements MavenPublishable
         BuildTargets.getGenPath(
             getProjectFilesystem(),
             target,
-            String.format("%%s%s", Javac.SRC_JAR));
+            "%s" + Javac.SRC_JAR);
     this.temp = BuildTargets.getScratchPath(getProjectFilesystem(), target, "%s-srcs");
   }
 
