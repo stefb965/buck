@@ -55,7 +55,8 @@ public class BuildTargets {
       String format) {
     Preconditions.checkArgument(
         !format.startsWith("/"),
-        "format string should not start with a slash");
+        "format string should not start with a slash: %s",
+        format);
     return filesystem.getBuckPaths().getScratchDir()
         .resolve(target.getBasePath())
         .resolve(String.format(format, target.getShortNameAndFlavorPostfix()));
@@ -98,7 +99,8 @@ public class BuildTargets {
   public static Path getGenPath(ProjectFilesystem filesystem, BuildTarget target, String format) {
     Preconditions.checkArgument(
         !format.startsWith("/"),
-        "format string should not start with a slash");
+        "format string should not start with a slash: %s",
+        format);
     return filesystem.getBuckPaths().getGenDir()
         .resolve(target.getBasePath())
         .resolve(String.format(format, target.getShortNameAndFlavorPostfix()));
