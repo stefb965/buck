@@ -23,6 +23,7 @@ import com.facebook.buck.step.ExecutionContext;
 import com.google.common.collect.ImmutableList;
 
 import java.nio.file.Path;
+import java.util.stream.Collectors;
 
 class JavascriptFragmentStep extends ShellStep {
 
@@ -31,17 +32,20 @@ class JavascriptFragmentStep extends ShellStep {
   private final Iterable<Path> jsDeps;
   private final Path temp;
   private final Path output;
+  private final ImmutableList<String> defines;
 
   public JavascriptFragmentStep(
       Path workingDirectory,
       SourcePathResolver resolver,
       Tool compiler,
+      ImmutableList<String> defines,
       Path temp,
       Path output,
       Iterable<Path> jsDeps) {
     super(workingDirectory);
     this.resolver = resolver;
     this.compiler = compiler;
+    this.defines = defines;
     this.temp = temp;
     this.output = output;
     this.jsDeps = jsDeps;
@@ -64,8 +68,9 @@ class JavascriptFragmentStep extends ShellStep {
         String.format("--output_wrapper='%s'", wrapper),
         "--compilation_level=ADVANCED_OPTIMIZATIONS",
         "--define=goog.NATIVE_ARRAY_PROTOTYPES=false",
-        "--define=bot.json.NATIVE_JSON=false",
-
+        "--define=bot.json.NATIVE_JSON=false");
+    cmd.addAll(defines.stream().map(define -> "--define=" + define).collect(Collectors.toList()));
+    cmd.add(
         "--jscomp_off=unknownDefines",
         "--jscomp_off=deprecated",
         "--jscomp_error=accessControls",

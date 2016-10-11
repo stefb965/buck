@@ -68,7 +68,7 @@ public class JsLibrary extends AbstractBuildRule implements
     this.output = BuildTargets.getGenPath(
         getProjectFilesystem(),
         getBuildTarget(),
-        "/%s-library.deps");
+        "%s-library.deps");
 
     buildOutputInitializer = new BuildOutputInitializer<>(getBuildTarget(), this);
   }

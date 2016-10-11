@@ -17,6 +17,8 @@
 package org.openqa.selenium.buck.javascript;
 
 
+import static java.lang.Boolean.FALSE;
+
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -30,6 +32,7 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.TargetGraph;
 import com.google.common.base.Optional;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.util.Collections;
@@ -67,7 +70,9 @@ public class JsFragmentDescription implements
         config.getClosureCompiler(args.compiler, new SourcePathResolver(resolver)),
         params.getDeps(),
         args.module,
-        args.function);
+        args.function,
+        args.defines.get(),
+        args.prettyPrint.or(FALSE));
   }
 
   @Override
@@ -82,6 +87,8 @@ public class JsFragmentDescription implements
   public static class Arg extends AbstractDescriptionArg {
     public String function;
     public String module;
+    public Optional<Boolean> prettyPrint;
+    public Optional<ImmutableList<String>> defines;
     public Optional<SourcePath> compiler;
 
     public Optional<ImmutableSortedSet<BuildTarget>> deps;

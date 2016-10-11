@@ -46,6 +46,10 @@ public class JsFragment extends AbstractBuildRule {
   private final String module;
   @AddToRuleKey
   private final String function;
+  @AddToRuleKey
+  private final ImmutableList<String> defines;
+  @AddToRuleKey
+  private final boolean prettyPrint;
 
   public JsFragment(
       BuildRuleParams params,
@@ -53,7 +57,9 @@ public class JsFragment extends AbstractBuildRule {
       Tool compiler,
       ImmutableSortedSet<BuildRule> deps,
       String module,
-      String function) {
+      String function,
+      ImmutableList<String> defines,
+      boolean prettyPrint) {
     super(params, resolver);
 
     this.deps = deps;
@@ -62,6 +68,8 @@ public class JsFragment extends AbstractBuildRule {
     this.output = BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s.js");
     this.temp = BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s-temp.js");
     this.compiler = compiler;
+    this.defines = defines;
+    this.prettyPrint = prettyPrint;
   }
 
   @Override
@@ -92,11 +100,16 @@ public class JsFragment extends AbstractBuildRule {
             temp,
             /* executable */ false));
     steps.add(new MkdirStep(getProjectFilesystem(), output.getParent()));
+    ImmutableList.Builder<String> definesToUse = ImmutableList.<String>builder().addAll(defines);
+    if (prettyPrint) {
+      definesToUse.add("--formatting=PRETTY_PRINT");
+    }
     steps.add(
         new JavascriptFragmentStep(
             getProjectFilesystem().getRootPath(),
             getResolver(),
             compiler,
+            definesToUse.build(),
             temp,
             output,
             graph.sortSources()));
