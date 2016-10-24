@@ -18,10 +18,9 @@ package com.facebook.buck.jvm.java.intellij;
 
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Optional;
-import com.google.common.collect.FluentIterable;
 import com.google.common.hash.Hashing;
 import com.google.common.io.Resources;
 
@@ -36,6 +35,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.util.Optional;
+
+import javax.annotation.Nullable;
 
 /**
  * Writes the serialized representations of IntelliJ project components to disk.
@@ -76,7 +78,9 @@ public class IjProjectWriter {
     this.projectFilesystem = projectFilesystem;
   }
 
-  public void write(boolean runPostGenerationCleaner) throws IOException {
+  public void write(
+      boolean runPostGenerationCleaner,
+      boolean removeUnusedLibraries) throws IOException {
     IJProjectCleaner cleaner = new IJProjectCleaner(projectFilesystem);
 
     writeProjectSettings(cleaner, projectConfig);
@@ -92,9 +96,11 @@ public class IjProjectWriter {
     Path indexFile = writeModulesIndex();
     cleaner.doNotDelete(indexFile);
 
-    if (runPostGenerationCleaner) {
-      cleaner.clean(projectConfig.getBuckConfig(), LIBRARIES_PREFIX);
-    }
+    cleaner.clean(
+        projectConfig.getBuckConfig(),
+        LIBRARIES_PREFIX,
+        runPostGenerationCleaner,
+        removeUnusedLibraries);
   }
 
   private Path writeModule(IjModule module) throws IOException {
@@ -117,16 +123,24 @@ public class IjProjectWriter {
         projectDataPreparer.getAndroidProperties(module));
     moduleContents.add(
         "sdk",
-        module.getSdkName().orNull());
+        module.getSdkName().orElse(null));
     moduleContents.add(
         "sdkType",
-        module.getSdkType().orNull());
+        module.getSdkType().orElse(null));
     moduleContents.add(
         "languageLevel",
-        module.getLanguageLevel().orNull());
+        convertLanguageLevelToIjFormat(module.getLanguageLevel().orElse(null)));
 
     writeToFile(moduleContents, path);
     return path;
+  }
+
+  private @Nullable String convertLanguageLevelToIjFormat(@Nullable String languageLevel) {
+    if (languageLevel == null) {
+      return null;
+    }
+
+    return "JDK_" + languageLevel.replace('.', '_');
   }
 
   private void writeProjectSettings(
@@ -167,11 +181,18 @@ public class IjProjectWriter {
 
     ST contents = getST(StringTemplateFile.LIBRARY_TEMPLATE);
     contents.add("name", library.getName());
-    contents.add("binaryJar", library.getBinaryJar().transform(MorePaths.UNIX_PATH).orNull());
-    contents.add("classPaths",
-        FluentIterable.from(library.getClassPaths()).transform(MorePaths.UNIX_PATH).toSet());
-    contents.add("sourceJar", library.getSourceJar().transform(MorePaths.UNIX_PATH).orNull());
-    contents.add("javadocUrl", library.getJavadocUrl().orNull());
+    contents.add(
+        "binaryJar",
+        library.getBinaryJar().map(MorePaths::pathWithUnixSeparators).orElse(null));
+    contents.add(
+        "classPaths",
+        library.getClassPaths().stream()
+            .map(MorePaths::pathWithUnixSeparators)
+            .collect(MoreCollectors.toImmutableSet()));
+    contents.add(
+        "sourceJar",
+        library.getSourceJar().map(MorePaths::pathWithUnixSeparators).orElse(null));
+    contents.add("javadocUrl", library.getJavadocUrl().orElse(null));
     //TODO(marcinkosiba): support res and assets for aar.
 
     writeToFile(contents, path);

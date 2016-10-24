@@ -25,14 +25,13 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.keys.SupportsDependencyFileRuleKey;
-import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.Tool;
+import com.facebook.buck.rules.keys.SupportsDependencyFileRuleKey;
+import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -41,6 +40,7 @@ import com.google.common.collect.Maps;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Optional;
 
 /**
  * Responsible for running the React Native JS packager in order to generate a single {@code .js}
@@ -199,8 +199,8 @@ public class ReactNativeBundle
   }
 
   @Override
-  public Optional<ImmutableSet<SourcePath>> getPossibleInputSourcePaths() throws IOException {
-    return Optional.<ImmutableSet<SourcePath>>of(srcs);
+  public Optional<ImmutableSet<SourcePath>> getPossibleInputSourcePaths() {
+    return Optional.of(srcs);
   }
 
   @Override
@@ -209,7 +209,7 @@ public class ReactNativeBundle
 
     // Use the generated depfile to determinate which sources ended up being used.
     ImmutableMap<Path, SourcePath> pathToSourceMap =
-        Maps.uniqueIndex(srcs, getResolver().getAbsolutePathFunction());
+        Maps.uniqueIndex(srcs, getResolver()::getAbsolutePath);
     Path depFile = getPathToDepFile(getBuildTarget(), getProjectFilesystem());
     for (String line : getProjectFilesystem().readLines(depFile)) {
       Path path = getProjectFilesystem().getRootPath().getFileSystem().getPath(line);

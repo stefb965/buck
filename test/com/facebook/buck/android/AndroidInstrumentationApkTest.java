@@ -19,7 +19,6 @@ package com.facebook.buck.android;
 import static com.facebook.buck.jvm.java.JavaCompilationConstants.DEFAULT_JAVAC_OPTIONS;
 import static org.junit.Assert.assertEquals;
 
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.cxx.CxxPlatformUtils;
 import com.facebook.buck.jvm.java.FakeJavaLibrary;
@@ -30,12 +29,12 @@ import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
-import com.google.common.base.Optional;
-import com.google.common.collect.FluentIterable;
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -108,19 +107,19 @@ public class AndroidInstrumentationApkTest {
         javaLibrary4.getBuildTarget());
     AndroidInstrumentationApkDescription.Arg arg = new AndroidInstrumentationApkDescription.Arg();
     arg.apk = androidBinary.getBuildTarget();
-    arg.deps = Optional.of(apkOriginalDepsTargets);
+    arg.deps = apkOriginalDepsTargets;
     arg.manifest = new FakeSourcePath("apps/InstrumentationAndroidManifest.xml");
 
     BuildRuleParams params = new FakeBuildRuleParamsBuilder(
         BuildTargetFactory.newInstance("//apps:instrumentation"))
         .setDeclaredDeps(ruleResolver.getAllRules(apkOriginalDepsTargets))
-        .setExtraDeps(ImmutableSortedSet.<BuildRule>of(androidBinary))
+        .setExtraDeps(ImmutableSortedSet.of(androidBinary))
         .build();
     AndroidInstrumentationApk androidInstrumentationApk = (AndroidInstrumentationApk)
         new AndroidInstrumentationApkDescription(
             new ProGuardConfig(FakeBuckConfig.builder().build()),
             DEFAULT_JAVAC_OPTIONS,
-            ImmutableMap.<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform>of(),
+            ImmutableMap.of(),
             MoreExecutors.newDirectExecutorService(),
             CxxPlatformUtils.DEFAULT_CONFIG)
             .createBuildRule(TargetGraph.EMPTY, params, ruleResolver, arg);
@@ -140,10 +139,9 @@ public class AndroidInstrumentationApkTest {
                 javaLibrary3.getProjectFilesystem(),
                 javaLibrary3.getBuildTarget(),
                 "%s.jar")),
-        FluentIterable
-            .from(androidBinary.getAndroidPackageableCollection().getClasspathEntriesToDex())
-            .transform(pathResolver.deprecatedPathFunction())
-            .toSet());
+        androidBinary.getAndroidPackageableCollection().getClasspathEntriesToDex().stream()
+            .map(pathResolver::deprecatedGetPath)
+            .collect(MoreCollectors.toImmutableSet()));
     assertEquals(
         "//apps:instrumentation should have one JAR file to dex.",
         ImmutableSet.of(
@@ -151,12 +149,10 @@ public class AndroidInstrumentationApkTest {
                 javaLibrary4.getProjectFilesystem(),
                 javaLibrary4.getBuildTarget(),
                 "%s.jar")),
-        FluentIterable
-            .from(
-                androidInstrumentationApk
-                    .getAndroidPackageableCollection()
-                    .getClasspathEntriesToDex())
-            .transform(pathResolver.deprecatedPathFunction())
-            .toSet());
+        androidInstrumentationApk
+            .getAndroidPackageableCollection()
+            .getClasspathEntriesToDex().stream()
+            .map(pathResolver::deprecatedGetPath)
+            .collect(MoreCollectors.toImmutableSet()));
   }
 }

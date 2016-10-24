@@ -18,17 +18,16 @@ package com.facebook.buck.python;
 
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.cxx.NativeLinkStrategy;
-import com.facebook.buck.io.MorePaths;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.cxx.CxxBinaryBuilder;
 import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.CxxLibraryBuilder;
 import com.facebook.buck.cxx.CxxLink;
 import com.facebook.buck.cxx.CxxPlatformUtils;
+import com.facebook.buck.cxx.NativeLinkStrategy;
 import com.facebook.buck.cxx.PrebuiltCxxLibraryBuilder;
 import com.facebook.buck.io.AlwaysFoundExecutableFinder;
+import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
@@ -39,6 +38,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CommandTool;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
@@ -57,8 +57,6 @@ import com.facebook.buck.shell.ShBinaryBuilder;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.testutil.AllExistingProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
-import com.google.common.base.Functions;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -72,7 +70,7 @@ import org.junit.Test;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Map;
+import java.util.Optional;
 
 public class PythonBinaryDescriptionTest {
 
@@ -96,7 +94,7 @@ public class PythonBinaryDescriptionTest {
         (PythonLibrary) new PythonLibraryBuilder(BuildTargetFactory.newInstance("//:lib"))
             .setSrcs(
                 SourceList.ofUnnamedSources(
-                    ImmutableSortedSet.<SourcePath>of(
+                    ImmutableSortedSet.of(
                         new BuildTargetSourcePath(genrule.getBuildTarget()))))
             .build(resolver);
     PythonBinary binary =
@@ -240,12 +238,12 @@ public class PythonBinaryDescriptionTest {
         PythonPlatform.of(
             ImmutableFlavor.of("pyPlat1"),
             new PythonEnvironment(Paths.get("python2.6"), PythonVersion.of("CPython", "2.6.9")),
-            Optional.<BuildTarget>absent());
+            Optional.empty());
     PythonPlatform platform2 =
         PythonPlatform.of(
             ImmutableFlavor.of("pyPlat2"),
             new PythonEnvironment(Paths.get("python2.7"), PythonVersion.of("CPython", "2.7.11")),
-            Optional.<BuildTarget>absent());
+            Optional.empty());
     PythonBinaryBuilder builder =
         PythonBinaryBuilder.create(
             BuildTargetFactory.newInstance("//:bin"),
@@ -308,7 +306,7 @@ public class PythonBinaryDescriptionTest {
         new PythonBuckConfig(FakeBuckConfig.builder().build(), new AlwaysFoundExecutableFinder()) {
           @Override
           public Optional<Tool> getPexExecutor(BuildRuleResolver resolver) {
-            return Optional.<Tool>of(new HashedFileTool(executor));
+            return Optional.of(new HashedFileTool(executor));
           }
         };
     PythonBinaryBuilder builder =
@@ -434,7 +432,7 @@ public class PythonBinaryDescriptionTest {
     assertThat(
         Iterables.transform(
             binary.getComponents().getNativeLibraries().keySet(),
-            Functions.toStringFunction()),
+            Object::toString),
         Matchers.containsInAnyOrder("libomnibus.so", "libcxx.so"));
   }
 
@@ -485,7 +483,7 @@ public class PythonBinaryDescriptionTest {
     assertThat(
         Iterables.transform(
             binary.getComponents().getNativeLibraries().keySet(),
-            Functions.toStringFunction()),
+            Object::toString),
         Matchers.containsInAnyOrder("libtransitive_dep.so", "libdep.so", "libcxx.so"));
   }
 
@@ -535,11 +533,11 @@ public class PythonBinaryDescriptionTest {
     PythonBinary binary = (PythonBinary) binaryBuilder.build(resolver);
     assertThat(
         binary.getComponents().getNativeLibraries().entrySet(),
-        Matchers.<Map.Entry<Path, SourcePath>>empty());
+        Matchers.empty());
     assertThat(
         Iterables.transform(
             binary.getComponents().getModules().keySet(),
-            Functions.toStringFunction()),
+            Object::toString),
         Matchers.containsInAnyOrder(MorePaths.pathWithPlatformSeparators("hello/extension.so")));
   }
 
@@ -558,7 +556,7 @@ public class PythonBinaryDescriptionTest {
         new PythonLibraryBuilder(BuildTargetFactory.newInstance("//:lib"))
             .setSrcs(
                 SourceList.ofUnnamedSources(
-                    ImmutableSortedSet.<SourcePath>of(new FakeSourcePath("prebuilt.so"))))
+                    ImmutableSortedSet.of(new FakeSourcePath("prebuilt.so"))))
             .setDeps(ImmutableSortedSet.of(cxxLibraryBuilder.getTarget()));
     PythonBuckConfig config =
         new PythonBuckConfig(FakeBuckConfig.builder().build(), new AlwaysFoundExecutableFinder()) {
@@ -591,7 +589,7 @@ public class PythonBinaryDescriptionTest {
     assertThat(
         Iterables.transform(
             binary.getComponents().getNativeLibraries().keySet(),
-            Functions.toStringFunction()),
+            Object::toString),
         Matchers.hasItem("libtransitive_cxx.so"));
   }
 
@@ -844,7 +842,7 @@ public class PythonBinaryDescriptionTest {
     assertThat(
         Iterables.transform(
             binary.getComponents().getNativeLibraries().keySet(),
-            Functions.toStringFunction()),
+            Object::toString),
         Matchers.containsInAnyOrder(
             "libomnibus.so",
             "libcxx.so",

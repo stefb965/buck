@@ -23,14 +23,14 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
+
+import java.util.Optional;
 
 public class LuaLibraryDescription implements Description<LuaLibraryDescription.Arg> {
 
@@ -64,8 +64,7 @@ public class LuaLibraryDescription implements Description<LuaLibraryDescription.
                     "srcs",
                     LuaUtil.getBaseModule(params.getBuildTarget(), args.baseModule),
                     ImmutableList.of(
-                        args.srcs.or(
-                            SourceList.ofUnnamedSources(ImmutableSortedSet.<SourcePath>of())))))
+                        args.srcs)))
             .build();
       }
     };
@@ -73,9 +72,9 @@ public class LuaLibraryDescription implements Description<LuaLibraryDescription.
 
   @SuppressFieldNotInitialized
   public static class Arg extends AbstractDescriptionArg {
-    public Optional<SourceList> srcs;
+    public SourceList srcs = SourceList.EMPTY;
     public Optional<String> baseModule;
-    public Optional<ImmutableSortedSet<BuildTarget>> deps;
+    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
   }
 
 }

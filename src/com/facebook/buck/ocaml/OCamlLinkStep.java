@@ -20,14 +20,14 @@ import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.MoreIterables;
-import com.google.common.base.Functions;
-import com.google.common.base.Optional;
+import com.facebook.buck.util.OptionalCompat;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 
 import java.nio.file.Path;
+import java.util.Optional;
 
 /**
  * OCaml linking step. Dependencies and inputs should be topologically ordered
@@ -111,15 +111,15 @@ public class OCamlLinkStep extends ShellStep {
             MoreIterables.zipAndConcat(
                 Iterables.cycle("-ccopt"),
                 cxxCompiler.subList(1, cxxCompiler.size())))
-        .addAll((isLibrary ? Optional.of("-a") : Optional.<String>absent()).asSet())
+        .addAll(OptionalCompat.asSet(isLibrary ? Optional.of("-a") : Optional.empty()))
         .addAll(
-            (!isLibrary && isBytecode ?
+            OptionalCompat.asSet(!isLibrary && isBytecode ?
                 Optional.of("-custom") :
-                Optional.<String>absent()).asSet())
+                Optional.empty()))
         .add("-o", output.toString())
         .addAll(flags)
         .addAll(ocamlInput)
-        .addAll(FluentIterable.from(input).transform(Functions.toStringFunction()))
+        .addAll(FluentIterable.from(input).transform(Object::toString))
         .addAll(
             MoreIterables.zipAndConcat(
                 Iterables.cycle("-cclib"),

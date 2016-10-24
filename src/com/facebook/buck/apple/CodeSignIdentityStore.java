@@ -21,8 +21,6 @@ import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
@@ -30,6 +28,7 @@ import com.google.common.hash.HashCode;
 
 import java.io.IOException;
 import java.util.EnumSet;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -70,64 +69,61 @@ public class CodeSignIdentityStore implements RuleKeyAppendable {
    */
   public static CodeSignIdentityStore fromSystem(final ProcessExecutor processExecutor) {
     return new CodeSignIdentityStore(Suppliers.memoize(
-        new Supplier<ImmutableList<CodeSignIdentity>>() {
-          @Override
-          public ImmutableList<CodeSignIdentity> get() {
-            ProcessExecutorParams processExecutorParams =
-                ProcessExecutorParams.builder()
-                    .setCommand(
-                        ImmutableList.of(
-                            "security", "find-identity",
-                            "-v", "-p", "codesigning"))
-                    .build();
-            // Specify that stdout is expected, or else output may be wrapped in Ansi escape chars.
-            Set<ProcessExecutor.Option> options =
-                EnumSet.of(ProcessExecutor.Option.EXPECTING_STD_OUT);
-            ProcessExecutor.Result result;
-            try {
-              result = processExecutor.launchAndExecute(
-                  processExecutorParams,
-                  options,
-              /* stdin */ Optional.<String>absent(),
-              /* timeOutMs */ Optional.<Long>absent(),
-              /* timeOutHandler */ Optional.<Function<Process, Void>>absent());
-            } catch (InterruptedException | IOException e) {
-              LOG.warn("Could not execute security, continuing without codesign identity.");
-              return ImmutableList.of();
-            }
-
-            if (result.getExitCode() != 0) {
-              throw new RuntimeException(
-                  result.getMessageForUnexpectedResult("security -v -p codesigning"));
-            }
-
-            Matcher matcher = CODE_SIGN_IDENTITY_PATTERN.matcher(result.getStdout().get());
-            ImmutableList.Builder<CodeSignIdentity> builder = ImmutableList.builder();
-            while (matcher.find()) {
-              Optional<HashCode> fingerprint = CodeSignIdentity.toFingerprint(matcher.group(1));
-              if (!fingerprint.isPresent()) {
-                // security should always output a valid fingerprint string.
-                LOG.warn("Code sign identity fingerprint is invalid, ignored: " + matcher.group(1));
-                break;
-              }
-              String subjectCommonName = matcher.group(2);
-              CodeSignIdentity identity = CodeSignIdentity.builder()
-                  .setFingerprint(fingerprint)
-                  .setSubjectCommonName(subjectCommonName)
+        () -> {
+          ProcessExecutorParams processExecutorParams =
+              ProcessExecutorParams.builder()
+                  .setCommand(
+                      ImmutableList.of(
+                          "security", "find-identity",
+                          "-v", "-p", "codesigning"))
                   .build();
-              builder.add(identity);
-              LOG.debug("Found code signing identity: " + identity.toString());
-            }
-            ImmutableList<CodeSignIdentity> allValidIdentities = builder.build();
-            if (allValidIdentities.isEmpty()) {
-              LOG.warn("No valid code signing identities found.  Device build/install won't work.");
-            } else if (allValidIdentities.size() > 1) {
-              LOG.info(
-                  "Multiple valid identity found.  This could potentially cause the wrong one to" +
-                      " be used unless explicitly specified via CODE_SIGN_IDENTITY.");
-            }
-            return allValidIdentities;
+          // Specify that stdout is expected, or else output may be wrapped in Ansi escape chars.
+          Set<ProcessExecutor.Option> options =
+              EnumSet.of(ProcessExecutor.Option.EXPECTING_STD_OUT);
+          ProcessExecutor.Result result;
+          try {
+            result = processExecutor.launchAndExecute(
+                processExecutorParams,
+                options,
+            /* stdin */ Optional.empty(),
+            /* timeOutMs */ Optional.empty(),
+            /* timeOutHandler */ Optional.empty());
+          } catch (InterruptedException | IOException e) {
+            LOG.warn("Could not execute security, continuing without codesign identity.");
+            return ImmutableList.of();
           }
+
+          if (result.getExitCode() != 0) {
+            throw new RuntimeException(
+                result.getMessageForUnexpectedResult("security -v -p codesigning"));
+          }
+
+          Matcher matcher = CODE_SIGN_IDENTITY_PATTERN.matcher(result.getStdout().get());
+          ImmutableList.Builder<CodeSignIdentity> builder = ImmutableList.builder();
+          while (matcher.find()) {
+            Optional<HashCode> fingerprint = CodeSignIdentity.toFingerprint(matcher.group(1));
+            if (!fingerprint.isPresent()) {
+              // security should always output a valid fingerprint string.
+              LOG.warn("Code sign identity fingerprint is invalid, ignored: " + matcher.group(1));
+              break;
+            }
+            String subjectCommonName = matcher.group(2);
+            CodeSignIdentity identity = CodeSignIdentity.builder()
+                .setFingerprint(fingerprint)
+                .setSubjectCommonName(subjectCommonName)
+                .build();
+            builder.add(identity);
+            LOG.debug("Found code signing identity: " + identity.toString());
+          }
+          ImmutableList<CodeSignIdentity> allValidIdentities = builder.build();
+          if (allValidIdentities.isEmpty()) {
+            LOG.warn("No valid code signing identities found.  Device build/install won't work.");
+          } else if (allValidIdentities.size() > 1) {
+            LOG.info(
+                "Multiple valid identity found.  This could potentially cause the wrong one to" +
+                    " be used unless explicitly specified via CODE_SIGN_IDENTITY.");
+          }
+          return allValidIdentities;
         }));
   }
 

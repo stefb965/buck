@@ -17,12 +17,12 @@ package com.facebook.buck.parser;
 
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.config.ConfigView;
+import com.facebook.buck.io.ExecutableFinder;
+import com.facebook.buck.python.PythonBuckConfig;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -30,9 +30,9 @@ import com.google.common.collect.ImmutableSet;
 import org.immutables.value.Value;
 
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.regex.Pattern;
 
-import javax.annotation.Nullable;
 
 @Value.Immutable(builder = false, copy = false)
 @BuckStyleImmutable
@@ -48,6 +48,7 @@ abstract class AbstractParserConfig implements ConfigView<BuckConfig> {
   public enum GlobHandler {
     PYTHON,
     WATCHMAN,
+    MERCURIAL,
     ;
   }
 
@@ -81,20 +82,13 @@ abstract class AbstractParserConfig implements ConfigView<BuckConfig> {
   @Value.Lazy
   public boolean getAllowEmptyGlobs() {
     return getDelegate()
-        .getValue("build", "allow_empty_globs")
-        .transform(
-            new Function<String, Boolean>() {
-              @Override
-              public Boolean apply(String input) {
-                return Boolean.parseBoolean(input);
-              }
-            })
-        .or(DEFAULT_ALLOW_EMPTY_GLOBS);
+        .getValue("build", "allow_empty_globs").map(Boolean::parseBoolean).orElse(
+            DEFAULT_ALLOW_EMPTY_GLOBS);
   }
 
   @Value.Lazy
   public String getBuildFileName() {
-    return getDelegate().getValue(BUILDFILE_SECTION_NAME, "name").or(DEFAULT_BUILD_FILE_NAME);
+    return getDelegate().getValue(BUILDFILE_SECTION_NAME, "name").orElse(DEFAULT_BUILD_FILE_NAME);
   }
 
   /**
@@ -116,17 +110,9 @@ abstract class AbstractParserConfig implements ConfigView<BuckConfig> {
 
   @Value.Lazy
   public ImmutableSet<Pattern> getTempFilePatterns() {
-    return FluentIterable
-        .from(getDelegate().getListWithoutComments("project", "temp_files"))
-        .transform(
-            new Function<String, Pattern>() {
-              @Nullable
-              @Override
-              public Pattern apply(String input) {
-                return Pattern.compile(input);
-              }
-            })
-        .toSet();
+    return getDelegate().getListWithoutComments("project", "temp_files").stream()
+        .map(Pattern::compile)
+        .collect(MoreCollectors.toImmutableSet());
   }
 
   @Value.Lazy
@@ -136,8 +122,8 @@ abstract class AbstractParserConfig implements ConfigView<BuckConfig> {
 
   @Value.Lazy
   public AllowSymlinks getAllowSymlinks() {
-    return getDelegate().getEnum("project", "allow_symlinks", AllowSymlinks.class)
-        .or(AllowSymlinks.WARN);
+    return getDelegate().getEnum("project", "allow_symlinks", AllowSymlinks.class).orElse(
+        AllowSymlinks.WARN);
   }
 
   @Value.Lazy
@@ -149,14 +135,17 @@ abstract class AbstractParserConfig implements ConfigView<BuckConfig> {
   @Value.Lazy
   public GlobHandler getGlobHandler() {
     return
-        getDelegate().getEnum("project", "glob_handler", GlobHandler.class).or(GlobHandler.PYTHON);
+        getDelegate().getEnum(
+            "project",
+            "glob_handler",
+            GlobHandler.class).orElse(GlobHandler.PYTHON);
   }
 
   @Value.Lazy
   public WatchmanGlobSanityCheck getWatchmanGlobSanityCheck() {
     return getDelegate()
-        .getEnum("project", "watchman_glob_sanity_check", WatchmanGlobSanityCheck.class)
-        .or(WatchmanGlobSanityCheck.STAT);
+        .getEnum("project", "watchman_glob_sanity_check", WatchmanGlobSanityCheck.class).orElse(
+            WatchmanGlobSanityCheck.STAT);
   }
 
   @Value.Lazy
@@ -176,8 +165,7 @@ abstract class AbstractParserConfig implements ConfigView<BuckConfig> {
     }
 
     int value = getDelegate()
-        .getLong("project", "parsing_threads")
-        .or(NUM_PARSING_THREADS_DEFAULT)
+        .getLong("project", "parsing_threads").orElse(NUM_PARSING_THREADS_DEFAULT)
         .intValue();
 
     return Math.min(value, getDelegate().getNumThreads());
@@ -185,8 +173,10 @@ abstract class AbstractParserConfig implements ConfigView<BuckConfig> {
 
   @Value.Lazy
   public ApplyDefaultFlavorsMode getDefaultFlavorsMode() {
-    return getDelegate().getEnum("project", "default_flavors_mode", ApplyDefaultFlavorsMode.class)
-        .or(ApplyDefaultFlavorsMode.ENABLED);
+    return getDelegate().getEnum(
+        "project",
+        "default_flavors_mode",
+        ApplyDefaultFlavorsMode.class).orElse(ApplyDefaultFlavorsMode.ENABLED);
   }
 
   @Value.Lazy
@@ -198,4 +188,45 @@ abstract class AbstractParserConfig implements ConfigView<BuckConfig> {
   public ImmutableList<String> getBuildFileImportWhitelist() {
     return getDelegate().getListWithoutComments("project", "build_file_import_whitelist");
   }
+
+  /**
+   * Returns the path to python interpreter. If python is specified in the
+   * 'python_interpreter' key of the 'parser' section that is used and an
+   * error reported if invalid.
+   *
+   * If none has been specified, consult the PythonBuckConfig for an interpreter.
+   *
+   * @return The found python interpreter.
+   */
+  @Value.Lazy
+  public String getPythonInterpreter(Optional<String> configPath, ExecutableFinder exeFinder) {
+    PythonBuckConfig pyconfig = new PythonBuckConfig(getDelegate(), exeFinder);
+    if (configPath.isPresent()) {
+      return pyconfig.getPythonInterpreter(configPath);
+    }
+
+    // Fall back to the Python section configuration
+    return pyconfig.getPythonInterpreter();
+  }
+
+  @Value.Lazy
+  public String getPythonInterpreter(ExecutableFinder exeFinder) {
+    Optional<String> configPath = getDelegate().getValue(
+        "parser",
+        "python_interpreter"
+    );
+    return getPythonInterpreter(configPath, exeFinder);
+  }
+
+  /**
+   * Returns the module search path PYTHONPATH to set for the parser, as
+   * specified by the 'python_path' key of the 'parser' section.
+   *
+   * @return The PYTHONPATH value or an empty string if not set.
+   */
+  @Value.Lazy
+  public Optional<String> getPythonModuleSearchPath() {
+    return getDelegate().getValue("parser", "python_path");
+  }
+
 }

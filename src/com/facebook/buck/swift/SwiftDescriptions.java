@@ -21,13 +21,16 @@ import static com.facebook.buck.swift.SwiftUtil.Constants.SWIFT_EXTENSION;
 import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourceWithFlags;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+
+import java.util.Optional;
 
 class SwiftDescriptions {
   /**
@@ -53,19 +56,19 @@ class SwiftDescriptions {
       SwiftLibraryDescription.Arg output,
       final A args,
       BuildTarget buildTarget) {
-    output.srcs = args.srcs.transform(
-        new Function<ImmutableSortedSet<SourceWithFlags>, ImmutableSortedSet<SourcePath>>() {
-          @Override
-          public ImmutableSortedSet<SourcePath> apply(ImmutableSortedSet<SourceWithFlags> input) {
-            return filterSwiftSources(sourcePathResolver, args.srcs.get());
-          }
+    output.srcs = filterSwiftSources(sourcePathResolver, args.srcs);
+    output.headersSearchPath = FluentIterable.from(args.exportedHeaders.getPaths())
+        .uniqueIndex(path -> {
+          Preconditions.checkArgument(path instanceof PathSourcePath);
+          return ((PathSourcePath) path).getRelativePath();
         });
     output.compilerFlags = args.compilerFlags;
     output.frameworks = args.frameworks;
     output.libraries = args.libraries;
     output.deps = args.deps;
     output.supportedPlatformsRegex = args.supportedPlatformsRegex;
-    output.moduleName = args.moduleName.or(Optional.of(buildTarget.getShortName()));
+    output.moduleName =
+        args.moduleName.map(Optional::of).orElse(Optional.of(buildTarget.getShortName()));
     output.enableObjcInterop = Optional.of(true);
     output.bridgingHeader = args.bridgingHeader;
     output.preferredLinkage = args.preferredLinkage;

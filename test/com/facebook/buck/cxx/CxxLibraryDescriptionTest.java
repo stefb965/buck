@@ -61,7 +61,7 @@ import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
-import com.google.common.base.Optional;
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.collect.FluentIterable;
@@ -78,6 +78,7 @@ import org.junit.Test;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 public class CxxLibraryDescriptionTest {
@@ -95,12 +96,12 @@ public class CxxLibraryDescriptionTest {
               target,
               cxxPlatform.getFlavor(),
               headerVisibility);
-      return Optional.<SourcePath>of(
+      return Optional.of(
           new BuildTargetSourcePath(
               headerMapBuildTarget,
               HeaderSymlinkTreeWithHeaderMap.getPath(filesystem, headerMapBuildTarget)));
     } else {
-      return Optional.absent();
+      return Optional.empty();
     }
   }
 
@@ -138,7 +139,7 @@ public class CxxLibraryDescriptionTest {
     CxxLibraryBuilder depBuilder = new CxxLibraryBuilder(depTarget)
         .setExportedHeaders(
             SourceList.ofUnnamedSources(
-                ImmutableSortedSet.<SourcePath>of(new FakeSourcePath("blah.h"))))
+                ImmutableSortedSet.of(new FakeSourcePath("blah.h"))))
         .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(new FakeSourcePath("test.cpp"))));
     BuildTarget headerSymlinkTreeTarget = BuildTarget.builder(depTarget)
         .addFlavors(CxxDescriptionEnhancer.EXPORTED_HEADER_SYMLINK_TREE_FLAVOR)
@@ -155,11 +156,11 @@ public class CxxLibraryDescriptionTest {
     String privateHeaderName = "test/bar_private.h";
     CxxLibraryBuilder cxxLibraryBuilder = new CxxLibraryBuilder(target)
         .setExportedHeaders(
-            ImmutableSortedSet.<SourcePath>of(
+            ImmutableSortedSet.of(
                 new FakeSourcePath(headerName),
                 new BuildTargetSourcePath(genHeaderTarget)))
         .setHeaders(
-            ImmutableSortedSet.<SourcePath>of(new FakeSourcePath(privateHeaderName)))
+            ImmutableSortedSet.of(new FakeSourcePath(privateHeaderName)))
         .setSrcs(
             ImmutableSortedSet.of(
                 SourceWithFlags.of(new FakeSourcePath("test/bar.cpp")),
@@ -265,9 +266,9 @@ public class CxxLibraryDescriptionTest {
         ImmutableSet.of(
             cxxSourceRuleFactory.createCompileBuildTarget("test/bar.cpp"),
             cxxSourceRuleFactory.createCompileBuildTarget(genSourceName)),
-        FluentIterable.from(archiveRule.getDeps())
-            .transform(HasBuildTarget.TO_TARGET)
-            .toSet());
+        archiveRule.getDeps().stream()
+            .map(HasBuildTarget::getBuildTarget)
+            .collect(MoreCollectors.toImmutableSet()));
 
     // Verify that the preprocess rule for our user-provided source has correct deps setup
     // for the various header rules.
@@ -276,7 +277,7 @@ public class CxxLibraryDescriptionTest {
     assertThat(
         Iterables.transform(
             DependencyAggregationTestUtil.getDisaggregatedDeps(preprocessRule1),
-            HasBuildTarget.TO_TARGET),
+            HasBuildTarget::getBuildTarget),
         containsInAnyOrder(
             genHeaderTarget,
             headerSymlinkTreeTarget,
@@ -297,9 +298,9 @@ public class CxxLibraryDescriptionTest {
     assertEquals(
         ImmutableSet.of(
             preprocessRule1.getBuildTarget()),
-        FluentIterable.from(compileRule1.getDeps())
-            .transform(HasBuildTarget.TO_TARGET)
-            .toSet());
+        compileRule1.getDeps().stream()
+            .map(HasBuildTarget::getBuildTarget)
+            .collect(MoreCollectors.toImmutableSet()));
 
     // Verify that the preprocess rule for our genrule-generated source has correct deps setup
     // for the various header rules and the generating genrule.
@@ -308,7 +309,7 @@ public class CxxLibraryDescriptionTest {
     assertThat(
         Iterables.transform(
             DependencyAggregationTestUtil.getDisaggregatedDeps(preprocessRule2),
-            HasBuildTarget.TO_TARGET),
+            HasBuildTarget::getBuildTarget),
         containsInAnyOrder(
             genHeaderTarget,
             genSourceTarget,
@@ -330,9 +331,9 @@ public class CxxLibraryDescriptionTest {
     assertEquals(
         ImmutableSet.of(
             preprocessRule2.getBuildTarget()),
-        FluentIterable.from(compileRule2.getDeps())
-            .transform(HasBuildTarget.TO_TARGET)
-            .toSet());
+        compileRule2.getDeps().stream()
+            .map(HasBuildTarget::getBuildTarget)
+            .collect(MoreCollectors.toImmutableSet()));
   }
 
   @Test
@@ -458,7 +459,7 @@ public class CxxLibraryDescriptionTest {
     CxxLibraryBuilder depBuilder = new CxxLibraryBuilder(depTarget)
         .setExportedHeaders(
             SourceList.ofUnnamedSources(
-                ImmutableSortedSet.<SourcePath>of(new FakeSourcePath("blah.h"))))
+                ImmutableSortedSet.of(new FakeSourcePath("blah.h"))))
         .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(new FakeSourcePath("test.cpp"))));
     BuildTarget sharedLibraryDepTarget = BuildTarget.builder(depTarget)
         .addFlavors(CxxDescriptionEnhancer.SHARED_FLAVOR)
@@ -478,7 +479,7 @@ public class CxxLibraryDescriptionTest {
         CxxSourceRuleFactory.PicType.PDC);
     CxxLibraryBuilder cxxLibraryBuilder = new CxxLibraryBuilder(target)
         .setExportedHeaders(
-            ImmutableSortedMap.<String, SourcePath>of(
+            ImmutableSortedMap.of(
                 genHeaderName, new BuildTargetSourcePath(genHeaderTarget)))
         .setSrcs(
             ImmutableSortedSet.of(
@@ -550,9 +551,9 @@ public class CxxLibraryDescriptionTest {
         ImmutableSet.of(
             cxxSourceRuleFactoryPDC.createCompileBuildTarget("test/bar.cpp"),
             cxxSourceRuleFactoryPDC.createCompileBuildTarget(genSourceName)),
-        FluentIterable.from(staticRule.getDeps())
-            .transform(HasBuildTarget.TO_TARGET)
-            .toSet());
+        staticRule.getDeps().stream()
+            .map(HasBuildTarget::getBuildTarget)
+            .collect(MoreCollectors.toImmutableSet()));
 
     // Verify that the compile rule for our user-provided source has correct deps setup
     // for the various header rules.
@@ -562,7 +563,7 @@ public class CxxLibraryDescriptionTest {
     assertThat(
         Iterables.transform(
             DependencyAggregationTestUtil.getDisaggregatedDeps(staticPreprocessRule1),
-            HasBuildTarget.TO_TARGET),
+            HasBuildTarget::getBuildTarget),
         containsInAnyOrder(
             genHeaderTarget,
             headerSymlinkTreeTarget,
@@ -582,9 +583,9 @@ public class CxxLibraryDescriptionTest {
     assertNotNull(staticCompileRule1);
     assertEquals(
         ImmutableSet.of(staticPreprocessRule1.getBuildTarget()),
-        FluentIterable.from(staticCompileRule1.getDeps())
-            .transform(HasBuildTarget.TO_TARGET)
-            .toSet());
+        staticCompileRule1.getDeps().stream()
+            .map(HasBuildTarget::getBuildTarget)
+            .collect(MoreCollectors.toImmutableSet()));
 
     // Verify that the compile rule for our genrule-generated source has correct deps setup
     // for the various header rules and the generating genrule.
@@ -594,7 +595,7 @@ public class CxxLibraryDescriptionTest {
     assertThat(
         Iterables.transform(
             DependencyAggregationTestUtil.getDisaggregatedDeps(staticPreprocessRule2),
-            HasBuildTarget.TO_TARGET),
+            HasBuildTarget::getBuildTarget),
         containsInAnyOrder(
             genHeaderTarget,
             genSourceTarget,
@@ -615,9 +616,9 @@ public class CxxLibraryDescriptionTest {
     assertNotNull(staticCompileRule2);
     assertEquals(
         ImmutableSet.of(staticPreprocessRule2.getBuildTarget()),
-        FluentIterable.from(staticCompileRule2.getDeps())
-            .transform(HasBuildTarget.TO_TARGET)
-            .toSet());
+        staticCompileRule2.getDeps().stream()
+            .map(HasBuildTarget::getBuildTarget)
+            .collect(MoreCollectors.toImmutableSet()));
 
     // Verify that the archive rule has the correct deps: the object files from our sources.
     CxxSourceRuleFactory cxxSourceRuleFactoryPIC = CxxSourceRuleFactoryHelper.of(
@@ -637,9 +638,9 @@ public class CxxLibraryDescriptionTest {
             sharedLibraryDepTarget,
             cxxSourceRuleFactoryPIC.createCompileBuildTarget("test/bar.cpp"),
             cxxSourceRuleFactoryPIC.createCompileBuildTarget(genSourceName)),
-        FluentIterable.from(sharedRule.getDeps())
-            .transform(HasBuildTarget.TO_TARGET)
-            .toSet());
+        sharedRule.getDeps().stream()
+            .map(HasBuildTarget::getBuildTarget)
+            .collect(MoreCollectors.toImmutableSet()));
 
     // Verify that the compile rule for our user-provided source has correct deps setup
     // for the various header rules.
@@ -649,7 +650,7 @@ public class CxxLibraryDescriptionTest {
     assertThat(
         Iterables.transform(
             DependencyAggregationTestUtil.getDisaggregatedDeps(sharedPreprocessRule1),
-            HasBuildTarget.TO_TARGET),
+            HasBuildTarget::getBuildTarget),
         containsInAnyOrder(
             genHeaderTarget,
             headerSymlinkTreeTarget,
@@ -669,9 +670,9 @@ public class CxxLibraryDescriptionTest {
     assertNotNull(sharedCompileRule1);
     assertEquals(
         ImmutableSet.of(sharedPreprocessRule1.getBuildTarget()),
-        FluentIterable.from(sharedCompileRule1.getDeps())
-            .transform(HasBuildTarget.TO_TARGET)
-            .toSet());
+        sharedCompileRule1.getDeps().stream()
+            .map(HasBuildTarget::getBuildTarget)
+            .collect(MoreCollectors.toImmutableSet()));
 
     // Verify that the compile rule for our genrule-generated source has correct deps setup
     // for the various header rules and the generating genrule.
@@ -681,7 +682,7 @@ public class CxxLibraryDescriptionTest {
     assertThat(
         Iterables.transform(
             DependencyAggregationTestUtil.getDisaggregatedDeps(sharedPreprocessRule2),
-            HasBuildTarget.TO_TARGET),
+            HasBuildTarget::getBuildTarget),
         containsInAnyOrder(
             genHeaderTarget,
             genSourceTarget,
@@ -702,9 +703,9 @@ public class CxxLibraryDescriptionTest {
     assertNotNull(sharedCompileRule2);
     assertEquals(
         ImmutableSet.of(sharedPreprocessRule2.getBuildTarget()),
-        FluentIterable.from(sharedCompileRule2.getDeps())
-            .transform(HasBuildTarget.TO_TARGET)
-            .toSet());
+        sharedCompileRule2.getDeps().stream()
+            .map(HasBuildTarget::getBuildTarget)
+            .collect(MoreCollectors.toImmutableSet()));
   }
 
   @Test
@@ -794,7 +795,7 @@ public class CxxLibraryDescriptionTest {
         new CxxLibraryBuilder(BuildTargetFactory.newInstance("//:rule#shared,platform"))
             .setLinkerFlags(ImmutableList.of("--linker-script=$(location //:dep)"))
             .setSrcs(
-                ImmutableSortedSet.<SourceWithFlags>of(
+                ImmutableSortedSet.of(
                     SourceWithFlags.of(new FakeSourcePath("foo.c"))));
     assertThat(
         builder.findImplicitDeps(),
@@ -1150,7 +1151,7 @@ public class CxxLibraryDescriptionTest {
             .build(resolver);
     assertThat(
         rule.getNativeLinkableDeps(CxxLibraryBuilder.createDefaultPlatform()),
-        Matchers.<NativeLinkable>contains(dep));
+        Matchers.contains(dep));
     assertThat(
         ImmutableList.copyOf(
             rule.getNativeLinkableExportedDeps(CxxLibraryBuilder.createDefaultPlatform())),
@@ -1170,10 +1171,10 @@ public class CxxLibraryDescriptionTest {
             .build(resolver);
     assertThat(
         ImmutableList.copyOf(rule.getNativeLinkableDeps(CxxLibraryBuilder.createDefaultPlatform())),
-        Matchers.<NativeLinkable>empty());
+        empty());
     assertThat(
         rule.getNativeLinkableExportedDeps(CxxLibraryBuilder.createDefaultPlatform()),
-        Matchers.<NativeLinkable>contains(dep));
+        Matchers.contains(dep));
   }
 
   @Test
@@ -1207,7 +1208,7 @@ public class CxxLibraryDescriptionTest {
     assertThat(
         ImmutableList.copyOf(
             rule.getNativeLinkTargetDeps(CxxLibraryBuilder.createDefaultPlatform())),
-        Matchers.<NativeLinkable>hasItems(dep, exportedDep));
+        hasItems(dep, exportedDep));
   }
 
   @Test
@@ -1243,9 +1244,9 @@ public class CxxLibraryDescriptionTest {
     cxxBinaryBuilder.build(resolver, filesystem);
     CxxLibrary cxxLibrary = (CxxLibrary) cxxLibraryBuilder.build(resolver, filesystem);
     assertThat(
-        FluentIterable.from(cxxLibrary.getRuntimeDeps())
-            .transform(HasBuildTarget.TO_TARGET)
-            .toSet(),
+        cxxLibrary.getRuntimeDeps().stream()
+            .map(HasBuildTarget::getBuildTarget)
+            .collect(MoreCollectors.toImmutableSet()),
         hasItem(cxxBinaryBuilder.getTarget()));
   }
 
@@ -1266,7 +1267,7 @@ public class CxxLibraryDescriptionTest {
                     new SourceTreePath(
                         PBXReference.SourceTree.SDKROOT,
                         Paths.get("/usr/lib/libz.dylib"),
-                        Optional.<String>absent())),
+                        Optional.empty())),
                 FrameworkPath.ofSourcePath(new FakeSourcePath("/another/path/liba.dylib"))))
         .setSrcs(
             ImmutableSortedSet.of(
@@ -1302,7 +1303,7 @@ public class CxxLibraryDescriptionTest {
     CxxLibrary library = (CxxLibrary) libraryBuilder.build(resolver, filesystem, targetGraph);
     assertThat(
         library.getNativeLinkTargetInput(platform).getLibraries(),
-        Matchers.<ImmutableSet<FrameworkPath>>equalTo(libraries));
+        Matchers.equalTo(libraries));
   }
 
   @Test
@@ -1320,13 +1321,13 @@ public class CxxLibraryDescriptionTest {
         rule.getCxxPreprocessorInput(CxxPlatformUtils.DEFAULT_PLATFORM, HeaderVisibility.PUBLIC);
     assertThat(
         getHeaderNames(input.getIncludes()),
-        Matchers.<Path>empty());
+        empty());
     assertThat(
         input.getSystemIncludeRoots(),
-        Matchers.<Path>empty());
+        empty());
     assertThat(
         ImmutableSortedSet.copyOf(input.getDeps(resolver, pathResolver)),
-        Matchers.<BuildRule>empty());
+        empty());
   }
 
   @Test

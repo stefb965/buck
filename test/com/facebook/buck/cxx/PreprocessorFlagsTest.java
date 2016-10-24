@@ -141,12 +141,12 @@ public class PreprocessorFlagsTest {
                   new DefaultTargetNodeToBuildRuleTransformer()));
       BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
       final FakeFileHashCache hashCache =
-          FakeFileHashCache.createFromStrings(ImmutableMap.<String, String>of());
+          FakeFileHashCache.createFromStrings(ImmutableMap.of());
       final BuildRule fakeBuildRule = new FakeBuildRule(target, pathResolver);
 
       class TestData {
         public RuleKey generate(String prefix) {
-          DebugPathSanitizer sanitizer = new DebugPathSanitizer(
+          DebugPathSanitizer sanitizer = new MungingDebugPathSanitizer(
               10,
               File.separatorChar,
               Paths.get("PWD"),

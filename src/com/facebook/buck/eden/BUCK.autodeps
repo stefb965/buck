@@ -1,10 +1,9 @@
-#@# GENERATED FILE: DO NOT MODIFY 25f65964986456f4a60094a75392abbf6fd72b6e #@#
 {
   "eden" : {
     "deps" : [
       "//src/com/facebook/buck/io:DefaultProjectFilesystemDelegate",
-      "//src/com/facebook/buck/io:MorePaths.java",
-      "//src/com/facebook/buck/io/unixsocket:unixsocket"
+      "//src/com/facebook/buck/io/unixsocket:unixsocket",
+      "//src/com/facebook/buck/util:util"
     ],
     "exported_deps" : [
       "//src/com/facebook/buck/io:ProjectFilesystemDelegate",

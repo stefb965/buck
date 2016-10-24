@@ -25,11 +25,11 @@ import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
-import java.nio.file.Path;
+import java.util.Optional;
+
 
 public class PrebuiltPythonLibrary extends NoopBuildRule implements PythonPackagable {
 
@@ -53,11 +53,11 @@ public class PrebuiltPythonLibrary extends NoopBuildRule implements PythonPackag
     // TODO(mikekap): Allow varying sources by cxx platform (in cases of prebuilt
     // extension modules).
     return PythonPackageComponents.of(
-        ImmutableMap.<Path, SourcePath>of(),
-        ImmutableMap.<Path, SourcePath>of(),
-        ImmutableMap.<Path, SourcePath>of(),
+        ImmutableMap.of(),
+        ImmutableMap.of(),
+        ImmutableMap.of(),
         ImmutableSet.of(binarySrc),
-        Optional.<Boolean>absent());
+        Optional.empty());
   }
 
   @Override

@@ -21,7 +21,6 @@ import com.facebook.buck.file.WriteFile;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.ImmutableFlavor;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
@@ -32,7 +31,6 @@ import com.facebook.buck.rules.WriteStringTemplateRule;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.immutables.BuckStyleTuple;
 import com.google.common.base.Charsets;
-import com.google.common.base.Optional;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -42,6 +40,7 @@ import org.immutables.value.Value;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Optional;
 
 /**
  * {@link Starter} implementation which builds a starter as a Lua script.
@@ -81,8 +80,8 @@ abstract class AbstractLuaScriptStarter implements Starter {
         new WriteFile(
             getBaseParams().copyWithChanges(
                 templateTarget,
-                Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
-                Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+                Suppliers.ofInstance(ImmutableSortedSet.of()),
+                Suppliers.ofInstance(ImmutableSortedSet.of())),
             getPathResolver(),
             getPureStarterTemplate(),
             BuildTargets.getGenPath(

@@ -19,16 +19,14 @@ package com.facebook.buck.jvm.java;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.TargetDevice;
 import com.facebook.buck.testutil.MoreAsserts;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 
@@ -37,6 +35,7 @@ import org.junit.Test;
 
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.Optional;
 
 public class JavaTestRuleTest {
 
@@ -45,7 +44,7 @@ public class JavaTestRuleTest {
     ImmutableList<String> vmArgs = ImmutableList.of("--one", "--two", "--three");
     JavaTest rule = newRule(vmArgs);
 
-    ImmutableList<String> amended = rule.amendVmArgs(vmArgs, Optional.<TargetDevice>absent());
+    ImmutableList<String> amended = rule.amendVmArgs(vmArgs, Optional.empty());
 
     MoreAsserts.assertListEquals(vmArgs, amended);
   }
@@ -104,7 +103,7 @@ public class JavaTestRuleTest {
             new FakeJavaLibrary(
                 BuildTargetFactory.newInstance("//:first_order_dep"),
                 pathResolver,
-                ImmutableSortedSet.<BuildRule>of(transitiveDep)));
+                ImmutableSortedSet.of(transitiveDep)));
 
     JavaTest rule =
         (JavaTest) JavaTestBuilder.createBuilder(BuildTargetFactory.newInstance("//:rule"))
@@ -114,7 +113,7 @@ public class JavaTestRuleTest {
 
     assertThat(
         rule.getRuntimeDeps(),
-        Matchers.<BuildRule>hasItems(rule.getCompiledTestsLibrary(), firstOrderDep, transitiveDep));
+        Matchers.hasItems(rule.getCompiledTestsLibrary(), firstOrderDep, transitiveDep));
   }
 
   private JavaTest newRule(ImmutableList<String> vmArgs) throws NoSuchBuildTargetException {

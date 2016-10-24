@@ -41,15 +41,14 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.MacroArg;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
-import com.facebook.buck.rules.macros.MacroExpander;
 import com.facebook.buck.rules.macros.MacroHandler;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.OptionalCompat;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Optional;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -58,6 +57,8 @@ import com.google.common.collect.Maps;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Collections;
+import java.util.Optional;
 
 public class PythonTestDescription implements
     Description<PythonTestDescription.Arg>,
@@ -69,7 +70,7 @@ public class PythonTestDescription implements
 
   private static final MacroHandler MACRO_HANDLER =
       new MacroHandler(
-          ImmutableMap.<String, MacroExpander>of(
+          ImmutableMap.of(
               "location", new LocationMacroExpander()));
 
   private final PythonBinaryDescription binaryDescription;
@@ -159,8 +160,8 @@ public class PythonTestDescription implements
         BuildTargets.createFlavoredBuildTarget(
             params.getBuildTarget().checkUnflavored(),
             ImmutableFlavor.of("test_module")),
-        Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
-        Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
+        Suppliers.ofInstance(ImmutableSortedSet.of()),
+        Suppliers.ofInstance(ImmutableSortedSet.of()));
 
     String contents = getTestModulesListContents(testModules);
 
@@ -179,13 +180,13 @@ public class PythonTestDescription implements
       final BuildRuleResolver resolver,
       final A args) throws HumanReadableException, NoSuchBuildTargetException {
 
-    PythonPlatform pythonPlatform = pythonPlatforms
-        .getValue(params.getBuildTarget())
-        .or(pythonPlatforms.getValue(
-            args.platform
-                .transform(Flavor.TO_FLAVOR)
-                .or(pythonPlatforms.getFlavors().iterator().next())));
-    CxxPlatform cxxPlatform = cxxPlatforms.getValue(params.getBuildTarget()).or(defaultCxxPlatform);
+    PythonPlatform pythonPlatform =
+        pythonPlatforms.getValue(params.getBuildTarget()).orElse(
+            pythonPlatforms.getValue(
+                args.platform.<Flavor>map(ImmutableFlavor::of).orElse(
+                    pythonPlatforms.getFlavors().iterator().next())));
+    CxxPlatform cxxPlatform = cxxPlatforms.getValue(params.getBuildTarget()).orElse(
+        defaultCxxPlatform);
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
     Path baseModule = PythonUtil.getBasePath(params.getBuildTarget(), args.baseModule);
 
@@ -197,14 +198,14 @@ public class PythonTestDescription implements
                     pathResolver,
                     "srcs",
                     baseModule,
-                    args.srcs.asSet()))
+                    Collections.singleton(args.srcs)))
             .putAll(
                 PythonUtil.toModuleMap(
                     params.getBuildTarget(),
                     pathResolver,
                     "platformSrcs",
                     baseModule,
-                    args.platformSrcs.get()
+                    args.platformSrcs
                         .getMatchingValues(pythonPlatform.getFlavor().toString())))
             .build();
 
@@ -216,14 +217,14 @@ public class PythonTestDescription implements
                     pathResolver,
                     "resources",
                     baseModule,
-                    args.resources.asSet()))
+                    Collections.singleton(args.resources)))
             .putAll(
                 PythonUtil.toModuleMap(
                     params.getBuildTarget(),
                     pathResolver,
                     "platformResources",
                     baseModule,
-                    args.platformResources.get()
+                    args.platformResources
                         .getMatchingValues(pythonPlatform.getFlavor().toString())))
             .build();
 
@@ -264,8 +265,8 @@ public class PythonTestDescription implements
             .putAll(srcs)
             .build(),
         resources,
-        ImmutableMap.<Path, SourcePath>of(),
-        ImmutableSet.<SourcePath>of(),
+        ImmutableMap.of(),
+        ImmutableSet.of(),
         args.zipSafe);
     PythonPackageComponents allComponents =
         PythonUtil.getAllComponents(
@@ -276,22 +277,21 @@ public class PythonTestDescription implements
             pythonPlatform,
             cxxBuckConfig,
             cxxPlatform,
-            FluentIterable.from(args.linkerFlags.get())
-                .transform(
-                    MacroArg.toMacroArgFunction(
-                        PythonUtil.MACRO_HANDLER,
-                        params.getBuildTarget(),
-                        params.getCellRoots(),
-                        resolver))
-                .toList(),
+            args.linkerFlags.stream()
+                .map(MacroArg.toMacroArgFunction(
+                    PythonUtil.MACRO_HANDLER,
+                    params.getBuildTarget(),
+                    params.getCellRoots(),
+                    resolver)::apply)
+                .collect(MoreCollectors.toImmutableList()),
             pythonBuckConfig.getNativeLinkStrategy(),
-            args.preloadDeps.get());
+            args.preloadDeps);
 
     // Build the PEX using a python binary rule with the minimum dependencies.
     BuildRuleParams binaryParams = params.copyWithChanges(
         getBinaryBuildTarget(params.getBuildTarget()),
         Suppliers.ofInstance(PythonUtil.getDepsFromComponents(pathResolver, allComponents)),
-        Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
+        Suppliers.ofInstance(ImmutableSortedSet.of()));
     PythonBinary binary =
         binaryDescription.createPackageRule(
             binaryParams,
@@ -302,17 +302,17 @@ public class PythonTestDescription implements
             mainModule,
             args.extension,
             allComponents,
-            args.buildArgs.or(ImmutableList.<String>of()),
-            args.packageStyle.or(pythonBuckConfig.getPackageStyle()),
+            args.buildArgs,
+            args.packageStyle.orElse(pythonBuckConfig.getPackageStyle()),
             PythonUtil.getPreloadNames(
                 resolver,
                 cxxPlatform,
-                args.preloadDeps.get()));
+                args.preloadDeps));
     resolver.addToIndex(binary);
 
     ImmutableList.Builder<Pair<Float, ImmutableSet<Path>>> neededCoverageBuilder =
         ImmutableList.builder();
-    for (NeededCoverageSpec coverageSpec : args.neededCoverage.get()) {
+    for (NeededCoverageSpec coverageSpec : args.neededCoverage) {
         BuildRule buildRule = resolver.getRule(coverageSpec.getBuildTarget());
         if (params.getDeps().contains(buildRule) &&
             buildRule instanceof PythonLibrary) {
@@ -345,18 +345,13 @@ public class PythonTestDescription implements
 
     // Supplier which expands macros in the passed in test environment.
     Supplier<ImmutableMap<String, String>> testEnv =
-        new Supplier<ImmutableMap<String, String>>() {
-          @Override
-          public ImmutableMap<String, String> get() {
-            return ImmutableMap.copyOf(
-                Maps.transformValues(
-                    args.env.or(ImmutableMap.<String, String>of()),
-                    MACRO_HANDLER.getExpander(
-                        params.getBuildTarget(),
-                        params.getCellRoots(),
-                        resolver)));
-          }
-        };
+        () -> ImmutableMap.copyOf(
+            Maps.transformValues(
+                args.env,
+                MACRO_HANDLER.getExpander(
+                    params.getBuildTarget(),
+                    params.getCellRoots(),
+                    resolver)));
 
     // Generate and return the python test rule, which depends on the python binary rule above.
     return new PythonTest(
@@ -370,10 +365,10 @@ public class PythonTestDescription implements
         pathResolver,
         testEnv,
         binary,
-        args.labels.or(ImmutableSet.<Label>of()),
+        args.labels,
         neededCoverageBuilder.build(),
-        args.testRuleTimeoutMs.or(defaultTestRuleTimeoutMs),
-        args.contacts.or(ImmutableSet.<String>of()));
+        args.testRuleTimeoutMs.map(Optional::of).orElse(defaultTestRuleTimeoutMs),
+        args.contacts);
   }
 
   @Override
@@ -386,12 +381,12 @@ public class PythonTestDescription implements
     // We need to use the C/C++ linker for native libs handling, so add in the C/C++ linker to
     // parse time deps.
     targets.addAll(
-        cxxPlatforms.getValue(buildTarget).or(defaultCxxPlatform).getLd().getParseTimeDeps());
+        cxxPlatforms.getValue(buildTarget).orElse(defaultCxxPlatform).getLd().getParseTimeDeps());
 
-    if (constructorArg.packageStyle.or(pythonBuckConfig.getPackageStyle()) ==
+    if (constructorArg.packageStyle.orElse(pythonBuckConfig.getPackageStyle()) ==
         PythonBuckConfig.PackageStyle.STANDALONE) {
-      targets.addAll(pythonBuckConfig.getPexTarget().asSet());
-      targets.addAll(pythonBuckConfig.getPexExecutorTarget().asSet());
+      targets.addAll(OptionalCompat.asSet(pythonBuckConfig.getPexTarget()));
+      targets.addAll(OptionalCompat.asSet(pythonBuckConfig.getPexExecutorTarget()));
     }
 
     return targets.build();
@@ -400,18 +395,18 @@ public class PythonTestDescription implements
   @SuppressFieldNotInitialized
   public static class Arg extends PythonLibraryDescription.Arg {
     public Optional<String> mainModule;
-    public Optional<ImmutableSet<String>> contacts;
-    public Optional<ImmutableSet<Label>> labels;
+    public ImmutableSet<String> contacts = ImmutableSet.of();
+    public ImmutableSet<Label> labels = ImmutableSet.of();
     public Optional<String> platform;
     public Optional<String> extension;
     public Optional<PythonBuckConfig.PackageStyle> packageStyle;
-    public Optional<ImmutableSet<BuildTarget>> preloadDeps;
-    public Optional<ImmutableList<String>> linkerFlags;
-    public Optional<ImmutableList<NeededCoverageSpec>> neededCoverage;
+    public ImmutableSet<BuildTarget> preloadDeps = ImmutableSet.of();
+    public ImmutableList<String> linkerFlags = ImmutableList.of();
+    public ImmutableList<NeededCoverageSpec> neededCoverage = ImmutableList.of();
 
-    public Optional<ImmutableList<String>> buildArgs;
+    public ImmutableList<String> buildArgs = ImmutableList.of();
 
-    public Optional<ImmutableMap<String, String>> env;
+    public ImmutableMap<String, String> env = ImmutableMap.of();
     public Optional<Long> testRuleTimeoutMs;
   }
 

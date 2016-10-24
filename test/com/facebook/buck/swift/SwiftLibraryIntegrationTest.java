@@ -34,10 +34,8 @@ import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -48,6 +46,7 @@ import org.junit.Test;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 
 public class SwiftLibraryIntegrationTest {
   @Rule
@@ -66,7 +65,7 @@ public class SwiftLibraryIntegrationTest {
         BuildTargets.getGenPath(projectFilesystem, symlinkTarget, "%s/symlink-tree-root"));
 
     // Setup the map representing the link tree.
-    ImmutableMap<Path, SourcePath> links = ImmutableMap.<Path, SourcePath>of();
+    ImmutableMap<Path, SourcePath> links = ImmutableMap.of();
 
     BuildRule symlinkTreeBuildRule = new HeaderSymlinkTreeWithHeaderMap(
         new FakeBuildRuleParamsBuilder(symlinkTarget).build(),
@@ -88,23 +87,24 @@ public class SwiftLibraryIntegrationTest {
         new FakeBuildRule("//:shared", pathResolver),
         Paths.get("output/path/lib.so"),
         "lib.so",
-        ImmutableSortedSet.<BuildTarget>of()
+        ImmutableSortedSet.of()
     );
 
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//foo:bar#iphoneos-x86_64");
     BuildRuleParams params = new FakeBuildRuleParamsBuilder(buildTarget)
-        .setDeclaredDeps(ImmutableSortedSet.<BuildRule>of(depRule))
+        .setDeclaredDeps(ImmutableSortedSet.of(depRule))
         .build();
 
     SwiftLibraryDescription.Arg args =
         FakeAppleRuleDescriptions.SWIFT_LIBRARY_DESCRIPTION.createUnpopulatedConstructorArg();
-    args.moduleName = Optional.absent();
-    args.srcs = Optional.of(ImmutableSortedSet.<SourcePath>of());
-    args.compilerFlags = Optional.absent();
-    args.frameworks = Optional.of(ImmutableSortedSet.<FrameworkPath>of());
-    args.libraries = Optional.of(ImmutableSortedSet.<FrameworkPath>of());
-    args.enableObjcInterop = Optional.absent();
-    args.supportedPlatformsRegex = Optional.absent();
+    args.moduleName = Optional.empty();
+    args.srcs = ImmutableSortedSet.of();
+    args.compilerFlags = ImmutableList.of();
+    args.frameworks = ImmutableSortedSet.of();
+    args.libraries = ImmutableSortedSet.of();
+    args.enableObjcInterop = Optional.empty();
+    args.supportedPlatformsRegex = Optional.empty();
+    args.headersSearchPath = ImmutableMap.of();
 
     SwiftCompile buildRule = (SwiftCompile) FakeAppleRuleDescriptions.SWIFT_LIBRARY_DESCRIPTION
         .createBuildRule(TargetGraph.EMPTY, params, resolver, args);

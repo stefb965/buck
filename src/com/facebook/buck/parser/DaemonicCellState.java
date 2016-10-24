@@ -23,7 +23,6 @@ import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.util.concurrent.AutoCloseableLock;
 import com.facebook.buck.util.concurrent.AutoCloseableReadWriteUpdateLock;
-import com.google.common.base.Optional;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -33,6 +32,7 @@ import com.google.common.collect.SetMultimap;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentMap;
 
 import javax.annotation.concurrent.GuardedBy;
@@ -52,7 +52,7 @@ class DaemonicCellState {
         Cell cell,
         BuildTarget target) throws BuildTargetException {
       try (AutoCloseableLock readLock = rawAndComputedNodesLock.readLock()) {
-        return Optional.fromNullable(allComputedNodes.getIfPresent(target));
+        return Optional.ofNullable(allComputedNodes.getIfPresent(target));
       }
     }
 
@@ -62,7 +62,7 @@ class DaemonicCellState {
         BuildTarget target,
         T targetNode) throws BuildTargetException {
       try (AutoCloseableLock writeLock = rawAndComputedNodesLock.writeLock()) {
-        T updatedNode = allComputedNodes.get(target, targetNode);
+        T updatedNode = allComputedNodes.putIfAbsentAndGet(target, targetNode);
         if (updatedNode.equals(targetNode)) {
           targetsCornucopia.put(target.getUnflavoredBuildTarget(), target);
         }
@@ -133,7 +133,7 @@ class DaemonicCellState {
 
   Optional<ImmutableSet<Map<String, Object>>> lookupRawNodes(Path buildFile) {
     try (AutoCloseableLock readLock = rawAndComputedNodesLock.readLock()) {
-      return Optional.fromNullable(allRawNodes.getIfPresent(buildFile));
+      return Optional.ofNullable(allRawNodes.getIfPresent(buildFile));
     }
   }
 
@@ -144,7 +144,7 @@ class DaemonicCellState {
       ImmutableMap<String, ImmutableMap<String, Optional<String>>> configs) {
     try (AutoCloseableLock writeLock = rawAndComputedNodesLock.writeLock()) {
       ImmutableSet<Map<String, Object>> updated =
-          allRawNodes.get(buildFile, withoutMetaIncludes);
+          allRawNodes.putIfAbsentAndGet(buildFile, withoutMetaIncludes);
       buildFileConfigs.put(buildFile, configs);
       if (updated == withoutMetaIncludes) {
         // We now know all the nodes. They all implicitly depend on everything in

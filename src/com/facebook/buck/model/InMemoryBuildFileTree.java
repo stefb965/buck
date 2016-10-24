@@ -17,12 +17,10 @@
 package com.facebook.buck.model;
 
 import com.facebook.buck.io.MorePaths;
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ComparisonChain;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -34,6 +32,7 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.TreeSet;
 
 import javax.annotation.Nullable;
@@ -44,15 +43,10 @@ import javax.annotation.Nullable;
  */
 public class InMemoryBuildFileTree extends BuildFileTree {
 
-  private static final Comparator<Path> PATH_COMPARATOR = new Comparator<Path>() {
-    @Override
-    public int compare(Path a, Path b) {
-      return ComparisonChain.start()
-          .compare(a.getNameCount(), b.getNameCount())
-          .compare(a.toString(), b.toString())
-          .result();
-    }
-  };
+  private static final Comparator<Path> PATH_COMPARATOR = (a, b) -> ComparisonChain.start()
+      .compare(a.getNameCount(), b.getNameCount())
+      .compare(a.toString(), b.toString())
+      .result();
 
   private final Map<Path, Node> basePathToNodeIndex;
 
@@ -96,7 +90,7 @@ public class InMemoryBuildFileTree extends BuildFileTree {
     if (parent != null) {
       return Optional.of(parent.basePath);
     } else {
-      return Optional.absent();
+      return Optional.empty();
     }
   }
 
@@ -115,13 +109,9 @@ public class InMemoryBuildFileTree extends BuildFileTree {
     if (node.children == null) {
       return ImmutableList.of();
     } else {
-      return FluentIterable.from(node.children).transform(
-          new Function<Node, Path>() {
-            @Override
-            public Path apply(Node child) {
-              return MorePaths.relativize(path, child.basePath);
-            }
-          }).toList();
+      return node.children.stream()
+          .map(child -> MorePaths.relativize(path, child.basePath))
+          .collect(MoreCollectors.toImmutableList());
     }
   }
 

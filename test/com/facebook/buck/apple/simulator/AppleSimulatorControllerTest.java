@@ -16,32 +16,27 @@
 
 package com.facebook.buck.apple.simulator;
 
-import static org.junit.Assert.assertThat;
-
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
+import static org.junit.Assert.assertThat;
 import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.util.FakeProcess;
 import com.facebook.buck.util.FakeProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
-
 import com.facebook.buck.util.environment.Platform;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
-import java.io.IOException;
-
-import java.nio.file.Path;
-import java.nio.file.Paths;
-
-import java.util.Map;
-
-import java.util.AbstractMap.SimpleImmutableEntry;
-
 import org.junit.Before;
 import org.junit.Test;
+
+import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.AbstractMap.SimpleImmutableEntry;
+import java.util.Map;
+import java.util.Optional;
 
 /**
  * Unit tests for {@link AppleSimulatorController}.
@@ -274,7 +269,7 @@ public class AppleSimulatorControllerTest {
         "70200ED8-EEF1-4BDB-BCCF-3595B137D67D",
         "com.facebook.MyNeatApp",
         AppleSimulatorController.LaunchBehavior.DO_NOT_WAIT_FOR_DEBUGGER,
-        ImmutableList.<String>of());
+        ImmutableList.of());
     assertThat(launchedPID, is(equalTo(Optional.of(42L))));
   }
 
@@ -302,7 +297,7 @@ public class AppleSimulatorControllerTest {
           "70200ED8-EEF1-4BDB-BCCF-3595B137D67D",
           "com.facebook.MyNeatApp",
           AppleSimulatorController.LaunchBehavior.WAIT_FOR_DEBUGGER,
-        ImmutableList.<String>of());
+        ImmutableList.of());
 
     assertThat(launchedPID, is(equalTo(Optional.of(42L))));
   }
@@ -332,7 +327,7 @@ public class AppleSimulatorControllerTest {
         "70200ED8-EEF1-4BDB-BCCF-3595B137D67D",
         "com.facebook.MyNeatApp",
         AppleSimulatorController.LaunchBehavior.DO_NOT_WAIT_FOR_DEBUGGER,
-        ImmutableList.<String>of("arg1", "arg2"));
+        ImmutableList.of("arg1", "arg2"));
     assertThat(launchedPID, is(equalTo(Optional.of(42L))));
   }
 }

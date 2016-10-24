@@ -1,4 +1,3 @@
-#@# GENERATED FILE: DO NOT MODIFY e498a283833e19f03289773c69a60ced6ae8107b #@#
 {
   "config" : {
     "deps" : [
@@ -6,8 +5,7 @@
     ],
     "exported_deps" : [
       "//src/com/facebook/buck/cli:config",
-      "//src/com/facebook/buck/util/immutables:immutables",
-      "//third-party/java/guava:guava"
+      "//src/com/facebook/buck/util/immutables:immutables"
     ]
   },
   "test" : {

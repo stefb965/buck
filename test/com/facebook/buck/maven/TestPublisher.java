@@ -18,9 +18,9 @@ package com.facebook.buck.maven;
 
 import com.facebook.buck.testutil.integration.HttpdForTests;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
-import com.google.common.base.Optional;
 
 import java.nio.file.Path;
+import java.util.Optional;
 
 /**
  * A {@link com.facebook.buck.maven.Publisher}, that does not send real PUT requests, instead
@@ -55,9 +55,9 @@ public class TestPublisher extends Publisher implements AutoCloseable {
       HttpdForTests.DummyPutRequestsHandler putRequestsHandler) throws Exception {
     super(pseudoLocalRepo,
         Optional.of(httpd.getRootUri().toURL()),
-        /* username */ Optional.<String>absent(),
-        /* password */ Optional.<String>absent(),
-        /* pgp passphrase */ Optional.<String>absent(),
+        /* username */ Optional.<String>empty(),
+        /* password */ Optional.<String>empty(),
+        /* pgp passphrase */ Optional.<String>empty(),
         /* dryRun */ false);
     this.httpd = httpd;
     this.putRequestsHandler = putRequestsHandler;

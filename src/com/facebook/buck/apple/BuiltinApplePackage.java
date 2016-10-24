@@ -33,12 +33,12 @@ import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.step.fs.WriteFileStep;
 import com.facebook.buck.zip.ZipCompressionLevel;
 import com.facebook.buck.zip.ZipStep;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.io.ByteSource;
 
 import java.nio.file.Path;
+import java.util.Optional;
 
 public class BuiltinApplePackage extends AbstractBuildRule {
 
@@ -83,13 +83,15 @@ public class BuiltinApplePackage extends AbstractBuildRule {
             payloadDir,
             CopyStep.DirectoryMode.DIRECTORY_AND_CONTENTS));
 
+    appendAdditionalSwiftSteps(commands);
+
     // do the zipping
     commands.add(new MkdirStep(getProjectFilesystem(), pathToOutputFile.getParent()));
     commands.add(
         new ZipStep(
             getProjectFilesystem(),
             pathToOutputFile,
-            ImmutableSet.<Path>of(),
+            ImmutableSet.of(),
             false,
             ZipCompressionLevel.DEFAULT_COMPRESSION_LEVEL,
             temp));
@@ -97,6 +99,23 @@ public class BuiltinApplePackage extends AbstractBuildRule {
     buildableContext.recordArtifact(getPathToOutput());
 
     return commands.build();
+  }
+
+  private void appendAdditionalSwiftSteps(ImmutableList.Builder<Step> commands) {
+    // For .ipas containing Swift code, Apple requires the following for App Store submissions:
+    // 1. Copy the Swift standard libraries to SwiftSupport/{platform}
+    if (bundle instanceof AppleBundle) {
+      AppleBundle appleBundle = (AppleBundle) bundle;
+
+      Path swiftSupportDir = temp.resolve("SwiftSupport").resolve(appleBundle.getPlatformName());
+
+      appleBundle.addSwiftStdlibStepIfNeeded(
+        swiftSupportDir,
+        Optional.empty(),
+        commands,
+        true /* is for packaging? */
+      );
+    }
   }
 
   private void appendAdditionalAppleWatchSteps(ImmutableList.Builder<Step> commands) {
@@ -157,12 +176,12 @@ public class BuiltinApplePackage extends AbstractBuildRule {
         if (legacyWatchApp.getBinary().isPresent()) {
           BuildRule legacyWatchStub = legacyWatchApp.getBinary().get();
           if (legacyWatchStub instanceof WriteFile) {
-            return Optional.<WriteFile>of((WriteFile) legacyWatchStub);
+            return Optional.of((WriteFile) legacyWatchStub);
           }
         }
       }
     }
-    return Optional.absent();
+    return Optional.empty();
   }
 
   @Override

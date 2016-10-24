@@ -17,7 +17,6 @@
 package com.facebook.buck.ocaml;
 
 import com.facebook.buck.cxx.CxxPreprocessorInput;
-import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -25,7 +24,6 @@ import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
-import com.google.common.base.Predicate;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -33,6 +31,7 @@ import com.google.common.collect.ImmutableSet;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 
 /**
  * A step that preprocesses, compiles, and assembles OCaml sources.
@@ -414,20 +413,14 @@ public class OCamlBuildStep implements Step {
 
   private ImmutableList<Path> sortDependency(
       String depOutput,
-      final ImmutableList<Path> mlInput) {
+      ImmutableList<Path> mlInput) { // NOPMD doesn't understand method reference
     OCamlDependencyGraphGenerator graphGenerator = new OCamlDependencyGraphGenerator();
     return
         FluentIterable.from(graphGenerator.generate(depOutput))
-            .transform(MorePaths.TO_PATH)
+            .transform(Paths::get)
             // The output of generate needs to be filtered as .cmo dependencies
             // are generated as both .ml and .re files.
-            .filter(
-                new Predicate<Path>() {
-                  @Override
-                  public boolean apply(Path input) {
-                    return mlInput.contains(input);
-                  }
-                })
+            .filter(mlInput::contains)
             .toList();
   }
 

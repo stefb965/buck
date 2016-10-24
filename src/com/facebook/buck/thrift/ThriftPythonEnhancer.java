@@ -32,7 +32,6 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Function;
 import com.google.common.base.Functions;
-import com.google.common.base.Optional;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -42,6 +41,7 @@ import com.google.common.io.Files;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 
 public class ThriftPythonEnhancer implements ThriftLanguageSpecificEnhancer {
 
@@ -154,7 +154,7 @@ public class ThriftPythonEnhancer implements ThriftLanguageSpecificEnhancer {
     BuildRuleParams langParams = params.copyWithChanges(
         params.getBuildTarget(),
         Suppliers.ofInstance(deps),
-        Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
+        Suppliers.ofInstance(ImmutableSortedSet.of()));
 
     // Construct a python library and return it as our language specific build rule.  Dependents
     // will use this to pull the generated sources into packages/PEXs.
@@ -194,29 +194,25 @@ public class ThriftPythonEnhancer implements ThriftLanguageSpecificEnhancer {
       BuildTarget target,
       ThriftConstructorArg args) {
 
-    ImmutableSet.Builder<String> options = ImmutableSet.builder();
-
-    if (args.pyOptions.isPresent()) {
-
-      // Don't allow the "twisted" or "asyncio" parameters to be passed in via the options
-      // parameter, as we use dedicated flavors to handle them.
-      if (args.pyOptions.get().contains("twisted")) {
-        throw new HumanReadableException(
-            "%s: parameter \"py_options\": cannot specify \"twisted\" as an option" +
-                " -- use the \"#%s\" flavor instead",
-            target,
-            PYTHON_TWISTED_FLAVOR);
-      }
-      if (args.pyOptions.get().contains("asyncio")) {
-        throw new HumanReadableException(
-            "%s: parameter \"py_options\": cannot specify \"asyncio\" as an option" +
-                " -- use the \"#%s\" flavor instead",
-            target,
-            PYTHON_ASYNCIO_FLAVOR);
-      }
-
-      options.addAll(args.pyOptions.get());
+    // Don't allow the "twisted" or "asyncio" parameters to be passed in via the options
+    // parameter, as we use dedicated flavors to handle them.
+    if (args.pyOptions.contains("twisted")) {
+      throw new HumanReadableException(
+          "%s: parameter \"py_options\": cannot specify \"twisted\" as an option" +
+              " -- use the \"#%s\" flavor instead",
+          target,
+          PYTHON_TWISTED_FLAVOR);
     }
+    if (args.pyOptions.contains("asyncio")) {
+      throw new HumanReadableException(
+          "%s: parameter \"py_options\": cannot specify \"asyncio\" as an option" +
+              " -- use the \"#%s\" flavor instead",
+          target,
+          PYTHON_ASYNCIO_FLAVOR);
+    }
+
+    ImmutableSet.Builder<String> options = ImmutableSet.builder();
+    options.addAll(args.pyOptions);
 
     if (type == Type.TWISTED) {
       options.add("twisted");

@@ -1,4 +1,3 @@
-#@# GENERATED FILE: DO NOT MODIFY 0e0e4a71fe64c85dbd338a14f2ad51ddc3d6e990 #@#
 {
   "project_generator" : {
     "deps" : [
@@ -23,6 +22,7 @@
       "//src/com/facebook/buck/shell:rules",
       "//src/com/facebook/buck/swift:swift",
       "//src/com/facebook/buck/util:exceptions",
+      "//src/com/facebook/buck/util:util",
       "//src/com/facebook/buck/util/environment:platform",
       "//test/com/facebook/buck/apple:testutil",
       "//test/com/facebook/buck/apple/project_generator:testutil",
@@ -46,10 +46,6 @@
   },
   "testutil" : {
     "deps" : [
-      "//src/com/facebook/buck/rules/coercer:coercer",
-      "//src/com/facebook/buck/rules/coercer:types",
-      "//src/com/facebook/buck/util:object_mapper",
-      "//src/com/facebook/buck/util:util",
       "//test/com/facebook/buck/testutil:testutil",
       "//third-party/java/hamcrest:java-hamcrest",
       "//third-party/java/junit:junit"

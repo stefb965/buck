@@ -16,6 +16,8 @@
 
 package com.facebook.buck.rust;
 
+import com.facebook.buck.cxx.CxxPlatform;
+import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -26,8 +28,9 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSortedSet;
+
+import java.util.Optional;
 
 public class PrebuiltRustLibraryDescription
     implements Description<PrebuiltRustLibraryDescription.Arg> {
@@ -36,9 +39,11 @@ public class PrebuiltRustLibraryDescription
 
   @SuppressWarnings("unused")
   private final RustBuckConfig rustBuckConfig;
+  private final CxxPlatform cxxPlatform;
 
-  public PrebuiltRustLibraryDescription(RustBuckConfig rustBuckConfig) {
+  public PrebuiltRustLibraryDescription(RustBuckConfig rustBuckConfig, CxxPlatform cxxPlatform) {
     this.rustBuckConfig = rustBuckConfig;
+    this.cxxPlatform = cxxPlatform;
   }
 
   @Override
@@ -61,6 +66,8 @@ public class PrebuiltRustLibraryDescription
         params,
         new SourcePathResolver(resolver),
         args.rlib,
+        cxxPlatform,
+        args.linkStyle.orElse(Linker.LinkableDepType.STATIC),
         args.crate);
   }
 
@@ -68,7 +75,7 @@ public class PrebuiltRustLibraryDescription
   public static class Arg extends AbstractDescriptionArg {
     public SourcePath rlib;
     public Optional<String> crate;
-    public Optional<ImmutableSortedSet<BuildTarget>> deps;
+    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
+    public Optional<Linker.LinkableDepType> linkStyle;
   }
-
 }

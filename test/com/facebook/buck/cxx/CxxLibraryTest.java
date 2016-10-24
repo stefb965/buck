@@ -19,7 +19,6 @@ package com.facebook.buck.cxx;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
@@ -27,17 +26,16 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.step.Step;
 import com.google.common.base.Functions;
-import com.google.common.base.Optional;
 import com.google.common.base.Predicates;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -49,7 +47,7 @@ import org.junit.Test;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.regex.Pattern;
+import java.util.Optional;
 
 public class CxxLibraryTest {
 
@@ -90,7 +88,7 @@ public class CxxLibraryTest {
         sharedLibrary,
         sharedLibraryOutput,
         sharedLibrarySoname,
-        ImmutableSortedSet.<BuildTarget>of());
+        ImmutableSortedSet.of());
 
     // Verify that we get the header/symlink targets and root via the CxxPreprocessorDep
     // interface.
@@ -129,12 +127,12 @@ public class CxxLibraryTest {
     // Verify that we get the static archive and its build target via the NativeLinkable
     // interface.
     NativeLinkableInput expectedStaticNativeLinkableInput = NativeLinkableInput.of(
-        ImmutableList.<Arg>of(
+        ImmutableList.of(
             new SourcePathArg(
                 pathResolver,
                 new BuildTargetSourcePath(archive.getBuildTarget()))),
-        ImmutableSet.<FrameworkPath>of(),
-        ImmutableSet.<FrameworkPath>of());
+        ImmutableSet.of(),
+        ImmutableSet.of());
     assertEquals(
         expectedStaticNativeLinkableInput,
         cxxLibrary.getNativeLinkableInput(
@@ -144,12 +142,12 @@ public class CxxLibraryTest {
     // Verify that we get the static archive and its build target via the NativeLinkable
     // interface.
     NativeLinkableInput expectedSharedNativeLinkableInput = NativeLinkableInput.of(
-        ImmutableList.<Arg>of(
+        ImmutableList.of(
             new SourcePathArg(
                 pathResolver,
                 new BuildTargetSourcePath(sharedLibrary.getBuildTarget()))),
-        ImmutableSet.<FrameworkPath>of(),
-        ImmutableSet.<FrameworkPath>of());
+        ImmutableSet.of(),
+        ImmutableSet.of());
     assertEquals(
         expectedSharedNativeLinkableInput,
         cxxLibrary.getNativeLinkableInput(
@@ -189,25 +187,25 @@ public class CxxLibraryTest {
         ruleResolver,
         pathResolver,
         FluentIterable.from(params.getDeclaredDeps().get()),
-        /* hasExportedHeaders */ Predicates.<CxxPlatform>alwaysTrue(),
-        /* headerOnly */ Predicates.<CxxPlatform>alwaysTrue(),
-        Functions.constant(ImmutableMultimap.<CxxSource.Type, String>of()),
+        /* hasExportedHeaders */ Predicates.alwaysTrue(),
+        /* headerOnly */ Predicates.alwaysTrue(),
+        Functions.constant(ImmutableMultimap.of()),
         Functions.constant(StringArg.from("-ldl")),
         /* linkTargetInput */ Functions.constant(NativeLinkableInput.of()),
-        /* supportedPlatformsRegex */ Optional.<Pattern>absent(),
+        /* supportedPlatformsRegex */ Optional.empty(),
         ImmutableSet.of(frameworkPath),
-        ImmutableSet.<FrameworkPath>of(),
+        ImmutableSet.of(),
         NativeLinkable.Linkage.STATIC,
         /* linkWhole */ false,
-        Optional.<String>absent(),
-        ImmutableSortedSet.<BuildTarget>of(),
+        Optional.empty(),
+        ImmutableSortedSet.of(),
         /* isAsset */ false);
 
     NativeLinkableInput expectedSharedNativeLinkableInput =
         NativeLinkableInput.of(
             StringArg.from("-ldl"),
             ImmutableSet.of(frameworkPath),
-            ImmutableSet.<FrameworkPath>of());
+            ImmutableSet.of());
 
     assertEquals(
         expectedSharedNativeLinkableInput,

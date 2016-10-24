@@ -20,8 +20,6 @@ import com.facebook.buck.hashing.PathHashing;
 import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.cache.CacheBuilder;
@@ -36,11 +34,15 @@ import com.google.common.hash.Hashing;
 import java.io.IOException;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 
 import javax.annotation.Nonnull;
 
 public class DefaultFileHashCache implements ProjectFileHashCache {
+
+  private static final boolean SHOULD_CHECK_IGNORED_PATHS =
+      Boolean.getBoolean("buck.DefaultFileHashCache.check_ignored_paths");
 
   private final ProjectFilesystem projectFilesystem;
   private final Optional<Path> buckOutPath;
@@ -84,7 +86,7 @@ public class DefaultFileHashCache implements ProjectFileHashCache {
   }
 
   public static FileHashCache createDefaultFileHashCache(ProjectFilesystem projectFilesystem) {
-    return new DefaultFileHashCache(projectFilesystem, Optional.<Path>absent());
+    return new DefaultFileHashCache(projectFilesystem, Optional.empty());
   }
 
   private HashCodeAndFileType getHashCodeAndFileType(Path path) throws IOException {
@@ -122,7 +124,9 @@ public class DefaultFileHashCache implements ProjectFileHashCache {
   public Path resolvePath(Path path) {
     Preconditions.checkState(path.isAbsolute());
     Optional<Path> relativePath = projectFilesystem.getPathRelativeToProjectRoot(path);
-    Preconditions.checkState(!isIgnored(relativePath.get()));
+    if (SHOULD_CHECK_IGNORED_PATHS) {
+      Preconditions.checkState(!isIgnored(relativePath.get()));
+    }
     return relativePath.get();
   }
 
@@ -235,12 +239,7 @@ public class DefaultFileHashCache implements ProjectFileHashCache {
           ImmutableSet.copyOf(
               FluentIterable.from(projectFilesystem.getFilesUnderPath(path))
                   .transform(
-                      new Function<Path, Path>() {
-                        @Override
-                        public Path apply(Path input) {
-                          return path.relativize(input);
-                        }
-                      })));
+                      path::relativize)));
     } else if (rawPath.toString().endsWith(".jar")) {
       value = HashCodeAndFileType.ofArchive(
           hashCode,

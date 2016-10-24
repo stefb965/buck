@@ -1,33 +1,11 @@
 CONSTANT_SRCS = [
   'BuckConstant.java',
-  'AbstractSampleRate.java',
-  'AbstractPatternAndMessage.java',
-]
-java_immutables_library(
-  name = 'constants',
-  srcs = CONSTANT_SRCS,
-  immutable_types = [
-    'SampleRate',
-    'PatternAndMessage',
-  ],
-  tests = [
-    '//test/com/facebook/buck/util:util',
-  ],
-  visibility = [ 'PUBLIC' ],
-  autodeps = True,
-)
-
-TRISTATE_SRCS = [
-  'TriState.java',
 ]
 java_library(
-  name = 'tristate',
-  srcs = TRISTATE_SRCS,
-  tests = [
-    '//test/com/facebook/buck/util:util',
-  ],
+  name = 'constants',
+  srcs = CONSTANT_SRCS,
   visibility = [ 'PUBLIC' ],
-  autodeps = True,
+  deps = [],
 )
 
 EXCEPTION_SRCS = [
@@ -55,25 +33,35 @@ IO_SRCS = [
   'AnsiEnvironmentChecking.java',
   'BestCompressionGZIPOutputStream.java',
   'BgProcessKiller.java',
-  'Libc.java',
-  'Console.java',
   'CapturingPrintStream.java',
+  'Console.java',
+  'ContextualProcessExecutor.java',
+  'DefaultFilteredDirectoryCopier.java',
+  'DefaultProcessExecutor.java',
   'DirectoryCleaner.java',
   'DirtyPrintStreamDecorator.java',
+  'FilteredDirectoryCopier.java',
+  'ForwardingProcessListener.java',
   'InputStreamConsumer.java',
+  'Libc.java',
   'LineFetcher.java',
   'LineIterating.java',
-  'ListeningCharsetEncoder.java',
+  'LineProcessorRunnable.java',
   'ListeningCharsetDecoder.java',
+  'ListeningCharsetEncoder.java',
   'ListeningProcessExecutor.java',
-  'ProcessHelper.java',
-  'ProcessRegistry.java',
   'PkillProcessManager.java',
-  'ProcessManager.java',
+  'PrintStreamProcessExecutorFactory.java',
   'ProcessExecutor.java',
+  'ProcessExecutorFactory.java',
+  'ProcessHelper.java',
+  'ProcessManager.java',
+  'ProcessRegistry.java',
+  'SimpleProcessListener.java',
+  'TimeFormat.java',
   'Threads.java',
-  'UserIdFetcher.java',
   'UnixUserIdFetcher.java',
+  'UserIdFetcher.java',
   'Verbosity.java',
 ]
 java_immutables_library(
@@ -87,19 +75,6 @@ java_immutables_library(
   ],
   autodeps = True,
   visibility = [ 'PUBLIC' ],
-)
-
-ESCAPER_SRCS = [
- 'Escaper.java',
- 'WindowsCreateProcessEscape.java',
-]
-java_library(
-  name = 'escaper',
-  srcs = ESCAPER_SRCS,
-  autodeps = True,
-  visibility = [
-    'PUBLIC',
-  ],
 )
 
 WATCHMAN_WATCHER_SRCS = [
@@ -127,12 +102,29 @@ java_library(
   ],
 )
 
+PACKAGED_RESOURCE_SRCS = [
+    'PackagedResource.java',
+]
 java_library(
+  name = 'packaged_resource',
+  srcs = PACKAGED_RESOURCE_SRCS,
+  autodeps = True,
+  visibility = [
+    'PUBLIC',
+  ],
+)
+
+java_immutables_library(
   name = 'util',
   srcs = glob(
     includes = ['*.java'],
-    excludes = CONSTANT_SRCS + ESCAPER_SRCS + EXCEPTION_SRCS + IO_SRCS +
-               WATCHMAN_WATCHER_SRCS + TRISTATE_SRCS + OBJECT_MAPPER_SRCS),
+    excludes = CONSTANT_SRCS + EXCEPTION_SRCS + IO_SRCS +
+               WATCHMAN_WATCHER_SRCS + OBJECT_MAPPER_SRCS +
+               PACKAGED_RESOURCE_SRCS),
+  immutable_types = [
+    'SampleRate',
+    'PatternAndMessage',
+  ],
   tests = [
     '//test/com/facebook/buck/util:util',
   ],

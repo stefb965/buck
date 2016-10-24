@@ -20,10 +20,8 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
-import com.google.common.base.Function;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -34,6 +32,7 @@ import java.io.ObjectOutputStream;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Abstract implementation of {@link Step} that ...
@@ -84,7 +83,7 @@ public abstract class AbstractTestStep implements Step {
     }
     ProcessExecutorParams params = ProcessExecutorParams.builder()
         .setCommand(command)
-        .setDirectory(workingDirectory)
+        .setDirectory(workingDirectory.map(filesystem::resolve))
         .setEnvironment(environment)
         .setRedirectOutput(ProcessBuilder.Redirect.to(filesystem.resolve(output).toFile()))
         .setRedirectErrorStream(true)
@@ -99,9 +98,9 @@ public abstract class AbstractTestStep implements Step {
       result = executor.launchAndExecute(
           params,
           options,
-          /* stdin */ Optional.<String>absent(),
+          /* stdin */ Optional.empty(),
           testRuleTimeoutMs,
-          /* timeOutHandler */ Optional.<Function<Process, Void>>absent());
+          /* timeOutHandler */ Optional.empty());
     } catch (IOException e) {
       context.logError(e, "Error starting command %s", command);
       return StepExecutionResult.ERROR;
@@ -110,7 +109,7 @@ public abstract class AbstractTestStep implements Step {
     if (result.isTimedOut()) {
       throw new HumanReadableException(
           "Timed out after %d ms running test command %s",
-          testRuleTimeoutMs.or(-1L),
+          testRuleTimeoutMs.orElse(-1L),
           command);
     }
 

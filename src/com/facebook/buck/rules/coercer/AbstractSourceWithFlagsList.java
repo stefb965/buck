@@ -18,12 +18,13 @@ package com.facebook.buck.rules.coercer;
 
 import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 
 import org.immutables.value.Value;
+
+import java.util.Optional;
 
 /**
  * Simple type representing a list of {@link SourceWithFlags}.
@@ -31,6 +32,9 @@ import org.immutables.value.Value;
 @Value.Immutable
 @BuckStyleImmutable
 abstract class AbstractSourceWithFlagsList {
+
+  public static final SourceWithFlagsList EMPTY =
+      SourceWithFlagsList.ofUnnamedSources(ImmutableSortedSet.of());
 
   public enum Type {
     UNNAMED,
@@ -67,14 +71,14 @@ abstract class AbstractSourceWithFlagsList {
     return SourceWithFlagsList.of(
         Type.UNNAMED,
         Optional.of(unnamedSources),
-        Optional.<ImmutableSortedMap<String, SourceWithFlags>>absent());
+        Optional.empty());
   }
 
   public static SourceWithFlagsList ofNamedSources(
       ImmutableSortedMap<String, SourceWithFlags> namedSources) {
     return SourceWithFlagsList.of(
         Type.NAMED,
-        Optional.<ImmutableSortedSet<SourceWithFlags>>absent(),
+        Optional.empty(),
         Optional.of(namedSources));
   }
 

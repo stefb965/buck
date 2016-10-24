@@ -49,7 +49,6 @@ import com.facebook.buck.testutil.integration.HttpdForTests;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.ObjectMappers;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -74,6 +73,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 
 public class ResolverIntegrationTest {
@@ -111,7 +111,7 @@ public class ResolverIntegrationTest {
         buckConfig,
         new ExecutableFinder());
 
-    ImmutableSet<Description<?>> descriptions = ImmutableSet.<Description<?>>of(
+    ImmutableSet<Description<?>> descriptions = ImmutableSet.of(
         new RemoteFileDescription(new ExplodingDownloader()),
         new PrebuiltJarDescription());
 
@@ -131,7 +131,7 @@ public class ResolverIntegrationTest {
         new ConstructorArgMarshaller(new DefaultTypeCoercerFactory(
             ObjectMappers.newDefaultInstance())),
         new TestConsole(),
-        ImmutableMap.<String, String>of(),
+        ImmutableMap.of(),
         BuckEventBusFactory.newInstance(),
         filesystem,
         /* ignoreBuckAutodepsFiles */ false,

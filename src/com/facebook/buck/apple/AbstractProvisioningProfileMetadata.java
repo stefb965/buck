@@ -26,12 +26,9 @@ import com.dd.plist.PropertyListParser;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.RuleKeyObjectSink;
-import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -46,6 +43,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Date;
 import java.util.EnumSet;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -88,7 +86,7 @@ abstract class AbstractProvisioningProfileMetadata implements RuleKeyAppendable 
    * Prefix is always a ten-character alphanumeric sequence.
    * Bundle ID may be a fully-qualified name or a wildcard ending in *.
    */
-  public static Pair<String, String> splitAppID(String appID) throws RuntimeException {
+  public static Pair<String, String> splitAppID(String appID) {
     Matcher matcher = BUNDLE_ID_PATTERN.matcher(appID);
     if (matcher.find()) {
       String prefix = matcher.group(1);
@@ -111,9 +109,9 @@ abstract class AbstractProvisioningProfileMetadata implements RuleKeyAppendable 
     return splitAppID(appID).getFirst();
   }
 
-  public static ProvisioningProfileMetadata fromProvisioningProfilePath(Path profilePath)
-      throws IOException, InterruptedException {
-    ProcessExecutor processExecutor = new ProcessExecutor(Console.createNullConsole());
+  public static ProvisioningProfileMetadata fromProvisioningProfilePath(
+      ProcessExecutor executor,
+      Path profilePath) throws IOException, InterruptedException {
     Set<ProcessExecutor.Option> options = EnumSet.of(ProcessExecutor.Option.EXPECTING_STD_OUT);
 
     // Extract the XML from its signed message wrapper.
@@ -123,12 +121,12 @@ abstract class AbstractProvisioningProfileMetadata implements RuleKeyAppendable 
                     profilePath.toString()))
             .build();
     ProcessExecutor.Result result;
-    result = processExecutor.launchAndExecute(
+    result = executor.launchAndExecute(
         processExecutorParams,
         options,
-            /* stdin */ Optional.<String>absent(),
-            /* timeOutMs */ Optional.<Long>absent(),
-            /* timeOutHandler */ Optional.<Function<Process, Void>>absent());
+            /* stdin */ Optional.empty(),
+            /* timeOutMs */ Optional.empty(),
+            /* timeOutHandler */ Optional.empty());
     if (result.getExitCode() != 0) {
       throw new IOException(
           result.getMessageForResult("Invalid provisioning profile: " + profilePath));

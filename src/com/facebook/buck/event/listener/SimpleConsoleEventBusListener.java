@@ -37,7 +37,6 @@ import com.facebook.buck.util.Console;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.eventbus.Subscribe;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
@@ -51,6 +50,7 @@ import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 
@@ -128,7 +128,7 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
     ImmutableList.Builder<String> lines = ImmutableList.builder();
     this.parseTime.set(logEventPair(
         "PARSING BUCK FILES",
-        /* suffix */ Optional.<String>absent(),
+        /* suffix */ Optional.empty(),
         clock.currentTimeMillis(),
         0L,
         buckFilesProcessing.values(),
@@ -158,7 +158,7 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
     long offsetMs = getTotalCompletedTimeFromEventPairs(processingEvents);
     logEventPair(
         "BUILDING",
-        /* suffix */ Optional.<String>absent(),
+        /* suffix */ Optional.empty(),
         currentMillis,
         offsetMs,
         buildStarted,
@@ -184,12 +184,12 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
     ImmutableList.Builder<String> lines = ImmutableList.builder();
     logEventPair(
         "INSTALLING",
-        /* suffix */ Optional.<String>absent(),
+        /* suffix */ Optional.empty(),
         clock.currentTimeMillis(),
         0L,
         installStarted,
         installFinished,
-        Optional.<Double>absent(),
+        Optional.empty(),
         lines);
     printLines(lines);
   }
@@ -331,7 +331,7 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
         formatElapsedTime(timeToRender),
         finished.getBuildRule().getFullyQualifiedName());
 
-    if (BUILT_LOCALLY.equals(finished.getSuccessType().orNull()) ||
+    if (BUILT_LOCALLY.equals(finished.getSuccessType().orElse(null)) ||
         console.getVerbosity().shouldPrintBinaryRunInformation()) {
       console.getStdErr().println(line);
     }

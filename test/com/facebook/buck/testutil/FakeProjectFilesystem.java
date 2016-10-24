@@ -27,9 +27,7 @@ import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.google.common.base.Charsets;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
 import com.google.common.base.Splitter;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
@@ -78,6 +76,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import java.util.jar.JarEntry;
@@ -216,14 +215,11 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
     } catch (IOException e) {
       throw new RuntimeException(e);
     }
-    Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
-      @Override
-      public void run() {
-        try {
-          MoreFiles.deleteRecursively(tempDir);
-        } catch (IOException e) { // NOPMD
-          // Swallow. At least we tried, right?
-        }
+    Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+      try {
+        MoreFiles.deleteRecursively(tempDir);
+      } catch (IOException e) { // NOPMD
+        // Swallow. At least we tried, right?
       }
     }));
     return new FakeProjectFilesystem(tempDir);
@@ -262,11 +258,11 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   }
 
   public FakeProjectFilesystem(Path root) {
-    this(new FakeClock(0), root, ImmutableSet.<Path>of());
+    this(new FakeClock(0), root, ImmutableSet.of());
   }
 
   public FakeProjectFilesystem(Clock clock) {
-    this(clock, DEFAULT_ROOT, ImmutableSet.<Path>of());
+    this(clock, DEFAULT_ROOT, ImmutableSet.of());
   }
 
   public FakeProjectFilesystem(Set<Path> files) {
@@ -414,14 +410,11 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
         .from(fileContents.keySet())
         .append(directories)
         .filter(
-            new Predicate<Path>() {
-              @Override
-              public boolean apply(Path input) {
-                if (input.equals(Paths.get(""))) {
-                  return false;
-                }
-                return MorePaths.getParentOrEmpty(input).equals(pathRelativeToProjectRoot);
+            input -> {
+              if (input.equals(Paths.get(""))) {
+                return false;
               }
+              return MorePaths.getParentOrEmpty(input).equals(pathRelativeToProjectRoot);
             })
         .toList();
   }
@@ -450,13 +443,8 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
     Preconditions.checkState(isDirectory(pathRelativeToProjectRoot));
     final PathMatcher pathMatcher = FileSystems.getDefault().getPathMatcher("glob:" + globPattern);
     return FluentIterable.from(fileContents.keySet()).filter(
-        new Predicate<Path>() {
-          @Override
-          public boolean apply(Path input) {
-            return input.getParent().equals(pathRelativeToProjectRoot) &&
-                pathMatcher.matches(input.getFileName());
-          }
-        })
+        input -> input.getParent().equals(pathRelativeToProjectRoot) &&
+            pathMatcher.matches(input.getFileName()))
         .toSortedSet(
             Ordering
                 .natural()
@@ -636,7 +624,7 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   @Override
   public Optional<String> readFileIfItExists(Path path) {
     if (!exists(path)) {
-      return Optional.absent();
+      return Optional.empty();
     }
     return Optional.of(new String(getFileBytes(path), Charsets.UTF_8));
   }
@@ -648,7 +636,7 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   public Optional<Reader> getReaderIfFileExists(Path path) {
     Optional<String> content = readFileIfItExists(path);
     if (!content.isPresent()) {
-      return Optional.absent();
+      return Optional.empty();
     }
     return Optional.of((Reader) new StringReader(content.get()));
   }
@@ -662,10 +650,10 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
     try {
       lines = readLines(path);
     } catch (IOException e) {
-      return Optional.absent();
+      return Optional.empty();
     }
 
-    return Optional.fromNullable(Iterables.get(lines, 0, null));
+    return Optional.ofNullable(Iterables.get(lines, 0, null));
   }
 
   /**

@@ -27,7 +27,6 @@ import com.facebook.buck.rules.Description;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.PackagedResource;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.io.Resources;
 
@@ -36,6 +35,7 @@ import java.io.Writer;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Optional;
 
 /**
  * Represents a serialized copy of the buck python program used to read BUCK files.

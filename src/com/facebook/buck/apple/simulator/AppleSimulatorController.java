@@ -19,9 +19,6 @@ package com.facebook.buck.apple.simulator;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
-
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
@@ -29,13 +26,11 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 
 import java.io.IOException;
-
 import java.nio.file.Path;
-
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
-
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -76,26 +71,26 @@ public class AppleSimulatorController {
    * the simulator can be started.
    *
    * @return The number of milliseconds waited if the simulator booted successfully,
-   * {@code Optional.absent()} otherwise.
+   * {@code Optional.empty()} otherwise.
    */
   public Optional<Long> startSimulator(
       String simulatorUdid,
       long timeoutMillis) throws IOException, InterruptedException {
     if (!canStartSimulator(simulatorUdid)) {
       LOG.warn("Cannot start simulator with UDID %s", simulatorUdid);
-      return Optional.absent();
+      return Optional.empty();
     }
 
     // Even if the simulator is already running, we'll run this to bring it to the front.
     if (!launchSimulatorWithUdid(iosSimulatorPath, simulatorUdid)) {
-      return Optional.absent();
+      return Optional.empty();
     }
 
     Optional<Long> bootMillisWaited = waitForSimulatorToBoot(timeoutMillis, simulatorUdid);
 
     if (!bootMillisWaited.isPresent()) {
       LOG.warn("Simulator %s did not boot up within %d millis", simulatorUdid, timeoutMillis);
-      return Optional.absent();
+      return Optional.empty();
     }
 
     return bootMillisWaited;
@@ -162,23 +157,20 @@ public class AppleSimulatorController {
    * Waits up to {@code timeoutMillis} for all simulators to shut down.
    *
    * @return The number of milliseconds waited if all simulators have shut down,
-   * {@code Optional.absent()} otherwise.
+   * {@code Optional.empty()} otherwise.
    */
   public Optional<Long> waitForSimulatorsToShutdown(long timeoutMillis)
       throws IOException, InterruptedException {
     return waitForSimulatorState(
         timeoutMillis,
         "all simulators shutdown",
-        new Predicate<ImmutableSet<AppleSimulator>>() {
-          @Override
-          public boolean apply(ImmutableSet<AppleSimulator> simulators) {
-            for (AppleSimulator simulator : simulators) {
-              if (simulator.getSimulatorState() != AppleSimulatorState.SHUTDOWN) {
-                return false;
-              }
+        simulators -> {
+          for (AppleSimulator simulator : simulators) {
+            if (simulator.getSimulatorState() != AppleSimulatorState.SHUTDOWN) {
+              return false;
             }
-            return true;
           }
+          return true;
         });
   }
 
@@ -186,7 +178,7 @@ public class AppleSimulatorController {
    * Waits up to {@code timeoutMillis} for the specified simulator to boot.
    *
    * @return The number of milliseconds waited if the specified simulator booted,
-   * {@code Optional.absent()} otherwise.
+   * {@code Optional.empty()} otherwise.
    */
   public Optional<Long> waitForSimulatorToBoot(
       long timeoutMillis,
@@ -194,17 +186,14 @@ public class AppleSimulatorController {
     return waitForSimulatorState(
         timeoutMillis,
         String.format("simulator %s booted", simulatorUdid),
-        new Predicate<ImmutableSet<AppleSimulator>>() {
-          @Override
-          public boolean apply(ImmutableSet<AppleSimulator> simulators) {
-            for (AppleSimulator simulator : simulators) {
-              if (simulator.getUdid().equals(simulatorUdid) &&
-                  simulator.getSimulatorState().equals(AppleSimulatorState.BOOTED)) {
-                return true;
-              }
+        simulators -> {
+          for (AppleSimulator simulator : simulators) {
+            if (simulator.getUdid().equals(simulatorUdid) &&
+                simulator.getSimulatorState().equals(AppleSimulatorState.BOOTED)) {
+              return true;
             }
-            return false;
           }
+          return false;
         });
   }
 
@@ -235,7 +224,7 @@ public class AppleSimulatorController {
       return Optional.of(millisWaited);
     } else {
       LOG.debug("Simulator did not reach state %s within %d ms.", description, timeoutMillis);
-      return Optional.absent();
+      return Optional.empty();
     }
   }
 
@@ -294,19 +283,19 @@ public class AppleSimulatorController {
     ProcessExecutor.Result result = processExecutor.launchAndExecute(
         processExecutorParams,
         options,
-        /* stdin */ Optional.<String>absent(),
-        /* timeOutMs */ Optional.<Long>absent(),
-        /* timeOutHandler */ Optional.<Function<Process, Void>>absent());
+        /* stdin */ Optional.empty(),
+        /* timeOutMs */ Optional.empty(),
+        /* timeOutHandler */ Optional.empty());
     if (result.getExitCode() != 0) {
       LOG.error(result.getMessageForResult(message));
-      return Optional.<Long>absent();
+      return Optional.empty();
     }
     Preconditions.checkState(result.getStdout().isPresent());
     String trimmedStdout = result.getStdout().get().trim();
     Matcher stdoutMatcher = SIMCTL_LAUNCH_OUTPUT_PATTERN.matcher(trimmedStdout);
     if (!stdoutMatcher.find()) {
       LOG.error("Could not parse output from %s: %s", command, trimmedStdout);
-      return Optional.<Long>absent();
+      return Optional.empty();
     }
 
     return Optional.of(Long.parseLong(stdoutMatcher.group(1), 10));

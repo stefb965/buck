@@ -1,4 +1,3 @@
-#@# GENERATED FILE: DO NOT MODIFY bbf92c284a5d4ca72b48d7c795a3d74cd0234162 #@#
 {
   "assumptions" : {
     "deps" : [
@@ -22,6 +21,7 @@
   },
   "unit" : {
     "deps" : [
+      "//src/com/facebook/buck/cxx:platform",
       "//src/com/facebook/buck/rules:build_rule",
       "//src/com/facebook/buck/rust:rust",
       "//src/com/facebook/buck/util:exceptions",

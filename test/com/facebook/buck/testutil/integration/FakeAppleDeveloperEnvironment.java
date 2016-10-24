@@ -22,15 +22,14 @@ import com.facebook.buck.apple.ProvisioningProfileStore;
 import com.facebook.buck.apple.device.AppleDeviceHelper;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.testutil.TestConsole;
+import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
-import com.google.common.base.Optional;
-import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 
 public class FakeAppleDeveloperEnvironment {
   private static final Logger LOG = Logger.get(FakeAppleDeveloperEnvironment.class);
@@ -39,28 +38,27 @@ public class FakeAppleDeveloperEnvironment {
   private FakeAppleDeveloperEnvironment() { }
 
   private static final int numCodeSigningIdentities =
-      CodeSignIdentityStore.fromSystem(new ProcessExecutor(new TestConsole()))
+      CodeSignIdentityStore.fromSystem(new DefaultProcessExecutor(new TestConsole()))
           .getIdentities()
           .size();
 
   private static final boolean hasWildcardProvisioningProfile = Suppliers.memoize(
-      new Supplier<Boolean>() {
-        @Override
-        public Boolean get() {
-          final Path searchPath = Paths.get(System.getProperty("user.home") +
-                  "/Library/MobileDevice/Provisioning Profiles");
-          if (!Files.exists(searchPath)) {
-            LOG.warn("Provisioning profile search path " + searchPath + " doesn't exist!");
-            return false;
-          }
-          ProvisioningProfileStore store = ProvisioningProfileStore.fromSearchPath(searchPath);
-          Optional<ProvisioningProfileMetadata> profile =
-              store.getBestProvisioningProfile(
-                  "*",
-                  ProvisioningProfileStore.MATCH_ANY_ENTITLEMENT,
-                  ProvisioningProfileStore.MATCH_ANY_IDENTITY);
-          return profile.isPresent();
+      () -> {
+        ProcessExecutor executor = new DefaultProcessExecutor(new TestConsole());
+        final Path searchPath = Paths.get(System.getProperty("user.home") +
+                "/Library/MobileDevice/Provisioning Profiles");
+        if (!Files.exists(searchPath)) {
+          LOG.warn("Provisioning profile search path " + searchPath + " doesn't exist!");
+          return false;
         }
+        ProvisioningProfileStore store =
+            ProvisioningProfileStore.fromSearchPath(executor, searchPath);
+        Optional<ProvisioningProfileMetadata> profile =
+            store.getBestProvisioningProfile(
+                "*",
+                ProvisioningProfileStore.MATCH_ANY_ENTITLEMENT,
+                ProvisioningProfileStore.MATCH_ANY_IDENTITY);
+        return profile.isPresent();
       }).get();
 
 
@@ -74,14 +72,9 @@ public class FakeAppleDeveloperEnvironment {
 
   public static boolean hasDeviceCurrentlyConnected(Path pathToHelper)
       throws InterruptedException {
-    try {
-      AppleDeviceHelper helper = new AppleDeviceHelper(
-          new ProcessExecutor(new TestConsole()),
-          pathToHelper);
-      return (helper.getConnectedDevices().size() > 0);
-    } catch (IOException e) {
-      LOG.warn("Could not execute " + pathToHelper + ": " + e.getMessage());
-      return false;
-    }
+    AppleDeviceHelper helper = new AppleDeviceHelper(
+        new DefaultProcessExecutor(new TestConsole()),
+        pathToHelper);
+    return (helper.getConnectedDevices().size() > 0);
   }
 }

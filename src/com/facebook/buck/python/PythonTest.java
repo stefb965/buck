@@ -39,19 +39,18 @@ import com.facebook.buck.test.TestCaseSummary;
 import com.facebook.buck.test.TestResultSummary;
 import com.facebook.buck.test.TestResults;
 import com.facebook.buck.test.TestRunningOptions;
+import com.facebook.buck.util.MoreCollectors;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Functions;
-import com.google.common.base.Optional;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.concurrent.Callable;
 
 @SuppressWarnings("PMD.TestClassWithoutTestCases")
@@ -80,14 +79,11 @@ public class PythonTest
     super(params, resolver);
 
     this.env = Suppliers.memoize(
-        new Supplier<ImmutableMap<String, String>>() {
-          @Override
-          public ImmutableMap<String, String> get() {
-            ImmutableMap.Builder<String, String> environment = ImmutableMap.builder();
-            environment.putAll(binary.getExecutableCommand().getEnvironment(getResolver()));
-            environment.putAll(env.get());
-            return environment.build();
-          }
+        () -> {
+          ImmutableMap.Builder<String, String> environment = ImmutableMap.builder();
+          environment.putAll(binary.getExecutableCommand().getEnvironment(getResolver()));
+          environment.putAll(env.get());
+          return environment.build();
         });
     this.binary = binary;
     this.labels = labels;
@@ -157,28 +153,27 @@ public class PythonTest
       final ExecutionContext executionContext,
       boolean isUsingTestSelectors,
       final boolean isDryRun) {
-    return new Callable<TestResults>() {
-      @Override
-      public TestResults call() throws Exception {
-        ImmutableList.Builder<TestCaseSummary> summaries = ImmutableList.builder();
-        if (!isDryRun) {
-          Optional<String> resultsFileContents =
-              getProjectFilesystem().readFileIfItExists(
-                  getPathToTestOutputResult());
-          ObjectMapper mapper = executionContext.getObjectMapper();
-          TestResultSummary[] testResultSummaries = mapper.readValue(
-              resultsFileContents.get(),
-              TestResultSummary[].class);
-          summaries.add(new TestCaseSummary(
-              getBuildTarget().getFullyQualifiedName(),
-              ImmutableList.copyOf(testResultSummaries)));
-        }
-        return TestResults.of(
-            getBuildTarget(),
-            summaries.build(),
-            contacts,
-            FluentIterable.from(labels).transform(Functions.toStringFunction()).toSet());
+    return () -> {
+      ImmutableList.Builder<TestCaseSummary> summaries = ImmutableList.builder();
+      if (!isDryRun) {
+        Optional<String> resultsFileContents =
+            getProjectFilesystem().readFileIfItExists(
+                getPathToTestOutputResult());
+        ObjectMapper mapper = executionContext.getObjectMapper();
+        TestResultSummary[] testResultSummaries = mapper.readValue(
+            resultsFileContents.get(),
+            TestResultSummary[].class);
+        summaries.add(new TestCaseSummary(
+            getBuildTarget().getFullyQualifiedName(),
+            ImmutableList.copyOf(testResultSummaries)));
       }
+      return TestResults.of(
+          getBuildTarget(),
+          summaries.build(),
+          contacts,
+          labels.stream()
+              .map(Object::toString)
+              .collect(MoreCollectors.toImmutableSet()));
     };
   }
 

@@ -31,7 +31,6 @@ import com.facebook.buck.util.MoreStrings;
 import com.facebook.buck.util.XmlDomParser;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.FluentIterable;
@@ -51,6 +50,7 @@ import java.io.InputStream;
 import java.io.PrintWriter;
 import java.nio.file.Path;
 import java.util.Collection;
+import java.util.Optional;
 import java.util.Set;
 
 import javax.xml.xpath.XPathConstants;
@@ -89,12 +89,7 @@ public class MiniAapt implements Step {
       "eat-comment",
       "skip");
 
-  private static final Predicate<Path> ENDS_WITH_XML = new Predicate<Path>() {
-    @Override
-    public boolean apply(Path input) {
-      return input.toString().endsWith(".xml");
-    }
-  };
+  private static final Predicate<Path> ENDS_WITH_XML = input -> input.toString().endsWith(".xml");
 
   private final SourcePathResolver resolver;
   private final ProjectFilesystem filesystem;

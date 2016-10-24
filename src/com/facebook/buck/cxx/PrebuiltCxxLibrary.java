@@ -37,7 +37,6 @@ import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.FluentIterable;
@@ -50,6 +49,7 @@ import com.google.common.collect.Iterables;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 public class PrebuiltCxxLibrary
@@ -75,6 +75,7 @@ public class PrebuiltCxxLibrary
   private final boolean linkWhole;
   private final boolean provided;
   private final Optional<Pattern> supportedPlatformsRegex;
+  private final boolean canBeAsset;
 
   private final Map<Pair<Flavor, Linker.LinkableDepType>, NativeLinkableInput> nativeLinkableCache =
       new HashMap<>();
@@ -105,8 +106,10 @@ public class PrebuiltCxxLibrary
       boolean linkWhole,
       boolean provided,
       Function<CxxPlatform, Boolean> hasHeaders,
-      Optional<Pattern> supportedPlatformsRegex) {
+      Optional<Pattern> supportedPlatformsRegex,
+      boolean canBeAsset) {
     super(params, pathResolver);
+    this.canBeAsset = canBeAsset;
     Preconditions.checkArgument(!forceStatic || !provided);
     this.params = params;
     this.ruleResolver = ruleResolver;
@@ -214,7 +217,7 @@ public class PrebuiltCxxLibrary
       return Optional.of(staticLibraryPath);
     }
 
-    return Optional.absent();
+    return Optional.empty();
   }
 
   @Override
@@ -248,20 +251,15 @@ public class PrebuiltCxxLibrary
         builder.addAllFrameworks(frameworks);
         final Iterable<SourcePath> includePaths = Iterables.transform(
             includeDirs,
-            new Function<String, SourcePath>() {
-              @Override
-              public SourcePath apply(String input) {
-                return PrebuiltCxxLibraryDescription.getApplicableSourcePath(
-                    params.getBuildTarget(),
-                    params.getCellRoots(),
-                    params.getProjectFilesystem(),
-                    ruleResolver,
-                    cxxPlatform,
-                    input,
-                    Optional.<String>absent()
-                );
-              }
-            });
+            input -> PrebuiltCxxLibraryDescription.getApplicableSourcePath(
+                params.getBuildTarget(),
+                params.getCellRoots(),
+                params.getProjectFilesystem(),
+                ruleResolver,
+                cxxPlatform,
+                input,
+                Optional.empty()
+            ));
         for (SourcePath includePath : includePaths) {
           builder.addIncludes(CxxHeadersDir.of(CxxPreprocessables.IncludeType.SYSTEM, includePath));
         }
@@ -284,7 +282,7 @@ public class PrebuiltCxxLibrary
               getBuildTarget(),
               cxxPlatform.getFlavor()));
     } else {
-      return Optional.absent();
+      return Optional.empty();
     }
   }
 
@@ -409,7 +407,11 @@ public class PrebuiltCxxLibrary
 
   @Override
   public void addToCollector(AndroidPackageableCollector collector) {
-    collector.addNativeLinkable(this);
+    if (canBeAsset) {
+      collector.addNativeLinkableAsset(this);
+    } else {
+      collector.addNativeLinkable(this);
+    }
   }
 
   @Override
@@ -431,9 +433,9 @@ public class PrebuiltCxxLibrary
   @Override
   public Optional<NativeLinkTarget> getNativeLinkTarget(CxxPlatform cxxPlatform) {
     if (getPreferredLinkage(cxxPlatform) == Linkage.SHARED) {
-      return Optional.absent();
+      return Optional.empty();
     }
-    return Optional.<NativeLinkTarget>of(
+    return Optional.of(
         new NativeLinkTarget() {
           @Override
           public BuildTarget getBuildTarget() {
@@ -464,7 +466,7 @@ public class PrebuiltCxxLibrary
           }
           @Override
           public Optional<Path> getNativeLinkTargetOutputPath(CxxPlatform cxxPlatform) {
-            return Optional.absent();
+            return Optional.empty();
           }
         });
   }

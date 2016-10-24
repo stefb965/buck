@@ -22,7 +22,6 @@ import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -32,18 +31,14 @@ import java.lang.reflect.Field;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.Map;
+import java.util.Optional;
 
 class StringifyAlterRuleKey extends AbstractAlterRuleKey {
 
   private static final Logger LOG = Logger.get(StringifyAlterRuleKey.class);
 
   private static final Function<Object, Iterable<Path>> FIND_ABSOLUTE_PATHS =
-      new Function<Object, Iterable<Path>>() {
-        @Override
-        public Iterable<Path> apply(Object val) {
-          return findAbsolutePaths(val);
-        }
-      };
+      StringifyAlterRuleKey::findAbsolutePaths;
 
   public StringifyAlterRuleKey(Field field) {
     super(field);

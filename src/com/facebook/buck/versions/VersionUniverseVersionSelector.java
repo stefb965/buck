@@ -21,7 +21,6 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.VerifyException;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -29,6 +28,7 @@ import com.google.common.collect.Iterables;
 
 import java.util.AbstractMap;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * A fast constraint resolver which selects versions using pre-defined version universes.
@@ -55,19 +55,18 @@ public class VersionUniverseVersionSelector implements VersionSelector {
     try {
       return (Optional<String>) arg.getClass().getField("versionUniverse").get(arg);
     } catch (NoSuchFieldException | IllegalAccessException e) {
-      return Optional.absent();
+      return Optional.empty();
     }
   }
 
   @VisibleForTesting
-  protected Optional<Map.Entry<String, VersionUniverse>> getVersionUniverse(TargetNode<?> root)
-      throws VersionException {
+  protected Optional<Map.Entry<String, VersionUniverse>> getVersionUniverse(TargetNode<?> root) {
     Optional<String> universeName = getVersionUniverseName(root);
     if (!universeName.isPresent() && !universes.isEmpty()) {
       return Optional.of(Iterables.get(universes.entrySet(), 0));
     }
     if (!universeName.isPresent()) {
-      return Optional.absent();
+      return Optional.empty();
     }
     VersionUniverse universe = universes.get(universeName.get());
     if (universe == null) {
@@ -77,7 +76,7 @@ public class VersionUniverseVersionSelector implements VersionSelector {
               root.getBuildTarget(),
               universeName.get()));
     }
-    return Optional.<Map.Entry<String, VersionUniverse>>of(
+    return Optional.of(
         new AbstractMap.SimpleEntry<>(universeName.get(), universe));
   }
 

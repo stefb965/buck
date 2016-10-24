@@ -26,14 +26,13 @@ import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
+import java.util.Optional;
 
 /**
  * Prebuilt OCaml library
@@ -62,37 +61,31 @@ public class PrebuiltOCamlLibraryDescription
 
     final BuildTarget target = params.getBuildTarget();
 
-    final boolean bytecodeOnly = args.bytecodeOnly.or(false);
+    final boolean bytecodeOnly = args.bytecodeOnly.orElse(false);
 
-    final String libDir = args.libDir.or("lib");
+    final String libDir = args.libDir.orElse("lib");
 
-    final String libName = args.libName.or(target.getShortName());
+    final String libName = args.libName.orElse(target.getShortName());
 
-    final String nativeLib = args.nativeLib.or(String.format("%s.cmxa", libName));
-    final String bytecodeLib = args.bytecodeLib.or(String.format("%s.cma", libName));
-    final ImmutableList<String> cLibs = args.cLibs.get();
+    final String nativeLib = args.nativeLib.orElse(String.format("%s.cmxa", libName));
+    final String bytecodeLib = args.bytecodeLib.orElse(String.format("%s.cma", libName));
+    final ImmutableList<String> cLibs = args.cLibs;
 
     final Path libPath = target.getBasePath().resolve(libDir);
-    final Path includeDir = libPath.resolve(args.includeDir.or(""));
+    final Path includeDir = libPath.resolve(args.includeDir.orElse(""));
 
     final Optional<SourcePath> staticNativeLibraryPath = bytecodeOnly
-        ? Optional.<SourcePath>absent()
-        : Optional.<SourcePath>of(new PathSourcePath(
+        ? Optional.empty()
+        : Optional.of(new PathSourcePath(
           params.getProjectFilesystem(),
           libPath.resolve(nativeLib)));
     final SourcePath staticBytecodeLibraryPath = new PathSourcePath(
         params.getProjectFilesystem(),
         libPath.resolve(bytecodeLib));
     final ImmutableList<SourcePath> staticCLibraryPaths =
-        FluentIterable.from(cLibs)
-          .transform(new Function<String, SourcePath>() {
-                       @Override
-                       public SourcePath apply(String input) {
-                         return new PathSourcePath(
-                             params.getProjectFilesystem(),
-                             libPath.resolve(input));
-                       }
-                     }).toList();
+        cLibs.stream()
+            .map(input -> new PathSourcePath(params.getProjectFilesystem(), libPath.resolve(input)))
+            .collect(MoreCollectors.toImmutableList());
 
     final SourcePath bytecodeLibraryPath = new PathSourcePath(
         params.getProjectFilesystem(),
@@ -116,8 +109,8 @@ public class PrebuiltOCamlLibraryDescription
     public Optional<String> libName;
     public Optional<String> nativeLib;
     public Optional<String> bytecodeLib;
-    public Optional<ImmutableList<String>> cLibs;
-    public Optional<ImmutableSortedSet<BuildTarget>> deps;
+    public ImmutableList<String> cLibs = ImmutableList.of();
+    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
     public Optional<Boolean> bytecodeOnly;
   }
 

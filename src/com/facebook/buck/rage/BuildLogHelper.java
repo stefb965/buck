@@ -21,10 +21,7 @@ import com.facebook.buck.log.InvocationInfo;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
@@ -40,6 +37,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Collection;
 import java.util.Date;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Methods for finding and inspecting buck log files.
@@ -80,14 +78,16 @@ public class BuildLogHelper {
       builder.setRuleKeyLoggerLogFile(ruleKeyLoggerFile);
     }
 
-    Optional <Path> traceFile = FluentIterable
-        .from(projectFilesystem.getFilesUnderPath(logFile.getParent()))
-        .filter(new Predicate<Path>() {
-          @Override
-          public boolean apply(Path input) {
-            return input.toString().endsWith(".trace");
-          }
-        }).first();
+    Path machineReadableLogFile =
+        logFile.getParent().resolve(BuckConstant.BUCK_MACHINE_LOG_FILE_NAME);
+    if (projectFilesystem.isFile(machineReadableLogFile)) {
+      builder.setMachineReadableLogFile(machineReadableLogFile);
+    }
+
+    Optional <Path> traceFile =
+        projectFilesystem.getFilesUnderPath(logFile.getParent()).stream()
+            .filter(input -> input.toString().endsWith(".trace"))
+            .findFirst();
     return builder
         .setRelativePath(logFile)
         .setSize(projectFilesystem.getFileSize(logFile))
@@ -113,7 +113,7 @@ public class BuildLogHelper {
       }
     }
 
-    return Optional.absent();
+    return Optional.empty();
   }
 
   public Collection<Path> getAllBuckLogFiles() throws IOException {
@@ -158,6 +158,7 @@ public class BuildLogHelper {
     public abstract Optional<BuildId> getBuildId();
     public abstract Optional<String> getCommandArgs();
     public abstract Optional<Path> getRuleKeyLoggerLogFile();
+    public abstract Optional<Path> getMachineReadableLogFile();
     public abstract Optional<Path> getTraceFile();
     public abstract long getSize();
     public abstract Date getLastModifiedTime();

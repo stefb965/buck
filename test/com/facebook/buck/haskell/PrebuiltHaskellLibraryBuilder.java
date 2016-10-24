@@ -19,10 +19,11 @@ package com.facebook.buck.haskell;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.SourcePath;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
+
+import java.util.Optional;
 
 public class PrebuiltHaskellLibraryBuilder
     extends AbstractNodeBuilder<PrebuiltHaskellLibraryDescription.Arg> {
@@ -49,38 +50,38 @@ public class PrebuiltHaskellLibraryBuilder
   }
 
   public PrebuiltHaskellLibraryBuilder setImportDirs(ImmutableList<SourcePath> interfaces) {
-    arg.importDirs = Optional.of(interfaces);
+    arg.importDirs = interfaces;
     return this;
   }
 
   public PrebuiltHaskellLibraryBuilder setStaticLibs(ImmutableList<SourcePath> libs) {
-    arg.staticLibs = Optional.of(libs);
+    arg.staticLibs = libs;
     return this;
   }
 
   public PrebuiltHaskellLibraryBuilder setSharedLibs(ImmutableMap<String, SourcePath> libs) {
-    arg.sharedLibs = Optional.of(libs);
+    arg.sharedLibs = libs;
     return this;
   }
 
   public PrebuiltHaskellLibraryBuilder setExportedLinkerFlags(ImmutableList<String> flags) {
-    arg.exportedLinkerFlags = Optional.of(flags);
+    arg.exportedLinkerFlags = flags;
     return this;
   }
 
   public PrebuiltHaskellLibraryBuilder setExportedCompilerFlags(ImmutableList<String> flags) {
-    arg.exportedCompilerFlags = Optional.of(flags);
+    arg.exportedCompilerFlags = flags;
     return this;
   }
 
   public PrebuiltHaskellLibraryBuilder setCxxHeaderDirs(
       ImmutableSortedSet<SourcePath> cxxHeaderDirs) {
-    arg.cxxHeaderDirs = Optional.of(cxxHeaderDirs);
+    arg.cxxHeaderDirs = cxxHeaderDirs;
     return this;
   }
 
   public PrebuiltHaskellLibraryBuilder setDeps(ImmutableSortedSet<BuildTarget> deps) {
-    arg.deps = Optional.of(deps);
+    arg.deps = deps;
     return this;
   }
 

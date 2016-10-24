@@ -20,17 +20,17 @@ import com.facebook.buck.event.AbstractBuckEvent;
 import com.facebook.buck.event.EventKey;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.util.MoreCollectors;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.google.common.base.Functions;
-import com.google.common.base.Optional;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.stream.StreamSupport;
 
 /**
  * Event produced for HttpArtifactCache operations containing different stats.
@@ -112,7 +112,7 @@ public abstract class HttpArtifactCacheEvent extends ArtifactCacheEvent {
           EventKey.unique(),
           CACHE_MODE,
           operation,
-          Optional.<String>absent(),
+          Optional.empty(),
           ruleKeys,
           ArtifactCacheEvent.InvocationType.SYNCHRONOUS);
     }
@@ -177,7 +177,7 @@ public abstract class HttpArtifactCacheEvent extends ArtifactCacheEvent {
         return Optional.of((long) eventInfo.get(ARTIFACT_SIZE_BYTES_KEY));
       }
 
-      return Optional.absent();
+      return Optional.empty();
     }
 
     public long getRequestDurationMillis() {
@@ -211,7 +211,7 @@ public abstract class HttpArtifactCacheEvent extends ArtifactCacheEvent {
     public static class Builder {
       private final Map<String, Object> data;
       private boolean wasUploadSuccessful;
-      private Optional<CacheResult> cacheResult = Optional.absent();
+      private Optional<CacheResult> cacheResult = Optional.empty();
 
       private final Started startedEvent;
 
@@ -237,9 +237,9 @@ public abstract class HttpArtifactCacheEvent extends ArtifactCacheEvent {
 
       public Builder setRuleKeys(Iterable<RuleKey> ruleKeys) {
         // Make sure we expand any lazy evaluation Iterators so Json serialization works correctly.
-        List<String> keysAsStrings = FluentIterable.from(ruleKeys)
-            .transform(Functions.toStringFunction())
-            .toList();
+        List<String> keysAsStrings = StreamSupport.stream(ruleKeys.spliterator(), false)
+            .map(Object::toString)
+            .collect(MoreCollectors.toImmutableList());
         data.put("rule_keys", keysAsStrings);
         return this;
       }

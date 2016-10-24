@@ -38,12 +38,12 @@ import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Optional;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
+import java.util.Optional;
 
 public class PrebuiltJarDescription implements Description<PrebuiltJarDescription.Arg> {
 
@@ -84,7 +84,7 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
         args.gwtJar,
         args.javadocUrl,
         args.mavenCoords,
-        args.provided.or(false));
+        args.provided.orElse(false));
 
     UnflavoredBuildTarget prebuiltJarBuildTarget = params.getBuildTarget().checkUnflavored();
     BuildTarget flavoredBuildTarget = BuildTargets.createFlavoredBuildTarget(
@@ -92,7 +92,7 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
     BuildRuleParams gwtParams = params.copyWithChanges(
         flavoredBuildTarget,
         /* declaredDeps */ Suppliers.ofInstance(ImmutableSortedSet.of(prebuilt)),
-        /* inferredDeps */ Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
+        /* inferredDeps */ Suppliers.ofInstance(ImmutableSortedSet.of()));
     BuildRule gwtModule = createGwtModule(gwtParams, pathResolver, args);
     resolver.addToIndex(gwtModule);
 
@@ -165,6 +165,6 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
     public Optional<String> mavenCoords;
     public Optional<Boolean> provided;
 
-    public Optional<ImmutableSortedSet<BuildTarget>> deps;
+    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
   }
 }

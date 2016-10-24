@@ -23,7 +23,6 @@ import com.facebook.buck.model.Either;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.util.concurrent.MostExecutors;
 import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableSet;
@@ -41,6 +40,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -131,12 +131,9 @@ class ProjectBuildFileParserPool implements AutoCloseable {
 
     pendingWork.add(futureWork);
     futureWork.addListener(
-        new Runnable() {
-          @Override
-          public void run() {
-            synchronized (ProjectBuildFileParserPool.this) {
-              pendingWork.remove(futureWork);
-            }
+        () -> {
+          synchronized (ProjectBuildFileParserPool.this) {
+            pendingWork.remove(futureWork);
           }
         },
         executorService);
@@ -192,7 +189,7 @@ class ProjectBuildFileParserPool implements AutoCloseable {
 
   private synchronized Optional<ProjectBuildFileParser> obtainParser(Cell cell) {
     if (closing.get()) {
-      return Optional.absent();
+      return Optional.empty();
     }
     Deque<ProjectBuildFileParser> parserQueue = getParkedParserQueue(cell);
     ProjectBuildFileParser parser = parserQueue.pollFirst();
@@ -244,7 +241,7 @@ class ProjectBuildFileParserPool implements AutoCloseable {
 
   private synchronized Optional<ProjectBuildFileParser> createIfAllowed(Cell cell) {
     if (!allowedToCreateParser(cell)) {
-      return Optional.absent();
+      return Optional.empty();
     }
     ProjectBuildFileParser parser = Preconditions.checkNotNull(parserFactory.apply(cell));
     createdParsers.put(cell, parser);

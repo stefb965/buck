@@ -42,7 +42,6 @@ import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.util.MoreMaps;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
@@ -52,6 +51,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.util.Map;
+import java.util.Optional;
 import java.util.TreeMap;
 
 /**
@@ -150,7 +150,7 @@ abstract class DDescriptionUtils {
         sourcePathResolver,
         buildTarget,
         Linker.LinkType.EXECUTABLE,
-        Optional.<String>absent(),
+        Optional.empty(),
         BuildTargets.getGenPath(
             params.getProjectFilesystem(),
             buildTarget,
@@ -158,9 +158,9 @@ abstract class DDescriptionUtils {
         Linker.LinkableDepType.STATIC,
         FluentIterable.from(params.getDeps())
             .filter(NativeLinkable.class),
-        /* cxxRuntimeType */ Optional.<Linker.CxxRuntimeType>absent(),
-        /* bundleLoader */ Optional.<SourcePath>absent(),
-        ImmutableSet.<BuildTarget>of(),
+        /* cxxRuntimeType */ Optional.empty(),
+        /* bundleLoader */ Optional.empty(),
+        ImmutableSet.of(),
         NativeLinkableInput.builder()
             .addAllArgs(StringArg.from(dBuckConfig.getLinkerFlags()))
             .addAllArgs(StringArg.from(linkerFlags))
@@ -183,8 +183,8 @@ abstract class DDescriptionUtils {
     return new SymlinkTree(
         baseParams.copyWithChanges(
             target,
-            Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
-            Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+            Suppliers.ofInstance(ImmutableSortedSet.of()),
+            Suppliers.ofInstance(ImmutableSortedSet.of())),
         pathResolver,
         baseParams.getProjectFilesystem().resolve(
             BuildTargets.getGenPath(
@@ -263,7 +263,7 @@ abstract class DDescriptionUtils {
               baseParams.copyWithChanges(
                   compileTarget,
                   Suppliers.ofInstance(deps),
-                  Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+                  Suppliers.ofInstance(ImmutableSortedSet.of())),
               sourcePathResolver,
               compiler,
               ImmutableList.<String>builder()

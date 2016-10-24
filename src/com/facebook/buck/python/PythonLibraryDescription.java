@@ -31,12 +31,12 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
+import java.util.Collections;
+import java.util.Optional;
 
 public class PythonLibraryDescription implements Description<Arg> {
 
@@ -63,67 +63,56 @@ public class PythonLibraryDescription implements Description<Arg> {
     return new PythonLibrary(
         params,
         pathResolver,
-        new Function<PythonPlatform, ImmutableMap<Path, SourcePath>>() {
-          @Override
-          public ImmutableMap<Path, SourcePath> apply(PythonPlatform pythonPlatform) {
-            return ImmutableMap.<Path, SourcePath>builder()
-                .putAll(
-                    PythonUtil.toModuleMap(
-                        params.getBuildTarget(),
-                        pathResolver,
-                        "srcs",
-                        baseModule,
-                        args.srcs.asSet()))
-                .putAll(
-                    PythonUtil.toModuleMap(
-                        params.getBuildTarget(),
-                        pathResolver,
-                        "platformSrcs",
-                        baseModule,
-                        args.platformSrcs.get()
-                            .getMatchingValues(pythonPlatform.getFlavor().toString())))
-                .build();
-          }
-        },
-        new Function<PythonPlatform, ImmutableMap<Path, SourcePath>>() {
-          @Override
-          public ImmutableMap<Path, SourcePath> apply(PythonPlatform pythonPlatform) {
-            return ImmutableMap.<Path, SourcePath>builder()
-                .putAll(
-                    PythonUtil.toModuleMap(
-                        params.getBuildTarget(),
-                        pathResolver,
-                        "resources",
-                        baseModule,
-                        args.resources.asSet()))
-                .putAll(
-                    PythonUtil.toModuleMap(
-                        params.getBuildTarget(),
-                        pathResolver,
-                        "platformResources",
-                        baseModule,
-                        args.platformResources.get()
-                            .getMatchingValues(pythonPlatform.getFlavor().toString())))
-                .build();
-          }
-        },
+        pythonPlatform -> ImmutableMap.<Path, SourcePath>builder()
+            .putAll(
+                PythonUtil.toModuleMap(
+                    params.getBuildTarget(),
+                    pathResolver,
+                    "srcs",
+                    baseModule,
+                    Collections.singleton(args.srcs)))
+            .putAll(
+                PythonUtil.toModuleMap(
+                    params.getBuildTarget(),
+                    pathResolver,
+                    "platformSrcs",
+                    baseModule,
+                    args.platformSrcs.getMatchingValues(pythonPlatform.getFlavor().toString())))
+            .build(),
+        pythonPlatform -> ImmutableMap.<Path, SourcePath>builder()
+            .putAll(
+                PythonUtil.toModuleMap(
+                    params.getBuildTarget(),
+                    pathResolver,
+                    "resources",
+                    baseModule,
+                    Collections.singleton(args.resources)))
+            .putAll(
+                PythonUtil.toModuleMap(
+                    params.getBuildTarget(),
+                    pathResolver,
+                    "platformResources",
+                    baseModule,
+                    args.platformResources
+                        .getMatchingValues(pythonPlatform.getFlavor().toString())))
+            .build(),
         args.zipSafe);
   }
 
   @SuppressFieldNotInitialized
   public static class Arg extends AbstractDescriptionArg implements HasTests {
-    public Optional<SourceList> srcs;
-    public Optional<PatternMatchedCollection<SourceList>> platformSrcs;
-    public Optional<SourceList> resources;
-    public Optional<PatternMatchedCollection<SourceList>> platformResources;
-    public Optional<ImmutableSortedSet<BuildTarget>> deps;
+    public SourceList srcs = SourceList.EMPTY;
+    public PatternMatchedCollection<SourceList> platformSrcs = PatternMatchedCollection.of();
+    public SourceList resources = SourceList.EMPTY;
+    public PatternMatchedCollection<SourceList> platformResources = PatternMatchedCollection.of();
+    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
     public Optional<String> baseModule;
     public Optional<Boolean> zipSafe;
-    @Hint(isDep = false) public Optional<ImmutableSortedSet<BuildTarget>> tests;
+    @Hint(isDep = false) public ImmutableSortedSet<BuildTarget> tests = ImmutableSortedSet.of();
 
     @Override
     public ImmutableSortedSet<BuildTarget> getTests() {
-      return tests.get();
+      return tests;
     }
 
   }

@@ -32,7 +32,6 @@ import com.facebook.buck.step.fs.FileScrubberStep;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.util.environment.Platform;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
@@ -49,6 +48,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.Optional;
 
 public class ArchiveStepIntegrationTest {
 
@@ -78,7 +78,7 @@ public class ArchiveStepIntegrationTest {
         filesystem,
         archiver.getEnvironment(sourcePathResolver),
         archiver.getCommandPrefix(sourcePathResolver),
-        ImmutableList.<String>of(),
+        ImmutableList.of(),
         getArchiveOptions(false),
         output,
         ImmutableList.of(input),
@@ -129,10 +129,10 @@ public class ArchiveStepIntegrationTest {
             filesystem,
             archiver.getEnvironment(sourcePathResolver),
             archiver.getCommandPrefix(sourcePathResolver),
-            ImmutableList.<String>of(),
+            ImmutableList.of(),
             getArchiveOptions(false),
             output,
-            ImmutableList.<Path>of(), archiver);
+            ImmutableList.of(), archiver);
 
     // Execute the archive step and verify it ran successfully.
     ExecutionContext executionContext = TestExecutionContext.newInstance();
@@ -173,7 +173,7 @@ public class ArchiveStepIntegrationTest {
             filesystem,
             archiver.getEnvironment(sourcePathResolver),
             archiver.getCommandPrefix(sourcePathResolver),
-            ImmutableList.<String>of(),
+            ImmutableList.of(),
             getArchiveOptions(false),
             output,
             ImmutableList.of(input.getParent()),
@@ -229,7 +229,7 @@ public class ArchiveStepIntegrationTest {
             filesystem,
             archiver.getEnvironment(sourcePathResolver),
             archiver.getCommandPrefix(sourcePathResolver),
-            ImmutableList.<String>of(),
+            ImmutableList.of(),
             getArchiveOptions(true),
             output,
             ImmutableList.of(input),
@@ -269,7 +269,7 @@ public class ArchiveStepIntegrationTest {
 
   private static ImmutableList<String> getArchiveOptions(boolean isThinArchive) {
     String options = isThinArchive ? "qcT" : "qc";
-    return ImmutableList.<String>of(options);
+    return ImmutableList.of(options);
   }
 
 }

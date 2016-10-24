@@ -63,8 +63,11 @@ public abstract class DistBuildFactory {
       BuildJobState jobState,
       CommandRunnerParams params,
       WeightedListeningExecutorService executorService,
-      DistBuildService service) throws IOException, InterruptedException {
-    DistBuildState state = DistBuildState.load(jobState, params.getCell());
+      DistBuildService service) throws IOException {
+    DistBuildState state = DistBuildState.load(
+        jobState,
+        params.getCell(),
+        params.getKnownBuildRuleTypesFactory());
     DistBuildSlaveExecutor executor = new DistBuildSlaveExecutor(
         DistBuildExecutorArgs.builder()
             .setBuckEventBus(params.getBuckEventBus())

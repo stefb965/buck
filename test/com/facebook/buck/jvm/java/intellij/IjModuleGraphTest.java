@@ -24,6 +24,7 @@ import static org.junit.Assert.fail;
 
 import com.facebook.buck.android.AndroidBinaryDescription;
 import com.facebook.buck.android.AndroidLibraryBuilder;
+import com.facebook.buck.android.AndroidLibraryDescription;
 import com.facebook.buck.android.AndroidResourceBuilder;
 import com.facebook.buck.android.AndroidResourceDescription;
 import com.facebook.buck.cli.BuckConfig;
@@ -45,7 +46,6 @@ import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Function;
 import com.google.common.base.Functions;
-import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -57,6 +57,7 @@ import org.junit.Test;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 
 public class IjModuleGraphTest {
 
@@ -212,7 +213,7 @@ public class IjModuleGraphTest {
         .build();
 
     IjModuleGraph moduleGraph = createModuleGraph(
-        ImmutableSet.<TargetNode<?>>of(
+        ImmutableSet.of(
             guavaTargetNode,
             hamcrestTargetNode,
             junitTargetNode,
@@ -421,8 +422,8 @@ public class IjModuleGraphTest {
             productGenruleTarget,
             libraryJavaTarget,
             productTarget),
-        ImmutableMap.<TargetNode<?>, Path>of(productTarget, Paths.get("buck-out/product.jar")),
-        Functions.constant(Optional.<Path>absent()));
+        ImmutableMap.of(productTarget, Paths.get("buck-out/product.jar")),
+        Functions.constant(Optional.empty()));
 
     IjModule libraryModule = getModuleForTarget(moduleGraph, libraryJavaTarget);
     IjModule productModule = getModuleForTarget(moduleGraph, productTarget);
@@ -444,16 +445,13 @@ public class IjModuleGraphTest {
         .build();
 
     IjModuleGraph moduleGraph = createModuleGraph(
-        ImmutableSet.<TargetNode<?>>of(productTarget),
-        ImmutableMap.<TargetNode<?>, Path>of(productTarget, Paths.get("buck-out/product.jar")),
-        new Function<TargetNode<?>, Optional<Path>>() {
-          @Override
-          public Optional<Path> apply(TargetNode<?> input) {
-            if (input == productTarget) {
-              return Optional.of(rDotJavaClassPath);
-            }
-            return Optional.absent();
+        ImmutableSet.of(productTarget),
+        ImmutableMap.of(productTarget, Paths.get("buck-out/product.jar")),
+        input -> {
+          if (input == productTarget) {
+            return Optional.of(rDotJavaClassPath);
           }
+          return Optional.empty();
         });
 
     IjModule productModule = getModuleForTarget(moduleGraph, productTarget);
@@ -587,8 +585,8 @@ public class IjModuleGraphTest {
 
     IjModuleGraph moduleGraph = createModuleGraph(
         ImmutableSet.of(guava, papaya, base, core),
-        ImmutableMap.<TargetNode<?>, Path>of(),
-        Functions.constant(Optional.<Path>absent()),
+        ImmutableMap.of(),
+        Functions.constant(Optional.empty()),
         IjModuleGraph.AggregationMode.SHALLOW);
 
     IjModule guavaModule = getModuleForTarget(moduleGraph, guava);
@@ -627,8 +625,8 @@ public class IjModuleGraphTest {
 
     IjModuleGraph moduleGraph = createModuleGraph(
         ImmutableSet.of(blah1, blah2, commonApp),
-        ImmutableMap.<TargetNode<?>, Path>of(),
-        Functions.constant(Optional.<Path>absent()),
+        ImmutableMap.of(),
+        Functions.constant(Optional.empty()),
         IjModuleGraph.AggregationMode.SHALLOW);
 
     IjModule blah1Module = getModuleForTarget(moduleGraph, blah1);
@@ -660,8 +658,8 @@ public class IjModuleGraphTest {
 
     IjModuleGraph moduleGraph = createModuleGraph(
         ImmutableSet.of(blah1, blah2, commonApp),
-        ImmutableMap.<TargetNode<?>, Path>of(),
-        Functions.constant(Optional.<Path>absent()),
+        ImmutableMap.of(),
+        Functions.constant(Optional.empty()),
         IjModuleGraph.AggregationMode.SHALLOW);
 
     IjModule blah1Module = getModuleForTarget(moduleGraph, blah1);
@@ -772,8 +770,8 @@ public class IjModuleGraphTest {
 
 
   public static IjModuleGraph createModuleGraph(ImmutableSet<TargetNode<?>> targets) {
-    return createModuleGraph(targets, ImmutableMap.<TargetNode<?>, Path>of(),
-        Functions.constant(Optional.<Path>absent()));
+    return createModuleGraph(targets, ImmutableMap.of(),
+        Functions.constant(Optional.empty()));
   }
 
   public static IjModuleGraph createModuleGraph(
@@ -803,7 +801,7 @@ public class IjModuleGraphTest {
 
           @Override
           public Optional<Path> getPathIfJavaLibrary(TargetNode<?> targetNode) {
-            return Optional.fromNullable(javaLibraryPaths.get(targetNode));
+            return Optional.ofNullable(javaLibraryPaths.get(targetNode));
           }
         };
     BuckConfig buckConfig = FakeBuckConfig.builder().build();
@@ -821,27 +819,33 @@ public class IjModuleGraphTest {
           }
 
           @Override
+          public Optional<Path> getLibraryAndroidManifestPath(
+              TargetNode<AndroidLibraryDescription.Arg> targetNode) {
+            return Optional.empty();
+          }
+
+          @Override
           public Optional<Path> getProguardConfigPath(
               TargetNode<AndroidBinaryDescription.Arg> targetNode) {
-            return Optional.absent();
+            return Optional.empty();
           }
 
           @Override
           public Optional<Path> getAndroidResourcePath(
               TargetNode<AndroidResourceDescription.Arg> targetNode) {
-            return Optional.absent();
+            return Optional.empty();
           }
 
           @Override
           public Optional<Path> getAssetsPath(
               TargetNode<AndroidResourceDescription.Arg> targetNode) {
-            return Optional.absent();
+            return Optional.empty();
           }
 
           @Override
           public Optional<Path> getAnnotationOutputPath(
               TargetNode<? extends JvmLibraryArg> targetNode) {
-            return Optional.absent();
+            return Optional.empty();
           }
         },
         projectConfig,
@@ -862,18 +866,8 @@ public class IjModuleGraphTest {
     return FluentIterable.from(graph.getNodes())
         .filter(type)
         .firstMatch(
-            new Predicate<IjProjectElement>() {
-              @Override
-              public boolean apply(IjProjectElement input) {
-                return FluentIterable.from(input.getTargets()).anyMatch(
-                    new Predicate<TargetNode<?>>() {
-                      @Override
-                      public boolean apply(TargetNode<?> input) {
-                        return input.getBuildTarget().equals(target.getBuildTarget());
-                      }
-                    });
-              }
-            }).get();
+            (Predicate<IjProjectElement>) input -> FluentIterable.from(input.getTargets()).anyMatch(
+                input1 -> input1.getBuildTarget().equals(target.getBuildTarget()))).get();
   }
 
   public static IjModule getModuleForTarget(IjModuleGraph graph, final TargetNode<?> target) {

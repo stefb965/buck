@@ -32,7 +32,6 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.HashCode;
@@ -43,6 +42,7 @@ import org.junit.Test;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 
 import javax.annotation.Nullable;
 
@@ -77,7 +77,7 @@ public class JavaLibraryClasspathProviderTest {
     //           d    e
     d = makeRule("//foo:d",
         ImmutableSet.of("foo", "d.java"),
-        ImmutableSet.<BuildRule>of(),
+        ImmutableSet.of(),
         ruleResolver,
         filesystem);
 
@@ -91,7 +91,7 @@ public class JavaLibraryClasspathProviderTest {
 
     e = makeRule("//foo:e",
         ImmutableSet.of("foo", "e.java"),
-        ImmutableSet.<BuildRule>of(),
+        ImmutableSet.of(),
         ruleResolver,
         filesystem);
 
@@ -188,7 +188,7 @@ public class JavaLibraryClasspathProviderTest {
   public void getTransitiveClasspathDeps() throws Exception {
     JavaLibrary noOutput = makeRule(
         "//no:output",
-        ImmutableSet.<String>of(),
+        ImmutableSet.of(),
         ImmutableSet.of(z),
         ruleResolver,
         filesystem);

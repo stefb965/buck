@@ -34,15 +34,15 @@ import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.RecordFileSha1Step;
-import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
@@ -54,6 +54,7 @@ import com.google.common.collect.Ordering;
 import com.google.common.hash.Hashing;
 
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
 import javax.annotation.Nullable;
@@ -178,7 +179,7 @@ public class AndroidResource extends AbstractBuildRule
       boolean resourceUnion) {
     super(
         buildRuleParams.appendExtraDeps(
-            Suppliers.compose(resolver.filterBuildRuleInputsFunction(), symbolFilesFromDeps)),
+            Suppliers.compose(resolver::filterBuildRuleInputs, symbolFilesFromDeps)),
         resolver);
     if (res != null && rDotJavaPackageArgument == null && manifestFile == null) {
       throw new HumanReadableException(
@@ -220,17 +221,14 @@ public class AndroidResource extends AbstractBuildRule
       this.rDotJavaPackage.set(rDotJavaPackageArgument);
     }
 
-    this.rDotJavaPackageSupplier = new Supplier<String>() {
-      @Override
-      public String get() {
-        String rDotJavaPackage = AndroidResource.this.rDotJavaPackage.get();
-        if (rDotJavaPackage != null) {
-          return rDotJavaPackage;
-        } else {
-          throw new RuntimeException(
-              "rDotJavaPackage for " + AndroidResource.this.getBuildTarget().toString() +
-              " was requested before it was made available.");
-        }
+    this.rDotJavaPackageSupplier = () -> {
+      String rDotJavaPackage1 = AndroidResource.this.rDotJavaPackage.get();
+      if (rDotJavaPackage1 != null) {
+        return rDotJavaPackage1;
+      } else {
+        throw new RuntimeException(
+            "rDotJavaPackage for " + AndroidResource.this.getBuildTarget().toString() +
+            " was requested before it was made available.");
       }
     };
   }
@@ -290,16 +288,11 @@ public class AndroidResource extends AbstractBuildRule
         assetsSrcs,
         additionalAssetsKey,
         manifestFile,
-        new Supplier<ImmutableSortedSet<? extends SourcePath>>() {
-          @Override
-          public ImmutableSortedSet<? extends SourcePath> get() {
-            return FluentIterable.from(buildRuleParams.getDeps())
-                .filter(HasAndroidResourceDeps.class)
-                .filter(NON_EMPTY_RESOURCE)
-                .transform(GET_RES_SYMBOLS_TXT)
-                .toSortedSet(Ordering.natural());
-          }
-        },
+        () -> FluentIterable.from(buildRuleParams.getDeps())
+            .filter(HasAndroidResourceDeps.class)
+            .filter(NON_EMPTY_RESOURCE)
+            .transform(GET_RES_SYMBOLS_TXT)
+            .toSortedSet(Ordering.natural()),
         hasWhitelistedStrings,
         resourceUnion);
   }
@@ -358,10 +351,9 @@ public class AndroidResource extends AbstractBuildRule
       buildableContext.recordArtifact(Preconditions.checkNotNull(pathToRDotJavaPackageFile));
     }
 
-    ImmutableSet<Path> pathsToSymbolsOfDeps =
-        FluentIterable.from(symbolsOfDeps.get())
-            .transform(getResolver().getAbsolutePathFunction())
-            .toSet();
+    ImmutableSet<Path> pathsToSymbolsOfDeps = symbolsOfDeps.get().stream()
+        .map(getResolver()::getAbsolutePath)
+        .collect(MoreCollectors.toImmutableSet());
 
     steps.add(
         new MiniAapt(

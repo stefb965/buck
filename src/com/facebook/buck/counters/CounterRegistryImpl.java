@@ -17,7 +17,8 @@
 package com.facebook.buck.counters;
 
 import com.facebook.buck.event.BuckEventBus;
-import com.google.common.base.Optional;
+import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.Optionals;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -28,6 +29,7 @@ import com.google.common.eventbus.Subscribe;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -55,12 +57,7 @@ public class CounterRegistryImpl implements CounterRegistry {
     this.counters = Sets.newLinkedHashSet();
     this.eventBus = eventBus;
     flushCountersFuture = service.scheduleAtFixedRate(
-        new Runnable() {
-          @Override
-          public void run() {
-            flushCounters();
-          }
-        },
+        this::flushCounters,
       /* initialDelay */ firstFlushIntervalMillis,
       /* period */ flushIntervalMillis,
       /* unit */ TimeUnit.MILLISECONDS);
@@ -127,8 +124,9 @@ public class CounterRegistryImpl implements CounterRegistry {
       }
     }
 
-    ImmutableList<CounterSnapshot> presentSnapshots = ImmutableList.copyOf(
-        Optional.presentInstances(snapshots));
+    ImmutableList<CounterSnapshot> presentSnapshots = snapshots.stream()
+        .flatMap(Optionals::toStream)
+        .collect(MoreCollectors.toImmutableList());
     if (!presentSnapshots.isEmpty()) {
       CountersSnapshotEvent event = new CountersSnapshotEvent(presentSnapshots);
       eventBus.post(event);

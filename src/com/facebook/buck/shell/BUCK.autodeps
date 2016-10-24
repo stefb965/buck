@@ -1,4 +1,3 @@
-#@# GENERATED FILE: DO NOT MODIFY 103772d6873c440d95d4f5f570b2b0af4cc9c06b #@#
 {
   "rules" : {
     "deps" : [
@@ -8,10 +7,10 @@
       "//src/com/facebook/buck/model:macros",
       "//src/com/facebook/buck/rules:command_tool",
       "//src/com/facebook/buck/step/fs:fs",
-      "//src/com/facebook/buck/util:escaper",
       "//src/com/facebook/buck/util:exceptions",
-      "//third-party/java/jackson:jackson-databind",
-      "//third-party/java/stringtemplate:stringtemplate"
+      "//src/com/facebook/buck/util:util",
+      "//src/com/facebook/buck/zip:steps",
+      "//third-party/java/jackson:jackson-databind"
     ],
     "exported_deps" : [
       "//src/com/facebook/buck/model:model",
@@ -36,8 +35,8 @@
       "//src/com/facebook/buck/log:api",
       "//src/com/facebook/buck/test:test",
       "//src/com/facebook/buck/test/result/type:type",
-      "//src/com/facebook/buck/util:escaper",
       "//src/com/facebook/buck/util:exceptions",
+      "//src/com/facebook/buck/util:util",
       "//third-party/java/jackson:jackson-databind",
       "//third-party/java/jsr:jsr305"
     ],
@@ -55,8 +54,8 @@
       "//src/com/facebook/buck/event:event",
       "//src/com/facebook/buck/model:macros",
       "//src/com/facebook/buck/rules:command_tool",
-      "//src/com/facebook/buck/util:escaper",
       "//src/com/facebook/buck/util:exceptions",
+      "//src/com/facebook/buck/util:util",
       "//third-party/java/immutables:processor"
     ],
     "exported_deps" : [
@@ -81,6 +80,7 @@
     "deps" : [
       "//src/com/facebook/buck/log:api",
       "//src/com/facebook/buck/util:exceptions",
+      "//src/com/facebook/buck/util:util",
       "//third-party/java/immutables:processor",
       "//third-party/java/jsr:jsr305"
     ],
@@ -95,8 +95,7 @@
   "worker_tool" : {
     "deps" : [ ],
     "exported_deps" : [
-      "//src/com/facebook/buck/rules:build_rule",
-      "//third-party/java/guava:guava"
+      "//src/com/facebook/buck/rules:build_rule"
     ]
   }
 }

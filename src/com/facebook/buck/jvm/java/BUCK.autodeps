@@ -1,4 +1,3 @@
-#@# GENERATED FILE: DO NOT MODIFY 6f3a15280a9366aeeb3a773c409a9eff1aa36b82 #@#
 {
   "autodeps" : {
     "deps" : [
@@ -25,12 +24,12 @@
   },
   "config" : {
     "deps" : [
+      "//src/com/facebook/buck/model:model",
       "//src/com/facebook/buck/util:exceptions"
     ],
     "exported_deps" : [
       "//src/com/facebook/buck/cli:config",
       "//src/com/facebook/buck/jvm/java:support",
-      "//src/com/facebook/buck/model:model",
       "//src/com/facebook/buck/rules:build_rule",
       "//third-party/java/guava:guava"
     ]
@@ -138,7 +137,6 @@
       "//src/com/facebook/buck/jvm/java:javac-internals",
       "//src/com/facebook/buck/jvm/java/tracing:tracing",
       "//src/com/facebook/buck/log:api",
-      "//src/com/facebook/buck/util:escaper",
       "//src/com/facebook/buck/util:exceptions",
       "//src/com/facebook/buck/util:object_mapper",
       "//src/com/facebook/buck/zip:unzip",

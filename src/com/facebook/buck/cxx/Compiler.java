@@ -17,8 +17,9 @@
 package com.facebook.buck.cxx;
 
 import com.facebook.buck.rules.Tool;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
+
+import java.util.Optional;
 
 public interface Compiler extends Tool {
 
@@ -39,4 +40,6 @@ public interface Compiler extends Tool {
   ImmutableList<String> getPicFlags();
 
   ImmutableList<String> getPdcFlags();
+
+  boolean shouldSanitizeOutputBinary();
 }

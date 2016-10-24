@@ -33,7 +33,6 @@ import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.DependencyAggregationTestUtil;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.TargetGraph;
@@ -45,7 +44,7 @@ import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
-import com.google.common.collect.FluentIterable;
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -86,7 +85,7 @@ public class CxxBinaryDescriptionTest {
     CxxLibraryBuilder depBuilder = new CxxLibraryBuilder(depTarget)
         .setExportedHeaders(
             SourceList.ofUnnamedSources(
-                ImmutableSortedSet.<SourcePath>of(new FakeSourcePath("blah.h"))))
+                ImmutableSortedSet.of(new FakeSourcePath("blah.h"))))
         .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(new FakeSourcePath("test.cpp"))));
     BuildTarget archiveTarget = BuildTarget.builder(depTarget)
         .addFlavors(CxxDescriptionEnhancer.STATIC_FLAVOR)
@@ -106,7 +105,7 @@ public class CxxBinaryDescriptionTest {
                       SourceWithFlags.of(new FakeSourcePath("test/bar.cpp")),
                       SourceWithFlags.of(new BuildTargetSourcePath(genSourceTarget))))
               .setHeaders(
-                  ImmutableSortedSet.<SourcePath>of(
+                  ImmutableSortedSet.of(
                       new FakeSourcePath("test/bar.h"),
                       new BuildTargetSourcePath(genHeaderTarget)))
               .setDeps(ImmutableSortedSet.of(depTarget));
@@ -147,9 +146,9 @@ public class CxxBinaryDescriptionTest {
             cxxSourceRuleFactory.createCompileBuildTarget("test/bar.cpp"),
             cxxSourceRuleFactory.createCompileBuildTarget(genSourceName),
             archiveTarget),
-        FluentIterable.from(rule.getDeps())
-            .transform(HasBuildTarget.TO_TARGET)
-            .toSet());
+        rule.getDeps().stream()
+            .map(HasBuildTarget::getBuildTarget)
+            .collect(MoreCollectors.toImmutableSet()));
 
     // Verify that the preproces rule for our user-provided source has correct deps setup
     // for the various header rules.
@@ -158,7 +157,7 @@ public class CxxBinaryDescriptionTest {
     assertThat(
         Iterables.transform(
             DependencyAggregationTestUtil.getDisaggregatedDeps(preprocessRule1),
-            HasBuildTarget.TO_TARGET),
+            HasBuildTarget::getBuildTarget),
         Matchers.containsInAnyOrder(
             genHeaderTarget,
             headerSymlinkTreeTarget,
@@ -175,9 +174,9 @@ public class CxxBinaryDescriptionTest {
     assertEquals(
         ImmutableSet.of(
             preprocessRule1.getBuildTarget()),
-        FluentIterable.from(compileRule1.getDeps())
-            .transform(HasBuildTarget.TO_TARGET)
-            .toSet());
+        compileRule1.getDeps().stream()
+            .map(HasBuildTarget::getBuildTarget)
+            .collect(MoreCollectors.toImmutableSet()));
 
     // Verify that the preproces rule for our user-provided source has correct deps setup
     // for the various header rules.
@@ -186,7 +185,7 @@ public class CxxBinaryDescriptionTest {
     assertThat(
         Iterables.transform(
             DependencyAggregationTestUtil.getDisaggregatedDeps(preprocessRule2),
-            HasBuildTarget.TO_TARGET),
+            HasBuildTarget::getBuildTarget),
         Matchers.containsInAnyOrder(
             genHeaderTarget,
             genSourceTarget,
@@ -204,9 +203,9 @@ public class CxxBinaryDescriptionTest {
     assertEquals(
         ImmutableSet.of(
             preprocessRule2.getBuildTarget()),
-        FluentIterable.from(compileRule2.getDeps())
-            .transform(HasBuildTarget.TO_TARGET)
-            .toSet());
+        compileRule2.getDeps().stream()
+            .map(HasBuildTarget::getBuildTarget)
+            .collect(MoreCollectors.toImmutableSet()));
   }
 
   @Test

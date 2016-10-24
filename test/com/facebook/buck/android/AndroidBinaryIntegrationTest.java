@@ -39,15 +39,17 @@ import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.Tool;
+import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.BuckBuildLog;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.testutil.integration.ZipInspector;
+import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ObjectMappers;
+import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.zip.ZipConstants;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -76,6 +78,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
@@ -265,6 +268,24 @@ public class AndroidBinaryIntegrationTest {
   }
 
   @Test
+  public void testCxxLibraryDepModular() throws IOException {
+    String target = "//apps/sample:app_cxx_lib_dep_modular";
+    workspace.runBuckCommand("build", target).assertSuccess();
+
+    ZipInspector zipInspector = new ZipInspector(
+        workspace.getPath(
+            BuildTargets.getGenPath(filesystem, BuildTargetFactory.newInstance(target), "%s.apk")));
+    zipInspector.assertFileDoesNotExist("lib/armeabi/libnative_cxx_lib.so");
+    zipInspector.assertFileExists("lib/armeabi/libgnustl_shared.so");
+    zipInspector.assertFileDoesNotExist("lib/armeabi-v7a/libnative_cxx_lib.so");
+    zipInspector.assertFileExists("lib/armeabi-v7a/libgnustl_shared.so");
+    zipInspector.assertFileDoesNotExist("lib/x86/libnative_cxx_lib.so");
+    zipInspector.assertFileExists("lib/x86/libgnustl_shared.so");
+    zipInspector.assertFileExists("assets/native.cxx.lib/libs.txt");
+    zipInspector.assertFileExists("assets/native.cxx.lib/libs.xzs");
+  }
+
+  @Test
   public void testCxxLibraryDepClang() throws IOException {
     String target = "//apps/sample:app_cxx_lib_dep";
     ProjectWorkspace.ProcessResult result =
@@ -360,7 +381,12 @@ public class AndroidBinaryIntegrationTest {
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
     );
     Path tmpDir = tmpFolder.newFolder("merging_tmp");
-    SymbolGetter syms = new SymbolGetter(tmpDir, platform.getObjdump(), pathResolver);
+    SymbolGetter syms =
+        new SymbolGetter(
+            new DefaultProcessExecutor(new TestConsole()),
+            tmpDir,
+            platform.getObjdump(),
+            pathResolver);
     SymbolsAndDtNeeded info;
 
     workspace.replaceFileContents(
@@ -369,7 +395,8 @@ public class AndroidBinaryIntegrationTest {
         "cpu_abis = x86");
     Map<String, Path> paths = workspace.buildMultipleAndReturnOutputs(
         "//apps/sample:app_with_merged_libs",
-        "//apps/sample:app_with_alternate_merge_glue"
+        "//apps/sample:app_with_alternate_merge_glue",
+        "//apps/sample:app_with_merged_libs_modular"
     );
     Path apkPath = paths.get("//apps/sample:app_with_merged_libs");
 
@@ -417,6 +444,17 @@ public class AndroidBinaryIntegrationTest {
     assertThat(info.symbols.global, not(Matchers.hasItem("glue_1")));
     assertThat(info.symbols.global, Matchers.hasItem("glue_2"));
     assertThat(info.dtNeeded, Matchers.hasItem("libprebuilt_for_F.so"));
+
+    Path modularPath = paths.get("//apps/sample:app_with_merged_libs_modular");
+    ZipInspector modularZipInspector = new ZipInspector(modularPath);
+    modularZipInspector.assertFileDoesNotExist("lib/x86/lib1a.so");
+    modularZipInspector.assertFileDoesNotExist("lib/x86/lib1b.so");
+    modularZipInspector.assertFileDoesNotExist("lib/x86/lib2e.so");
+    modularZipInspector.assertFileDoesNotExist("lib/x86/lib2f.so");
+    modularZipInspector.assertFileExists("assets/native.merge.A/libs.txt");
+    modularZipInspector.assertFileExists("assets/native.merge.A/libs.xzs");
+    modularZipInspector.assertFileDoesNotExist("lib/x86/lib1.so");
+    modularZipInspector.assertFileDoesNotExist("lib/x86/lib2.so");
 
     Path disassembly = workspace.buildAndReturnOutput(
         "//apps/sample:disassemble_app_with_merged_libs_gencode");
@@ -470,7 +508,13 @@ public class AndroidBinaryIntegrationTest {
       Assert.fail("No exception from trying circular merged dep.");
     } catch (RuntimeException e) {
       assertThat(e.getMessage(), Matchers.containsString("Dependency cycle"));
-      assertThat(e.getCause().getMessage(), Matchers.containsString("Cycle found:"));
+    }
+
+    try {
+      workspace.runBuckBuild("//apps/sample:app_with_circular_merged_libs_including_root");
+      Assert.fail("No exception from trying circular merged dep.");
+    } catch (RuntimeException e) {
+      assertThat(e.getMessage(), Matchers.containsString("Dependency cycle"));
     }
 
     try {
@@ -489,7 +533,12 @@ public class AndroidBinaryIntegrationTest {
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
     );
     Path tmpDir = tmpFolder.newFolder("xdso");
-    SymbolGetter syms = new SymbolGetter(tmpDir, platform.getObjdump(), pathResolver);
+    SymbolGetter syms =
+        new SymbolGetter(
+            new DefaultProcessExecutor(new TestConsole()),
+            tmpDir,
+            platform.getObjdump(),
+            pathResolver);
     Symbols sym;
 
     Path apkPath = workspace.buildAndReturnOutput("//apps/sample:app_xdso_dce");
@@ -528,8 +577,8 @@ public class AndroidBinaryIntegrationTest {
     AndroidDirectoryResolver androidResolver = new DefaultAndroidDirectoryResolver(
         workspace.asCell().getRoot().getFileSystem(),
         ImmutableMap.copyOf(System.getenv()),
-        Optional.<String>absent(),
-        Optional.<String>absent());
+        Optional.empty(),
+        Optional.empty());
 
     Optional<Path> ndkPath = androidResolver.getNdkOrAbsent();
     assertTrue(ndkPath.isPresent());
@@ -539,7 +588,8 @@ public class AndroidBinaryIntegrationTest {
 
     ImmutableCollection<NdkCxxPlatform> platforms = NdkCxxPlatforms.getPlatforms(
         CxxPlatformUtils.DEFAULT_CONFIG,
-        new ProjectFilesystem(ndkPath.get()),
+        filesystem,
+        ndkPath.get(),
         NdkCxxPlatformCompiler.builder()
             .setType(NdkCxxPlatforms.DEFAULT_COMPILER_TYPE)
             .setVersion(gccVersion)
@@ -554,11 +604,17 @@ public class AndroidBinaryIntegrationTest {
   }
 
   private static class SymbolGetter {
+    private final ProcessExecutor executor;
     private final Path tmpDir;
     private final Tool objdump;
     private final SourcePathResolver resolver;
 
-    private SymbolGetter(Path tmpDir, Tool objdump, SourcePathResolver resolver) {
+    private SymbolGetter(
+        ProcessExecutor executor,
+        Path tmpDir,
+        Tool objdump,
+        SourcePathResolver resolver) {
+      this.executor = executor;
       this.tmpDir = tmpDir;
       this.objdump = objdump;
       this.resolver = resolver;
@@ -571,14 +627,14 @@ public class AndroidBinaryIntegrationTest {
 
     Symbols getSymbols(Path apkPath, String libName) throws IOException, InterruptedException {
       Path lib = unpack(apkPath, libName);
-      return Symbols.getSymbols(objdump, resolver, lib);
+      return Symbols.getSymbols(executor, objdump, resolver, lib);
     }
 
     SymbolsAndDtNeeded getSymbolsAndDtNeeded(Path apkPath, String libName)
         throws IOException, InterruptedException {
       Path lib = unpack(apkPath, libName);
-      Symbols symbols = Symbols.getSymbols(objdump, resolver, lib);
-      ImmutableSet<String> dtNeeded = Symbols.getDtNeeded(objdump, resolver, lib);
+      Symbols symbols = Symbols.getSymbols(executor, objdump, resolver, lib);
+      ImmutableSet<String> dtNeeded = Symbols.getDtNeeded(executor, objdump, resolver, lib);
       return new SymbolsAndDtNeeded(symbols, dtNeeded);
     }
   }
@@ -674,6 +730,71 @@ public class AndroidBinaryIntegrationTest {
     zipInspector.assertFileDoesNotExist("lib/x86/libnative_cxx_libasset.so");
     zipInspector.assertFileExists("lib/x86/libnative_cxx_foo1.so");
     zipInspector.assertFileExists("lib/x86/libnative_cxx_foo2.so");
+    zipInspector.assertFileDoesNotExist("assets/lib/x86/libnative_cxx_foo1.so");
+    zipInspector.assertFileDoesNotExist("assets/lib/x86/libnative_cxx_foo2.so");
+  }
+
+  @Test
+  public void testCompressAssetLibsModular() throws IOException {
+    String target = "//apps/sample:app_compress_lib_asset_modular";
+    workspace.runBuckCommand("build", target).assertSuccess();
+    ZipInspector zipInspector = new ZipInspector(
+        workspace.getPath(
+            BuildTargets.getGenPath(filesystem, BuildTargetFactory.newInstance(target), "%s.apk")));
+    zipInspector.assertFileExists("assets/lib/libs.xzs");
+    zipInspector.assertFileExists("assets/lib/metadata.txt");
+    zipInspector.assertFileExists("assets/native.cxx.libasset/libs.xzs");
+    zipInspector.assertFileExists("assets/native.cxx.libasset/libs.txt");
+    zipInspector.assertFileDoesNotExist("assets/lib/x86/libnative_cxx_libasset.so");
+    zipInspector.assertFileDoesNotExist("lib/x86/libnative_cxx_libasset.so");
+    zipInspector.assertFileExists("lib/x86/libnative_cxx_foo1.so");
+    zipInspector.assertFileExists("lib/x86/libnative_cxx_foo2.so");
+    zipInspector.assertFileDoesNotExist("assets/lib/x86/libnative_cxx_foo1.so");
+    zipInspector.assertFileDoesNotExist("assets/lib/x86/libnative_cxx_foo2.so");
+  }
+
+  @Test
+  public void testCompressAssetLibsNoPackageModular() throws IOException {
+    String target = "//apps/sample:app_cxx_lib_asset_no_package_modular";
+    workspace.runBuckCommand("build", target).assertSuccess();
+    ZipInspector zipInspector = new ZipInspector(
+        workspace.getPath(
+            BuildTargets.getGenPath(filesystem, BuildTargetFactory.newInstance(target), "%s.apk")));
+    zipInspector.assertFileExists("assets/native.cxx.libasset/libs.xzs");
+    zipInspector.assertFileExists("assets/native.cxx.libasset/libs.txt");
+    zipInspector.assertFileExists("lib/x86/libnative_cxx_libasset2.so");
+    zipInspector.assertFileExists("lib/x86/libnative_cxx_foo1.so");
+    zipInspector.assertFileExists("lib/x86/libnative_cxx_foo2.so");
+
+    zipInspector.assertFileDoesNotExist("assets/lib/libs.xzs");
+    zipInspector.assertFileDoesNotExist("assets/lib/metadata.txt");
+    zipInspector.assertFileDoesNotExist("lib/x86/libnative_cxx_libasset.so");
+    zipInspector.assertFileDoesNotExist("assets/lib/x86/libnative_cxx_libasset.so");
+    zipInspector.assertFileDoesNotExist("assets/lib/x86/libnative_cxx_libasset2.so");
+    zipInspector.assertFileDoesNotExist("assets/lib/x86/libnative_cxx_foo1.so");
+    zipInspector.assertFileDoesNotExist("assets/lib/x86/libnative_cxx_foo2.so");
+  }
+
+  @Test
+  public void testCompressLibsNoPackageModular() throws IOException {
+    String target = "//apps/sample:app_cxx_lib_no_package_modular";
+    workspace.runBuckCommand("build", target).assertSuccess();
+    ZipInspector zipInspector = new ZipInspector(
+        workspace.getPath(
+            BuildTargets.getGenPath(filesystem, BuildTargetFactory.newInstance(target), "%s.apk")));
+    zipInspector.assertFileExists("assets/native.cxx.foo1/libs.xzs");
+    zipInspector.assertFileExists("assets/native.cxx.foo1/libs.txt");
+    zipInspector.assertFileExists("assets/native.cxx.libasset/libs.xzs");
+    zipInspector.assertFileExists("assets/native.cxx.libasset/libs.txt");
+    zipInspector.assertFileExists("lib/x86/libnative_cxx_libasset2.so");
+    zipInspector.assertFileExists("lib/x86/libnative_cxx_foo2.so");
+
+    zipInspector.assertFileDoesNotExist("assets/lib/libs.xzs");
+    zipInspector.assertFileDoesNotExist("assets/lib/metadata.txt");
+    zipInspector.assertFileDoesNotExist("lib/x86/libnative_cxx_foo1.so");
+    zipInspector.assertFileDoesNotExist("lib/x86/libnative_cxx_libasset.so");
+    zipInspector.assertFileDoesNotExist("assets/lib/x86/libnative_cxx_libasset.so");
+    zipInspector.assertFileDoesNotExist("assets/lib/x86/libnative_cxx_libasset2.so");
     zipInspector.assertFileDoesNotExist("assets/lib/x86/libnative_cxx_foo1.so");
     zipInspector.assertFileDoesNotExist("assets/lib/x86/libnative_cxx_foo2.so");
   }

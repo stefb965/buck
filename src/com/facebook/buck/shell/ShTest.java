@@ -40,17 +40,16 @@ import com.facebook.buck.test.TestCaseSummary;
 import com.facebook.buck.test.TestResultSummary;
 import com.facebook.buck.test.TestResults;
 import com.facebook.buck.test.TestRunningOptions;
+import com.facebook.buck.util.MoreCollectors;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Functions;
-import com.google.common.base.Optional;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
 
@@ -161,36 +160,30 @@ public class ShTest
 
     if (isDryRun) {
       // Again, shortcut to returning no results, because sh-tests have no concept of a dry-run.
-      return new Callable<TestResults>() {
-        @Override
-        public TestResults call() throws Exception {
-          return TestResults.of(
-              getBuildTarget(),
-              ImmutableList.<TestCaseSummary>of(),
-              contacts,
-              FluentIterable.from(labels).transform(Functions.toStringFunction()).toSet());
-        }
-      };
+      return () -> TestResults.of(
+          getBuildTarget(),
+          ImmutableList.of(),
+          contacts,
+          labels.stream()
+              .map(Object::toString)
+              .collect(MoreCollectors.toImmutableSet()));
     } else {
-      return new Callable<TestResults>() {
-
-        @Override
-        public TestResults call() throws Exception {
-          Optional<String> resultsFileContents =
-              getProjectFilesystem().readFileIfItExists(getPathToTestOutputResult());
-          ObjectMapper mapper = context.getObjectMapper();
-          TestResultSummary testResultSummary = mapper.readValue(resultsFileContents.get(),
-              TestResultSummary.class);
-          TestCaseSummary testCaseSummary = new TestCaseSummary(
-              getBuildTarget().getFullyQualifiedName(),
-              ImmutableList.of(testResultSummary));
-          return TestResults.of(
-              getBuildTarget(),
-              ImmutableList.of(testCaseSummary),
-              contacts,
-              FluentIterable.from(labels).transform(Functions.toStringFunction()).toSet());
-        }
-
+      return () -> {
+        Optional<String> resultsFileContents =
+            getProjectFilesystem().readFileIfItExists(getPathToTestOutputResult());
+        ObjectMapper mapper = context.getObjectMapper();
+        TestResultSummary testResultSummary = mapper.readValue(resultsFileContents.get(),
+            TestResultSummary.class);
+        TestCaseSummary testCaseSummary = new TestCaseSummary(
+            getBuildTarget().getFullyQualifiedName(),
+            ImmutableList.of(testResultSummary));
+        return TestResults.of(
+            getBuildTarget(),
+            ImmutableList.of(testCaseSummary),
+            contacts,
+            labels.stream()
+                .map(Object::toString)
+                .collect(MoreCollectors.toImmutableSet()));
       };
     }
   }

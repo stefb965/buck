@@ -60,10 +60,10 @@ public class AppleDescriptionsTest {
             "prefix/a_file.h", new FakeSourcePath("different/path/to/a_file.h"),
             "prefix/file.h", new FakeSourcePath("file.h")),
         AppleDescriptions.parseAppleHeadersForUseFromOtherTargets(
-            resolver.deprecatedPathFunction(),
+            resolver::deprecatedGetPath,
             Paths.get("prefix"),
             SourceList.ofUnnamedSources(
-                ImmutableSortedSet.<SourcePath>of(
+                ImmutableSortedSet.of(
                     new FakeSourcePath("path/to/some_file.h"),
                     new FakeSourcePath("path/to/another_file.h"),
                     new FakeSourcePath("different/path/to/a_file.h"),
@@ -82,9 +82,9 @@ public class AppleDescriptionsTest {
             "a_file.h", new FakeSourcePath("different/path/to/a_file.h"),
             "file.h", new FakeSourcePath("file.h")),
         AppleDescriptions.parseAppleHeadersForUseFromTheSameTarget(
-            resolver.deprecatedPathFunction(),
+            resolver::deprecatedGetPath,
             SourceList.ofUnnamedSources(
-                ImmutableSortedSet.<SourcePath>of(
+                ImmutableSortedSet.of(
                     new FakeSourcePath("path/to/some_file.h"),
                     new FakeSourcePath("path/to/another_file.h"),
                     new FakeSourcePath("different/path/to/a_file.h"),
@@ -93,7 +93,7 @@ public class AppleDescriptionsTest {
 
   @Test
   public void parseAppleHeadersForUseFromOtherTargetsFromMap() {
-    ImmutableSortedMap<String, SourcePath> headerMap = ImmutableSortedMap.<String, SourcePath>of(
+    ImmutableSortedMap<String, SourcePath> headerMap = ImmutableSortedMap.of(
         "virtual/path.h", new FakeSourcePath("path/to/some_file.h"),
         "another/path.h", new FakeSourcePath("path/to/another_file.h"),
         "another/file.h", new FakeSourcePath("different/path/to/a_file.h"),
@@ -104,14 +104,14 @@ public class AppleDescriptionsTest {
     assertEquals(
         headerMap,
         AppleDescriptions.parseAppleHeadersForUseFromOtherTargets(
-            resolver.deprecatedPathFunction(),
+            resolver::deprecatedGetPath,
             Paths.get("prefix"),
             SourceList.ofNamedSources(headerMap)));
   }
 
   @Test
   public void parseAppleHeadersForUseFromTheSameTargetFromMap() {
-    ImmutableSortedMap<String, SourcePath> headerMap = ImmutableSortedMap.<String, SourcePath>of(
+    ImmutableSortedMap<String, SourcePath> headerMap = ImmutableSortedMap.of(
         "virtual/path.h", new FakeSourcePath("path/to/some_file.h"),
         "another/path.h", new FakeSourcePath("path/to/another_file.h"),
         "another/file.h", new FakeSourcePath("different/path/to/a_file.h"),
@@ -122,7 +122,7 @@ public class AppleDescriptionsTest {
     assertEquals(
         ImmutableMap.of(),
         AppleDescriptions.parseAppleHeadersForUseFromTheSameTarget(
-            resolver.deprecatedPathFunction(),
+            resolver::deprecatedGetPath,
             SourceList.ofNamedSources(headerMap)));
   }
 
@@ -139,8 +139,8 @@ public class AppleDescriptionsTest {
             "prefix/file.h", new FakeSourcePath("file.h")),
         AppleDescriptions.convertToFlatCxxHeaders(
             Paths.get("prefix"),
-            resolver.deprecatedPathFunction(),
-            ImmutableSet.<SourcePath>of(
+            resolver::deprecatedGetPath,
+            ImmutableSet.of(
                 new FakeSourcePath("path/to/some_file.h"),
                 new FakeSourcePath("path/to/another_file.h"),
                 new FakeSourcePath("different/path/to/a_file.h"),
@@ -160,8 +160,8 @@ public class AppleDescriptionsTest {
             "file.h", new FakeSourcePath("file.h")),
         AppleDescriptions.convertToFlatCxxHeaders(
             Paths.get(""),
-            resolver.deprecatedPathFunction(),
-            ImmutableSet.<SourcePath>of(
+            resolver::deprecatedGetPath,
+            ImmutableSet.of(
                 new FakeSourcePath("path/to/some_file.h"),
                 new FakeSourcePath("path/to/another_file.h"),
                 new FakeSourcePath("different/path/to/a_file.h"),

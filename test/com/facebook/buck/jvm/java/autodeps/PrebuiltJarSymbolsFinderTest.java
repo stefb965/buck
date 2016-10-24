@@ -29,7 +29,6 @@ import static org.junit.Assert.assertTrue;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKey;
@@ -44,7 +43,6 @@ import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.zip.CustomZipOutputStream;
 import com.facebook.buck.zip.ZipOutputStreams;
 import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -64,6 +62,7 @@ import java.io.OutputStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
+import java.util.Optional;
 import java.util.zip.ZipEntry;
 
 public class PrebuiltJarSymbolsFinderTest {
@@ -118,7 +117,7 @@ public class PrebuiltJarSymbolsFinderTest {
     // DefaultRuleKeyBuilderFactory.
     final SourcePathResolver pathResolver = createMock(SourcePathResolver.class);
     expect(pathResolver.getRule(anyObject(SourcePath.class)))
-        .andReturn(Optional.<BuildRule>absent())
+        .andReturn(Optional.empty())
         .anyTimes();
     expect(pathResolver.getRelativePath(anyObject(SourcePath.class)))
         .andReturn(relativePathToJar)
@@ -131,38 +130,35 @@ public class PrebuiltJarSymbolsFinderTest {
     // Calculates the RuleKey for a JavaSymbolsRule with a PrebuiltJarSymbolsFinder whose binaryJar
     // is a JAR file with the specified entries.
     Function<ImmutableSet<String>, RuleKey> createRuleKey =
-        new Function<ImmutableSet<String>, RuleKey>() {
-      @Override
-      public RuleKey apply(ImmutableSet<String> entries) {
-        File jarFile = absolutePathToJar.toFile();
+        entries -> {
+          File jarFile = absolutePathToJar.toFile();
 
-        JavaSymbolsRule javaSymbolsRule;
-        FakeFileHashCache fileHashCache;
-        try {
-          PrebuiltJarSymbolsFinder finder = createFinderForFileWithEntries(
-              relativePathToJar.getFileName().toString(),
-              entries);
-          HashCode hash = Files.hash(jarFile, Hashing.sha1());
-          Map<Path, HashCode> pathsToHashes = ImmutableMap.of(absolutePathToJar, hash);
-          fileHashCache = new FakeFileHashCache(pathsToHashes);
+          JavaSymbolsRule javaSymbolsRule;
+          FakeFileHashCache fileHashCache;
+          try {
+            PrebuiltJarSymbolsFinder finder = createFinderForFileWithEntries(
+                relativePathToJar.getFileName().toString(),
+                entries);
+            HashCode hash = Files.hash(jarFile, Hashing.sha1());
+            Map<Path, HashCode> pathsToHashes = ImmutableMap.of(absolutePathToJar, hash);
+            fileHashCache = new FakeFileHashCache(pathsToHashes);
 
-          javaSymbolsRule = new JavaSymbolsRule(
-              BuildTargetFactory.newInstance("//foo:rule"),
-              finder,
-              /* generatedSymbols */ ImmutableSortedSet.<String>of(),
-              ObjectMappers.newDefaultInstance(),
-              new ProjectFilesystem(tmp.getRoot())
-          );
-        } catch (IOException e) {
-          throw new RuntimeException(e);
-        }
-        RuleKey ruleKey = new DefaultRuleKeyBuilderFactory(0, fileHashCache, pathResolver)
-            .newInstance(javaSymbolsRule).build();
-        jarFile.delete();
+            javaSymbolsRule = new JavaSymbolsRule(
+                BuildTargetFactory.newInstance("//foo:rule"),
+                finder,
+                /* generatedSymbols */ ImmutableSortedSet.of(),
+                ObjectMappers.newDefaultInstance(),
+                new ProjectFilesystem(tmp.getRoot())
+            );
+          } catch (IOException e) {
+            throw new RuntimeException(e);
+          }
+          RuleKey ruleKey = new DefaultRuleKeyBuilderFactory(0, fileHashCache, pathResolver)
+              .newInstance(javaSymbolsRule).build();
+          jarFile.delete();
 
-        return ruleKey;
-      }
-    };
+          return ruleKey;
+        };
 
     RuleKey key1 = createRuleKey.apply(ImmutableSet.of("entry1", "entry2"));
     RuleKey key2 = createRuleKey.apply(ImmutableSet.of("entry1", "entry2"));
@@ -197,7 +193,7 @@ public class PrebuiltJarSymbolsFinderTest {
     JavaSymbolsRule javaSymbolsRule1 = new JavaSymbolsRule(
         BuildTargetFactory.newInstance("//foo:rule"),
         createFinderForGeneratedJar("//foo:jar_genrule1"),
-        /* generatedSymbols */ ImmutableSortedSet.<String>of(),
+        /* generatedSymbols */ ImmutableSortedSet.of(),
         ObjectMappers.newDefaultInstance(),
         new ProjectFilesystem(tmp.getRoot())
     );
@@ -208,7 +204,7 @@ public class PrebuiltJarSymbolsFinderTest {
     JavaSymbolsRule javaSymbolsRule2 = new JavaSymbolsRule(
         BuildTargetFactory.newInstance("//foo:rule"),
         createFinderForGeneratedJar("//foo:jar_genrule2"),
-        /* generatedSymbols */ ImmutableSortedSet.<String>of(),
+        /* generatedSymbols */ ImmutableSortedSet.of(),
         ObjectMappers.newDefaultInstance(),
         new ProjectFilesystem(tmp.getRoot())
     );

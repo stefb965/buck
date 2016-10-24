@@ -28,10 +28,7 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.VisibilityPattern;
 import com.facebook.buck.util.Console;
-import com.google.common.base.Function;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
-import com.google.common.base.Predicate;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Iterables;
@@ -42,6 +39,7 @@ import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeMap;
@@ -92,7 +90,7 @@ class FineGrainedJavaDependencySuggester {
     JavaFileParser javaFileParser = javaDepsFinder.getJavaFileParser();
     Multimap<String, String> providedSymbolToRequiredSymbols = HashMultimap.create();
     Map<String, PathSourcePath> providedSymbolToSrc = new HashMap<>();
-    for (SourcePath src : arg.srcs.get()) {
+    for (SourcePath src : arg.srcs) {
       extractProvidedSymbolInfoFromSourceFile(
           src,
           javaFileParser,
@@ -144,12 +142,7 @@ class FineGrainedJavaDependencySuggester {
     StringBuilder visibilityBuilder = new StringBuilder("  visibility = [\n");
     SortedSet<String> visibilities = FluentIterable
         .from(suggestedNode.getVisibilityPatterns())
-        .transform(new Function<VisibilityPattern, String>() {
-          @Override
-          public String apply(VisibilityPattern pattern) {
-            return pattern.getRepresentation();
-          }
-        })
+        .transform(VisibilityPattern::getRepresentation)
         .toSortedSet(Ordering.natural());
     for (String visibility : visibilities) {
       visibilityBuilder.append("    '" + visibility + "',\n");
@@ -259,12 +252,9 @@ class FineGrainedJavaDependencySuggester {
           continue;
         }
 
-        depProviders = FluentIterable.from(depProviders).filter(new Predicate<TargetNode<?>>() {
-          @Override
-          public boolean apply(TargetNode<?> provider) {
-            return provider.isVisibleTo(graph, suggestedNode);
-          }
-        }).toSet();
+        depProviders = FluentIterable.from(depProviders)
+            .filter(provider -> provider.isVisibleTo(graph, suggestedNode))
+            .toSet();
         TargetNode<?> depProvider;
         if (depProviders.size() == 1) {
           depProvider = Iterables.getOnlyElement(depProviders);
@@ -292,12 +282,8 @@ class FineGrainedJavaDependencySuggester {
 
     final Path basePathForSuggestedTarget = suggestedTarget.getBasePath();
     Iterable<String> relativeSrcs = FluentIterable.from(srcs)
-        .transform(new Function<PathSourcePath, String>() {
-          @Override
-          public String apply(PathSourcePath input) {
-            return basePathForSuggestedTarget.relativize(input.getRelativePath()).toString();
-          }
-        });
+        .transform(input ->
+            basePathForSuggestedTarget.relativize(input.getRelativePath()).toString());
 
     StringBuilder rule = new StringBuilder(
         "\njava_library(\n" +
@@ -337,18 +323,15 @@ class FineGrainedJavaDependencySuggester {
     }
   }
 
-  private static final Comparator<String> LOCAL_DEPS_FIRST_COMPARATOR = new Comparator<String>() {
-    @Override
-    public int compare(String dep1, String dep2) {
-      boolean isDep1Local = dep1.startsWith(":");
-      boolean isDep2Local = dep2.startsWith(":");
-      if (isDep1Local == isDep2Local) {
-        return dep1.compareTo(dep2);
-      } else if (isDep1Local) {
-        return -1;
-      } else {
-        return 1;
-      }
+  private static final Comparator<String> LOCAL_DEPS_FIRST_COMPARATOR = (dep1, dep2) -> {
+    boolean isDep1Local = dep1.startsWith(":");
+    boolean isDep2Local = dep2.startsWith(":");
+    if (isDep1Local == isDep2Local) {
+      return dep1.compareTo(dep2);
+    } else if (isDep1Local) {
+      return -1;
+    } else {
+      return 1;
     }
   };
 }

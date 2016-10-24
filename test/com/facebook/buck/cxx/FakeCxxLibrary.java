@@ -27,10 +27,7 @@ import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
-import com.facebook.buck.rules.coercer.FrameworkPath;
-import com.google.common.base.Optional;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -40,6 +37,7 @@ import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 
 /**
  * Fake implementation of {@link CxxLibrary} for testing.
@@ -135,7 +133,7 @@ public final class FakeCxxLibrary
 
   @Override
   public Optional<HeaderSymlinkTree> getExportedHeaderSymlinkTree(CxxPlatform cxxPlatform) {
-    return Optional.absent();
+    return Optional.empty();
   }
 
   @Override
@@ -156,19 +154,19 @@ public final class FakeCxxLibrary
       Linker.LinkableDepType type) {
     return type == Linker.LinkableDepType.STATIC ?
         NativeLinkableInput.of(
-            ImmutableList.<Arg>of(
+            ImmutableList.of(
                 new SourcePathArg(
                     getResolver(),
                     new BuildTargetSourcePath(archive.getBuildTarget()))),
-            ImmutableSet.<FrameworkPath>of(),
-            ImmutableSet.<FrameworkPath>of()) :
+            ImmutableSet.of(),
+            ImmutableSet.of()) :
         NativeLinkableInput.of(
-            ImmutableList.<Arg>of(
+            ImmutableList.of(
                 new SourcePathArg(
                     getResolver(),
                     new BuildTargetSourcePath(sharedLibrary.getBuildTarget()))),
-            ImmutableSet.<FrameworkPath>of(),
-            ImmutableSet.<FrameworkPath>of());
+            ImmutableSet.of(),
+            ImmutableSet.of());
   }
 
   @Override
@@ -186,7 +184,7 @@ public final class FakeCxxLibrary
 
   @Override
   public ImmutableMap<String, SourcePath> getSharedLibraries(CxxPlatform cxxPlatform) {
-    return ImmutableMap.<String, SourcePath>of(
+    return ImmutableMap.of(
         sharedLibrarySoname,
         new PathSourcePath(getProjectFilesystem(), sharedLibraryOutput));
   }

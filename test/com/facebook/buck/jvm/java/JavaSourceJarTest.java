@@ -41,7 +41,6 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
-import com.google.common.base.Optional;
 import com.google.common.base.Predicates;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -51,6 +50,7 @@ import org.junit.Test;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 
 public class JavaSourceJarTest {
 
@@ -66,8 +66,8 @@ public class JavaSourceJarTest {
         JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//example:target"))
             .build(resolver),
         RuleGatherer.SINGLE_JAR,
-        Optional.<Path>absent(),
-        Optional.<String>absent());
+        Optional.<Path>empty(),
+        Optional.<String>empty());
 
     Path output = rule.getPathToOutput();
 
@@ -106,11 +106,11 @@ public class JavaSourceJarTest {
         pathResolver,
         lib,
         RuleGatherer.SINGLE_JAR,
-        Optional.<Path>absent(),
-        Optional.<String>absent());
+        Optional.<Path>empty(),
+        Optional.<String>empty());
 
     BuildContext buildContext = FakeBuildContext.newBuilder()
-        .setActionGraph(new ActionGraph(ImmutableList.<BuildRule>of()))
+        .setActionGraph(new ActionGraph(ImmutableList.of()))
         .setJavaPackageFinder(finderStub)
         .build();
     ImmutableList<Step> steps = rule.getBuildSteps(

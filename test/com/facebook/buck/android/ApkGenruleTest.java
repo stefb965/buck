@@ -38,23 +38,19 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.ExopackageInfo;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.ImmutableBuildContext;
 import com.facebook.buck.rules.InstallableApk;
 import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.shell.AbstractGenruleStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
-import com.facebook.buck.step.StepRunner;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirAndSymlinkFileStep;
@@ -63,11 +59,9 @@ import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.timing.Clock;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.environment.Platform;
-import com.google.common.base.Functions;
-import com.google.common.base.Optional;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -81,6 +75,7 @@ import java.nio.file.FileSystem;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.Optional;
 
 public class ApkGenruleTest {
 
@@ -129,7 +124,7 @@ public class ApkGenruleTest {
         parser.parse(
             EasyMock.eq(":fb4a"),
             EasyMock.anyObject(BuildTargetPatternParser.class),
-            EasyMock.<CellPathResolver>anyObject()))
+            EasyMock.anyObject()))
         .andStubReturn(apkTarget);
     EasyMock.replay(parser);
     BuildTarget buildTarget =
@@ -143,12 +138,12 @@ public class ApkGenruleTest {
     arg.cmd = Optional.of("python signer.py $APK key.properties > $OUT");
     arg.cmdExe = Optional.of("");
     arg.out = "signed_fb4a.apk";
-    arg.srcs = Optional.of(ImmutableList.<SourcePath>of(
+    arg.srcs = ImmutableList.of(
         new PathSourcePath(projectFilesystem, fileSystem.getPath("src/com/facebook/signer.py")),
         new PathSourcePath(
             projectFilesystem,
-            fileSystem.getPath("src/com/facebook/key.properties"))));
-    arg.tests = Optional.of(ImmutableSortedSet.<BuildTarget>of());
+            fileSystem.getPath("src/com/facebook/key.properties")));
+    arg.tests = ImmutableSortedSet.of();
     BuildRuleParams params = new FakeBuildRuleParamsBuilder(buildTarget)
         .setProjectFilesystem(projectFilesystem).build();
     ApkGenrule apkGenrule =
@@ -165,13 +160,11 @@ public class ApkGenruleTest {
     assertEquals(
         "The apk that this rule is modifying must have the apk in its deps.",
         ImmutableSet.of(apkTarget.toString()),
-        FluentIterable
-            .from(apkGenrule.getDeps())
-            .transform(Functions.toStringFunction())
-            .toSet());
-    BuildContext buildContext = ImmutableBuildContext.builder()
+        apkGenrule.getDeps().stream()
+            .map(Object::toString)
+            .collect(MoreCollectors.toImmutableSet()));
+    BuildContext buildContext = BuildContext.builder()
         .setActionGraph(EasyMock.createMock(ActionGraph.class))
-        .setStepRunner(EasyMock.createNiceMock(StepRunner.class))
         .setClock(EasyMock.createMock(Clock.class))
         .setBuildId(EasyMock.createMock(BuildId.class))
         .setObjectMapper(ObjectMappers.newDefaultInstance())
@@ -291,7 +284,7 @@ public class ApkGenruleTest {
 
     @Override
     public Optional<ExopackageInfo> getExopackageInfo() {
-      return Optional.absent();
+      return Optional.empty();
     }
   }
 }

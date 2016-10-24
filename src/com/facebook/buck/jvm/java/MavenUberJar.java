@@ -26,7 +26,6 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Predicates;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
@@ -35,6 +34,7 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Ordering;
 
 import java.nio.file.Path;
+import java.util.Optional;
 
 import javax.annotation.Nullable;
 
@@ -59,7 +59,7 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
     this.gatheredDeps = gatheredDeps;
     this.mavenCoords = mavenCoords;
 
-    this.pomTemplate = mavenPomTemplate.transform(getResolver().getAbsolutePathFunction());
+    this.pomTemplate = mavenPomTemplate.map(getResolver()::getAbsolutePath);
   }
 
   private static BuildRuleParams adjustParams(
@@ -124,7 +124,7 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
                 }
               })
           .filter(Predicates.notNull())
-          .toSortedSet(Ordering.<Path>natural());
+          .toSortedSet(Ordering.natural());
   }
 
   @Override

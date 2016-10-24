@@ -16,35 +16,34 @@
 
 package com.facebook.buck.cli;
 
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.is;
+import static org.junit.Assume.assumeFalse;
 import static org.junit.Assume.assumeThat;
 import static org.junit.Assume.assumeTrue;
-import static org.junit.Assume.assumeFalse;
-import static org.hamcrest.MatcherAssert.assertThat;
-
-import static org.hamcrest.Matchers.is;
 
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.FakeAppleDeveloperEnvironment;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.ProjectWorkspace.ProcessResult;
+import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
+import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.environment.Platform;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSet;
-
-import java.io.IOException;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
+
+import java.io.IOException;
+import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Ignore("Disabled due to timeouts installing into the simulator")
 public class InstallCommandIntegrationTest {
@@ -119,19 +118,19 @@ public class InstallCommandIntegrationTest {
     assertThat(matcher.find(), equalTo(true));
     String[] lldbCommand = matcher.group().split(" ");
 
-    ProcessExecutor executor = new ProcessExecutor(new TestConsole());
+    ProcessExecutor executor = new DefaultProcessExecutor(new TestConsole());
 
     // run lldb session
     ProcessExecutor.Result lldbResult = executor.launchAndExecute(
         ProcessExecutorParams.builder().addCommand(lldbCommand).build(),
-        ImmutableSet.<ProcessExecutor.Option>of(),
+        ImmutableSet.of(),
         Optional.of("b application:didFinishLaunchingWithOptions:\nb\nexit\nY\n"),
-        Optional.<Long>absent(),
-        Optional.<Function<Process, Void>>absent());
+        Optional.empty(),
+        Optional.empty());
     assertThat(lldbResult.getExitCode(), equalTo(0));
 
     // check that lldb resolved breakpoint locations
-    String lldbOutput = lldbResult.getStdout().or("");
+    String lldbOutput = lldbResult.getStdout().orElse("");
     assertThat(lldbOutput, containsString("Current breakpoints:"));
     assertThat(
         lldbOutput,
@@ -160,14 +159,14 @@ public class InstallCommandIntegrationTest {
     // run lldb session again - now on top of files fetched from cache
     lldbResult = executor.launchAndExecute(
         ProcessExecutorParams.builder().addCommand(lldbCommand2).build(),
-        ImmutableSet.<ProcessExecutor.Option>of(),
+        ImmutableSet.of(),
         Optional.of("b application:didFinishLaunchingWithOptions:\nb\nexit\nY\n"),
-        Optional.<Long>absent(),
-        Optional.<Function<Process, Void>>absent());
+        Optional.empty(),
+        Optional.empty());
     assertThat(lldbResult.getExitCode(), equalTo(0));
 
     // check that lldb resolved breakpoint locations with files from cache
-    lldbOutput = lldbResult.getStdout().or("");
+    lldbOutput = lldbResult.getStdout().orElse("");
     assertThat(lldbOutput, containsString("Current breakpoints:"));
     assertThat(
         lldbOutput,

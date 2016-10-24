@@ -53,19 +53,18 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
-import com.facebook.buck.rules.coercer.FrameworkPath;
+import com.facebook.buck.util.OptionalCompat;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSortedSet;
 
 import java.io.File;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Optional;
 
 public class CxxLuaExtensionDescription implements
     Description<CxxLuaExtensionDescription.Arg>,
@@ -151,7 +150,7 @@ public class CxxLuaExtensionDescription implements
                 args.langPreprocessorFlags,
                 cxxPlatform),
             ImmutableList.of(headerSymlinkTree),
-            ImmutableSet.<FrameworkPath>of(),
+            ImmutableSet.of(),
             CxxPreprocessables.getTransitiveCxxPreprocessorInput(
                 cxxPlatform,
                 params.getDeps()));
@@ -218,8 +217,8 @@ public class CxxLuaExtensionDescription implements
             .filter(NativeLinkable.class)
             .append(luaConfig.getLuaCxxLibrary(ruleResolver)),
         args.cxxRuntimeType,
-        Optional.<SourcePath>absent(),
-        ImmutableSet.<BuildTarget>of(),
+        Optional.empty(),
+        ImmutableSet.of(),
         NativeLinkableInput.builder()
             .setArgs(getExtensionArgs(params, ruleResolver, pathResolver, cxxPlatform, args))
             .build());
@@ -294,13 +293,13 @@ public class CxxLuaExtensionDescription implements
           throws NoSuchBuildTargetException {
         return NativeLinkableInput.builder()
             .addAllArgs(getExtensionArgs(params, resolver, pathResolver, cxxPlatform, args))
-            .addAllFrameworks(args.frameworks.or(ImmutableSortedSet.<FrameworkPath>of()))
+            .addAllFrameworks(args.frameworks)
             .build();
       }
 
       @Override
       public Optional<Path> getNativeLinkTargetOutputPath(CxxPlatform cxxPlatform) {
-        return Optional.absent();
+        return Optional.empty();
       }
 
     };
@@ -314,7 +313,7 @@ public class CxxLuaExtensionDescription implements
     ImmutableSet.Builder<BuildTarget> deps = ImmutableSet.builder();
 
     // Add deps from lua C/C++ library.
-    deps.addAll(luaConfig.getLuaCxxLibraryTarget().asSet());
+    deps.addAll(OptionalCompat.asSet(luaConfig.getLuaCxxLibraryTarget()));
 
     // Get any parse time deps from the C/C++ platforms.
     deps.addAll(CxxPlatforms.getParseTimeDeps(cxxPlatforms.getValues()));

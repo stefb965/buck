@@ -23,7 +23,6 @@ import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.environment.Platform;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
@@ -38,6 +37,7 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Optional;
 
 public class CxxTestStepTest {
 
@@ -79,10 +79,10 @@ public class CxxTestStepTest {
         new CxxTestStep(
             filesystem,
             trueCmd,
-            ImmutableMap.<String, String>of(),
+            ImmutableMap.of(),
             exitCode,
             output,
-            /* testRuleTimeoutMs */ Optional.<Long>absent());
+            /* testRuleTimeoutMs */ Optional.empty());
     step.execute(context);
     assertSame(0, readExitCode(exitCode));
     assertContents(output, "");
@@ -96,10 +96,10 @@ public class CxxTestStepTest {
         new CxxTestStep(
             filesystem,
             falseCmd,
-            ImmutableMap.<String, String>of(),
+            ImmutableMap.of(),
             exitCode,
             output,
-            /* testRuleTimeoutMs */ Optional.<Long>absent());
+            /* testRuleTimeoutMs */ Optional.empty());
     step.execute(context);
     assertSame(1, readExitCode(exitCode));
     assertContents(output, "");
@@ -115,10 +115,10 @@ public class CxxTestStepTest {
         new CxxTestStep(
             filesystem,
             echoCmd,
-            ImmutableMap.<String, String>of(),
+            ImmutableMap.of(),
             exitCode,
             output,
-            /* testRuleTimeoutMs */ Optional.<Long>absent());
+            /* testRuleTimeoutMs */ Optional.empty());
     step.execute(context);
     assertSame(0, readExitCode(exitCode));
     assertContents(output, stdout + System.lineSeparator());
@@ -132,7 +132,7 @@ public class CxxTestStepTest {
         new CxxTestStep(
             filesystem,
             sleepCmd,
-            ImmutableMap.<String, String>of(),
+            ImmutableMap.of(),
             exitCode,
             output,
             /* testRuleTimeoutMs */ Optional.of(10L));

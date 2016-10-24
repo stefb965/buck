@@ -19,8 +19,9 @@ package com.facebook.buck.android;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.SourcePath;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
+
+import java.util.Optional;
 
 public class ApkGenruleBuilder extends AbstractNodeBuilder<ApkGenruleDescription.Arg> {
 
@@ -53,7 +54,7 @@ public class ApkGenruleBuilder extends AbstractNodeBuilder<ApkGenruleDescription
   }
 
   public ApkGenruleBuilder setSrcs(ImmutableList<SourcePath> srcs) {
-    arg.srcs = Optional.of(srcs);
+    arg.srcs = srcs;
     return this;
   }
 

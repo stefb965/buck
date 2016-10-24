@@ -31,7 +31,6 @@ import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.RecordFileSha1Step;
-import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.coercer.ManifestEntries;
@@ -40,9 +39,8 @@ import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.TouchStep;
+import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Functions;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -53,6 +51,7 @@ import com.google.common.collect.Ordering;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.EnumSet;
+import java.util.Optional;
 
 /**
  * Packages the resources using {@code aapt}.
@@ -163,7 +162,7 @@ public class AaptPackageResources extends AbstractBuildRule
     Path rDotTxtDir = getPathToRDotTxtDir();
     steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), rDotTxtDir));
 
-    Optional<Path> pathToGeneratedProguardConfig = Optional.absent();
+    Optional<Path> pathToGeneratedProguardConfig = Optional.empty();
     if (packageType.isBuildWithObfuscation()) {
       Path proguardConfigDir = getPathToGeneratedProguardConfigDir();
       steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), proguardConfigDir));
@@ -177,7 +176,7 @@ public class AaptPackageResources extends AbstractBuildRule
             getAndroidManifestXml(),
             filteredResourcesProvider.getResDirectories(),
             FluentIterable.from(getResolver().getAllAbsolutePaths(assetsDirectories))
-                .toSortedSet(Ordering.<Path>natural()),
+                .toSortedSet(Ordering.natural()),
             getResourceApkPath(),
             rDotTxtDir,
             pathToGeneratedProguardConfig,
@@ -208,7 +207,7 @@ public class AaptPackageResources extends AbstractBuildRule
     buildableContext.addMetadata(
         FILTERED_RESOURCE_DIRS_KEY,
         FluentIterable.from(filteredResourcesProvider.getResDirectories())
-            .transform(Functions.toStringFunction())
+            .transform(Object::toString)
             .toSortedList(Ordering.natural()));
 
     buildableContext.recordArtifact(getAndroidManifestXml());

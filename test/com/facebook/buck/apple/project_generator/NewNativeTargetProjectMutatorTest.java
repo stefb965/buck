@@ -49,7 +49,6 @@ import com.facebook.buck.apple.xcode.xcodeproj.PBXResourcesBuildPhase;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXShellScriptBuildPhase;
 import com.facebook.buck.apple.xcode.xcodeproj.ProductType;
 import com.facebook.buck.apple.xcode.xcodeproj.SourceTreePath;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.js.IosReactNativeLibraryBuilder;
@@ -58,18 +57,17 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.coercer.FrameworkPath;
-import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.testutil.AllExistingProjectFilesystem;
 import com.facebook.buck.util.environment.Platform;
-import com.google.common.base.Optional;
-import com.google.common.base.Predicate;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -82,6 +80,7 @@ import org.junit.Test;
 
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.Optional;
 
 public class NewNativeTargetProjectMutatorTest {
   private PBXProject generatedProject;
@@ -97,14 +96,14 @@ public class NewNativeTargetProjectMutatorTest {
     );
     pathRelativizer = new PathRelativizer(
         Paths.get("_output"),
-        sourcePathResolver.deprecatedPathFunction());
+        sourcePathResolver::deprecatedGetPath);
   }
 
   @Test
   public void shouldCreateTargetAndTargetGroup() throws NoSuchBuildTargetException {
     NewNativeTargetProjectMutator mutator = new NewNativeTargetProjectMutator(
         pathRelativizer,
-        sourcePathResolver.deprecatedPathFunction());
+        sourcePathResolver::deprecatedGetPath);
     mutator
         .setTargetName("TestTarget")
         .setProduct(
@@ -121,7 +120,7 @@ public class NewNativeTargetProjectMutatorTest {
   public void shouldCreateTargetAndCustomTargetGroup() throws NoSuchBuildTargetException {
     NewNativeTargetProjectMutator mutator = new NewNativeTargetProjectMutator(
         pathRelativizer,
-        sourcePathResolver.deprecatedPathFunction());
+        sourcePathResolver::deprecatedGetPath);
     mutator
         .setTargetName("TestTarget")
         .setTargetGroupPath(ImmutableList.of("Grandparent", "Parent"))
@@ -225,14 +224,14 @@ public class NewNativeTargetProjectMutatorTest {
             FrameworkPath.ofSourceTreePath(
                 new SourceTreePath(
                     PBXReference.SourceTree.SDKROOT, Paths.get("Foo.framework"),
-                    Optional.<String>absent()))));
+                    Optional.empty()))));
     mutator.setArchives(
         ImmutableSet.of(
             new PBXFileReference(
                 "libdep.a",
                 "libdep.a",
                 PBXReference.SourceTree.BUILT_PRODUCTS_DIR,
-                Optional.<String>absent())));
+                Optional.empty())));
     NewNativeTargetProjectMutator.Result result =
         mutator.buildTargetAndAddToProject(generatedProject);
     assertHasSingletonFrameworksPhaseWithFrameworkEntries(
@@ -248,7 +247,7 @@ public class NewNativeTargetProjectMutatorTest {
 
     AppleResourceDescription appleResourceDescription = new AppleResourceDescription();
     AppleResourceDescription.Arg arg = createDescriptionArgWithDefaults(appleResourceDescription);
-    arg.files = ImmutableSet.<SourcePath>of(new FakeSourcePath("foo.png"));
+    arg.files = ImmutableSet.of(new FakeSourcePath("foo.png"));
 
     mutator.setRecursiveResources(ImmutableSet.of(arg));
     NewNativeTargetProjectMutator.Result result =
@@ -297,7 +296,7 @@ public class NewNativeTargetProjectMutatorTest {
         .setCmd("echo \"hello world!\"")
         .build();
     mutator.setPostBuildRunScriptPhasesFromTargetNodes(
-        ImmutableList.<TargetNode<?>>of(postbuildNode));
+        ImmutableList.of(postbuildNode));
 
     NewNativeTargetProjectMutator.Result result =
         mutator.buildTargetAndAddToProject(generatedProject);
@@ -322,7 +321,7 @@ public class NewNativeTargetProjectMutatorTest {
   public void assetCatalogsBuildPhaseBuildsAssetCatalogs()
       throws NoSuchBuildTargetException {
     AppleAssetCatalogDescription.Arg arg = new AppleAssetCatalogDescription.Arg();
-    arg.dirs = ImmutableSortedSet.<SourcePath>of(new FakeSourcePath("AssetCatalog1.xcassets"));
+    arg.dirs = ImmutableSortedSet.of(new FakeSourcePath("AssetCatalog1.xcassets"));
 
     NewNativeTargetProjectMutator mutator = mutatorWithCommonDefaults();
     mutator.setRecursiveAssetCatalogs(
@@ -341,13 +340,13 @@ public class NewNativeTargetProjectMutatorTest {
 
     TargetNode<?> prebuildNode = XcodePrebuildScriptBuilder
         .createBuilder(BuildTargetFactory.newInstance("//foo:script"))
-        .setSrcs(ImmutableSortedSet.<SourcePath>of(new FakeSourcePath("script/input.png")))
+        .setSrcs(ImmutableSortedSet.of(new FakeSourcePath("script/input.png")))
         .setOutputs(ImmutableSortedSet.of("helloworld.txt"))
         .setCmd("echo \"hello world!\"")
         .build();
 
     mutator.setPostBuildRunScriptPhasesFromTargetNodes(
-        ImmutableList.<TargetNode<?>>of(prebuildNode));
+        ImmutableList.of(prebuildNode));
     NewNativeTargetProjectMutator.Result result =
         mutator.buildTargetAndAddToProject(generatedProject);
 
@@ -388,7 +387,7 @@ public class NewNativeTargetProjectMutatorTest {
             .build();
 
     mutator.setPostBuildRunScriptPhasesFromTargetNodes(
-        ImmutableList.<TargetNode<?>>of(reactNativeNode));
+        ImmutableList.of(reactNativeNode));
     NewNativeTargetProjectMutator.Result result =
         mutator.buildTargetAndAddToProject(generatedProject);
 
@@ -405,7 +404,7 @@ public class NewNativeTargetProjectMutatorTest {
   private NewNativeTargetProjectMutator mutatorWithCommonDefaults() {
     NewNativeTargetProjectMutator mutator = new NewNativeTargetProjectMutator(
         pathRelativizer,
-        sourcePathResolver.deprecatedPathFunction());
+        sourcePathResolver::deprecatedGetPath);
     mutator
         .setTargetName("TestTarget")
         .setProduct(
@@ -419,12 +418,7 @@ public class NewNativeTargetProjectMutatorTest {
     assertThat(
         "Should contain a target group named: " + name,
         Iterables.filter(
-            project.getMainGroup().getChildren(), new Predicate<PBXReference>() {
-              @Override
-              public boolean apply(PBXReference input) {
-                return input.getName().equals(name);
-              }
-            }),
+            project.getMainGroup().getChildren(), input -> input.getName().equals(name)),
         not(emptyIterable()));
   }
 
@@ -432,12 +426,7 @@ public class NewNativeTargetProjectMutatorTest {
     ImmutableList<PBXGroup> candidates = FluentIterable
         .from(group.getChildren())
         .filter(
-            new Predicate<PBXReference>() {
-              @Override
-              public boolean apply(PBXReference input) {
-                return input.getName().equals(subgroupName);
-              }
-            })
+            input -> input.getName().equals(subgroupName))
         .filter(PBXGroup.class)
         .toList();
     if (candidates.size() != 1) {

@@ -20,14 +20,13 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.cli.BuckConfig;
-import com.facebook.buck.cxx.CxxPlatformUtils;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.CxxLibrary;
 import com.facebook.buck.cxx.CxxLibraryBuilder;
 import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.cxx.CxxPlatform;
+import com.facebook.buck.cxx.CxxPlatformUtils;
 import com.facebook.buck.cxx.DefaultCxxPlatforms;
 import com.facebook.buck.cxx.InferBuckConfig;
 import com.facebook.buck.cxx.NativeLinkable;
@@ -40,6 +39,7 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CommandTool;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeSourcePath;
@@ -50,7 +50,6 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.rules.coercer.SourceWithFlagsList;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -60,9 +59,9 @@ import com.google.common.collect.ImmutableSortedSet;
 import org.hamcrest.Matchers;
 import org.junit.Test;
 
-import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
+import java.util.Optional;
 
 public class ThriftCxxEnhancerTest {
 
@@ -110,15 +109,15 @@ public class ThriftCxxEnhancerTest {
         new CommandTool.Builder()
             .addArg(new StringArg("compiler"))
             .build(),
-        ImmutableList.<String>of(),
+        ImmutableList.of(),
         Paths.get("output"),
         new FakeSourcePath("source"),
         "language",
-        ImmutableSet.<String>of(),
-        ImmutableList.<Path>of(),
-        ImmutableSet.<Path>of(),
-        ImmutableMap.<Path, SourcePath>of(),
-        ImmutableSortedSet.<String>of());
+        ImmutableSet.of(),
+        ImmutableList.of(),
+        ImmutableSet.of(),
+        ImmutableMap.of(),
+        ImmutableSortedSet.of());
   }
 
   @Test
@@ -165,34 +164,34 @@ public class ThriftCxxEnhancerTest {
 
     // Test empty options.
     options = ImmutableSet.of();
-    arg.cppOptions = Optional.of(options);
+    arg.cppOptions = options;
     assertEquals(
         getExpectedOptions(TARGET, options),
         ENHANCER_CPP.getOptions(TARGET, arg));
-    arg.cpp2Options = Optional.of(options);
+    arg.cpp2Options = options;
     assertEquals(
         getExpectedOptions(TARGET, options),
         ENHANCER_CPP2.getOptions(TARGET, arg));
 
     // Test set options.
     options = ImmutableSet.of("test", "option");
-    arg.cppOptions = Optional.of(options);
+    arg.cppOptions = options;
     assertEquals(
         getExpectedOptions(TARGET, options),
         ENHANCER_CPP.getOptions(TARGET, arg));
-    arg.cpp2Options = Optional.of(options);
+    arg.cpp2Options = options;
     assertEquals(
         getExpectedOptions(TARGET, options),
         ENHANCER_CPP.getOptions(TARGET, arg));
 
     // Test absent options.
-    arg.cppOptions = Optional.absent();
+    arg.cppOptions = ImmutableSet.of();
     assertEquals(
-        getExpectedOptions(TARGET, ImmutableSet.<String>of()),
+        getExpectedOptions(TARGET, ImmutableSet.of()),
         ENHANCER_CPP.getOptions(TARGET, arg));
-    arg.cpp2Options = Optional.absent();
+    arg.cpp2Options = ImmutableSet.of();
     assertEquals(
-        getExpectedOptions(TARGET, ImmutableSet.<String>of()),
+        getExpectedOptions(TARGET, ImmutableSet.of()),
         ENHANCER_CPP2.getOptions(TARGET, arg));
   }
 
@@ -202,8 +201,8 @@ public class ThriftCxxEnhancerTest {
       ImmutableSet<BuildTarget> expected) {
 
     ThriftConstructorArg arg = new ThriftConstructorArg();
-    arg.cppOptions = Optional.of(options);
-    arg.cpp2Options = Optional.of(options);
+    arg.cppOptions = options;
+    arg.cpp2Options = options;
 
     assertEquals(
         expected,
@@ -238,13 +237,13 @@ public class ThriftCxxEnhancerTest {
     // With no options we just need to find the C/C++ thrift library.
     expectImplicitDeps(
         cppEnhancerWithSettings,
-        ImmutableSet.<String>of(),
+        ImmutableSet.of(),
         ImmutableSet.of(
             config.get("cpp_library"),
             config.get("cpp_reflection_library")));
     expectImplicitDeps(
         cpp2EnhancerWithSettings,
-        ImmutableSet.<String>of(),
+        ImmutableSet.of(),
         ImmutableSet.of(
             config.get("cpp2_library"),
             config.get("cpp_reflection_library")));
@@ -253,11 +252,11 @@ public class ThriftCxxEnhancerTest {
     expectImplicitDeps(
         cppEnhancerWithSettings,
         ImmutableSet.of("bootstrap"),
-        ImmutableSet.<BuildTarget>of());
+        ImmutableSet.of());
     expectImplicitDeps(
         cpp2EnhancerWithSettings,
         ImmutableSet.of("bootstrap"),
-        ImmutableSet.<BuildTarget>of());
+        ImmutableSet.of());
 
     // Check the "frozen2" option
     expectImplicitDeps(
@@ -325,7 +324,7 @@ public class ThriftCxxEnhancerTest {
         ENHANCER_CPP.getGeneratedSources(
             "test.thrift",
             ImmutableList.of("Test"),
-            ImmutableSet.<String>of()));
+            ImmutableSet.of()));
     assertEquals(
         ImmutableSortedSet.of(
             "test_constants.h",
@@ -342,7 +341,7 @@ public class ThriftCxxEnhancerTest {
         ENHANCER_CPP2.getGeneratedSources(
             "test.thrift",
             ImmutableList.of("Test"),
-            ImmutableSet.<String>of()));
+            ImmutableSet.of()));
 
     // Test with "frozen" option.
     assertEquals(
@@ -528,12 +527,11 @@ public class ThriftCxxEnhancerTest {
     BuildRule argDep = createFakeBuildRule("//:arg_dep", pathResolver);
     resolver.addToIndex(argDep);
     ThriftConstructorArg arg = new ThriftConstructorArg();
-    arg.cppHeaderNamespace = Optional.absent();
-    arg.cppExportedHeaders = Optional.absent();
-    arg.cppSrcs = Optional.absent();
-    arg.cpp2Options = Optional.absent();
-    arg.cpp2Deps = Optional.of(
-        ImmutableSortedSet.of(argDep.getBuildTarget()));
+    arg.cppHeaderNamespace = Optional.empty();
+    arg.cppExportedHeaders = SourceList.EMPTY;
+    arg.cppSrcs = SourceWithFlagsList.EMPTY;
+    arg.cpp2Options = ImmutableSet.of();
+    arg.cpp2Deps = ImmutableSortedSet.of(argDep.getBuildTarget());
 
     ThriftCompiler thrift1 = createFakeThriftCompiler("//:thrift_source1", pathResolver);
     resolver.addToIndex(thrift1);
@@ -544,18 +542,18 @@ public class ThriftCxxEnhancerTest {
     ImmutableMap<String, ThriftSource> sources = ImmutableMap.of(
         "test1.thrift", new ThriftSource(
             thrift1,
-            ImmutableList.<String>of(),
+            ImmutableList.of(),
             Paths.get("output1")),
         "test2.thrift", new ThriftSource(
             thrift2,
-            ImmutableList.<String>of(),
+            ImmutableList.of(),
             Paths.get("output2")));
 
     // Create a dummy implicit dep to pass in.
     CxxLibrary dep =
         (CxxLibrary) new CxxLibraryBuilder(BuildTargetFactory.newInstance("//:dep"))
             .build(resolver);
-    ImmutableSortedSet<BuildRule> deps = ImmutableSortedSet.<BuildRule>of(dep);
+    ImmutableSortedSet<BuildRule> deps = ImmutableSortedSet.of(dep);
 
     // Run the enhancer to create the language specific build rule.
     CxxLibrary rule =
@@ -581,18 +579,18 @@ public class ThriftCxxEnhancerTest {
 
     final String cppHeaderNamespace = "foo";
     final ImmutableSortedMap<String, SourcePath> cppHeaders =
-        ImmutableSortedMap.<String, SourcePath>of(
+        ImmutableSortedMap.of(
             "header.h", new FakeSourcePath("header.h"));
     final ImmutableSortedMap<String, SourceWithFlags> cppSrcs =
         ImmutableSortedMap.of(
             "source.cpp", SourceWithFlags.of(new FakeSourcePath("source.cpp")));
 
     ThriftConstructorArg arg = new ThriftConstructorArg();
-    arg.cppOptions = Optional.absent();
-    arg.cppDeps = Optional.absent();
+    arg.cppOptions = ImmutableSet.of();
+    arg.cppDeps = ImmutableSortedSet.of();
     arg.cppHeaderNamespace = Optional.of(cppHeaderNamespace);
-    arg.cppExportedHeaders = Optional.of(SourceList.ofNamedSources(cppHeaders));
-    arg.cppSrcs = Optional.of(SourceWithFlagsList.ofNamedSources(cppSrcs));
+    arg.cppExportedHeaders = SourceList.ofNamedSources(cppHeaders);
+    arg.cppSrcs = SourceWithFlagsList.ofNamedSources(cppSrcs);
 
     ThriftCompiler thrift = createFakeThriftCompiler("//:thrift_source", pathResolver);
     resolver.addToIndex(thrift);
@@ -601,7 +599,7 @@ public class ThriftCxxEnhancerTest {
     ImmutableMap<String, ThriftSource> sources = ImmutableMap.of(
         "test.thrift", new ThriftSource(
             thrift,
-            ImmutableList.<String>of(),
+            ImmutableList.of(),
             Paths.get("output")));
 
     // Run the enhancer with a modified C++ description which checks that appropriate args are
@@ -621,12 +619,12 @@ public class ThriftCxxEnhancerTest {
             assertThat(args.headerNamespace, Matchers.equalTo(Optional.of(cppHeaderNamespace)));
             for (Map.Entry<String, SourcePath> header : cppHeaders.entrySet()) {
               assertThat(
-                  args.exportedHeaders.get().getNamedSources().get().get(header.getKey()),
+                  args.exportedHeaders.getNamedSources().get().get(header.getKey()),
                   Matchers.equalTo(header.getValue()));
             }
             for (Map.Entry<String, SourceWithFlags> source : cppSrcs.entrySet()) {
               assertThat(
-                  args.srcs.get(),
+                  args.srcs,
                   Matchers.hasItem(source.getValue()));
             }
             return super.createBuildRule(targetGraph, params, resolver, args);
@@ -643,7 +641,7 @@ public class ThriftCxxEnhancerTest {
         resolver,
         arg,
         sources,
-        ImmutableSortedSet.<BuildRule>of());
+        ImmutableSortedSet.of());
   }
 
   @Test
@@ -656,14 +654,14 @@ public class ThriftCxxEnhancerTest {
     final ImmutableList<String> compilerFlags = ImmutableList.of("-flag");
 
     ThriftConstructorArg arg = new ThriftConstructorArg();
-    arg.cppOptions = Optional.absent();
-    arg.cppDeps = Optional.absent();
-    arg.cpp2Deps = Optional.absent();
-    arg.cpp2CompilerFlags = Optional.of(compilerFlags);
-    arg.cppCompilerFlags = Optional.of(compilerFlags);
-    arg.cppHeaderNamespace = Optional.absent();
-    arg.cppExportedHeaders = Optional.absent();
-    arg.cppSrcs = Optional.absent();
+    arg.cppOptions = ImmutableSet.of();
+    arg.cppDeps = ImmutableSortedSet.of();
+    arg.cpp2Deps = ImmutableSortedSet.of();
+    arg.cpp2CompilerFlags = compilerFlags;
+    arg.cppCompilerFlags = compilerFlags;
+    arg.cppHeaderNamespace = Optional.empty();
+    arg.cppExportedHeaders = SourceList.EMPTY;
+    arg.cppSrcs = SourceWithFlagsList.EMPTY;
 
     ThriftCompiler thrift = createFakeThriftCompiler("//:thrift_source", pathResolver);
     resolver.addToIndex(thrift);
@@ -682,7 +680,7 @@ public class ThriftCxxEnhancerTest {
               BuildRuleParams params,
               BuildRuleResolver resolver,
               A args) throws NoSuchBuildTargetException {
-            assertThat(args.compilerFlags.get(), Matchers.hasItem("-flag"));
+            assertThat(args.compilerFlags, Matchers.hasItem("-flag"));
             return super.createBuildRule(targetGraph, params, resolver, args);
           }
         };
@@ -697,8 +695,8 @@ public class ThriftCxxEnhancerTest {
           flavoredParams,
           resolver,
           arg,
-          ImmutableMap.<String, ThriftSource>of(),
-          ImmutableSortedSet.<BuildRule>of());
+          ImmutableMap.of(),
+          ImmutableSortedSet.of());
     }
   }
 

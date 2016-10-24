@@ -17,15 +17,14 @@
 package com.facebook.buck.apple.xcode.xcodeproj;
 
 import com.facebook.buck.apple.xcode.XcodeprojSerializer;
-import com.google.common.base.Optional;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.Lists;
 
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * List of build configurations.
@@ -39,7 +38,7 @@ public class XCConfigurationList extends PBXProjectItem {
 
   public XCConfigurationList() {
     buildConfigurations = Lists.newArrayList();
-    defaultConfigurationName = Optional.absent();
+    defaultConfigurationName = Optional.empty();
     defaultConfigurationIsVisible = false;
 
     buildConfigurationsByName = CacheBuilder.newBuilder().build(
@@ -66,12 +65,7 @@ public class XCConfigurationList extends PBXProjectItem {
   public void serializeInto(XcodeprojSerializer s) {
     super.serializeInto(s);
 
-    Collections.sort(buildConfigurations, new Comparator<XCBuildConfiguration>() {
-      @Override
-      public int compare(XCBuildConfiguration o1, XCBuildConfiguration o2) {
-        return o1.getName().compareTo(o2.getName());
-      }
-    });
+    Collections.sort(buildConfigurations, (o1, o2) -> o1.getName().compareTo(o2.getName()));
     s.addField("buildConfigurations", buildConfigurations);
 
     if (defaultConfigurationName.isPresent()) {

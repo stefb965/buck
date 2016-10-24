@@ -37,7 +37,6 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
@@ -46,6 +45,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 public class JavaBinaryDescription implements
@@ -109,11 +109,11 @@ public class JavaBinaryDescription implements
         binaryParams.appendExtraDeps(transitiveClasspathDeps),
         pathResolver,
         javaOptions.getJavaRuntimeLauncher(),
-        args.mainClass.orNull(),
-        args.manifestFile.orNull(),
-        args.mergeManifests.or(true),
-        args.metaInfDirectory.orNull(),
-        args.blacklist.or(ImmutableSet.<Pattern>of()),
+        args.mainClass.orElse(null),
+        args.manifestFile.orElse(null),
+        args.mergeManifests.orElse(true),
+        args.metaInfDirectory.orElse(null),
+        args.blacklist,
         transitiveClasspathDeps,
         transitiveClasspaths);
 
@@ -151,17 +151,17 @@ public class JavaBinaryDescription implements
 
   @SuppressFieldNotInitialized
   public static class Args extends AbstractDescriptionArg implements HasTests {
-    public Optional<ImmutableSortedSet<BuildTarget>> deps;
+    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
     public Optional<String> mainClass;
     public Optional<SourcePath> manifestFile;
     public Optional<Boolean> mergeManifests;
     public Optional<Path> metaInfDirectory;
-    public Optional<ImmutableSet<Pattern>> blacklist;
-    @Hint(isDep = false) public Optional<ImmutableSortedSet<BuildTarget>> tests;
+    public ImmutableSet<Pattern> blacklist = ImmutableSet.of();
+    @Hint(isDep = false) public ImmutableSortedSet<BuildTarget> tests = ImmutableSortedSet.of();
 
     @Override
     public ImmutableSortedSet<BuildTarget> getTests() {
-      return tests.get();
+      return tests;
     }
 
   }

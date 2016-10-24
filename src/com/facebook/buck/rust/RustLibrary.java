@@ -16,6 +16,7 @@
 
 package com.facebook.buck.rust;
 
+import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableProperties;
@@ -31,13 +32,16 @@ public class RustLibrary extends RustCompile implements RustLinkable {
   public RustLibrary(
       BuildRuleParams params,
       SourcePathResolver resolver,
+      String crate,
       ImmutableSortedSet<SourcePath> srcs,
       ImmutableSortedSet<String> features,
       ImmutableList<String> rustcFlags,
-      Tool compiler) {
+      Tool compiler,
+      Linker.LinkableDepType linkStyle) {
     super(
         params,
         resolver,
+        crate,
         srcs,
         ImmutableList.<String>builder()
             .add("--crate-type", "rlib")
@@ -45,11 +49,13 @@ public class RustLibrary extends RustCompile implements RustLinkable {
             .addAll(rustcFlags)
             .build(),
         features,
+        ImmutableSortedSet.of(),
         BuildTargets.getGenPath(
             params.getProjectFilesystem(),
             params.getBuildTarget(),
-            "%s/lib" + params.getBuildTarget().getShortName() + ".rlib"),
-        compiler);
+            "%s/lib" + crate + ".rlib"),
+        compiler,
+        linkStyle);
   }
 
   @Override
@@ -59,7 +65,7 @@ public class RustLibrary extends RustCompile implements RustLinkable {
 
   @Override
   public String getLinkTarget() {
-    return getBuildTarget().getShortName();
+    return getCrateName();
   }
 
   @Override
@@ -69,7 +75,7 @@ public class RustLibrary extends RustCompile implements RustLinkable {
 
   @Override
   public ImmutableSortedSet<Path> getDependencyPaths() {
-    return ImmutableSortedSet.of();
+    return RustLinkables.getDependencyPaths(this);
   }
 
   @Override

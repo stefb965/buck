@@ -64,7 +64,7 @@ CxxCompilationDatabaseIntegrationTest {
               "-fdebug-compilation-dir",
               "-Xclang",
               "." + Strings.repeat("/", 249)) :
-          ImmutableList.<String>of();
+          ImmutableList.of();
   private static final boolean PREPROCESSOR_SUPPORTS_HEADER_MAPS =
       Platform.detect() == Platform.MACOS;
 
@@ -507,12 +507,7 @@ CxxCompilationDatabaseIntegrationTest {
       final List<String> presentHeaders = new ArrayList<>();
       HeaderMap headerMap = HeaderMap.loadFromFile(
           projectWorkspace.getPath(resolvedPath).toFile());
-      headerMap.visit(new HeaderMap.HeaderMapVisitor() {
-          @Override
-          public void apply(String str, String prefix, String suffix) {
-            presentHeaders.add(str);
-          }
-      });
+      headerMap.visit((str, prefix, suffix) -> presentHeaders.add(str));
       assertThat(presentHeaders, containsInAnyOrder(headers));
     } else {
       for (String header : headers) {
@@ -551,6 +546,6 @@ CxxCompilationDatabaseIntegrationTest {
     // This works around OS X being amusing about the location of temp directories.
     return PREPROCESSOR_SUPPORTS_HEADER_MAPS ?
         ImmutableList.of("-I", filesystem.getBuckPaths().getBuckOut().toString()) :
-        ImmutableList.<String>of();
+        ImmutableList.of();
   }
 }

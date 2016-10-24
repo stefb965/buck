@@ -20,13 +20,15 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.rules.coercer.CoerceFailedException;
 import com.facebook.buck.rules.coercer.TypeCoercer;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
-import com.facebook.buck.util.Types;
 import com.google.common.base.CaseFormat;
-import com.google.common.base.Optional;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
 
 import java.lang.reflect.Field;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Optional;
 
 import javax.annotation.Nullable;
 
@@ -38,13 +40,32 @@ public class ParamInfo implements Comparable<ParamInfo> {
   private final TypeCoercer<?> typeCoercer;
 
   private final boolean isOptional;
+  @Nullable
+  private final Object defaultValue;
   private final String name;
   private final String pythonName;
   private final boolean isDep;
   private final boolean isInput;
   private final Field field;
 
-  public ParamInfo(TypeCoercerFactory typeCoercerFactory, Field field) {
+  private static final LoadingCache<Class<?>, Object> EMPTY_CONSTRUCTOR_ARGS =
+      CacheBuilder.newBuilder().build(
+          new CacheLoader<Class<?>, Object>() {
+            @Override
+            public Object load(Class<?> cls) throws Exception {
+              try {
+                return cls.newInstance();
+              } catch (Exception e) {
+                throw new RuntimeException(
+                    "Failed to instantiate an empty constructor arg for class " + cls + ". " +
+                        "Check that the class has a public constructor that doesn't take any " +
+                        "parameters and that it is not a non-static inner (or anonymous) class.",
+                    e);
+              }
+            }
+          });
+
+  public ParamInfo(TypeCoercerFactory typeCoercerFactory, Class<?> cls, Field field) {
     this.field = field;
     this.name = field.getName();
     Hint hint = field.getAnnotation(Hint.class);
@@ -52,8 +73,18 @@ public class ParamInfo implements Comparable<ParamInfo> {
     this.isDep = hint != null ? hint.isDep() : Hint.DEFAULT_IS_DEP;
     this.isInput = hint != null ? hint.isInput() : Hint.DEFAULT_IS_INPUT;
 
-    isOptional = Optional.class.isAssignableFrom(field.getType());
-    this.typeCoercer = typeCoercerFactory.typeCoercerForType(Types.getFirstNonOptionalType(field));
+    Object emptyConstructorArg = EMPTY_CONSTRUCTOR_ARGS.getUnchecked(cls);
+    try {
+      this.defaultValue = field.get(emptyConstructorArg);
+    } catch (ReflectiveOperationException e) {
+      throw new RuntimeException(e);
+    }
+    if (defaultValue != null) {
+      this.isOptional = true;
+    } else {
+      this.isOptional = Optional.class.isAssignableFrom(field.getType());
+    }
+    this.typeCoercer = typeCoercerFactory.typeCoercerForType(field.getGenericType());
   }
 
   public String getName() {
@@ -103,12 +134,7 @@ public class ParamInfo implements Comparable<ParamInfo> {
   private <U> void traverseHelper(TypeCoercer<U> typeCoercer, Traversal traversal, Object dto) {
     U object;
     try {
-      if (isOptional) {
-        Optional<U> optional = (Optional<U>) field.get(dto);
-        object = optional.orNull();
-      } else {
-        object = (U) field.get(dto);
-      }
+      object = (U) field.get(dto);
     } catch (ReflectiveOperationException e) {
       throw new RuntimeException(e);
     }
@@ -155,8 +181,10 @@ public class ParamInfo implements Comparable<ParamInfo> {
     Object result;
 
     if (value == null) {
-      if (isOptional) {
-        result = typeCoercer.getOptionalValue();
+      if (defaultValue != null) {
+        result = defaultValue;
+      } else if (isOptional) {
+        result = Optional.empty();
       } else if (Number.class.isAssignableFrom(typeCoercer.getOutputClass())) {
         result = 0;
       } else if (Boolean.class.isAssignableFrom(typeCoercer.getOutputClass())) {
@@ -173,9 +201,6 @@ public class ParamInfo implements Comparable<ParamInfo> {
             value);
       } catch (CoerceFailedException e) {
         throw new ParamInfoException(name, e.getMessage(), e);
-      }
-      if (isOptional) {
-        result = Optional.of(result);
       }
     }
 

@@ -24,7 +24,8 @@ import com.facebook.buck.android.agent.util.AgentUtil;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.InstallEvent;
-import com.facebook.buck.event.TraceEventLogger;
+import com.facebook.buck.event.PerfEventId;
+import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.rules.ExopackageInfo;
@@ -33,9 +34,7 @@ import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.NamedTemporaryFile;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
-import com.google.common.base.Function;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.base.Splitter;
@@ -56,6 +55,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
@@ -177,7 +177,7 @@ public class ExopackageInstaller {
     eventBus.post(InstallEvent.finished(
             started,
             success,
-            Optional.<Long>absent(),
+            Optional.empty(),
             Optional.of(AdbHelper.tryToExtractPackageNameFromManifest(apkRule))));
     return success;
   }
@@ -230,7 +230,7 @@ public class ExopackageInstaller {
       final boolean installViaSd = false;
 
       if (shouldAppBeInstalled()) {
-        try (TraceEventLogger ignored = TraceEventLogger.start(eventBus, "install_exo_apk")) {
+        try (SimplePerfEvent.Scope ignored = SimplePerfEvent.scope(eventBus, "install_exo_apk")) {
           boolean success = adbHelper.installApkOnDevice(device, apk, installViaSd, false);
           if (!success) {
             return false;
@@ -247,7 +247,7 @@ public class ExopackageInstaller {
       }
 
       // TODO(dreiss): Make this work on Gingerbread.
-      try (TraceEventLogger ignored = TraceEventLogger.start(eventBus, "kill_app")) {
+      try (SimplePerfEvent.Scope ignored = SimplePerfEvent.scope(eventBus, "kill_app")) {
         AdbHelper.executeCommandWithErrorChecking(device, "am force-stop " + packageName);
       }
 
@@ -326,24 +326,21 @@ public class ExopackageInstaller {
         return;
       }
 
+      String metadataContents = Joiner.on('\n').join(
+          FluentIterable.from(libraries.entrySet()).transform(
+              input -> {
+                String hash = input.getKey();
+                String filename = input.getValue().getFileName().toString();
+                int index = filename.indexOf('.');
+                String libname = index == -1 ? filename : filename.substring(0, index);
+                return String.format("%s native-%s.so", libname, hash);
+              }));
+
       ImmutableSet<String> requiredHashes = libraries.keySet();
       ImmutableSet<String> presentHashes = prepareNativeLibsDir(abi, requiredHashes);
 
       Map<String, Path> filesToInstallByHash =
           Maps.filterKeys(libraries, Predicates.not(Predicates.in(presentHashes)));
-
-      String metadataContents = Joiner.on('\n').join(
-          FluentIterable.from(libraries.entrySet()).transform(
-              new Function<Map.Entry<String, Path>, String>() {
-                @Override
-                public String apply(Map.Entry<String, Path> input) {
-                  String hash = input.getKey();
-                  String filename = input.getValue().getFileName().toString();
-                  int index = filename.indexOf('.');
-                  String libname = index == -1 ? filename : filename.substring(0, index);
-                  return String.format("%s native-%s.so", libname, hash);
-                }
-              }));
 
       installFiles(
           "native_library",
@@ -377,10 +374,10 @@ public class ExopackageInstaller {
     }
 
     private Optional<PackageInfo> getPackageInfo(final String packageName) throws Exception {
-      try (TraceEventLogger ignored = TraceEventLogger.start(
+      try (SimplePerfEvent.Scope ignored = SimplePerfEvent.scope(
           eventBus,
-          "get_package_info",
-          ImmutableMap.of("package", packageName))) {
+          PerfEventId.of("get_package_info"),
+          "package", packageName)) {
 
         /* "dumpsys package <package>" produces output that looks like
 
@@ -427,13 +424,13 @@ public class ExopackageInstaller {
     }
 
     private void uninstallAgent() throws InstallException {
-      try (TraceEventLogger ignored = TraceEventLogger.start(eventBus, "uninstall_old_agent")) {
+      try (SimplePerfEvent.Scope ignored = SimplePerfEvent.scope(eventBus, "uninstall_old_agent")) {
         device.uninstallPackage(AgentUtil.AGENT_PACKAGE_NAME);
       }
     }
 
     private Optional<PackageInfo> installAgentApk() throws Exception {
-      try (TraceEventLogger ignored = TraceEventLogger.start(eventBus, "install_agent_apk")) {
+      try (SimplePerfEvent.Scope ignored = SimplePerfEvent.scope(eventBus, "install_agent_apk")) {
         String apkFileName = System.getProperty("buck.android_agent_path");
         if (apkFileName == null) {
           throw new RuntimeException("Android agent apk path not specified in properties");
@@ -445,7 +442,7 @@ public class ExopackageInstaller {
             /* installViaSd */ false,
             /* quiet */ false);
         if (!success) {
-          return Optional.absent();
+          return Optional.empty();
         }
         return getPackageInfo(AgentUtil.AGENT_PACKAGE_NAME);
       }
@@ -475,7 +472,7 @@ public class ExopackageInstaller {
     }
 
     private String getInstalledAppSignature(final String packagePath) throws Exception {
-      try (TraceEventLogger ignored = TraceEventLogger.start(eventBus, "get_app_signature")) {
+      try (SimplePerfEvent.Scope ignored = SimplePerfEvent.scope(eventBus, "get_app_signature")) {
         String command = getAgentCommand() + "get-signature " + packagePath;
         LOG.debug("Executing %s", command);
         String output = AdbHelper.executeCommandWithErrorChecking(device, command);
@@ -518,7 +515,7 @@ public class ExopackageInstaller {
         String dirname,
         Pattern filePattern,
         ImmutableSet<String> requiredHashes) throws Exception {
-      try (TraceEventLogger ignored = TraceEventLogger.start(eventBus, "prepare_" + dirname)) {
+      try (SimplePerfEvent.Scope ignored = SimplePerfEvent.scope(eventBus, "prepare_" + dirname)) {
         String dirPath = dataRoot.resolve(dirname).toString();
         mkDirP(dirPath);
 
@@ -549,8 +546,8 @@ public class ExopackageInstaller {
         String metadataFileContents,
         String filenameFormat,
         Path destinationDirRelativeToDataRoot) throws Exception {
-      try (TraceEventLogger ignored1 =
-               TraceEventLogger.start(eventBus, "multi_install_" + filesType)) {
+      try (SimplePerfEvent.Scope ignored1 =
+               SimplePerfEvent.scope(eventBus, "multi_install_" + filesType)) {
         device.createForward(agentPort, agentPort);
         try {
           for (Map.Entry<String, Path> entry : filesToInstallByHash.entrySet()) {
@@ -558,13 +555,13 @@ public class ExopackageInstaller {
                 String.format(filenameFormat, entry.getKey()));
             Path source = entry.getValue();
 
-            try (TraceEventLogger ignored2 =
-                     TraceEventLogger.start(eventBus, "install_" + filesType)) {
+            try (SimplePerfEvent.Scope ignored2 =
+                     SimplePerfEvent.scope(eventBus, "install_" + filesType)) {
               installFile(device, agentPort, destination, source);
             }
           }
-          try (TraceEventLogger ignored3 =
-                   TraceEventLogger.start(eventBus, "install_" + filesType + "_metadata")) {
+          try (SimplePerfEvent.Scope ignored3 =
+                   SimplePerfEvent.scope(eventBus, "install_" + filesType + "_metadata")) {
             try (NamedTemporaryFile temp = new NamedTemporaryFile("metadata", "tmp")) {
               com.google.common.io.Files.write(
                   metadataFileContents.getBytes(Charsets.UTF_8),
@@ -691,7 +688,7 @@ public class ExopackageInstaller {
   private ImmutableMap<String, Path> getRequiredLibrariesForAbi(
       ImmutableMultimap<String, Path> allLibraries,
       String abi,
-      ImmutableSet<String> ignoreLibraries) throws IOException {
+      ImmutableSet<String> ignoreLibraries) {
     return filterLibrariesForAbi(
         exopackageInfo.getNativeLibsInfo().get().getDirectory(),
         allLibraries,
@@ -766,7 +763,7 @@ public class ExopackageInstaller {
 
     if (pmPath == null || !pmPath.startsWith(pmPathPrefix)) {
       LOG.warn("unable to locate package path for [" + packageName + "]");
-      return Optional.absent();
+      return Optional.empty();
     }
 
     final String packagePrefix = "  Package [" + packageName + "] (";
@@ -824,7 +821,7 @@ public class ExopackageInstaller {
     }
 
     if (!sawPackageLine) {
-      return Optional.absent();
+      return Optional.empty();
     }
 
     Preconditions.checkNotNull(codePath, "Could not find codePath");

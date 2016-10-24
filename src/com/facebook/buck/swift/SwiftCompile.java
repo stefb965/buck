@@ -25,7 +25,9 @@ import com.facebook.buck.cxx.CxxHeaders;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPreprocessables;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
+import com.facebook.buck.cxx.HeaderVisibility;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
@@ -46,8 +48,6 @@ import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.util.MoreIterables;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
-import com.google.common.base.Optional;
-import com.google.common.base.Predicate;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -57,6 +57,7 @@ import com.google.common.collect.Iterables;
 
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
+import java.util.Optional;
 
 /**
  * A build rule which compiles one or more Swift sources into a Swift module.
@@ -94,12 +95,7 @@ class SwiftCompile
 
   // Prepend "-I" before the input with no space (this is required by swift).
   private static final Function<String, String> PREPEND_INCLUDE_FLAG =
-      new Function<String, String>() {
-        @Override
-        public String apply(String input) {
-          return INCLUDE_FLAG.concat(input);
-        }
-      };
+      INCLUDE_FLAG::concat;
 
   SwiftCompile(
       CxxPlatform cxxPlatform,
@@ -129,15 +125,11 @@ class SwiftCompile
     this.objectPath = outputPath.resolve(escapedModuleName + ".o");
 
     this.srcs = ImmutableSortedSet.copyOf(srcs);
-    this.enableObjcInterop = enableObjcInterop.or(true);
+    this.enableObjcInterop = enableObjcInterop.orElse(true);
     this.bridgingHeader = bridgingHeader;
-    this.hasMainEntry = FluentIterable.from(srcs).firstMatch(new Predicate<SourcePath>() {
-      @Override
-      public boolean apply(SourcePath input) {
-        return SWIFT_MAIN_FILENAME.equalsIgnoreCase(
-            getResolver().getAbsolutePath(input).getFileName().toString());
-      }
-    }).isPresent();
+    this.hasMainEntry = FluentIterable.from(srcs).firstMatch(
+        input -> SWIFT_MAIN_FILENAME.equalsIgnoreCase(
+            getResolver().getAbsolutePath(input).getFileName().toString())).isPresent();
   }
 
   private SwiftCompileStep makeCompileStep() {
@@ -148,6 +140,17 @@ class SwiftCompile
       compilerCommand.add(
           "-import-objc-header",
           getResolver().getRelativePath(bridgingHeader.get()).toString());
+
+      // bridging header needs exported headers for imports
+      for (HeaderVisibility headerVisibility : HeaderVisibility.values()) {
+        Path headerPath = CxxDescriptionEnhancer.getHeaderSymlinkTreePath(
+            getProjectFilesystem(),
+            BuildTarget.builder(getBuildTarget().getUnflavoredBuildTarget()).build(),
+            cxxPlatform.getFlavor(),
+            headerVisibility);
+
+        compilerCommand.add(INCLUDE_FLAG, headerPath.toString());
+      }
     }
 
     final Function<FrameworkPath, Path> frameworkPathToSearchPath =
@@ -156,12 +159,7 @@ class SwiftCompile
     compilerCommand.addAll(
         FluentIterable.from(frameworks)
         .transform(frameworkPathToSearchPath)
-        .transformAndConcat(new Function<Path, Iterable<? extends String>>() {
-          @Override
-          public Iterable<? extends String> apply(Path searchPath) {
-            return ImmutableSet.of("-F", searchPath.toString());
-          }
-        }));
+        .transformAndConcat(searchPath -> ImmutableSet.of("-F", searchPath.toString())));
 
     compilerCommand.addAll(
         MoreIterables.zipAndConcat(Iterables.cycle("-Xcc"),
@@ -171,12 +169,7 @@ class SwiftCompile
         FluentIterable.from(getDeps())
             .filter(SwiftCompile.class)
             .transform(SourcePaths.getToBuildTargetSourcePath())
-            .transform(new Function<SourcePath, String>() {
-              @Override
-              public String apply(SourcePath input) {
-                return getResolver().getAbsolutePath(input).toString();
-              }
-            })));
+            .transform(input -> getResolver().getAbsolutePath(input).toString())));
 
     Optional<Iterable<String>> configFlags = swiftBuckConfig.getFlags();
     if (configFlags.isPresent()) {
@@ -203,7 +196,7 @@ class SwiftCompile
     ProjectFilesystem projectFilesystem = getProjectFilesystem();
     return new SwiftCompileStep(
         projectFilesystem.getRootPath(),
-        ImmutableMap.<String, String>of(),
+        ImmutableMap.of(),
         compilerCommand.build());
   }
 

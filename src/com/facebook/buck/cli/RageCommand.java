@@ -28,17 +28,18 @@ import com.facebook.buck.rage.InteractiveReport;
 import com.facebook.buck.rage.RageBuckConfig;
 import com.facebook.buck.rage.RageConfig;
 import com.facebook.buck.rage.VcsInfoCollector;
+import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.DirtyPrintStreamDecorator;
 import com.facebook.buck.util.PrintStreamProcessExecutorFactory;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.versioncontrol.DefaultVersionControlCmdLineInterfaceFactory;
 import com.facebook.buck.util.versioncontrol.VersionControlBuckConfig;
 import com.facebook.buck.util.versioncontrol.VersionControlCmdLineInterfaceFactory;
-import com.google.common.base.Optional;
 
 import org.kohsuke.args4j.Option;
 
 import java.io.IOException;
+import java.util.Optional;
 
 public class RageCommand extends AbstractCommand {
 
@@ -55,7 +56,7 @@ public class RageCommand extends AbstractCommand {
     BuckConfig buckConfig = params.getBuckConfig();
     RageConfig rageConfig = RageBuckConfig.create(buckConfig);
     DirtyPrintStreamDecorator stdOut = params.getConsole().getStdOut();
-    ProcessExecutor processExecutor = new ProcessExecutor(params.getConsole());
+    ProcessExecutor processExecutor = new DefaultProcessExecutor(params.getConsole());
 
     VersionControlCmdLineInterfaceFactory vcsFactory =
         new DefaultVersionControlCmdLineInterfaceFactory(
@@ -93,34 +94,14 @@ public class RageCommand extends AbstractCommand {
           filesystem,
           stdOut,
           params.getBuildEnvironmentDescription(),
-          gatherVcsInfo ? vcsInfoCollector : Optional.<VcsInfoCollector>absent(),
+          gatherVcsInfo ? vcsInfoCollector : Optional.empty(),
           rageConfig,
           extraInfoCollector);
     }
 
     Optional<DefectSubmitResult> defectSubmitResult = report.collectAndSubmitResult();
-    if (!defectSubmitResult.isPresent()) {
-      stdOut.println("No logs of interesting commands were found. Check if buck-out/log contains " +
-          "commands except buck launch & buck rage.");
-      return 0;
-    }
+    report.presentDefectSubmitResult(defectSubmitResult);
 
-    String reportLocation = defectSubmitResult.get().getReportSubmitLocation();
-    if (defectSubmitResult.get().getUploadSuccess().isPresent()) {
-      if (defectSubmitResult.get().getUploadSuccess().get()) {
-        stdOut.printf(
-            "Uploading report to %s\n%s",
-            reportLocation,
-            defectSubmitResult.get().getReportSubmitMessage().get());
-      } else {
-        stdOut.printf(
-            "%s\nReport saved at %s\n",
-            defectSubmitResult.get().getReportSubmitErrorMessage().get(),
-            reportLocation);
-      }
-    } else {
-      stdOut.printf("Report saved at %s\n", reportLocation);
-    }
     return 0;
   }
 

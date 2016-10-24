@@ -1,7 +1,7 @@
-#@# GENERATED FILE: DO NOT MODIFY 455f0fd85b408a03de8c27644f2cbee825b7981f #@#
 {
   "counters" : {
     "deps" : [
+      "//src/com/facebook/buck/util:util",
       "//third-party/java/immutables:processor"
     ],
     "exported_deps" : [

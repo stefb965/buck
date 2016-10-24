@@ -17,7 +17,6 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.android.PreDexMerge.BuildOutput;
-import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
@@ -28,7 +27,6 @@ import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.RecordFileSha1Step;
-import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
@@ -37,11 +35,10 @@ import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.google.common.base.Function;
-import com.google.common.base.Functions;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
@@ -57,11 +54,13 @@ import com.google.common.util.concurrent.ListeningExecutorService;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.AbstractMap;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import javax.annotation.Nullable;
 /**
@@ -183,23 +182,10 @@ public class PreDexMerge extends AbstractBuildRule implements InitializableFromD
     dexFilesToMergeBuilder.putAll(
       FluentIterable.from(preDexDeps.entries())
           .transform(
-              new Function<
-                  Map.Entry<APKModule, DexProducedFromJavaLibrary>,
-                  Map.Entry<APKModule, DexWithClasses>>() {
-                @Override
-                public Map.Entry<APKModule, DexWithClasses> apply(
-                    Map.Entry<APKModule, DexProducedFromJavaLibrary> input) {
-                  return new AbstractMap.SimpleEntry<>(
-                      input.getKey(),
-                      DexWithClasses.TO_DEX_WITH_CLASSES.apply(input.getValue()));
-                }
-              })
-          .filter(new Predicate<Map.Entry<APKModule, DexWithClasses>>() {
-            @Override
-            public boolean apply(Map.Entry<APKModule, DexWithClasses> input) {
-              return input.getValue() != null;
-            }
-          })
+              input -> new AbstractMap.SimpleEntry<>(
+                  input.getKey(),
+                  DexWithClasses.TO_DEX_WITH_CLASSES.apply(input.getValue())))
+          .filter(input -> input.getValue() != null)
           .toSet());
 
     final SplitDexPaths paths = new SplitDexPaths();
@@ -227,9 +213,9 @@ public class PreDexMerge extends AbstractBuildRule implements InitializableFromD
 
     buildableContext.addMetadata(
         SECONDARY_DEX_DIRECTORIES_KEY,
-        FluentIterable.from(secondaryDexDirectories.build())
-            .transform(Functions.toStringFunction())
-            .toList());
+        secondaryDexDirectories.build().stream()
+            .map(Object::toString)
+            .collect(MoreCollectors.toImmutableList()));
 
     buildableContext.recordArtifact(primaryDexPath);
     buildableContext.recordArtifact(paths.jarfilesSubdir);
@@ -238,7 +224,7 @@ public class PreDexMerge extends AbstractBuildRule implements InitializableFromD
     buildableContext.recordArtifact(paths.additionalJarfilesSubdir);
 
     PreDexedFilesSorter preDexedFilesSorter = new PreDexedFilesSorter(
-        Optional.fromNullable(
+        Optional.ofNullable(
             DexWithClasses.TO_DEX_WITH_CLASSES.apply(dexForUberRDotJava)),
         dexFilesToMergeBuilder.build(),
         dexSplitMode.getPrimaryDexPatterns(),
@@ -282,12 +268,7 @@ public class PreDexMerge extends AbstractBuildRule implements InitializableFromD
             Suppliers.ofInstance(rootApkModuleResult.primaryDexInputs),
             Optional.of(paths.jarfilesSubdir),
             Optional.of(Suppliers.ofInstance(aggregatedOutputToInputs)),
-            new SmartDexingStep.DexInputHashesProvider() {
-              @Override
-              public ImmutableMap<Path, Sha1HashCode> getDexInputHashes() {
-                return dexInputHashes;
-              }
-            },
+            () -> dexInputHashes,
             paths.successDir,
             DX_MERGE_OPTIONS,
             dxExecutorService,
@@ -392,7 +373,7 @@ public class PreDexMerge extends AbstractBuildRule implements InitializableFromD
         .filter(Predicates.notNull());
 
     // If this APK has Android resources, then the generated R.class files also need to be dexed.
-    Optional<DexWithClasses> rDotJavaDexWithClasses = Optional.fromNullable(
+    Optional<DexWithClasses> rDotJavaDexWithClasses = Optional.ofNullable(
             DexWithClasses.TO_DEX_WITH_CLASSES.apply(dexForUberRDotJava));
     if (rDotJavaDexWithClasses.isPresent()) {
       filesToDex = Iterables.concat(
@@ -412,7 +393,7 @@ public class PreDexMerge extends AbstractBuildRule implements InitializableFromD
 
     buildableContext.addMetadata(
         SECONDARY_DEX_DIRECTORIES_KEY,
-        ImmutableList.<String>of());
+        ImmutableList.of());
   }
 
   public Path getMetadataTxtPath() {
@@ -461,10 +442,10 @@ public class PreDexMerge extends AbstractBuildRule implements InitializableFromD
     }
 
     return new BuildOutput(
-        primaryDexHash.orNull(),
-        FluentIterable.from(onDiskBuildInfo.getValues(SECONDARY_DEX_DIRECTORIES_KEY).get())
-            .transform(MorePaths.TO_PATH)
-            .toSet());
+        primaryDexHash.orElse(null),
+        onDiskBuildInfo.getValues(SECONDARY_DEX_DIRECTORIES_KEY).get().stream()
+            .map(Paths::get)
+            .collect(MoreCollectors.toImmutableSet()));
   }
 
   @Override

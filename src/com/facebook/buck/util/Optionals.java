@@ -17,9 +17,11 @@
 package com.facebook.buck.util;
 
 import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableMap;
+
+import java.util.Optional;
+import java.util.stream.Stream;
 
 public class Optionals {
 
@@ -45,18 +47,9 @@ public class Optionals {
       Optional<? extends T> optional,
       Function<? super T, Optional<U>> f) {
     if (!optional.isPresent()) {
-      return Optional.absent();
+      return Optional.empty();
     }
     return f.apply(optional.get());
-  }
-
-  public static <T> Function<T, Optional<T>> toOptional() {
-    return new Function<T, Optional<T>>() {
-      @Override
-      public Optional<T> apply(T input) {
-        return Optional.of(input);
-      }
-    };
   }
 
   public static <T extends Comparable<T>> int compare(Optional<T> first, Optional<T> second) {
@@ -71,4 +64,24 @@ public class Optionals {
     }
   }
 
+  /**
+   * Returns a singleton stream of an {@code Optional}'s value if present, otherwise an empty
+   * stream.
+   *
+   * Useful for filtering present instances in a stream pipeline:
+   * <pre>{@code
+   * Stream.of(Optional.empty(), Optional.of(1), Optional.of(2))
+   *   .flatMap(Optionals::toStream)
+   *
+   * // Yields a stream of 2 elements, [1, 2]
+   * }
+   * </pre>
+   */
+  public static <T> Stream<T> toStream(Optional<T> optional) {
+    if (optional.isPresent()) {
+      return Stream.of(optional.get());
+    } else {
+      return Stream.empty();
+    }
+  }
 }

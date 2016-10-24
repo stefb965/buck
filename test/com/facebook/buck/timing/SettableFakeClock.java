@@ -16,11 +16,11 @@
 
 package com.facebook.buck.timing;
 
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableMap;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -43,7 +43,7 @@ public class SettableFakeClock implements Clock {
   }
 
   public SettableFakeClock(long currentTimeMillis, long nanoTime) {
-    this(currentTimeMillis, nanoTime, ImmutableMap.<Long, Long>of());
+    this(currentTimeMillis, nanoTime, ImmutableMap.of());
   }
 
   public void setCurrentTimeMillis(long millis) {
@@ -71,6 +71,6 @@ public class SettableFakeClock implements Clock {
 
   @Override
   public long threadUserNanoTime(long threadId) {
-    return Optional.fromNullable(threadIdToUserNanoTime.get(threadId)).or(-1L);
+    return Optional.ofNullable(threadIdToUserNanoTime.get(threadId)).orElse(-1L);
   }
 }

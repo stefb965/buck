@@ -16,8 +16,6 @@
 
 package com.facebook.buck.go;
 
-import com.facebook.buck.cxx.CxxPlatform;
-import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.file.WriteFile;
 import com.facebook.buck.graph.AbstractBreadthFirstThrowingTraversal;
 import com.facebook.buck.io.MorePaths;
@@ -41,7 +39,6 @@ import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
@@ -58,6 +55,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 abstract class GoDescriptors {
 
@@ -212,7 +210,7 @@ abstract class GoDescriptors {
         assemblerFlags,
         platform,
         FluentIterable.from(params.getDeclaredDeps().get())
-            .transform(HasBuildTarget.TO_TARGET));
+            .transform(HasBuildTarget::getBuildTarget));
     resolver.addToIndex(library);
 
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
@@ -224,7 +222,8 @@ abstract class GoDescriptors {
             params.getBuildTarget(),
             resolver,
             platform,
-            FluentIterable.from(params.getDeclaredDeps().get()).transform(HasBuildTarget.TO_TARGET),
+            FluentIterable.from(params.getDeclaredDeps().get())
+                .transform(HasBuildTarget::getBuildTarget),
             /* includeSelf */ false));
     resolver.addToIndex(symlinkTree);
 
@@ -238,15 +237,9 @@ abstract class GoDescriptors {
                     .add(symlinkTree)
                     .add(library)
                     .build()),
-            Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+            Suppliers.ofInstance(ImmutableSortedSet.of())),
         pathResolver,
-        platform.getCxxPlatform().transform(
-            new Function<CxxPlatform, Linker>() {
-              @Override
-              public Linker apply(CxxPlatform input) {
-                return input.getLd().resolve(resolver);
-              }
-            }),
+        platform.getCxxPlatform().map(input -> input.getLd().resolve(resolver)),
         symlinkTree,
         library,
         goBuckConfig.getLinker(),
@@ -282,8 +275,8 @@ abstract class GoDescriptors {
             new WriteFile(
                 sourceParams.copyWithChanges(
                     generatorSourceTarget,
-                    Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
-                    Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+                    Suppliers.ofInstance(ImmutableSortedSet.of()),
+                    Suppliers.ofInstance(ImmutableSortedSet.of())),
                 new SourcePathResolver(resolver),
                 extractTestMainGenerator(),
                 BuildTargets.getGenPath(
@@ -297,14 +290,14 @@ abstract class GoDescriptors {
             createGoBinaryRule(
                 sourceParams.copyWithChanges(
                     generatorTarget,
-                    Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
-                    Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of(writeFile))),
+                    Suppliers.ofInstance(ImmutableSortedSet.of()),
+                    Suppliers.ofInstance(ImmutableSortedSet.of(writeFile))),
                 resolver,
                 goBuckConfig,
-                ImmutableSet.<SourcePath>of(new BuildTargetSourcePath(generatorSourceTarget)),
-                ImmutableList.<String>of(),
-                ImmutableList.<String>of(),
-                ImmutableList.<String>of(),
+                ImmutableSet.of(new BuildTargetSourcePath(generatorSourceTarget)),
+                ImmutableList.of(),
+                ImmutableList.of(),
+                ImmutableList.of(),
                 goBuckConfig.getDefaultPlatform()));
     return binary.getExecutableCommand();
   }
@@ -366,7 +359,7 @@ abstract class GoDescriptors {
   private static SymlinkTree makeSymlinkTree(
       BuildRuleParams params,
       SourcePathResolver pathResolver,
-      ImmutableSet<GoLinkable> linkables) throws NoSuchBuildTargetException {
+      ImmutableSet<GoLinkable> linkables) {
     ImmutableMap.Builder<Path, SourcePath> treeMapBuilder = ImmutableMap.builder();
     for (GoLinkable linkable : linkables) {
       for (Map.Entry<Path, SourcePath> linkInput : linkable.getGoLinkInput().entrySet()) {

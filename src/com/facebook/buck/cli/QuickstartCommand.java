@@ -22,11 +22,10 @@ import com.facebook.buck.apple.AppleSdk;
 import com.facebook.buck.apple.AppleSdkPaths;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.util.Console;
+import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.PackagedResource;
-import com.facebook.buck.util.ProcessExecutor;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableMap;
@@ -47,6 +46,7 @@ import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.List;
+import java.util.Optional;
 
 import javax.annotation.Nullable;
 
@@ -150,7 +150,7 @@ public class QuickstartCommand extends AbstractCommand {
             params.getCell().getFilesystem(),
             QuickstartCommand.class,
             Preconditions.checkNotNull(PATHS_TO_QUICKSTART_DIR.get(type)),
-            Optional.<String>absent());
+            Optional.<String>empty());
     Path origin = resource.get();
 
     final Path destination = Paths.get(projectDir);
@@ -188,7 +188,7 @@ public class QuickstartCommand extends AbstractCommand {
         ImmutableMap<AppleSdk, AppleSdkPaths> appleSdkPaths;
         AppleConfig appleConfig = new AppleConfig(params.getBuckConfig());
         appleSdkPaths = appleConfig.getAppleSdkPaths(
-            new ProcessExecutor(Console.createNullConsole()));
+            new DefaultProcessExecutor(Console.createNullConsole()));
         if (appleSdkPaths == null || appleSdkPaths.isEmpty()) {
           throw new HumanReadableException(
               "Could not find any Apple SDK, check your Xcode installation.");

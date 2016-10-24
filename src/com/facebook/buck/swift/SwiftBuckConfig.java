@@ -17,9 +17,9 @@
 package com.facebook.buck.swift;
 
 import com.facebook.buck.cli.BuckConfig;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Splitter;
+
+import java.util.Optional;
 
 /**
  * A Swift-specific "view" of BuckConfig.
@@ -36,12 +36,7 @@ public class SwiftBuckConfig {
 
   public Optional<Iterable<String>> getFlags() {
     Optional<String> value = delegate.getValue(SECTION_NAME, COMPILE_FLAGS_NAME);
-    return value.transform(new Function<String, Iterable<String>>() {
-      @Override
-      public Iterable<String> apply(String input) {
-        return Splitter.on(" ").split(input.trim());
-      }
-    });
+    return value.map(input -> Splitter.on(" ").split(input.trim()));
   }
 
   public Optional<String> getVersion() {

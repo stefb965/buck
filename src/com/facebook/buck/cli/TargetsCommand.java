@@ -20,11 +20,9 @@ import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.graph.AcyclicDepthFirstPostOrderTraversal;
 import com.facebook.buck.graph.AcyclicDepthFirstPostOrderTraversal.CycleException;
-import com.facebook.buck.graph.GraphTraversable;
 import com.facebook.buck.hashing.FileHashLoader;
 import com.facebook.buck.hashing.FilePathHashLoader;
 import com.facebook.buck.io.BuckPaths;
-import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildFileTree;
@@ -52,6 +50,7 @@ import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TargetNodes;
 import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.MoreExceptions;
 import com.facebook.buck.util.PatternsMatcher;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
@@ -60,7 +59,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
@@ -93,6 +91,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.SortedMap;
 
 public class TargetsCommand extends AbstractCommand {
@@ -100,12 +99,7 @@ public class TargetsCommand extends AbstractCommand {
   private static final Logger LOG = Logger.get(TargetsCommand.class);
 
   private static final Function<TargetNode<?>, Iterable<BuildTarget>> NODE_TO_TEST_TARGETS =
-      new Function<TargetNode<?>, Iterable<BuildTarget>>() {
-        @Override
-        public Iterable<BuildTarget> apply(TargetNode<?> node) {
-          return TargetNodes.getTestTargetsForNode(node);
-        }
-      };
+      TargetNodes::getTestTargetsForNode;
 
   // TODO(bolinfest): Use org.kohsuke.args4j.spi.PathOptionHandler. Currently, we resolve paths
   // manually, which is likely the path to madness.
@@ -279,10 +273,10 @@ public class TargetsCommand extends AbstractCommand {
    *         {@code --assume-modified-files} or {@code --assume-no-modified-files} is used,
    *         absent otherwise.
    */
-  public ImmutableSet<Path> getTargetHashModifiedPaths() throws IOException {
-    return FluentIterable.from(targetHashModifiedPaths.get())
-        .transform(MorePaths.TO_PATH)
-        .toSet();
+  public ImmutableSet<Path> getTargetHashModifiedPaths() {
+    return targetHashModifiedPaths.get().stream()
+        .map(Paths::get)
+        .collect(MoreCollectors.toImmutableSet());
   }
 
   @Override
@@ -374,7 +368,7 @@ public class TargetsCommand extends AbstractCommand {
               executor,
               ImmutableList.of(
                   TargetNodePredicateSpec.of(
-                      Predicates.<TargetNode<?>>alwaysTrue(),
+                      Predicates.alwaysTrue(),
                       BuildFileSpec.fromRecursivePath(
                           Paths.get(""),
                           params.getCell().getRoot()))),
@@ -386,7 +380,7 @@ public class TargetsCommand extends AbstractCommand {
           buildRuleTypes);
 
       Iterable<BuildTarget> buildTargets = FluentIterable.from(matchingNodes.values()).transform(
-          HasBuildTarget.TO_TARGET);
+          HasBuildTarget::getBuildTarget);
 
       return TargetGraphAndBuildTargets.builder()
           .setTargetGraph(completeTargetGraphAndBuildTargets.getTargetGraph())
@@ -413,13 +407,13 @@ public class TargetsCommand extends AbstractCommand {
       CommandRunnerParams params,
       ListeningExecutorService executor,
       SortedMap<String, TargetNode<?>> matchingNodes)
-      throws IOException, InterruptedException, BuildFileParseException {
+      throws BuildFileParseException {
     if (shouldUseJsonFormat()) {
       printJsonForTargets(
           params,
           executor,
           matchingNodes.values(),
-          ImmutableMap.<BuildTarget, ShowOptions>of(),
+          ImmutableMap.of(),
           getOutputAttributes());
     } else if (isPrint0()) {
       printNullDelimitedTargets(matchingNodes.keySet(), params.getConsole().getStdOut());
@@ -450,13 +444,13 @@ public class TargetsCommand extends AbstractCommand {
       matchingNodes = getMatchingNodes(
           targetGraphAndBuildTargets.getTargetGraph(),
           referencedFiles.relativePathsUnderProjectRoot.isEmpty() ?
-              Optional.<ImmutableSet<Path>>absent() :
+              Optional.empty() :
               Optional.of(referencedFiles.relativePathsUnderProjectRoot),
           matchingBuildTargets.isEmpty() ?
-              Optional.<ImmutableSet<BuildTarget>>absent() :
+              Optional.empty() :
               Optional.of(matchingBuildTargets),
           buildRuleTypes.get().isEmpty() ?
-              Optional.<ImmutableSet<BuildRuleType>>absent() :
+              Optional.empty() :
               buildRuleTypes,
           isDetectTestChanges(),
           parserConfig.getBuildFileName());
@@ -480,7 +474,7 @@ public class TargetsCommand extends AbstractCommand {
     // longer be necessary.
     if (getArguments().isEmpty() || isDetectTestChanges()) {
       return TargetGraphAndBuildTargets.builder()
-          .setBuildTargets(ImmutableSet.<BuildTarget>of())
+          .setBuildTargets(ImmutableSet.of())
           .setTargetGraph(params.getParser()
               .buildTargetGraphForTargetNodeSpecs(
                   params.getBuckEventBus(),
@@ -489,7 +483,7 @@ public class TargetsCommand extends AbstractCommand {
                   executor,
                   ImmutableList.of(
                       TargetNodePredicateSpec.of(
-                          Predicates.<TargetNode<?>>alwaysTrue(),
+                          Predicates.alwaysTrue(),
                           BuildFileSpec.fromRecursivePath(
                               Paths.get(""),
                               params.getCell().getRoot()))),
@@ -520,7 +514,7 @@ public class TargetsCommand extends AbstractCommand {
       } catch (IllegalArgumentException e) {
         params.getBuckEventBus().post(ConsoleEvent.severe(
                 "Invalid build rule type: " + name));
-        return Optional.absent();
+        return Optional.empty();
       }
     }
     return Optional.of(buildRuleTypesBuilder.build());
@@ -578,10 +572,9 @@ public class TargetsCommand extends AbstractCommand {
     ImmutableSet<TargetNode<?>> directOwners;
     if (referencedFiles.isPresent()) {
       BuildFileTree buildFileTree = new InMemoryBuildFileTree(
-          FluentIterable
-              .from(graph.getNodes())
-              .transform(HasBuildTarget.TO_TARGET)
-              .toSet());
+          graph.getNodes().stream()
+              .map(HasBuildTarget::getBuildTarget)
+              .collect(MoreCollectors.toImmutableSet()));
       directOwners = FluentIterable
           .from(graph.getNodes())
           .filter(
@@ -596,21 +589,18 @@ public class TargetsCommand extends AbstractCommand {
     Iterable<TargetNode<?>> selectedReferrers = FluentIterable
         .from(getDependentNodes(graph, directOwners, detectTestChanges))
         .filter(
-            new Predicate<TargetNode<?>>() {
-              @Override
-              public boolean apply(TargetNode<?> targetNode) {
-                if (matchingBuildTargets.isPresent() &&
-                    !matchingBuildTargets.get().contains(targetNode.getBuildTarget())) {
-                  return false;
-                }
-
-                if (buildRuleTypes.isPresent() &&
-                    !buildRuleTypes.get().contains(targetNode.getType())) {
-                  return false;
-                }
-
-                return true;
+            targetNode -> {
+              if (matchingBuildTargets.isPresent() &&
+                  !matchingBuildTargets.get().contains(targetNode.getBuildTarget())) {
+                return false;
               }
+
+              if (buildRuleTypes.isPresent() &&
+                  !buildRuleTypes.get().contains(targetNode.getType())) {
+                return false;
+              }
+
+              return true;
             });
     ImmutableSortedMap.Builder<String, TargetNode<?>> matchingNodesBuilder =
         ImmutableSortedMap.naturalOrder();
@@ -683,7 +673,7 @@ public class TargetsCommand extends AbstractCommand {
       Iterable<TargetNode<?>> targetNodes,
       ImmutableMap<BuildTarget, ShowOptions> showRulesResult,
       ImmutableSet<String> outputAttributes)
-      throws BuildFileParseException, IOException, InterruptedException {
+      throws BuildFileParseException {
     PatternsMatcher attributesPatternsMatcher = new PatternsMatcher(outputAttributes);
 
     // Print the JSON representation of the build node for the specified target(s).
@@ -801,9 +791,9 @@ public class TargetsCommand extends AbstractCommand {
 
     // We only need the action graph if we're showing the output or the keys, and the
     // RuleKeyBuilderFactory if we're showing the keys.
-    Optional<ActionGraph> actionGraph = Optional.absent();
-    Optional<BuildRuleResolver> buildRuleResolver = Optional.absent();
-    Optional<DefaultRuleKeyBuilderFactory> ruleKeyBuilderFactory = Optional.absent();
+    Optional<ActionGraph> actionGraph = Optional.empty();
+    Optional<BuildRuleResolver> buildRuleResolver = Optional.empty();
+    Optional<DefaultRuleKeyBuilderFactory> ruleKeyBuilderFactory = Optional.empty();
     if (isShowRuleKey() || isShowOutput() || isShowFullOutput()) {
       ActionGraphAndResolver result = Preconditions.checkNotNull(
           ActionGraphCache.getFreshActionGraph(
@@ -812,7 +802,7 @@ public class TargetsCommand extends AbstractCommand {
       actionGraph = Optional.of(result.getActionGraph());
       buildRuleResolver = Optional.of(result.getResolver());
       if (isShowRuleKey()) {
-        ruleKeyBuilderFactory = Optional.<DefaultRuleKeyBuilderFactory>of(
+        ruleKeyBuilderFactory = Optional.of(
             new DefaultRuleKeyBuilderFactory(
                 params.getBuckConfig().getKeySeed(),
                 params.getFileHashCache(),
@@ -853,7 +843,7 @@ public class TargetsCommand extends AbstractCommand {
       BuildRule rule,
       boolean absolute,
       boolean buckOutCompatLink) {
-    Optional<Path> outputPathOptional = Optional.fromNullable(rule.getPathToOutput());
+    Optional<Path> outputPathOptional = Optional.ofNullable(rule.getPathToOutput());
 
     // When using buck out compat mode, we favor using the default buck output path in the UI, so
     // amend the output paths when this is set.
@@ -868,7 +858,7 @@ public class TargetsCommand extends AbstractCommand {
     }
 
     if (absolute) {
-      return outputPathOptional.transform(rule.getProjectFilesystem().getAbsolutifier());
+      return outputPathOptional.map(rule.getProjectFilesystem().getAbsolutifier()::apply);
     } else {
       return outputPathOptional;
     }
@@ -982,12 +972,8 @@ public class TargetsCommand extends AbstractCommand {
     }
 
     AcyclicDepthFirstPostOrderTraversal<TargetNode<?>> traversal =
-        new AcyclicDepthFirstPostOrderTraversal<>(new GraphTraversable<TargetNode<?>>() {
-          @Override
-          public Iterator<TargetNode<?>> findChildren(TargetNode<?> node) {
-            return targetGraphWithTests.getAll(node.getDeps()).iterator();
-          }
-        });
+        new AcyclicDepthFirstPostOrderTraversal<>(
+            node -> targetGraphWithTests.getAll(node.getDeps()).iterator());
 
     Map<BuildTarget, HashCode> hashesWithTests = Maps.newHashMap();
 

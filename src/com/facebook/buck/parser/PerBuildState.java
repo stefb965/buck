@@ -35,8 +35,6 @@ import com.facebook.buck.util.Console;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -57,6 +55,7 @@ import java.nio.file.Path;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -114,29 +113,20 @@ public class PerBuildState implements AutoCloseable {
     this.stderr = new PrintStream(ByteStreams.nullOutputStream());
     this.console = new Console(Verbosity.STANDARD_INFORMATION, stdout, stderr, Ansi.withoutTty());
 
-    TargetNodeListener<TargetNode<?>> symlinkCheckers = new TargetNodeListener<TargetNode<?>>() {
-      @Override
-      public void onCreate(Path buildFile, TargetNode<?> node) throws IOException {
-        registerInputsUnderSymlinks(buildFile, node);
-      }
-    };
+    TargetNodeListener<TargetNode<?>> symlinkCheckers =
+        this::registerInputsUnderSymlinks;
     ParserConfig parserConfig = rootCell.getBuckConfig().getView(ParserConfig.class);
     int numParsingThreads = parserConfig.getNumParsingThreads();
     this.projectBuildFileParserPool = new ProjectBuildFileParserPool(
         numParsingThreads, // Max parsers to create per cell.
-        new Function<Cell, ProjectBuildFileParser>() {
-          @Override
-          public ProjectBuildFileParser apply(Cell input) {
-            return createBuildFileParser(input, PerBuildState.this.ignoreBuckAutodepsFiles);
-          }
-        });
+        input -> createBuildFileParser(input, PerBuildState.this.ignoreBuckAutodepsFiles));
 
     this.rawNodeParsePipeline = new RawNodeParsePipeline(
         parser.getPermState().getRawNodeCache(),
         projectBuildFileParserPool,
         executorService);
     this.targetNodeParsePipeline = new TargetNodeParsePipeline(
-        parser.getPermState().<TargetNode<?>>getOrCreateNodeCache(TargetNode.class),
+        parser.getPermState().getOrCreateNodeCache(TargetNode.class),
         DefaultParserTargetNodeFactory.createForParser(
             parser.getMarshaller(),
             parser.getPermState().getBuildFileTrees(),
@@ -149,7 +139,7 @@ public class PerBuildState implements AutoCloseable {
         parserConfig.getEnableParallelParsing() && speculativeParsing.value(),
         rawNodeParsePipeline);
     this.targetGroupParsePipeline = new TargetGroupParsePipeline(
-        parser.getPermState().<TargetGroup>getOrCreateNodeCache(TargetGroup.class),
+        parser.getPermState().getOrCreateNodeCache(TargetGroup.class),
         new DefaultParserTargetGroupFactory(parser.getMarshaller()),
         parserConfig.getEnableParallelParsing() ?
             executorService :
@@ -183,7 +173,7 @@ public class PerBuildState implements AutoCloseable {
   }
 
   public ImmutableSet<Map<String, Object>> getAllRawNodes(Cell cell, Path buildFile)
-      throws InterruptedException, BuildFileParseException {
+      throws BuildFileParseException {
     Preconditions.checkState(buildFile.startsWith(cell.getRoot()));
 
     // The raw nodes are just plain JSON blobs, and so we don't need to check for symlinks
@@ -325,12 +315,12 @@ public class PerBuildState implements AutoCloseable {
           if (projectFilesystem.isSymLink(subpath)) {
             Path symlinkTarget = projectFilesystem.resolve(subpath).toRealPath();
             Path relativeSymlinkTarget =
-                projectFilesystem.getPathRelativeToProjectRoot(symlinkTarget).or(symlinkTarget);
+                projectFilesystem.getPathRelativeToProjectRoot(symlinkTarget).orElse(symlinkTarget);
             LOG.verbose("Detected symbolic link %s -> %s", subpath, relativeSymlinkTarget);
             newSymlinksEncountered.put(subpath, relativeSymlinkTarget);
             symlinkExistenceCache.put(subpath, Optional.of(relativeSymlinkTarget));
           } else {
-            symlinkExistenceCache.put(subpath, Optional.<Path>absent());
+            symlinkExistenceCache.put(subpath, Optional.empty());
           }
         }
       }

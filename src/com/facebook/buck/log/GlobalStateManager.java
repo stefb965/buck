@@ -27,7 +27,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
-import java.io.Writer;
+import java.io.UnsupportedEncodingException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
@@ -49,11 +49,12 @@ public class GlobalStateManager {
   private final ConcurrentMap<Long, String> threadIdToCommandId;
 
   // Global state required by the ConsoleHandler.
-  private final ConcurrentMap<String, OutputStreamWriter> commandIdToConsoleHandlerWriter;
+  private final ConcurrentMap<String, ConsoleHandlerState.Writer>
+      commandIdToConsoleHandlerWriter;
   private final ConcurrentMap<String, Level> commandIdToConsoleHandlerLevel;
 
   // Global state required by the LogFileHandler.
-  private final ConcurrentMap<String, Writer> commandIdToLogFileHandlerWriter;
+  private final ConcurrentMap<String, java.io.Writer> commandIdToLogFileHandlerWriter;
 
   public static GlobalStateManager singleton() {
     return SINGLETON;
@@ -65,21 +66,27 @@ public class GlobalStateManager {
     this.commandIdToConsoleHandlerLevel = new ConcurrentHashMap<>();
     this.commandIdToLogFileHandlerWriter = new ConcurrentHashMap<>();
 
-    rotateDefaultLogFileWriter(
+    ReferenceCountedWriter defaultWriter = rotateDefaultLogFileWriter(
         InvocationInfo.of(new BuildId(), "launch",
             LogConfigSetup.DEFAULT_SETUP.getLogDir())
             .getLogFilePath());
+    putReferenceCountedWriter(DEFAULT_LOG_FILE_WRITER_KEY, defaultWriter);
   }
 
-  public Closeable setupLoggers(
+  public LoggerIsMappedToThreadScope setupLoggers(
       final InvocationInfo info,
       OutputStream consoleHandlerStream,
       final OutputStream consoleHandlerOriginalStream,
       final Verbosity consoleHandlerVerbosity) {
-    ReferenceCountedWriter defaultWriter = rotateDefaultLogFileWriter(info.getLogFilePath());
-
     final long threadId = Thread.currentThread().getId();
     final String commandId = info.getCommandId();
+
+    ReferenceCountedWriter defaultWriter = rotateDefaultLogFileWriter(info.getLogFilePath());
+    ReferenceCountedWriter newWriter = defaultWriter.newReference();
+    // Put defaultWriter to map only after newWriter has been created. Otherwise defaultWriter may
+    // get closed before newWriter was created due to concurrency.
+    putReferenceCountedWriter(DEFAULT_LOG_FILE_WRITER_KEY, defaultWriter);
+    putReferenceCountedWriter(commandId, newWriter);
 
     // Setup the shared state.
     threadIdToCommandId.putIfAbsent(threadId, commandId);
@@ -103,13 +110,17 @@ public class GlobalStateManager {
           logDirectory.toAbsolutePath());
     }
 
-    ReferenceCountedWriter newWriter = defaultWriter.newReference();
-    putReferenceCountedWriter(commandId, newWriter);
-
-    return new Closeable() {
+    return new LoggerIsMappedToThreadScope() {
       @Override
-      public void close() throws IOException {
+      public Closeable setWriter(ConsoleHandlerState.Writer writer) {
+        final ConsoleHandlerState.Writer previousWriter =
+            commandIdToConsoleHandlerWriter.get(commandId);
+        commandIdToConsoleHandlerWriter.put(commandId, writer);
+        return () -> commandIdToConsoleHandlerWriter.put(commandId, previousWriter);
+      }
 
+      @Override
+      public void close() {
         // Tear down the LogFileHandler state.
         removeReferenceCountedWriter(commandId);
 
@@ -122,9 +133,9 @@ public class GlobalStateManager {
         // Tear down the shared state.
         // NOTE: Avoid iterator in case there's a concurrent change to this map.
         List<Long> allKeys = Lists.newArrayList(threadIdToCommandId.keySet());
-        for (Long threadId : allKeys) {
-          if (commandId.equals(threadIdToCommandId.get(threadId))) {
-            threadIdToCommandId.remove(threadId);
+        for (Long threadId1 : allKeys) {
+          if (commandId.equals(threadIdToCommandId.get(threadId1))) {
+            threadIdToCommandId.remove(threadId1);
           }
         }
 
@@ -139,9 +150,12 @@ public class GlobalStateManager {
 
   private ReferenceCountedWriter newReferenceCountedWriter(String filePath)
       throws FileNotFoundException {
-    return new ReferenceCountedWriter(
-        ConsoleHandler.utf8OutputStreamWriter(
-            new FileOutputStream(filePath)));
+    try {
+      return new ReferenceCountedWriter(
+          new OutputStreamWriter(new FileOutputStream(filePath), "UTF-8"));
+    } catch (UnsupportedEncodingException e) {
+      throw new RuntimeException(e);
+    }
   }
 
   private void removeReferenceCountedWriter(String commandId) {
@@ -152,7 +166,7 @@ public class GlobalStateManager {
       String commandId,
       @Nullable ReferenceCountedWriter newWriter) {
     try {
-      Writer oldWriter;
+      java.io.Writer oldWriter;
       if (newWriter == null) {
         oldWriter = commandIdToLogFileHandlerWriter.remove(commandId);
       } else {
@@ -173,9 +187,7 @@ public class GlobalStateManager {
   private ReferenceCountedWriter rotateDefaultLogFileWriter(Path logFilePath) {
     try {
       Files.createDirectories(logFilePath.getParent());
-      ReferenceCountedWriter newWriter = newReferenceCountedWriter(logFilePath.toString());
-      putReferenceCountedWriter(DEFAULT_LOG_FILE_WRITER_KEY, newWriter);
-      return newWriter;
+      return newReferenceCountedWriter(logFilePath.toString());
     } catch (FileNotFoundException e) {
       throw new RuntimeException(String.format("Could not create file [%s].", logFilePath), e);
     } catch (IOException e) {
@@ -200,12 +212,12 @@ public class GlobalStateManager {
   public ConsoleHandlerState getConsoleHandlerState() {
     return new ConsoleHandlerState() {
       @Override
-      public OutputStreamWriter getWriter(String commandId) {
+      public Writer getWriter(String commandId) {
         return commandIdToConsoleHandlerWriter.get(commandId);
       }
 
       @Override
-      public Iterable<OutputStreamWriter> getAllAvailableWriters() {
+      public Iterable<Writer> getAllAvailableWriters() {
         return commandIdToConsoleHandlerWriter.values();
       }
 
@@ -222,12 +234,7 @@ public class GlobalStateManager {
   }
 
   public ThreadIdToCommandIdMapper getThreadIdToCommandIdMapper() {
-    return new ThreadIdToCommandIdMapper() {
-      @Override
-      public String threadIdToCommandId(long threadId) {
-        return threadIdToCommandId.get(threadId);
-      }
-    };
+    return threadIdToCommandId::get;
   }
 
   /**
@@ -237,12 +244,12 @@ public class GlobalStateManager {
   public LogFileHandlerState getLogFileHandlerState() {
     return new LogFileHandlerState() {
       @Override
-      public Iterable<Writer> getWriters(@Nullable String commandId) {
+      public Iterable<java.io.Writer> getWriters(@Nullable String commandId) {
         if (commandId == null) {
           return commandIdToLogFileHandlerWriter.values();
         }
 
-        Writer writer = commandIdToLogFileHandlerWriter.get(commandId);
+        java.io.Writer writer = commandIdToLogFileHandlerWriter.get(commandId);
         if (writer != null) {
           return Collections.singleton(writer);
         } else {
@@ -270,7 +277,7 @@ public class GlobalStateManager {
       removeReferenceCountedWriter(commandId);
     }
     // Close off any console writers that may still be hanging about.
-    for (Writer writer : commandIdToConsoleHandlerWriter.values()) {
+    for (ConsoleHandlerState.Writer writer : commandIdToConsoleHandlerWriter.values()) {
       try {
         writer.close();
       } catch (IOException e) {
@@ -278,5 +285,12 @@ public class GlobalStateManager {
         LOG.error(e, "Failed to cleanly close() and OutputStreamWriter.");
       }
     }
+  }
+
+  public interface LoggerIsMappedToThreadScope extends AutoCloseable {
+    Closeable setWriter(ConsoleHandlerState.Writer writer);
+
+    @Override
+    void close();
   }
 }

@@ -29,13 +29,13 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 public class XcodeWorkspaceConfigDescription
     implements Description<XcodeWorkspaceConfigDescription.Arg> {
@@ -76,7 +76,7 @@ public class XcodeWorkspaceConfigDescription
     Map<SchemeActionType, String> newActionConfigNames = new HashMap<>(
         SchemeActionType.DEFAULT_CONFIG_NAMES);
     // And override them with any provided in the "action_config_names" map.
-    newActionConfigNames.putAll(arg.actionConfigNames.get());
+    newActionConfigNames.putAll(arg.actionConfigNames);
 
     return ImmutableMap.copyOf(newActionConfigNames);
   }
@@ -84,11 +84,11 @@ public class XcodeWorkspaceConfigDescription
   @SuppressFieldNotInitialized
   public static class Arg extends AbstractDescriptionArg {
     public Optional<BuildTarget> srcTarget;
-    public Optional<ImmutableSortedSet<BuildTarget>> extraTests;
-    public Optional<ImmutableSortedSet<BuildTarget>> extraTargets;
+    public ImmutableSortedSet<BuildTarget> extraTests = ImmutableSortedSet.of();
+    public ImmutableSortedSet<BuildTarget> extraTargets = ImmutableSortedSet.of();
     public Optional<String> workspaceName;
-    public Optional<ImmutableMap<SchemeActionType, String>> actionConfigNames;
-    public Optional<ImmutableSortedMap<String, BuildTarget>> extraSchemes;
+    public ImmutableMap<SchemeActionType, String> actionConfigNames = ImmutableMap.of();
+    public ImmutableSortedMap<String, BuildTarget> extraSchemes = ImmutableSortedMap.of();
     public Optional<Boolean> isRemoteRunnable;
     public Optional<String> explicitRunnablePath;
     public Optional<XCScheme.LaunchAction.LaunchStyle> launchStyle;

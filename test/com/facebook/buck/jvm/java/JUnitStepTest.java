@@ -30,7 +30,6 @@ import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.Verbosity;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -42,6 +41,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 public class JUnitStepTest {
@@ -82,9 +82,9 @@ public class JUnitStepTest {
 
     JUnitStep junit = new JUnitStep(
         filesystem,
-        /* nativeLibsEnvironment */ ImmutableMap.<String, String>of(),
-        /* testRuleTimeoutMs*/ Optional.<Long>absent(),
-        ImmutableMap.<String, String>of(),
+        /* nativeLibsEnvironment */ ImmutableMap.of(),
+        /* testRuleTimeoutMs*/ Optional.empty(),
+        ImmutableMap.of(),
         new ExternalJavaRuntimeLauncher("/foo/bar/custom/java"),
         args);
 
@@ -134,17 +134,17 @@ public class JUnitStepTest {
         .setBuckModuleBaseSourceCodePath(modulePath)
         .setClasspathFile(classpathFile)
         .setTestRunnerClasspath(testRunnerClasspath)
-        .setExtraJvmArgs(ImmutableList.<String>of())
+        .setExtraJvmArgs(ImmutableList.of())
         .setTestType(TestType.JUNIT)
         .setDirectoryForTestResults(directoryForTestResults)
-        .addAllTestClasses(ImmutableList.<String>of())
+        .addAllTestClasses(ImmutableList.of())
         .build();
 
     JUnitStep junit = new JUnitStep(
         filesystem,
-        /* nativeLibsEnvironment */ ImmutableMap.<String, String>of(),
-        /* testRuleTimeoutMs*/ Optional.<Long>absent(),
-        ImmutableMap.<String, String>of("FOO", "BAR"),
+        /* nativeLibsEnvironment */ ImmutableMap.of(),
+        /* testRuleTimeoutMs*/ Optional.empty(),
+        ImmutableMap.of("FOO", "BAR"),
         new ExternalJavaRuntimeLauncher("/foo/bar/custom/java"),
         args);
 
@@ -191,9 +191,9 @@ public class JUnitStepTest {
 
     JUnitStep junit = new JUnitStep(
         filesystem,
-        ImmutableMap.<String, String>of(),
-        /* testRuleTimeoutMs*/ Optional.<Long>absent(),
-        ImmutableMap.<String, String>of(),
+        ImmutableMap.of(),
+        /* testRuleTimeoutMs*/ Optional.empty(),
+        ImmutableMap.of(),
         new ExternalJavaRuntimeLauncher("/foo/bar/custom/java"),
         args);
 

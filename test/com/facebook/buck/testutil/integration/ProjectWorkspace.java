@@ -45,12 +45,13 @@ import com.facebook.buck.model.BuildId;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.Cell;
+import com.facebook.buck.rules.CellProvider;
 import com.facebook.buck.rules.DefaultCellPathResolver;
 import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
 import com.facebook.buck.testutil.TestConsole;
-import com.facebook.buck.timing.DefaultClock;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.CapturingPrintStream;
+import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.MoreStrings;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
@@ -62,7 +63,6 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Charsets;
 import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
@@ -94,6 +94,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import javax.annotation.Nullable;
 
@@ -317,7 +318,7 @@ public class ProjectWorkspace {
 
   public ProcessExecutor.Result runJar(Path jar, String... args)
       throws IOException, InterruptedException {
-    return runJar(jar, ImmutableList.<String>of(), args);
+    return runJar(jar, ImmutableList.of(), args);
   }
 
   public ProcessExecutor.Result runCommand(String exe, String... args)
@@ -334,7 +335,7 @@ public class ProjectWorkspace {
     ProcessExecutorParams params = ProcessExecutorParams.builder()
         .setCommand(command)
         .build();
-    ProcessExecutor executor = new ProcessExecutor(new TestConsole());
+    ProcessExecutor executor = new DefaultProcessExecutor(new TestConsole());
     String currentDir = System.getProperty("user.dir");
     try {
       System.setProperty("user.dir", destPath.toAbsolutePath().toString());
@@ -354,8 +355,8 @@ public class ProjectWorkspace {
       throws IOException {
     return runBuckCommandWithEnvironmentOverridesAndContext(
         destPath,
-        Optional.<NGContext>absent(),
-        ImmutableMap.<String, String>of(),
+        Optional.empty(),
+        ImmutableMap.of(),
         args);
   }
 
@@ -363,7 +364,7 @@ public class ProjectWorkspace {
       throws IOException {
     return runBuckCommandWithEnvironmentOverridesAndContext(
         destPath,
-        Optional.<NGContext>absent(),
+        Optional.empty(),
         environment,
         args);
   }
@@ -372,8 +373,8 @@ public class ProjectWorkspace {
       throws IOException {
     return runBuckCommandWithEnvironmentOverridesAndContext(
         repoRoot,
-        Optional.<NGContext>absent(),
-        ImmutableMap.<String, String>of(),
+        Optional.empty(),
+        ImmutableMap.of(),
         args);
   }
 
@@ -407,7 +408,7 @@ public class ProjectWorkspace {
     return runBuckCommandWithEnvironmentOverridesAndContext(
         destPath,
         Optional.of(context),
-        ImmutableMap.<String, String>of(),
+        ImmutableMap.of(),
         stderr,
         args);
   }
@@ -609,11 +610,10 @@ public class ProjectWorkspace {
     DefaultAndroidDirectoryResolver directoryResolver = new DefaultAndroidDirectoryResolver(
         filesystem.getRootPath().getFileSystem(),
         env,
-        Optional.<String>absent(),
-        Optional.<String>absent());
-    return Cell.createRootCell(
+        Optional.empty(),
+        Optional.empty());
+    return CellProvider.createForLocalBuild(
         filesystem,
-        console,
         Watchman.NULL_WATCHMAN,
         new BuckConfig(
             config,
@@ -624,10 +624,9 @@ public class ProjectWorkspace {
             new DefaultCellPathResolver(filesystem.getRootPath(), config)),
         CellConfig.of(),
         new KnownBuildRuleTypesFactory(
-            new ProcessExecutor(console),
+            new DefaultProcessExecutor(console),
             directoryResolver),
-        new DefaultClock(),
-        new WatchmanDiagnosticCache());
+        new WatchmanDiagnosticCache()).getCellByPath(filesystem.getRootPath());
   }
 
   public BuildTarget newBuildTarget(String fullyQualifiedName)

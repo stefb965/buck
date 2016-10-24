@@ -1,4 +1,3 @@
-#@# GENERATED FILE: DO NOT MODIFY 9f9406160b333d309732ff43f728a1cefc42537a #@#
 {
   "command" : {
     "deps" : [
@@ -7,10 +6,12 @@
       "//src/com/facebook/buck/io:io",
       "//src/com/facebook/buck/log:api",
       "//src/com/facebook/buck/model:build_id",
+      "//src/com/facebook/buck/model:model",
       "//src/com/facebook/buck/parser:rule_pattern",
       "//src/com/facebook/buck/rules:rules",
       "//src/com/facebook/buck/util:exceptions",
       "//src/com/facebook/buck/util:object_mapper",
+      "//src/com/facebook/buck/util:util",
       "//third-party/java/immutables:processor"
     ],
     "exported_deps" : [
@@ -18,7 +19,6 @@
       "//src/com/facebook/buck/artifact_cache:artifact_cache",
       "//src/com/facebook/buck/event:event",
       "//src/com/facebook/buck/jvm/core:packagefinder",
-      "//src/com/facebook/buck/model:model",
       "//src/com/facebook/buck/rules:build_rule",
       "//src/com/facebook/buck/rules:types",
       "//src/com/facebook/buck/step:step",

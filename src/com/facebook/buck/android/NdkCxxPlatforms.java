@@ -20,13 +20,13 @@ import com.facebook.buck.cxx.CompilerProvider;
 import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxToolProvider;
-import com.facebook.buck.cxx.DebugPathSanitizer;
 import com.facebook.buck.cxx.DefaultLinkerProvider;
 import com.facebook.buck.cxx.GnuArchiver;
 import com.facebook.buck.cxx.GnuLinker;
 import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.cxx.LinkerProvider;
 import com.facebook.buck.cxx.PosixNmSymbolNameTool;
+import com.facebook.buck.cxx.PrefixMapDebugPathSanitizer;
 import com.facebook.buck.cxx.PreprocessorProvider;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.ProjectFilesystem;
@@ -40,7 +40,6 @@ import com.facebook.buck.util.environment.Platform;
 import com.facebook.infer.annotation.Assertions;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
@@ -52,6 +51,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 public class NdkCxxPlatforms {
@@ -60,7 +60,7 @@ public class NdkCxxPlatforms {
    * Magic path prefix we use to denote the machine-specific location of the Android NDK.  Why "@"?
    * It's uncommon enough to mark that path element as special while not being a metacharacter in
    * either make, shell, or regular expression syntax.
-   *
+   * <p/>
    * We also have prefixes for tool specific paths, even though they're sub-paths of
    * `@ANDROID_NDK_ROOT@`.  This is to sanitize host-specific sub-directories in the toolchain
    * (e.g. darwin-x86_64) which would otherwise break determinism and caching when using
@@ -97,6 +97,7 @@ public class NdkCxxPlatforms {
         ndkVersion.startsWith("r10") ? 10 :
         ndkVersion.startsWith("11.") ? 11 :
         ndkVersion.startsWith("12.") ? 12 :
+        ndkVersion.startsWith("13.") ? 13 :
         -1;
   }
 
@@ -127,7 +128,8 @@ public class NdkCxxPlatforms {
 
   public static ImmutableMap<TargetCpuType, NdkCxxPlatform> getPlatforms(
       CxxBuckConfig config,
-      ProjectFilesystem ndkRoot,
+      ProjectFilesystem filesystem,
+      Path ndkRoot,
       NdkCxxPlatformCompiler compiler,
       CxxRuntime cxxRuntime,
       String androidPlatform,
@@ -135,6 +137,7 @@ public class NdkCxxPlatforms {
       Platform platform) {
     return getPlatforms(
         config,
+        filesystem,
         ndkRoot,
         compiler,
         cxxRuntime,
@@ -150,7 +153,8 @@ public class NdkCxxPlatforms {
    */
   public static ImmutableMap<TargetCpuType, NdkCxxPlatform> getPlatforms(
       CxxBuckConfig config,
-      ProjectFilesystem ndkRoot,
+      ProjectFilesystem filesystem,
+      Path ndkRoot,
       NdkCxxPlatformCompiler compiler,
       CxxRuntime cxxRuntime,
       String androidPlatform,
@@ -163,56 +167,18 @@ public class NdkCxxPlatforms {
 
     // ARM Platform
     if (cpuAbis.contains("arm")) {
-      ImmutableList<String> armeabiArchFlags =
-          ImmutableList.of(
-              "-march=armv5te",
-              "-mtune=xscale",
-              "-msoft-float",
-              "-mthumb");
+      NdkCxxPlatformTargetConfiguration targetConfiguration = getTargetConfiguration(
+          TargetCpuType.ARM,
+          compiler,
+          androidPlatform);
       NdkCxxPlatform armeabi =
           build(
               config,
+              filesystem,
               ImmutableFlavor.of("android-arm"),
               platform,
               ndkRoot,
-              NdkCxxPlatformTargetConfiguration.builder()
-                  .setToolchain(Toolchain.ARM_LINUX_ANDROIDEABI)
-                  .setTargetArch(TargetArch.ARM)
-                  .setTargetArchAbi(TargetArchAbi.ARMEABI)
-                  .setTargetAppPlatform(androidPlatform)
-                  .setCompiler(compiler)
-                  .setToolchainTarget(ToolchainTarget.ARM_LINUX_ANDROIDEABI)
-                  .putAssemblerFlags(NdkCxxPlatformCompiler.Type.GCC, armeabiArchFlags)
-                  .putAssemblerFlags(
-                      NdkCxxPlatformCompiler.Type.CLANG,
-                      ImmutableList.<String>builder()
-                          .add("-target", "armv5te-none-linux-androideabi")
-                          .addAll(armeabiArchFlags)
-                          .build())
-                  .putCompilerFlags(
-                      NdkCxxPlatformCompiler.Type.GCC,
-                      ImmutableList.<String>builder()
-                          .add("-Os")
-                          .addAll(armeabiArchFlags)
-                          .build())
-                  .putCompilerFlags(
-                      NdkCxxPlatformCompiler.Type.CLANG,
-                      ImmutableList.<String>builder()
-                          .add("-target", "armv5te-none-linux-androideabi", "-Os")
-                          .addAll(armeabiArchFlags)
-                          .build())
-                  .putLinkerFlags(
-                      NdkCxxPlatformCompiler.Type.GCC,
-                      ImmutableList.of(
-                          "-march=armv5te",
-                          "-Wl,--fix-cortex-a8"))
-                  .putLinkerFlags(
-                      NdkCxxPlatformCompiler.Type.CLANG,
-                      ImmutableList.of(
-                          "-target", "armv5te-none-linux-androideabi",
-                          "-march=armv5te",
-                          "-Wl,--fix-cortex-a8"))
-                  .build(),
+              targetConfiguration,
               cxxRuntime,
               executableFinder,
               strictToolchainPaths);
@@ -221,51 +187,18 @@ public class NdkCxxPlatforms {
 
     // ARMv7 Platform
     if (cpuAbis.contains("armv7")) {
-      ImmutableList<String> armeabiv7ArchFlags =
-          ImmutableList.of(
-              "-march=armv7-a",
-              "-mfpu=vfpv3-d16",
-              "-mfloat-abi=softfp",
-              "-mthumb");
+      NdkCxxPlatformTargetConfiguration targetConfiguration = getTargetConfiguration(
+          TargetCpuType.ARMV7,
+          compiler,
+          androidPlatform);
       NdkCxxPlatform armeabiv7 =
           build(
               config,
+              filesystem,
               ImmutableFlavor.of("android-armv7"),
               platform,
               ndkRoot,
-              NdkCxxPlatformTargetConfiguration.builder()
-                  .setToolchain(Toolchain.ARM_LINUX_ANDROIDEABI)
-                  .setTargetArch(TargetArch.ARM)
-                  .setTargetArchAbi(TargetArchAbi.ARMEABI_V7A)
-                  .setTargetAppPlatform(androidPlatform)
-                  .setCompiler(compiler)
-                  .setToolchainTarget(ToolchainTarget.ARM_LINUX_ANDROIDEABI)
-                  .putAssemblerFlags(NdkCxxPlatformCompiler.Type.GCC, armeabiv7ArchFlags)
-                  .putAssemblerFlags(
-                      NdkCxxPlatformCompiler.Type.CLANG,
-                      ImmutableList.<String>builder()
-                          .add("-target", "armv7-none-linux-androideabi")
-                          .addAll(armeabiv7ArchFlags)
-                          .build())
-                  .putCompilerFlags(
-                      NdkCxxPlatformCompiler.Type.GCC,
-                      ImmutableList.<String>builder()
-                          .add("-finline-limit=64", "-Os")
-                          .addAll(armeabiv7ArchFlags)
-                          .build())
-                  .putCompilerFlags(
-                      NdkCxxPlatformCompiler.Type.CLANG,
-                      ImmutableList.<String>builder()
-                          .add("-target", "armv7-none-linux-androideabi", "-Os")
-                          .addAll(armeabiv7ArchFlags)
-                          .build())
-                  .putLinkerFlags(
-                      NdkCxxPlatformCompiler.Type.GCC,
-                      ImmutableList.<String>of())
-                  .putLinkerFlags(
-                      NdkCxxPlatformCompiler.Type.CLANG,
-                      ImmutableList.of("-target", "armv7-none-linux-androideabi"))
-                  .build(),
+              targetConfiguration,
               cxxRuntime,
               executableFinder,
               strictToolchainPaths);
@@ -274,44 +207,18 @@ public class NdkCxxPlatforms {
 
     // x86 Platform
     if (cpuAbis.contains("x86")) {
+      NdkCxxPlatformTargetConfiguration targetConfiguration = getTargetConfiguration(
+          TargetCpuType.X86,
+          compiler,
+          androidPlatform);
       NdkCxxPlatform x86 =
           build(
               config,
+              filesystem,
               ImmutableFlavor.of("android-x86"),
               platform,
               ndkRoot,
-              NdkCxxPlatformTargetConfiguration.builder()
-                  .setToolchain(Toolchain.X86)
-                  .setTargetArch(TargetArch.X86)
-                  .setTargetArchAbi(TargetArchAbi.X86)
-                  .setTargetAppPlatform(androidPlatform)
-                  .setCompiler(compiler)
-                  .setToolchainTarget(ToolchainTarget.I686_LINUX_ANDROID)
-                  .putAssemblerFlags(NdkCxxPlatformCompiler.Type.GCC, ImmutableList.<String>of())
-                  .putAssemblerFlags(
-                      NdkCxxPlatformCompiler.Type.CLANG,
-                      ImmutableList.<String>builder()
-                          .add("-target", "i686-none-linux-android")
-                          .build())
-                  .putCompilerFlags(
-                      NdkCxxPlatformCompiler.Type.GCC,
-                      ImmutableList.of(
-                          "-funswitch-loops",
-                          "-finline-limit=300",
-                          "-O2"))
-                  .putCompilerFlags(
-                      NdkCxxPlatformCompiler.Type.CLANG,
-                      ImmutableList.of(
-                          "-target", "i686-none-linux-android",
-                          "-O2"))
-                  .putLinkerFlags(
-                      NdkCxxPlatformCompiler.Type.GCC,
-                      ImmutableList.<String>of())
-                  .putLinkerFlags(
-                      NdkCxxPlatformCompiler.Type.CLANG,
-                      ImmutableList.of(
-                          "-target", "i686-none-linux-android"))
-                  .build(),
+              targetConfiguration,
               cxxRuntime,
               executableFinder,
               strictToolchainPaths);
@@ -320,42 +227,21 @@ public class NdkCxxPlatforms {
 
     // x86_64 Platform
     if (cpuAbis.contains("x86_64")) {
+      NdkCxxPlatformTargetConfiguration targetConfiguration = getTargetConfiguration(
+          TargetCpuType.X86_64,
+          compiler,
+          androidPlatform);
       // CHECKSTYLE.OFF: LocalVariableName
+
       NdkCxxPlatform x86_64 =
-      // CHECKSTYLE.ON
+          // CHECKSTYLE.ON
           build(
               config,
+              filesystem,
               ImmutableFlavor.of("android-x86_64"),
               platform,
               ndkRoot,
-              NdkCxxPlatformTargetConfiguration.builder()
-                  .setToolchain(Toolchain.X86_64)
-                  .setTargetArch(TargetArch.X86_64)
-                  .setTargetArchAbi(TargetArchAbi.X86_64)
-                  .setTargetAppPlatform(androidPlatform)
-                  .setCompiler(compiler)
-                  .setToolchainTarget(ToolchainTarget.X86_64_LINUX_ANDROID)
-                  .putAssemblerFlags(NdkCxxPlatformCompiler.Type.GCC, ImmutableList.<String>of())
-                  .putAssemblerFlags(NdkCxxPlatformCompiler.Type.CLANG, ImmutableList.<String>of())
-                  .putCompilerFlags(
-                      NdkCxxPlatformCompiler.Type.GCC,
-                      ImmutableList.of(
-                          "-funswitch-loops",
-                          "-finline-limit=300",
-                          "-O2"))
-                  .putCompilerFlags(
-                      NdkCxxPlatformCompiler.Type.CLANG,
-                      ImmutableList.of(
-                          "-target", "i686-none-linux-android",
-                          "-O2"))
-                  .putLinkerFlags(
-                      NdkCxxPlatformCompiler.Type.GCC,
-                      ImmutableList.<String>of())
-                  .putLinkerFlags(
-                      NdkCxxPlatformCompiler.Type.CLANG,
-                      ImmutableList.of(
-                          "-target", "i686-none-linux-android"))
-                  .build(),
+              targetConfiguration,
               cxxRuntime,
               executableFinder,
               strictToolchainPaths);
@@ -365,18 +251,174 @@ public class NdkCxxPlatforms {
     return ndkCxxPlatformBuilder.build();
   }
 
+  private static NdkCxxPlatformTargetConfiguration getTargetConfiguration(
+      TargetCpuType targetCpuType,
+      NdkCxxPlatformCompiler compiler,
+      String androidPlatform) {
+    switch (targetCpuType) {
+      case ARM:
+        ImmutableList<String> armeabiArchFlags =
+            ImmutableList.of(
+                "-march=armv5te",
+                "-mtune=xscale",
+                "-msoft-float",
+                "-mthumb");
+        return NdkCxxPlatformTargetConfiguration.builder()
+            .setToolchain(Toolchain.ARM_LINUX_ANDROIDEABI)
+            .setTargetArch(TargetArch.ARM)
+            .setTargetArchAbi(TargetArchAbi.ARMEABI)
+            .setTargetAppPlatform(androidPlatform)
+            .setCompiler(compiler)
+            .setToolchainTarget(ToolchainTarget.ARM_LINUX_ANDROIDEABI)
+            .putAssemblerFlags(NdkCxxPlatformCompiler.Type.GCC, armeabiArchFlags)
+            .putAssemblerFlags(
+                NdkCxxPlatformCompiler.Type.CLANG,
+                ImmutableList.<String>builder()
+                    .add("-target", "armv5te-none-linux-androideabi")
+                    .addAll(armeabiArchFlags)
+                    .build())
+            .putCompilerFlags(
+                NdkCxxPlatformCompiler.Type.GCC,
+                ImmutableList.<String>builder()
+                    .add("-Os")
+                    .addAll(armeabiArchFlags)
+                    .build())
+            .putCompilerFlags(
+                NdkCxxPlatformCompiler.Type.CLANG,
+                ImmutableList.<String>builder()
+                    .add("-target", "armv5te-none-linux-androideabi", "-Os")
+                    .addAll(armeabiArchFlags)
+                    .build())
+            .putLinkerFlags(
+                NdkCxxPlatformCompiler.Type.GCC,
+                ImmutableList.of(
+                    "-march=armv5te",
+                    "-Wl,--fix-cortex-a8"))
+            .putLinkerFlags(
+                NdkCxxPlatformCompiler.Type.CLANG,
+                ImmutableList.of(
+                    "-target", "armv5te-none-linux-androideabi",
+                    "-march=armv5te",
+                    "-Wl,--fix-cortex-a8"))
+            .build();
+      case ARMV7:
+        ImmutableList<String> armeabiv7ArchFlags =
+            ImmutableList.of(
+                "-march=armv7-a",
+                "-mfpu=vfpv3-d16",
+                "-mfloat-abi=softfp",
+                "-mthumb");
+        return NdkCxxPlatformTargetConfiguration.builder()
+            .setToolchain(Toolchain.ARM_LINUX_ANDROIDEABI)
+            .setTargetArch(TargetArch.ARM)
+            .setTargetArchAbi(TargetArchAbi.ARMEABI_V7A)
+            .setTargetAppPlatform(androidPlatform)
+            .setCompiler(compiler)
+            .setToolchainTarget(ToolchainTarget.ARM_LINUX_ANDROIDEABI)
+            .putAssemblerFlags(NdkCxxPlatformCompiler.Type.GCC, armeabiv7ArchFlags)
+            .putAssemblerFlags(
+                NdkCxxPlatformCompiler.Type.CLANG,
+                ImmutableList.<String>builder()
+                    .add("-target", "armv7-none-linux-androideabi")
+                    .addAll(armeabiv7ArchFlags)
+                    .build())
+            .putCompilerFlags(
+                NdkCxxPlatformCompiler.Type.GCC,
+                ImmutableList.<String>builder()
+                    .add("-finline-limit=64", "-Os")
+                    .addAll(armeabiv7ArchFlags)
+                    .build())
+            .putCompilerFlags(
+                NdkCxxPlatformCompiler.Type.CLANG,
+                ImmutableList.<String>builder()
+                    .add("-target", "armv7-none-linux-androideabi", "-Os")
+                    .addAll(armeabiv7ArchFlags)
+                    .build())
+            .putLinkerFlags(
+                NdkCxxPlatformCompiler.Type.GCC,
+                ImmutableList.<String>of())
+            .putLinkerFlags(
+                NdkCxxPlatformCompiler.Type.CLANG,
+                ImmutableList.of("-target", "armv7-none-linux-androideabi"))
+            .build();
+      case X86:
+        return NdkCxxPlatformTargetConfiguration.builder()
+            .setToolchain(Toolchain.X86)
+            .setTargetArch(TargetArch.X86)
+            .setTargetArchAbi(TargetArchAbi.X86)
+            .setTargetAppPlatform(androidPlatform)
+            .setCompiler(compiler)
+            .setToolchainTarget(ToolchainTarget.I686_LINUX_ANDROID)
+            .putAssemblerFlags(NdkCxxPlatformCompiler.Type.GCC, ImmutableList.<String>of())
+            .putAssemblerFlags(
+                NdkCxxPlatformCompiler.Type.CLANG,
+                ImmutableList.of(
+                    "-target", "i686-none-linux-android"))
+            .putCompilerFlags(
+                NdkCxxPlatformCompiler.Type.GCC,
+                ImmutableList.of(
+                    "-funswitch-loops",
+                    "-finline-limit=300",
+                    "-O2"))
+            .putCompilerFlags(
+                NdkCxxPlatformCompiler.Type.CLANG,
+                ImmutableList.of(
+                    "-target", "i686-none-linux-android",
+                    "-O2"))
+            .putLinkerFlags(
+                NdkCxxPlatformCompiler.Type.GCC,
+                ImmutableList.<String>of())
+            .putLinkerFlags(
+                NdkCxxPlatformCompiler.Type.CLANG,
+                ImmutableList.of(
+                    "-target", "i686-none-linux-android"))
+            .build();
+      case X86_64:
+        return NdkCxxPlatformTargetConfiguration.builder()
+            .setToolchain(Toolchain.X86_64)
+            .setTargetArch(TargetArch.X86_64)
+            .setTargetArchAbi(TargetArchAbi.X86_64)
+            .setTargetAppPlatform(androidPlatform)
+            .setCompiler(compiler)
+            .setToolchainTarget(ToolchainTarget.X86_64_LINUX_ANDROID)
+            .putAssemblerFlags(NdkCxxPlatformCompiler.Type.GCC, ImmutableList.<String>of())
+            .putAssemblerFlags(NdkCxxPlatformCompiler.Type.CLANG, ImmutableList.<String>of())
+            .putCompilerFlags(
+                NdkCxxPlatformCompiler.Type.GCC,
+                ImmutableList.of(
+                    "-funswitch-loops",
+                    "-finline-limit=300",
+                    "-O2"))
+            .putCompilerFlags(
+                NdkCxxPlatformCompiler.Type.CLANG,
+                ImmutableList.of(
+                    "-target", "i686-none-linux-android",
+                    "-O2"))
+            .putLinkerFlags(
+                NdkCxxPlatformCompiler.Type.GCC,
+                ImmutableList.<String>of())
+            .putLinkerFlags(
+                NdkCxxPlatformCompiler.Type.CLANG,
+                ImmutableList.of(
+                    "-target", "i686-none-linux-android"))
+            .build();
+      case MIPS:
+        break;
+    }
+    throw new AssertionError();
+  }
+
   @VisibleForTesting
   static NdkCxxPlatform build(
       CxxBuckConfig config,
+      ProjectFilesystem filesystem,
       Flavor flavor,
       Platform platform,
-      ProjectFilesystem ndk,
+      Path ndkRoot,
       NdkCxxPlatformTargetConfiguration targetConfiguration,
       CxxRuntime cxxRuntime,
       ExecutableFinder executableFinder,
       boolean strictToolchainPaths) {
-    Path ndkRoot = ndk.getRootPath();
-
     // Create a version string to use when generating rule keys via the NDK tools we'll generate
     // below.  This will be used in lieu of hashing the contents of the tools, so that builds from
     // different host platforms (which produce identical output) will share the cache with one
@@ -385,7 +427,7 @@ public class NdkCxxPlatforms {
     String version =
         Joiner.on('-').join(
             ImmutableList.of(
-                readVersion(ndk.getRootPath()),
+                readVersion(ndkRoot),
                 targetConfiguration.getToolchain(),
                 targetConfiguration.getTargetAppPlatform(),
                 compilerType,
@@ -396,7 +438,12 @@ public class NdkCxxPlatforms {
     Host host = Preconditions.checkNotNull(BUILD_PLATFORMS.get(platform));
 
     NdkCxxToolchainPaths toolchainPaths = new NdkCxxToolchainPaths(
-        ndkRoot, targetConfiguration, host.toString(), strictToolchainPaths);
+        filesystem,
+        ndkRoot,
+        targetConfiguration,
+        host.toString(),
+        cxxRuntime,
+        strictToolchainPaths);
     // Sanitized paths will have magic placeholders for parts of the paths that
     // are machine/host-specific. See comments on ANDROID_NDK_ROOT and
     // BUILD_HOST_SUBST above.
@@ -406,7 +453,7 @@ public class NdkCxxPlatforms {
     ImmutableBiMap.Builder<Path, Path> sanitizePaths = ImmutableBiMap.builder();
     sanitizePaths.put(toolchainPaths.getNdkToolRoot(), sanitizedPaths.getNdkToolRoot());
     if (compilerType != NdkCxxPlatformCompiler.Type.GCC) {
-        sanitizePaths.put(toolchainPaths.getNdkGccToolRoot(), sanitizedPaths.getNdkGccToolRoot());
+      sanitizePaths.put(toolchainPaths.getNdkGccToolRoot(), sanitizedPaths.getNdkGccToolRoot());
     }
     sanitizePaths.put(ndkRoot, Paths.get(ANDROID_NDK_ROOT));
 
@@ -434,19 +481,27 @@ public class NdkCxxPlatforms {
     PreprocessorProvider cxxpp = new PreprocessorProvider(cxxTool, type);
 
     CxxPlatform.Builder cxxPlatformBuilder = CxxPlatform.builder();
+    PrefixMapDebugPathSanitizer debugPathSanitizer = new PrefixMapDebugPathSanitizer(
+        config.getDebugPathSanitizerLimit(),
+        File.separatorChar,
+        Paths.get("."),
+        sanitizePaths.build(),
+        filesystem.getRootPath().toAbsolutePath(),
+        type);
+    ImmutableList<String> sanitizerFlags = debugPathSanitizer.getCompilationFlags();
     cxxPlatformBuilder
         .setFlavor(flavor)
         .setAs(cc)
-        .addAllAsflags(getAsflags(targetConfiguration, toolchainPaths))
+        .addAllAsflags(getAsflags(targetConfiguration, toolchainPaths, sanitizerFlags))
         .setAspp(cpp)
         .setCc(cc)
         .addAllCflags(getCflagsInternal(targetConfiguration, toolchainPaths))
         .setCpp(cpp)
-        .addAllCppflags(getCppflags(targetConfiguration, toolchainPaths))
+        .addAllCppflags(getCppflags(targetConfiguration, toolchainPaths, sanitizerFlags))
         .setCxx(cxx)
-        .addAllCxxflags(getCxxflagsInternal(targetConfiguration, toolchainPaths))
+        .addAllCxxflags(getCxxflagsInternal(targetConfiguration, toolchainPaths, sanitizerFlags))
         .setCxxpp(cxxpp)
-        .addAllCxxppflags(getCxxppflags(targetConfiguration, toolchainPaths, cxxRuntime))
+        .addAllCxxppflags(getCxxppflags(targetConfiguration, toolchainPaths, sanitizerFlags))
         .setLd(
             new DefaultLinkerProvider(
                 LinkerProvider.Type.GNU,
@@ -454,7 +509,6 @@ public class NdkCxxPlatforms {
                     getCcLinkTool(
                         targetConfiguration,
                         toolchainPaths,
-                        cxxRuntime,
                         compilerType.getCxx(),
                         version,
                         executableFinder))))
@@ -487,12 +541,7 @@ public class NdkCxxPlatforms {
         .setRanlib(
             getGccTool(toolchainPaths, "ranlib", version, executableFinder))
         // NDK builds are cross compiled, so the header is the same regardless of the host platform.
-        .setDebugPathSanitizer(
-            new DebugPathSanitizer(
-                config.getDebugPathSanitizerLimit(),
-                File.separatorChar,
-                Paths.get("."),
-                sanitizePaths.build()))
+        .setDebugPathSanitizer(debugPathSanitizer)
         .setSharedLibraryExtension("so")
         .setSharedLibraryVersionedExtensionFormat("so.%s")
         .setStaticLibraryExtension("a")
@@ -512,7 +561,7 @@ public class NdkCxxPlatforms {
         .setCxxPlatform(cxxPlatform)
         .setCxxRuntime(cxxRuntime)
         .setCxxSharedRuntimePath(
-            toolchainPaths.getCxxRuntimeLibsDirectory(cxxRuntime)
+            toolchainPaths.getCxxRuntimeLibsDirectory()
                 .resolve(cxxRuntime.getSoname()))
         .setObjdump(
             getGccTool(toolchainPaths, "objdump", version, executableFinder))
@@ -522,6 +571,7 @@ public class NdkCxxPlatforms {
   /**
    * It returns the version of the Android NDK located at the {@code ndkRoot} or throws the
    * exception.
+   *
    * @param ndkRoot the path where Android NDK is located.
    * @return the version of the Android NDK located in {@code ndkRoot}.
    */
@@ -535,7 +585,7 @@ public class NdkCxxPlatforms {
       ExecutableFinder executableFinder) {
     Path expected = toolchainPaths.getToolPath(tool);
     Optional<Path> path =
-        executableFinder.getOptionalExecutable(expected, ImmutableMap.<String, String>of());
+        executableFinder.getOptionalExecutable(expected, ImmutableMap.of());
     Preconditions.checkState(path.isPresent(), expected.toString());
     return path.get();
   }
@@ -546,7 +596,7 @@ public class NdkCxxPlatforms {
       ExecutableFinder executableFinder) {
     Path expected = toolchainPaths.getGccToolchainBinPath().resolve(tool);
     Optional<Path> path =
-        executableFinder.getOptionalExecutable(expected, ImmutableMap.<String, String>of());
+        executableFinder.getOptionalExecutable(expected, ImmutableMap.of());
     Preconditions.checkState(path.isPresent(), expected.toString());
     return path.get();
   }
@@ -575,19 +625,18 @@ public class NdkCxxPlatforms {
 
   private static ImmutableList<String> getCxxRuntimeIncludeFlags(
       NdkCxxPlatformTargetConfiguration targetConfiguration,
-      NdkCxxToolchainPaths toolchainPaths,
-      CxxRuntime cxxRuntime) {
+      NdkCxxToolchainPaths toolchainPaths) {
     ImmutableList.Builder<String> flags = ImmutableList.builder();
-    switch (cxxRuntime) {
+    switch (toolchainPaths.getCxxRuntime()) {
       case GNUSTL:
         flags.add(
             "-isystem",
-            toolchainPaths.getCxxRuntimeDirectory(cxxRuntime)
+            toolchainPaths.getCxxRuntimeDirectory()
                 .resolve("include")
                 .toString());
         flags.add(
             "-isystem",
-            toolchainPaths.getCxxRuntimeDirectory(cxxRuntime)
+            toolchainPaths.getCxxRuntimeDirectory()
                 .resolve("libs")
                 .resolve(targetConfiguration.getTargetArchAbi().toString())
                 .resolve("include")
@@ -596,13 +645,13 @@ public class NdkCxxPlatforms {
       case LIBCXX:
         flags.add(
             "-isystem",
-            toolchainPaths.getCxxRuntimeDirectory(cxxRuntime)
+            toolchainPaths.getCxxRuntimeDirectory()
                 .resolve("libcxx")
                 .resolve("include")
                 .toString());
         flags.add(
             "-isystem",
-            toolchainPaths.getCxxRuntimeDirectory(cxxRuntime)
+            toolchainPaths.getCxxRuntimeDirectory()
                 .getParent()
                 .resolve("llvm-libc++abi")
                 .resolve("libcxxabi")
@@ -621,7 +670,7 @@ public class NdkCxxPlatforms {
       default:
         flags.add(
             "-isystem",
-            toolchainPaths.getCxxRuntimeDirectory(cxxRuntime)
+            toolchainPaths.getCxxRuntimeDirectory()
                 .resolve("include")
                 .toString());
     }
@@ -631,7 +680,6 @@ public class NdkCxxPlatforms {
   private static Linker getCcLinkTool(
       NdkCxxPlatformTargetConfiguration targetConfiguration,
       NdkCxxToolchainPaths toolchainPaths,
-      CxxRuntime cxxRuntime,
       String tool,
       String version,
       ExecutableFinder executableFinder) {
@@ -657,7 +705,7 @@ public class NdkCxxPlatforms {
 
     // Add the path to the C/C++ runtime libraries.
     flags.add(
-        "-L" + toolchainPaths.getCxxRuntimeLibsDirectory(cxxRuntime).toString());
+        "-L" + toolchainPaths.getCxxRuntimeLibsDirectory().toString());
 
     return new GnuLinker(
         VersionedTool.builder()
@@ -776,9 +824,11 @@ public class NdkCxxPlatforms {
 
   private static ImmutableList<String> getAsflags(
       NdkCxxPlatformTargetConfiguration targetConfiguration,
-      NdkCxxToolchainPaths toolchainPaths) {
+      NdkCxxToolchainPaths toolchainPaths,
+      ImmutableList<String> sanitizerFlags) {
     return ImmutableList.<String>builder()
         .addAll(getCommonFlags(targetConfiguration, toolchainPaths))
+        .addAll(sanitizerFlags)
         // Default assembler flags added by the NDK to enforce the NX (no execute) security feature.
         .add("-Xassembler", "--noexecstack")
         .addAll(targetConfiguration.getAssemblerFlags(targetConfiguration.getCompiler().getType()))
@@ -787,12 +837,14 @@ public class NdkCxxPlatforms {
 
   private static ImmutableList<String> getCppflags(
       NdkCxxPlatformTargetConfiguration targetConfiguration,
-      NdkCxxToolchainPaths toolchainPaths) {
+      NdkCxxToolchainPaths toolchainPaths,
+      ImmutableList<String> sanitizerFlags) {
     return ImmutableList.<String>builder()
         .addAll(getCommonIncludes(toolchainPaths))
         .addAll(getCommonPreprocessorFlags())
         .addAll(getCommonFlags(targetConfiguration, toolchainPaths))
         .addAll(getCommonCFlags())
+        .addAll(sanitizerFlags)
         .addAll(targetConfiguration.getCompilerFlags(targetConfiguration.getCompiler().getType()))
         .build();
   }
@@ -800,13 +852,14 @@ public class NdkCxxPlatforms {
   private static ImmutableList<String> getCxxppflags(
       NdkCxxPlatformTargetConfiguration targetConfiguration,
       NdkCxxToolchainPaths toolchainPaths,
-      CxxRuntime cxxRuntime) {
+      ImmutableList<String> sanitizerFlags) {
     ImmutableList.Builder<String> flags = ImmutableList.builder();
-    flags.addAll(getCxxRuntimeIncludeFlags(targetConfiguration, toolchainPaths, cxxRuntime));
+    flags.addAll(getCxxRuntimeIncludeFlags(targetConfiguration, toolchainPaths));
     flags.addAll(getCommonIncludes(toolchainPaths));
     flags.addAll(getCommonPreprocessorFlags());
     flags.addAll(getCommonFlags(targetConfiguration, toolchainPaths));
     flags.addAll(getCommonCxxFlags());
+    flags.addAll(sanitizerFlags);
     if (targetConfiguration.getCompiler().getType() == NdkCxxPlatformCompiler.Type.GCC) {
       flags.add("-Wno-literal-suffix");
     }
@@ -840,13 +893,15 @@ public class NdkCxxPlatforms {
 
   private static ImmutableList<String> getCxxflagsInternal(
       NdkCxxPlatformTargetConfiguration targetConfiguration,
-      NdkCxxToolchainPaths toolchainPaths) {
+      NdkCxxToolchainPaths toolchainPaths,
+      ImmutableList<String> sanitizerFlags) {
     return ImmutableList.<String>builder()
         .addAll(
             targetConfiguration.getCompilerFlags(targetConfiguration.getCompiler().getType()))
         .addAll(getCommonCxxFlags())
         .addAll(getCommonFlags(targetConfiguration, toolchainPaths))
         .addAll(getCommonNdkCxxPlatformCompilerFlags())
+        .addAll(sanitizerFlags)
         .build();
   }
 
@@ -1027,29 +1082,44 @@ public class NdkCxxPlatforms {
     private String ndkVersion;
     private NdkCxxPlatformTargetConfiguration targetConfiguration;
     private String hostName;
+    private CxxRuntime cxxRuntime;
     private Map<String, Path> cachedPaths;
     private boolean strict;
     private int ndkMajorVersion;
+    private ProjectFilesystem filesystem;
 
     NdkCxxToolchainPaths(
+        ProjectFilesystem filesystem,
         Path ndkRoot,
         NdkCxxPlatformTargetConfiguration targetConfiguration,
         String hostName,
+        CxxRuntime cxxRuntime,
         boolean strict) {
-      this(ndkRoot, readVersion(ndkRoot), targetConfiguration, hostName, strict);
+      this(
+          filesystem,
+          ndkRoot,
+          readVersion(ndkRoot),
+          targetConfiguration,
+          hostName,
+          cxxRuntime,
+          strict);
     }
 
-    NdkCxxToolchainPaths(
+    private NdkCxxToolchainPaths(
+        ProjectFilesystem filesystem,
         Path ndkRoot,
         String ndkVersion,
         NdkCxxPlatformTargetConfiguration targetConfiguration,
         String hostName,
+        CxxRuntime cxxRuntime,
         boolean strict) {
+      this.filesystem = filesystem;
       this.cachedPaths = new HashMap<>();
       this.strict = strict;
 
       this.targetConfiguration = targetConfiguration;
       this.hostName = hostName;
+      this.cxxRuntime = cxxRuntime;
       this.ndkRoot = ndkRoot;
       this.ndkVersion = ndkVersion;
       this.ndkMajorVersion = getNdkMajorVersion(ndkVersion);
@@ -1061,10 +1131,12 @@ public class NdkCxxPlatforms {
 
     NdkCxxToolchainPaths getSanitizedPaths() {
       return new NdkCxxToolchainPaths(
+          filesystem,
           Paths.get(ANDROID_NDK_ROOT),
           ndkVersion,
           targetConfiguration,
           BUILD_HOST_SUBST,
+          cxxRuntime,
           false);
     }
 
@@ -1174,7 +1246,7 @@ public class NdkCxxPlatforms {
       return processPathPattern(getNdkGccToolRoot(), "{toolchain_target}/bin");
     }
 
-    private Path getCxxRuntimeDirectory(CxxRuntime cxxRuntime) {
+    private Path getCxxRuntimeDirectory() {
       if (cxxRuntime == CxxRuntime.GNUSTL) {
         return processPathPattern(
             "sources/cxx-stl/" + cxxRuntime.getName() + "/{gcc_compiler_version}");
@@ -1185,8 +1257,8 @@ public class NdkCxxPlatforms {
 
     }
 
-    private Path getCxxRuntimeLibsDirectory(CxxRuntime cxxRuntime) {
-      return processPathPattern(getCxxRuntimeDirectory(cxxRuntime), "libs/{target_arch_abi}");
+    private Path getCxxRuntimeLibsDirectory() {
+      return processPathPattern(getCxxRuntimeDirectory(), "libs/{target_arch_abi}");
     }
 
     Path getToolPath(String tool) {
@@ -1199,6 +1271,14 @@ public class NdkCxxPlatforms {
 
     public Path getNdkRoot() {
       return ndkRoot;
+    }
+
+    public CxxRuntime getCxxRuntime() {
+      return cxxRuntime;
+    }
+
+    public ProjectFilesystem getFilesystem() {
+      return filesystem;
     }
   }
 }

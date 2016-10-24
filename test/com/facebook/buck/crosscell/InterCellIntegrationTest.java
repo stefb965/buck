@@ -48,14 +48,12 @@ import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.environment.Platform;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
 import com.google.common.util.concurrent.MoreExecutors;
-import com.martiansoftware.nailgun.NGContext;
 
 import org.ini4j.Ini;
 import org.junit.Ignore;
@@ -70,6 +68,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.Optional;
 import java.util.concurrent.Executors;
 
 public class InterCellIntegrationTest {
@@ -369,8 +368,8 @@ public class InterCellIntegrationTest {
     ProjectWorkspace.ProcessResult result =
         mainRepo.runBuckCommandWithEnvironmentOverridesAndContext(
             primary,
-            Optional.<NGContext>absent(),
-            ImmutableMap.<String, String>of(),
+            Optional.empty(),
+            ImmutableMap.of(),
             "build",
             "//:bin");
 

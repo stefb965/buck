@@ -19,7 +19,6 @@ package com.facebook.buck.jvm.java.autodeps;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaFileParser;
 import com.facebook.buck.jvm.java.JavacOptions;
@@ -34,12 +33,11 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.ObjectMappers;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.fasterxml.jackson.databind.node.TextNode;
-import com.google.common.base.Function;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -48,19 +46,13 @@ import org.junit.Rule;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.nio.file.Paths;
 import java.util.List;
+import java.util.stream.StreamSupport;
 
 public class JavaSymbolsRuleTest {
   @Rule
   public TemporaryPaths tmp = new TemporaryPaths();
-
-  private static final Function<JsonNode, String> GET_STRING_LITERAL_VALUE_FROM_JSON_NODE =
-      new Function<JsonNode, String>() {
-        @Override
-        public String apply(JsonNode node) {
-          return ((TextNode) node).textValue();
-        }
-      };
 
   @Test
   public void ensureJsonFilesGetWritten() throws IOException, InterruptedException {
@@ -74,7 +66,7 @@ public class JavaSymbolsRuleTest {
     ImmutableSortedSet<SourcePath> srcs = ImmutableSortedSet.<SourcePath>naturalOrder()
         .addAll(
             FluentIterable.from(ImmutableSet.of("Example1.java", "Example2.java"))
-                .transform(MorePaths.TO_PATH)
+                .transform(Paths::get)
                 .transform(SourcePaths.toSourcePath(projectFilesystem))
         )
         .add(new BuildTargetSourcePath(BuildTargetFactory.newInstance("//foo:bar")))
@@ -122,15 +114,15 @@ public class JavaSymbolsRuleTest {
             "com.example.Example1",
             "com.example.Example2",
             "com.example.generated.Example"),
-        FluentIterable.from(jsonNode.get("provided"))
-            .transform(GET_STRING_LITERAL_VALUE_FROM_JSON_NODE)
-            .toSet());
+        StreamSupport.stream(jsonNode.get("provided").spliterator(), false)
+            .map(JsonNode::textValue)
+            .collect(MoreCollectors.toImmutableSet()));
     assertEquals(
         ImmutableSet.of(
             "com.example.other.Bar",
             "com.example.other.Foo"),
-        FluentIterable.from(jsonNode.get("required"))
-            .transform(GET_STRING_LITERAL_VALUE_FROM_JSON_NODE)
-            .toSet());
+        StreamSupport.stream(jsonNode.get("required").spliterator(), false)
+            .map(JsonNode::textValue)
+            .collect(MoreCollectors.toImmutableSet()));
   }
 }

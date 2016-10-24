@@ -18,7 +18,6 @@ package com.facebook.buck.python;
 
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.cxx.CxxBinaryBuilder;
 import com.facebook.buck.cxx.CxxPlatformUtils;
@@ -30,6 +29,7 @@ import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRules;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
@@ -41,7 +41,6 @@ import com.facebook.buck.shell.ShBinary;
 import com.facebook.buck.shell.ShBinaryBuilder;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.testutil.TargetGraphFactory;
-import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -51,6 +50,7 @@ import org.hamcrest.Matchers;
 import org.junit.Test;
 
 import java.nio.file.Paths;
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 public class PythonTestDescriptionTest {
@@ -63,7 +63,7 @@ public class PythonTestDescriptionTest {
         (PythonTest) PythonTestBuilder.create(BuildTargetFactory.newInstance("//:bin"))
             .setSrcs(
                 SourceList.ofUnnamedSources(
-                    ImmutableSortedSet.<SourcePath>of(new FakeSourcePath("blah.py"))))
+                    ImmutableSortedSet.of(new FakeSourcePath("blah.py"))))
             .build(resolver);
     PythonBinary binRule = testRule.getBinary();
     PythonPackageComponents components = binRule.getComponents();
@@ -196,12 +196,12 @@ public class PythonTestDescriptionTest {
         PythonPlatform.of(
             ImmutableFlavor.of("pyPlat1"),
             new PythonEnvironment(Paths.get("python2.6"), PythonVersion.of("CPython", "2.6")),
-            Optional.<BuildTarget>absent());
+            Optional.empty());
     PythonPlatform platform2 =
         PythonPlatform.of(
             ImmutableFlavor.of("pyPlat2"),
             new PythonEnvironment(Paths.get("python2.7"), PythonVersion.of("CPython", "2.7")),
-            Optional.<BuildTarget>absent());
+            Optional.empty());
     PythonTestBuilder builder =
         PythonTestBuilder.create(
             BuildTargetFactory.newInstance("//:bin"),

@@ -37,14 +37,13 @@ import com.facebook.buck.rules.macros.MacroExpander;
 import com.facebook.buck.rules.macros.MacroHandler;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Maps;
 
 import java.util.Map;
+import java.util.Optional;
 
 public class WorkerToolDescription implements Description<WorkerToolDescription.Arg>,
     ImplicitDepsInferringDescription<WorkerToolDescription.Arg> {
@@ -89,38 +88,35 @@ public class WorkerToolDescription implements Description<WorkerToolDescription.
           params.getBuildTarget(),
           params.getCellRoots(),
           resolver,
-          args.args.or(""));
+          args.args.orElse(""));
     } catch (MacroException e) {
       throw new HumanReadableException(e, "%s: %s", params.getBuildTarget(), e.getMessage());
     }
 
     ImmutableMap<String, String> expandedEnv = ImmutableMap.copyOf(
-        FluentIterable.from(args.env.get().entrySet())
-            .transform(new Function<Map.Entry<String, String>, Map.Entry<String, String>>() {
-              @Override
-              public Map.Entry<String, String> apply(Map.Entry<String, String> input) {
-                try {
-                  return Maps.immutableEntry(
-                      input.getKey(),
-                      MACRO_HANDLER.expand(
-                          params.getBuildTarget(),
-                          params.getCellRoots(),
-                          resolver,
-                          input.getValue()));
-                } catch (MacroException e) {
-                  throw new HumanReadableException(
-                      e, "%s: %s", params.getBuildTarget(), e.getMessage());
-                }
+        FluentIterable.from(args.env.entrySet())
+            .transform(input -> {
+              try {
+                return Maps.immutableEntry(
+                    input.getKey(),
+                    MACRO_HANDLER.expand(
+                        params.getBuildTarget(),
+                        params.getCellRoots(),
+                        resolver,
+                        input.getValue()));
+              } catch (MacroException e) {
+                throw new HumanReadableException(
+                    e, "%s: %s", params.getBuildTarget(), e.getMessage());
               }
             }));
 
-    Optional<Integer> maxWorkers;
+    int maxWorkers;
     if (args.maxWorkers.isPresent()) {
       // negative or zero: unlimited number of worker processes
-      maxWorkers = args.maxWorkers.get() < 1 ? Optional.<Integer>absent() : args.maxWorkers;
+      maxWorkers = args.maxWorkers.get() < 1 ? Integer.MAX_VALUE : args.maxWorkers.get();
     } else {
       // default is 1 worker process (for backwards compatibility)
-      maxWorkers = Optional.of(1);
+      maxWorkers = 1;
     }
 
     return new DefaultWorkerTool(
@@ -144,7 +140,7 @@ public class WorkerToolDescription implements Description<WorkerToolDescription.
             MACRO_HANDLER.extractParseTimeDeps(
                 buildTarget, cellRoots, constructorArg.args.get()));
       }
-      for (Map.Entry<String, String> env : constructorArg.env.get().entrySet()) {
+      for (Map.Entry<String, String> env : constructorArg.env.entrySet()) {
         targets.addAll(
             MACRO_HANDLER.extractParseTimeDeps(
                 buildTarget, cellRoots, env.getValue()));
@@ -158,7 +154,7 @@ public class WorkerToolDescription implements Description<WorkerToolDescription.
 
   @SuppressFieldNotInitialized
   public static class Arg extends AbstractDescriptionArg {
-    public Optional<ImmutableMap<String, String>> env;
+    public ImmutableMap<String, String> env = ImmutableMap.of();
     public Optional<String> args;
     public BuildTarget exe;
     public Optional<Integer> maxWorkers;

@@ -45,7 +45,6 @@ import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.google.common.base.Optional;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -55,6 +54,7 @@ import org.junit.Test;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 
 public class CxxPreprocessAndCompileTest {
 
@@ -105,7 +105,7 @@ public class CxxPreprocessAndCompileTest {
   private static final SourcePath DEFAULT_INPUT = new FakeSourcePath("test.cpp");
   private static final CxxSource.Type DEFAULT_INPUT_TYPE = CxxSource.Type.CXX;
   private static final ImmutableList<CxxHeaders> DEFAULT_INCLUDES =
-      ImmutableList.<CxxHeaders>of(
+      ImmutableList.of(
           CxxSymlinkTreeHeaders.builder()
               .setIncludeType(CxxPreprocessables.IncludeType.LOCAL)
               .setRoot(new BuildTargetSourcePath(BuildTargetFactory.newInstance("//:include")))
@@ -396,7 +396,7 @@ public class CxxPreprocessAndCompileTest {
                     .setPrefixHeader(new FakeSourcePath(filesystem, prefixHeader.toString()))
                     .build(),
                 DEFAULT_FRAMEWORK_PATH_SEARCH_PATH_FUNCTION,
-                ImmutableList.<CxxHeaders>of()),
+                ImmutableList.of()),
             new CompilerDelegate(
                 pathResolver,
                 DEFAULT_SANITIZER,
@@ -461,7 +461,7 @@ public class CxxPreprocessAndCompileTest {
                 new DefaultPreprocessor(preprocessorTool),
                 PreprocessorFlags.builder().build(),
                 DEFAULT_FRAMEWORK_PATH_SEARCH_PATH_FUNCTION,
-                ImmutableList.<CxxHeaders>of()),
+                ImmutableList.of()),
             new CompilerDelegate(
                 pathResolver,
                 DEFAULT_SANITIZER,
@@ -562,7 +562,7 @@ public class CxxPreprocessAndCompileTest {
                 PREPROCESSOR_WITH_COLOR_SUPPORT,
                 PreprocessorFlags.builder().build(),
                 DEFAULT_FRAMEWORK_PATH_SEARCH_PATH_FUNCTION,
-                ImmutableList.<CxxHeaders>of()),
+                ImmutableList.of()),
             new CompilerDelegate(
                 pathResolver,
                 DEFAULT_SANITIZER,

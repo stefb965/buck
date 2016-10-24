@@ -23,7 +23,7 @@ import com.facebook.buck.rules.args.FileListableLinkerInputArg;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
-import com.google.common.base.Predicate;
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 
@@ -89,9 +89,9 @@ public class CxxPrepareForLinkStep implements Step {
     }
     LOG.verbose("Creating argfile");
     ImmutableList<String> argFileContents =
-        FluentIterable.from(getLinkerOptions())
-            .transform(Javac.ARGFILES_ESCAPER)
-            .toList();
+        getLinkerOptions().stream()
+            .map(Javac.ARGFILES_ESCAPER::apply)
+            .collect(MoreCollectors.toImmutableList());
     storeContentsInFile(argFileContents, argFilePath);
   }
 
@@ -114,24 +114,18 @@ public class CxxPrepareForLinkStep implements Step {
     if (linkerArgsToSupportFileList.isEmpty()) {
       return ImmutableList.of();
     }
-    return FluentIterable.from(args).filter(new Predicate<Arg>() {
-      @Override
-      public boolean apply(Arg input) {
-        return input instanceof FileListableLinkerInputArg;
-      }
-    }).toList();
+    return FluentIterable.from(args)
+        .filter(input -> input instanceof FileListableLinkerInputArg)
+        .toList();
   }
 
   private ImmutableList<Arg> getLinkerArgsWithoutFileListArgs() {
     if (linkerArgsToSupportFileList.isEmpty()) {
       return args;
     }
-    return FluentIterable.from(args).filter(new Predicate<Arg>() {
-      @Override
-      public boolean apply(Arg input) {
-        return !(input instanceof FileListableLinkerInputArg);
-      }
-    }).toList();
+    return FluentIterable.from(args)
+        .filter(input -> !(input instanceof FileListableLinkerInputArg))
+        .toList();
   }
 
   private ImmutableList<String> getLinkerOptions() {

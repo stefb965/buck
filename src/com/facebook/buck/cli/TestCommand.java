@@ -53,9 +53,7 @@ import com.facebook.buck.util.concurrent.ConcurrencyLimit;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -70,10 +68,10 @@ import java.nio.channels.Channels;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 
@@ -82,6 +80,7 @@ import javax.annotation.Nullable;
 public class TestCommand extends BuildCommand {
 
   public static final String USE_RESULTS_CACHE = "use_results_cache";
+  public static final String RERUN_ONLY_FAILING = "rerun_only_failing";
 
   private static final Logger LOG = Logger.get(TestCommand.class);
 
@@ -117,6 +116,10 @@ public class TestCommand extends BuildCommand {
   @Nullable
   private Boolean isResultsCacheDisabled = null;
 
+  @Option(name = "--only-failing", usage = "Don't re-run tests that are cached as passed.")
+  @Nullable
+  private Boolean isOnlyFailing = null;
+
   @Option(name = "--build-filtered", usage = "Whether to build filtered out tests.")
   @Nullable
   private Boolean isBuildFiltered = null;
@@ -134,7 +137,8 @@ public class TestCommand extends BuildCommand {
 
   @Option(
       name = "--dry-run",
-      usage = "Print tests that match the given command line options, but don't run them.")
+      usage = "Deprecated option.",
+      hidden = true)
   private boolean isDryRun;
 
   @Option(
@@ -187,13 +191,23 @@ public class TestCommand extends BuildCommand {
     return isCodeCoverageEnabled;
   }
 
-  public boolean isResultsCacheEnabled(BuckConfig buckConfig) {
+  public TestRunningOptions.TestResultCacheMode getResultsCacheMode(BuckConfig buckConfig) {
     // The option is negative (--no-X) but we prefer to reason about positives, in the code.
     if (isResultsCacheDisabled == null) {
       boolean isUseResultsCache = buckConfig.getBooleanValue("test", USE_RESULTS_CACHE, true);
       isResultsCacheDisabled = !isUseResultsCache;
     }
-    return !isResultsCacheDisabled;
+    if (isOnlyFailing == null) {
+      isOnlyFailing = buckConfig.getBooleanValue("test", RERUN_ONLY_FAILING, false);
+    }
+
+    if (isResultsCacheDisabled) {
+      return TestRunningOptions.TestResultCacheMode.DISABLED;
+    }
+    if (isOnlyFailing) {
+      return TestRunningOptions.TestResultCacheMode.ENABLED_IF_PASSED;
+    }
+    return TestRunningOptions.TestResultCacheMode.ENABLED;
   }
 
   @Override
@@ -257,11 +271,11 @@ public class TestCommand extends BuildCommand {
         .setRunAllTests(isRunAllTests())
         .setTestSelectorList(testSelectorOptions.getTestSelectorList())
         .setShouldExplainTestSelectorList(testSelectorOptions.shouldExplain())
-        .setResultsCacheEnabled(isResultsCacheEnabled(params.getBuckConfig()))
+        .setTestResultCacheMode(getResultsCacheMode(params.getBuckConfig()))
         .setDryRun(isDryRun)
         .setShufflingTests(isShufflingTests)
-        .setPathToXmlTestOutput(Optional.fromNullable(pathToXmlTestOutput))
-        .setPathToJavaAgent(Optional.fromNullable(pathToJavaAgent))
+        .setPathToXmlTestOutput(Optional.ofNullable(pathToXmlTestOutput))
+        .setPathToJavaAgent(Optional.ofNullable(pathToJavaAgent))
         .setCoverageReportFormat(coverageReportFormat)
         .setCoverageReportTitle(coverageReportTitle)
         .setEnvironmentOverrides(environmentOverrides);
@@ -311,7 +325,7 @@ public class TestCommand extends BuildCommand {
           getTestRunningOptions(params),
           testPool.getExecutor(),
           buildEngine,
-          new DefaultStepRunner(build.getExecutionContext()));
+          new DefaultStepRunner());
     } catch (ExecutionException e) {
       params.getBuckEventBus().post(ConsoleEvent.severe(
           MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
@@ -413,12 +427,7 @@ public class TestCommand extends BuildCommand {
               pool.getExecutor(),
               ImmutableList.of(
                   TargetNodePredicateSpec.of(
-                      new Predicate<TargetNode<?>>() {
-                        @Override
-                        public boolean apply(TargetNode<?> input) {
-                          return input.getType().isTestRule();
-                        }
-                      },
+                      input -> input.getType().isTestRule(),
                       BuildFileSpec.fromRecursivePath(Paths.get(""), params.getCell().getRoot()))),
               ignoreBuckAutodepsFiles,
               parserConfig.getDefaultFlavorsMode()).getTargetGraph();
@@ -497,7 +506,8 @@ public class TestCommand extends BuildCommand {
           new CachingBuildEngine(
               new LocalCachingBuildEngineDelegate(params.getFileHashCache()),
               pool.getExecutor(),
-              getBuildEngineMode().or(params.getBuckConfig().getBuildEngineMode()),
+              new DefaultStepRunner(),
+              getBuildEngineMode().orElse(params.getBuckConfig().getBuildEngineMode()),
               params.getBuckConfig().getBuildDepFiles(),
               params.getBuckConfig().getBuildMaxDepFileCacheEntries(),
               params.getBuckConfig().getBuildArtifactCacheSizeLimit(),
@@ -588,13 +598,8 @@ public class TestCommand extends BuildCommand {
 
     ImmutableSortedSet.Builder<TestRule> builder =
         ImmutableSortedSet.orderedBy(
-            new Comparator<TestRule>() {
-              @Override
-              public int compare(TestRule o1, TestRule o2) {
-                return o1.getBuildTarget().getFullyQualifiedName().compareTo(
-                    o2.getBuildTarget().getFullyQualifiedName());
-              }
-            });
+            (o1, o2) -> o1.getBuildTarget().getFullyQualifiedName().compareTo(
+                o2.getBuildTarget().getFullyQualifiedName()));
 
     for (TestRule rule : testRules) {
       boolean explicitArgument = explicitBuildTargets.contains(rule.getBuildTarget());

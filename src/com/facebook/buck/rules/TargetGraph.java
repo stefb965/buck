@@ -22,8 +22,6 @@ import com.facebook.buck.graph.MutableDirectedGraph;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.util.ExceptionWithHumanReadableMessage;
 import com.facebook.buck.util.MoreMaps;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -32,6 +30,7 @@ import com.google.common.collect.Iterables;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 import javax.annotation.Nullable;
 
@@ -42,8 +41,8 @@ import javax.annotation.Nullable;
 public class TargetGraph extends DefaultDirectedAcyclicGraph<TargetNode<?>> {
   public static final TargetGraph EMPTY = new TargetGraph(
       new MutableDirectedGraph<TargetNode<?>>(),
-      ImmutableMap.<BuildTarget, TargetNode<?>>of(),
-      ImmutableSet.<TargetGroup>of());
+      ImmutableMap.of(),
+      ImmutableSet.of());
 
   private final ImmutableMap<BuildTarget, TargetNode<?>> targetsToNodes;
   private final ImmutableSetMultimap<BuildTarget, TargetGroup> groupsByBuildTarget;
@@ -91,7 +90,7 @@ public class TargetGraph extends DefaultDirectedAcyclicGraph<TargetNode<?>> {
   }
 
   public Optional<TargetNode<?>> getOptional(BuildTarget target) {
-    return Optional.<TargetNode<?>>fromNullable(getInternal(target));
+    return Optional.ofNullable(getInternal(target));
   }
 
   public TargetNode<?> get(BuildTarget target) {
@@ -102,24 +101,10 @@ public class TargetGraph extends DefaultDirectedAcyclicGraph<TargetNode<?>> {
     return node;
   }
 
-  public Function<BuildTarget, TargetNode<?>> get() {
-    return new Function<BuildTarget, TargetNode<?>>() {
-      @Override
-      public TargetNode<?> apply(BuildTarget input) {
-        return get(input);
-      }
-    };
-  }
-
   public Iterable<TargetNode<?>> getAll(Iterable<BuildTarget> targets) {
     return Iterables.transform(
         targets,
-        new Function<BuildTarget, TargetNode<?>>() {
-          @Override
-          public TargetNode<?> apply(BuildTarget input) {
-            return get(input);
-          }
-        });
+        this::get);
   }
 
   public ImmutableSet<TargetGroup> getGroupsContainingTarget(BuildTarget target) {

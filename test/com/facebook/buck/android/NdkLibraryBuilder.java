@@ -21,13 +21,13 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 
 public class NdkLibraryBuilder extends AbstractNodeBuilder<NdkLibraryDescription.Arg> {
 
@@ -47,12 +47,12 @@ public class NdkLibraryBuilder extends AbstractNodeBuilder<NdkLibraryDescription
 
   public NdkLibraryBuilder(BuildTarget target) {
     super(
-        new NdkLibraryDescription(Optional.<String>absent(), NDK_PLATFORMS) {
+        new NdkLibraryDescription(Optional.empty(), NDK_PLATFORMS) {
           @Override
           protected ImmutableSortedSet<SourcePath> findSources(
               ProjectFilesystem filesystem,
               Path buildRulePath) {
-            return ImmutableSortedSet.<SourcePath>of(
+            return ImmutableSortedSet.of(
                 new PathSourcePath(filesystem, buildRulePath.resolve("Android.mk")));
           }
         },
@@ -65,7 +65,7 @@ public class NdkLibraryBuilder extends AbstractNodeBuilder<NdkLibraryDescription
   }
 
   public NdkLibraryBuilder setFlags(Iterable<String> flags) {
-    arg.flags = Optional.of(ImmutableList.copyOf(flags));
+    arg.flags = ImmutableList.copyOf(flags);
     return this;
   }
 

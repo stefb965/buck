@@ -19,7 +19,6 @@ package com.facebook.buck.cxx;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 
@@ -27,6 +26,7 @@ import java.nio.file.Path;
 import java.util.AbstractMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 
 public class HeaderPathNormalizer {
 
@@ -56,25 +56,25 @@ public class HeaderPathNormalizer {
   public static HeaderPathNormalizer empty(SourcePathResolver pathResolver) {
     return new HeaderPathNormalizer(
         pathResolver,
-        ImmutableMap.<Path, SourcePath>of(),
-        ImmutableMap.<Path, SourcePath>of());
+        ImmutableMap.of(),
+        ImmutableMap.of());
   }
 
   private static <T> Optional<Map.Entry<Path, T>> pathLookup(Path path, Map<Path, T> map) {
     while (path != null) {
       T res = map.get(path);
       if (res != null) {
-        return Optional.<Map.Entry<Path, T>>of(new AbstractMap.SimpleEntry<>(path, res));
+        return Optional.of(new AbstractMap.SimpleEntry<>(path, res));
       }
       path = path.getParent();
     }
-    return Optional.absent();
+    return Optional.empty();
   }
 
   public Optional<Path> getAbsolutePathForUnnormalizedPath(Path unnormalizedPath) {
     Optional<Map.Entry<Path, SourcePath>> result = pathLookup(unnormalizedPath, normalized);
     if (!result.isPresent()) {
-      return Optional.absent();
+      return Optional.empty();
     }
     return Optional.of(
         pathResolver.getAbsolutePath(result.get().getValue())
@@ -88,7 +88,7 @@ public class HeaderPathNormalizer {
   public Optional<Path> getRelativePathForUnnormalizedPath(Path unnormalizedPath) {
     Optional<Map.Entry<Path, SourcePath>> result = pathLookup(unnormalizedPath, normalized);
     if (!result.isPresent()) {
-      return Optional.absent();
+      return Optional.empty();
     }
     return Optional.of(
         pathResolver.getRelativePath(result.get().getValue())

@@ -21,9 +21,10 @@ import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.coercer.SourceList;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
+
+import java.util.Optional;
 
 public class LuaLibraryBuilder extends AbstractNodeBuilder<LuaLibraryDescription.Arg> {
 
@@ -43,22 +44,22 @@ public class LuaLibraryBuilder extends AbstractNodeBuilder<LuaLibraryDescription
   }
 
   public LuaLibraryBuilder setSrcs(SourceList srcs) {
-    arg.srcs = Optional.of(srcs);
+    arg.srcs = srcs;
     return this;
   }
 
   public LuaLibraryBuilder setSrcs(ImmutableSortedSet<SourcePath> srcs) {
-    arg.srcs = Optional.of(SourceList.ofUnnamedSources(srcs));
+    arg.srcs = SourceList.ofUnnamedSources(srcs);
     return this;
   }
 
   public LuaLibraryBuilder setSrcs(ImmutableSortedMap<String, SourcePath> srcs) {
-    arg.srcs = Optional.of(SourceList.ofNamedSources(srcs));
+    arg.srcs = SourceList.ofNamedSources(srcs);
     return this;
   }
 
   public LuaLibraryBuilder setDeps(ImmutableSortedSet<BuildTarget> deps) {
-    arg.deps = Optional.of(deps);
+    arg.deps = deps;
     return this;
   }
 

@@ -22,8 +22,9 @@ import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSortedSet;
+
+import java.util.Optional;
 
 public class CxxPythonExtensionBuilder extends
     AbstractCxxSourceBuilder<CxxPythonExtensionDescription.Arg, CxxPythonExtensionBuilder> {
@@ -43,7 +44,7 @@ public class CxxPythonExtensionBuilder extends
 
   public CxxPythonExtensionBuilder setPlatformDeps(
       PatternMatchedCollection<ImmutableSortedSet<BuildTarget>> platformDeps) {
-    arg.platformDeps = Optional.of(platformDeps);
+    arg.platformDeps = platformDeps;
     return this;
   }
 

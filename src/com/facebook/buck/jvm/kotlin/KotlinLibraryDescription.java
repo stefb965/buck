@@ -34,14 +34,13 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 
-import java.nio.file.Path;
-import java.util.regex.Pattern;
+import java.util.Optional;
+
 
 
 public class KotlinLibraryDescription implements Description<KotlinLibraryDescription.Arg> {
@@ -74,7 +73,7 @@ public class KotlinLibraryDescription implements Description<KotlinLibraryDescri
 
     BuildTarget abiJarTarget = params.getBuildTarget().withAppendedFlavors(CalculateAbi.FLAVOR);
 
-    ImmutableSortedSet<BuildRule> exportedDeps = resolver.getAllRules(args.exportedDeps.get());
+    ImmutableSortedSet<BuildRule> exportedDeps = resolver.getAllRules(args.exportedDeps);
     DefaultJavaLibrary defaultJavaLibrary =
         resolver.addToIndex(
             new DefaultJavaLibrary(
@@ -83,29 +82,29 @@ public class KotlinLibraryDescription implements Description<KotlinLibraryDescri
                         Iterables.concat(
                             params.getDeclaredDeps().get(),
                             exportedDeps,
-                            resolver.getAllRules(args.providedDeps.get())))),
+                            resolver.getAllRules(args.providedDeps)))),
                 pathResolver,
-                args.srcs.get(),
+                args.srcs,
                 validateResources(
                     pathResolver,
                     params.getProjectFilesystem(),
-                    args.resources.get()),
-                Optional.<Path>absent(),
-                Optional.<SourcePath>absent(),
-                ImmutableList.<String>of(),
+                    args.resources),
+                Optional.empty(),
+                Optional.empty(),
+                ImmutableList.of(),
                 exportedDeps,
-                resolver.getAllRules(args.providedDeps.get()),
+                resolver.getAllRules(args.providedDeps),
                 new BuildTargetSourcePath(abiJarTarget),
                 /* trackClassUsage */ false,
-                /* additionalClasspathEntries */ ImmutableSet.<Path>of(),
+                /* additionalClasspathEntries */ ImmutableSet.of(),
                 new KotlincToJarStepFactory(
                     kotlinBuckConfig.getKotlinCompiler().get(),
-                    args.extraKotlincArguments.get()),
-                Optional.<Path>absent(),
-                /* manifest file */ Optional.<SourcePath>absent(),
-                Optional.<String>absent(),
-                ImmutableSortedSet.<BuildTarget>of(),
-                /* classesToRemoveFromJar */ ImmutableSet.<Pattern>of()));
+                    args.extraKotlincArguments),
+                Optional.empty(),
+                /* manifest file */ Optional.empty(),
+                Optional.empty(),
+                ImmutableSortedSet.of(),
+                /* classesToRemoveFromJar */ ImmutableSet.of()));
 
     resolver.addToIndex(
         CalculateAbi.of(
@@ -120,11 +119,11 @@ public class KotlinLibraryDescription implements Description<KotlinLibraryDescri
 
   @SuppressFieldNotInitialized
   public static class Arg extends JvmLibraryArg {
-    public Optional<ImmutableSortedSet<SourcePath>> srcs;
-    public Optional<ImmutableSortedSet<SourcePath>> resources;
-    public Optional<ImmutableList<String>> extraKotlincArguments;
-    public Optional<ImmutableSortedSet<BuildTarget>> providedDeps;
-    public Optional<ImmutableSortedSet<BuildTarget>> exportedDeps;
-    public Optional<ImmutableSortedSet<BuildTarget>> deps;
+    public ImmutableSortedSet<SourcePath> srcs = ImmutableSortedSet.of();
+    public ImmutableSortedSet<SourcePath> resources = ImmutableSortedSet.of();
+    public ImmutableList<String> extraKotlincArguments = ImmutableList.of();
+    public ImmutableSortedSet<BuildTarget> providedDeps = ImmutableSortedSet.of();
+    public ImmutableSortedSet<BuildTarget> exportedDeps = ImmutableSortedSet.of();
+    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
   }
 }

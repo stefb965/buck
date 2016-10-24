@@ -138,7 +138,7 @@ public class ActionGraphCache {
       final BuckEventBus eventBus,
       TargetNodeToBuildRuleTransformer transformer,
       TargetGraph targetGraph) {
-    final BuildRuleResolver resolver = new BuildRuleResolver(targetGraph, transformer);
+    final BuildRuleResolver resolver = new BuildRuleResolver(targetGraph, transformer, eventBus);
 
     final int numberOfNodes = targetGraph.getNodes().size();
     final AtomicInteger processedNodes = new AtomicInteger(0);
@@ -239,7 +239,7 @@ public class ActionGraphCache {
   }
 
   @Subscribe
-  public void invalidateBasedOn(WatchEvent<?> event) throws InterruptedException {
+  public void invalidateBasedOn(WatchEvent<?> event) {
     // We invalidate in every case except a modify event.
     if (event.kind() != StandardWatchEventKinds.ENTRY_MODIFY) {
       LOG.info("ActionGraphCache invalidation due to Watchman event %s.", event);

@@ -1,8 +1,6 @@
-#@# GENERATED FILE: DO NOT MODIFY 2edf1dfdd6e661020a0cc452a5e441b62987d937 #@#
 {
   "assumptions" : {
     "deps" : [
-      "//src/com/facebook/buck/cxx:platform",
       "//src/com/facebook/buck/go:go",
       "//src/com/facebook/buck/model:model",
       "//src/com/facebook/buck/util:exceptions",

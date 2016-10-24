@@ -28,7 +28,6 @@ import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.event.BuckEventBusFactory.CapturingConsoleEventListener;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.model.BuildId;
-import com.facebook.buck.step.StepRunner;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ObjectMappers;
@@ -40,11 +39,10 @@ public class BuildContextTest {
 
   @Test(expected = HumanReadableException.class)
   public void testGetAndroidPlatformTargetSupplierWithNoneSpecified() {
-    ImmutableBuildContext.Builder builder = ImmutableBuildContext.builder();
+    BuildContext.Builder builder = BuildContext.builder();
 
     // Set to non-null values.
     builder.setActionGraph(createMock(ActionGraph.class));
-    builder.setStepRunner(createMock(StepRunner.class));
     builder.setArtifactCache(createMock(ArtifactCache.class));
     builder.setJavaPackageFinder(createMock(JavaPackageFinder.class));
     builder.setEventBus(BuckEventBusFactory.newInstance());
@@ -65,9 +63,8 @@ public class BuildContextTest {
     BuckEventBus eventBus = BuckEventBusFactory.newInstance();
     CapturingConsoleEventListener listener = new CapturingConsoleEventListener();
     eventBus.register(listener);
-    BuildContext buildContext = ImmutableBuildContext.builder()
+    BuildContext buildContext = BuildContext.builder()
         .setActionGraph(createMock(ActionGraph.class))
-        .setStepRunner(createMock(StepRunner.class))
         .setArtifactCache(createMock(ArtifactCache.class))
         .setJavaPackageFinder(createMock(JavaPackageFinder.class))
         .setClock(createMock(Clock.class))

@@ -24,7 +24,6 @@ import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.util.HumanReadableException;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
@@ -32,6 +31,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 
 public class ClosureCompilerStep extends ShellStep {
 
@@ -92,21 +92,21 @@ public class ClosureCompilerStep extends ShellStep {
     }
 
     public Builder defines(Optional<List<String>> defines) {
-      for (String define : defines.or(ImmutableList.<String>of())) {
+      for (String define : defines.orElse(ImmutableList.<String>of())) {
         cmd.add("--define=" + define);
       }
       return this;
     }
 
     public Builder externs(Optional<List<SourcePath>> externs) {
-      for (SourcePath path : externs.or(ImmutableList.<SourcePath>of())) {
+      for (SourcePath path : externs.orElse(ImmutableList.<SourcePath>of())) {
         cmd.add("--externs='" + resolver.getAbsolutePath(path) + "'");
       }
       return this;
     }
 
     public Builder flags(Optional<List<String>> flags) {
-      for (String flag : flags.or(ImmutableList.<String>of())) {
+      for (String flag : flags.orElse(ImmutableList.<String>of())) {
         cmd.add(flag);
       }
       return this;

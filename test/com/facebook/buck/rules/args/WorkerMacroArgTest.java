@@ -18,30 +18,29 @@ package com.facebook.buck.rules.args;
 
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.model.MacroException;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TestCellBuilder;
-import com.facebook.buck.model.MacroException;
-import com.facebook.buck.rules.macros.MacroExpander;
 import com.facebook.buck.rules.macros.MacroHandler;
 import com.facebook.buck.rules.macros.WorkerMacroExpander;
 import com.facebook.buck.shell.ShBinaryBuilder;
 import com.facebook.buck.shell.WorkerToolBuilder;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableMap;
 
 import org.hamcrest.Matchers;
 import org.junit.Test;
+
 
 public class WorkerMacroArgTest {
   @Test
@@ -55,7 +54,7 @@ public class WorkerMacroArgTest {
         .build(resolver);
 
     String startupArgs = "startupargs";
-    Optional<Integer> maxWorkers = Optional.of(5);
+    Integer maxWorkers = 5;
     WorkerToolBuilder
         .newWorkerToolBuilder(BuildTargetFactory.newInstance("//:worker_rule"))
         .setExe(shBinaryRule.getBuildTarget())
@@ -65,7 +64,7 @@ public class WorkerMacroArgTest {
 
     MacroHandler macroHandler =
         new MacroHandler(
-            ImmutableMap.<String, MacroExpander>of("worker", new WorkerMacroExpander()));
+            ImmutableMap.of("worker", new WorkerMacroExpander()));
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     BuildTarget target = BuildTargetFactory.newInstance("//:rule");
@@ -89,7 +88,7 @@ public class WorkerMacroArgTest {
 
     MacroHandler macroHandler =
         new MacroHandler(
-            ImmutableMap.<String, MacroExpander>of("worker", new WorkerMacroExpander()));
+            ImmutableMap.of("worker", new WorkerMacroExpander()));
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     try {
@@ -117,7 +116,7 @@ public class WorkerMacroArgTest {
 
     MacroHandler macroHandler =
         new MacroHandler(
-            ImmutableMap.<String, MacroExpander>of("worker", new WorkerMacroExpander()));
+            ImmutableMap.of("worker", new WorkerMacroExpander()));
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     try {
@@ -139,7 +138,7 @@ public class WorkerMacroArgTest {
 
     MacroHandler macroHandler =
         new MacroHandler(
-            ImmutableMap.<String, MacroExpander>of("worker", new WorkerMacroExpander()));
+            ImmutableMap.of("worker", new WorkerMacroExpander()));
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     try {

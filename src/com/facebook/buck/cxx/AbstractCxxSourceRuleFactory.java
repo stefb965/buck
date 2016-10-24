@@ -29,19 +29,17 @@ import com.facebook.buck.rules.DependencyAggregation;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.coercer.FrameworkPath;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.util.immutables.BuckStyleTuple;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Function;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.base.Suppliers;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
@@ -56,7 +54,9 @@ import java.io.File;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 
 import javax.annotation.Nonnull;
 
@@ -103,23 +103,23 @@ abstract class AbstractCxxSourceRuleFactory {
 
   @Value.Lazy
   protected ImmutableSet<FrameworkPath> getFrameworks() {
-    return FluentIterable.from(getCxxPreprocessorInput())
-        .transformAndConcat(CxxPreprocessorInput.GET_FRAMEWORKS)
-        .toSet();
+    return getCxxPreprocessorInput().stream()
+        .flatMap(input -> input.getFrameworks().stream())
+        .collect(MoreCollectors.toImmutableSet());
   }
 
   @Value.Lazy
   protected ImmutableList<CxxHeaders> getIncludes() {
-    return FluentIterable.from(getCxxPreprocessorInput())
-        .transformAndConcat(CxxPreprocessorInput.GET_INCLUDES)
-        .toList();
+    return getCxxPreprocessorInput().stream()
+        .flatMap(input -> input.getIncludes().stream())
+        .collect(MoreCollectors.toImmutableList());
   }
 
   @Value.Lazy
   protected ImmutableSet<Path> getSystemIncludeRoots() {
-    return FluentIterable.from(getCxxPreprocessorInput())
-        .transformAndConcat(CxxPreprocessorInput.GET_SYSTEM_INCLUDE_ROOTS)
-        .toSet();
+    return getCxxPreprocessorInput().stream()
+        .flatMap(input -> input.getSystemIncludeRoots().stream())
+        .collect(MoreCollectors.toImmutableSet());
   }
 
   private final LoadingCache<CxxSource.Type, ImmutableList<String>> preprocessorFlags =
@@ -157,7 +157,7 @@ abstract class AbstractCxxSourceRuleFactory {
       BuildRuleParams params = getParams().copyWithChanges(
           target,
           Suppliers.ofInstance(getPreprocessDeps()),
-          Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
+          Suppliers.ofInstance(ImmutableSortedSet.of()));
       DependencyAggregation rule = new DependencyAggregation(params, getPathResolver());
       getResolver().addToIndex(rule);
       return rule;
@@ -258,7 +258,7 @@ abstract class AbstractCxxSourceRuleFactory {
                       .add(compiler)
                       .add(source)
                       .build()),
-                Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+                Suppliers.ofInstance(ImmutableSortedSet.of())),
             getPathResolver(),
             preprocessorDelegateValue.getPreprocessorDelegate(),
             new CompilerDelegate(
@@ -333,13 +333,8 @@ abstract class AbstractCxxSourceRuleFactory {
   }
 
   public static boolean isCompileFlavoredBuildTarget(BuildTarget target) {
-    Set<Flavor> flavors = target.getFlavors();
-    for (Flavor flavor : flavors) {
-      if (flavor.getName().startsWith(COMPILE_FLAVOR_PREFIX)) {
-        return true;
-      }
-    }
-    return false;
+    return target.getFlavors().stream()
+        .anyMatch(flavor -> flavor.getName().startsWith(COMPILE_FLAVOR_PREFIX));
   }
 
   private ImmutableList<String> getPlatformCompileFlags(CxxSource.Type type) {
@@ -373,9 +368,7 @@ abstract class AbstractCxxSourceRuleFactory {
    * given {@link CxxSource}.
    */
   @VisibleForTesting
-  public CxxPreprocessAndCompile createCompileBuildRule(
-      String name,
-      CxxSource source) {
+  public CxxPreprocessAndCompile createCompileBuildRule(String name, CxxSource source) {
 
     Preconditions.checkArgument(CxxSourceTypes.isCompilableType(source.getType()));
 
@@ -405,7 +398,7 @@ abstract class AbstractCxxSourceRuleFactory {
                     .add(compiler)
                     .add(source)
                     .build()),
-            Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+            Suppliers.ofInstance(ImmutableSortedSet.of())),
         getPathResolver(),
         new CompilerDelegate(
             getPathResolver(),
@@ -505,7 +498,7 @@ abstract class AbstractCxxSourceRuleFactory {
                     .add(preprocessorDelegateValue.getPreprocessorDelegate().getPreprocessor())
                     .add(source)
                     .build()),
-            Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+            Suppliers.ofInstance(ImmutableSortedSet.of())),
         getPathResolver(),
         CxxToolFlags.copyOf(
             CxxSourceTypes.getPlatformPreprocessFlags(getCxxPlatform(), source.getType()),
@@ -550,8 +543,8 @@ abstract class AbstractCxxSourceRuleFactory {
         .add(preprocessorDelegate.getPreprocessor())
         .add(compiler)
         .add(source);
-    Optional<PrecompiledHeaderReference> precompiledHeaderReference = Optional.absent();
-    if (shouldUsePrecompiledHeaders(preprocessorDelegate, strategy)) {
+    Optional<PrecompiledHeaderReference> precompiledHeaderReference = Optional.empty();
+    if (shouldUsePrecompiledHeaders(getCxxBuckConfig(), preprocessorDelegate, strategy)) {
       CxxPrecompiledHeader precompiledHeader =
           requirePrecompiledHeaderBuildRule(preprocessorDelegateValue, source);
       depsBuilder.add(precompiledHeader);
@@ -564,7 +557,7 @@ abstract class AbstractCxxSourceRuleFactory {
         getParams().copyWithChanges(
             target,
             Suppliers.ofInstance(depsBuilder.build()),
-            Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+            Suppliers.ofInstance(ImmutableSortedSet.of())),
         getPathResolver(),
         preprocessorDelegate,
         new CompilerDelegate(
@@ -615,8 +608,22 @@ abstract class AbstractCxxSourceRuleFactory {
         PCH_FLAVOR_PREFIX,
         source.getType().getLanguage(),
         preprocessorDelegateCacheValue.getCommandHash(compilerFlags));
+
+    // Detect the rule for which we are building this PCH:
+    SourcePath sourcePath = Preconditions.checkNotNull(this.getPrefixHeader().orElse(null));
+    BuildTarget targetToBuildFor;
+    if (sourcePath instanceof BuildTargetSourcePath) {
+      // e.g. a library "//foo:foo" has "prefix_header='//bar:header'"; then clone "//bar:header",
+      // flavor it (done below), and then that will become one of "//foo:foo"'s dependencies.
+      targetToBuildFor = ((BuildTargetSourcePath) sourcePath).getTarget();
+    } else {
+      // e.g. a library "//baz:baz" has "prefix_header='bazstuff.h'"; then we clone "//baz:baz",
+      // flavor it (done below), and then that will become one of "//baz:baz"'s dependencies.
+      targetToBuildFor = getParams().getBuildTarget();
+    }
+
     BuildTarget target = BuildTarget
-        .builder(getParams().getBuildTarget())
+        .builder(targetToBuildFor)
         .addFlavors(getCxxPlatform().getFlavor())
         .addFlavors(ImmutableFlavor.of(Flavor.replaceInvalidCharacters(pchIdentifier)))
         .build();
@@ -649,7 +656,7 @@ abstract class AbstractCxxSourceRuleFactory {
                   .add(preprocessorDelegate.getPreprocessor())
                   .add(path)
                   .build()),
-            Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+            Suppliers.ofInstance(ImmutableSortedSet.of())),
         getPathResolver(),
         output,
         preprocessorDelegate,
@@ -691,80 +698,85 @@ abstract class AbstractCxxSourceRuleFactory {
     return objects.build();
   }
 
-  protected ImmutableMap<CxxPreprocessAndCompile, SourcePath> requirePreprocessAndCompileRules(
+  @VisibleForTesting
+  ImmutableMap<CxxPreprocessAndCompile, SourcePath> requirePreprocessAndCompileRules(
       CxxPreprocessMode strategy,
       ImmutableMap<String, CxxSource> sources) {
 
-    ImmutableList.Builder<CxxPreprocessAndCompile> objects = ImmutableList.builder();
+    return sources.entrySet().stream()
+        .map(entry -> {
+          String name = entry.getKey();
+          CxxSource source = entry.getValue();
 
-    for (Map.Entry<String, CxxSource> entry : sources.entrySet()) {
-      String name = entry.getKey();
-      CxxSource source = entry.getValue();
+          Preconditions.checkState(
+              CxxSourceTypes.isPreprocessableType(source.getType()) ||
+                  CxxSourceTypes.isCompilableType(source.getType()));
 
-      Preconditions.checkState(
-          CxxSourceTypes.isPreprocessableType(source.getType()) ||
-              CxxSourceTypes.isCompilableType(source.getType()));
+          switch (strategy) {
 
-      switch (strategy) {
+            case PIPED:
+            case COMBINED: {
+              CxxPreprocessAndCompile rule;
 
-        case PIPED:
-        case COMBINED: {
-          CxxPreprocessAndCompile rule;
+              // If it's a preprocessable source, use a combine preprocess-and-compile build rule.
+              // Otherwise, use a regular compile rule.
+              if (CxxSourceTypes.isPreprocessableType(source.getType())) {
+                rule = requirePreprocessAndCompileBuildRule(name, source, strategy);
+              } else {
+                rule = requireCompileBuildRule(name, source);
+              }
 
-          // If it's a preprocessable source, use a combine preprocess-and-compile build rule.
-          // Otherwise, use a regular compile rule.
-          if (CxxSourceTypes.isPreprocessableType(source.getType())) {
-            rule = requirePreprocessAndCompileBuildRule(name, source, strategy);
-          } else {
-            rule = requireCompileBuildRule(name, source);
+              return rule;
+            }
+
+            case SEPARATE: {
+
+              // If this is a preprocessable source, first create the preprocess build rule and
+              // update the source and name to represent its compilable output.
+              if (CxxSourceTypes.isPreprocessableType(source.getType())) {
+                CxxPreprocessAndCompile rule = requirePreprocessBuildRule(name, source);
+                source = CxxSource.copyOf(source)
+                    .withType(CxxSourceTypes.getPreprocessorOutputType(source.getType()))
+                    .withPath(
+                        new BuildTargetSourcePath(rule.getBuildTarget()));
+              }
+
+              // Now build the compile build rule.
+              CxxPreprocessAndCompile rule = requireCompileBuildRule(name, source);
+              return rule;
+            }
+
+            // $CASES-OMITTED$
+            default:
+              throw new IllegalStateException();
           }
-
-          objects.add(rule);
-          break;
-        }
-
-        case SEPARATE: {
-
-          // If this is a preprocessable source, first create the preprocess build rule and
-          // update the source and name to represent its compilable output.
-          if (CxxSourceTypes.isPreprocessableType(source.getType())) {
-            CxxPreprocessAndCompile rule = requirePreprocessBuildRule(name, source);
-            source = CxxSource.copyOf(source)
-                .withType(CxxSourceTypes.getPreprocessorOutputType(source.getType()))
-                .withPath(
-                    new BuildTargetSourcePath(rule.getBuildTarget()));
-          }
-
-          // Now build the compile build rule.
-          CxxPreprocessAndCompile rule = requireCompileBuildRule(name, source);
-          objects.add(rule);
-
-          break;
-        }
-
-        // $CASES-OMITTED$
-        default:
-          throw new IllegalStateException();
-      }
-    }
-
-    return FluentIterable
-        .from(objects.build())
-        .toMap(new Function<CxxPreprocessAndCompile, SourcePath>() {
-          @Override
-          public SourcePath apply(CxxPreprocessAndCompile input) {
-            return new BuildTargetSourcePath(input.getBuildTarget());
-          }
-        });
+        })
+        .collect(MoreCollectors.toImmutableMap(
+            Function.identity(),
+            input -> new BuildTargetSourcePath(input.getBuildTarget())));
   }
 
-  private boolean shouldUsePrecompiledHeaders(
-      PreprocessorDelegate preprocessorDelegate,
+  private static boolean shouldUsePrecompiledHeaders(
+      CxxBuckConfig cxxBuckConfig,
+      Optional<SourcePath> prefixHeaderSourcePath,
+      Preprocessor preprocessor,
       CxxPreprocessMode mode) {
     return
-        preprocessorDelegate.getPrefixHeader().isPresent() &&
-            preprocessorDelegate.getPreprocessor().supportsPrecompiledHeaders() &&
-            mode == CxxPreprocessMode.COMBINED;
+        cxxBuckConfig.isPCHEnabled() &&
+        prefixHeaderSourcePath.isPresent() &&
+        preprocessor.supportsPrecompiledHeaders() &&
+        mode == CxxPreprocessMode.COMBINED;
+  }
+
+  private static boolean shouldUsePrecompiledHeaders(
+      CxxBuckConfig cxxBuckConfig,
+      PreprocessorDelegate preprocessorDelegate,
+      CxxPreprocessMode mode) {
+    return shouldUsePrecompiledHeaders(
+        cxxBuckConfig,
+        preprocessorDelegate.getPrefixHeader(),
+        preprocessorDelegate.getPreprocessor(),
+        mode);
   }
 
   public static ImmutableMap<CxxPreprocessAndCompile, SourcePath> requirePreprocessAndCompileRules(
@@ -850,13 +862,15 @@ abstract class AbstractCxxSourceRuleFactory {
     @Override
     public PreprocessorDelegateCacheValue load(@Nonnull PreprocessorDelegateCacheKey key)
         throws Exception {
+      Preprocessor preprocessor =
+          CxxSourceTypes.getPreprocessor(getCxxPlatform(), key.getSourceType())
+              .resolve(getResolver());
       PreprocessorDelegate delegate = new PreprocessorDelegate(
           getPathResolver(),
           getCxxPlatform().getDebugPathSanitizer(),
           getCxxBuckConfig().getHeaderVerification(),
           getParams().getProjectFilesystem().getRootPath(),
-          CxxSourceTypes.getPreprocessor(getCxxPlatform(), key.getSourceType())
-              .resolve(getResolver()),
+          preprocessor,
           PreprocessorFlags.of(
               getPrefixHeader(),
               computePreprocessorFlags(key.getSourceType(), key.getSourceFlags()),

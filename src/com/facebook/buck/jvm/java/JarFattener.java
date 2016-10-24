@@ -16,7 +16,6 @@
 
 package com.facebook.buck.jvm.java;
 
-import com.facebook.buck.jvm.core.SuggestBuildRules;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
@@ -37,7 +36,6 @@ import com.facebook.buck.step.fs.SymlinkFileStep;
 import com.facebook.buck.step.fs.WriteFileStep;
 import com.facebook.buck.zip.ZipCompressionLevel;
 import com.facebook.buck.zip.ZipStep;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -53,6 +51,7 @@ import java.io.InputStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import javax.xml.bind.JAXBException;
@@ -159,7 +158,7 @@ public class JarFattener extends AbstractBuildRule implements BinaryBuildRule {
     Step zipStep = new ZipStep(
         getProjectFilesystem(),
         zipped,
-        ImmutableSet.<Path>of(),
+        ImmutableSet.of(),
         false,
         ZipCompressionLevel.MIN_COMPRESSION_LEVEL,
         fatJarDir);
@@ -177,11 +176,11 @@ public class JarFattener extends AbstractBuildRule implements BinaryBuildRule {
         getBuildTarget(),
         getResolver(),
         getProjectFilesystem(),
-        /* classpathEntries */ ImmutableSortedSet.<Path>of(),
+        /* classpathEntries */ ImmutableSortedSet.of(),
         fatJarDir,
-        /* workingDir */ Optional.<Path>absent(),
+        /* workingDir */ Optional.empty(),
         pathToSrcsList,
-        /* suggestBuildRule */ Optional.<SuggestBuildRules>absent(),
+        /* suggestBuildRule */ Optional.empty(),
         NoOpClassUsageFileWriter.instance(),
         steps,
         buildableContext);

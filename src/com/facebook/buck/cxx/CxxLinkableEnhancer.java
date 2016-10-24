@@ -20,7 +20,6 @@ import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.RuleKeyObjectSink;
@@ -33,10 +32,8 @@ import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
-import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
@@ -48,6 +45,7 @@ import com.google.common.collect.Ordering;
 
 import java.nio.file.Path;
 import java.util.EnumSet;
+import java.util.Optional;
 
 public class CxxLinkableEnhancer {
   private static final Logger LOG = Logger.get(CxxLinkableEnhancer.class);
@@ -88,14 +86,14 @@ public class CxxLinkableEnhancer {
     // Pass any platform specific or extra linker flags.
     argsBuilder.addAll(
         SanitizedArg.from(
-            cxxPlatform.getDebugPathSanitizer().sanitize(Optional.<Path>absent()),
+            cxxPlatform.getDebugPathSanitizer().sanitize(Optional.empty()),
             cxxPlatform.getLdflags()));
 
     argsBuilder.addAll(args);
 
     // Add all arguments needed to link in the C/C++ platform runtime.
     Linker.LinkableDepType runtimeDepType = depType;
-    if (cxxRuntimeType.or(Linker.CxxRuntimeType.DYNAMIC) == Linker.CxxRuntimeType.STATIC) {
+    if (cxxRuntimeType.orElse(Linker.CxxRuntimeType.DYNAMIC) == Linker.CxxRuntimeType.STATIC) {
       runtimeDepType = Linker.LinkableDepType.STATIC;
     }
     argsBuilder.addAll(StringArg.from(cxxPlatform.getRuntimeLdflags().get(runtimeDepType)));
@@ -109,16 +107,11 @@ public class CxxLinkableEnhancer {
         // dependencies.
         params.copyWithChanges(
             target,
-            new Supplier<ImmutableSortedSet<BuildRule>>() {
-              @Override
-              public ImmutableSortedSet<BuildRule> get() {
-                return FluentIterable.from(allArgs)
-                    .transformAndConcat(Arg.getDepsFunction(resolver))
-                    .append(linker.getDeps(resolver))
-                    .toSortedSet(Ordering.natural());
-              }
-            },
-            Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+            () -> FluentIterable.from(allArgs)
+                .transformAndConcat(Arg.getDepsFunction(resolver))
+                .append(linker.getDeps(resolver))
+                .toSortedSet(Ordering.natural()),
+            Suppliers.ofInstance(ImmutableSortedSet.of())),
         resolver,
         linker,
         output,
@@ -263,7 +256,7 @@ public class CxxLinkableEnhancer {
       public void appendToCommandLine(ImmutableCollection.Builder<String> builder) {
         for (FrameworkPath frameworkPath : frameworkPaths) {
           String libName = MorePaths.stripPathPrefixAndExtension(
-              frameworkPath.getFileName(resolver.getAbsolutePathFunction()),
+              frameworkPath.getFileName(resolver::getAbsolutePath),
               "lib");
           // libraries set can contain path-qualified libraries, or just library
           // search paths.
@@ -319,7 +312,7 @@ public class CxxLinkableEnhancer {
       public void appendToCommandLine(ImmutableCollection.Builder<String> builder) {
         for (FrameworkPath frameworkPath : frameworkPaths) {
           builder.add("-framework");
-          builder.add(frameworkPath.getName(resolver.getAbsolutePathFunction()));
+          builder.add(frameworkPath.getName(resolver::getAbsolutePath));
         }
       }
     };
@@ -353,7 +346,7 @@ public class CxxLinkableEnhancer {
         output,
         linkArgs,
         Linker.LinkableDepType.SHARED,
-        Optional.<Linker.CxxRuntimeType>absent());
+        Optional.empty());
   }
 
 }

@@ -21,17 +21,12 @@ import static org.junit.Assert.assertEquals;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
-import com.facebook.buck.rules.Label;
-import com.facebook.buck.rules.RuleScheduleInfo;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.test.TestResultSummary;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
@@ -40,7 +35,6 @@ import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.ObjectMappers;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.base.Optional;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -53,6 +47,7 @@ import org.junit.Test;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.Optional;
 
 public class CxxGtestTestTest {
 
@@ -94,20 +89,20 @@ public class CxxGtestTestTest {
             pathResolver,
             CxxPlatformUtils.DEFAULT_PLATFORM.getLd().resolve(ruleResolver),
             Paths.get("output"),
-            ImmutableList.<Arg>of(),
-            Optional.<RuleScheduleInfo>absent(),
+            ImmutableList.of(),
+            Optional.empty(),
             /* cacheable */ true),
         new CommandTool.Builder()
             .addArg(new StringArg(""))
             .build(),
-        Suppliers.ofInstance(ImmutableMap.<String, String>of()),
-        Suppliers.ofInstance(ImmutableList.<String>of()),
-        ImmutableSortedSet.<SourcePath>of(),
-        Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
-        ImmutableSet.<Label>of(),
-        ImmutableSet.<String>of(),
+        Suppliers.ofInstance(ImmutableMap.of()),
+        Suppliers.ofInstance(ImmutableList.of()),
+        ImmutableSortedSet.of(),
+        Suppliers.ofInstance(ImmutableSortedSet.of()),
+        ImmutableSet.of(),
+        ImmutableSet.of(),
         /* runTestSeparately */ false,
-        /* testRuleTimeoutMs */ Optional.<Long>absent(),
+        /* testRuleTimeoutMs */ Optional.empty(),
         /* maxTestOutputSize */ 100L);
 
     for (String sample : samples) {

@@ -17,8 +17,9 @@ package com.facebook.buck.rules;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
+
+import java.util.Optional;
 
 public class ProjectConfigDescription implements Description<ProjectConfigDescription.Arg> {
   public static final BuildRuleType TYPE = BuildRuleType.of("project_config");
@@ -42,20 +43,20 @@ public class ProjectConfigDescription implements Description<ProjectConfigDescri
     return new ProjectConfig(
         params,
         new SourcePathResolver(resolver),
-        args.srcTarget.transform(resolver.getRuleFunction()).orNull(),
-        args.srcRoots.orNull(),
-        args.testTarget.transform(resolver.getRuleFunction()).orNull(),
-        args.testRoots.orNull(),
-        args.isIntellijPlugin.or(false));
+        args.srcTarget.map(resolver::getRule).orElse(null),
+        args.srcRoots,
+        args.testTarget.map(resolver::getRule).orElse(null),
+        args.testRoots,
+        args.isIntellijPlugin.orElse(false));
   }
 
   @TargetName(name = "project_config")
   @SuppressFieldNotInitialized
     public static class Arg extends AbstractDescriptionArg {
     public Optional<BuildTarget> srcTarget;
-    public Optional<ImmutableList<String>> srcRoots;
+    public ImmutableList<String> srcRoots = ImmutableList.of();
     public Optional<BuildTarget> testTarget;
-    public Optional<ImmutableList<String>> testRoots;
+    public ImmutableList<String> testRoots = ImmutableList.of();
     public Optional<Boolean> isIntellijPlugin;
   }
 }

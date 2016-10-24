@@ -19,13 +19,13 @@ package com.facebook.buck.apple;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -104,13 +104,13 @@ class InfoPlistSubstitution {
       }
     }
 
-    return Optional.absent();
+    return Optional.empty();
   }
 
   public static String replaceVariablesInString(
       String input,
       Map<String, String> variablesToExpand) {
-    return replaceVariablesInString(input, variablesToExpand, ImmutableList.<String>of());
+    return replaceVariablesInString(input, variablesToExpand, ImmutableList.of());
   }
 
   private static String replaceVariablesInString(
@@ -170,11 +170,6 @@ class InfoPlistSubstitution {
       Map<String, String> variablesToExpand) {
     final ImmutableMap<String, String> variablesToExpandCopy = ImmutableMap.copyOf(
         variablesToExpand);
-    return new Function<String, String>() {
-      @Override
-      public String apply(String input) {
-        return replaceVariablesInString(input, variablesToExpandCopy);
-      }
-    };
+    return input -> replaceVariablesInString(input, variablesToExpandCopy);
   }
 }

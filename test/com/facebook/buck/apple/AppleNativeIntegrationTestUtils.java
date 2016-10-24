@@ -20,11 +20,11 @@ import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.Console;
+import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
-import com.google.common.base.Optional;
-import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Iterables;
+
+import java.util.Optional;
 
 public class AppleNativeIntegrationTestUtils {
 
@@ -33,21 +33,16 @@ public class AppleNativeIntegrationTestUtils {
   private static ImmutableMap<AppleSdk, AppleSdkPaths> discoverSystemSdkPaths(
       BuckConfig buckConfig) {
     AppleConfig appleConfig = new AppleConfig(buckConfig);
-    ProcessExecutor executor = new ProcessExecutor(new TestConsole());
+    ProcessExecutor executor = new DefaultProcessExecutor(new TestConsole());
     return appleConfig.getAppleSdkPaths(executor);
   }
 
   private static Optional<AppleSdk> anySdkForPlatform(
       final ApplePlatform platform,
       final ImmutableMap<AppleSdk, AppleSdkPaths> sdkPaths) {
-    return Iterables.tryFind(
-        sdkPaths.keySet(),
-        new Predicate<AppleSdk>() {
-          @Override
-          public boolean apply(AppleSdk sdk) {
-            return sdk.getApplePlatform().equals(platform);
-          }
-        });
+    return sdkPaths.keySet().stream()
+        .filter(sdk -> sdk.getApplePlatform().equals(platform))
+        .findFirst();
   }
 
   public static boolean isApplePlatformAvailable(ApplePlatform platform) {
@@ -70,8 +65,8 @@ public class AppleNativeIntegrationTestUtils {
         sdkPaths.get(anySdk),
         buckConfig,
         new AppleConfig(buckConfig),
-        Optional.of(new ProcessExecutor(Console.createNullConsole())),
-        Optional.<AppleToolchain>absent());
+        Optional.of(new DefaultProcessExecutor(Console.createNullConsole())),
+        Optional.empty());
     return appleCxxPlatform.getSwiftPlatform().isPresent();
   }
 

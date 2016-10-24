@@ -22,10 +22,9 @@ import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.util.OptionalCompat;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Function;
-import com.google.common.base.Functions;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.io.Files;
 
@@ -33,6 +32,7 @@ import org.immutables.value.Value;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 
 /**
  * Frameworks can be specified as either a path to a file, or a path prefixed by a build setting.
@@ -67,7 +67,7 @@ abstract class AbstractFrameworkPath implements
   public abstract Optional<SourcePath> getSourcePath();
 
   public Iterable<BuildRule> getDeps(SourcePathResolver resolver) {
-    return resolver.filterBuildRuleInputs(getSourcePath().asSet());
+    return resolver.filterBuildRuleInputs(OptionalCompat.asSet(getSourcePath()));
   }
 
   public Path getFileName(Function<SourcePath, Path> resolver) {
@@ -91,30 +91,22 @@ abstract class AbstractFrameworkPath implements
   public static Function<FrameworkPath, Path> getUnexpandedSearchPathFunction(
       final Function<SourcePath, Path> resolver,
       final Function<? super Path, Path> relativizer) {
-    return new Function<FrameworkPath, Path>() {
-      @Override
-      public Path apply(FrameworkPath input) {
-        return getConvertToPathFunction(resolver, relativizer).apply(input).getParent();
-      }
-    };
+    return input -> getConvertToPathFunction(resolver, relativizer).apply(input).getParent();
   }
 
   public static Function<FrameworkPath, Path> getConvertToPathFunction(
       final Function<SourcePath, Path> resolver,
       final Function<? super Path, Path> relativizer) {
-    return new Function<FrameworkPath, Path>() {
-      @Override
-      public Path apply(FrameworkPath input) {
-        switch (input.getType()) {
-          case SOURCE_TREE_PATH:
-            return Paths.get(input.getSourceTreePath().get().toString());
-          case SOURCE_PATH:
-            return relativizer.apply(
-                Preconditions
-                    .checkNotNull(resolver.apply(input.getSourcePath().get())));
-          default:
-            throw new RuntimeException("Unhandled type: " + input.getType());
-        }
+    return input -> {
+      switch (input.getType()) {
+        case SOURCE_TREE_PATH:
+          return Paths.get(input.getSourceTreePath().get().toString());
+        case SOURCE_PATH:
+          return relativizer.apply(
+              Preconditions
+                  .checkNotNull(resolver.apply(input.getSourcePath().get())));
+        default:
+          throw new RuntimeException("Unhandled type: " + input.getType());
       }
     };
   }
@@ -160,20 +152,20 @@ abstract class AbstractFrameworkPath implements
     sink.setReflectively("sourcePath", getSourcePath());
     sink.setReflectively(
         "sourceTree",
-        getSourceTreePath().transform(Functions.toStringFunction()));
+        getSourceTreePath().map(Object::toString));
   }
 
   public static FrameworkPath ofSourceTreePath(SourceTreePath sourceTreePath) {
     return FrameworkPath.of(
         Type.SOURCE_TREE_PATH,
         Optional.of(sourceTreePath),
-        Optional.<SourcePath>absent());
+        Optional.empty());
   }
 
   public static FrameworkPath ofSourcePath(SourcePath sourcePath) {
     return FrameworkPath.of(
         Type.SOURCE_PATH,
-        Optional.<SourceTreePath>absent(),
+        Optional.empty(),
         Optional.of(sourcePath));
   }
 }

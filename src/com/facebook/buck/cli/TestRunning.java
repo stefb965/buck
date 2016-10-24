@@ -53,12 +53,10 @@ import com.facebook.buck.test.TestRunningOptions;
 import com.facebook.buck.test.TestStatusMessage;
 import com.facebook.buck.test.result.type.ResultType;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
-import com.google.common.base.Functions;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
 import com.google.common.base.Strings;
 import com.google.common.base.Throwables;
 import com.google.common.collect.FluentIterable;
@@ -88,6 +86,7 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
@@ -140,10 +139,11 @@ public class TestRunning {
           // TODO(t8220837): Support tests in multiple repos
           JavaLibrary library = rulesUnderTest.iterator().next();
           stepRunner.runStepForBuildTarget(
+              executionContext,
               new MakeCleanDirectoryStep(
                   library.getProjectFilesystem(),
                   JacocoConstants.getJacocoOutputDir(library.getProjectFilesystem())),
-              Optional.<BuildTarget>absent());
+              Optional.empty());
         } catch (StepFailedException e) {
           params.getBuckEventBus().post(
               ConsoleEvent.severe(Throwables.getRootCause(e).getLocalizedMessage()));
@@ -156,8 +156,8 @@ public class TestRunning {
 
     final ImmutableSet<String> testTargets =
         FluentIterable.from(tests)
-            .transform(HasBuildTarget.TO_TARGET)
-            .transform(Functions.toStringFunction())
+            .transform(HasBuildTarget::getBuildTarget)
+            .transform(Object::toString)
             .toSet();
 
     final int totalNumberOfTests = Iterables.size(tests);
@@ -179,13 +179,20 @@ public class TestRunning {
     List<TestRun> parallelTestRuns = Lists.newArrayList();
     for (final TestRule test : tests) {
       // Determine whether the test needs to be executed.
+      final Callable<TestResults> resultsInterpreter = getCachingCallable(
+          test.interpretTestResults(
+              executionContext,
+              /*isUsingTestSelectors*/ !options.getTestSelectorList().isEmpty(),
+              /*isDryRun*/ options.isDryRun()));
+
       boolean isTestRunRequired;
       isTestRunRequired = isTestRunRequiredForTest(
           test,
           buildEngine,
           executionContext,
           testRuleKeyFileHelper,
-          options.isResultsCacheEnabled(),
+          options.getTestResultCacheMode(),
+          resultsInterpreter,
           !options.getTestSelectorList().isEmpty(),
           !options.getEnvironmentOverrides().isEmpty(),
           options.isDryRun());
@@ -293,12 +300,9 @@ public class TestRunning {
       TestRun testRun = TestRun.of(
           test,
           steps,
-          getCachingStatusTransformingCallable(
+          getStatusTransformingCallable(
               isTestRunRequired,
-              test.interpretTestResults(
-                  executionContext,
-                  /*isUsingTestSelectors*/ !options.getTestSelectorList().isEmpty(),
-                  /*isDryRun*/ options.isDryRun())),
+              resultsInterpreter),
           testReportingCallback);
 
       // Always run the commands, even if the list of commands as empty. There may be zero
@@ -332,6 +336,7 @@ public class TestRunning {
     for (TestRun testRun : parallelTestRuns) {
       ListenableFuture<TestResults> testResults =
           stepRunner.runStepsAndYieldResult(
+              executionContext,
               testRun.getSteps(),
               testRun.getTestResultsCallable(),
               Optional.of(testRun.getTest().getBuildTarget()),
@@ -367,6 +372,7 @@ public class TestRunning {
                   transformTestResults(
                       params,
                       stepRunner.runStepsAndYieldResult(
+                          executionContext,
                           testRun.getSteps(),
                           testRun.getTestResultsCallable(),
                           Optional.of(testRun.getTest().getBuildTarget()),
@@ -437,8 +443,9 @@ public class TestRunning {
     if (options.isCodeCoverageEnabled() && !rulesUnderTest.isEmpty()) {
       try {
         Optional<DefaultJavaPackageFinder> defaultJavaPackageFinderOptional =
-            Optional.fromNullable(params.getBuckConfig().createDefaultJavaPackageFinder());
+            Optional.ofNullable(params.getBuckConfig().createDefaultJavaPackageFinder());
         stepRunner.runStepForBuildTarget(
+            executionContext,
             getReportCommand(
                 rulesUnderTest,
                 defaultJavaPackageFinderOptional,
@@ -451,7 +458,7 @@ public class TestRunning {
                 options.getCoverageReportTitle(),
                 options.getCoverageIncludes(),
                 options.getCoverageExcludes()),
-            Optional.<BuildTarget>absent());
+            Optional.empty());
       } catch (StepFailedException e) {
         params.getBuckEventBus().post(
             ConsoleEvent.severe(Throwables.getRootCause(e).getLocalizedMessage()));
@@ -459,12 +466,9 @@ public class TestRunning {
       }
     }
 
-    boolean failures = Iterables.any(completedResults, new Predicate<TestResults>() {
-      @Override
-      public boolean apply(TestResults results) {
-        LOG.debug("Checking result %s for failure", results);
-        return !results.isSuccess();
-      }
+    boolean failures = Iterables.any(completedResults, results1 -> {
+      LOG.debug("Checking result %s for failure", results1);
+      return !results1.isSuccess();
     });
 
     return failures ? TEST_FAILURES_EXIT_CODE : 0;
@@ -547,8 +551,9 @@ public class TestRunning {
                                 "",
                                 "")))),
                 testRule.getContacts(),
-                FluentIterable.from(
-                    testRule.getLabels()).transform(Functions.toStringFunction()).toSet());
+                testRule.getLabels().stream()
+                    .map(Object::toString)
+                    .collect(MoreCollectors.toImmutableSet()));
         TestResults newTestResults = postTestResults(testResults);
         transformedTestResults.set(newTestResults);
       }
@@ -557,26 +562,46 @@ public class TestRunning {
     return transformedTestResults;
   }
 
-  private static Callable<TestResults> getCachingStatusTransformingCallable(
+  private static Callable<TestResults> getCachingCallable(final Callable<TestResults> callable) {
+    return new Callable<TestResults>() {
+      private TestResults results = null;
+      private Exception exception = null;
+      private boolean ran = false;
+
+      @Override
+      public synchronized TestResults call() throws Exception {
+        if (!ran) {
+          try {
+            results = callable.call();
+          } catch (Exception t) {
+            exception = t;
+          }
+          ran = true;
+        }
+        if (exception != null) {
+          throw exception;
+        }
+        return results;
+      }
+    };
+  }
+
+  private static Callable<TestResults> getStatusTransformingCallable(
       boolean isTestRunRequired,
       final Callable<TestResults> originalCallable) {
     if (isTestRunRequired) {
       return originalCallable;
     }
-    return new Callable<TestResults>() {
-      @Override
-      public TestResults call() throws Exception {
-        TestResults originalTestResults = originalCallable.call();
-        ImmutableList<TestCaseSummary> cachedTestResults = FluentIterable
-            .from(originalTestResults.getTestCases())
-            .transform(TestCaseSummary.TO_CACHED_TRANSFORMATION)
-            .toList();
-        return TestResults.of(
-            originalTestResults.getBuildTarget(),
-            cachedTestResults,
-            originalTestResults.getContacts(),
-            originalTestResults.getLabels());
-      }
+    return () -> {
+      TestResults originalTestResults = originalCallable.call();
+      ImmutableList<TestCaseSummary> cachedTestResults = originalTestResults.getTestCases().stream()
+          .map(TestCaseSummary.TO_CACHED_TRANSFORMATION::apply)
+          .collect(MoreCollectors.toImmutableList());
+      return TestResults.of(
+          originalTestResults.getBuildTarget(),
+          cachedTestResults,
+          originalTestResults.getContacts(),
+          originalTestResults.getLabels());
     };
   }
 
@@ -586,7 +611,8 @@ public class TestRunning {
       BuildEngine cachingBuildEngine,
       ExecutionContext executionContext,
       TestRuleKeyFileHelper testRuleKeyFileHelper,
-      boolean isResultsCacheEnabled,
+      TestRunningOptions.TestResultCacheMode resultCacheMode,
+      Callable<TestResults> testResultInterpreter,
       boolean isRunningWithTestSelectors,
       boolean hasEnvironmentOverrides,
       boolean isDryRun)
@@ -610,10 +636,12 @@ public class TestRunning {
       isTestRunRequired = true;
     } else if (((result = cachingBuildEngine.getBuildRuleResult(
         test.getBuildTarget())) != null) &&
-            result.getSuccess() == BuildRuleSuccessType.MATCHING_RULE_KEY &&
-            isResultsCacheEnabled &&
-            test.hasTestResultFiles() &&
-            testRuleKeyFileHelper.isRuleKeyInDir(test)) {
+        result.getSuccess() == BuildRuleSuccessType.MATCHING_RULE_KEY &&
+        test.hasTestResultFiles() &&
+        testRuleKeyFileHelper.isRuleKeyInDir(test) &&
+        (resultCacheMode == TestRunningOptions.TestResultCacheMode.ENABLED ||
+            (resultCacheMode == TestRunningOptions.TestResultCacheMode.ENABLED_IF_PASSED &&
+                areTestsSuccessful(testResultInterpreter)))) {
       // If this build rule's artifacts (which includes the rule's output and its test result
       // files) are up to date, then no commands are necessary to run the tests. The test result
       // files will be read from the XML files in interpretTestResults().
@@ -622,6 +650,15 @@ public class TestRunning {
       isTestRunRequired = true;
     }
     return isTestRunRequired;
+  }
+
+  private static boolean areTestsSuccessful(Callable<TestResults> callable) {
+    try {
+      return callable.call().isSuccess();
+    } catch (Exception ex) {
+      LOG.error(ex);
+      return false;
+    }
   }
 
   /**

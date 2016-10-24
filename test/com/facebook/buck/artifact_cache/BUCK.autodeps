@@ -1,4 +1,3 @@
-#@# GENERATED FILE: DO NOT MODIFY a0376e54aee0404995211365df7a8b4dd925da9a #@#
 {
   "artifact_cache" : {
     "deps" : [
@@ -16,7 +15,9 @@
       "//src/com/facebook/buck/rules/keys:keys",
       "//src/com/facebook/buck/slb:slb",
       "//src/com/facebook/buck/util:exceptions",
+      "//src/com/facebook/buck/util:io",
       "//src/com/facebook/buck/util:object_mapper",
+      "//src/com/facebook/buck/util:util",
       "//src/com/facebook/buck/util/cache:cache",
       "//src/com/facebook/buck/util/environment:platform",
       "//test/com/facebook/buck/artifact_cache:testutil",

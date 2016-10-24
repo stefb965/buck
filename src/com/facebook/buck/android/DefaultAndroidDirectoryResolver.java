@@ -20,7 +20,6 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.VersionStringComparator;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
-import com.google.common.base.Optional;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -28,7 +27,6 @@ import com.google.common.collect.ImmutableSortedSet;
 
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileFilter;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
@@ -36,6 +34,7 @@ import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Properties;
 
 /**
@@ -86,9 +85,9 @@ public class DefaultAndroidDirectoryResolver implements AndroidDirectoryResolver
     this.targetBuildToolsVersion = targetBuildToolsVersion;
     this.targetNdkVersion = targetNdkVersion;
 
-    this.sdkErrorMessage = Optional.absent();
-    this.buildToolsErrorMessage = Optional.absent();
-    this.ndkErrorMessage = Optional.absent();
+    this.sdkErrorMessage = Optional.empty();
+    this.buildToolsErrorMessage = Optional.empty();
+    this.ndkErrorMessage = Optional.empty();
     this.sdk = findSdk();
     this.buildTools = findBuildTools();
     this.ndk = findNdk();
@@ -132,7 +131,7 @@ public class DefaultAndroidDirectoryResolver implements AndroidDirectoryResolver
   public Optional<String> getNdkVersion() {
     Optional<Path> ndkPath = getNdkOrAbsent();
     if (!ndkPath.isPresent()) {
-      return Optional.absent();
+      return Optional.empty();
     }
     return findNdkVersion(ndkPath.get());
   }
@@ -145,7 +144,7 @@ public class DefaultAndroidDirectoryResolver implements AndroidDirectoryResolver
           "ANDROID_HOME");
     } catch (RuntimeException e) {
       sdkErrorMessage = Optional.of(e.getMessage());
-      return Optional.absent();
+      return Optional.empty();
     }
 
     if (!sdkPath.isPresent()) {
@@ -170,7 +169,7 @@ public class DefaultAndroidDirectoryResolver implements AndroidDirectoryResolver
 
     // If a dirPath was found, verify that it maps to a directory before returning it.
     if (dirPath == null) {
-      return Optional.absent();
+      return Optional.empty();
     }
     if (!Files.isDirectory(dirPath)) {
       throw new RuntimeException(String.format(
@@ -184,7 +183,7 @@ public class DefaultAndroidDirectoryResolver implements AndroidDirectoryResolver
   private Optional<Path> findBuildTools() {
     if (!sdk.isPresent()) {
       buildToolsErrorMessage = Optional.of(TOOLS_NEED_SDK_MESSAGE);
-      return Optional.absent();
+      return Optional.empty();
     }
     final Path sdkDir = sdk.get();
     final Path toolsDir = sdkDir.resolve("build-tools");
@@ -197,38 +196,35 @@ public class DefaultAndroidDirectoryResolver implements AndroidDirectoryResolver
       // are named build-tools-18.0.0. We need to support all of these scenarios.
       File[] directories;
       try {
-        directories = toolsDir.toFile().listFiles(new FileFilter() {
-          @Override
-          public boolean accept(File pathname) {
-            if (!pathname.isDirectory()) {
-              return false;
-            }
-            String version = stripBuildToolsPrefix(pathname.getName());
-            if (!VersionStringComparator.isValidVersionString(version)) {
-              throw new HumanReadableException(
-                  "%s in %s is not a valid build tools directory.%n" +
-                      "Build tools directories should be follow the naming scheme: " +
-                      "android-<VERSION>, build-tools-<VERSION>, or <VERSION>. Please remove " +
-                      "directory %s.",
-                  pathname.getName(),
-                  buildTools,
-                  pathname.getName());
-            }
-            if (targetBuildToolsVersion.isPresent()) {
-              return targetBuildToolsVersion.get().equals(pathname.getName());
-            }
-            return true;
+        directories = toolsDir.toFile().listFiles(pathname -> {
+          if (!pathname.isDirectory()) {
+            return false;
           }
+          String version = stripBuildToolsPrefix(pathname.getName());
+          if (!VersionStringComparator.isValidVersionString(version)) {
+            throw new HumanReadableException(
+                "%s in %s is not a valid build tools directory.%n" +
+                    "Build tools directories should be follow the naming scheme: " +
+                    "android-<VERSION>, build-tools-<VERSION>, or <VERSION>. Please remove " +
+                    "directory %s.",
+                pathname.getName(),
+                buildTools,
+                pathname.getName());
+          }
+          if (targetBuildToolsVersion.isPresent()) {
+            return targetBuildToolsVersion.get().equals(pathname.getName());
+          }
+          return true;
         });
       } catch (HumanReadableException e) {
         buildToolsErrorMessage = Optional.of(e.getHumanReadableErrorMessage());
-        return Optional.absent();
+        return Optional.empty();
       }
 
       if (targetBuildToolsVersion.isPresent()) {
         if (directories.length == 0) {
           buildToolsErrorMessage = unableToFindTargetBuildTools();
-          return Optional.absent();
+          return Optional.empty();
         } else {
           return Optional.of(directories[0].toPath());
         }
@@ -250,7 +246,7 @@ public class DefaultAndroidDirectoryResolver implements AndroidDirectoryResolver
         buildToolsErrorMessage = Optional.of(buildTools + " was empty, but should have " +
             "contained a subdirectory with build tools. Install them using the Android " +
             "SDK Manager (" + toolsDir.getParent().resolve("tools").resolve("android") + ").");
-        return Optional.absent();
+        return Optional.empty();
       }
       return Optional.of(newestBuildDir.toPath());
     }
@@ -258,14 +254,14 @@ public class DefaultAndroidDirectoryResolver implements AndroidDirectoryResolver
       // We were looking for a specific version, but we aren't going to find it at this point since
       // nothing under platform-tools was versioned.
       buildToolsErrorMessage = unableToFindTargetBuildTools();
-      return Optional.absent();
+      return Optional.empty();
     }
     // Build tools used to exist inside of platform-tools, so fallback to that.
     return Optional.of(sdkDir.resolve("platform-tools"));
   }
 
   private Optional<Path> findNdk() {
-    Optional<Path> repository = Optional.absent();
+    Optional<Path> repository = Optional.empty();
     try {
       repository = findDirectoryByEnvironmentVariables(
           "ANDROID_NDK_REPOSITORY");
@@ -276,7 +272,7 @@ public class DefaultAndroidDirectoryResolver implements AndroidDirectoryResolver
       return findNdkFromRepository(repository.get());
     }
 
-    Optional<Path> directory = Optional.absent();
+    Optional<Path> directory = Optional.empty();
     try {
       directory = findDirectoryByEnvironmentVariables(
           "ANDROID_NDK",
@@ -291,23 +287,23 @@ public class DefaultAndroidDirectoryResolver implements AndroidDirectoryResolver
     if (!ndkErrorMessage.isPresent()) {
       ndkErrorMessage = Optional.of(NDK_NOT_FOUND_MESSAGE);
     }
-    return Optional.absent();
+    return Optional.empty();
   }
 
   private Optional<Path> findNdkFromDirectory(Path directory) {
     Optional<String> version = findNdkVersion(directory);
     if (!version.isPresent() && ndkErrorMessage.isPresent()) {
-      return Optional.absent();
+      return Optional.empty();
     } else if (version.isPresent()) {
       if (targetNdkVersion.isPresent() && !versionsMatch(targetNdkVersion.get(), version.get())) {
         ndkErrorMessage = Optional.of("Buck is configured to use Android NDK version " +
             targetNdkVersion.get() + " at ndk.dir or ANDROID_NDK or NDK_HOME. The found version " +
             "is " + version.get() + " located at " + directory);
-        return Optional.absent();
+        return Optional.empty();
       }
     } else {
       ndkErrorMessage = Optional.of("Failed to read NDK version from " + directory + ".");
-      return Optional.absent();
+      return Optional.empty();
     }
     return Optional.of(directory);
   }
@@ -319,12 +315,12 @@ public class DefaultAndroidDirectoryResolver implements AndroidDirectoryResolver
     } catch (IOException e) {
       ndkErrorMessage = Optional.of("Unable to read contents of Android ndk.repository or " +
           "ANDROID_NDK_REPOSITORY at " + repository);
-      return Optional.absent();
+      return Optional.empty();
     }
 
-    Optional<Path> ndkPath = Optional.absent();
+    Optional<Path> ndkPath = Optional.empty();
     if (!repositoryContents.isEmpty()) {
-      Optional<String> newestVersion = Optional.absent();
+      Optional<String> newestVersion = Optional.empty();
       VersionStringComparator versionComparator = new VersionStringComparator();
       for (Path potentialNdkPath : repositoryContents) {
         if (potentialNdkPath.toFile().isDirectory()) {
@@ -348,12 +344,12 @@ public class DefaultAndroidDirectoryResolver implements AndroidDirectoryResolver
     }
     if (!ndkPath.isPresent()) {
       ndkErrorMessage = Optional.of("Couldn't find a valid NDK under " + repository);
-      return Optional.absent();
+      return Optional.empty();
     } else if (targetNdkVersion.isPresent()) {
       ndkErrorMessage = Optional.of("Buck is configured to use Android NDK version " +
           targetNdkVersion.get() + " at ANDROID_NDK_REPOSITORY or ndk.repository but the " +
           "repository does not contain that version.");
-      return Optional.absent();
+      return Optional.empty();
     }
     return ndkPath;
   }
@@ -376,7 +372,7 @@ public class DefaultAndroidDirectoryResolver implements AndroidDirectoryResolver
       Properties sourceProperties = new Properties();
       try (FileInputStream fileStream = new FileInputStream(newNdk.toFile())) {
         sourceProperties.load(fileStream);
-        return Optional.fromNullable(sourceProperties.getProperty("Pkg.Revision"));
+        return Optional.ofNullable(sourceProperties.getProperty("Pkg.Revision"));
       } catch (IOException e) {
         throw new HumanReadableException("Failed to read NDK version from " + newNdk + ".");
       }
@@ -384,7 +380,7 @@ public class DefaultAndroidDirectoryResolver implements AndroidDirectoryResolver
       try (BufferedReader reader = Files.newBufferedReader(oldNdk, Charsets.UTF_8)) {
         // Android NDK r10e for Linux is mislabeled as r10e-rc4 instead of r10e. This is a work
         // around since we should consider them equivalent.
-        return Optional.fromNullable(
+        return Optional.ofNullable(
             reader.readLine().split("\\s+")[0].replace("r10e-rc4", "r10e"));
       } catch (IOException e) {
         throw new HumanReadableException("Failed to read NDK version from " + oldNdk + ".");
@@ -400,7 +396,7 @@ public class DefaultAndroidDirectoryResolver implements AndroidDirectoryResolver
       return findNdkVersionFromDirectory(ndkDirectory);
     } catch (HumanReadableException e) {
       ndkErrorMessage = Optional.of(e.getHumanReadableErrorMessage());
-      return Optional.absent();
+      return Optional.empty();
     }
   }
 

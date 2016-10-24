@@ -27,6 +27,7 @@ import com.facebook.buck.shell.WorkerProcessPool;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.ClassLoaderCache;
 import com.facebook.buck.util.Console;
+import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.concurrent.ConcurrencyLimit;
@@ -36,7 +37,6 @@ import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.util.versioncontrol.BuildStamper;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableMap;
@@ -48,6 +48,7 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -140,7 +141,7 @@ abstract class AbstractExecutionContext implements Closeable {
 
   @Value.Default
   public ProcessExecutor getProcessExecutor() {
-    return new ProcessExecutor(getConsole());
+    return new DefaultProcessExecutor(getConsole());
   }
 
   @Value.Derived
@@ -206,7 +207,7 @@ abstract class AbstractExecutionContext implements Closeable {
       PrintStream newStderr,
       Optional<Verbosity> verbosityOverride) {
     Console console = new Console(
-        verbosityOverride.or(this.getConsole().getVerbosity()),
+        verbosityOverride.orElse(this.getConsole().getVerbosity()),
         newStdout,
         newStderr,
         this.getConsole().getAnsi());
@@ -214,7 +215,7 @@ abstract class AbstractExecutionContext implements Closeable {
     return ExecutionContext.builder()
         .from(this)
         .setConsole(console)
-        .setProcessExecutor(new ProcessExecutor(console))
+        .setProcessExecutor(new DefaultProcessExecutor(console))
         .setClassLoaderCache(getClassLoaderCache().addRef())
         .setWorkerProcessPools(new ConcurrentHashMap<String, WorkerProcessPool>())
         .build();

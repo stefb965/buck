@@ -18,16 +18,16 @@ package com.facebook.buck.rules.keys;
 
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.rules.AbstractBuildRule;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildTargetSourcePath;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
+import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.PathSourcePath;
@@ -41,7 +41,6 @@ import com.facebook.buck.shell.ExportFileBuilder;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -53,6 +52,7 @@ import org.junit.Test;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 
 import javax.annotation.Nullable;
 
@@ -85,8 +85,8 @@ public class DependencyFileRuleKeyBuilderFactoryTest {
             pathResolver)
             .build(
                 rule,
-                Optional.<ImmutableSet<SourcePath>>absent(),
-                ImmutableList.<DependencyFileEntry>of()).get().getFirst();
+                Optional.empty(),
+                ImmutableList.of()).get().getFirst();
 
     // Now, build a rule key with a different hash for the output for the above rule.
     hashCache = new FakeFileHashCache(
@@ -101,8 +101,8 @@ public class DependencyFileRuleKeyBuilderFactoryTest {
             pathResolver)
             .build(
                 rule,
-                Optional.<ImmutableSet<SourcePath>>absent(),
-                ImmutableList.<DependencyFileEntry>of()).get().getFirst();
+                Optional.empty(),
+                ImmutableList.of()).get().getFirst();
 
     assertThat(inputKey1, Matchers.equalTo(inputKey2));
   }
@@ -136,8 +136,8 @@ public class DependencyFileRuleKeyBuilderFactoryTest {
             pathResolver)
             .build(
                 rule,
-                Optional.<ImmutableSet<SourcePath>>absent(),
-                ImmutableList.<DependencyFileEntry>of()).get().getFirst();
+                Optional.empty(),
+                ImmutableList.of()).get().getFirst();
 
     // Now, build a rule key with a different hash for the output for the above rule.
     hashCache = new FakeFileHashCache(
@@ -152,8 +152,8 @@ public class DependencyFileRuleKeyBuilderFactoryTest {
             pathResolver)
             .build(
                 rule,
-                Optional.<ImmutableSet<SourcePath>>absent(),
-                ImmutableList.<DependencyFileEntry>of()).get().getFirst();
+                Optional.empty(),
+                ImmutableList.of()).get().getFirst();
 
     assertThat(inputKey1, Matchers.equalTo(inputKey2));
   }
@@ -175,7 +175,7 @@ public class DependencyFileRuleKeyBuilderFactoryTest {
     BuildRuleParams params = new FakeBuildRuleParamsBuilder("//:rule").build();
     FakeDepFileBuildRule rule = new FakeDepFileBuildRule(params, pathResolver) {
       {
-        setPossibleInputPaths(ImmutableSet.<SourcePath>of(inputSourcePath));
+        setPossibleInputPaths(ImmutableSet.of(inputSourcePath));
       }
 
       @AddToRuleKey
@@ -294,7 +294,7 @@ public class DependencyFileRuleKeyBuilderFactoryTest {
     }
 
     @Override
-    public Optional<ImmutableSet<SourcePath>> getPossibleInputSourcePaths() throws IOException {
+    public Optional<ImmutableSet<SourcePath>> getPossibleInputSourcePaths() {
       return Optional.of(possibleInputPaths);
     }
 

@@ -23,20 +23,17 @@ import com.facebook.buck.artifact_cache.ArtifactCache;
 import com.facebook.buck.artifact_cache.NoopArtifactCache;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
-import com.facebook.buck.httpserver.WebServer;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.FakeJavaPackageFinder;
-import com.facebook.buck.query.QueryTarget;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.testutil.TestConsole;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
+import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.environment.Platform;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.base.Optional;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -53,6 +50,7 @@ import org.junit.Rule;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.util.Optional;
 import java.util.concurrent.Executors;
 
 public class QueryCommandTest {
@@ -101,7 +99,7 @@ public class QueryCommandTest {
         ImmutableMap.copyOf(System.getenv()),
         new FakeJavaPackageFinder(),
         objectMapper,
-        Optional.<WebServer>absent());
+        Optional.empty());
     executor = MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor());
   }
 
@@ -114,7 +112,7 @@ public class QueryCommandTest {
   public void testRunMultiQueryWithSet() throws Exception {
     queryCommand.setArguments(ImmutableList.of("deps(%Ss)", "//foo:bar", "//foo:baz"));
     EasyMock.expect(env.evaluateQuery("deps(set('//foo:bar' '//foo:baz'))", executor))
-        .andReturn(ImmutableSet.<QueryTarget>of());
+        .andReturn(ImmutableSet.of());
     EasyMock.replay(env);
     queryCommand.formatAndRunQuery(params, env, executor);
     EasyMock.verify(env);
@@ -128,9 +126,9 @@ public class QueryCommandTest {
         .anyTimes();
     env.preloadTargetPatterns(ImmutableSet.of("//foo:bar", "//foo:baz"), executor);
     EasyMock.expect(env.evaluateQuery("deps(//foo:bar)", executor))
-        .andReturn(ImmutableSet.<QueryTarget>of());
+        .andReturn(ImmutableSet.of());
     EasyMock.expect(env.evaluateQuery("deps(//foo:baz)", executor))
-        .andReturn(ImmutableSet.<QueryTarget>of());
+        .andReturn(ImmutableSet.of());
     EasyMock.replay(env);
     queryCommand.formatAndRunQuery(params, env, executor);
     EasyMock.verify(env);
@@ -141,7 +139,7 @@ public class QueryCommandTest {
     queryCommand.setArguments(ImmutableList.of("deps(//foo:bah)", "//foo:bar", "//foo:baz"));
     // Should discard format args
     EasyMock.expect(env.evaluateQuery("deps(//foo:bah)", executor))
-        .andReturn(ImmutableSet.<QueryTarget>of());
+        .andReturn(ImmutableSet.of());
     EasyMock.replay(env);
     queryCommand.formatAndRunQuery(params, env, executor);
     EasyMock.verify(env);

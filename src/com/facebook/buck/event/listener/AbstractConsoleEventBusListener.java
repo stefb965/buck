@@ -21,12 +21,12 @@ import com.facebook.buck.cli.CommandEvent;
 import com.facebook.buck.distributed.DistBuildStatusEvent;
 import com.facebook.buck.event.ActionGraphEvent;
 import com.facebook.buck.event.BuckEvent;
+import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.EventKey;
 import com.facebook.buck.event.InstallEvent;
 import com.facebook.buck.event.ProjectGenerationEvent;
-import com.facebook.buck.event.external.events.BuckEventExternalInterface;
 import com.facebook.buck.i18n.NumberFormatter;
 import com.facebook.buck.json.ParseBuckFileEvent;
 import com.facebook.buck.json.ProjectBuildFileParseEvents;
@@ -42,8 +42,6 @@ import com.facebook.buck.util.Console;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.facebook.buck.util.unit.SizeUnit;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
@@ -60,6 +58,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -76,16 +75,13 @@ import javax.annotation.Nullable;
 public abstract class AbstractConsoleEventBusListener implements BuckEventListener, Closeable {
 
   private static final NumberFormatter TIME_FORMATTER = new NumberFormatter(
-      new Function<Locale, NumberFormat>() {
-        @Override
-        public NumberFormat apply(Locale locale) {
-          // Yes, this is the only way to apply and localize a pattern to a NumberFormat.
-          NumberFormat numberFormat = NumberFormat.getIntegerInstance(locale);
-          Preconditions.checkState(numberFormat instanceof DecimalFormat);
-          DecimalFormat decimalFormat = (DecimalFormat) numberFormat;
-          decimalFormat.applyPattern("0.0s");
-          return decimalFormat;
-        }
+      locale1 -> {
+        // Yes, this is the only way to apply and localize a pattern to a NumberFormat.
+        NumberFormat numberFormat = NumberFormat.getIntegerInstance(locale1);
+        Preconditions.checkState(numberFormat instanceof DecimalFormat);
+        DecimalFormat decimalFormat = (DecimalFormat) numberFormat;
+        decimalFormat.applyPattern("0.0s");
+        return decimalFormat;
       });
 
   protected static final long UNFINISHED_EVENT_PAIR = -1;
@@ -134,12 +130,12 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
   @Nullable
   protected volatile HttpArtifactCacheEvent.Shutdown httpShutdownEvent;
 
-  protected volatile Optional<Integer> ruleCount = Optional.absent();
-  protected ImmutableList<String> publicAnnouncements = ImmutableList.of();
+  protected volatile Optional<Integer> ruleCount = Optional.empty();
+  protected Optional<String> publicAnnouncements = Optional.empty();
 
   protected final AtomicInteger numRulesCompleted = new AtomicInteger();
 
-  protected Optional<ProgressEstimator> progressEstimator = Optional.<ProgressEstimator>absent();
+  protected Optional<ProgressEstimator> progressEstimator = Optional.empty();
 
   protected final CacheRateStatsKeeper cacheRateStatsKeeper;
 
@@ -187,20 +183,18 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
   }
 
   @VisibleForTesting
-  ImmutableList<String> getPublicAnnouncements() {
+  Optional<String> getPublicAnnouncements() {
     return publicAnnouncements;
   }
 
   public void setProgressEstimator(ProgressEstimator estimator) {
-    progressEstimator = Optional.<ProgressEstimator>of(estimator);
-  }
-
-  public void setPublicAnnouncements(ImmutableList<String> announcements) {
-    this.publicAnnouncements = announcements;
+    progressEstimator = Optional.of(estimator);
   }
 
   protected String formatElapsedTime(long elapsedTimeMs) {
-    return TIME_FORMATTER.format(locale, elapsedTimeMs / 1000.0);
+    long minutes = elapsedTimeMs / 60_000L;
+    String seconds = TIME_FORMATTER.format(locale, elapsedTimeMs / 1000.0 - (minutes * 60));
+    return String.format(minutes == 0 ? "%s" : "%2$dm %1$s", seconds, minutes);
   }
 
   protected Optional<Double> getApproximateBuildProgress() {
@@ -210,7 +204,7 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
       if (progressEstimator.isPresent()) {
         return progressEstimator.get().getApproximateBuildProgress();
       } else {
-        return Optional.<Double>absent();
+        return Optional.empty();
       }
     }
   }
@@ -219,7 +213,7 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
     if (progressEstimator.isPresent()) {
       return progressEstimator.get().getEstimatedProgressOfGeneratingProjectFiles();
     } else {
-      return Optional.<Double>absent();
+      return Optional.empty();
     }
   }
 
@@ -227,7 +221,16 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
     if (progressEstimator.isPresent()) {
       return progressEstimator.get().getEstimatedProgressOfProcessingBuckFiles();
     } else {
-      return Optional.<Double>absent();
+      return Optional.empty();
+    }
+  }
+
+  public void setPublicAnnouncements(BuckEventBus eventBus, Optional<String> announcements) {
+    this.publicAnnouncements = announcements;
+    if (announcements.isPresent()) {
+      eventBus.post(ConsoleEvent.createForMessageWithAnsiEscapeCodes(
+          Level.INFO,
+          ansi.asInformationText(announcements.get())));
     }
   }
 
@@ -298,7 +301,7 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
     }
     EventPair pair = EventPair.builder()
         .setStart(startEvent)
-        .setFinish(Optional.<BuckEventExternalInterface>fromNullable(finishedEvent))
+        .setFinish(Optional.ofNullable(finishedEvent))
         .build();
     return logEventPair(prefix,
         suffix,
@@ -563,6 +566,9 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
   @Subscribe
   public void ruleCountUpdated(BuildEvent.UnskippedRuleCountUpdated updated) {
     ruleCount = Optional.of(updated.getNumRules());
+    if (progressEstimator.isPresent()) {
+      progressEstimator.get().setNumberOfRules(ruleCount.get());
+    }
     cacheRateStatsKeeper.ruleCountUpdated(updated);
   }
 

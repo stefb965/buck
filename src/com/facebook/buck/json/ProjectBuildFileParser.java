@@ -24,12 +24,14 @@ import com.facebook.buck.event.PerfEventId;
 import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.io.PathOrGlobMatcher;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.ProjectWatch;
 import com.facebook.buck.io.WatchmanDiagnostic;
 import com.facebook.buck.io.WatchmanDiagnosticCache;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.rules.ConstructorArgMarshaller;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.util.InputStreamConsumer;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.MoreThrowables;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
@@ -40,7 +42,6 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -54,6 +55,7 @@ import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
@@ -121,42 +123,36 @@ public class ProjectBuildFileParser implements AutoCloseable {
 
     this.rawConfigJson =
         Suppliers.memoize(
-            new Supplier<Path>() {
-              @Override
-              public Path get() {
-                try {
-                  Path rawConfigJson = Files.createTempFile("raw_config", ".json");
-                  Files.createDirectories(rawConfigJson.getParent());
-                  try (OutputStream output =
-                           new BufferedOutputStream(Files.newOutputStream(rawConfigJson))) {
-                    bserSerializer.serializeToStream(options.getRawConfig(), output);
-                  }
-                  return rawConfigJson;
-                } catch (IOException e) {
-                  throw new RuntimeException(e);
+            () -> {
+              try {
+                Path rawConfigJson1 = Files.createTempFile("raw_config", ".json");
+                Files.createDirectories(rawConfigJson1.getParent());
+                try (OutputStream output =
+                         new BufferedOutputStream(Files.newOutputStream(rawConfigJson1))) {
+                  bserSerializer.serializeToStream(options.getRawConfig(), output);
                 }
+                return rawConfigJson1;
+              } catch (IOException e) {
+                throw new RuntimeException(e);
               }
             });
     this.ignorePathsJson =
         Suppliers.memoize(
-            new Supplier<Path>() {
-              @Override
-              public Path get() {
-                try {
-                  Path ignorePathsJson = Files.createTempFile("ignore_paths", ".json");
-                  Files.createDirectories(ignorePathsJson.getParent());
-                  try (OutputStream output =
-                           new BufferedOutputStream(Files.newOutputStream(ignorePathsJson))) {
-                    bserSerializer.serializeToStream(
-                        FluentIterable.from(options.getIgnorePaths())
-                            .transform(PathOrGlobMatcher.toPathOrGlob())
-                            .toList(),
-                        output);
-                  }
-                  return ignorePathsJson;
-                } catch (IOException e) {
-                  throw new RuntimeException(e);
+            () -> {
+              try {
+                Path ignorePathsJson1 = Files.createTempFile("ignore_paths", ".json");
+                Files.createDirectories(ignorePathsJson1.getParent());
+                try (OutputStream output =
+                         new BufferedOutputStream(Files.newOutputStream(ignorePathsJson1))) {
+                  bserSerializer.serializeToStream(
+                      options.getIgnorePaths().stream()
+                          .map(PathOrGlobMatcher.toPathOrGlob()::apply)
+                          .collect(MoreCollectors.toImmutableList()),
+                      output);
                 }
+                return ignorePathsJson1;
+              } catch (IOException e) {
+                throw new RuntimeException(e);
               }
             });
   }
@@ -204,9 +200,18 @@ public class ProjectBuildFileParser implements AutoCloseable {
         buckEventBus,
         PerfEventId.of("ParserInit"))) {
 
+      ImmutableMap<String, String> pythonEnvironment =
+          new ImmutableMap.Builder<String, String>()
+              .putAll(new HashMap<String, String>() {{
+                putAll(environment);
+                put("PYTHONPATH",
+                    options.getPythonModuleSearchPath().orElse(""));
+              }})
+              .build();
+
       ProcessExecutorParams params = ProcessExecutorParams.builder()
           .setCommand(buildArgs())
-          .setEnvironment(environment)
+          .setEnvironment(pythonEnvironment)
           .build();
 
       LOG.debug(
@@ -221,13 +226,8 @@ public class ProjectBuildFileParser implements AutoCloseable {
 
       InputStreamConsumer stderrConsumer = new InputStreamConsumer(
           stderr,
-          new InputStreamConsumer.Handler() {
-            @Override
-            public void handleLine(String line) {
-              buckEventBus.post(
-                  ConsoleEvent.warning("Warning raised by BUCK file parser: %s", line));
-            }
-          });
+          (InputStreamConsumer.Handler) line -> buckEventBus.post(
+              ConsoleEvent.warning("Warning raised by BUCK file parser: %s", line)));
       stderrConsumerTerminationFuture = new FutureTask<>(stderrConsumer);
       stderrConsumerThread = Threads.namedThread(
           ProjectBuildFileParser.class.getSimpleName(),
@@ -286,6 +286,10 @@ public class ProjectBuildFileParser implements AutoCloseable {
           options.getWatchmanQueryTimeoutMs().get().toString());
     }
 
+    if (options.getUseMercurialGlob()) {
+      argBuilder.add("--use_mercurial_glob");
+    }
+
     if (options.getEnableBuildFileSandboxing()) {
       argBuilder.add("--enable_build_file_sandboxing");
     }
@@ -303,6 +307,10 @@ public class ProjectBuildFileParser implements AutoCloseable {
     }
 
     argBuilder.add("--build_file_name", options.getBuildFileName());
+
+    if (!options.getAutodepsFilesHaveSignatures()) {
+      argBuilder.add("--no_autodeps_signatures");
+    }
 
     // Tell the parser not to print exceptions to stderr.
     argBuilder.add("--quiet");
@@ -367,11 +375,12 @@ public class ProjectBuildFileParser implements AutoCloseable {
     ImmutableList<Map<String, Object>> values = ImmutableList.of();
     String profile = "";
     try (AssertScopeExclusiveAccess.Scope scope = assertSingleThreadedParsing.scope()) {
+      ProjectWatch projectWatch = options.getWatchman().getProjectWatch();
       bserSerializer.serializeToStream(
           ImmutableMap.of(
               "buildFile", buildFile.toString(),
-              "watchRoot", options.getWatchman().getWatchRoot().or(""),
-              "projectPrefix", options.getWatchman().getProjectPrefix().or("")),
+              "watchRoot", projectWatch.getWatchRoot(),
+              "projectPrefix", projectWatch.getProjectPrefix().orElse("")),
           buckPyStdinWriter);
       buckPyStdinWriter.flush();
 
@@ -431,7 +440,7 @@ public class ProjectBuildFileParser implements AutoCloseable {
     }
     return BuildFilePythonResult.of(
         values,
-        diagnostics == null ? ImmutableList.<Map<String, String>>of() : diagnostics,
+        diagnostics == null ? ImmutableList.of() : diagnostics,
         profile == null ? "" : profile);
   }
 

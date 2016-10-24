@@ -26,19 +26,15 @@ import com.facebook.buck.parser.TargetNodePredicateSpec;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildEngine;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CachingBuildEngine;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.ImmutableBuildContext;
 import com.facebook.buck.rules.LocalCachingBuildEngineDelegate;
 import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.ExecutorPool;
-import com.facebook.buck.step.StepRunner;
 import com.facebook.buck.util.MoreExceptions;
 import com.facebook.buck.util.PrintStreamProcessExecutorFactory;
 import com.facebook.buck.util.concurrent.ConcurrencyLimit;
@@ -85,7 +81,7 @@ final class JavaBuildGraphProcessor {
     void process(
         TargetGraph graph,
         JavaDepsFinder javaDepsFinder,
-        WeightedListeningExecutorService executorService) throws ExitCodeException, IOException;
+        WeightedListeningExecutorService executorService);
   }
 
   /**
@@ -122,7 +118,7 @@ final class JavaBuildGraphProcessor {
                 executorService,
                 ImmutableList.of(
                     TargetNodePredicateSpec.of(
-                        Predicates.<TargetNode<?>>alwaysTrue(),
+                        Predicates.alwaysTrue(),
                         BuildFileSpec.fromRecursivePath(Paths.get(""), cell.getRoot()))),
                 /* ignoreBuckAutodepsFiles */ true).getTargetGraph();
       } catch (BuildTargetException | BuildFileParseException e) {
@@ -137,6 +133,7 @@ final class JavaBuildGraphProcessor {
       BuildEngine buildEngine = new CachingBuildEngine(
           new LocalCachingBuildEngineDelegate(params.getFileHashCache()),
           executorService,
+          new DefaultStepRunner(),
           CachingBuildEngine.BuildMode.SHALLOW,
           params.getBuckConfig().getBuildDepFiles(),
           params.getBuckConfig().getBuildMaxDepFileCacheEntries(),
@@ -153,7 +150,7 @@ final class JavaBuildGraphProcessor {
           .setConsole(params.getConsole())
           .setConcurrencyLimit(concurrencyLimit)
           .setBuckEventBus(eventBus)
-          .setEnvironment(/* environment */ ImmutableMap.<String, String>of())
+          .setEnvironment(/* environment */ ImmutableMap.of())
           .setExecutors(
               ImmutableMap.<ExecutorPool, ListeningExecutorService>of(
                   ExecutorPool.CPU,
@@ -168,12 +165,10 @@ final class JavaBuildGraphProcessor {
                   new VersionControlBuckConfig(cell.getBuckConfig().getRawConfig()),
                   params.getEnvironment())))
           .build();
-      StepRunner stepRunner = new DefaultStepRunner(executionContext);
 
-      BuildContext buildContext = ImmutableBuildContext.builder()
+      BuildContext buildContext = BuildContext.builder()
           // Note we do not create a real action graph because we do not need one.
-          .setActionGraph(new ActionGraph(ImmutableList.<BuildRule>of()))
-          .setStepRunner(stepRunner)
+          .setActionGraph(new ActionGraph(ImmutableList.of()))
           .setClock(params.getClock())
           .setArtifactCache(params.getArtifactCache())
           .setJavaPackageFinder(executionContext.getJavaPackageFinder())
@@ -191,6 +186,7 @@ final class JavaBuildGraphProcessor {
           params.getCell().getCellPathResolver(),
           params.getObjectMapper(),
           buildContext,
+          executionContext,
           buildEngine);
 
       processor.process(graph, javaDepsFinder, executorService);

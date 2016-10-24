@@ -26,8 +26,9 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
+
+import java.util.Optional;
 
 /**
  * Abstract expander which resolves using a references to another {@link BuildRule}.
@@ -104,8 +105,7 @@ public abstract class BuildTargetMacroExpander extends AbstractMacroExpander<Bui
   public ImmutableList<BuildTarget> extractParseTimeDepsFrom(
       BuildTarget target,
       CellPathResolver cellNames,
-      BuildTarget input)
-      throws MacroException {
+      BuildTarget input) {
     return ImmutableList.of(input);
   }
 

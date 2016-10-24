@@ -16,13 +16,12 @@
 
 package com.facebook.buck.rules;
 
+import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.cache.CacheBuilder;
@@ -31,6 +30,7 @@ import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 
@@ -44,14 +44,30 @@ public class BuildRuleResolver {
 
   private final TargetGraph targetGraph;
   private final TargetNodeToBuildRuleTransformer buildRuleGenerator;
+
+  /**
+   * Event bus for reporting performance information.
+   * Will likely be null in unit tests.
+   */
+  @Nullable
+  private final BuckEventBus eventBus;
+
   private final ConcurrentHashMap<BuildTarget, BuildRule> buildRuleIndex;
   private final LoadingCache<Pair<BuildTarget, Class<?>>, Optional<?>> metadataCache;
 
   public BuildRuleResolver(
       TargetGraph targetGraph,
       TargetNodeToBuildRuleTransformer buildRuleGenerator) {
+    this(targetGraph, buildRuleGenerator, null);
+  }
+
+  public BuildRuleResolver(
+      TargetGraph targetGraph,
+      TargetNodeToBuildRuleTransformer buildRuleGenerator,
+      @Nullable BuckEventBus eventBus) {
     this.targetGraph = targetGraph;
     this.buildRuleGenerator = buildRuleGenerator;
+    this.eventBus = eventBus;
     this.buildRuleIndex = new ConcurrentHashMap<>();
     this.metadataCache = CacheBuilder.newBuilder()
         .build(
@@ -73,7 +89,7 @@ public class BuildRuleResolver {
 
                 Description<?> description = node.getDescription();
                 if (!(description instanceof MetadataProvidingDescription)) {
-                  return Optional.absent();
+                  return Optional.empty();
                 }
                 MetadataProvidingDescription<T> metadataProvidingDescription =
                     (MetadataProvidingDescription<T>) description;
@@ -108,7 +124,7 @@ public class BuildRuleResolver {
   }
 
   public Optional<BuildRule> getRuleOptional(BuildTarget buildTarget) {
-    return Optional.fromNullable(buildRuleIndex.get(buildTarget));
+    return Optional.ofNullable(buildRuleIndex.get(buildTarget));
   }
 
   public BuildRule requireRule(BuildTarget target) throws NoSuchBuildTargetException {
@@ -166,20 +182,11 @@ public class BuildRuleResolver {
             rule.getClass());
       }
     }
-    return Optional.absent();
+    return Optional.empty();
   }
 
   public <T> T getRuleWithType(BuildTarget buildTarget, Class<T> cls) {
-    return fromNullable(buildTarget, getRuleOptionalWithType(buildTarget, cls).orNull());
-  }
-
-  public Function<BuildTarget, BuildRule> getRuleFunction() {
-    return new Function<BuildTarget, BuildRule>() {
-      @Override
-      public BuildRule apply(BuildTarget input) {
-        return getRule(input);
-      }
-    };
+    return fromNullable(buildTarget, getRuleOptionalWithType(buildTarget, cls).orElse(null));
   }
 
   public ImmutableSortedSet<BuildRule> getAllRules(Iterable<BuildTarget> targets) {
@@ -216,4 +223,8 @@ public class BuildRuleResolver {
     return buildRules;
   }
 
+  @Nullable
+  public BuckEventBus getEventBus() {
+    return eventBus;
+  }
 }

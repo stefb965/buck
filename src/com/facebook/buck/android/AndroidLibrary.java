@@ -19,9 +19,9 @@ package com.facebook.buck.android;
 import static com.facebook.buck.rules.BuildableProperties.Kind.ANDROID;
 import static com.facebook.buck.rules.BuildableProperties.Kind.LIBRARY;
 
+import com.facebook.buck.jvm.java.CompileToJarStepFactory;
 import com.facebook.buck.jvm.java.DefaultJavaLibrary;
 import com.facebook.buck.jvm.java.JavacOptions;
-import com.facebook.buck.jvm.java.JavacToJarStepFactory;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildRule;
@@ -30,12 +30,12 @@ import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.Set;
 
 public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackageable {
@@ -62,6 +62,8 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
       SourcePath abiJar,
       ImmutableSet<Path> additionalClasspathEntries,
       JavacOptions javacOptions,
+      boolean trackClassUsage,
+      CompileToJarStepFactory compileStepFactory,
       Optional<Path> resourcesRoot,
       Optional<String> mavenCoords,
       Optional<SourcePath> manifestFile,
@@ -77,11 +79,11 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
         exportedDeps,
         providedDeps,
         abiJar,
-        javacOptions.trackClassUsage(),
+        trackClassUsage,
         additionalClasspathEntries,
-        new JavacToJarStepFactory(javacOptions, new BootClasspathAppender()),
+        compileStepFactory,
         resourcesRoot,
-        Optional.<SourcePath>absent(),
+        Optional.empty(),
         mavenCoords,
         tests,
         javacOptions.getClassesToRemoveFromJar());

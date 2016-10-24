@@ -44,11 +44,7 @@ import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.environment.Platform;
-import com.google.common.base.Function;
-import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
-import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -73,6 +69,7 @@ import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 
@@ -87,7 +84,7 @@ public class CxxBinaryIntegrationTest {
     ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(
         this,
         tmp,
-        Optional.<String>absent());
+        Optional.empty());
     workspace.enableDirCache(); // enable the cache
 
     CxxPlatform cxxPlatform = DefaultCxxPlatforms.build(
@@ -164,7 +161,7 @@ public class CxxBinaryIntegrationTest {
     ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(
         this,
         tmp,
-        Optional.<String>absent());
+        Optional.empty());
     workspace.enableDirCache(); // enable the cache
 
     CxxPlatform cxxPlatform = DefaultCxxPlatforms.build(
@@ -262,17 +259,12 @@ public class CxxBinaryIntegrationTest {
         FluentIterable.from(buildLog.getAllTargets())
             // Filter out header symlink tree rules, as they are always built locally.
             .filter(
-                new Predicate<BuildTarget>() {
-                  @Override
-                  public boolean apply(BuildTarget target) {
-                    return (
-                        !target.getFlavors()
-                            .contains(CxxDescriptionEnhancer.EXPORTED_HEADER_SYMLINK_TREE_FLAVOR) &&
-                        !target.getFlavors()
-                            .contains(CxxDescriptionEnhancer.HEADER_SYMLINK_TREE_FLAVOR));
-                  }
-                })
-            .transform(Functions.toStringFunction())
+                target -> (
+                    !target.getFlavors()
+                        .contains(CxxDescriptionEnhancer.EXPORTED_HEADER_SYMLINK_TREE_FLAVOR) &&
+                    !target.getFlavors()
+                        .contains(CxxDescriptionEnhancer.HEADER_SYMLINK_TREE_FLAVOR)))
+            .transform(Object::toString)
             // Filter out any rules that are explicitly built locally.
             .filter(Predicates.not(Predicates.in(locallyBuiltTargets)))
             .toSet();
@@ -289,7 +281,7 @@ public class CxxBinaryIntegrationTest {
     ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(
         this,
         tmp,
-        Optional.<String>absent());
+        Optional.empty());
 
     CxxPlatform cxxPlatform = DefaultCxxPlatforms.build(
         new CxxBuckConfig(FakeBuckConfig.builder().build()));
@@ -383,7 +375,7 @@ public class CxxBinaryIntegrationTest {
     ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(
         this,
         tmp,
-        Optional.<String>absent());
+        Optional.empty());
 
     CxxPlatform cxxPlatform = DefaultCxxPlatforms.build(
         new CxxBuckConfig(FakeBuckConfig.builder().build()));
@@ -551,7 +543,7 @@ public class CxxBinaryIntegrationTest {
     ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(
         this,
         tmp,
-        Optional.<String>absent());
+        Optional.empty());
     ProjectFilesystem filesystem = new ProjectFilesystem(workspace.getDestPath());
 
     BuildTarget inputBuildTarget = BuildTargetFactory.newInstance("//foo:binary_with_chain_deps")
@@ -645,7 +637,7 @@ public class CxxBinaryIntegrationTest {
     ProjectWorkspace primary = InferHelper.setupCxxInferWorkspace(
         this,
         primaryRootPath,
-        Optional.<String>absent(),
+        Optional.empty(),
         "infertest/inter-cell/multi-cell/primary",
         Optional.of(rootWorkspacePath.resolve("fake-infer")));
 
@@ -667,7 +659,7 @@ public class CxxBinaryIntegrationTest {
     ProjectWorkspace.ProcessResult result = primary.runBuckBuild(
         InferHelper.getCxxCLIConfigurationArgs(
             rootWorkspacePath.resolve("fake-infer"),
-            Optional.<String>absent(),
+            Optional.empty(),
             inputBuildTarget));
 
     result.assertSuccess();
@@ -689,7 +681,7 @@ public class CxxBinaryIntegrationTest {
     ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(
         this,
         tmp,
-        Optional.<String>absent());
+        Optional.empty());
     workspace.enableDirCache(); // enable the cache
     ProjectFilesystem filesystem = new ProjectFilesystem(workspace.getDestPath());
 
@@ -783,7 +775,7 @@ public class CxxBinaryIntegrationTest {
     ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(
         this,
         tmp,
-        Optional.<String>absent());
+        Optional.empty());
     workspace.enableDirCache(); // enable the cache
     ProjectFilesystem filesystem = new ProjectFilesystem(workspace.getDestPath());
 
@@ -855,7 +847,7 @@ public class CxxBinaryIntegrationTest {
     ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(
         this,
         tmp,
-        Optional.<String>absent());
+        Optional.empty());
     workspace.enableDirCache(); // enable the cache
     ProjectFilesystem filesystem = new ProjectFilesystem(workspace.getDestPath());
 
@@ -940,7 +932,7 @@ public class CxxBinaryIntegrationTest {
     ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(
         this,
         tmp,
-        Optional.<String>absent());
+        Optional.empty());
     workspace.enableDirCache(); // enable the cache
 
     BuildTarget inputBuildTarget = BuildTargetFactory.newInstance(
@@ -997,7 +989,7 @@ public class CxxBinaryIntegrationTest {
     ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(
         this,
         tmp,
-        Optional.<String>absent());
+        Optional.empty());
     ProjectFilesystem filesystem = new ProjectFilesystem(workspace.getDestPath());
 
     BuildTarget inputBuildTarget = BuildTargetFactory.newInstance(
@@ -1114,7 +1106,7 @@ public class CxxBinaryIntegrationTest {
     ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(
         this,
         tmp,
-        Optional.<String>absent());
+        Optional.empty());
     ProjectFilesystem filesystem = new ProjectFilesystem(workspace.getDestPath());
 
     BuildTarget inputBuildTarget = BuildTargetFactory.newInstance("//foo:binary_with_chain_deps");
@@ -1170,7 +1162,7 @@ public class CxxBinaryIntegrationTest {
     ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(
         this,
         tmp,
-        Optional.<String>absent());
+        Optional.empty());
     workspace.enableDirCache(); // enable the cache
     ProjectFilesystem filesystem = new ProjectFilesystem(workspace.getDestPath());
 
@@ -1222,7 +1214,7 @@ public class CxxBinaryIntegrationTest {
     ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(
         this,
         tmp,
-        Optional.<String>absent());
+        Optional.empty());
     ProjectFilesystem filesystem = new ProjectFilesystem(workspace.getDestPath());
 
     BuildTarget inputBuildTarget = BuildTargetFactory.newInstance("//foo:binary_with_chain_deps")
@@ -1251,7 +1243,7 @@ public class CxxBinaryIntegrationTest {
     ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(
         this,
         tmp,
-        Optional.<String>absent());
+        Optional.empty());
     ProjectFilesystem filesystem = new ProjectFilesystem(workspace.getDestPath());
 
     BuildTarget inputBuildTarget = BuildTargetFactory.newInstance("//foo:binary_with_chain_deps")
@@ -1269,12 +1261,7 @@ public class CxxBinaryIntegrationTest {
     String out = workspace.getFileContents(specsPathList);
 
     ImmutableList<Path> paths = FluentIterable.of(out.split("\n")).transform(
-        new Function<String, Path>() {
-          @Override
-          public Path apply(String input) {
-            return new File(input).toPath();
-          }
-        }).toList();
+        input -> new File(input).toPath()).toList();
 
     assertSame("There must be 2 paths in total", paths.size(), 2);
 
@@ -1356,7 +1343,7 @@ public class CxxBinaryIntegrationTest {
             .addAll(
                 expectPreprocessorOutput
                     ? ImmutableSet.of(preprocessTarget)
-                    : ImmutableSet.<BuildTarget>of())
+                    : ImmutableSet.of())
             .build(),
         buildLog.getAllTargets());
     buildLog.assertTargetBuiltLocally(aggregatedDepsTarget.toString());
@@ -1401,7 +1388,7 @@ public class CxxBinaryIntegrationTest {
             .addAll(
                 expectPreprocessorOutput
                     ? ImmutableSet.of(preprocessTarget)
-                    : ImmutableSet.<BuildTarget>of())
+                    : ImmutableSet.of())
             .build(),
         buildLog.getAllTargets());
     buildLog.assertTargetHadMatchingRuleKey(aggregatedDepsTarget.toString());
@@ -1434,7 +1421,7 @@ public class CxxBinaryIntegrationTest {
             .addAll(
                 expectPreprocessorOutput
                     ? ImmutableSet.of(preprocessTarget)
-                    : ImmutableSet.<BuildTarget>of())
+                    : ImmutableSet.of())
             .build(),
         buildLog.getAllTargets());
     buildLog.assertTargetHadMatchingRuleKey(aggregatedDepsTarget.toString());
@@ -2128,9 +2115,9 @@ public class CxxBinaryIntegrationTest {
         workspace.getPath(BuildTargets.getGenPath(filesystem, unstrippedTarget, "%s"));
 
     String strippedOut = workspace.runCommand("dsymutil", "-s", strippedPath.toString())
-        .getStdout().or("");
+        .getStdout().orElse("");
     String unstrippedOut = workspace.runCommand("dsymutil", "-s", unstrippedPath.toString())
-        .getStdout().or("");
+        .getStdout().orElse("");
 
     assertThat(strippedOut, Matchers.containsStringIgnoringCase("dyld_stub_binder"));
     assertThat(unstrippedOut, Matchers.containsStringIgnoringCase("dyld_stub_binder"));

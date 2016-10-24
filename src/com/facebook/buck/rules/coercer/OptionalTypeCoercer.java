@@ -18,12 +18,12 @@ package com.facebook.buck.rules.coercer;
 
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.rules.CellPathResolver;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 
 import java.nio.file.Path;
+import java.util.Optional;
 
-public class OptionalTypeCoercer<T> extends LeafTypeCoercer<Optional<T>> {
+public class OptionalTypeCoercer<T> implements TypeCoercer<Optional<T>> {
 
   private final TypeCoercer<T> coercer;
 
@@ -41,6 +41,18 @@ public class OptionalTypeCoercer<T> extends LeafTypeCoercer<Optional<T>> {
   }
 
   @Override
+  public boolean hasElementClass(Class<?>... types) {
+    return coercer.hasElementClass(types);
+  }
+
+  @Override
+  public void traverse(Optional<T> object, Traversal traversal) {
+    if (object.isPresent()) {
+      coercer.traverse(object.get(), traversal);
+    }
+  }
+
+  @Override
   public Optional<T> coerce(
       CellPathResolver cellRoots,
       ProjectFilesystem filesystem,
@@ -48,9 +60,8 @@ public class OptionalTypeCoercer<T> extends LeafTypeCoercer<Optional<T>> {
       Object object)
       throws CoerceFailedException {
     if (object == null) {
-      return Optional.absent();
+      return Optional.empty();
     }
     return Optional.of(coercer.coerce(cellRoots, filesystem, pathRelativeToProjectRoot, object));
   }
-
 }

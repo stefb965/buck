@@ -20,14 +20,11 @@ import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeTestRule;
-import com.facebook.buck.rules.Label;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.ExecutionContext;
@@ -38,7 +35,6 @@ import com.facebook.buck.test.TestResults;
 import com.facebook.buck.test.TestRunningOptions;
 import com.facebook.buck.test.selectors.TestSelectorList;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.google.common.base.Optional;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -50,6 +46,7 @@ import org.junit.Test;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 import java.util.concurrent.Callable;
 
 public class CxxTestTest {
@@ -70,13 +67,13 @@ public class CxxTestTest {
               new BuildRuleResolver(
                   TargetGraph.EMPTY,
                   new DefaultTargetNodeToBuildRuleTransformer())),
-          ImmutableMap.<String, String>of(),
-          Suppliers.ofInstance(ImmutableMap.<String, String>of()),
-          Suppliers.ofInstance(ImmutableList.<String>of()),
-          ImmutableSortedSet.<SourcePath>of(),
-          Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
-          ImmutableSet.<Label>of(),
-          ImmutableSet.<String>of(),
+          ImmutableMap.of(),
+          Suppliers.ofInstance(ImmutableMap.of()),
+          Suppliers.ofInstance(ImmutableList.of()),
+          ImmutableSortedSet.of(),
+          Suppliers.ofInstance(ImmutableSortedSet.of()),
+          ImmutableSet.of(),
+          ImmutableSet.of(),
           /* runTestSeparately */ false,
           TEST_TIMEOUT_MS);
     }
@@ -131,7 +128,7 @@ public class CxxTestTest {
         new CxxTestStep(
             new FakeProjectFilesystem(),
             command,
-            ImmutableMap.<String, String>of(),
+            ImmutableMap.of(),
             cxxTest.getPathToTestExitCode(),
             cxxTest.getPathToTestOutput(),
             TEST_TIMEOUT_MS);

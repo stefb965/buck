@@ -16,12 +16,13 @@
 
 package com.facebook.buck.model;
 
+import com.facebook.buck.log.views.JsonViews;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.fasterxml.jackson.annotation.JsonAutoDetect;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonView;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ComparisonChain;
 import com.google.common.collect.ImmutableSet;
@@ -31,6 +32,7 @@ import com.google.common.collect.Ordering;
 import org.immutables.value.Value;
 
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.Set;
 import java.util.SortedSet;
 
@@ -72,6 +74,7 @@ abstract class AbstractBuildTarget
   }
 
   @JsonProperty("baseName")
+  @JsonView(JsonViews.MachineReadableLog.class)
   public String getBaseName() {
     return getUnflavoredBuildTarget().getBaseName();
   }
@@ -86,6 +89,7 @@ abstract class AbstractBuildTarget
   }
 
   @JsonProperty("shortName")
+  @JsonView(JsonViews.MachineReadableLog.class)
   public String getShortName() {
     return getUnflavoredBuildTarget().getShortName();
   }
@@ -106,6 +110,7 @@ abstract class AbstractBuildTarget
   }
 
   @JsonProperty("flavor")
+  @JsonView(JsonViews.MachineReadableLog.class)
   private String getFlavorsAsString() {
     return Joiner.on(",").join(getFlavors());
   }
@@ -133,7 +138,7 @@ abstract class AbstractBuildTarget
   public static BuildTarget of(UnflavoredBuildTarget unflavoredBuildTarget) {
     return BuildTarget.of(
         unflavoredBuildTarget,
-        ImmutableSortedSet.<Flavor>of());
+        ImmutableSortedSet.of());
   }
 
   public static BuildTarget.Builder builder(BuildTarget buildTarget) {
@@ -153,7 +158,7 @@ abstract class AbstractBuildTarget
     return BuildTarget
         .builder()
         .setUnflavoredBuildTarget(
-            UnflavoredBuildTarget.of(cellPath, Optional.<String>absent(), baseName, shortName));
+            UnflavoredBuildTarget.of(cellPath, Optional.empty(), baseName, shortName));
   }
 
   /** @return {@link #getFullyQualifiedName()} */

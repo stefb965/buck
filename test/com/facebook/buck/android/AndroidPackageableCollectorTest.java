@@ -18,7 +18,6 @@ package com.facebook.buck.android;
 
 import static org.junit.Assert.assertEquals;
 
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.KeystoreBuilder;
@@ -26,15 +25,17 @@ import com.facebook.buck.jvm.java.PrebuiltJarBuilder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
+import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.google.common.collect.FluentIterable;
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -138,9 +139,9 @@ public class AndroidPackageableCollectorTest {
         ImmutableSet.of(
             ruleResolver.getRule(jsr305Target).getPathToOutput(),
             ruleResolver.getRule(libraryRuleTarget).getPathToOutput()),
-        FluentIterable.from(packageableCollection.getClasspathEntriesToDex())
-            .transform(pathResolver.deprecatedPathFunction())
-            .toSet());
+        packageableCollection.getClasspathEntriesToDex().stream()
+            .map(pathResolver::deprecatedGetPath)
+            .collect(MoreCollectors.toImmutableSet()));
     assertEquals(
         "Because guava was passed to no_dx, it should not be treated as a third-party JAR whose " +
             "resources need to be extracted and repacked in the APK. If this is done, then code " +
@@ -151,9 +152,9 @@ public class AndroidPackageableCollectorTest {
             "the resource in fb4a. Because the resource was loaded on startup, this introduced a " +
             "substantial regression in the startup time for the fb4a app.",
         ImmutableSet.of(ruleResolver.getRule(jsr305Target).getPathToOutput()),
-        FluentIterable.from(packageableCollection.getPathsToThirdPartyJars())
-            .transform(pathResolver.deprecatedPathFunction())
-            .toSet());
+        packageableCollection.getPathsToThirdPartyJars().stream()
+            .map(pathResolver::deprecatedGetPath)
+            .collect(MoreCollectors.toImmutableSet()));
     assertEquals(
         "Because assets directory was passed an AndroidResourceRule it should be added to the " +
             "transitive dependencies",
@@ -166,7 +167,7 @@ public class AndroidPackageableCollectorTest {
             new PathSourcePath(
                 new FakeProjectFilesystem(),
                 ((NativeLibraryBuildRule) ndkLibrary).getLibraryPath())),
-        packageableCollection.getNativeLibsDirectories());
+        ImmutableSet.copyOf(packageableCollection.getNativeLibsDirectories().values()));
     assertEquals(
         "Because a prebuilt native library  was declared as a dependency (and asset), it should " +
             "be added to the transitive dependecies.",
@@ -174,7 +175,7 @@ public class AndroidPackageableCollectorTest {
             new PathSourcePath(
                 new FakeProjectFilesystem(),
                 ((NativeLibraryBuildRule) prebuiltNativeLibraryBuild).getLibraryPath())),
-        packageableCollection.getNativeLibAssetsDirectories());
+        ImmutableSet.copyOf(packageableCollection.getNativeLibAssetsDirectories().values()));
     assertEquals(
         ImmutableSet.of(new FakeSourcePath("debug.pro")),
         packageableCollection.getProguardConfigs());
@@ -240,13 +241,13 @@ public class AndroidPackageableCollectorTest {
             .build());
 
     AndroidPackageableCollector collector = new AndroidPackageableCollector(a.getBuildTarget());
-    collector.addPackageables(ImmutableList.<AndroidPackageable>of(a));
+    collector.addPackageables(ImmutableList.of(a));
 
     // Note that a topological sort for a DAG is not guaranteed to be unique, but we order nodes
     // within the same depth of the search.
-    ImmutableList<BuildTarget> result = FluentIterable.from(ImmutableList.of(a, d, b, c))
-        .transform(BuildTarget.TO_TARGET)
-        .toList();
+    ImmutableList<BuildTarget> result = ImmutableList.of(a, d, b, c).stream()
+        .map(HasBuildTarget::getBuildTarget)
+        .collect(MoreCollectors.toImmutableList());
 
     assertEquals(
         "Android resources should be topologically sorted.",
@@ -330,8 +331,8 @@ public class AndroidPackageableCollectorTest {
                     androidLibraryTarget,
                     "lib__%s__output/")
                 .resolve(androidLibraryTarget.getShortNameAndFlavorPostfix() + ".jar")),
-        FluentIterable.from(packageableCollection.getClasspathEntriesToDex())
-            .transform(pathResolver.deprecatedPathFunction())
-            .toSet());
+        packageableCollection.getClasspathEntriesToDex().stream()
+            .map(pathResolver::deprecatedGetPath)
+            .collect(MoreCollectors.toImmutableSet()));
   }
 }

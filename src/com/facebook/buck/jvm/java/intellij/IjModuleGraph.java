@@ -26,9 +26,7 @@ import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Ascii;
 import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableListMultimap;
@@ -39,6 +37,7 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import javax.annotation.Nullable;
@@ -98,19 +97,11 @@ public class IjModuleGraph {
     public static final AggregationMode NONE = new AggregationMode(Integer.MAX_VALUE);
     public static final AggregationMode SHALLOW = new AggregationMode(SHALLOW_MAX_PATH_LENGTH);
 
-    public static final Function<String, AggregationMode> FROM_STRING_FUNCTION =
-        new Function<String, AggregationMode>() {
-          @Override
-          public AggregationMode apply(String input) {
-            return fromString(input);
-          }
-        };
-
 
     private Optional<Integer> minimumDepth;
 
     AggregationMode() {
-      minimumDepth = Optional.absent();
+      minimumDepth = Optional.empty();
     }
 
     AggregationMode(int minimumDepth) {
@@ -125,9 +116,8 @@ public class IjModuleGraph {
     }
 
     public int getGraphMinimumDepth(int graphSize) {
-      return
-          minimumDepth
-              .or(graphSize < MIN_SHALLOW_GRAPH_SIZE ? Integer.MAX_VALUE : SHALLOW_MAX_PATH_LENGTH);
+      return minimumDepth.orElse(
+          graphSize < MIN_SHALLOW_GRAPH_SIZE ? Integer.MAX_VALUE : SHALLOW_MAX_PATH_LENGTH);
     }
 
     public static AggregationMode fromString(String aggregationModeString) {
@@ -172,9 +162,7 @@ public class IjModuleGraph {
           .from(targetGraph.getNodes())
           .filter(IjModuleFactory.SUPPORTED_MODULE_TYPES_PREDICATE)
           .index(
-            new Function<TargetNode<?>, Path>() {
-              @Override
-              public Path apply(TargetNode<?> input) {
+              input -> {
                 Path basePath = input.getBuildTarget().getBasePath();
 
                 if (input.getConstructorArg() instanceof AndroidResourceDescription.Arg) {
@@ -182,8 +170,7 @@ public class IjModuleGraph {
                 }
 
                 return simplifyPath(basePath, minimumPathDepth, blockedPathTree);
-              }
-            });
+              });
 
     ImmutableMap.Builder<BuildTarget, IjModule> moduleMapBuilder = new ImmutableMap.Builder<>();
 
@@ -252,8 +239,8 @@ public class IjModuleGraph {
     String defaultSourceLevel = defaultJavacOptions.getSourceLevel();
     String defaultTargetLevel = defaultJavacOptions.getTargetLevel();
     JavaLibraryDescription.Arg arg = (JavaLibraryDescription.Arg) node.getConstructorArg();
-    return !defaultSourceLevel.equals(arg.source.or(defaultSourceLevel)) ||
-        !defaultTargetLevel.equals(arg.target.or(defaultTargetLevel));
+    return !defaultSourceLevel.equals(arg.source.orElse(defaultSourceLevel)) ||
+        !defaultTargetLevel.equals(arg.target.orElse(defaultTargetLevel));
   }
 
   /**
@@ -297,7 +284,7 @@ public class IjModuleGraph {
           TargetNode<?> targetNode = targetGraph.get(depBuildTarget);
           Optional<IjLibrary> library = libraryFactory.getLibrary(targetNode);
           if (library.isPresent()) {
-            depElements = ImmutableSet.<IjProjectElement>of(library.get());
+            depElements = ImmutableSet.of(library.get());
           } else {
             depElements = ImmutableSet.of();
           }
@@ -306,14 +293,11 @@ public class IjModuleGraph {
               exportedDepsClosureResolver.getExportedDepsClosure(depBuildTarget))
               .append(depBuildTarget)
               .filter(
-                  new Predicate<BuildTarget>() {
-                    @Override
-                    public boolean apply(BuildTarget input) {
-                      // The exported deps closure can contain references back to targets contained
-                      // in the module, so filter those out.
-                      TargetNode<?> targetNode = targetGraph.get(input);
-                      return !module.getTargets().contains(targetNode);
-                    }
+                  input -> {
+                    // The exported deps closure can contain references back to targets contained
+                    // in the module, so filter those out.
+                    TargetNode<?> targetNode = targetGraph.get(input);
+                    return !module.getTargets().contains(targetNode);
                   })
               .transform(
                   new Function<BuildTarget, IjProjectElement>() {
@@ -325,7 +309,7 @@ public class IjModuleGraph {
                         return depModule;
                       }
                       TargetNode<?> targetNode = targetGraph.get(depTarget);
-                      return libraryFactory.getLibrary(targetNode).orNull();
+                      return libraryFactory.getLibrary(targetNode).orElse(null);
                     }
                   })
               .filter(Predicates.notNull())
@@ -341,7 +325,7 @@ public class IjModuleGraph {
       if (!module.getExtraClassPathDependencies().isEmpty()) {
         IjLibrary extraClassPathLibrary = IjLibrary.builder()
             .setClassPaths(module.getExtraClassPathDependencies())
-            .setTargets(ImmutableSet.<TargetNode<?>>of())
+            .setTargets(ImmutableSet.of())
             .setName("library_" + module.getName() + "_extra_classpath")
             .build();
         moduleDeps.put(extraClassPathLibrary, DependencyType.PROD);
@@ -356,7 +340,7 @@ public class IjModuleGraph {
     }
 
     for (IjLibrary library : referencedLibraries) {
-      depsBuilder.put(library, ImmutableMap.<IjProjectElement, DependencyType>of());
+      depsBuilder.put(library, ImmutableMap.of());
     }
 
     return new IjModuleGraph(depsBuilder.build());
@@ -371,32 +355,21 @@ public class IjModuleGraph {
   }
 
   public ImmutableMap<IjProjectElement, DependencyType> getDepsFor(IjProjectElement source) {
-    return Optional.fromNullable(deps.get(source))
-        .or(ImmutableMap.<IjProjectElement, DependencyType>of());
+    return Optional.ofNullable(deps.get(source)).orElse(ImmutableMap.of());
   }
 
   public ImmutableMap<IjModule, DependencyType> getDependentModulesFor(IjModule source) {
     final ImmutableMap<IjProjectElement, DependencyType> deps = getDepsFor(source);
     return FluentIterable.from(deps.keySet()).filter(IjModule.class)
         .toMap(
-            new Function<IjModule, DependencyType>() {
-              @Override
-              public DependencyType apply(IjModule input) {
-                return Preconditions.checkNotNull(deps.get(input));
-              }
-            });
+            input -> Preconditions.checkNotNull(deps.get(input)));
   }
 
   public ImmutableMap<IjLibrary, DependencyType> getDependentLibrariesFor(IjModule source) {
     final ImmutableMap<IjProjectElement, DependencyType> deps = getDepsFor(source);
     return FluentIterable.from(deps.keySet()).filter(IjLibrary.class)
         .toMap(
-            new Function<IjLibrary, DependencyType>() {
-              @Override
-              public DependencyType apply(IjLibrary input) {
-                return Preconditions.checkNotNull(deps.get(input));
-              }
-            });
+            input -> Preconditions.checkNotNull(deps.get(input)));
   }
 
   private static void checkNamesAreUnique(
@@ -419,7 +392,7 @@ public class IjModuleGraph {
 
 
   static class BlockedPathNode {
-    private static final Optional<BlockedPathNode> EMPTY_CHILD = Optional.absent();
+    private static final Optional<BlockedPathNode> EMPTY_CHILD = Optional.empty();
 
     private boolean isBlocked;
 
@@ -440,7 +413,7 @@ public class IjModuleGraph {
     }
 
     private Optional<BlockedPathNode> getChild(Path path) {
-      return children == null ? EMPTY_CHILD : Optional.fromNullable(children.get(path));
+      return children == null ? EMPTY_CHILD : Optional.ofNullable(children.get(path));
     }
 
     private void clearAllChildren() {

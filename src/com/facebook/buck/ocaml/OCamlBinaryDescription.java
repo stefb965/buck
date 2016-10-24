@@ -30,9 +30,10 @@ import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.OCamlSource;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
+
+import java.util.Optional;
 
 public class OCamlBinaryDescription implements
     Description<OCamlBinaryDescription.Arg>,
@@ -58,23 +59,23 @@ public class OCamlBinaryDescription implements
       BuildRuleResolver resolver,
       A args) throws NoSuchBuildTargetException {
 
-    ImmutableList<OCamlSource> srcs = args.srcs.get();
+    ImmutableList<OCamlSource> srcs = args.srcs;
     ImmutableList.Builder<String> flags = ImmutableList.builder();
-    flags.addAll(args.compilerFlags.get());
+    flags.addAll(args.compilerFlags);
     if (ocamlBuckConfig.getWarningsFlags().isPresent() ||
         args.warningsFlags.isPresent()) {
       flags.add("-w");
-      flags.add(ocamlBuckConfig.getWarningsFlags().or("") +
-          args.warningsFlags.or(""));
+      flags.add(ocamlBuckConfig.getWarningsFlags().orElse("") +
+          args.warningsFlags.orElse(""));
     }
-    ImmutableList<String> linkerFlags = args.linkerFlags.get();
+    ImmutableList<String> linkerFlags = args.linkerFlags;
     return OCamlRuleBuilder.createBuildRule(
         ocamlBuckConfig,
         params,
         resolver,
         srcs,
          /*isLibrary*/ false,
-        args.bytecodeOnly.or(false),
+        args.bytecodeOnly.orElse(false),
         flags.build(),
         linkerFlags);
   }
@@ -94,10 +95,10 @@ public class OCamlBinaryDescription implements
 
   @SuppressFieldNotInitialized
   public static class Arg extends AbstractDescriptionArg {
-    public Optional<ImmutableList<OCamlSource>> srcs;
-    public Optional<ImmutableSortedSet<BuildTarget>> deps;
-    public Optional<ImmutableList<String>> compilerFlags;
-    public Optional<ImmutableList<String>> linkerFlags;
+    public ImmutableList<OCamlSource> srcs = ImmutableList.of();
+    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
+    public ImmutableList<String> compilerFlags = ImmutableList.of();
+    public ImmutableList<String> linkerFlags = ImmutableList.of();
     public Optional<String> warningsFlags;
     public Optional<Boolean> bytecodeOnly;
   }

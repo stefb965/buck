@@ -19,16 +19,15 @@ package com.facebook.buck.python;
 import static com.facebook.buck.rules.BuildableProperties.Kind.LIBRARY;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.google.common.base.Functions;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableMap;
 
 import org.junit.Rule;
@@ -37,6 +36,7 @@ import org.junit.rules.TemporaryFolder;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 
 /**
  * Unit test for {@link PythonLibrary}.
@@ -47,7 +47,7 @@ public class PythonLibraryTest {
 
   @Test
   public void testGetters() {
-    ImmutableMap<Path, SourcePath> srcs = ImmutableMap.<Path, SourcePath>of(
+    ImmutableMap<Path, SourcePath> srcs = ImmutableMap.of(
         Paths.get("dummy"), new FakeSourcePath(""));
     PythonLibrary pythonLibrary = new PythonLibrary(
         new FakeBuildRuleParamsBuilder(
@@ -59,8 +59,8 @@ public class PythonLibraryTest {
               new DefaultTargetNodeToBuildRuleTransformer())
         ),
         Functions.constant(srcs),
-        Functions.constant(ImmutableMap.<Path, SourcePath>of()),
-        Optional.<Boolean>absent());
+        Functions.constant(ImmutableMap.of()),
+        Optional.empty());
 
     assertTrue(pythonLibrary.getProperties().is(LIBRARY));
   }

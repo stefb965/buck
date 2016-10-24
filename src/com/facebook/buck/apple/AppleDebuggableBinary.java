@@ -32,12 +32,12 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
+import java.util.Optional;
 
 import javax.annotation.Nullable;
 
@@ -118,7 +118,7 @@ public class AppleDebuggableBinary
     if (debugFormat == AppleDebugFormat.NONE) {
       return ImmutableSortedSet.of(strippedBinaryRule);
     }
-    ImmutableSortedSet.Builder<BuildRule> builder = ImmutableSortedSet.<BuildRule>naturalOrder();
+    ImmutableSortedSet.Builder<BuildRule> builder = ImmutableSortedSet.naturalOrder();
     if (debugFormat == AppleDebugFormat.DWARF) {
       builder.add(unstrippedBinaryRule);
       builder.addAll(unstrippedBinaryRule.getCompileDeps());

@@ -21,12 +21,12 @@ import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.rules.ConstantToolProvider;
 import com.facebook.buck.rules.HashedFileTool;
 import com.facebook.buck.util.environment.Platform;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 
 /**
  * Utility class to create a C/C++ platform described in the "cxx"
@@ -113,28 +113,28 @@ public class DefaultCxxPlatforms {
     PreprocessorProvider aspp =
         new PreprocessorProvider(
             defaultCFrontend,
-            Optional.<CxxToolProvider.Type>absent());
+            Optional.empty());
     CompilerProvider as =
         new CompilerProvider(
             defaultCFrontend,
-            Optional.<CxxToolProvider.Type>absent());
+            Optional.empty());
 
     PreprocessorProvider cpp =
         new PreprocessorProvider(
             defaultCFrontend,
-            Optional.<CxxToolProvider.Type>absent());
+            Optional.empty());
     CompilerProvider cc =
         new CompilerProvider(
             defaultCFrontend,
-            Optional.<CxxToolProvider.Type>absent());
+            Optional.empty());
     PreprocessorProvider cxxpp =
         new PreprocessorProvider(
             defaultCxxFrontend,
-            Optional.<CxxToolProvider.Type>absent());
+            Optional.empty());
     CompilerProvider cxx =
         new CompilerProvider(
             defaultCxxFrontend,
-            Optional.<CxxToolProvider.Type>absent());
+            Optional.empty());
 
     return CxxPlatforms.build(
         FLAVOR,
@@ -148,21 +148,21 @@ public class DefaultCxxPlatforms {
         new DefaultLinkerProvider(
             linkerType,
             new ConstantToolProvider(new HashedFileTool(defaultCxxFrontend))),
-        ImmutableList.<String>of(),
+        ImmutableList.of(),
         new HashedFileTool(DEFAULT_STRIP),
         archiver,
         new HashedFileTool(DEFAULT_RANLIB),
         new PosixNmSymbolNameTool(new HashedFileTool(DEFAULT_NM)),
-        ImmutableList.<String>of(),
-        ImmutableList.<String>of(),
-        ImmutableList.<String>of(),
-        ImmutableList.<String>of(),
+        ImmutableList.of(),
+        ImmutableList.of(),
+        ImmutableList.of(),
+        ImmutableList.of(),
         sharedLibraryExtension,
         sharedLibraryVersionedExtensionFormat,
         staticLibraryExtension,
         objectFileExtension,
-        Optional.<DebugPathSanitizer>absent(),
-        ImmutableMap.<String, String>of());
+        Optional.empty(),
+        ImmutableMap.of());
   }
 
 }

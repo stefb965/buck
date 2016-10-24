@@ -44,7 +44,6 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Predicates;
 import com.google.common.base.Strings;
 import com.google.common.base.Suppliers;
@@ -55,7 +54,6 @@ import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Sets;
-import com.google.common.hash.HashCode;
 
 import org.hamcrest.Matchers;
 import org.junit.Test;
@@ -63,7 +61,7 @@ import org.junit.Test;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
-import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 public class AndroidBinaryTest {
@@ -141,14 +139,14 @@ public class AndroidBinaryTest {
     ProGuardObfuscateStep.create(
         JavaCompilationConstants.DEFAULT_JAVA_OPTIONS.getJavaRuntimeLauncher(),
         new FakeProjectFilesystem(),
-        /* proguardJarOverride */ Optional.<Path>absent(),
+        /* proguardJarOverride */ Optional.empty(),
         /* proguardMaxHeapSize */ "1024M",
-        /* proguardAgentPath */ Optional.<String>absent(),
+        /* proguardAgentPath */ Optional.empty(),
         proguardOutputDir.resolve("proguard.txt"),
-        /* customProguardConfigs */ ImmutableSet.<Path>of(),
+        /* customProguardConfigs */ ImmutableSet.of(),
         ProGuardObfuscateStep.SdkProguardType.DEFAULT,
-        /* optimizationPasses */ Optional.<Integer>absent(),
-        /* proguardJvmArgs */ Optional.<List<String>>absent(),
+        /* optimizationPasses */ Optional.empty(),
+        /* proguardJvmArgs */ Optional.empty(),
         ImmutableMap.of(
             BuildTargets
                 .getGenPath(
@@ -290,12 +288,7 @@ public class AndroidBinaryTest {
       throws Exception {
     Iterable<Class<?>> filteredObservedCommands = FluentIterable
         .from(steps)
-        .transform(new Function<Step, Class<?>>() {
-          @Override
-          public Class<?> apply(Step command) {
-            return command.getClass();
-          }
-        })
+        .transform((Function<Step, Class<?>>) Step::getClass)
         .filter(Predicates.in(Sets.newHashSet(expectedCommands)));
     MoreAsserts.assertIterablesEquals(expectedCommands, filteredObservedCommands);
   }
@@ -322,13 +315,13 @@ public class AndroidBinaryTest {
             .resolve(".dex/classes.dex");
     splitDexRule.addDexingSteps(
         classpath,
-        Suppliers.<Map<String, HashCode>>ofInstance(ImmutableMap.<String, HashCode>of()),
+        Suppliers.ofInstance(ImmutableMap.of()),
         secondaryDexDirectories,
         commandsBuilder,
         primaryDexPath,
-        Optional.<SourcePath>absent(),
-        Optional.<SourcePath>absent(),
-        /*  additionalDexStoreToJarPathMap */ ImmutableMultimap.<APKModule, Path>of());
+        Optional.empty(),
+        Optional.empty(),
+        /*  additionalDexStoreToJarPathMap */ ImmutableMultimap.of());
 
     assertEquals("Expected 2 new assets paths (one for metadata.txt and the other for the " +
         "secondary zips)", 2, secondaryDexDirectories.build().size());
@@ -336,7 +329,7 @@ public class AndroidBinaryTest {
     List<Step> steps = commandsBuilder.build();
     assertCommandsInOrder(
         steps,
-        ImmutableList.<Class<?>>of(SplitZipStep.class, SmartDexingStep.class));
+        ImmutableList.of(SplitZipStep.class, SmartDexingStep.class));
   }
 
   @Test
@@ -367,13 +360,13 @@ public class AndroidBinaryTest {
             .resolve(".dex/classes.dex");
     splitDexRule.addDexingSteps(
         classpath,
-        Suppliers.<Map<String, HashCode>>ofInstance(ImmutableMap.<String, HashCode>of()),
+        Suppliers.ofInstance(ImmutableMap.of()),
         secondaryDexDirectories,
         commandsBuilder,
         primaryDexPath,
         Optional.of(reorderTool),
         Optional.of(reorderData),
-        /*  additionalDexStoreToJarPathMap */ ImmutableMultimap.<APKModule, Path>of());
+        /*  additionalDexStoreToJarPathMap */ ImmutableMultimap.of());
 
     assertEquals(
         "Expected 2 new assets paths (one for metadata.txt and the other for the " +
@@ -382,7 +375,7 @@ public class AndroidBinaryTest {
     List<Step> steps = commandsBuilder.build();
     assertCommandsInOrder(
         steps,
-        ImmutableList.<Class<?>>of(SplitZipStep.class, SmartDexingStep.class));
+        ImmutableList.of(SplitZipStep.class, SmartDexingStep.class));
   }
 
   @Test
@@ -408,8 +401,8 @@ public class AndroidBinaryTest {
     ((ResourcesFilter) resourcesProvider)
         .createFilterResourcesStep(
             resourceDirectories,
-            /* whitelistedStringsDir */ ImmutableSet.<Path>of(),
-            /* locales */ ImmutableSet.<String>of(),
+            /* whitelistedStringsDir */ ImmutableSet.of(),
+            /* locales */ ImmutableSet.of(),
             filteredDirs);
 
     assertEquals(

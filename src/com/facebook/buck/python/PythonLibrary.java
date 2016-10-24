@@ -27,13 +27,13 @@ import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
+import java.util.Optional;
 
 public class PythonLibrary extends NoopBuildRule implements PythonPackagable, HasRuntimeDeps {
 
@@ -62,8 +62,8 @@ public class PythonLibrary extends NoopBuildRule implements PythonPackagable, Ha
     return PythonPackageComponents.of(
         Preconditions.checkNotNull(srcs.apply(pythonPlatform)),
         Preconditions.checkNotNull(resources.apply(pythonPlatform)),
-        ImmutableMap.<Path, SourcePath>of(),
-        ImmutableSet.<SourcePath>of(),
+        ImmutableMap.of(),
+        ImmutableSet.of(),
         zipSafe);
   }
 

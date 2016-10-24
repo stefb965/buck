@@ -22,7 +22,6 @@ import com.facebook.buck.model.MacroReplacer;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Joiner;
 import com.google.common.base.Objects;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.base.Supplier;
@@ -41,6 +40,7 @@ import java.util.AbstractMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Stack;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
@@ -83,12 +83,7 @@ public class Config {
   // Some `.buckconfig`s embed genrule macros which break with recent changes to support the config
   // macro.  So, add special expanders to preserve these until they get fixed.
   private static MacroReplacer getMacroPreserver(final String name) {
-    return new MacroReplacer() {
-      @Override
-      public String replace(ImmutableList<String> input) throws MacroException {
-        return String.format("$(%s %s)", name, Joiner.on(' ').join(input));
-      }
-    };
+    return input -> String.format("$(%s %s)", name, Joiner.on(' ').join(input));
   }
 
   /**
@@ -96,23 +91,20 @@ public class Config {
    */
   private String expand(String input, final Stack<String> expandStack) {
     MacroReplacer macroReplacer =
-        new MacroReplacer() {
-          @Override
-          public String replace(ImmutableList<String> inputs) throws MacroException {
-            if (inputs.size() != 1) {
-              throw new HumanReadableException(
-                  "references must have a single argument of the form `<section>.<field>`," +
-                      " but was '%s'",
-                  inputs);
-            }
-            List<String> parts = Splitter.on('.').limit(2).splitToList(inputs.get(0));
-            if (parts.size() != 2) {
-              throw new HumanReadableException(
-                  "references must have the form `<section>.<field>`, but was '%s'",
-                  parts);
-            }
-            return get(parts.get(0), parts.get(1), expandStack).or("");
+        inputs -> {
+          if (inputs.size() != 1) {
+            throw new HumanReadableException(
+                "references must have a single argument of the form `<section>.<field>`," +
+                    " but was '%s'",
+                inputs);
           }
+          List<String> parts = Splitter.on('.').limit(2).splitToList(inputs.get(0));
+          if (parts.size() != 2) {
+            throw new HumanReadableException(
+                "references must have the form `<section>.<field>`, but was '%s'",
+                parts);
+          }
+          return get(parts.get(0), parts.get(1), expandStack).orElse("");
         };
     try {
       return MACRO_FINDER.replace(
@@ -145,8 +137,8 @@ public class Config {
 
     Optional<String> val = rawConfig.getValue(section, field);
     if (!val.isPresent()) {
-      cache.put(cacheKey, Optional.<String>absent());
-      return Optional.absent();
+      cache.put(cacheKey, Optional.empty());
+      return Optional.empty();
     }
 
     // Add the current section/field pair to the stack before expansion so we can provide a useful
@@ -184,13 +176,15 @@ public class Config {
    *     empty list if the property is not defined or there are no values.
    */
   public ImmutableList<String> getListWithoutComments(String sectionName, String propertyName) {
-    return getOptionalListWithoutComments(sectionName, propertyName).or(ImmutableList.<String>of());
+    return getOptionalListWithoutComments(sectionName, propertyName).orElse(ImmutableList.of());
   }
 
   public ImmutableList<String> getListWithoutComments(
       String sectionName, String propertyName, char splitChar) {
-    return getOptionalListWithoutComments(sectionName, propertyName, splitChar)
-        .or(ImmutableList.<String>of());
+    return getOptionalListWithoutComments(
+        sectionName,
+        propertyName,
+        splitChar).orElse(ImmutableList.of());
   }
 
   /**
@@ -200,7 +194,7 @@ public class Config {
    * handles both cases.
    *
    * @return an {@link ImmutableList} containing all entries that don't look like comments, the
-   *     empty list if the property is defined but there are no values, or Optional.absent() if
+   *     empty list if the property is defined but there are no values, or Optional.empty() if
    *     the property is not defined.
    */
   public Optional<ImmutableList<String>> getOptionalListWithoutComments(
@@ -213,16 +207,16 @@ public class Config {
       String sectionName, String propertyName, char splitChar) {
     Optional<String> rawValue = get(sectionName, propertyName);
     if (!rawValue.isPresent()) {
-      return Optional.absent();
+      return Optional.empty();
     }
     String value = rawValue.get();
     if (value.isEmpty()) {
-      return Optional.absent();
+      return Optional.empty();
     }
 
     // Reject if the first nonspace character is an ini comment char (';' or '#')
     if (Pattern.compile("^\\s*[#;]").matcher(value).find()) {
-      return Optional.absent();
+      return Optional.empty();
     }
 
     return Optional.of(decodeQuotedParts(
@@ -234,10 +228,10 @@ public class Config {
     if (rawValue.isPresent()) {
       String value = rawValue.get();
       if (value.isEmpty()) {
-        return Optional.absent();
+        return Optional.empty();
       } else {
         return Optional.of(decodeQuotedParts(
-                value, Optional.<Character>absent(),
+                value, Optional.empty(),
                 sectionName, propertyName).get(0));
       }
     } else {
@@ -249,14 +243,14 @@ public class Config {
     Optional<String> value = getValue(sectionName, propertyName);
     return value.isPresent() ?
         Optional.of(Long.valueOf(value.get())) :
-        Optional.<Long>absent();
+        Optional.empty();
   }
 
   public Optional<Integer> getInteger(String sectionName, String propertyName) {
     Optional<String> value = getValue(sectionName, propertyName);
     return value.isPresent() ?
         Optional.of(Integer.valueOf(value.get())) :
-        Optional.<Integer>absent();
+        Optional.empty();
   }
 
   public Optional<Float> getFloat(String sectionName, String propertyName) {
@@ -272,7 +266,7 @@ public class Config {
             value.get());
       }
     } else {
-      return Optional.absent();
+      return Optional.empty();
     }
   }
 
@@ -304,7 +298,7 @@ public class Config {
   public <T extends Enum<T>> Optional<T> getEnum(String section, String field, Class<T> clazz) {
     Optional<String> value = getValue(section, field);
     if (!value.isPresent()) {
-      return Optional.absent();
+      return Optional.empty();
     }
     try {
       return Optional.of(Enum.valueOf(clazz, value.get().toUpperCase(Locale.ROOT)));
@@ -325,7 +319,7 @@ public class Config {
       // equals method, which is why the (new URL(...).toURI()) call instead of just URI.create.
       Optional<String> value = getValue(section, field);
       if (!value.isPresent()) {
-        return Optional.absent();
+        return Optional.empty();
       }
       return Optional.of(new URL(value.get()).toURI());
     } catch (URISyntaxException | MalformedURLException e) {
@@ -366,7 +360,7 @@ public class Config {
       }
       Sets.SetView<String> fields = Sets.difference(
           Sets.union(leftFields.keySet(), rightFields.keySet()),
-          Optional.fromNullable(ignoredFields.get(section)).or(ImmutableSet.<String>of()));
+          Optional.ofNullable(ignoredFields.get(section)).orElse(ImmutableSet.of()));
       for (String field : fields) {
         String leftValue = leftFields.get(field);
         String rightValue = rightFields.get(field);

@@ -17,19 +17,17 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.jvm.core.SuggestBuildRules;
 import com.facebook.buck.jvm.java.AnnotationProcessingParams;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacStep;
 import com.facebook.buck.jvm.java.NoOpClassUsageFileWriter;
-import com.facebook.buck.jvm.java.StandardJavaFileManagerFactory;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
+import java.util.Optional;
 
 /**
  * Creates the {@link Step}s needed to generate an uber {@code R.java} file.
@@ -74,17 +72,17 @@ public class RDotJava {
     return new JavacStep(
         outputDirectory,
         NoOpClassUsageFileWriter.instance(),
-        Optional.<StandardJavaFileManagerFactory>absent(),
-        Optional.<Path>absent(),
+        Optional.empty(),
+        Optional.empty(),
         javaSourceFilePaths,
         pathToSrcsList,
-        /* declared classpath */ ImmutableSortedSet.<Path>of(),
+        /* declared classpath */ ImmutableSortedSet.of(),
         javacOptions.getJavac(),
         JavacOptions.builder(javacOptions)
             .setAnnotationProcessingParams(AnnotationProcessingParams.EMPTY)
             .build(),
         buildTarget,
-        Optional.<SuggestBuildRules>absent(),
+        Optional.empty(),
         resolver,
         filesystem);
   }

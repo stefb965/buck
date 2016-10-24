@@ -35,11 +35,11 @@ public class KotlinBuckConfig {
     this.delegate = delegate;
   }
 
-  Supplier<Tool> getKotlinCompiler() {
-    Path compilerPath = delegate.getPath("kotlin", "compiler").or(DEFAULT_KOTLIN_COMPILER);
+  public Supplier<Tool> getKotlinCompiler() {
+    Path compilerPath = delegate.getPath("kotlin", "compiler").orElse(DEFAULT_KOTLIN_COMPILER);
 
     Path compiler = new ExecutableFinder().getExecutable(compilerPath, delegate.getEnvironment());
 
-    return Suppliers.<Tool>ofInstance(new HashedFileTool(compiler));
+    return Suppliers.ofInstance(new HashedFileTool(compiler));
   }
 }

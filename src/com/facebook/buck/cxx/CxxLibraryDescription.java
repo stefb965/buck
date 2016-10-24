@@ -37,7 +37,6 @@ import com.facebook.buck.rules.MetadataProvidingDescription;
 import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.MacroArg;
 import com.facebook.buck.rules.args.SourcePathArg;
@@ -45,12 +44,9 @@ import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
-import com.facebook.buck.rules.macros.MacroExpander;
 import com.facebook.buck.rules.macros.MacroHandler;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.base.Suppliers;
@@ -68,6 +64,7 @@ import com.google.common.collect.Sets;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -82,7 +79,7 @@ public class CxxLibraryDescription implements
 
   private static final MacroHandler MACRO_HANDLER =
       new MacroHandler(
-          ImmutableMap.<String, MacroExpander>of(
+          ImmutableMap.of(
               "location", new LocationMacroExpander()));
 
   public enum Type implements FlavorConvertible {
@@ -325,52 +322,43 @@ public class CxxLibraryDescription implements
 
   public static Arg createEmptyConstructorArg() {
     Arg arg = new Arg();
-    arg.deps = Optional.of(ImmutableSortedSet.<BuildTarget>of());
-    arg.exportedDeps = Optional.of(ImmutableSortedSet.<BuildTarget>of());
-    arg.srcs = Optional.of(ImmutableSortedSet.<SourceWithFlags>of());
-    arg.platformSrcs = Optional.of(
-        PatternMatchedCollection.<ImmutableSortedSet<SourceWithFlags>>of());
-    arg.prefixHeader = Optional.absent();
-    arg.headers = Optional.of(SourceList.ofUnnamedSources(ImmutableSortedSet.<SourcePath>of()));
-    arg.platformHeaders = Optional.of(PatternMatchedCollection.<SourceList>of());
-    arg.exportedHeaders = Optional.of(
-        SourceList.ofUnnamedSources(ImmutableSortedSet.<SourcePath>of()));
-    arg.exportedPlatformHeaders = Optional.of(PatternMatchedCollection.<SourceList>of());
-    arg.compilerFlags = Optional.of(ImmutableList.<String>of());
-    arg.platformCompilerFlags =
-        Optional.of(PatternMatchedCollection.<ImmutableList<String>>of());
-    arg.langCompilerFlags =
-        Optional.of(ImmutableMap.<CxxSource.Type, ImmutableList<String>>of());
-    arg.exportedPreprocessorFlags = Optional.of(ImmutableList.<String>of());
-    arg.exportedPlatformPreprocessorFlags =
-        Optional.of(PatternMatchedCollection.<ImmutableList<String>>of());
-    arg.exportedLangPreprocessorFlags = Optional.of(
-        ImmutableMap.<CxxSource.Type, ImmutableList<String>>of());
-    arg.preprocessorFlags = Optional.of(ImmutableList.<String>of());
-    arg.platformPreprocessorFlags =
-        Optional.of(PatternMatchedCollection.<ImmutableList<String>>of());
-    arg.langPreprocessorFlags = Optional.of(
-        ImmutableMap.<CxxSource.Type, ImmutableList<String>>of());
-    arg.linkerFlags = Optional.of(ImmutableList.<String>of());
-    arg.exportedLinkerFlags = Optional.of(ImmutableList.<String>of());
-    arg.platformLinkerFlags = Optional.of(PatternMatchedCollection.<ImmutableList<String>>of());
-    arg.exportedPlatformLinkerFlags = Optional.of(
-        PatternMatchedCollection.<ImmutableList<String>>of());
-    arg.cxxRuntimeType = Optional.absent();
-    arg.forceStatic = Optional.absent();
-    arg.preferredLinkage = Optional.absent();
-    arg.linkWhole = Optional.absent();
-    arg.headerNamespace = Optional.absent();
-    arg.soname = Optional.absent();
-    arg.frameworks = Optional.of(ImmutableSortedSet.<FrameworkPath>of());
-    arg.libraries = Optional.of(ImmutableSortedSet.<FrameworkPath>of());
-    arg.tests = Optional.of(ImmutableSortedSet.<BuildTarget>of());
-    arg.supportedPlatformsRegex = Optional.absent();
-    arg.linkStyle = Optional.absent();
-    arg.bridgingHeader = Optional.absent();
-    arg.moduleName = Optional.absent();
-    arg.xcodePublicHeadersSymlinks = Optional.absent();
-    arg.xcodePrivateHeadersSymlinks = Optional.absent();
+    arg.deps = ImmutableSortedSet.of();
+    arg.exportedDeps = ImmutableSortedSet.of();
+    arg.srcs = ImmutableSortedSet.of();
+    arg.platformSrcs = PatternMatchedCollection.of();
+    arg.prefixHeader = Optional.empty();
+    arg.headers = SourceList.ofUnnamedSources(ImmutableSortedSet.of());
+    arg.platformHeaders = PatternMatchedCollection.of();
+    arg.exportedHeaders = SourceList.ofUnnamedSources(ImmutableSortedSet.of());
+    arg.exportedPlatformHeaders = PatternMatchedCollection.of();
+    arg.compilerFlags = ImmutableList.of();
+    arg.platformCompilerFlags = PatternMatchedCollection.of();
+    arg.langCompilerFlags = ImmutableMap.of();
+    arg.exportedPreprocessorFlags = ImmutableList.of();
+    arg.exportedPlatformPreprocessorFlags = PatternMatchedCollection.of();
+    arg.exportedLangPreprocessorFlags = ImmutableMap.of();
+    arg.preprocessorFlags = ImmutableList.of();
+    arg.platformPreprocessorFlags = PatternMatchedCollection.of();
+    arg.langPreprocessorFlags = ImmutableMap.of();
+    arg.linkerFlags = ImmutableList.of();
+    arg.exportedLinkerFlags = ImmutableList.of();
+    arg.platformLinkerFlags = PatternMatchedCollection.of();
+    arg.exportedPlatformLinkerFlags = PatternMatchedCollection.of();
+    arg.cxxRuntimeType = Optional.empty();
+    arg.forceStatic = Optional.empty();
+    arg.preferredLinkage = Optional.empty();
+    arg.linkWhole = Optional.empty();
+    arg.headerNamespace = Optional.empty();
+    arg.soname = Optional.empty();
+    arg.frameworks = ImmutableSortedSet.of();
+    arg.libraries = ImmutableSortedSet.of();
+    arg.tests = ImmutableSortedSet.of();
+    arg.supportedPlatformsRegex = Optional.empty();
+    arg.linkStyle = Optional.empty();
+    arg.bridgingHeader = Optional.empty();
+    arg.moduleName = Optional.empty();
+    arg.xcodePublicHeadersSymlinks = Optional.empty();
+    arg.xcodePrivateHeadersSymlinks = Optional.empty();
     return arg;
   }
 
@@ -452,8 +440,8 @@ public class CxxLibraryDescription implements
       return new NoopBuildRule(
           new BuildRuleParams(
               staticTarget,
-              Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
-              Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
+              Suppliers.ofInstance(ImmutableSortedSet.of()),
+              Suppliers.ofInstance(ImmutableSortedSet.of()),
               params.getProjectFilesystem(),
               params.getCellRoots()),
           sourcePathResolver);
@@ -513,8 +501,8 @@ public class CxxLibraryDescription implements
         cxxPlatform,
         args,
         linkerFlags.build(),
-        args.frameworks.or(ImmutableSortedSet.<FrameworkPath>of()),
-        args.libraries.or(ImmutableSortedSet.<FrameworkPath>of()),
+        args.frameworks,
+        args.libraries,
         args.soname,
         args.cxxRuntimeType,
         linkType,
@@ -534,8 +522,8 @@ public class CxxLibraryDescription implements
         resolver,
         args,
         args.linkStyle,
-        Optional.<SourcePath>absent(),
-        ImmutableSet.<BuildTarget>of());
+        Optional.empty(),
+        ImmutableSet.of());
   }
 
   public <A extends Arg> BuildRule createBuildRule(
@@ -554,7 +542,7 @@ public class CxxLibraryDescription implements
     if (params.getBuildTarget().getFlavors()
         .contains(CxxCompilationDatabase.COMPILATION_DATABASE)) {
       // XXX: This needs bundleLoader for tests..
-      CxxPlatform cxxPlatform = platform.or(defaultCxxPlatform);
+      CxxPlatform cxxPlatform = platform.orElse(defaultCxxPlatform);
       SourcePathResolver sourcePathResolver = new SourcePathResolver(resolver);
       return CxxDescriptionEnhancer.createCompilationDatabase(
           params,
@@ -577,7 +565,7 @@ public class CxxLibraryDescription implements
           resolver,
           new SourcePathResolver(resolver),
           cxxBuckConfig,
-          platform.or(defaultCxxPlatform),
+          platform.orElse(defaultCxxPlatform),
           args,
           inferBuckConfig,
           new CxxInferSourceFilter(inferBuckConfig));
@@ -588,7 +576,7 @@ public class CxxLibraryDescription implements
           resolver,
           new SourcePathResolver(resolver),
           cxxBuckConfig,
-          platform.or(defaultCxxPlatform),
+          platform.orElse(defaultCxxPlatform),
           args,
           inferBuckConfig,
           new CxxInferSourceFilter(inferBuckConfig));
@@ -598,7 +586,7 @@ public class CxxLibraryDescription implements
           params,
           resolver,
           cxxBuckConfig,
-          platform.or(defaultCxxPlatform),
+          platform.orElse(defaultCxxPlatform),
           inferBuckConfig,
           new CxxInferSourceFilter(inferBuckConfig),
           args);
@@ -609,7 +597,7 @@ public class CxxLibraryDescription implements
           resolver,
           new SourcePathResolver(resolver),
           cxxBuckConfig,
-          platform.or(defaultCxxPlatform),
+          platform.orElse(defaultCxxPlatform),
           args,
           inferBuckConfig,
           new CxxInferSourceFilter(inferBuckConfig));
@@ -649,8 +637,8 @@ public class CxxLibraryDescription implements
               platform.get(),
               args,
               Linker.LinkType.SHARED,
-              linkableDepType.or(Linker.LinkableDepType.SHARED),
-              Optional.<SourcePath>absent(),
+              linkableDepType.orElse(Linker.LinkableDepType.SHARED),
+              Optional.empty(),
               blacklist);
         case MACH_O_BUNDLE:
           return createSharedLibraryBuildRule(
@@ -660,7 +648,7 @@ public class CxxLibraryDescription implements
               platform.get(),
               args,
               Linker.LinkType.MACH_O_BUNDLE,
-              linkableDepType.or(Linker.LinkableDepType.SHARED),
+              linkableDepType.orElse(Linker.LinkableDepType.SHARED),
               bundleLoader,
               blacklist);
         case STATIC:
@@ -683,31 +671,22 @@ public class CxxLibraryDescription implements
       throw new RuntimeException("unhandled library build type");
     }
 
-    boolean hasObjectsForAnyPlatform = !args.srcs.get().isEmpty();
+    boolean hasObjectsForAnyPlatform = !args.srcs.isEmpty();
     Predicate<CxxPlatform> hasObjects;
     if (hasObjectsForAnyPlatform) {
       hasObjects = Predicates.alwaysTrue();
     } else {
-      hasObjects = new Predicate<CxxPlatform>() {
-        @Override
-        public boolean apply(CxxPlatform input) {
-          return !args.platformSrcs.get().getMatchingValues(input.getFlavor().toString()).isEmpty();
-        }
-      };
+      hasObjects = input -> !args.platformSrcs.getMatchingValues(
+          input.getFlavor().toString()).isEmpty();
     }
 
     Predicate<CxxPlatform> hasExportedHeaders;
-    if (!args.exportedHeaders.get().isEmpty()) {
+    if (!args.exportedHeaders.isEmpty()) {
       hasExportedHeaders = Predicates.alwaysTrue();
     } else {
       hasExportedHeaders =
-          new Predicate<CxxPlatform>() {
-            @Override
-            public boolean apply(CxxPlatform input) {
-              return !args.exportedPlatformHeaders.get()
-                  .getMatchingValues(input.getFlavor().toString()).isEmpty();
-            }
-          };
+          input -> !args.exportedPlatformHeaders
+              .getMatchingValues(input.getFlavor().toString()).isEmpty();
     }
 
     // Otherwise, we return the generic placeholder of this library, that dependents can use
@@ -717,73 +696,61 @@ public class CxxLibraryDescription implements
         params,
         resolver,
         pathResolver,
-        FluentIterable.from(args.exportedDeps.get())
-            .transform(resolver.getRuleFunction()),
+        FluentIterable.from(args.exportedDeps)
+            .transform(resolver::getRule),
         hasExportedHeaders,
         Predicates.not(hasObjects),
-        new Function<CxxPlatform, ImmutableMultimap<CxxSource.Type, String>>() {
-          @Override
-          public ImmutableMultimap<CxxSource.Type, String> apply(CxxPlatform input) {
-            return CxxFlags.getLanguageFlags(
-                args.exportedPreprocessorFlags,
-                args.exportedPlatformPreprocessorFlags,
-                args.exportedLangPreprocessorFlags,
-                input);
-          }
+        input -> CxxFlags.getLanguageFlags(
+            args.exportedPreprocessorFlags,
+            args.exportedPlatformPreprocessorFlags,
+            args.exportedLangPreprocessorFlags,
+            input),
+        input -> {
+          ImmutableList<String> flags = CxxFlags.getFlags(
+              args.exportedLinkerFlags,
+              args.exportedPlatformLinkerFlags,
+              input);
+          return Iterables.transform(
+              flags,
+              MacroArg.toMacroArgFunction(
+                  MACRO_HANDLER,
+                  params.getBuildTarget(),
+                  params.getCellRoots(),
+                  resolver));
         },
-        new Function<CxxPlatform, Iterable<com.facebook.buck.rules.args.Arg>>() {
-          @Override
-          public Iterable<com.facebook.buck.rules.args.Arg> apply(
-              CxxPlatform input) {
-            ImmutableList<String> flags = CxxFlags.getFlags(
-                args.exportedLinkerFlags,
-                args.exportedPlatformLinkerFlags,
-                input);
-            return Iterables.transform(
-                flags,
-                MacroArg.toMacroArgFunction(
-                    MACRO_HANDLER,
-                    params.getBuildTarget(),
-                    params.getCellRoots(),
-                    resolver));
-          }
-        },
-        new Function<CxxPlatform, NativeLinkableInput>() {
-          @Override
-          public NativeLinkableInput apply(CxxPlatform cxxPlatform) {
-            try {
-              return getSharedLibraryNativeLinkTargetInput(
-                  params,
-                  resolver,
-                  pathResolver,
-                  cxxBuckConfig,
-                  cxxPlatform,
-                  args,
-                  CxxFlags.getFlags(
-                      args.linkerFlags,
-                      args.platformLinkerFlags,
-                      cxxPlatform),
-                  CxxFlags.getFlags(
-                      args.exportedLinkerFlags,
-                      args.exportedPlatformLinkerFlags,
-                      cxxPlatform),
-                  args.frameworks.or(ImmutableSortedSet.<FrameworkPath>of()),
-                  args.libraries.or(ImmutableSortedSet.<FrameworkPath>of()));
-            } catch (NoSuchBuildTargetException e) {
-              throw new RuntimeException(e);
-            }
+        cxxPlatform -> {
+          try {
+            return getSharedLibraryNativeLinkTargetInput(
+                params,
+                resolver,
+                pathResolver,
+                cxxBuckConfig,
+                cxxPlatform,
+                args,
+                CxxFlags.getFlags(
+                    args.linkerFlags,
+                    args.platformLinkerFlags,
+                    cxxPlatform),
+                CxxFlags.getFlags(
+                    args.exportedLinkerFlags,
+                    args.exportedPlatformLinkerFlags,
+                    cxxPlatform),
+                args.frameworks,
+                args.libraries);
+          } catch (NoSuchBuildTargetException e) {
+            throw new RuntimeException(e);
           }
         },
         args.supportedPlatformsRegex,
-        args.frameworks.or(ImmutableSortedSet.<FrameworkPath>of()),
-        args.libraries.or(ImmutableSortedSet.<FrameworkPath>of()),
-        args.forceStatic.or(false)
+        args.frameworks,
+        args.libraries,
+        args.forceStatic.orElse(false)
             ? NativeLinkable.Linkage.STATIC
-            : args.preferredLinkage.or(NativeLinkable.Linkage.ANY),
-        args.linkWhole.or(false),
+            : args.preferredLinkage.orElse(NativeLinkable.Linkage.ANY),
+        args.linkWhole.orElse(false),
         args.soname,
-        args.tests.get(),
-        args.canBeAsset.or(false));
+        args.tests,
+        args.canBeAsset.orElse(false));
   }
 
   @Override
@@ -803,14 +770,14 @@ public class CxxLibraryDescription implements
 
     try {
       for (String val : Iterables.concat(
-          constructorArg.linkerFlags.get(),
-          constructorArg.exportedLinkerFlags.get())) {
+          constructorArg.linkerFlags,
+          constructorArg.exportedLinkerFlags)) {
         deps.addAll(MACRO_HANDLER.extractParseTimeDeps(buildTarget, cellRoots, val));
       }
       for (PatternMatchedCollection<ImmutableList<String>> values :
           ImmutableList.of(
-                  constructorArg.platformLinkerFlags.get(),
-                  constructorArg.exportedPlatformLinkerFlags.get())) {
+                  constructorArg.platformLinkerFlags,
+                  constructorArg.exportedPlatformLinkerFlags)) {
         for (Pair<Pattern, ImmutableList<String>> pav : values.getPatternsAndValues()) {
           for (String val : pav.getSecond()) {
             deps.addAll(
@@ -841,18 +808,11 @@ public class CxxLibraryDescription implements
       final Class<U> metadataClass) throws NoSuchBuildTargetException {
     if (!metadataClass.isAssignableFrom(CxxCompilationDatabaseDependencies.class) ||
         !buildTarget.getFlavors().contains(CxxCompilationDatabase.COMPILATION_DATABASE)) {
-      return Optional.absent();
+      return Optional.empty();
     }
     return CxxDescriptionEnhancer
-        .createCompilationDatabaseDependencies(buildTarget, cxxPlatforms, resolver, args)
-        .transform(
-            new Function<CxxCompilationDatabaseDependencies, U>() {
-              @Override
-              public U apply(CxxCompilationDatabaseDependencies input) {
-                return metadataClass.cast(input);
-              }
-            }
-        );
+        .createCompilationDatabaseDependencies(buildTarget, cxxPlatforms, resolver, args).map(
+            metadataClass::cast);
   }
 
   @Override
@@ -876,20 +836,20 @@ public class CxxLibraryDescription implements
           cxxBuckConfig.getDefaultFlavorsForRuleType(type);
 
       if (!typeFlavor.isPresent()) {
-        typeFlavor = Optional.fromNullable(
+        typeFlavor = Optional.ofNullable(
             libraryDefaults.get(CxxBuckConfig.DEFAULT_FLAVOR_LIBRARY_TYPE));
       }
 
       if (!platformFlavor.isPresent()) {
-        platformFlavor = Optional.fromNullable(
+        platformFlavor = Optional.ofNullable(
             libraryDefaults.get(CxxBuckConfig.DEFAULT_FLAVOR_PLATFORM));
       }
     }
 
     ImmutableSortedSet<Flavor> result = ImmutableSortedSet.of(
         // Default to static if not otherwise specified.
-        typeFlavor.or(CxxDescriptionEnhancer.STATIC_FLAVOR),
-        platformFlavor.or(defaultCxxPlatform.getFlavor()));
+        typeFlavor.orElse(CxxDescriptionEnhancer.STATIC_FLAVOR),
+        platformFlavor.orElse(defaultCxxPlatform.getFlavor()));
 
     LOG.debug(
         "Got default flavors %s for rule types %s",
@@ -900,16 +860,18 @@ public class CxxLibraryDescription implements
 
   @SuppressFieldNotInitialized
   public static class Arg extends LinkableCxxConstructorArg {
-    public Optional<SourceList> exportedHeaders;
-    public Optional<PatternMatchedCollection<SourceList>> exportedPlatformHeaders;
-    public Optional<ImmutableList<String>> exportedPreprocessorFlags;
-    public Optional<PatternMatchedCollection<ImmutableList<String>>>
-        exportedPlatformPreprocessorFlags;
-    public Optional<ImmutableMap<CxxSource.Type, ImmutableList<String>>>
-        exportedLangPreprocessorFlags;
-    public Optional<ImmutableList<String>> exportedLinkerFlags;
-    public Optional<PatternMatchedCollection<ImmutableList<String>>> exportedPlatformLinkerFlags;
-    public Optional<ImmutableSortedSet<BuildTarget>> exportedDeps;
+    public SourceList exportedHeaders = SourceList.EMPTY;
+    public PatternMatchedCollection<SourceList> exportedPlatformHeaders =
+        PatternMatchedCollection.of();
+    public ImmutableList<String> exportedPreprocessorFlags = ImmutableList.of();
+    public PatternMatchedCollection<ImmutableList<String>>
+        exportedPlatformPreprocessorFlags = PatternMatchedCollection.of();
+    public ImmutableMap<CxxSource.Type, ImmutableList<String>>
+        exportedLangPreprocessorFlags = ImmutableMap.of();
+    public ImmutableList<String> exportedLinkerFlags = ImmutableList.of();
+    public PatternMatchedCollection<ImmutableList<String>> exportedPlatformLinkerFlags =
+        PatternMatchedCollection.of();
+    public ImmutableSortedSet<BuildTarget> exportedDeps = ImmutableSortedSet.of();
     public Optional<Pattern> supportedPlatformsRegex;
     public Optional<String> soname;
     public Optional<Boolean> forceStatic;

@@ -28,6 +28,7 @@ import com.facebook.buck.android.AndroidManifestDescription;
 import com.facebook.buck.android.AndroidPrebuiltAarDescription;
 import com.facebook.buck.android.AndroidResourceDescription;
 import com.facebook.buck.android.ApkGenruleDescription;
+import com.facebook.buck.android.DefaultAndroidLibraryCompilerFactory;
 import com.facebook.buck.android.GenAidlDescription;
 import com.facebook.buck.android.NdkCxxPlatform;
 import com.facebook.buck.android.NdkCxxPlatformCompiler;
@@ -159,11 +160,8 @@ import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.zip.ZipDescription;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
 import com.google.common.base.Supplier;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -176,6 +174,7 @@ import org.openqa.selenium.buck.javascript.JavascriptConfig;
 import org.openqa.selenium.buck.javascript.JsBinaryDescription;
 import org.openqa.selenium.buck.javascript.JsFragmentDescription;
 import org.openqa.selenium.buck.javascript.JsLibraryDescription;
+import org.openqa.selenium.buck.javascript.JsTestDescription;
 import org.openqa.selenium.buck.mozilla.XpiDescription;
 import org.openqa.selenium.buck.mozilla.XptDescription;
 
@@ -184,6 +183,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.Executors;
 
 import javax.annotation.Nullable;
@@ -245,10 +245,12 @@ public class KnownBuildRuleTypes {
 
   public static KnownBuildRuleTypes createInstance(
       BuckConfig config,
+      ProjectFilesystem filesystem,
       ProcessExecutor processExecutor,
       AndroidDirectoryResolver androidDirectoryResolver) throws InterruptedException, IOException {
     return createBuilder(
         config,
+        filesystem,
         processExecutor,
         androidDirectoryResolver).build();
   }
@@ -284,24 +286,20 @@ public class KnownBuildRuleTypes {
         appleConfig);
 
     Optional<String> swiftVersion = swiftBuckConfig.getVersion();
-    Optional<AppleToolchain> swiftToolChain = Optional.absent();
+    Optional<AppleToolchain> swiftToolChain = Optional.empty();
     if (swiftVersion.isPresent()) {
-      final Optional<String> swiftToolChainName = swiftVersion.transform(
-          AppleCxxPlatform.SWIFT_VERSION_TO_TOOLCHAIN_IDENTIFIER);
-      swiftToolChain = FluentIterable.from(toolchains.values())
-          .firstMatch(new Predicate<AppleToolchain>() {
-            @Override
-            public boolean apply(AppleToolchain input) {
-              return input.getIdentifier().equals(swiftToolChainName.get());
-            }
-          });
+      Optional<String> swiftToolChainName =
+          swiftVersion.map(AppleCxxPlatform.SWIFT_VERSION_TO_TOOLCHAIN_IDENTIFIER);
+      swiftToolChain = toolchains.values().stream()
+          .filter(input -> input.getIdentifier().equals(swiftToolChainName.get()))
+          .findFirst();
     }
 
     for (Map.Entry<AppleSdk, AppleSdkPaths> entry : sdkPaths.entrySet()) {
       AppleSdk sdk = entry.getKey();
       AppleSdkPaths appleSdkPaths = entry.getValue();
       String targetSdkVersion = appleConfig.getTargetSdkVersion(
-          sdk.getApplePlatform()).or(sdk.getVersion());
+          sdk.getApplePlatform()).orElse(sdk.getVersion());
       LOG.debug("SDK %s using default version %s", sdk, targetSdkVersion);
       for (String architecture : sdk.getArchitectures()) {
         AppleCxxPlatform appleCxxPlatform = AppleCxxPlatforms.build(
@@ -322,6 +320,7 @@ public class KnownBuildRuleTypes {
   @VisibleForTesting
   static Builder createBuilder(
       BuckConfig config,
+      ProjectFilesystem filesystem,
       ProcessExecutor processExecutor,
       AndroidDirectoryResolver androidDirectoryResolver) throws InterruptedException, IOException {
 
@@ -367,11 +366,11 @@ public class KnownBuildRuleTypes {
         ImmutableMap.builder();
     if (ndkRoot.isPresent()) {
       NdkCxxPlatformCompiler.Type compilerType =
-          androidConfig.getNdkCompiler().or(NdkCxxPlatforms.DEFAULT_COMPILER_TYPE);
-      String gccVersion = androidConfig.getNdkGccVersion().or(
-          NdkCxxPlatforms.getDefaultGccVersionForNdk(ndkVersion));
-      String clangVersion = androidConfig.getNdkClangVersion().or(
-          NdkCxxPlatforms.getDefaultClangVersionForNdk(ndkVersion));
+          androidConfig.getNdkCompiler().orElse(NdkCxxPlatforms.DEFAULT_COMPILER_TYPE);
+      String gccVersion = androidConfig.getNdkGccVersion()
+          .orElse(NdkCxxPlatforms.getDefaultGccVersionForNdk(ndkVersion));
+      String clangVersion = androidConfig.getNdkClangVersion()
+          .orElse(NdkCxxPlatforms.getDefaultClangVersionForNdk(ndkVersion));
       String compilerVersion = compilerType == NdkCxxPlatformCompiler.Type.GCC ?
         gccVersion : clangVersion;
       NdkCxxPlatformCompiler compiler =
@@ -383,11 +382,12 @@ public class KnownBuildRuleTypes {
       ndkCxxPlatformsBuilder.putAll(
           NdkCxxPlatforms.getPlatforms(
               cxxBuckConfig,
-              new ProjectFilesystem(ndkRoot.get()),
+              filesystem,
+              ndkRoot.get(),
               compiler,
-              androidConfig.getNdkCxxRuntime().or(NdkCxxPlatforms.DEFAULT_CXX_RUNTIME),
-              androidConfig.getNdkAppPlatform().or(NdkCxxPlatforms.DEFAULT_TARGET_APP_PLATFORM),
-              androidConfig.getNdkCpuAbis().or(NdkCxxPlatforms.DEFAULT_CPU_ABIS),
+              androidConfig.getNdkCxxRuntime().orElse(NdkCxxPlatforms.DEFAULT_CXX_RUNTIME),
+              androidConfig.getNdkAppPlatform().orElse(NdkCxxPlatforms.DEFAULT_TARGET_APP_PLATFORM),
+              androidConfig.getNdkCpuAbis().orElse(NdkCxxPlatforms.DEFAULT_CPU_ABIS),
               platform));
     }
     ImmutableMap<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform> ndkCxxPlatforms =
@@ -567,7 +567,9 @@ public class KnownBuildRuleTypes {
     CodeSignIdentityStore codeSignIdentityStore =
         CodeSignIdentityStore.fromSystem(processExecutor);
     ProvisioningProfileStore provisioningProfileStore =
-        ProvisioningProfileStore.fromSearchPath(appleConfig.getProvisioningProfileSearchPath());
+        ProvisioningProfileStore.fromSearchPath(
+            processExecutor,
+            appleConfig.getProvisioningProfileSearchPath());
 
     AppleLibraryDescription appleLibraryDescription =
         new AppleLibraryDescription(
@@ -603,7 +605,7 @@ public class KnownBuildRuleTypes {
     ListeningExecutorService dxExecutorService =
         MoreExecutors.listeningDecorator(
             Executors.newFixedThreadPool(
-                javaConfig.getDxThreadCount().or(SmartDexingStep.determineOptimalThreadCount()),
+                javaConfig.getDxThreadCount().orElse(SmartDexingStep.determineOptimalThreadCount()),
                 new CommandThreadFactory("SmartDexing")));
 
 
@@ -631,7 +633,9 @@ public class KnownBuildRuleTypes {
     builder.register(new AndroidInstrumentationTestDescription(
         defaultJavaOptions,
         defaultTestRuleTimeoutMs));
-    builder.register(new AndroidLibraryDescription(defaultJavacOptions));
+    builder.register(new AndroidLibraryDescription(
+        defaultJavacOptions,
+        new DefaultAndroidLibraryCompilerFactory(scalaConfig, kotlinBuckConfig)));
     builder.register(new AndroidManifestDescription());
     builder.register(new AndroidPrebuiltAarDescription(defaultJavacOptions));
     builder.register(new AndroidReactNativeLibraryDescription(reactNativeBuckConfig));
@@ -775,9 +779,9 @@ public class KnownBuildRuleTypes {
             defaultJavacOptions,
             defaultTestRuleTimeoutMs,
             defaultCxxPlatform));
-    builder.register(new RustBinaryDescription(rustBuckConfig));
+    builder.register(new RustBinaryDescription(rustBuckConfig, defaultCxxPlatform));
     builder.register(new RustLibraryDescription(rustBuckConfig));
-    builder.register(new PrebuiltRustLibraryDescription(rustBuckConfig));
+    builder.register(new PrebuiltRustLibraryDescription(rustBuckConfig, defaultCxxPlatform));
     builder.register(new ScalaLibraryDescription(scalaConfig));
     builder.register(new ScalaTestDescription(
         scalaConfig,
@@ -819,6 +823,7 @@ public class KnownBuildRuleTypes {
     builder.register(new JsBinaryDescription(jsConfig));
     builder.register(new JsFragmentDescription(jsConfig));
     builder.register(new JsLibraryDescription());
+    builder.register(new JsTestDescription(jsConfig));
     builder.register(new XpiDescription());
     builder.register(new XptDescription());
     builder.register(new ZipDescription());

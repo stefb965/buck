@@ -34,17 +34,14 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TargetNodeFactory;
-import com.facebook.buck.step.AdbOptions;
-import com.facebook.buck.step.TargetDevice;
-import com.facebook.buck.step.TargetDeviceOptions;
 import com.facebook.buck.util.PrintStreamProcessExecutorFactory;
+import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.util.concurrent.ConcurrencyLimit;
 import com.facebook.buck.util.versioncontrol.BuildStamper;
 import com.facebook.buck.util.versioncontrol.DefaultVersionControlCmdLineInterfaceFactory;
 import com.facebook.buck.util.versioncontrol.VersionControlBuckConfig;
 import com.google.common.base.Function;
 import com.google.common.base.Functions;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.cache.CacheBuilder;
@@ -54,8 +51,8 @@ import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableMap;
 
 import java.io.IOException;
-import java.nio.file.Path;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 
 import javax.annotation.Nullable;
@@ -84,6 +81,7 @@ public class DistBuildSlaveExecutor {
     BuildEngine buildEngine = new CachingBuildEngine(
         Preconditions.checkNotNull(cachingBuildEngineDelegate),
         args.getExecutorService(),
+        new DefaultStepRunner(),
         config.getBuildEngineMode(),
         config.getBuildDepFiles(),
         config.getBuildMaxDepFileCacheEntries(),
@@ -99,7 +97,7 @@ public class DistBuildSlaveExecutor {
         Preconditions.checkNotNull(actionGraphAndResolver).getActionGraph(),
         Preconditions.checkNotNull(actionGraphAndResolver).getResolver(),
         args.getRootCell(),
-        Optional.<TargetDevice>absent(),
+        Optional.empty(),
         getExplodingAndroidSupplier(),
         buildEngine,
         args.getArtifactCache(),
@@ -117,7 +115,7 @@ public class DistBuildSlaveExecutor {
                 args.getEnvironment())),
         args.getBuckEventBus(),
         args.getPlatform(),
-        ImmutableMap.<String, String>of(),
+        ImmutableMap.of(),
         args.getObjectMapper(),
         args.getClock(),
         new ConcurrencyLimit(
@@ -127,31 +125,26 @@ public class DistBuildSlaveExecutor {
             4,
             config.getDefaultResourceAmounts(),
             config.getMaximumResourceAmounts().withCpu(4)),
-        Optional.<AdbOptions>absent(),
-        Optional.<TargetDeviceOptions>absent(),
+        Optional.empty(),
+        Optional.empty(),
         args.getExecutors())) {
 
       // TODO(ruibm): We need to pass to the distbuild target via de distributed build
       //              thrift structs.
       FluentIterable<BuildTarget> allTargets = FluentIterable.from(
           Preconditions.checkNotNull(targetGraph).getNodes())
-          .transform(new Function<TargetNode<?>, BuildTarget>() {
-            @Override
-            public BuildTarget apply(TargetNode<?> input) {
-              return input.getBuildTarget();
-            }
-          });
+          .transform(TargetNode::getBuildTarget);
 
       return build.executeAndPrintFailuresToEventBus(
           allTargets,
           /* isKeepGoing */ true,
           args.getBuckEventBus(),
           args.getConsole(),
-          Optional.<Path>absent());
+          Optional.empty());
     }
   }
 
-  private TargetGraph createTargetGraph() throws IOException, InterruptedException {
+  private TargetGraph createTargetGraph() throws IOException {
     if (targetGraph != null) {
       return targetGraph;
     }
@@ -163,8 +156,7 @@ public class DistBuildSlaveExecutor {
     return targetGraph;
   }
 
-  private ActionGraphAndResolver createActionGraphAndResolver()
-      throws IOException, InterruptedException {
+  private ActionGraphAndResolver createActionGraphAndResolver() throws IOException {
     if (actionGraphAndResolver != null) {
       return actionGraphAndResolver;
     }
@@ -179,8 +171,7 @@ public class DistBuildSlaveExecutor {
     return actionGraphAndResolver;
   }
 
-  private DistBuildCachingEngineDelegate createBuildEngineDelegate()
-      throws IOException, InterruptedException {
+  private DistBuildCachingEngineDelegate createBuildEngineDelegate() throws IOException {
     if (cachingBuildEngineDelegate != null) {
       return cachingBuildEngineDelegate;
     }
@@ -194,8 +185,7 @@ public class DistBuildSlaveExecutor {
               }
             });
 
-    // Load all file up-front. This is needed as right now the action graph directly
-    // accesses the file system.
+    // Create all symlinks and touch all other files.
     // TODO(alisdair04): remove this once action graph doesn't read from file system.
     for (Cell cell : args.getState().getCells().values()) {
       try {
@@ -242,7 +232,7 @@ public class DistBuildSlaveExecutor {
                       /* enableProfiling */ false,
                   args.getExecutorService(),
                   input);
-            } catch (BuildFileParseException | InterruptedException e) {
+            } catch (BuildFileParseException e) {
               throw new RuntimeException(e);
             }
           }

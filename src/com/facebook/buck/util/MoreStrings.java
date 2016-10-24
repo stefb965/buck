@@ -17,24 +17,18 @@
 package com.facebook.buck.util;
 
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.base.Strings;
 
 import java.util.Arrays;
+import java.util.Optional;
 
-import javax.annotation.Nullable;
 
 public final class MoreStrings {
 
   public static final Predicate<String> NON_EMPTY =
-      new Predicate<String>() {
-        @Override
-        public boolean apply(@Nullable String input) {
-          return !Strings.isNullOrEmpty(input);
-        }
-      };
+      input -> !Strings.isNullOrEmpty(input);
 
   /** Utility class: do not instantiate. */
   private MoreStrings() {}
@@ -104,7 +98,19 @@ public final class MoreStrings {
   public static Optional<String> stripPrefix(String s, String prefix) {
     return s.startsWith(prefix) ?
         Optional.of(s.substring(prefix.length(), s.length())) :
-        Optional.<String>absent();
+        Optional.empty();
+  }
+
+  public static String truncatePretty(String data) {
+    final int keepFirstChars = 10000;
+    final int keepLastChars = 10000;
+    final String truncateMessage = "...\n<truncated>\n...";
+    if (data.length() <= keepFirstChars + keepLastChars + truncateMessage.length()) {
+      return data;
+    }
+    return data.substring(0, keepFirstChars) +
+        truncateMessage +
+        data.substring(data.length() - keepLastChars);
   }
 
 }

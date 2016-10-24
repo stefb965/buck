@@ -16,7 +16,6 @@
 
 package com.facebook.buck.go;
 
-import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.Flavored;
@@ -37,7 +36,6 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -46,7 +44,9 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 
+import java.nio.file.Paths;
 import java.util.List;
+import java.util.Optional;
 
 public class GoLibraryDescription implements
     Description<GoLibraryDescription.Arg>,
@@ -94,10 +94,10 @@ public class GoLibraryDescription implements
               GoLinkable.builder()
                   .setGoLinkInput(
                       ImmutableMap.of(
-                          args.packageName.transform(MorePaths.TO_PATH)
-                              .or(goBuckConfig.getDefaultPackageName(buildTarget)),
+                          args.packageName.map(Paths::get)
+                              .orElse(goBuckConfig.getDefaultPackageName(buildTarget)),
                           output))
-                  .setExportedDeps(args.exportedDeps.or(ImmutableSortedSet.<BuildTarget>of()))
+                  .setExportedDeps(args.exportedDeps)
                   .build()));
     } else if (buildTarget.getFlavors().contains(GoDescriptors.TRANSITIVE_LINKABLES_FLAVOR)) {
       Preconditions.checkState(platform.isPresent());
@@ -109,11 +109,11 @@ public class GoLibraryDescription implements
                   resolver,
                   platform.get(),
                   Iterables.concat(
-                      args.deps.or(ImmutableSortedSet.<BuildTarget>of()),
-                      args.exportedDeps.or(ImmutableSortedSet.<BuildTarget>of())),
+                      args.deps,
+                      args.exportedDeps),
                   /* includeSelf */ true)));
     } else {
-      return Optional.absent();
+      return Optional.empty();
     }
   }
 
@@ -131,15 +131,15 @@ public class GoLibraryDescription implements
           params,
           resolver,
           goBuckConfig,
-          args.packageName.transform(MorePaths.TO_PATH)
-              .or(goBuckConfig.getDefaultPackageName(params.getBuildTarget())),
-          args.srcs.or(ImmutableSortedSet.<SourcePath>of()),
-          args.compilerFlags.or(ImmutableList.<String>of()),
-          args.assemblerFlags.get(),
+          args.packageName.map(Paths::get)
+              .orElse(goBuckConfig.getDefaultPackageName(params.getBuildTarget())),
+          args.srcs,
+          args.compilerFlags,
+          args.assemblerFlags,
           platform.get(),
           FluentIterable.from(params.getDeclaredDeps().get())
-              .transform(HasBuildTarget.TO_TARGET)
-              .append(args.exportedDeps.or(ImmutableSortedSet.<BuildTarget>of())));
+              .transform(HasBuildTarget::getBuildTarget)
+              .append(args.exportedDeps));
     }
 
     return new NoopBuildRule(params, new SourcePathResolver(resolver));
@@ -147,18 +147,18 @@ public class GoLibraryDescription implements
 
   @SuppressFieldNotInitialized
   public static class Arg extends AbstractDescriptionArg implements HasTests {
-    public Optional<ImmutableSortedSet<SourcePath>> srcs;
-    public Optional<List<String>> compilerFlags;
-    public Optional<List<String>> assemblerFlags;
+    public ImmutableSortedSet<SourcePath> srcs = ImmutableSortedSet.of();
+    public List<String> compilerFlags = ImmutableList.of();
+    public List<String> assemblerFlags = ImmutableList.of();
     public Optional<String> packageName;
-    public Optional<ImmutableSortedSet<BuildTarget>> deps;
-    public Optional<ImmutableSortedSet<BuildTarget>> exportedDeps;
+    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
+    public ImmutableSortedSet<BuildTarget> exportedDeps = ImmutableSortedSet.of();
 
-    @Hint(isDep = false) public Optional<ImmutableSortedSet<BuildTarget>> tests;
+    @Hint(isDep = false) public ImmutableSortedSet<BuildTarget> tests = ImmutableSortedSet.of();
 
     @Override
     public ImmutableSortedSet<BuildTarget> getTests() {
-      return tests.get();
+      return tests;
     }
   }
 }

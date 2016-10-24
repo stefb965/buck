@@ -24,12 +24,12 @@ import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.Console;
+import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.Verbosity;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.StandardSystemProperty;
 import com.google.common.collect.HashMultimap;
@@ -62,6 +62,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 
 public class Publisher {
 
@@ -114,7 +115,7 @@ public class Publisher {
       boolean dryRun) {
     this.localRepo = new LocalRepository(localRepoPath.toFile());
     this.remoteRepo = AetherUtil.toRemoteRepository(
-        remoteRepoUrl.or(MAVEN_CENTRAL),
+        remoteRepoUrl.orElse(MAVEN_CENTRAL),
         username,
         password);
     this.signingPassphrase = signingPassphrase;
@@ -320,7 +321,7 @@ public class Publisher {
         }
       }
 
-      ProcessExecutor processExecutor = new ProcessExecutor(
+      ProcessExecutor processExecutor = new DefaultProcessExecutor(
           new Console(
               Verbosity.SILENT,
               stdout,

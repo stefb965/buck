@@ -37,12 +37,12 @@ import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.Console;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.base.Splitter;
@@ -59,6 +59,7 @@ import com.google.common.util.concurrent.ListenableFuture;
 
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
@@ -79,6 +80,7 @@ public class JavaDepsFinder {
   private final JavaFileParser javaFileParser;
   private final ObjectMapper objectMapper;
   private final BuildContext buildContext;
+  private final ExecutionContext executionContext;
   private final BuildEngine buildEngine;
 
   public JavaDepsFinder(
@@ -86,11 +88,13 @@ public class JavaDepsFinder {
       JavaFileParser javaFileParser,
       ObjectMapper objectMapper,
       BuildContext buildContext,
+      ExecutionContext executionContext,
       BuildEngine buildEngine) {
     this.javaPackageMapping = javaPackageMapping;
     this.javaFileParser = javaFileParser;
     this.objectMapper = objectMapper;
     this.buildContext = buildContext;
+    this.executionContext = executionContext;
     this.buildEngine = buildEngine;
   }
 
@@ -103,6 +107,7 @@ public class JavaDepsFinder {
       final CellPathResolver cellNames,
       ObjectMapper objectMapper,
       BuildContext buildContext,
+      ExecutionContext executionContext,
       BuildEngine buildEngine) {
     Optional<String> javaPackageMappingOption = buckConfig.getValue(
         BUCK_CONFIG_SECTION,
@@ -111,23 +116,20 @@ public class JavaDepsFinder {
     if (javaPackageMappingOption.isPresent()) {
       // Function that returns the key of the entry ending in `.` if it does not do so already.
       Function<Map.Entry<String, String>, Map.Entry<String, BuildTarget>> normalizePackageMapping =
-          new Function<Map.Entry<String, String>, Map.Entry<String, BuildTarget>>() {
-            @Override
-            public Map.Entry<String, BuildTarget> apply(Map.Entry<String, String> entry) {
-              String originalKey = entry.getKey().trim();
-              // If the key corresponds to a Java package (not an entity), then make sure that it
-              // ends with a `.` so the prefix matching will work as expected in
-              // findProviderForSymbolFromBuckConfig(). Note that this heuristic could be a bit
-              // tighter.
-              boolean appearsToBeJavaPackage = !originalKey.endsWith(".") &&
-                  CharMatcher.javaUpperCase().matchesNoneOf(originalKey);
-              String key = appearsToBeJavaPackage ? originalKey + "." : originalKey;
-              BuildTarget buildTarget = BuildTargetParser.INSTANCE.parse(
-                  entry.getValue().trim(),
-                  BuildTargetPatternParser.fullyQualified(),
-                  cellNames);
-              return Maps.immutableEntry(key, buildTarget);
-            }
+          entry -> {
+            String originalKey = entry.getKey().trim();
+            // If the key corresponds to a Java package (not an entity), then make sure that it
+            // ends with a `.` so the prefix matching will work as expected in
+            // findProviderForSymbolFromBuckConfig(). Note that this heuristic could be a bit
+            // tighter.
+            boolean appearsToBeJavaPackage = !originalKey.endsWith(".") &&
+                CharMatcher.javaUpperCase().matchesNoneOf(originalKey);
+            String key = appearsToBeJavaPackage ? originalKey + "." : originalKey;
+            BuildTarget buildTarget = BuildTargetParser.INSTANCE.parse(
+                entry.getValue().trim(),
+                BuildTargetPatternParser.fullyQualified(),
+                cellNames);
+            return Maps.immutableEntry(key, buildTarget);
           };
 
       Iterable<Map.Entry<String, BuildTarget>> entries = FluentIterable.from(
@@ -151,6 +153,7 @@ public class JavaDepsFinder {
         javaFileParser,
         objectMapper,
         buildContext,
+        executionContext,
         buildEngine);
   }
 
@@ -222,9 +225,9 @@ public class JavaDepsFinder {
         ImmutableSortedSet<BuildTarget> exportedDeps;
         if (node.getConstructorArg() instanceof JavaLibraryDescription.Arg) {
           JavaLibraryDescription.Arg arg = (JavaLibraryDescription.Arg) node.getConstructorArg();
-          autodeps = arg.autodeps.or(false);
-          providedDeps = arg.providedDeps.or(ImmutableSortedSet.<BuildTarget>of());
-          exportedDeps = arg.exportedDeps.or(ImmutableSortedSet.<BuildTarget>of());
+          autodeps = arg.autodeps.orElse(false);
+          providedDeps = arg.providedDeps;
+          exportedDeps = arg.exportedDeps;
         } else if (node.getConstructorArg() instanceof PrebuiltJarDescription.Arg) {
           autodeps = false;
           providedDeps = ImmutableSortedSet.of();
@@ -271,13 +274,8 @@ public class JavaDepsFinder {
       final Set<BuildTarget> providedDeps = dependencyInfo.rulesWithAutodepsToProvidedDeps.get(
           rule);
       final Predicate<TargetNode<?>> isVisibleDepNotAlreadyInProvidedDeps =
-          new Predicate<TargetNode<?>>() {
-            @Override
-            public boolean apply(TargetNode<?> provider) {
-              return provider.isVisibleTo(graph, rule) &&
-                  !providedDeps.contains(provider.getBuildTarget());
-            }
-          };
+          provider -> provider.isVisibleTo(graph, rule) &&
+              !providedDeps.contains(provider.getBuildTarget());
       final boolean isJavaTestRule = rule.getType() == JavaTestDescription.TYPE;
 
       for (DependencyType type : DependencyType.values()) {
@@ -311,7 +309,7 @@ public class JavaDepsFinder {
           Set<TargetNode<?>> providers = dependencyInfo.symbolToProviders.get(requiredSymbol);
           SortedSet<TargetNode<?>> candidateProviders = FluentIterable.from(providers)
               .filter(isVisibleDepNotAlreadyInProvidedDeps)
-              .toSortedSet(Ordering.<TargetNode<?>>natural());
+              .toSortedSet(Ordering.natural());
 
           int numCandidates = candidateProviders.size();
           if (numCandidates == 1) {
@@ -387,9 +385,9 @@ public class JavaDepsFinder {
       // The build target should be recorded as a provider for every symbol in its
       // generated_symbols set (if it exists). It is common to use this for symbols that are
       // generated via annotation processors.
-      generatedSymbols = arg.generatedSymbols.or(ImmutableSortedSet.<String>of());
+      generatedSymbols = arg.generatedSymbols;
       symbolsFinder = new JavaLibrarySymbolsFinder(
-          arg.srcs.get(),
+          arg.srcs,
           javaFileParser,
           shouldRecordRequiredSymbols);
     } else {
@@ -405,7 +403,8 @@ public class JavaDepsFinder {
         generatedSymbols,
         objectMapper,
         node.getRuleFactoryParams().getProjectFilesystem());
-    ListenableFuture<BuildResult> future = buildEngine.build(buildContext, buildRule);
+    ListenableFuture<BuildResult> future =
+        buildEngine.build(buildContext, executionContext, buildRule);
     BuildResult result = Futures.getUnchecked(future);
 
     Symbols features;

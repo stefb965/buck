@@ -20,30 +20,28 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
 import com.facebook.buck.android.AndroidPlatformTarget;
-import com.facebook.buck.artifact_cache.ArtifactCache;
+import com.facebook.buck.android.FakeAndroidDirectoryResolver;
+import com.facebook.buck.artifact_cache.NoopArtifactCache;
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.event.listener.BroadcastEventListener;
-import com.facebook.buck.httpserver.WebServer;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.FakeJavaPackageFinder;
 import com.facebook.buck.jvm.java.intellij.Project;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.rules.ActionGraphCache;
 import com.facebook.buck.rules.Cell;
+import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
 import com.facebook.buck.rules.TestCellBuilder;
-import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.step.FakeBuildStamper;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.timing.DefaultClock;
+import com.facebook.buck.util.FakeProcessExecutor;
 import com.facebook.buck.util.ObjectMappers;
-import com.facebook.buck.util.ProcessManager;
 import com.facebook.buck.util.cache.NullFileHashCache;
 import com.facebook.buck.util.environment.Platform;
-import com.google.common.base.Optional;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.util.concurrent.ListeningExecutorService;
 
 import org.easymock.EasyMockSupport;
 import org.junit.Test;
@@ -51,7 +49,7 @@ import org.kohsuke.args4j.CmdLineException;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.util.HashMap;
+import java.util.Optional;
 
 /**
  * Unit test for {@link CleanCommand}.
@@ -114,27 +112,33 @@ public class CleanCommandTest extends EasyMockSupport {
 
     Supplier<AndroidPlatformTarget> androidPlatformTargetSupplier =
         AndroidPlatformTarget.EXPLODING_ANDROID_PLATFORM_TARGET_SUPPLIER;
-    return new CommandRunnerParams(
-        new TestConsole(),
-        new ByteArrayInputStream("".getBytes("UTF-8")),
-        cell,
-        androidPlatformTargetSupplier,
-        createMock(ArtifactCache.class),
-        BuckEventBusFactory.newInstance(),
-        createMock(Parser.class),
-        Platform.detect(),
-        ImmutableMap.copyOf(System.getenv()),
-        new FakeBuildStamper(),
-        new FakeJavaPackageFinder(),
-        ObjectMappers.newDefaultInstance(),
-        new DefaultClock(),
-        Optional.<ProcessManager>absent(),
-        Optional.<WebServer>absent(),
-        FakeBuckConfig.builder().build(),
-        new NullFileHashCache(),
-        new HashMap<ExecutorPool, ListeningExecutorService>(),
-        CommandRunnerParamsForTesting.BUILD_ENVIRONMENT_DESCRIPTION,
-        new ActionGraphCache(new BroadcastEventListener()));
+    return CommandRunnerParams.builder()
+        .setConsole(new TestConsole())
+        .setStdIn(new ByteArrayInputStream("".getBytes("UTF-8")))
+        .setCell(cell)
+        .setAndroidPlatformTargetSupplier(androidPlatformTargetSupplier)
+        .setArtifactCache(new NoopArtifactCache())
+        .setBuckEventBus(BuckEventBusFactory.newInstance())
+        .setParser(createMock(Parser.class))
+        .setPlatform(Platform.detect())
+        .setEnvironment(ImmutableMap.copyOf(System.getenv()))
+        .setJavaPackageFinder(new FakeJavaPackageFinder())
+        .setObjectMapper(ObjectMappers.newDefaultInstance())
+        .setClock(new DefaultClock())
+        .setProcessManager(Optional.empty())
+        .setWebServer(Optional.empty())
+        .setBuckConfig(FakeBuckConfig.builder().build())
+        .setFileHashCache(new NullFileHashCache())
+        .setExecutors(ImmutableMap.of())
+        .setBuildEnvironmentDescription(
+            CommandRunnerParamsForTesting.BUILD_ENVIRONMENT_DESCRIPTION)
+        .setActionGraphCache(new ActionGraphCache(new BroadcastEventListener()))
+        .setKnownBuildRuleTypesFactory(
+            new KnownBuildRuleTypesFactory(
+                new FakeProcessExecutor(),
+                new FakeAndroidDirectoryResolver()))
+        .setBuildStamper(new FakeBuildStamper())
+        .build();
   }
 
 }

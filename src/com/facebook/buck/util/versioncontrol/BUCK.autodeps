@@ -1,12 +1,11 @@
-#@# GENERATED FILE: DO NOT MODIFY e6f31caa8dcddf8614d2de706ad888bedbe81d67 #@#
 {
   "impl" : {
     "deps" : [
       "//src/com/facebook/buck/log:api",
-      "//src/com/facebook/buck/util:io"
+      "//src/com/facebook/buck/util:util"
     ],
     "exported_deps" : [
-      "//src/com/facebook/buck/util:util",
+      "//src/com/facebook/buck/util:io",
       "//src/com/facebook/buck/util/versioncontrol:versioncontrol",
       "//third-party/java/guava:guava"
     ]
@@ -14,13 +13,15 @@
   "versioncontrol" : {
     "deps" : [
       "//src/com/facebook/buck/log:api",
+      "//src/com/facebook/buck/log/views:views",
       "//third-party/java/immutables:processor"
     ],
     "exported_deps" : [
       "//src/com/facebook/buck/config:base-config",
       "//src/com/facebook/buck/event:event",
       "//src/com/facebook/buck/util/immutables:immutables",
-      "//third-party/java/guava:guava"
+      "//third-party/java/guava:guava",
+      "//third-party/java/jackson:jackson-annotations"
     ]
   }
 }

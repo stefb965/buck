@@ -19,11 +19,11 @@ package com.facebook.buck.shell;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.MoreStrings;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
@@ -33,8 +33,10 @@ import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.annotation.Nullable;
@@ -47,6 +49,7 @@ public class WorkerProcess {
   private final ProcessExecutorParams processParams;
   private final ProjectFilesystem filesystem;
   private final Path tmpPath;
+  private final Path stdErr;
   private final AtomicInteger currentMessageID = new AtomicInteger();
   private boolean handshakePerformed = false;
   @Nullable
@@ -60,7 +63,9 @@ public class WorkerProcess {
       ProjectFilesystem filesystem,
       Path tmpPath) throws IOException {
     this.executor = executor;
-    this.processParams = processParams;
+    this.stdErr = Files.createTempFile("buck-worker-", "-stderr.log");
+    this.processParams = processParams.withRedirectError(
+        ProcessBuilder.Redirect.to(stdErr.toFile()));
     this.filesystem = filesystem;
     this.tmpPath = tmpPath;
   }
@@ -81,7 +86,8 @@ public class WorkerProcess {
         executor,
         launchedProcess,
         processStdinWriter,
-        processStdoutReader);
+        processStdoutReader,
+        stdErr);
 
     int messageID = currentMessageID.getAndAdd(1);
     LOG.debug("Sending handshake to process %d", this.hashCode());
@@ -120,15 +126,16 @@ public class WorkerProcess {
     int exitCode = protocol.receiveCommandResponse(messageID);
     Optional<String> stdout = filesystem.readFileIfItExists(stdoutPath);
     Optional<String> stderr = filesystem.readFileIfItExists(stderrPath);
-    LOG.debug("Job %d for process %d finished \n" +
-        "  exit code: %d \n" +
-        "  stdout: %s \n" +
-        "  stderr: %s",
+    LOG.debug(
+        "Job %d for process %d finished \n" +
+            "  exit code: %d \n" +
+            "  stdout: %s \n" +
+            "  stderr: %s",
         messageID,
         this.hashCode(),
         exitCode,
-        stdout.or(""),
-        stderr.or(""));
+        stdout.orElse(""),
+        stderr.orElse(""));
 
     return WorkerJobResult.of(exitCode, stdout, stderr);
   }
@@ -139,8 +146,18 @@ public class WorkerProcess {
       if (protocol != null) {
         protocol.close();
       }
-    } catch (IOException e) {
+      Files.deleteIfExists(stdErr);
+    } catch (Exception e) {
       LOG.debug(e, "Error closing worker process %s.", this.hashCode());
+
+      LOG.debug("Worker process stderr at %s", this.stdErr.toString());
+
+      String workerStderr = MoreStrings
+          .truncatePretty(filesystem.readFileIfItExists(this.stdErr).orElse(""))
+          .trim()
+          .replace("\n", "\nstderr: ");
+      LOG.error("stderr: %s", workerStderr);
+
       throw new HumanReadableException(e,
           "Error while trying to close the process %s at the end of the build.",
           Joiner.on(' ').join(processParams.getCommand()));

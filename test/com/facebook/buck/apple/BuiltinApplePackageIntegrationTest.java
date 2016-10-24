@@ -27,16 +27,15 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.testutil.TestConsole;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
+import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.testutil.integration.ZipInspector;
+import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.zip.Unzip;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 
 import org.junit.Before;
@@ -48,6 +47,7 @@ import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.EnumSet;
+import java.util.Optional;
 import java.util.Set;
 
 public class BuiltinApplePackageIntegrationTest {
@@ -108,6 +108,46 @@ public class BuiltinApplePackageIntegrationTest {
             Files.readAllBytes(
                 templateDir.resolve("DemoApp_output.expected/DemoApp.app/PkgInfo.expected")),
             UTF_8));
+  }
+
+  @Test
+  public void packageHasProperStructureForSwift() throws IOException {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+      this,
+      "simple_application_bundle_swift_no_debug",
+      tmp);
+    workspace.setUp();
+    workspace.enableDirCache();
+
+    BuildTarget packageTarget = BuildTargetFactory.newInstance("//:DemoAppPackage");
+    workspace.runBuckCommand("build", packageTarget.getFullyQualifiedName()).assertSuccess();
+
+    workspace.getBuildLog().assertTargetBuiltLocally(packageTarget.getFullyQualifiedName());
+
+    ZipInspector zipInspector = new ZipInspector(
+      workspace.getPath(BuildTargets.getGenPath(filesystem, packageTarget, "%s.ipa")));
+    zipInspector.assertFileExists("SwiftSupport/iphonesimulator/libswiftCore.dylib");
+  }
+
+  @Test
+  public void swiftSupportIsOnlyAddedIfPackageContainsSwiftCode() throws IOException {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+      this,
+      "simple_application_bundle_no_debug",
+      tmp);
+    workspace.setUp();
+    workspace.enableDirCache();
+
+    BuildTarget packageTarget = BuildTargetFactory.newInstance("//:DemoAppPackage");
+    workspace.runBuckCommand("build", packageTarget.getFullyQualifiedName()).assertSuccess();
+
+    workspace.getBuildLog().assertTargetBuiltLocally(packageTarget.getFullyQualifiedName());
+
+    ZipInspector zipInspector = new ZipInspector(
+      workspace.getPath(BuildTargets.getGenPath(filesystem, packageTarget, "%s.ipa")));
+    zipInspector.assertFileDoesNotExist("SwiftSupport");
   }
 
   @Test
@@ -205,7 +245,7 @@ public class BuiltinApplePackageIntegrationTest {
         workspace.getDestPath(),
         Unzip.ExistingFileMode.OVERWRITE_AND_CLEAN_DIRECTORIES);
 
-    ProcessExecutor executor = new ProcessExecutor(new TestConsole());
+    ProcessExecutor executor = new DefaultProcessExecutor(new TestConsole());
 
     ProcessExecutorParams processExecutorParams =
         ProcessExecutorParams.builder()
@@ -223,9 +263,9 @@ public class BuiltinApplePackageIntegrationTest {
     ProcessExecutor.Result result = executor.launchAndExecute(
         processExecutorParams,
         options,
-        /* stdin */ Optional.<String>absent(),
-        /* timeOutMs */ Optional.<Long>absent(),
-        /* timeOutHandler */ Optional.<Function<Process, Void>>absent());
+        /* stdin */ Optional.empty(),
+        /* timeOutMs */ Optional.empty(),
+        /* timeOutHandler */ Optional.empty());
 
     assertEquals(result.getExitCode(), 0);
     assertTrue(result.getStdout().isPresent());

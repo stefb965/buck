@@ -30,16 +30,13 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
-import com.google.common.collect.FluentIterable;
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -49,10 +46,7 @@ import org.hamcrest.Matchers;
 import org.junit.Test;
 
 import java.nio.file.Paths;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.regex.Pattern;
+import java.util.Optional;
 
 public class AndroidNativeLibsPackageableGraphEnhancerTest {
 
@@ -69,42 +63,48 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
     BuildTarget target = BuildTargetFactory.newInstance("//:target");
     BuildRuleParams originalParams =
         new FakeBuildRuleParamsBuilder(target)
-            .setDeclaredDeps(ImmutableSortedSet.<BuildRule>of(ndkLibrary))
+            .setDeclaredDeps(ImmutableSortedSet.of(ndkLibrary))
             .build();
+
+    APKModuleGraph apkModuleGraph = new APKModuleGraph(
+        TargetGraph.EMPTY,
+        target,
+        Optional.empty());
 
     AndroidNativeLibsPackageableGraphEnhancer enhancer =
         new AndroidNativeLibsPackageableGraphEnhancer(
             ruleResolver,
             originalParams,
-            ImmutableMap.<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform>of(),
-            ImmutableSet.<NdkCxxPlatforms.TargetCpuType>of(),
+            ImmutableMap.of(),
+            ImmutableSet.of(),
             CxxPlatformUtils.DEFAULT_CONFIG,
-            /* nativeLibraryMergeMap */ Optional.<Map<String, List<Pattern>>>absent(),
-            /* nativeLibraryMergeGlue */ Optional.<BuildTarget>absent(),
-            AndroidBinary.RelinkerMode.DISABLED
+            /* nativeLibraryMergeMap */ Optional.empty(),
+            /* nativeLibraryMergeGlue */ Optional.empty(),
+            AndroidBinary.RelinkerMode.DISABLED,
+            apkModuleGraph
         );
 
     AndroidPackageableCollector collector = new AndroidPackageableCollector(
         target,
-        ImmutableSet.<BuildTarget>of(),
-        ImmutableSet.<BuildTarget>of(),
-        new APKModuleGraph(
-            TargetGraph.EMPTY,
-            target,
-            Optional.<Set<BuildTarget>>absent()));
+        ImmutableSet.of(),
+        ImmutableSet.of(),
+        apkModuleGraph);
     collector.addPackageables(
         AndroidPackageableCollector.getPackageableRules(
-            ImmutableSet.<BuildRule>of(ndkLibrary)));
+            ImmutableSet.of(ndkLibrary)));
 
-    Optional<CopyNativeLibraries> copyNativeLibrariesOptional =
+    Optional<ImmutableMap<APKModule, CopyNativeLibraries>> copyNativeLibrariesOptional =
         enhancer.enhance(collector.build()).getCopyNativeLibraries();
-    CopyNativeLibraries copyNativeLibraries = copyNativeLibrariesOptional.get();
+    CopyNativeLibraries copyNativeLibraries =
+        copyNativeLibrariesOptional
+            .get()
+            .get(apkModuleGraph.getRootAPKModule());
 
     assertThat(copyNativeLibraries.getStrippedObjectDescriptions(), Matchers.empty());
     assertThat(
-        FluentIterable.from(copyNativeLibraries.getNativeLibDirectories())
-            .transform(sourcePathResolver.deprecatedPathFunction())
-            .toList(),
+        copyNativeLibraries.getNativeLibDirectories().stream()
+            .map(sourcePathResolver::deprecatedGetPath)
+            .collect(MoreCollectors.toImmutableList()),
         Matchers.contains(
             ndkLibrary.getLibraryPath()
         )
@@ -146,8 +146,13 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
     BuildTarget target = BuildTargetFactory.newInstance("//:target");
     BuildRuleParams originalParams =
         new FakeBuildRuleParamsBuilder(target)
-            .setDeclaredDeps(ImmutableSortedSet.<BuildRule>of(cxxLibrary))
+            .setDeclaredDeps(ImmutableSortedSet.of(cxxLibrary))
             .build();
+
+    APKModuleGraph apkModuleGraph = new APKModuleGraph(
+        TargetGraph.EMPTY,
+        target,
+        Optional.empty());
 
     AndroidNativeLibsPackageableGraphEnhancer enhancer =
         new AndroidNativeLibsPackageableGraphEnhancer(
@@ -156,27 +161,28 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
             nativePlatforms,
             ImmutableSet.of(NdkCxxPlatforms.TargetCpuType.ARMV7),
             CxxPlatformUtils.DEFAULT_CONFIG,
-            /* nativeLibraryMergeMap */ Optional.<Map<String, List<Pattern>>>absent(),
-            /* nativeLibraryMergeGlue */ Optional.<BuildTarget>absent(),
-            AndroidBinary.RelinkerMode.DISABLED
+            /* nativeLibraryMergeMap */ Optional.empty(),
+            /* nativeLibraryMergeGlue */ Optional.empty(),
+            AndroidBinary.RelinkerMode.DISABLED,
+            apkModuleGraph
         );
 
     AndroidPackageableCollector collector = new AndroidPackageableCollector(
         target,
-        ImmutableSet.<BuildTarget>of(),
-        ImmutableSet.<BuildTarget>of(),
-        new APKModuleGraph(
-            TargetGraph.EMPTY,
-            target,
-            Optional.<Set<BuildTarget>>absent()));
+        ImmutableSet.of(),
+        ImmutableSet.of(),
+        apkModuleGraph);
     collector.addPackageables(
         AndroidPackageableCollector.getPackageableRules(
-            ImmutableSet.<BuildRule>of(cxxLibrary)));
+            ImmutableSet.of(cxxLibrary)));
 
     AndroidPackageableCollection packageableCollection = collector.build();
-    Optional<CopyNativeLibraries> copyNativeLibrariesOptional =
+    Optional<ImmutableMap<APKModule, CopyNativeLibraries>> copyNativeLibrariesOptional =
         enhancer.enhance(packageableCollection).getCopyNativeLibraries();
-    CopyNativeLibraries copyNativeLibraries = copyNativeLibrariesOptional.get();
+    CopyNativeLibraries copyNativeLibraries =
+        copyNativeLibrariesOptional
+            .get()
+            .get(apkModuleGraph.getRootAPKModule());
 
     assertThat(
         copyNativeLibraries.getStrippedObjectDescriptions(),
@@ -201,15 +207,9 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
     );
     assertThat(copyNativeLibraries.getNativeLibDirectories(), Matchers.empty());
     ImmutableCollection<BuildRule> stripRules = sourcePathResolver.filterBuildRuleInputs(
-        FluentIterable.from(copyNativeLibraries.getStrippedObjectDescriptions())
-            .transform(
-                new Function<StrippedObjectDescription, SourcePath>() {
-                  @Override
-                  public SourcePath apply(StrippedObjectDescription input) {
-                    return input.getSourcePath();
-                  }
-                })
-            .toSet());
+        copyNativeLibraries.getStrippedObjectDescriptions().stream()
+            .map(StrippedObjectDescription::getSourcePath)
+            .collect(MoreCollectors.toImmutableSet()));
     assertThat(
         stripRules,
         Matchers.contains(

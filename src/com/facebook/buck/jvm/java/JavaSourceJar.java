@@ -19,7 +19,6 @@ import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.zip.ZipStep;
 import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -28,6 +27,7 @@ import com.google.common.collect.Ordering;
 import com.google.common.collect.Sets;
 
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.Set;
 
 public class JavaSourceJar extends AbstractBuildRule implements MavenPublishable {
@@ -91,7 +91,7 @@ public class JavaSourceJar extends AbstractBuildRule implements MavenPublishable
         new ZipStep(
             getProjectFilesystem(),
             output,
-            ImmutableSet.<Path>of(),
+            ImmutableSet.of(),
             /* junk paths */ false,
             DEFAULT_COMPRESSION_LEVEL,
             temp));

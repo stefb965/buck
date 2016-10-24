@@ -48,8 +48,8 @@ import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.TouchStep;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.base.Supplier;
@@ -69,6 +69,7 @@ import java.net.URLClassLoader;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collection;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -148,30 +149,27 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   }
 
   private static final SuggestBuildRules.JarResolver JAR_RESOLVER =
-      new SuggestBuildRules.JarResolver() {
-    @Override
-    public ImmutableSet<String> resolve(Path classPath) {
-      ImmutableSet.Builder<String> topLevelSymbolsBuilder = ImmutableSet.builder();
-      try {
-        ClassLoader loader = URLClassLoader.newInstance(
-            new URL[]{classPath.toUri().toURL()},
-          /* parent */ null);
+      classPath -> {
+        ImmutableSet.Builder<String> topLevelSymbolsBuilder = ImmutableSet.builder();
+        try {
+          ClassLoader loader = URLClassLoader.newInstance(
+              new URL[]{classPath.toUri().toURL()},
+            /* parent */ null);
 
-        // For every class contained in that jar, check to see if the package name
-        // (e.g. com.facebook.foo), the simple name (e.g. ImmutableSet) or the name
-        // (e.g com.google.common.collect.ImmutableSet) is one of the missing symbols.
-        for (ClassPath.ClassInfo classInfo : ClassPath.from(loader).getTopLevelClasses()) {
-          topLevelSymbolsBuilder.add(classInfo.getPackageName(),
-              classInfo.getSimpleName(),
-              classInfo.getName());
+          // For every class contained in that jar, check to see if the package name
+          // (e.g. com.facebook.foo), the simple name (e.g. ImmutableSet) or the name
+          // (e.g com.google.common.collect.ImmutableSet) is one of the missing symbols.
+          for (ClassPath.ClassInfo classInfo : ClassPath.from(loader).getTopLevelClasses()) {
+            topLevelSymbolsBuilder.add(classInfo.getPackageName(),
+                classInfo.getSimpleName(),
+                classInfo.getName());
+          }
+        } catch (IOException e) {
+          // Since this simply is a heuristic, return an empty set if we fail to load a jar.
+          return topLevelSymbolsBuilder.build();
         }
-      } catch (IOException e) {
-        // Since this simply is a heuristic, return an empty set if we fail to load a jar.
         return topLevelSymbolsBuilder.build();
-      }
-      return topLevelSymbolsBuilder.build();
-    }
-  };
+      };
 
   public DefaultJavaLibrary(
       final BuildRuleParams params,
@@ -205,12 +203,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
         abiJar,
         trackClassUsage,
         new JarArchiveDependencySupplier(
-            Suppliers.memoize(new Supplier<ImmutableSortedSet<SourcePath>>() {
-              @Override
-              public ImmutableSortedSet<SourcePath> get() {
-                return JavaLibraryRules.getAbiInputs(params.getDeps());
-              }
-            }),
+            Suppliers.memoize(() -> JavaLibraryRules.getAbiInputs(params.getDeps())),
             params.getProjectFilesystem()),
         additionalClasspathEntries,
         compileStepFactory,
@@ -242,12 +235,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
       ImmutableSortedSet<BuildTarget> tests,
       ImmutableSet<Pattern> classesToRemoveFromJar) {
     super(
-        params.appendExtraDeps(new Supplier<Iterable<? extends BuildRule>>() {
-              @Override
-              public Iterable<? extends BuildRule> get() {
-                return resolver.filterBuildRuleInputs(abiClasspath.get());
-              }
-            }),
+        params.appendExtraDeps(() -> resolver.filterBuildRuleInputs(abiClasspath.get())),
         resolver);
     this.compileStepFactory = compileStepFactory;
 
@@ -268,10 +256,9 @@ public class DefaultJavaLibrary extends AbstractBuildRule
     this.postprocessClassesCommands = postprocessClassesCommands;
     this.exportedDeps = exportedDeps;
     this.providedDeps = providedDeps;
-    this.additionalClasspathEntries = FluentIterable
-        .from(additionalClasspathEntries)
-        .transform(getProjectFilesystem().getAbsolutifier())
-        .toSet();
+    this.additionalClasspathEntries = additionalClasspathEntries.stream()
+        .map(getProjectFilesystem().getAbsolutifier()::apply)
+        .collect(MoreCollectors.toImmutableSet());
     this.resourcesRoot = resourcesRoot;
     this.manifestFile = manifestFile;
     this.mavenCoords = mavenCoords;
@@ -284,38 +271,23 @@ public class DefaultJavaLibrary extends AbstractBuildRule
     if (!srcs.isEmpty() || !resources.isEmpty() || manifestFile.isPresent()) {
       this.outputJar = Optional.of(getOutputJarPath(getBuildTarget(), getProjectFilesystem()));
     } else {
-      this.outputJar = Optional.absent();
+      this.outputJar = Optional.empty();
     }
 
     this.outputClasspathEntriesSupplier =
-        Suppliers.memoize(new Supplier<ImmutableSet<Path>>() {
-          @Override
-          public ImmutableSet<Path> get() {
-            return JavaLibraryClasspathProvider.getOutputClasspathJars(
-                DefaultJavaLibrary.this,
-                getResolver(),
-                sourcePathForOutputJar());
-          }
-        });
+        Suppliers.memoize(() -> JavaLibraryClasspathProvider.getOutputClasspathJars(
+            DefaultJavaLibrary.this,
+            getResolver(),
+            sourcePathForOutputJar()));
 
     this.transitiveClasspathsSupplier =
-        Suppliers.memoize(new Supplier<ImmutableSet<Path>>() {
-          @Override
-          public ImmutableSet<Path> get() {
-            return JavaLibraryClasspathProvider.getClasspathsFromLibraries(
-                getTransitiveClasspathDeps());
-          }
-        });
+        Suppliers.memoize(() -> JavaLibraryClasspathProvider.getClasspathsFromLibraries(
+            getTransitiveClasspathDeps()));
 
     this.transitiveClasspathDepsSupplier =
         Suppliers.memoize(
-            new Supplier<ImmutableSet<JavaLibrary>>() {
-              @Override
-              public ImmutableSet<JavaLibrary> get() {
-                return JavaLibraryClasspathProvider.getTransitiveClasspathDeps(
-                    DefaultJavaLibrary.this);
-              }
-            });
+            () -> JavaLibraryClasspathProvider.getTransitiveClasspathDeps(
+                DefaultJavaLibrary.this));
 
     this.buildOutputInitializer = new BuildOutputInitializer<>(params.getBuildTarget(), this);
     this.generatedSourceFolder = generatedSourceFolder;
@@ -331,7 +303,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   }
 
   private Optional<SourcePath> sourcePathForOutputJar() {
-    return outputJar.transform(SourcePaths.getToBuildTargetSourcePath(getBuildTarget()));
+    return outputJar.map(SourcePaths.getToBuildTargetSourcePath(getBuildTarget())::apply);
   }
 
   static Path getOutputJarPath(BuildTarget target, ProjectFilesystem filesystem) {
@@ -467,19 +439,14 @@ public class DefaultJavaLibrary extends AbstractBuildRule
         .filter(Predicates.notNull())
         .toSet();
 
-    final ProjectFilesystem projectFilesystem = getProjectFilesystem();
+    ProjectFilesystem projectFilesystem = getProjectFilesystem(); // NOPMD confused by lambda
     Iterable<Path> declaredClasspaths = declaredClasspathDeps.transformAndConcat(
         new Function<JavaLibrary, Iterable<Path>>() {
           @Override
           public Iterable<Path> apply(JavaLibrary input) {
             return input.getOutputClasspaths();
           }
-        }).transform(new Function<Path, Path>() {
-      @Override
-      public Path apply(Path input) {
-        return projectFilesystem.resolve(input);
-      }
-    });
+        }).transform(projectFilesystem::resolve);
     // Only override the bootclasspath if this rule is supposed to compile Android code.
     ImmutableSortedSet<Path> declared = ImmutableSortedSet.<Path>naturalOrder()
         .addAll(declaredClasspaths)
@@ -552,8 +519,8 @@ public class DefaultJavaLibrary extends AbstractBuildRule
           Optional.of(suggestBuildRule),
           postprocessClassesCommands,
           ImmutableSortedSet.of(outputDirectory),
-          /* mainClass */ Optional.<String>absent(),
-          manifestFile.transform(getResolver().getAbsolutePathFunction()),
+          /* mainClass */ Optional.empty(),
+          manifestFile.map(getResolver()::getAbsolutePath),
           outputJar.get(),
           usedClassesFileWriter,
           /* output params */
@@ -576,7 +543,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
                 output,
                 ImmutableSortedSet.of(outputDirectory),
                 /* mainClass */ null,
-                manifestFile.transform(getResolver().getAbsolutePathFunction()).orNull(),
+                manifestFile.map(getResolver()::getAbsolutePath).orElse(null),
                 true,
                 classesToRemoveFromJar));
       }
@@ -617,7 +584,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
 
   @Override
   public Optional<SourcePath> getAbiJar() {
-    return outputJar.isPresent() ? Optional.of(abiJar) : Optional.<SourcePath>absent();
+    return outputJar.isPresent() ? Optional.of(abiJar) : Optional.empty();
   }
 
   @Override
@@ -628,7 +595,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   @Override
   @Nullable
   public Path getPathToOutput() {
-    return outputJar.orNull();
+    return outputJar.orElse(null);
   }
 
   @Override
@@ -662,8 +629,8 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   }
 
   @Override
-  public Optional<ImmutableSet<SourcePath>> getPossibleInputSourcePaths() throws IOException {
-    return Optional.<ImmutableSet<SourcePath>>of(abiClasspath.getArchiveMembers(getResolver()));
+  public Optional<ImmutableSet<SourcePath>> getPossibleInputSourcePaths() {
+    return Optional.of(abiClasspath.getArchiveMembers(getResolver()));
   }
 
   @Override

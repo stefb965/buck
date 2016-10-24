@@ -20,18 +20,20 @@ import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
-import com.google.common.base.Optional;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import org.immutables.value.Value;
+
+import java.util.Optional;
 
 @Value.Immutable
 @BuckStyleImmutable
 interface AbstractAndroidGraphEnhancementResult {
   AndroidPackageableCollection getPackageableCollection();
   AaptPackageResources getAaptPackageResources();
-  Optional<CopyNativeLibraries> getCopyNativeLibraries();
+  Optional<ImmutableMap<APKModule, CopyNativeLibraries>> getCopyNativeLibraries();
   Optional<PackageStringAssets> getPackageStringAssets();
   Optional<PreDexMerge> getPreDexMerge();
   Optional<ComputeExopackageDepsAbi> getComputeExopackageDepsAbi();

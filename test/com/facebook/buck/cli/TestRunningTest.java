@@ -40,7 +40,6 @@ import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildResult;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CachingBuildEngine;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
@@ -55,7 +54,6 @@ import com.facebook.buck.rules.TestRule;
 import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.ExecutionOrderAwareFakeStep;
-import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.test.FakeTestResults;
 import com.facebook.buck.test.TestCaseSummary;
@@ -64,12 +62,12 @@ import com.facebook.buck.test.TestResults;
 import com.facebook.buck.test.TestRunningOptions;
 import com.facebook.buck.test.result.type.ResultType;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.google.common.base.Optional;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.util.concurrent.Callables;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
 
@@ -86,7 +84,7 @@ import java.io.StringWriter;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
-import java.util.concurrent.Callable;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -411,7 +409,8 @@ public class TestRunningTest {
             createMock(CachingBuildEngine.class),
             executionContext,
             createMock(TestRuleKeyFileHelper.class),
-            true,
+            TestRunningOptions.TestResultCacheMode.ENABLED,
+            Callables.<TestResults>returning(null),
             false,
             /* hasEnvironmentOverrides */ false,
             /* isDryRun */ false));
@@ -431,7 +430,7 @@ public class TestRunningTest {
               TargetGraph.EMPTY,
               new DefaultTargetNodeToBuildRuleTransformer())
         ),
-        ImmutableSortedSet.<BuildRule>of());
+        ImmutableSortedSet.of());
 
     CachingBuildEngine cachingBuildEngine = createMock(CachingBuildEngine.class);
     BuildResult result = BuildResult.success(testRule, FETCHED_FROM_CACHE, CacheResult.hit("dir"));
@@ -447,7 +446,8 @@ public class TestRunningTest {
             cachingBuildEngine,
             executionContext,
             createMock(TestRuleKeyFileHelper.class),
-            /* results cache enabled */ true,
+            TestRunningOptions.TestResultCacheMode.ENABLED,
+            Callables.<TestResults>returning(null),
             /* running with test selectors */ false,
             /* hasEnvironmentOverrides */ false,
             /* isDryRun */ false));
@@ -469,7 +469,7 @@ public class TestRunningTest {
               TargetGraph.EMPTY,
               new DefaultTargetNodeToBuildRuleTransformer())
         ),
-        ImmutableSortedSet.<BuildRule>of());
+        ImmutableSortedSet.of());
 
     CachingBuildEngine cachingBuildEngine = createMock(CachingBuildEngine.class);
     BuildResult result = BuildResult.success(testRule, BUILT_LOCALLY, CacheResult.miss());
@@ -484,7 +484,8 @@ public class TestRunningTest {
             cachingBuildEngine,
             executionContext,
             createMock(TestRuleKeyFileHelper.class),
-            /* results cache enabled */ true,
+            TestRunningOptions.TestResultCacheMode.ENABLED,
+            Callables.<TestResults>returning(null),
             /* running with test selectors */ false,
             /* hasEnvironmentOverrides */ false,
             /* isDryRun */ false));
@@ -506,7 +507,7 @@ public class TestRunningTest {
               TargetGraph.EMPTY,
               new DefaultTargetNodeToBuildRuleTransformer())
         ),
-        ImmutableSortedSet.<BuildRule>of()) {
+        ImmutableSortedSet.of()) {
 
       @Override
       public boolean hasTestResultFiles() {
@@ -531,7 +532,8 @@ public class TestRunningTest {
             cachingBuildEngine,
             executionContext,
             testRuleKeyFileHelper,
-            /* results cache enabled */ true,
+            TestRunningOptions.TestResultCacheMode.ENABLED,
+            Callables.<TestResults>returning(null),
             /* running with test selectors */ false,
             /* hasEnvironmentOverrides */ false,
             /* isDryRun */ false));
@@ -553,7 +555,7 @@ public class TestRunningTest {
                 TargetGraph.EMPTY,
                 new DefaultTargetNodeToBuildRuleTransformer())
         ),
-        ImmutableSortedSet.<BuildRule>of()) {
+        ImmutableSortedSet.of()) {
 
       @Override
       public boolean hasTestResultFiles() {
@@ -577,7 +579,8 @@ public class TestRunningTest {
             cachingBuildEngine,
             executionContext,
             testRuleKeyFileHelper,
-            /* results cache enabled */ true,
+            TestRunningOptions.TestResultCacheMode.ENABLED,
+            Callables.<TestResults>returning(null),
             /* running with test selectors */ false,
             /* hasEnvironmentOverrides */ false,
             /* isDryRun */ false));
@@ -588,9 +591,99 @@ public class TestRunningTest {
             cachingBuildEngine,
             executionContext,
             testRuleKeyFileHelper,
-            /* results cache enabled */ true,
+            TestRunningOptions.TestResultCacheMode.ENABLED,
+            Callables.<TestResults>returning(null),
             /* running with test selectors */ false,
             /* hasEnvironmentOverrides */ true,
+            /* isDryRun */ false));
+
+    verify(cachingBuildEngine, testRuleKeyFileHelper);
+  }
+
+  @Test
+  public void testRunWhenPreviouslyFailed() throws Exception {
+    ExecutionContext executionContext = TestExecutionContext.newBuilder()
+        .setDebugEnabled(false)
+        .build();
+
+    FakeTestRule testRule = new FakeTestRule(
+        ImmutableSet.of(Label.of("windows")),
+        BuildTargetFactory.newInstance("//:lulz"),
+        new SourcePathResolver(
+            new BuildRuleResolver(
+                TargetGraph.EMPTY,
+                new DefaultTargetNodeToBuildRuleTransformer())),
+        ImmutableSortedSet.of()) {
+
+      @Override
+      public boolean hasTestResultFiles() {
+        return true;
+      }
+    };
+
+    TestRuleKeyFileHelper testRuleKeyFileHelper = createNiceMock(TestRuleKeyFileHelper.class);
+    expect(testRuleKeyFileHelper.isRuleKeyInDir(testRule)).andReturn(true).times(2);
+
+    CachingBuildEngine cachingBuildEngine = createMock(CachingBuildEngine.class);
+    BuildResult result = BuildResult.success(testRule, MATCHING_RULE_KEY, CacheResult.miss());
+    expect(cachingBuildEngine.getBuildRuleResult(BuildTargetFactory.newInstance("//:lulz")))
+        .andReturn(result).times(2);
+    replay(cachingBuildEngine, testRuleKeyFileHelper);
+
+    final TestResults failedTestResults =
+        FakeTestResults.of(
+            ImmutableList.of(
+                new TestCaseSummary(
+                    "TestCase",
+                    ImmutableList.of(
+                        new TestResultSummary(
+                            "TestCaseResult",
+                            "passTest",
+                            ResultType.FAILURE,
+                            5000,
+                            null,
+                            null,
+                            null,
+                            null)))));
+    assertTrue(
+        "Test will be rerun if it previously failed",
+        TestRunning.isTestRunRequiredForTest(
+            testRule,
+            cachingBuildEngine,
+            executionContext,
+            testRuleKeyFileHelper,
+            TestRunningOptions.TestResultCacheMode.ENABLED_IF_PASSED,
+            Callables.<TestResults>returning(failedTestResults),
+            /* running with test selectors */ false,
+            /* hasEnvironmentOverrides */ false,
+            /* isDryRun */ false));
+
+    final TestResults passedTestResults =
+        FakeTestResults.of(
+            ImmutableList.of(
+                new TestCaseSummary(
+                    "TestCase",
+                    ImmutableList.of(
+                        new TestResultSummary(
+                            "TestCaseResult",
+                            "passTest",
+                            ResultType.SUCCESS,
+                            5000,
+                            null,
+                            null,
+                            null,
+                            null)))));
+    assertFalse(
+        "Test will be not rerun if it previously passed",
+        TestRunning.isTestRunRequiredForTest(
+            testRule,
+            cachingBuildEngine,
+            executionContext,
+            testRuleKeyFileHelper,
+            TestRunningOptions.TestResultCacheMode.ENABLED_IF_PASSED,
+            Callables.<TestResults>returning(passedTestResults),
+            /* running with test selectors */ false,
+            /* hasEnvironmentOverrides */ false,
             /* isDryRun */ false));
 
     verify(cachingBuildEngine, testRuleKeyFileHelper);
@@ -609,7 +702,7 @@ public class TestRunningTest {
             new BuildRuleResolver(
                 TargetGraph.EMPTY,
                 new DefaultTargetNodeToBuildRuleTransformer())),
-        ImmutableSortedSet.<BuildRule>of()) {
+        ImmutableSortedSet.of()) {
 
       @Override
       public boolean hasTestResultFiles() {
@@ -633,7 +726,8 @@ public class TestRunningTest {
             cachingBuildEngine,
             executionContext,
             testRuleKeyFileHelper,
-            /* results cache enabled */ true,
+            TestRunningOptions.TestResultCacheMode.ENABLED,
+            Callables.<TestResults>returning(null),
             /* running with test selectors */ false,
             /* hasEnvironmentOverrides */ false,
             /* isDryRun */ false));
@@ -644,7 +738,8 @@ public class TestRunningTest {
             cachingBuildEngine,
             executionContext,
             testRuleKeyFileHelper,
-            /* results cache enabled */ true,
+            TestRunningOptions.TestResultCacheMode.ENABLED,
+            Callables.<TestResults>returning(null),
             /* running with test selectors */ false,
             /* hasEnvironmentOverrides */ false,
             /* isDryRun */ true));
@@ -688,16 +783,11 @@ public class TestRunningTest {
               TargetGraph.EMPTY,
               new DefaultTargetNodeToBuildRuleTransformer())
         ),
-        ImmutableSet.<Label>of(),
+        ImmutableSet.of(),
         Optional.of(Paths.get("separateTestStep1OutputDir")),
         true, // runTestSeparately
-        ImmutableList.<Step>of(separateTestStep1),
-        new Callable<TestResults>() {
-          @Override
-          public TestResults call() {
-            return fakeTestResults;
-          }
-        });
+        ImmutableList.of(separateTestStep1),
+        () -> fakeTestResults);
 
     ExecutionOrderAwareFakeStep separateTestStep2 =
         new ExecutionOrderAwareFakeStep(
@@ -713,16 +803,11 @@ public class TestRunningTest {
               TargetGraph.EMPTY,
               new DefaultTargetNodeToBuildRuleTransformer())
         ),
-        ImmutableSet.<Label>of(),
+        ImmutableSet.of(),
         Optional.of(Paths.get("separateTestStep2OutputDir")),
         true, // runTestSeparately
-        ImmutableList.<Step>of(separateTestStep2),
-        new Callable<TestResults>() {
-          @Override
-          public TestResults call() {
-            return fakeTestResults;
-          }
-        });
+        ImmutableList.of(separateTestStep2),
+        () -> fakeTestResults);
 
     ExecutionOrderAwareFakeStep separateTestStep3 =
         new ExecutionOrderAwareFakeStep(
@@ -738,16 +823,11 @@ public class TestRunningTest {
               TargetGraph.EMPTY,
               new DefaultTargetNodeToBuildRuleTransformer())
         ),
-        ImmutableSet.<Label>of(),
+        ImmutableSet.of(),
         Optional.of(Paths.get("separateTestStep3OutputDir")),
         true, // runTestSeparately
-        ImmutableList.<Step>of(separateTestStep3),
-        new Callable<TestResults>() {
-          @Override
-          public TestResults call() {
-            return fakeTestResults;
-          }
-        });
+        ImmutableList.of(separateTestStep3),
+        () -> fakeTestResults);
 
     // We explicitly use an actual thread pool here; the logic should ensure the
     // separate tests are run in the correct order.
@@ -768,10 +848,10 @@ public class TestRunningTest {
             separateTest3Target, new RuleKey("00")
         ));
     ExecutionContext fakeExecutionContext = TestExecutionContext.newInstance();
-    DefaultStepRunner stepRunner = new DefaultStepRunner(fakeExecutionContext);
+    DefaultStepRunner stepRunner = new DefaultStepRunner();
     int ret = TestRunning.runTests(
         commandRunnerParams,
-        ImmutableList.<TestRule>of(separateTest1, separateTest2, separateTest3),
+        ImmutableList.of(separateTest1, separateTest2, separateTest3),
         fakeExecutionContext,
         DEFAULT_OPTIONS,
         service,
@@ -836,16 +916,11 @@ public class TestRunningTest {
               TargetGraph.EMPTY,
               new DefaultTargetNodeToBuildRuleTransformer())
         ),
-        ImmutableSet.<Label>of(),
+        ImmutableSet.of(),
         Optional.of(Paths.get("separateTestStep1OutputDir")),
         true, // runTestSeparately
-        ImmutableList.<Step>of(separateTestStep1),
-        new Callable<TestResults>() {
-          @Override
-          public TestResults call() {
-            return fakeTestResults;
-          }
-        });
+        ImmutableList.of(separateTestStep1),
+        () -> fakeTestResults);
 
     ExecutionOrderAwareFakeStep separateTestStep2 =
         new ExecutionOrderAwareFakeStep(
@@ -861,16 +936,11 @@ public class TestRunningTest {
               TargetGraph.EMPTY,
               new DefaultTargetNodeToBuildRuleTransformer())
         ),
-        ImmutableSet.<Label>of(),
+        ImmutableSet.of(),
         Optional.of(Paths.get("separateTestStep2OutputDir")),
         true, // runTestSeparately
-        ImmutableList.<Step>of(separateTestStep2),
-        new Callable<TestResults>() {
-          @Override
-          public TestResults call() {
-            return fakeTestResults;
-          }
-        });
+        ImmutableList.of(separateTestStep2),
+        () -> fakeTestResults);
 
     ExecutionOrderAwareFakeStep separateTestStep3 =
         new ExecutionOrderAwareFakeStep(
@@ -886,16 +956,11 @@ public class TestRunningTest {
               TargetGraph.EMPTY,
               new DefaultTargetNodeToBuildRuleTransformer())
         ),
-        ImmutableSet.<Label>of(),
+        ImmutableSet.of(),
         Optional.of(Paths.get("separateTestStep3OutputDir")),
         true, // runTestSeparately
-        ImmutableList.<Step>of(separateTestStep3),
-        new Callable<TestResults>() {
-          @Override
-          public TestResults call() {
-            return fakeTestResults;
-          }
-        });
+        ImmutableList.of(separateTestStep3),
+        () -> fakeTestResults);
 
     ExecutionOrderAwareFakeStep parallelTestStep1 =
         new ExecutionOrderAwareFakeStep(
@@ -911,16 +976,11 @@ public class TestRunningTest {
               TargetGraph.EMPTY,
               new DefaultTargetNodeToBuildRuleTransformer())
         ),
-        ImmutableSet.<Label>of(),
+        ImmutableSet.of(),
         Optional.of(Paths.get("parallelTestStep1OutputDir")),
         false, // runTestSeparately
-        ImmutableList.<Step>of(parallelTestStep1),
-        new Callable<TestResults>() {
-          @Override
-          public TestResults call() {
-            return fakeTestResults;
-          }
-        });
+        ImmutableList.of(parallelTestStep1),
+        () -> fakeTestResults);
 
     ExecutionOrderAwareFakeStep parallelTestStep2 =
         new ExecutionOrderAwareFakeStep(
@@ -936,16 +996,11 @@ public class TestRunningTest {
               TargetGraph.EMPTY,
               new DefaultTargetNodeToBuildRuleTransformer())
         ),
-        ImmutableSet.<Label>of(),
+        ImmutableSet.of(),
         Optional.of(Paths.get("parallelTestStep2OutputDir")),
         false, // runTestSeparately
-        ImmutableList.<Step>of(parallelTestStep2),
-        new Callable<TestResults>() {
-          @Override
-          public TestResults call() {
-            return fakeTestResults;
-          }
-        });
+        ImmutableList.of(parallelTestStep2),
+        () -> fakeTestResults);
 
     ExecutionOrderAwareFakeStep parallelTestStep3 =
         new ExecutionOrderAwareFakeStep(
@@ -961,16 +1016,11 @@ public class TestRunningTest {
               TargetGraph.EMPTY,
               new DefaultTargetNodeToBuildRuleTransformer())
         ),
-        ImmutableSet.<Label>of(),
+        ImmutableSet.of(),
         Optional.of(Paths.get("parallelTestStep3OutputDir")),
         false, // runTestSeparately
-        ImmutableList.<Step>of(parallelTestStep3),
-        new Callable<TestResults>() {
-          @Override
-          public TestResults call() {
-            return fakeTestResults;
-          }
-        });
+        ImmutableList.of(parallelTestStep3),
+        () -> fakeTestResults);
 
     // We explicitly use an actual thread pool here; the logic should ensure the
     // separate tests are run in the correct order.
@@ -1006,10 +1056,10 @@ public class TestRunningTest {
             .put(parallelTest3Target, new RuleKey("00"))
             .build());
     ExecutionContext fakeExecutionContext = TestExecutionContext.newInstance();
-    DefaultStepRunner stepRunner = new DefaultStepRunner(fakeExecutionContext);
+    DefaultStepRunner stepRunner = new DefaultStepRunner();
     int ret = TestRunning.runTests(
         commandRunnerParams,
-        ImmutableList.<TestRule>of(
+        ImmutableList.of(
             separateTest1,
             parallelTest1,
             separateTest2,
@@ -1114,16 +1164,11 @@ public class TestRunningTest {
               TargetGraph.EMPTY,
               new DefaultTargetNodeToBuildRuleTransformer())
         ),
-        ImmutableSet.<Label>of(),
+        ImmutableSet.of(),
         Optional.of(Paths.get("failingTestStep1OutputDir")),
         true, // runTestSeparately
-        ImmutableList.<Step>of(),
-        new Callable<TestResults>() {
-          @Override
-          public TestResults call() {
-            return failingTestResults;
-          }
-        });
+        ImmutableList.of(),
+        () -> failingTestResults);
 
     ListeningExecutorService service =
         MoreExecutors.listeningDecorator(Executors.newFixedThreadPool(3));
@@ -1135,10 +1180,10 @@ public class TestRunningTest {
             failingTestTarget, new RuleKey("00")
         ));
     ExecutionContext fakeExecutionContext = TestExecutionContext.newInstance();
-    DefaultStepRunner stepRunner = new DefaultStepRunner(fakeExecutionContext);
+    DefaultStepRunner stepRunner = new DefaultStepRunner();
     int ret = TestRunning.runTests(
         commandRunnerParams,
-        ImmutableList.<TestRule>of(failingTest),
+        ImmutableList.of(failingTest),
         fakeExecutionContext,
         DEFAULT_OPTIONS,
         service,

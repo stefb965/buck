@@ -17,7 +17,6 @@ package com.facebook.buck.macho;
 
 import com.facebook.buck.charset.NulTerminatedCharsetDecoder;
 import com.facebook.buck.log.Logger;
-import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
@@ -63,7 +62,7 @@ public class CompDirReplacer {
   private void processThinBinary(
       final MachoMagicInfo magicInfo,
       final String oldCompDir,
-      final String updatedCompDir) throws IOException {
+      final String updatedCompDir) {
     buffer.position(0);
     ImmutableList<SegmentCommand> segmentCommands =
         LoadCommandUtils.findLoadCommandsWithClass(
@@ -92,12 +91,7 @@ public class CompDirReplacer {
           magicInfo,
           segmentCommand,
           nulTerminatedCharsetDecoder,
-          new Function<Section, Boolean>() {
-            @Override
-            public Boolean apply(Section input) {
-              return updateCompDirInSection(input, oldCompDir, updatedCompDir);
-            }
-          });
+          input -> updateCompDirInSection(input, oldCompDir, updatedCompDir));
     } catch (IOException e) {
       LOG.error(e, "Unable to process __DWARF.__debug_str section");
     }

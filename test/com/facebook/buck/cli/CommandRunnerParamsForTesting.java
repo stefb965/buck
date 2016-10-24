@@ -32,6 +32,7 @@ import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.rules.ActionGraphCache;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.ConstructorArgMarshaller;
+import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
 import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.step.ExecutorPool;
@@ -39,19 +40,19 @@ import com.facebook.buck.step.FakeBuildStamper;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.timing.DefaultClock;
 import com.facebook.buck.util.Console;
+import com.facebook.buck.util.FakeProcessExecutor;
 import com.facebook.buck.util.ObjectMappers;
-import com.facebook.buck.util.ProcessManager;
 import com.facebook.buck.util.TriState;
 import com.facebook.buck.util.cache.NullFileHashCache;
 import com.facebook.buck.util.environment.BuildEnvironmentDescription;
 import com.facebook.buck.util.environment.Platform;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.MoreExecutors;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.util.Optional;
 
 public class CommandRunnerParamsForTesting {
 
@@ -86,35 +87,42 @@ public class CommandRunnerParamsForTesting {
       throws IOException, InterruptedException {
     DefaultTypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory(
         ObjectMappers.newDefaultInstance());
-    return new CommandRunnerParams(
-        console,
-        new ByteArrayInputStream("".getBytes("UTF-8")),
-        cell,
-        Main.createAndroidPlatformTargetSupplier(
-            androidDirectoryResolver,
-            new AndroidBuckConfig(FakeBuckConfig.builder().build(), platform),
-            eventBus),
-        artifactCache,
-        eventBus,
-        new Parser(
-            new BroadcastEventListener(),
-            cell.getBuckConfig().getView(ParserConfig.class),
-            typeCoercerFactory, new ConstructorArgMarshaller(typeCoercerFactory)),
-        platform,
-        environment,
-        new FakeBuildStamper(),
-        javaPackageFinder,
-        objectMapper,
-        new DefaultClock(),
-        Optional.<ProcessManager>absent(),
-        webServer,
-        config,
-        new NullFileHashCache(),
-        ImmutableMap.of(
-            ExecutorPool.PROJECT,
-            MoreExecutors.newDirectExecutorService()),
-        BUILD_ENVIRONMENT_DESCRIPTION,
-        new ActionGraphCache(new BroadcastEventListener()));
+    return CommandRunnerParams.builder()
+        .setConsole(console)
+        .setStdIn(new ByteArrayInputStream("".getBytes("UTF-8")))
+        .setCell(cell)
+        .setAndroidPlatformTargetSupplier(
+            Main.createAndroidPlatformTargetSupplier(
+                androidDirectoryResolver,
+                new AndroidBuckConfig(FakeBuckConfig.builder().build(), platform),
+                eventBus))
+        .setArtifactCache(artifactCache)
+        .setBuckEventBus(eventBus)
+        .setParser(
+            new Parser(
+                new BroadcastEventListener(),
+                cell.getBuckConfig().getView(ParserConfig.class),
+                typeCoercerFactory,
+                new ConstructorArgMarshaller(typeCoercerFactory)))
+        .setPlatform(platform)
+        .setEnvironment(environment)
+        .setJavaPackageFinder(javaPackageFinder)
+        .setObjectMapper(objectMapper)
+        .setClock(new DefaultClock())
+        .setProcessManager(Optional.empty())
+        .setWebServer(webServer)
+        .setBuckConfig(config)
+        .setFileHashCache(new NullFileHashCache())
+        .setExecutors(
+            ImmutableMap.of(
+                ExecutorPool.PROJECT,
+                MoreExecutors.newDirectExecutorService()))
+        .setBuildEnvironmentDescription(BUILD_ENVIRONMENT_DESCRIPTION)
+        .setActionGraphCache(new ActionGraphCache(new BroadcastEventListener()))
+        .setKnownBuildRuleTypesFactory(
+            new KnownBuildRuleTypesFactory(new FakeProcessExecutor(), androidDirectoryResolver))
+        .setBuildStamper(new FakeBuildStamper())
+        .build();
   }
 
   public static Builder builder() {
@@ -132,7 +140,7 @@ public class CommandRunnerParamsForTesting {
     private ImmutableMap<String, String> environment = ImmutableMap.copyOf(System.getenv());
     private JavaPackageFinder javaPackageFinder = new FakeJavaPackageFinder();
     private ObjectMapper objectMapper = ObjectMappers.newDefaultInstance();
-    private Optional<WebServer> webServer = Optional.absent();
+    private Optional<WebServer> webServer = Optional.empty();
 
     public CommandRunnerParams build()
         throws IOException, InterruptedException{

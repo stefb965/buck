@@ -20,7 +20,6 @@ import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.io.MorePathsForTests;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
@@ -28,7 +27,6 @@ import com.facebook.buck.rules.FakeCellPathResolver;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 
@@ -40,6 +38,7 @@ import org.junit.rules.ExpectedException;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 
 public class SourcePathTypeCoercerTest {
   private FakeProjectFilesystem projectFilesystem;
@@ -92,10 +91,10 @@ public class SourcePathTypeCoercerTest {
             BuildTarget.of(
                 UnflavoredBuildTarget.of(
                     projectFilesystem.getRootPath(),
-                    Optional.<String>absent(),
+                    Optional.empty(),
                     "//",
                     "hello"),
-                ImmutableSortedSet.<Flavor>of())),
+                ImmutableSortedSet.of())),
         sourcePath);
   }
 
@@ -112,10 +111,10 @@ public class SourcePathTypeCoercerTest {
             BuildTarget.of(
                 UnflavoredBuildTarget.of(
                     projectFilesystem.getRootPath(),
-                    Optional.<String>absent(),
+                    Optional.empty(),
                     "//",
                     "hello"),
-                ImmutableSortedSet.<Flavor>of())),
+                ImmutableSortedSet.of())),
         sourcePath);
   }
 
@@ -141,7 +140,7 @@ public class SourcePathTypeCoercerTest {
                     Optional.of("hello"),
                     "//",
                     "hello"),
-                ImmutableSortedSet.<Flavor>of())),
+                ImmutableSortedSet.of())),
         sourcePath);
   }
 

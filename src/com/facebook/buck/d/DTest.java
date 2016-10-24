@@ -38,10 +38,8 @@ import com.facebook.buck.test.TestResultSummary;
 import com.facebook.buck.test.TestResults;
 import com.facebook.buck.test.TestRunningOptions;
 import com.facebook.buck.test.result.type.ResultType;
-import com.google.common.base.Functions;
-import com.google.common.base.Optional;
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -50,6 +48,7 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -141,67 +140,66 @@ public class DTest extends AbstractBuildRule implements
       final ExecutionContext executionContext,
       boolean isUsingTestSelectors,
       final boolean isDryRun) {
-    return new Callable<TestResults>() {
-      @Override
-      public TestResults call() throws Exception {
-        ResultType resultType = ResultType.FAILURE;
+    return () -> {
+      ResultType resultType = ResultType.FAILURE;
 
-        // Successful exit indicates success.
-        try (ObjectInputStream objectIn = new ObjectInputStream(new FileInputStream(
-                getProjectFilesystem().resolve(getPathToTestExitCode()).toFile()))) {
-          int exitCode = objectIn.readInt();
-          if (exitCode == 0) {
-            resultType = ResultType.SUCCESS;
-          }
-        } catch (IOException e) {
-          // Any IO error means something went awry, so it's a failure.
-          resultType = ResultType.FAILURE;
+      // Successful exit indicates success.
+      try (ObjectInputStream objectIn = new ObjectInputStream(new FileInputStream(
+              getProjectFilesystem().resolve(getPathToTestExitCode()).toFile()))) {
+        int exitCode = objectIn.readInt();
+        if (exitCode == 0) {
+          resultType = ResultType.SUCCESS;
         }
-
-        String testOutput = getProjectFilesystem().readFileIfItExists(
-            getPathToTestOutput()).or("");
-        String message = "";
-        String stackTrace = "";
-        String testName = "";
-        if (resultType == ResultType.FAILURE && !testOutput.isEmpty()) {
-          // We don't get any information on successful runs, but failures usually come with
-          // some information. This code parses it.
-          int firstNewline = testOutput.indexOf('\n');
-          String firstLine = firstNewline == -1
-                ? testOutput
-                : testOutput.substring(0, firstNewline);
-          // First line has format <Exception name>@<location>: <message>
-          // Use <location> as test name, and <message> as message.
-          Pattern firstLinePattern = Pattern.compile("^[^@]*@([^:]*): (.*)");
-          Matcher m = firstLinePattern.matcher(firstLine);
-          if (m.matches()) {
-            testName = m.group(1);
-            message = m.group(2);
-          }
-          // The whole output is actually a stack trace.
-          stackTrace = testOutput;
-        }
-
-        TestResultSummary summary = new TestResultSummary(
-            getBuildTarget().getShortName(),
-            testName,
-            resultType,
-            /* time */ 0,
-            message,
-            stackTrace,
-            testOutput,
-            /* stderr */ "");
-
-        return TestResults.of(
-            getBuildTarget(),
-            ImmutableList.of(
-                new TestCaseSummary(
-                    "main",
-                    ImmutableList.of(summary))
-            ),
-            contacts,
-            FluentIterable.from(labels).transform(Functions.toStringFunction()).toSet());
+      } catch (IOException e) {
+        // Any IO error means something went awry, so it's a failure.
+        resultType = ResultType.FAILURE;
       }
+
+      String testOutput = getProjectFilesystem().readFileIfItExists(
+          getPathToTestOutput()).orElse("");
+      String message = "";
+      String stackTrace = "";
+      String testName = "";
+      if (resultType == ResultType.FAILURE && !testOutput.isEmpty()) {
+        // We don't get any information on successful runs, but failures usually come with
+        // some information. This code parses it.
+        int firstNewline = testOutput.indexOf('\n');
+        String firstLine = firstNewline == -1
+              ? testOutput
+              : testOutput.substring(0, firstNewline);
+        // First line has format <Exception name>@<location>: <message>
+        // Use <location> as test name, and <message> as message.
+        Pattern firstLinePattern = Pattern.compile("^[^@]*@([^:]*): (.*)");
+        Matcher m = firstLinePattern.matcher(firstLine);
+        if (m.matches()) {
+          testName = m.group(1);
+          message = m.group(2);
+        }
+        // The whole output is actually a stack trace.
+        stackTrace = testOutput;
+      }
+
+      TestResultSummary summary = new TestResultSummary(
+          getBuildTarget().getShortName(),
+          testName,
+          resultType,
+          /* time */ 0,
+          message,
+          stackTrace,
+          testOutput,
+          /* stderr */ "");
+
+      return TestResults.of(
+          getBuildTarget(),
+          ImmutableList.of(
+              new TestCaseSummary(
+                  "main",
+                  ImmutableList.of(summary))
+          ),
+          contacts,
+          labels.stream()
+              .map(Object::toString)
+              .collect(MoreCollectors.toImmutableSet()));
     };
   }
 

@@ -17,11 +17,11 @@
 package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.rules.BuildRule;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 
+import java.util.Optional;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -34,14 +34,9 @@ public interface HasMavenCoordinates extends BuildRule {
    */
   Optional<String> getMavenCoords();
 
-  Predicate<BuildRule> MAVEN_COORDS_PRESENT_PREDICATE =
-      new Predicate<BuildRule>() {
-    @Override
-    public boolean apply(BuildRule input) {
-      return input instanceof HasMavenCoordinates &&
+  public static final Predicate<BuildRule> MAVEN_COORDS_PRESENT_PREDICATE =
+      input -> input instanceof HasMavenCoordinates &&
           ((HasMavenCoordinates) input).getMavenCoords().isPresent();
-    }
-  };
 
   Function<BuildRule, String> NORMALIZE_COORDINATE =
       new Function<BuildRule, String>() {

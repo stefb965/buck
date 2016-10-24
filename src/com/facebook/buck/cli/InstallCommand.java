@@ -60,9 +60,7 @@ import com.facebook.buck.util.versioncontrol.VersionControlBuckConfig;
 import com.facebook.infer.annotation.Assertions;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Function;
 import com.google.common.base.Functions;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -78,6 +76,7 @@ import java.io.InputStream;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 
 import javax.annotation.Nullable;
 
@@ -266,7 +265,7 @@ public class InstallCommand extends BuildCommand {
                 started,
                 installResult.getExitCode() == 0,
                 installResult.getLaunchedPid(),
-                Optional.<String>absent()));
+                Optional.empty()));
         exitCode = installResult.getExitCode();
         if (exitCode != 0) {
           return exitCode;
@@ -312,7 +311,7 @@ public class InstallCommand extends BuildCommand {
                         ImmutableList.of(spec),
                         SpeculativeParsing.of(false),
                         parserConfig.getDefaultFlavorsMode()))
-                .transformAndConcat(Functions.<ImmutableSet<BuildTarget>>identity())
+                .transformAndConcat(Functions.identity())
                 .first()
                 .get();
 
@@ -332,13 +331,9 @@ public class InstallCommand extends BuildCommand {
               Optional<BuildTarget> deviceHelperTarget = appleConfig.getAppleDeviceHelperTarget();
               Optionals.addIfPresent(
                   Optionals.bind(deviceHelperTarget,
-                      new Function<BuildTarget, Optional<String>>() {
-                        @Override
-                        public Optional<String> apply(BuildTarget input) {
-                          return !input.toString().isEmpty()
-                              ? Optional.of(input.toString())
-                              : Optional.<String>absent();
-                        }}),
+                      input -> !input.toString().isEmpty()
+                          ? Optional.of(input.toString())
+                          : Optional.empty()),
                   installHelperTargets);
               }
             }
@@ -402,7 +397,7 @@ public class InstallCommand extends BuildCommand {
       AppleBundle appleBundle,
       ProjectFilesystem projectFilesystem,
       ProcessExecutor processExecutor)
-      throws IOException, InterruptedException, NoSuchBuildTargetException {
+      throws IOException, NoSuchBuildTargetException {
     // TODO(bhamiltoncx): This should be shared with the build and passed down.
     AppleConfig appleConfig = new AppleConfig(params.getBuckConfig());
 
@@ -753,9 +748,9 @@ public class InstallCommand extends BuildCommand {
       Path simctlPath) throws IOException, InterruptedException {
     LOG.debug("Choosing simulator for %s", appleBundle);
 
-    Optional<AppleSimulator> simulatorByUdid = Optional.absent();
-    Optional<AppleSimulator> simulatorByName = Optional.absent();
-    Optional<AppleSimulator> defaultSimulator = Optional.absent();
+    Optional<AppleSimulator> simulatorByUdid = Optional.empty();
+    Optional<AppleSimulator> simulatorByName = Optional.empty();
+    Optional<AppleSimulator> defaultSimulator = Optional.empty();
 
     boolean wantUdid = deviceOptions.hasSerialNumber();
     boolean wantName = deviceOptions.getSimulatorName().isPresent();
@@ -790,7 +785,7 @@ public class InstallCommand extends BuildCommand {
         LOG.warn(
             "Asked to find simulator with UDID %s, but couldn't find one.",
             deviceOptions.getSerialNumber());
-        return Optional.<AppleSimulator>absent();
+        return Optional.empty();
       }
     } else if (wantName) {
       if (simulatorByName.isPresent()) {
@@ -799,7 +794,7 @@ public class InstallCommand extends BuildCommand {
         LOG.warn(
             "Asked to find simulator with name %s, but couldn't find one.",
             deviceOptions.getSimulatorName().get());
-        return Optional.<AppleSimulator>absent();
+        return Optional.empty();
       }
     } else {
       return defaultSimulator;

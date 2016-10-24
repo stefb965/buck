@@ -20,16 +20,16 @@ import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.graph.DefaultDirectedAcyclicGraph;
 import com.facebook.buck.graph.DirectedAcyclicGraph;
 import com.facebook.buck.graph.MutableDirectedGraph;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.classes.ClasspathTraversal;
 import com.facebook.buck.jvm.java.classes.ClasspathTraverser;
 import com.facebook.buck.jvm.java.classes.DefaultClasspathTraverser;
 import com.facebook.buck.jvm.java.classes.FileLike;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TargetNode;
 import com.google.common.base.Function;
 import com.google.common.base.Functions;
-import com.google.common.base.Optional;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
@@ -37,8 +37,6 @@ import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
-import com.facebook.buck.model.BuildTarget;
-
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -46,6 +44,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -85,19 +84,22 @@ public class APKModuleGraph {
       });
 
   private final Supplier<APKModule> rootAPKModuleSupplier =
-      Suppliers.memoize(new Supplier<APKModule>() {
-        @Override
-        public APKModule get() {
-          return generateRootModule();
-        }
-      });
+      Suppliers.memoize(this::generateRootModule);
 
   private final Supplier<DirectedAcyclicGraph<APKModule>> graphSupplier =
-      Suppliers.memoize(new Supplier<DirectedAcyclicGraph<APKModule>>() {
-        @Override
-        public DirectedAcyclicGraph<APKModule> get() {
-          return generateGraph();
-        }
+      Suppliers.memoize(this::generateGraph);
+
+  private final Supplier<ImmutableSet<APKModule>> modulesSupplier =
+      Suppliers.memoize(() -> {
+        final ImmutableSet.Builder<APKModule> moduleBuilder = ImmutableSet.builder();
+        new AbstractBreadthFirstTraversal<APKModule>(getRootAPKModule()) {
+          @Override
+          public Iterable<APKModule> visit(APKModule apkModule) throws RuntimeException {
+            moduleBuilder.add(apkModule);
+            return getGraph().getIncomingNodesFor(apkModule);
+          }
+        }.start();
+        return moduleBuilder.build();
       });
 
   /**
@@ -132,6 +134,10 @@ public class APKModuleGraph {
    */
   public APKModule getRootAPKModule() {
     return rootAPKModuleSupplier.get();
+  }
+
+  public ImmutableSet<APKModule> getAPKModules() {
+    return modulesSupplier.get();
   }
 
   /**
@@ -348,9 +354,12 @@ public class APKModuleGraph {
   }
 
   private static String generateNameFromTarget(BuildTarget androidModuleTarget) {
-    String shortName = androidModuleTarget.getShortNameAndFlavorPostfix().replace("#", ".");
-    String name = androidModuleTarget.getBasePath().toString().replaceAll("[/\\\\]", ".");
-    if (androidModuleTarget.getBasePath().endsWith(shortName)) {
+    String replacementPattern = "[/\\\\#-]";
+    String shortName = androidModuleTarget
+        .getShortNameAndFlavorPostfix()
+        .replaceAll(replacementPattern, ".");
+    String name = androidModuleTarget.getBasePath().toString().replaceAll(replacementPattern, ".");
+    if (name.endsWith(shortName)) {
       // return just the base path, ignoring the target name that is the same as its parent
       return name;
     } else {

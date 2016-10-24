@@ -21,13 +21,13 @@ import com.facebook.buck.util.MoreStrings;
 import com.google.common.base.Function;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ComparisonChain;
 import com.google.common.collect.FluentIterable;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -88,13 +88,10 @@ public class RDotTxtEntry implements Comparable<RDotTxtEntry> {
   }
 
   public static final Function<String, RDotTxtEntry> TO_ENTRY =
-      new Function<String, RDotTxtEntry>() {
-        @Override
-        public RDotTxtEntry apply(String input) {
-          Optional<RDotTxtEntry> entry = parse(input);
-          Preconditions.checkState(entry.isPresent(), "Could not parse R.txt entry: '%s'", input);
-          return entry.get();
-        }
+      input -> {
+        Optional<RDotTxtEntry> entry = parse(input);
+        Preconditions.checkState(entry.isPresent(), "Could not parse R.txt entry: '%s'", input);
+        return entry.get();
       };
 
   // An identifier for custom drawables.
@@ -169,7 +166,7 @@ public class RDotTxtEntry implements Comparable<RDotTxtEntry> {
   public static Optional<RDotTxtEntry> parse(String rDotTxtLine) {
     Matcher matcher = TEXT_SYMBOLS_LINE.matcher(rDotTxtLine);
     if (!matcher.matches()) {
-      return Optional.absent();
+      return Optional.empty();
     }
 
     IdType idType = IdType.from(matcher.group(1));

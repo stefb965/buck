@@ -26,7 +26,6 @@ import com.facebook.buck.model.Pair;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.hash.Hashing;
@@ -42,6 +41,7 @@ import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.zip.ZipEntry;
 
@@ -165,14 +165,14 @@ public class ZipStep implements Step {
       @Override
       public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs)
           throws IOException {
-        String entryName = getEntryName(dir) + "/";
-        if ("/".equals(entryName)) {
-          return FileVisitResult.CONTINUE;
+        if (!dir.equals(baseDir) && !isSkipFile(dir)) {
+          CustomZipEntry entry = getZipEntry(getEntryName(dir), dir, attrs);
+          entries.put(entry.getName(), new Pair<>(entry, Optional.empty()));
         }
 
         CustomZipEntry entry = getZipEntry(getEntryName(dir), dir, attrs);
         entry.setCompressionLevel(ZipEntry.STORED);
-        entries.put(entry.getName(), new Pair<>(entry, Optional.<Path>absent()));
+        entries.put(entry.getName(), new Pair<>(entry, Optional.<Path>empty()));
 
         return FileVisitResult.CONTINUE;
       }

@@ -26,8 +26,8 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSortedSet;
+
 
 public class KeystoreDescription implements Description<KeystoreDescription.Arg> {
 
@@ -57,6 +57,6 @@ public class KeystoreDescription implements Description<KeystoreDescription.Arg>
     public SourcePath store;
     public SourcePath properties;
 
-    public Optional<ImmutableSortedSet<BuildTarget>> deps;
+    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
   }
 }

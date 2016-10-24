@@ -27,7 +27,6 @@ import static org.junit.Assert.assertTrue;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.timing.SettableFakeClock;
 import com.google.common.base.Charsets;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
@@ -50,6 +49,7 @@ import java.nio.file.attribute.FileAttribute;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.List;
+import java.util.Optional;
 
 public class FakeProjectFilesystemTest {
 
@@ -76,7 +76,7 @@ public class FakeProjectFilesystemTest {
   public void testReadLines() throws IOException {
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
     filesystem.writeContentsToPath("line one.\nline two.\n", Paths.get("A.txt"));
-    filesystem.writeLinesToPath(ImmutableList.<String>of(), Paths.get("B.txt"));
+    filesystem.writeLinesToPath(ImmutableList.of(), Paths.get("B.txt"));
     filesystem.writeContentsToPath("\n", Paths.get("C.txt"));
 
     MoreAsserts.assertIterablesEquals(

@@ -22,7 +22,6 @@ import com.facebook.buck.jvm.java.FakeJavaPackageFinder;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
@@ -37,7 +36,6 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ZipInspector;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 
 import org.junit.Rule;
@@ -46,6 +44,7 @@ import org.junit.Test;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.EnumSet;
+import java.util.Optional;
 
 public class TrimUberRDotJavaTest {
   @Rule
@@ -53,7 +52,7 @@ public class TrimUberRDotJavaTest {
 
   @Test
   public void testTrimming() throws IOException, InterruptedException {
-    Optional<String> keepResourcePattern = Optional.absent();
+    Optional<String> keepResourcePattern = Optional.empty();
     String rDotJavaContentsAfterFiltering =
         "package com.test;\n" +
             "\n" +
@@ -144,7 +143,7 @@ public class TrimUberRDotJavaTest {
         keepResourcePattern);
 
     BuildContext buildContext = FakeBuildContext.newBuilder()
-        .setActionGraph(new ActionGraph(ImmutableList.<BuildRule>of()))
+        .setActionGraph(new ActionGraph(ImmutableList.of()))
         .setJavaPackageFinder(new FakeJavaPackageFinder())
         .build();
     BuildableContext buildableContext = new FakeBuildableContext();

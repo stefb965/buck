@@ -33,7 +33,6 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.facebook.buck.util.network.RemoteLogBuckConfig;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
@@ -41,16 +40,18 @@ import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 
 import java.io.IOException;
-import java.util.concurrent.Callable;
+import java.util.Optional;
 
 public class PublicAnnouncementManager {
 
   private static final Logger LOG = Logger.get(PublicAnnouncementManager.class);
 
   @VisibleForTesting
-  static final String HEADER_MSG = "::: Public Announcements :::";
+  static final String HEADER_MSG =
+      "**------------------------**\n**- Public Announcements -**\n**------------------------**";
+
   @VisibleForTesting
-  static final String ANNOUNCEMENT_TEMPLATE = "::: Issue: %s Solution: %s";
+  static final String ANNOUNCEMENT_TEMPLATE = "\n** %s %s";
 
   private Clock clock;
   private ExecutionEnvironment executionEnvironment;
@@ -79,37 +80,34 @@ public class PublicAnnouncementManager {
 
   public void getAndPostAnnouncements() {
     final ListenableFuture<ImmutableList<Announcement>> message =
-        service.submit(new Callable<ImmutableList<Announcement>>() {
-          @Override
-          public ImmutableList<Announcement> call() throws Exception {
-            Optional<ClientSideSlb> slb = logConfig.getFrontendConfig()
-                .tryCreatingClientSideSlb(
-                    clock,
-                    eventBus,
-                    new CommandThreadFactory("PublicAnnouncement"));
+        service.submit(() -> {
+          Optional<ClientSideSlb> slb = logConfig.getFrontendConfig()
+              .tryCreatingClientSideSlb(
+                  clock,
+                  eventBus,
+                  new CommandThreadFactory("PublicAnnouncement"));
 
-            if (slb.isPresent()) {
-              try (FrontendService frontendService =
-                  new FrontendService(ThriftOverHttpServiceConfig.of(
-                      new LoadBalancedService(
-                          slb.get(),
-                          logConfig.createOkHttpClient(),
-                          eventBus)))) {
-                AnnouncementRequest announcementRequest = new AnnouncementRequest();
-                announcementRequest.setBuckVersion(getBuckVersion());
-                announcementRequest.setRepository(repository);
-                FrontendRequest request = new FrontendRequest();
-                request.setType(FrontendRequestType.ANNOUNCEMENT);
-                request.setAnnouncementRequest(announcementRequest);
+          if (slb.isPresent()) {
+            try (FrontendService frontendService =
+                new FrontendService(ThriftOverHttpServiceConfig.of(
+                    new LoadBalancedService(
+                        slb.get(),
+                        logConfig.createOkHttpClient(),
+                        eventBus)))) {
+              AnnouncementRequest announcementRequest = new AnnouncementRequest();
+              announcementRequest.setBuckVersion(getBuckVersion());
+              announcementRequest.setRepository(repository);
+              FrontendRequest request = new FrontendRequest();
+              request.setType(FrontendRequestType.ANNOUNCEMENT);
+              request.setAnnouncementRequest(announcementRequest);
 
-                FrontendResponse response = frontendService.makeRequest(request);
-                return ImmutableList.copyOf(response.announcementResponse.announcements);
-                } catch (IOException e) {
-                throw new HumanReadableException("Failed to perform request", e);
-              }
-            } else {
-              throw new HumanReadableException("Failed to establish connection to server.");
+              FrontendResponse response = frontendService.makeRequest(request);
+              return ImmutableList.copyOf(response.announcementResponse.announcements);
+              } catch (IOException e) {
+              throw new HumanReadableException("Failed to perform request", e);
             }
+          } else {
+            throw new HumanReadableException("Failed to establish connection to server.");
           }
         });
 
@@ -119,15 +117,15 @@ public class PublicAnnouncementManager {
       public void onSuccess(ImmutableList<Announcement> announcements) {
         LOG.info("Public announcements fetched successfully.");
         if (!announcements.isEmpty()) {
-          ImmutableList.Builder<String> finalMessages = ImmutableList.builder();
-          finalMessages.add(HEADER_MSG);
-          for (Announcement announcement : announcements) {
-            finalMessages.add(String.format(
-                ANNOUNCEMENT_TEMPLATE,
-                announcement.getErrorMessage(),
-                announcement.getSolutionMessage()));
+          String announcement = HEADER_MSG;
+          for (Announcement entry : announcements) {
+            announcement = announcement.concat(
+                String.format(
+                    ANNOUNCEMENT_TEMPLATE,
+                    entry.getErrorMessage(),
+                    entry.getSolutionMessage()));
           }
-          consoleEventBusListener.setPublicAnnouncements(finalMessages.build());
+          consoleEventBusListener.setPublicAnnouncements(eventBus, Optional.of(announcement));
         }
       }
 

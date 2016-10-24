@@ -18,8 +18,6 @@ package com.facebook.buck.maven;
 
 import static org.eclipse.aether.repository.RepositoryPolicy.CHECKSUM_POLICY_FAIL;
 
-import com.google.common.base.Optional;
-
 import org.apache.maven.repository.internal.MavenRepositorySystemUtils;
 import org.eclipse.aether.artifact.DefaultArtifact;
 import org.eclipse.aether.connector.basic.BasicRepositoryConnectorFactory;
@@ -37,6 +35,7 @@ import org.slf4j.ILoggerFactory;
 import org.slf4j.helpers.NOPLoggerFactory;
 
 import java.net.URL;
+import java.util.Optional;
 
 public class AetherUtil {
 

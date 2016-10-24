@@ -30,14 +30,13 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSortedSet;
 
 import org.hamcrest.Matchers;
 import org.junit.Test;
+
 
 public class PrebuiltCxxLibraryGroupDescriptionTest {
 
@@ -53,11 +52,11 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
     assertThat(
         lib.getCxxPreprocessorInput(CxxPlatformUtils.DEFAULT_PLATFORM, HeaderVisibility.PUBLIC)
             .getPreprocessorFlags(),
-        Matchers.<ImmutableMultimap<CxxSource.Type, String>>equalTo(
+        Matchers.equalTo(
             CxxFlags.getLanguageFlags(
-                Optional.of(ImmutableList.of("-flag")),
-                Optional.<PatternMatchedCollection<ImmutableList<String>>>absent(),
-                Optional.<ImmutableMap<AbstractCxxSource.Type, ImmutableList<String>>>absent(),
+                ImmutableList.of("-flag"),
+                PatternMatchedCollection.of(),
+                ImmutableMap.of(),
                 CxxPlatformUtils.DEFAULT_PLATFORM)));
   }
 
@@ -176,7 +175,71 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
             .build(resolver);
     assertThat(
         lib.getNativeLinkableExportedDeps(CxxPlatformUtils.DEFAULT_PLATFORM),
-        Matchers.<NativeLinkable>contains(dep));
+        Matchers.contains(dep));
+  }
+
+  @Test
+  public void providedSharedLibs() throws Exception {
+    BuildRuleResolver resolver =
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    BuildTarget target = BuildTargetFactory.newInstance("//:lib");
+    SourcePath lib1 = new FakeSourcePath("dir/lib1.so");
+    SourcePath lib2 = new FakeSourcePath("dir/lib2.so");
+    NativeLinkable lib =
+        (NativeLinkable) new PrebuiltCxxLibraryGroupBuilder(target)
+            .setSharedLink(ImmutableList.of("$(lib lib1.so)", "$(lib lib2.so)"))
+            .setSharedLibs(ImmutableMap.of("lib1.so", lib1))
+            .setProvidedSharedLibs(ImmutableMap.of("lib2.so", lib2))
+            .build(resolver);
+    assertThat(
+        lib.getNativeLinkableInput(
+            CxxPlatformUtils.DEFAULT_PLATFORM,
+            Linker.LinkableDepType.SHARED),
+        Matchers.equalTo(
+            NativeLinkableInput.builder()
+                .addArgs(
+                    new SourcePathArg(pathResolver, lib1),
+                    new SourcePathArg(pathResolver, lib2))
+                .build()));
+    assertThat(
+        lib.getSharedLibraries(CxxPlatformUtils.DEFAULT_PLATFORM),
+        Matchers.equalTo(ImmutableMap.of("lib1.so", lib1)));
+  }
+
+  @Test
+  public void preferredLinkage() throws Exception {
+    BuildRuleResolver resolver =
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+
+    NativeLinkable any =
+        (NativeLinkable) new PrebuiltCxxLibraryGroupBuilder(
+            BuildTargetFactory.newInstance("//:any"))
+            .setSharedLink(ImmutableList.of("-something"))
+            .setStaticLink(ImmutableList.of("-something"))
+            .build(resolver);
+    assertThat(
+        any.getPreferredLinkage(CxxPlatformUtils.DEFAULT_PLATFORM),
+        Matchers.equalTo(NativeLinkable.Linkage.ANY));
+
+    NativeLinkable staticOnly =
+        (NativeLinkable) new PrebuiltCxxLibraryGroupBuilder(
+            BuildTargetFactory.newInstance("//:static-only"))
+            .setStaticLink(ImmutableList.of("-something"))
+            .build(resolver);
+    assertThat(
+        staticOnly.getPreferredLinkage(CxxPlatformUtils.DEFAULT_PLATFORM),
+        Matchers.equalTo(NativeLinkable.Linkage.STATIC));
+
+    NativeLinkable sharedOnly =
+        (NativeLinkable) new PrebuiltCxxLibraryGroupBuilder(
+            BuildTargetFactory.newInstance("//:shared-only"))
+            .setSharedLink(ImmutableList.of("-something"))
+            .build(resolver);
+    assertThat(
+        sharedOnly.getPreferredLinkage(CxxPlatformUtils.DEFAULT_PLATFORM),
+        Matchers.equalTo(NativeLinkable.Linkage.SHARED));
+
   }
 
 }

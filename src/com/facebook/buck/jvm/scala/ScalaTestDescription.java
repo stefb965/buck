@@ -19,8 +19,8 @@ package com.facebook.buck.jvm.scala;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.jvm.common.ResourceValidator;
 import com.facebook.buck.jvm.java.CalculateAbi;
-import com.facebook.buck.jvm.java.ForkMode;
 import com.facebook.buck.jvm.java.DefaultJavaLibrary;
+import com.facebook.buck.jvm.java.ForkMode;
 import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaOptions;
 import com.facebook.buck.jvm.java.JavaTest;
@@ -38,13 +38,11 @@ import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.Label;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.Tool;
+import com.facebook.buck.util.OptionalCompat;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Optional;
-import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -53,8 +51,8 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.logging.Level;
-import java.util.regex.Pattern;
 
 public class ScalaTestDescription implements Description<ScalaTestDescription.Arg>,
     ImplicitDepsInferringDescription<ScalaTestDescription.Arg> {
@@ -97,15 +95,10 @@ public class ScalaTestDescription implements Description<ScalaTestDescription.Ar
 
     final BuildRule scalaLibrary = resolver.getRule(config.getScalaLibraryTarget());
     BuildRuleParams params = rawParams.copyWithDeps(
-        new Supplier<ImmutableSortedSet<BuildRule>>() {
-          @Override
-          public ImmutableSortedSet<BuildRule> get() {
-            return ImmutableSortedSet.<BuildRule>naturalOrder()
-                .addAll(rawParams.getDeclaredDeps().get())
-                .add(scalaLibrary)
-                .build();
-          }
-        },
+        () -> ImmutableSortedSet.<BuildRule>naturalOrder()
+            .addAll(rawParams.getDeclaredDeps().get())
+            .add(scalaLibrary)
+            .build(),
         rawParams.getExtraDeps()
     );
 
@@ -131,56 +124,56 @@ public class ScalaTestDescription implements Description<ScalaTestDescription.Ar
                         BuildRules.getExportedRules(
                             Iterables.concat(
                                 params.getDeclaredDeps().get(),
-                                resolver.getAllRules(args.providedDeps.get()))),
+                                resolver.getAllRules(args.providedDeps))),
                         scalac.getDeps(pathResolver)))
                     .withFlavor(JavaTest.COMPILED_TESTS_LIBRARY_FLAVOR),
                 pathResolver,
-                args.srcs.get(),
+                args.srcs,
                 ResourceValidator.validateResources(
                     pathResolver,
                     params.getProjectFilesystem(),
-                    args.resources.get()),
-                /* generatedSourceFolderName */ Optional.<Path>absent(),
-                /* proguardConfig */ Optional.<SourcePath>absent(),
-                /* postprocessClassesCommands */ ImmutableList.<String>of(),
-                /* exportDeps */ ImmutableSortedSet.<BuildRule>of(),
-                /* providedDeps */ ImmutableSortedSet.<BuildRule>of(),
+                    args.resources),
+                /* generatedSourceFolderName */ Optional.empty(),
+                /* proguardConfig */ Optional.empty(),
+                /* postprocessClassesCommands */ ImmutableList.of(),
+                /* exportDeps */ ImmutableSortedSet.of(),
+                /* providedDeps */ ImmutableSortedSet.of(),
                 new BuildTargetSourcePath(abiJarTarget),
                 /* trackClassUsage */ false,
-                /* additionalClasspathEntries */ ImmutableSet.<Path>of(),
+                /* additionalClasspathEntries */ ImmutableSet.of(),
                 new ScalacToJarStepFactory(
                     scalac,
                     ImmutableList.<String>builder()
                         .addAll(config.getCompilerFlags())
-                        .addAll(args.extraArguments.get())
+                        .addAll(args.extraArguments)
                         .build()
                 ),
                 args.resourcesRoot,
                 args.manifestFile,
                 args.mavenCoords,
-                /* tests */ ImmutableSortedSet.<BuildTarget>of(),
-                /* classesToRemoveFromJar */ ImmutableSet.<Pattern>of()));
+                /* tests */ ImmutableSortedSet.of(),
+                /* classesToRemoveFromJar */ ImmutableSet.of()));
 
     JavaTest scalaTest =
         resolver.addToIndex(
             new JavaTest(
                 params.copyWithDeps(
-                    Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of(testsLibrary)),
-                    Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+                    Suppliers.ofInstance(ImmutableSortedSet.of(testsLibrary)),
+                    Suppliers.ofInstance(ImmutableSortedSet.of())),
                 pathResolver,
                 testsLibrary,
                 /* additional test classes */ ImmutableSortedSet.<String>of(),
                 /* additionalClasspathEntries */ ImmutableSet.<Path>of(),
-                args.labels.get(),
-                args.contacts.get(),
-                args.testType.or(TestType.JUNIT),
+                args.labels,
+                args.contacts,
+                args.testType.orElse(TestType.JUNIT),
                 javaOptions.getJavaRuntimeLauncher(),
-                args.vmArgs.get(),
+                args.vmArgs,
                 cxxLibraryEnhancement.nativeLibsEnvironment,
-                args.testRuleTimeoutMs.or(defaultTestRuleTimeoutMs),
-                args.env.get(),
-                args.runTestSeparately.or(false),
-                args.forkMode.or(ForkMode.NONE),
+                args.testRuleTimeoutMs.map(Optional::of).orElse(defaultTestRuleTimeoutMs),
+                args.env,
+                args.runTestSeparately.orElse(false),
+                args.forkMode.orElse(ForkMode.NONE),
                 args.stdOutLogLevel,
                 args.stdErrLogLevel));
 
@@ -201,23 +194,23 @@ public class ScalaTestDescription implements Description<ScalaTestDescription.Ar
       Arg constructorArg) {
     return ImmutableList.<BuildTarget>builder()
         .add(config.getScalaLibraryTarget())
-        .addAll(config.getScalacTarget().asSet())
+        .addAll(OptionalCompat.asSet(config.getScalacTarget()))
         .build();
   }
 
   @SuppressFieldNotInitialized
   public static class Arg extends ScalaLibraryDescription.Arg {
-    public Optional<ImmutableSortedSet<String>> contacts;
-    public Optional<ImmutableSortedSet<Label>> labels;
-    public Optional<ImmutableList<String>> vmArgs;
+    public ImmutableSortedSet<String> contacts = ImmutableSortedSet.of();
+    public ImmutableSortedSet<Label> labels = ImmutableSortedSet.of();
+    public ImmutableList<String> vmArgs = ImmutableList.of();
     public Optional<TestType> testType;
     public Optional<Boolean> runTestSeparately;
     public Optional<ForkMode> forkMode;
     public Optional<Level> stdErrLogLevel;
     public Optional<Level> stdOutLogLevel;
     public Optional<Boolean> useCxxLibraries;
-    public Optional<ImmutableSet<BuildTarget>> cxxLibraryWhitelist;
+    public ImmutableSet<BuildTarget> cxxLibraryWhitelist = ImmutableSet.of();
     public Optional<Long> testRuleTimeoutMs;
-    public Optional<ImmutableMap<String, String>> env;
+    public ImmutableMap<String, String> env = ImmutableMap.of();
   }
 }

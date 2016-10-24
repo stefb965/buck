@@ -24,7 +24,6 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.dalvik.EstimateLinearAllocStep;
 import com.facebook.buck.io.ProjectFilesystem;
@@ -38,6 +37,7 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildOutputInitializer;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeOnDiskBuildInfo;
@@ -83,7 +83,7 @@ public class DexProducedFromJavaLibraryThatContainsClassFilesTest extends EasyMo
         BuildTargetFactory.newInstance(filesystem.getRootPath(), "//foo:bar"),
         pathResolver,
         filesystem,
-        ImmutableSortedSet.<BuildRule>of()) {
+        ImmutableSortedSet.of()) {
       @Override
       public ImmutableSortedMap<String, HashCode> getClassNamesToHashes() {
         return ImmutableSortedMap.of("com/example/Foo", HashCode.fromString("cafebabe"));
@@ -93,7 +93,7 @@ public class DexProducedFromJavaLibraryThatContainsClassFilesTest extends EasyMo
         BuildTargets.getGenPath(filesystem, javaLibraryRule.getBuildTarget(), "%s.jar");
     javaLibraryRule.setOutputFile(jarOutput.toString());
 
-    BuildContext context = createMock(BuildContext.class);
+    BuildContext context = FakeBuildContext.NOOP_CONTEXT;
     FakeBuildableContext buildableContext = new FakeBuildableContext();
 
     replayAll();
@@ -178,9 +178,9 @@ public class DexProducedFromJavaLibraryThatContainsClassFilesTest extends EasyMo
       throws IOException, InterruptedException {
     JavaLibrary javaLibrary = createMock(JavaLibrary.class);
     expect(javaLibrary.getClassNamesToHashes()).andReturn(
-        ImmutableSortedMap.<String, HashCode>of());
+        ImmutableSortedMap.of());
 
-    BuildContext context = createMock(BuildContext.class);
+    BuildContext context = FakeBuildContext.NOOP_CONTEXT;
     FakeBuildableContext buildableContext = new FakeBuildableContext();
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
 

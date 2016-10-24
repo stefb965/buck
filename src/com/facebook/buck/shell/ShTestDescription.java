@@ -17,8 +17,8 @@
 package com.facebook.buck.shell;
 
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.MacroException;
 import com.facebook.buck.rules.AbstractDescriptionArg;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
@@ -34,14 +34,11 @@ import com.facebook.buck.rules.args.MacroArg;
 import com.facebook.buck.rules.macros.ClasspathMacroExpander;
 import com.facebook.buck.rules.macros.ExecutableMacroExpander;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
-import com.facebook.buck.model.MacroException;
-import com.facebook.buck.rules.macros.MacroExpander;
 import com.facebook.buck.rules.macros.MacroHandler;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Function;
-import com.google.common.base.Optional;
-import com.google.common.base.Supplier;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -52,6 +49,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Ordering;
 
 import java.nio.file.Path;
+import java.util.Optional;
 
 public class ShTestDescription implements
     Description<ShTestDescription.Arg>,
@@ -61,7 +59,7 @@ public class ShTestDescription implements
 
   private static final MacroHandler MACRO_HANDLER =
       new MacroHandler(
-          ImmutableMap.<String, MacroExpander>of(
+          ImmutableMap.of(
               "location", new LocationMacroExpander(),
               "classpath", new ClasspathMacroExpander(),
               "exe", new ExecutableMacroExpander()));
@@ -97,35 +95,30 @@ public class ShTestDescription implements
             params.getCellRoots(),
             resolver);
     final ImmutableList<com.facebook.buck.rules.args.Arg> testArgs =
-        FluentIterable.from(args.args.or(ImmutableList.<String>of()))
-            .transform(toArg)
-            .toList();
+        args.args.stream()
+            .map(toArg::apply)
+            .collect(MoreCollectors.toImmutableList());
     final ImmutableMap<String, com.facebook.buck.rules.args.Arg> testEnv =
         ImmutableMap.copyOf(
             Maps.transformValues(
-                args.env.or(ImmutableMap.<String, String>of()),
+                args.env,
                 toArg));
     return new ShTest(
         params.appendExtraDeps(
-            new Supplier<Iterable<? extends BuildRule>>() {
-              @Override
-              public Iterable<? extends BuildRule> get() {
-                return FluentIterable.from(testArgs)
-                    .append(testEnv.values())
-                    .transformAndConcat(
-                        com.facebook.buck.rules.args.Arg.getDepsFunction(pathResolver));
-              }
-            }),
+            () -> FluentIterable.from(testArgs)
+                .append(testEnv.values())
+                .transformAndConcat(
+                    com.facebook.buck.rules.args.Arg.getDepsFunction(pathResolver))),
         pathResolver,
         args.test,
         testArgs,
         testEnv,
-        FluentIterable.from(args.resources.or(ImmutableSortedSet.<Path>of()))
+        FluentIterable.from(args.resources)
             .transform(SourcePaths.toSourcePath(params.getProjectFilesystem()))
             .toSortedSet(Ordering.natural()),
-        args.testRuleTimeoutMs.or(defaultTestRuleTimeoutMs),
-        args.labels.get(),
-        args.contacts.or(ImmutableSet.<String>of()));
+        args.testRuleTimeoutMs.map(Optional::of).orElse(defaultTestRuleTimeoutMs),
+        args.labels,
+        args.contacts);
   }
 
   @Override
@@ -138,8 +131,8 @@ public class ShTestDescription implements
     // Add parse time deps for any macros.
     for (String blob :
          Iterables.concat(
-             constructorArg.args.or(ImmutableList.<String>of()),
-             constructorArg.env.or(ImmutableMap.<String, String>of()).values())) {
+             constructorArg.args,
+             constructorArg.env.values())) {
       try {
         deps.addAll(MACRO_HANDLER.extractParseTimeDeps(buildTarget, cellRoots, blob));
       } catch (MacroException e) {
@@ -153,13 +146,13 @@ public class ShTestDescription implements
   @SuppressFieldNotInitialized
   public static class Arg extends AbstractDescriptionArg {
     public SourcePath test;
-    public Optional<ImmutableList<String>> args;
-    public Optional<ImmutableSet<String>> contacts;
-    public Optional<ImmutableSortedSet<Label>> labels;
+    public ImmutableList<String> args = ImmutableList.of();
+    public ImmutableSet<String> contacts = ImmutableSet.of();
+    public ImmutableSortedSet<Label> labels = ImmutableSortedSet.of();
     public Optional<Long> testRuleTimeoutMs;
-    public Optional<ImmutableSortedSet<BuildTarget>> deps;
-    public Optional<ImmutableSortedSet<Path>> resources;
-    public Optional<ImmutableMap<String, String>> env;
+    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
+    public ImmutableSortedSet<Path> resources = ImmutableSortedSet.of();
+    public ImmutableMap<String, String> env = ImmutableMap.of();
   }
 
 }

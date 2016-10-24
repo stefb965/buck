@@ -21,6 +21,8 @@ import com.facebook.buck.android.AndroidLibraryDescription;
 import com.facebook.buck.android.AndroidResourceDescription;
 import com.facebook.buck.android.RobolectricTestDescription;
 import com.facebook.buck.cxx.CxxLibraryDescription;
+import com.facebook.buck.jvm.groovy.GroovyLibraryDescription;
+import com.facebook.buck.jvm.groovy.GroovyTestDescription;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
 import com.facebook.buck.jvm.java.JavaTestDescription;
 import com.facebook.buck.jvm.java.JavacOptions;
@@ -31,8 +33,7 @@ import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetNode;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.FluentIterable;
@@ -49,6 +50,7 @@ import java.nio.file.Paths;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Builds {@link IjModule}s out of {@link TargetNode}s.
@@ -65,15 +67,12 @@ public class IjModuleFactory {
       CxxLibraryDescription.TYPE,
       JavaLibraryDescription.TYPE,
       JavaTestDescription.TYPE,
-      RobolectricTestDescription.TYPE);
+      RobolectricTestDescription.TYPE,
+      GroovyLibraryDescription.TYPE,
+      GroovyTestDescription.TYPE);
 
   public static final Predicate<TargetNode<?>> SUPPORTED_MODULE_TYPES_PREDICATE =
-      new Predicate<TargetNode<?>>() {
-        @Override
-        public boolean apply(TargetNode<?> input) {
-          return SUPPORTED_MODULE_TYPES.contains(input.getType());
-        }
-      };
+      input -> SUPPORTED_MODULE_TYPES.contains(input.getType());
 
   /**
    * Provides the {@link IjModuleFactory} with {@link Path}s to various elements of the project.
@@ -92,6 +91,13 @@ public class IjModuleFactory {
      * @return path on disk to the AndroidManifest.
      */
     Path getAndroidManifestPath(TargetNode<AndroidBinaryDescription.Arg> targetNode);
+
+    /**
+     * @param targetNode node describing the Android library to get the manifest of.
+     * @return path on disk to the AndroidManifest.
+     */
+    Optional<Path> getLibraryAndroidManifestPath(
+        TargetNode<AndroidLibraryDescription.Arg> targetNode);
 
     /**
      * @param targetNode node describing the Android binary to get the Proguard config of.
@@ -135,7 +141,7 @@ public class IjModuleFactory {
 
     public ModuleBuildContext(ImmutableSet<BuildTarget> circularDependencyInducingTargets) {
       this.circularDependencyInducingTargets = circularDependencyInducingTargets;
-      this.androidFacetBuilder = Optional.absent();
+      this.androidFacetBuilder = Optional.empty();
       this.extraClassPathDependenciesBuilder = new ImmutableSet.Builder<>();
       this.generatedSourceCodeFoldersBuilder = ImmutableSet.builder();
       this.sourceFoldersMergeMap = new HashMap<>();
@@ -155,13 +161,7 @@ public class IjModuleFactory {
     }
 
     public Optional<IjModuleAndroidFacet> getAndroidFacet() {
-      return androidFacetBuilder.transform(
-          new Function<IjModuleAndroidFacet.Builder, IjModuleAndroidFacet>() {
-            @Override
-            public IjModuleAndroidFacet apply(IjModuleAndroidFacet.Builder input) {
-              return input.build();
-            }
-          });
+      return androidFacetBuilder.map(IjModuleAndroidFacet.Builder::build);
     }
 
     public ImmutableSet<IjFolder> getSourceFolders() {
@@ -217,7 +217,7 @@ public class IjModuleFactory {
     public void addDeps(
         ImmutableSet<BuildTarget> buildTargets,
         IjModuleGraph.DependencyType dependencyType) {
-      addDeps(ImmutableSet.<Path>of(), buildTargets, dependencyType);
+      addDeps(ImmutableSet.of(), buildTargets, dependencyType);
     }
 
     public void addCompileShadowDep(BuildTarget buildTarget) {
@@ -317,6 +317,8 @@ public class IjModuleFactory {
     addToIndex(new JavaLibraryModuleRule());
     addToIndex(new JavaTestModuleRule());
     addToIndex(new RobolectricTestModuleRule());
+    addToIndex(new GroovyLibraryModuleRule());
+    addToIndex(new GroovyTestModuleRule());
 
     this.moduleFactoryResolver = moduleFactoryResolver;
 
@@ -344,9 +346,9 @@ public class IjModuleFactory {
     Preconditions.checkArgument(!targetNodes.isEmpty());
 
 
-    ImmutableSet<BuildTarget> moduleBuildTargets = FluentIterable.from(targetNodes)
-        .transform(HasBuildTarget.TO_TARGET)
-        .toSet();
+    ImmutableSet<BuildTarget> moduleBuildTargets = targetNodes.stream()
+        .map(HasBuildTarget::getBuildTarget)
+        .collect(MoreCollectors.toImmutableSet());
 
     ModuleBuildContext context = new ModuleBuildContext(moduleBuildTargets);
 
@@ -364,7 +366,7 @@ public class IjModuleFactory {
     if (sourceLevel.isPresent()) {
       sdkName = getSdkName(sourceLevel.get(), sdkType);
     } else {
-      sdkName = Optional.absent();
+      sdkName = Optional.empty();
     }
 
     return IjModule.builder()
@@ -383,7 +385,7 @@ public class IjModuleFactory {
 
   private Optional<String> getSourceLevel(
       Iterable<TargetNode<?>> targetNodes) {
-    Optional<String> result = Optional.absent();
+    Optional<String> result = Optional.empty();
     for (TargetNode<?> targetNode : targetNodes) {
       BuildRuleType type = targetNode.getType();
       if (!type.equals(JavaLibraryDescription.TYPE)) {
@@ -394,8 +396,8 @@ public class IjModuleFactory {
       String defaultSourceLevel = defaultJavacOptions.getSourceLevel();
       String defaultTargetLevel = defaultJavacOptions.getTargetLevel();
       JavaLibraryDescription.Arg arg = (JavaLibraryDescription.Arg) targetNode.getConstructorArg();
-      if (!defaultSourceLevel.equals(arg.source.or(defaultSourceLevel)) ||
-          !defaultTargetLevel.equals(arg.target.or(defaultTargetLevel))) {
+      if (!defaultSourceLevel.equals(arg.source.orElse(defaultSourceLevel)) ||
+          !defaultTargetLevel.equals(arg.target.orElse(defaultTargetLevel))) {
         result = arg.source;
       }
     }
@@ -419,7 +421,7 @@ public class IjModuleFactory {
   }
 
   private Optional<String> getSdkName(String sourceLevel, String sdkType) {
-    Optional<String> sdkName = Optional.absent();
+    Optional<String> sdkName = Optional.empty();
     if (SDK_TYPE_JAVA.equals(sdkType)) {
       sdkName = projectConfig.getJavaLibrarySdkNameForSourceLevel(sourceLevel);
     }
@@ -436,15 +438,12 @@ public class IjModuleFactory {
       ImmutableSet<Path> paths) {
     return FluentIterable.from(paths)
         .index(
-            new Function<Path, Path>() {
-              @Override
-              public Path apply(Path input) {
-                Path parent = input.getParent();
-                if (parent == null) {
-                  return Paths.get("");
-                }
-                return parent;
+            input -> {
+              Path parent = input.getParent();
+              if (parent == null) {
+                return Paths.get("");
               }
+              return parent;
             });
   }
 
@@ -452,18 +451,10 @@ public class IjModuleFactory {
    * @param paths paths to check
    * @return whether any of the paths pointed to something not in the source tree.
    */
-  private static boolean containsNonSourcePath(Optional<? extends Iterable<SourcePath>> paths) {
-    if (!paths.isPresent()) {
-      return false;
-    }
-    return FluentIterable.from(paths.get())
+  private static boolean containsNonSourcePath(Iterable<SourcePath> paths) {
+    return FluentIterable.from(paths)
         .anyMatch(
-            new Predicate<SourcePath>() {
-              @Override
-              public boolean apply(SourcePath input) {
-                return !(input instanceof PathSourcePath);
-              }
-            });
+            input -> !(input instanceof PathSourcePath));
   }
 
   /**
@@ -567,7 +558,7 @@ public class IjModuleFactory {
 
     T arg = targetNode.getConstructorArg();
     // TODO(marcinkosiba): investigate supporting annotation processors without resorting to this.
-    boolean hasAnnotationProcessors = !arg.annotationProcessors.get().isEmpty();
+    boolean hasAnnotationProcessors = !arg.annotationProcessors.isEmpty();
     if (containsNonSourcePath(arg.srcs) || hasAnnotationProcessors) {
       context.addCompileShadowDep(targetNode.getBuildTarget());
     }
@@ -592,7 +583,7 @@ public class IjModuleFactory {
         folderFactory.create(
             annotationOutputPath,
             false,
-            ImmutableSortedSet.<Path>of(annotationOutputPath))
+            ImmutableSortedSet.of(annotationOutputPath))
     );
   }
 
@@ -637,9 +628,14 @@ public class IjModuleFactory {
       if (dummyRDotJavaClassPath.isPresent()) {
         context.addExtraClassPathDependency(dummyRDotJavaClassPath.get());
       }
-      context.getOrCreateAndroidFacetBuilder()
-          .setAutogenerateSources(autogenerateAndroidFacetSources)
-          .setAndroidLibrary(true);
+
+      IjModuleAndroidFacet.Builder builder = context.getOrCreateAndroidFacetBuilder();
+      Optional<Path> manifestPath = moduleFactoryResolver.getLibraryAndroidManifestPath(target);
+      if (manifestPath.isPresent()) {
+        builder.setManifestPath(manifestPath.get());
+      }
+      builder.setAutogenerateSources(autogenerateAndroidFacetSources);
+      builder.setAndroidLibrary(true);
     }
   }
 
@@ -679,7 +675,7 @@ public class IjModuleFactory {
           );
         }
       } else {
-        resourceFolders = ImmutableSet.<Path>of();
+        resourceFolders = ImmutableSet.of();
       }
 
       androidFacetBuilder.setPackageName(target.getConstructorArg().rDotJavaPackage);
@@ -725,6 +721,38 @@ public class IjModuleFactory {
           true /* wantsPackagePrefix */,
           context);
       addCompiledShadowIfNeeded(target, context);
+    }
+  }
+
+  private class GroovyLibraryModuleRule implements IjModuleRule<GroovyLibraryDescription.Arg> {
+
+    @Override
+    public BuildRuleType getType() {
+      return GroovyLibraryDescription.TYPE;
+    }
+
+    @Override
+    public void apply(TargetNode<GroovyLibraryDescription.Arg> target, ModuleBuildContext context) {
+      addDepsAndSources(
+          target,
+          false /* wantsPackagePrefix */,
+          context);
+    }
+  }
+
+  private class GroovyTestModuleRule implements IjModuleRule<GroovyTestDescription.Arg> {
+
+    @Override
+    public BuildRuleType getType() {
+      return GroovyTestDescription.TYPE;
+    }
+
+    @Override
+    public void apply(TargetNode<GroovyTestDescription.Arg> target, ModuleBuildContext context) {
+      addDepsAndTestSources(
+          target,
+          false /* wantsPackagePrefix */,
+          context);
     }
   }
 

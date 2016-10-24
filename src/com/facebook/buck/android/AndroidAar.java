@@ -19,7 +19,6 @@ package com.facebook.buck.android;
 import static com.facebook.buck.rules.BuildableProperties.Kind.ANDROID;
 import static com.facebook.buck.rules.BuildableProperties.Kind.PACKAGING;
 
-import com.facebook.buck.android.NdkCxxPlatforms.TargetCpuType;
 import com.facebook.buck.jvm.java.HasClasspathEntries;
 import com.facebook.buck.jvm.java.JarDirectoryStep;
 import com.facebook.buck.jvm.java.JavaLibrary;
@@ -40,13 +39,13 @@ import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.zip.ZipCompressionLevel;
 import com.facebook.buck.zip.ZipStep;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
+import java.util.Optional;
 
 public class AndroidAar extends AbstractBuildRule implements HasClasspathEntries {
 
@@ -148,7 +147,7 @@ public class AndroidAar extends AbstractBuildRule implements HasClasspathEntries
           getProjectFilesystem(),
           getResolver().getAbsolutePath(dir),
           temp.resolve("assets").resolve("lib"),
-          ImmutableSet.<TargetCpuType>of(),
+          ImmutableSet.of(),
           commands);
     }
 
@@ -158,7 +157,7 @@ public class AndroidAar extends AbstractBuildRule implements HasClasspathEntries
         new ZipStep(
             getProjectFilesystem(),
             pathToOutputFile,
-            ImmutableSet.<Path>of(),
+            ImmutableSet.of(),
             false,
             ZipCompressionLevel.DEFAULT_COMPRESSION_LEVEL,
             temp));

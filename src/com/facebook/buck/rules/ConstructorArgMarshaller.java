@@ -18,10 +18,9 @@ package com.facebook.buck.rules;
 
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
+import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Optional;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableSet;
@@ -31,8 +30,8 @@ import java.lang.reflect.Modifier;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 
 /**
@@ -72,7 +71,7 @@ public class ConstructorArgMarshaller {
    * </ul>
    *
    * Any property that is marked as being an {@link Optional} field will be set to a default value
-   * if none is set. This is typically {@link Optional#absent()}, but in the case of collections is
+   * if none is set. This is typically {@link Optional#empty()}, but in the case of collections is
    * an empty collection.
    * @param params The parameters to be used to populate the {@code dto} instance.
    * @param dto The constructor dto to be populated.
@@ -86,7 +85,7 @@ public class ConstructorArgMarshaller {
       Object dto,
       ImmutableSet.Builder<BuildTarget> declaredDeps,
       ImmutableSet.Builder<VisibilityPattern> visibilityPatterns,
-      Map<String, ?> instance) throws ConstructorArgMarshalException, NoSuchBuildTargetException {
+      Map<String, ?> instance) throws ConstructorArgMarshalException {
     for (ParamInfo info : getAllParamInfo(dto)) {
       try {
         info.setFromParams(cellRoots, filesystem, params, dto, instance);
@@ -97,7 +96,7 @@ public class ConstructorArgMarshaller {
         populateDeclaredDeps(info, declaredDeps, dto);
       }
     }
-    populateVisibilityPatterns(cellRoots, visibilityPatterns, instance);
+    populateVisibilityPatterns(cellRoots, visibilityPatterns, instance, params.target);
   }
 
   /**
@@ -129,14 +128,11 @@ public class ConstructorArgMarshaller {
 
     if (paramInfo.isDep()) {
       paramInfo.traverse(
-          new ParamInfo.Traversal() {
-            @Override
-            public void traverse(Object object) {
-              if (!(object instanceof BuildTarget)) {
-                return;
-              }
-              declaredDeps.add((BuildTarget) object);
+          object -> {
+            if (!(object instanceof BuildTarget)) {
+              return;
             }
+            declaredDeps.add((BuildTarget) object);
           },
           dto);
 
@@ -147,7 +143,8 @@ public class ConstructorArgMarshaller {
   private void populateVisibilityPatterns(
       CellPathResolver cellNames,
       ImmutableSet.Builder<VisibilityPattern> visibilityPatterns,
-      Map<String, ?> instance) throws NoSuchBuildTargetException {
+      Map<String, ?> instance,
+      BuildTarget target) {
     Object value = instance.get("visibility");
     if (value != null) {
       if (!(value instanceof List)) {
@@ -157,7 +154,20 @@ public class ConstructorArgMarshaller {
 
       VisibilityPatternParser parser = new VisibilityPatternParser();
       for (String visibility : (List<String>) value) {
-        visibilityPatterns.add(parser.parse(cellNames, visibility));
+        try {
+          visibilityPatterns.add(parser.parse(cellNames, visibility));
+        } catch (IllegalArgumentException e) {
+          throw new HumanReadableException(
+              e,
+              "Bad visibility expression: %s listed %s in its visibility argument, but only %s, " +
+                  "%s, or fully qualified target patterns are allowed (i.e. those starting with " +
+                  "// or a cell).",
+              target.getFullyQualifiedName(),
+              visibility,
+              VisibilityPatternParser.VISIBILITY_PUBLIC,
+              VisibilityPatternParser.VISIBILITY_GROUP
+          );
+        }
       }
     }
   }
@@ -165,21 +175,18 @@ public class ConstructorArgMarshaller {
   ImmutableSet<ParamInfo> getAllParamInfo(Object dto) {
     final Class<?> argClass = dto.getClass();
     try {
-      return coercedTypes.get(argClass, new Callable<ImmutableSet<ParamInfo>>() {
-            @Override
-            public ImmutableSet<ParamInfo> call() {
-              ImmutableSet.Builder<ParamInfo> allInfo = ImmutableSet.builder();
+      return coercedTypes.get(argClass, () -> {
+        ImmutableSet.Builder<ParamInfo> allInfo = ImmutableSet.builder();
 
-              for (Field field : argClass.getFields()) {
-                if (Modifier.isFinal(field.getModifiers())) {
-                  continue;
-                }
-                allInfo.add(new ParamInfo(typeCoercerFactory, field));
-              }
+        for (Field field : argClass.getFields()) {
+          if (Modifier.isFinal(field.getModifiers())) {
+            continue;
+          }
+          allInfo.add(new ParamInfo(typeCoercerFactory, argClass, field));
+        }
 
-              return allInfo.build();
-            }
-          });
+        return allInfo.build();
+      });
     } catch (ExecutionException e) {
       // This gets thrown if we saw an error when loading the value. Nothing sane to do here, and
       // we (previously, before using a cache), simply allowed a RuntimeException to bubble up.

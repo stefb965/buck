@@ -23,8 +23,6 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.EnvironmentFilter;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Splitter;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
@@ -37,6 +35,7 @@ import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 
 /**
  * Given the name of an executable, search a set of (possibly platform-specific) known locations for
@@ -58,20 +57,6 @@ public class ExecutableFinder {
           ".vbs",
           ".wsf",
           ".wsh");
-  // Avoid using MorePaths.TO_PATH because of circular deps in this package
-  private static final Function<String, Path> TO_PATH = new Function<String, Path>() {
-    @Override
-    public Path apply(String path) {
-      return Paths.get(path);
-    }
-  };
-
-  private static final Function<Path, Boolean> IS_EXECUTABLE = new Function<Path, Boolean>() {
-    @Override
-    public Boolean apply(Path path) {
-      return ExecutableFinder.isExecutable(path);
-    }
-  };
 
   private final Platform platform;
 
@@ -110,7 +95,7 @@ public class ExecutableFinder {
     return getOptionalExecutable(
         suggestedExecutable,
         ImmutableSet.of(basePath),
-        getExecutableSuffixes(ImmutableMap.<String, String>of()));
+        getExecutableSuffixes(ImmutableMap.of()));
   }
 
   public Optional<Path> getOptionalExecutable(
@@ -129,7 +114,7 @@ public class ExecutableFinder {
             suggestedExecutable.toString(),
             ImmutableSet.copyOf(fileSuffixes)),
         path,
-        IS_EXECUTABLE);
+        ExecutableFinder::isExecutable);
     LOG.debug("Executable '%s' mapped to '%s'", suggestedExecutable, executable);
 
     return executable;
@@ -173,7 +158,7 @@ public class ExecutableFinder {
       pathEnv = pathEnv.trim();
       paths.addAll(
           FluentIterable.from(Splitter.on(pathSeparator).omitEmptyStrings().split(pathEnv))
-              .transform(TO_PATH));
+              .transform(Paths::get));
     }
 
     if (platform == Platform.MACOS) {
@@ -182,7 +167,7 @@ public class ExecutableFinder {
         try {
           paths.addAll(
               FluentIterable.from(Files.readAllLines(osXPaths, Charset.defaultCharset()))
-                  .transform(TO_PATH));
+                  .transform(Paths::get));
         } catch (IOException e) {
           LOG.warn("Unable to read mac-specific paths. Skipping");
         }
@@ -211,6 +196,6 @@ public class ExecutableFinder {
     return getOptionalExecutable(
         Paths.get(tool),
         toolSearchPaths,
-        ImmutableSet.<String>of());
+        ImmutableSet.of());
   }
 }

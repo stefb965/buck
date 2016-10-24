@@ -40,8 +40,8 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.OptionalCompat;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
@@ -55,6 +55,7 @@ import com.google.common.collect.Lists;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class ThriftLibraryDescription
   implements
@@ -137,7 +138,7 @@ public class ThriftLibraryDescription
       public ImmutableSet<BuildRule> visit(BuildRule rule) {
         ThriftLibrary thriftRule = (ThriftLibrary) rule;
         depsBuilder.add(thriftRule);
-        return ImmutableSet.<BuildRule>copyOf(thriftRule.getThriftDeps());
+        return ImmutableSet.copyOf(thriftRule.getThriftDeps());
       }
     }.start();
 
@@ -174,7 +175,7 @@ public class ThriftLibraryDescription
       includesBuilder.putAll(dep.getIncludes());
       includeTreeRulesBuilder.add(dep.getIncludeTreeRule());
       includeRootsBuilder.add(dep.getIncludeTreeRule().getIncludePath());
-      headerMapsBuilder.addAll(dep.getIncludeTreeRule().getHeaderMap().asSet());
+      headerMapsBuilder.addAll(OptionalCompat.asSet(dep.getIncludeTreeRule().getHeaderMap()));
     }
     ImmutableMap<Path, SourcePath> includes = includesBuilder.build();
     ImmutableSortedSet<HeaderSymlinkTree> includeTreeRules = includeTreeRulesBuilder.build();
@@ -208,7 +209,7 @@ public class ThriftLibraryDescription
                                       .build()))
                           .addAll(includeTreeRules)
                           .build()),
-                  Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+                  Suppliers.ofInstance(ImmutableSortedSet.of())),
               pathResolver,
               compiler,
               flags,
@@ -268,7 +269,7 @@ public class ThriftLibraryDescription
     ImmutableSortedSet<ThriftLibrary> thriftDeps =
         resolveThriftDeps(
             target,
-            resolver.getAllRules(args.deps.or(ImmutableSortedSet.<BuildTarget>of())));
+            resolver.getAllRules(args.deps));
 
     // The unflavored version of this rule is responsible for setting up the the various
     // build rules to facilitate dependents including it's thrift sources.
@@ -292,8 +293,8 @@ public class ThriftLibraryDescription
         new HeaderSymlinkTree(
             params.copyWithChanges(
                 symlinkTreeTarget,
-                Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
-                Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+                Suppliers.ofInstance(ImmutableSortedSet.of()),
+                Suppliers.ofInstance(ImmutableSortedSet.of())),
             pathResolver,
             includeRoot,
             includes);
@@ -331,9 +332,9 @@ public class ThriftLibraryDescription
         Iterables.concat(
             BuildTargets.propagateFlavorDomains(
                 target,
-                ImmutableList.<FlavorDomain<?>>of(enhancers),
+                ImmutableList.of(enhancers),
                 FluentIterable.from(thriftDeps)
-                    .transform(HasBuildTarget.TO_TARGET)),
+                    .transform(HasBuildTarget::getBuildTarget)),
             implicitDeps));
 
     // Form the set of generated sources, so that compiler rules know what output paths to record.
@@ -357,7 +358,7 @@ public class ThriftLibraryDescription
             params,
             resolver,
             enhancer.getCompilerType(),
-            args.flags.or(ImmutableList.<String>of()),
+            args.flags,
             language,
             options,
             namedSources,
@@ -436,13 +437,13 @@ public class ThriftLibraryDescription
     deps.addAll(
         BuildTargets.propagateFlavorDomains(
             buildTarget,
-            ImmutableList.<FlavorDomain<?>>of(enhancers),
-            arg.deps.get()));
+            ImmutableList.of(enhancers),
+            arg.deps));
 
     // Add the compiler target, if there is one.
     deps.addAll(
-        thriftBuckConfig.getCompilerTarget(
-            enhancerFlavor.get().getValue().getCompilerType()).asSet());
+        OptionalCompat.asSet(thriftBuckConfig.getCompilerTarget(
+            enhancerFlavor.get().getValue().getCompilerType())));
 
     // Grab the language specific implicit dependencies and add their raw target representations
     // to our list.

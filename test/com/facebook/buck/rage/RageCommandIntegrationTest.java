@@ -36,12 +36,10 @@ import com.facebook.buck.timing.Clock;
 import com.facebook.buck.timing.DefaultClock;
 import com.facebook.buck.util.CapturingPrintStream;
 import com.facebook.buck.util.Console;
+import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ObjectMappers;
-import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.versioncontrol.NoOpCmdLineInterface;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.base.Functions;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -58,6 +56,7 @@ import org.junit.rules.ExpectedException;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
 import javax.servlet.ServletException;
@@ -74,13 +73,10 @@ public class RageCommandIntegrationTest {
   @Rule
   public ExpectedException expectedException = ExpectedException.none();
 
-  private static final ExtraInfoCollector EMPTY_EXTRA_INFO_HELPER = new ExtraInfoCollector() {
-    @Override
-    public Optional<ExtraInfoResult> run()
-        throws IOException, InterruptedException, ExtraInfoExecutionException {
-      return Optional.absent();
-    }
-  };
+  private static final String BUILD_COMMAND_DIR_PATH = "buck-out/log/" +
+          "2016-06-21_16h16m24s_buildcommand_ac8bd626-6137-4747-84dd-5d4f215c876c/";
+  private static final String AUTODEPS_COMMAND_DIR_PATH = "buck-out/log/" +
+          "2016-06-21_16h18m51s_autodepscommand_d09893d5-b11e-4e3f-a5bf-70c60a06896e/";
 
   @Test
   public void testRageNonInteractiveReport() throws Exception {
@@ -142,7 +138,7 @@ public class RageCommandIntegrationTest {
           TestBuildEnvironmentDescription.INSTANCE,
           VcsInfoCollector.create(new NoOpCmdLineInterface()),
           rageConfig,
-          EMPTY_EXTRA_INFO_HELPER);
+          Optional::empty);
       DefectSubmitResult defectSubmitResult = automatedReport.collectAndSubmitResult().get();
 
       assertThat(
@@ -163,10 +159,10 @@ public class RageCommandIntegrationTest {
       zipInspector.assertFileExists("report.json");
       zipInspector.assertFileExists("buckconfig.local");
       zipInspector.assertFileExists("bucklogging.local.properties");
-      zipInspector.assertFileExists("buck-out/log/" +
-          "2016-06-21_16h16m24s_buildcommand_ac8bd626-6137-4747-84dd-5d4f215c876c/buck.log");
-      zipInspector.assertFileExists("buck-out/log/" +
-          "2016-06-21_16h18m51s_autodepscommand_d09893d5-b11e-4e3f-a5bf-70c60a06896e/buck.log");
+      zipInspector.assertFileExists(BUILD_COMMAND_DIR_PATH + "buck.log");
+      zipInspector.assertFileExists(AUTODEPS_COMMAND_DIR_PATH + "buck.log");
+      zipInspector.assertFileExists(BUILD_COMMAND_DIR_PATH + "buck-machine-log");
+      zipInspector.assertFileExists(AUTODEPS_COMMAND_DIR_PATH + "buck-machine-log");
     }
   }
 
@@ -189,13 +185,13 @@ public class RageCommandIntegrationTest {
         TestBuildEnvironmentDescription.INSTANCE,
         VcsInfoCollector.create(new NoOpCmdLineInterface()),
         rageConfig,
-        new DefaultExtraInfoCollector(rageConfig, filesystem, new ProcessExecutor(console)));
+        new DefaultExtraInfoCollector(rageConfig, filesystem, new DefaultProcessExecutor(console)));
     automatedReport.collectAndSubmitResult();
     DefectReport defectReport = defectReporter.getDefectReport();
     assertThat(defectReport.getExtraInfo(), Matchers.equalTo(Optional.of("Extra\n")));
     assertThat(
         FluentIterable.from(defectReport.getIncludedPaths())
-            .transform(Functions.toStringFunction()),
+            .transform(Object::toString),
         Matchers.hasItem(Matchers.endsWith("extra.txt")));
   }
 
@@ -236,14 +232,14 @@ public class RageCommandIntegrationTest {
           TestBuildEnvironmentDescription.INSTANCE,
           VcsInfoCollector.create(new NoOpCmdLineInterface()),
           rageConfig,
-          EMPTY_EXTRA_INFO_HELPER);
+          Optional::empty);
 
       DefectSubmitResult submitReport = automatedReport.collectAndSubmitResult().get();
       // If upload fails it should store the zip locally and inform the user.
       assertFalse(submitReport.getReportSubmitErrorMessage().get().isEmpty());
       ZipInspector zipInspector = new ZipInspector(
           filesystem.resolve(submitReport.getReportSubmitLocation()));
-      assertEquals(zipInspector.getZipFileEntries().size(), 5);
+      assertEquals(zipInspector.getZipFileEntries().size(), 7);
     }
   }
 

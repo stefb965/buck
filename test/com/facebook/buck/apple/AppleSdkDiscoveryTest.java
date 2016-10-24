@@ -27,7 +27,6 @@ import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -42,6 +41,7 @@ import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 
 public class AppleSdkDiscoveryTest {
 
@@ -74,7 +74,7 @@ public class AppleSdkDiscoveryTest {
     );
     ImmutableMap<AppleSdk, AppleSdkPaths> sdks = AppleSdkDiscovery.discoverAppleSdkPaths(
         Optional.of(path),
-        ImmutableList.<Path>of(),
+        ImmutableList.of(),
         toolchains,
         new FakeAppleConfig());
 
@@ -193,7 +193,7 @@ public class AppleSdkDiscoveryTest {
     );
     ImmutableMap<AppleSdk, AppleSdkPaths> sdks = AppleSdkDiscovery.discoverAppleSdkPaths(
         Optional.of(root),
-        ImmutableList.<Path>of(),
+        ImmutableList.of(),
         toolchains,
         new FakeAppleConfig());
 
@@ -217,7 +217,7 @@ public class AppleSdkDiscoveryTest {
     );
     ImmutableMap<AppleSdk, AppleSdkPaths> sdks = AppleSdkDiscovery.discoverAppleSdkPaths(
         Optional.of(root),
-        ImmutableList.<Path>of(),
+        ImmutableList.of(),
         toolchains,
         new FakeAppleConfig());
 
@@ -379,7 +379,7 @@ public class AppleSdkDiscoveryTest {
     assertThat(
         AppleSdkDiscovery.discoverAppleSdkPaths(
             Optional.of(root),
-            ImmutableList.<Path>of(),
+            ImmutableList.of(),
             toolchains,
             new FakeAppleConfig()),
         equalTo(expected));
@@ -399,7 +399,7 @@ public class AppleSdkDiscoveryTest {
     assertThat(
         AppleSdkDiscovery.discoverAppleSdkPaths(
             Optional.of(root),
-            ImmutableList.<Path>of(),
+            ImmutableList.of(),
             toolchains,
             new FakeAppleConfig()).entrySet(),
         empty());
@@ -519,7 +519,7 @@ public class AppleSdkDiscoveryTest {
     assertThat(
         AppleSdkDiscovery.discoverAppleSdkPaths(
             Optional.of(root),
-            ImmutableList.<Path>of(),
+            ImmutableList.of(),
             toolchains,
             new FakeAppleConfig()),
         equalTo(expected));

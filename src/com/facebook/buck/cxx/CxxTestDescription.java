@@ -35,9 +35,8 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.collect.FluentIterable;
@@ -51,6 +50,7 @@ import com.google.common.collect.Ordering;
 import com.google.common.collect.Sets;
 
 import java.nio.file.Path;
+import java.util.Optional;
 
 public class CxxTestDescription implements
     Description<CxxTestDescription.Arg>,
@@ -87,6 +87,7 @@ public class CxxTestDescription implements
     return new Arg();
   }
 
+  @SuppressWarnings("PMD.PrematureDeclaration")
   @Override
   public <A extends Arg> BuildRule createBuildRule(
       TargetGraph targetGraph,
@@ -99,7 +100,7 @@ public class CxxTestDescription implements
         CxxStrip.removeStripStyleFlavorInParams(inputParams, flavoredStripStyle);
 
     Optional<CxxPlatform> platform = cxxPlatforms.getValue(params.getBuildTarget());
-    CxxPlatform cxxPlatform = platform.or(defaultCxxPlatform);
+    CxxPlatform cxxPlatform = platform.orElse(defaultCxxPlatform);
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
 
     if (params.getBuildTarget().getFlavors()
@@ -141,75 +142,61 @@ public class CxxTestDescription implements
 
     // Supplier which expands macros in the passed in test environment.
     Supplier<ImmutableMap<String, String>> testEnv =
-        new Supplier<ImmutableMap<String, String>>() {
-          @Override
-          public ImmutableMap<String, String> get() {
-            return ImmutableMap.copyOf(
-                Maps.transformValues(
-                    args.env.or(ImmutableMap.<String, String>of()),
-                    CxxDescriptionEnhancer.MACRO_HANDLER.getExpander(
-                        params.getBuildTarget(),
-                        params.getCellRoots(),
-                        resolver)));
-          }
-        };
+        () -> ImmutableMap.copyOf(
+            Maps.transformValues(
+                args.env,
+                CxxDescriptionEnhancer.MACRO_HANDLER.getExpander(
+                    params.getBuildTarget(),
+                    params.getCellRoots(),
+                    resolver)));
 
     // Supplier which expands macros in the passed in test arguments.
     Supplier<ImmutableList<String>> testArgs =
-        new Supplier<ImmutableList<String>>() {
-          @Override
-          public ImmutableList<String> get() {
-            return FluentIterable.from(args.args.or(ImmutableList.<String>of()))
-                .transform(
-                    CxxDescriptionEnhancer.MACRO_HANDLER.getExpander(
-                        params.getBuildTarget(),
-                        params.getCellRoots(),
-                        resolver))
-                .toList();
-          }
-        };
+        () -> args.args.stream()
+            .map(CxxDescriptionEnhancer.MACRO_HANDLER.getExpander(
+                params.getBuildTarget(),
+                params.getCellRoots(),
+                resolver)::apply)
+            .collect(MoreCollectors.toImmutableList());
 
     Supplier<ImmutableSortedSet<BuildRule>> additionalDeps =
-        new Supplier<ImmutableSortedSet<BuildRule>>() {
-          @Override
-          public ImmutableSortedSet<BuildRule> get() {
-            ImmutableSortedSet.Builder<BuildRule> deps = ImmutableSortedSet.naturalOrder();
+        () -> {
+          ImmutableSortedSet.Builder<BuildRule> deps = ImmutableSortedSet.naturalOrder();
 
-            // It's not uncommon for users to add dependencies onto other binaries that they run
-            // during the test, so make sure to add them as runtime deps.
-            deps.addAll(
-                Sets.difference(
-                    params.getDeps(),
-                    cxxLinkAndCompileRules.getBinaryRule().getDeps()));
+          // It's not uncommon for users to add dependencies onto other binaries that they run
+          // during the test, so make sure to add them as runtime deps.
+          deps.addAll(
+              Sets.difference(
+                  params.getDeps(),
+                  cxxLinkAndCompileRules.getBinaryRule().getDeps()));
 
-            // Add any build-time from any macros embedded in the `env` or `args` parameter.
-            for (String part :
-                Iterables.concat(
-                    args.args.or(ImmutableList.<String>of()),
-                    args.env.or(ImmutableMap.<String, String>of()).values())) {
-              try {
-                deps.addAll(
-                    CxxDescriptionEnhancer.MACRO_HANDLER.extractBuildTimeDeps(
-                        params.getBuildTarget(),
-                        params.getCellRoots(),
-                        resolver,
-                        part));
-              } catch (MacroException e) {
-                throw new HumanReadableException(
-                    e,
-                    "%s: %s",
-                    params.getBuildTarget(),
-                    e.getMessage());
-              }
+          // Add any build-time from any macros embedded in the `env` or `args` parameter.
+          for (String part :
+              Iterables.concat(
+                  args.args,
+                  args.env.values())) {
+            try {
+              deps.addAll(
+                  CxxDescriptionEnhancer.MACRO_HANDLER.extractBuildTimeDeps(
+                      params.getBuildTarget(),
+                      params.getCellRoots(),
+                      resolver,
+                      part));
+            } catch (MacroException e) {
+              throw new HumanReadableException(
+                  e,
+                  "%s: %s",
+                  params.getBuildTarget(),
+                  e.getMessage());
             }
-
-            return deps.build();
           }
+
+          return deps.build();
         };
 
     CxxTest test;
 
-    CxxTestType type = args.framework.or(getDefaultTestType());
+    CxxTestType type = args.framework.orElse(getDefaultTestType());
     switch (type) {
       case GTEST: {
         test = new CxxGtestTest(
@@ -219,14 +206,14 @@ public class CxxTestDescription implements
             cxxLinkAndCompileRules.executable,
             testEnv,
             testArgs,
-            FluentIterable.from(args.resources.or(ImmutableSortedSet.<Path>of()))
+            FluentIterable.from(args.resources)
                 .transform(SourcePaths.toSourcePath(params.getProjectFilesystem()))
                 .toSortedSet(Ordering.natural()),
             additionalDeps,
-            args.labels.get(),
-            args.contacts.get(),
-            args.runTestSeparately.or(false),
-            args.testRuleTimeoutMs.or(defaultTestRuleTimeoutMs),
+            args.labels,
+            args.contacts,
+            args.runTestSeparately.orElse(false),
+            args.testRuleTimeoutMs.map(Optional::of).orElse(defaultTestRuleTimeoutMs),
             cxxBuckConfig.getMaximumTestOutputSize());
         break;
       }
@@ -238,14 +225,14 @@ public class CxxTestDescription implements
             cxxLinkAndCompileRules.executable,
             testEnv,
             testArgs,
-            FluentIterable.from(args.resources.or(ImmutableSortedSet.<Path>of()))
+            FluentIterable.from(args.resources)
                 .transform(SourcePaths.toSourcePath(params.getProjectFilesystem()))
                 .toSortedSet(Ordering.natural()),
             additionalDeps,
-            args.labels.get(),
-            args.contacts.get(),
-            args.runTestSeparately.or(false),
-            args.testRuleTimeoutMs.or(defaultTestRuleTimeoutMs));
+            args.labels,
+            args.contacts,
+            args.runTestSeparately.orElse(false),
+            args.testRuleTimeoutMs.map(Optional::of).orElse(defaultTestRuleTimeoutMs));
         break;
       }
       default: {
@@ -269,16 +256,15 @@ public class CxxTestDescription implements
     deps.addAll(
         CxxPlatforms.getParseTimeDeps(
             cxxPlatforms
-                .getValue(buildTarget.getFlavors())
-                .or(defaultCxxPlatform)));
+                .getValue(buildTarget.getFlavors()).orElse(defaultCxxPlatform)));
 
     // Extract parse time deps from flags, args, and environment parameters.
     Iterable<Iterable<String>> macroStrings =
         ImmutableList.<Iterable<String>>builder()
-            .add(constructorArg.linkerFlags.get())
-            .addAll(constructorArg.platformLinkerFlags.get().getValues())
-            .add(constructorArg.args.get())
-            .add(constructorArg.env.get().values())
+            .add(constructorArg.linkerFlags)
+            .addAll(constructorArg.platformLinkerFlags.getValues())
+            .add(constructorArg.args)
+            .add(constructorArg.env.values())
             .build();
     for (String macroString : Iterables.concat(macroStrings)) {
       try {
@@ -292,11 +278,11 @@ public class CxxTestDescription implements
       }
     }
 
-    CxxTestType type = constructorArg.framework.or(getDefaultTestType());
+    CxxTestType type = constructorArg.framework.orElse(getDefaultTestType());
     switch (type) {
       case GTEST: {
         deps.add(cxxBuckConfig.getGtestDep());
-        boolean useDefaultTestMain = constructorArg.useDefaultTestMain.or(true);
+        boolean useDefaultTestMain = constructorArg.useDefaultTestMain.orElse(true);
         if (useDefaultTestMain) {
           deps.add(cxxBuckConfig.getGtestDefaultTestMainDep());
         }
@@ -354,31 +340,24 @@ public class CxxTestDescription implements
       final Class<U> metadataClass) throws NoSuchBuildTargetException {
     if (!metadataClass.isAssignableFrom(CxxCompilationDatabaseDependencies.class) ||
         !buildTarget.getFlavors().contains(CxxCompilationDatabase.COMPILATION_DATABASE)) {
-      return Optional.absent();
+      return Optional.empty();
     }
     return CxxDescriptionEnhancer
-        .createCompilationDatabaseDependencies(buildTarget, cxxPlatforms, resolver, args)
-        .transform(
-            new Function<CxxCompilationDatabaseDependencies, U>() {
-              @Override
-              public U apply(CxxCompilationDatabaseDependencies input) {
-                return metadataClass.cast(input);
-              }
-            }
-        );
+        .createCompilationDatabaseDependencies(buildTarget, cxxPlatforms, resolver, args).map(
+            metadataClass::cast);
   }
 
   @SuppressFieldNotInitialized
-  public class Arg extends CxxBinaryDescription.Arg {
-    public Optional<ImmutableSet<String>> contacts;
-    public Optional<ImmutableSet<Label>> labels;
+  public static class Arg extends CxxBinaryDescription.Arg {
+    public ImmutableSet<String> contacts = ImmutableSet.of();
+    public ImmutableSet<Label> labels = ImmutableSet.of();
     public Optional<CxxTestType> framework;
-    public Optional<ImmutableMap<String, String>> env;
-    public Optional<ImmutableList<String>> args;
+    public ImmutableMap<String, String> env = ImmutableMap.of();
+    public ImmutableList<String> args = ImmutableList.of();
     public Optional<Boolean> runTestSeparately;
     public Optional<Boolean> useDefaultTestMain;
     public Optional<Long> testRuleTimeoutMs;
-    public Optional<ImmutableSortedSet<Path>> resources;
+    public ImmutableSortedSet<Path> resources = ImmutableSortedSet.of();
   }
 
 }

@@ -28,11 +28,9 @@ import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.MoreExceptions;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Lists;
@@ -44,6 +42,7 @@ import org.kohsuke.args4j.Option;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.SortedSet;
@@ -92,18 +91,13 @@ public class AuditInputCommand extends AbstractCommand {
       return 1;
     }
 
-    ImmutableSet<BuildTarget> targets = FluentIterable
-        .from(getArgumentsFormattedAsBuildTargets(params.getBuckConfig()))
-        .transform(new Function<String, BuildTarget>() {
-                     @Override
-                     public BuildTarget apply(String input) {
-                       return BuildTargetParser.INSTANCE.parse(
-                           input,
-                           BuildTargetPatternParser.fullyQualified(),
-                           params.getCell().getCellPathResolver());
-                     }
-                   })
-        .toSet();
+    ImmutableSet<BuildTarget> targets =
+        getArgumentsFormattedAsBuildTargets(params.getBuckConfig()).stream()
+            .map(input -> BuildTargetParser.INSTANCE.parse(
+                input,
+                BuildTargetPatternParser.fullyQualified(),
+                params.getCell().getCellPathResolver()))
+            .collect(MoreCollectors.toImmutableSet());
 
     LOG.debug("Getting input for targets: %s", targets);
 

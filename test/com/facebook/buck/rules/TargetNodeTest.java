@@ -30,10 +30,8 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.ObjectMappers;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -45,6 +43,7 @@ import org.junit.Test;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
+import java.util.Optional;
 
 public class TargetNodeTest {
 
@@ -53,8 +52,8 @@ public class TargetNodeTest {
 
   private static final TargetGraph GRAPH = new TargetGraph(
       new MutableDirectedGraph<TargetNode<?>>(),
-      ImmutableMap.<BuildTarget, TargetNode<?>>of(),
-      ImmutableSet.<TargetGroup>of());
+      ImmutableMap.of(),
+      ImmutableSet.of());
 
   @Test
   public void testIgnoreNonBuildTargetOrPathOrSourcePathArgument()
@@ -71,17 +70,10 @@ public class TargetNodeTest {
     ImmutableList<String> depsStrings = ImmutableList.of(
         "//example/path:one",
         "//example/path:two");
-    ImmutableSet<BuildTarget> depsTargets = FluentIterable
-        .from(depsStrings)
-        .transform(
-            new Function<String, BuildTarget>() {
-               @Override
-               public BuildTarget apply(String input) {
-                 return BuildTargetFactory.newInstance(input);
-               }
-            })
-        .toSet();
-    ImmutableMap<String, Object> rawNode = ImmutableMap.<String, Object>of(
+    ImmutableSet<BuildTarget> depsTargets = depsStrings.stream()
+        .map(BuildTargetFactory::newInstance)
+        .collect(MoreCollectors.toImmutableSet());
+    ImmutableMap<String, Object> rawNode = ImmutableMap.of(
         "deps", depsStrings,
         "sourcePaths", ImmutableList.of("//example/path:four", "MyClass.java"),
         "appleSource", "//example/path:five",
@@ -160,13 +152,13 @@ public class TargetNodeTest {
   private static TargetNode<Arg> createTargetNode(
       BuildTarget buildTarget)
       throws NoSuchBuildTargetException {
-    ImmutableMap<String, Object> rawNode = ImmutableMap.<String, Object>of(
+    ImmutableMap<String, Object> rawNode = ImmutableMap.of(
         "deps", ImmutableList.of(),
         "string", "//example/path:one",
         "target", "//example/path:two",
         "sourcePaths", ImmutableSortedSet.of());
 
-    return createTargetNode(buildTarget, ImmutableSet.<BuildTarget>of(), rawNode);
+    return createTargetNode(buildTarget, ImmutableSet.of(), rawNode);
   }
 
   private static TargetNode<Arg> createTargetNode(
@@ -189,7 +181,7 @@ public class TargetNodeTest {
                 rawNode),
             buildRuleFactoryParams,
             declaredDeps,
-            ImmutableSet.<VisibilityPattern>of(),
+            ImmutableSet.of(),
             createCellRoots(buildRuleFactoryParams.getProjectFilesystem()));
   }
 
@@ -209,8 +201,8 @@ public class TargetNodeTest {
           projectFilesystem,
           buildRuleFactoryParams,
           constructorArg,
-          ImmutableSet.<BuildTarget>builder(),
-          ImmutableSet.<VisibilityPattern>builder(),
+          ImmutableSet.builder(),
+          ImmutableSet.builder(),
           instance);
     } catch (ConstructorArgMarshalException e) {
       throw new RuntimeException(e);

@@ -17,10 +17,8 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
-import com.google.common.base.Predicate;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
@@ -35,6 +33,7 @@ import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class AuditConfigCommand extends AbstractCommand {
 
@@ -88,24 +87,21 @@ public class AuditConfigCommand extends AbstractCommand {
 
     final BuckConfig buckConfig = params.getBuckConfig();
 
-    final ImmutableList<ConfigValue> configs = FluentIterable.from(
-        getArguments()).transform(
-        new Function<String, ConfigValue>() {
-          @Override
-          public ConfigValue apply(String input) {
-            String[] parts = input.split("\\.", 2);
-            if (parts.length != 2) {
-              params.getConsole().getStdErr().println(
-                  String.format("%s is not a valid section/property string", input));
-              return ConfigValue.of(input, "", input, Optional.<String>absent());
-            }
-            return ConfigValue.of(
-                input,
-                parts[0],
-                parts[1],
-                buckConfig.getValue(parts[0], parts[1]));
+    final ImmutableList<ConfigValue> configs = getArguments().stream()
+        .map(input -> {
+          String[] parts = input.split("\\.", 2);
+          if (parts.length != 2) {
+            params.getConsole().getStdErr().println(
+                String.format("%s is not a valid section/property string", input));
+            return ConfigValue.of(input, "", input, Optional.empty());
           }
-        }).toList();
+          return ConfigValue.of(
+              input,
+              parts[0],
+              parts[1],
+              buckConfig.getValue(parts[0], parts[1]));
+        })
+        .collect(MoreCollectors.toImmutableList());
 
     if (shouldGenerateJsonOutput()) {
       printJsonOutput(params, configs);
@@ -125,7 +121,7 @@ public class AuditConfigCommand extends AbstractCommand {
           String.format(
               "%s\t%s",
               config.getKey(),
-              config.getValue().or("")));
+              config.getValue().orElse("")));
     }
   }
 
@@ -148,19 +144,9 @@ public class AuditConfigCommand extends AbstractCommand {
     ImmutableListMultimap<String, ConfigValue> iniData =
         FluentIterable.from(configs)
             .filter(
-                new Predicate<ConfigValue>() {
-                  @Override
-                  public boolean apply(ConfigValue config) {
-                    return config.getSection() != "" && config.getValue().isPresent();
-                  }
-                })
+                config -> config.getSection() != "" && config.getValue().isPresent())
             .index(
-                new Function<ConfigValue, String>() {
-                  @Override
-                  public String apply(ConfigValue config) {
-                    return config.getSection();
-                  }
-                });
+                ConfigValue::getSection);
 
     for (Map.Entry<String, Collection<ConfigValue>> entry : iniData.asMap().entrySet()) {
       params.getConsole().getStdOut().println(String.format("[%s]", entry.getKey()));

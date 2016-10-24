@@ -26,7 +26,6 @@ import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.KeystoreProperties;
 import com.google.common.base.Joiner;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
@@ -153,7 +152,6 @@ public class ApkBuilderStep implements Step {
       // Build the APK
       builder.sealApk();
     } catch (ApkCreationException |
-            CertificateException |
             IOException |
             KeyStoreException |
             NoSuchAlgorithmException |
@@ -171,8 +169,7 @@ public class ApkBuilderStep implements Step {
   }
 
   private PrivateKeyAndCertificate createKeystoreProperties()
-      throws CertificateException,
-          IOException,
+      throws IOException,
           KeyStoreException,
           NoSuchAlgorithmException,
           UnrecoverableKeyException {

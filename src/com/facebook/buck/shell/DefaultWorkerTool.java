@@ -26,8 +26,7 @@ import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.Tool;
-import com.google.common.base.Optional;
-import com.google.common.collect.FluentIterable;
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 
@@ -39,7 +38,7 @@ public class DefaultWorkerTool extends NoopBuildRule implements HasRuntimeDeps, 
   private final BinaryBuildRule exe;
   private final String args;
   private final ImmutableMap<String, String> env;
-  private final Optional<Integer> maxWorkers;
+  private final int maxWorkers;
 
   protected DefaultWorkerTool(
       BuildRuleParams ruleParams,
@@ -47,7 +46,7 @@ public class DefaultWorkerTool extends NoopBuildRule implements HasRuntimeDeps, 
       BinaryBuildRule exe,
       String args,
       ImmutableMap<String, String> env,
-      Optional<Integer> maxWorkers) {
+      int maxWorkers) {
     super(ruleParams, resolver);
     this.exe = exe;
     this.args = args;
@@ -60,9 +59,9 @@ public class DefaultWorkerTool extends NoopBuildRule implements HasRuntimeDeps, 
     Tool baseTool = this.exe.getExecutableCommand();
     CommandTool.Builder builder = new CommandTool.Builder(baseTool)
         .addInputs(
-            FluentIterable.from(this.getDeps())
-                .transform(SourcePaths.getToBuildTargetSourcePath())
-                .toList());
+            this.getDeps().stream()
+                .map(SourcePaths.getToBuildTargetSourcePath()::apply)
+                .collect(MoreCollectors.toImmutableList()));
     for (Map.Entry<String, String> e : env.entrySet()) {
       builder.addEnv(e.getKey(), e.getValue());
     }
@@ -81,7 +80,7 @@ public class DefaultWorkerTool extends NoopBuildRule implements HasRuntimeDeps, 
   }
 
   @Override
-  public Optional<Integer> getMaxWorkers() {
+  public int getMaxWorkers() {
     return maxWorkers;
   }
 

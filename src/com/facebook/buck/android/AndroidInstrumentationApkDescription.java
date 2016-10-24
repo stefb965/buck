@@ -17,7 +17,6 @@
 package com.facebook.buck.android;
 
 import static com.facebook.buck.jvm.java.JavaLibraryClasspathProvider.getClasspathDeps;
-import static com.facebook.buck.model.HasBuildTarget.TO_TARGET;
 
 import com.facebook.buck.android.AndroidBinary.ExopackageMode;
 import com.facebook.buck.android.AndroidBinary.PackageType;
@@ -41,8 +40,8 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Optional;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableMap;
@@ -53,10 +52,7 @@ import com.google.common.util.concurrent.ListeningExecutorService;
 
 import java.nio.file.Path;
 import java.util.EnumSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.regex.Pattern;
+import java.util.Optional;
 
 public class AndroidInstrumentationApkDescription
     implements Description<AndroidInstrumentationApkDescription.Arg> {
@@ -132,8 +128,8 @@ public class AndroidInstrumentationApkDescription
         ResourceCompressionMode.DISABLED,
         FilterResourcesStep.ResourceFilter.EMPTY_FILTER,
         /* bannedDuplicateResourceTypes */ EnumSet.noneOf(RType.class),
-        /* resourceUnionPackage */ Optional.<String>absent(),
-        /* locales */ ImmutableSet.<String>of(),
+        /* resourceUnionPackage */ Optional.empty(),
+        /* locales */ ImmutableSet.of(),
         args.manifest,
         PackageType.INSTRUMENTED,
         apkUnderTest.getCpuFilters(),
@@ -141,22 +137,24 @@ public class AndroidInstrumentationApkDescription
         /* shouldPreDex */ false,
         primaryDexPath,
         DexSplitMode.NO_SPLIT,
-        FluentIterable.from(rulesToExcludeFromDex).transform(TO_TARGET).toSet(),
+        rulesToExcludeFromDex.stream()
+            .map(HasBuildTarget::getBuildTarget)
+            .collect(MoreCollectors.toImmutableSet()),
         resourcesToExclude,
         /* skipCrunchPngs */ false,
-        args.includesVectorDrawables.or(false),
+        args.includesVectorDrawables.orElse(false),
         javacOptions,
         EnumSet.noneOf(ExopackageMode.class),
         apkUnderTest.getKeystore(),
         /* buildConfigValues */ BuildConfigFields.empty(),
-        /* buildConfigValuesFile */ Optional.<SourcePath>absent(),
-        /* xzCompressionLevel */ Optional.<Integer>absent(),
+        /* buildConfigValuesFile */ Optional.empty(),
+        /* xzCompressionLevel */ Optional.empty(),
         /* trimResourceIds */ false,
-        /* keepResourcePattern */ Optional.<String>absent(),
+        /* keepResourcePattern */ Optional.empty(),
         nativePlatforms,
-        /* nativeLibraryMergeMap */ Optional.<Map<String, List<Pattern>>>absent(),
-        /* nativeLibraryMergeGlue */ Optional.<BuildTarget>absent(),
-        /* nativeLibraryMergeCodeGenerator */ Optional.<BuildTarget>absent(),
+        /* nativeLibraryMergeMap */ Optional.empty(),
+        /* nativeLibraryMergeGlue */ Optional.empty(),
+        /* nativeLibraryMergeCodeGenerator */ Optional.empty(),
         AndroidBinary.RelinkerMode.DISABLED,
         dxExecutorService,
         apkUnderTest.getManifestEntries(),
@@ -164,7 +162,7 @@ public class AndroidInstrumentationApkDescription
         new APKModuleGraph(
             targetGraph,
             params.getBuildTarget(),
-            Optional.<Set<BuildTarget>>absent()));
+            Optional.empty()));
 
     AndroidGraphEnhancementResult enhancementResult =
         graphEnhancer.createAdditionalBuildables();
@@ -200,7 +198,7 @@ public class AndroidInstrumentationApkDescription
   public static class Arg extends AbstractDescriptionArg {
     public SourcePath manifest;
     public BuildTarget apk;
-    public Optional<ImmutableSortedSet<BuildTarget>> deps;
-    public Optional<Boolean> includesVectorDrawables = Optional.absent();
+    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
+    public Optional<Boolean> includesVectorDrawables = Optional.empty();
   }
 }

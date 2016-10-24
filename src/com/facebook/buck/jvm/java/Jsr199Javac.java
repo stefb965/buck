@@ -30,9 +30,7 @@ import com.facebook.buck.util.ClassLoaderCache;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
-import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.collect.FluentIterable;
@@ -57,6 +55,7 @@ import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
@@ -77,13 +76,7 @@ public abstract class Jsr199Javac implements Javac {
   private static final Logger LOG = Logger.get(Jsr199Javac.class);
   private static final JavacVersion VERSION = JavacVersion.of("in memory");
   private static final StandardJavaFileManagerFactory DEFAULT_FILE_MANAGER_FACTORY =
-      new StandardJavaFileManagerFactory() {
-        @Override
-        public StandardJavaFileManager create(
-            JavaCompiler compiler) {
-          return compiler.getStandardFileManager(null, null, null);
-        }
-      };
+      compiler -> compiler.getStandardFileManager(null, null, null);
 
   @Override
   public JavacVersion getVersion() {
@@ -138,7 +131,7 @@ public abstract class Jsr199Javac implements Javac {
     JavaCompiler compiler = createCompiler(context, resolver);
 
     StandardJavaFileManager fileManager =
-        fileManagerFactory.or(DEFAULT_FILE_MANAGER_FACTORY).create(compiler);
+        fileManagerFactory.orElse(DEFAULT_FILE_MANAGER_FACTORY).create(compiler);
     try {
       Iterable<? extends JavaFileObject> compilationUnits;
       try {
@@ -194,7 +187,7 @@ public abstract class Jsr199Javac implements Javac {
     try {
       filesystem.writeLinesToPath(
           FluentIterable.from(javaSourceFilePaths)
-              .transform(Functions.toStringFunction())
+              .transform(Object::toString)
               .transform(ARGFILES_ESCAPER),
           pathToSrcsList);
     } catch (IOException e) {
@@ -259,11 +252,7 @@ public abstract class Jsr199Javac implements Javac {
     }
 
     if (isSuccess) {
-      try {
-        usedClassesFileWriter.writeFile(filesystem, context.getObjectMapper());
-      } catch (IOException e) {
-        throw new HumanReadableException(e, "Failed to write the used classes file.");
-      }
+      usedClassesFileWriter.writeFile(filesystem, context.getObjectMapper());
       return 0;
     } else {
       if (context.getVerbosity().shouldPrintStandardInformation()) {
@@ -331,17 +320,14 @@ public abstract class Jsr199Javac implements Javac {
         .split(processorClassPath);
     URL[] urls = FluentIterable.from(rawPaths)
         .transform(
-            new Function<String, URL>() {
-              @Override
-              public URL apply(String pathRelativeToProjectRoot) {
-                try {
-                  return Paths.get(pathRelativeToProjectRoot).toUri().toURL();
-                } catch (MalformedURLException e) {
-                  // The paths we're being given should have all been resolved from the file
-                  // system already. We'd need to be unfortunate to get here. Bubble up a runtime
-                  // exception.
-                  throw new RuntimeException(e);
-                }
+            pathRelativeToProjectRoot -> {
+              try {
+                return Paths.get(pathRelativeToProjectRoot).toUri().toURL();
+              } catch (MalformedURLException e) {
+                // The paths we're being given should have all been resolved from the file
+                // system already. We'd need to be unfortunate to get here. Bubble up a runtime
+                // exception.
+                throw new RuntimeException(e);
               }
             })
         .toArray(URL.class);

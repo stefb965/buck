@@ -50,7 +50,6 @@ import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Platform;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -73,38 +72,23 @@ public class MultiarchFileTest {
         {
             "AppleBinaryDescription",
             FakeAppleRuleDescriptions.BINARY_DESCRIPTION,
-            new NodeBuilderFactory() {
-              @Override
-              public AbstractNodeBuilder<?> getNodeBuilder(BuildTarget target) {
-                return AppleBinaryBuilder.createBuilder(target);
-              }
-            }
+            (NodeBuilderFactory) AppleBinaryBuilder::createBuilder
         },
         {
             "AppleLibraryDescription (static)",
             FakeAppleRuleDescriptions.LIBRARY_DESCRIPTION,
-            new NodeBuilderFactory() {
-              @Override
-              public AbstractNodeBuilder<?> getNodeBuilder(BuildTarget target) {
-                return AppleLibraryBuilder
-                    .createBuilder(target.withAppendedFlavors(ImmutableFlavor.of("static")))
-                    .setSrcs(Optional.of(ImmutableSortedSet.of(
-                        SourceWithFlags.of(new FakeSourcePath("foo.c")))));
-              }
-            }
+            (NodeBuilderFactory) target -> AppleLibraryBuilder
+                .createBuilder(target.withAppendedFlavors(ImmutableFlavor.of("static")))
+                .setSrcs(ImmutableSortedSet.of(
+                    SourceWithFlags.of(new FakeSourcePath("foo.c"))))
         },
         {
             "AppleLibraryDescription (shared)",
             FakeAppleRuleDescriptions.LIBRARY_DESCRIPTION,
-            new NodeBuilderFactory() {
-              @Override
-              public AbstractNodeBuilder<?> getNodeBuilder(BuildTarget target) {
-                return AppleLibraryBuilder
-                    .createBuilder(target.withAppendedFlavors(ImmutableFlavor.of("shared")))
-                    .setSrcs(Optional.of(ImmutableSortedSet.of(
-                        SourceWithFlags.of(new FakeSourcePath("foo.c")))));
-              }
-            }
+            (NodeBuilderFactory) target -> AppleLibraryBuilder
+                .createBuilder(target.withAppendedFlavors(ImmutableFlavor.of("shared")))
+                .setSrcs(ImmutableSortedSet.of(
+                    SourceWithFlags.of(new FakeSourcePath("foo.c"))))
         },
     });
   }
@@ -127,7 +111,7 @@ public class MultiarchFileTest {
   public void shouldAllowMultiplePlatformFlavors() {
     assertTrue(
         ((Flavored) description).hasFlavors(
-            ImmutableSet.<Flavor>of(
+            ImmutableSet.of(
                 ImmutableFlavor.of("iphoneos-i386"),
                 ImmutableFlavor.of("iphoneos-x86_64"))));
   }

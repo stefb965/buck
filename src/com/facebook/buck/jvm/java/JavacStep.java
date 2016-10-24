@@ -30,7 +30,6 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -40,6 +39,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Collection;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -75,6 +75,9 @@ public class JavacStep implements Step {
   private final ProjectFilesystem filesystem;
 
   private final Javac javac;
+
+  private static final Pattern IS_WARNING =
+      Pattern.compile(":\\s*warning:", Pattern.CASE_INSENSITIVE);
 
   private static final Pattern IMPORT_FAILURE =
       Pattern.compile("import ([\\w\\.\\*]*);");
@@ -236,6 +239,9 @@ public class JavacStep implements Step {
     Iterable<String> lines = Splitter.on(LINE_SEPARATOR).split(output);
     ImmutableSortedSet.Builder<String> failedImports = ImmutableSortedSet.naturalOrder();
     for (String line : lines) {
+      if (IS_WARNING.matcher(line).find()) {
+        continue;
+      }
       for (Pattern missingImportPattern : MISSING_IMPORT_PATTERNS) {
         Matcher lineMatch = missingImportPattern.matcher(line);
         if (lineMatch.matches()) {

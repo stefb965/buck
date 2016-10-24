@@ -21,8 +21,6 @@ import com.facebook.buck.jvm.java.MavenPublishable;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BuildRule;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.FluentIterable;
@@ -66,6 +64,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 
@@ -126,12 +125,7 @@ public class Pom {
         .from(publishable.getMavenDeps())
         .filter(HasMavenCoordinates.MAVEN_COORDS_PRESENT_PREDICATE)
         .transform(
-            new Function<HasMavenCoordinates, Artifact>() {
-              @Override
-              public Artifact apply(HasMavenCoordinates input) {
-                return new DefaultArtifact(input.getMavenCoords().get());
-              }
-            });
+            input -> new DefaultArtifact(input.getMavenCoords().get()));
 
     updateModel(artifact, deps);
   }
@@ -353,12 +347,7 @@ public class Pom {
 
     // Dependencies
     ImmutableMap<DepKey, Dependency> depIndex = Maps.uniqueIndex(
-        getModel().getDependencies(), new Function<Dependency, DepKey>() {
-          @Override
-          public DepKey apply(Dependency input) {
-            return new DepKey(input);
-          }
-        });
+        getModel().getDependencies(), DepKey::new);
     for (Artifact artifactDep : deps) {
       DepKey key = new DepKey(artifactDep);
       Dependency dependency = depIndex.get(key);
@@ -387,7 +376,7 @@ public class Pom {
     if (buildRule instanceof HasMavenCoordinates) {
       return ((HasMavenCoordinates) buildRule).getMavenCoords();
     }
-    return Optional.absent();
+    return Optional.empty();
   }
 
   public Model getModel() {

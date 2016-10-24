@@ -16,6 +16,8 @@
 
 package com.facebook.buck.rust;
 
+import com.facebook.buck.cxx.CxxPlatform;
+import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
@@ -27,20 +29,22 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.util.List;
+import java.util.Optional;
 
 public class RustBinaryDescription implements Description<RustBinaryDescription.Arg> {
 
   private static final BuildRuleType TYPE = BuildRuleType.of("rust_binary");
 
   private final RustBuckConfig rustBuckConfig;
+  private final CxxPlatform cxxPlatform;
 
-  public RustBinaryDescription(RustBuckConfig rustBuckConfig) {
+  public RustBinaryDescription(RustBuckConfig rustBuckConfig, CxxPlatform cxxPlatform) {
     this.rustBuckConfig = rustBuckConfig;
+    this.cxxPlatform = cxxPlatform;
   }
 
   @Override
@@ -62,17 +66,22 @@ public class RustBinaryDescription implements Description<RustBinaryDescription.
     return new RustBinary(
         params,
         new SourcePathResolver(resolver),
+        args.crate.orElse(params.getBuildTarget().getShortName()),
         ImmutableSortedSet.copyOf(args.srcs),
-        ImmutableSortedSet.copyOf(args.features.get()),
-        ImmutableList.copyOf(args.rustcFlags.get()),
-        rustBuckConfig.getRustCompiler().get());
+        ImmutableSortedSet.copyOf(args.features),
+        ImmutableList.copyOf(args.rustcFlags),
+        rustBuckConfig.getRustCompiler().get(),
+        cxxPlatform,
+        args.linkStyle.orElse(Linker.LinkableDepType.STATIC));
   }
 
   @SuppressFieldNotInitialized
   public static class Arg extends AbstractDescriptionArg {
     public ImmutableSortedSet<SourcePath> srcs;
-    public Optional<ImmutableSortedSet<String>> features;
-    public Optional<List<String>> rustcFlags;
-    public Optional<ImmutableSortedSet<BuildTarget>> deps;
+    public ImmutableSortedSet<String> features = ImmutableSortedSet.of();
+    public List<String> rustcFlags = ImmutableList.of();
+    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
+    public Optional<Linker.LinkableDepType> linkStyle;
+    public Optional<String> crate;
   }
 }

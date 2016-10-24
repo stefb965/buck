@@ -83,7 +83,7 @@ public class CSharpLibrary extends AbstractBuildRule {
     ProjectFilesystem filesystem = getProjectFilesystem();
 
     ImmutableSortedSet<Path> sourceFiles = FluentIterable.from(srcs)
-        .transform(getResolver().getAbsolutePathFunction())
+        .transform(getResolver()::getAbsolutePath)
         .toSortedSet(Ordering.natural());
 
     ImmutableListMultimap.Builder<Path, String> resolvedResources = ImmutableListMultimap.builder();
@@ -120,9 +120,9 @@ public class CSharpLibrary extends AbstractBuildRule {
             rule instanceof PrebuiltDotNetLibrary);
 
         Path outputPath = Preconditions.checkNotNull(rule.getPathToOutput());
-        resolved.add(Either.<Path, String>ofLeft(rule.getProjectFilesystem().resolve(outputPath)));
+        resolved.add(Either.ofLeft(rule.getProjectFilesystem().resolve(outputPath)));
       } else {
-        resolved.add(Either.<Path, String>ofRight(ref.getRight()));
+        resolved.add(Either.ofRight(ref.getRight()));
       }
     }
 

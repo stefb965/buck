@@ -20,14 +20,13 @@ import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.config.Config;
 import com.facebook.buck.config.ConfigBuilder;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.ProjectWatch;
 import com.facebook.buck.io.FakeWatchmanClient;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.io.Watchman;
-import com.facebook.buck.io.WatchmanClient;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -40,6 +39,7 @@ import org.junit.rules.TemporaryFolder;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 public class BuildFileSpecTest {
@@ -144,14 +144,14 @@ public class BuildFileSpecTest {
         .setFilesystem(filesystem)
         .setWatchman(
             new Watchman(
-                Optional.of("project-name"),
-                Optional.of("/path/to/src"),
+                ProjectWatch.of("/path/to/src", Optional.of("project-name")),
                 ImmutableSet.of(
                     Watchman.Capability.SUPPORTS_PROJECT_WATCH,
                     Watchman.Capability.DIRNAME,
                     Watchman.Capability.WILDMATCH_GLOB),
+                Optional.empty(),
                 Optional.of(Paths.get(".watchman-sock")),
-                Optional.<WatchmanClient>of(fakeWatchmanClient),
+                Optional.of(fakeWatchmanClient),
                 TimeUnit.SECONDS.toMillis(45)))
         .build();
     ImmutableSet<Path> actualBuildFiles = recursiveSpec.findBuildFiles(
@@ -192,14 +192,14 @@ public class BuildFileSpecTest {
         .setFilesystem(filesystem)
         .setWatchman(
             new Watchman(
-                Optional.of("project-name"),
-                Optional.of("/path/to/src"),
+                ProjectWatch.of("/path/to/src", Optional.of("project-name")),
                 ImmutableSet.of(
                     Watchman.Capability.SUPPORTS_PROJECT_WATCH,
                     Watchman.Capability.DIRNAME,
                     Watchman.Capability.WILDMATCH_GLOB),
+                Optional.empty(),
                 Optional.of(Paths.get(".watchman-sock")),
-                Optional.<WatchmanClient>of(fakeWatchmanClient),
+                Optional.of(fakeWatchmanClient),
                 TimeUnit.SECONDS.toMillis(45)))
         .build();
 
@@ -249,14 +249,14 @@ public class BuildFileSpecTest {
         .setFilesystem(filesystem)
         .setWatchman(
             new Watchman(
-                Optional.of("project-name"),
-                Optional.of("/path/to/src"),
+                ProjectWatch.of("/path/to/src", Optional.of("project-name")),
                 ImmutableSet.of(
                     Watchman.Capability.SUPPORTS_PROJECT_WATCH,
                     Watchman.Capability.DIRNAME,
                     Watchman.Capability.WILDMATCH_GLOB),
+                Optional.empty(),
                 Optional.of(Paths.get(".watchman-sock")),
-                Optional.<WatchmanClient>of(timingOutWatchmanClient),
+                Optional.of(timingOutWatchmanClient),
                 TimeUnit.SECONDS.toMillis(45)))
         .build();
     ImmutableSet<Path> expectedBuildFiles =

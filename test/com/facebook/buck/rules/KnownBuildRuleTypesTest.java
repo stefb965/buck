@@ -29,7 +29,6 @@ import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.DefaultJavaLibrary;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
@@ -40,7 +39,6 @@ import com.facebook.buck.util.FakeProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.environment.Platform;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -58,6 +56,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 public class KnownBuildRuleTypesTest {
 
@@ -114,28 +113,28 @@ public class KnownBuildRuleTypesTest {
   }
 
   private void populateJavaArg(JavaLibraryDescription.Arg arg) {
-    arg.srcs = Optional.of(ImmutableSortedSet.<SourcePath>of());
-    arg.resources = Optional.of(ImmutableSortedSet.<SourcePath>of());
-    arg.source = Optional.absent();
-    arg.target = Optional.absent();
-    arg.javaVersion = Optional.absent();
-    arg.javac = Optional.absent();
-    arg.javacJar = Optional.absent();
-    arg.compiler = Optional.absent();
-    arg.extraArguments = Optional.absent();
-    arg.removeClasses = Optional.absent();
-    arg.proguardConfig = Optional.absent();
-    arg.annotationProcessorDeps = Optional.of(ImmutableSortedSet.<BuildTarget>of());
-    arg.annotationProcessorParams = Optional.of(ImmutableList.<String>of());
-    arg.annotationProcessors = Optional.of(ImmutableSet.<String>of());
-    arg.annotationProcessorOnly = Optional.absent();
-    arg.postprocessClassesCommands = Optional.of(ImmutableList.<String>of());
-    arg.resourcesRoot = Optional.absent();
-    arg.manifestFile = Optional.absent();
-    arg.providedDeps = Optional.of(ImmutableSortedSet.<BuildTarget>of());
-    arg.exportedDeps = Optional.of(ImmutableSortedSet.<BuildTarget>of());
-    arg.deps = Optional.of(ImmutableSortedSet.<BuildTarget>of());
-    arg.tests = Optional.of(ImmutableSortedSet.<BuildTarget>of());
+    arg.srcs = ImmutableSortedSet.of();
+    arg.resources = ImmutableSortedSet.of();
+    arg.source = Optional.empty();
+    arg.target = Optional.empty();
+    arg.javaVersion = Optional.empty();
+    arg.javac = Optional.empty();
+    arg.javacJar = Optional.empty();
+    arg.compiler = Optional.empty();
+    arg.extraArguments = ImmutableList.of();
+    arg.removeClasses = ImmutableSet.of();
+    arg.proguardConfig = Optional.empty();
+    arg.annotationProcessorDeps = ImmutableSortedSet.of();
+    arg.annotationProcessorParams = ImmutableList.of();
+    arg.annotationProcessors = ImmutableSet.of();
+    arg.annotationProcessorOnly = Optional.empty();
+    arg.postprocessClassesCommands = ImmutableList.of();
+    arg.resourcesRoot = Optional.empty();
+    arg.manifestFile = Optional.empty();
+    arg.providedDeps = ImmutableSortedSet.of();
+    arg.exportedDeps = ImmutableSortedSet.of();
+    arg.deps = ImmutableSortedSet.of();
+    arg.tests = ImmutableSortedSet.of();
   }
 
   private DefaultJavaLibrary createJavaLibrary(KnownBuildRuleTypes buildRuleTypes) {
@@ -177,7 +176,7 @@ public class KnownBuildRuleTypesTest {
     ProcessExecutor processExecutor = createExecutor(javac.toString(), "fakeVersion 0.1");
     KnownBuildRuleTypes configuredBuildRuleTypes = KnownBuildRuleTypes.createBuilder(
         buckConfig,
-        processExecutor,
+        filesystem, processExecutor,
         new FakeAndroidDirectoryResolver())
         .build();
     DefaultJavaLibrary configuredRule = createJavaLibrary(configuredBuildRuleTypes);
@@ -239,13 +238,14 @@ public class KnownBuildRuleTypesTest {
   @Test
   public void createInstanceShouldReturnDifferentInstancesIfCalledWithDifferentParameters()
       throws Exception {
+    ProjectFilesystem filesystem = new ProjectFilesystem(temporaryFolder.getRoot());
     KnownBuildRuleTypes knownBuildRuleTypes1 = KnownBuildRuleTypes.createInstance(
         FakeBuckConfig.builder().build(),
+        filesystem,
         createExecutor(),
         new FakeAndroidDirectoryResolver());
 
     final Path javac = temporaryFolder.newExecutableFile();
-    ProjectFilesystem filesystem = new ProjectFilesystem(temporaryFolder.getRoot());
     ImmutableMap<String, ImmutableMap<String, String>> sections = ImmutableMap.of(
         "tools", ImmutableMap.of("javac", javac.toString()));
     BuckConfig buckConfig = FakeBuckConfig
@@ -258,7 +258,7 @@ public class KnownBuildRuleTypesTest {
 
     KnownBuildRuleTypes knownBuildRuleTypes2 = KnownBuildRuleTypes.createInstance(
         buckConfig,
-        processExecutor,
+        filesystem, processExecutor,
         new FakeAndroidDirectoryResolver());
 
     assertNotEquals(knownBuildRuleTypes1, knownBuildRuleTypes2);
@@ -266,6 +266,7 @@ public class KnownBuildRuleTypesTest {
 
   @Test
   public void canSetDefaultPlatformToDefault() throws Exception {
+    ProjectFilesystem filesystem = new ProjectFilesystem(temporaryFolder.getRoot());
     ImmutableMap<String, ImmutableMap<String, String>> sections = ImmutableMap.of(
         "cxx", ImmutableMap.of("default_platform", "default"));
     BuckConfig buckConfig = FakeBuckConfig.builder().setSections(sections).build();
@@ -273,12 +274,13 @@ public class KnownBuildRuleTypesTest {
     // This would throw if "default" weren't available as a platform.
     KnownBuildRuleTypes.createBuilder(
         buckConfig,
-        createExecutor(),
+        filesystem, createExecutor(),
         new FakeAndroidDirectoryResolver()).build();
   }
 
   @Test
   public void canOverrideMultipleHostPlatforms() throws Exception {
+    ProjectFilesystem filesystem = new ProjectFilesystem(temporaryFolder.getRoot());
     ImmutableMap<String, ImmutableMap<String, String>> sections = ImmutableMap.of(
         "cxx#linux-x86_64", ImmutableMap.of("cache_links", "true"),
         "cxx#macosx-x86_64", ImmutableMap.of("cache_links", "true"),
@@ -289,7 +291,7 @@ public class KnownBuildRuleTypesTest {
     // only one will be practically used in a build.
     KnownBuildRuleTypes.createBuilder(
         buckConfig,
-        createExecutor(),
+        filesystem, createExecutor(),
         new FakeAndroidDirectoryResolver()).build();
   }
 

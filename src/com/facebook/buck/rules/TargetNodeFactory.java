@@ -80,7 +80,7 @@ public class TargetNodeFactory {
     // Scan the input to find possible BuildTargets, necessary for loading dependent rules.
     T arg = description.createUnpopulatedConstructorArg();
     for (Field field : arg.getClass().getFields()) {
-      ParamInfo info = new ParamInfo(typeCoercerFactory, field);
+      ParamInfo info = new ParamInfo(typeCoercerFactory, arg.getClass(), field);
       if (info.isDep() && info.isInput() &&
           info.hasElementTypes(BuildTarget.class, SourcePath.class, Path.class)) {
         detectBuildTargetsAndPathsForConstructorArg(
@@ -129,18 +129,15 @@ public class TargetNodeFactory {
 
     try {
       info.traverse(
-          new ParamInfo.Traversal() {
-            @Override
-            public void traverse(Object object) {
-              if (object instanceof PathSourcePath) {
-                pathsBuilder.add(((PathSourcePath) object).getRelativePath());
-              } else if (object instanceof BuildTargetSourcePath) {
-                depsBuilder.add(((BuildTargetSourcePath) object).getTarget());
-              } else if (object instanceof Path) {
-                pathsBuilder.add((Path) object);
-              } else if (object instanceof BuildTarget) {
-                depsBuilder.add((BuildTarget) object);
-              }
+          object -> {
+            if (object instanceof PathSourcePath) {
+              pathsBuilder.add(((PathSourcePath) object).getRelativePath());
+            } else if (object instanceof BuildTargetSourcePath) {
+              depsBuilder.add(((BuildTargetSourcePath) object).getTarget());
+            } else if (object instanceof Path) {
+              pathsBuilder.add((Path) object);
+            } else if (object instanceof BuildTarget) {
+              depsBuilder.add((BuildTarget) object);
             }
           },
           constructorArg);

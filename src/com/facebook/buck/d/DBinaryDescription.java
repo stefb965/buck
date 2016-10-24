@@ -39,10 +39,10 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Optional;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
+
 
 public class DBinaryDescription implements
     Description<DBinaryDescription.Arg>,
@@ -102,9 +102,9 @@ public class DBinaryDescription implements
             cxxPlatform,
             dBuckConfig,
             cxxBuckConfig,
-            /* compilerFlags */ ImmutableList.<String>of(),
+            /* compilerFlags */ ImmutableList.of(),
             args.srcs,
-            args.linkerFlags.or(ImmutableList.<String>of()),
+            args.linkerFlags,
             DIncludes.builder()
                 .setLinkTree(new BuildTargetSourcePath(sourceTree.getBuildTarget()))
                 .addAllSources(args.srcs.getPaths())
@@ -123,7 +123,7 @@ public class DBinaryDescription implements
     // with buck run etc.
     return new DBinary(
         params.copyWithExtraDeps(
-            Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of(nativeLinkable))),
+            Suppliers.ofInstance(ImmutableSortedSet.of(nativeLinkable))),
         new SourcePathResolver(buildRuleResolver),
         executableBuilder.build(),
         nativeLinkable.getPathToOutput());
@@ -140,8 +140,8 @@ public class DBinaryDescription implements
   @SuppressFieldNotInitialized
   public static class Arg extends AbstractDescriptionArg {
     public SourceList srcs;
-    public Optional<ImmutableSortedSet<BuildTarget>> deps;
-    public Optional<ImmutableList<String>> linkerFlags;
+    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
+    public ImmutableList<String> linkerFlags = ImmutableList.of();
   }
 
 }

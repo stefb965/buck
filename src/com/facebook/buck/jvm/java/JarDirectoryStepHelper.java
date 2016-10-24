@@ -29,7 +29,6 @@ import com.facebook.buck.util.versioncontrol.BuildStamper;
 import com.facebook.buck.zip.CustomZipOutputStream;
 import com.facebook.buck.zip.ZipConstants;
 import com.facebook.buck.zip.ZipOutputStreams;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -51,6 +50,7 @@ import java.util.Date;
 import java.util.EnumSet;
 import java.util.Enumeration;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.jar.Attributes;
 import java.util.jar.JarEntry;
@@ -161,7 +161,7 @@ public class JarDirectoryStepHelper {
           pathToOutputFile,
           outputFile,
           entriesToJar,
-          /* alreadyAddedEntriesToOutputFile */ ImmutableSet.<String>of(),
+          /* alreadyAddedEntriesToOutputFile */ ImmutableSet.of(),
           mainClass,
           manifestFile,
           mergeManifests,
@@ -177,11 +177,11 @@ public class JarDirectoryStepHelper {
     return JarDirectoryStepHelper.createJarFile(
         filesystem,
         pathToOutputFile,
-        ImmutableSortedSet.<Path>of(),
-        Optional.<String>absent(),
-        Optional.<Path>absent(),
+        ImmutableSortedSet.of(),
+        Optional.empty(),
+        Optional.empty(),
         true,
-        ImmutableList.<Pattern>of(),
+        ImmutableList.of(),
         context);
   }
 
@@ -421,7 +421,7 @@ public class JarDirectoryStepHelper {
             JarEntry entry = new JarEntry(entryName);
             // We want deterministic JARs, so avoid mtimes.
             entry.setTime(ZipConstants.getFakeTime());
-            entries.put(entry.getName(), new Pair<>(entry, Optional.<Path>absent()));
+            entries.put(entry.getName(), new Pair<>(entry, Optional.empty()));
             return FileVisitResult.CONTINUE;
           }
         });

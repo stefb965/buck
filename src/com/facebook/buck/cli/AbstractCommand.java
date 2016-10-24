@@ -33,7 +33,6 @@ import com.facebook.buck.util.concurrent.ConcurrencyLimit;
 import com.facebook.buck.util.versioncontrol.BuildStamper;
 import com.facebook.buck.util.versioncontrol.DefaultVersionControlCmdLineInterfaceFactory;
 import com.facebook.buck.util.versioncontrol.VersionControlBuckConfig;
-import com.google.common.base.Optional;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -46,6 +45,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import javax.annotation.Nullable;
 
@@ -179,7 +179,7 @@ public abstract class AbstractCommand implements Command {
 
   public Optional<Path> getEventsOutputPath() {
     if (eventsOutputPath == null) {
-      return Optional.absent();
+      return Optional.empty();
     } else {
       return Optional.of(Paths.get(eventsOutputPath));
     }

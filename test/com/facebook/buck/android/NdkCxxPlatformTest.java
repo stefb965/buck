@@ -16,8 +16,8 @@
 
 package com.facebook.buck.android;
 
-import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.cxx.CxxLinkableEnhancer;
 import com.facebook.buck.cxx.CxxPlatformUtils;
@@ -26,10 +26,10 @@ import com.facebook.buck.cxx.CxxPreprocessMode;
 import com.facebook.buck.cxx.CxxSource;
 import com.facebook.buck.cxx.CxxSourceRuleFactory;
 import com.facebook.buck.cxx.Linker;
-import com.facebook.buck.cxx.NativeLinkable;
 import com.facebook.buck.cxx.NativeLinkableInput;
 import com.facebook.buck.io.AlwaysFoundExecutableFinder;
 import com.facebook.buck.io.MoreFiles;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.Pair;
@@ -40,16 +40,13 @@ import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.util.environment.Platform;
-import com.google.common.base.Optional;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -65,6 +62,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Map;
+import java.util.Optional;
 
 public class NdkCxxPlatformTest {
 
@@ -114,7 +112,7 @@ public class NdkCxxPlatformTest {
                   CxxSource.of(
                       CxxSource.Type.CXX,
                       new FakeSourcePath(source),
-                      ImmutableList.<String>of()),
+                      ImmutableList.of()),
                   CxxPreprocessMode.COMBINED);
           break;
         case PREPROCESS:
@@ -124,7 +122,7 @@ public class NdkCxxPlatformTest {
                   CxxSource.of(
                       CxxSource.Type.CXX,
                       new FakeSourcePath(source),
-                      ImmutableList.<String>of()));
+                      ImmutableList.of()));
           break;
         case COMPILE:
           rule =
@@ -133,7 +131,7 @@ public class NdkCxxPlatformTest {
                   CxxSource.of(
                       CxxSource.Type.CXX_CPP_OUTPUT,
                       new FakeSourcePath(source),
-                      ImmutableList.<String>of()));
+                      ImmutableList.of()));
           break;
         default:
           throw new IllegalStateException();
@@ -170,13 +168,13 @@ public class NdkCxxPlatformTest {
           pathResolver,
           target,
           Linker.LinkType.EXECUTABLE,
-          Optional.<String>absent(),
+          Optional.empty(),
           Paths.get("output"),
           Linker.LinkableDepType.SHARED,
-          ImmutableList.<NativeLinkable>of(),
-          Optional.<Linker.CxxRuntimeType>absent(),
-          Optional.<SourcePath>absent(),
-          ImmutableSet.<BuildTarget>of(),
+          ImmutableList.of(),
+          Optional.empty(),
+          Optional.empty(),
+          ImmutableSet.of(),
           NativeLinkableInput.builder()
               .setArgs(SourcePathArg.from(pathResolver, new FakeSourcePath("input.o")))
               .build());
@@ -201,6 +199,7 @@ public class NdkCxxPlatformTest {
   // to the NDK don't cause changes.
   @Test
   public void checkRootAndPlatformDoNotAffectRuleKeys() throws Exception {
+    ProjectFilesystem filesystem = new ProjectFilesystem(tmp.getRoot());
 
     // Test all major compiler and runtime combinations.
     ImmutableList<Pair<NdkCxxPlatformCompiler.Type, NdkCxxPlatforms.CxxRuntime>> configs =
@@ -224,12 +223,12 @@ public class NdkCxxPlatformTest {
         for (Platform platform :
             ImmutableList.of(Platform.LINUX, Platform.MACOS, Platform.WINDOWS)) {
           Path root = tmp.newFolder(dir);
-          FakeProjectFilesystem filesystem = new FakeProjectFilesystem(root);
           MoreFiles.writeLinesToFile(ImmutableList.of("r9c"), root.resolve("RELEASE.TXT"));
           ImmutableMap<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform> platforms =
               NdkCxxPlatforms.getPlatforms(
                   CxxPlatformUtils.DEFAULT_CONFIG,
                   filesystem,
+                  root,
                   NdkCxxPlatformCompiler.builder()
                       .setType(config.getFirst())
                       .setVersion("gcc-version")

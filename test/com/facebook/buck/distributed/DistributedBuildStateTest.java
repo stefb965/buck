@@ -18,6 +18,7 @@ package com.facebook.buck.distributed;
 
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.android.FakeAndroidDirectoryResolver;
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.config.Config;
 import com.facebook.buck.config.ConfigBuilder;
@@ -36,15 +37,14 @@ import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.ParserTargetNodeFactory;
 import com.facebook.buck.rules.ActionGraph;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.ConstructorArgMarshaller;
 import com.facebook.buck.rules.DefaultCellPathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
 import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
@@ -54,17 +54,19 @@ import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
+import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
+import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ObjectMappers;
+import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.Platform;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Function;
 import com.google.common.base.Functions;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -80,6 +82,7 @@ import org.junit.rules.ExpectedException;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.Executors;
 
 public class DistributedBuildStateTest {
@@ -88,6 +91,11 @@ public class DistributedBuildStateTest {
 
   @Rule
   public TemporaryPaths temporaryFolder = new TemporaryPaths();
+
+  private ProcessExecutor processExecutor = new DefaultProcessExecutor(new TestConsole());
+  private KnownBuildRuleTypesFactory knownBuildRuleTypesFactory = new KnownBuildRuleTypesFactory(
+      processExecutor,
+      new FakeAndroidDirectoryResolver());
 
   @Test
   public void canReconstructConfig() throws IOException, InterruptedException {
@@ -112,7 +120,7 @@ public class DistributedBuildStateTest {
     BuildJobState dump = DistBuildState.dump(
         new DistBuildCellIndexer(rootCellWhenSaving),
         emptyActionGraph(),
-        createDefaultCodec(rootCellWhenSaving, Optional.<Parser>absent()),
+        createDefaultCodec(rootCellWhenSaving, Optional.empty()),
         createTargetGraph(filesystem));
 
 
@@ -120,7 +128,7 @@ public class DistributedBuildStateTest {
         .setFilesystem(createJavaOnlyFilesystem("/loading"))
         .build();
     DistBuildState distributedBuildState =
-        DistBuildState.load(dump, rootCellWhenLoading);
+        DistBuildState.load(dump, rootCellWhenLoading, knownBuildRuleTypesFactory);
     ImmutableMap<Integer, Cell> cells = distributedBuildState.getCells();
     assertThat(cells, Matchers.aMapWithSize(1));
     assertThat(
@@ -169,7 +177,7 @@ public class DistributedBuildStateTest {
         .setFilesystem(createJavaOnlyFilesystem("/loading"))
         .build();
     DistBuildState distributedBuildState =
-        DistBuildState.load(dump, rootCellWhenLoading);
+        DistBuildState.load(dump, rootCellWhenLoading, knownBuildRuleTypesFactory);
     TargetGraph reconstructedGraph = distributedBuildState.createTargetGraph(targetGraphCodec);
     assertThat(reconstructedGraph.getNodes(), Matchers.hasSize(1));
     TargetNode<JavaLibraryDescription.Arg> reconstructedJavaLibrary =
@@ -178,8 +186,8 @@ public class DistributedBuildStateTest {
     ProjectFilesystem reconstructedCellFilesystem =
         distributedBuildState.getCells().get(0).getFilesystem();
     assertThat(
-        reconstructedJavaLibrary.getConstructorArg().srcs.get(),
-        Matchers.<SourcePath>contains(
+        reconstructedJavaLibrary.getConstructorArg().srcs,
+        Matchers.contains(
             new PathSourcePath(
                 reconstructedCellFilesystem,
                 reconstructedCellFilesystem.getRootPath().getFileSystem().getPath("A.java"))));
@@ -207,11 +215,11 @@ public class DistributedBuildStateTest {
     BuildJobState dump = DistBuildState.dump(
         new DistBuildCellIndexer(cell),
         emptyActionGraph(),
-        createDefaultCodec(cell, Optional.<Parser>absent()),
+        createDefaultCodec(cell, Optional.empty()),
         createTargetGraph(filesystem));
 
     expectedException.expect(IllegalStateException.class);
-    DistBuildState.load(dump, cell);
+    DistBuildState.load(dump, cell, knownBuildRuleTypesFactory);
   }
 
   @Test
@@ -245,20 +253,20 @@ public class DistributedBuildStateTest {
     BuildJobState dump = DistBuildState.dump(
         new DistBuildCellIndexer(rootCellWhenSaving),
         emptyActionGraph(),
-        createDefaultCodec(rootCellWhenSaving, Optional.<Parser>absent()),
+        createDefaultCodec(rootCellWhenSaving, Optional.empty()),
         createCrossCellTargetGraph(cell1Filesystem, cell2Filesystem));
 
     Cell rootCellWhenLoading = new TestCellBuilder()
         .setFilesystem(createJavaOnlyFilesystem("/loading"))
         .build();
     DistBuildState distributedBuildState =
-        DistBuildState.load(dump, rootCellWhenLoading);
+        DistBuildState.load(dump, rootCellWhenLoading, knownBuildRuleTypesFactory);
     ImmutableMap<Integer, Cell> cells = distributedBuildState.getCells();
     assertThat(cells, Matchers.aMapWithSize(2));
   }
 
   private DistBuildFileHashes emptyActionGraph() throws IOException {
-    ActionGraph actionGraph = new ActionGraph(ImmutableList.<BuildRule>of());
+    ActionGraph actionGraph = new ActionGraph(ImmutableList.of());
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver sourcePathResolver = new SourcePathResolver(ruleResolver);
@@ -275,26 +283,23 @@ public class DistributedBuildStateTest {
   private static DistBuildTargetGraphCodec createDefaultCodec(
       final Cell cell,
       final Optional<Parser> parser) {
-    final ObjectMapper objectMapper = ObjectMappers.newDefaultInstance();
-    final BuckEventBus eventBus = BuckEventBusFactory.newInstance();
+    ObjectMapper objectMapper = ObjectMappers.newDefaultInstance(); // NOPMD confused by lambda
+    BuckEventBus eventBus = BuckEventBusFactory.newInstance();
 
     Function<? super TargetNode<?>, ? extends Map<String, Object>> nodeToRawNode;
     if (parser.isPresent()) {
-     nodeToRawNode = new Function<TargetNode<?>, Map<String, Object>>() {
-        @Override
-        public Map<String, Object> apply(TargetNode<?> input) {
-          try {
-            return parser.get().getRawTargetNode(
-                eventBus,
-                cell.getCell(input.getBuildTarget()),
-                /* enableProfiling */ false,
-                MoreExecutors.listeningDecorator(MoreExecutors.newDirectExecutorService()),
-                input);
-          } catch (BuildFileParseException | InterruptedException e) {
-            throw new RuntimeException(e);
-          }
-        }
-      };
+     nodeToRawNode = (Function<TargetNode<?>, Map<String, Object>>) input -> {
+       try {
+         return parser.get().getRawTargetNode(
+             eventBus,
+             cell.getCell(input.getBuildTarget()),
+             /* enableProfiling */ false,
+             MoreExecutors.listeningDecorator(MoreExecutors.newDirectExecutorService()),
+             input);
+       } catch (BuildFileParseException e) {
+         throw new RuntimeException(e);
+       }
+     };
     } else {
       nodeToRawNode = Functions.constant(ImmutableMap.<String, Object>of());
     }

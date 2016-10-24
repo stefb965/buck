@@ -19,10 +19,8 @@ package com.facebook.buck.util;
 import static com.facebook.buck.zip.Unzip.ExistingFileMode.OVERWRITE;
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
 
-import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.zip.Unzip;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
@@ -36,6 +34,7 @@ import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 
 /**
  * Represents a zip that has been packaged as a resource with Buck, but which should be expanded at
@@ -63,17 +62,12 @@ public class PackagedResource implements Supplier<Path> {
 
     this.name = pathRelativeToClass;
 
-    this.filename = destFileName.transform(MorePaths.TO_PATH)
-        .or(Paths.get(pathRelativeToClass).getFileName());
+    this.filename = destFileName.map(Paths::get)
+        .orElse(Paths.get(pathRelativeToClass).getFileName());
     this.extension = com.google.common.io.Files.getFileExtension(pathRelativeToClass);
 
     this.supplier = Suppliers.memoize(
-        new Supplier<Path>() {
-          @Override
-          public Path get() {
-            return unpack();
-          }
-        });
+        this::unpack);
   }
 
   @Override

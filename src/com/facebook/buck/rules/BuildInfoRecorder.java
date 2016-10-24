@@ -25,7 +25,6 @@ import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.BorrowablePath;
 import com.facebook.buck.io.LazyPath;
 import com.facebook.buck.io.MoreFiles;
-import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildId;
@@ -34,9 +33,7 @@ import com.facebook.buck.timing.Clock;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Function;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -58,9 +55,11 @@ import java.io.IOException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -117,7 +116,7 @@ public class BuildInfoRecorder {
         ImmutableMap.<String, String>builder()
             .put(
                 "artifact_data",
-                Optional.fromNullable(environment.get(BUCK_CACHE_DATA_ENV_VAR)).or("null"))
+                Optional.ofNullable(environment.get(BUCK_CACHE_DATA_ENV_VAR)).orElse("null"))
             .build();
 
     this.metadataToWrite = Maps.newLinkedHashMap();
@@ -145,7 +144,7 @@ public class BuildInfoRecorder {
     return builder.toString();
   }
 
-  private ImmutableMap<String, String> getBuildMetadata() throws IOException {
+  private ImmutableMap<String, String> getBuildMetadata() {
     return ImmutableMap.<String, String>builder()
         .put(
             BuildInfo.METADATA_KEY_FOR_ADDITIONAL_INFO,
@@ -209,14 +208,9 @@ public class BuildInfoRecorder {
 
   private ImmutableSortedSet<Path> getRecordedMetadataFiles() {
     return FluentIterable.from(metadataToWrite.keySet())
-        .transform(MorePaths.TO_PATH)
+        .transform(Paths::get)
         .transform(
-            new Function<Path, Path>() {
-              @Override
-              public Path apply(Path input) {
-                return pathToMetadataDirectory.resolve(input);
-              }
-            })
+            pathToMetadataDirectory::resolve)
         .toSortedSet(Ordering.natural());
   }
 
@@ -265,7 +259,7 @@ public class BuildInfoRecorder {
     return ImmutableSortedSet.copyOf(pathsToOutputs);
   }
 
-  public ImmutableSortedSet<Path> getRecordedPaths() throws IOException {
+  public ImmutableSortedSet<Path> getRecordedPaths() {
     return ImmutableSortedSet.<Path>naturalOrder()
         .addAll(getRecordedMetadataFiles())
         .addAll(pathsToOutputs)
@@ -296,8 +290,7 @@ public class BuildInfoRecorder {
   public void performUploadToArtifactCache(
       final ImmutableSet<RuleKey> ruleKeys,
       ArtifactCache artifactCache,
-      final BuckEventBus eventBus)
-      throws InterruptedException {
+      final BuckEventBus eventBus) {
 
     // Skip all of this if caching is disabled. Although artifactCache.store() will be a noop,
     // building up the zip is wasted I/O.
@@ -319,7 +312,7 @@ public class BuildInfoRecorder {
           "buck_artifact_" + MoreFiles.sanitize(buildTarget.getShortName()),
           ".zip");
       buildMetadata = getBuildMetadata();
-      projectFilesystem.createZip(pathsToIncludeInZip, zip, ImmutableMap.<Path, String>of());
+      projectFilesystem.createZip(pathsToIncludeInZip, zip, ImmutableMap.of());
     } catch (IOException e) {
       eventBus.post(ConsoleEvent.info("Failed to create zip for %s containing:\n%s",
           buildTarget,
@@ -370,8 +363,7 @@ public class BuildInfoRecorder {
   public CacheResult fetchArtifactForBuildable(
       RuleKey ruleKey,
       LazyPath outputFile,
-      ArtifactCache artifactCache)
-      throws InterruptedException {
+      ArtifactCache artifactCache) {
     try {
       return artifactCache.fetch(ruleKey, outputFile);
     } catch (Throwable t) {
@@ -397,4 +389,13 @@ public class BuildInfoRecorder {
   String getMetadataFor(String key) {
     return metadataToWrite.get(key);
   }
+
+  boolean hasBuildMetadata(String key) {
+    return buildMetadata.containsKey(key);
+  }
+
+  Optional<String> getBuildMetadataFor(String key) {
+    return Optional.ofNullable(buildMetadata.get(key));
+  }
+
 }

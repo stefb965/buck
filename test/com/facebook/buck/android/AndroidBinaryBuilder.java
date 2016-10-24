@@ -26,13 +26,13 @@ import com.facebook.buck.cxx.CxxPlatformUtils;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.SourcePath;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.util.concurrent.MoreExecutors;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 public class AndroidBinaryBuilder extends AbstractNodeBuilder<AndroidBinaryDescription.Arg> {
@@ -43,7 +43,7 @@ public class AndroidBinaryBuilder extends AbstractNodeBuilder<AndroidBinaryDescr
             DEFAULT_JAVA_OPTIONS,
             ANDROID_JAVAC_OPTIONS,
             new ProGuardConfig(FakeBuckConfig.builder().build()),
-            ImmutableMap.<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform>of(),
+            ImmutableMap.of(),
             MoreExecutors.newDirectExecutorService(),
             CxxPlatformUtils.DEFAULT_CONFIG),
         target);
@@ -59,7 +59,7 @@ public class AndroidBinaryBuilder extends AbstractNodeBuilder<AndroidBinaryDescr
   }
 
   public AndroidBinaryBuilder setOriginalDeps(ImmutableSortedSet<BuildTarget> originalDeps) {
-    arg.deps = Optional.of(originalDeps);
+    arg.deps = originalDeps;
     return this;
   }
 
@@ -113,7 +113,7 @@ public class AndroidBinaryBuilder extends AbstractNodeBuilder<AndroidBinaryDescr
 
   public AndroidBinaryBuilder setResourceFilter(ResourceFilter resourceFilter) {
     List<String> rawFilters = ImmutableList.copyOf(resourceFilter.getFilter());
-    arg.resourceFilter = Optional.of(rawFilters);
+    arg.resourceFilter = rawFilters;
     return this;
   }
 

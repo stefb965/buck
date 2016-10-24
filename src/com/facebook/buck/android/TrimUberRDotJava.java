@@ -16,7 +16,6 @@
 
 package com.facebook.buck.android;
 
-import com.android.common.annotations.NonNull;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTargets;
@@ -33,8 +32,6 @@ import com.facebook.buck.zip.CustomZipOutputStream;
 import com.facebook.buck.zip.ZipOutputStreams;
 import com.facebook.buck.zip.ZipScrubberStep;
 import com.google.common.base.Charsets;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
@@ -46,6 +43,7 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
@@ -189,13 +187,7 @@ class TrimUberRDotJava extends AbstractBuildRule {
     String packageName = null;
     Matcher m;
 
-    Optional<Pattern> keepPattern = keepResourcePattern.transform(new Function<String, Pattern>() {
-      @NonNull
-      @Override
-      public Pattern apply(@NonNull String input) {
-        return Pattern.compile(input);
-      }
-    });
+    Optional<Pattern> keepPattern = keepResourcePattern.map(Pattern::compile);
 
     for (String line : rDotJavaLines) {
       if (packageName == null) {

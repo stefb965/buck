@@ -23,10 +23,10 @@ import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.SourcePath;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.util.concurrent.MoreExecutors;
+
 
 public class AndroidInstrumentationApkBuilder
     extends AbstractNodeBuilder<AndroidInstrumentationApkDescription.Arg> {
@@ -36,7 +36,7 @@ public class AndroidInstrumentationApkBuilder
         new AndroidInstrumentationApkDescription(
             new ProGuardConfig(FakeBuckConfig.builder().build()),
             ANDROID_JAVAC_OPTIONS,
-            ImmutableMap.<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform>of(),
+            ImmutableMap.of(),
             MoreExecutors.newDirectExecutorService(),
             new CxxBuckConfig(new FakeBuckConfig.Builder().build())),
         target);
@@ -52,7 +52,7 @@ public class AndroidInstrumentationApkBuilder
   }
 
   public AndroidInstrumentationApkBuilder setDeps(ImmutableSortedSet<BuildTarget> deps) {
-    arg.deps = Optional.of(deps);
+    arg.deps = deps;
     return this;
   }
 

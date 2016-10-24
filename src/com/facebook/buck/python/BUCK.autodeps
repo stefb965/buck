@@ -1,10 +1,9 @@
-#@# GENERATED FILE: DO NOT MODIFY 81ac2f956bb5386386f660a3300e4d2002397702 #@#
 {
   "config" : {
     "deps" : [
       "//src/com/facebook/buck/rules:command_tool",
       "//src/com/facebook/buck/util:exceptions",
-      "//src/com/facebook/buck/util:util",
+      "//src/com/facebook/buck/util:packaged_resource",
       "//third-party/java/jsr:jsr305"
     ],
     "exported_deps" : [
@@ -28,8 +27,8 @@
       "//src/com/facebook/buck/rules:command_tool",
       "//src/com/facebook/buck/rules/args:args",
       "//src/com/facebook/buck/step/fs:fs",
-      "//src/com/facebook/buck/util:escaper",
       "//src/com/facebook/buck/util:io",
+      "//src/com/facebook/buck/util:util",
       "//src/com/facebook/buck/zip:unzip",
       "//third-party/java/immutables:processor",
       "//third-party/java/jackson:jackson-databind",

@@ -15,14 +15,14 @@
  */
 package com.facebook.buck.macho;
 
+import static com.facebook.buck.cxx.CxxFlavorSanitizer.sanitize;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.junit.Assume.assumeTrue;
 
-import static com.facebook.buck.cxx.CxxFlavorSanitizer.sanitize;
-
 import com.facebook.buck.cxx.DebugPathSanitizer;
+import com.facebook.buck.cxx.MungingDebugPathSanitizer;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
@@ -112,11 +112,11 @@ public class CompDirReplacerIntegrationTest {
         filesystem.getBuckPaths().getScratchDir().resolve(Paths.get("unsanitized.main.c.o")));
 
     // this was stolen from the implementation detail of AppleCxxPlatforms
-    DebugPathSanitizer sanitizer = new DebugPathSanitizer(
+    DebugPathSanitizer sanitizer = new MungingDebugPathSanitizer(
         250,
         File.separatorChar,
         Paths.get("."),
-        ImmutableBiMap.<Path, Path>of());
+        ImmutableBiMap.of());
 
     String oldCompDirValue = sanitizer.getCompilationDirectory();
     String newCompDirValue = workspace.getDestPath().toString();
@@ -140,13 +140,13 @@ public class CompDirReplacerIntegrationTest {
         workspace.runCommand("dwarfdump", unsanizitedObjectFilePath.toString());
 
     assertThat(
-        sanitizedResult.getStdout().or(""),
+        sanitizedResult.getStdout().orElse(""),
         containsString("AT_comp_dir( \"./////////////////////////////"));
     assertThat(
-        unsanitizedResult.getStdout().or(""),
+        unsanitizedResult.getStdout().orElse(""),
         not(containsString("AT_comp_dir( \"./////////////////////////////")));
     assertThat(
-        unsanitizedResult.getStdout().or(""),
+        unsanitizedResult.getStdout().orElse(""),
         containsString("AT_comp_dir( \"" + newCompDirValue));
   }
 }

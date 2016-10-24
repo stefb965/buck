@@ -30,14 +30,13 @@ import com.facebook.buck.rules.Tool;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.SortedSet;
 
 import javax.annotation.Nullable;
@@ -82,14 +81,9 @@ public class AppleAssetCatalog extends AbstractBuildRule {
     Preconditions.checkArgument(
         Iterables.all(
             assetCatalogDirs,
-            new Predicate<SourcePath>() {
-              @Override
-              public boolean apply(SourcePath input) {
-                return resolver.getAbsolutePath(input)
-                    .toString()
-                    .endsWith(XCASSETS_DIRECTORY_EXTENSION);
-              }
-            }));
+            input -> resolver.getAbsolutePath(input)
+                .toString()
+                .endsWith(XCASSETS_DIRECTORY_EXTENSION)));
     this.applePlatformName = applePlatformName;
     this.actool = actool;
     this.assetCatalogDirs = ImmutableSortedSet.copyOf(assetCatalogDirs);
@@ -114,7 +108,7 @@ public class AppleAssetCatalog extends AbstractBuildRule {
         ImmutableSortedSet.copyOf(
             Iterables.transform(
                 assetCatalogDirs,
-                getResolver().getAbsolutePathFunction()));
+                getResolver()::getAbsolutePath));
     stepsBuilder.add(
         new ActoolStep(
             getProjectFilesystem().getRootPath(),

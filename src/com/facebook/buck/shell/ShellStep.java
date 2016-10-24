@@ -29,7 +29,6 @@ import com.facebook.buck.util.Verbosity;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -44,7 +43,8 @@ import java.lang.management.ManagementFactory;
 import java.lang.management.OperatingSystemMXBean;
 import java.nio.file.Path;
 import java.util.Map;
-import java.util.Map.Entry;
+import java.util.Optional;
+import java.util.function.Consumer;
 
 import javax.annotation.Nullable;
 
@@ -77,8 +77,8 @@ public abstract class ShellStep implements Step {
 
   protected ShellStep(Path workingDirectory) {
     this.workingDirectory = Preconditions.checkNotNull(workingDirectory);
-    this.stdout = Optional.absent();
-    this.stderr = Optional.absent();
+    this.stdout = Optional.empty();
+    this.stderr = Optional.empty();
 
     if (!workingDirectory.isAbsolute()) {
       LOG.info("Working directory is not absolute: %s", workingDirectory);
@@ -110,14 +110,14 @@ public abstract class ShellStep implements Step {
 
     LOG.debug(
         "%s: exit code: %d. os load (before, after): (%f, %f). CPU count: %d." +
-        "\nstdout:\n%s\nstderr:\n%s\n",
+            "\nstdout:\n%s\nstderr:\n%s\n",
         shellCommandArgs,
         exitCode,
         initialLoad,
         endLoad,
         OS_JMX.getAvailableProcessors(),
-        stdout.or(""),
-        stderr.or(""));
+        stdout.orElse(""),
+        stderr.orElse(""));
 
     return StepExecutionResult.of(exitCode, stderr);
   }
@@ -210,7 +210,7 @@ public abstract class ShellStep implements Step {
 
   @SuppressWarnings("unused")
   protected Optional<String> getStdin(ExecutionContext context) {
-    return Optional.absent();
+    return Optional.empty();
   }
 
   /**
@@ -224,12 +224,7 @@ public abstract class ShellStep implements Step {
     // Get environment variables for this command as VAR1=val1 VAR2=val2... etc., with values
     // quoted as necessary.
     Iterable<String> env = Iterables.transform(getEnvironmentVariables(context).entrySet(),
-        new Function<Entry<String, String>, String>() {
-          @Override
-          public String apply(Entry<String, String> e) {
-            return String.format("%s=%s", e.getKey(), Escaper.escapeAsBashString(e.getValue()));
-          }
-    });
+        e -> String.format("%s=%s", e.getKey(), Escaper.escapeAsBashString(e.getValue())));
 
     // Quote the arguments to the shell command as needed (this applies to $0 as well
     // e.g. if we run '/path/a b.sh' quoting is needed).
@@ -315,7 +310,7 @@ public abstract class ShellStep implements Step {
    * @return an optional timeout to apply to the step.
    */
   protected Optional<Long> getTimeout() {
-    return Optional.absent();
+    return Optional.empty();
   }
 
   /**
@@ -323,7 +318,7 @@ public abstract class ShellStep implements Step {
    * killed.
    */
   @SuppressWarnings("unused")
-  protected Optional<Function<Process, Void>> getTimeoutHandler(ExecutionContext context) {
-    return Optional.absent();
+  protected Optional<Consumer<Process>> getTimeoutHandler(ExecutionContext context) {
+    return Optional.empty();
   }
 }

@@ -20,7 +20,6 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.oneOf;
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.TargetGraph;
@@ -28,7 +27,6 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.sha1.Sha1HashCode;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
@@ -43,7 +41,7 @@ import org.junit.rules.TemporaryFolder;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Set;
+import java.util.Optional;
 
 public class PreDexedFilesSorterTest {
   @Rule
@@ -61,7 +59,7 @@ public class PreDexedFilesSorterTest {
     moduleGraph = new APKModuleGraph(
         TargetGraph.EMPTY,
         BuildTargetFactory.newInstance("//fakeTarget:yes"),
-        Optional.<Set<BuildTarget>>absent());
+        Optional.empty());
     extraModule = APKModule.builder().setName("extra").build();
   }
 
@@ -228,7 +226,7 @@ public class PreDexedFilesSorterTest {
     }
 
     PreDexedFilesSorter sorter = new PreDexedFilesSorter(
-        Optional.<DexWithClasses>absent(),
+        Optional.empty(),
         inputDexes.build(),
         ImmutableSet.of(PRIMARY_DEX_PATTERN),
         moduleGraph,

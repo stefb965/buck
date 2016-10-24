@@ -33,7 +33,6 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.WriteFileStep;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
@@ -45,6 +44,7 @@ import java.io.StringWriter;
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 import javax.annotation.Nullable;
@@ -90,7 +90,7 @@ public class JsBinary extends AbstractBuildRule implements
     this.defines = Preconditions.checkNotNull(defines);
     this.externs = Preconditions.checkNotNull(externs);
     this.flags = Preconditions.checkNotNull(flags);
-    this.prettyPrint = !noFormat.or(Boolean.FALSE);  // Bloody double negatives
+    this.prettyPrint = !noFormat.orElse(Boolean.FALSE);  // Bloody double negatives
 
     this.output = BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s.js");
     this.joyPath = BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s.deps");

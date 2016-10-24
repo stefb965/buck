@@ -19,7 +19,6 @@ package com.facebook.buck.jvm.java;
 import com.facebook.buck.log.Logger;
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableMap;
@@ -64,6 +63,7 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -471,7 +471,7 @@ public class JavaFileParser {
     if (packageDecl != null) {
       return Optional.of(packageDecl.getName().toString());
     }
-    return Optional.absent();
+    return Optional.empty();
   }
 
   private static enum DependencyType {
@@ -764,8 +764,12 @@ public class JavaFileParser {
           // simple types. As such, we use this imperfect heuristic to filter out "T" from being
           // added. Note that this will erroneously exclude "URI". In practice, this should
           // generally be OK. For example, assuming "URI" is also imported, then at least it will
-          // end up in the set of required symbols.
-          if (!CharMatcher.JAVA_UPPER_CASE.matchesAllOf(simpleName)) {
+          // end up in the set of required symbols. To this end, we perform a second check for
+          // "all caps" types to see if there is a corresponding import and if it should be exported
+          // rather than simply required.
+          if (!CharMatcher.JAVA_UPPER_CASE.matchesAllOf(simpleName) ||
+              (dependencyType == DependencyType.EXPORTED &&
+                  simpleImportedTypes.containsKey(simpleName))) {
             addSimpleTypeName(simpleTypeName, dependencyType);
           }
         } else if (type.isArrayType()) {
@@ -870,7 +874,7 @@ public class JavaFileParser {
   }
 
   /**
-   * @return {@link Optional#absent()} if there are no uppercase components in the
+   * @return {@link Optional#empty()} if there are no uppercase components in the
    *   {@code fullyQualifiedName}, such as
    *   {@code import org.whispersystems.curve25519.java.curve_sigs;}.
    */
@@ -901,7 +905,7 @@ public class JavaFileParser {
       }
     }
 
-    return Optional.absent();
+    return Optional.empty();
   }
 
   private static boolean startsWithUppercaseChar(String str) {

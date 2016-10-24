@@ -17,7 +17,6 @@
 package com.facebook.buck.go;
 
 import com.facebook.buck.io.MorePaths;
-import com.google.common.base.Function;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -27,9 +26,7 @@ import org.hamcrest.Matchers;
 import org.junit.Test;
 import static org.junit.Assert.assertThat;
 
-import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Map;
 
 public class GoDescriptorsTest {
   private ImmutableMap<String, String> getPackageImportMap(
@@ -37,18 +34,13 @@ public class GoDescriptorsTest {
       String basePackage, Iterable<String> packages) {
     return ImmutableMap.copyOf(FluentIterable.from(
         GoDescriptors.getPackageImportMap(
-            ImmutableList.<Path>copyOf(
-              FluentIterable.from(globalVendorPath).transform(MorePaths.TO_PATH)),
+            ImmutableList.copyOf(
+              FluentIterable.from(globalVendorPath).transform(Paths::get)),
             Paths.get(basePackage),
-            FluentIterable.from(packages).transform(MorePaths.TO_PATH)).entrySet())
-        .transform(new Function<Map.Entry<Path, Path>, Map.Entry<String, String>>() {
-          @Override
-          public Map.Entry<String, String> apply(Map.Entry<Path, Path> input) {
-            return Maps.immutableEntry(
-                MorePaths.pathWithUnixSeparators(input.getKey()),
-                MorePaths.pathWithUnixSeparators(input.getValue()));
-          }
-        }));
+            FluentIterable.from(packages).transform(Paths::get)).entrySet())
+        .transform(input -> Maps.immutableEntry(
+            MorePaths.pathWithUnixSeparators(input.getKey()),
+            MorePaths.pathWithUnixSeparators(input.getValue()))));
   }
 
   @Test

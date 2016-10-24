@@ -19,8 +19,6 @@ package com.facebook.buck.step;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.util.concurrent.MoreFutures;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.collect.Lists;
@@ -30,6 +28,7 @@ import com.google.common.util.concurrent.ListeningExecutorService;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
@@ -38,16 +37,11 @@ public final class DefaultStepRunner implements StepRunner {
 
   private static final Logger LOG = Logger.get(DefaultStepRunner.class);
 
-  private final ExecutionContext context;
-
-  public DefaultStepRunner(ExecutionContext executionContext) {
-    this.context = executionContext;
-  }
-
   @Override
-  public void runStepForBuildTarget(Step step, Optional<BuildTarget> buildTarget)
-      throws StepFailedException, InterruptedException {
-
+  public void runStepForBuildTarget(
+      ExecutionContext context,
+      Step step,
+      Optional<BuildTarget> buildTarget) throws StepFailedException, InterruptedException {
     if (context.getVerbosity().shouldPrintCommand()) {
       context.getStdErr().println(step.getDescription(context));
     }
@@ -77,25 +71,21 @@ public final class DefaultStepRunner implements StepRunner {
 
   @Override
   public <T> ListenableFuture<T> runStepsAndYieldResult(
+      ExecutionContext context,
       final List<Step> steps,
       final Callable<T> interpretResults,
       final Optional<BuildTarget> buildTarget,
       ListeningExecutorService listeningExecutorService,
       final StepRunningCallback callback) {
     Preconditions.checkState(!listeningExecutorService.isShutdown());
-    Callable<T> callable = new Callable<T>() {
-
-      @Override
-      public T call() throws Exception {
-        callback.stepsWillRun(buildTarget);
-        for (Step step : steps) {
-          runStepForBuildTarget(step, buildTarget);
-        }
-        callback.stepsDidRun(buildTarget);
-
-        return interpretResults.call();
+    Callable<T> callable = () -> {
+      callback.stepsWillRun(buildTarget);
+      for (Step step : steps) {
+        runStepForBuildTarget(context, step, buildTarget);
       }
+      callback.stepsDidRun(buildTarget);
 
+      return interpretResults.call();
     };
 
     return listeningExecutorService.submit(callable);
@@ -109,24 +99,17 @@ public final class DefaultStepRunner implements StepRunner {
    */
   @Override
   public void runStepsInParallelAndWait(
+      ExecutionContext context,
       final List<Step> steps,
       final Optional<BuildTarget> target,
       ListeningExecutorService listeningExecutorService,
       final StepRunningCallback callback)
       throws StepFailedException, InterruptedException {
     List<Callable<Void>> callables = Lists.transform(steps,
-        new Function<Step, Callable<Void>>() {
-      @Override
-      public Callable<Void> apply(final Step step) {
-        return new Callable<Void>() {
-          @Override
-          public Void call() throws Exception {
-            runStepForBuildTarget(step, target);
-            return null;
-          }
-        };
-      }
-    });
+        step -> () -> {
+          runStepForBuildTarget(context, step, target);
+          return null;
+        });
 
     try {
       callback.stepsWillRun(target);

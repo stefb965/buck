@@ -16,10 +16,10 @@
 package com.facebook.buck.rules;
 
 import com.facebook.buck.io.ProjectFilesystem;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableMap;
 
 import java.nio.file.Path;
+import java.util.Optional;
 
 import javax.annotation.Nullable;
 
@@ -40,7 +40,7 @@ public final class FakeCellPathResolver implements CellPathResolver {
   }
 
   public FakeCellPathResolver(ProjectFilesystem projectFilesystem) {
-    this(projectFilesystem, ImmutableMap.<String, Path>of());
+    this(projectFilesystem, ImmutableMap.of());
   }
 
   @Override

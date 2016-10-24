@@ -17,8 +17,6 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.android.DxStep.Option;
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.facebook.buck.step.CompositeStep;
 import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.step.ExecutionContext;
@@ -29,13 +27,12 @@ import com.facebook.buck.step.StepRunner;
 import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.step.fs.WriteFileStep;
 import com.facebook.buck.step.fs.XzStep;
+import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.facebook.buck.zip.RepackZipEntriesStep;
 import com.facebook.buck.zip.ZipCompressionLevel;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
-import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
@@ -58,6 +55,7 @@ import java.util.Collection;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import javax.annotation.Nullable;
@@ -115,16 +113,13 @@ public class SmartDexingStep implements Step {
       Optional<Integer> xzCompressionLevel) {
     this.filesystem = filesystem;
     this.outputToInputsSupplier = Suppliers.memoize(
-        new Supplier<Multimap<Path, Path>>() {
-          @Override
-          public Multimap<Path, Path> get() {
-            final ImmutableMultimap.Builder<Path, Path> map = ImmutableMultimap.builder();
-            map.putAll(primaryOutputPath, primaryInputsToDex.get());
-            if (secondaryInputsToDex.isPresent()) {
-              map.putAll(secondaryInputsToDex.get().get());
-            }
-            return map.build();
+        () -> {
+          final ImmutableMultimap.Builder<Path, Path> map = ImmutableMultimap.builder();
+          map.putAll(primaryOutputPath, primaryInputsToDex.get());
+          if (secondaryInputsToDex.isPresent()) {
+            map.putAll(secondaryInputsToDex.get().get());
           }
+          return map.build();
         });
     this.secondaryOutputDir = secondaryOutputDir;
     this.dexInputHashesProvider = dexInputHashesProvider;
@@ -171,7 +166,7 @@ public class SmartDexingStep implements Step {
             Path secondaryBlobOutput = store.getParent().resolve("uncompressed.dex.blob");
             Path secondaryCompressedBlobOutput = store;
             // Concatenate the jars into a blob and compress it.
-            StepRunner stepRunner = new DefaultStepRunner(context);
+            StepRunner stepRunner = new DefaultStepRunner();
             Step concatStep = new ConcatStep(
                 filesystem,
                 ImmutableList.copyOf(secondaryDexJars),
@@ -187,8 +182,8 @@ public class SmartDexingStep implements Step {
             } else {
               xzStep = new XzStep(filesystem, secondaryBlobOutput, secondaryCompressedBlobOutput);
             }
-            stepRunner.runStepForBuildTarget(concatStep, Optional.<BuildTarget>absent());
-            stepRunner.runStepForBuildTarget(xzStep, Optional.<BuildTarget>absent());
+            stepRunner.runStepForBuildTarget(context, concatStep, Optional.empty());
+            stepRunner.runStepForBuildTarget(context, xzStep, Optional.empty());
           }
         }
       }
@@ -201,14 +196,15 @@ public class SmartDexingStep implements Step {
   }
 
   private void runDxCommands(ExecutionContext context, Multimap<Path, Path> outputToInputs)
-      throws StepFailedException, IOException, InterruptedException {
-    DefaultStepRunner stepRunner = new DefaultStepRunner(context);
+      throws StepFailedException, InterruptedException {
+    DefaultStepRunner stepRunner = new DefaultStepRunner();
     // Invoke dx commands in parallel for maximum thread utilization.  In testing, dx revealed
     // itself to be CPU (and not I/O) bound making it a good candidate for parallelization.
     List<Step> dxSteps = generateDxCommands(filesystem, outputToInputs);
     stepRunner.runStepsInParallelAndWait(
+        context,
         dxSteps,
-        Optional.<BuildTarget>absent(),
+        Optional.empty(),
         executorService,
         DefaultStepRunner.NOOP_CALLBACK);
   }
@@ -251,7 +247,7 @@ public class SmartDexingStep implements Step {
       b.append(output.toString());
       b.append("-in ");
       Joiner.on(':').appendTo(b,
-          Iterables.transform(outputToInputs.get(output), Functions.toStringFunction()));
+          Iterables.transform(outputToInputs.get(output), Object::toString));
     }
 
     return b.toString();
@@ -263,7 +259,7 @@ public class SmartDexingStep implements Step {
    */
   private List<Step> generateDxCommands(
       ProjectFilesystem filesystem,
-      Multimap<Path, Path> outputToInputs) throws IOException {
+      Multimap<Path, Path> outputToInputs) {
     ImmutableList.Builder<DxPseudoRule> pseudoRules = ImmutableList.builder();
 
     ImmutableMap<Path, Sha1HashCode> dexInputHashes = dexInputHashesProvider.getDexInputHashes();
@@ -336,11 +332,11 @@ public class SmartDexingStep implements Step {
     @Nullable
     private String getPreviousInputsHash() {
       // Returning null will trigger the dx command to run again.
-      return filesystem.readFirstLine(outputHashPath).orNull();
+      return filesystem.readFirstLine(outputHashPath).orElse(null);
     }
 
     @VisibleForTesting
-    String hashInputs() throws IOException {
+    String hashInputs() {
       Hasher hasher = Hashing.sha1().newHasher();
       for (Path src : srcs) {
         Preconditions.checkState(
@@ -354,7 +350,7 @@ public class SmartDexingStep implements Step {
       return hasher.hash().toString();
     }
 
-    public boolean checkIsCached() throws IOException {
+    public boolean checkIsCached() {
       newInputsHash = hashInputs();
 
       if (!filesystem.exists(outputHashPath) ||
@@ -385,7 +381,7 @@ public class SmartDexingStep implements Step {
       // Use a composite step to ensure that runDxSteps can still make use of
       // runStepsInParallelAndWait.  This is necessary to keep the DxStep and
       // WriteFileStep dependent in series.
-      return ImmutableList.<Step>of(new CompositeStep(steps));
+      return ImmutableList.of(new CompositeStep(steps));
     }
   }
 

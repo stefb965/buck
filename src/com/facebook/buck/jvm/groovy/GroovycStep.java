@@ -16,7 +16,6 @@
 
 package com.facebook.buck.jvm.groovy;
 
-import static com.google.common.base.Functions.toStringFunction;
 import static com.google.common.collect.Iterables.any;
 import static com.google.common.collect.Iterables.transform;
 
@@ -32,8 +31,6 @@ import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
-import com.google.common.base.Predicate;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
@@ -42,6 +39,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Collection;
+import java.util.Optional;
 
 class GroovycStep implements Step {
   private final Tool groovyc;
@@ -109,7 +107,7 @@ class GroovycStep implements Step {
     command.addAll(groovyc.getCommandPrefix(resolver));
 
     String classpath =
-        Joiner.on(File.pathSeparator).join(transform(declaredClasspathEntries, toStringFunction()));
+        Joiner.on(File.pathSeparator).join(transform(declaredClasspathEntries, Object::toString));
     command
         .add("-cp")
         .add(classpath.isEmpty() ? "''" : classpath)
@@ -117,7 +115,7 @@ class GroovycStep implements Step {
         .add(outputDirectory.toString());
     addCrossCompilationOptions(command);
 
-    command.addAll(extraArguments.or(ImmutableList.<String>of()));
+    command.addAll(extraArguments.orElse(ImmutableList.of()));
 
     command.add("@" + pathToSrcsList);
 
@@ -127,7 +125,7 @@ class GroovycStep implements Step {
   private void writePathToSourcesList(Iterable<Path> expandedSources) throws IOException {
     filesystem.writeLinesToPath(
         FluentIterable.from(expandedSources)
-            .transform(toStringFunction())
+            .transform(Object::toString)
             .transform(Javac.ARGFILES_ESCAPER),
         pathToSrcsList);
   }
@@ -168,11 +166,6 @@ class GroovycStep implements Step {
   }
 
   private boolean shouldCrossCompile() {
-    return any(sourceFilePaths, new Predicate<Path>() {
-      @Override
-      public boolean apply(Path input) {
-        return input.toString().endsWith(".java");
-      }
-    });
+    return any(sourceFilePaths, input -> input.toString().endsWith(".java"));
   }
 }

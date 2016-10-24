@@ -23,7 +23,6 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.cli.BuckConfig;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.jvm.java.DefaultJavaLibrary;
 import com.facebook.buck.model.BuildTarget;
@@ -33,15 +32,14 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CommandTool;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeExportDependenciesRule;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.StringArg;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -50,7 +48,6 @@ import com.google.common.collect.ImmutableSortedSet;
 import org.hamcrest.Matchers;
 import org.junit.Test;
 
-import java.nio.file.Path;
 import java.nio.file.Paths;
 
 public class ThriftJavaEnhancerTest {
@@ -87,15 +84,15 @@ public class ThriftJavaEnhancerTest {
         new CommandTool.Builder()
             .addArg(new StringArg("compiler"))
             .build(),
-        ImmutableList.<String>of(),
+        ImmutableList.of(),
         Paths.get("output"),
         new FakeSourcePath("source"),
         "language",
-        ImmutableSet.<String>of(),
-        ImmutableList.<Path>of(),
-        ImmutableSet.<Path>of(),
-        ImmutableMap.<Path, SourcePath>of(),
-        ImmutableSortedSet.<String>of());
+        ImmutableSet.of(),
+        ImmutableList.of(),
+        ImmutableSet.of(),
+        ImmutableMap.of(),
+        ImmutableSortedSet.of());
   }
 
   @Test
@@ -119,22 +116,16 @@ public class ThriftJavaEnhancerTest {
 
     // Test empty options.
     options = ImmutableSet.of();
-    arg.javaOptions = Optional.of(options);
+    arg.javaOptions = options;
     assertEquals(
         options,
         ENHANCER.getOptions(TARGET, arg));
 
     // Test set options.
     options = ImmutableSet.of("test", "option");
-    arg.javaOptions = Optional.of(options);
+    arg.javaOptions = options;
     assertEquals(
         options,
-        ENHANCER.getOptions(TARGET, arg));
-
-    // Test absent options.
-    arg.javaOptions = Optional.absent();
-    assertEquals(
-        ImmutableSet.<String>of(),
         ENHANCER.getOptions(TARGET, arg));
   }
 
@@ -163,15 +154,15 @@ public class ThriftJavaEnhancerTest {
     ImmutableMap<String, ThriftSource> sources = ImmutableMap.of(
         "test1.thrift", new ThriftSource(
             createFakeThriftCompiler("//:thrift_source1", pathResolver),
-            ImmutableList.<String>of(),
+            ImmutableList.of(),
             Paths.get("output1")),
         "test2.thrift", new ThriftSource(
             createFakeThriftCompiler("//:thrift_source2", pathResolver),
-            ImmutableList.<String>of(),
+            ImmutableList.of(),
             Paths.get("output2")));
 
     // Create a dummy implicit dep to pass in.
-    ImmutableSortedSet<BuildRule> deps = ImmutableSortedSet.<BuildRule>of(
+    ImmutableSortedSet<BuildRule> deps = ImmutableSortedSet.of(
         createFakeBuildRule("//:dep", pathResolver));
 
     // Run the enhancer to create the language specific build rule.
@@ -221,7 +212,7 @@ public class ThriftJavaEnhancerTest {
     ImmutableMap<String, ThriftSource> sources = ImmutableMap.of(
         "test.thrift", new ThriftSource(
             createFakeThriftCompiler("//:thrift_source", pathResolver),
-            ImmutableList.<String>of(),
+            ImmutableList.of(),
             Paths.get("output")));
 
     // Create a dep chain with an exported dep.
@@ -239,7 +230,7 @@ public class ThriftJavaEnhancerTest {
             resolver,
             arg,
             sources,
-            ImmutableSortedSet.<BuildRule>of(exportingRule));
+            ImmutableSortedSet.of(exportingRule));
 
     assertThat(library.getDeps(), Matchers.<BuildRule>hasItem(exportedRule));
   }

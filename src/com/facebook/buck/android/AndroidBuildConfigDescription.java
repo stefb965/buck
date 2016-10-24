@@ -33,11 +33,13 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
+import com.facebook.buck.util.OptionalCompat;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableSortedSet;
+
+import java.util.Optional;
 
 public class AndroidBuildConfigDescription
     implements Description<AndroidBuildConfigDescription.Arg> {
@@ -70,7 +72,7 @@ public class AndroidBuildConfigDescription
     return createBuildRule(
         params,
         args.javaPackage,
-        args.values.get(),
+        args.values,
         args.valuesFile,
         /* useConstantExpressions */ false,
         androidJavacOptions,
@@ -129,7 +131,7 @@ public class AndroidBuildConfigDescription
         /* extraDeps */ Suppliers.ofInstance(
             ImmutableSortedSet.<BuildRule>naturalOrder()
                 .addAll(params.getExtraDeps().get())
-                .addAll(pathResolver.filterBuildRuleInputs(valuesFile.asSet()))
+                .addAll(pathResolver.filterBuildRuleInputs(OptionalCompat.asSet(valuesFile)))
                 .build()));
     AndroidBuildConfig androidBuildConfig = new AndroidBuildConfig(
         buildConfigParams,
@@ -146,8 +148,8 @@ public class AndroidBuildConfigDescription
     BuildRuleParams javaLibraryParams = params.copyWithChanges(
         params.getBuildTarget(),
         /* declaredDeps */ Suppliers.ofInstance(
-            ImmutableSortedSet.<BuildRule>of(androidBuildConfig)),
-        /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
+            ImmutableSortedSet.of(androidBuildConfig)),
+        /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.of()));
     AndroidBuildConfigJavaLibrary library =
         ruleResolver.addToIndex(
             new AndroidBuildConfigJavaLibrary(
@@ -173,7 +175,7 @@ public class AndroidBuildConfigDescription
     public String javaPackage;
 
     /** This will never be absent after this Arg is populated. */
-    public Optional<BuildConfigFields> values;
+    public BuildConfigFields values = BuildConfigFields.empty();
 
     /** If present, contents of file can override those of {@link #values}. */
     public Optional<SourcePath> valuesFile;

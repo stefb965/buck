@@ -30,10 +30,12 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.TargetGraph;
-import com.google.common.base.Optional;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 
 import org.junit.Test;
+
+import java.util.Optional;
 
 public class SwiftDescriptionsTest {
 
@@ -51,15 +53,15 @@ public class SwiftDescriptionsTest {
 
     FakeSourcePath swiftSrc = new FakeSourcePath("foo/bar.swift");
 
-    args.srcs = Optional.of(ImmutableSortedSet.<SourceWithFlags>of(
+    args.srcs = ImmutableSortedSet.of(
         SourceWithFlags.of(new FakeSourcePath("foo/foo.cpp")),
-        SourceWithFlags.of(swiftSrc)));
-    args.compilerFlags = Optional.absent();
-    args.supportedPlatformsRegex = Optional.absent();
+        SourceWithFlags.of(swiftSrc));
+    args.compilerFlags = ImmutableList.of();
+    args.supportedPlatformsRegex = Optional.empty();
 
     SwiftDescriptions.populateSwiftLibraryDescriptionArg(pathResolver, output, args, buildTarget);
     assertThat(output.moduleName.get(), equalTo("bar"));
-    assertThat(output.srcs.get(), equalTo(ImmutableSortedSet.<SourcePath>of(swiftSrc)));
+    assertThat(output.srcs, equalTo(ImmutableSortedSet.<SourcePath>of(swiftSrc)));
 
     args.moduleName = Optional.of("baz");
 

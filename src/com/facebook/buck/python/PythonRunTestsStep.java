@@ -26,9 +26,7 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.google.common.base.CharMatcher;
-import com.google.common.base.Function;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
@@ -37,6 +35,8 @@ import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.EnumSet;
+import java.util.Optional;
+import java.util.function.Consumer;
 
 public class PythonRunTestsStep implements Step {
   private static final CharMatcher PYTHON_RE_REGULAR_CHARACTERS = CharMatcher.anyOf(
@@ -51,14 +51,9 @@ public class PythonRunTestsStep implements Step {
   private final Optional<Long> testRuleTimeoutMs;
   private final Path resultsOutputPath;
 
-  private final Function<Process, Void> timeoutHandler =
-      new Function<Process, Void>() {
-        @Override
-        public Void apply(Process input) {
-          timedOut = true;
-          return null;
-        }
-      };
+  private final Consumer<Process> timeoutHandler = input -> {
+    timedOut = true;
+  };
 
   private boolean timedOut;
 
@@ -111,7 +106,7 @@ public class PythonRunTestsStep implements Step {
     ProcessExecutor.Result result = context.getProcessExecutor().launchAndExecute(
         params,
         EnumSet.of(ProcessExecutor.Option.EXPECTING_STD_OUT),
-        Optional.<String>absent(),
+        Optional.empty(),
         testRuleTimeoutMs,
         Optional.of(timeoutHandler));
 
@@ -215,7 +210,7 @@ public class PythonRunTestsStep implements Step {
       }
 
       @Override
-      protected Optional<Function<Process, Void>> getTimeoutHandler(ExecutionContext context) {
+      protected Optional<Consumer<Process>> getTimeoutHandler(ExecutionContext context) {
         return Optional.of(timeoutHandler);
       }
     };

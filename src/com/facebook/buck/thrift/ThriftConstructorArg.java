@@ -22,34 +22,35 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.rules.coercer.SourceWithFlagsList;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+
+import java.util.Optional;
 
 @SuppressFieldNotInitialized
 public class ThriftConstructorArg extends AbstractDescriptionArg {
 
   public String name;
   public ImmutableMap<SourcePath, ImmutableList<String>> srcs;
-  public Optional<ImmutableSortedSet<BuildTarget>> deps;
+  public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
 
-  public Optional<ImmutableList<String>> flags;
+  public ImmutableList<String> flags = ImmutableList.of();
 
-  public Optional<ImmutableSet<String>> javaOptions;
+  public ImmutableSet<String> javaOptions = ImmutableSet.of();
 
   public Optional<String> cppHeaderNamespace;
-  public Optional<SourceList> cppExportedHeaders;
-  public Optional<SourceWithFlagsList> cppSrcs;
-  public Optional<ImmutableSortedSet<BuildTarget>> cppDeps;
-  public Optional<ImmutableSortedSet<BuildTarget>> cpp2Deps;
-  public Optional<ImmutableList<String>> cppCompilerFlags;
-  public Optional<ImmutableList<String>> cpp2CompilerFlags;
-  public Optional<ImmutableSet<String>> cppOptions;
-  public Optional<ImmutableSet<String>> cpp2Options;
+  public SourceList cppExportedHeaders = SourceList.EMPTY;
+  public SourceWithFlagsList cppSrcs = SourceWithFlagsList.EMPTY;
+  public ImmutableSortedSet<BuildTarget> cppDeps = ImmutableSortedSet.of();
+  public ImmutableSortedSet<BuildTarget> cpp2Deps = ImmutableSortedSet.of();
+  public ImmutableList<String> cppCompilerFlags = ImmutableList.of();
+  public ImmutableList<String> cpp2CompilerFlags = ImmutableList.of();
+  public ImmutableSet<String> cppOptions = ImmutableSet.of();
+  public ImmutableSet<String> cpp2Options = ImmutableSet.of();
 
-  public Optional<ImmutableSet<String>> pyOptions;
+  public ImmutableSet<String> pyOptions = ImmutableSet.of();
   public Optional<String> pyBaseModule;
   public Optional<String> pyTwistedBaseModule;
   public Optional<String> pyAsyncioBaseModule;

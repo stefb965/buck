@@ -1,22 +1,4 @@
-#@# GENERATED FILE: DO NOT MODIFY 31c9e58c659fa6fc9148f7b66d34a179b8db16d3 #@#
 {
-  "constants" : {
-    "deps" : [
-      "//third-party/java/guava:guava",
-      "//third-party/java/immutables:processor"
-    ],
-    "exported_deps" : [
-      "//src/com/facebook/buck/util/immutables:immutables"
-    ]
-  },
-  "escaper" : {
-    "deps" : [
-      "//src/com/facebook/buck/util/environment:platform"
-    ],
-    "exported_deps" : [
-      "//third-party/java/guava:guava"
-    ]
-  },
   "exceptions" : {
     "deps" : [
       "//third-party/java/jsr:jsr305"
@@ -25,15 +7,15 @@
   },
   "io" : {
     "deps" : [
-      "//src/com/facebook/buck/io:io",
       "//src/com/facebook/buck/log:api",
-      "//src/com/facebook/buck/util:escaper",
       "//src/com/facebook/buck/util:exceptions",
       "//third-party/java/immutables:processor",
       "//third-party/java/jna:jna-platform",
       "//third-party/java/oshi:oshi-core"
     ],
     "exported_deps" : [
+      "//src/com/facebook/buck/io:io",
+      "//src/com/facebook/buck/util:util",
       "//src/com/facebook/buck/util/environment:platform",
       "//src/com/facebook/buck/util/immutables:immutables",
       "//third-party/java/guava:guava",
@@ -44,25 +26,33 @@
   },
   "object_mapper" : {
     "deps" : [
-      "//third-party/java/jackson:jackson-datatype-jdk7",
-      "//third-party/java/jackson-datatype-guava:jackson-datatype-guava"
+      "//third-party/java/jackson:jackson-datatype-guava",
+      "//third-party/java/jackson:jackson-datatype-jdk8"
     ],
     "exported_deps" : [
       "//third-party/java/jackson:jackson-databind"
     ]
   },
-  "util" : {
+  "packaged_resource" : {
     "deps" : [
-      "//src/com/facebook/buck/io:MorePaths.java",
-      "//src/com/facebook/buck/log:api",
-      "//src/com/facebook/buck/util:exceptions",
-      "//src/com/facebook/buck/zip:unzip",
-      "//third-party/java/aosp:aosp",
-      "//third-party/java/jackson:jackson-core"
+      "//src/com/facebook/buck/zip:unzip"
     ],
     "exported_deps" : [
       "//src/com/facebook/buck/io:io",
-      "//src/com/facebook/buck/util:io",
+      "//third-party/java/guava:guava"
+    ]
+  },
+  "util" : {
+    "deps" : [
+      "//src/com/facebook/buck/log:api",
+      "//src/com/facebook/buck/util:exceptions",
+      "//src/com/facebook/buck/util/environment:platform",
+      "//third-party/java/aosp:aosp",
+      "//third-party/java/immutables:processor",
+      "//third-party/java/jackson:jackson-core"
+    ],
+    "exported_deps" : [
+      "//src/com/facebook/buck/util/immutables:immutables",
       "//third-party/java/guava:guava",
       "//third-party/java/jackson:jackson-databind",
       "//third-party/java/jsr:jsr305"

@@ -29,7 +29,6 @@ import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Functions;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.AsyncFunction;
@@ -38,6 +37,7 @@ import com.google.common.util.concurrent.ListenableFuture;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Optional;
 
 /**
  * The {@link DirArtifactCache} and {@link HttpArtifactCache} caches use a straightforward
@@ -101,19 +101,19 @@ public class TwoLevelArtifactCacheDecorator implements ArtifactCache {
     secondLevelCacheHitTypes = new TagSetCounter(
         COUNTER_CATEGORY,
         "second_level_cache_hit_types",
-        ImmutableMap.<String, String>of());
+        ImmutableMap.of());
     secondLevelCacheHitBytes = new SamplingCounter(
         COUNTER_CATEGORY,
         "second_level_cache_hit_bytes",
-        ImmutableMap.<String, String>of());
+        ImmutableMap.of());
     secondLevelCacheMisses = new IntegerCounter(
         COUNTER_CATEGORY,
         "second_level_cache_misses",
-        ImmutableMap.<String, String>of());
+        ImmutableMap.of());
     secondLevelHashComputationTimeMs = new SamplingCounter(
         COUNTER_CATEGORY,
         "second_level_hash_computation_time_ms",
-        ImmutableMap.<String, String>of());
+        ImmutableMap.of());
     buckEventBus.post(new CounterRegistry.AsyncCounterRegistrationEvent(
         ImmutableSet.of(
             secondLevelCacheHitTypes,
@@ -154,14 +154,11 @@ public class TwoLevelArtifactCacheDecorator implements ArtifactCache {
 
     return Futures.transformAsync(
         attemptTwoLevelStore(info, output),
-        new AsyncFunction<Boolean, Void>() {
-          @Override
-          public ListenableFuture<Void> apply(Boolean input) throws Exception {
-            if (input) {
-              return Futures.immediateFuture(null);
-            }
-            return delegate.store(info, output);
+        input -> {
+          if (input) {
+            return Futures.immediateFuture(null);
           }
+          return delegate.store(info, output);
         });
   }
 
@@ -175,44 +172,41 @@ public class TwoLevelArtifactCacheDecorator implements ArtifactCache {
       final BorrowablePath output) {
 
     return Futures.transformAsync(
-        Futures.<Void>immediateFuture(null),
-        new AsyncFunction<Void, Boolean>() {
-          @Override
-          public ListenableFuture<Boolean> apply(Void input) throws Exception {
-            long fileSize = projectFilesystem.getFileSize(output.getPath());
+        Futures.immediateFuture(null),
+        (AsyncFunction<Void, Boolean>) input -> {
+          long fileSize = projectFilesystem.getFileSize(output.getPath());
 
-            if (!performTwoLevelStores ||
-                fileSize < minimumTwoLevelStoredArtifactSize ||
-                (maximumTwoLevelStoredArtifactSize.isPresent() &&
-                    fileSize > maximumTwoLevelStoredArtifactSize.get())) {
-              return Futures.immediateFuture(false);
-            }
-
-            long hashComputationStart = System.currentTimeMillis();
-            String hashCode = projectFilesystem.computeSha1(output.getPath()) + "2c00";
-            long hashComputationEnd = System.currentTimeMillis();
-            secondLevelHashComputationTimeMs.addSample(hashComputationEnd - hashComputationStart);
-
-            ImmutableMap<String, String> metadataWithCacheKey =
-                ImmutableMap.<String, String>builder()
-                    .putAll(info.getMetadata())
-                    .put(METADATA_KEY, hashCode)
-                    .build();
-
-            return Futures.transform(
-                Futures.allAsList(
-                    delegate.store(
-                        ArtifactInfo.builder()
-                            .setRuleKeys(info.getRuleKeys())
-                            .setMetadata(metadataWithCacheKey)
-                            .build(),
-                        BorrowablePath.notBorrowablePath(emptyFilePath)),
-                    delegate.store(
-                        ArtifactInfo.builder().addRuleKeys(new RuleKey(hashCode)).build(),
-                        output)
-                ),
-                Functions.constant(true));
+          if (!performTwoLevelStores ||
+              fileSize < minimumTwoLevelStoredArtifactSize ||
+              (maximumTwoLevelStoredArtifactSize.isPresent() &&
+                  fileSize > maximumTwoLevelStoredArtifactSize.get())) {
+            return Futures.immediateFuture(false);
           }
+
+          long hashComputationStart = System.currentTimeMillis();
+          String hashCode = projectFilesystem.computeSha1(output.getPath()) + "2c00";
+          long hashComputationEnd = System.currentTimeMillis();
+          secondLevelHashComputationTimeMs.addSample(hashComputationEnd - hashComputationStart);
+
+          ImmutableMap<String, String> metadataWithCacheKey =
+              ImmutableMap.<String, String>builder()
+                  .putAll(info.getMetadata())
+                  .put(METADATA_KEY, hashCode)
+                  .build();
+
+          return Futures.transform(
+              Futures.allAsList(
+                  delegate.store(
+                      ArtifactInfo.builder()
+                          .setRuleKeys(info.getRuleKeys())
+                          .setMetadata(metadataWithCacheKey)
+                          .build(),
+                      BorrowablePath.notBorrowablePath(emptyFilePath)),
+                  delegate.store(
+                      ArtifactInfo.builder().addRuleKeys(new RuleKey(hashCode)).build(),
+                      output)
+              ),
+              Functions.constant(true));
         }
     );
   }

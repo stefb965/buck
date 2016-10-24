@@ -40,13 +40,13 @@ import com.facebook.buck.rules.MetadataProvidingDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Predicates;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+
+import java.util.Optional;
 
 public class AppleBundleDescription implements Description<AppleBundleDescription.Arg>,
     Flavored,
@@ -126,8 +126,7 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
       BuildRuleResolver resolver,
       A args) throws NoSuchBuildTargetException {
     AppleDebugFormat flavoredDebugFormat = AppleDebugFormat.FLAVOR_DOMAIN
-        .getValue(params.getBuildTarget())
-        .or(defaultDebugFormat);
+        .getValue(params.getBuildTarget()).orElse(defaultDebugFormat);
     if (!params.getBuildTarget().getFlavors().contains(flavoredDebugFormat.getFlavor())) {
       return (AppleBundle) resolver.requireRule(
           params.getBuildTarget().withAppendedFlavors(flavoredDebugFormat.getFlavor()));
@@ -151,8 +150,8 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
         args.productName,
         args.infoPlist,
         args.infoPlistSubstitutions,
-        args.deps.get(),
-        args.tests.get(),
+        args.deps,
+        args.tests,
         flavoredDebugFormat);
   }
 
@@ -165,10 +164,6 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
       BuildTarget buildTarget,
       CellPathResolver cellRoots,
       AppleBundleDescription.Arg constructorArg) {
-    if (!constructorArg.deps.isPresent()) {
-      return ImmutableSet.of();
-    }
-
     if (!cxxPlatformFlavorDomain.containsAnyOf(buildTarget.getFlavors())) {
       buildTarget = BuildTarget.builder(buildTarget).addAllFlavors(
           ImmutableSet.of(defaultCxxPlatform.getFlavor())).build();
@@ -198,7 +193,7 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
       actualWatchFlavor = ImmutableFlavor.of(platformName);
     }
 
-    FluentIterable<BuildTarget> depsExcludingBinary = FluentIterable.from(constructorArg.deps.get())
+    FluentIterable<BuildTarget> depsExcludingBinary = FluentIterable.from(constructorArg.deps)
         .filter(Predicates.not(Predicates.equalTo(constructorArg.binary)));
 
     // Propagate platform flavors.  Need special handling for watch to map the pseudo-flavor
@@ -214,15 +209,10 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
       FluentIterable<BuildTarget> watchTargets = targetsWithoutPlatformFlavors
           .filter(BuildTargets.containsFlavor(WATCH))
           .transform(
-              new Function<BuildTarget, BuildTarget>() {
-                @Override
-                public BuildTarget apply(BuildTarget input) {
-                  return BuildTarget.builder(
-                      input.withoutFlavors(ImmutableSet.of(WATCH)))
-                      .addFlavors(actualWatchFlavor)
-                      .build();
-                }
-              });
+              input -> BuildTarget.builder(
+                  input.withoutFlavors(ImmutableSet.of(WATCH)))
+                  .addFlavors(actualWatchFlavor)
+                  .build());
 
       targetsWithoutPlatformFlavors = targetsWithoutPlatformFlavors
           .filter(Predicates.not(BuildTargets.containsFlavor(WATCH)));
@@ -232,7 +222,7 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
           .append(watchTargets)
           .append(BuildTargets.propagateFlavorDomains(
               buildTarget,
-              ImmutableSet.<FlavorDomain<?>>of(cxxPlatformFlavorDomain),
+              ImmutableSet.of(cxxPlatformFlavorDomain),
               targetsWithoutPlatformFlavors));
     }
 
@@ -265,9 +255,9 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
     public Either<AppleBundleExtension, String> extension;
     public BuildTarget binary;
     public SourcePath infoPlist;
-    public Optional<ImmutableMap<String, String>> infoPlistSubstitutions;
-    @Hint(isDep = false) public Optional<ImmutableSortedSet<BuildTarget>> deps;
-    @Hint(isDep = false) public Optional<ImmutableSortedSet<BuildTarget>> tests;
+    public ImmutableMap<String, String> infoPlistSubstitutions = ImmutableMap.of();
+    @Hint(isDep = false) public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
+    @Hint(isDep = false) public ImmutableSortedSet<BuildTarget> tests = ImmutableSortedSet.of();
     public Optional<String> xcodeProductType;
     public Optional<String> productName;
 
@@ -283,12 +273,17 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
 
     @Override
     public ImmutableSortedSet<BuildTarget> getTests() {
-      return tests.get();
+      return tests;
     }
 
     @Override
     public Optional<String> getXcodeProductType() {
       return xcodeProductType;
+    }
+
+    @Override
+    public Optional<String> getProductName() {
+      return productName;
     }
   }
 }

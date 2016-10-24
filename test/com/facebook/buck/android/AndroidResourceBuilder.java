@@ -21,10 +21,10 @@ import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
+import java.util.Optional;
 
 public class AndroidResourceBuilder extends AbstractNodeBuilder<AndroidResourceDescription.Arg> {
 
@@ -37,7 +37,7 @@ public class AndroidResourceBuilder extends AbstractNodeBuilder<AndroidResourceD
   }
 
   public AndroidResourceBuilder setDeps(ImmutableSortedSet<BuildTarget> deps) {
-    arg.deps = Optional.of(deps);
+    arg.deps = deps;
     return this;
   }
 

@@ -21,7 +21,8 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.BuildTargetParseException;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.Tool;
-import com.google.common.base.Optional;
+
+import java.util.Optional;
 
 public class ThriftBuckConfig {
 
@@ -63,7 +64,7 @@ public class ThriftBuckConfig {
       }
       return Optional.of(delegate.getRequiredBuildTarget(SECTION, COMPILER));
     } catch (BuildTargetParseException e) {
-      return Optional.absent();
+      return Optional.empty();
     }
   }
 
@@ -79,8 +80,12 @@ public class ThriftBuckConfig {
     return delegate.getRequiredBuildTarget(SECTION, "cpp2_library");
   }
 
-  public BuildTarget getCpp2FatalDep() {
-    return delegate.getRequiredBuildTarget(SECTION, "cpp2_fatal_library");
+  public BuildTarget getCpp2ReflectionDep() {
+    return delegate.getRequiredBuildTarget(SECTION, "cpp2_reflection_library");
+  }
+
+  public BuildTarget getCpp2LeanMeanMetaMachineDep() {
+    return delegate.getRequiredBuildTarget(SECTION, "cpp2_lean_mean_meta_machine_library");
   }
 
   public BuildTarget getCppAyncDep() {

@@ -1,6 +1,5 @@
-#@# GENERATED FILE: DO NOT MODIFY dc7638d63bceee50c55dcb727f78577eee716756 #@#
 {
-  "swift_test_integration" : {
+  "integration" : {
     "deps" : [
       "//src/com/facebook/buck/apple:platform",
       "//src/com/facebook/buck/apple:rules",
@@ -8,7 +7,6 @@
       "//src/com/facebook/buck/io:io",
       "//src/com/facebook/buck/model:model",
       "//src/com/facebook/buck/rules:build_rule",
-      "//src/com/facebook/buck/rules/coercer:coercer",
       "//src/com/facebook/buck/swift:platform",
       "//src/com/facebook/buck/swift:swift",
       "//src/com/facebook/buck/util/environment:platform",

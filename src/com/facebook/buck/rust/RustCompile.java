@@ -16,6 +16,7 @@
 
 package com.facebook.buck.rust;
 
+import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
@@ -31,11 +32,11 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Predicate;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
 
@@ -66,28 +67,43 @@ abstract class RustCompile extends AbstractBuildRule {
   private final ImmutableList<String> flags;
   @AddToRuleKey
   private final ImmutableSet<String> features;
+  @AddToRuleKey
+  private final Linker.LinkableDepType linkStyle;
+  @AddToRuleKey
+  private final String crate;
+
+  private final ImmutableSortedSet<Path> nativePaths;
+
   private final Path scratchDir;
   private final Path output;
 
   RustCompile(
       BuildRuleParams params,
       SourcePathResolver resolver,
+      String crate,
       ImmutableSet<SourcePath> srcs,
       ImmutableList<String> flags,
       ImmutableSet<String> features,
+      ImmutableSortedSet<Path> nativePaths,
       Path output,
-      Tool compiler) {
+      Tool compiler,
+      Linker.LinkableDepType linkStyle) {
     super(params, resolver);
+
     this.srcs = srcs;
     this.flags = ImmutableList.<String>builder()
-        .add("--crate-name", getBuildTarget().getShortName())
+        .add("--crate-name", crate)
         .addAll(flags)
         .build();
     this.features = features;
+    this.crate = crate;
     this.output = output;
     this.compiler = compiler;
+    this.linkStyle = linkStyle;
     this.scratchDir =
         BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "container");
+
+    this.nativePaths = nativePaths;
 
     for (String feature : features) {
       if (feature.contains("\"")) {
@@ -107,17 +123,14 @@ abstract class RustCompile extends AbstractBuildRule {
     ImmutableSet.Builder<Path> externalDepsBuilder = ImmutableSet.builder();
 
     for (BuildRule buildRule : getDeps()) {
-      if (!(buildRule instanceof RustLinkable)) {
-        throw new HumanReadableException(
-            "%s (dep of %s) is not an instance of rust_library or prebuilt_rust_library!",
-            buildRule.getBuildTarget().getFullyQualifiedName(),
-            getBuildTarget().getFullyQualifiedName());
+      if (buildRule instanceof RustLinkable) {
+        RustLinkable linkable = (RustLinkable) buildRule;
+        Path ruleOutput = linkable.getLinkPath();
+        externalCratesBuilder.put(linkable.getLinkTarget(), ruleOutput);
+        externalDepsBuilder.addAll(linkable.getDependencyPaths());
       }
-      RustLinkable linkable = (RustLinkable) buildRule;
-      Path ruleOutput = linkable.getLinkPath();
-      externalCratesBuilder.put(linkable.getLinkTarget(), ruleOutput);
-      externalDepsBuilder.addAll(linkable.getDependencyPaths());
     }
+
     return ImmutableList.of(
         new MakeCleanDirectoryStep(getProjectFilesystem(), scratchDir),
         new SymlinkFilesIntoDirectoryStep(
@@ -135,6 +148,7 @@ abstract class RustCompile extends AbstractBuildRule {
             output,
             externalCratesBuilder.build(),
             externalDepsBuilder.build(),
+            nativePaths,
             getCrateRoot()));
   }
 
@@ -150,19 +164,14 @@ abstract class RustCompile extends AbstractBuildRule {
     ImmutableList<Path> candidates = ImmutableList.copyOf(
         FluentIterable.from(getResolver().deprecatedAllPaths(srcs))
             .filter(
-                new Predicate<Path>() {
-                  @Override
-                  public boolean apply(Path path) {
-                    return path.endsWith(getDefaultSource()) ||
-                        path.endsWith(String.format("%s.rs", getBuildTarget().getShortName()));
-                  }
-                }));
+                path -> path.endsWith(getDefaultSource()) ||
+                    path.endsWith(String.format("%s.rs", crate))));
     if (candidates.size() != 1) {
       throw new HumanReadableException(
           "srcs of %s must contain either %s or %s.rs!",
           getBuildTarget().getFullyQualifiedName(),
           getDefaultSource(),
-          getBuildTarget().getShortName());
+          crate);
     }
     // We end up creating a symlink tree to ensure that the crate only uses the files that it
     // declares in the BUCK file.
@@ -172,5 +181,13 @@ abstract class RustCompile extends AbstractBuildRule {
   @Override
   public Path getPathToOutput() {
     return output;
+  }
+
+  public Linker.LinkableDepType getLinkStyle() {
+    return linkStyle;
+  }
+
+  public String getCrateName() {
+    return crate;
   }
 }

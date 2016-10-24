@@ -29,8 +29,6 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
-import com.google.common.base.Optional;
-import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -47,6 +45,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Optional;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -63,16 +62,11 @@ public class ProGuardObfuscateStepTest extends EasyMockSupport {
     expect(androidPlatformTarget
         .getOptimizedProguardConfig())
         .andStubReturn(Paths.get("sdk-optimized.pro"));
-    expect(androidPlatformTarget.getBootclasspathEntries()).andStubReturn(ImmutableList.<Path>of());
+    expect(androidPlatformTarget.getBootclasspathEntries()).andStubReturn(ImmutableList.of());
     expect(androidPlatformTarget.getProguardJar()).andStubReturn(Paths.get("proguard.jar"));
     replay(androidPlatformTarget);
     executionContext = TestExecutionContext.newBuilder()
-        .setAndroidPlatformTargetSupplier(new Supplier<AndroidPlatformTarget>() {
-          @Override
-          public AndroidPlatformTarget get() {
-            return androidPlatformTarget;
-          }
-        })
+        .setAndroidPlatformTargetSupplier(() -> androidPlatformTarget)
         .build();
 
     assertEquals(executionContext.getAndroidPlatformTarget(), androidPlatformTarget);
@@ -101,14 +95,14 @@ public class ProGuardObfuscateStepTest extends EasyMockSupport {
     Path cwd = Paths.get("root");
 
     checkSdkConfig(executionContext, cwd, ProGuardObfuscateStep.SdkProguardType.DEFAULT,
-        Optional.<String>absent(), "sdk-default.pro");
+        Optional.empty(), "sdk-default.pro");
     checkSdkConfig(
         executionContext,
         cwd,
         ProGuardObfuscateStep.SdkProguardType.OPTIMIZED,
-        Optional.<String>absent(), "sdk-optimized.pro");
+        Optional.empty(), "sdk-optimized.pro");
     checkSdkConfig(executionContext, cwd, ProGuardObfuscateStep.SdkProguardType.NONE,
-        Optional.<String>absent(), null);
+        Optional.empty(), null);
     checkSdkConfig(executionContext, cwd, ProGuardObfuscateStep.SdkProguardType.NONE,
         Optional.of("/some/path"), null);
     verifyAll();
@@ -122,15 +116,15 @@ public class ProGuardObfuscateStepTest extends EasyMockSupport {
     ProGuardObfuscateStep.create(
         JavaCompilationConstants.DEFAULT_JAVA_OPTIONS.getJavaRuntimeLauncher(),
         new FakeProjectFilesystem(),
-        /* proguardJarOverride */ Optional.<Path>absent(),
+        /* proguardJarOverride */ Optional.empty(),
         "1024M",
-        Optional.<String>absent(),
+        Optional.empty(),
         Paths.get("generated/proguard.txt"),
-        /* customProguardConfigs */ ImmutableSet.<Path>of(),
+        /* customProguardConfigs */ ImmutableSet.of(),
         ProGuardObfuscateStep.SdkProguardType.DEFAULT,
-        /* optimizationPasses */ Optional.<Integer>absent(),
-        /* proguardJvmArgs */ Optional.<List<String>>absent(),
-        /* inputAndOutputEntries */ ImmutableMap.<Path, Path>of(),
+        /* optimizationPasses */ Optional.empty(),
+        /* proguardJvmArgs */ Optional.empty(),
+        /* inputAndOutputEntries */ ImmutableMap.of(),
         /* additionalLibraryJarsForProguard */ ImmutableSet.of(
             Paths.get("myfavorite.jar"), Paths.get("another.jar")),
         Paths.get("proguard-directory"),
@@ -154,15 +148,15 @@ public class ProGuardObfuscateStepTest extends EasyMockSupport {
     ProGuardObfuscateStep.create(
         JavaCompilationConstants.DEFAULT_JAVA_OPTIONS.getJavaRuntimeLauncher(),
         new FakeProjectFilesystem(),
-        /* proguardJarOverride */ Optional.<Path>absent(),
+        /* proguardJarOverride */ Optional.empty(),
         "1024M",
-        Optional.<String>absent(),
+        Optional.empty(),
         Paths.get("generated/proguard.txt"),
-        /* customProguardConfigs */ ImmutableSet.<Path>of(),
+        /* customProguardConfigs */ ImmutableSet.of(),
         ProGuardObfuscateStep.SdkProguardType.DEFAULT,
-        /* optimizationPasses */ Optional.<Integer>absent(),
+        /* optimizationPasses */ Optional.empty(),
         Optional.of(proguardJvmArgs),
-        /* inputAndOutputEntries */ ImmutableMap.<Path, Path>of(),
+        /* inputAndOutputEntries */ ImmutableMap.of(),
         /* additionalLibraryJarsForProguard */ ImmutableSet.of(
             Paths.get("myfavorite.jar"), Paths.get("another.jar")),
         Paths.get("proguard-directory"),
@@ -185,16 +179,16 @@ public class ProGuardObfuscateStepTest extends EasyMockSupport {
     ProGuardObfuscateStep.create(
         JavaCompilationConstants.DEFAULT_JAVA_OPTIONS.getJavaRuntimeLauncher(),
         new FakeProjectFilesystem(),
-        /* proguardJarOverride */ Optional.<Path>absent(),
+        /* proguardJarOverride */ Optional.empty(),
         "1024M",
         proguardAgentPath,
         Paths.get("generated/proguard.txt"),
-        /* customProguardConfigs */ ImmutableSet.<Path>of(),
+        /* customProguardConfigs */ ImmutableSet.of(),
         sdkProguardConfig,
-        /* optimizationPasses */ Optional.<Integer>absent(),
-        /* proguardJvmArgs */ Optional.<List<String>>absent(),
-        /* inputAndOutputEntries */ ImmutableMap.<Path, Path>of(),
-        /* additionalLibraryJarsForProguard */ ImmutableSet.<Path>of(),
+        /* optimizationPasses */ Optional.empty(),
+        /* proguardJvmArgs */ Optional.empty(),
+        /* inputAndOutputEntries */ ImmutableMap.of(),
+        /* additionalLibraryJarsForProguard */ ImmutableSet.of(),
         Paths.get("proguard-directory"),
         new FakeBuildableContext(),
         steps);

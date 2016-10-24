@@ -1,7 +1,8 @@
-#@# GENERATED FILE: DO NOT MODIFY ff0334349b8d034c20fb59313ceea7f9928c6fb6 #@#
 {
   "framework_path_arg" : {
-    "deps" : [ ],
+    "deps" : [
+      "//src/com/facebook/buck/util:util"
+    ],
     "exported_deps" : [
       "//src/com/facebook/buck/rules:build_rule",
       "//src/com/facebook/buck/rules/args:args",
@@ -47,8 +48,6 @@
       "//src/com/facebook/buck/rules:command_tool",
       "//src/com/facebook/buck/step/fs:fs",
       "//src/com/facebook/buck/test/result/type:type",
-      "//src/com/facebook/buck/util:escaper",
-      "//src/com/facebook/buck/util:io",
       "//third-party/java/immutables:processor",
       "//third-party/java/jackson:jackson-databind"
     ],
@@ -73,6 +72,7 @@
       "//src/com/facebook/buck/step:step",
       "//src/com/facebook/buck/test:test",
       "//src/com/facebook/buck/util:exceptions",
+      "//src/com/facebook/buck/util:io",
       "//src/com/facebook/buck/util:util",
       "//src/com/facebook/buck/util/environment:platform",
       "//src/com/facebook/buck/util/immutables:immutables",

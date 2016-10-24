@@ -39,15 +39,14 @@ import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.step.fs.WriteFileStep;
 import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 import javax.annotation.Nullable;
@@ -180,12 +179,7 @@ public class NdkLibrary extends AbstractBuildRule
           Set<Path> unstrippedSharedObjs = getProjectFilesystem()
               .getFilesUnderPath(
                   buildArtifactsDirectory,
-                  new Predicate<Path>() {
-                    @Override
-                    public boolean apply(Path input) {
-                      return input.toString().endsWith(".so");
-                    }
-                  });
+                  input -> input.toString().endsWith(".so"));
           for (Path path : unstrippedSharedObjs) {
             buildableContext.recordArtifact(path);
           }

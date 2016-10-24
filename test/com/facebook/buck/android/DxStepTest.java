@@ -23,7 +23,6 @@ import com.facebook.buck.android.DxStep.Option;
 import com.facebook.buck.cli.VerbosityParser;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.step.ExecutionContext;
-import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
@@ -31,7 +30,6 @@ import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.Verbosity;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
-import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -89,7 +87,7 @@ public class DxStepTest extends EasyMockSupport {
       MoreAsserts.assertShellCommands(
           "--no-optimize should be present, but --force-jumbo should not.",
           ImmutableList.of(expected),
-          ImmutableList.<Step>of(dx),
+          ImmutableList.of(dx),
           context);
       verifyAll();
     }
@@ -114,7 +112,7 @@ public class DxStepTest extends EasyMockSupport {
       MoreAsserts.assertShellCommands(
           "Neither --no-optimize nor --force-jumbo should be present.",
           ImmutableList.of(expected),
-          ImmutableList.<Step>of(dx),
+          ImmutableList.of(dx),
           context);
       verifyAll();
     }
@@ -141,7 +139,7 @@ public class DxStepTest extends EasyMockSupport {
       MoreAsserts.assertShellCommands(
           "Both --no-optimize and --force-jumbo should be present.",
           ImmutableList.of(expected),
-          ImmutableList.<Step>of(dx),
+          ImmutableList.of(dx),
           context);
       verifyAll();
     }
@@ -166,7 +164,7 @@ public class DxStepTest extends EasyMockSupport {
       MoreAsserts.assertShellCommands(
           "Ensure that the --statistics flag is present.",
           ImmutableList.of(expected),
-          ImmutableList.<Step>of(dx),
+          ImmutableList.of(dx),
           context);
 
       assertTrue("Should print stdout to show statistics.",
@@ -197,77 +195,13 @@ public class DxStepTest extends EasyMockSupport {
       MoreAsserts.assertShellCommands(
           "Ensure that the --statistics flag is present.",
           ImmutableList.of(expected),
-          ImmutableList.<Step>of(dx),
+          ImmutableList.of(dx),
           context);
 
       assertTrue("Should print stdout since `dx --verbose` is enabled.",
           dx.shouldPrintStdout(context.getVerbosity()));
       assertTrue("Should print stdout since `dx --verbose` is enabled.",
           dx.shouldPrintStderr(context.getVerbosity()));
-      verifyAll();
-    }
-  }
-
-  @Test
-  public void testUseCustomDxOption() throws IOException {
-    // Context with --verbose 2.
-    try (ExecutionContext context = createExecutionContext(2)) {
-      ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
-      Function<Path, Path> pathAbsolutifier = filesystem.getAbsolutifier();
-
-      DxStep dx = new DxStep(
-          filesystem,
-          SAMPLE_OUTPUT_PATH,
-          SAMPLE_FILES_TO_DEX,
-          EnumSet.of(Option.USE_CUSTOM_DX_IF_AVAILABLE),
-          new Supplier<String>() {
-            @Override
-            public String get() {
-              return "/home/mbolin/dx";
-            }
-          });
-
-      String expected = String.format("%s --output %s %s",
-          EXPECTED_DX_PREFIX.replace(Paths.get("/usr/bin/dx").toString(), "/home/mbolin/dx"),
-          SAMPLE_OUTPUT_PATH,
-          Joiner.on(' ').join(Iterables.transform(SAMPLE_FILES_TO_DEX, pathAbsolutifier)));
-      MoreAsserts.assertShellCommands(
-          "/home/mbolin/dx should be used instead of /usr/bin/dx.",
-          ImmutableList.of(expected),
-          ImmutableList.<Step>of(dx),
-          context);
-      verifyAll();
-    }
-  }
-
-  @Test
-  public void testUseCustomDxOptionWithNullSupplier() throws IOException {
-    // Context with --verbose 2.
-    try (ExecutionContext context = createExecutionContext(2)) {
-      ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
-      Function<Path, Path> pathAbsolutifier = filesystem.getAbsolutifier();
-
-      DxStep dx = new DxStep(
-          filesystem,
-          SAMPLE_OUTPUT_PATH,
-          SAMPLE_FILES_TO_DEX,
-          EnumSet.of(Option.USE_CUSTOM_DX_IF_AVAILABLE),
-          new Supplier<String>() {
-            @Override
-            public String get() {
-              return null;
-            }
-          });
-
-      String expected = String.format("%s --output %s %s",
-          EXPECTED_DX_PREFIX,
-          SAMPLE_OUTPUT_PATH,
-          Joiner.on(' ').join(Iterables.transform(SAMPLE_FILES_TO_DEX, pathAbsolutifier)));
-      MoreAsserts.assertShellCommands(
-          "Should fall back to /usr/bin/dx even though USE_CUSTOM_DX_IF_AVAILABLE is used.",
-          ImmutableList.of(expected),
-          ImmutableList.<Step>of(dx),
-          context);
       verifyAll();
     }
   }

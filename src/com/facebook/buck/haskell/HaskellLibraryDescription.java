@@ -44,9 +44,8 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.coercer.SourceList;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -59,6 +58,7 @@ import com.google.common.collect.Sets;
 
 import java.io.File;
 import java.util.Map;
+import java.util.Optional;
 
 public class HaskellLibraryDescription implements
     Description<HaskellLibraryDescription.Arg>,
@@ -123,16 +123,16 @@ public class HaskellLibraryDescription implements
         cxxPlatform,
         haskellConfig,
         depType,
-        Optional.<String>absent(),
+        Optional.empty(),
         Optional.of(getPackageInfo(params.getBuildTarget())),
-        args.compilerFlags.or(ImmutableList.<String>of()),
+        args.compilerFlags,
         HaskellSources.from(
             params.getBuildTarget(),
             resolver,
             pathResolver,
             cxxPlatform,
             "srcs",
-            args.srcs.or(SourceList.EMPTY)));
+            args.srcs));
   }
 
   private Archive createStaticLibrary(
@@ -260,7 +260,7 @@ public class HaskellLibraryDescription implements
         getPackageInfo(target),
         depPackages,
         compileRule.getModules(),
-        ImmutableSortedSet.<SourcePath>of(new BuildTargetSourcePath(library.getBuildTarget())),
+        ImmutableSortedSet.of(new BuildTargetSourcePath(library.getBuildTarget())),
         ImmutableSortedSet.of(compileRule.getInterfaces()));
   }
 
@@ -325,7 +325,7 @@ public class HaskellLibraryDescription implements
         cxxPlatform,
         haskellConfig,
         Linker.LinkType.SHARED,
-        ImmutableList.<String>of(),
+        ImmutableList.of(),
         ImmutableList.copyOf(SourcePathArg.from(pathResolver, compileRule.getObjects())),
         Iterables.filter(baseParams.getDeclaredDeps().get(), NativeLinkable.class),
         Linker.LinkableDepType.SHARED);
@@ -478,7 +478,7 @@ public class HaskellLibraryDescription implements
                     args,
                     type);
             linkArgs =
-                args.linkWhole.or(false) ?
+                args.linkWhole.orElse(false) ?
                     cxxPlatform.getLd().resolve(resolver).linkWhole(archive.toArg()) :
                     ImmutableList.of(archive.toArg());
             break;
@@ -492,7 +492,7 @@ public class HaskellLibraryDescription implements
                     cxxPlatform,
                     args);
             linkArgs =
-                ImmutableList.<com.facebook.buck.rules.args.Arg>of(
+                ImmutableList.of(
                     new SourcePathArg(getResolver(),
                         new BuildTargetSourcePath(rule.getBuildTarget())));
             break;
@@ -506,7 +506,7 @@ public class HaskellLibraryDescription implements
 
       @Override
       public Linkage getPreferredLinkage(CxxPlatform cxxPlatform) {
-        return args.preferredLinkage.or(Linkage.ANY);
+        return args.preferredLinkage.orElse(Linkage.ANY);
       }
 
       @Override
@@ -515,7 +515,7 @@ public class HaskellLibraryDescription implements
         ImmutableMap.Builder<String, SourcePath> libs = ImmutableMap.builder();
         String sharedLibrarySoname =
             CxxDescriptionEnhancer.getSharedLibrarySoname(
-                Optional.<String>absent(),
+                Optional.empty(),
                 getBuildTarget(),
                 cxxPlatform);
         BuildRule sharedLibraryBuildRule =
@@ -571,15 +571,9 @@ public class HaskellLibraryDescription implements
     ;
 
     public static final ImmutableSet<Flavor> FLAVOR_VALUES =
-        FluentIterable.from(ImmutableList.copyOf(Type.values()))
-            .transform(
-                new Function<Type, Flavor>() {
-                  @Override
-                  public Flavor apply(Type type) {
-                    return type.getFlavor();
-                  }
-                })
-            .toSet();
+        ImmutableList.copyOf(Type.values()).stream()
+            .map(Type::getFlavor)
+            .collect(MoreCollectors.toImmutableSet());
 
     private final Flavor flavor;
 
@@ -596,9 +590,9 @@ public class HaskellLibraryDescription implements
 
   @SuppressFieldNotInitialized
   public static class Arg {
-    public Optional<SourceList> srcs;
-    public Optional<ImmutableList<String>> compilerFlags;
-    public Optional<ImmutableSortedSet<BuildTarget>> deps;
+    public SourceList srcs = SourceList.EMPTY;
+    public ImmutableList<String> compilerFlags = ImmutableList.of();
+    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
     public Optional<Boolean> linkWhole;
     public Optional<NativeLinkable.Linkage> preferredLinkage;
   }

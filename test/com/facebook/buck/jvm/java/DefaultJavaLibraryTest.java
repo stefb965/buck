@@ -28,13 +28,11 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-import com.facebook.buck.android.AndroidLibrary;
 import com.facebook.buck.android.AndroidLibraryBuilder;
 import com.facebook.buck.android.AndroidPlatformTarget;
 import com.facebook.buck.artifact_cache.NoopArtifactCache;
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.io.HashingDeterministicJarWriter;
-import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.model.BuildId;
@@ -52,7 +50,6 @@ import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.ImmutableBuildContext;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -78,8 +75,6 @@ import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.google.common.base.Charsets;
-import com.google.common.base.Optional;
-import com.google.common.base.Predicate;
 import com.google.common.base.Splitter;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
@@ -108,8 +103,8 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
-import java.util.regex.Pattern;
 import java.util.zip.ZipOutputStream;
 
 import javax.annotation.Nullable;
@@ -165,12 +160,7 @@ public class DefaultJavaLibraryTest {
     List<Step> steps = javaLibrary.getBuildSteps(context, new FakeBuildableContext());
 
     // Find the JavacStep and verify its bootclasspath.
-    Step step = Iterables.find(steps, new Predicate<Step>() {
-      @Override
-      public boolean apply(Step command) {
-        return command instanceof JavacStep;
-      }
-    });
+    Step step = Iterables.find(steps, command -> command instanceof JavacStep);
     assertNotNull("Expected a JavacStep in the steplist.", step);
     JavacStep javac = (JavacStep) step;
     assertEquals("Should compile Main.java rather than generated R.java.",
@@ -380,7 +370,7 @@ public class DefaultJavaLibraryTest {
 
       @Override
       public Optional<SourcePath> getAbiJar() {
-        return Optional.absent();
+        return Optional.empty();
       }
 
       @Override
@@ -597,10 +587,10 @@ public class DefaultJavaLibraryTest {
       createDefaultJavaLibraryRuleWithAbiKey(
           buildTarget,
           /* srcs */ ImmutableSortedSet.of("foo/Bar.java"),
-          /* deps */ ImmutableSortedSet.<BuildRule>of(),
+          /* deps */ ImmutableSortedSet.of(),
           /* exportedDeps */ ImmutableSortedSet.of(genrule),
-          /* spoolMode */ Optional.<AbstractJavacOptions.SpoolMode>absent(),
-          /* postprocessClassesCommands */ ImmutableList.<String>of());
+          /* spoolMode */ Optional.empty(),
+          /* postprocessClassesCommands */ ImmutableList.of());
       fail("A non-java library listed as exported dep should have thrown.");
     } catch (HumanReadableException e) {
       String expected =
@@ -619,21 +609,21 @@ public class DefaultJavaLibraryTest {
     BuildRule javaLibraryBuildRule = createDefaultJavaLibraryRuleWithAbiKey(
         buildTarget,
         /* srcs */ ImmutableSortedSet.of("foo/Bar.java"),
-        /* deps */ ImmutableSortedSet.<BuildRule>of(),
-        /* exportedDeps */ ImmutableSortedSet.<BuildRule>of(),
+        /* deps */ ImmutableSortedSet.of(),
+        /* exportedDeps */ ImmutableSortedSet.of(),
         Optional.of(AbstractJavacOptions.SpoolMode.DIRECT_TO_JAR),
-        /* postprocessClassesCommands */ ImmutableList.<String>of());
+        /* postprocessClassesCommands */ ImmutableList.of());
 
     BuildContext buildContext = createBuildContext(javaLibraryBuildRule, /* bootclasspath */ null);
 
     ImmutableList<Step> steps =
         javaLibraryBuildRule.getBuildSteps(buildContext, new FakeBuildableContext());
 
-    assertThat(steps, Matchers.<Step>hasItem(Matchers.instanceOf(JavacDirectToJarStep.class)));
-    assertThat(steps, Matchers.not(Matchers.<Step>hasItem(Matchers.instanceOf(JavacStep.class))));
+    assertThat(steps, Matchers.hasItem(Matchers.instanceOf(JavacDirectToJarStep.class)));
+    assertThat(steps, Matchers.not(Matchers.hasItem(Matchers.instanceOf(JavacStep.class))));
     assertThat(
         steps,
-        Matchers.not(Matchers.<Step>hasItem(Matchers.instanceOf(JarDirectoryStep.class))));
+        Matchers.not(Matchers.hasItem(Matchers.instanceOf(JarDirectoryStep.class))));
   }
 
   @Test
@@ -643,8 +633,8 @@ public class DefaultJavaLibraryTest {
     BuildRule javaLibraryBuildRule = createDefaultJavaLibraryRuleWithAbiKey(
         buildTarget,
         /* srcs */ ImmutableSortedSet.of("foo/Bar.java"),
-        /* deps */ ImmutableSortedSet.<BuildRule>of(),
-        /* exportedDeps */ ImmutableSortedSet.<BuildRule>of(),
+        /* deps */ ImmutableSortedSet.of(),
+        /* exportedDeps */ ImmutableSortedSet.of(),
         Optional.of(AbstractJavacOptions.SpoolMode.DIRECT_TO_JAR),
         /* postprocessClassesCommands */ ImmutableList.of("process_class_files.py"));
 
@@ -655,9 +645,9 @@ public class DefaultJavaLibraryTest {
 
     assertThat(
         steps,
-        Matchers.not(Matchers.<Step>hasItem(Matchers.instanceOf(JavacDirectToJarStep.class))));
-    assertThat(steps, Matchers.<Step>hasItem(Matchers.instanceOf(JavacStep.class)));
-    assertThat(steps, Matchers.<Step>hasItem(Matchers.instanceOf(JarDirectoryStep.class)));
+        Matchers.not(Matchers.hasItem(Matchers.instanceOf(JavacDirectToJarStep.class))));
+    assertThat(steps, Matchers.hasItem(Matchers.instanceOf(JavacStep.class)));
+    assertThat(steps, Matchers.hasItem(Matchers.instanceOf(JarDirectoryStep.class)));
   }
 
   @Test
@@ -667,10 +657,10 @@ public class DefaultJavaLibraryTest {
     BuildRule javaLibraryBuildRule = createDefaultJavaLibraryRuleWithAbiKey(
         buildTarget,
         /* srcs */ ImmutableSortedSet.of("foo/Bar.java"),
-        /* deps */ ImmutableSortedSet.<BuildRule>of(),
-        /* exportedDeps */ ImmutableSortedSet.<BuildRule>of(),
+        /* deps */ ImmutableSortedSet.of(),
+        /* exportedDeps */ ImmutableSortedSet.of(),
         Optional.of(AbstractJavacOptions.SpoolMode.INTERMEDIATE_TO_DISK),
-        /* postprocessClassesCommands */ ImmutableList.<String>of());
+        /* postprocessClassesCommands */ ImmutableList.of());
 
     BuildContext buildContext = createBuildContext(javaLibraryBuildRule, /* bootclasspath */ null);
 
@@ -679,9 +669,9 @@ public class DefaultJavaLibraryTest {
 
     assertThat(
         steps,
-        Matchers.not(Matchers.<Step>hasItem(Matchers.instanceOf(JavacDirectToJarStep.class))));
-    assertThat(steps, Matchers.<Step>hasItem(Matchers.instanceOf(JavacStep.class)));
-    assertThat(steps, Matchers.<Step>hasItem(Matchers.instanceOf(JarDirectoryStep.class)));
+        Matchers.not(Matchers.hasItem(Matchers.instanceOf(JavacDirectToJarStep.class))));
+    assertThat(steps, Matchers.hasItem(Matchers.instanceOf(JavacStep.class)));
+    assertThat(steps, Matchers.hasItem(Matchers.instanceOf(JarDirectoryStep.class)));
   }
 
   /**
@@ -1062,7 +1052,7 @@ public class DefaultJavaLibraryTest {
       ImmutableList<String> postprocessClassesCommands) {
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     ImmutableSortedSet<SourcePath> srcsAsPaths = FluentIterable.from(srcs)
-        .transform(MorePaths.TO_PATH)
+        .transform(Paths::get)
         .transform(SourcePaths.toSourcePath(projectFilesystem))
         .toSortedSet(Ordering.natural());
 
@@ -1081,21 +1071,21 @@ public class DefaultJavaLibraryTest {
         buildRuleParams,
         new SourcePathResolver(ruleResolver),
         srcsAsPaths,
-        /* resources */ ImmutableSet.<SourcePath>of(),
+        /* resources */ ImmutableSet.of(),
         javacOptions.getGeneratedSourceFolderName(),
-        /* proguardConfig */ Optional.<SourcePath>absent(),
+        /* proguardConfig */ Optional.empty(),
         postprocessClassesCommands,
         exportedDeps,
-        /* providedDeps */ ImmutableSortedSet.<BuildRule>of(),
+        /* providedDeps */ ImmutableSortedSet.of(),
         /* abiJar */ new FakeSourcePath("abi.jar"),
         javacOptions.trackClassUsage(),
-        /* additionalClasspathEntries */ ImmutableSet.<Path>of(),
+        /* additionalClasspathEntries */ ImmutableSet.of(),
         new JavacToJarStepFactory(javacOptions, JavacOptionsAmender.IDENTITY),
-        /* resourcesRoot */ Optional.<Path>absent(),
-        /* manifest file */ Optional.<SourcePath>absent(),
-        /* mavenCoords */ Optional.<String>absent(),
-        /* tests */ ImmutableSortedSet.<BuildTarget>of(),
-        /* classesToRemoveFromJar */ ImmutableSet.<Pattern>of()) {
+        /* resourcesRoot */ Optional.empty(),
+        /* manifest file */ Optional.empty(),
+        /* mavenCoords */ Optional.empty(),
+        /* tests */ ImmutableSortedSet.of(),
+        /* classesToRemoveFromJar */ ImmutableSet.of()) {
     };
 
     ruleResolver.addToIndex(defaultJavaLibrary);
@@ -1241,9 +1231,8 @@ public class DefaultJavaLibraryTest {
     replay(platformTarget);
 
     // TODO(bolinfest): Create a utility that populates a BuildContext.Builder with fakes.
-    return ImmutableBuildContext.builder()
+    return BuildContext.builder()
         .setActionGraph(new ActionGraph(ImmutableList.of(javaLibrary)))
-        .setStepRunner(EasyMock.createMock(StepRunner.class))
         .setClock(new DefaultClock())
         .setBuildId(new BuildId())
         .setObjectMapper(ObjectMappers.newDefaultInstance())
@@ -1343,7 +1332,7 @@ public class DefaultJavaLibraryTest {
 
       ImmutableList<String> options = javacCommand.getOptions(
           executionContext,
-          /* buildClasspathEntries */ ImmutableSortedSet.<Path>of());
+          /* buildClasspathEntries */ ImmutableSortedSet.of());
 
       return options;
     }
@@ -1360,8 +1349,9 @@ public class DefaultJavaLibraryTest {
       tmp.newFile(src);
 
       AnnotationProcessingParams params = annotationProcessingParamsBuilder.build();
-      JavacOptions.Builder options = JavacOptions.builder(DEFAULT_JAVAC_OPTIONS)
-          .setAnnotationProcessingParams(params);
+      JavacOptions options = JavacOptions.builder(DEFAULT_JAVAC_OPTIONS)
+          .setAnnotationProcessingParams(params)
+          .build();
 
       BuildRuleParams buildRuleParams = new FakeBuildRuleParamsBuilder(buildTarget)
           .setProjectFilesystem(projectFilesystem)
@@ -1370,26 +1360,29 @@ public class DefaultJavaLibraryTest {
       BuildRuleResolver ruleResolver = new BuildRuleResolver(
           TargetGraph.EMPTY,
           new DefaultTargetNodeToBuildRuleTransformer());
-      AndroidLibrary androidLibrary = new AndroidLibrary(
+      DefaultJavaLibrary javaLibrary = new DefaultJavaLibrary(
           buildRuleParams,
           new SourcePathResolver(
               ruleResolver),
           ImmutableSet.of(new FakeSourcePath(src)),
-          /* resources */ ImmutableSet.<SourcePath>of(),
-          /* proguardConfig */ Optional.<SourcePath>absent(),
-          /* postprocessClassesCommands */ ImmutableList.<String>of(),
-          /* exportedDeps */ ImmutableSortedSet.<BuildRule>of(),
-          /* providedDeps */ ImmutableSortedSet.<BuildRule>of(),
+          /* resources */ ImmutableSet.of(),
+          options.getGeneratedSourceFolderName(),
+          /* proguardConfig */ Optional.empty(),
+          /* postprocessClassesCommands */ ImmutableList.of(),
+          /* exportedDeps */ ImmutableSortedSet.of(),
+          /* providedDeps */ ImmutableSortedSet.of(),
           /* abiJar */ new FakeSourcePath("abi.jar"),
-          /* additionalClasspathEntries */ ImmutableSet.<Path>of(),
-          options.build(),
-          /* resourcesRoot */ Optional.<Path>absent(),
-          /* mavenCoords */ Optional.<String>absent(),
-          /* manifestFile */ Optional.<SourcePath>absent(),
-          /* tests */ ImmutableSortedSet.<BuildTarget>of());
+          options.trackClassUsage(),
+          /* additionalClasspathEntries */ ImmutableSet.of(),
+          new JavacToJarStepFactory(options, JavacOptionsAmender.IDENTITY),
+          /* resourcesRoot */ Optional.empty(),
+          /* manifestFile */ Optional.empty(),
+          /* mavenCoords */ Optional.empty(),
+          /* tests */ ImmutableSortedSet.of(),
+          options.getClassesToRemoveFromJar());
 
-      ruleResolver.addToIndex(androidLibrary);
-      return androidLibrary;
+      ruleResolver.addToIndex(javaLibrary);
+      return javaLibrary;
     }
 
     private JavacStep lastJavacCommand(Iterable<Step> commands) {

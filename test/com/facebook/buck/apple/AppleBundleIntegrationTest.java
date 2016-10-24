@@ -35,10 +35,11 @@ import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.BuckBuildLog;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.FakeAppleDeveloperEnvironment;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
+import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
+import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.environment.Platform;
@@ -79,7 +80,7 @@ public class AppleBundleIntegrationTest {
     }
 
     return CodeSigning.hasValidSignature(
-        new ProcessExecutor(new TestConsole()),
+        new DefaultProcessExecutor(new TestConsole()),
         absoluteBundlePath);
   }
 
@@ -438,7 +439,7 @@ public class AppleBundleIntegrationTest {
     ProcessExecutor.Result result = workspace.runCommand(
         "nm",
         binaryPath.toString());
-    return result.getStdout().or("");
+    return result.getStdout().orElse("");
   }
 
   @Test
@@ -625,7 +626,7 @@ public class AppleBundleIntegrationTest {
     ImmutableSet<String> targetsThatShouldContainIncludeFrameworkFlavors =
         ImmutableSet.of("//:DemoAppWithExtension", "//:DemoExtension");
 
-    ImmutableSet<Flavor> includeFrameworkFlavors = ImmutableSet.<Flavor>of(
+    ImmutableSet<Flavor> includeFrameworkFlavors = ImmutableSet.of(
         ImmutableFlavor.of("no-include-frameworks"),
         ImmutableFlavor.of("include-frameworks"));
 

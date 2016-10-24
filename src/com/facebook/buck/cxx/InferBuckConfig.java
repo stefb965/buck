@@ -23,9 +23,9 @@ import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.VersionedTool;
 import com.facebook.buck.util.Console;
+import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
@@ -35,6 +35,7 @@ import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 
 public class InferBuckConfig implements RuleKeyAppendable {
 
@@ -57,51 +58,37 @@ public class InferBuckConfig implements RuleKeyAppendable {
   public InferBuckConfig(final BuckConfig delegate) {
     this.delegate = delegate;
     this.clangCompiler = Suppliers.memoize(
-        new Supplier<Tool>() {
-          @Override
-          public Tool get() {
-            return HashedFileTool.FROM_PATH.apply(
-                Preconditions.checkNotNull(
-                    getPathFromConfig(delegate, "clang_compiler").orNull(),
-                    "clang_compiler path not found on the current configuration"));
-          }
-        }
+        () -> new HashedFileTool(Preconditions.checkNotNull(
+            getPathFromConfig(delegate, "clang_compiler").orElse(null),
+            "clang_compiler path not found on the current configuration"))
     );
 
     this.clangPlugin = Suppliers.memoize(
-        new Supplier<Tool>() {
-          @Override
-          public Tool get() {
-            return HashedFileTool.FROM_PATH.apply(
-                Preconditions.checkNotNull(
-                    getPathFromConfig(delegate, "clang_plugin").orNull(),
-                    "clang_plugin path not found on the current configuration"));
-          }
-        }
+        () -> new HashedFileTool(Preconditions.checkNotNull(
+            getPathFromConfig(delegate, "clang_plugin").orElse(null),
+            "clang_plugin path not found on the current configuration"))
     );
 
     this.inferVersion = Suppliers.memoize(
-        new Supplier<VersionedTool>() {
-          @Override
-          public VersionedTool get() {
-            Path topLevel = InferBuckConfig.this.getInferTopLevel();
-            ProcessExecutorParams params = ProcessExecutorParams.builder()
-                .setCommand(ImmutableList.of(topLevel.toString(), "--version"))
-                .build();
-            ProcessExecutor.Result result;
-            try  {
-              result = new ProcessExecutor(Console.createNullConsole()).launchAndExecute(params);
-              if (result.getExitCode() != 0) {
-                throw new RuntimeException(result.getMessageForUnexpectedResult("infer version"));
-              }
-            } catch (InterruptedException | IOException e) {
-              throw new RuntimeException(e);
+        () -> {
+          Path topLevel = InferBuckConfig.this.getInferTopLevel();
+          ProcessExecutorParams params = ProcessExecutorParams.builder()
+              .setCommand(ImmutableList.of(topLevel.toString(), "--version"))
+              .build();
+          ProcessExecutor.Result result;
+          try  {
+            result =
+                new DefaultProcessExecutor(Console.createNullConsole()).launchAndExecute(params);
+            if (result.getExitCode() != 0) {
+              throw new RuntimeException(result.getMessageForUnexpectedResult("infer version"));
             }
-            Optional<String> stderr = result.getStderr();
-            String versionOutput = stderr.or("").trim();
-            Preconditions.checkState(!Strings.isNullOrEmpty(versionOutput));
-            return VersionedTool.of(topLevel, "infer", versionOutput);
+          } catch (InterruptedException | IOException e) {
+            throw new RuntimeException(e);
           }
+          Optional<String> stderr = result.getStderr();
+          String versionOutput = stderr.orElse("").trim();
+          Preconditions.checkState(!Strings.isNullOrEmpty(versionOutput));
+          return VersionedTool.of(topLevel, "infer", versionOutput);
         });
   }
 
@@ -111,7 +98,7 @@ public class InferBuckConfig implements RuleKeyAppendable {
 
   private Path getInferBin() {
     return Preconditions.checkNotNull(
-        getPathFromConfig(this.delegate, "infer_bin").orNull(),
+        getPathFromConfig(this.delegate, "infer_bin").orElse(null),
         "path to infer bin/ folder not found on the current configuration");
   }
 

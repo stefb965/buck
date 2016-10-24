@@ -22,15 +22,14 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.util.HumanReadableException;
-import com.google.common.base.Function;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 
 public class FrameworkPathTypeCoercer implements TypeCoercer<FrameworkPath> {
 
@@ -70,11 +69,6 @@ public class FrameworkPathTypeCoercer implements TypeCoercer<FrameworkPath> {
   }
 
   @Override
-  public Optional<FrameworkPath> getOptionalValue() {
-    return Optional.absent();
-  }
-
-  @Override
   public FrameworkPath coerce(
       CellPathResolver cellRoots,
       ProjectFilesystem filesystem,
@@ -102,7 +96,7 @@ public class FrameworkPathTypeCoercer implements TypeCoercer<FrameworkPath> {
               new SourceTreePath(
                   sourceTree.get(),
                   path.subpath(1, path.getNameCount()),
-                  Optional.<String>absent()));
+                  Optional.empty()));
         } else {
           throw new HumanReadableException(
               "Unknown SourceTree: '%s'. Should be one of: %s",
@@ -110,12 +104,7 @@ public class FrameworkPathTypeCoercer implements TypeCoercer<FrameworkPath> {
               Joiner.on(", ").join(
                   Iterables.transform(
                       ImmutableList.copyOf(PBXReference.SourceTree.values()),
-                      new Function<PBXReference.SourceTree, String>() {
-                        @Override
-                        public String apply(PBXReference.SourceTree input) {
-                          return "$" + input.toString();
-                        }
-                      })));
+                      input -> "$" + input.toString())));
         }
       } else {
         return FrameworkPath.ofSourcePath(

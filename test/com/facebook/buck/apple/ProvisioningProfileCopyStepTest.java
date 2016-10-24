@@ -30,11 +30,12 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
+import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Platform;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
@@ -50,6 +51,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.Optional;
 import java.util.concurrent.Future;
 
 public class ProvisioningProfileCopyStepTest {
@@ -89,7 +91,7 @@ public class ProvisioningProfileCopyStepTest {
     xcentFile = Paths.get("test.xcent");
     executionContext = TestExecutionContext.newInstance();
     codeSignIdentityStore =
-        CodeSignIdentityStore.fromIdentities(ImmutableList.<CodeSignIdentity>of());
+        CodeSignIdentityStore.fromIdentities(ImmutableList.of());
     entitlementsFile = testdataDir.resolve("Entitlements.plist");
   }
 
@@ -102,9 +104,11 @@ public class ProvisioningProfileCopyStepTest {
     ProvisioningProfileCopyStep step = new ProvisioningProfileCopyStep(
         projectFilesystem,
         testdataDir.resolve("Info.plist"),
-        Optional.<String>absent(),
-        Optional.<Path>of(testdataDir.resolve("Invalid.plist")),
-        ProvisioningProfileStore.fromSearchPath(testdataDir),
+        Optional.empty(),
+        Optional.of(testdataDir.resolve("Invalid.plist")),
+        ProvisioningProfileStore.fromSearchPath(
+            new DefaultProcessExecutor(new TestConsole()),
+            testdataDir),
         outputFile,
         xcentFile,
         codeSignIdentityStore
@@ -122,9 +126,11 @@ public class ProvisioningProfileCopyStepTest {
     ProvisioningProfileCopyStep step = new ProvisioningProfileCopyStep(
         projectFilesystem,
         testdataDir.resolve("Invalid.plist"),
-        Optional.<String>absent(),
-        Optional.<Path>absent(),
-        ProvisioningProfileStore.fromSearchPath(testdataDir),
+        Optional.empty(),
+        Optional.empty(),
+        ProvisioningProfileStore.fromSearchPath(
+            new DefaultProcessExecutor(new TestConsole()),
+            testdataDir),
         outputFile,
         xcentFile,
         codeSignIdentityStore
@@ -146,9 +152,11 @@ public class ProvisioningProfileCopyStepTest {
     ProvisioningProfileCopyStep step = new ProvisioningProfileCopyStep(
         projectFilesystem,
         testdataDir.resolve("Info.plist"),
-        Optional.<String>absent(),
-        Optional.<Path>absent(),
-        ProvisioningProfileStore.fromSearchPath(emptyDir),
+        Optional.empty(),
+        Optional.empty(),
+        ProvisioningProfileStore.fromSearchPath(
+            new DefaultProcessExecutor(new TestConsole()),
+            emptyDir),
         outputFile,
         xcentFile,
         codeSignIdentityStore
@@ -163,9 +171,11 @@ public class ProvisioningProfileCopyStepTest {
     ProvisioningProfileCopyStep step = new ProvisioningProfileCopyStep(
         projectFilesystem,
         testdataDir.resolve("Info.plist"),
-        Optional.<String>absent(),
-        Optional.<Path>absent(),
-        ProvisioningProfileStore.fromSearchPath(testdataDir),
+        Optional.empty(),
+        Optional.empty(),
+        ProvisioningProfileStore.fromSearchPath(
+            new DefaultProcessExecutor(new TestConsole()),
+            testdataDir),
         outputFile,
         xcentFile,
         codeSignIdentityStore
@@ -184,8 +194,10 @@ public class ProvisioningProfileCopyStepTest {
         projectFilesystem,
         testdataDir.resolve("Info.plist"),
         Optional.of("00000000-0000-0000-0000-000000000000"),
-        Optional.<Path>absent(),
-        ProvisioningProfileStore.fromSearchPath(testdataDir),
+        Optional.empty(),
+        ProvisioningProfileStore.fromSearchPath(
+            new DefaultProcessExecutor(new TestConsole()),
+            testdataDir),
         outputFile,
         xcentFile,
         codeSignIdentityStore
@@ -215,7 +227,9 @@ public class ProvisioningProfileCopyStepTest {
         testdataDir.resolve("Info.plist"),
         Optional.of("00000000-0000-0000-0000-000000000000"),
         Optional.of(entitlementsFile),
-        ProvisioningProfileStore.fromSearchPath(testdataDir),
+        ProvisioningProfileStore.fromSearchPath(
+            new DefaultProcessExecutor(new TestConsole()),
+            testdataDir),
         outputFile,
         xcentFile,
         codeSignIdentityStore

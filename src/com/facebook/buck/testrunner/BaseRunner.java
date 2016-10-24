@@ -255,7 +255,7 @@ public abstract class BaseRunner {
    *   <li>(string...) fully-qualified names of test classes
    * </ul>
    */
-  protected void parseArgs(String... args) throws Throwable {
+  protected void parseArgs(String... args) {
     File outputDirectory = null;
     long defaultTestTimeoutMillis = Long.MAX_VALUE;
     TestSelectorList testSelectorList = TestSelectorList.empty();
@@ -301,7 +301,7 @@ public abstract class BaseRunner {
     this.testSelectorList = testSelectorList;
   }
 
-  protected void runAndExit() throws Throwable {
+  protected void runAndExit() {
     // Run the tests.
     try {
       run();

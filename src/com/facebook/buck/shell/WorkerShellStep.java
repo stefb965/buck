@@ -28,7 +28,6 @@ import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -37,6 +36,7 @@ import com.google.common.collect.Maps;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -82,7 +82,7 @@ public class WorkerShellStep implements Step {
         }
       }
       return StepExecutionResult.of(result.getExitCode());
-    } catch (IOException e) {
+    } catch (Exception e) {
       throw new HumanReadableException(e, "Error communicating with external process.");
     } finally {
       if (pool != null && process != null) {
@@ -94,8 +94,7 @@ public class WorkerShellStep implements Step {
   /**
    * Returns an existing WorkerProcessPool for the given key if one exists, else creates a new one.
    */
-  private WorkerProcessPool getWorkerProcessPoolForKey(String key, final ExecutionContext context)
-      throws IOException, InterruptedException {
+  private WorkerProcessPool getWorkerProcessPoolForKey(String key, final ExecutionContext context) {
 
     WorkerJobParams paramsToUse = getWorkerJobParamsToUse(context.getPlatform());
     ConcurrentMap<String, WorkerProcessPool> processPoolMap = context.getWorkerProcessPools();
@@ -130,14 +129,14 @@ public class WorkerShellStep implements Step {
     }
 
     int poolCapacity = pool.getCapacity();
-    if (poolCapacity != paramsToUse.getMaxWorkers().or(WorkerProcessPool.UNLIMITED_CAPACITY)) {
+    if (poolCapacity != paramsToUse.getMaxWorkers()) {
       context.postEvent(ConsoleEvent.warning(
           "There are two 'worker_tool' targets declared with the same command (%s), but " +
               "different 'max_worker' settings (%d and %d). Only the first capacity is applied. " +
               "Consolidate these workers to avoid this warning.",
           key,
           poolCapacity,
-          paramsToUse.getMaxWorkers().or(WorkerProcessPool.UNLIMITED_CAPACITY)));
+          paramsToUse.getMaxWorkers()));
     }
 
     return pool;

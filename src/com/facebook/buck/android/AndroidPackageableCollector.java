@@ -20,14 +20,14 @@ import com.facebook.buck.android.AndroidPackageableCollection.ResourceDetails;
 import com.facebook.buck.cxx.NativeLinkable;
 import com.facebook.buck.jvm.core.HasJavaClassHashes;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Optional;
-import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -38,6 +38,7 @@ import com.google.common.collect.Sets;
 import com.google.common.hash.HashCode;
 
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 public class AndroidPackageableCollector {
@@ -66,9 +67,9 @@ public class AndroidPackageableCollector {
   @VisibleForTesting
   AndroidPackageableCollector(BuildTarget collectionRoot) {
     this(collectionRoot,
-        ImmutableSet.<BuildTarget>of(),
-        ImmutableSet.<BuildTarget>of(),
-        new APKModuleGraph(TargetGraph.EMPTY, collectionRoot, Optional.<Set<BuildTarget>>absent()));
+        ImmutableSet.of(),
+        ImmutableSet.of(),
+        new APKModuleGraph(TargetGraph.EMPTY, collectionRoot, Optional.empty()));
   }
 
   /**
@@ -151,18 +152,29 @@ public class AndroidPackageableCollector {
   public AndroidPackageableCollector addNativeLibsDirectory(
       BuildTarget owner,
       SourcePath nativeLibDir) {
-    collectionBuilder.addNativeLibsTargets(owner);
-    collectionBuilder.addNativeLibsDirectories(nativeLibDir);
+    APKModule module = apkModuleGraph.findModuleForTarget(owner);
+    collectionBuilder.putNativeLibsTargets(module, owner);
+    if (module.isRootModule()) {
+      collectionBuilder.putNativeLibsDirectories(module, nativeLibDir);
+    } else {
+      collectionBuilder.putNativeLibAssetsDirectories(module, nativeLibDir);
+    }
     return this;
   }
 
   public AndroidPackageableCollector addNativeLinkable(NativeLinkable nativeLinkable) {
-    collectionBuilder.addNativeLinkables(nativeLinkable);
+    APKModule module = apkModuleGraph.findModuleForTarget(nativeLinkable.getBuildTarget());
+    if (module.isRootModule()) {
+      collectionBuilder.putNativeLinkables(module, nativeLinkable);
+    } else {
+      collectionBuilder.putNativeLinkablesAssets(module, nativeLinkable);
+    }
     return this;
   }
 
   public AndroidPackageableCollector addNativeLinkableAsset(NativeLinkable nativeLinkable) {
-    collectionBuilder.addNativeLinkablesAssets(nativeLinkable);
+    APKModule module = apkModuleGraph.findModuleForTarget(nativeLinkable.getBuildTarget());
+    collectionBuilder.putNativeLinkablesAssets(module, nativeLinkable);
     return this;
   }
 
@@ -170,8 +182,9 @@ public class AndroidPackageableCollector {
       BuildTarget owner,
       SourcePath assetsDir) {
     // We need to build the native target in order to have the assets available still.
-    collectionBuilder.addNativeLibsTargets(owner);
-    collectionBuilder.addNativeLibAssetsDirectories(assetsDir);
+    APKModule module = apkModuleGraph.findModuleForTarget(owner);
+    collectionBuilder.putNativeLibsTargets(module, owner);
+    collectionBuilder.putNativeLibAssetsDirectories(module, assetsDir);
     return this;
   }
 
@@ -237,19 +250,18 @@ public class AndroidPackageableCollector {
     collectionBuilder.setBuildConfigs(ImmutableMap.copyOf(buildConfigs));
     final ImmutableSet<HasJavaClassHashes> javaClassProviders = javaClassHashesProviders.build();
     collectionBuilder.addAllJavaLibrariesToDex(
-        FluentIterable.from(javaClassProviders).transform(BuildTarget.TO_TARGET).toSet());
+        javaClassProviders.stream()
+            .map(HasBuildTarget::getBuildTarget)
+            .collect(MoreCollectors.toImmutableSet()));
     collectionBuilder.setClassNamesToHashesSupplier(Suppliers.memoize(
-            new Supplier<Map<String, HashCode>>() {
-              @Override
-              public Map<String, HashCode> get() {
+        () -> {
 
-                ImmutableMap.Builder<String, HashCode> builder = ImmutableMap.builder();
-                for (HasJavaClassHashes hasJavaClassHashes : javaClassProviders) {
-                  builder.putAll(hasJavaClassHashes.getClassNamesToHashes());
-                }
-                return builder.build();
-              }
-            }));
+          ImmutableMap.Builder<String, HashCode> builder = ImmutableMap.builder();
+          for (HasJavaClassHashes hasJavaClassHashes : javaClassProviders) {
+            builder.putAll(hasJavaClassHashes.getClassNamesToHashes());
+          }
+          return builder.build();
+        }));
 
     ImmutableSet<BuildTarget> resources = ImmutableSet.copyOf(resourcesWithNonEmptyResDir.build());
     for (BuildTarget buildTarget : resourcesWithAssets.build()) {

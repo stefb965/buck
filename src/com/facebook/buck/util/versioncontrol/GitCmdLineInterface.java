@@ -7,8 +7,6 @@ import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorFactory;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
-import com.google.common.base.Predicate;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 import com.google.common.collect.FluentIterable;
@@ -20,6 +18,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Path;
+import java.util.Optional;
 
 public class GitCmdLineInterface implements VersionControlCmdLineInterface {
 
@@ -62,7 +61,7 @@ public class GitCmdLineInterface implements VersionControlCmdLineInterface {
     try {
       return Optional.of(revisionId(name));
     } catch (VersionControlCommandFailedException e) {
-      return Optional.absent();
+      return Optional.empty();
     }
   }
 
@@ -87,12 +86,7 @@ public class GitCmdLineInterface implements VersionControlCmdLineInterface {
             .split(separator);
     return FluentIterable.of(
         allUntrackedFiles)
-        .filter(new Predicate<String>() {
-          @Override
-          public boolean apply(String input) {
-            return !Strings.isNullOrEmpty(input);
-          }
-        })
+        .filter(input -> !Strings.isNullOrEmpty(input))
         .toSet();
   }
 
@@ -118,7 +112,7 @@ public class GitCmdLineInterface implements VersionControlCmdLineInterface {
     try {
       return Optional.of(commonAncestor(revisionIdOne, revisionIdTwo));
     } catch (VersionControlCommandFailedException e) {
-      return Optional.absent();
+      return Optional.empty();
     }
   }
 

@@ -18,7 +18,6 @@ package com.facebook.buck.slb;
 
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.model.Pair;
-import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
@@ -36,13 +35,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ServerHealthManager {
 
   private static final Comparator<Pair<URI, Long>> LATENCY_COMPARATOR =
-      new Comparator<Pair<URI, Long>>() {
-        @Override
-        public int compare(
-            Pair<URI, Long> o1, Pair<URI, Long> o2) {
-          return (int) (o1.getSecond() - o2.getSecond());
-        }
-      };
+      (o1, o2) -> (int) (o1.getSecond() - o2.getSecond());
 
   // TODO(ruibm): It could be useful to preserve this state across runs in the local fs.
   private final ConcurrentHashMap<URI, ServerHealthState> servers;
@@ -112,7 +105,7 @@ public class ServerHealthManager {
         throw new NoHealthyServersException(String.format(
             "No servers available. Too many errors reported by all servers in the pool: [%s]",
             Joiner.on(", ").join(FluentIterable.from(servers.keySet()).transform(
-                Functions.toStringFunction()))));
+                Object::toString))));
       }
 
       Collections.sort(serverLatencies, LATENCY_COMPARATOR);

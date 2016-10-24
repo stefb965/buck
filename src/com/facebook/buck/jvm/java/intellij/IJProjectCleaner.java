@@ -44,26 +44,11 @@ public class IJProjectCleaner {
   private static final int EXECUTOR_SHUTDOWN_TIMEOUT = 1;
   private static final TimeUnit EXECUTOR_SHUTDOWN_TIME_UNIT = TimeUnit.MINUTES;
 
-  private static final FilenameFilter IML_FILENAME_FILTER = new FilenameFilter() {
-    @Override
-    public boolean accept(File dir, String name) {
-      return name.endsWith(".iml");
-    }
-  };
+  private static final FilenameFilter IML_FILENAME_FILTER = (dir, name) -> name.endsWith(".iml");
 
-  private static final FilenameFilter XML_FILENAME_FILTER = new FilenameFilter() {
-    @Override
-    public boolean accept(File dir, String name) {
-      return name.endsWith(".xml");
-    }
-  };
+  private static final FilenameFilter XML_FILENAME_FILTER = (dir, name) -> name.endsWith(".xml");
 
-  private static final FileFilter SUBDIRECTORY_FILTER = new FileFilter() {
-    @Override
-    public boolean accept(File pathname) {
-      return pathname.isDirectory();
-    }
-  };
+  private static final FileFilter SUBDIRECTORY_FILTER = File::isDirectory;
 
   private final ProjectFilesystem projectFilesystem;
 
@@ -104,7 +89,15 @@ public class IJProjectCleaner {
   }
 
   @SuppressWarnings("serial")
-  public void clean(final BuckConfig buckConfig, final Path librariesXmlBase) {
+  public void clean(
+      final BuckConfig buckConfig,
+      final Path librariesXmlBase,
+      final boolean runPostGenerationCleaner,
+      final boolean removeOldLibraries) {
+    if (!runPostGenerationCleaner && !removeOldLibraries) {
+      return;
+    }
+
     final Set<File> buckDirectories = new HashSet<>();
     buckDirectories.add(
         convertPathToFile(
@@ -120,10 +113,12 @@ public class IJProjectCleaner {
         @Override
         protected void compute() {
           List<RecursiveAction> topLevelTasks = new ArrayList<>(2);
-          topLevelTasks.add(new CandidateFinderWithExclusions(
-              convertPathToFile(projectFilesystem.resolve("")),
-              IML_FILENAME_FILTER,
-              buckDirectories));
+          if (runPostGenerationCleaner) {
+            topLevelTasks.add(new CandidateFinderWithExclusions(
+                convertPathToFile(projectFilesystem.resolve("")),
+                IML_FILENAME_FILTER,
+                buckDirectories));
+          }
           topLevelTasks.add(new CandidateFinder(
               convertPathToFile(librariesXmlBase),
               XML_FILENAME_FILTER));

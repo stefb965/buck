@@ -1,4 +1,3 @@
-#@# GENERATED FILE: DO NOT MODIFY 0c49ca1146b570d12c46d731917da7598681fc7b #@#
 {
   "rage" : {
     "deps" : [
@@ -10,23 +9,31 @@
       "//src/com/facebook/buck/rage:config",
       "//src/com/facebook/buck/rage:rage",
       "//src/com/facebook/buck/rules:types",
-      "//src/com/facebook/buck/slb:slb",
       "//src/com/facebook/buck/timing:timing",
       "//src/com/facebook/buck/util:io",
       "//src/com/facebook/buck/util:object_mapper",
-      "//src/com/facebook/buck/util:tristate",
+      "//src/com/facebook/buck/util:util",
       "//src/com/facebook/buck/util/environment:environment",
       "//src/com/facebook/buck/util/versioncontrol:versioncontrol",
       "//test/com/facebook/buck/cli:FakeBuckConfig",
       "//test/com/facebook/buck/event:testutil",
+      "//test/com/facebook/buck/rage:testutil",
       "//test/com/facebook/buck/testutil:testutil",
       "//test/com/facebook/buck/testutil/integration:integration",
       "//third-party/java/guava:guava",
+      "//third-party/java/hamcrest:hamcrest-junit",
       "//third-party/java/hamcrest:java-hamcrest",
       "//third-party/java/jackson:jackson-databind",
       "//third-party/java/jetty:jetty",
       "//third-party/java/junit:junit"
     ],
     "exported_deps" : [ ]
+  },
+  "testutil" : {
+    "deps" : [ ],
+    "exported_deps" : [
+      "//src/com/facebook/buck/rage:rage",
+      "//src/com/facebook/buck/util:io"
+    ]
   }
 }

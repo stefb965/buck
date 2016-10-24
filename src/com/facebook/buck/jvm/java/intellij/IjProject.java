@@ -17,6 +17,7 @@
 package com.facebook.buck.jvm.java.intellij;
 
 import com.facebook.buck.android.AndroidBinaryDescription;
+import com.facebook.buck.android.AndroidLibraryDescription;
 import com.facebook.buck.android.AndroidLibraryGraphEnhancer;
 import com.facebook.buck.android.AndroidPrebuiltAar;
 import com.facebook.buck.android.AndroidResourceDescription;
@@ -36,12 +37,12 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraphAndTargets;
 import com.facebook.buck.rules.TargetNode;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
+import com.facebook.buck.util.OptionalCompat;
 import com.google.common.collect.ImmutableSet;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Optional;
 
 /**
  * Top-level class for IntelliJ project generation.
@@ -56,6 +57,7 @@ public class IjProject {
   private final ProjectFilesystem projectFilesystem;
   private final IjModuleGraph.AggregationMode aggregationMode;
   private final IjProjectConfig projectConfig;
+  private final IntellijConfig intellijConfig;
 
   public IjProject(
       TargetGraphAndTargets targetGraphAndTargets,
@@ -74,6 +76,7 @@ public class IjProject {
     this.projectFilesystem = projectFilesystem;
     this.aggregationMode = aggregationMode;
     this.projectConfig = IjProjectBuckConfig.create(buckConfig);
+    this.intellijConfig = new IntellijConfig(buckConfig);
   }
 
   /**
@@ -86,6 +89,7 @@ public class IjProject {
    */
   public ImmutableSet<BuildTarget> write(
       boolean runPostGenerationCleaner,
+      boolean removeUnusedLibraries,
       boolean excludeArtifacts)
       throws IOException {
     final ImmutableSet.Builder<BuildTarget> requiredBuildTargets = ImmutableSet.builder();
@@ -105,26 +109,18 @@ public class IjProject {
           public Optional<Path> getPathIfJavaLibrary(TargetNode<?> targetNode) {
             BuildRule rule = buildRuleResolver.getRule(targetNode.getBuildTarget());
             if (!(rule instanceof JavaLibrary)) {
-              return Optional.absent();
+              return Optional.empty();
             }
             if (rule instanceof AndroidPrebuiltAar) {
               AndroidPrebuiltAar aarRule = (AndroidPrebuiltAar) rule;
-              return Optional.fromNullable(aarRule.getBinaryJar());
+              return Optional.ofNullable(aarRule.getBinaryJar());
             }
             requiredBuildTargets.add(rule.getBuildTarget());
-            return Optional.fromNullable(rule.getPathToOutput());
+            return Optional.ofNullable(rule.getPathToOutput());
           }
         });
     IjModuleFactory.IjModuleFactoryResolver moduleFactoryResolver =
         new IjModuleFactory.IjModuleFactoryResolver() {
-
-          private Function<SourcePath, Path> getAbsolutePathAndRecordRuleFunction =
-              new Function<SourcePath, Path>() {
-                @Override
-                public Path apply(SourcePath input) {
-                  return getRelativePathAndRecordRule(input);
-                }
-              };
 
           @Override
           public Optional<Path> getDummyRDotJavaPath(TargetNode<?> targetNode) {
@@ -137,7 +133,7 @@ public class IjProject {
               return Optional.of(
                   DummyRDotJava.getRDotJavaBinFolder(dummyRDotJavaTarget, projectFilesystem));
             }
-            return Optional.absent();
+            return Optional.empty();
           }
 
           @Override
@@ -146,12 +142,19 @@ public class IjProject {
           }
 
           @Override
+          public Optional<Path> getLibraryAndroidManifestPath(
+              TargetNode<AndroidLibraryDescription.Arg> targetNode) {
+            Optional<SourcePath> manifestPath = targetNode.getConstructorArg().manifest;
+            return manifestPath.map(sourcePathResolver::getAbsolutePath).map(Optional::of).orElse(
+                intellijConfig.getAndroidManifest());
+          }
+
+          @Override
           public Optional<Path> getProguardConfigPath(
               TargetNode<AndroidBinaryDescription.Arg> targetNode) {
             return targetNode
                 .getConstructorArg()
-                .proguardConfig
-                .transform(getAbsolutePathAndRecordRuleFunction);
+                .proguardConfig.map(this::getRelativePathAndRecordRule);
           }
 
           @Override
@@ -159,8 +162,7 @@ public class IjProject {
               TargetNode<AndroidResourceDescription.Arg> targetNode) {
             return targetNode
                 .getConstructorArg()
-                .res
-                .transform(getAbsolutePathAndRecordRuleFunction);
+                .res.map(this::getRelativePathAndRecordRule);
           }
 
           @Override
@@ -168,8 +170,7 @@ public class IjProject {
               TargetNode<AndroidResourceDescription.Arg> targetNode) {
             return targetNode
                 .getConstructorArg()
-                .assets
-                .transform(getAbsolutePathAndRecordRuleFunction);
+                .assets.map(this::getRelativePathAndRecordRule);
           }
 
           @Override
@@ -184,19 +185,16 @@ public class IjProject {
                     buildRuleResolver
                 );
             if (annotationProcessingParams == null || annotationProcessingParams.isEmpty()) {
-              return Optional.<Path>absent();
+              return Optional.empty();
             }
 
-            return Optional
-                  .fromNullable(annotationProcessingParams.getGeneratedSourceFolderName())
-                  .or(Optional.<Path>absent());
+            return Optional.ofNullable(annotationProcessingParams.getGeneratedSourceFolderName());
           }
 
           private Path getRelativePathAndRecordRule(SourcePath sourcePath) {
             requiredBuildTargets.addAll(
-                sourcePathResolver.getRule(sourcePath)
-                    .transform(HasBuildTarget.TO_TARGET)
-                    .asSet());
+                OptionalCompat.asSet(sourcePathResolver.getRule(sourcePath)
+                    .map(HasBuildTarget::getBuildTarget)));
             return sourcePathResolver.getRelativePath(sourcePath);
           }
         };
@@ -218,7 +216,7 @@ public class IjProject {
         new IjProjectTemplateDataPreparer(parsingJavaPackageFinder, moduleGraph, projectFilesystem),
         projectConfig,
         projectFilesystem);
-    writer.write(runPostGenerationCleaner);
+    writer.write(runPostGenerationCleaner, removeUnusedLibraries);
     return requiredBuildTargets.build();
   }
 }

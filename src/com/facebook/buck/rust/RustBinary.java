@@ -16,6 +16,8 @@
 
 package com.facebook.buck.rust;
 
+import com.facebook.buck.cxx.CxxPlatform;
+import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -34,24 +36,30 @@ public class RustBinary extends RustCompile implements BinaryBuildRule {
   public RustBinary(
       BuildRuleParams params,
       SourcePathResolver resolver,
+      String crate,
       ImmutableSortedSet<SourcePath> srcs,
       ImmutableSortedSet<String> features,
       ImmutableList<String> rustcFlags,
-      Tool compiler) {
+      Tool compiler,
+      CxxPlatform cxxPlatform,
+      Linker.LinkableDepType linkStyle) {
     super(
-        params,
+        RustLinkables.addNativeDependencies(params, resolver, cxxPlatform, linkStyle),
         resolver,
+        crate,
         srcs,
         ImmutableList.<String>builder()
             .add("--crate-type", "bin")
             .addAll(rustcFlags)
             .build(),
         features,
+        RustLinkables.getNativePaths(params.getDeps().stream(), resolver, linkStyle, cxxPlatform),
         BuildTargets.getGenPath(
             params.getProjectFilesystem(),
             params.getBuildTarget(),
-            "%s/" + params.getBuildTarget().getShortName()),
-        compiler);
+            "%s/" + crate),
+        compiler,
+        linkStyle);
   }
 
   @Override

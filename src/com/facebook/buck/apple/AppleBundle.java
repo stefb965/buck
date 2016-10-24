@@ -56,9 +56,7 @@ import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.step.fs.WriteFileStep;
 import com.facebook.buck.swift.SwiftPlatform;
 import com.facebook.buck.util.HumanReadableException;
-import com.google.common.base.Function;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
@@ -76,6 +74,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -221,18 +220,13 @@ public class AppleBundle
       this.codeSignIdentityStore = codeSignIdentityStore;
     } else {
       this.provisioningProfileStore = ProvisioningProfileStore.fromProvisioningProfiles(
-          ImmutableList.<ProvisioningProfileMetadata>of());
+          ImmutableList.of());
       this.codeSignIdentityStore =
-          CodeSignIdentityStore.fromIdentities(ImmutableList.<CodeSignIdentity>of());
+          CodeSignIdentityStore.fromIdentities(ImmutableList.of());
     }
     this.codesignAllocatePath = appleCxxPlatform.getCodesignAllocate();
     this.swiftStdlibTool = appleCxxPlatform.getSwiftPlatform()
-        .transform(new Function<SwiftPlatform, Tool>() {
-          @Override
-          public Tool apply(SwiftPlatform input) {
-            return input.getSwiftStdlibTool();
-          }
-        });
+        .map(SwiftPlatform::getSwiftStdlibTool);
   }
 
   public static String getBinaryName(BuildTarget buildTarget, Optional<String> productName) {
@@ -344,7 +338,7 @@ public class AppleBundle
             infoPlistSubstitutionTempPath,
             assetCatalog.isPresent() ?
                 Optional.of(assetCatalog.get().getOutputPlist()) :
-                Optional.<Path>absent(),
+                Optional.empty(),
             infoPlistOutputPath,
             getInfoPlistAdditionalKeys(),
             getInfoPlistOverrideKeys(),
@@ -426,16 +420,11 @@ public class AppleBundle
       Supplier<CodeSignIdentity> codeSignIdentitySupplier;
 
       if (adHocCodeSignIsSufficient()) {
-        signingEntitlementsTempPath = Optional.absent();
-        codeSignIdentitySupplier = new Supplier<CodeSignIdentity>() {
-          @Override
-          public CodeSignIdentity get() {
-            return CodeSignIdentity.AD_HOC;
-          }
-        };
+        signingEntitlementsTempPath = Optional.empty();
+        codeSignIdentitySupplier = () -> CodeSignIdentity.AD_HOC;
       } else {
         // Copy the .mobileprovision file if the platform requires it, and sign the executable.
-        Optional<Path> entitlementsPlist = Optional.absent();
+        Optional<Path> entitlementsPlist = Optional.empty();
         final Path srcRoot = getProjectFilesystem().getRootPath().resolve(
             getBuildTarget().getBasePath());
         Optional<String> entitlementsPlistString =
@@ -460,7 +449,7 @@ public class AppleBundle
             new ProvisioningProfileCopyStep(
                 getProjectFilesystem(),
                 infoPlistOutputPath,
-                Optional.<String>absent(),  // Provisioning profile UUID -- find automatically.
+                Optional.empty(),  // Provisioning profile UUID -- find automatically.
                 entitlementsPlist,
                 provisioningProfileStore,
                 resourcesDestinationPath.resolve("embedded.mobileprovision"),
@@ -468,39 +457,41 @@ public class AppleBundle
                 codeSignIdentityStore);
         stepsBuilder.add(provisioningProfileCopyStep);
 
-        codeSignIdentitySupplier = new Supplier<CodeSignIdentity>() {
-          @Override
-          public CodeSignIdentity get() {
-            // Using getUnchecked here because the previous step should already throw if exception
-            // occurred, and this supplier would never be evaluated.
-            ProvisioningProfileMetadata selectedProfile = Futures.getUnchecked(
-                provisioningProfileCopyStep.getSelectedProvisioningProfileFuture());
-            ImmutableSet<HashCode> fingerprints =
-                selectedProfile.getDeveloperCertificateFingerprints();
-            if (fingerprints.isEmpty()) {
-              // No constraints, pick an arbitrary identity.
-              // If no identities are available, use an ad-hoc identity.
-              return Iterables.getFirst(
-                  codeSignIdentityStore.getIdentities(),
-                  CodeSignIdentity.AD_HOC);
-            }
-            for (CodeSignIdentity identity : codeSignIdentityStore.getIdentities()) {
-              if (identity.getFingerprint().isPresent() &&
-                  fingerprints.contains(identity.getFingerprint().get())) {
-                return identity;
-              }
-            }
-            throw new HumanReadableException(
-                "No code sign identity available for provisioning profile: %s\n" +
-                    "Profile requires an identity with one of the following SHA1 fingerprints " +
-                    "available in your keychain: \n  %s",
-                selectedProfile.getProfilePath(),
-                Joiner.on("\n  ").join(fingerprints));
+        codeSignIdentitySupplier = () -> {
+          // Using getUnchecked here because the previous step should already throw if exception
+          // occurred, and this supplier would never be evaluated.
+          ProvisioningProfileMetadata selectedProfile = Futures.getUnchecked(
+              provisioningProfileCopyStep.getSelectedProvisioningProfileFuture());
+          ImmutableSet<HashCode> fingerprints =
+              selectedProfile.getDeveloperCertificateFingerprints();
+          if (fingerprints.isEmpty()) {
+            // No constraints, pick an arbitrary identity.
+            // If no identities are available, use an ad-hoc identity.
+            return Iterables.getFirst(
+                codeSignIdentityStore.getIdentities(),
+                CodeSignIdentity.AD_HOC);
           }
+          for (CodeSignIdentity identity : codeSignIdentityStore.getIdentities()) {
+            if (identity.getFingerprint().isPresent() &&
+                fingerprints.contains(identity.getFingerprint().get())) {
+              return identity;
+            }
+          }
+          throw new HumanReadableException(
+              "No code sign identity available for provisioning profile: %s\n" +
+                  "Profile requires an identity with one of the following SHA1 fingerprints " +
+                  "available in your keychain: \n  %s",
+              selectedProfile.getProfilePath(),
+              Joiner.on("\n  ").join(fingerprints));
         };
       }
 
-      addSwiftStdlibStepIfNeeded(Optional.of(codeSignIdentitySupplier), stepsBuilder);
+      addSwiftStdlibStepIfNeeded(
+        bundleRoot.resolve(Paths.get("Frameworks")),
+        Optional.of(codeSignIdentitySupplier),
+        stepsBuilder,
+        false /* is for packaging? */
+      );
 
       stepsBuilder.add(
           new CodeSignStep(
@@ -511,7 +502,12 @@ public class AppleBundle
               codeSignIdentitySupplier,
               codesignAllocatePath));
     } else {
-      addSwiftStdlibStepIfNeeded(Optional.<Supplier<CodeSignIdentity>>absent(), stepsBuilder);
+      addSwiftStdlibStepIfNeeded(
+          bundleRoot.resolve(Paths.get("Frameworks")),
+          Optional.<Supplier<CodeSignIdentity>>empty(),
+          stepsBuilder,
+          false /* is for packaging? */
+      );
     }
 
     // Ensure the bundle directory is archived so we can fetch it later.
@@ -677,9 +673,11 @@ public class AppleBundle
     return keys.build();
   }
 
-  private void addSwiftStdlibStepIfNeeded(
+  public void addSwiftStdlibStepIfNeeded(
+      Path destinationPath,
       Optional<Supplier<CodeSignIdentity>> codeSignIdentitySupplier,
-      ImmutableList.Builder<Step> stepsBuilder) {
+      ImmutableList.Builder<Step> stepsBuilder,
+      boolean isForPackaging) {
     // It's apparently safe to run this even on a non-swift bundle (in that case, no libs
     // are copied over).
     if (swiftStdlibTool.isPresent()) {
@@ -689,18 +687,19 @@ public class AppleBundle
           "--scan-executable",
           bundleBinaryPath.toString(),
           "--scan-folder",
-          bundleRoot.resolve(destinations.getFrameworksPath()).toString(),
+          bundleRoot.resolve(this.destinations.getFrameworksPath()).toString(),
           "--scan-folder",
           bundleRoot.resolve(destinations.getPlugInsPath()).toString());
 
+      String tempDirPattern = isForPackaging ? "__swift_packaging_temp__%s" : "__swift_temp__%s";
       stepsBuilder.add(
           new SwiftStdlibStep(
               getProjectFilesystem().getRootPath(),
               BuildTargets.getScratchPath(
                   getProjectFilesystem(),
                   getBuildTarget(),
-                  "__swift_temp__%s"),
-              bundleRoot.resolve(Paths.get("Frameworks")),
+                  tempDirPattern),
+              destinationPath,
               swiftStdlibCommand.build(),
               codeSignIdentitySupplier)
       );
@@ -804,10 +803,10 @@ public class AppleBundle
             new PlistProcessStep(
                 getProjectFilesystem(),
                 sourcePath,
-                Optional.<Path>absent(),
+                Optional.empty(),
                 destinationPath,
-                ImmutableMap.<String, NSObject>of(),
-                ImmutableMap.<String, NSObject>of(),
+                ImmutableMap.of(),
+                ImmutableMap.of(),
                 PlistProcessStep.OutputFormat.BINARY));
         break;
       case "storyboard":

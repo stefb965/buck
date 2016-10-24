@@ -25,18 +25,17 @@ import com.facebook.buck.android.AndroidResource.BuildOutput;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeOnDiskBuildInfo;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
@@ -46,18 +45,18 @@ import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.FileHashCache;
-import com.google.common.base.Optional;
+import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.hash.Hashing;
 
-import org.easymock.EasyMock;
 import org.hamcrest.Matchers;
 import org.junit.Test;
 
 import java.io.IOException;
 import java.nio.file.Paths;
+import java.util.Optional;
 
 
 public class AndroidResourceTest {
@@ -172,9 +171,7 @@ public class AndroidResourceTest {
     FakeBuildableContext buildableContext = new FakeBuildableContext();
     assertTrue(
         resourceRule3
-            .getBuildSteps(
-                EasyMock.createMock(BuildContext.class),
-                buildableContext)
+            .getBuildSteps(FakeBuildContext.NOOP_CONTEXT, buildableContext)
             .isEmpty());
 
     buildableContext.assertContainsMetadataMapping(
@@ -191,14 +188,14 @@ public class AndroidResourceTest {
               TargetGraph.EMPTY,
               new DefaultTargetNodeToBuildRuleTransformer())
         ),
-        /* deps */ ImmutableSortedSet.<BuildRule>of(),
+        /* deps */ ImmutableSortedSet.of(),
         new FakeSourcePath("foo/res"),
         ImmutableSortedSet.of((SourcePath) new FakeSourcePath("foo/res/values/strings.xml")),
-        Optional.<SourcePath>absent(),
+        Optional.empty(),
         /* rDotJavaPackage */ "com.example.android",
         /* assets */ null,
-        /* assetsSrcs */ ImmutableSortedSet.<SourcePath>of(),
-        Optional.<SourcePath>absent(),
+        /* assetsSrcs */ ImmutableSortedSet.of(),
+        Optional.empty(),
         /* manifestFile */ null,
         /* hasWhitelistedStrings */ false);
     assertEquals("com.example.android", androidResource.getRDotJavaPackage());
@@ -214,14 +211,14 @@ public class AndroidResourceTest {
               TargetGraph.EMPTY,
               new DefaultTargetNodeToBuildRuleTransformer())
         ),
-        /* deps */ ImmutableSortedSet.<BuildRule>of(),
+        /* deps */ ImmutableSortedSet.of(),
         new FakeSourcePath("foo/res"),
         ImmutableSortedSet.of((SourcePath) new FakeSourcePath("foo/res/values/strings.xml")),
-        Optional.<SourcePath>absent(),
+        Optional.empty(),
         /* rDotJavaPackage */ null,
         /* assets */ null,
-        /* assetsSrcs */ ImmutableSortedSet.<SourcePath>of(),
-        Optional.<SourcePath>absent(),
+        /* assetsSrcs */ ImmutableSortedSet.of(),
+        Optional.empty(),
         /* manifestFile */ new PathSourcePath(
             projectFilesystem,
             Paths.get("foo/AndroidManifest.xml")),

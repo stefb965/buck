@@ -74,8 +74,17 @@ public class PythonPackagedBinary extends PythonBinary implements HasRuntimeDeps
       PythonPackageComponents components,
       ImmutableSet<String> preloadLibraries,
       ImmutableSortedSet<BuildRule> runtimeDeps,
-      boolean cache) {
-    super(params, resolver, pythonPlatform, mainModule, components, preloadLibraries, pexExtension);
+      boolean cache,
+      boolean legacyOutputPath) {
+    super(
+        params,
+        resolver,
+        pythonPlatform,
+        mainModule,
+        components,
+        preloadLibraries,
+        pexExtension,
+        legacyOutputPath);
     this.builder = builder;
     this.buildArgs = buildArgs;
     this.pathToPexExecuter = pathToPexExecuter;
@@ -142,7 +151,7 @@ public class PythonPackagedBinary extends PythonBinary implements HasRuntimeDeps
             ImmutableSet.copyOf(
                 getResolver().deprecatedAllPaths(components.getPrebuiltLibraries())),
             preloadLibraries,
-            components.isZipSafe().or(true)));
+            components.isZipSafe().orElse(true)));
 
     // Record the executable package for caching.
     buildableContext.recordArtifact(getBinPath());

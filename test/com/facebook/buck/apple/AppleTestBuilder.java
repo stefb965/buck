@@ -19,8 +19,9 @@ package com.facebook.buck.apple;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePath;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSortedSet;
+
+import java.util.Optional;
 
 public final class AppleTestBuilder
     extends AbstractAppleNativeTargetBuilder<AppleTestDescription.Arg, AppleTestBuilder> {
@@ -38,12 +39,12 @@ public final class AppleTestBuilder
     return new AppleTestBuilder(target);
   }
 
-  public AppleTestBuilder setContacts(Optional<ImmutableSortedSet<String>> contacts) {
+  public AppleTestBuilder setContacts(ImmutableSortedSet<String> contacts) {
     arg.contacts = contacts;
     return this;
   }
 
-  public AppleTestBuilder setLabels(Optional<ImmutableSortedSet<Label>> labels) {
+  public AppleTestBuilder setLabels(ImmutableSortedSet<Label> labels) {
     arg.labels = labels;
     return this;
   }

@@ -26,18 +26,15 @@ import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.zip.CustomZipOutputStream;
 import com.facebook.buck.zip.ZipOutputStreams;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.regex.Pattern;
+import java.util.Optional;
 
 import javax.annotation.Nullable;
-import javax.tools.JavaCompiler;
-import javax.tools.StandardJavaFileManager;
 
 /**
  * A composite step used to compile java libraries directly to jar files retaining the intermediate
@@ -127,11 +124,11 @@ public class JavacDirectToJarStep implements Step {
           ImmutableSortedSet.copyOf(entriesToJar),
           inMemoryFileManager != null
               ? inMemoryFileManager.getEntries()
-              : ImmutableSet.<String>of(),
+              : ImmutableSet.of(),
           mainClass,
           manifestFile,
           /* mergeManifests */ true,
-          /* blacklist */ ImmutableSet.<Pattern>of(),
+          /* blacklist */ ImmutableSet.of(),
           context));
 
     } finally {
@@ -195,15 +192,12 @@ public class JavacDirectToJarStep implements Step {
 
   private StandardJavaFileManagerFactory createFileManagerFactory(
       final CustomZipOutputStream jarOutputStream) {
-    return new StandardJavaFileManagerFactory() {
-      @Override
-      public StandardJavaFileManager create(JavaCompiler compiler) {
-        inMemoryFileManager = new JavaInMemoryFileManager(
-            compiler.getStandardFileManager(null, null, null),
-            jarOutputStream,
-            buildTimeOptions.getClassesToRemoveFromJar());
-        return inMemoryFileManager;
-      }
+    return compiler -> {
+      inMemoryFileManager = new JavaInMemoryFileManager(
+          compiler.getStandardFileManager(null, null, null),
+          jarOutputStream,
+          buildTimeOptions.getClassesToRemoveFromJar());
+      return inMemoryFileManager;
     };
   }
 }

@@ -32,7 +32,6 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.ParseEvent;
 import com.facebook.buck.rules.BuildEvent;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleEvent;
 import com.facebook.buck.rules.BuildRuleKeys;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -49,13 +48,10 @@ import com.facebook.buck.timing.Clock;
 import com.facebook.buck.timing.IncrementingFakeClock;
 import com.facebook.buck.util.environment.DefaultExecutionEnvironment;
 import com.facebook.buck.util.unit.SizeUnit;
-import com.google.common.base.Functions;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
-import com.google.common.hash.HashCode;
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
 
@@ -65,11 +61,13 @@ import org.junit.Test;
 import java.nio.file.FileSystem;
 import java.nio.file.Path;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 public class SimpleConsoleEventBusListenerTest {
   private static final String TARGET_ONE = "TARGET_ONE";
   private static final String TARGET_TWO = "TARGET_TWO";
+  private static final String SEVERE_MESSAGE = "This is a sample severe message.";
 
   private FileSystem vfs;
   private Path logPath;
@@ -89,7 +87,7 @@ public class SimpleConsoleEventBusListenerTest {
 
     BuildTarget fakeTarget = BuildTargetFactory.newInstance("//banana:stand");
     ImmutableSet<BuildTarget> buildTargets = ImmutableSet.of(fakeTarget);
-    Iterable<String> buildArgs = Iterables.transform(buildTargets, Functions.toStringFunction());
+    Iterable<String> buildArgs = Iterables.transform(buildTargets, Object::toString);
     FakeBuildRule fakeRule = new FakeBuildRule(
         fakeTarget,
         new SourcePathResolver(
@@ -97,7 +95,7 @@ public class SimpleConsoleEventBusListenerTest {
               TargetGraph.EMPTY,
               new DefaultTargetNodeToBuildRuleTransformer())
         ),
-        ImmutableSortedSet.<BuildRule>of());
+        ImmutableSortedSet.of());
 
     SimpleConsoleEventBusListener listener = new SimpleConsoleEventBusListener(
         console,
@@ -132,7 +130,7 @@ public class SimpleConsoleEventBusListenerTest {
 
     eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
-            ParseEvent.finished(parseStarted, Optional.<TargetGraph>absent()),
+            ParseEvent.finished(parseStarted, Optional.empty()),
             400L,
             TimeUnit.MILLISECONDS,
             threadId));
@@ -164,10 +162,10 @@ public class SimpleConsoleEventBusListenerTest {
                 BuildRuleStatus.SUCCESS,
                 CacheResult.miss(),
                 Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
-                Optional.<HashCode>absent(),
-                Optional.<Long>absent(),
-                Optional.<Integer>absent(),
-                Optional.<Long>absent()),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty()),
             1000L,
             TimeUnit.MILLISECONDS,
             threadId));
@@ -182,12 +180,12 @@ public class SimpleConsoleEventBusListenerTest {
 
     eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
-            ConsoleEvent.severe("I've made a huge mistake."),
+            ConsoleEvent.severe(SEVERE_MESSAGE),
             1500L,
             TimeUnit.MILLISECONDS,
             threadId));
 
-    expectedOutput += "I've made a huge mistake.\n";
+    expectedOutput += SEVERE_MESSAGE + "\n";
     assertOutput(expectedOutput, console);
 
     InstallEvent.Started installEventStarted = configureTestEventAtTime(
@@ -201,8 +199,8 @@ public class SimpleConsoleEventBusListenerTest {
             InstallEvent.finished(
                 installEventStarted,
                 true,
-                Optional.<Long>absent(),
-                Optional.<String>absent()),
+                Optional.empty(),
+                Optional.empty()),
             4000L,
             TimeUnit.MILLISECONDS,
             threadId));
@@ -239,7 +237,7 @@ public class SimpleConsoleEventBusListenerTest {
 
     BuildTarget fakeTarget = BuildTargetFactory.newInstance("//banana:stand");
     ImmutableSet<BuildTarget> buildTargets = ImmutableSet.of(fakeTarget);
-    Iterable<String> buildArgs = Iterables.transform(buildTargets, Functions.toStringFunction());
+    Iterable<String> buildArgs = Iterables.transform(buildTargets, Object::toString);
 
     SimpleConsoleEventBusListener listener =
         new SimpleConsoleEventBusListener(console,
@@ -264,7 +262,7 @@ public class SimpleConsoleEventBusListenerTest {
             /* threadId */ 0L));
     eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
-            ParseEvent.finished(parseStarted, Optional.<TargetGraph>absent()),
+            ParseEvent.finished(parseStarted, Optional.empty()),
             300L,
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));

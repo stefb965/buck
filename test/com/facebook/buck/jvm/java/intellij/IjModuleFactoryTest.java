@@ -25,11 +25,13 @@ import static org.junit.Assert.assertTrue;
 import com.facebook.buck.android.AndroidBinaryBuilder;
 import com.facebook.buck.android.AndroidBinaryDescription;
 import com.facebook.buck.android.AndroidLibraryBuilder;
+import com.facebook.buck.android.AndroidLibraryDescription;
 import com.facebook.buck.android.AndroidPrebuiltAarBuilder;
 import com.facebook.buck.android.AndroidResourceDescription;
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.cxx.CxxLibraryBuilder;
+import com.facebook.buck.jvm.groovy.GroovyLibraryBuilder;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.JavaTestBuilder;
 import com.facebook.buck.jvm.java.JvmLibraryArg;
@@ -43,9 +45,7 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
-import com.google.common.collect.FluentIterable;
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -55,6 +55,7 @@ import org.junit.Test;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 
 public class IjModuleFactoryTest {
 
@@ -73,7 +74,7 @@ public class IjModuleFactoryTest {
 
     IjModule module = factory.createModule(
         moduleBasePath,
-        ImmutableSet.<TargetNode<?>>of(javaLibBase));
+        ImmutableSet.of(javaLibBase));
 
     assertEquals(ImmutableMap.of(buildTargetGuava, IjModuleGraph.DependencyType.PROD),
         module.getDependencies());
@@ -125,7 +126,7 @@ public class IjModuleFactoryTest {
 
     IjModule module = factory.createModule(
         moduleBasePath,
-        ImmutableSet.<TargetNode<?>>of(javaTestExtra));
+        ImmutableSet.of(javaTestExtra));
 
     assertEquals(ImmutableMap.of(buildTargetJunit, IjModuleGraph.DependencyType.TEST),
         module.getDependencies());
@@ -230,11 +231,11 @@ public class IjModuleFactoryTest {
 
     IjModule moduleJavaLib = factory.createModule(
         moduleBasePath,
-        ImmutableSet.<TargetNode<?>>of(javaLibBase));
+        ImmutableSet.of(javaLibBase));
 
     IjModule moduleFromBinary = factory.createModule(
         moduleBasePath,
-        ImmutableSet.<TargetNode<?>>of(androidBinary));
+        ImmutableSet.of(androidBinary));
 
     assertEquals(ImmutableMap.of(
             buildTargetGuava, IjModuleGraph.DependencyType.PROD),
@@ -267,11 +268,11 @@ public class IjModuleFactoryTest {
 
     IjModule moduleJavaLibWithGenrule = factory.createModule(
         moduleBasePath,
-        ImmutableSet.<TargetNode<?>>of(javaLibWithGenrule));
+        ImmutableSet.of(javaLibWithGenrule));
 
     IjModule moduleJavaLibWithAnnotationProcessor = factory.createModule(
         moduleBasePath,
-        ImmutableSet.<TargetNode<?>>of(javaLibWithAnnotationProcessor));
+        ImmutableSet.of(javaLibWithAnnotationProcessor));
 
     assertEquals(ImmutableMap.of(
             genruleBuildTarget, IjModuleGraph.DependencyType.PROD,
@@ -296,7 +297,7 @@ public class IjModuleFactoryTest {
     Path moduleBasePath = Paths.get("java/com/example/base");
     IjModule module = factory.createModule(
         moduleBasePath,
-        ImmutableSet.<TargetNode<?>>of(javaLib));
+        ImmutableSet.of(javaLib));
 
     assertEquals(moduleBasePath, module.getModuleBasePath());
     assertFalse(module.getAndroidFacet().isPresent());
@@ -307,6 +308,31 @@ public class IjModuleFactoryTest {
     assertEquals(Paths.get("java/com/example/base"), folder.getPath());
     assertFalse(folder instanceof TestFolder);
     assertTrue(folder.getWantsPackagePrefix());
+  }
+
+  @Test
+  public void testGroovyLibrary() {
+    IjModuleFactory factory = createIjModuleFactory();
+
+    TargetNode<?> groovyLib = GroovyLibraryBuilder
+        .createBuilder(BuildTargetFactory.newInstance("//groovy/com/example/base:base"))
+        .addSrc(Paths.get("groovy/com/example/base/File.groovy"))
+        .build();
+
+    Path moduleBasePath = Paths.get("groovy/com/example/base");
+    IjModule module = factory.createModule(
+        moduleBasePath,
+        ImmutableSet.<TargetNode<?>>of(groovyLib));
+
+    assertEquals(moduleBasePath, module.getModuleBasePath());
+    assertFalse(module.getAndroidFacet().isPresent());
+    assertEquals(1, module.getFolders().size());
+    assertEquals(ImmutableSet.of(groovyLib), module.getTargets());
+
+    IjFolder folder = module.getFolders().iterator().next();
+    assertEquals(Paths.get("groovy/com/example/base"), folder.getPath());
+    assertFalse(folder instanceof TestFolder);
+    assertFalse(folder.getWantsPackagePrefix());
   }
 
   @Test
@@ -321,7 +347,7 @@ public class IjModuleFactoryTest {
     Path moduleBasePath = Paths.get("");
     IjModule module = factory.createModule(
         moduleBasePath,
-        ImmutableSet.<TargetNode<?>>of(javaLib));
+        ImmutableSet.of(javaLib));
 
     assertEquals(moduleBasePath, module.getModuleBasePath());
 
@@ -331,15 +357,9 @@ public class IjModuleFactoryTest {
   }
 
   private ImmutableSet<Path> getFolderPaths(ImmutableSet<IjFolder> folders) {
-    return FluentIterable.from(folders)
-        .transform(
-            new Function<IjFolder, Path>() {
-              @Override
-              public Path apply(IjFolder input) {
-                return input.getPath();
-              }
-            })
-        .toSet();
+    return folders.stream()
+        .map(IjFolder::getPath)
+        .collect(MoreCollectors.toImmutableSet());
   }
 
   @Test
@@ -404,7 +424,7 @@ public class IjModuleFactoryTest {
     Path moduleBasePath = Paths.get("java/com/example/base");
     IjModule module = factory.createModule(
         moduleBasePath,
-        ImmutableSet.<TargetNode<?>>of(androidLib));
+        ImmutableSet.of(androidLib));
 
     assertTrue(module.getAndroidFacet().isPresent());
     assertEquals(ImmutableSet.of(moduleBasePath), getFolderPaths(module.getFolders()));
@@ -444,7 +464,7 @@ public class IjModuleFactoryTest {
     Path moduleBasePath = Paths.get("java/com/example");
     IjModule module = factory.createModule(
         moduleBasePath,
-        ImmutableSet.<TargetNode<?>>of(androidBinary));
+        ImmutableSet.of(androidBinary));
 
     assertTrue(module.getAndroidFacet().isPresent());
     assertEquals(Paths.get(manifestName), module.getAndroidFacet().get().getManifestPath().get());
@@ -468,12 +488,12 @@ public class IjModuleFactoryTest {
 
     IjModule moduleWithDefault = factory.createModule(
         moduleBasePath,
-        ImmutableSet.<TargetNode<?>>of(defaultJavaNode));
+        ImmutableSet.of(defaultJavaNode));
     IjModule moduleWithJava8 = factory.createModule(
         moduleBasePath,
-        ImmutableSet.<TargetNode<?>>of(java8Node));
+        ImmutableSet.of(java8Node));
 
-    assertThat(moduleWithDefault.getSdkName(), equalTo(Optional.<String>absent()));
+    assertThat(moduleWithDefault.getSdkName(), equalTo(Optional.empty()));
     assertThat(moduleWithJava8.getSdkName(), equalTo(Optional.of("1.8")));
     assertThat(moduleWithJava8.getLanguageLevel(), equalTo(Optional.of("1.8")));
   }
@@ -499,12 +519,12 @@ public class IjModuleFactoryTest {
 
     IjModule moduleWithDefault = factory.createModule(
         moduleBasePath,
-        ImmutableSet.<TargetNode<?>>of(defaultJavaNode));
+        ImmutableSet.of(defaultJavaNode));
     IjModule moduleWithJava8 = factory.createModule(
         moduleBasePath,
-        ImmutableSet.<TargetNode<?>>of(java8Node));
+        ImmutableSet.of(java8Node));
 
-    assertThat(moduleWithDefault.getSdkName(), equalTo(Optional.<String>absent()));
+    assertThat(moduleWithDefault.getSdkName(), equalTo(Optional.empty()));
     assertThat(moduleWithJava8.getSdkName(), equalTo(Optional.of("TestSDK")));
     assertThat(moduleWithJava8.getLanguageLevel(), equalTo(Optional.of("1.8")));
   }
@@ -538,7 +558,7 @@ public class IjModuleFactoryTest {
             if (targetNode.equals(androidPrebuiltAar)) {
               return Optional.of(androidSupportBinaryPath);
             }
-            return Optional.absent();
+            return Optional.empty();
           }
         };
 
@@ -559,7 +579,7 @@ public class IjModuleFactoryTest {
         new IjModuleFactory.IjModuleFactoryResolver() {
           @Override
           public Optional<Path> getDummyRDotJavaPath(TargetNode<?> targetNode) {
-            return Optional.absent();
+            return Optional.empty();
           }
 
           @Override
@@ -569,27 +589,33 @@ public class IjModuleFactoryTest {
           }
 
           @Override
+          public Optional<Path> getLibraryAndroidManifestPath(
+              TargetNode<AndroidLibraryDescription.Arg> targetNode) {
+            return Optional.empty();
+          }
+
+          @Override
           public Optional<Path> getProguardConfigPath(
               TargetNode<AndroidBinaryDescription.Arg> targetNode) {
-            return Optional.absent();
+            return Optional.empty();
           }
 
           @Override
           public Optional<Path> getAndroidResourcePath(
               TargetNode<AndroidResourceDescription.Arg> targetNode) {
-            return Optional.absent();
+            return Optional.empty();
           }
 
           @Override
           public Optional<Path> getAssetsPath(
               TargetNode<AndroidResourceDescription.Arg> targetNode) {
-            return Optional.absent();
+            return Optional.empty();
           }
 
           @Override
           public Optional<Path> getAnnotationOutputPath(
               TargetNode<? extends JvmLibraryArg> targetNode) {
-            return Optional.absent();
+            return Optional.empty();
           }
         },
         buckConfig == null
@@ -611,7 +637,7 @@ public class IjModuleFactoryTest {
     Path moduleBasePath = Paths.get("java/com/example/base");
     IjModule module = factory.createModule(
         moduleBasePath,
-        ImmutableSet.<TargetNode<?>>of(cxxLibrary));
+        ImmutableSet.of(cxxLibrary));
 
     IjFolder cxxLibraryModel =
         new SourceFolder(

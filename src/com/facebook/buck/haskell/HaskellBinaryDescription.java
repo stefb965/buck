@@ -46,7 +46,6 @@ import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.util.MoreIterables;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Optional;
 import com.google.common.base.Predicates;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -55,6 +54,7 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 
 import java.nio.file.Path;
+import java.util.Optional;
 
 public class HaskellBinaryDescription implements
     Description<HaskellBinaryDescription.Arg>,
@@ -107,7 +107,8 @@ public class HaskellBinaryDescription implements
       throws NoSuchBuildTargetException {
 
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
-    CxxPlatform cxxPlatform = cxxPlatforms.getValue(params.getBuildTarget()).or(defaultCxxPlatform);
+    CxxPlatform cxxPlatform = cxxPlatforms.getValue(params.getBuildTarget()).orElse(
+        defaultCxxPlatform);
     Linker.LinkableDepType depType = getLinkStyle(params.getBuildTarget(), args);
 
     // The target to use for the link rule.
@@ -171,15 +172,15 @@ public class HaskellBinaryDescription implements
                 haskellConfig,
                 depType,
                 args.main,
-                Optional.<HaskellPackageInfo>absent(),
-                args.compilerFlags.or(ImmutableList.<String>of()),
+                Optional.empty(),
+                args.compilerFlags,
                 HaskellSources.from(
                     params.getBuildTarget(),
                     resolver,
                     pathResolver,
                     cxxPlatform,
                     "srcs",
-                    args.srcs.or(SourceList.EMPTY))));
+                    args.srcs)));
     linkArgsBuilder.addAll(SourcePathArg.from(pathResolver, compileRule.getObjects()));
 
     ImmutableList<String> linkFlags = linkFlagsBuilder.build();
@@ -225,8 +226,7 @@ public class HaskellBinaryDescription implements
         haskellConfig,
         ImmutableList.of(
             cxxPlatforms
-                .getValue(buildTarget.getFlavors())
-                .or(defaultCxxPlatform)));
+                .getValue(buildTarget.getFlavors()).orElse(defaultCxxPlatform)));
   }
 
   @Override
@@ -272,9 +272,9 @@ public class HaskellBinaryDescription implements
 
   @SuppressFieldNotInitialized
   public static class Arg {
-    public Optional<SourceList> srcs;
-    public Optional<ImmutableList<String>> compilerFlags;
-    public Optional<ImmutableSortedSet<BuildTarget>> deps;
+    public SourceList srcs = SourceList.EMPTY;
+    public ImmutableList<String> compilerFlags = ImmutableList.of();
+    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
     public Optional<String> main;
     public Optional<Linker.LinkableDepType> linkStyle;
   }

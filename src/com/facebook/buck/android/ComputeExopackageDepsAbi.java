@@ -27,16 +27,16 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
-import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
-import com.google.common.base.Optional;
+import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.hash.Hasher;
@@ -51,6 +51,7 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.EnumSet;
 import java.util.Map;
+import java.util.Optional;
 
 import javax.annotation.Nullable;
 
@@ -68,7 +69,7 @@ public class ComputeExopackageDepsAbi extends AbstractBuildRule
   private final EnumSet<ExopackageMode> exopackageModes;
   private final AndroidPackageableCollection packageableCollection;
   private final AaptPackageResources aaptPackageResources;
-  private final Optional<CopyNativeLibraries> copyNativeLibraries;
+  private final Optional<ImmutableMap<APKModule, CopyNativeLibraries>> copyNativeLibraries;
   private final Optional<PackageStringAssets> packageStringAssets;
   private final Optional<PreDexMerge> preDexMerge;
   private final Keystore keystore;
@@ -80,7 +81,7 @@ public class ComputeExopackageDepsAbi extends AbstractBuildRule
       EnumSet<ExopackageMode> exopackageModes,
       AndroidPackageableCollection packageableCollection,
       AaptPackageResources aaptPackageResources,
-      Optional<CopyNativeLibraries> copyNativeLibraries,
+      Optional<ImmutableMap<APKModule, CopyNativeLibraries>> copyNativeLibraries,
       Optional<PackageStringAssets> packageStringAssets,
       Optional<PreDexMerge> preDexMerge,
       Keystore keystore) {
@@ -98,7 +99,7 @@ public class ComputeExopackageDepsAbi extends AbstractBuildRule
   @Override
   public ImmutableList<Step> getBuildSteps(
       BuildContext context, final BuildableContext buildableContext) {
-    return ImmutableList.<Step>of(
+    return ImmutableList.of(
         new AbstractExecutionStep("compute_android_binary_deps_abi") {
           @Override
           public StepExecutionResult execute(ExecutionContext context) {
@@ -148,7 +149,13 @@ public class ComputeExopackageDepsAbi extends AbstractBuildRule
               // small enough that we can just hash them all without too much of a perf hit.
               if (!ExopackageMode.enabledForNativeLibraries(exopackageModes) &&
                   copyNativeLibraries.isPresent()) {
-                addToHash(hasher, "native_libs", copyNativeLibraries.get().getPathToMetadataTxt());
+                for (Map.Entry<APKModule, CopyNativeLibraries> entry :
+                    copyNativeLibraries.get().entrySet()) {
+                  addToHash(
+                      hasher,
+                      "native_libs_" + entry.getKey().getName(),
+                      entry.getValue().getPathToMetadataTxt());
+                }
               }
 
               // In native exopackage mode, we include a bundle of fake
@@ -174,7 +181,8 @@ public class ComputeExopackageDepsAbi extends AbstractBuildRule
               // Same deal for native libs as assets.
               final ImmutableSortedMap.Builder<Path, Path> allNativeFiles =
                   ImmutableSortedMap.naturalOrder();
-              for (SourcePath libDir : packageableCollection.getNativeLibAssetsDirectories()) {
+              for (SourcePath libDir :
+                  packageableCollection.getNativeLibAssetsDirectories().values()) {
                 // A SourcePath may not come from the same ProjectFilesystem as the step. Yay. The
                 // `getFilesUnderPath` method returns files relative to the ProjectFilesystem's root
                 // and so they may not exist, but we could go and do some path manipulation to

@@ -25,7 +25,7 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.shell.BashStep;
 import com.facebook.buck.step.Step;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Optional;
+import com.google.common.base.Function;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -33,12 +33,16 @@ import com.google.common.collect.Lists;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 /**
  * Provides a base implementation for post compile steps.
  */
 public abstract class BaseCompileToJarStepFactory implements CompileToJarStepFactory {
+
+  public static final Function<BuildContext, Iterable<Path>> EMPTY_EXTRA_CLASSPATH =
+      input -> ImmutableList.of();
 
   @Override
   public void createCompileToJarStep(
@@ -88,8 +92,8 @@ public abstract class BaseCompileToJarStepFactory implements CompileToJarStepFac
             filesystem,
             outputJar,
             ImmutableSortedSet.of(outputDirectory),
-            mainClass.orNull(),
-            manifestFile.orNull(),
+            mainClass.orElse(null),
+            manifestFile.orElse(null),
             true,
             classesToRemoveFromJar));
   }

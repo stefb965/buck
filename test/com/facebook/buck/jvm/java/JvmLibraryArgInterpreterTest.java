@@ -26,7 +26,6 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.Either;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRuleFactoryParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
@@ -39,12 +38,10 @@ import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.VisibilityPattern;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ObjectMappers;
-import com.google.common.base.Optional;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -54,6 +51,7 @@ import org.junit.Test;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 
 public class JvmLibraryArgInterpreterTest {
   private JavacOptions defaults;
@@ -78,8 +76,8 @@ public class JvmLibraryArgInterpreterTest {
 
   @Test
   public void javaVersionSetsBothSourceAndTargetLevels() {
-    arg.source = Optional.absent();
-    arg.target = Optional.absent();
+    arg.source = Optional.empty();
+    arg.target = Optional.empty();
     arg.javaVersion = Optional.of("1.4");  // Set in the past, so if we ever bump the default....
 
     JavacOptions options = createJavacOptions(arg);
@@ -91,7 +89,7 @@ public class JvmLibraryArgInterpreterTest {
   @Test
   public void settingJavaVersionAndSourceLevelIsAnError() {
     arg.source = Optional.of("1.4");
-    arg.target = Optional.absent();
+    arg.target = Optional.empty();
     arg.javaVersion = Optional.of("1.4");
 
     try {
@@ -106,7 +104,7 @@ public class JvmLibraryArgInterpreterTest {
 
   @Test
   public void settingJavaVersionAndTargetLevelIsAnError() {
-    arg.source = Optional.absent();
+    arg.source = Optional.empty();
     arg.target = Optional.of("1.4");
     arg.javaVersion = Optional.of("1.4");
 
@@ -128,8 +126,8 @@ public class JvmLibraryArgInterpreterTest {
 
     Javac javac = options.getJavac();
 
-    assertEquals(Optional.<SourcePath>absent(), options.getJavacJarPath());
-    assertEquals(Optional.<Path>absent(), options.getJavacPath());
+    assertEquals(Optional.empty(), options.getJavacJarPath());
+    assertEquals(Optional.empty(), options.getJavacPath());
     assertTrue(javac.getClass().getName(), javac instanceof Jsr199Javac);
   }
 
@@ -149,7 +147,7 @@ public class JvmLibraryArgInterpreterTest {
     Javac javac = options.getJavac();
 
     assertEquals(Optional.of(sourcePath), options.getJavacJarPath());
-    assertEquals(Optional.<Path>absent(), options.getJavacPath());
+    assertEquals(Optional.empty(), options.getJavacPath());
     assertTrue(javac.getClass().getName(), javac instanceof Jsr199Javac);
   }
 
@@ -164,7 +162,7 @@ public class JvmLibraryArgInterpreterTest {
 
     Javac javac = options.getJavac();
 
-    assertEquals(Optional.<SourcePath>absent(), options.getJavacJarPath());
+    assertEquals(Optional.empty(), options.getJavacJarPath());
     assertEquals(sourcePath, options.getJavacPath().get().getRight());
     assertTrue(javac.getClass().getName(), javac instanceof ExternalJavac);
   }
@@ -181,7 +179,7 @@ public class JvmLibraryArgInterpreterTest {
 
     Javac javac = options.getJavac();
 
-    assertEquals(Optional.<SourcePath>absent(), options.getJavacJarPath());
+    assertEquals(Optional.empty(), options.getJavacJarPath());
     assertEquals(sourcePath, options.getJavacPath().get().getRight());
     assertTrue(javac.getClass().getName(), javac instanceof ExternalJavac);
   }
@@ -197,14 +195,14 @@ public class JvmLibraryArgInterpreterTest {
     Either<BuiltInJavac, SourcePath> either = Either.ofRight(sourcePath);
 
     arg.compiler = Optional.of(either);
-    arg.javacJar = Optional.<SourcePath>of(
+    arg.javacJar = Optional.of(
         new PathSourcePath(new FakeProjectFilesystem(), Paths.get("does-not-exist")));
     JavacOptions options = createJavacOptions(arg);
 
     Javac javac = options.getJavac();
 
     assertEquals(Optional.of(sourcePath), options.getJavacJarPath());
-    assertEquals(Optional.<Path>absent(), options.getJavacPath());
+    assertEquals(Optional.empty(), options.getJavacPath());
     assertTrue(javac.getClass().getName(), javac instanceof Jsr199Javac);
   }
 
@@ -213,15 +211,15 @@ public class JvmLibraryArgInterpreterTest {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     Path expected = Paths.get("does-not-exist");
 
-    arg.compiler = Optional.absent();
-    arg.javacJar = Optional.<SourcePath>of(
+    arg.compiler = Optional.empty();
+    arg.javacJar = Optional.of(
         new PathSourcePath(new FakeProjectFilesystem(), expected));
     JavacOptions options = createJavacOptions(arg);
 
     Javac javac = options.getJavac();
 
     assertEquals(Optional.of(new PathSourcePath(filesystem, expected)), options.getJavacJarPath());
-    assertEquals(Optional.<Path>absent(), options.getJavacPath());
+    assertEquals(Optional.empty(), options.getJavacPath());
     assertTrue(javac.getClass().getName(), javac instanceof Jsr199Javac);
   }
 
@@ -246,10 +244,10 @@ public class JvmLibraryArgInterpreterTest {
           factoryParams.getProjectFilesystem(),
           factoryParams,
           arg,
-          ImmutableSet.<BuildTarget>builder(),
-          ImmutableSet.<VisibilityPattern>builder(),
-          ImmutableMap.<String, Object>of());
-    } catch (ConstructorArgMarshalException | NoSuchBuildTargetException error) {
+          ImmutableSet.builder(),
+          ImmutableSet.builder(),
+          ImmutableMap.of());
+    } catch (ConstructorArgMarshalException error) {
       throw Throwables.propagate(error);
     }
   }

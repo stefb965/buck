@@ -30,10 +30,10 @@ import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.TargetGraph;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.util.Collections;
+import java.util.Optional;
 
 public class JsTestDescription implements
     Description<JsTestDescription.Arg>,
@@ -73,7 +73,7 @@ public class JsTestDescription implements
     return SourcePaths.filterBuildTargetSourcePaths(Collections.singleton(compiler));
   }
 
-  static class Arg extends AbstractDescriptionArg {
+  public static class Arg extends AbstractDescriptionArg {
     public Optional<SourcePath> compiler;
     public ImmutableSortedSet<SourcePath> srcs;
 

@@ -18,7 +18,8 @@ package com.facebook.buck.testutil.packaged_resource;
 
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.util.PackagedResource;
-import com.google.common.base.Optional;
+
+import java.util.Optional;
 
 public class PackagedResourceTestUtil {
   private PackagedResourceTestUtil() {}
@@ -28,6 +29,6 @@ public class PackagedResourceTestUtil {
         filesystem,
         PackagedResourceTestUtil.class,
         file,
-        Optional.<String>absent());
+        Optional.<String>empty());
   }
 }

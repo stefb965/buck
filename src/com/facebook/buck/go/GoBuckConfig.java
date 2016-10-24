@@ -19,7 +19,6 @@ package com.facebook.buck.go;
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.io.ExecutableFinder;
-import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.ImmutableFlavor;
@@ -28,15 +27,13 @@ import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.HashedFileTool;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.google.common.base.CharMatcher;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Splitter;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
@@ -45,6 +42,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.EnumSet;
 import java.util.Map;
+import java.util.Optional;
 
 public class GoBuckConfig {
 
@@ -66,61 +64,47 @@ public class GoBuckConfig {
     this.delegate = delegate;
 
     goRootSupplier = Suppliers.memoize(
-        new Supplier<Path>() {
-          @Override
-          public Path get() {
-            Optional<Path> configValue = delegate.getPath(SECTION, "root");
-            if (configValue.isPresent()) {
-              return configValue.get();
-            }
-
-            return Paths.get(getGoEnvFromTool(processExecutor, "GOROOT"));
+        () -> {
+          Optional<Path> configValue = delegate.getPath(SECTION, "root");
+          if (configValue.isPresent()) {
+            return configValue.get();
           }
+
+          return Paths.get(getGoEnvFromTool(processExecutor, "GOROOT"));
         });
 
     goToolDirSupplier = Suppliers.memoize(
-        new Supplier<Path>() {
-          @Override
-          public Path get() {
-            return Paths.get(getGoEnvFromTool(processExecutor, "GOTOOLDIR"));
-          }
-        });
+        () -> Paths.get(getGoEnvFromTool(processExecutor, "GOTOOLDIR")));
 
-    platformFlavorDomain = Suppliers.memoize(new Supplier<GoPlatformFlavorDomain>() {
-      @Override
-      public GoPlatformFlavorDomain get() {
-        // TODO(mikekap): Allow adding goos/goarch values from config.
-        return new GoPlatformFlavorDomain(
-            delegate.getPlatform(),
-            delegate.getArchitecture(),
-            cxxPlatforms);
-      }
+    platformFlavorDomain = Suppliers.memoize(() -> {
+      // TODO(mikekap): Allow adding goos/goarch values from config.
+      return new GoPlatformFlavorDomain(
+          delegate.getPlatform(),
+          delegate.getArchitecture(),
+          cxxPlatforms);
     });
 
-    defaultPlatform = Suppliers.memoize(new Supplier<GoPlatform>() {
-      @Override
-      public GoPlatform get() {
-        Optional<String> configValue = delegate.getValue(SECTION, "default_platform");
-        Optional<GoPlatform> platform;
-        if (configValue.isPresent()) {
-          platform = platformFlavorDomain.get().getValue(
-              ImmutableFlavor.of(configValue.get()));
-          if (!platform.isPresent()) {
-            throw new HumanReadableException(
-                "Bad go platform value for %s.default_platform = %s", SECTION, configValue);
-          }
-        } else {
-          platform = platformFlavorDomain.get().getValue(
-              delegate.getPlatform(), delegate.getArchitecture());
-          if (!platform.isPresent()) {
-            throw new HumanReadableException(
-                "Couldn't determine default go platform for %s %s",
-                delegate.getPlatform(), delegate.getArchitecture());
-          }
+    defaultPlatform = Suppliers.memoize(() -> {
+      Optional<String> configValue = delegate.getValue(SECTION, "default_platform");
+      Optional<GoPlatform> platform;
+      if (configValue.isPresent()) {
+        platform = platformFlavorDomain.get().getValue(
+            ImmutableFlavor.of(configValue.get()));
+        if (!platform.isPresent()) {
+          throw new HumanReadableException(
+              "Bad go platform value for %s.default_platform = %s", SECTION, configValue);
         }
-
-        return platform.get();
+      } else {
+        platform = platformFlavorDomain.get().getValue(
+            delegate.getPlatform(), delegate.getArchitecture());
+        if (!platform.isPresent()) {
+          throw new HumanReadableException(
+              "Couldn't determine default go platform for %s %s",
+              delegate.getPlatform(), delegate.getArchitecture());
+        }
       }
+
+      return platform.get();
     });
   }
 
@@ -146,7 +130,7 @@ public class GoBuckConfig {
   }
 
   Path getDefaultPackageName(BuildTarget target) {
-    Path prefix = Paths.get(delegate.getValue(SECTION, "prefix").or(""));
+    Path prefix = Paths.get(delegate.getValue(SECTION, "prefix").orElse(""));
     return prefix.resolve(target.getBasePath());
   }
 
@@ -155,9 +139,9 @@ public class GoBuckConfig {
         delegate.getOptionalListWithoutComments(SECTION, "vendor_path", ':');
 
     if (vendorPaths.isPresent()) {
-      return FluentIterable
-          .from(vendorPaths.get())
-          .transform(MorePaths.TO_PATH).toList();
+      return vendorPaths.get().stream()
+          .map(Paths::get)
+          .collect(MoreCollectors.toImmutableList());
     }
     return ImmutableList.of();
   }
@@ -191,7 +175,7 @@ public class GoBuckConfig {
   private ImmutableList<String> getFlags(String key) {
     return ImmutableList.copyOf(
         Splitter.on(" ").omitEmptyStrings().split(
-            delegate.getValue(SECTION, key).or("")));
+            delegate.getValue(SECTION, key).orElse("")));
   }
 
   private Path getGoToolPath() {
@@ -212,21 +196,17 @@ public class GoBuckConfig {
 
   private String getGoEnvFromTool(ProcessExecutor processExecutor, String env) {
     Path goTool = getGoToolPath();
-    Optional<Map<String, String>> goRootEnv = delegate.getPath(SECTION, "root").transform(
-        new Function<Path, Map<String, String>>() {
-          @Override
-          public Map<String, String> apply(Path input) {
-            return ImmutableMap.of("GOROOT", input.toString());
-          }
-        });
+    Optional<Map<String, String>> goRootEnv = delegate.getPath(
+        SECTION,
+        "root").map(input -> ImmutableMap.of("GOROOT", input.toString()));
     try {
       ProcessExecutor.Result goToolResult = processExecutor.launchAndExecute(
           ProcessExecutorParams.builder().addCommand(
               goTool.toString(), "env", env).setEnvironment(goRootEnv).build(),
           EnumSet.of(ProcessExecutor.Option.EXPECTING_STD_OUT),
-                    /* stdin */ Optional.<String>absent(),
-                    /* timeOutMs */ Optional.<Long>absent(),
-                    /* timeoutHandler */ Optional.<Function<Process, Void>>absent());
+                    /* stdin */ Optional.empty(),
+                    /* timeOutMs */ Optional.empty(),
+                    /* timeoutHandler */ Optional.empty());
       if (goToolResult.getExitCode() == 0) {
         return CharMatcher.whitespace().trimFrom(goToolResult.getStdout().get());
       } else {

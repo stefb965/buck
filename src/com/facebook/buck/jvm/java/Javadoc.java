@@ -19,7 +19,6 @@ import com.facebook.buck.zip.ZipStep;
 import com.google.common.base.Function;
 import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -31,6 +30,7 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Optional;
 
 public class Javadoc extends AbstractBuildRule implements MavenPublishable {
 
@@ -108,7 +108,7 @@ public class Javadoc extends AbstractBuildRule implements MavenPublishable {
 
     javaDocArgs.addAll(
         FluentIterable.from(sources)
-            .transform(getResolver().getAbsolutePathFunction())
+            .transform(getResolver()::getAbsolutePath)
             .transform(Functions.toStringFunction())
             .toSortedSet(Ordering.<String>natural()));
 

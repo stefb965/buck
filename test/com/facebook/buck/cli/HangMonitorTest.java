@@ -21,7 +21,6 @@ import com.facebook.buck.event.AbstractBuckEvent;
 import com.facebook.buck.event.EventKey;
 import com.facebook.buck.event.WorkAdvanceEvent;
 import com.facebook.buck.util.concurrent.TimeSpan;
-import com.google.common.base.Function;
 import com.google.common.util.concurrent.SettableFuture;
 
 import org.hamcrest.Matchers;
@@ -29,8 +28,6 @@ import org.junit.Test;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-
-import javax.annotation.Nullable;
 
 public class HangMonitorTest {
 
@@ -78,14 +75,7 @@ public class HangMonitorTest {
 
       final SettableFuture<String> result = SettableFuture.create();
       HangMonitor hangMonitor = new HangMonitor(
-          new Function<String, Void>() {
-            @Nullable
-            @Override
-            public Void apply(String input) {
-              result.set(input);
-              return null;
-            }
-          },
+          result::set,
           new TimeSpan(10, TimeUnit.MILLISECONDS));
       hangMonitor.runOneIteration();
       assertThat(result.isDone(), Matchers.is(true));
@@ -100,14 +90,7 @@ public class HangMonitorTest {
   public void workAdvanceEventsSuppressReport() throws Exception {
     final AtomicBoolean didGetReport = new AtomicBoolean(false);
     HangMonitor hangMonitor = new HangMonitor(
-        new Function<String, Void>() {
-          @Nullable
-          @Override
-          public Void apply(String input) {
-            didGetReport.set(true);
-            return null;
-          }
-        },
+        input -> didGetReport.set(true),
         new TimeSpan(10, TimeUnit.MILLISECONDS));
     hangMonitor.onWorkAdvance(new WorkEvent());
     hangMonitor.runOneIteration();

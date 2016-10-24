@@ -52,7 +52,7 @@ public class LoadBalancerEventsListener implements BuckEventListener {
     noHealthyServersCounter = registry.newIntegerCounter(
         COUNTER_CATEGORY,
         "no_healthy_servers_count",
-        ImmutableMap.<String, String>of());
+        ImmutableMap.of());
   }
 
   @Subscribe
@@ -126,7 +126,7 @@ public class LoadBalancerEventsListener implements BuckEventListener {
   }
 
   @Override
-  public void outputTrace(BuildId buildId) throws InterruptedException {
+  public void outputTrace(BuildId buildId) {
     // Nothing to do.
   }
 

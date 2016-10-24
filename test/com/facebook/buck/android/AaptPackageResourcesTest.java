@@ -18,18 +18,16 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.android.AndroidBinary.PackageType;
 import com.facebook.buck.android.aapt.RDotTxtEntry.RType;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeOnDiskBuildInfo;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.ManifestEntries;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
@@ -38,6 +36,7 @@ import org.junit.Test;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.EnumSet;
+import java.util.Optional;
 
 public class AaptPackageResourcesTest {
 
@@ -68,9 +67,9 @@ public class AaptPackageResourcesTest {
             pathResolver,
             /* manifest */ new FakeSourcePath("facebook/base/AndroidManifest.xml"),
             resourcesProvider,
-            ImmutableList.<HasAndroidResourceDeps>of(),
-            ImmutableSet.<SourcePath>of(),
-            /* resourceUnionPackage */ Optional.<String>absent(),
+            ImmutableList.of(),
+            ImmutableSet.of(),
+            /* resourceUnionPackage */ Optional.empty(),
             PackageType.DEBUG,
             /* shouldBuildStringSourceMap */ false,
             /* skipCrunchPngs */ false,
@@ -85,7 +84,7 @@ public class AaptPackageResourcesTest {
                 "0123456789012345678901234567890123456789")
             .putMetadata(
                 AaptPackageResources.FILTERED_RESOURCE_DIRS_KEY,
-                ImmutableList.<String>of());
+                ImmutableList.of());
     aaptPackageResources.initializeFromDisk(onDiskBuildInfo);
   }
 

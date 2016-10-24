@@ -24,18 +24,15 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.StringTemplateStep;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 
-import org.stringtemplate.v4.ST;
-
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Optional;
 
 public class WriteStringTemplateRule extends AbstractBuildRule {
 
@@ -77,14 +74,11 @@ public class WriteStringTemplateRule extends AbstractBuildRule {
             getResolver().getAbsolutePath(template),
             getProjectFilesystem(),
             output,
-            new Function<ST, ST>() {
-              @Override
-              public ST apply(ST st) {
-                for (Map.Entry<String, String> ent : values.entrySet()) {
-                  st = st.add(ent.getKey(), ent.getValue());
-                }
-                return st;
+            st -> {
+              for (Map.Entry<String, String> ent : values.entrySet()) {
+                st = st.add(ent.getKey(), ent.getValue());
               }
+              return st;
             }));
     if (executable) {
       steps.add(
@@ -92,7 +86,7 @@ public class WriteStringTemplateRule extends AbstractBuildRule {
             @Override
             public StepExecutionResult execute(ExecutionContext context) throws IOException {
               MoreFiles.makeExecutable(getProjectFilesystem().resolve(output));
-              return StepExecutionResult.of(0, Optional.<String>absent());
+              return StepExecutionResult.of(0, Optional.empty());
             }
           });
     }
@@ -117,7 +111,7 @@ public class WriteStringTemplateRule extends AbstractBuildRule {
             target,
             Suppliers.ofInstance(
                 ImmutableSortedSet.copyOf(pathResolver.filterBuildRuleInputs(template))),
-            Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+            Suppliers.ofInstance(ImmutableSortedSet.of())),
         pathResolver,
         output,
         template,

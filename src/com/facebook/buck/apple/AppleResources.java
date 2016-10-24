@@ -25,11 +25,11 @@ import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableSet;
+
+import java.util.Optional;
 
 public class AppleResources {
   // Utility class, do not instantiate.
@@ -53,12 +53,7 @@ public class AppleResources {
                 AppleBuildRules.RecursiveDependenciesMode.COPYING,
                 ImmutableSet.of(AppleResourceDescription.TYPE)))
         .transform(
-            new Function<TargetNode<?>, AppleResourceDescription.Arg>() {
-              @Override
-              public AppleResourceDescription.Arg apply(TargetNode<?> input) {
-                return (AppleResourceDescription.Arg) input.getConstructorArg();
-              }
-            })
+            input -> (AppleResourceDescription.Arg) input.getConstructorArg())
         .toSet();
   }
 
@@ -85,9 +80,7 @@ public class AppleResources {
         AppleResourceDescription.Arg appleResource = (AppleResourceDescription.Arg) constructorArg;
         builder.addAllResourceDirs(appleResource.dirs);
         builder.addAllResourceFiles(appleResource.files);
-        if (appleResource.variants.isPresent()) {
-          builder.addAllResourceVariantFiles(appleResource.variants.get());
-        }
+        builder.addAllResourceVariantFiles(appleResource.variants);
       } else {
         Preconditions.checkState(constructorArg instanceof ReactNativeLibraryArgs);
         BuildTarget buildTarget = resourceNode.getBuildTarget();

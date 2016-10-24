@@ -24,12 +24,11 @@ import com.facebook.buck.rules.HashedFileTool;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.ToolProvider;
 import com.facebook.buck.util.Console;
+import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.CharMatcher;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Splitter;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
@@ -40,6 +39,7 @@ import com.google.common.cache.LoadingCache;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.EnumSet;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -101,12 +101,7 @@ public abstract class CxxToolProvider<T> {
         type.isPresent() ?
             Suppliers.ofInstance(type.get()) :
             Suppliers.memoize(
-                new Supplier<Type>() {
-                  @Override
-                  public Type get() {
-                    return getTypeFromPath(path);
-                  }
-                }));
+                (Supplier<Type>) () -> getTypeFromPath(path)));
   }
 
   private static Type getTypeFromPath(Path path) {
@@ -117,13 +112,13 @@ public abstract class CxxToolProvider<T> {
             .build();
     ProcessExecutor.Result result;
     try {
-      ProcessExecutor processExecutor = new ProcessExecutor(Console.createNullConsole());
+      ProcessExecutor processExecutor = new DefaultProcessExecutor(Console.createNullConsole());
       result = processExecutor.launchAndExecute(
           params,
           EnumSet.of(ProcessExecutor.Option.EXPECTING_STD_OUT),
-          Optional.<String>absent(),
-          Optional.<Long>absent(),
-          Optional.<Function<Process, Void>>absent());
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty());
     } catch (InterruptedException | IOException e) {
       throw new RuntimeException(e);
     }
@@ -135,7 +130,7 @@ public abstract class CxxToolProvider<T> {
       throw new RuntimeException(message);
     }
 
-    String stdout = result.getStdout().or("");
+    String stdout = result.getStdout().orElse("");
     Iterable<String> lines = Splitter.on(CharMatcher.anyOf("\r\n")).split(stdout);
     LOG.debug("Output of %s: %s", params.getCommand(), lines);
     return getTypeFromVersionOutput(lines);

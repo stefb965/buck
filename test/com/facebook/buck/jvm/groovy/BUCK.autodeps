@@ -1,4 +1,3 @@
-#@# GENERATED FILE: DO NOT MODIFY ecf1b711e2c8cee7016b4eb927b3517d794e16f3 #@#
 {
   "groovy" : {
     "deps" : [
@@ -15,5 +14,19 @@
       "//third-party/java/junit:junit"
     ],
     "exported_deps" : [ ]
+  },
+  "testutil" : {
+    "deps" : [
+      "//test/com/facebook/buck/jvm/java:javac-env",
+      "//test/com/facebook/buck/testutil:testutil"
+    ],
+    "exported_deps" : [
+      "//src/com/facebook/buck/io:io",
+      "//src/com/facebook/buck/jvm/groovy:groovy",
+      "//src/com/facebook/buck/model:model",
+      "//src/com/facebook/buck/rules:build_rule",
+      "//test/com/facebook/buck/rules:testutil",
+      "//third-party/java/guava:guava"
+    ]
   }
 }

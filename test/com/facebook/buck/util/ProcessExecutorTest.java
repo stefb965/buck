@@ -22,14 +22,13 @@ import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.environment.Platform;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSet;
 
 import org.junit.Test;
 
 import java.io.IOException;
 import java.util.EnumSet;
+import java.util.Optional;
 import java.util.StringTokenizer;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -40,7 +39,7 @@ public class ProcessExecutorTest {
     CapturingPrintStream stdErr = new CapturingPrintStream();
     Ansi ansi = Ansi.forceTty();
     Console console = new Console(Verbosity.ALL, stdOut, stdErr, ansi);
-    ProcessExecutor executor = new ProcessExecutor(console);
+    ProcessExecutor executor = new DefaultProcessExecutor(console);
     String cmd = Platform.detect() == Platform.WINDOWS ?
         "cmd /C echo Hello" : "echo Hello";
     ProcessExecutorParams params = ProcessExecutorParams.ofCommand(makeCommandArray(cmd));
@@ -58,14 +57,14 @@ public class ProcessExecutorTest {
     Ansi ansi = Ansi.forceTty();
     Console console = new Console(
         Verbosity.ALL, stdOut, stdErr, ansi);
-    ProcessExecutor executor = new ProcessExecutor(console);
+    ProcessExecutor executor = new DefaultProcessExecutor(console);
     ProcessExecutorParams params = ProcessExecutorParams.ofCommand(makeCommandArray(cmd));
     ProcessExecutor.Result result = executor.launchAndExecute(
         params,
         EnumSet.of(ProcessExecutor.Option.EXPECTING_STD_OUT),
-        /* stdin */ Optional.<String>absent(),
-        /* timeOutMs */ Optional.<Long>absent(),
-        /* timeOutHandler */ Optional.<Function<Process, Void>>absent());
+        /* stdin */ Optional.empty(),
+        /* timeOutMs */ Optional.empty(),
+        /* timeOutHandler */ Optional.empty());
     assertEquals("Hello\n", result.getStdout().get());
     assertEquals("", result.getStderr().get());
   }
@@ -81,7 +80,7 @@ public class ProcessExecutorTest {
     Ansi ansi = Ansi.forceTty();
     Console console = new Console(
         Verbosity.ALL, stdOut, stdErr, ansi);
-    ProcessExecutor executor = new ProcessExecutor(console);
+    ProcessExecutor executor = new DefaultProcessExecutor(console);
     ProcessExecutorParams params = ProcessExecutorParams.ofCommand(makeCommandArray(cmd));
     executor.launchAndExecute(params);
     assertFalse(stdOut.isDirty());
@@ -90,25 +89,18 @@ public class ProcessExecutorTest {
 
   @Test
   public void testProcessTimeoutHandlerIsInvoked() throws IOException, InterruptedException {
-    ProcessExecutor executor = new ProcessExecutor(new TestConsole(Verbosity.ALL));
+    @SuppressWarnings("PMD.PrematureDeclaration")
+    ProcessExecutor executor = new DefaultProcessExecutor(new TestConsole(Verbosity.ALL));
 
     final AtomicBoolean called = new AtomicBoolean(false);
-    Function<Process, Void> handler = new Function<Process, Void>() {
-      @Override
-      public Void apply(Process input) {
-        called.set(true);
-        return null;
-      }
-    };
-
     String cmd = (Platform.detect() == Platform.WINDOWS) ? "ping -n 50 0.0.0.0" : "sleep 50";
     ProcessExecutorParams params = ProcessExecutorParams.ofCommand(makeCommandArray(cmd));
     ProcessExecutor.Result result = executor.launchAndExecute(
         params,
         /* options */ ImmutableSet.<ProcessExecutor.Option>builder().build(),
-        /* stdin */ Optional.<String>absent(),
+        /* stdin */ Optional.empty(),
         /* timeOutMs */ Optional.of((long) 100),
-        /* timeOutHandler */ Optional.of(handler));
+        /* timeOutHandler */ Optional.of(ignored -> called.set(true)));
     assertTrue(
         "process was reported as timed out",
         result.isTimedOut());
@@ -119,23 +111,20 @@ public class ProcessExecutorTest {
 
   @Test
   public void testProcessTimeoutHandlerThrowsException() throws IOException, InterruptedException {
-    ProcessExecutor executor = new ProcessExecutor(new TestConsole(Verbosity.ALL));
-
-    Function<Process, Void> handler = new Function<Process, Void>() {
-      @Override
-      public Void apply(Process input) {
-        throw new RuntimeException("This shouldn't fail the test!");
-      }
-    };
+    @SuppressWarnings("PMD.PrematureDeclaration")
+    ProcessExecutor executor = new DefaultProcessExecutor(new TestConsole(Verbosity.ALL));
 
     String cmd = (Platform.detect() == Platform.WINDOWS) ? "ping -n 50 0.0.0.0" : "sleep 50";
     ProcessExecutorParams params = ProcessExecutorParams.ofCommand(makeCommandArray(cmd));
     ProcessExecutor.Result result = executor.launchAndExecute(
         params,
         /* options */ ImmutableSet.<ProcessExecutor.Option>builder().build(),
-        /* stdin */ Optional.<String>absent(),
+        /* stdin */ Optional.empty(),
         /* timeOutMs */ Optional.of((long) 100),
-        /* timeOutHandler */ Optional.of(handler));
+        /* timeOutHandler */ Optional.of(
+            ignored -> {
+              throw new RuntimeException("This shouldn't fail the test!");
+            }));
     assertTrue(
         "process was reported as timed out",
         result.isTimedOut());

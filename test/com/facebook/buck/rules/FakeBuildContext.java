@@ -20,9 +20,6 @@ import com.facebook.buck.artifact_cache.NoopArtifactCache;
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.jvm.java.FakeJavaPackageFinder;
 import com.facebook.buck.model.BuildId;
-import com.facebook.buck.step.DefaultStepRunner;
-import com.facebook.buck.step.ExecutionContext;
-import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.timing.DefaultClock;
 import com.facebook.buck.util.ObjectMappers;
 import com.google.common.collect.ImmutableList;
@@ -37,25 +34,20 @@ public class FakeBuildContext {
 
   /** A BuildContext which doesn't touch the host filesystem or actually execute steps. */
   public static final BuildContext NOOP_CONTEXT = newBuilder()
-      .setActionGraph(new ActionGraph(ImmutableList.<BuildRule>of()))
+      .setActionGraph(new ActionGraph(ImmutableList.of()))
       .setJavaPackageFinder(new FakeJavaPackageFinder())
       .setArtifactCache(new NoopArtifactCache())
       .setObjectMapper(ObjectMappers.newDefaultInstance())
       .build();
 
   /**
-   * User still needs to invoke {@link ImmutableBuildContext.Builder#setActionGraph(ActionGraph)}
-   * and {@link ImmutableBuildContext.Builder#setJavaPackageFinder(
+   * User still needs to invoke {@link BuildContext.Builder#setActionGraph(ActionGraph)}
+   * and {@link BuildContext.Builder#setJavaPackageFinder(
    * com.facebook.buck.jvm.core.JavaPackageFinder)}
-   * before the {@link ImmutableBuildContext.Builder#build()} method of the builder can be invoked.
+   * before the {@link BuildContext.Builder#build()} method of the builder can be invoked.
    */
-  public static ImmutableBuildContext.Builder newBuilder() {
-    ExecutionContext executionContext = TestExecutionContext
-        .newBuilder()
-        .build();
-
-    return ImmutableBuildContext.builder()
-        .setStepRunner(new DefaultStepRunner(executionContext))
+  public static BuildContext.Builder newBuilder() {
+    return BuildContext.builder()
         .setClock(new DefaultClock())
         .setBuildId(new BuildId())
         .setObjectMapper(ObjectMappers.newDefaultInstance())

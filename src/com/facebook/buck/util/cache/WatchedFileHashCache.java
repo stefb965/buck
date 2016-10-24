@@ -19,22 +19,19 @@ package com.facebook.buck.util.cache;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.io.WatchEvents;
 import com.facebook.buck.log.Logger;
-import com.google.common.base.Optional;
-import com.google.common.base.Predicate;
 import com.google.common.collect.Maps;
 import com.google.common.eventbus.Subscribe;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.WatchEvent;
-import java.util.Map;
+import java.util.Optional;
 
 public class WatchedFileHashCache extends DefaultFileHashCache {
 
   private static final Logger LOG = Logger.get(WatchedFileHashCache.class);
 
   public WatchedFileHashCache(ProjectFilesystem projectFilesystem) {
-    super(projectFilesystem, Optional.<Path>absent());
+    super(projectFilesystem, Optional.empty());
   }
 
   /**
@@ -43,7 +40,7 @@ public class WatchedFileHashCache extends DefaultFileHashCache {
    * {@link ProjectFilesystem} root.
    */
   @Subscribe
-  public synchronized void onFileSystemChange(WatchEvent<?> event) throws IOException {
+  public synchronized void onFileSystemChange(WatchEvent<?> event) {
     if (WatchEvents.isPathChangeEvent(event)) {
       // Path event, remove the path from the cache as it has been changed, added or deleted.
       final Path path = ((Path) event.context()).normalize();
@@ -51,18 +48,15 @@ public class WatchedFileHashCache extends DefaultFileHashCache {
       Iterable<Path> pathsToInvalidate =
           Maps.filterEntries(
               loadingCache.asMap(),
-              new Predicate<Map.Entry<Path, HashCodeAndFileType>>() {
-                  @Override
-                  public boolean apply(Map.Entry<Path, HashCodeAndFileType> entry) {
-                    switch (entry.getValue().getType()) {
-                      case ARCHIVE:
-                      case FILE:
-                        return path.equals(entry.getKey());
-                      case DIRECTORY:
-                        return path.startsWith(entry.getKey());
-                    }
-                    return false;
-                  }
+              entry -> {
+                switch (entry.getValue().getType()) {
+                  case ARCHIVE:
+                  case FILE:
+                    return path.equals(entry.getKey());
+                  case DIRECTORY:
+                    return path.startsWith(entry.getKey());
+                }
+                return false;
               }
           ).keySet();
       LOG.verbose("Paths to invalidate: %s", pathsToInvalidate);

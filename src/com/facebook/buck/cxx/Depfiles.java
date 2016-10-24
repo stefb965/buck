@@ -23,7 +23,6 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.HumanReadableException;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -40,6 +39,7 @@ import java.nio.CharBuffer;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.logging.Level;
 
 /**
@@ -192,7 +192,7 @@ public class Depfiles {
     // included them using source relative include paths. To handle both cases we check for the
     // prerequisites both in the values and the keys of the replacement map.
     Logger.get(Depfiles.class).debug("Processing dependency file %s as Makefile", sourceDepFile);
-    ImmutableMap<String, Object> params = ImmutableMap.<String, Object>of(
+    ImmutableMap<String, Object> params = ImmutableMap.of(
         "input", inputPath, "output", outputPath);
     try (InputStream input = filesystem.newFileInputStream(sourceDepFile);
          BufferedReader reader = new BufferedReader(new InputStreamReader(input));

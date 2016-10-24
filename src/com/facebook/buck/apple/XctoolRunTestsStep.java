@@ -30,9 +30,7 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreThrowables;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
-import com.google.common.base.Function;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
@@ -56,6 +54,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Semaphore;
@@ -304,8 +303,8 @@ class XctoolRunTestsStep implements Step {
               context.getProcessExecutor(),
               launchedProcess,
               timeoutInMs);
-          stdoutReaderThread.join(timeoutInMs.or(1000L));
-          stderrReaderThread.join(timeoutInMs.or(1000L));
+          stdoutReaderThread.join(timeoutInMs.orElse(1000L));
+          stderrReaderThread.join(timeoutInMs.orElse(1000L));
           Optional<IOException> exception = stdoutReader.getException();
           if (exception.isPresent()) {
             throw exception.get();
@@ -350,7 +349,7 @@ class XctoolRunTestsStep implements Step {
   private class ProcessStdoutReader implements Runnable {
 
     private final ProcessExecutor.LaunchedProcess launchedProcess;
-    private Optional<IOException> exception = Optional.absent();
+    private Optional<IOException> exception = Optional.empty();
 
     public ProcessStdoutReader(ProcessExecutor.LaunchedProcess launchedProcess) {
       this.launchedProcess = launchedProcess;
@@ -535,13 +534,13 @@ class XctoolRunTestsStep implements Step {
       ProcessExecutor.Result processResult = processExecutor.waitForLaunchedProcessWithTimeout(
           launchedProcess,
           timeoutInMs.get(),
-          Optional.<Function<Process, Void>>absent()
+          Optional.empty()
       );
       if (processResult.isTimedOut()) {
        throw new HumanReadableException(
-            "Timed out after %d ms running test command",
-            timeoutInMs.or(-1L)
-        );
+           "Timed out after %d ms running test command",
+           timeoutInMs.orElse(-1L)
+       );
       } else {
         processExitCode = processResult.getExitCode();
       }
@@ -575,12 +574,7 @@ class XctoolRunTestsStep implements Step {
       throw e;
     }
     stutterTimeoutExecutorService.schedule(
-        new Runnable() {
-          @Override
-          public void run() {
-            releaseStutterLock(stutterLockIsNotified);
-          }
-        },
+        () -> releaseStutterLock(stutterLockIsNotified),
         xctoolStutterTimeout.get(),
         TimeUnit.MILLISECONDS);
   }

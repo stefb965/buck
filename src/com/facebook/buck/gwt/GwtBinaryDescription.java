@@ -32,7 +32,6 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
@@ -40,6 +39,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
+import java.util.Optional;
 
 public class GwtBinaryDescription implements Description<GwtBinaryDescription.Arg> {
 
@@ -90,7 +90,7 @@ public class GwtBinaryDescription implements Description<GwtBinaryDescription.Ar
     // Find all of the reachable JavaLibrary rules and grab their associated GwtModules.
     final ImmutableSortedSet.Builder<Path> gwtModuleJarsBuilder =
         ImmutableSortedSet.naturalOrder();
-    ImmutableSortedSet<BuildRule> moduleDependencies = resolver.getAllRules(args.moduleDeps.get());
+    ImmutableSortedSet<BuildRule> moduleDependencies = resolver.getAllRules(args.moduleDeps);
     new AbstractBreadthFirstTraversal<BuildRule>(moduleDependencies) {
       @Override
       public ImmutableSet<BuildRule> visit(BuildRule rule) {
@@ -123,7 +123,7 @@ public class GwtBinaryDescription implements Description<GwtBinaryDescription.Ar
                   params.copyWithChanges(
                       gwtModuleTarget,
                       Suppliers.ofInstance(deps),
-                      Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+                      Suppliers.ofInstance(ImmutableSortedSet.of())),
                   new SourcePathResolver(resolver),
                   filesForGwtModule));
           gwtModule = Optional.of(module);
@@ -145,28 +145,28 @@ public class GwtBinaryDescription implements Description<GwtBinaryDescription.Ar
     return new GwtBinary(
         params.copyWithExtraDeps(Suppliers.ofInstance(extraDeps.build())),
         new SourcePathResolver(resolver),
-        args.modules.get(),
+        args.modules,
         javaOptions.getJavaRuntimeLauncher(),
-        args.vmArgs.get(),
-        args.style.or(DEFAULT_STYLE),
-        args.draftCompile.or(DEFAULT_DRAFT_COMPILE),
-        args.optimize.or(DEFAULT_OPTIMIZE),
-        args.localWorkers.or(DEFAULT_NUM_LOCAL_WORKERS),
-        args.strict.or(DEFAULT_STRICT),
-        args.experimentalArgs.get(),
+        args.vmArgs,
+        args.style.orElse(DEFAULT_STYLE),
+        args.draftCompile.orElse(DEFAULT_DRAFT_COMPILE),
+        args.optimize.orElse(DEFAULT_OPTIMIZE),
+        args.localWorkers.orElse(DEFAULT_NUM_LOCAL_WORKERS),
+        args.strict.orElse(DEFAULT_STRICT),
+        args.experimentalArgs,
         gwtModuleJarsBuilder.build());
   }
 
   @SuppressFieldNotInitialized
   public static class Arg extends AbstractDescriptionArg {
-    public Optional<ImmutableSortedSet<String>> modules;
-    public Optional<ImmutableSortedSet<BuildTarget>> moduleDeps;
-    public Optional<ImmutableSortedSet<BuildTarget>> deps;
+    public ImmutableSortedSet<String> modules = ImmutableSortedSet.of();
+    public ImmutableSortedSet<BuildTarget> moduleDeps = ImmutableSortedSet.of();
+    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
 
     /**
      * In practice, these may be values such as {@code -Xmx512m}.
      */
-    public Optional<ImmutableList<String>> vmArgs;
+    public ImmutableList<String> vmArgs = ImmutableList.of();
 
     /** This will be passed to the GWT Compiler's {@code -style} flag. */
     public Optional<Style> style;
@@ -187,6 +187,6 @@ public class GwtBinaryDescription implements Description<GwtBinaryDescription.Ar
      * In practice, these may be values such as {@code -XenableClosureCompiler},
      * {@code -XdisableClassMetadata}, {@code -XdisableCastChecking}, or {@code -XfragmentMerge}.
      */
-    public Optional<ImmutableList<String>> experimentalArgs;
+    public ImmutableList<String> experimentalArgs = ImmutableList.of();
   }
 }

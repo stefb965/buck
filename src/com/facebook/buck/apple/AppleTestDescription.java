@@ -56,8 +56,6 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.immutables.BuckStyleTuple;
 import com.facebook.buck.zip.UnzipStep;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.base.Supplier;
@@ -71,6 +69,7 @@ import com.google.common.collect.Sets;
 import org.immutables.value.Value;
 
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.Set;
 
 public class AppleTestDescription implements
@@ -83,12 +82,10 @@ public class AppleTestDescription implements
   /**
    * Flavors for the additional generated build rules.
    */
-  static final Flavor LIBRARY_FLAVOR = ImmutableFlavor.of("apple-test-library");
   static final Flavor BUNDLE_FLAVOR = ImmutableFlavor.of("apple-test-bundle");
   private static final Flavor UNZIP_XCTOOL_FLAVOR = ImmutableFlavor.of("unzip-xctool");
 
-  private static final ImmutableSet<Flavor> SUPPORTED_FLAVORS = ImmutableSet.of(
-      LIBRARY_FLAVOR, BUNDLE_FLAVOR);
+  private static final ImmutableSet<Flavor> SUPPORTED_FLAVORS = ImmutableSet.of(BUNDLE_FLAVOR);
 
   /**
    * Auxiliary build modes which makes this description emit just the results of the underlying
@@ -157,8 +154,7 @@ public class AppleTestDescription implements
       BuildRuleResolver resolver,
       A args) throws NoSuchBuildTargetException {
     AppleDebugFormat debugFormat = AppleDebugFormat.FLAVOR_DOMAIN
-        .getValue(params.getBuildTarget())
-        .or(defaultDebugFormat);
+        .getValue(params.getBuildTarget()).orElse(defaultDebugFormat);
     if (params.getBuildTarget().getFlavors().contains(debugFormat.getFlavor())) {
       params = params.withoutFlavor(debugFormat.getFlavor());
     }
@@ -173,9 +169,7 @@ public class AppleTestDescription implements
     boolean addDefaultPlatform = libraryFlavors.isEmpty();
     ImmutableSet.Builder<Flavor> extraFlavorsBuilder = ImmutableSet.builder();
     if (createBundle) {
-      extraFlavorsBuilder.add(
-          LIBRARY_FLAVOR,
-          CxxDescriptionEnhancer.MACH_O_BUNDLE_FLAVOR);
+      extraFlavorsBuilder.add(CxxDescriptionEnhancer.MACH_O_BUNDLE_FLAVOR);
     }
     extraFlavorsBuilder.add(debugFormat.getFlavor());
     if (addDefaultPlatform) {
@@ -195,8 +189,7 @@ public class AppleTestDescription implements
       appleCxxPlatform = multiarchFileInfo.get().getRepresentativePlatform();
     } else {
       CxxPlatform cxxPlatform = cxxPlatformFlavorDomain
-          .getValue(params.getBuildTarget())
-          .or(defaultCxxPlatform);
+          .getValue(params.getBuildTarget()).orElse(defaultCxxPlatform);
       cxxPlatforms = ImmutableList.of(cxxPlatform);
       try {
         appleCxxPlatform = appleCxxPlatformFlavorDomain.getValue(cxxPlatform.getFlavor());
@@ -220,7 +213,7 @@ public class AppleTestDescription implements
               libraryFlavors,
               cxxPlatforms));
     } else {
-      testHostInfo = Optional.absent();
+      testHostInfo = Optional.empty();
     }
 
     BuildTarget libraryTarget = params.getBuildTarget()
@@ -231,9 +224,8 @@ public class AppleTestDescription implements
         params,
         resolver,
         args,
-        testHostInfo.transform(TestHostInfo.GET_TEST_HOST_APP_BINARY_SOURCE_PATH_FUNCTION),
-        testHostInfo.transform(TestHostInfo.GET_BLACKLIST_FUNCTION)
-            .or(ImmutableSet.<BuildTarget>of()),
+        testHostInfo.map(TestHostInfo::getTestHostAppBinarySourcePath),
+        testHostInfo.map(TestHostInfo::getBlacklist).orElse(ImmutableSet.of()),
         libraryTarget);
     if (!createBundle || SwiftLibraryDescription.isSwiftTarget(libraryTarget)) {
       return library;
@@ -266,11 +258,11 @@ public class AppleTestDescription implements
         provisioningProfileStore,
         library.getBuildTarget(),
         args.getExtension(),
-        Optional.<String>absent(),
+        Optional.empty(),
         args.infoPlist,
         args.infoPlistSubstitutions,
-        args.deps.get(),
-        args.tests.get(),
+        args.deps,
+        args.tests,
         debugFormat);
 
     Optional<SourcePath> xctool = getXctool(params, resolver, sourcePathResolver);
@@ -282,21 +274,21 @@ public class AppleTestDescription implements
         appleConfig.getXctestPlatformNames().contains(platformName),
         platformName,
         appleConfig.getXctoolDefaultDestinationSpecifier(),
-        args.destinationSpecifier,
+        Optional.of(args.destinationSpecifier),
         params.copyWithDeps(
-            Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of(bundle)),
-            Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+            Suppliers.ofInstance(ImmutableSortedSet.of(bundle)),
+            Suppliers.ofInstance(ImmutableSortedSet.of())),
         sourcePathResolver,
         bundle,
-        testHostInfo.transform(TestHostInfo.GET_TEST_HOST_APP_FUNCTION),
-        args.contacts.get(),
-        args.labels.get(),
+        testHostInfo.map(TestHostInfo::getTestHostApp),
+        args.contacts,
+        args.labels,
         args.getRunTestSeparately(),
         xcodeDeveloperDirectorySupplier,
         appleConfig.getTestLogDirectoryEnvironmentVariable(),
         appleConfig.getTestLogLevelEnvironmentVariable(),
         appleConfig.getTestLogLevel(),
-        args.testRuleTimeoutMs.or(defaultTestRuleTimeoutMs),
+        args.testRuleTimeoutMs.map(Optional::of).orElse(defaultTestRuleTimeoutMs),
         args.isUiTest());
   }
 
@@ -320,7 +312,7 @@ public class AppleTestDescription implements
             params.copyWithChanges(
                 unzipXctoolTarget,
                 Suppliers.ofInstance(ImmutableSortedSet.of(xctoolZipBuildRule)),
-                Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
+                Suppliers.ofInstance(ImmutableSortedSet.of()));
         resolver.addToIndex(
             new AbstractBuildRule(unzipXctoolParams, sourcePathResolver) {
               @Override
@@ -341,13 +333,13 @@ public class AppleTestDescription implements
               }
             });
       }
-      return Optional.<SourcePath>of(
+      return Optional.of(
           new BuildTargetSourcePath(unzipXctoolTarget, outputDirectory.resolve("bin/xctool")));
     } else if (appleConfig.getXctoolPath().isPresent()) {
-      return Optional.<SourcePath>of(
+      return Optional.of(
           new PathSourcePath(params.getProjectFilesystem(), appleConfig.getXctoolPath().get()));
     } else {
-      return Optional.absent();
+      return Optional.empty();
     }
   }
 
@@ -461,35 +453,12 @@ public class AppleTestDescription implements
      */
     ImmutableSet<BuildTarget> getBlacklist();
 
-    Function<TestHostInfo, AppleBundle> GET_TEST_HOST_APP_FUNCTION =
-        new Function<TestHostInfo, AppleBundle>() {
-          @Override
-          public AppleBundle apply(TestHostInfo input) {
-            return input.getTestHostApp();
-          }
-        };
-
-    Function<TestHostInfo, SourcePath> GET_TEST_HOST_APP_BINARY_SOURCE_PATH_FUNCTION =
-        new Function<TestHostInfo, SourcePath>() {
-          @Override
-          public SourcePath apply(TestHostInfo input) {
-            return input.getTestHostAppBinarySourcePath();
-          }
-        };
-
-    Function<TestHostInfo, ImmutableSet<BuildTarget>> GET_BLACKLIST_FUNCTION =
-        new Function<TestHostInfo, ImmutableSet<BuildTarget>>() {
-          @Override
-          public ImmutableSet<BuildTarget> apply(TestHostInfo input) {
-            return input.getBlacklist();
-          }
-        };
   }
 
   @SuppressFieldNotInitialized
   public static class Arg extends AppleNativeTargetDescriptionArg implements HasAppleBundleFields {
-    public Optional<ImmutableSortedSet<String>> contacts;
-    public Optional<ImmutableSortedSet<Label>> labels;
+    public ImmutableSortedSet<String> contacts = ImmutableSortedSet.of();
+    public ImmutableSortedSet<Label> labels = ImmutableSortedSet.of();
     public Optional<Boolean> canGroup;
     public Optional<Boolean> runTestSeparately;
     public Optional<Boolean> isUiTest;
@@ -497,10 +466,10 @@ public class AppleTestDescription implements
 
     // Bundle related fields.
     public SourcePath infoPlist;
-    public Optional<ImmutableMap<String, String>> infoPlistSubstitutions;
+    public ImmutableMap<String, String> infoPlistSubstitutions = ImmutableMap.of();
     public Optional<String> xcodeProductType;
 
-    public Optional<ImmutableMap<String, String>> destinationSpecifier;
+    public ImmutableMap<String, String> destinationSpecifier = ImmutableMap.of();
 
     public Optional<Long> testRuleTimeoutMs;
 
@@ -515,20 +484,25 @@ public class AppleTestDescription implements
     }
 
     @Override
+    public Optional<String> getProductName() {
+      return Optional.empty();
+    }
+
+    @Override
     public Optional<String> getXcodeProductType() {
       return xcodeProductType;
     }
 
     public boolean canGroup() {
-      return canGroup.or(false);
+      return canGroup.orElse(false);
     }
 
     public boolean getRunTestSeparately() {
-      return runTestSeparately.or(false);
+      return runTestSeparately.orElse(false);
     }
 
     public boolean isUiTest() {
-      return isUiTest.or(false);
+      return isUiTest.orElse(false);
     }
   }
 }

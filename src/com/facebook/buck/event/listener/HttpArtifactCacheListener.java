@@ -38,7 +38,7 @@ public class HttpArtifactCacheListener implements BuckEventListener {
   public HttpArtifactCacheListener(
       BatchingLogger logger,
       ObjectMapper jsonConverter) {
-    this(logger, jsonConverter, ImmutableMap.<String, String>of());
+    this(logger, jsonConverter, ImmutableMap.of());
   }
 
   public HttpArtifactCacheListener(
@@ -51,7 +51,7 @@ public class HttpArtifactCacheListener implements BuckEventListener {
   }
 
   @Override
-  public void outputTrace(final BuildId buildId) throws InterruptedException {
+  public void outputTrace(final BuildId buildId) {
     logger.close();
   }
 

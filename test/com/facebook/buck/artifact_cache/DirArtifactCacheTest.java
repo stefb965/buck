@@ -19,7 +19,9 @@ package com.facebook.buck.artifact_cache;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.io.BorrowablePath;
 import com.facebook.buck.io.LazyPath;
@@ -39,10 +41,10 @@ import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
+import com.facebook.buck.util.DirectoryCleaner;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.cache.NullFileHashCache;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -60,6 +62,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.FileTime;
 import java.util.List;
+import java.util.Optional;
 
 public class DirArtifactCacheTest {
   @Rule
@@ -134,7 +137,7 @@ public class DirArtifactCacheTest {
         new ProjectFilesystem(cacheDir),
         Paths.get("."),
         /* doStore */ true,
-        /* maxCacheSizeBytes */ Optional.<Long>absent());
+        /* maxCacheSizeBytes */ Optional.empty());
 
     Files.write(fileX, "x".getBytes(UTF_8));
     BuildRule inputRuleX = new BuildRuleForTest(fileX);
@@ -176,7 +179,7 @@ public class DirArtifactCacheTest {
         new ProjectFilesystem(cacheDir),
         Paths.get("."),
         /* doStore */ true,
-        /* maxCacheSizeBytes */ Optional.<Long>absent());
+        /* maxCacheSizeBytes */ Optional.empty());
 
     Files.write(fileX, "x".getBytes(UTF_8));
     BuildRule inputRuleX = new BuildRuleForTest(fileX);
@@ -221,7 +224,7 @@ public class DirArtifactCacheTest {
         new ProjectFilesystem(cacheDir),
         Paths.get("."),
         /* doStore */ true,
-        /* maxCacheSizeBytes */ Optional.<Long>absent());
+        /* maxCacheSizeBytes */ Optional.empty());
 
     Files.write(fileX, "x".getBytes(UTF_8));
     Files.write(fileY, "y".getBytes(UTF_8));
@@ -289,13 +292,9 @@ public class DirArtifactCacheTest {
     ImmutableList<Path> cachedFiles = ImmutableList.copyOf(dirArtifactCache.getAllFilesInCache());
     assertEquals(6, cachedFiles.size());
 
-    ImmutableSet<String> filenames = FluentIterable.from(cachedFiles).transform(
-        new Function<Path, String>() {
-          @Override
-          public String apply(Path input) {
-            return input.getFileName().toString();
-          }
-        }).toSet();
+    ImmutableSet<String> filenames = cachedFiles.stream()
+        .map(input -> input.getFileName().toString())
+        .collect(MoreCollectors.toImmutableSet());
 
     for (RuleKey ruleKey : ImmutableSet.of(ruleKeyX, ruleKeyY, ruleKeyZ)) {
       filenames.contains(ruleKey.toString());
@@ -320,7 +319,7 @@ public class DirArtifactCacheTest {
         new ProjectFilesystem(cacheDir),
         Paths.get("."),
         /* doStore */ true,
-        /* maxCacheSizeBytes */ Optional.<Long>absent());
+        /* maxCacheSizeBytes */ Optional.empty());
 
     Files.write(fileX, "x".getBytes(UTF_8));
     Files.write(fileY, "y".getBytes(UTF_8));
@@ -476,7 +475,7 @@ public class DirArtifactCacheTest {
         new ProjectFilesystem(tmpDir.getRoot()),
         Paths.get("."),
         /* doStore */ true,
-        /* maxCacheSizeBytes */ Optional.<Long>absent());
+        /* maxCacheSizeBytes */ Optional.empty());
 
     Files.write(fileX, "x".getBytes(UTF_8));
     Files.write(fileY, "y".getBytes(UTF_8));
@@ -520,6 +519,8 @@ public class DirArtifactCacheTest {
     Files.setAttribute(fileY, "lastAccessTime", FileTime.fromMillis(1000));
     Files.setAttribute(fileZ, "lastAccessTime", FileTime.fromMillis(2000));
 
+    // On some filesystems, setting creationTime silently fails. So don't test that here.
+
     assertEquals(4, cacheDir.toFile().listFiles().length);
 
     dirArtifactCache.deleteOldFiles();
@@ -528,6 +529,30 @@ public class DirArtifactCacheTest {
     assertEquals(
         ImmutableSet.of(fileZ, fileW),
         FluentIterable.from(filesInCache).toSet());
+  }
+
+  private DirectoryCleaner.PathStats fakePathStats(long creationTime, long lastAccessTime) {
+    return new DirectoryCleaner.PathStats(null, 0, creationTime, lastAccessTime);
+  }
+
+  @Test
+  public void testDirectoryCleanerPathSelector() throws IOException {
+    Path cacheDir = tmpDir.newFolder();
+
+    dirArtifactCache = new DirArtifactCache(
+        "dir",
+        new ProjectFilesystem(cacheDir),
+        Paths.get("."),
+        /* doStore */ true,
+        /* maxCacheSizeBytes */ Optional.of(3L));
+
+    DirectoryCleaner.PathSelector pathSelector = dirArtifactCache.getDirectoryCleanerPathSelector();
+
+    assertTrue(pathSelector.comparePaths(fakePathStats(0, 0), fakePathStats(0, 10)) < 0);
+    assertTrue(pathSelector.comparePaths(fakePathStats(0, 10), fakePathStats(10, 10)) < 0);
+    assertSame(pathSelector.comparePaths(fakePathStats(20, 10), fakePathStats(20, 10)), 0);
+    assertTrue(pathSelector.comparePaths(fakePathStats(0, 20), fakePathStats(10, 10)) > 0);
+    assertTrue(pathSelector.comparePaths(fakePathStats(20, 10), fakePathStats(10, 10)) > 0);
   }
 
   @Test
@@ -584,7 +609,7 @@ public class DirArtifactCacheTest {
             LazyPath.ofInstance(fileX)).getType());
 
     Files.setAttribute(
-        dirArtifactCache.getPathForRuleKey(ruleKeyX, Optional.<String>absent()),
+        dirArtifactCache.getPathForRuleKey(ruleKeyX, Optional.empty()),
         "lastAccessTime",
         FileTime.fromMillis(0));
     Files.setAttribute(
@@ -603,7 +628,7 @@ public class DirArtifactCacheTest {
             LazyPath.ofInstance(fileY)).getType());
 
     Files.setAttribute(
-        dirArtifactCache.getPathForRuleKey(ruleKeyY, Optional.<String>absent()),
+        dirArtifactCache.getPathForRuleKey(ruleKeyY, Optional.empty()),
         "lastAccessTime",
         FileTime.fromMillis(1000));
     Files.setAttribute(
@@ -638,7 +663,7 @@ public class DirArtifactCacheTest {
         new ProjectFilesystem(cacheDir),
         Paths.get("."),
         /* doStore */ true,
-        /* maxCacheSizeBytes */ Optional.<Long>absent());
+        /* maxCacheSizeBytes */ Optional.empty());
 
     Files.write(fileX, "x".getBytes(UTF_8));
 
@@ -667,7 +692,7 @@ public class DirArtifactCacheTest {
             filesystem,
             Paths.get("cache"),
             /* doStore */ true,
-            /* maxCacheSizeBytes */ Optional.<Long>absent());
+            /* maxCacheSizeBytes */ Optional.empty());
 
     RuleKey ruleKey = new RuleKey("0000");
     ImmutableMap<String, String> metadata = ImmutableMap.of("some", "metadata");
@@ -703,16 +728,16 @@ public class DirArtifactCacheTest {
         new FakeProjectFilesystem(),
         Paths.get("cache"),
         /* doStore */ false,
-        /* maxCacheSizeBytes */ Optional.<Long>absent());
+        /* maxCacheSizeBytes */ Optional.empty());
 
     Path result = cache.getPathForRuleKey(
         new RuleKey("aabb0123123234e324"),
-        Optional.<String>absent());
+        Optional.empty());
     assertThat(result.endsWith(Paths.get("aa/bb/aabb0123123234e324")), Matchers.equalTo(true));
 
     result = cache.getPathForRuleKey(
         new RuleKey("aabb0123123234e324"),
-        Optional.<String>of(".ext"));
+        Optional.of(".ext"));
     assertThat(result.endsWith(Paths.get("aa/bb/aabb0123123234e324.ext")), Matchers.equalTo(true));
 
     cache.close();

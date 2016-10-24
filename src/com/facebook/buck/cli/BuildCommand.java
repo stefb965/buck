@@ -22,11 +22,11 @@ import com.facebook.buck.artifact_cache.NoopArtifactCache;
 import com.facebook.buck.command.Build;
 import com.facebook.buck.distributed.BuckVersionUtil;
 import com.facebook.buck.distributed.BuildJobStateSerializer;
+import com.facebook.buck.distributed.DistBuildCellIndexer;
+import com.facebook.buck.distributed.DistBuildClientExecutor;
+import com.facebook.buck.distributed.DistBuildFileHashes;
 import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.DistBuildState;
-import com.facebook.buck.distributed.DistBuildClientExecutor;
-import com.facebook.buck.distributed.DistBuildCellIndexer;
-import com.facebook.buck.distributed.DistBuildFileHashes;
 import com.facebook.buck.distributed.DistBuildTargetGraphCodec;
 import com.facebook.buck.distributed.DistBuildTypeCoercerFactory;
 import com.facebook.buck.distributed.thrift.BuckVersion;
@@ -61,6 +61,7 @@ import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TargetNodeFactory;
 import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
 import com.facebook.buck.step.AdbOptions;
+import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.step.TargetDevice;
 import com.facebook.buck.step.TargetDeviceOptions;
@@ -74,9 +75,7 @@ import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.versioncontrol.BuildStamper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Function;
-import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
@@ -96,6 +95,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import javax.annotation.Nullable;
 
@@ -220,7 +220,7 @@ public class BuildCommand extends AbstractCommand {
   }
 
   public BuildCommand() {
-    this(ImmutableList.<String>of());
+    this(ImmutableList.of());
   }
 
   public BuildCommand(List<String> arguments) {
@@ -228,7 +228,7 @@ public class BuildCommand extends AbstractCommand {
   }
 
   public Optional<CachingBuildEngine.BuildMode> getBuildEngineMode() {
-    Optional<CachingBuildEngine.BuildMode> mode = Optional.absent();
+    Optional<CachingBuildEngine.BuildMode> mode = Optional.empty();
     if (deepBuild) {
       mode = Optional.of(CachingBuildEngine.BuildMode.DEEP);
     }
@@ -262,10 +262,10 @@ public class BuildCommand extends AbstractCommand {
   }
 
   /**
-   * @return an absolute path or {@link Optional#absent()}.
+   * @return an absolute path or {@link Optional#empty()}.
    */
   public Optional<Path> getPathToBuildReport(BuckConfig buckConfig) {
-    return Optional.fromNullable(
+    return Optional.ofNullable(
         buckConfig.resolvePathThatMayBeOutsideTheProjectFilesystem(buildReport));
   }
 
@@ -332,7 +332,7 @@ public class BuildCommand extends AbstractCommand {
     try (CommandThreadManager pool = new CommandThreadManager(
         "Build",
         getConcurrencyLimit(params.getBuckConfig()))) {
-      return run(params, pool.getExecutor(), ImmutableSet.<String>of());
+      return run(params, pool.getExecutor(), ImmutableSet.of());
     }
   }
 
@@ -432,7 +432,7 @@ public class BuildCommand extends AbstractCommand {
       TargetGraphAndBuildTargets targetGraphAndBuildTargets,
       ActionGraphAndResolver actionGraphAndResolver,
       final WeightedListeningExecutorService executorService)
-      throws IOException, InterruptedException, ActionGraphCreationException {
+      throws IOException, InterruptedException {
     ProjectFilesystem filesystem = params.getCell().getFilesystem();
 
     DistBuildTypeCoercerFactory typeCoercerFactory =
@@ -455,7 +455,7 @@ public class BuildCommand extends AbstractCommand {
                   false /* enableProfiling */,
                   executorService,
                   input);
-            } catch (BuildFileParseException | InterruptedException e) {
+            } catch (BuildFileParseException e) {
               throw new RuntimeException(e);
             }
           }
@@ -525,7 +525,7 @@ public class BuildCommand extends AbstractCommand {
       CommandRunnerParams params,
       ActionGraphAndResolver actionGraphAndResolver) {
     Optional<DefaultRuleKeyBuilderFactory> ruleKeyBuilderFactory =
-        Optional.absent();
+        Optional.empty();
     if (showRuleKey) {
       ruleKeyBuilderFactory = Optional.of(
           new DefaultRuleKeyBuilderFactory(
@@ -547,7 +547,7 @@ public class BuildCommand extends AbstractCommand {
             rule.getFullyQualifiedName(),
             showRuleKey ? " " + ruleKeyBuilderFactory.get().build(rule).toString() : "",
             showOutput || showFullOutput ?
-                " " + outputPath.transform(Functions.toStringFunction()).or("")
+                " " + outputPath.map(Object::toString).orElse("")
                 : "");
       } catch (NoSuchBuildTargetException e) {
         throw new HumanReadableException(MoreExceptions.getHumanReadableOrLocalizedMessage(e));
@@ -594,7 +594,7 @@ public class BuildCommand extends AbstractCommand {
   private ActionGraphAndResolver createActionGraphAndResolver(
       CommandRunnerParams params,
       TargetGraphAndBuildTargets targetGraphAndBuildTargets)
-      throws IOException, InterruptedException, ActionGraphCreationException {
+      throws ActionGraphCreationException {
     buildTargets = targetGraphAndBuildTargets.getBuildTargets();
     buildTargetsHaveBeenCalculated = true;
     ActionGraphAndResolver actionGraphAndResolver = Preconditions.checkNotNull(
@@ -613,7 +613,8 @@ public class BuildCommand extends AbstractCommand {
       Iterable<BuildRule> actionGraphRules =
           Preconditions.checkNotNull(actionGraphAndResolver.getActionGraph().getNodes());
       ImmutableSet<BuildTarget> actionGraphTargets =
-          ImmutableSet.copyOf(Iterables.transform(actionGraphRules, HasBuildTarget.TO_TARGET));
+          ImmutableSet.copyOf(
+              Iterables.transform(actionGraphRules, HasBuildTarget::getBuildTarget));
       if (!actionGraphTargets.contains(explicitTarget)) {
         throw new ActionGraphCreationException(
             "Targets specified via `--just-build` must be a subset of action graph.");
@@ -669,7 +670,8 @@ public class BuildCommand extends AbstractCommand {
         new CachingBuildEngine(
             cachingBuildEngineDelegate,
             executor,
-            getBuildEngineMode().or(rootCellBuckConfig.getBuildEngineMode()),
+            new DefaultStepRunner(),
+            getBuildEngineMode().orElse(rootCellBuckConfig.getBuildEngineMode()),
             rootCellBuckConfig.getBuildDepFiles(),
             rootCellBuckConfig.getBuildMaxDepFileCacheEntries(),
             rootCellBuckConfig.getBuildArtifactCacheSizeLimit(),
@@ -681,14 +683,14 @@ public class BuildCommand extends AbstractCommand {
         artifactCache,
         params.getConsole(),
         params.getBuckEventBus(),
-        Optional.<TargetDevice>absent(),
+        Optional.empty(),
         rootCellBuckConfig.getPlatform(),
         rootCellBuckConfig.getEnvironment(),
         params.getBuildStamper(),
         params.getObjectMapper(),
         params.getClock(),
-        Optional.<AdbOptions>absent(),
-        Optional.<TargetDeviceOptions>absent(),
+        Optional.empty(),
+        Optional.empty(),
         params.getExecutors())) {
       lastBuild = build;
       return build.executeAndPrintFailuresToEventBus(

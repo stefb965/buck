@@ -16,16 +16,15 @@
 
 package com.facebook.buck.file;
 
-import static org.easymock.EasyMock.eq;
-import static org.easymock.EasyMock.capture;
 import static java.net.HttpURLConnection.HTTP_FORBIDDEN;
+import static org.easymock.EasyMock.capture;
+import static org.easymock.EasyMock.eq;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
-import com.google.common.base.Optional;
 import com.google.common.io.BaseEncoding;
 
 import org.easymock.Capture;
@@ -35,11 +34,11 @@ import org.junit.Test;
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.PasswordAuthentication;
-import java.net.Proxy;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -51,7 +50,7 @@ public class HttpDownloaderTest {
   private BuckEventBus eventBus = BuckEventBusFactory.newInstance();
 
   private HttpDownloader getDownloader(final HttpURLConnection connection) {
-    return new HttpDownloader(Optional.<Proxy> absent()) {
+    return new HttpDownloader(Optional.empty()) {
       @Override
       protected HttpURLConnection createConnection(URI uri) throws IOException {
         return connection;
@@ -115,7 +114,7 @@ public class HttpDownloaderTest {
 
   @Test
   public void shouldReturnFalseIfUrlIsNotHttp() throws URISyntaxException, IOException {
-    Downloader downloader = new HttpDownloader(Optional.<Proxy>absent());
+    Downloader downloader = new HttpDownloader(Optional.empty());
 
     boolean result = downloader.fetch(eventBus, new URI("mvn:foo/bar/baz"), neverUsed);
 

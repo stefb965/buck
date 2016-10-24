@@ -162,7 +162,7 @@ public class FilterResourcesStep implements Step {
 
   @VisibleForTesting
   Predicate<Path> getFilteringPredicate(
-      ExecutionContext context) throws IOException, InterruptedException {
+      ExecutionContext context) throws IOException {
     List<Predicate<Path>> pathPredicates = Lists.newArrayList();
 
     if (filterByDensity) {
@@ -185,26 +185,23 @@ public class FilterResourcesStep implements Step {
     final boolean localeFilterEnabled = !locales.isEmpty();
     if (localeFilterEnabled || enableStringWhitelisting) {
       pathPredicates.add(
-          new Predicate<Path>() {
-            @Override
-            public boolean apply(Path path) {
-              Matcher matcher = NON_ENGLISH_STRINGS_FILE_PATH.matcher(
-                  MorePaths.pathWithUnixSeparators(path));
-              if (!matcher.matches()) {
-                return true;
+          path -> {
+            Matcher matcher = NON_ENGLISH_STRINGS_FILE_PATH.matcher(
+                MorePaths.pathWithUnixSeparators(path));
+            if (!matcher.matches()) {
+              return true;
+            }
+
+            if (enableStringWhitelisting) {
+              return isPathWhitelisted(path);
+            } else {
+              Preconditions.checkState(localeFilterEnabled);
+              String locale = matcher.group(1);
+              if (matcher.group(2) != null) {
+                locale += "_" + matcher.group(2);
               }
 
-              if (enableStringWhitelisting) {
-                return isPathWhitelisted(path);
-              } else {
-                Preconditions.checkState(localeFilterEnabled);
-                String locale = matcher.group(1);
-                if (matcher.group(2) != null) {
-                  locale += "_" + matcher.group(2);
-                }
-
-                return locales.contains(locale);
-              }
+              return locales.contains(locale);
             }
           });
     }
@@ -328,7 +325,7 @@ public class FilterResourcesStep implements Step {
   }
 
   public interface ImageScaler {
-    boolean isAvailable(ExecutionContext context) throws IOException, InterruptedException;
+    boolean isAvailable(ExecutionContext context);
     void scale(double factor, Path source, Path destination, ExecutionContext context)
         throws IOException, InterruptedException;
   }
@@ -347,7 +344,7 @@ public class FilterResourcesStep implements Step {
     }
 
     @Override
-    public boolean isAvailable(ExecutionContext context) throws IOException, InterruptedException {
+    public boolean isAvailable(ExecutionContext context) {
       return new ExecutableFinder().getOptionalExecutable(
           Paths.get("convert"),
           context.getEnvironment()).isPresent();
@@ -374,7 +371,7 @@ public class FilterResourcesStep implements Step {
    */
   public static class ResourceFilter implements RuleKeyAppendable {
 
-    static final ResourceFilter EMPTY_FILTER = new ResourceFilter(ImmutableList.<String>of());
+    static final ResourceFilter EMPTY_FILTER = new ResourceFilter(ImmutableList.of());
 
     private final Set<String> filter;
     private final Set<ResourceFilters.Density> densities;

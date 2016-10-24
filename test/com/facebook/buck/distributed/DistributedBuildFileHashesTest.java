@@ -26,7 +26,6 @@ import com.facebook.buck.distributed.thrift.BuildJobStateFileHashes;
 import com.facebook.buck.distributed.thrift.PathWithUnixSeparators;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
-import com.facebook.buck.hashing.FileHashLoader;
 import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.io.HashingDeterministicJarWriter;
 import com.facebook.buck.io.MoreFiles;
@@ -47,13 +46,11 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.Tool;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.cache.StackedFileHashCache;
 import com.google.common.base.Charsets;
 import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -62,8 +59,11 @@ import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
 import com.google.common.util.concurrent.MoreExecutors;
 
+import org.easymock.EasyMock;
 import org.hamcrest.Matchers;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
 import java.io.ByteArrayInputStream;
 import java.nio.file.FileSystem;
@@ -72,17 +72,23 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.jar.JarOutputStream;
 
 public class DistributedBuildFileHashesTest {
+  @Rule
+  public TemporaryFolder tempDir = new TemporaryFolder();
 
+  @Rule
+  public TemporaryFolder archiveTempDir = new TemporaryFolder();
 
   private static class SingleFileFixture extends Fixture {
     protected Path javaSrcPath;
     protected HashCode writtenHashCode;
     protected String writtenContents;
 
-    public SingleFileFixture() throws Exception {
+    public SingleFileFixture(TemporaryFolder tempDir) throws Exception {
+      super(tempDir);
     }
 
     @Override
@@ -105,7 +111,7 @@ public class DistributedBuildFileHashesTest {
 
   @Test
   public void recordsFileHashes() throws Exception {
-    SingleFileFixture f = new SingleFileFixture();
+    SingleFileFixture f = new SingleFileFixture(tempDir);
 
     List<BuildJobStateFileHashes> recordedHashes = f.distributedBuildFileHashes.getFileHashes();
 
@@ -122,14 +128,12 @@ public class DistributedBuildFileHashesTest {
 
   @Test
   public void cacheReadsHashesForFiles() throws Exception {
-    SingleFileFixture f = new SingleFileFixture();
+    SingleFileFixture f = new SingleFileFixture(tempDir);
 
     List<BuildJobStateFileHashes> fileHashes = f.distributedBuildFileHashes.getFileHashes();
-    f.projectFilesystem.getRootPath().getFileSystem().close();
-    f.secondProjectFilesystem.getRootPath().getFileSystem().close();
 
-    ProjectFilesystem readProjectFilesystem = FakeProjectFilesystem.createJavaOnlyFilesystem(
-        "/read_hashes");
+    ProjectFilesystem readProjectFilesystem =
+        new ProjectFilesystem(tempDir.newFolder("read_hashes").toPath().toRealPath());
     FileHashCache fileHashCache = DistBuildFileHashes.createFileHashCache(
         readProjectFilesystem,
         fileHashes.get(0));
@@ -145,18 +149,20 @@ public class DistributedBuildFileHashesTest {
 
   @Test
   public void materializerWritesContents() throws Exception {
-    SingleFileFixture f = new SingleFileFixture();
+    SingleFileFixture f = new SingleFileFixture(tempDir);
 
     List<BuildJobStateFileHashes> fileHashes = f.distributedBuildFileHashes.getFileHashes();
-    f.projectFilesystem.getRootPath().getFileSystem().close();
-    f.secondProjectFilesystem.getRootPath().getFileSystem().close();
 
-    ProjectFilesystem materializeProjectFilesystem = FakeProjectFilesystem.createJavaOnlyFilesystem(
-        "/read_hashes");
-    FileHashLoader materializer = DistBuildFileHashes.createMaterializingLoader(
-        materializeProjectFilesystem,
-        fileHashes.get(0),
-        new FileContentsProviders.InlineContentsProvider());
+    ProjectFilesystem materializeProjectFilesystem =
+        new ProjectFilesystem(tempDir.newFolder("read_hashes").getCanonicalFile().toPath());
+
+    FileHashCache fileHashLoader = EasyMock.createMock(FileHashCache.class);
+    DistBuildFileMaterializer materializer =
+        new DistBuildFileMaterializer(
+            materializeProjectFilesystem,
+            fileHashes.get(0),
+            new FileContentsProviders.InlineContentsProvider(),
+            fileHashLoader);
 
     materializer.get(materializeProjectFilesystem.resolve(f.javaSrcPath));
     assertThat(
@@ -166,14 +172,12 @@ public class DistributedBuildFileHashesTest {
 
   @Test
   public void cacheMaterializes() throws Exception {
-    SingleFileFixture f = new SingleFileFixture();
+    SingleFileFixture f = new SingleFileFixture(tempDir);
 
     List<BuildJobStateFileHashes> fileHashes = f.distributedBuildFileHashes.getFileHashes();
-    f.projectFilesystem.getRootPath().getFileSystem().close();
-    f.secondProjectFilesystem.getRootPath().getFileSystem().close();
 
-    ProjectFilesystem readProjectFilesystem = FakeProjectFilesystem.createJavaOnlyFilesystem(
-        "/read_hashes");
+    ProjectFilesystem readProjectFilesystem =
+        new ProjectFilesystem(tempDir.newFolder("read_hashes").toPath().toRealPath());
     FileHashCache fileHashCache = DistBuildFileHashes.createFileHashCache(
         readProjectFilesystem,
         fileHashes.get(0));
@@ -204,10 +208,10 @@ public class DistributedBuildFileHashesTest {
       this.secondFolder = secondFolder;
     }
 
-    public static ArchiveFilesFixture create() throws Exception {
+    public static ArchiveFilesFixture create(TemporaryFolder archiveTempDir) throws Exception {
       return new ArchiveFilesFixture(
-          Files.createTempDirectory("first"),
-          Files.createTempDirectory("second"));
+          archiveTempDir.newFolder("first").toPath().toRealPath(),
+          archiveTempDir.newFolder("second").toPath().toRealPath());
     }
 
     @Override
@@ -247,7 +251,7 @@ public class DistributedBuildFileHashesTest {
 
   @Test
   public void recordsArchiveHashes() throws Exception {
-    try (ArchiveFilesFixture f = ArchiveFilesFixture.create()) {
+    try (ArchiveFilesFixture f = ArchiveFilesFixture.create(archiveTempDir)) {
       List<BuildJobStateFileHashes> recordedHashes = f.distributedBuildFileHashes.getFileHashes();
 
       assertThat(recordedHashes, Matchers.hasSize(1));
@@ -264,11 +268,11 @@ public class DistributedBuildFileHashesTest {
 
   @Test
   public void readsHashesForArchiveMembers() throws Exception {
-    try (ArchiveFilesFixture f = ArchiveFilesFixture.create()) {
+    try (ArchiveFilesFixture f = ArchiveFilesFixture.create(archiveTempDir)) {
       List<BuildJobStateFileHashes> recordedHashes = f.distributedBuildFileHashes.getFileHashes();
 
-      ProjectFilesystem readProjectFilesystem = FakeProjectFilesystem.createJavaOnlyFilesystem(
-          "/read_hashes");
+      ProjectFilesystem readProjectFilesystem =
+          new ProjectFilesystem(tempDir.newFolder("read_hashes").toPath().toRealPath());
       FileHashCache fileHashCache = DistBuildFileHashes.createFileHashCache(
           readProjectFilesystem,
           recordedHashes.get(0));
@@ -287,7 +291,7 @@ public class DistributedBuildFileHashesTest {
 
   @Test
   public void recordsAbsoluteFileHashes() throws Exception {
-    Fixture f = new Fixture() {
+    Fixture f = new Fixture(tempDir) {
       @Override
       protected void setUpRules(
           BuildRuleResolver resolver,
@@ -331,7 +335,7 @@ public class DistributedBuildFileHashesTest {
 
   @Test
   public void worksCrossCell() throws Exception {
-    final Fixture f = new Fixture() {
+    final Fixture f = new Fixture(tempDir) {
 
       @Override
       protected void setUpRules(
@@ -382,12 +386,7 @@ public class DistributedBuildFileHashesTest {
   toFileHashEntryIndex(BuildJobStateFileHashes hashes) {
     return Maps.uniqueIndex(
         hashes.getEntries(),
-        new Function<BuildJobStateFileHashEntry, PathWithUnixSeparators>() {
-          @Override
-          public PathWithUnixSeparators apply(BuildJobStateFileHashEntry input) {
-            return input.getPath();
-          }
-        });
+        BuildJobStateFileHashEntry::getPath);
   }
 
   private static class FakeIndexer implements Function<Path, Integer> {
@@ -452,9 +451,9 @@ public class DistributedBuildFileHashesTest {
           /* keySeed */ 0);
     }
 
-    public Fixture() throws Exception {
-      this(FakeProjectFilesystem.createJavaOnlyFilesystem("/first"),
-          FakeProjectFilesystem.createJavaOnlyFilesystem("/second"));
+    public Fixture(TemporaryFolder tempDir) throws Exception {
+      this(new ProjectFilesystem(tempDir.newFolder("first").toPath().toRealPath()),
+          new ProjectFilesystem(tempDir.newFolder("second").toPath().toRealPath()));
     }
 
     protected abstract void setUpRules(

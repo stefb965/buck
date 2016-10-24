@@ -36,17 +36,14 @@ import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.test.TestCaseSummary;
-import com.facebook.buck.test.TestResultSummary;
 import com.facebook.buck.test.TestResults;
 import com.facebook.buck.test.TestRunningOptions;
 import com.facebook.buck.util.HumanReadableException;
-import com.google.common.base.Function;
-import com.google.common.base.Functions;
+import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.OptionalCompat;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -63,7 +60,7 @@ import java.nio.file.Path;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.Callable;
 
 import javax.annotation.Nullable;
@@ -211,8 +208,8 @@ public class AppleTest
     this.testRuleTimeoutMs = testRuleTimeoutMs;
     this.testOutputPath = getPathToTestOutputDirectory().resolve("test-output.json");
     this.testLogsPath = getPathToTestOutputDirectory().resolve("logs");
-    this.xctoolStdoutReader = Optional.absent();
-    this.xctestOutputReader = Optional.absent();
+    this.xctoolStdoutReader = Optional.empty();
+    this.xctestOutputReader = Optional.empty();
     this.xcodeDeveloperDirSupplier = xcodeDeveloperDirSupplier;
     this.testLogDirectoryEnvironmentVariable = testLogDirectoryEnvironmentVariable;
     this.testLogLevelEnvironmentVariable = testLogLevelEnvironmentVariable;
@@ -259,7 +256,7 @@ public class AppleTest
     Path resolvedTestOutputPath = getProjectFilesystem().resolve(
         testOutputPath);
 
-    Optional<Path> testHostAppPath = Optional.absent();
+    Optional<Path> testHostAppPath = Optional.empty();
     if (testHostApp.isPresent()) {
       Path resolvedTestHostAppDirectory = getProjectFilesystem().resolve(
           Preconditions.checkNotNull(testHostApp.get().getPathToOutput()));
@@ -293,12 +290,7 @@ public class AppleTest
             Joiner.on(',').join(
                 Iterables.transform(
                     destinationSpecifier.get().entrySet(),
-                    new Function<Map.Entry<String, String>, String>() {
-                      @Override
-                      public String apply(Map.Entry<String, String> input) {
-                        return input.getKey() + "=" + input.getValue();
-                      }
-                    })));
+                    input -> input.getKey() + "=" + input.getValue())));
       } else {
         destinationSpecifierArg = defaultDestinationSpecifier;
       }
@@ -331,6 +323,9 @@ public class AppleTest
       HashMap<String, String> environment = new HashMap<>();
       environment.putAll(xctest.getEnvironment(getResolver()));
       environment.putAll(options.getEnvironmentOverrides());
+      if (testHostAppPath.isPresent()) {
+        environment.put("XCInjectBundleInto", testHostAppPath.get().toString());
+      }
       XctestRunTestsStep xctestStep =
           new XctestRunTestsStep(
               getProjectFilesystem(),
@@ -366,53 +361,52 @@ public class AppleTest
       final ExecutionContext executionContext,
       boolean isUsingTestSelectors,
       boolean isDryRun) {
-    return new Callable<TestResults>() {
-      @Override
-      public TestResults call() throws Exception {
-        List<TestCaseSummary> testCaseSummaries;
-        if (xctoolStdoutReader.isPresent()) {
-          // We've already run the tests with 'xctool' and parsed
-          // their output; no need to parse the same output again.
-          testCaseSummaries = xctoolStdoutReader.get().getTestCaseSummaries();
-        } else if (xctestOutputReader.isPresent()) {
-          // We've already run the tests with 'xctest' and parsed
-          // their output; no need to parse the same output again.
-          testCaseSummaries = xctestOutputReader.get().getTestCaseSummaries();
-        } else if (isUiTest()) {
-          TestCaseSummary noTestsSummary =
-                new TestCaseSummary("XCUITest runs not supported with buck test",
-                                    Collections.<TestResultSummary>emptyList());
-          testCaseSummaries = Collections.singletonList(noTestsSummary);
-        } else {
-          Path resolvedOutputPath = getProjectFilesystem().resolve(testOutputPath);
-          try (BufferedReader reader =
-              Files.newBufferedReader(resolvedOutputPath, StandardCharsets.UTF_8)) {
-            if (useXctest) {
-              TestCaseSummariesBuildingXctestEventHandler xctestEventHandler =
-                  new TestCaseSummariesBuildingXctestEventHandler(NOOP_REPORTING_CALLBACK);
-              XctestOutputParsing.streamOutput(reader, xctestEventHandler);
-              testCaseSummaries = xctestEventHandler.getTestCaseSummaries();
-            } else {
-              TestCaseSummariesBuildingXctoolEventHandler xctoolEventHandler =
-                  new TestCaseSummariesBuildingXctoolEventHandler(NOOP_REPORTING_CALLBACK);
-              XctoolOutputParsing.streamOutputFromReader(reader, xctoolEventHandler);
-              testCaseSummaries = xctoolEventHandler.getTestCaseSummaries();
-            }
+    return () -> {
+      List<TestCaseSummary> testCaseSummaries;
+      if (xctoolStdoutReader.isPresent()) {
+        // We've already run the tests with 'xctool' and parsed
+        // their output; no need to parse the same output again.
+        testCaseSummaries = xctoolStdoutReader.get().getTestCaseSummaries();
+      } else if (xctestOutputReader.isPresent()) {
+        // We've already run the tests with 'xctest' and parsed
+        // their output; no need to parse the same output again.
+        testCaseSummaries = xctestOutputReader.get().getTestCaseSummaries();
+      } else if (isUiTest()) {
+        TestCaseSummary noTestsSummary =
+              new TestCaseSummary("XCUITest runs not supported with buck test",
+                                  Collections.emptyList());
+        testCaseSummaries = Collections.singletonList(noTestsSummary);
+      } else {
+        Path resolvedOutputPath = getProjectFilesystem().resolve(testOutputPath);
+        try (BufferedReader reader =
+            Files.newBufferedReader(resolvedOutputPath, StandardCharsets.UTF_8)) {
+          if (useXctest) {
+            TestCaseSummariesBuildingXctestEventHandler xctestEventHandler =
+                new TestCaseSummariesBuildingXctestEventHandler(NOOP_REPORTING_CALLBACK);
+            XctestOutputParsing.streamOutput(reader, xctestEventHandler);
+            testCaseSummaries = xctestEventHandler.getTestCaseSummaries();
+          } else {
+            TestCaseSummariesBuildingXctoolEventHandler xctoolEventHandler =
+                new TestCaseSummariesBuildingXctoolEventHandler(NOOP_REPORTING_CALLBACK);
+            XctoolOutputParsing.streamOutputFromReader(reader, xctoolEventHandler);
+            testCaseSummaries = xctoolEventHandler.getTestCaseSummaries();
           }
         }
-        TestResults.Builder testResultsBuilder = TestResults.builder()
-            .setBuildTarget(getBuildTarget())
-            .setTestCases(testCaseSummaries)
-            .setContacts(contacts)
-            .setLabels(FluentIterable.from(labels).transform(Functions.toStringFunction()).toSet());
-        if (getProjectFilesystem().isDirectory(testLogsPath)) {
-          for (Path testLogPath : getProjectFilesystem().getDirectoryContents(testLogsPath)) {
-            testResultsBuilder.addTestLogPaths(testLogPath);
-          }
-        }
-
-        return testResultsBuilder.build();
       }
+      TestResults.Builder testResultsBuilder = TestResults.builder()
+          .setBuildTarget(getBuildTarget())
+          .setTestCases(testCaseSummaries)
+          .setContacts(contacts)
+          .setLabels(labels.stream()
+              .map(Object::toString)
+              .collect(MoreCollectors.toImmutableSet()));
+      if (getProjectFilesystem().isDirectory(testLogsPath)) {
+        for (Path testLogPath : getProjectFilesystem().getDirectoryContents(testLogsPath)) {
+          testResultsBuilder.addTestLogPaths(testLogPath);
+        }
+      }
+
+      return testResultsBuilder.build();
     };
   }
 
@@ -438,8 +432,8 @@ public class AppleTest
   public ImmutableSortedSet<BuildRule> getRuntimeDeps() {
     return ImmutableSortedSet.<BuildRule>naturalOrder()
         .add(testBundle)
-        .addAll(getResolver().filterBuildRuleInputs(xctool.asSet()))
-        .addAll(testHostApp.asSet())
+        .addAll(getResolver().filterBuildRuleInputs(OptionalCompat.asSet(xctool)))
+        .addAll(OptionalCompat.asSet(testHostApp))
         .build();
   }
 

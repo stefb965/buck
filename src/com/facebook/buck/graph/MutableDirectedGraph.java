@@ -16,9 +16,7 @@
 
 package com.facebook.buck.graph;
 
-import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSetMultimap;
@@ -76,14 +74,14 @@ public final class MutableDirectedGraph<T> implements TraversableGraph<T> {
    * Creates a new graph with no nodes or edges.
    */
   public MutableDirectedGraph() {
-    this(new HashSet<T>(), HashMultimap.<T, T>create(), HashMultimap.<T, T>create());
+    this(new HashSet<T>(), HashMultimap.create(), HashMultimap.create());
   }
 
   public static <T> MutableDirectedGraph<T> createConcurrent() {
     return new MutableDirectedGraph<>(
         Collections.newSetFromMap(new ConcurrentHashMap<T, Boolean>()),
-        Multimaps.synchronizedSetMultimap(HashMultimap.<T, T>create()),
-        Multimaps.synchronizedSetMultimap(HashMultimap.<T, T>create()));
+        Multimaps.synchronizedSetMultimap(HashMultimap.create()),
+        Multimaps.synchronizedSetMultimap(HashMultimap.create()));
   }
 
   /** @return the number of nodes in the graph */
@@ -170,19 +168,10 @@ public final class MutableDirectedGraph<T> implements TraversableGraph<T> {
   }
 
   public ImmutableSet<ImmutableSet<T>> findCycles() {
-    Set<Set<T>> cycles = Sets.filter(findStronglyConnectedComponents(), new Predicate<Set<T>>() {
-      @Override
-      public boolean apply(Set<T> stronglyConnectedComponent) {
-        return stronglyConnectedComponent.size() > 1;
-      }
-    });
+    Set<Set<T>> cycles = Sets.filter(findStronglyConnectedComponents(),
+        stronglyConnectedComponent -> stronglyConnectedComponent.size() > 1);
     Iterable<ImmutableSet<T>> immutableCycles =
-        Iterables.transform(cycles, new Function<Set<T>, ImmutableSet<T>>() {
-      @Override
-      public ImmutableSet<T> apply(Set<T> cycle) {
-        return ImmutableSet.copyOf(cycle);
-      }
-    });
+        Iterables.transform(cycles, ImmutableSet::copyOf);
 
     // Tarjan's algorithm (as pseudo-coded on Wikipedia) does not appear to account for single-node
     // cycles. Therefore, we must check for them exclusively.

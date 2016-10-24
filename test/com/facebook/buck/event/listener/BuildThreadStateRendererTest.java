@@ -20,7 +20,6 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.event.LeafEvent;
 import com.facebook.buck.event.TestEventConfigerator;
 import com.facebook.buck.model.BuildTarget;
@@ -28,14 +27,13 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleEvent;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.StepEvent;
-import com.facebook.buck.test.TestRuleEvent;
 import com.facebook.buck.util.Ansi;
 import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -44,6 +42,7 @@ import org.junit.Test;
 
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -52,12 +51,7 @@ public class BuildThreadStateRendererTest {
 
   private static final Ansi ANSI = Ansi.withoutTty();
   private static final Function<Long, String> FORMAT_TIME_FUNCTION =
-      new Function<Long, String>() {
-        @Override
-        public String apply(Long timeMs) {
-          return String.format(Locale.US, "%.1fs", timeMs / 1000.0);
-        }
-      };
+      timeMs -> String.format(Locale.US, "%.1fs", timeMs / 1000.0);
   private static final SourcePathResolver PATH_RESOLVER =
       new SourcePathResolver(
           new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
@@ -74,9 +68,9 @@ public class BuildThreadStateRendererTest {
   public void emptyInput() {
     BuildThreadStateRenderer renderer = createRenderer(
         2100,
-        ImmutableMap.<Long, Optional<? extends BuildRuleEvent>>of(),
-        ImmutableMap.<Long, Optional<? extends LeafEvent>>of(),
-        ImmutableMap.<BuildTarget, AtomicLong>of());
+        ImmutableMap.of(),
+        ImmutableMap.of(),
+        ImmutableMap.of());
     assertThat(
         renderLines(renderer, true),
         is(equalTo(ImmutableList.<String>of())));
@@ -99,13 +93,13 @@ public class BuildThreadStateRendererTest {
             1L, createRuleStartedEventOptional(1, 1200, RULE2),
             3L, createRuleStartedEventOptional(3, 2300, RULE3),
             4L, createRuleStartedEventOptional(4, 1100, RULE1),
-            5L, Optional.<BuildRuleEvent>absent(),
+            5L, Optional.empty(),
             8L, createRuleStartedEventOptional(6, 3000, RULE4)),
         ImmutableMap.of(
             1L, createStepStartedEventOptional(1, 1500, "step A"),
-            3L, Optional.<LeafEvent>absent(),
-            4L, Optional.<LeafEvent>absent(),
-            5L, Optional.<LeafEvent>absent(),
+            3L, Optional.empty(),
+            4L, Optional.empty(),
+            5L, Optional.empty(),
             8L, createStepStartedEventOptional(1, 3700, "step B")),
         ImmutableMap.of(
             TARGET1, new AtomicLong(200),
@@ -147,12 +141,12 @@ public class BuildThreadStateRendererTest {
         4200,
         ImmutableMap.of(
             3L, createRuleStartedEventOptional(3, 2300, RULE3),
-            5L, Optional.<BuildRuleEvent>absent(),
+            5L, Optional.empty(),
             8L, createRuleStartedEventOptional(6, 3000, RULE4)),
         ImmutableMap.of(
             1L, createStepStartedEventOptional(1, 1500, "step A"),
-            4L, Optional.<LeafEvent>absent(),
-            5L, Optional.<LeafEvent>absent(),
+            4L, Optional.empty(),
+            5L, Optional.empty(),
             8L, createStepStartedEventOptional(1, 3700, "step B")),
         ImmutableMap.of(
             TARGET1, new AtomicLong(200),
@@ -173,7 +167,7 @@ public class BuildThreadStateRendererTest {
   }
 
   private static BuildRule createFakeRule(BuildTarget target) {
-    return new FakeBuildRule(target, PATH_RESOLVER, ImmutableSortedSet.<BuildRule>of());
+    return new FakeBuildRule(target, PATH_RESOLVER, ImmutableSortedSet.of());
   }
 
   private static Optional<? extends BuildRuleEvent> createRuleStartedEventOptional(
@@ -212,7 +206,7 @@ public class BuildThreadStateRendererTest {
         runningSteps,
         new AccumulatedTimeTracker(
             buildEvents,
-            ImmutableMap.<Long, Optional<? extends TestRuleEvent>>of(),
+            ImmutableMap.of(),
             accumulatedTimes));
   }
 

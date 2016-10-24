@@ -28,10 +28,11 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
+
+import java.util.Optional;
 
 public class CSharpLibraryDescription implements Description<CSharpLibraryDescription.Arg> {
 
@@ -57,13 +58,13 @@ public class CSharpLibraryDescription implements Description<CSharpLibraryDescri
     ImmutableList.Builder<Either<BuildRule, String>> refsAsRules = ImmutableList.builder();
     for (Either<BuildTarget, String> ref : args.deps.get()) {
       if (ref.isLeft()) {
-        refsAsRules.add(Either.<BuildRule, String>ofLeft(resolver.getRule(ref.getLeft())));
+        refsAsRules.add(Either.ofLeft(resolver.getRule(ref.getLeft())));
       } else {
-        refsAsRules.add(Either.<BuildRule, String>ofRight(ref.getRight()));
+        refsAsRules.add(Either.ofRight(ref.getRight()));
       }
     }
 
-    String suggestedOut = args.dllName.or(params.getBuildTarget().getShortName() + ".dll");
+    String suggestedOut = args.dllName.orElse(params.getBuildTarget().getShortName() + ".dll");
 
     return new CSharpLibrary(
         params,
@@ -71,7 +72,7 @@ public class CSharpLibraryDescription implements Description<CSharpLibraryDescri
         suggestedOut,
         args.srcs,
         refsAsRules.build(),
-        args.resources.get(),
+        args.resources,
         args.frameworkVer);
   }
 
@@ -79,10 +80,11 @@ public class CSharpLibraryDescription implements Description<CSharpLibraryDescri
   public static class Arg extends AbstractDescriptionArg {
     public FrameworkVersion frameworkVer;
     public ImmutableSortedSet<SourcePath> srcs;
-    public Optional<ImmutableMap<String, SourcePath>> resources;
+    public ImmutableMap<String, SourcePath> resources = ImmutableMap.of();
     public Optional<String> dllName;
 
     // We may have system-provided references ("System.Core.dll") or other build targets
-    public Optional<ImmutableList<Either<BuildTarget, String>>> deps;
+    public Optional<ImmutableList<Either<BuildTarget, String>>> deps =
+        Optional.of(ImmutableList.of());
   }
 }

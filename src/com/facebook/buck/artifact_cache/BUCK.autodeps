@@ -1,7 +1,7 @@
-#@# GENERATED FILE: DO NOT MODIFY d6f74ab54e785d7efbdd431d793c4cdfaee6bed4 #@#
 {
   "artifact_cache" : {
     "deps" : [
+      "//src/com/facebook/buck/util:util",
       "//third-party/java/immutables:processor"
     ],
     "exported_deps" : [
@@ -37,6 +37,7 @@
       "//src/com/facebook/buck/slb:slb",
       "//src/com/facebook/buck/timing:timing",
       "//src/com/facebook/buck/util:exceptions",
+      "//src/com/facebook/buck/util:util",
       "//src/com/facebook/buck/util/unit:unit",
       "//third-party/java/immutables:processor"
     ],

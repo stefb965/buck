@@ -49,7 +49,6 @@ import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.FileHashCache;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -60,6 +59,7 @@ import org.hamcrest.Matchers;
 import org.junit.Test;
 
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 public class CxxTestDescriptionTest {
@@ -104,18 +104,17 @@ public class CxxTestDescriptionTest {
     CxxTestDescription desc = new CxxTestDescription(
         cxxBuckConfig,
         cxxPlatform,
-        FlavorDomain.<CxxPlatform>of("platform"),
-        /* testRuleTimeoutMs */ Optional.<Long>absent());
+        FlavorDomain.of("platform"),
+        /* testRuleTimeoutMs */ Optional.empty());
 
     BuildTarget target = BuildTargetFactory.newInstance("//:target");
     CxxTestDescription.Arg constructorArg = desc.createUnpopulatedConstructorArg();
     constructorArg.framework = Optional.of(CxxTestType.GTEST);
-    constructorArg.env = Optional.of(ImmutableMap.<String, String>of());
-    constructorArg.args = Optional.of(ImmutableList.<String>of());
+    constructorArg.env = ImmutableMap.of();
+    constructorArg.args = ImmutableList.of();
     constructorArg.useDefaultTestMain = Optional.of(true);
-    constructorArg.linkerFlags = Optional.of(ImmutableList.<String>of());
-    constructorArg.platformLinkerFlags =
-        Optional.of(PatternMatchedCollection.<ImmutableList<String>>of());
+    constructorArg.linkerFlags = ImmutableList.of();
+    constructorArg.platformLinkerFlags = PatternMatchedCollection.of();
     Iterable<BuildTarget> implicit = desc.findDepsForTargetFromConstructorArgs(
         target,
         TestCellBuilder.createCellRoots(new FakeProjectFilesystem()),
@@ -270,9 +269,9 @@ public class CxxTestDescriptionTest {
     CxxBuckConfig config = new CxxBuckConfig(
         FakeBuckConfig.builder()
             .setSections(
-                ImmutableMap.<String, ImmutableMap<String, String>>of(
+                ImmutableMap.of(
                     "cxx",
-                    ImmutableMap.<String, String>of("gtest_dep", "//:gtest_dep")))
+                    ImmutableMap.of("gtest_dep", "//:gtest_dep")))
             .build());
     CxxTestBuilder builder =
         new CxxTestBuilder(BuildTargetFactory.newInstance("//:rule"), config)

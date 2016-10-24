@@ -19,7 +19,6 @@ package com.facebook.buck.android;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
@@ -33,6 +32,7 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -50,11 +50,8 @@ public class AndroidPlatformTarget {
    * {@link NoAndroidSdkException}.
    */
   public static final Supplier<AndroidPlatformTarget> EXPLODING_ANDROID_PLATFORM_TARGET_SUPPLIER =
-      new Supplier<AndroidPlatformTarget>() {
-        @Override
-        public AndroidPlatformTarget get() {
-          throw new NoAndroidSdkException();
-        }
+      () -> {
+        throw new NoAndroidSdkException();
       };
 
   @VisibleForTesting
@@ -193,10 +190,10 @@ public class AndroidPlatformTarget {
         return Optional.of(
             platformTargetFactory.newInstance(androidDirectoryResolver, apiLevel, aaptOverride));
       } catch (NumberFormatException e) {
-        return Optional.absent();
+        return Optional.empty();
       }
     } else {
-      return Optional.absent();
+      return Optional.empty();
     }
   }
 
@@ -291,7 +288,8 @@ public class AndroidPlatformTarget {
         name,
         androidJar.toAbsolutePath(),
         bootclasspathEntries,
-        aaptOverride.or(androidSdkDir.resolve(buildToolsBinDir).resolve("aapt").toAbsolutePath()),
+        aaptOverride.orElse(
+            androidSdkDir.resolve(buildToolsBinDir).resolve("aapt").toAbsolutePath()),
         androidSdkDir.resolve("platform-tools/adb").toAbsolutePath(),
         androidSdkDir.resolve(buildToolsBinDir).resolve("aidl").toAbsolutePath(),
         zipAlignExecutable,
@@ -324,12 +322,7 @@ public class AndroidPlatformTarget {
 
       if (addonsParentDir.isDirectory()) {
         String[] addonsApiDirs = addonsParentDir.list(
-            new FilenameFilter() {
-              @Override
-              public boolean accept(File dir, String name) {
-                return apiDirPattern.matcher(name).matches();
-              }
-            });
+            (dir, name1) -> apiDirPattern.matcher(name1).matches());
         Arrays.sort(addonsApiDirs, new Comparator<String>() {
               @Override
               public int compare(String o1, String o2) {
@@ -389,7 +382,7 @@ public class AndroidPlatformTarget {
           "android-" + apiLevel,
           androidDirectoryResolver,
           "platforms/android-" + apiLevel,
-          /* additionalJarPaths */ ImmutableSet.<Path>of(),
+          /* additionalJarPaths */ ImmutableSet.of(),
           aaptOverride);
     }
   }

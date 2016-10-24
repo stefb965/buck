@@ -20,7 +20,6 @@ import com.facebook.buck.android.FakeAndroidDirectoryResolver;
 import com.facebook.buck.apple.project_generator.ProjectGenerator;
 import com.facebook.buck.artifact_cache.NoopArtifactCache;
 import com.facebook.buck.event.BuckEventBusFactory;
-import com.facebook.buck.httpserver.WebServer;
 import com.facebook.buck.jvm.java.FakeJavaPackageFinder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.Cell;
@@ -32,7 +31,6 @@ import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.timing.SettableFakeClock;
 import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.environment.Platform;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -42,6 +40,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 public class ProjectCommandTests {
   // Utility class, do not instantiate.
@@ -119,8 +118,8 @@ public class ProjectCommandTests {
             isWithDependenciesTests,
             isCombinedProjects,
             true /* shouldUseHeaderMaps */),
-        ImmutableList.<String>of(),
-        ImmutableList.<BuildTarget>of(),
+        ImmutableList.of(),
+        ImmutableList.of(),
         projectGenerators,
         isBuildWithBuck,
         isCombinedProjects,
@@ -144,6 +143,6 @@ public class ProjectCommandTests {
         ImmutableMap.copyOf(System.getenv()),
         new FakeJavaPackageFinder(),
         ObjectMappers.newDefaultInstance(),
-        Optional.<WebServer>absent());
+        Optional.empty());
   }
 }

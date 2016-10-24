@@ -28,11 +28,11 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.TargetGraph;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 public class JsBinaryDescription implements
     Description<JsBinaryDescription.Arg>,

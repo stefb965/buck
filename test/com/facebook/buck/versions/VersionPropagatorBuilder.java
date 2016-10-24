@@ -25,13 +25,13 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.TargetGraph;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.util.AbstractMap;
 import java.util.Map;
+import java.util.Optional;
 
 class VersionPropagatorBuilder extends AbstractNodeBuilder<VersionPropagatorBuilder.Arg> {
 
@@ -67,7 +67,7 @@ class VersionPropagatorBuilder extends AbstractNodeBuilder<VersionPropagatorBuil
   }
 
   public VersionPropagatorBuilder setDeps(ImmutableSortedSet<BuildTarget> deps) {
-    arg.deps = Optional.of(deps);
+    arg.deps = deps;
     return this;
   }
 
@@ -81,7 +81,7 @@ class VersionPropagatorBuilder extends AbstractNodeBuilder<VersionPropagatorBuil
 
   public VersionPropagatorBuilder setVersionedDeps(
       ImmutableSortedMap<BuildTarget, Optional<Constraint>> deps) {
-    arg.versionedDeps = Optional.of(deps);
+    arg.versionedDeps = deps;
     return this;
   }
 
@@ -99,8 +99,9 @@ class VersionPropagatorBuilder extends AbstractNodeBuilder<VersionPropagatorBuil
   }
 
   public static class Arg {
-    public Optional<ImmutableSortedSet<BuildTarget>> deps;
-    public Optional<ImmutableSortedMap<BuildTarget, Optional<Constraint>>> versionedDeps;
+    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
+    public ImmutableSortedMap<BuildTarget, Optional<Constraint>> versionedDeps =
+        ImmutableSortedMap.of();
   }
 
 }

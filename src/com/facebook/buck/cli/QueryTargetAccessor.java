@@ -18,7 +18,6 @@ package com.facebook.buck.cli;
 
 import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.query.QueryBuildTarget;
-import com.facebook.buck.query.QueryException;
 import com.facebook.buck.query.QueryFileTarget;
 import com.facebook.buck.query.QueryTarget;
 import com.facebook.buck.rules.BuildTargetSourcePath;
@@ -46,23 +45,20 @@ public class QueryTargetAccessor {
 
   public static <T> ImmutableSet<QueryTarget> getTargetsInAttribute(
       TargetNode<T> node,
-      String attribute)
-      throws QueryException {
+      String attribute) {
     try {
       final ImmutableSet.Builder<QueryTarget> builder = ImmutableSortedSet.naturalOrder();
-      Field field = node.getConstructorArg().getClass().getField(attribute);
-      ParamInfo info = new ParamInfo(typeCoercerFactory, field);
+      Class<?> constructorArgClass = node.getConstructorArg().getClass();
+      Field field = constructorArgClass.getField(attribute);
+      ParamInfo info = new ParamInfo(typeCoercerFactory, constructorArgClass, field);
       info.traverse(
-          new ParamInfo.Traversal() {
-            @Override
-            public void traverse(Object value) {
-              if (value instanceof Path) {
-                builder.add(QueryFileTarget.of((Path) value));
-              } else if (value instanceof SourcePath) {
-                builder.add(extractSourcePath((SourcePath) value));
-              } else if (value instanceof HasBuildTarget) {
-                builder.add(extractBuildTargetContainer((HasBuildTarget) value));
-              }
+          value -> {
+            if (value instanceof Path) {
+              builder.add(QueryFileTarget.of((Path) value));
+            } else if (value instanceof SourcePath) {
+              builder.add(extractSourcePath((SourcePath) value));
+            } else if (value instanceof HasBuildTarget) {
+              builder.add(extractBuildTargetContainer((HasBuildTarget) value));
             }
           },
           node.getConstructorArg()
@@ -80,19 +76,16 @@ public class QueryTargetAccessor {
   public static <T> ImmutableSet<Object> filterAttributeContents(
       TargetNode<T> node,
       String attribute,
-      final Predicate<Object> predicate)
-      throws QueryException {
+      final Predicate<Object> predicate) {
     try {
       final ImmutableSet.Builder<Object> builder = ImmutableSet.builder();
-      Field field = node.getConstructorArg().getClass().getField(attribute);
-      ParamInfo info = new ParamInfo(typeCoercerFactory, field);
+      Class<?> constructorArgClass = node.getConstructorArg().getClass();
+      Field field = constructorArgClass.getField(attribute);
+      ParamInfo info = new ParamInfo(typeCoercerFactory, constructorArgClass, field);
       info.traverse(
-          new ParamInfo.Traversal() {
-            @Override
-            public void traverse(Object value) {
-              if (predicate.apply(value)) {
-                builder.add(value);
-              }
+          value -> {
+            if (predicate.apply(value)) {
+              builder.add(value);
             }
           },
           node.getConstructorArg()

@@ -19,10 +19,8 @@ package com.facebook.buck.event;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonValue;
-import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Objects;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
@@ -31,6 +29,7 @@ import org.immutables.value.Value;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
@@ -103,7 +102,7 @@ public abstract class SimplePerfEvent extends AbstractBuckEvent {
    * @return an object that should be used to create the corresponding update and finished event.
    */
   public static Started started(PerfEventId perfEventId) {
-    return started(perfEventId, ImmutableMap.<String, Object>of());
+    return started(perfEventId, ImmutableMap.of());
   }
 
   /**
@@ -179,7 +178,7 @@ public abstract class SimplePerfEvent extends AbstractBuckEvent {
   public static Scope scope(
       BuckEventBus bus,
       PerfEventId perfEventId) {
-    return scope(bus, perfEventId, ImmutableMap.<String, Object>of());
+    return scope(bus, perfEventId, ImmutableMap.of());
   }
 
   /**
@@ -226,7 +225,7 @@ public abstract class SimplePerfEvent extends AbstractBuckEvent {
   public static Scope scope(
       Optional<BuckEventBus> bus,
       PerfEventId perfEventId) {
-    return scope(bus, perfEventId, ImmutableMap.<String, Object>of());
+    return scope(bus, perfEventId, ImmutableMap.of());
   }
 
   /**
@@ -251,6 +250,13 @@ public abstract class SimplePerfEvent extends AbstractBuckEvent {
       String k2,
       Object v2) {
     return scope(bus, perfEventId, ImmutableMap.of(k, v, k2, v2));
+  }
+
+  /**
+   * Convenience wrapper for {@link SimplePerfEvent#scope(BuckEventBus, PerfEventId, ImmutableMap)}.
+   */
+  public static Scope scope(BuckEventBus bus, String perfEventName) {
+    return scope(bus, PerfEventId.of(perfEventName), ImmutableMap.<String, Object>of());
   }
 
   /**
@@ -296,7 +302,7 @@ public abstract class SimplePerfEvent extends AbstractBuckEvent {
     return scopeIgnoringShortEvents(
         bus,
         perfEventId,
-        ImmutableMap.<String, Object>of(),
+        ImmutableMap.of(),
         parentScope,
         minimumTime,
         timeUnit);
@@ -525,12 +531,7 @@ public abstract class SimplePerfEvent extends AbstractBuckEvent {
       finishedInfoBuilder.putAll(
           Maps.transformValues(
               finishedCounters,
-              new Function<AtomicLong, Long>() {
-                @Override
-                public Long apply(AtomicLong input) {
-                  return input.get();
-                }
-              }));
+              AtomicLong::get));
       return new Finished(started, finishedInfoBuilder.build());
     }
 
@@ -694,7 +695,7 @@ public abstract class SimplePerfEvent extends AbstractBuckEvent {
     @Override
     public BuckEvent createFinishedEvent() {
       Preconditions.checkState(!isChainFinished());
-      return createFinishedEvent(ImmutableMap.<String, Object>of());
+      return createFinishedEvent(ImmutableMap.of());
     }
 
     @Override

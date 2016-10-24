@@ -21,7 +21,6 @@ import static org.junit.Assert.assertNotEquals;
 
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
@@ -29,7 +28,6 @@ import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.HashedFileTool;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.Tool;
@@ -37,7 +35,6 @@ import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.base.Charsets;
-import com.google.common.base.Optional;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -52,6 +49,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 
 public class PythonPackagedBinaryTest {
 
@@ -74,23 +72,24 @@ public class PythonPackagedBinaryTest {
         resolver,
         PythonTestUtils.PYTHON_PLATFORM,
         PEX,
-        ImmutableList.<String>of(),
+        ImmutableList.of(),
         new HashedFileTool(Paths.get("dummy_path_to_pex_runner")),
         ".pex",
         new PythonEnvironment(Paths.get("fake_python"), PythonVersion.of("CPython", "2.7")),
         "main",
         PythonPackageComponents.of(
-            ImmutableMap.<Path, SourcePath>of(
+            ImmutableMap.of(
                 Paths.get(main), new PathSourcePath(projectFilesystem, mainSrc),
                 Paths.get(mod1), new PathSourcePath(projectFilesystem, src1),
                 Paths.get(mod2), new PathSourcePath(projectFilesystem, src2)),
-            ImmutableMap.<Path, SourcePath>of(),
-            ImmutableMap.<Path, SourcePath>of(),
-            ImmutableSet.<SourcePath>of(),
-            Optional.<Boolean>absent()),
-        ImmutableSortedSet.<String>of(),
-        ImmutableSortedSet.<BuildRule>of(),
-        /* cache */ true);
+            ImmutableMap.of(),
+            ImmutableMap.of(),
+            ImmutableSet.of(),
+            Optional.empty()),
+        ImmutableSortedSet.of(),
+        ImmutableSortedSet.of(),
+        /* cache */ true,
+        /* legacyOutputPath */ false);
 
     // Calculate and return the rule key.
     return ruleKeyBuilderFactory.build(binary);

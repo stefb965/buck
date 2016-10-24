@@ -50,7 +50,6 @@ import com.facebook.buck.js.ReactNativeBundle;
 import com.facebook.buck.js.ReactNativeLibraryArgs;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.TargetNode;
@@ -58,9 +57,7 @@ import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Charsets;
 import com.google.common.base.Function;
-import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -79,7 +76,9 @@ import java.nio.file.Paths;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
 
 /**
  * Configures a PBXProject by adding a PBXNativeTarget and its associated dependencies into a
@@ -113,9 +112,9 @@ class NewNativeTargetProjectMutator {
   private ImmutableSet<SourcePath> extraXcodeSources = ImmutableSet.of();
   private ImmutableSet<SourcePath> publicHeaders = ImmutableSet.of();
   private ImmutableSet<SourcePath> privateHeaders = ImmutableSet.of();
-  private Optional<SourcePath> prefixHeader = Optional.absent();
-  private Optional<SourcePath> infoPlist = Optional.absent();
-  private Optional<SourcePath> bridgingHeader = Optional.absent();
+  private Optional<SourcePath> prefixHeader = Optional.empty();
+  private Optional<SourcePath> infoPlist = Optional.empty();
+  private Optional<SourcePath> bridgingHeader = Optional.empty();
   private ImmutableSet<FrameworkPath> frameworks = ImmutableSet.of();
   private ImmutableSet<PBXFileReference> archives = ImmutableSet.of();
   private ImmutableSet<AppleResourceDescription.Arg> recursiveResources = ImmutableSet.of();
@@ -269,8 +268,7 @@ class NewNativeTargetProjectMutator {
     return this;
   }
 
-  public Result buildTargetAndAddToProject(PBXProject project)
-      throws NoSuchBuildTargetException {
+  public Result buildTargetAndAddToProject(PBXProject project) {
     PBXNativeTarget target = new PBXNativeTarget(targetName);
 
     PBXGroup targetGroup = project.getMainGroup().getOrCreateDescendantGroupByPath(targetGroupPath);
@@ -292,7 +290,7 @@ class NewNativeTargetProjectMutator {
         new SourceTreePath(
             PBXReference.SourceTree.BUILT_PRODUCTS_DIR,
             productOutputPath,
-            Optional.<String>absent()));
+            Optional.empty()));
     target.setProductName(productName);
     target.setProductReference(productReference);
     target.setProductType(productType);
@@ -312,12 +310,7 @@ class NewNativeTargetProjectMutator {
         sourcesGroup,
         sourcesBuildPhase,
         RuleUtils.createGroupsFromSourcePaths(
-            new Function<SourcePath, Path>() {
-              @Override
-              public Path apply(SourcePath sourcePath) {
-                return pathRelativizer.outputPathToSourcePath(sourcePath);
-              }
-            },
+            pathRelativizer::outputPathToSourcePath,
             sourcesWithFlags,
             extraXcodeSources,
             publicHeaders,
@@ -327,7 +320,7 @@ class NewNativeTargetProjectMutator {
       SourceTreePath prefixHeaderSourceTreePath = new SourceTreePath(
           PBXReference.SourceTree.GROUP,
           pathRelativizer.outputPathToSourcePath(prefixHeader.get()),
-          Optional.<String>absent());
+          Optional.empty());
       sourcesGroup.getOrCreateFileReferenceBySourceTreePath(prefixHeaderSourceTreePath);
     }
 
@@ -335,7 +328,7 @@ class NewNativeTargetProjectMutator {
       SourceTreePath infoPlistSourceTreePath = new SourceTreePath(
           PBXReference.SourceTree.GROUP,
           pathRelativizer.outputPathToSourcePath(infoPlist.get()),
-          Optional.<String>absent());
+          Optional.empty());
       sourcesGroup.getOrCreateFileReferenceBySourceTreePath(infoPlistSourceTreePath);
     }
 
@@ -343,7 +336,7 @@ class NewNativeTargetProjectMutator {
       SourceTreePath bridgingHeaderSourceTreePath = new SourceTreePath(
           PBXReference.SourceTree.GROUP,
           pathRelativizer.outputPathToSourcePath(bridgingHeader.get()),
-          Optional.<String>absent());
+          Optional.empty());
       sourcesGroup.getOrCreateFileReferenceBySourceTreePath(bridgingHeaderSourceTreePath);
     }
 
@@ -413,7 +406,7 @@ class NewNativeTargetProjectMutator {
         PBXReference.SourceTree.SOURCE_ROOT,
         pathRelativizer.outputDirToRootRelative(
             sourcePathResolver.apply(sourceWithFlags.getSourcePath())),
-        Optional.<String>absent());
+        Optional.empty());
     PBXFileReference fileReference = sourcesGroup.getOrCreateFileReferenceBySourceTreePath(
         sourceTreePath);
     PBXBuildFile buildFile = new PBXBuildFile(fileReference);
@@ -451,7 +444,7 @@ class NewNativeTargetProjectMutator {
         new SourceTreePath(
             PBXReference.SourceTree.SOURCE_ROOT,
             pathRelativizer.outputPathToSourcePath(headerPath),
-            Optional.<String>absent()));
+            Optional.empty()));
     PBXBuildFile buildFile = new PBXBuildFile(fileReference);
     if (visibility != HeaderVisibility.PRIVATE) {
       NSDictionary settings = new NSDictionary();
@@ -460,7 +453,7 @@ class NewNativeTargetProjectMutator {
           new NSArray(new NSString(AppleHeaderVisibilities.toXcodeAttribute(visibility))));
       buildFile.setSettings(Optional.of(settings));
     } else {
-      buildFile.setSettings(Optional.<NSDictionary>absent());
+      buildFile.setSettings(Optional.empty());
     }
   }
 
@@ -482,7 +475,7 @@ class NewNativeTargetProjectMutator {
         sourceTreePath = new SourceTreePath(
             PBXReference.SourceTree.SOURCE_ROOT,
             pathRelativizer.outputPathToSourcePath(framework.getSourcePath().get()),
-            Optional.<String>absent());
+            Optional.empty());
       } else {
         throw new RuntimeException();
       }
@@ -513,8 +506,8 @@ class NewNativeTargetProjectMutator {
         resourceFiles.build(),
         resourceDirs.build(),
         variantResourceFiles.build(),
-        Functions.<Void>constant(null),
-        Functions.<Void>constant(null));
+        ignored -> {},
+        ignored -> {});
   }
 
   private PBXBuildPhase addResourcesBuildPhase(PBXNativeTarget target, PBXGroup targetGroup) {
@@ -535,21 +528,13 @@ class NewNativeTargetProjectMutator {
         resourceFiles.build(),
         resourceDirs.build(),
         variantResourceFiles.build(),
-        new Function<PBXFileReference, Void>() {
-          @Override
-          public Void apply(PBXFileReference input) {
-            PBXBuildFile buildFile = new PBXBuildFile(input);
-            phase.getFiles().add(buildFile);
-            return null;
-          }
+        input -> {
+          PBXBuildFile buildFile = new PBXBuildFile(input);
+          phase.getFiles().add(buildFile);
         },
-        new Function<PBXVariantGroup, Void>() {
-          @Override
-          public Void apply(PBXVariantGroup input) {
-            PBXBuildFile buildFile = new PBXBuildFile(input);
-            phase.getFiles().add(buildFile);
-            return null;
-          }
+        input -> {
+          PBXBuildFile buildFile = new PBXBuildFile(input);
+          phase.getFiles().add(buildFile);
         });
     if (!phase.getFiles().isEmpty()) {
       target.getBuildPhases().add(phase);
@@ -568,7 +553,7 @@ class NewNativeTargetProjectMutator {
       resourceFilesBuilder.addAll(Iterables.transform(arg.files, sourcePathResolver));
       resourceDirsBuilder.addAll(Iterables.transform(arg.dirs, sourcePathResolver));
       variantResourceFilesBuilder.addAll(
-          Iterables.transform(arg.variants.get(), sourcePathResolver));
+          Iterables.transform(arg.variants, sourcePathResolver));
     }
 
     for (AppleAssetCatalogDescription.Arg arg : assetCatalogArgs) {
@@ -581,8 +566,8 @@ class NewNativeTargetProjectMutator {
       ImmutableSet<Path> resourceFiles,
       ImmutableSet<Path> resourceDirs,
       ImmutableSet<Path> variantResourceFiles,
-      Function<? super PBXFileReference, Void> resourceCallback,
-      Function<? super PBXVariantGroup, Void> variantGroupCallback) {
+      Consumer<? super PBXFileReference> resourceCallback,
+      Consumer<? super PBXVariantGroup> variantGroupCallback) {
     if (resourceFiles.isEmpty() && resourceDirs.isEmpty() && variantResourceFiles.isEmpty()) {
       return;
     }
@@ -593,8 +578,8 @@ class NewNativeTargetProjectMutator {
           new SourceTreePath(
               PBXReference.SourceTree.SOURCE_ROOT,
               pathRelativizer.outputDirToRootRelative(path),
-              Optional.<String>absent()));
-      resourceCallback.apply(fileReference);
+              Optional.empty()));
+      resourceCallback.accept(fileReference);
     }
     for (Path path : resourceDirs) {
       PBXFileReference fileReference = resourcesGroup.getOrCreateFileReferenceBySourceTreePath(
@@ -602,7 +587,7 @@ class NewNativeTargetProjectMutator {
               PBXReference.SourceTree.SOURCE_ROOT,
               pathRelativizer.outputDirToRootRelative(path),
               Optional.of("folder")));
-      resourceCallback.apply(fileReference);
+      resourceCallback.accept(fileReference);
     }
 
     Map<String, PBXVariantGroup> variantGroups = Maps.newHashMap();
@@ -622,13 +607,13 @@ class NewNativeTargetProjectMutator {
       PBXVariantGroup variantGroup = variantGroups.get(variantFileName);
       if (variantGroup == null) {
         variantGroup = resourcesGroup.getOrCreateChildVariantGroupByName(variantFileName);
-        variantGroupCallback.apply(variantGroup);
+        variantGroupCallback.accept(variantGroup);
         variantGroups.put(variantFileName, variantGroup);
       }
       SourceTreePath sourceTreePath = new SourceTreePath(
           PBXReference.SourceTree.SOURCE_ROOT,
           pathRelativizer.outputDirToRootRelative(variantFilePath),
-          Optional.<String>absent());
+          Optional.empty());
       variantGroup.getOrCreateVariantFileReferenceByNameAndSourceTreePath(
           variantLocalization,
           sourceTreePath);
@@ -647,12 +632,12 @@ class NewNativeTargetProjectMutator {
         shellScriptBuildPhase
             .getInputPaths()
             .addAll(
-                FluentIterable.from(arg.srcs.get())
+                FluentIterable.from(arg.srcs)
                     .transform(sourcePathResolver)
-                    .transform(pathRelativizer.outputDirToRootRelative())
-                    .transform(Functions.toStringFunction())
+                    .transform(pathRelativizer::outputDirToRootRelative)
+                    .transform(Object::toString)
                     .toSet());
-        shellScriptBuildPhase.getOutputPaths().addAll(arg.outputs.get());
+        shellScriptBuildPhase.getOutputPaths().addAll(arg.outputs);
         shellScriptBuildPhase.setShellScript(arg.cmd);
       } else if (IosReactNativeLibraryDescription.TYPE.equals(node.getType())) {
         shellScriptBuildPhase.setShellScript(generateXcodeShellScript(node));

@@ -16,7 +16,8 @@
 
 package com.facebook.buck.util;
 
-import com.google.common.base.Optional;
+import java.util.Optional;
+import com.google.common.collect.ImmutableMap;
 
 /**
  * A static helper class for process registration.
@@ -27,7 +28,7 @@ public abstract class ProcessRegistry {
    * A callback to be called upon registering a process.
    */
   public interface ProcessRegisterCallback {
-    void call(Object process, ProcessExecutorParams params);
+    void call(Object process, ProcessExecutorParams params, ImmutableMap<String, String> context);
   }
 
   /**
@@ -41,11 +42,14 @@ public abstract class ProcessRegistry {
   /**
    * Registers process for resource consumption tracking.
    */
-  public static void registerProcess(Object process, ProcessExecutorParams params) {
+  public static void registerProcess(
+      Object process,
+      ProcessExecutorParams params,
+      ImmutableMap<String, String> context) {
     if (sProcessRegisterCallback.isPresent()) {
-      sProcessRegisterCallback.get().call(process, params);
+      sProcessRegisterCallback.get().call(process, params, context);
     }
   }
 
-  private static Optional<ProcessRegisterCallback> sProcessRegisterCallback = Optional.absent();
+  private static Optional<ProcessRegisterCallback> sProcessRegisterCallback = Optional.empty();
 }

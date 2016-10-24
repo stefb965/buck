@@ -73,7 +73,7 @@ public class DefaultSuggestBuildRulesTest {
     SuggestBuildRules suggestFn =
         DefaultSuggestBuildRules.createSuggestBuildFunction(
             jarResolver,
-            ImmutableSet.<JavaLibrary>of(),
+            ImmutableSet.of(),
             transitiveClasspathEntries.keySet(),
             ImmutableList.of(libraryTwo, parent, grandparent));
 
@@ -101,7 +101,7 @@ public class DefaultSuggestBuildRulesTest {
     SuggestBuildRules suggestFn =
         DefaultSuggestBuildRules.createSuggestBuildFunction(
             jarResolver,
-            ImmutableSet.<JavaLibrary>of(),
+            ImmutableSet.of(),
             transitiveClasspathEntries.keySet(),
             ImmutableList.of(libraryTwo, parent, grandparent));
 
@@ -138,14 +138,11 @@ public class DefaultSuggestBuildRulesTest {
 
     final ImmutableSetMultimap<Path, String> resolveMap = resolveMapBuilder.build();
 
-    return new SuggestBuildRules.JarResolver() {
-      @Override
-      public ImmutableSet<String> resolve(Path absoluteClassPath) {
-        if (resolveMap.containsKey(absoluteClassPath)) {
-          return resolveMap.get(absoluteClassPath);
-        } else {
-          return ImmutableSet.of();
-        }
+    return absoluteClassPath -> {
+      if (resolveMap.containsKey(absoluteClassPath)) {
+        return resolveMap.get(absoluteClassPath);
+      } else {
+        return ImmutableSet.of();
       }
     };
   }

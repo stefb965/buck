@@ -20,12 +20,12 @@ import com.facebook.buck.apple.xcode.xcodeproj.PBXReference;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSet;
 
 import org.immutables.value.Value;
 
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -77,39 +77,33 @@ abstract class AbstractAppleSdkPaths {
   public abstract Path getSdkPath();
 
   public Function<PBXReference.SourceTree, Path> sourceTreeRootsFunction() {
-    return new Function<PBXReference.SourceTree, Path>() {
-      @Override
-      public Path apply(final PBXReference.SourceTree sourceTree) {
-        if (sourceTree.equals(PBXReference.SourceTree.SDKROOT)) {
-          return getSdkPath();
-        } else if (sourceTree.equals(PBXReference.SourceTree.PLATFORM_DIR)) {
-          return getPlatformPath();
-        } else if (sourceTree.equals(PBXReference.SourceTree.DEVELOPER_DIR)) {
-          Optional<Path> developerPath = getDeveloperPath();
-          if (!developerPath.isPresent()) {
-            throw new HumanReadableException(
-                "DEVELOPER_DIR source tree unavailable without developer dir");
-          }
-
-          return developerPath.get();
+    return sourceTree -> {
+      if (sourceTree.equals(PBXReference.SourceTree.SDKROOT)) {
+        return getSdkPath();
+      } else if (sourceTree.equals(PBXReference.SourceTree.PLATFORM_DIR)) {
+        return getPlatformPath();
+      } else if (sourceTree.equals(PBXReference.SourceTree.DEVELOPER_DIR)) {
+        Optional<Path> developerPath = getDeveloperPath();
+        if (!developerPath.isPresent()) {
+          throw new HumanReadableException(
+              "DEVELOPER_DIR source tree unavailable without developer dir");
         }
-        throw new HumanReadableException("Unsupported source tree: '%s'", sourceTree);
+
+        return developerPath.get();
       }
+      throw new HumanReadableException("Unsupported source tree: '%s'", sourceTree);
     };
   }
 
   public Function<String, String> replaceSourceTreeReferencesFunction() {
-    return new Function<String, String>() {
-      @Override
-      public String apply(String input) {
-        Function<PBXReference.SourceTree, Path> getSourceTreeRoot = sourceTreeRootsFunction();
-        for (PBXReference.SourceTree sourceTree : SUPPORTED_SOURCE_TREES) {
-          input = input.replace(
-              "$" + sourceTree.toString(),
-              getSourceTreeRoot.apply(sourceTree).toString());
-        }
-        return input;
+    return input -> {
+      Function<PBXReference.SourceTree, Path> getSourceTreeRoot = sourceTreeRootsFunction();
+      for (PBXReference.SourceTree sourceTree : SUPPORTED_SOURCE_TREES) {
+        input = input.replace(
+            "$" + sourceTree.toString(),
+            getSourceTreeRoot.apply(sourceTree).toString());
       }
+      return input;
     };
   }
 }

@@ -26,13 +26,11 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaFileParser;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.PathSourcePath;
@@ -47,18 +45,18 @@ import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import org.easymock.EasyMock;
-import org.easymock.IAnswer;
 import org.junit.Rule;
 import org.junit.Test;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Optional;
 
 public class JavaLibrarySymbolsFinderTest {
   @Rule
@@ -82,7 +80,7 @@ public class JavaLibrarySymbolsFinderTest {
     ImmutableSortedSet<SourcePath> srcs = ImmutableSortedSet.<SourcePath>naturalOrder()
         .addAll(
             FluentIterable.from(ImmutableSet.of("Example1.java", "Example2.java"))
-                .transform(MorePaths.TO_PATH)
+                .transform(Paths::get)
                 .transform(SourcePaths.toSourcePath(projectFilesystem))
         )
         .add(new BuildTargetSourcePath(BuildTargetFactory.newInstance("//foo:bar")))
@@ -102,6 +100,7 @@ public class JavaLibrarySymbolsFinderTest {
   }
 
   @Test
+  @SuppressWarnings("PMD.PrematureDeclaration")
   public void onlyNonGeneratedSrcsShouldAffectRuleKey() throws IOException {
     TestDataHelper.createProjectWorkspaceForScenario(
         this,
@@ -110,12 +109,8 @@ public class JavaLibrarySymbolsFinderTest {
         .setUp();
     final ProjectFilesystem projectFilesystem = new ProjectFilesystem(tmp.getRoot());
 
-    Function<String, SourcePath> convert = new Function<String, SourcePath>() {
-      @Override
-      public SourcePath apply(String src) {
-        return SourcePaths.toSourcePath(projectFilesystem).apply(MorePaths.TO_PATH.apply(src));
-      }
-    };
+    Function<String, SourcePath> convert =
+        src -> SourcePaths.toSourcePath(projectFilesystem).apply(Paths.get(src));
     SourcePath example1 = convert.apply("Example1.java");
     SourcePath example2 = convert.apply("Example2.java");
     final BuildTarget fakeBuildTarget = BuildTargetFactory.newInstance("//foo:GenEx.java");
@@ -139,37 +134,28 @@ public class JavaLibrarySymbolsFinderTest {
     // DefaultRuleKeyBuilderFactory.
     final SourcePathResolver pathResolver = createMock(SourcePathResolver.class);
     expect(pathResolver.getRule(anyObject(SourcePath.class)))
-        .andAnswer(new IAnswer<Optional<BuildRule>>() {
-          @Override
-          public Optional<BuildRule> answer() throws Throwable {
-            SourcePath input = (SourcePath) EasyMock.getCurrentArguments()[0];
-            if (input instanceof BuildTargetSourcePath) {
-              return Optional.<BuildRule>of(new FakeBuildRule(fakeBuildTarget, pathResolver));
-            } else {
-              return Optional.absent();
-            }
+        .andAnswer(() -> {
+          SourcePath input = (SourcePath) EasyMock.getCurrentArguments()[0];
+          if (input instanceof BuildTargetSourcePath) {
+            return Optional.of(new FakeBuildRule(fakeBuildTarget, pathResolver));
+          } else {
+            return Optional.empty();
           }
         })
         .anyTimes();
     expect(pathResolver.getRelativePath(anyObject(SourcePath.class)))
-        .andAnswer(new IAnswer<Path>() {
-          @Override
-          public Path answer() throws Throwable {
-            SourcePath input = (SourcePath) EasyMock.getCurrentArguments()[0];
-            assertTrue(input instanceof PathSourcePath);
-            return ((PathSourcePath) input).getRelativePath();
-          }
+        .andAnswer(() -> {
+          SourcePath input = (SourcePath) EasyMock.getCurrentArguments()[0];
+          assertTrue(input instanceof PathSourcePath);
+          return ((PathSourcePath) input).getRelativePath();
         })
         .anyTimes();
     expect(pathResolver.getAbsolutePath(anyObject(SourcePath.class)))
-        .andAnswer(new IAnswer<Path>() {
-          @Override
-          public Path answer() throws Throwable {
-            SourcePath input = (SourcePath) EasyMock.getCurrentArguments()[0];
-            assertTrue(input instanceof PathSourcePath);
-            Path relativePath = ((PathSourcePath) input).getRelativePath();
-            return projectFilesystem.resolve(relativePath);
-          }
+        .andAnswer(() -> {
+          SourcePath input = (SourcePath) EasyMock.getCurrentArguments()[0];
+          assertTrue(input instanceof PathSourcePath);
+          Path relativePath = ((PathSourcePath) input).getRelativePath();
+          return projectFilesystem.resolve(relativePath);
         })
         .anyTimes();
     replay(pathResolver);
@@ -182,18 +168,15 @@ public class JavaLibrarySymbolsFinderTest {
         fileHashCache,
         pathResolver);
     Function<JavaLibrarySymbolsFinder, RuleKey> createRuleKey =
-        new Function<JavaLibrarySymbolsFinder, RuleKey>() {
-          @Override
-          public RuleKey apply(JavaLibrarySymbolsFinder finder) {
-            JavaSymbolsRule javaSymbolsRule = new JavaSymbolsRule(
-                BuildTargetFactory.newInstance("//foo:rule"),
-                finder,
-                /* generatedSymbols */ ImmutableSortedSet.<String>of(),
-                ObjectMappers.newDefaultInstance(),
-                projectFilesystem
-            );
-            return ruleKeyBuilderFactory.newInstance(javaSymbolsRule).build();
-          }
+        finder -> {
+          JavaSymbolsRule javaSymbolsRule = new JavaSymbolsRule(
+              BuildTargetFactory.newInstance("//foo:rule"),
+              finder,
+              /* generatedSymbols */ ImmutableSortedSet.of(),
+              ObjectMappers.newDefaultInstance(),
+              projectFilesystem
+          );
+          return ruleKeyBuilderFactory.newInstance(javaSymbolsRule).build();
         };
 
     RuleKey key1 = createRuleKey.apply(example1Finder);

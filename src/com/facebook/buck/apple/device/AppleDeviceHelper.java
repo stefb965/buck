@@ -19,19 +19,14 @@ package com.facebook.buck.apple.device;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
-
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
 import java.io.IOException;
-
 import java.nio.file.Path;
-
 import java.util.EnumSet;
+import java.util.Optional;
 import java.util.Set;
-
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -59,8 +54,7 @@ public class AppleDeviceHelper {
    * @throws IOException
    * @throws InterruptedException
    */
-  public ImmutableMap<String, String> getConnectedDevices() throws IOException,
-      InterruptedException {
+  public ImmutableMap<String, String> getConnectedDevices() {
     ProcessExecutorParams processExecutorParams =
         ProcessExecutorParams.builder()
             .setCommand(
@@ -74,9 +68,9 @@ public class AppleDeviceHelper {
       result = processExecutor.launchAndExecute(
           processExecutorParams,
           options,
-              /* stdin */ Optional.<String>absent(),
-              /* timeOutMs */ Optional.<Long>of((long) 5000),
-              /* timeOutHandler */ Optional.<Function<Process, Void>>absent());
+              /* stdin */ Optional.empty(),
+              /* timeOutMs */ Optional.of((long) 5000),
+              /* timeOutHandler */ Optional.empty());
     } catch (InterruptedException | IOException e) {
       LOG.warn("Could not execute device helper.");
       return ImmutableMap.of();
@@ -123,9 +117,9 @@ public class AppleDeviceHelper {
       result = processExecutor.launchAndExecute(
           processExecutorParams,
           options,
-              /* stdin */ Optional.<String>absent(),
-              /* timeOutMs */ Optional.<Long>of((long) 60000),
-              /* timeOutHandler */ Optional.<Function<Process, Void>>absent());
+              /* stdin */ Optional.empty(),
+              /* timeOutMs */ Optional.of((long) 60000),
+              /* timeOutHandler */ Optional.empty());
     } catch (InterruptedException | IOException e) {
       LOG.warn("Could not execute device helper.");
       return false;
@@ -160,9 +154,9 @@ public class AppleDeviceHelper {
       result = processExecutor.launchAndExecute(
           processExecutorParams,
           options,
-              /* stdin */ Optional.<String>absent(),
-              /* timeOutMs */ Optional.<Long>of((long) 60000),
-              /* timeOutHandler */ Optional.<Function<Process, Void>>absent());
+              /* stdin */ Optional.empty(),
+              /* timeOutMs */ Optional.of((long) 60000),
+              /* timeOutHandler */ Optional.empty());
     } catch (InterruptedException | IOException e) {
       LOG.warn("Could not execute device helper.");
       return false;

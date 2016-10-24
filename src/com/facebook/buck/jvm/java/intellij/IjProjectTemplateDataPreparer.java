@@ -19,13 +19,11 @@ package com.facebook.buck.jvm.java.intellij;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
-import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
-import com.google.common.base.Predicate;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -43,6 +41,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import javax.annotation.Nullable;
@@ -121,15 +120,9 @@ public class IjProjectTemplateDataPreparer {
         if (!folder.getWantsPackagePrefix()) {
           continue;
         }
-        Optional<Path> firstJavaFile = FluentIterable.from(folder.getInputs())
-            .filter(
-                new Predicate<Path>() {
-                  @Override
-                  public boolean apply(Path input) {
-                    return input.getFileName().toString().endsWith(".java");
-                  }
-                })
-            .first();
+        Optional<Path> firstJavaFile = folder.getInputs().stream()
+            .filter(input -> input.getFileName().toString().endsWith(".java"))
+            .findFirst();
         if (firstJavaFile.isPresent()) {
           builder.add(firstJavaFile.get());
         }
@@ -150,7 +143,7 @@ public class IjProjectTemplateDataPreparer {
       supplementalModules = ImmutableSet.of(
           IjModule.builder()
               .setModuleBasePath(rootModuleBasePath)
-              .setTargets(ImmutableSet.<TargetNode<?>>of())
+              .setTargets(ImmutableSet.of())
               .build());
     }
 
@@ -315,9 +308,9 @@ public class IjProjectTemplateDataPreparer {
   }
 
   public ImmutableSet<IjSourceFolder> getGeneratedSourceFolders(final IjModule module) {
-    return FluentIterable.from(module.getGeneratedSourceCodeFolders())
-        .transform(new IjFolderToIjSourceFolderTransform(module))
-        .toSet();
+    return module.getGeneratedSourceCodeFolders().stream()
+        .map(new IjFolderToIjSourceFolderTransform(module)::apply)
+        .collect(MoreCollectors.toImmutableSet());
   }
 
   public ImmutableSet<DependencyEntry> getDependencies(IjModule module) {
@@ -354,25 +347,22 @@ public class IjProjectTemplateDataPreparer {
     return FluentIterable.from(modulesToBeWritten)
         .filter(IjModule.class)
         .transform(
-            new Function<IjModule, ModuleIndexEntry>() {
-              @Override
-              public ModuleIndexEntry apply(IjModule module) {
-                Path moduleOutputFilePath = module.getModuleImlFilePath();
-                String fileUrl = toProjectDirRelativeString(moduleOutputFilePath);
-                // The root project module cannot belong to any group.
-                String group = (module.getModuleBasePath().toString().isEmpty()) ? null : "modules";
-                return  ModuleIndexEntry.builder()
-                    .setFileUrl(fileUrl)
-                    .setFilePath(moduleOutputFilePath)
-                    .setGroup(group)
-                    .build();
-              }
+            module -> {
+              Path moduleOutputFilePath = module.getModuleImlFilePath();
+              String fileUrl = toProjectDirRelativeString(moduleOutputFilePath);
+              // The root project module cannot belong to any group.
+              String group = (module.getModuleBasePath().toString().isEmpty()) ? null : "modules";
+              return  ModuleIndexEntry.builder()
+                  .setFileUrl(fileUrl)
+                  .setFilePath(moduleOutputFilePath)
+                  .setGroup(group)
+                  .build();
             })
         .toSortedSet(Ordering.natural());
   }
 
 
-  public Map<String, Object> getAndroidProperties(IjModule module)  throws IOException {
+  public Map<String, Object> getAndroidProperties(IjModule module) {
     Map<String, Object> androidProperties = new HashMap<>();
     Optional<IjModuleAndroidFacet> androidFacetOptional = module.getAndroidFacet();
 
@@ -464,9 +454,8 @@ public class IjProjectTemplateDataPreparer {
     Optional<Path> androidManifestPath = androidFacet.getManifestPath();
     Path manifestPath;
     if (androidManifestPath.isPresent()) {
-      manifestPath = androidManifestPath.get()
-          .relativize(moduleBasePath.toAbsolutePath())
-          .resolve(androidManifestPath.get().getFileName());
+      manifestPath = projectFilesystem.resolve(moduleBasePath)
+          .relativize(androidManifestPath.get());
     } else {
       manifestPath = moduleBasePath
                       .relativize(

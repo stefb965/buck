@@ -19,12 +19,13 @@ package com.facebook.buck.rules;
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.util.HumanReadableException;
-import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
+
+import java.util.Optional;
 
 public class BuildRules {
 
@@ -52,12 +53,7 @@ public class BuildRules {
   }
 
   public static Predicate<BuildRule> isBuildRuleWithTarget(final BuildTarget target) {
-    return new Predicate<BuildRule>() {
-      @Override
-      public boolean apply(BuildRule input) {
-        return input.getBuildTarget().equals(target);
-      }
-    };
+    return input -> input.getBuildTarget().equals(target);
   }
 
   /**

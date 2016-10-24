@@ -16,8 +16,6 @@
 
 package com.facebook.buck.jvm.java;
 
-import static com.google.common.base.Optional.fromNullable;
-
 import com.facebook.buck.model.Either;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.RuleKeyAppendable;
@@ -25,12 +23,11 @@ import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
-import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -41,6 +38,7 @@ import java.io.File;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -198,7 +196,7 @@ abstract class AbstractJavacOptions implements RuleKeyAppendable {
           Joiner.on(File.pathSeparator).join(
               FluentIterable.from(getAnnotationProcessingParams().getSearchPathElements())
                   .transform(pathRelativizer)
-                  .transform(Functions.toStringFunction())));
+                  .transform(Object::toString)));
 
       // Specify names of processors.
       if (!getAnnotationProcessingParams().getNames().isEmpty()) {
@@ -253,9 +251,9 @@ abstract class AbstractJavacOptions implements RuleKeyAppendable {
         // And now include any transitive deps that contribute to the classpath.
         if (rule instanceof JavaLibrary) {
           builder.addAll(
-              FluentIterable.from(((JavaLibrary) rule).getDepsForTransitiveClasspathEntries())
-                  .transform(SourcePaths.getToBuildTargetSourcePath())
-                  .toList());
+              ((JavaLibrary) rule).getDepsForTransitiveClasspathEntries().stream()
+                  .map(SourcePaths.getToBuildTargetSourcePath()::apply)
+                  .collect(MoreCollectors.toImmutableList()));
         } else {
           builder.add(sourcePath);
         }
@@ -276,6 +274,6 @@ abstract class AbstractJavacOptions implements RuleKeyAppendable {
   }
 
   public final Optional<Path> getGeneratedSourceFolderName() {
-    return fromNullable(getAnnotationProcessingParams().getGeneratedSourceFolderName());
+    return Optional.ofNullable(getAnnotationProcessingParams().getGeneratedSourceFolderName());
   }
 }

@@ -103,10 +103,12 @@ class BuckTest(unittest.TestCase):
             self.build_file_name,
             self.allow_empty_globs,
             False,              # ignore_buck_autodeps_files
+            False,              # no_autodeps_signatures
             self.watchman_client,
             self.watchman_error,
             False,              # watchman_glob_stat_results
             False,              # watchman_use_glob_generator
+            False,              # use_mercurial_glob
             self.enable_build_file_sandboxing,
             self.project_import_whitelist,
             includes or [],

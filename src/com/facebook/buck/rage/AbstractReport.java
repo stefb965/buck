@@ -21,11 +21,11 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.LogConfigPaths;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildId;
+import com.facebook.buck.util.OptionalCompat;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.environment.BuildEnvironmentDescription;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -39,11 +39,13 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 
 /**
  * Base class for gathering logs and other interesting information from buck.
  */
 public abstract class AbstractReport {
+
   private static final Logger LOG = Logger.get(AbstractReport.class);
 
   private final ProjectFilesystem filesystem;
@@ -69,23 +71,25 @@ public abstract class AbstractReport {
   }
 
   protected abstract ImmutableSet<BuildLogEntry> promptForBuildSelection() throws IOException;
+
   protected abstract Optional<SourceControlInfo> getSourceControlInfo()
       throws IOException, InterruptedException;
+
   protected abstract Optional<UserReport> getUserReport() throws IOException;
 
   public final Optional<DefectSubmitResult> collectAndSubmitResult()
       throws IOException, InterruptedException {
 
-    ImmutableSet<BuildLogEntry> highlightedBuilds = promptForBuildSelection();
-    if (highlightedBuilds.isEmpty()) {
-      return Optional.absent();
+    ImmutableSet<BuildLogEntry> selectedBuilds = promptForBuildSelection();
+    if (selectedBuilds.isEmpty()) {
+      return Optional.empty();
     }
 
     Optional<UserReport> userReport = getUserReport();
     Optional<SourceControlInfo> sourceControlInfo = getSourceControlInfo();
 
     ImmutableSet<Path> extraInfoPaths = ImmutableSet.of();
-    Optional<String> extraInfo = Optional.absent();
+    Optional<String> extraInfo = Optional.empty();
     try {
       Optional<ExtraInfoResult> extraInfoResultOptional = extraInfoCollector.run();
       if (extraInfoResultOptional.isPresent()) {
@@ -100,31 +104,32 @@ public abstract class AbstractReport {
     UserLocalConfiguration userLocalConfiguration =
         UserLocalConfiguration.of(isNoBuckCheckPresent(), getLocalConfigs());
 
-    ImmutableSet<Path> includedPaths = FluentIterable.from(highlightedBuilds)
+    ImmutableSet<Path> includedPaths = FluentIterable.from(selectedBuilds)
         .transformAndConcat(
             new Function<BuildLogEntry, Iterable<Path>>() {
               @Override
               public Iterable<Path> apply(BuildLogEntry input) {
                 ImmutableSet.Builder<Path> result = ImmutableSet.builder();
                 Optionals.addIfPresent(input.getRuleKeyLoggerLogFile(), result);
+                Optionals.addIfPresent(input.getMachineReadableLogFile(), result);
                 result.add(input.getRelativePath());
                 return result.build();
               }
             })
         .append(extraInfoPaths)
         .append(userLocalConfiguration.getLocalConfigsContents().keySet())
-        .append(getTracePathsOfBuilds(highlightedBuilds))
+        .append(getTracePathsOfBuilds(selectedBuilds))
         .toSet();
 
     DefectReport defectReport = DefectReport.builder()
         .setUserReport(userReport)
         .setHighlightedBuildIds(
-            FluentIterable.from(highlightedBuilds)
+            FluentIterable.from(selectedBuilds)
                 .transformAndConcat(
                     new Function<BuildLogEntry, Iterable<BuildId>>() {
                       @Override
                       public Iterable<BuildId> apply(BuildLogEntry input) {
-                        return input.getBuildId().asSet();
+                        return OptionalCompat.asSet(input.getBuildId());
                       }
                     }))
         .setBuildEnvironmentDescription(buildEnvironmentDescription)
@@ -136,6 +141,31 @@ public abstract class AbstractReport {
 
     output.println("Writing report, please wait..");
     return Optional.of(defectReporter.submitReport(defectReport));
+  }
+
+  public void presentDefectSubmitResult(Optional<DefectSubmitResult> defectSubmitResult) {
+    if (!defectSubmitResult.isPresent()) {
+      output.println("No logs of interesting commands were found. Check if buck-out/log contains " +
+          "commands except buck launch & buck rage.");
+      return;
+    }
+
+    String reportLocation = defectSubmitResult.get().getReportSubmitLocation();
+    if (defectSubmitResult.get().getUploadSuccess().isPresent()) {
+      if (defectSubmitResult.get().getUploadSuccess().get()) {
+        output.printf(
+            "Uploading report to %s\n%s",
+            reportLocation,
+            defectSubmitResult.get().getReportSubmitMessage().get());
+      } else {
+        output.printf(
+            "%s\nReport saved at %s\n",
+            defectSubmitResult.get().getReportSubmitErrorMessage().get(),
+            reportLocation);
+      }
+    } else {
+      output.printf("Report saved at %s\n", reportLocation);
+    }
   }
 
   @Value.Immutable

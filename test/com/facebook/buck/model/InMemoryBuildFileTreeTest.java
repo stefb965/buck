@@ -19,8 +19,7 @@ package com.facebook.buck.model;
 import static com.facebook.buck.io.MorePaths.pathWithPlatformSeparators;
 import static org.junit.Assert.assertEquals;
 
-import com.google.common.base.Functions;
-import com.google.common.collect.FluentIterable;
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.collect.ImmutableSet;
 
 import org.junit.Rule;
@@ -58,7 +57,7 @@ public class InMemoryBuildFileTreeTest {
     assertGetChildPaths("java/com/facebook/common",
         ImmutableSet.of("rpc", "ui"));
     assertGetChildPaths("java/com/facebook/common/rpc",
-        ImmutableSet.<String>of());
+        ImmutableSet.of());
   }
 
   private void assertGetChildPaths(String parent, Set<String> expectedChildren) {
@@ -66,6 +65,8 @@ public class InMemoryBuildFileTreeTest {
 
     assertEquals(
         expectedChildren,
-        FluentIterable.from(children).transform(Functions.toStringFunction()).toSet());
+        children.stream()
+            .map(Object::toString)
+            .collect(MoreCollectors.toImmutableSet()));
   }
 }

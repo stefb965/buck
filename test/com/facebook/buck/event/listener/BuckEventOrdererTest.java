@@ -23,6 +23,7 @@ import com.facebook.buck.event.AbstractBuckEvent;
 import com.facebook.buck.event.BuckEvent;
 import com.facebook.buck.event.PerfEventId;
 import com.facebook.buck.event.SimplePerfEvent;
+import com.facebook.buck.event.external.events.BuckEventExternalInterface;
 import com.google.common.base.Function;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableMap;
@@ -34,8 +35,6 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.concurrent.TimeUnit;
 
-import javax.annotation.Nullable;
-
 
 public class BuckEventOrdererTest {
 
@@ -43,23 +42,11 @@ public class BuckEventOrdererTest {
   private static final long THREAD_TWO = 2;
   private static final long MAX_SKEW = 10;
   private static final Function<BuckEvent, Long> TO_EVENT_TIMESTAMP_FUNCTION =
-      new Function<BuckEvent, Long>() {
-        @Override
-        public Long apply(BuckEvent input) {
-          return input.getTimestamp();
-        }
-      };
+      BuckEventExternalInterface::getTimestamp;
 
   private Deque<BuckEvent> serializedEvents = new ArrayDeque<>();
-  private Function<BuckEvent, Void> addToSerializedEventsFunction =
-      new Function<BuckEvent, Void>() {
-        @Nullable
-        @Override
-        public Void apply(BuckEvent input) {
-          serializedEvents.add(input);
-          return null;
-        }
-      };
+  private java.util.function.Consumer<BuckEvent> addToSerializedEventsFunction =
+    serializedEvents::add;
 
   @Test
   public void testMergesSingleSetOfSerialEvents() {
@@ -240,7 +227,7 @@ public class BuckEventOrdererTest {
     return configureTestEventAtTime(
         (AbstractBuckEvent) SimplePerfEvent.started(
             PerfEventId.of("BuckEventOrdererTest"),
-            ImmutableMap.<String, Object>of(
+            ImmutableMap.of(
             "seqNo", seqNo++,
             "time", timeInMs,
             "thread", threadId)),

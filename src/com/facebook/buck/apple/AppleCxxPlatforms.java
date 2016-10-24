@@ -31,6 +31,7 @@ import com.facebook.buck.cxx.DebugPathSanitizer;
 import com.facebook.buck.cxx.DefaultLinkerProvider;
 import com.facebook.buck.cxx.LinkerProvider;
 import com.facebook.buck.cxx.Linkers;
+import com.facebook.buck.cxx.MungingDebugPathSanitizer;
 import com.facebook.buck.cxx.PosixNmSymbolNameTool;
 import com.facebook.buck.cxx.PreprocessorProvider;
 import com.facebook.buck.io.ExecutableFinder;
@@ -42,15 +43,14 @@ import com.facebook.buck.rules.VersionedTool;
 import com.facebook.buck.swift.SwiftPlatform;
 import com.facebook.buck.swift.SwiftPlatforms;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.ProcessExecutor;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Function;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Iterables;
 
 import org.xml.sax.SAXException;
 
@@ -62,6 +62,7 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.text.ParseException;
+import java.util.Optional;
 
 import javax.xml.parsers.ParserConfigurationException;
 
@@ -145,7 +146,7 @@ public class AppleCxxPlatforms {
 
 
     // Populate Xcode version keys from Xcode's own Info.plist if available.
-    Optional<String> xcodeBuildVersion = Optional.absent();
+    Optional<String> xcodeBuildVersion = Optional.empty();
     Optional<Path> developerPath = sdkPaths.getDeveloperPath();
     if (developerPath.isPresent()) {
       Path xcodeBundlePath = developerPath.get().getParent();
@@ -176,31 +177,22 @@ public class AppleCxxPlatforms {
       // Get the Xcode build version as reported by `xcodebuild -version`.  This is
       // different than the build number in the Info.plist, sigh.
       if (processExecutor.isPresent()) {
-        try {
-          xcodeBuildVersion = appleConfig
-              .getXcodeBuildVersionSupplier(developerPath.get(), processExecutor.get())
-              .get();
-          platformBuilder.setXcodeBuildVersion(xcodeBuildVersion);
-          LOG.debug("Xcode build version is: " + xcodeBuildVersion.or("<absent>"));
-        } catch (IOException e) {
-          LOG.debug("Error in getting Xcode build version");
-        }
+        xcodeBuildVersion = appleConfig
+            .getXcodeBuildVersionSupplier(developerPath.get(), processExecutor.get())
+            .get();
+        platformBuilder.setXcodeBuildVersion(xcodeBuildVersion);
+        LOG.debug("Xcode build version is: " + xcodeBuildVersion.orElse("<absent>"));
       }
     }
 
     ImmutableList.Builder<String> versions = ImmutableList.builder();
     versions.add(targetSdk.getVersion());
 
-    ImmutableList<String> toolchainVersions = ImmutableList.copyOf(
-        Optional.presentInstances(
-            Iterables.transform(
-                targetSdk.getToolchains(),
-                new Function<AppleToolchain, Optional<String>>() {
-                  @Override
-                  public Optional<String> apply(AppleToolchain input) {
-                    return input.getVersion();
-                  }
-                })));
+    ImmutableList<String> toolchainVersions =
+        targetSdk.getToolchains().stream()
+            .map(AppleToolchain::getVersion)
+            .flatMap(Optionals::toStream)
+            .collect(MoreCollectors.toImmutableList());
     if (toolchainVersions.isEmpty()) {
       if (!xcodeBuildVersion.isPresent()) {
         throw new HumanReadableException("Failed to read toolchain versions and Xcode version.");
@@ -280,13 +272,8 @@ public class AppleCxxPlatforms {
         "lldb",
         version);
 
-    Optional<Path> stubBinaryPath = targetSdk.getApplePlatform().getStubBinaryPath().transform(
-        new Function<Path, Path>() {
-          @Override
-          public Path apply(Path input) {
-            return sdkPaths.getSdkPath().resolve(input);
-          }
-        });
+    Optional<Path> stubBinaryPath = targetSdk.getApplePlatform().getStubBinaryPath()
+        .map(input -> sdkPaths.getSdkPath().resolve(input));
 
     CxxBuckConfig config = new CxxBuckConfig(buckConfig);
 
@@ -301,7 +288,7 @@ public class AppleCxxPlatforms {
       sanitizerPaths.put(sdkPaths.getDeveloperPath().get(), Paths.get("APPLE_DEVELOPER_DIR"));
     }
 
-    DebugPathSanitizer debugPathSanitizer = new DebugPathSanitizer(
+    DebugPathSanitizer debugPathSanitizer = new MungingDebugPathSanitizer(
         config.getDebugPathSanitizerLimit(),
         File.separatorChar,
         Paths.get("."),
@@ -328,13 +315,13 @@ public class AppleCxxPlatforms {
         LOG.warn(
             "In %s, missing ProductBuildVersion. Build version will be unset for this platform.",
             platformVersionPlistPath);
-        buildVersion = Optional.absent();
+        buildVersion = Optional.empty();
       }
     } catch (NoSuchFileException e) {
       LOG.warn(
           "%s does not exist. Build version will be unset for this platform.",
           platformVersionPlistPath);
-      buildVersion = Optional.absent();
+      buildVersion = Optional.empty();
     } catch (PropertyListFormatException | SAXException | ParserConfigurationException |
         ParseException | IOException e) {
       // Some other error occurred, print the exception since it may contain error details.
@@ -342,7 +329,7 @@ public class AppleCxxPlatforms {
           e,
           "Failed to parse %s. Build version will be unset for this platform.",
           platformVersionPlistPath);
-      buildVersion = Optional.absent();
+      buildVersion = Optional.empty();
     }
 
     PreprocessorProvider aspp =
@@ -391,9 +378,9 @@ public class AppleCxxPlatforms {
         ranlib,
         new PosixNmSymbolNameTool(nm),
         cflagsBuilder.build(),
-        ImmutableList.<String>of(),
+        ImmutableList.of(),
         cflags,
-        ImmutableList.<String>of(),
+        ImmutableList.of(),
         "dylib",
         "%s.dylib",
         "a",
@@ -411,7 +398,7 @@ public class AppleCxxPlatforms {
     Optional<SwiftPlatform> swiftPlatform = getSwiftPlatform(
         applePlatform.getName(),
         targetArchitecture + "-apple-" +
-            applePlatform.getSwiftName().or(applePlatform.getName()) + minVersion,
+            applePlatform.getSwiftName().orElse(applePlatform.getName()) + minVersion,
         version,
         swiftSdkPathsBuilder.build(),
         swiftOverrideSearchPathBuilder
@@ -482,7 +469,7 @@ public class AppleCxxPlatforms {
               swift.get(),
               swiftStdLibTool.get()));
     } else {
-      return Optional.absent();
+      return Optional.empty();
     }
   }
 
@@ -496,7 +483,7 @@ public class AppleCxxPlatforms {
         toolSearchPaths,
         executableFinder,
         version,
-        ImmutableList.<String>of());
+        ImmutableList.of());
   }
 
   private static Optional<Tool> getOptionalToolWithParams(
@@ -505,18 +492,14 @@ public class AppleCxxPlatforms {
       ExecutableFinder executableFinder,
       final String version,
       final ImmutableList<String> params) {
-    return executableFinder.getOptionalToolPath(tool, toolSearchPaths)
-        .transform(new Function<Path, Tool>() {
-          @Override
-          public VersionedTool apply(Path input) {
-            return VersionedTool.builder()
-                .setPath(input)
-                .setName(tool)
-                .setVersion(version)
-                .setExtraArgs(params)
-                .build();
-          }
-        });
+    return executableFinder.getOptionalToolPath(
+        tool,
+        toolSearchPaths).map(input -> VersionedTool.builder()
+        .setPath(input)
+        .setName(tool)
+        .setVersion(version)
+        .setExtraArgs(params)
+        .build());
   }
 
   private static Path getToolPath(

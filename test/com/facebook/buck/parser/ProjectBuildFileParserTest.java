@@ -27,7 +27,6 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.ExecutableFinder;
-import com.facebook.buck.io.PathOrGlobMatcher;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.io.WatchmanDiagnostic;
 import com.facebook.buck.io.WatchmanDiagnosticCache;
@@ -45,14 +44,12 @@ import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.timing.FakeClock;
 import com.facebook.buck.util.Console;
+import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.FakeProcess;
 import com.facebook.buck.util.FakeProcessExecutor;
 import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.ProcessExecutor;
-import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.environment.Platform;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -75,6 +72,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 public class ProjectBuildFileParserTest {
@@ -108,7 +106,7 @@ public class ProjectBuildFileParserTest {
         returnCode,
         new ByteArrayOutputStream(),
         new ByteArrayInputStream(buffer.array()),
-        new ByteArrayInputStream(stdout.or("").getBytes(StandardCharsets.UTF_8)));
+        new ByteArrayInputStream(stdout.orElse("").getBytes(StandardCharsets.UTF_8)));
   }
 
   @Test
@@ -329,7 +327,7 @@ public class ProjectBuildFileParserTest {
           new ExecutableFinder());
       return new TestProjectBuildFileParser(
           config.getPythonInterpreter(),
-          new ProcessExecutor(console),
+          new DefaultProcessExecutor(console),
           BuckEventBusFactory.newInstance(),
           watchmanDiagnosticCache);
     }
@@ -338,16 +336,11 @@ public class ProjectBuildFileParserTest {
       return new TestProjectBuildFileParser(
           "fake-python",
           new FakeProcessExecutor(
-              new Function<ProcessExecutorParams, FakeProcess>() {
-                @Override
-                public FakeProcess apply(ProcessExecutorParams params) {
-                  return fakeProcessWithBserOutput(
-                      1,
-                      ImmutableList.of(),
-                      Optional.<List<Object>>absent(),
-                      Optional.<String>absent());
-                }
-              },
+              params -> fakeProcessWithBserOutput(
+                  1,
+                  ImmutableList.of(),
+                  Optional.empty(),
+                  Optional.empty()),
               new TestConsole()),
           BuckEventBusFactory.newInstance(),
           watchmanDiagnosticCache);
@@ -357,16 +350,11 @@ public class ProjectBuildFileParserTest {
       return new TestProjectBuildFileParser(
           "fake-python",
           new FakeProcessExecutor(
-              new Function<ProcessExecutorParams, FakeProcess>() {
-                @Override
-                public FakeProcess apply(ProcessExecutorParams params) {
-                  return fakeProcessWithBserOutput(
-                      0,
-                      ImmutableList.of(),
-                      Optional.<List<Object>>absent(),
-                      Optional.<String>absent());
-                }
-              },
+              params -> fakeProcessWithBserOutput(
+                  0,
+                  ImmutableList.of(),
+                  Optional.empty(),
+                  Optional.empty()),
               new TestConsole()),
           BuckEventBusFactory.newInstance(),
           watchmanDiagnosticCache);
@@ -377,16 +365,11 @@ public class ProjectBuildFileParserTest {
       return new TestProjectBuildFileParser(
           "fake-python",
           new FakeProcessExecutor(
-              new Function<ProcessExecutorParams, FakeProcess>() {
-                @Override
-                public FakeProcess apply(ProcessExecutorParams params) {
-                  return fakeProcessWithBserOutput(
-                      0,
-                      ImmutableList.of(),
-                      Optional.<List<Object>>absent(),
-                      Optional.of("Don't Panic!"));
-                }
-              },
+              params -> fakeProcessWithBserOutput(
+                  0,
+                  ImmutableList.of(),
+                  Optional.empty(),
+                  Optional.of("Don't Panic!")),
               new TestConsole()),
           buckEventBus,
           watchmanDiagnosticCache);
@@ -399,24 +382,19 @@ public class ProjectBuildFileParserTest {
       return new TestProjectBuildFileParser(
           "fake-python",
           new FakeProcessExecutor(
-              new Function<ProcessExecutorParams, FakeProcess>() {
-                @Override
-                public FakeProcess apply(ProcessExecutorParams params) {
-                  return fakeProcessWithBserOutput(
-                      0,
-                      ImmutableList.of(),
-                      Optional.<List<Object>>of(
-                          ImmutableList.<Object>of(
-                              ImmutableMap.of(
-                                  "level",
-                                  "warning",
-                                  "message",
-                                  warning,
-                                  "source",
-                                  source))),
-                      Optional.<String>absent());
-                }
-              },
+              params -> fakeProcessWithBserOutput(
+                  0,
+                  ImmutableList.of(),
+                  Optional.of(
+                      ImmutableList.of(
+                          ImmutableMap.of(
+                              "level",
+                              "warning",
+                              "message",
+                              warning,
+                              "source",
+                              source))),
+                  Optional.empty()),
               new TestConsole()),
           buckEventBus,
           watchmanDiagnosticCache);
@@ -429,24 +407,19 @@ public class ProjectBuildFileParserTest {
       return new TestProjectBuildFileParser(
           "fake-python",
           new FakeProcessExecutor(
-              new Function<ProcessExecutorParams, FakeProcess>() {
-                @Override
-                public FakeProcess apply(ProcessExecutorParams params) {
-                  return fakeProcessWithBserOutput(
-                      0,
-                      ImmutableList.of(),
-                      Optional.<List<Object>>of(
-                          ImmutableList.<Object>of(
-                              ImmutableMap.of(
-                                  "level",
-                                  "error",
-                                  "message",
-                                  error,
-                                  "source",
-                                  source))),
-                      Optional.<String>absent());
-                }
-              },
+              params -> fakeProcessWithBserOutput(
+                  0,
+                  ImmutableList.of(),
+                  Optional.of(
+                      ImmutableList.of(
+                          ImmutableMap.of(
+                              "level",
+                              "error",
+                              "message",
+                              error,
+                              "source",
+                              source))),
+                  Optional.empty()),
               new TestConsole()),
           buckEventBus,
           watchmanDiagnosticCache);
@@ -463,16 +436,16 @@ public class ProjectBuildFileParserTest {
                 .setProjectRoot(projectRoot)
                 .setPythonInterpreter(pythonInterpreter)
                 .setAllowEmptyGlobs(ParserConfig.DEFAULT_ALLOW_EMPTY_GLOBS)
-                .setIgnorePaths(ImmutableSet.<PathOrGlobMatcher>of())
+                .setIgnorePaths(ImmutableSet.of())
                 .setBuildFileName(DEFAULT_BUILD_FILE_NAME)
                 .setDefaultIncludes(ImmutableSet.of("//java/com/facebook/defaultIncludeFile"))
                 .setDescriptions(buildRuleTypes.getAllDescriptions())
                 .setEnableBuildFileSandboxing(false)
-                .setBuildFileImportWhitelist(ImmutableList.<String>of())
+                .setBuildFileImportWhitelist(ImmutableList.of())
                 .build(),
             new ConstructorArgMarshaller(new DefaultTypeCoercerFactory(
                 ObjectMappers.newDefaultInstance())),
-            ImmutableMap.<String, String>of(),
+            ImmutableMap.of(),
             buckEventBus,
             new FakeProjectFilesystem(projectRoot),
             processExecutor,

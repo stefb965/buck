@@ -32,12 +32,12 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Optional;
 
 /**
  * Rule to generate a precompiled header from an existing header.
@@ -135,7 +135,7 @@ public class CxxPrecompiledHeader
   }
 
   @Override
-  public Optional<ImmutableSet<SourcePath>> getPossibleInputSourcePaths() throws IOException {
+  public Optional<ImmutableSet<SourcePath>> getPossibleInputSourcePaths() {
     return preprocessorDelegate.getPossibleInputSourcePaths();
   }
 
@@ -181,7 +181,7 @@ public class CxxPrecompiledHeader
                 preprocessorDelegate.getArguments(compilerFlags),
                 preprocessorDelegate.getEnvironment(),
                 preprocessorDelegate.getFlagsForColorDiagnostics())),
-        Optional.<CxxPreprocessAndCompileStep.ToolCommand>absent(),
+        Optional.empty(),
         preprocessorDelegate.getHeaderPathNormalizer(),
         sanitizer,
         preprocessorDelegate.getHeaderVerification(),

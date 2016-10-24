@@ -39,7 +39,6 @@ import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.base.Suppliers;
@@ -51,8 +50,8 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.logging.Level;
-import java.util.regex.Pattern;
 
 
 public class JavaTestDescription implements
@@ -122,7 +121,7 @@ public class JavaTestDescription implements
                     .addAll(BuildRules.getExportedRules(
                         Iterables.concat(
                             params.getDeclaredDeps().get(),
-                            resolver.getAllRules(args.providedDeps.get()))))
+                            resolver.getAllRules(args.providedDeps))))
                     .addAll(pathResolver.filterBuildRuleInputs(
                         javacOptions.getInputs(pathResolver)))
                     .build()
@@ -136,46 +135,46 @@ public class JavaTestDescription implements
             new DefaultJavaLibrary(
                 testsLibraryParams,
                 pathResolver,
-                args.srcs.get(),
+                args.srcs,
                 ResourceValidator.validateResources(
                     pathResolver,
                     params.getProjectFilesystem(),
-                    args.resources.get()),
+                    args.resources),
                 javacOptions.getGeneratedSourceFolderName(),
-                args.proguardConfig.transform(
-                    SourcePaths.toSourcePath(params.getProjectFilesystem())),
-                /* postprocessClassesCommands */ ImmutableList.<String>of(),
-                /* exportDeps */ ImmutableSortedSet.<BuildRule>of(),
-                /* providedDeps */ ImmutableSortedSet.<BuildRule>of(),
+                args.proguardConfig.map(
+                    SourcePaths.toSourcePath(params.getProjectFilesystem())::apply),
+                /* postprocessClassesCommands */ ImmutableList.of(),
+                /* exportDeps */ ImmutableSortedSet.of(),
+                /* providedDeps */ ImmutableSortedSet.of(),
                 new BuildTargetSourcePath(abiJarTarget),
                 javacOptions.trackClassUsage(),
-                /* additionalClasspathEntries */ ImmutableSet.<Path>of(),
+                /* additionalClasspathEntries */ ImmutableSet.of(),
                 new JavacToJarStepFactory(javacOptions, JavacOptionsAmender.IDENTITY),
                 args.resourcesRoot,
                 args.manifestFile,
                 args.mavenCoords,
-                /* tests */ ImmutableSortedSet.<BuildTarget>of(),
-                /* classesToRemoveFromJar */ ImmutableSet.<Pattern>of()
+                /* tests */ ImmutableSortedSet.of(),
+                /* classesToRemoveFromJar */ ImmutableSet.of()
             ));
 
   JavaTest javaTest =
       resolver.addToIndex(
           new JavaTest(
               params.copyWithDeps(
-                  Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of(testsLibrary)),
-                  Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+                  Suppliers.ofInstance(ImmutableSortedSet.of(testsLibrary)),
+                  Suppliers.ofInstance(ImmutableSortedSet.of())),
               pathResolver,
               testsLibrary,
-              args.testClasses.get(),
+              args.testClasses.orElse(ImmutableSortedSet.of()),
               /* additionalClasspathEntries */ ImmutableSet.<Path>of(),
-              args.labels.get(),
-              args.contacts.get(),
-              args.testType.or(TestType.JUNIT),
+              args.labels,
+              args.contacts,
+              args.testType.orElse(TestType.JUNIT),
               javaOptions.getJavaRuntimeLauncher(),
-              args.vmArgs.get(),
+              args.vmArgs,
               cxxLibraryEnhancement.nativeLibsEnvironment,
-              args.testRuleTimeoutMs.or(defaultTestRuleTimeoutMs),
-              args.env.get(),
+              args.testRuleTimeoutMs.map(Optional::of).orElse(defaultTestRuleTimeoutMs),
+              args.env,
               args.getRunTestSeparately(),
               args.getForkMode(),
               args.stdOutLogLevel,
@@ -219,7 +218,7 @@ public class JavaTestDescription implements
       CellPathResolver cellRoots,
       Arg constructorArg) {
     ImmutableSet.Builder<BuildTarget> deps = ImmutableSet.builder();
-    if (constructorArg.useCxxLibraries.or(false)) {
+    if (constructorArg.useCxxLibraries.orElse(false)) {
       deps.addAll(CxxPlatforms.getParseTimeDeps(cxxPlatform));
     }
     return deps.build();
@@ -228,24 +227,24 @@ public class JavaTestDescription implements
   @SuppressFieldNotInitialized
   public static class Arg extends JavaLibraryDescription.Arg {
     public Optional<ImmutableSortedSet<String>> testClasses;
-    public Optional<ImmutableSortedSet<String>> contacts;
-    public Optional<ImmutableSortedSet<Label>> labels;
-    public Optional<ImmutableList<String>> vmArgs;
+    public ImmutableSortedSet<String> contacts = ImmutableSortedSet.of();
+    public ImmutableSortedSet<Label> labels = ImmutableSortedSet.of();
+    public ImmutableList<String> vmArgs = ImmutableList.of();
     public Optional<TestType> testType;
     public Optional<Boolean> runTestSeparately;
     public Optional<ForkMode> forkMode;
     public Optional<Level> stdErrLogLevel;
     public Optional<Level> stdOutLogLevel;
     public Optional<Boolean> useCxxLibraries;
-    public Optional<ImmutableSet<BuildTarget>> cxxLibraryWhitelist;
+    public ImmutableSet<BuildTarget> cxxLibraryWhitelist = ImmutableSet.of();
     public Optional<Long> testRuleTimeoutMs;
-    public Optional<ImmutableMap<String, String>> env;
+    public ImmutableMap<String, String> env = ImmutableMap.of();
 
     public boolean getRunTestSeparately() {
-      return runTestSeparately.or(false);
+      return runTestSeparately.orElse(false);
     }
     public ForkMode getForkMode() {
-      return forkMode.or(ForkMode.NONE);
+      return forkMode.orElse(ForkMode.NONE);
     }
   }
 
@@ -256,22 +255,17 @@ public class JavaTestDescription implements
     public CxxLibraryEnhancement(
         BuildRuleParams params,
         Optional<Boolean> useCxxLibraries,
-        final Optional<ImmutableSet<BuildTarget>> cxxLibraryWhitelist,
+        final ImmutableSet<BuildTarget> cxxLibraryWhitelist,
         BuildRuleResolver resolver,
         SourcePathResolver pathResolver,
         CxxPlatform cxxPlatform) throws NoSuchBuildTargetException {
-      if (useCxxLibraries.or(false)) {
+      if (useCxxLibraries.orElse(false)) {
         SymlinkTree nativeLibsSymlinkTree =
             buildNativeLibsSymlinkTreeRule(params, pathResolver, cxxPlatform);
         Predicate<BuildRule> shouldInclude = Predicates.alwaysTrue();
-        if (cxxLibraryWhitelist.isPresent() && !cxxLibraryWhitelist.get().isEmpty()) {
-          shouldInclude = new Predicate<BuildRule>() {
-            @Override
-            public boolean apply(BuildRule input) {
-              return cxxLibraryWhitelist.get().contains(
-                  input.getBuildTarget().withFlavors());
-            }
-          };
+        if (!cxxLibraryWhitelist.isEmpty()) {
+          shouldInclude = input -> cxxLibraryWhitelist.contains(
+              input.getBuildTarget().withFlavors());
         }
         updatedParams = params.appendExtraDeps(ImmutableList.<BuildRule>builder()
             .add(nativeLibsSymlinkTree)

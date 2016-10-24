@@ -1,4 +1,3 @@
-#@# GENERATED FILE: DO NOT MODIFY d6945226726d512198097db55c23f35838ac9ecb #@#
 {
   "env-filter" : {
     "deps" : [ ],
@@ -15,19 +14,11 @@
       "//third-party/java/immutables:processor"
     ],
     "exported_deps" : [
-      "//src/com/facebook/buck/util:tristate",
+      "//src/com/facebook/buck/util:util",
       "//src/com/facebook/buck/util/environment:platform",
       "//src/com/facebook/buck/util/immutables:immutables",
       "//third-party/java/guava:guava",
       "//third-party/java/jna:jna"
-    ]
-  },
-  "platform" : {
-    "deps" : [
-      "//third-party/java/guava:guava"
-    ],
-    "exported_deps" : [
-      "//src/com/facebook/buck/log:api"
     ]
   }
 }

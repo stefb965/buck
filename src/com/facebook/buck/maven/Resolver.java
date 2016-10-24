@@ -22,10 +22,10 @@ import static org.eclipse.aether.util.artifact.JavaScopes.TEST;
 import com.facebook.buck.graph.MutableDirectedGraph;
 import com.facebook.buck.graph.TraversableGraph;
 import com.facebook.buck.io.MorePaths;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.concurrent.MostExecutors;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.collect.FluentIterable;
@@ -43,7 +43,6 @@ import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
 
 import org.apache.maven.model.Model;
-import org.apache.maven.model.Repository;
 import org.apache.maven.model.building.DefaultModelBuilderFactory;
 import org.apache.maven.model.building.DefaultModelBuildingRequest;
 import org.apache.maven.model.building.ModelBuilder;
@@ -99,6 +98,7 @@ import java.nio.file.Paths;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.SortedSet;
 import java.util.TreeSet;
 import java.util.concurrent.Callable;
@@ -147,14 +147,9 @@ public class Resolver {
     this.buckThirdPartyRelativePath = Paths.get(config.thirdParty);
     this.visibility = config.visibility;
 
-    this.repos = FluentIterable.from(config.repositories).transform(
-        new Function<ArtifactConfig.Repository, RemoteRepository>() {
-          @Override
-          public RemoteRepository apply(ArtifactConfig.Repository input) {
-            return AetherUtil.toRemoteRepository(input);
-          }
-        })
-        .toList();
+    this.repos = config.repositories.stream()
+        .map(AetherUtil::toRemoteRepository)
+        .collect(MoreCollectors.toImmutableList());
   }
 
   public void resolve(Collection<String> artifacts)
@@ -203,19 +198,10 @@ public class Resolver {
     @SuppressWarnings("unchecked")
     List<ListenableFuture<Map.Entry<Path, Prebuilt>>> results =
         (List<ListenableFuture<Map.Entry<Path, Prebuilt>>>) (List<?>)
-        exec.invokeAll(FluentIterable.from(graph.getNodes())
-            .transform(new Function<Artifact, Callable<Map.Entry<Path, Prebuilt>>>() {
-              @Override
-              public Callable<Map.Entry<Path, Prebuilt>> apply(final Artifact artifact) {
-                return new Callable<Map.Entry<Path, Prebuilt>>() {
-                  @Override
-                  public Map.Entry<Path, Prebuilt> call() throws Exception {
-                    return downloadArtifact(artifact, graph);
-                  }
-                };
-              }
-            })
-            .toList());
+        exec.invokeAll(graph.getNodes().stream()
+            .map(artifact ->
+                (Callable<Map.Entry<Path, Prebuilt>>) () -> downloadArtifact(artifact, graph))
+            .collect(MoreCollectors.toImmutableList()));
 
     try {
       return ImmutableSetMultimap.<Path, Prebuilt>builder()
@@ -230,7 +216,7 @@ public class Resolver {
   private Map.Entry<Path, Prebuilt> downloadArtifact(
       final Artifact artifactToDownload,
       TraversableGraph<Artifact> graph)
-      throws IOException, ArtifactResolutionException, InvalidVersionSpecificationException {
+      throws IOException, ArtifactResolutionException {
     String projectName = getProjectName(artifactToDownload);
     Path project = buckRepoRoot.resolve(buckThirdPartyRelativePath).resolve(projectName);
     Files.createDirectories(project);
@@ -301,7 +287,7 @@ public class Resolver {
 
   /**
    * @return {@link Path} to the file in {@code project} with filename consistent with the given
-   * {@link Artifact}, but with a newer version. If no such file exists, {@link Optional#absent} is
+   * {@link Artifact}, but with a newer version. If no such file exists, {@link Optional#empty} is
    * returned. If multiple such files are present one with the newest version will be returned.
    */
   @VisibleForTesting
@@ -343,7 +329,7 @@ public class Resolver {
 
     List<Version> newestPresent = Ordering.natural().greatestOf(versionsPresent, 1);
     if (newestPresent.isEmpty() || newestPresent.get(0).compareTo(artifactToDownloadVersion) <= 0) {
-      return Optional.absent();
+      return Optional.empty();
     } else {
       return Optional.of(
           project.resolve(
@@ -480,19 +466,16 @@ public class Resolver {
   }
 
   private ImmutableList<RemoteRepository> getReposFromPom(Model model) {
-    return FluentIterable.from(model.getRepositories())
-        .transform(new Function<Repository, RemoteRepository>() {
-          @Override
-          public RemoteRepository apply(Repository input) {
-            return new RemoteRepository.Builder(input.getId(), input.getLayout(), input.getUrl())
+    return model.getRepositories().stream()
+        .map(input ->
+            new RemoteRepository.Builder(input.getId(), input.getLayout(), input.getUrl())
                 .setReleasePolicy(toPolicy(input.getReleases()))
                 .setSnapshotPolicy(toPolicy(input.getSnapshots()))
-                .build();
-          }
-        })
-        .toList();
+                .build())
+        .collect(MoreCollectors.toImmutableList());
   }
 
+  @Nullable
   private RepositoryPolicy toPolicy(org.apache.maven.model.RepositoryPolicy policy) {
     if (policy != null) {
       return new RepositoryPolicy(
@@ -502,44 +485,39 @@ public class Resolver {
   }
 
   private ImmutableList<Dependency> getDependenciesFromPom(Model model) {
-    return FluentIterable.from(model.getDependencies())
-        .transform(new Function<org.apache.maven.model.Dependency, Dependency>() {
-          @Override
-          public Dependency apply(org.apache.maven.model.Dependency dep) {
-            ArtifactType stereotype = session.getArtifactTypeRegistry().get(dep.getType());
-            if (stereotype == null) {
-              stereotype = new DefaultArtifactType(dep.getType());
-            }
-
-            Map<String, String> props = null;
-            boolean system = dep.getSystemPath() != null && dep.getSystemPath().length() > 0;
-            if (system) {
-              props = ImmutableMap.of(ArtifactProperties.LOCAL_PATH, dep.getSystemPath());
-            }
-
-            DefaultArtifact artifact = new DefaultArtifact(
-                dep.getGroupId(), dep.getArtifactId(),
-                dep.getClassifier(), null, dep.getVersion(),
-                props, stereotype);
-
-            ImmutableList<Exclusion> exclusions = FluentIterable.from(dep.getExclusions())
-                .transform(new Function<org.apache.maven.model.Exclusion, Exclusion>() {
-                  @Override
-                  public Exclusion apply(org.apache.maven.model.Exclusion input) {
-                    String group = input.getGroupId();
-                    String artifact = input.getArtifactId();
-
-                    group = (group == null || group.length() == 0) ? "*" : group;
-                    artifact = (artifact == null || artifact.length() == 0) ? "*" : artifact;
-
-                    return new Exclusion(group, artifact, "*", "*");
-                  }
-                })
-                .toList();
-            return new Dependency(artifact, dep.getScope(), dep.isOptional(), exclusions);
+    return model.getDependencies().stream()
+        .map(dep -> {
+          ArtifactType stereotype = session.getArtifactTypeRegistry().get(dep.getType());
+          if (stereotype == null) {
+            stereotype = new DefaultArtifactType(dep.getType());
           }
+
+          Map<String, String> props = null;
+          boolean system = dep.getSystemPath() != null && dep.getSystemPath().length() > 0;
+          if (system) {
+            props = ImmutableMap.of(ArtifactProperties.LOCAL_PATH, dep.getSystemPath());
+          }
+
+          @SuppressWarnings("PMD.PrematureDeclaration")
+          DefaultArtifact artifact = new DefaultArtifact(
+              dep.getGroupId(), dep.getArtifactId(),
+              dep.getClassifier(), null, dep.getVersion(),
+              props, stereotype);
+
+          ImmutableList<Exclusion> exclusions = FluentIterable.from(dep.getExclusions())
+              .transform(input -> {
+                String group = input.getGroupId();
+                String artifact1 = input.getArtifactId();
+
+                group = (group == null || group.length() == 0) ? "*" : group;
+                artifact1 = (artifact1 == null || artifact1.length() == 0) ? "*" : artifact1;
+
+                return new Exclusion(group, artifact1, "*", "*");
+              })
+              .toList();
+          return new Dependency(artifact, dep.getScope(), dep.isOptional(), exclusions);
         })
-        .toList();
+        .collect(MoreCollectors.toImmutableList());
   }
 
   private Dependency getDependencyFromString(String artifact) {

@@ -90,12 +90,7 @@ public final class MoreFiles {
    * Sorts by the lastAccessTime in descending order (more recently accessed files are first).
    */
   private static final Comparator<FileAccessedEntry> SORT_BY_LAST_ACCESSED_TIME_DESC =
-      new Comparator<FileAccessedEntry>() {
-    @Override
-    public int compare(FileAccessedEntry a, FileAccessedEntry b) {
-      return b.getLastAccessTime().compareTo(a.getLastAccessTime());
-    }
-  };
+      (a, b) -> b.getLastAccessTime().compareTo(a.getLastAccessTime());
 
   /** Utility class: do not instantiate. */
   private MoreFiles() {}
@@ -112,7 +107,7 @@ public final class MoreFiles {
   public static void copyRecursively(
       final Path fromPath,
       final Path toPath) throws IOException {
-    copyRecursively(fromPath, toPath, Functions.<Path>identity());
+    copyRecursively(fromPath, toPath, Functions.identity());
   }
 
   /**

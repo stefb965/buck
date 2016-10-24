@@ -40,14 +40,13 @@ import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.coercer.OCamlSource;
 import com.facebook.buck.util.Console;
+import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
-import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
@@ -60,6 +59,7 @@ import com.google.common.collect.Lists;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Compute transitive dependencies and generate ocaml build rules
@@ -75,9 +75,7 @@ public class OCamlRuleBuilder {
   public static Function<BuildRule, ImmutableList<String>> getLibInclude(
       final boolean isBytecode) {
     return
-      new Function<BuildRule, ImmutableList<String>>() {
-        @Override
-        public ImmutableList<String> apply(BuildRule input) {
+        input -> {
           if (input instanceof OCamlLibrary) {
             OCamlLibrary library = (OCamlLibrary) input;
             if (isBytecode) {
@@ -88,20 +86,14 @@ public class OCamlRuleBuilder {
           } else {
             return ImmutableList.of();
           }
-        }
-      };
+        };
   }
 
   public static ImmutableList<SourcePath> getInput(Iterable<OCamlSource> source) {
     return ImmutableList.copyOf(
         FluentIterable.from(source)
             .transform(
-                new Function<OCamlSource, SourcePath>() {
-                  @Override
-                  public SourcePath apply(OCamlSource input) {
-                    return input.getSource();
-                  }
-                })
+                OCamlSource::getSource)
     );
   }
 
@@ -125,13 +117,13 @@ public class OCamlRuleBuilder {
       ImmutableList<String> argFlags,
       final ImmutableList<String> linkerFlags) throws NoSuchBuildTargetException {
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
-    boolean noYaccOrLexSources = FluentIterable.from(srcs).transform(OCamlSource.TO_SOURCE_PATH)
+    boolean noYaccOrLexSources = FluentIterable.from(srcs).transform(OCamlSource::getSource)
         .filter(OCamlUtil.sourcePathExt(
                   pathResolver,
                   OCamlCompilables.OCAML_MLL,
                   OCamlCompilables.OCAML_MLY))
         .isEmpty();
-    boolean noGeneratedSources = FluentIterable.from(srcs).transform(OCamlSource.TO_SOURCE_PATH)
+    boolean noGeneratedSources = FluentIterable.from(srcs).transform(OCamlSource::getSource)
         .filter(BuildTargetSourcePath.class)
         .isEmpty();
     if (noYaccOrLexSources && noGeneratedSources) {
@@ -163,7 +155,7 @@ public class OCamlRuleBuilder {
             deps,
             Predicates.instanceOf(OCamlLibrary.class),
             Predicates.instanceOf(OCamlLibrary.class)),
-        Predicates.<BuildRule>alwaysTrue());
+        Predicates.alwaysTrue());
   }
 
   private static NativeLinkableInput getNativeLinkableInput(Iterable<BuildRule> deps) {
@@ -265,7 +257,7 @@ public class OCamlRuleBuilder {
     final BuildRuleParams compileParams = params.copyWithChanges(
         buildTarget,
         /* declaredDeps */ Suppliers.ofInstance(allDeps),
-        /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
+        /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.of()));
 
     ImmutableList.Builder<String> flagsBuilder = ImmutableList.builder();
     flagsBuilder.addAll(argFlags);
@@ -324,17 +316,17 @@ public class OCamlRuleBuilder {
           compileParams,
           linkerFlags,
           FluentIterable.from(srcs)
-              .transform(OCamlSource.TO_SOURCE_PATH)
-              .transform(pathResolver.getAbsolutePathFunction())
+              .transform(OCamlSource::getSource)
+              .transform(pathResolver::getAbsolutePath)
               .filter(OCamlUtil.ext(OCamlCompilables.OCAML_C))
-              .transform(ocamlContext.toCOutput())
+              .transform(ocamlContext::getCOutput)
               .transform(SourcePaths.getToBuildTargetSourcePath(compileParams.getBuildTarget()))
               .toList(),
           ocamlContext,
           ocamlLibraryBuild,
-          ImmutableSortedSet.<BuildRule>of(ocamlLibraryBuild),
-          ImmutableSortedSet.<BuildRule>of(ocamlLibraryBuild),
-          ImmutableSortedSet.<BuildRule>of(ocamlLibraryBuild));
+          ImmutableSortedSet.of(ocamlLibraryBuild),
+          ImmutableSortedSet.of(ocamlLibraryBuild),
+          ImmutableSortedSet.of(ocamlLibraryBuild));
     } else {
       return new OCamlBinary(
           params.copyWithDeps(
@@ -409,7 +401,7 @@ public class OCamlRuleBuilder {
                     pathResolver.filterBuildRuleInputs(
                         ocamlBuckConfig.getCxxCompiler().resolve(resolver).getInputs()))
                 .build()),
-        /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
+        /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.of()));
 
     ImmutableList.Builder<String> flagsBuilder = ImmutableList.builder();
     flagsBuilder.addAll(argFlags);
@@ -551,12 +543,7 @@ public class OCamlRuleBuilder {
       if (mlInput.contains(entry.getKey())) {
         builder.put(entry.getKey(),
             FluentIterable.from(entry.getValue())
-              .filter(new Predicate<Path>() {
-                        @Override
-                        public boolean apply(Path input) {
-                          return mlInput.contains(input);
-                        }
-                      }).toList()
+              .filter(mlInput::contains).toList()
             );
       }
     }
@@ -568,7 +555,7 @@ public class OCamlRuleBuilder {
       ImmutableList<String> cmd) throws IOException, InterruptedException {
     ImmutableSet.Builder<ProcessExecutor.Option> options = ImmutableSet.builder();
     options.add(ProcessExecutor.Option.EXPECTING_STD_OUT);
-    ProcessExecutor exe = new ProcessExecutor(Console.createNullConsole());
+    ProcessExecutor exe = new DefaultProcessExecutor(Console.createNullConsole());
     ProcessExecutorParams params = ProcessExecutorParams.builder()
         .setCommand(cmd)
         .setDirectory(baseDir)
@@ -576,9 +563,9 @@ public class OCamlRuleBuilder {
     ProcessExecutor.Result result = exe.launchAndExecute(
         params,
         options.build(),
-        /* stdin */ Optional.<String>absent(),
-        /* timeOutMs */ Optional.<Long>absent(),
-        /* timeOutHandler */ Optional.<Function<Process, Void>>absent());
+        /* stdin */ Optional.empty(),
+        /* timeOutMs */ Optional.empty(),
+        /* timeOutHandler */ Optional.empty());
     if (result.getExitCode() != 0) {
       throw new HumanReadableException(result.getStderr().get());
     }

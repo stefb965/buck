@@ -21,7 +21,6 @@ import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.testutil.integration.HttpdForTests;
-import com.google.common.base.Optional;
 import com.google.common.io.Files;
 
 import org.eclipse.jetty.server.handler.MovedContextHandler;
@@ -33,10 +32,10 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 import java.io.IOException;
-import java.net.Proxy;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.file.Path;
+import java.util.Optional;
 
 public class HttpDownloaderIntegrationTest {
 
@@ -62,7 +61,7 @@ public class HttpDownloaderIntegrationTest {
 
   @Before
   public void createDownloader() throws IOException {
-    downloader = new HttpDownloader(Optional.<Proxy>absent());
+    downloader = new HttpDownloader(Optional.empty());
     outputDir = tmp.newFolder().toPath();
   }
 

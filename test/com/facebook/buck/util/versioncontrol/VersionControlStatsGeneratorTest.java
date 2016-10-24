@@ -80,7 +80,7 @@ public class VersionControlStatsGeneratorTest {
         MASTER_REVISION_ID,
         CURRENT_REVISION_ID,
         TRACKED_BOOKMARKS))
-        .andReturn(ImmutableSet.<String>of());
+        .andReturn(ImmutableSet.of());
 
     expect(factoryMock.createCmdLineInterface()).andReturn(cmdLineInterfaceMock);
     Capture<VersionControlStatsEvent> eventCapture = Capture.newInstance();
@@ -148,13 +148,10 @@ public class VersionControlStatsGeneratorTest {
     ExecutorService executorService = createMock(ExecutorService.class);
     executorService.submit(anyObject(Runnable.class));
     expectLastCall().andAnswer(
-        new IAnswer<Object>() {
-          @Override
-          public Object answer() throws Throwable {
-            Runnable runnable = (Runnable) getCurrentArguments()[0];
-            runnable.run();
-            return null;
-          }
+        () -> {
+          Runnable runnable = (Runnable) getCurrentArguments()[0];
+          runnable.run();
+          return null;
         }
     ).anyTimes();
     replay(executorService);

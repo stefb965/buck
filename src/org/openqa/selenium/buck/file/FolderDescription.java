@@ -57,7 +57,7 @@ public class FolderDescription implements Description<FolderDescription.Arg> {
   }
 
   @SuppressFieldNotInitialized
-  public class Arg extends AbstractDescriptionArg {
+  public static class Arg extends AbstractDescriptionArg {
     public Optional<String> out;
     public ImmutableSortedSet<SourcePath> srcs;
   }

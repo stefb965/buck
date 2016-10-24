@@ -33,7 +33,6 @@ import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.testutil.packaged_resource.PackagedResourceTestUtil;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.PackagedResource;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 
 import org.hamcrest.Matchers;
@@ -43,6 +42,7 @@ import org.junit.rules.ExpectedException;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 
 public class SourcePathResolverTest {
   @Rule
@@ -184,7 +184,7 @@ public class SourcePathResolverTest {
     );
     SourcePath sourcePath = new PathSourcePath(projectFilesystem, Paths.get("foo"));
 
-    assertEquals(Optional.<BuildRule>absent(), pathResolver.getRule(sourcePath));
+    assertEquals(Optional.empty(), pathResolver.getRule(sourcePath));
   }
 
   @Test
@@ -363,7 +363,7 @@ public class SourcePathResolverTest {
       resolver.getSourcePathNames(
           target,
           parameter,
-          ImmutableList.<SourcePath>of(pathSourcePath1, pathSourcePath2));
+          ImmutableList.of(pathSourcePath1, pathSourcePath2));
       fail("expected to throw");
     } catch (HumanReadableException e) {
       assertTrue(e.getMessage().contains("duplicate entries"));

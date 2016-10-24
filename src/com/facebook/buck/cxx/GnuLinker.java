@@ -39,7 +39,6 @@ import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.WriteFileStep;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
-import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -149,10 +148,10 @@ public class GnuLinker implements Linker {
                 target,
                 Suppliers.ofInstance(
                     ImmutableSortedSet.copyOf(pathResolver.filterBuildRuleInputs(symbolFiles))),
-                Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+                Suppliers.ofInstance(ImmutableSortedSet.of())),
             pathResolver,
             symbolFiles));
-    return ImmutableList.<Arg>of(
+    return ImmutableList.of(
         new SourcePathArg(pathResolver, new BuildTargetSourcePath(target)));
   }
 
@@ -172,7 +171,7 @@ public class GnuLinker implements Linker {
 
   @Override
   public Iterable<Arg> getSharedLibFlag() {
-    return ImmutableList.<Arg>of(new StringArg("-shared"));
+    return ImmutableList.of(new StringArg("-shared"));
   }
 
   @Override
@@ -219,26 +218,23 @@ public class GnuLinker implements Linker {
           new MkdirStep(getProjectFilesystem(), linkerScript.getParent()),
           new WriteFileStep(
               getProjectFilesystem(),
-              new Supplier<String>() {
-                @Override
-                public String get() {
-                  Set<String> symbols = new LinkedHashSet<>();
-                  for (SourcePath path : symbolFiles) {
-                    try {
-                      symbols.addAll(
-                          Files.readAllLines(
-                              getResolver().getAbsolutePath(path),
-                              Charsets.UTF_8));
-                    } catch (IOException e) {
-                      throw new RuntimeException(e);
-                    }
+              () -> {
+                Set<String> symbols = new LinkedHashSet<>();
+                for (SourcePath path : symbolFiles) {
+                  try {
+                    symbols.addAll(
+                        Files.readAllLines(
+                            getResolver().getAbsolutePath(path),
+                            Charsets.UTF_8));
+                  } catch (IOException e) {
+                    throw new RuntimeException(e);
                   }
-                  List<String> lines = new ArrayList<>();
-                  for (String symbol : symbols) {
-                    lines.add(String.format("EXTERN(\"%s\")", symbol));
-                  }
-                  return Joiner.on(System.lineSeparator()).join(lines);
                 }
+                List<String> lines = new ArrayList<>();
+                for (String symbol : symbols) {
+                  lines.add(String.format("EXTERN(\"%s\")", symbol));
+                }
+                return Joiner.on(System.lineSeparator()).join(lines);
               },
               linkerScript,
               /* executable */ false));

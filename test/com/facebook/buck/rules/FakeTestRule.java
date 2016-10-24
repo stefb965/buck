@@ -20,12 +20,12 @@ import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.test.TestResults;
 import com.facebook.buck.test.TestRunningOptions;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.concurrent.Callable;
 
 public class FakeTestRule extends AbstractBuildRule implements TestRule {
@@ -58,14 +58,11 @@ public class FakeTestRule extends AbstractBuildRule implements TestRule {
         buildRuleParams,
         resolver,
         labels,
-        Optional.<Path>absent(),
+        Optional.empty(),
         false, // runTestSeparately
-        ImmutableList.<Step>of(),
-        new Callable<TestResults>() {
-          @Override
-          public TestResults call() {
-            throw new UnsupportedOperationException("interpretTestResults() not implemented");
-          }
+        ImmutableList.of(),
+        () -> {
+          throw new UnsupportedOperationException("interpretTestResults() not implemented");
         });
   }
 

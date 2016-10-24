@@ -34,8 +34,6 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.util.MoreIterables;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -47,6 +45,7 @@ import org.immutables.value.Value;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * OCaml build context
@@ -226,15 +225,6 @@ abstract class AbstractOCamlBuildContext implements RuleKeyAppendable {
     return getCompileNativeOutputDir().resolve(outputFileName);
   }
 
-  public Function<Path, Path> toCOutput() {
-    return new Function<Path, Path>() {
-      @Override
-      public Path apply(Path input) {
-        return getCOutput(input);
-      }
-    };
-  }
-
   public ImmutableList<String> getIncludeDirectories(boolean isBytecode, boolean excludeDeps) {
     ImmutableSet.Builder<String> includeDirs = ImmutableSet.builder();
     for (SourcePath mlFile : getMLInput()) {
@@ -275,48 +265,42 @@ abstract class AbstractOCamlBuildContext implements RuleKeyAppendable {
   protected FluentIterable<SourcePath> getLexOutput(Iterable<SourcePath> lexInputs) {
     return FluentIterable.from(lexInputs)
         .transform(
-            new Function<SourcePath, SourcePath>() {
-              @Override
-              public SourcePath apply(SourcePath lexInput) {
-                Path fileName = getSourcePathResolver().getAbsolutePath(lexInput).getFileName();
-                Path out = getGeneratedSourceDir().resolve(
-                    fileName.toString().replaceFirst(
-                        OCamlCompilables.OCAML_MLL_REGEX,
-                        OCamlCompilables.OCAML_ML));
-                return new PathSourcePath(getProjectFilesystem(), out);
-              }
+            lexInput -> {
+              Path fileName = getSourcePathResolver().getAbsolutePath(lexInput).getFileName();
+              Path out = getGeneratedSourceDir().resolve(
+                  fileName.toString().replaceFirst(
+                      OCamlCompilables.OCAML_MLL_REGEX,
+                      OCamlCompilables.OCAML_ML));
+              return new PathSourcePath(getProjectFilesystem(), out);
             });
   }
 
   protected FluentIterable<SourcePath> getYaccOutput(Iterable<SourcePath> yaccInputs) {
     return FluentIterable.from(yaccInputs)
         .transformAndConcat(
-            new Function<SourcePath, Iterable<? extends SourcePath>>() {
-              @Override
-              public Iterable<? extends SourcePath> apply(SourcePath yaccInput) {
-                String yaccFileName = getSourcePathResolver()
-                    .getAbsolutePath(yaccInput)
-                    .getFileName()
-                    .toString();
+            yaccInput -> {
+              String yaccFileName = getSourcePathResolver()
+                  .getAbsolutePath(yaccInput)
+                  .getFileName()
+                  .toString();
 
-                ImmutableList.Builder<SourcePath> toReturn = ImmutableList.builder();
+              ImmutableList.Builder<SourcePath> toReturn = ImmutableList.builder();
 
-                toReturn.add(new PathSourcePath(
-                    getProjectFilesystem(),
-                    getGeneratedSourceDir().resolve(
-                        yaccFileName.replaceFirst(
-                            OCamlCompilables.OCAML_MLY_REGEX,
-                            OCamlCompilables.OCAML_ML))));
+              toReturn.add(new PathSourcePath(
+                  getProjectFilesystem(),
+                  getGeneratedSourceDir().resolve(
+                      yaccFileName.replaceFirst(
+                          OCamlCompilables.OCAML_MLY_REGEX,
+                          OCamlCompilables.OCAML_ML))));
 
-                toReturn.add(new PathSourcePath(
-                    getProjectFilesystem(),
-                    getGeneratedSourceDir().resolve(
-                        yaccFileName.replaceFirst(
-                            OCamlCompilables.OCAML_MLY_REGEX,
-                            OCamlCompilables.OCAML_MLI))));
+              toReturn.add(new PathSourcePath(
+                  getProjectFilesystem(),
+                  getGeneratedSourceDir().resolve(
+                      yaccFileName.replaceFirst(
+                          OCamlCompilables.OCAML_MLY_REGEX,
+                          OCamlCompilables.OCAML_MLI))));
 
-                return toReturn.build();
-              }
+              return toReturn.build();
             });
   }
 
@@ -344,7 +328,7 @@ abstract class AbstractOCamlBuildContext implements RuleKeyAppendable {
             CxxHeaders.getArgs(
                 cxxPreprocessorInput.getIncludes(),
                 getSourcePathResolver(),
-                Optional.<Function<Path, Path>>absent(),
+                Optional.empty(),
                 getCPreprocessor())));
 
     for (Path includes : cxxPreprocessorInput.getSystemIncludeRoots()) {
@@ -370,8 +354,7 @@ abstract class AbstractOCamlBuildContext implements RuleKeyAppendable {
     builder.addAll(addPrefix("-ccopt", getCFlags()));
     builder.add("-ccopt",
         "-isystem" +
-            getOCamlInteropIncludesDir()
-                .or(DEFAULT_OCAML_INTEROP_INCLUDE_DIR.toString()));
+            getOCamlInteropIncludesDir().orElse(DEFAULT_OCAML_INTEROP_INCLUDE_DIR.toString()));
     return builder.build();
   }
 

@@ -18,12 +18,12 @@ package com.facebook.buck.jvm.java.intellij;
 
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
@@ -31,6 +31,7 @@ import org.immutables.value.Value;
 
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Represents a single IntelliJ module.
@@ -40,12 +41,7 @@ import java.util.Map;
 abstract class AbstractIjModule implements IjProjectElement {
 
   public static final Function<IjModule, Path> TO_MODULE_BASE_PATH =
-      new Function<IjModule, Path>() {
-        @Override
-        public Path apply(IjModule input) {
-          return input.getModuleBasePath();
-        }
-      };
+      IjModule::getModuleBasePath;
 
   @Override
   @Value.Derived
@@ -115,9 +111,9 @@ abstract class AbstractIjModule implements IjProjectElement {
 
   @Value.Check
   protected void checkDependencyConsistency() {
-    ImmutableSet<BuildTarget> buildTargets = FluentIterable.from(getTargets())
-        .transform(TargetNode.TO_TARGET)
-        .toSet();
+    ImmutableSet<BuildTarget> buildTargets = getTargets().stream()
+        .map(HasBuildTarget::getBuildTarget)
+        .collect(MoreCollectors.toImmutableSet());
 
     for (Map.Entry<BuildTarget, IjModuleGraph.DependencyType> entry :
         getDependencies().entrySet()) {

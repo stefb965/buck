@@ -15,6 +15,7 @@
  */
 
 package com.facebook.buck.step;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -23,8 +24,6 @@ import static org.junit.Assert.fail;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.event.FakeBuckEventListener;
-import com.facebook.buck.model.BuildTarget;
-import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ListeningExecutorService;
@@ -33,6 +32,7 @@ import com.google.common.util.concurrent.MoreExecutors;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.util.Optional;
 import java.util.concurrent.Executors;
 
 public class DefaultStepRunnerTest {
@@ -50,10 +50,10 @@ public class DefaultStepRunnerTest {
     ExecutionContext context = TestExecutionContext.newBuilder()
         .setBuckEventBus(eventBus)
         .build();
-    DefaultStepRunner runner = new DefaultStepRunner(context);
-    runner.runStepForBuildTarget(passingStep, Optional.<BuildTarget>absent());
+    DefaultStepRunner runner = new DefaultStepRunner();
+    runner.runStepForBuildTarget(context, passingStep, Optional.empty());
     try {
-      runner.runStepForBuildTarget(failingStep, Optional.<BuildTarget>absent());
+      runner.runStepForBuildTarget(context, failingStep, Optional.empty());
       fail("Failing step should have thrown an exception");
     } catch (StepFailedException e) {
       assertEquals(e.getStep(), failingStep);
@@ -102,10 +102,11 @@ public class DefaultStepRunnerTest {
 
     ListeningExecutorService service =
         MoreExecutors.listeningDecorator(Executors.newFixedThreadPool(3));
-    DefaultStepRunner runner = new DefaultStepRunner(TestExecutionContext.newInstance());
+    DefaultStepRunner runner = new DefaultStepRunner();
     runner.runStepsInParallelAndWait(
+        TestExecutionContext.newInstance(),
         steps.build(),
-        Optional.<BuildTarget>absent(),
+        Optional.empty(),
         service,
         StepRunner.NOOP_CALLBACK);
 
@@ -116,9 +117,9 @@ public class DefaultStepRunnerTest {
   public void testExplodingStep() throws InterruptedException, IOException {
     ExecutionContext context = TestExecutionContext.newInstance();
 
-    DefaultStepRunner runner = new DefaultStepRunner(context);
+    DefaultStepRunner runner = new DefaultStepRunner();
     try {
-      runner.runStepForBuildTarget(new ExplosionStep(), Optional.<BuildTarget>absent());
+      runner.runStepForBuildTarget(context, new ExplosionStep(), Optional.empty());
       fail("Should have thrown a StepFailedException!");
     } catch (StepFailedException e) {
       assertTrue(e.getMessage().startsWith("Failed on step explode with an exception:\n#yolo"));

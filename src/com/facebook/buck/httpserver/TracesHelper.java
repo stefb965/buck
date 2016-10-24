@@ -19,9 +19,7 @@ package com.facebook.buck.httpserver;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.HumanReadableException;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -42,9 +40,9 @@ import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -118,7 +116,7 @@ public class TracesHelper {
    * Parses a trace file and returns the command that the user executed to create the trace.
    * <p>
    * This method tries to be reasonably tolerant of changes to the .trace file schema, returning
-   * {@link Optional#absent()} if it does not find the fields in the JSON that it expects.
+   * {@link Optional#empty()} if it does not find the fields in the JSON that it expects.
    */
   TraceAttributes getTraceAttributesFor(Path pathToTrace) throws IOException {
     long lastModifiedTime = projectFilesystem.getLastModifiedTime(pathToTrace);
@@ -149,17 +147,17 @@ public class TracesHelper {
       }
 
       // Oh well, we tried.
-      return Optional.absent();
+      return Optional.empty();
     } catch (IOException e) {
       logger.error(e);
-      return Optional.absent();
+      return Optional.empty();
     }
   }
 
   private static Optional<String> tryToFindCommand(JsonObject json) {
     JsonElement nameEl = json.get("name");
     if (nameEl == null || !nameEl.isJsonPrimitive()) {
-      return Optional.absent();
+      return Optional.empty();
     }
 
     JsonElement argsEl = json.get("args");
@@ -167,7 +165,7 @@ public class TracesHelper {
         !argsEl.isJsonObject() ||
         argsEl.getAsJsonObject().get("command_args") == null ||
         !argsEl.getAsJsonObject().get("command_args").isJsonPrimitive()) {
-      return Optional.absent();
+      return Optional.empty();
     }
 
     String name = nameEl.getAsString();
@@ -205,23 +203,20 @@ public class TracesHelper {
     // Sort by:
     // 1. Reverse chronological order.
     // 2. Alphabetical order.
-    Collections.sort(allTraces, new Comparator<Path>() {
-      @Override
-      public int compare(Path path1, Path path2) {
-        int result = 0;
-        try {
-          result = Long.compare(
-              projectFilesystem.getLastModifiedTime(path2),
-              projectFilesystem.getLastModifiedTime(path1));
-        } catch (IOException e) {
-          throw new RuntimeException(e);
-        }
+    Collections.sort(allTraces, (path1, path2) -> {
+      int result = 0;
+      try {
+        result = Long.compare(
+            projectFilesystem.getLastModifiedTime(path2),
+            projectFilesystem.getLastModifiedTime(path1));
+      } catch (IOException e) {
+        throw new RuntimeException(e);
+      }
 
-        if (result == 0) {
-          return path2.toString().compareTo(path1.toString());
-        } else {
-          return result;
-        }
+      if (result == 0) {
+        return path2.toString().compareTo(path1.toString());
+      } else {
+        return result;
       }
     });
 
@@ -238,12 +233,7 @@ public class TracesHelper {
     Preconditions.checkArgument(TracesHandlerDelegate.TRACE_ID_PATTERN.matcher(id).matches());
 
     Collection<Path> traces = FluentIterable.from(listTraceFilesByLastModified())
-        .filter(new Predicate<Path>() {
-          @Override
-          public boolean apply(Path input) {
-            return input.getFileName().toString().contains(id);
-          }
-        })
+        .filter(input -> input.getFileName().toString().contains(id))
         .toList();
 
     if (traces.isEmpty()) {

@@ -118,6 +118,7 @@ The following sections are recognized by Buck:
     'lua',
     'maven_repositories',
     'ndk',
+    'parser',
     'project',
     'python',
     'resources',
@@ -1229,6 +1230,28 @@ $ buck targets --resolve-alias app#src_jar
 
 {call buckconfig.entry}
   {param section: 'cxx' /}
+  {param name: 'pch_enabled' /}
+  {param example_value: 'false' /}
+  {param description}
+    <p>
+    Whether prefix headers used by a cxx_library or other such build rule's
+    {sp}<code>prefix_header</code>{sp} parameter should be separately
+    precompiled, and used in that rule's build.
+    </p>
+
+    <p>
+    If this is disabled, the prefix header is included as-is, without
+    precompilation.
+    </p>
+
+    <p>
+    Default is <code>true</code>.
+    </p>
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'cxx' /}
   {param name: 'link_weight' /}
   {param example_value: '3' /}
   {param description}
@@ -1437,6 +1460,15 @@ $ buck targets --resolve-alias app#src_jar
   {/param}
 {/call}
 
+{call buckconfig.entry}
+  {param section: 'intellij' /}
+  {param name: 'remove_unused_libraries' /}
+  {param example_value: 'true' /}
+  {param description}
+    Removes unused libraries from .idea/libraries.
+  {/param}
+{/call}
+
 {call buckconfig.section}
   {param name: 'java' /}
   {param description}
@@ -1580,6 +1612,17 @@ $ buck targets --resolve-alias app#src_jar
   {param example_value: 'true' /}
   {param description}
     <code>true</code> if Buck should GZIP the traces, false otherwise.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'log' /}
+  {param name: 'machine_readable_logger_enabled' /}
+  {param example_value: 'true' /}
+  {param description}
+    <code>true</code> if Buck should output to a machine readable log file under name <code>
+    buck-machine-log</code>. Log entries are formatted one per line like <code>< Event type >
+    < space >< Json ></code>.
   {/param}
 {/call}
 
@@ -1796,6 +1839,34 @@ your <code>.buckjavaargs</code> file</a>:
       <li><code>stlport</code></li>
       <li><code>system</code></li>
     </ul>
+  {/param}
+{/call}
+
+{call buckconfig.section}
+  {param name: 'parser' /}
+  {param description}
+    This section defines settings for the BUCK parser.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'parser' /}
+  {param name: 'python_interpreter' /}
+  {param example_value: '/usr/bin/python' /}
+  {param description}
+    The path to the python interpreter to use for parsing. If not specified, the{sp}
+    {call buckconfig.python_interpreter /} setting is used.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'parser' /}
+  {param name: 'python_path' /}
+  {param example_value: '/path1:/path2' /}
+  {param description}
+    The <code>PYTHONPATH</code> environment variable set for the python interpreter{sp}
+    used by the parser to use.
+    By default, this is unset.
   {/param}
 {/call}
 

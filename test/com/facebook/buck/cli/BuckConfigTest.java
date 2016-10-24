@@ -28,17 +28,15 @@ import com.facebook.buck.io.MorePathsForTests;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.ProjectWorkspace.ProcessResult;
+import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.concurrent.ResourceAmounts;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.Platform;
-import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -53,6 +51,7 @@ import java.io.Reader;
 import java.io.StringReader;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 
 public class BuckConfigTest {
 
@@ -180,12 +179,12 @@ public class BuckConfigTest {
         temporaryFolder,
         reader);
 
-    ImmutableList<String> expected = ImmutableList.<String>of(
+    ImmutableList<String> expected = ImmutableList.of(
         "//java/com/example:foo",
         "//java/com/example:bar");
     ImmutableList<String> result = ImmutableList.copyOf(FluentIterable
             .from(config.getBuildTargetList("section", "some_list"))
-            .transform(Functions.toStringFunction()));
+            .transform(Object::toString));
     assertThat(result, Matchers.equalTo(expected));
   }
 
@@ -369,7 +368,7 @@ public class BuckConfigTest {
         .setPlatform(Platform.WINDOWS)
         .build();
     // "auto" on Windows is equivalent to "never".
-    assertFalse(windowsConfig.createAnsi(Optional.<String>absent()).isAnsiTerminal());
+    assertFalse(windowsConfig.createAnsi(Optional.empty()).isAnsiTerminal());
     assertFalse(windowsConfig.createAnsi(Optional.of("auto")).isAnsiTerminal());
     assertTrue(windowsConfig.createAnsi(Optional.of("always")).isAnsiTerminal());
     assertFalse(windowsConfig.createAnsi(Optional.of("never")).isAnsiTerminal());
@@ -590,7 +589,7 @@ public class BuckConfigTest {
   @Test
   public void hasUserDefinedValueReturnsFalseForNoSetting() {
     BuckConfig buckConfig = FakeBuckConfig.builder()
-        .setSections(ImmutableMap.<String, ImmutableMap<String, String>>of())
+        .setSections(ImmutableMap.of())
         .build();
     assertFalse(buckConfig.hasUserDefinedValue("cache", "mode"));
   }
@@ -633,5 +632,19 @@ public class BuckConfigTest {
       return;
     }
     assertThat("IllegalArgumentException should be thrown", Matchers.equalTo(""));
+  }
+
+  @Test
+  public void testGetMap() throws IOException {
+    Reader reader = new StringReader(Joiner.on('\n').join(
+        "[section]",
+        "args_map = key0=>val0,key1=>val1"));
+   BuckConfig config = BuckConfigTestUtils.createWithDefaultFilesystem(
+       temporaryFolder,
+       reader);
+
+    assertEquals(
+        ImmutableMap.of("key0", "val0", "key1", "val1"),
+        config.getMap("section", "args_map"));
   }
 }

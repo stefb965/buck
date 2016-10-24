@@ -35,11 +35,8 @@ import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.timing.FakeClock;
-import com.google.common.base.Function;
 import com.google.common.base.Functions;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -50,6 +47,7 @@ import org.junit.Test;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 
 public class IjProjectDataPreparerTest {
 
@@ -154,9 +152,9 @@ public class IjProjectDataPreparerTest {
             baseGenruleTarget,
             baseInlineTestsTargetNode,
             baseTestsTargetNode),
-        ImmutableMap.<TargetNode<?>, Path>of(
+        ImmutableMap.of(
             baseInlineTestsTargetNode, Paths.get("buck-out/baseInlineTests.jar")),
-        Functions.constant(Optional.<Path>absent()));
+        Functions.constant(Optional.empty()));
     IjLibrary hamcrestLibrary =
         IjModuleGraphTest.getLibraryForTarget(moduleGraph, hamcrestTargetNode);
     IjLibrary guavaLibrary = IjModuleGraphTest.getLibraryForTarget(moduleGraph, guavaTargetNode);
@@ -241,7 +239,7 @@ public class IjProjectDataPreparerTest {
         .build();
 
     IjModuleGraph moduleGraph = IjModuleGraphTest.createModuleGraph(
-        ImmutableSet.<TargetNode<?>>of(baseTargetNode));
+        ImmutableSet.of(baseTargetNode));
     IjProjectTemplateDataPreparer dataPreparer =
         new IjProjectTemplateDataPreparer(javaPackageFinder, moduleGraph, filesystem);
 
@@ -250,17 +248,17 @@ public class IjProjectDataPreparerTest {
         containsInAnyOrder(
             IjModule.builder()
                 .setModuleBasePath(Paths.get("java/com/example/base"))
-                .setTargets(ImmutableSet.<TargetNode<?>>of(baseTargetNode))
+                .setTargets(ImmutableSet.of(baseTargetNode))
                 .addFolders(
                     new SourceFolder(
                         Paths.get("java/com/example/base"),
                         true,
-                        ImmutableSortedSet.<Path>of(baseTargetSrcFilePath)))
+                        ImmutableSortedSet.of(baseTargetSrcFilePath)))
                 .setSdkType("JavaSDK")
                 .build(),
             IjModule.builder()
                 .setModuleBasePath(Paths.get(""))
-                .setTargets(ImmutableSet.<TargetNode<?>>of())
+                .setTargets(ImmutableSet.of())
                 .build()
         )
     );
@@ -429,20 +427,10 @@ public class IjProjectDataPreparerTest {
   private static ImmutableSet<Path> distillExcludeFolders(ImmutableSet<IjFolder> folders) {
     Preconditions.checkArgument(!FluentIterable.from(folders)
             .anyMatch(
-                new Predicate<IjFolder>() {
-                  @Override
-                  public boolean apply(IjFolder input) {
-                    return !(input instanceof ExcludeFolder);
-                  }
-                }));
+                input -> !(input instanceof ExcludeFolder)));
     return FluentIterable.from(folders)
         .uniqueIndex(
-            new Function<IjFolder, Path>() {
-              @Override
-              public Path apply(IjFolder input) {
-                return input.getPath();
-              }
-            })
+            IjFolder::getPath)
         .keySet();
   }
 }

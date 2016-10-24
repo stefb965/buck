@@ -9,19 +9,11 @@ rust_binary(
 )
 
 rust_binary(
-  name = "illegal_dep",
+  name = "hello_alias",
   srcs = [
     "main.rs",
   ],
   deps = [
-    ":python_dep",
-    "//messenger:messenger",
+    "//messenger2:messenger2",
   ],
-)
-
-python_library(
-  name = "python_dep",
-  srcs = [
-    "empty.py"
-  ]
 )

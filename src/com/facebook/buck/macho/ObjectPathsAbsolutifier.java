@@ -21,9 +21,7 @@ import com.facebook.buck.charset.NulTerminatedCharsetDecoder;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.Pair;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -44,6 +42,7 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 public class ObjectPathsAbsolutifier {
@@ -103,8 +102,7 @@ public class ObjectPathsAbsolutifier {
     updateLinkeditSegment(updatedCodeSignatureCommand);
   }
 
-  private Optional<Pair<LinkEditDataCommand, ByteBuffer>> getCodeSignatureDataToRelocate()
-      throws IOException {
+  private Optional<Pair<LinkEditDataCommand, ByteBuffer>> getCodeSignatureDataToRelocate() {
 
     buffer.position(0);
     ImmutableList<SymTabCommand> symTabCommands = LoadCommandUtils.findLoadCommandsWithClass(
@@ -115,7 +113,7 @@ public class ObjectPathsAbsolutifier {
     if (symTabCommands.size() == 0) {
       LOG.verbose("SymTabCommand was not found, so there is no need to work with " +
           "LinkEditDataCommand to fix code sign, as string table was not found");
-      return Optional.absent();
+      return Optional.empty();
     }
 
     buffer.position(0);
@@ -126,17 +124,12 @@ public class ObjectPathsAbsolutifier {
             LinkEditDataCommand.class);
     ImmutableList<LinkEditDataCommand> codeSignatureCommands = FluentIterable
         .from(linkEditDataCommands)
-        .filter(new Predicate<LinkEditDataCommand>() {
-          @Override
-          public boolean apply(LinkEditDataCommand input) {
-            return input.getLoadCommandCommonFields().getCmd()
-                .equals(LinkEditDataCommand.LC_CODE_SIGNATURE);
-          }
-        })
+        .filter(input -> input.getLoadCommandCommonFields().getCmd()
+            .equals(LinkEditDataCommand.LC_CODE_SIGNATURE))
         .toList();
     if (codeSignatureCommands.size() == 0) {
       LOG.verbose("LinkEditDataCommand for code signature was not found");
-      return Optional.absent();
+      return Optional.empty();
     }
     Preconditions.checkArgument(
         codeSignatureCommands.size() == 1,
@@ -149,7 +142,7 @@ public class ObjectPathsAbsolutifier {
         codeSignatureCommand.getDataoff().intValue()) {
       LOG.verbose("String table location > Code signature data location. " +
           "Skipping code signature relocation.");
-      return Optional.absent();
+      return Optional.empty();
     }
     Preconditions.checkArgument(
         symTabCommand.getStroff().plus(symTabCommand.getStrsize()).intValue() <
@@ -169,7 +162,7 @@ public class ObjectPathsAbsolutifier {
             ByteBuffer.wrap(contents).order(buffer.order())));
   }
 
-  private void updateBinaryUuid() throws IOException {
+  private void updateBinaryUuid() {
     buffer.position(0);
     ImmutableList<UUIDCommand> commands = LoadCommandUtils.findLoadCommandsWithClass(
         buffer,
@@ -179,23 +172,19 @@ public class ObjectPathsAbsolutifier {
         commands.size() == 1,
         "Found %d UUIDCommands, expected 1", commands.size());
 
-    try {
-      UUIDCommand uuidCommand = commands.get(0);
-      UUIDCommand updatedCommand = uuidCommand.withUuid(UUID.randomUUID());
-      UUIDCommandUtils.updateUuidCommand(
-          buffer,
-          uuidCommand,
-          updatedCommand);
-    } catch (IOException e) {
-      LOG.error(e, "Unable to update UUID");
-    }
+    UUIDCommand uuidCommand = commands.get(0);
+    UUIDCommand updatedCommand = uuidCommand.withUuid(UUID.randomUUID());
+    UUIDCommandUtils.updateUuidCommand(
+        buffer,
+        uuidCommand,
+        updatedCommand);
   }
 
   private int updateStringTableContents(final MachoMagicInfo magicInfo) throws IOException {
     return processSymTabCommand(magicInfo, getSymTabCommand());
   }
 
-  private SymTabCommand getSymTabCommand() throws IOException {
+  private SymTabCommand getSymTabCommand() {
     buffer.position(0);
     ImmutableList<SymTabCommand> commands = LoadCommandUtils.findLoadCommandsWithClass(
         buffer,
@@ -207,9 +196,7 @@ public class ObjectPathsAbsolutifier {
     return commands.get(0);
   }
 
-  private void updateLinkeditSegment(
-      Optional<LinkEditDataCommand> updatedCodeSignatureCommand)
-      throws IOException {
+  private void updateLinkeditSegment(Optional<LinkEditDataCommand> updatedCodeSignatureCommand) {
     buffer.position(0);
     ImmutableList<SegmentCommand> commands = LoadCommandUtils.findLoadCommandsWithClass(
         buffer,
@@ -229,11 +216,11 @@ public class ObjectPathsAbsolutifier {
       int stringTableSizeIncrease) throws IOException {
     if (!codeSignatureData.isPresent()) {
       LOG.info("Code had no code signature to relocate, skipping code signature update");
-      return Optional.absent();
+      return Optional.empty();
     }
     if (stringTableSizeIncrease == 0) {
       LOG.info("String table size did not change, skipping code signature update");
-      return Optional.absent();
+      return Optional.empty();
     }
     LinkEditDataCommand command = codeSignatureData.get().getFirst();
     ByteBuffer contents = codeSignatureData.get().getSecond();
@@ -267,8 +254,7 @@ public class ObjectPathsAbsolutifier {
 
   private void processLinkeditSegmentCommand(
       SegmentCommand original,
-      Optional<LinkEditDataCommand> updatedCodeSignatureCommand)
-      throws IOException {
+      Optional<LinkEditDataCommand> updatedCodeSignatureCommand) {
     SymTabCommand symTabCommand = getSymTabCommand();
     int fileSize = symTabCommand.getStroff().intValue() + symTabCommand.getStrsize().intValue();
     if (updatedCodeSignatureCommand.isPresent()) {
@@ -516,7 +502,7 @@ public class ObjectPathsAbsolutifier {
     if (path.toString().endsWith(")")) {
       return Optional.of(string.substring(string.lastIndexOf("(")));
     }
-    return Optional.absent();
+    return Optional.empty();
   }
 
   private Path getAbsolutePath(String stringPath) throws IOException {
@@ -547,7 +533,7 @@ public class ObjectPathsAbsolutifier {
       MachoMagicInfo magicInfo,
       Nlist nlist,
       Path path,
-      UnsignedInteger newEntryLocation) throws IOException {
+      UnsignedInteger newEntryLocation) {
     Nlist updatedNlist = nlist.withN_strx(newEntryLocation);
     // only object source files need to have a timestamp as their values
     if (nlist.getN_type().equals(Stab.N_OSO) && path.toFile().isFile()) {

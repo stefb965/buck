@@ -17,6 +17,7 @@
 package com.facebook.buck.rules;
 
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.cache.NullFileHashCache;
 import com.facebook.buck.util.concurrent.ListeningMultiSemaphore;
@@ -25,9 +26,10 @@ import com.facebook.buck.util.concurrent.ResourceAmounts;
 import com.facebook.buck.util.concurrent.WeightedListeningExecutorService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
+
+import java.util.Optional;
 
 /**
  * Handy way to create new {@link CachingBuildEngine} instances for test purposes.
@@ -37,11 +39,11 @@ public class CachingBuildEngineFactory {
   private CachingBuildEngine.BuildMode buildMode = CachingBuildEngine.BuildMode.SHALLOW;
   private CachingBuildEngine.DepFiles depFiles = CachingBuildEngine.DepFiles.ENABLED;
   private long maxDepFileCacheEntries = 256L;
-  private Optional<Long> artifactCacheSizeLimit = Optional.absent();
+  private Optional<Long> artifactCacheSizeLimit = Optional.empty();
   private long inputFileSizeLimit = Long.MAX_VALUE;
   private ObjectMapper objectMapper = ObjectMappers.newDefaultInstance();
   private Optional<Function<? super ProjectFilesystem, CachingBuildEngine.RuleKeyFactories>>
-      ruleKeyFactoriesFunction = Optional.absent();
+      ruleKeyFactoriesFunction = Optional.empty();
   private CachingBuildEngineDelegate cachingBuildEngineDelegate;
   private WeightedListeningExecutorService executorService;
   private BuildRuleResolver buildRuleResolver;
@@ -108,7 +110,7 @@ public class CachingBuildEngineFactory {
       Function<? super ProjectFilesystem, CachingBuildEngine.RuleKeyFactories>
           ruleKeyFactoriesFunction) {
     this.ruleKeyFactoriesFunction =
-        Optional.<Function<? super ProjectFilesystem, CachingBuildEngine.RuleKeyFactories>>of(
+        Optional.of(
             ruleKeyFactoriesFunction);
     return this;
   }
@@ -124,6 +126,7 @@ public class CachingBuildEngineFactory {
       return new CachingBuildEngine(
           cachingBuildEngineDelegate,
           executorService,
+          new DefaultStepRunner(),
           buildMode,
           depFiles,
           maxDepFileCacheEntries,
@@ -136,6 +139,7 @@ public class CachingBuildEngineFactory {
     return new CachingBuildEngine(
         cachingBuildEngineDelegate,
         executorService,
+        new DefaultStepRunner(),
         buildMode,
         depFiles,
         maxDepFileCacheEntries,

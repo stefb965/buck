@@ -19,17 +19,17 @@ package com.facebook.buck.shell;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.SourcePath;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
+import java.util.Optional;
 
 public class ShTestBuilder extends AbstractNodeBuilder<ShTestDescription.Arg> {
 
   public ShTestBuilder(BuildTarget target) {
-    super(new ShTestDescription(Optional.<Long>absent()), target);
+    super(new ShTestDescription(Optional.empty()), target);
   }
 
   public ShTestBuilder setTest(SourcePath path) {
@@ -38,22 +38,22 @@ public class ShTestBuilder extends AbstractNodeBuilder<ShTestDescription.Arg> {
   }
 
   public ShTestBuilder setDeps(ImmutableSortedSet<BuildTarget> deps) {
-    arg.deps = Optional.of(deps);
+    arg.deps = deps;
     return this;
   }
 
   public ShTestBuilder setArgs(ImmutableList<String> args) {
-    arg.args = Optional.of(args);
+    arg.args = args;
     return this;
   }
 
   public ShTestBuilder setEnv(ImmutableMap<String, String> env) {
-    arg.env = Optional.of(env);
+    arg.env = env;
     return this;
   }
 
   public ShTestBuilder setResources(ImmutableSortedSet<Path> resources) {
-    arg.resources = Optional.of(resources);
+    arg.resources = resources;
     return this;
   }
 

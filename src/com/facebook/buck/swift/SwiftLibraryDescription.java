@@ -21,6 +21,7 @@ import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.cxx.CxxLinkableEnhancer;
 import com.facebook.buck.cxx.CxxPlatform;
+import com.facebook.buck.cxx.HeaderVisibility;
 import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.cxx.NativeLinkable;
 import com.facebook.buck.cxx.NativeLinkableInput;
@@ -31,6 +32,7 @@ import com.facebook.buck.model.FlavorConvertible;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.Flavored;
 import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
@@ -45,11 +47,11 @@ import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Ordering;
@@ -57,6 +59,7 @@ import com.google.common.collect.Sets;
 
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -72,12 +75,8 @@ public class SwiftLibraryDescription implements
       SWIFT_COMPANION_FLAVOR,
       SWIFT_COMPILE_FLAVOR);
 
-  private static final Predicate<Flavor> IS_SUPPORTED_FLAVOR = new Predicate<Flavor>() {
-    @Override
-    public boolean apply(Flavor flavor) {
-      return SUPPORTED_FLAVORS.contains(flavor);
-    }
-  };
+  private static final Predicate<Flavor> IS_SUPPORTED_FLAVOR =
+      SUPPORTED_FLAVORS::contains;
 
   public enum Type implements FlavorConvertible {
     SHARED(CxxDescriptionEnhancer.SHARED_FLAVOR),
@@ -195,31 +194,44 @@ public class SwiftLibraryDescription implements
       params = params.appendExtraDeps(
           FluentIterable.from(params.getDeps())
               .filter(SwiftLibrary.class)
-              .transform(new Function<SwiftLibrary, BuildRule>() {
-                @Override
-                public BuildRule apply(SwiftLibrary input) {
-                  try {
-                    return input.requireSwiftCompileRule(cxxPlatform.getFlavor());
-                  } catch (NoSuchBuildTargetException e) {
-                    throw new HumanReadableException(e,
-                        "Could not find SwiftCompile with target %s", buildTarget);
-                  }
+              .transform((Function<SwiftLibrary, BuildRule>) input -> {
+                try {
+                  return input.requireSwiftCompileRule(cxxPlatform.getFlavor());
+                } catch (NoSuchBuildTargetException e) {
+                  throw new HumanReadableException(e,
+                      "Could not find SwiftCompile with target %s", buildTarget);
                 }
               })
               .toSortedSet(Ordering.natural()));
+
+      UnflavoredBuildTarget unflavoredBuildTarget =
+          params.getBuildTarget().getUnflavoredBuildTarget();
+
+      for (HeaderVisibility headerVisibility : HeaderVisibility.values()) {
+        // unflavoredBuildTarget because #headers can collide with any other flavor
+        // from the same domain.
+        CxxDescriptionEnhancer.requireHeaderSymlinkTree(
+            params.copyWithBuildTarget(BuildTarget.builder(unflavoredBuildTarget).build()),
+            resolver,
+            new SourcePathResolver(resolver),
+            cxxPlatform,
+            args.headersSearchPath,
+            headerVisibility);
+      }
+
       return new SwiftCompile(
           cxxPlatform,
           swiftBuckConfig,
           params,
           new SourcePathResolver(resolver),
           swiftPlatform.get().getSwift(),
-          args.frameworks.get(),
-          args.moduleName.or(buildTarget.getShortName()),
+          args.frameworks,
+          args.moduleName.orElse(buildTarget.getShortName()),
           BuildTargets.getGenPath(
               params.getProjectFilesystem(),
               buildTarget, "%s"),
-          args.srcs.get(),
-          Optional.<Boolean>absent(),
+          args.srcs,
+          args.enableObjcInterop,
           args.bridgingHeader);
     }
 
@@ -228,12 +240,12 @@ public class SwiftLibraryDescription implements
         params,
         resolver,
         new SourcePathResolver(resolver),
-        ImmutableSet.<BuildRule>of(),
+        ImmutableSet.of(),
         swiftPlatformFlavorDomain,
-        args.frameworks.get(),
-        args.libraries.get(),
+        args.frameworks,
+        args.libraries,
         args.supportedPlatformsRegex,
-        args.preferredLinkage.or(NativeLinkable.Linkage.ANY));
+        args.preferredLinkage.orElse(NativeLinkable.Linkage.ANY));
   }
 
   private BuildRule createSharedLibraryBuildRule(
@@ -278,9 +290,9 @@ public class SwiftLibraryDescription implements
         FluentIterable.from(params.getDeps())
             .filter(NativeLinkable.class)
             .append(swiftRuntimeLinkable),
-        Optional.<Linker.CxxRuntimeType>absent(),
-        Optional.<SourcePath>absent(),
-        ImmutableSet.<BuildTarget>of(),
+        Optional.empty(),
+        Optional.empty(),
+        ImmutableSet.of(),
         inputBuilder.build()));
   }
 
@@ -293,10 +305,10 @@ public class SwiftLibraryDescription implements
     if (!isSwiftTarget(buildTarget)) {
       boolean hasSwiftSource = !SwiftDescriptions.filterSwiftSources(
           new SourcePathResolver(resolver),
-          args.srcs.get()).isEmpty();
+          args.srcs).isEmpty();
       return hasSwiftSource ?
           Optional.of(resolver.requireRule(buildTarget.withAppendedFlavors(SWIFT_COMPANION_FLAVOR)))
-          : Optional.<BuildRule>absent();
+          : Optional.empty();
     }
 
     final SwiftLibraryDescription.Arg delegateArgs = createUnpopulatedConstructorArg();
@@ -305,12 +317,12 @@ public class SwiftLibraryDescription implements
         delegateArgs,
         args,
         buildTarget);
-    if (delegateArgs.srcs.isPresent() && !delegateArgs.srcs.get().isEmpty()) {
+    if (!delegateArgs.srcs.isEmpty()) {
       return Optional.of(
           resolver.addToIndex(
               createBuildRule(targetGraph, params, resolver, delegateArgs)));
     } else {
-      return Optional.absent();
+      return Optional.empty();
     }
   }
 
@@ -322,16 +334,17 @@ public class SwiftLibraryDescription implements
   @SuppressFieldNotInitialized
   public static class Arg extends AbstractDescriptionArg {
     public Optional<String> moduleName;
-    public Optional<ImmutableSortedSet<SourcePath>> srcs;
-    public Optional<ImmutableList<String>> compilerFlags;
-    public Optional<ImmutableSortedSet<FrameworkPath>> frameworks;
-    public Optional<ImmutableSortedSet<FrameworkPath>> libraries;
+    public ImmutableSortedSet<SourcePath> srcs = ImmutableSortedSet.of();
+    public ImmutableList<String> compilerFlags = ImmutableList.of();
+    public ImmutableSortedSet<FrameworkPath> frameworks = ImmutableSortedSet.of();
+    public ImmutableSortedSet<FrameworkPath> libraries = ImmutableSortedSet.of();
     public Optional<Boolean> enableObjcInterop;
     public Optional<Pattern> supportedPlatformsRegex;
     public Optional<String> soname;
     public Optional<SourcePath> bridgingHeader;
-    public Optional<ImmutableSortedSet<BuildTarget>> deps;
+    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
     public Optional<NativeLinkable.Linkage> preferredLinkage;
+    public ImmutableMap<Path, SourcePath> headersSearchPath = ImmutableMap.of();
   }
 
 }

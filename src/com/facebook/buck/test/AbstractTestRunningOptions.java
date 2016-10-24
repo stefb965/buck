@@ -18,14 +18,20 @@ package com.facebook.buck.test;
 
 import com.facebook.buck.test.selectors.TestSelectorList;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableMap;
 
 import org.immutables.value.Value;
 
+import java.util.Optional;
+
 @Value.Immutable
 @BuckStyleImmutable
 abstract class AbstractTestRunningOptions {
+  public enum TestResultCacheMode {
+    ENABLED,
+    ENABLED_IF_PASSED,
+    DISABLED
+  }
 
   @Value.Default
   public boolean isCodeCoverageEnabled() {
@@ -48,8 +54,8 @@ abstract class AbstractTestRunningOptions {
   }
 
   @Value.Default
-  public boolean isResultsCacheEnabled() {
-    return true;
+  public TestResultCacheMode getTestResultCacheMode() {
+    return TestResultCacheMode.ENABLED;
   }
 
   @Value.Default

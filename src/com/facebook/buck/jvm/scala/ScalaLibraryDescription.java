@@ -36,17 +36,15 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.Tool;
+import com.facebook.buck.util.OptionalCompat;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
-import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 
 import java.nio.file.Path;
-import java.util.regex.Pattern;
+import java.util.Optional;
 
 public class ScalaLibraryDescription implements Description<ScalaLibraryDescription.Arg>,
     ImplicitDepsInferringDescription<ScalaLibraryDescription.Arg> {
@@ -82,15 +80,10 @@ public class ScalaLibraryDescription implements Description<ScalaLibraryDescript
 
     final BuildRule scalaLibrary = resolver.getRule(scalaBuckConfig.getScalaLibraryTarget());
     BuildRuleParams params = rawParams.copyWithDeps(
-        new Supplier<ImmutableSortedSet<BuildRule>>() {
-          @Override
-          public ImmutableSortedSet<BuildRule> get() {
-            return ImmutableSortedSet.<BuildRule>naturalOrder()
-                .addAll(rawParams.getDeclaredDeps().get())
-                .add(scalaLibrary)
-                .build();
-          }
-        },
+        () -> ImmutableSortedSet.<BuildRule>naturalOrder()
+            .addAll(rawParams.getDeclaredDeps().get())
+            .add(scalaLibrary)
+            .build(),
         rawParams.getExtraDeps()
     );
 
@@ -104,41 +97,33 @@ public class ScalaLibraryDescription implements Description<ScalaLibraryDescript
                         BuildRules.getExportedRules(
                             Iterables.concat(
                                 params.getDeclaredDeps().get(),
-                                resolver.getAllRules(args.providedDeps.get()))),
+                                resolver.getAllRules(args.providedDeps))),
                         scalac.getDeps(pathResolver))),
                 pathResolver,
-                args.srcs.get(),
+                args.srcs,
                 validateResources(
                     pathResolver,
                     params.getProjectFilesystem(),
-                    args.resources.get()),
-                /* generatedSourceFolder */ Optional.<Path>absent(),
-                /* proguardConfig */ Optional.<SourcePath>absent(),
-                /* postprocessClassesCommands */ ImmutableList.<String>of(),
+                    args.resources),
+                /* generatedSourceFolder */ Optional.empty(),
+                /* proguardConfig */ Optional.empty(),
+                /* postprocessClassesCommands */ ImmutableList.of(),
                 params.getDeclaredDeps().get(),
-                resolver.getAllRules(args.providedDeps.get()),
+                resolver.getAllRules(args.providedDeps),
                 new BuildTargetSourcePath(abiJarTarget),
                 /* trackClassUsage */ false,
-                /* additionalClasspathEntries */ ImmutableSet.<Path>of(),
+                /* additionalClasspathEntries */ ImmutableSet.of(),
                 new ScalacToJarStepFactory(
-                    scalaBuckConfig.getScalac(resolver),
-                    ImmutableList.<String>builder()
-                        .addAll(scalaBuckConfig.getCompilerFlags())
-                        .addAll(args.extraArguments.get())
-                        .addAll(
-                            Iterables.transform(
-                                resolver.getAllRules(scalaBuckConfig.getCompilerPlugins()),
-                                new Function<BuildRule, String>() {
-                                  @Override public String apply(BuildRule input) {
-                                    return "-Xplugin:" + input.getPathToOutput();
-                                  }
-                                }))
-                        .build()),
+                    scalac,
+                    ScalacToJarStepFactory.collectScalacArguments(
+                        scalaBuckConfig,
+                        resolver,
+                        args.extraArguments)),
                 args.resourcesRoot,
                 args.manifestFile,
                 args.mavenCoords,
-                args.tests.get(),
-                /* classesToRemoveFromJar */ ImmutableSet.<Pattern>of()));
+                args.tests,
+                /* classesToRemoveFromJar */ ImmutableSet.of()));
 
     resolver.addToIndex(
         CalculateAbi.of(
@@ -158,19 +143,19 @@ public class ScalaLibraryDescription implements Description<ScalaLibraryDescript
     return ImmutableList.<BuildTarget>builder()
         .add(scalaBuckConfig.getScalaLibraryTarget())
         .addAll(scalaBuckConfig.getCompilerPlugins())
-        .addAll(scalaBuckConfig.getScalacTarget().asSet())
+        .addAll(OptionalCompat.asSet(scalaBuckConfig.getScalacTarget()))
         .build();
   }
 
   @SuppressFieldNotInitialized
   public static class Arg extends AbstractDescriptionArg {
-    public Optional<ImmutableSortedSet<SourcePath>> srcs;
-    public Optional<ImmutableSortedSet<SourcePath>> resources;
-    public Optional<ImmutableList<String>> extraArguments;
+    public ImmutableSortedSet<SourcePath> srcs = ImmutableSortedSet.of();
+    public ImmutableSortedSet<SourcePath> resources = ImmutableSortedSet.of();
+    public ImmutableList<String> extraArguments = ImmutableList.of();
     // Note: scala does not have a exported_deps because scala needs the transitive closure of
     // dependencies to compile. deps is effectively exported_deps.
-    public Optional<ImmutableSortedSet<BuildTarget>> providedDeps;
-    public Optional<ImmutableSortedSet<BuildTarget>> deps;
+    public ImmutableSortedSet<BuildTarget> providedDeps = ImmutableSortedSet.of();
+    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
 
     @Hint(isInput = false)
     public Optional<Path> resourcesRoot;
@@ -178,7 +163,7 @@ public class ScalaLibraryDescription implements Description<ScalaLibraryDescript
     public Optional<String> mavenCoords;
 
     @Hint(isDep = false)
-    public Optional<ImmutableSortedSet<BuildTarget>> tests;
+    public ImmutableSortedSet<BuildTarget> tests = ImmutableSortedSet.of();
   }
 
 }

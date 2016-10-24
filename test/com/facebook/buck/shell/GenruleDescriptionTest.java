@@ -40,9 +40,8 @@ import com.facebook.buck.rules.TargetNodeFactory;
 import com.facebook.buck.rules.VisibilityPattern;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.testutil.AllExistingProjectFilesystem;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.ObjectMappers;
-import com.google.common.base.Functions;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -59,7 +58,7 @@ public class GenruleDescriptionTest {
   @Test
   public void testImplicitDepsAreAddedCorrectly() throws NoSuchBuildTargetException {
     Description<GenruleDescription.Arg> genruleDescription = new GenruleDescription();
-    Map<String, Object> instance = ImmutableMap.<String, Object>of(
+    Map<String, Object> instance = ImmutableMap.of(
         "srcs", ImmutableList.of(":baz", "//biz:baz"),
         "out", "AndroidManifest.xml",
         "cmd", "$(exe //bin:executable) $(location :arg)");
@@ -102,9 +101,9 @@ public class GenruleDescriptionTest {
             "//biz:baz",
             "//bin:executable",
             "//foo:arg"),
-        FluentIterable.from(targetNode.getExtraDeps())
-            .transform(Functions.toStringFunction())
-            .toSet());
+        targetNode.getExtraDeps().stream()
+            .map(Object::toString)
+            .collect(MoreCollectors.toImmutableSet()));
   }
 
   @Test

@@ -45,10 +45,10 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.MacroArg;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.OptionalCompat;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Optional;
 import com.google.common.base.Suppliers;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -58,6 +58,7 @@ import com.google.common.collect.Sets;
 
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 public class PythonBinaryDescription implements
@@ -115,8 +116,8 @@ public class PythonBinaryDescription implements
         new WriteFile(
             params.copyWithChanges(
                 emptyInitTarget,
-                Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
-                Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+                Suppliers.ofInstance(ImmutableSortedSet.of()),
+                Suppliers.ofInstance(ImmutableSortedSet.of())),
             pathResolver,
             "",
             emptyInitPath,
@@ -181,8 +182,8 @@ public class PythonBinaryDescription implements
             new SymlinkTree(
                 params.copyWithChanges(
                     linkTreeTarget,
-                    Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
-                    Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+                    Suppliers.ofInstance(ImmutableSortedSet.of()),
+                    Suppliers.ofInstance(ImmutableSortedSet.of())),
                 pathResolver,
                 linkTreeRoot,
                 ImmutableMap.<Path, SourcePath>builder()
@@ -201,8 +202,9 @@ public class PythonBinaryDescription implements
         mainModule,
         components,
         pythonPlatform.getEnvironment(),
-        extension.or(pythonBuckConfig.getPexExtension()),
-        preloadLibraries);
+        extension.orElse(pythonBuckConfig.getPexExtension()),
+        preloadLibraries,
+        pythonBuckConfig.legacyOutputPath());
   }
 
   PythonBinary createPackageRule(
@@ -243,13 +245,13 @@ public class PythonBinaryDescription implements
                         .addAll(componentDeps)
                         .addAll(pexTool.getDeps(pathResolver))
                         .build()),
-                Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+                Suppliers.ofInstance(ImmutableSortedSet.of())),
             pathResolver,
             pythonPlatform,
             pexTool,
             buildArgs,
-            pythonBuckConfig.getPexExecutor(resolver).or(pythonPlatform.getEnvironment()),
-            extension.or(pythonBuckConfig.getPexExtension()),
+            pythonBuckConfig.getPexExecutor(resolver).orElse(pythonPlatform.getEnvironment()),
+            extension.orElse(pythonBuckConfig.getPexExtension()),
             pythonPlatform.getEnvironment(),
             mainModule,
             components,
@@ -259,7 +261,8 @@ public class PythonBinaryDescription implements
             // the build.
             ImmutableSortedSet.copyOf(
                 Sets.difference(params.getDeclaredDeps().get(), componentDeps)),
-            pythonBuckConfig.shouldCacheBinaries());
+            pythonBuckConfig.shouldCacheBinaries(),
+            pythonBuckConfig.legacyOutputPath());
 
       default:
         throw new IllegalStateException();
@@ -301,19 +304,19 @@ public class PythonBinaryDescription implements
     // Build up the list of all components going into the python binary.
     PythonPackageComponents binaryPackageComponents = PythonPackageComponents.of(
         modules.build(),
-        /* resources */ ImmutableMap.<Path, SourcePath>of(),
-        /* nativeLibraries */ ImmutableMap.<Path, SourcePath>of(),
-        /* prebuiltLibraries */ ImmutableSet.<SourcePath>of(),
+        /* resources */ ImmutableMap.of(),
+        /* nativeLibraries */ ImmutableMap.of(),
+        /* prebuiltLibraries */ ImmutableSet.of(),
         /* zipSafe */ args.zipSafe);
     // Extract the platforms from the flavor, falling back to the default platforms if none are
     // found.
-    PythonPlatform pythonPlatform = pythonPlatforms
-        .getValue(params.getBuildTarget())
-        .or(pythonPlatforms.getValue(
-            args.platform
-                .transform(Flavor.TO_FLAVOR)
-                .or(pythonPlatforms.getFlavors().iterator().next())));
-    CxxPlatform cxxPlatform = cxxPlatforms.getValue(params.getBuildTarget()).or(defaultCxxPlatform);
+    PythonPlatform pythonPlatform =
+        pythonPlatforms.getValue(params.getBuildTarget()).orElse(
+            pythonPlatforms.getValue(
+                args.platform.<Flavor>map(ImmutableFlavor::of).orElse(
+                    pythonPlatforms.getFlavors().iterator().next())));
+    CxxPlatform cxxPlatform = cxxPlatforms.getValue(params.getBuildTarget()).orElse(
+        defaultCxxPlatform);
     PythonPackageComponents allPackageComponents =
         PythonUtil.getAllComponents(
             params,
@@ -323,16 +326,15 @@ public class PythonBinaryDescription implements
             pythonPlatform,
             cxxBuckConfig,
             cxxPlatform,
-            FluentIterable.from(args.linkerFlags.get())
-                .transform(
-                    MacroArg.toMacroArgFunction(
-                        PythonUtil.MACRO_HANDLER,
-                        params.getBuildTarget(),
-                        params.getCellRoots(),
-                        resolver))
-                .toList(),
+            args.linkerFlags.stream()
+                .map(MacroArg.toMacroArgFunction(
+                    PythonUtil.MACRO_HANDLER,
+                    params.getBuildTarget(),
+                    params.getCellRoots(),
+                    resolver)::apply)
+                .collect(MoreCollectors.toImmutableList()),
             pythonBuckConfig.getNativeLinkStrategy(),
-            args.preloadDeps.get());
+            args.preloadDeps);
     return createPackageRule(
         params,
         resolver,
@@ -342,12 +344,12 @@ public class PythonBinaryDescription implements
         mainModule,
         args.extension,
         allPackageComponents,
-        args.buildArgs.or(ImmutableList.<String>of()),
-        args.packageStyle.or(pythonBuckConfig.getPackageStyle()),
+        args.buildArgs,
+        args.packageStyle.orElse(pythonBuckConfig.getPackageStyle()),
         PythonUtil.getPreloadNames(
             resolver,
             cxxPlatform,
-            args.preloadDeps.or(ImmutableSortedSet.<BuildTarget>of())));
+            args.preloadDeps));
   }
 
   @Override
@@ -360,12 +362,12 @@ public class PythonBinaryDescription implements
     // We need to use the C/C++ linker for native libs handling, so add in the C/C++ linker to
     // parse time deps.
     targets.addAll(
-        cxxPlatforms.getValue(buildTarget).or(defaultCxxPlatform).getLd().getParseTimeDeps());
+        cxxPlatforms.getValue(buildTarget).orElse(defaultCxxPlatform).getLd().getParseTimeDeps());
 
-    if (constructorArg.packageStyle.or(pythonBuckConfig.getPackageStyle()) ==
+    if (constructorArg.packageStyle.orElse(pythonBuckConfig.getPackageStyle()) ==
         PythonBuckConfig.PackageStyle.STANDALONE) {
-      targets.addAll(pythonBuckConfig.getPexTarget().asSet());
-      targets.addAll(pythonBuckConfig.getPexExecutorTarget().asSet());
+      targets.addAll(OptionalCompat.asSet(pythonBuckConfig.getPexTarget()));
+      targets.addAll(OptionalCompat.asSet(pythonBuckConfig.getPexExecutorTarget()));
     }
 
     return targets.build();
@@ -375,20 +377,20 @@ public class PythonBinaryDescription implements
   public static class Arg extends AbstractDescriptionArg implements HasTests {
     public Optional<SourcePath> main;
     public Optional<String> mainModule;
-    public Optional<ImmutableSortedSet<BuildTarget>> deps;
+    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
     public Optional<String> baseModule;
     public Optional<Boolean> zipSafe;
-    public Optional<ImmutableList<String>> buildArgs;
+    public ImmutableList<String> buildArgs = ImmutableList.of();
     public Optional<String> platform;
     public Optional<PythonBuckConfig.PackageStyle> packageStyle;
-    public Optional<ImmutableSet<BuildTarget>> preloadDeps;
-    public Optional<ImmutableList<String>> linkerFlags;
+    public ImmutableSet<BuildTarget> preloadDeps = ImmutableSet.of();
+    public ImmutableList<String> linkerFlags = ImmutableList.of();
     public Optional<String> extension;
-    @Hint(isDep = false) public Optional<ImmutableSortedSet<BuildTarget>> tests;
+    @Hint(isDep = false) public ImmutableSortedSet<BuildTarget> tests = ImmutableSortedSet.of();
 
     @Override
     public ImmutableSortedSet<BuildTarget> getTests() {
-      return tests.get();
+      return tests;
     }
 
   }

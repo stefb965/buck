@@ -1,10 +1,10 @@
-#@# GENERATED FILE: DO NOT MODIFY 27bc350b33c29c66386261bdb32ae408daebd200 #@#
 {
   "coercer" : {
     "deps" : [
       "//src/com/facebook/buck/io:MorePaths.java",
       "//src/com/facebook/buck/parser:rule_pattern",
       "//src/com/facebook/buck/util:exceptions",
+      "//src/com/facebook/buck/util:util",
       "//third-party/java/immutables:processor"
     ],
     "exported_deps" : [
@@ -25,8 +25,7 @@
     "deps" : [ ],
     "exported_deps" : [
       "//src/com/facebook/buck/io:io",
-      "//src/com/facebook/buck/rules:interfaces",
-      "//third-party/java/guava:guava"
+      "//src/com/facebook/buck/rules:interfaces"
     ]
   }
 }

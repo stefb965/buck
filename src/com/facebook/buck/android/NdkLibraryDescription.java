@@ -41,16 +41,13 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.macros.EnvironmentVariableMacroExpander;
-import com.facebook.buck.rules.macros.MacroExpander;
 import com.facebook.buck.rules.macros.MacroHandler;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.MoreStrings;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Function;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.collect.FluentIterable;
@@ -67,6 +64,7 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.EnumSet;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 public class NdkLibraryDescription implements Description<NdkLibraryDescription.Arg> {
@@ -79,7 +77,7 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescription.
               MoreStrings.regexPatternForAny("mk", "h", "hpp", "c", "cpp", "cc", "cxx") + "$");
 
   public static final MacroHandler MACRO_HANDLER = new MacroHandler(
-      ImmutableMap.<String, MacroExpander>of(
+      ImmutableMap.of(
           "env", new EnvironmentVariableMacroExpander(Platform.detect())
       )
   );
@@ -194,7 +192,7 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescription.
           CxxHeaders.getArgs(
               cxxPreprocessorInput.getIncludes(),
               pathResolver,
-              Optional.<Function<Path, Path>>absent(),
+              Optional.empty(),
               preprocessor));
       String localCflags =
           Joiner.on(' ').join(escapeForMakefile(params.getProjectFilesystem(), ppFlags.build()));
@@ -337,8 +335,8 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescription.
     Pair<String, Iterable<BuildRule>> makefilePair = generateMakefile(params, resolver);
 
     ImmutableSortedSet<SourcePath> sources;
-    if (args.srcs.isPresent() && !args.srcs.get().isEmpty()) {
-      sources = args.srcs.get();
+    if (!args.srcs.isEmpty()) {
+      sources = args.srcs;
     } else {
       sources = findSources(
           params.getProjectFilesystem(),
@@ -353,8 +351,8 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescription.
         getGeneratedMakefilePath(params.getBuildTarget(), params.getProjectFilesystem()),
         makefilePair.getFirst(),
         sources,
-        args.flags.get(),
-        args.isAsset.or(false),
+        args.flags,
+        args.isAsset.orElse(false),
         ndkVersion,
         MACRO_HANDLER.getExpander(
             params.getBuildTarget(),
@@ -364,10 +362,10 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescription.
 
   @SuppressFieldNotInitialized
   public static class Arg extends AbstractDescriptionArg {
-    public Optional<ImmutableList<String>> flags;
+    public ImmutableList<String> flags = ImmutableList.of();
     public Optional<Boolean> isAsset;
-    public Optional<ImmutableSortedSet<BuildTarget>> deps;
-    public Optional<ImmutableSortedSet<SourcePath>> srcs;
+    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
+    public ImmutableSortedSet<SourcePath> srcs = ImmutableSortedSet.of();
   }
 
 }

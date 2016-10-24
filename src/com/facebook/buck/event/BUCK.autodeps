@@ -1,8 +1,8 @@
-#@# GENERATED FILE: DO NOT MODIFY 230165188865b595d2b2bd3c8968eb25a98cd920 #@#
 {
   "event" : {
     "deps" : [
       "//src/com/facebook/buck/log:log",
+      "//src/com/facebook/buck/log/views:views",
       "//src/com/facebook/buck/util/concurrent:concurrent",
       "//third-party/java/immutables:processor",
       "//third-party/java/jsr:jsr305"

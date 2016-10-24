@@ -19,26 +19,22 @@ package com.facebook.buck.distributed;
 import com.facebook.buck.distributed.thrift.BuildJobStateBuildTarget;
 import com.facebook.buck.distributed.thrift.BuildJobStateTargetGraph;
 import com.facebook.buck.distributed.thrift.BuildJobStateTargetNode;
-import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.event.PerfEventId;
 import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.graph.MutableDirectedGraph;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
+import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.parser.ParserTargetNodeFactory;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetGroup;
 import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.util.MoreCollectors;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Function;
-import com.google.common.base.Functions;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
@@ -46,6 +42,8 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Saves and loads the {@link TargetNode}s needed for the build.
@@ -67,7 +65,7 @@ public class DistBuildTargetGraphCodec {
 
   public BuildJobStateTargetGraph dump(
       Collection<TargetNode<?>> targetNodes,
-      Function<Path, Integer> cellIndexer) throws InterruptedException {
+      Function<Path, Integer> cellIndexer) {
     BuildJobStateTargetGraph result = new BuildJobStateTargetGraph();
 
     for (TargetNode<?> targetNode : targetNodes) {
@@ -97,9 +95,9 @@ public class DistBuildTargetGraphCodec {
       remoteTarget.setCellName(buildTarget.getCell().get());
     }
     remoteTarget.setFlavors(
-        FluentIterable.from(buildTarget.getFlavors())
-            .transform(Functions.toStringFunction())
-            .toSet());
+        buildTarget.getFlavors().stream()
+            .map(Object::toString)
+            .collect(Collectors.toSet()));
     return remoteTarget;
   }
 
@@ -109,12 +107,12 @@ public class DistBuildTargetGraphCodec {
         .setShortName(remoteTarget.getShortName())
         .setBaseName(remoteTarget.getBaseName())
         .setCellPath(cell.getRoot())
-        .setCell(Optional.fromNullable(remoteTarget.getCellName()))
+        .setCell(Optional.ofNullable(remoteTarget.getCellName()))
         .build();
 
-    ImmutableSet<Flavor> flavors = FluentIterable.from(remoteTarget.flavors)
-        .transform(Flavor.TO_FLAVOR)
-        .toSet();
+    ImmutableSet<Flavor> flavors = remoteTarget.flavors.stream()
+        .map(ImmutableFlavor::of)
+        .collect(MoreCollectors.toImmutableSet());
 
     return BuildTarget.builder()
         .setUnflavoredBuildTarget(unflavoredBuildTarget)
@@ -124,7 +122,7 @@ public class DistBuildTargetGraphCodec {
 
   public TargetGraph createTargetGraph(
       BuildJobStateTargetGraph remoteTargetGraph,
-      Function<Integer, Cell> cellLookup) throws IOException, InterruptedException {
+      Function<Integer, Cell> cellLookup) throws IOException {
 
     ImmutableMap.Builder<BuildTarget, TargetNode<?>> targetNodeIndexBuilder =
         ImmutableMap.builder();
@@ -145,12 +143,7 @@ public class DistBuildTargetGraphCodec {
           buildFilePath,
           target,
           rawNode,
-          new Function<PerfEventId, SimplePerfEvent.Scope>() {
-            @Override
-            public SimplePerfEvent.Scope apply(PerfEventId input) {
-              return SimplePerfEvent.scope(Optional.<BuckEventBus>absent(), input);
-            }
-          });
+          input -> SimplePerfEvent.scope(Optional.empty(), input));
       targetNodeIndexBuilder.put(targetNode.getBuildTarget(), targetNode);
     }
     ImmutableMap<BuildTarget, TargetNode<?>> targetNodeIndex = targetNodeIndexBuilder.build();
@@ -166,6 +159,6 @@ public class DistBuildTargetGraphCodec {
     }
 
     // TODO(csarbora): make this work with TargetGroups
-    return new TargetGraph(mutableTargetGraph, targetNodeIndex, ImmutableSet.<TargetGroup>of());
+    return new TargetGraph(mutableTargetGraph, targetNodeIndex, ImmutableSet.of());
   }
 }

@@ -20,17 +20,15 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.oneOf;
 
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.Ansi;
-import com.google.common.base.Function;
 import com.google.common.base.Functions;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
 
@@ -42,6 +40,7 @@ import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collection;
+import java.util.Optional;
 
 /**
  * Tests that various error line path replacements happen (or doesn't happen) in both relative and
@@ -61,14 +60,14 @@ public class CxxErrorTransformerFactoryTest {
     Path replacement = Paths.get("hello/world.h");
 
     HeaderPathNormalizer.Builder normalizerBuilder =
-        new HeaderPathNormalizer.Builder(pathResolver, Functions.<Path>identity());
+        new HeaderPathNormalizer.Builder(pathResolver, Functions.identity());
     normalizerBuilder.addHeader(new FakeSourcePath(replacement.toString()), original);
     HeaderPathNormalizer normalizer = normalizerBuilder.build();
 
     Path compilationDirectory = Paths.get("compDir");
     Path sanitizedDir = Paths.get("hello");
     Path unsanitizedDir = Paths.get("buck-out/foo#bar");
-    DebugPathSanitizer sanitizer = new DebugPathSanitizer(
+    DebugPathSanitizer sanitizer = new MungingDebugPathSanitizer(
         unsanitizedDir.toString().length(),
         File.separatorChar,
         compilationDirectory,
@@ -80,7 +79,7 @@ public class CxxErrorTransformerFactoryTest {
             "relative paths",
             new CxxErrorTransformerFactory(
                 Optional.of(filesystem.getRootPath()),
-                Optional.<Function<Path, Path>>absent(),
+                Optional.empty(),
                 normalizer,
                 sanitizer),
             replacement,

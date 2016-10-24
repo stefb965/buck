@@ -17,15 +17,14 @@
 package com.facebook.buck.apple.xcode.xcodeproj;
 
 import com.facebook.buck.apple.xcode.XcodeprojSerializer;
-import com.google.common.base.Optional;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.Lists;
 
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 
 import javax.annotation.Nullable;
 
@@ -51,14 +50,14 @@ public class XCVersionGroup extends PBXReference {
           }
         });
 
-    currentVersion = Optional.absent();
+    currentVersion = Optional.empty();
   }
 
   public Optional<String> getVersionGroupType() {
     if (currentVersion.isPresent()) {
       return currentVersion.get().getExplicitFileType();
     }
-    return Optional.absent();
+    return Optional.empty();
   }
 
   public Optional<PBXFileReference> getCurrentVersion() {
@@ -86,12 +85,7 @@ public class XCVersionGroup extends PBXReference {
   public void serializeInto(XcodeprojSerializer s) {
     super.serializeInto(s);
 
-    Collections.sort(children, new Comparator<PBXReference>() {
-          @Override
-          public int compare(PBXReference o1, PBXReference o2) {
-          return o1.getName().compareTo(o2.getName());
-        }
-      });
+    Collections.sort(children, (o1, o2) -> o1.getName().compareTo(o2.getName()));
     s.addField("children", children);
 
 

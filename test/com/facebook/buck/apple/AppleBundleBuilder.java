@@ -20,8 +20,9 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Either;
 import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.SourcePath;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSortedSet;
+
+import java.util.Optional;
 
 public class AppleBundleBuilder
     extends AbstractNodeBuilder<AppleBundleDescription.Arg> {
@@ -41,6 +42,11 @@ public class AppleBundleBuilder
     return this;
   }
 
+  public AppleBundleBuilder setProductName(Optional<String> productName) {
+    arg.productName = productName;
+    return this;
+  }
+
   public AppleBundleBuilder setXcodeProductType(Optional<String> xcodeProductType) {
     arg.xcodeProductType = xcodeProductType;
     return this;
@@ -56,12 +62,12 @@ public class AppleBundleBuilder
     return this;
   }
 
-  public AppleBundleBuilder setDeps(Optional<ImmutableSortedSet<BuildTarget>> deps) {
+  public AppleBundleBuilder setDeps(ImmutableSortedSet<BuildTarget> deps) {
     arg.deps = deps;
     return this;
   }
 
-  public AppleBundleBuilder setTests(Optional<ImmutableSortedSet<BuildTarget>> tests) {
+  public AppleBundleBuilder setTests(ImmutableSortedSet<BuildTarget> tests) {
     arg.tests = tests;
     return this;
   }

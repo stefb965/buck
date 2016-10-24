@@ -27,7 +27,6 @@ import com.facebook.buck.io.ProjectFilesystemDelegate;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.facebook.eden.thrift.EdenError;
 import com.facebook.thrift.TException;
-import com.google.common.base.Optional;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.hash.Hashing;
@@ -40,6 +39,7 @@ import java.io.IOException;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Optional;
 
 public class EdenProjectFilesystemDelegateTest {
   private static final Sha1HashCode DUMMY_SHA1 = Sha1HashCode.of(Strings.repeat("faceb00c", 5));
@@ -60,7 +60,7 @@ public class EdenProjectFilesystemDelegateTest {
 
     EdenMount mount = createMock(EdenMount.class);
     Path path = fs.getPath("foo/bar");
-    expect(mount.getBindMounts()).andReturn(ImmutableList.<Path>of());
+    expect(mount.getBindMounts()).andReturn(ImmutableList.of());
     expect(mount.getPathRelativeToProjectRoot(root.resolve(path))).andReturn(Optional.of(path));
     expect(mount.getSha1(path)).andReturn(DUMMY_SHA1);
     replay(mount);
@@ -115,7 +115,7 @@ public class EdenProjectFilesystemDelegateTest {
     // Eden will throw when the SHA-1 for the link is requested, but return a SHA-1 when the target
     // is requested.
     EdenMount mount = createMock(EdenMount.class);
-    expect(mount.getBindMounts()).andReturn(ImmutableList.<Path>of());
+    expect(mount.getBindMounts()).andReturn(ImmutableList.of());
     expect(mount.getPathRelativeToProjectRoot(link)).andReturn(Optional.of(fs.getPath("link")));
     expect(mount.getPathRelativeToProjectRoot(target)).andReturn(Optional.of(fs.getPath("target")));
     expect(mount.getSha1(fs.getPath("link"))).andThrow(new EdenError());
@@ -146,9 +146,9 @@ public class EdenProjectFilesystemDelegateTest {
     // Eden will throw when the SHA-1 for the link is requested, but return a SHA-1 when the target
     // is requested.
     EdenMount mount = createMock(EdenMount.class);
-    expect(mount.getBindMounts()).andReturn(ImmutableList.<Path>of());
+    expect(mount.getBindMounts()).andReturn(ImmutableList.of());
     expect(mount.getPathRelativeToProjectRoot(link)).andReturn(Optional.of(fs.getPath("link")));
-    expect(mount.getPathRelativeToProjectRoot(target)).andReturn(Optional.<Path>absent());
+    expect(mount.getPathRelativeToProjectRoot(target)).andReturn(Optional.empty());
     expect(mount.getSha1(fs.getPath("link"))).andThrow(new EdenError());
     replay(mount);
 
@@ -173,8 +173,8 @@ public class EdenProjectFilesystemDelegateTest {
     Files.write(target, bytes);
 
     EdenMount mount = createMock(EdenMount.class);
-    expect(mount.getBindMounts()).andReturn(ImmutableList.<Path>of());
-    expect(mount.getPathRelativeToProjectRoot(target)).andReturn(Optional.<Path>absent());
+    expect(mount.getBindMounts()).andReturn(ImmutableList.of());
+    expect(mount.getPathRelativeToProjectRoot(target)).andReturn(Optional.empty());
     replay(mount);
 
     EdenProjectFilesystemDelegate edenDelegate = new EdenProjectFilesystemDelegate(mount, delegate);

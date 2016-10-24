@@ -32,10 +32,9 @@ import com.facebook.buck.model.FilesystemBackedBuildFileTree;
 import com.facebook.buck.parser.PipelineNodeCache.Cache;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
+import com.facebook.buck.util.OptionalCompat;
 import com.facebook.buck.util.concurrent.AutoCloseableLock;
 import com.facebook.buck.util.concurrent.AutoCloseableReadWriteUpdateLock;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.base.Throwables;
@@ -57,6 +56,7 @@ import java.nio.file.WatchEvent;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -123,7 +123,7 @@ class DaemonicParserState {
 
       Cache<BuildTarget, T> state = getCache(cell);
       if (state == null) {
-        return Optional.absent();
+        return Optional.empty();
       }
       return state.lookupComputedNode(cell, target);
     }
@@ -164,7 +164,7 @@ class DaemonicParserState {
 
       DaemonicCellState state = getCellState(cell);
       if (state == null) {
-        return Optional.absent();
+        return Optional.empty();
       }
       return state.lookupRawNodes(buildFile);
     }
@@ -217,12 +217,7 @@ class DaemonicParserState {
                 ImmutableMap.copyOf(
                     Maps.transformValues(
                         ent.getValue(),
-                        new Function<String, Optional<String>>() {
-                          @Override
-                          public Optional<String> apply(@Nullable String input) {
-                            return Optional.fromNullable(input);
-                          }
-                        })));
+                        Optional::ofNullable)));
           }
           configs = builder.build();
         } else if (rawNode.containsKey(ENV_META_RULE)) {
@@ -244,8 +239,7 @@ class DaemonicParserState {
         // but they are not. However, I bet someone will try and treat it like a
         // target, so find the owning cell if necessary, and then fully resolve
         // the path against the owning cell's root.
-        int slashesIndex = include.indexOf("//");
-        Preconditions.checkState(slashesIndex != -1);
+        Preconditions.checkState(include.startsWith("//"));
         dependentsOfEveryNode.add(cell.getFilesystem().resolve(include.substring(2)));
       }
 
@@ -312,32 +306,32 @@ class DaemonicParserState {
     this.cacheInvalidatedByEnvironmentVariableChangeCounter = new TagSetCounter(
         COUNTER_CATEGORY,
         INVALIDATED_BY_ENV_VARS_COUNTER_NAME,
-        ImmutableMap.<String, String>of());
+        ImmutableMap.of());
     this.cacheInvalidatedByDefaultIncludesChangeCounter = new IntegerCounter(
         COUNTER_CATEGORY,
         INVALIDATED_BY_DEFAULT_INCLUDES_COUNTER_NAME,
-        ImmutableMap.<String, String>of());
+        ImmutableMap.of());
     this.cacheInvalidatedByWatchOverflowCounter = new IntegerCounter(
         COUNTER_CATEGORY,
         INVALIDATED_BY_WATCH_OVERFLOW_COUNTER_NAME,
-        ImmutableMap.<String, String>of());
+        ImmutableMap.of());
     this.buildFilesInvalidatedByFileAddOrRemoveCounter = new IntegerCounter(
         COUNTER_CATEGORY,
         BUILD_FILES_INVALIDATED_BY_FILE_ADD_OR_REMOVE_COUNTER_NAME,
-        ImmutableMap.<String, String>of());
+        ImmutableMap.of());
     this.filesChangedCounter = new IntegerCounter(
         COUNTER_CATEGORY,
         FILES_CHANGED_COUNTER_NAME,
-        ImmutableMap.<String, String>of());
+        ImmutableMap.of());
     this.rulesInvalidatedByWatchEventsCounter = new IntegerCounter(
         COUNTER_CATEGORY,
         RULES_INVALIDATED_BY_WATCH_EVENTS_COUNTER_NAME,
-        ImmutableMap.<String, String>of());
+        ImmutableMap.of());
     this.pathsAddedOrRemovedInvalidatingBuildFiles =
         new TagSetCounter(
             COUNTER_CATEGORY,
             PATHS_ADDED_OR_REMOVED_INVALIDATING_BUILD_FILES,
-            ImmutableMap.<String, String>of());
+            ImmutableMap.of());
     this.buildFileTrees = CacheBuilder.newBuilder().build(
         new CacheLoader<Cell, BuildFileTree>() {
           @Override
@@ -407,7 +401,7 @@ class DaemonicParserState {
     }
   }
 
-  public void invalidateBasedOn(WatchEvent<?> event) throws InterruptedException {
+  public void invalidateBasedOn(WatchEvent<?> event) {
     if (!WatchEvents.isPathChangeEvent(event)) {
       // Non-path change event, likely an overflow due to many change events: invalidate everything.
       LOG.debug("Received non-path change event %s, assuming overflow and checking caches.", event);
@@ -493,7 +487,7 @@ class DaemonicParserState {
     // that.
     Optional<Path> packageBuildFile = buildFiles.getBasePathOfAncestorTarget(path);
     packageBuildFiles.addAll(
-        packageBuildFile.transform(cell.getFilesystem().getAbsolutifier()).asSet());
+        OptionalCompat.asSet(packageBuildFile.map(cell.getFilesystem().getAbsolutifier()::apply)));
 
     // If we're *not* enforcing package boundary checks, it's possible for multiple ancestor
     // packages to reference the same file
@@ -501,7 +495,7 @@ class DaemonicParserState {
       while (packageBuildFile.isPresent() && packageBuildFile.get().getParent() != null) {
         packageBuildFile =
             buildFiles.getBasePathOfAncestorTarget(packageBuildFile.get().getParent());
-        packageBuildFiles.addAll(packageBuildFile.asSet());
+        packageBuildFiles.addAll(OptionalCompat.asSet(packageBuildFile));
       }
     }
 
@@ -549,12 +543,7 @@ class DaemonicParserState {
    */
   private boolean isTempFile(Cell cell, Path path) {
     final String fileName = path.getFileName().toString();
-    Predicate<Pattern> patternMatches = new Predicate<Pattern>() {
-      @Override
-      public boolean apply(Pattern pattern) {
-        return pattern.matcher(fileName).matches();
-      }
-    };
+    Predicate<Pattern> patternMatches = pattern -> pattern.matcher(fileName).matches();
     return Iterators.any(cell.getTempFilePatterns().iterator(), patternMatches);
   }
 

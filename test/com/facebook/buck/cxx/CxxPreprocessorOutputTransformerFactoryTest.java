@@ -46,11 +46,11 @@ public class CxxPreprocessorOutputTransformerFactoryTest {
     Path finalPath = Paths.get("SANITIZED/world.h");
 
     HeaderPathNormalizer.Builder normalizerBuilder =
-        new HeaderPathNormalizer.Builder(pathResolver, Functions.<Path>identity());
+        new HeaderPathNormalizer.Builder(pathResolver, Functions.identity());
     normalizerBuilder.addHeader(new FakeSourcePath("hello/////world.h"), original);
     HeaderPathNormalizer normalizer = normalizerBuilder.build();
 
-    DebugPathSanitizer sanitizer = new DebugPathSanitizer(
+    DebugPathSanitizer sanitizer = new MungingDebugPathSanitizer(
         9,
         File.separatorChar,
         Paths.get("PWD"),

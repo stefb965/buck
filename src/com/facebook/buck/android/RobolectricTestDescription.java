@@ -44,7 +44,6 @@ import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.DependencyMode;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Optional;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -52,7 +51,7 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 
 import java.nio.file.Path;
-import java.util.regex.Pattern;
+import java.util.Optional;
 
 public class RobolectricTestDescription implements Description<RobolectricTestDescription.Arg> {
 
@@ -91,7 +90,7 @@ public class RobolectricTestDescription implements Description<RobolectricTestDe
       BuildRuleResolver resolver,
       A args) throws NoSuchBuildTargetException {
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
-    ImmutableList<String> vmArgs = args.vmArgs.get();
+    ImmutableList<String> vmArgs = args.vmArgs;
 
 
     JavacOptions javacOptions =
@@ -105,12 +104,12 @@ public class RobolectricTestDescription implements Description<RobolectricTestDe
     AndroidLibraryGraphEnhancer graphEnhancer = new AndroidLibraryGraphEnhancer(
         params.getBuildTarget(),
         params.copyWithExtraDeps(
-            Suppliers.ofInstance(resolver.getAllRules(args.exportedDeps.get()))),
+            Suppliers.ofInstance(resolver.getAllRules(args.exportedDeps))),
         javacOptions,
         DependencyMode.TRANSITIVE,
         /* forceFinalResourceIds */ true,
-        /* resourceUnionPackage */ Optional.<String>absent(),
-        /* rName */ Optional.<String>absent());
+        /* resourceUnionPackage */ Optional.empty(),
+        /* rName */ Optional.empty());
     Optional<DummyRDotJava> dummyRDotJava = graphEnhancer.getBuildableForAndroidResources(
         resolver,
         /* createBuildableIfEmpty */ true);
@@ -145,7 +144,7 @@ public class RobolectricTestDescription implements Description<RobolectricTestDe
                     .addAll(BuildRules.getExportedRules(
                         Iterables.concat(
                             params.getDeclaredDeps().get(),
-                            resolver.getAllRules(args.providedDeps.get()))))
+                            resolver.getAllRules(args.providedDeps))))
                     .addAll(pathResolver.filterBuildRuleInputs(
                         javacOptions.getInputs(pathResolver)))
                     .build()
@@ -159,17 +158,17 @@ public class RobolectricTestDescription implements Description<RobolectricTestDe
             new DefaultJavaLibrary(
                 testsLibraryParams,
                 pathResolver,
-                args.srcs.get(),
+                args.srcs,
                 validateResources(
                     pathResolver,
                     params.getProjectFilesystem(),
-                    args.resources.get()),
+                    args.resources),
                 javacOptions.getGeneratedSourceFolderName(),
-                args.proguardConfig.transform(
-                    SourcePaths.toSourcePath(params.getProjectFilesystem())),
-                /* postprocessClassesCommands */ ImmutableList.<String>of(),
-                /* exportDeps */ ImmutableSortedSet.<BuildRule>of(),
-                /* providedDeps */ ImmutableSortedSet.<BuildRule>of(),
+                args.proguardConfig.map(
+                    SourcePaths.toSourcePath(params.getProjectFilesystem())::apply),
+                /* postprocessClassesCommands */ ImmutableList.of(),
+                /* exportDeps */ ImmutableSortedSet.of(),
+                /* providedDeps */ ImmutableSortedSet.of(),
                 new BuildTargetSourcePath(abiJarTarget),
                 javacOptions.trackClassUsage(),
                 additionalClasspathEntries,
@@ -177,28 +176,28 @@ public class RobolectricTestDescription implements Description<RobolectricTestDe
                 args.resourcesRoot,
                 args.manifestFile,
                 args.mavenCoords,
-                /* tests */ ImmutableSortedSet.<BuildTarget>of(),
-                /* classesToRemoveFromJar */ ImmutableSet.<Pattern>of()));
+                /* tests */ ImmutableSortedSet.of(),
+                /* classesToRemoveFromJar */ ImmutableSet.of()));
 
 
     RobolectricTest robolectricTest =
         resolver.addToIndex(
             new RobolectricTest(
                 params.copyWithDeps(
-                    Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of(testsLibrary)),
-                    Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+                    Suppliers.ofInstance(ImmutableSortedSet.of(testsLibrary)),
+                    Suppliers.ofInstance(ImmutableSortedSet.of())),
                 pathResolver,
                 testsLibrary,
                 additionalClasspathEntries,
-                args.labels.get(),
-                args.contacts.get(),
+                args.labels,
+                args.contacts,
                 TestType.JUNIT,
                 javaOptions,
                 vmArgs,
                 cxxLibraryEnhancement.nativeLibsEnvironment,
                 dummyRDotJava,
-                args.testRuleTimeoutMs.or(defaultTestRuleTimeoutMs),
-                args.env.get(),
+                args.testRuleTimeoutMs.map(Optional::of).orElse(defaultTestRuleTimeoutMs),
+                args.env,
                 args.getRunTestSeparately(),
                 args.getForkMode(),
                 args.stdOutLogLevel,
@@ -217,7 +216,7 @@ public class RobolectricTestDescription implements Description<RobolectricTestDe
   }
 
   @SuppressFieldNotInitialized
-  public class Arg extends JavaTestDescription.Arg {
+  public static class Arg extends JavaTestDescription.Arg {
     public Optional<String> robolectricRuntimeDependency;
     public Optional<SourcePath> robolectricManifest;
   }

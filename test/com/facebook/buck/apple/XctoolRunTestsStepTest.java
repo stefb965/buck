@@ -33,7 +33,6 @@ import com.facebook.buck.util.FakeProcess;
 import com.facebook.buck.util.FakeProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.environment.Platform;
-import com.google.common.base.Optional;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -45,8 +44,8 @@ import org.junit.Test;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
-import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 
 public class XctoolRunTestsStepTest {
 
@@ -61,21 +60,21 @@ public class XctoolRunTestsStepTest {
     XctoolRunTestsStep step = new XctoolRunTestsStep(
         projectFilesystem,
         Paths.get("/path/to/xctool"),
-        ImmutableMap.<String, String>of(),
-        Optional.<Long>absent(),
+        ImmutableMap.of(),
+        Optional.empty(),
         "iphonesimulator",
-        Optional.<String>absent(),
+        Optional.empty(),
         ImmutableSet.of(Paths.get("/path/to/Foo.xctest")),
-        ImmutableMap.<Path, Path>of(),
+        ImmutableMap.of(),
         Paths.get("/path/to/output.json"),
-        Optional.<XctoolRunTestsStep.StdoutReadingCallback>absent(),
+        Optional.empty(),
         Suppliers.ofInstance(Optional.of(Paths.get("/path/to/developer/dir"))),
         TestSelectorList.EMPTY,
-        Optional.<String>absent(),
-        Optional.<Path>absent(),
-        Optional.<String>absent(),
-        Optional.<String>absent(),
-        Optional.<Long>absent()
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty()
         );
     ProcessExecutorParams xctoolParams =
         ProcessExecutorParams.builder()
@@ -98,7 +97,7 @@ public class XctoolRunTestsStepTest {
         ImmutableMap.of(xctoolParams, fakeXctoolSuccess));
     ExecutionContext executionContext = TestExecutionContext.newBuilder()
         .setProcessExecutor(processExecutor)
-        .setEnvironment(ImmutableMap.<String, String>of())
+        .setEnvironment(ImmutableMap.of())
         .build();
     assertThat(
         step.execute(executionContext).getExitCode(),
@@ -111,21 +110,21 @@ public class XctoolRunTestsStepTest {
     XctoolRunTestsStep step = new XctoolRunTestsStep(
         projectFilesystem,
         Paths.get("/path/to/xctool"),
-        ImmutableMap.<String, String>of(),
-        Optional.<Long>absent(),
+        ImmutableMap.of(),
+        Optional.empty(),
         "iphonesimulator",
-        Optional.<String>absent(),
+        Optional.empty(),
         ImmutableSet.of(Paths.get("/path/to/Foo.xctest")),
-        ImmutableMap.<Path, Path>of(),
+        ImmutableMap.of(),
         Paths.get("/path/to/output.json"),
-        Optional.<XctoolRunTestsStep.StdoutReadingCallback>absent(),
+        Optional.empty(),
         Suppliers.ofInstance(Optional.of(Paths.get("/path/to/developer/dir"))),
         TestSelectorList.EMPTY,
-        Optional.<String>absent(),
-        Optional.<Path>absent(),
-        Optional.<String>absent(),
-        Optional.<String>absent(),
-        Optional.<Long>absent());
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty());
     ProcessExecutorParams xctoolParams =
         ProcessExecutorParams.builder()
             .setCommand(
@@ -148,7 +147,7 @@ public class XctoolRunTestsStepTest {
     TestConsole testConsole = new TestConsole();
     ExecutionContext executionContext = TestExecutionContext.newBuilder()
         .setProcessExecutor(processExecutor)
-        .setEnvironment(ImmutableMap.<String, String>of())
+        .setEnvironment(ImmutableMap.of())
         .setConsole(testConsole)
         .build();
     assertThat(
@@ -165,23 +164,23 @@ public class XctoolRunTestsStepTest {
     XctoolRunTestsStep step = new XctoolRunTestsStep(
         projectFilesystem,
         Paths.get("/path/to/xctool"),
-        ImmutableMap.<String, String>of(),
-        Optional.<Long>absent(),
+        ImmutableMap.of(),
+        Optional.empty(),
         "iphonesimulator",
         Optional.of("name=iPhone 5s"),
-        ImmutableSet.<Path>of(),
+        ImmutableSet.of(),
         ImmutableMap.of(
             Paths.get("/path/to/FooAppTest.xctest"),
             Paths.get("/path/to/Foo.app")),
         Paths.get("/path/to/output.json"),
-        Optional.<XctoolRunTestsStep.StdoutReadingCallback>absent(),
+        Optional.empty(),
         Suppliers.ofInstance(Optional.of(Paths.get("/path/to/developer/dir"))),
         TestSelectorList.EMPTY,
-        Optional.<String>absent(),
-        Optional.<Path>absent(),
-        Optional.<String>absent(),
-        Optional.<String>absent(),
-        Optional.<Long>absent());
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty());
 
     ProcessExecutorParams xctoolParams =
         ProcessExecutorParams.builder()
@@ -206,7 +205,7 @@ public class XctoolRunTestsStepTest {
         ImmutableMap.of(xctoolParams, fakeXctoolSuccess));
     ExecutionContext executionContext = TestExecutionContext.newBuilder()
         .setProcessExecutor(processExecutor)
-        .setEnvironment(ImmutableMap.<String, String>of())
+        .setEnvironment(ImmutableMap.of())
         .build();
     assertThat(
         step.execute(executionContext).getExitCode(),
@@ -219,8 +218,8 @@ public class XctoolRunTestsStepTest {
     XctoolRunTestsStep step = new XctoolRunTestsStep(
         projectFilesystem,
         Paths.get("/path/to/xctool"),
-        ImmutableMap.<String, String>of(),
-        Optional.<Long>absent(),
+        ImmutableMap.of(),
+        Optional.empty(),
         "iphonesimulator",
         Optional.of("name=iPhone 5s,OS=8.2"),
         ImmutableSet.of(
@@ -229,14 +228,14 @@ public class XctoolRunTestsStepTest {
             Paths.get("/path/to/FooAppTest.xctest"),
             Paths.get("/path/to/Foo.app")),
         Paths.get("/path/to/output.json"),
-        Optional.<XctoolRunTestsStep.StdoutReadingCallback>absent(),
+        Optional.empty(),
         Suppliers.ofInstance(Optional.of(Paths.get("/path/to/developer/dir"))),
         TestSelectorList.EMPTY,
-        Optional.<String>absent(),
-        Optional.<Path>absent(),
-        Optional.<String>absent(),
-        Optional.<String>absent(),
-        Optional.<Long>absent());
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty());
 
     ProcessExecutorParams xctoolParams =
         ProcessExecutorParams.builder()
@@ -263,7 +262,7 @@ public class XctoolRunTestsStepTest {
         ImmutableMap.of(xctoolParams, fakeXctoolSuccess));
     ExecutionContext executionContext = TestExecutionContext.newBuilder()
         .setProcessExecutor(processExecutor)
-        .setEnvironment(ImmutableMap.<String, String>of())
+        .setEnvironment(ImmutableMap.of())
         .build();
     assertThat(
         step.execute(executionContext).getExitCode(),
@@ -276,21 +275,21 @@ public class XctoolRunTestsStepTest {
     XctoolRunTestsStep step = new XctoolRunTestsStep(
         projectFilesystem,
         Paths.get("/path/to/xctool"),
-        ImmutableMap.<String, String>of(),
-        Optional.<Long>absent(),
+        ImmutableMap.of(),
+        Optional.empty(),
         "iphonesimulator",
-        Optional.<String>absent(),
+        Optional.empty(),
         ImmutableSet.of(Paths.get("/path/to/Foo.xctest")),
-        ImmutableMap.<Path, Path>of(),
+        ImmutableMap.of(),
         Paths.get("/path/to/output.json"),
-        Optional.<XctoolRunTestsStep.StdoutReadingCallback>absent(),
+        Optional.empty(),
         Suppliers.ofInstance(Optional.of(Paths.get("/path/to/developer/dir"))),
         TestSelectorList.EMPTY,
-        Optional.<String>absent(),
-        Optional.<Path>absent(),
-        Optional.<String>absent(),
-        Optional.<String>absent(),
-        Optional.<Long>absent());
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty());
 
     ProcessExecutorParams xctoolParams =
         ProcessExecutorParams.builder()
@@ -315,7 +314,7 @@ public class XctoolRunTestsStepTest {
         ImmutableMap.of(xctoolParams, fakeXctoolTestFailure));
     ExecutionContext executionContext = TestExecutionContext.newBuilder()
         .setProcessExecutor(processExecutor)
-        .setEnvironment(ImmutableMap.<String, String>of())
+        .setEnvironment(ImmutableMap.of())
         .build();
     assertThat(
         step.execute(executionContext).getExitCode(),
@@ -328,21 +327,21 @@ public class XctoolRunTestsStepTest {
     XctoolRunTestsStep step = new XctoolRunTestsStep(
         projectFilesystem,
         Paths.get("/path/to/xctool"),
-        ImmutableMap.<String, String>of(),
-        Optional.<Long>absent(),
+        ImmutableMap.of(),
+        Optional.empty(),
         "iphonesimulator",
-        Optional.<String>absent(),
+        Optional.empty(),
         ImmutableSet.of(Paths.get("/path/to/Foo.xctest")),
-        ImmutableMap.<Path, Path>of(),
+        ImmutableMap.of(),
         Paths.get("/path/to/output.json"),
-        Optional.<XctoolRunTestsStep.StdoutReadingCallback>absent(),
+        Optional.empty(),
         Suppliers.ofInstance(Optional.of(Paths.get("/path/to/developer/dir"))),
         TestSelectorList.EMPTY,
-        Optional.<String>absent(),
-        Optional.<Path>absent(),
-        Optional.<String>absent(),
-        Optional.<String>absent(),
-        Optional.<Long>absent());
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty());
 
     ProcessExecutorParams xctoolParams =
         ProcessExecutorParams.builder()
@@ -365,7 +364,7 @@ public class XctoolRunTestsStepTest {
         ImmutableMap.of(xctoolParams, fakeXctoolFailure));
     ExecutionContext executionContext = TestExecutionContext.newBuilder()
         .setProcessExecutor(processExecutor)
-        .setEnvironment(ImmutableMap.<String, String>of())
+        .setEnvironment(ImmutableMap.of())
         .build();
     assertThat(
         step.execute(executionContext).getExitCode(),
@@ -378,23 +377,23 @@ public class XctoolRunTestsStepTest {
     XctoolRunTestsStep step = new XctoolRunTestsStep(
         projectFilesystem,
         Paths.get("/path/to/xctool"),
-        ImmutableMap.<String, String>of(),
-        Optional.<Long>absent(),
+        ImmutableMap.of(),
+        Optional.empty(),
         "iphonesimulator",
-        Optional.<String>absent(),
+        Optional.empty(),
         ImmutableSet.of(Paths.get("/path/to/FooTest.xctest"), Paths.get("/path/to/BarTest.xctest")),
-        ImmutableMap.<Path, Path>of(),
+        ImmutableMap.of(),
         Paths.get("/path/to/output.json"),
-        Optional.<XctoolRunTestsStep.StdoutReadingCallback>absent(),
+        Optional.empty(),
         Suppliers.ofInstance(Optional.of(Paths.get("/path/to/developer/dir"))),
         TestSelectorList.builder()
             .addRawSelectors("#.*Magic.*")
             .build(),
-        Optional.<String>absent(),
-        Optional.<Path>absent(),
-        Optional.<String>absent(),
-        Optional.<String>absent(),
-        Optional.<Long>absent());
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty());
 
     ProcessExecutorParams xctoolListOnlyParams =
         ProcessExecutorParams.builder()
@@ -455,7 +454,7 @@ public class XctoolRunTestsStepTest {
               xctoolRunTestsParamsWithOnlyFilters, fakeXctoolSuccess));
       ExecutionContext executionContext = TestExecutionContext.newBuilder()
           .setProcessExecutor(processExecutor)
-          .setEnvironment(ImmutableMap.<String, String>of())
+          .setEnvironment(ImmutableMap.of())
           .build();
       assertThat(
           step.execute(executionContext).getExitCode(),
@@ -469,23 +468,23 @@ public class XctoolRunTestsStepTest {
     XctoolRunTestsStep step = new XctoolRunTestsStep(
         projectFilesystem,
         Paths.get("/path/to/xctool"),
-        ImmutableMap.<String, String>of(),
-        Optional.<Long>absent(),
+        ImmutableMap.of(),
+        Optional.empty(),
         "iphonesimulator",
-        Optional.<String>absent(),
+        Optional.empty(),
         ImmutableSet.of(Paths.get("/path/to/FooTest.xctest"), Paths.get("/path/to/BarTest.xctest")),
-        ImmutableMap.<Path, Path>of(),
+        ImmutableMap.of(),
         Paths.get("/path/to/output.json"),
-        Optional.<XctoolRunTestsStep.StdoutReadingCallback>absent(),
+        Optional.empty(),
         Suppliers.ofInstance(Optional.of(Paths.get("/path/to/developer/dir"))),
         TestSelectorList.builder()
             .addRawSelectors("#.*Magic.*")
             .build(),
-        Optional.<String>absent(),
-        Optional.<Path>absent(),
-        Optional.<String>absent(),
-        Optional.<String>absent(),
-        Optional.<Long>absent());
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty());
 
     ProcessExecutorParams xctoolListOnlyParams =
         ProcessExecutorParams.builder()
@@ -514,7 +513,7 @@ public class XctoolRunTestsStepTest {
     TestConsole testConsole = new TestConsole();
     ExecutionContext executionContext = TestExecutionContext.newBuilder()
         .setProcessExecutor(processExecutor)
-        .setEnvironment(ImmutableMap.<String, String>of())
+        .setEnvironment(ImmutableMap.of())
         .setConsole(testConsole)
         .build();
     assertThat(
@@ -533,23 +532,23 @@ public class XctoolRunTestsStepTest {
     XctoolRunTestsStep step = new XctoolRunTestsStep(
         projectFilesystem,
         Paths.get("/path/to/xctool"),
-        ImmutableMap.<String, String>of(),
-        Optional.<Long>absent(),
+        ImmutableMap.of(),
+        Optional.empty(),
         "iphonesimulator",
-        Optional.<String>absent(),
+        Optional.empty(),
         ImmutableSet.of(Paths.get("/path/to/FooTest.xctest"), Paths.get("/path/to/BarTest.xctest")),
-        ImmutableMap.<Path, Path>of(),
+        ImmutableMap.of(),
         Paths.get("/path/to/output.json"),
-        Optional.<XctoolRunTestsStep.StdoutReadingCallback>absent(),
+        Optional.empty(),
         Suppliers.ofInstance(Optional.of(Paths.get("/path/to/developer/dir"))),
         TestSelectorList.builder()
             .addRawSelectors("Blargh#Xyzzy")
             .build(),
-        Optional.<String>absent(),
-        Optional.<Path>absent(),
-        Optional.<String>absent(),
-        Optional.<String>absent(),
-        Optional.<Long>absent());
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty());
     ProcessExecutorParams xctoolListOnlyParams =
         ProcessExecutorParams.builder()
             .setCommand(
@@ -583,7 +582,7 @@ public class XctoolRunTestsStepTest {
               xctoolListOnlyParams, fakeXctoolListTestsProcess));
       ExecutionContext executionContext = TestExecutionContext.newBuilder()
           .setProcessExecutor(processExecutor)
-          .setEnvironment(ImmutableMap.<String, String>of())
+          .setEnvironment(ImmutableMap.of())
           .build();
       assertThat(
           step.execute(executionContext).getExitCode(),
@@ -597,21 +596,21 @@ public class XctoolRunTestsStepTest {
     XctoolRunTestsStep step = new XctoolRunTestsStep(
         projectFilesystem,
         Paths.get("/path/to/xctool"),
-        ImmutableMap.<String, String>of(),
-        Optional.<Long>absent(),
+        ImmutableMap.of(),
+        Optional.empty(),
         "iphonesimulator",
-        Optional.<String>absent(),
+        Optional.empty(),
         ImmutableSet.of(Paths.get("/path/to/Foo.xctest")),
-        ImmutableMap.<Path, Path>of(),
+        ImmutableMap.of(),
         Paths.get("/path/to/output.json"),
-        Optional.<XctoolRunTestsStep.StdoutReadingCallback>absent(),
+        Optional.empty(),
         Suppliers.ofInstance(Optional.of(Paths.get("/path/to/developer/dir"))),
         TestSelectorList.EMPTY,
         Optional.of("TEST_LOG_PATH"),
         Optional.of(Paths.get("/path/to/test-logs")),
         Optional.of("TEST_LOG_LEVEL"),
         Optional.of("verbose"),
-        Optional.<Long>absent());
+        Optional.empty());
     ProcessExecutorParams xctoolParams =
         ProcessExecutorParams.builder()
             .setCommand(
@@ -639,7 +638,7 @@ public class XctoolRunTestsStepTest {
         ImmutableMap.of(xctoolParams, fakeXctoolSuccess));
     ExecutionContext executionContext = TestExecutionContext.newBuilder()
         .setProcessExecutor(processExecutor)
-        .setEnvironment(ImmutableMap.<String, String>of())
+        .setEnvironment(ImmutableMap.of())
         .build();
     assertThat(
         step.execute(executionContext).getExitCode(),

@@ -48,10 +48,11 @@ import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.OptionalCompat;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
@@ -70,6 +71,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -92,8 +94,6 @@ public class AppleDescriptions {
       INCLUDE_FRAMEWORKS_FLAVOR,
       NO_INCLUDE_FRAMEWORKS_FLAVOR);
 
-  private static final SourceList EMPTY_HEADERS = SourceList.ofUnnamedSources(
-      ImmutableSortedSet.<SourcePath>of());
   private static final String MERGED_ASSET_CATALOG_NAME = "Merged";
 
   /** Utility class: do not instantiate. */
@@ -102,7 +102,7 @@ public class AppleDescriptions {
   public static Path getHeaderPathPrefix(
       AppleNativeTargetDescriptionArg arg,
       BuildTarget buildTarget) {
-    return Paths.get(arg.headerPathPrefix.or(buildTarget.getShortName()));
+    return Paths.get(arg.headerPathPrefix.orElse(buildTarget.getShortName()));
   }
 
   public static ImmutableSortedMap<String, SourcePath> convertAppleHeadersToPublicCxxHeaders(
@@ -114,7 +114,7 @@ public class AppleDescriptions {
     return AppleDescriptions.parseAppleHeadersForUseFromOtherTargets(
                 pathResolver,
                 headerPathPrefix,
-                arg.exportedHeaders.or(EMPTY_HEADERS));
+                arg.exportedHeaders);
   }
 
   public static ImmutableSortedMap<String, SourcePath> convertAppleHeadersToPrivateCxxHeaders(
@@ -127,16 +127,16 @@ public class AppleDescriptions {
         .putAll(
             AppleDescriptions.parseAppleHeadersForUseFromTheSameTarget(
                 pathResolver,
-                arg.headers.or(EMPTY_HEADERS)))
+                arg.headers))
         .putAll(
             AppleDescriptions.parseAppleHeadersForUseFromOtherTargets(
                 pathResolver,
                 headerPathPrefix,
-                arg.headers.or(EMPTY_HEADERS)))
+                arg.headers))
         .putAll(
             AppleDescriptions.parseAppleHeadersForUseFromTheSameTarget(
                 pathResolver,
-                arg.exportedHeaders.or(EMPTY_HEADERS)))
+                arg.exportedHeaders))
         .build();
   }
 
@@ -222,31 +222,27 @@ public class AppleDescriptions {
         ImmutableSortedMap.<String, SourcePath>naturalOrder()
             .putAll(
                 convertAppleHeadersToPublicCxxHeaders(
-                    resolver.deprecatedPathFunction(),
+                    resolver::deprecatedGetPath,
                     headerPathPrefix,
                     arg))
             .putAll(
                 convertAppleHeadersToPrivateCxxHeaders(
-                    resolver.deprecatedPathFunction(),
+                    resolver::deprecatedGetPath,
                     headerPathPrefix,
                     arg))
             .build();
 
-    if (arg.srcs.isPresent()) {
-      ImmutableSortedSet.Builder<SourceWithFlags> nonSwiftSrcs = ImmutableSortedSet.naturalOrder();
-      for (SourceWithFlags src: arg.srcs.get()) {
-        if (!MorePaths.getFileExtension(resolver.getAbsolutePath(src.getSourcePath()))
-            .equalsIgnoreCase(SWIFT_EXTENSION)) {
-          nonSwiftSrcs.add(src);
-        }
+    ImmutableSortedSet.Builder<SourceWithFlags> nonSwiftSrcs = ImmutableSortedSet.naturalOrder();
+    for (SourceWithFlags src: arg.srcs) {
+      if (!MorePaths.getFileExtension(resolver.getAbsolutePath(src.getSourcePath()))
+          .equalsIgnoreCase(SWIFT_EXTENSION)) {
+        nonSwiftSrcs.add(src);
       }
-      output.srcs = Optional.of(nonSwiftSrcs.build());
-    } else {
-      output.srcs = Optional.absent();
     }
+    output.srcs = nonSwiftSrcs.build();
 
     output.platformSrcs = arg.platformSrcs;
-    output.headers = Optional.of(SourceList.ofNamedSources(headerMap));
+    output.headers = SourceList.ofNamedSources(headerMap);
     output.platformHeaders = arg.platformHeaders;
     output.prefixHeader = arg.prefixHeader;
     output.compilerFlags = arg.compilerFlags;
@@ -291,20 +287,20 @@ public class AppleDescriptions {
         arg,
         buildTarget);
     Path headerPathPrefix = AppleDescriptions.getHeaderPathPrefix(arg, buildTarget);
-    output.headers = Optional.of(
+    output.headers =
         SourceList.ofNamedSources(
             convertAppleHeadersToPrivateCxxHeaders(
-                resolver.deprecatedPathFunction(),
+                resolver::deprecatedGetPath,
                 headerPathPrefix,
-                arg)));
+                arg));
     output.exportedDeps = arg.exportedDeps;
     output.exportedPreprocessorFlags = arg.exportedPreprocessorFlags;
-    output.exportedHeaders = Optional.of(
+    output.exportedHeaders =
         SourceList.ofNamedSources(
             convertAppleHeadersToPublicCxxHeaders(
-                resolver.deprecatedPathFunction(),
+                resolver::deprecatedGetPath,
                 headerPathPrefix,
-                arg)));
+                arg));
     output.exportedPlatformHeaders = arg.exportedPlatformHeaders;
     output.exportedPlatformPreprocessorFlags = arg.exportedPlatformPreprocessorFlags;
     output.exportedLangPreprocessorFlags = arg.exportedLangPreprocessorFlags;
@@ -324,15 +320,9 @@ public class AppleDescriptions {
       ImmutableList<String>,
       ImmutableList<String>> expandSdkVariableReferencesFunction(
       final AppleSdkPaths appleSdkPaths) {
-    return new Function<ImmutableList<String>, ImmutableList<String>>() {
-      @Override
-      public ImmutableList<String> apply(ImmutableList<String> flags) {
-        return FluentIterable
-            .from(flags)
-            .transform(appleSdkPaths.replaceSourceTreeReferencesFunction())
-            .toList();
-      }
-    };
+    return flags -> flags.stream()
+        .map(appleSdkPaths.replaceSourceTreeReferencesFunction()::apply)
+        .collect(MoreCollectors.toImmutableList());
   }
 
   public static Optional<AppleAssetCatalog> createBuildRuleForTransitiveAssetCatalogDependencies(
@@ -349,8 +339,8 @@ public class AppleDescriptions {
     ImmutableSortedSet.Builder<SourcePath> assetCatalogDirsBuilder =
         ImmutableSortedSet.naturalOrder();
 
-    Optional<String> appIcon = Optional.absent();
-    Optional<String> launchImage = Optional.absent();
+    Optional<String> appIcon = Optional.empty();
+    Optional<String> launchImage = Optional.empty();
 
     for (AppleAssetCatalogDescription.Arg arg : assetCatalogArgs) {
       assetCatalogDirsBuilder.addAll(arg.dirs);
@@ -377,13 +367,13 @@ public class AppleDescriptions {
         assetCatalogDirsBuilder.build();
 
     if (assetCatalogDirs.isEmpty()) {
-      return Optional.absent();
+      return Optional.empty();
     }
 
     BuildRuleParams assetCatalogParams = params.copyWithChanges(
         params.getBuildTarget().withAppendedFlavors(AppleAssetCatalog.FLAVOR),
-        Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
-        Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
+        Suppliers.ofInstance(ImmutableSortedSet.of()),
+        Suppliers.ofInstance(ImmutableSortedSet.of()));
 
     return Optional.of(
         new AppleAssetCatalog(
@@ -430,7 +420,7 @@ public class AppleDescriptions {
                     strippedBinaryRule,
                     unstrippedBinaryRule,
                     appleDsym)),
-            Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+            Suppliers.ofInstance(ImmutableSortedSet.of())),
         new SourcePathResolver(resolver),
         buildRuleForDebugFormat);
     return rule;
@@ -452,7 +442,7 @@ public class AppleDescriptions {
           .withAppendedFlavors(AppleDsym.RULE_FLAVOR);
       Optional<BuildRule> dsymRule = resolver.getRuleOptional(dsymBuildTarget);
       if (!dsymRule.isPresent()) {
-        dsymRule = Optional.<BuildRule>of(
+        dsymRule = Optional.of(
             createAppleDsym(
                 params.copyWithBuildTarget(dsymBuildTarget),
                 resolver,
@@ -464,7 +454,7 @@ public class AppleDescriptions {
       Preconditions.checkArgument(dsymRule.get() instanceof AppleDsym);
       return Optional.of((AppleDsym) dsymRule.get());
     }
-    return Optional.absent();
+    return Optional.empty();
   }
 
   static AppleDsym createAppleDsym(
@@ -490,7 +480,7 @@ public class AppleDescriptions {
                     .addAll(unstrippedBinaryBuildRule.getCompileDeps())
                     .addAll(unstrippedBinaryBuildRule.getStaticLibraryDeps())
                     .build()),
-            Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+            Suppliers.ofInstance(ImmutableSortedSet.of())),
         new SourcePathResolver(resolver),
         appleCxxPlatform.getDsymutil(),
         appleCxxPlatform.getLldb(),
@@ -513,7 +503,7 @@ public class AppleDescriptions {
       Either<AppleBundleExtension, String> extension,
       Optional<String> productName,
       final SourcePath infoPlist,
-      Optional<ImmutableMap<String, String>> infoPlistSubstitutions,
+      ImmutableMap<String, String> infoPlistSubstitutions,
       ImmutableSortedSet<BuildTarget> deps,
       ImmutableSortedSet<BuildTarget> tests,
       AppleDebugFormat debugFormat)
@@ -616,7 +606,7 @@ public class AppleDescriptions {
           appleCxxPlatforms);
     } else {
       targetDebuggableBinaryRule = unstrippedBinaryRule;
-      appleDsym = Optional.absent();
+      appleDsym = Optional.empty();
     }
 
     BuildRuleParams bundleParamsWithFlavoredBinaryDep = getBundleParamsWithUpdatedDeps(
@@ -624,7 +614,7 @@ public class AppleDescriptions {
         binary,
         ImmutableSet.<BuildRule>builder()
             .add(targetDebuggableBinaryRule)
-            .addAll(assetCatalog.asSet())
+            .addAll(OptionalCompat.asSet(assetCatalog))
             .addAll(
                 BuildRules.toBuildRulesFor(
                     params.getBuildTarget(),
@@ -634,7 +624,7 @@ public class AppleDescriptions {
                             ImmutableList.of(
                                 collectedResources.getAll(),
                                 frameworks)))))
-            .addAll(appleDsym.asSet())
+            .addAll(OptionalCompat.asSet(appleDsym))
             .build());
 
     ImmutableMap<SourcePath, String> extensionBundlePaths = collectFirstLevelAppleDependencyBundles(
@@ -647,7 +637,7 @@ public class AppleDescriptions {
         extension,
         productName,
         infoPlist,
-        infoPlistSubstitutions.get(),
+        infoPlistSubstitutions,
         Optional.of(getBinaryFromBuildRuleWithBinary(flavoredBinaryRule)),
         appleDsym,
         destinations,

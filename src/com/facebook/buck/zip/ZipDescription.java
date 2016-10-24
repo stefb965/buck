@@ -26,8 +26,9 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSortedSet;
+
+import java.util.Optional;
 
 public class ZipDescription implements Description<ZipDescription.Arg> {
 
@@ -53,17 +54,17 @@ public class ZipDescription implements Description<ZipDescription.Arg> {
     return new Zip(
         params,
         new SourcePathResolver(resolver),
-        args.out.or(params.getBuildTarget().getShortName() + ".zip"),
+        args.out.orElse(params.getBuildTarget().getShortName() + ".zip"),
         args.srcs,
-        args.flatten.or(Boolean.FALSE));
+        args.flatten.orElse(Boolean.FALSE));
   }
 
   @SuppressFieldNotInitialized
-  public class Arg extends AbstractDescriptionArg {
+  public static class Arg extends AbstractDescriptionArg {
     public Optional<String> out;
     public ImmutableSortedSet<SourcePath> srcs;
     public Optional<Boolean> flatten;
 
-    public Optional<ImmutableSortedSet<BuildTarget>> deps;
+    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
   }
 }

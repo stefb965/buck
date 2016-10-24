@@ -37,8 +37,6 @@ import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -46,6 +44,7 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 
 import java.nio.file.Path;
+import java.util.Optional;
 
 public class JavaLibraryDescription implements Description<JavaLibraryDescription.Arg>, Flavored {
 
@@ -117,14 +116,9 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
           baseLibrary,
           params,
           pathResolver,
-          args.mavenCoords.transform(
-              new Function<String, String>() {
-                @Override
-                public String apply(String input) {
-                  return AetherUtil.addClassifier(input, AetherUtil.CLASSIFIER_JAVADOC);
-                }
-              }),
-          args.mavenPomTemplate.transform(pathResolver.getAbsolutePathFunction()),
+          args.mavenCoords.map(
+              input -> AetherUtil.addClassifier(input, AetherUtil.CLASSIFIER_JAVADOC)),
+          args.mavenPomTemplate.map(pathResolver::getAbsolutePath),
           gatherer);
     }
 
@@ -134,14 +128,9 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
           pathResolver,
           baseLibrary,
           gatherer,
-          args.mavenPomTemplate.transform(pathResolver.getAbsolutePathFunction()),
-          args.mavenCoords.transform(
-              new Function<String, String>() {
-                @Override
-                public String apply(String input) {
-                  return AetherUtil.addClassifier(input, AetherUtil.CLASSIFIER_SOURCES);
-                }
-              }));
+          args.mavenPomTemplate.map(pathResolver::getAbsolutePath),
+          args.mavenCoords.map(
+              input -> AetherUtil.addClassifier(input, AetherUtil.CLASSIFIER_SOURCES)));
     }
 
     if (target.getFlavors().contains(JavaLibrary.MAVEN_JAR)) {
@@ -149,13 +138,8 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
           (JavaLibrary) baseLibrary,
           params.copyWithExtraDeps(Suppliers.ofInstance(ImmutableSortedSet.of(baseLibrary))),
           pathResolver,
-          args.mavenCoords.transform(
-              new Function<String, String>() {
-                @Override
-                public String apply(String input) {
-                  return AetherUtil.addClassifier(input, "");
-                }
-              }),
+          args.mavenCoords.map(
+              input -> AetherUtil.addClassifier(input, "")),
           args.mavenPomTemplate);
     }
 
@@ -176,7 +160,7 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
 
     BuildTarget abiJarTarget = params.getBuildTarget().withAppendedFlavors(CalculateAbi.FLAVOR);
 
-    ImmutableSortedSet<BuildRule> exportedDeps = resolver.getAllRules(args.exportedDeps.get());
+    ImmutableSortedSet<BuildRule> exportedDeps = resolver.getAllRules(args.exportedDeps);
     DefaultJavaLibrary defaultJavaLibrary =
         resolver.addToIndex(
             new DefaultJavaLibrary(
@@ -186,29 +170,29 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
                             Iterables.concat(
                                 params.getDeclaredDeps().get(),
                                 exportedDeps,
-                                resolver.getAllRules(args.providedDeps.get()))),
+                                resolver.getAllRules(args.providedDeps))),
                         pathResolver.filterBuildRuleInputs(
                             javacOptions.getInputs(pathResolver)))),
                 pathResolver,
-                args.srcs.get(),
+                args.srcs,
                 validateResources(
                     pathResolver,
                     params.getProjectFilesystem(),
-                    args.resources.get()),
+                    args.resources),
                 javacOptions.getGeneratedSourceFolderName(),
-                args.proguardConfig.transform(
-                    SourcePaths.toSourcePath(params.getProjectFilesystem())),
-                args.postprocessClassesCommands.get(),
+                args.proguardConfig.map(
+                    SourcePaths.toSourcePath(params.getProjectFilesystem())::apply),
+                args.postprocessClassesCommands,
                 exportedDeps,
-                resolver.getAllRules(args.providedDeps.get()),
+                resolver.getAllRules(args.providedDeps),
                 new BuildTargetSourcePath(abiJarTarget),
                 javacOptions.trackClassUsage(),
-                /* additionalClasspathEntries */ ImmutableSet.<Path>of(),
+                /* additionalClasspathEntries */ ImmutableSet.of(),
                 new JavacToJarStepFactory(javacOptions, JavacOptionsAmender.IDENTITY),
                 args.resourcesRoot,
                 args.manifestFile,
                 args.mavenCoords,
-                args.tests.get(),
+                args.tests,
                 javacOptions.getClassesToRemoveFromJar()));
 
     resolver.addToIndex(
@@ -223,11 +207,11 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
 
   @SuppressFieldNotInitialized
   public static class Arg extends JvmLibraryArg implements HasTests {
-    public Optional<ImmutableSortedSet<SourcePath>> srcs;
-    public Optional<ImmutableSortedSet<SourcePath>> resources;
+    public ImmutableSortedSet<SourcePath> srcs = ImmutableSortedSet.of();
+    public ImmutableSortedSet<SourcePath> resources = ImmutableSortedSet.of();
 
     public Optional<Path> proguardConfig;
-    public Optional<ImmutableList<String>> postprocessClassesCommands;
+    public ImmutableList<String> postprocessClassesCommands = ImmutableList.of();
 
     @Hint(isInput = false)
     public Optional<Path> resourcesRoot;
@@ -236,17 +220,16 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
     public Optional<SourcePath> mavenPomTemplate;
 
     public Optional<Boolean> autodeps;
-    public Optional<ImmutableSortedSet<String>> generatedSymbols;
-    public Optional<ImmutableSortedSet<BuildTarget>> providedDeps;
-    public Optional<ImmutableSortedSet<BuildTarget>> exportedDeps;
-    public Optional<ImmutableSortedSet<BuildTarget>> deps;
+    public ImmutableSortedSet<String> generatedSymbols = ImmutableSortedSet.of();
+    public ImmutableSortedSet<BuildTarget> providedDeps = ImmutableSortedSet.of();
+    public ImmutableSortedSet<BuildTarget> exportedDeps = ImmutableSortedSet.of();
+    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
 
-    @Hint(isDep = false)
-    public Optional<ImmutableSortedSet<BuildTarget>> tests;
+    @Hint(isDep = false) public ImmutableSortedSet<BuildTarget> tests = ImmutableSortedSet.of();
 
     @Override
     public ImmutableSortedSet<BuildTarget> getTests() {
-      return tests.get();
+      return tests;
     }
   }
 }

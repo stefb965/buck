@@ -16,6 +16,7 @@
 
 package com.facebook.buck.rage;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.util.CapturingPrintStream;
@@ -24,18 +25,19 @@ import com.google.common.base.Functions;
 import com.google.common.collect.ImmutableList;
 
 import org.hamcrest.Matchers;
+import org.hamcrest.junit.ExpectedException;
+import org.junit.Rule;
 import org.junit.Test;
 
-import java.io.BufferedReader;
-import java.io.ByteArrayInputStream;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-
 public class UserInputTest {
+
+  @Rule
+  public ExpectedException expectedException = ExpectedException.none();
+
   @Test
   public void testAsk() throws Exception {
     String cannedAnswer = "answer";
-    Fixture fixture = new Fixture(cannedAnswer);
+    UserInputFixture fixture = new UserInputFixture(cannedAnswer);
     UserInput input = fixture.getUserInput();
     CapturingPrintStream outputStream = fixture.getOutputStream();
 
@@ -45,6 +47,15 @@ public class UserInputTest {
         outputStream.getContentsAsString(Charsets.UTF_8),
         Matchers.containsString(questionString));
     assertThat(response, Matchers.equalTo(cannedAnswer));
+  }
+
+  @Test
+  public void parseOne() {
+    assertEquals(UserInput.parseOne("3").intValue(), 3);
+    assertEquals(UserInput.parseOne("0").intValue(), 0);
+
+    expectedException.expect(IllegalArgumentException.class);
+    UserInput.parseOne("");
   }
 
   @Test
@@ -76,36 +87,27 @@ public class UserInputTest {
   }
 
   @Test
+  public void parseOneInteractive() throws Exception {
+    UserInputFixture fixture = new UserInputFixture("1");
+    assertThat(
+        fixture.getUserInput().selectRange(
+            "selectrangequery",
+            ImmutableList.of("a", "b", "c"),
+            Functions.identity()),
+        Matchers.contains("b"));
+
+  }
+
+  @Test
   public void parseRangeInteractive() throws Exception {
-    Fixture fixture = new Fixture("1, 2-4, 9");
+    UserInputFixture fixture = new UserInputFixture("1, 2-4, 9");
     assertThat(
         fixture.getUserInput().selectRange(
             "selectrangequery",
             ImmutableList.of("a", "b", "c", "d", "e", "f", "g", "h", "i", "j"),
-            Functions.<String>identity()),
+            Functions.identity()),
         Matchers.contains("b", "c", "d", "e", "j"));
 
   }
 
-  private static class Fixture {
-    private CapturingPrintStream outputStream;
-    private UserInput userInput;
-
-    public Fixture(String cannedAnswer) throws Exception {
-      outputStream = new CapturingPrintStream();
-      InputStream inputStream = new ByteArrayInputStream((cannedAnswer + "\n").getBytes("UTF-8"));
-
-      userInput = new UserInput(
-          outputStream,
-          new BufferedReader(new InputStreamReader(inputStream)));
-    }
-
-    public CapturingPrintStream getOutputStream() {
-      return outputStream;
-    }
-
-    public UserInput getUserInput() {
-      return userInput;
-    }
-  }
 }

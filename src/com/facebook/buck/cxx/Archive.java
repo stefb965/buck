@@ -34,9 +34,9 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.FileScrubberStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 
@@ -131,7 +131,7 @@ public class Archive extends AbstractBuildRule implements SupportsInputBasedRule
     BuildRuleParams archiveParams =
         baseParams.copyWithChanges(
             target,
-            Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()),
+            Suppliers.ofInstance(ImmutableSortedSet.of()),
             Suppliers.ofInstance(
                 ImmutableSortedSet.<BuildRule>naturalOrder()
                     .addAll(resolver.filterBuildRuleInputs(inputs))
@@ -168,7 +168,7 @@ public class Archive extends AbstractBuildRule implements SupportsInputBasedRule
               .equals(getProjectFilesystem().getRootPath()));
     }
 
-    ImmutableList.Builder<Step> builder = ImmutableList.<Step>builder();
+    ImmutableList.Builder<Step> builder = ImmutableList.builder();
 
     builder.add(
         new MkdirStep(getProjectFilesystem(), output.getParent()),
@@ -180,9 +180,9 @@ public class Archive extends AbstractBuildRule implements SupportsInputBasedRule
             archiverFlags,
             archiver.getArchiveOptions(contents == Contents.THIN),
             output,
-            FluentIterable.from(inputs)
-                .transform(getResolver().getRelativePathFunction())
-                .toList(),
+            inputs.stream()
+                .map(getResolver()::getRelativePath)
+                .collect(MoreCollectors.toImmutableList()),
             archiver));
 
     if (archiver.isRanLibStepRequired()) {

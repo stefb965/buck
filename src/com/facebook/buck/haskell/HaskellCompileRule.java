@@ -41,11 +41,10 @@ import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.util.MoreIterables;
+import com.facebook.buck.util.OptionalCompat;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
-import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -56,6 +55,7 @@ import com.google.common.collect.Iterables;
 
 import java.io.File;
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -155,24 +155,19 @@ public class HaskellCompileRule extends AbstractBuildRule implements RuleKeyAppe
         baseParams.copyWithChanges(
             target,
             Suppliers.memoize(
-                new Supplier<ImmutableSortedSet<BuildRule>>() {
-                  @Override
-                  public ImmutableSortedSet<BuildRule> get() {
-                    return ImmutableSortedSet.<BuildRule>naturalOrder()
-                        .addAll(compiler.getDeps(resolver))
-                        .addAll(ppFlags.getDeps(resolver))
-                        .addAll(resolver.filterBuildRuleInputs(includes))
-                        .addAll(sources.getDeps(resolver))
-                        .addAll(
-                            FluentIterable.from(exposedPackages.values())
-                                .transformAndConcat(HaskellPackage.getDepsFunction(resolver)))
-                        .addAll(
-                            FluentIterable.from(packages.values())
-                                .transformAndConcat(HaskellPackage.getDepsFunction(resolver)))
-                        .build();
-                  }
-                }),
-            Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+                () -> ImmutableSortedSet.<BuildRule>naturalOrder()
+                    .addAll(compiler.getDeps(resolver))
+                    .addAll(ppFlags.getDeps(resolver))
+                    .addAll(resolver.filterBuildRuleInputs(includes))
+                    .addAll(sources.getDeps(resolver))
+                    .addAll(
+                        FluentIterable.from(exposedPackages.values())
+                            .transformAndConcat(HaskellPackage.getDepsFunction(resolver)))
+                    .addAll(
+                        FluentIterable.from(packages.values())
+                            .transformAndConcat(HaskellPackage.getDepsFunction(resolver)))
+                    .build()),
+            Suppliers.ofInstance(ImmutableSortedSet.of())),
         resolver,
         compiler,
         flags,
@@ -268,7 +263,7 @@ public class HaskellCompileRule extends AbstractBuildRule implements RuleKeyAppe
     CxxToolFlags cxxToolFlags =
         ppFlags.toToolFlags(
             getResolver(),
-            Functions.<Path>identity(),
+            Functions.identity(),
             CxxDescriptionEnhancer.frameworkPathToSearchPath(cxxPlatform, getResolver()),
             preprocessor);
     return MoreIterables.zipAndConcat(
@@ -306,11 +301,11 @@ public class HaskellCompileRule extends AbstractBuildRule implements RuleKeyAppe
                 .addAll(
                     picType == CxxSourceRuleFactory.PicType.PIC ?
                         ImmutableList.of("-dynamic", "-fPIC", "-hisuf", "dyn_hi") :
-                        ImmutableList.<String>of())
+                        ImmutableList.of())
                 .addAll(
                     MoreIterables.zipAndConcat(
                         Iterables.cycle("-main-is"),
-                        main.asSet()))
+                        OptionalCompat.asSet(main)))
                 .addAll(getPackageNameArgs())
                 .addAll(getPreprocessorFlags())
                 .add("-odir", getProjectFilesystem().resolve(getObjectDir()).toString())
@@ -318,13 +313,13 @@ public class HaskellCompileRule extends AbstractBuildRule implements RuleKeyAppe
                 .add("-stubdir", getProjectFilesystem().resolve(getStubDir()).toString())
                 .add("-i" + Joiner.on(':').join(
                     FluentIterable.from(includes)
-                        .transform(getResolver().getAbsolutePathFunction())
-                        .transform(Functions.toStringFunction())))
+                        .transform(getResolver()::getAbsolutePath)
+                        .transform(Object::toString)))
                 .addAll(getPackageArgs())
                 .addAll(
                     FluentIterable.from(sources.getSourcePaths())
-                        .transform(getResolver().getAbsolutePathFunction())
-                        .transform(Functions.toStringFunction()))
+                        .transform(getResolver()::getAbsolutePath)
+                        .transform(Object::toString))
                 .build();
           }
 

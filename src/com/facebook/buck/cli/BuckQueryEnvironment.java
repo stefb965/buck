@@ -37,8 +37,6 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TargetNodes;
 import com.facebook.buck.util.concurrent.MostExecutors;
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
@@ -54,6 +52,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -65,33 +64,61 @@ public class BuckQueryEnvironment implements QueryEnvironment {
 
   private static final Logger LOG = Logger.get(BuckQueryEnvironment.class);
 
-  private final CommandRunnerParams params;
   private final PerBuildState parserState;
+  private final Cell rootCell;
+  private final OwnersReport.Builder ownersReportBuilder;
+  private final TargetPatternEvaluator targetPatternEvaluator;
 
-  private Map<Cell, BuildFileTree> buildFileTrees =  new HashMap<>();
+  private final Map<Cell, BuildFileTree> buildFileTrees =  new HashMap<>();
+  private final Map<BuildTarget, QueryTarget> buildTargetToQueryTarget = new HashMap<>();
+
   private TargetGraph graph = TargetGraph.EMPTY;
 
-  @VisibleForTesting
-  protected TargetPatternEvaluator targetPatternEvaluator;
-
-  private Map<BuildTarget, QueryTarget> buildTargetToQueryTarget = new HashMap<>();
-
-  public BuckQueryEnvironment(
-      CommandRunnerParams params,
+  private BuckQueryEnvironment(
+      Cell rootCell,
+      OwnersReport.Builder ownersReportBuilder,
       PerBuildState parserState,
-      boolean enableProfiling) {
-    this.params = params;
+      TargetPatternEvaluator targetPatternEvaluator) {
     this.parserState = parserState;
+    this.rootCell = rootCell;
+    this.ownersReportBuilder = ownersReportBuilder;
     this.buildFileTrees.put(
-        params.getCell(),
+        rootCell,
         new FilesystemBackedBuildFileTree(
-            params.getCell().getFilesystem(),
-            params.getCell().getBuildFileName()));
-    this.targetPatternEvaluator = new TargetPatternEvaluator(params, enableProfiling);
+            rootCell.getFilesystem(),
+            rootCell.getBuildFileName()));
+    this.targetPatternEvaluator = targetPatternEvaluator;
   }
 
-  public CommandRunnerParams getParams() {
-    return params;
+  public static BuckQueryEnvironment from(
+      Cell rootCell,
+      OwnersReport.Builder ownersReportBuilder,
+      PerBuildState parserState,
+      TargetPatternEvaluator targetPatternEvaluator) {
+    return new BuckQueryEnvironment(
+        rootCell, ownersReportBuilder, parserState, targetPatternEvaluator
+    );
+  }
+
+  public static BuckQueryEnvironment from(
+      CommandRunnerParams params, PerBuildState parserState, boolean enableProfiling) {
+    return from(
+        params.getCell(),
+        OwnersReport.builder(
+            params.getCell(),
+            params.getParser(),
+            params.getBuckEventBus(),
+            params.getConsole()
+        ),
+        parserState,
+        new TargetPatternEvaluator(
+            params.getCell(),
+            params.getBuckConfig(),
+            params.getParser(),
+            params.getBuckEventBus(),
+            enableProfiling
+        )
+    );
   }
 
   public TargetGraph getTargetGraph() {
@@ -151,7 +178,7 @@ public class BuckQueryEnvironment implements QueryEnvironment {
   }
 
   TargetNode<?> getNode(QueryTarget target)
-      throws QueryException, InterruptedException {
+      throws QueryException {
     Preconditions.checkState(target instanceof QueryBuildTarget);
     ListeningExecutorService executor = null;
     try {
@@ -186,7 +213,7 @@ public class BuckQueryEnvironment implements QueryEnvironment {
   }
 
   public ImmutableSet<TargetNode<?>> getNodesFromQueryTargets(Iterable<QueryTarget> input)
-      throws QueryException, InterruptedException {
+      throws QueryException {
     ImmutableSet.Builder<TargetNode<?>> builder = ImmutableSet.builder();
     for (QueryTarget target : input) {
       builder.add(getNode(target));
@@ -281,9 +308,8 @@ public class BuckQueryEnvironment implements QueryEnvironment {
 
   @Override
   public ImmutableSet<QueryTarget> getBuildFiles(Set<QueryTarget> targets)
-      throws InterruptedException, QueryException {
-    final Cell rootCell = params.getCell();
-    final ProjectFilesystem cellFilesystem = params.getCell().getFilesystem();
+      throws QueryException {
+    final ProjectFilesystem cellFilesystem = rootCell.getFilesystem();
     final Path rootPath = cellFilesystem.getRootPath();
     Preconditions.checkState(rootPath.isAbsolute());
 
@@ -322,15 +348,10 @@ public class BuckQueryEnvironment implements QueryEnvironment {
       ImmutableList<String> files,
       ListeningExecutorService executor) throws InterruptedException, QueryException {
     try {
-      BuildFileTree buildFileTree = Preconditions.checkNotNull(
-          buildFileTrees.get(params.getCell()));
-      OwnersReport report = OwnersReport.buildOwnersReport(
-          params,
-          buildFileTree,
-          executor,
-          files);
+      BuildFileTree buildFileTree = Preconditions.checkNotNull(buildFileTrees.get(rootCell));
+      OwnersReport report = ownersReportBuilder.build(buildFileTree, executor, files);
       return getTargetsFromBuildTargetsContainer(report.owners.keySet());
-    } catch (BuildFileParseException | BuildTargetException | IOException e) {
+    } catch (BuildFileParseException | IOException e) {
       throw new QueryException(e, "Could not parse build targets.\n%s", e.getMessage());
     }
   }

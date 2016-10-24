@@ -1,8 +1,8 @@
-#@# GENERATED FILE: DO NOT MODIFY 606da7477d16f3d3551059326d2096f50ad22065 #@#
 {
   "network" : {
     "deps" : [
-      "//src/com/facebook/buck/log:api"
+      "//src/com/facebook/buck/log:api",
+      "//src/com/facebook/buck/util:util"
     ],
     "exported_deps" : [
       "//src-gen:thrift",

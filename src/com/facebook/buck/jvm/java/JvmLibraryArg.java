@@ -23,12 +23,12 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 @SuppressFieldNotInitialized
@@ -39,11 +39,11 @@ public class JvmLibraryArg extends AbstractDescriptionArg {
   public Optional<Path> javac;
   public Optional<SourcePath> javacJar;
   public Optional<Either<BuiltInJavac, SourcePath>> compiler;
-  public Optional<ImmutableList<String>> extraArguments;
-  public Optional<ImmutableSet<Pattern>> removeClasses;
-  public Optional<ImmutableSortedSet<BuildTarget>> annotationProcessorDeps;
-  public Optional<ImmutableList<String>> annotationProcessorParams;
-  public Optional<ImmutableSet<String>> annotationProcessors;
+  public ImmutableList<String> extraArguments = ImmutableList.of();
+  public ImmutableSet<Pattern> removeClasses = ImmutableSet.of();
+  public ImmutableSortedSet<BuildTarget> annotationProcessorDeps = ImmutableSortedSet.of();
+  public ImmutableList<String> annotationProcessorParams = ImmutableList.of();
+  public ImmutableSet<String> annotationProcessors = ImmutableSet.of();
   public Optional<Boolean> annotationProcessorOnly;
 
   public AnnotationProcessingParams buildAnnotationProcessingParams(
@@ -51,7 +51,7 @@ public class JvmLibraryArg extends AbstractDescriptionArg {
       ProjectFilesystem filesystem,
       BuildRuleResolver resolver) {
     ImmutableSet<String> annotationProcessors =
-        this.annotationProcessors.or(ImmutableSet.<String>of());
+        this.annotationProcessors;
 
     if (annotationProcessors.isEmpty()) {
       return AnnotationProcessingParams.EMPTY;
@@ -61,15 +61,14 @@ public class JvmLibraryArg extends AbstractDescriptionArg {
     builder.setOwnerTarget(owner);
     builder.addAllProcessors(annotationProcessors);
     builder.setProjectFilesystem(filesystem);
-    ImmutableSortedSet<BuildRule> processorDeps =
-        resolver.getAllRules(annotationProcessorDeps.or(ImmutableSortedSet.<BuildTarget>of()));
+    ImmutableSortedSet<BuildRule> processorDeps = resolver.getAllRules(annotationProcessorDeps);
     for (BuildRule processorDep : processorDeps) {
       builder.addProcessorBuildTarget(processorDep);
     }
-    for (String processorParam : annotationProcessorParams.or(ImmutableList.<String>of())) {
+    for (String processorParam : annotationProcessorParams) {
       builder.addParameter(processorParam);
     }
-    builder.setProcessOnly(annotationProcessorOnly.or(Boolean.FALSE));
+    builder.setProcessOnly(annotationProcessorOnly.orElse(Boolean.FALSE));
 
     return builder.build();
   }

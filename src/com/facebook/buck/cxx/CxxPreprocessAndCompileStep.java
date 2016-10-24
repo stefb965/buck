@@ -23,6 +23,7 @@ import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.util.Console;
+import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.LineProcessorRunnable;
 import com.facebook.buck.util.ManagedRunnable;
@@ -30,9 +31,7 @@ import com.facebook.buck.util.MoreThrowables;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Function;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -46,6 +45,7 @@ import java.io.OutputStream;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.logging.Level;
 
 import javax.annotation.Nullable;
@@ -135,25 +135,11 @@ public class CxxPreprocessAndCompileStep implements Step {
       ExecutionContext context,
       Map<String, String> additionalEnvironment) {
     Map<String, String> env = new HashMap<>(context.getEnvironment());
-    // A forced compilation directory is set in the constructor.  Now, we can't actually force
-    // the compiler to embed this into the binary -- all we can do set the PWD environment to
-    // variations of the actual current working directory (e.g. /actual/dir or
-    // /actual/dir////).  This adjustment serves two purposes:
-    //
-    //   1) it makes the compiler's current-directory line directive output agree with its cwd,
-    //      given by getProjectDirectoryRoot.  (If PWD and cwd are different names for the same
-    //      directory, the compiler prefers PWD, but we expect cwd for DebugPathSanitizer.)
-    //
-    //   2) in the case where we're using post-linkd debug path replacement, we reserve room
-    //      to expand the path later.
-    //
-    env.put(
-        "PWD",
-        // We only need to expand the working directory if compiling, as we override it in the
-        // preprocessed otherwise.
-        shouldSanitizeOutputBinary() ?
-            sanitizer.getExpandedPath(filesystem.getRootPath().toAbsolutePath()) :
-            filesystem.getRootPath().toAbsolutePath().toString());
+
+    env.putAll(
+        sanitizer.getCompilationEnvironment(
+            filesystem.getRootPath().toAbsolutePath(),
+            shouldSanitizeOutputBinary()));
 
     // Set `TMPDIR` to `scratchDir` so the compiler/preprocessor uses this dir for it's temp and
     // intermediate files.
@@ -207,7 +193,7 @@ public class CxxPreprocessAndCompileStep implements Step {
         .addAll(
             preprocessable ?
                 getDepFileArgs(getDepTemp()) :
-                ImmutableList.<String>of())
+                ImmutableList.of())
         .add(inputFileName)
         .addAll(compiler.outputArgs(output.toString()))
         .build();
@@ -278,7 +264,7 @@ public class CxxPreprocessAndCompileStep implements Step {
     CxxErrorTransformerFactory errorStreamTransformerFactory =
         createErrorTransformerFactory(context);
 
-    ProcessExecutor executor = new ProcessExecutor(Console.createNullConsole());
+    ProcessExecutor executor = new DefaultProcessExecutor(Console.createNullConsole());
     try {
       if (LOG.isDebugEnabled()) {
         LOG.debug(
@@ -373,7 +359,7 @@ public class CxxPreprocessAndCompileStep implements Step {
 
   private int executeOther(ExecutionContext context) throws Exception {
     ProcessExecutorParams.Builder builder =
-        makeSubprocessBuilder(context, ImmutableMap.<String, String>of());
+        makeSubprocessBuilder(context, ImmutableMap.of());
 
     if (useArgfile) {
       filesystem.writeLinesToPath(
@@ -405,7 +391,7 @@ public class CxxPreprocessAndCompileStep implements Step {
         getDescription(context));
 
     // Start the process.
-    ProcessExecutor executor = new ProcessExecutor(Console.createNullConsole());
+    ProcessExecutor executor = new DefaultProcessExecutor(Console.createNullConsole());
     ProcessExecutor.LaunchedProcess process = executor.launchProcess(params);
 
     // We buffer error messages in memory, as these are typically small.
@@ -452,7 +438,8 @@ public class CxxPreprocessAndCompileStep implements Step {
       context.getBuckEventBus().post(
           createConsoleEvent(
               context,
-              preprocessorCommand.or(compilerCommand).get().supportsColorsInDiagnostics(),
+              preprocessorCommand.map(Optional::of).orElse(compilerCommand).get()
+                  .supportsColorsInDiagnostics(),
               exitCode == 0 ? Level.WARNING : Level.SEVERE,
               err));
     }
@@ -485,10 +472,10 @@ public class CxxPreprocessAndCompileStep implements Step {
         // error output.
         operation == Operation.COMPILE ?
             Optional.of(filesystem.getRootPath()) :
-            Optional.<Path>absent(),
+            Optional.empty(),
         context.shouldReportAbsolutePaths() ?
             Optional.of(filesystem.getAbsolutifier()) :
-            Optional.<Function<Path, Path>>absent(),
+            Optional.empty(),
         headerPathNormalizer,
         sanitizer);
   }
@@ -634,7 +621,8 @@ public class CxxPreprocessAndCompileStep implements Step {
   // building assembly code (which doesn't respect line-marker-re-writing to fixup the
   // DW_AT_comp_dir.
   private boolean shouldSanitizeOutputBinary() {
-    return operation == Operation.COMPILE_MUNGE_DEBUGINFO || inputType.isAssembly();
+    return inputType.isAssembly() ||
+        (operation == Operation.COMPILE_MUNGE_DEBUGINFO && compiler.shouldSanitizeOutputBinary());
   }
 
   public enum Operation {

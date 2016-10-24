@@ -55,7 +55,7 @@ import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.Console;
-import com.facebook.buck.util.KeystoreProperties;
+import com.facebook.buck.android.KeystoreProperties;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.Verbosity;
@@ -67,7 +67,6 @@ import com.fasterxml.jackson.databind.ObjectWriter;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.collect.FluentIterable;
@@ -91,6 +90,7 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.SortedSet;
 
@@ -294,7 +294,7 @@ public class Project {
         Path src = DummyRDotJava.getRDotJavaSrcFolder(dummyRDotJavaTarget, projectFilesystem);
         rJava = Optional.of(src);
       } else {
-        rJava = Optional.absent();
+        rJava = Optional.empty();
       }
 
       SerializableModule module = createModuleForProjectConfig(projectConfig, rJava);
@@ -414,23 +414,23 @@ public class Project {
       } else if (projectRule instanceof AndroidLibrary) {
         module.isAndroidLibraryProject = true;
         module.keystorePath = null;
-        module.resFolder = intellijConfig.getAndroidResources().orNull();
-        module.assetFolder = intellijConfig.getAndroidAssets().orNull();
+        module.resFolder = intellijConfig.getAndroidResources().orElse(null);
+        module.assetFolder = intellijConfig.getAndroidAssets().orElse(null);
       } else if (projectRule instanceof AndroidResource) {
         AndroidResource androidResource = (AndroidResource) projectRule;
         module.resFolder =
             createRelativeResourcesPath(
-                Optional.fromNullable(androidResource.getRes())
-                    .transform(resolver.getAbsolutePathFunction())
-                    .transform(projectFilesystem.getRelativizer())
-                    .orNull(),
+                Optional.ofNullable(androidResource.getRes())
+                    .map(resolver::getAbsolutePath)
+                    .map(projectFilesystem.getRelativizer()::apply)
+                    .orElse(null),
                 target);
         module.isAndroidLibraryProject = true;
         module.keystorePath = null;
       } else if (projectRule instanceof AndroidBinary) {
         AndroidBinary androidBinary = (AndroidBinary) projectRule;
-        module.resFolder = intellijConfig.getAndroidResources().orNull();
-        module.assetFolder = intellijConfig.getAndroidAssets().orNull();
+        module.resFolder = intellijConfig.getAndroidResources().orElse(null);
+        module.assetFolder = intellijConfig.getAndroidAssets().orElse(null);
         module.isAndroidLibraryProject = false;
         module.binaryPath = generateRelativeAPKPath(
             projectFilesystem,
@@ -497,7 +497,7 @@ public class Project {
   @Nullable
   private Path resolveAndroidManifestRelativePath(Path basePath) {
     Path fallbackManifestPath = resolveAndroidManifestFileRelativePath(basePath);
-    Path manifestPath = intellijConfig.getAndroidManifest().orNull();
+    Path manifestPath = intellijConfig.getAndroidManifest().orElse(null);
 
     if (manifestPath != null) {
       Path path = basePath.resolve(manifestPath);
@@ -763,7 +763,7 @@ public class Project {
             Sets.intersection(
                 noDxJars,
                 FluentIterable.from(packageableCollection.getClasspathEntriesToDex())
-                    .transform(resolver.getAbsolutePathFunction())
+                    .transform(resolver::getAbsolutePath)
                     .transform(projectFilesystem.getRelativizer())
                     .toSet()));
       } else {
@@ -1039,12 +1039,11 @@ public class Project {
       String binaryJar = MorePaths.pathWithUnixSeparators(
           projectFilesystem.getRelativizer().apply(binaryJarAbsolutePath)
       );
-      String sourceJar = prebuiltJar.getSourceJar()
-          .transform(resolver.getAbsolutePathFunction())
-          .transform(projectFilesystem.getRelativizer())
-          .transform(MorePaths.UNIX_PATH)
-          .orNull();
-      String javadocUrl = prebuiltJar.getJavadocUrl().orNull();
+      String sourceJar = prebuiltJar.getSourceJar().map(resolver::getAbsolutePath)
+          .map(projectFilesystem.getRelativizer()::apply)
+          .map(MorePaths::pathWithUnixSeparators)
+          .orElse(null);
+      String javadocUrl = prebuiltJar.getJavadocUrl().orElse(null);
       libraries.add(new SerializablePrebuiltJarRule(name, binaryJar, sourceJar, javadocUrl));
     }
 

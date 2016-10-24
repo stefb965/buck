@@ -33,7 +33,6 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.args.Arg;
 import com.google.common.base.Function;
 import com.google.common.base.Functions;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.collect.FluentIterable;
@@ -47,6 +46,7 @@ import com.google.common.collect.Maps;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -123,7 +123,7 @@ public class NativeRelinker {
     // non-linkable rules).
     final DirectedAcyclicGraph<BuildRule> graph = getBuildGraph(linkableRules);
     ImmutableList<BuildRule> sortedRules =
-        TopologicalSort.sort(graph, Predicates.<BuildRule>alwaysTrue());
+        TopologicalSort.sort(graph, Predicates.alwaysTrue());
     // This maps a build rule to every rule in linkableRules that depends on it. This (added to the
     // copied libraries) is the set of linkables that could use a symbol from this build rule.
     ImmutableMap<BuildRule, ImmutableSet<BuildRule>> allDependentsMap =
@@ -139,7 +139,7 @@ public class NativeRelinker {
       // the list of needed symbols.
       TargetCpuType cpuType = p.getFirst();
       SourcePath source = p.getSecond();
-      RelinkerRule relink = makeRelinkerRule(cpuType, source, ImmutableList.<RelinkerRule>of());
+      RelinkerRule relink = makeRelinkerRule(cpuType, source, ImmutableList.of());
       relinkRules.add(relink);
       pathMap.put(source, relink.getLibFileSourcePath());
     }
@@ -219,19 +219,14 @@ public class NativeRelinker {
       TargetCpuType cpuType,
       SourcePath source,
       ImmutableList<RelinkerRule> relinkerDeps) {
-    Function<RelinkerRule, SourcePath> getSymbolsNeeded = new Function<RelinkerRule, SourcePath>() {
-      @Override
-      public SourcePath apply(RelinkerRule rule) {
-        return rule.getSymbolsNeededPath();
-      }
-    };
+    Function<RelinkerRule, SourcePath> getSymbolsNeeded = RelinkerRule::getSymbolsNeededPath;
     String libname = resolver.getAbsolutePath(source).getFileName().toString();
     BuildRuleParams relinkerParams = buildRuleParams
         .withFlavor(ImmutableFlavor.of("xdso-dce"))
         .withFlavor(ImmutableFlavor.of(Flavor.replaceInvalidCharacters(cpuType.toString())))
         .withFlavor(ImmutableFlavor.of(Flavor.replaceInvalidCharacters(libname)))
         .appendExtraDeps(relinkerDeps);
-    BuildRule baseRule = resolver.getRule(source).orNull();
+    BuildRule baseRule = resolver.getRule(source).orElse(null);
     ImmutableList<Arg> linkerArgs = ImmutableList.of();
     Linker linker = null;
     if (baseRule != null && baseRule instanceof CxxLink) {

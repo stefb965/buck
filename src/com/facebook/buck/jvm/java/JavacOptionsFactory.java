@@ -23,10 +23,9 @@ import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.util.HumanReadableException;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 
-import java.nio.file.Path;
+import java.util.Optional;
+
 
 public final class JavacOptionsFactory {
   public static JavacOptions create(
@@ -55,13 +54,9 @@ public final class JavacOptionsFactory {
       builder.setTargetLevel(jvmLibraryArg.target.get());
     }
 
-    if (jvmLibraryArg.extraArguments.isPresent()) {
-      builder.addAllExtraArguments(jvmLibraryArg.extraArguments.get());
-    }
+    builder.addAllExtraArguments(jvmLibraryArg.extraArguments);
 
-    if (jvmLibraryArg.removeClasses.isPresent()) {
-      builder.addAllClassesToRemoveFromJar(jvmLibraryArg.removeClasses.get());
-    }
+    builder.addAllClassesToRemoveFromJar(jvmLibraryArg.removeClasses);
 
     if (jvmLibraryArg.compiler.isPresent()) {
       Either<BuiltInJavac, SourcePath> either = jvmLibraryArg.compiler.get();
@@ -73,7 +68,7 @@ public final class JavacOptionsFactory {
         if (possibleRule.isPresent() && possibleRule.get() instanceof PrebuiltJar) {
           builder.setJavacJarPath(new BuildTargetSourcePath(possibleRule.get().getBuildTarget()));
         } else {
-          builder.setJavacPath(Either.<Path, SourcePath>ofRight(sourcePath));
+          builder.setJavacPath(Either.ofRight(sourcePath));
         }
       }
     } else {
@@ -82,13 +77,7 @@ public final class JavacOptionsFactory {
           throw new HumanReadableException("Cannot set both javac and javacjar");
         }
         builder.setJavacPath(
-            jvmLibraryArg.javac.transform(
-                new Function<Path, Either<Path, SourcePath>>() {
-                  @Override
-                  public Either<Path, SourcePath> apply(Path input) {
-                    return Either.<Path, SourcePath>ofLeft(input);
-                  }
-                }));
+            jvmLibraryArg.javac.map(Either::ofLeft));
         builder.setJavacJarPath(jvmLibraryArg.javacJar);
       }
     }

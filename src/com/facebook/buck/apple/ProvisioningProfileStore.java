@@ -22,7 +22,7 @@ import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.RuleKeyObjectSink;
-import com.google.common.base.Optional;
+import com.facebook.buck.util.ProcessExecutor;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
@@ -40,6 +40,7 @@ import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 import java.util.Map.Entry;
+import java.util.Optional;
 
 import javax.annotation.Nullable;
 
@@ -48,9 +49,9 @@ import javax.annotation.Nullable;
  */
 public class ProvisioningProfileStore implements RuleKeyAppendable {
   public static final Optional<ImmutableMap<String, NSObject>> MATCH_ANY_ENTITLEMENT =
-      Optional.<ImmutableMap<String, NSObject>>absent();
+      Optional.empty();
   public static final Optional<ImmutableList<CodeSignIdentity>> MATCH_ANY_IDENTITY =
-      Optional.<ImmutableList<CodeSignIdentity>>absent();
+      Optional.empty();
 
   private static final Logger LOG = Logger.get(ProvisioningProfileStore.class);
   private final Supplier<ImmutableList<ProvisioningProfileMetadata>>
@@ -72,7 +73,7 @@ public class ProvisioningProfileStore implements RuleKeyAppendable {
         return Optional.of(profile);
       }
     }
-    return Optional.absent();
+    return Optional.empty();
   }
 
   private static boolean matchesOrArrayIsSubsetOf(@Nullable NSObject lhs, @Nullable NSObject rhs) {
@@ -99,11 +100,11 @@ public class ProvisioningProfileStore implements RuleKeyAppendable {
     if (entitlements.isPresent()) {
       prefix = Optional.of(ProvisioningProfileMetadata.prefixFromEntitlements(entitlements.get()));
     } else {
-      prefix = Optional.<String>absent();
+      prefix = Optional.empty();
     }
 
     int bestMatchLength = -1;
-    Optional<ProvisioningProfileMetadata> bestMatch = Optional.absent();
+    Optional<ProvisioningProfileMetadata> bestMatch = Optional.empty();
 
     for (ProvisioningProfileMetadata profile : getProvisioningProfiles()) {
       if (profile.getExpirationDate().after(new Date())) {
@@ -189,44 +190,45 @@ public class ProvisioningProfileStore implements RuleKeyAppendable {
     sink.setReflectively("provisioning-profile-store", getProvisioningProfiles());
   }
 
-  public static ProvisioningProfileStore fromSearchPath(final Path searchPath) {
+  public static ProvisioningProfileStore fromSearchPath(
+      final ProcessExecutor executor,
+      final Path searchPath) {
     LOG.debug("Provisioning profile search path: " + searchPath);
     return new ProvisioningProfileStore(Suppliers.memoize(
-        new Supplier<ImmutableList<ProvisioningProfileMetadata>>() {
-          @Override
-          public ImmutableList<ProvisioningProfileMetadata> get() {
-            final ImmutableList.Builder<ProvisioningProfileMetadata> profilesBuilder =
-                ImmutableList.builder();
-            try {
-              Files.walkFileTree(
-                  searchPath.toAbsolutePath(), new SimpleFileVisitor<Path>() {
-                    @Override
-                    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
-                        throws IOException {
-                      if (file.toString().endsWith(".mobileprovision")) {
-                        try {
-                          ProvisioningProfileMetadata profile =
-                              ProvisioningProfileMetadata.fromProvisioningProfilePath(file);
-                          profilesBuilder.add(profile);
-                        } catch (IOException | IllegalArgumentException e) {
-                          LOG.error(e, "Ignoring invalid or malformed .mobileprovision file");
-                        } catch (InterruptedException e) {
-                          throw new IOException(e);
-                        }
+        () -> {
+          final ImmutableList.Builder<ProvisioningProfileMetadata> profilesBuilder =
+              ImmutableList.builder();
+          try {
+            Files.walkFileTree(
+                searchPath.toAbsolutePath(), new SimpleFileVisitor<Path>() {
+                  @Override
+                  public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
+                      throws IOException {
+                    if (file.toString().endsWith(".mobileprovision")) {
+                      try {
+                        ProvisioningProfileMetadata profile =
+                            ProvisioningProfileMetadata.fromProvisioningProfilePath(
+                                executor,
+                                file);
+                        profilesBuilder.add(profile);
+                      } catch (IOException | IllegalArgumentException e) {
+                        LOG.error(e, "Ignoring invalid or malformed .mobileprovision file");
+                      } catch (InterruptedException e) {
+                        throw new IOException(e);
                       }
-
-                      return FileVisitResult.CONTINUE;
                     }
-                  });
-            } catch (IOException e) {
-              if (e.getCause() instanceof InterruptedException) {
-                LOG.error(e, "Interrupted while searching for mobileprovision files");
-              } else {
-                LOG.error(e, "Error while searching for mobileprovision files");
-              }
+
+                    return FileVisitResult.CONTINUE;
+                  }
+                });
+          } catch (IOException e) {
+            if (e.getCause() instanceof InterruptedException) {
+              LOG.error(e, "Interrupted while searching for mobileprovision files");
+            } else {
+              LOG.error(e, "Error while searching for mobileprovision files");
             }
-            return profilesBuilder.build();
           }
+          return profilesBuilder.build();
         }
     ));
   }

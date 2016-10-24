@@ -19,7 +19,6 @@ package com.facebook.buck.cxx;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
-import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
@@ -28,8 +27,8 @@ import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
 
-import java.nio.file.Path;
 import java.util.Map;
+import java.util.Optional;
 import java.util.SortedMap;
 
 public class CxxFlags {
@@ -48,7 +47,7 @@ public class CxxFlags {
       public void appendToRuleKey(RuleKeyObjectSink sink) {
         SortedMap<String, String> sanitizedMap = Maps.transformValues(
             flagMacros,
-            cxxPlatform.getDebugPathSanitizer().sanitize(Optional.<Path>absent()));
+            cxxPlatform.getDebugPathSanitizer().sanitize(Optional.empty()));
         sink.setReflectively("flagMacros", sanitizedMap);
       }
 
@@ -66,15 +65,14 @@ public class CxxFlags {
   }
 
   public static ImmutableList<String> getFlags(
-      Optional<ImmutableList<String>> flags,
-      Optional<PatternMatchedCollection<ImmutableList<String>>> platformFlags,
+      ImmutableList<String> flags,
+      PatternMatchedCollection<ImmutableList<String>> platformFlags,
       CxxPlatform platform) {
     return FluentIterable
-        .from(flags.or(ImmutableList.<String>of()))
+        .from(flags)
         .append(
             Iterables.concat(
                 platformFlags
-                    .or(PatternMatchedCollection.<ImmutableList<String>>of())
                     .getMatchingValues(platform.getFlavor().toString())))
         .transform(getTranslateMacrosFn(platform))
         .toList();
@@ -93,9 +91,9 @@ public class CxxFlags {
   }
 
   public static ImmutableListMultimap<CxxSource.Type, String> getLanguageFlags(
-      Optional<ImmutableList<String>> flags,
-      Optional<PatternMatchedCollection<ImmutableList<String>>> platformFlags,
-      Optional<ImmutableMap<CxxSource.Type, ImmutableList<String>>> languageFlags,
+      ImmutableList<String> flags,
+      PatternMatchedCollection<ImmutableList<String>> platformFlags,
+      ImmutableMap<CxxSource.Type, ImmutableList<String>> languageFlags,
       CxxPlatform platform) {
 
     ImmutableListMultimap.Builder<CxxSource.Type, String> langFlags =
@@ -104,7 +102,7 @@ public class CxxFlags {
     langFlags.putAll(toLanguageFlags(getFlags(flags, platformFlags, platform)));
 
     for (ImmutableMap.Entry<CxxSource.Type, ImmutableList<String>> entry :
-         languageFlags.or(ImmutableMap.<CxxSource.Type, ImmutableList<String>>of()).entrySet()) {
+         languageFlags.entrySet()) {
       langFlags.putAll(
           entry.getKey(),
           Iterables.transform(entry.getValue(), getTranslateMacrosFn(platform)));

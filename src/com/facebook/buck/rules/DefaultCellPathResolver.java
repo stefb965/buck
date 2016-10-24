@@ -21,8 +21,6 @@ import com.facebook.buck.config.Configs;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.HumanReadableException;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -34,6 +32,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 
@@ -50,13 +49,10 @@ public class DefaultCellPathResolver implements CellPathResolver {
       ImmutableMap<String, String> repositoriesSection) {
     this.root = root;
     this.cellPaths = ImmutableMap.copyOf(
-        Maps.transformValues(repositoriesSection, new Function<String, Path>() {
-          @Override
-          public Path apply(String input) {
-            return root.resolve(MorePaths.expandHomeDir(root.getFileSystem().getPath(input)))
-                .normalize();
-          }
-        }));
+        Maps.transformValues(
+            repositoriesSection,
+            input -> root.resolve(MorePaths.expandHomeDir(root.getFileSystem().getPath(input)))
+                .normalize()));
   }
 
   public DefaultCellPathResolver(Path root, Config config) {
@@ -69,9 +65,9 @@ public class DefaultCellPathResolver implements CellPathResolver {
    * @return MultiMap of Path to cell name. The map will contain multiple names for a path if
    *         that cell is reachable through different paths from the current cell.
    */
-  public ImmutableMap<RelativeCellName, Path> getTransitivePathMapping() throws IOException {
+  public ImmutableMap<RelativeCellName, Path> getTransitivePathMapping() {
     ImmutableMap.Builder<RelativeCellName, Path> builder = ImmutableMap.builder();
-    builder.put(RelativeCellName.of(ImmutableList.<String>of()), root);
+    builder.put(RelativeCellName.of(ImmutableList.of()), root);
 
     HashSet<Path> seenPaths = new HashSet<>();
     seenPaths.add(root);
@@ -79,7 +75,7 @@ public class DefaultCellPathResolver implements CellPathResolver {
     constructFullMapping(
         builder,
         seenPaths,
-        RelativeCellName.of(ImmutableList.<String>of()),
+        RelativeCellName.of(ImmutableList.of()),
         this);
     return builder.build();
   }

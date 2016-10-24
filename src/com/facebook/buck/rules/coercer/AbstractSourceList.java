@@ -20,7 +20,6 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -29,12 +28,14 @@ import com.google.common.collect.ImmutableSortedSet;
 
 import org.immutables.value.Value;
 
+import java.util.Optional;
+
 @Value.Immutable
 @BuckStyleImmutable
 abstract class AbstractSourceList {
 
   public static final SourceList EMPTY =
-      SourceList.ofUnnamedSources(ImmutableSortedSet.<SourcePath>of());
+      SourceList.ofUnnamedSources(ImmutableSortedSet.of());
 
   public enum Type {
     UNNAMED,
@@ -68,13 +69,13 @@ abstract class AbstractSourceList {
     return SourceList.of(
         Type.UNNAMED,
         Optional.of(unnamedSources),
-        Optional.<ImmutableSortedMap<String, SourcePath>>absent());
+        Optional.empty());
   }
 
   public static SourceList ofNamedSources(ImmutableSortedMap<String, SourcePath> namedSources) {
     return SourceList.of(
         Type.NAMED,
-        Optional.<ImmutableSortedSet<SourcePath>>absent(),
+        Optional.empty(),
         Optional.of(namedSources));
   }
 

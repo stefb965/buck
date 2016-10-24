@@ -48,11 +48,8 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.swift.SwiftLibraryDescription;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Function;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -64,6 +61,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
+import java.util.Optional;
 import java.util.Set;
 
 public class AppleBinaryDescription implements
@@ -80,6 +78,7 @@ public class AppleBinaryDescription implements
       ImmutableSet.of(APP_FLAVOR));
   public static final Flavor LEGACY_WATCH_FLAVOR = ImmutableFlavor.of("legacy_watch");
 
+  @SuppressWarnings("PMD") // PMD doesn't understand method references
   private static final Set<Flavor> SUPPORTED_FLAVORS = ImmutableSet.of(
       APP_FLAVOR,
       CxxCompilationDatabase.COMPILATION_DATABASE,
@@ -87,13 +86,6 @@ public class AppleBinaryDescription implements
       AppleDebugFormat.DWARF_AND_DSYM.getFlavor(),
       AppleDebugFormat.DWARF.getFlavor(),
       AppleDebugFormat.NONE.getFlavor());
-
-  private static final Predicate<Flavor> IS_SUPPORTED_FLAVOR = new Predicate<Flavor>() {
-    @Override
-    public boolean apply(Flavor flavor) {
-      return SUPPORTED_FLAVORS.contains(flavor);
-    }
-  };
 
   private final CxxBinaryDescription delegate;
   private final SwiftLibraryDescription swiftDelegate;
@@ -129,7 +121,7 @@ public class AppleBinaryDescription implements
 
   @Override
   public boolean hasFlavors(ImmutableSet<Flavor> flavors) {
-    if (FluentIterable.from(flavors).allMatch(IS_SUPPORTED_FLAVOR)) {
+    if (FluentIterable.from(flavors).allMatch(SUPPORTED_FLAVORS::contains)) {
       return true;
     }
     ImmutableSet<Flavor> delegateFlavors = ImmutableSet.copyOf(Sets.difference(
@@ -142,12 +134,7 @@ public class AppleBinaryDescription implements
     if (thinFlavorSets.size() > 0) {
       return Iterables.all(
           thinFlavorSets,
-          new Predicate<ImmutableSortedSet<Flavor>>() {
-            @Override
-            public boolean apply(ImmutableSortedSet<Flavor> input) {
-              return delegate.hasFlavors(input);
-            }
-          });
+          delegate::hasFlavors);
     } else {
       return delegate.hasFlavors(delegateFlavors);
     }
@@ -236,9 +223,8 @@ public class AppleBinaryDescription implements
     BuildTarget strippedBinaryBuildTarget = unstrippedBinaryBuildTarget
         .withAppendedFlavors(
             CxxStrip.RULE_FLAVOR,
-            StripStyle.FLAVOR_DOMAIN
-                .getFlavor(params.getBuildTarget().getFlavors())
-                .or(StripStyle.NON_GLOBAL_SYMBOLS.getFlavor()));
+            StripStyle.FLAVOR_DOMAIN.getFlavor(params.getBuildTarget().getFlavors())
+                .orElse(StripStyle.NON_GLOBAL_SYMBOLS.getFlavor()));
     BuildRule strippedBinaryRule = createBinary(
         targetGraph,
         params.copyWithBuildTarget(strippedBinaryBuildTarget),
@@ -267,16 +253,14 @@ public class AppleBinaryDescription implements
           params.getBuildTarget().getUnflavoredBuildTarget());
     }
     AppleDebugFormat flavoredDebugFormat = AppleDebugFormat.FLAVOR_DOMAIN
-        .getValue(params.getBuildTarget())
-        .or(defaultDebugFormat);
+        .getValue(params.getBuildTarget()).orElse(defaultDebugFormat);
     if (!params.getBuildTarget().getFlavors().contains(flavoredDebugFormat.getFlavor())) {
       return resolver.requireRule(
           params.getBuildTarget().withAppendedFlavors(flavoredDebugFormat.getFlavor()));
     }
     if (!AppleDescriptions.INCLUDE_FRAMEWORKS.getValue(params.getBuildTarget()).isPresent()) {
-      CxxPlatform cxxPlatform =
-          delegate.getCxxPlatforms().getValue(params.getBuildTarget())
-              .or(delegate.getDefaultCxxPlatform());
+      CxxPlatform cxxPlatform = delegate.getCxxPlatforms().getValue(params.getBuildTarget())
+          .orElse(delegate.getDefaultCxxPlatform());
       ApplePlatform applePlatform =
           platformFlavorsToAppleCxxPlatforms.getValue(cxxPlatform.getFlavor())
               .getAppleSdk()
@@ -301,12 +285,12 @@ public class AppleBinaryDescription implements
         codeSignIdentityStore,
         provisioningProfileStore,
         binaryTarget,
-        Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.APP),
-        Optional.<String>absent(),
+        Either.ofLeft(AppleBundleExtension.APP),
+        Optional.empty(),
         args.infoPlist.get(),
         args.infoPlistSubstitutions,
-        args.deps.get(),
-        args.tests.get(),
+        args.deps,
+        args.tests,
         flavoredDebugFormat);
   }
 
@@ -400,9 +384,9 @@ public class AppleBinaryDescription implements
 
 
   private <A extends Arg> Optional<Path> getStubBinaryPath(BuildRuleParams params, A args) {
-    Optional<Path> stubBinaryPath = Optional.absent();
+    Optional<Path> stubBinaryPath = Optional.empty();
     Optional<AppleCxxPlatform> appleCxxPlatform = getAppleCxxPlatformFromParams(params);
-    if (appleCxxPlatform.isPresent() && (!args.srcs.isPresent() || args.srcs.get().isEmpty())) {
+    if (appleCxxPlatform.isPresent() && args.srcs.isEmpty()) {
       stubBinaryPath = appleCxxPlatform.get().getStubBinary();
     }
     return stubBinaryPath;
@@ -434,7 +418,7 @@ public class AppleBinaryDescription implements
         "Could not find cxx platform in:\n%s",
         Joiner.on(", ").join(buildTarget.getFlavors()));
     ImmutableSet.Builder<SourcePath> sourcePaths = ImmutableSet.builder();
-    for (BuildTarget dep : args.deps.get()) {
+    for (BuildTarget dep : args.deps) {
       Optional<FrameworkDependencies> frameworks =
           resolver.requireMetadata(
               BuildTarget.builder(dep)
@@ -471,30 +455,25 @@ public class AppleBinaryDescription implements
       return Iterables.concat(
           Iterables.transform(
               thinFlavorSets,
-              new Function<ImmutableSortedSet<Flavor>, Iterable<BuildTarget>>() {
-                @Override
-                public Iterable<BuildTarget> apply(ImmutableSortedSet<Flavor> input) {
-                  return delegate.findDepsForTargetFromConstructorArgs(
-                      buildTarget.withFlavors(input),
-                      cellRoots,
-                      constructorArg.linkerFlags.get(),
-                      constructorArg.platformLinkerFlags.get().getValues());
-                }
-              })
+              input -> delegate.findDepsForTargetFromConstructorArgs(
+                  buildTarget.withFlavors(input),
+                  cellRoots,
+                  constructorArg.linkerFlags,
+                  constructorArg.platformLinkerFlags.getValues()))
       );
     } else {
       return delegate.findDepsForTargetFromConstructorArgs(
           buildTarget,
           cellRoots,
-          constructorArg.linkerFlags.get(),
-          constructorArg.platformLinkerFlags.get().getValues());
+          constructorArg.linkerFlags,
+          constructorArg.platformLinkerFlags.getValues());
     }
   }
 
   @SuppressFieldNotInitialized
   public static class Arg extends AppleNativeTargetDescriptionArg {
     public Optional<SourcePath> infoPlist;
-    public Optional<ImmutableMap<String, String>> infoPlistSubstitutions;
+    public ImmutableMap<String, String> infoPlistSubstitutions = ImmutableMap.of();
   }
 
 }

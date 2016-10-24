@@ -24,14 +24,13 @@ import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
@@ -39,25 +38,25 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.FileHashCache;
-import com.google.common.base.Functions;
+import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Strings;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Lists;
 
-import org.easymock.EasyMock;
 import org.junit.Test;
 
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.Optional;
+import java.util.stream.Stream;
 
 public class DummyRDotJavaTest {
 
@@ -101,11 +100,12 @@ public class DummyRDotJavaTest {
         new FakeSourcePath("abi.jar"),
         ANDROID_JAVAC_OPTIONS,
         /* forceFinalResourceIds */ false,
-        Optional.<String>absent(),
+        Optional.empty(),
         Optional.of("R2"));
 
     FakeBuildableContext buildableContext = new FakeBuildableContext();
-    List<Step> steps = dummyRDotJava.getBuildSteps(EasyMock.createMock(BuildContext.class),
+    List<Step> steps = dummyRDotJava.getBuildSteps(
+        FakeBuildContext.NOOP_CONTEXT,
         buildableContext);
     assertEquals("DummyRDotJava returns an incorrect number of Steps.", 10, steps.size());
 
@@ -132,11 +132,10 @@ public class DummyRDotJavaTest {
             dummyRDotJava.getBuildTarget().getShortNameAndFlavorPostfix()));
     String genFolder = Paths.get("buck-out/gen/java/base/").toString();
 
-    List<String> sortedSymbolsFiles = FluentIterable.from(ImmutableList.of(
-                (AndroidResource) resourceRule1,
-                (AndroidResource) resourceRule2))
-        .transform(Functions.toStringFunction())
-        .toList();
+    List<String> sortedSymbolsFiles =
+        Stream.of((AndroidResource) resourceRule1, (AndroidResource) resourceRule2)
+            .map(Object::toString)
+            .collect(MoreCollectors.toImmutableList());
     ImmutableSortedSet<Path> javaSourceFiles = ImmutableSortedSet.of(
         Paths.get(rDotJavaSrcFolder).resolve("com/facebook/R.java"));
     List<String> expectedStepDescriptions = Lists.newArrayList(
@@ -185,12 +184,12 @@ public class DummyRDotJavaTest {
               TargetGraph.EMPTY,
               new DefaultTargetNodeToBuildRuleTransformer())
         ),
-        ImmutableSet.<HasAndroidResourceDeps>of(),
+        ImmutableSet.of(),
         new FakeSourcePath("abi.jar"),
         ANDROID_JAVAC_OPTIONS,
         /* forceFinalResourceIds */ false,
-        Optional.<String>absent(),
-        Optional.<String>absent());
+        Optional.empty(),
+        Optional.empty());
     assertEquals(
         BuildTargets.getScratchPath(
             dummyRDotJava.getProjectFilesystem(),

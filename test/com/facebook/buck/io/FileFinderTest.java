@@ -17,7 +17,6 @@
 package com.facebook.buck.io;
 
 import com.facebook.buck.testutil.integration.TemporaryPaths;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -29,6 +28,7 @@ import org.junit.Test;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Optional;
 
 /**
  * Test for FileFinder.
@@ -46,7 +46,7 @@ public class FileFinderTest {
         result);
 
     result = FileFinder.combine(
-        ImmutableSet.<String>of(),
+        ImmutableSet.of(),
         "foo",
         ImmutableSet.of(".exe", ".com", ".bat")).toArray();
     Arrays.sort(result);
@@ -55,7 +55,7 @@ public class FileFinderTest {
         result);
 
     result = FileFinder.combine(
-        ImmutableSet.<String>of("lib", ""),
+        ImmutableSet.of("lib", ""),
         "foo",
         null).toArray();
     Arrays.sort(result);

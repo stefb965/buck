@@ -51,9 +51,7 @@ import com.facebook.buck.swift.SwiftLibraryDescription;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -62,6 +60,7 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
 
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 public class AppleLibraryDescription implements
@@ -72,6 +71,7 @@ public class AppleLibraryDescription implements
     MetadataProvidingDescription<AppleLibraryDescription.Arg> {
   public static final BuildRuleType TYPE = BuildRuleType.of("apple_library");
 
+  @SuppressWarnings("PMD") // PMD doesn't understand method references
   private static final Set<Flavor> SUPPORTED_FLAVORS = ImmutableSet.of(
       CxxCompilationDatabase.COMPILATION_DATABASE,
       CxxCompilationDatabase.UBER_COMPILATION_DATABASE,
@@ -87,13 +87,6 @@ public class AppleLibraryDescription implements
       StripStyle.ALL_SYMBOLS.getFlavor(),
       StripStyle.DEBUGGING_SYMBOLS.getFlavor(),
       ImmutableFlavor.of("default"));
-
-  private static final Predicate<Flavor> IS_SUPPORTED_FLAVOR = new Predicate<Flavor>() {
-    @Override
-    public boolean apply(Flavor flavor) {
-      return SUPPORTED_FLAVORS.contains(flavor);
-    }
-  };
 
   private enum Type implements FlavorConvertible {
     HEADERS(CxxDescriptionEnhancer.HEADER_SYMLINK_TREE_FLAVOR),
@@ -157,7 +150,7 @@ public class AppleLibraryDescription implements
 
   @Override
   public boolean hasFlavors(ImmutableSet<Flavor> flavors) {
-    return FluentIterable.from(flavors).allMatch(IS_SUPPORTED_FLAVOR) ||
+    return FluentIterable.from(flavors).allMatch(SUPPORTED_FLAVORS::contains) ||
         delegate.hasFlavors(flavors) ||
         swiftDelegate.hasFlavors(flavors);
   }
@@ -179,8 +172,8 @@ public class AppleLibraryDescription implements
           resolver,
           args,
           args.linkStyle,
-          Optional.<SourcePath>absent(),
-          ImmutableSet.<BuildTarget>of());
+          Optional.empty(),
+          ImmutableSet.of());
     }
   }
 
@@ -201,8 +194,7 @@ public class AppleLibraryDescription implements
               AppleDescriptions.INCLUDE_FRAMEWORKS_FLAVOR));
     }
     AppleDebugFormat debugFormat = AppleDebugFormat.FLAVOR_DOMAIN
-        .getValue(params.getBuildTarget())
-        .or(defaultDebugFormat);
+        .getValue(params.getBuildTarget()).orElse(defaultDebugFormat);
     if (!params.getBuildTarget().getFlavors().contains(debugFormat.getFlavor())) {
       return resolver.requireRule(
           params.getBuildTarget().withAppendedFlavors(debugFormat.getFlavor()));
@@ -218,12 +210,12 @@ public class AppleLibraryDescription implements
         codeSignIdentityStore,
         provisioningProfileStore,
         params.getBuildTarget(),
-        Either.<AppleBundleExtension, String>ofLeft(AppleBundleExtension.FRAMEWORK),
-        Optional.<String>absent(),
+        Either.ofLeft(AppleBundleExtension.FRAMEWORK),
+        Optional.empty(),
         args.infoPlist.get(),
         args.infoPlistSubstitutions,
-        args.deps.get(),
-        args.tests.get(),
+        args.deps,
+        args.tests,
         debugFormat);
   }
 
@@ -287,7 +279,7 @@ public class AppleLibraryDescription implements
         CxxStrip.restoreStripStyleFlavorInParams(params, flavoredStripStyle),
         resolver,
         representativePlatform.getStrip(),
-        flavoredStripStyle.or(StripStyle.NON_GLOBAL_SYMBOLS),
+        flavoredStripStyle.orElse(StripStyle.NON_GLOBAL_SYMBOLS),
         pathResolver,
         unstrippedBinaryRule);
 
@@ -296,7 +288,7 @@ public class AppleLibraryDescription implements
         resolver,
         strippedBinaryRule,
         (ProvidesLinkedBinaryDeps) unstrippedBinaryRule,
-        AppleDebugFormat.FLAVOR_DOMAIN.getValue(params.getBuildTarget()).or(defaultDebugFormat),
+        AppleDebugFormat.FLAVOR_DOMAIN.getValue(params.getBuildTarget()).orElse(defaultDebugFormat),
         delegate.getCxxPlatforms(),
         delegate.getDefaultCxxPlatform(),
         appleCxxPlatformFlavorDomain);
@@ -416,7 +408,7 @@ public class AppleLibraryDescription implements
         "Could not find cxx platform in:\n%s",
         Joiner.on(", ").join(buildTarget.getFlavors()));
     ImmutableSet.Builder<SourcePath> sourcePaths = ImmutableSet.builder();
-    for (BuildTarget dep : args.deps.get()) {
+    for (BuildTarget dep : args.deps) {
       Optional<FrameworkDependencies> frameworks =
           resolver.requireMetadata(
               BuildTarget.builder(dep)
@@ -474,7 +466,7 @@ public class AppleLibraryDescription implements
   @SuppressFieldNotInitialized
   public static class Arg extends AppleNativeTargetDescriptionArg {
     public Optional<SourcePath> infoPlist;
-    public Optional<ImmutableMap<String, String>> infoPlistSubstitutions;
+    public ImmutableMap<String, String> infoPlistSubstitutions = ImmutableMap.of();
   }
 
 }

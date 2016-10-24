@@ -27,6 +27,7 @@ import static org.junit.Assume.assumeTrue;
 import com.facebook.buck.apple.AppleDescriptions;
 import com.facebook.buck.apple.CodeSigning;
 import com.facebook.buck.cxx.DebugPathSanitizer;
+import com.facebook.buck.cxx.MungingDebugPathSanitizer;
 import com.facebook.buck.io.MoreFiles;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
@@ -39,11 +40,10 @@ import com.facebook.buck.testutil.integration.FakeAppleDeveloperEnvironment;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
+import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.environment.Platform;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
 
@@ -59,6 +59,7 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.EnumSet;
+import java.util.Optional;
 
 public class ObjectPathsAbsolutifierIntegrationTest {
 
@@ -75,11 +76,11 @@ public class ObjectPathsAbsolutifierIntegrationTest {
 
   private DebugPathSanitizer getDebugPathSanitizer() {
     // this was stolen from the implementation detail of AppleCxxPlatforms
-    return new DebugPathSanitizer(
+    return new MungingDebugPathSanitizer(
         250,
         File.separatorChar,
         Paths.get("."),
-        ImmutableBiMap.<Path, Path>of());
+        ImmutableBiMap.of());
   }
 
   @Test
@@ -173,8 +174,8 @@ public class ObjectPathsAbsolutifierIntegrationTest {
     ProcessExecutor.Result unsanitizedResult =
         workspace.runCommand("nm", "-a", unsanizitedBinaryPath.toString());
 
-    String sanitizedOutput = sanitizedResult.getStdout().or("");
-    String unsanitizedOutput = unsanitizedResult.getStdout().or("");
+    String sanitizedOutput = sanitizedResult.getStdout().orElse("");
+    String unsanitizedOutput = unsanitizedResult.getStdout().orElse("");
 
     // check that weird buck comp dir is not present anymore
     assertThat(
@@ -214,7 +215,7 @@ public class ObjectPathsAbsolutifierIntegrationTest {
     }
 
     return CodeSigning.hasValidSignature(
-        new ProcessExecutor(new TestConsole()),
+        new DefaultProcessExecutor(new TestConsole()),
         absoluteBundlePath);
   }
 
@@ -227,25 +228,25 @@ public class ObjectPathsAbsolutifierIntegrationTest {
       throw new NoSuchFileException(file2.toString());
     }
 
-    ProcessExecutor processExecutor = new ProcessExecutor(new TestConsole());
+    ProcessExecutor processExecutor = new DefaultProcessExecutor(new TestConsole());
 
     ProcessExecutor.Result result1 = processExecutor.launchAndExecute(
         ProcessExecutorParams.builder()
             .setCommand(ImmutableList.of("codesign", "-vvvv", "-d", file1.toString())).build(),
         EnumSet.of(ProcessExecutor.Option.EXPECTING_STD_OUT, ProcessExecutor.Option.IS_SILENT),
-        /* stdin */ Optional.<String>absent(),
-        /* timeOutMs */ Optional.<Long>absent(),
-        /* timeOutHandler */ Optional.<Function<Process, Void>>absent());
+        /* stdin */ Optional.empty(),
+        /* timeOutMs */ Optional.empty(),
+        /* timeOutHandler */ Optional.empty());
     ProcessExecutor.Result result2 = processExecutor.launchAndExecute(
         ProcessExecutorParams.builder()
             .setCommand(ImmutableList.of("codesign", "-vvvv", "-d", file1.toString())).build(),
         EnumSet.of(ProcessExecutor.Option.EXPECTING_STD_OUT, ProcessExecutor.Option.IS_SILENT),
-        /* stdin */ Optional.<String>absent(),
-        /* timeOutMs */ Optional.<Long>absent(),
-        /* timeOutHandler */ Optional.<Function<Process, Void>>absent());
+        /* stdin */ Optional.empty(),
+        /* timeOutMs */ Optional.empty(),
+        /* timeOutHandler */ Optional.empty());
 
-    String stderr1 = result1.getStderr().or("");
-    String stderr2 = result2.getStderr().or("");
+    String stderr1 = result1.getStderr().orElse("");
+    String stderr2 = result2.getStderr().orElse("");
 
     // skip first line as it has a path to the binary
     Assert.assertThat(stderr1, startsWith("Executable="));

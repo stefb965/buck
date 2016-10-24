@@ -39,6 +39,7 @@ import com.facebook.buck.rules.ActionGraphCache;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.Cell;
+import com.facebook.buck.rules.CellProvider;
 import com.facebook.buck.rules.ConstructorArgMarshaller;
 import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
 import com.facebook.buck.rules.NoopBuildRule;
@@ -49,10 +50,8 @@ import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.facebook.buck.timing.DefaultClock;
+import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ObjectMappers;
-import com.facebook.buck.util.ProcessExecutor;
-import com.google.common.base.Predicate;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -101,17 +100,15 @@ public class ThriftLibraryIntegrationTest {
         typeCoercerFactory,
         new ConstructorArgMarshaller(typeCoercerFactory));
 
-    Cell cell = Cell.createRootCell(
+    Cell cell = CellProvider.createForLocalBuild(
         filesystem,
-        new TestConsole(),
         Watchman.NULL_WATCHMAN,
         config,
         CellConfig.of(),
         new KnownBuildRuleTypesFactory(
-            new ProcessExecutor(new TestConsole()),
+            new DefaultProcessExecutor(new TestConsole()),
             new FakeAndroidDirectoryResolver()),
-        new DefaultClock(),
-        new WatchmanDiagnosticCache());
+        new WatchmanDiagnosticCache()).getCellByPath(filesystem.getRootPath());
     BuildTarget target = BuildTargetFactory.newInstance(filesystem, "//thrift:exe");
     TargetGraph targetGraph = parser.buildTargetGraph(
         eventBus,
@@ -135,12 +132,7 @@ public class ThriftLibraryIntegrationTest {
     assertThat(
         FluentIterable.from(deps)
             .anyMatch(
-                new Predicate<BuildRule>() {
-                  @Override
-                  public boolean apply(BuildRule input) {
-                    return input instanceof NoopBuildRule;
-                  }
-                }),
+                input -> input instanceof NoopBuildRule),
         Matchers.is(false));
   }
 

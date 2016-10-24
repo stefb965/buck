@@ -21,8 +21,6 @@ import com.facebook.buck.model.Pair;
 import com.facebook.buck.util.environment.BuildEnvironmentDescription;
 import com.facebook.buck.util.unit.SizeUnit;
 import com.facebook.buck.util.versioncontrol.VersionControlCommandFailedException;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
@@ -33,8 +31,8 @@ import java.io.InputStreamReader;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Responsible for gathering logs and other interesting information from buck, driven by user
@@ -69,7 +67,7 @@ public class InteractiveReport extends AbstractReport {
   }
 
   @Override
-  protected ImmutableSet<BuildLogEntry> promptForBuildSelection() throws IOException {
+  public ImmutableSet<BuildLogEntry> promptForBuildSelection() throws IOException {
     ImmutableList<BuildLogEntry> buildLogs = buildLogHelper.getBuildLogs();
 
     // Commands with unknown args and buck rage should be excluded.
@@ -84,29 +82,22 @@ public class InteractiveReport extends AbstractReport {
     }
 
     // Sort the interesting builds based on time, reverse order so the most recent is first.
-    Collections.sort(interestingBuildLogs, new Comparator<BuildLogEntry>() {
-      @Override
-      public int compare(BuildLogEntry o1, BuildLogEntry o2) {
-        return -o1.getLastModifiedTime().compareTo(o2.getLastModifiedTime());
-      }
-    });
+    Collections.sort(interestingBuildLogs,
+        (o1, o2) -> -o1.getLastModifiedTime().compareTo(o2.getLastModifiedTime()));
 
     return input.selectRange(
         "Which buck invocations would you like to report?",
         interestingBuildLogs,
-        new Function<BuildLogEntry, String>() {
-          @Override
-          public String apply(BuildLogEntry input) {
-            Pair<Double, SizeUnit> humanReadableSize = SizeUnit.getHumanReadableSize(
-                input.getSize(),
-                SizeUnit.BYTES);
-            return String.format(
-                "\t%s\tbuck [%s] (%.2f %s)",
-                input.getLastModifiedTime(),
-                input.getCommandArgs().or("unknown command"),
-                humanReadableSize.getFirst(),
-                humanReadableSize.getSecond().getAbbreviation());
-          }
+        input1 -> {
+          Pair<Double, SizeUnit> humanReadableSize = SizeUnit.getHumanReadableSize(
+              input1.getSize(),
+              SizeUnit.BYTES);
+          return String.format(
+              "\t%s\tbuck [%s] (%.2f %s)",
+              input1.getLastModifiedTime(),
+              input1.getCommandArgs().orElse("unknown command"),
+              humanReadableSize.getFirst(),
+              humanReadableSize.getSecond().getAbbreviation());
         });
   }
 
@@ -116,7 +107,7 @@ public class InteractiveReport extends AbstractReport {
     if (!vcsInfoCollector.isPresent() ||
         !input.confirm("Would you like to attach source control information (this includes " +
             "information about commits and changed files)?")) {
-      return Optional.absent();
+      return Optional.empty();
     }
 
     try {
@@ -124,7 +115,7 @@ public class InteractiveReport extends AbstractReport {
     } catch (VersionControlCommandFailedException e) {
       output.printf("Failed to get source control information: %s, proceeding regardless.\n", e);
     }
-    return Optional.absent();
+    return Optional.empty();
   }
 
   @Override

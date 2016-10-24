@@ -19,11 +19,11 @@ package com.facebook.buck.rage;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.util.environment.BuildEnvironmentDescription;
 import com.facebook.buck.util.versioncontrol.VersionControlCommandFailedException;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSet;
 
 import java.io.IOException;
 import java.io.PrintStream;
+import java.util.Optional;
 
 /**
  * Responsible for gathering logs and other interesting information from buck without user
@@ -54,12 +54,12 @@ public class AutomatedReport extends AbstractReport {
   }
 
   @Override
-  protected ImmutableSet<BuildLogEntry> promptForBuildSelection() throws IOException {
+  public ImmutableSet<BuildLogEntry> promptForBuildSelection() throws IOException {
     return ImmutableSet.copyOf(buildLogHelper.getBuildLogs());
   }
 
   @Override
-  protected Optional<SourceControlInfo> getSourceControlInfo()
+  public Optional<SourceControlInfo> getSourceControlInfo()
       throws IOException, InterruptedException {
     try {
       if (vcsInfoCollector.isPresent()) {
@@ -68,11 +68,12 @@ public class AutomatedReport extends AbstractReport {
     } catch (VersionControlCommandFailedException e) {
       output.printf("Failed to get source control information: %s, proceeding regardless.\n", e);
     }
-    return Optional.absent();
+    return Optional.empty();
   }
 
   @Override
   protected Optional<UserReport> getUserReport() throws IOException {
-    return Optional.absent();
+    return Optional.empty();
   }
+
 }

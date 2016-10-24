@@ -19,11 +19,11 @@ package com.facebook.buck.js;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.shell.WorkerJobParams;
 import com.facebook.buck.shell.WorkerShellStep;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
 import java.nio.file.Path;
+import java.util.Optional;
 
 public class ReactNativeBundleWorkerStep extends WorkerShellStep {
 
@@ -49,7 +49,7 @@ public class ReactNativeBundleWorkerStep extends WorkerShellStep {
                     "--platform %s%s",
                     platform.toString(),
                     additionalPackagerFlags.isPresent() ? " " + additionalPackagerFlags.get() : ""),
-                ImmutableMap.<String, String>of(),
+                ImmutableMap.of(),
                 String.format(
                     "--command %s --entry-file %s --platform %s --dev %s --bundle-output %s " +
                         "--assets-dest %s --sourcemap-output %s",
@@ -60,9 +60,9 @@ public class ReactNativeBundleWorkerStep extends WorkerShellStep {
                     outputFile.toString(),
                     resourcePath.toString(),
                     sourceMapFile.toString()),
-                Optional.of(1))),
-        Optional.<WorkerJobParams>absent(),
-        Optional.<WorkerJobParams>absent());
+                1)),
+        Optional.empty(),
+        Optional.empty());
   }
 
   @Override

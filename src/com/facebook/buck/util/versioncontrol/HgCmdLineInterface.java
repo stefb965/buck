@@ -17,14 +17,12 @@
 package com.facebook.buck.util.versioncontrol;
 
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.MoreMaps;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorFactory;
 import com.facebook.buck.util.ProcessExecutorParams;
-import com.google.common.base.Function;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
-import com.google.common.base.Predicate;
 import com.google.common.base.Strings;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -36,8 +34,10 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.StreamSupport;
 
 public class HgCmdLineInterface implements VersionControlCmdLineInterface {
   private static final Logger LOG = Logger.get(VersionControlCmdLineInterface.class);
@@ -138,7 +138,7 @@ public class HgCmdLineInterface implements VersionControlCmdLineInterface {
     try {
       return Optional.of(revisionId(name));
     } catch (VersionControlCommandFailedException e) {
-      return Optional.absent();
+      return Optional.empty();
     }
   }
 
@@ -159,7 +159,7 @@ public class HgCmdLineInterface implements VersionControlCmdLineInterface {
     try {
       return Optional.of(commonAncestor(revisionIdOne, revisionIdTwo));
     } catch (VersionControlCommandFailedException e) {
-      return Optional.absent();
+      return Optional.empty();
     }
   }
 
@@ -200,12 +200,7 @@ public class HgCmdLineInterface implements VersionControlCmdLineInterface {
         REVISION_ID_TEMPLATE,
         fromRevisionId));
     return FluentIterable.of(hgChangedFilesString.split("\0"))
-        .filter(new Predicate<String>() {
-          @Override
-          public boolean apply(String input) {
-            return !Strings.isNullOrEmpty(input);
-          }
-        })
+        .filter(input -> !Strings.isNullOrEmpty(input))
         .toSet();
   }
 
@@ -213,12 +208,7 @@ public class HgCmdLineInterface implements VersionControlCmdLineInterface {
   public ImmutableSet<String> untrackedFiles()
       throws VersionControlCommandFailedException, InterruptedException {
     return FluentIterable.of(executeCommand(UNTRACKED_FILES_COMMAND).split("\0"))
-        .filter(new Predicate<String>() {
-          @Override
-          public boolean apply(String input) {
-            return !Strings.isNullOrEmpty(input);
-          }
-        })
+        .filter(input -> !Strings.isNullOrEmpty(input))
         .toSet();
   }
 
@@ -248,12 +238,7 @@ public class HgCmdLineInterface implements VersionControlCmdLineInterface {
     // Remove the potential asterisk that shows the active bookmark.
     FluentIterable<String> allBookmarks =
         FluentIterable.of(executeCommand(ALL_BOOKMARKS_COMMAND).replaceAll("\\*", "").split(" "))
-            .filter(new Predicate<String>() {
-              @Override
-              public boolean apply(String input) {
-                return !Strings.isNullOrEmpty(input);
-              }
-            });
+            .filter(input -> !Strings.isNullOrEmpty(input));
 
     if (allBookmarks.size() % 2 != 0) {
       throw new VersionControlCommandFailedException("Unable to retrieve map of bookmarks");
@@ -330,16 +315,9 @@ public class HgCmdLineInterface implements VersionControlCmdLineInterface {
 
   private static Iterable<String> replaceTemplateValue(
       Iterable<String> values, final String template, final String replacement) {
-    return FluentIterable
-        .from(values)
-        .transform(
-            new Function<String, String>() {
-              @Override
-              public String apply(String text) {
-                return text.contains(template) ? text.replace(template, replacement) : text;
-              }
-            })
-        .toList();
+    return StreamSupport.stream(values.spliterator(), false)
+        .map(text -> text.contains(template) ? text.replace(template, replacement) : text)
+        .collect(MoreCollectors.toImmutableList());
   }
 
   private static String commandAsString(Iterable<String> command) {

@@ -29,17 +29,15 @@ import com.facebook.buck.io.WatchmanDiagnosticCache;
 import com.facebook.buck.json.ProjectBuildFileParserFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TestConsole;
-import com.facebook.buck.timing.FakeClock;
+import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
 
 import java.io.IOException;
-import java.lang.reflect.Method;
 
 import javax.annotation.Nullable;
 
 import net.sf.cglib.proxy.Enhancer;
 import net.sf.cglib.proxy.MethodInterceptor;
-import net.sf.cglib.proxy.MethodProxy;
 
 public class TestCellBuilder {
 
@@ -88,7 +86,7 @@ public class TestCellBuilder {
   }
 
   public Cell build() throws IOException, InterruptedException {
-    ProcessExecutor executor = new ProcessExecutor(new TestConsole());
+    ProcessExecutor executor = new DefaultProcessExecutor(new TestConsole());
 
     BuckConfig config = buckConfig == null ?
         FakeBuckConfig.builder().setFilesystem(filesystem).build() :
@@ -99,15 +97,13 @@ public class TestCellBuilder {
         androidDirectoryResolver);
 
     if (parserFactory == null) {
-      return Cell.createRootCell(
+      return CellProvider.createForLocalBuild(
           filesystem,
-          new TestConsole(),
           watchman,
           config,
           cellConfig,
           typesFactory,
-          new FakeClock(0),
-          new WatchmanDiagnosticCache());
+          new WatchmanDiagnosticCache()).getCellByPath(filesystem.getRootPath());
     }
 
     // The constructor for `Cell` is private, and it's in such a central location I don't really
@@ -115,16 +111,12 @@ public class TestCellBuilder {
 
     Enhancer enhancer = new Enhancer();
     enhancer.setSuperclass(Cell.class);
-    enhancer.setCallback(new MethodInterceptor() {
-      @Override
-      public Object intercept(
-          Object obj, Method method, Object[] args, MethodProxy proxy) throws Throwable {
-        if ("createBuildFileParserFactory".equals(method.getName())) {
-          return parserFactory;
-        }
-
-        return proxy.invokeSuper(obj, args);
+    enhancer.setCallback((MethodInterceptor) (obj, method, args, proxy) -> {
+      if ("createBuildFileParserFactory".equals(method.getName())) {
+        return parserFactory;
       }
+
+      return proxy.invokeSuper(obj, args);
     });
 
     return (Cell) enhancer.create();

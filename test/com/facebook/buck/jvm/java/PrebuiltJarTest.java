@@ -26,12 +26,10 @@ import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
-import com.google.common.base.Optional;
 
 import org.junit.Before;
 import org.junit.Rule;
@@ -40,6 +38,7 @@ import org.junit.Test;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 
 public class PrebuiltJarTest {
 
@@ -70,10 +69,10 @@ public class PrebuiltJarTest {
         ),
         new FakeSourcePath("abi.jar"),
         new PathSourcePath(filesystem, PATH_TO_JUNIT_JAR),
-        Optional.<SourcePath>of(new FakeSourcePath("lib/junit-4.11-sources.jar")),
-        /* gwtJar */ Optional.<SourcePath>absent(),
+        Optional.of(new FakeSourcePath("lib/junit-4.11-sources.jar")),
+        /* gwtJar */ Optional.empty(),
         Optional.of("http://junit-team.github.io/junit/javadoc/latest/"),
-        /* mavenCoords */ Optional.<String>absent(),
+        /* mavenCoords */ Optional.empty(),
         /* provided */ false);
   }
 

@@ -19,9 +19,9 @@ package com.facebook.buck.go;
 import static org.junit.Assume.assumeNoException;
 
 import com.facebook.buck.cli.FakeBuckConfig;
-import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.testutil.TestConsole;
+import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
 import com.google.common.collect.ImmutableSet;
@@ -32,11 +32,11 @@ abstract class GoAssumptions {
   public static void assumeGoCompilerAvailable() throws InterruptedException, IOException {
     Throwable exception = null;
     try {
-      ProcessExecutor executor = new ProcessExecutor(new TestConsole());
+      ProcessExecutor executor = new DefaultProcessExecutor(new TestConsole());
       new GoBuckConfig(
           FakeBuckConfig.builder().build(),
           executor,
-          FlavorDomain.from("Cxx", ImmutableSet.<CxxPlatform>of())).getCompiler();
+          FlavorDomain.from("Cxx", ImmutableSet.of())).getCompiler();
     } catch (HumanReadableException e) {
       exception = e;
     }

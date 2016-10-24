@@ -16,7 +16,7 @@
 
 package com.facebook.buck.event.listener;
 
-import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.cli.BuckConfig;
@@ -28,7 +28,6 @@ import com.facebook.buck.distributed.thrift.FrontendRequestType;
 import com.facebook.buck.distributed.thrift.FrontendResponse;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
-import com.facebook.buck.httpserver.WebServer;
 import com.facebook.buck.slb.ThriftProtocol;
 import com.facebook.buck.slb.ThriftUtil;
 import com.facebook.buck.test.TestResultSummaryVerbosity;
@@ -39,7 +38,6 @@ import com.facebook.buck.timing.DefaultClock;
 import com.facebook.buck.util.environment.DefaultExecutionEnvironment;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.facebook.buck.util.network.RemoteLogBuckConfig;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.io.ByteStreams;
@@ -56,6 +54,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.TimeZone;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -132,13 +131,14 @@ public class PublicAnnouncementManagerIntegrationTest {
           ))
           .build();
 
+      TestConsole console = new TestConsole();
       SuperConsoleEventBusListener listener = new SuperConsoleEventBusListener(
           new SuperConsoleConfig(FakeBuckConfig.builder().build()),
-          new TestConsole(),
+          console,
           clock,
         /* verbosity */ TestResultSummaryVerbosity.of(false, false),
           executionEnvironment,
-          Optional.<WebServer>absent(),
+          Optional.empty(),
           Locale.US,
           logPath,
           TimeZone.getTimeZone("UTC"));
@@ -155,11 +155,14 @@ public class PublicAnnouncementManagerIntegrationTest {
 
       manager.getAndPostAnnouncements();
 
-      ImmutableList<String> announcements = listener.getPublicAnnouncements();
-      assertSame("Header and 1 message", announcements.size(), 2);
-      assertTrue(announcements.get(0).equals(PublicAnnouncementManager.HEADER_MSG));
-      assertTrue(announcements.get(1).equals(
-          String.format(PublicAnnouncementManager.ANNOUNCEMENT_TEMPLATE, ERROR_MSG, SOLUTION_MSG)));
+      Optional<String> announcements = listener.getPublicAnnouncements();
+      assertEquals(
+          "The header and the message",
+          announcements.get(),
+          "**------------------------**\n" +
+              "**- Public Announcements -**\n" +
+              "**------------------------**\n" +
+              "** This is the error message. This is the solution message.");
     }
   }
 }

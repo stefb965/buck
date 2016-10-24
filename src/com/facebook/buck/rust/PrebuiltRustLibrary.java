@@ -18,21 +18,22 @@ package com.facebook.buck.rust;
 
 import static com.facebook.buck.rules.BuildableProperties.Kind.LIBRARY;
 
+import com.facebook.buck.cxx.CxxPlatform;
+import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
+import java.util.Optional;
 
 public class PrebuiltRustLibrary extends AbstractBuildRule
   implements RustLinkable {
@@ -48,10 +49,15 @@ public class PrebuiltRustLibrary extends AbstractBuildRule
       BuildRuleParams params,
       SourcePathResolver resolver,
       SourcePath rlib,
+      CxxPlatform cxxPlatform,
+      Linker.LinkableDepType linkStyle,
       Optional<String> crate) {
-    super(params, resolver);
+    super(
+        RustLinkables.addNativeDependencies(params, resolver, cxxPlatform, linkStyle),
+        resolver);
+
     this.rlib = rlib;
-    this.crate = crate.or(getBuildTarget().getShortName());
+    this.crate = crate.orElse(getBuildTarget().getShortName());
   }
 
   @Override
@@ -63,7 +69,7 @@ public class PrebuiltRustLibrary extends AbstractBuildRule
 
   @Override
   public Path getPathToOutput() {
-    return getLinkPath();
+    return getResolver().getRelativePath(rlib);
   }
 
   @Override
@@ -71,28 +77,14 @@ public class PrebuiltRustLibrary extends AbstractBuildRule
     return crate;
   }
 
-  private Path getLibDirPath() {
-    return getLinkPath().getParent();
-  }
-
   @Override
   public Path getLinkPath() {
-    return getResolver().getRelativePath(rlib);
+    return getPathToOutput();
   }
 
   @Override
   public ImmutableSortedSet<Path> getDependencyPaths() {
-    ImmutableSortedSet.Builder<Path> builder = ImmutableSortedSet.<Path>naturalOrder();
-
-    builder.add(getLibDirPath());
-
-    for (BuildRule rule: getDeps()) {
-      if (rule instanceof RustLinkable) {
-        builder.addAll(((RustLinkable) rule).getDependencyPaths());
-      }
-    }
-
-    return builder.build();
+    return RustLinkables.getDependencyPaths(this);
   }
 
   @Override

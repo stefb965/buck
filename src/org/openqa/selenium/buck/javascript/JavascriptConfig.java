@@ -23,8 +23,9 @@ import com.facebook.buck.rules.HashedFileTool;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.Tool;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
+
+import java.util.Optional;
 
 public class JavascriptConfig {
 
@@ -48,7 +49,7 @@ public class JavascriptConfig {
   }
 
   public SourcePath getClosureCompilerSourcePath(Optional<SourcePath> compilerPath) {
-    return compilerPath.or(delegate.getRequiredSourcePath("tools", "closure_compiler"));
+    return compilerPath.orElse(delegate.getRequiredSourcePath("tools", "closure_compiler"));
   }
 }
 

@@ -39,7 +39,6 @@ import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.ObjectMappers;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -59,6 +58,7 @@ import java.nio.file.Paths;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 public class TypeCoercerTest {
@@ -190,7 +190,7 @@ public class TypeCoercerTest {
     coercer.traverse(input, traversal);
 
     Matcher<Iterable<?>> matcher = Matchers.contains(
-        ImmutableList.<Matcher<? super Object>>of(
+        ImmutableList.of(
             sameInstance((Object) input),
             is((Object) "foo"),
             sameInstance((Object) input.get("foo")),
@@ -301,7 +301,7 @@ public class TypeCoercerTest {
     coercer.traverse(input, traversal);
     assertThat(
         traversal.getObjects(),
-        Matchers.contains(ImmutableList.<Matcher<? super Object>>of(
+        Matchers.contains(ImmutableList.of(
             sameInstance((Object) input.getRight()),
             sameInstance((Object) input.getRight().get(0)))));
 
@@ -360,7 +360,7 @@ public class TypeCoercerTest {
     assertThat(
         traversal.getObjects(),
         Matchers.contains(
-            ImmutableList.<Matcher<? super Object>>of(
+            ImmutableList.of(
                 sameInstance((Object) input.getFirst()),
                 sameInstance((Object) input.getSecond()))));
   }
@@ -426,7 +426,7 @@ public class TypeCoercerTest {
     ImmutableList<String> input = ImmutableList.of("cheese", "cake", "tastes", "good");
 
     Object result = coercer.coerce(cellRoots, filesystem, Paths.get(""), input);
-    ImmutableSortedSet<Label> expected = ImmutableSortedSet.<Label>of(
+    ImmutableSortedSet<Label> expected = ImmutableSortedSet.of(
         Label.of("cake"),
         Label.of("cheese"),
         Label.of("good"),
@@ -450,11 +450,11 @@ public class TypeCoercerTest {
         NeededCoverageSpec.of(
             0.0f,
             BuildTargetFactory.newInstance("//some:build-target"),
-            Optional.<String>absent()),
+            Optional.empty()),
         NeededCoverageSpec.of(
             0.9f,
             BuildTargetFactory.newInstance("//other/build:target"),
-            Optional.<String>absent()),
+            Optional.empty()),
         NeededCoverageSpec.of(
             1.0f,
             BuildTargetFactory.newInstance("//:target"),

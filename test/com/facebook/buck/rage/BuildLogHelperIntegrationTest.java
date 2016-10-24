@@ -24,7 +24,6 @@ import com.facebook.buck.rules.Cell;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.google.common.base.Function;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -56,24 +55,14 @@ public class BuildLogHelperIntegrationTest {
     ImmutableMap<BuildId, BuildLogEntry> idToLogMap = FluentIterable.from(
         buildLogs)
         .uniqueIndex(
-            new Function<BuildLogEntry, BuildId>() {
-              @Override
-              public BuildId apply(BuildLogEntry input) {
-                return input.getBuildId().get();
-              }
-            });
+            input -> input.getBuildId().get());
     Map<BuildId, String> buildIdToCommandMap = Maps.transformValues(
         idToLogMap,
-        new Function<BuildLogEntry, String>() {
-          @Override
-          public String apply(BuildLogEntry input) {
-            return input.getCommandArgs().get();
-          }
-        });
+        input -> input.getCommandArgs().get());
 
     assertThat(
         buildIdToCommandMap,
-        Matchers.<Map<BuildId, String>>equalTo(
+        Matchers.equalTo(
             ImmutableMap.of(
                 new BuildId("ac8bd626-6137-4747-84dd-5d4f215c876c"),
                 "build, buck",

@@ -28,13 +28,13 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.util.DependencyMode;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+
+import java.util.Optional;
 
 public class AndroidLibraryGraphEnhancer {
 
@@ -79,13 +79,7 @@ public class AndroidLibraryGraphEnhancer {
       boolean createBuildableIfEmptyDeps) {
     Optional<BuildRule> previouslyCreated = ruleResolver.getRuleOptional(dummyRDotJavaBuildTarget);
     if (previouslyCreated.isPresent()) {
-      return previouslyCreated.transform(
-          new Function<BuildRule, DummyRDotJava>() {
-            @Override
-            public DummyRDotJava apply(BuildRule input) {
-              return (DummyRDotJava) input;
-            }
-          });
+      return previouslyCreated.map(input -> (DummyRDotJava) input);
     }
     ImmutableSortedSet<BuildRule> originalDeps = originalBuildRuleParams.getDeps();
     ImmutableSet<HasAndroidResourceDeps> androidResourceDeps;
@@ -100,7 +94,7 @@ public class AndroidLibraryGraphEnhancer {
       case TRANSITIVE:
         androidResourceDeps = UnsortedAndroidResourceDeps.createFrom(
             originalDeps,
-            Optional.<UnsortedAndroidResourceDeps.Callback>absent())
+            Optional.empty())
             .getResourceDeps();
         break;
       default:
@@ -109,7 +103,7 @@ public class AndroidLibraryGraphEnhancer {
     }
 
     if (androidResourceDeps.isEmpty() && !createBuildableIfEmptyDeps) {
-      return Optional.absent();
+      return Optional.empty();
     }
 
     SourcePathResolver pathResolver = new SourcePathResolver(ruleResolver);
@@ -126,7 +120,7 @@ public class AndroidLibraryGraphEnhancer {
     BuildRuleParams dummyRDotJavaParams = originalBuildRuleParams.copyWithChanges(
         dummyRDotJavaBuildTarget,
         Suppliers.ofInstance(actualDeps.build()),
-        /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
+        /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.of()));
 
     BuildTarget abiJarTarget =
         dummyRDotJavaParams.getBuildTarget().withAppendedFlavors(CalculateAbi.FLAVOR);

@@ -32,7 +32,6 @@ import com.facebook.buck.util.PatternsMatcher;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.CaseFormat;
-import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableSet;
@@ -123,7 +122,7 @@ public class QueryCommand extends AbstractCommand {
                  SpeculativeParsing.of(true),
                  /* ignoreBuckAutodepsFiles */ false)) {
       BuckQueryEnvironment env =
-          new BuckQueryEnvironment(params, parserState, getEnableParserProfiling());
+          BuckQueryEnvironment.from(params, parserState, getEnableParserProfiling());
       ListeningExecutorService executor = pool.getExecutor();
       return formatAndRunQuery(params, env, executor);
     } catch (Exception e) {
@@ -167,12 +166,7 @@ public class QueryCommand extends AbstractCommand {
       List<String> formatArgs
   ) throws InterruptedException, QueryException, IOException {
     String argsList = Joiner.on(' ').join(
-        Iterables.transform(formatArgs, new Function<String, String>() {
-          @Override
-          public String apply(String input) {
-            return "'" + input + "'";
-          }
-        })
+        Iterables.transform(formatArgs, input -> "'" + input + "'")
     );
     String setRepresentation = "set(" + argsList + ")";
     String formattedQuery = queryFormat.replace("%Ss", setRepresentation);
@@ -254,17 +248,12 @@ public class QueryCommand extends AbstractCommand {
       CommandRunnerParams params,
       BuckQueryEnvironment env,
       Set<QueryTarget> queryResult)
-      throws IOException, QueryException, InterruptedException {
+      throws IOException, QueryException {
     Dot.writeSubgraphOutput(
         env.getTargetGraph(),
         "result_graph",
         env.getNodesFromQueryTargets(queryResult),
-        new Function<TargetNode<?>, String>() {
-          @Override
-          public String apply(TargetNode<?> targetNode) {
-            return "\"" + targetNode.getBuildTarget().getFullyQualifiedName() + "\"";
-          }
-        },
+        targetNode -> "\"" + targetNode.getBuildTarget().getFullyQualifiedName() + "\"",
         params.getConsole().getStdOut());
   }
 
@@ -272,7 +261,7 @@ public class QueryCommand extends AbstractCommand {
       CommandRunnerParams params,
       BuckQueryEnvironment env,
       Set<QueryTarget> queryResult)
-      throws InterruptedException, IOException, QueryException {
+      throws QueryException {
     PatternsMatcher patternsMatcher = new PatternsMatcher(outputAttributes.get());
     SortedMap<String, SortedMap<String, Object>> result = Maps.newTreeMap();
     for (QueryTarget target : queryResult) {
@@ -334,12 +323,7 @@ public class QueryCommand extends AbstractCommand {
     return Joiner.on(" ").join(
         Lists.transform(
             arguments,
-            new Function<String, String>() {
-              @Override
-              public String apply(String arg) {
-                return "'" + arg + "'";
-              }
-            }));
+            arg -> "'" + arg + "'"));
   }
 
   static String getAuditDependenciesQueryFormat(boolean isTransitive, boolean includeTests) {

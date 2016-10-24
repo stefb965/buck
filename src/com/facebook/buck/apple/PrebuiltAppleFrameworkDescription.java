@@ -16,7 +16,6 @@
 package com.facebook.buck.apple;
 
 import com.facebook.buck.cxx.CxxFlags;
-import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractDescriptionArg;
@@ -33,12 +32,11 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 public class PrebuiltAppleFrameworkDescription implements
@@ -68,17 +66,12 @@ public class PrebuiltAppleFrameworkDescription implements
         resolver,
         new SourcePathResolver(resolver),
         args.framework,
-        args.frameworks.or(ImmutableSortedSet.<FrameworkPath>of()),
+        args.frameworks,
         args.supportedPlatformsRegex,
-        new Function<CxxPlatform, ImmutableList<String>>() {
-          @Override
-          public ImmutableList<String> apply(CxxPlatform input) {
-            return CxxFlags.getFlags(
-                args.exportedLinkerFlags,
-                args.exportedPlatformLinkerFlags,
-                input);
-          }
-        }
+        input -> CxxFlags.getFlags(
+            args.exportedLinkerFlags,
+            args.exportedPlatformLinkerFlags,
+            input)
     );
   }
 
@@ -94,15 +87,16 @@ public class PrebuiltAppleFrameworkDescription implements
           ImmutableSet.of(new BuildTargetSourcePath(buildTarget));
       return Optional.of(metadataClass.cast(FrameworkDependencies.of(sourcePaths)));
     }
-    return Optional.absent();
+    return Optional.empty();
   }
 
   @SuppressFieldNotInitialized
   public static class Arg extends AbstractDescriptionArg {
     public SourcePath framework;
-    public Optional<ImmutableSortedSet<FrameworkPath>> frameworks;
+    public ImmutableSortedSet<FrameworkPath> frameworks = ImmutableSortedSet.of();
     public Optional<Pattern> supportedPlatformsRegex;
-    public Optional<ImmutableList<String>> exportedLinkerFlags;
-    public Optional<PatternMatchedCollection<ImmutableList<String>>> exportedPlatformLinkerFlags;
+    public ImmutableList<String> exportedLinkerFlags = ImmutableList.of();
+    public PatternMatchedCollection<ImmutableList<String>> exportedPlatformLinkerFlags =
+        PatternMatchedCollection.of();
   }
 }

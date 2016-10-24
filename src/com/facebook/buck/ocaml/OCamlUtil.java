@@ -46,34 +46,28 @@ public class OCamlUtil {
    * @return a Predicate instance
    */
   public static Predicate<? super Path> ext(final String... extensions) {
-    return new Predicate<Path>() {
-      @Override
-      public boolean apply(Path input) {
-        String strInput = input.toString();
-        for (String ext : extensions) {
-          if (strInput.endsWith(ext)) {
-            return true;
-          }
+    return (Predicate<Path>) input -> {
+      String strInput = input.toString();
+      for (String ext : extensions) {
+        if (strInput.endsWith(ext)) {
+          return true;
         }
-        return false;
       }
+      return false;
     };
   }
 
   public static Predicate<? super SourcePath> sourcePathExt(
       final SourcePathResolver resolver,
       final String... extensions) {
-    return new Predicate<SourcePath>() {
-      @Override
-      public boolean apply(SourcePath input) {
-        String strInput = resolver.getRelativePath(input).toString();
-        for (String ext : extensions) {
-          if (strInput.endsWith(ext)) {
-            return true;
-          }
+    return (Predicate<SourcePath>) input -> {
+      String strInput = resolver.getRelativePath(input).toString();
+      for (String ext : extensions) {
+        if (strInput.endsWith(ext)) {
+          return true;
         }
-        return false;
       }
+      return false;
     };
   }
 
@@ -88,7 +82,7 @@ public class OCamlUtil {
 
     final ImmutableList<BuildRule> sorted = TopologicalSort.sort(
         graph,
-        Predicates.<BuildRule>alwaysTrue());
+        Predicates.alwaysTrue());
 
     return FluentIterable
             .from(sorted)

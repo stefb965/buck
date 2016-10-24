@@ -18,8 +18,10 @@ package com.facebook.buck.jvm.java.intellij;
 
 import static com.facebook.buck.testutil.MoreAsserts.assertListEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.android.AndroidBinary;
 import com.facebook.buck.android.AndroidBinaryBuilder;
@@ -40,6 +42,7 @@ import com.facebook.buck.jvm.java.PrebuiltJarBuilder;
 import com.facebook.buck.jvm.java.intellij.SerializableModule.SourceFolder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.model.InMemoryBuildFileTree;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
@@ -57,7 +60,6 @@ import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.BuckTestConstant;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.ObjectMappers;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -76,6 +78,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Properties;
 
 import javax.annotation.Nullable;
@@ -287,8 +290,8 @@ public class ProjectTest {
             SerializableDependentModule.newSourceFolder(),
             guavaAsProvidedDep,
             SerializableDependentModule.newStandardJdk(
-                Optional.<String>absent(),
-                Optional.<String>absent())),
+                Optional.empty(),
+                Optional.empty())),
         javaLibraryModule.getDependencies());
 
     // Check the values of the module that corresponds to the android_library.
@@ -306,8 +309,8 @@ public class ProjectTest {
             new SourceFolder("file://$MODULE_DIR$/src-gen", false /* isTestSource */),
             SerializableModule.SourceFolder.GEN),
         androidLibraryModule.sourceFolders);
-    assertEquals(Boolean.TRUE, androidLibraryModule.hasAndroidFacet);
-    assertEquals(Boolean.TRUE, androidLibraryModule.isAndroidLibraryProject);
+    assertTrue(androidLibraryModule.hasAndroidFacet);
+    assertTrue(androidLibraryModule.isAndroidLibraryProject);
     assertEquals(null, androidLibraryModule.proguardConfigPath);
     assertEquals(null, androidLibraryModule.resFolder);
 
@@ -352,8 +355,8 @@ public class ProjectTest {
     assertListEquals(
         ImmutableList.of(SerializableModule.SourceFolder.GEN),
         androidBinaryModuleNoDx.sourceFolders);
-    assertEquals(Boolean.TRUE, androidBinaryModuleNoDx.hasAndroidFacet);
-    assertEquals(Boolean.FALSE, androidBinaryModuleNoDx.isAndroidLibraryProject);
+    assertTrue(androidBinaryModuleNoDx.hasAndroidFacet);
+    assertFalse(androidBinaryModuleNoDx.isAndroidLibraryProject);
     assertEquals(null, androidBinaryModuleNoDx.proguardConfigPath);
     assertEquals(null, androidBinaryModuleNoDx.resFolder);
     assertEquals(Paths.get("../keystore/debug.keystore"), androidBinaryModuleNoDx.keystorePath);
@@ -385,8 +388,8 @@ public class ProjectTest {
     assertListEquals(
         ImmutableList.of(SerializableModule.SourceFolder.GEN),
         androidBinaryModuleEmptyNoDx.sourceFolders);
-    assertEquals(Boolean.TRUE, androidBinaryModuleEmptyNoDx.hasAndroidFacet);
-    assertEquals(Boolean.FALSE, androidBinaryModuleEmptyNoDx.isAndroidLibraryProject);
+    assertTrue(androidBinaryModuleEmptyNoDx.hasAndroidFacet);
+    assertFalse(androidBinaryModuleEmptyNoDx.isAndroidLibraryProject);
     assertEquals(null, androidBinaryModuleEmptyNoDx.proguardConfigPath);
     assertEquals(null, androidBinaryModuleEmptyNoDx.resFolder);
     assertEquals(
@@ -552,8 +555,8 @@ public class ProjectTest {
                 guava.getBuildTarget(),
                 "buck_out_gen_third_party_java_guava___guava___guava_jar"),
             SerializableDependentModule.newStandardJdk(
-                Optional.<String>absent(),
-                Optional.<String>absent())),
+                Optional.empty(),
+                Optional.empty())),
         comExampleBaseModule.getDependencies());
   }
 
@@ -623,8 +626,8 @@ public class ProjectTest {
             SerializableDependentModule.newModule(
                 supportV4.getBuildTarget(), "module_java_com_android_support_v4"),
             SerializableDependentModule.newStandardJdk(
-                Optional.<String>absent(),
-                Optional.<String>absent())),
+                Optional.empty(),
+                Optional.empty())),
         robolectricModule.getDependencies());
   }
 
@@ -643,40 +646,11 @@ public class ProjectTest {
   }
 
   /**
-   * A project_config()'s src_roots argument can be {@code None}, {@code []}, or a non-empty array.
+   * A project_config()'s src_roots argument can be {@code []}, or a non-empty array.
    * Each of these should be treated differently.
    */
   @Test
   public void testSrcRoots() throws Exception {
-    // Create a project_config() with src_roots=None.
-    BuildRuleResolver ruleResolver1 =
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-
-    BuildRule resBuildRule = ruleResolver1.addToIndex(
-        AndroidResourceRuleBuilder.newBuilder()
-            .setResolver(new SourcePathResolver(ruleResolver1))
-            .setBuildTarget(BuildTargetFactory.newInstance("//resources/com/example:res"))
-            .build());
-    ProjectConfig projectConfigNullSrcRoots = (ProjectConfig) ProjectConfigBuilder
-        .createBuilder(
-            BuildTargetFactory.newInstance("//resources/com/example:project_config"))
-        .setSrcRule(resBuildRule.getBuildTarget())
-        .setSrcRoots(null)
-        .build(ruleResolver1);
-    ProjectWithModules projectWithModules1 = getModulesForActionGraph(
-        ruleResolver1,
-        ImmutableSortedSet.of(projectConfigNullSrcRoots),
-        null /* javaPackageFinder */,
-        null /* intellijConfig */);
-
-    // Verify that the correct source folders are created.
-    assertEquals(1, projectWithModules1.modules.size());
-    SerializableModule moduleNoJavaSource = projectWithModules1.modules.get(0);
-    assertListEquals(
-        "Only source tmp should be gen/ when setSrcRoots(null) is specified.",
-        ImmutableList.of(SerializableModule.SourceFolder.GEN),
-        moduleNoJavaSource.sourceFolders);
-
     // Create a project_config() with src_roots=[].
     BuildRuleResolver ruleResolver2 =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
@@ -687,7 +661,7 @@ public class ProjectTest {
         .createBuilder(
             BuildTargetFactory.newInstance("//java/com/example/base:project_config"))
         .setSrcRule(baseBuildRule.getBuildTarget())
-        .setSrcRoots(ImmutableList.<String>of())
+        .setSrcRoots(ImmutableList.of())
         .build(ruleResolver2);
 
     // Verify that the correct source folders are created.
@@ -759,7 +733,7 @@ public class ProjectTest {
         .createBuilder(
             BuildTargetFactory.newInstance("//java/com/example/base:project_config"))
         .setSrcRule(baseBuildRule.getBuildTarget())
-        .setSrcRoots(ImmutableList.<String>of())
+        .setSrcRoots(ImmutableList.of())
         .build(ruleResolver);
 
     ProjectWithModules projectWithJdkOverride = getModulesForActionGraph(
@@ -832,11 +806,11 @@ public class ProjectTest {
         new InMemoryBuildFileTree(
             Iterables.transform(
                 ruleResolver.getBuildRules(),
-                BuildTarget.TO_TARGET)),
+                HasBuildTarget::getBuildTarget)),
         projectFilesystem,
-        /* pathToDefaultAndroidManifest */ Optional.<String>absent(),
+        /* pathToDefaultAndroidManifest */ Optional.empty(),
         intellijConfig,
-        /* pathToPostProcessScript */ Optional.<String>absent(),
+        /* pathToPostProcessScript */ Optional.empty(),
         BuckTestConstant.PYTHON_INTERPRETER,
         ObjectMappers.newDefaultInstance(),
         true);

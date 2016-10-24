@@ -20,7 +20,6 @@ import com.facebook.buck.io.PathOrGlobMatcher;
 import com.facebook.buck.io.Watchman;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
@@ -28,6 +27,7 @@ import org.immutables.value.Value;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 
 @Value.Immutable
 @BuckStyleImmutable
@@ -35,6 +35,7 @@ abstract class AbstractProjectBuildFileParserOptions {
   abstract Path getProjectRoot();
   abstract ImmutableMap<String, Path> getCellRoots();
   abstract String getPythonInterpreter();
+  abstract Optional<String> getPythonModuleSearchPath();
   abstract boolean getAllowEmptyGlobs();
   abstract ImmutableSet<PathOrGlobMatcher> getIgnorePaths();
   abstract String getBuildFileName();
@@ -58,8 +59,18 @@ abstract class AbstractProjectBuildFileParserOptions {
   }
 
   @Value.Default
+  public boolean getAutodepsFilesHaveSignatures() {
+    return true;
+  }
+
+  @Value.Default
   Watchman getWatchman() {
     return Watchman.NULL_WATCHMAN;
+  }
+
+  @Value.Default
+  public boolean getUseMercurialGlob() {
+    return false;
   }
 
   abstract Optional<Long> getWatchmanQueryTimeoutMs();

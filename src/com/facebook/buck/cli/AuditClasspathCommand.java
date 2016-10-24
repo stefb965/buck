@@ -31,12 +31,10 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.MoreExceptions;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Function;
-import com.google.common.base.Functions;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.LinkedHashMultimap;
@@ -100,18 +98,13 @@ public class AuditClasspathCommand extends AbstractCommand {
       throws IOException, InterruptedException {
     // Create a TargetGraph that is composed of the transitive closure of all of the dependent
     // BuildRules for the specified BuildTargets.
-    final ImmutableSet<BuildTarget> targets = FluentIterable
-        .from(getArgumentsFormattedAsBuildTargets(params.getBuckConfig()))
-        .transform(new Function<String, BuildTarget>() {
-                     @Override
-                     public BuildTarget apply(String input) {
-                       return BuildTargetParser.INSTANCE.parse(
-                           input,
-                           BuildTargetPatternParser.fullyQualified(),
-                           params.getCell().getCellPathResolver());
-                     }
-                   })
-        .toSet();
+    final ImmutableSet<BuildTarget> targets =
+        getArgumentsFormattedAsBuildTargets(params.getBuckConfig()).stream()
+            .map(input -> BuildTargetParser.INSTANCE.parse(
+                input,
+                BuildTargetPatternParser.fullyQualified(),
+                params.getCell().getCellPathResolver()))
+            .collect(MoreCollectors.toImmutableSet());
 
     if (targets.isEmpty()) {
       params.getBuckEventBus().post(ConsoleEvent.severe(
@@ -158,12 +151,7 @@ public class AuditClasspathCommand extends AbstractCommand {
     Dot<TargetNode<?>> dot = new Dot<>(
         targetGraph,
         "target_graph",
-        new Function<TargetNode<?>, String>() {
-          @Override
-          public String apply(TargetNode<?> targetNode) {
-            return "\"" + targetNode.getBuildTarget().getFullyQualifiedName() + "\"";
-          }
-        },
+        targetNode -> "\"" + targetNode.getBuildTarget().getFullyQualifiedName() + "\"",
         params.getConsole().getStdOut());
     try {
       dot.writeOutput();
@@ -220,7 +208,7 @@ public class AuditClasspathCommand extends AbstractCommand {
           target.getFullyQualifiedName(),
           Iterables.transform(
               hasClasspathEntries.getTransitiveClasspaths(),
-              Functions.toStringFunction()));
+              Object::toString));
     }
 
     // Note: using `asMap` here ensures that the keys are sorted

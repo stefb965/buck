@@ -33,12 +33,12 @@ import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.util.List;
+import java.util.Optional;
 
 public class GoBinaryDescription implements
     Description<GoBinaryDescription.Arg>,
@@ -75,16 +75,16 @@ public class GoBinaryDescription implements
       BuildRuleResolver resolver,
       A args) throws NoSuchBuildTargetException {
     GoPlatform platform = goBuckConfig.getPlatformFlavorDomain().getValue(params.getBuildTarget())
-        .or(goBuckConfig.getDefaultPlatform());
+        .orElse(goBuckConfig.getDefaultPlatform());
 
     return GoDescriptors.createGoBinaryRule(
         params,
         resolver,
         goBuckConfig,
         args.srcs,
-        args.compilerFlags.get(),
-        args.assemblerFlags.get(),
-        args.linkerFlags.get(),
+        args.compilerFlags,
+        args.assemblerFlags,
+        args.linkerFlags,
         platform);
   }
 
@@ -97,9 +97,8 @@ public class GoBinaryDescription implements
     ImmutableList.Builder<BuildTarget> targets = ImmutableList.builder();
 
     // Add the C/C++ linker parse time deps.
-    GoPlatform goPlatform =
-        goBuckConfig.getPlatformFlavorDomain().getValue(buildTarget)
-            .or(goBuckConfig.getDefaultPlatform());
+    GoPlatform goPlatform = goBuckConfig.getPlatformFlavorDomain().getValue(buildTarget)
+        .orElse(goBuckConfig.getDefaultPlatform());
     Optional<CxxPlatform> cxxPlatform = goPlatform.getCxxPlatform();
     if (cxxPlatform.isPresent()) {
       targets.addAll(CxxPlatforms.getParseTimeDeps(cxxPlatform.get()));
@@ -111,9 +110,9 @@ public class GoBinaryDescription implements
   @SuppressFieldNotInitialized
   public static class Arg extends AbstractDescriptionArg {
     public ImmutableSet<SourcePath> srcs;
-    public Optional<List<String>> compilerFlags;
-    public Optional<List<String>> assemblerFlags;
-    public Optional<List<String>> linkerFlags;
-    public Optional<ImmutableSortedSet<BuildTarget>> deps;
+    public List<String> compilerFlags = ImmutableList.of();
+    public List<String> assemblerFlags = ImmutableList.of();
+    public List<String> linkerFlags = ImmutableList.of();
+    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
   }
 }

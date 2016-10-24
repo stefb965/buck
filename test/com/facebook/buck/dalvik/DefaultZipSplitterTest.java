@@ -20,11 +20,9 @@ import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.android.APKModuleGraph;
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
-import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -41,6 +39,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.Enumeration;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
@@ -56,17 +55,12 @@ public class DefaultZipSplitterTest {
   private Set<Path> testInZips;
   private Path outPrimary;
   private String secondaryPattern;
-  private Predicate<String> processor = new Predicate<String>() {
-    @Override
-    public boolean apply(String name) {
-      return name.startsWith("primary");
-    }
-  };
+  private Predicate<String> processor = name -> name.startsWith("primary");
   private APKModuleGraph apkModuleGraph =
       new APKModuleGraph(
           TargetGraph.EMPTY,
           BuildTargetFactory.newInstance("//test:test"),
-          Optional.<Set<BuildTarget>>absent());
+          Optional.empty());
 
   @Before
   public void setUp() throws Exception {

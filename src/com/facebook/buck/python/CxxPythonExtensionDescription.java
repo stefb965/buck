@@ -55,11 +55,10 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
-import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
+import com.facebook.buck.util.OptionalCompat;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
@@ -71,6 +70,7 @@ import com.google.common.collect.Iterables;
 
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Optional;
 
 public class CxxPythonExtensionDescription implements
     Description<CxxPythonExtensionDescription.Arg>,
@@ -177,7 +177,7 @@ public class CxxPythonExtensionDescription implements
                 args.langPreprocessorFlags,
                 cxxPlatform),
             ImmutableList.of(headerSymlinkTree),
-            ImmutableSet.<FrameworkPath>of(),
+            ImmutableSet.of(),
             CxxPreprocessables.getTransitiveCxxPreprocessorInput(
                 cxxPlatform,
                 params.getDeps()));
@@ -237,9 +237,7 @@ public class CxxPythonExtensionDescription implements
     rules.addAll(
         ruleResolver.getAllRules(
             Iterables.concat(
-                args.platformDeps
-                    .or(PatternMatchedCollection.<ImmutableSortedSet<BuildTarget>>of())
-                    .getMatchingValues(pythonPlatform.getFlavor().toString()))));
+                args.platformDeps.getMatchingValues(pythonPlatform.getFlavor().toString()))));
 
     // Add a dep on the python C/C++ library.
     rules.add(ruleResolver.getRule(pythonPlatform.getCxxLibrary().get().getBuildTarget()));
@@ -279,12 +277,12 @@ public class CxxPythonExtensionDescription implements
         FluentIterable.from(params.getDeps())
             .filter(NativeLinkable.class),
         args.cxxRuntimeType,
-        Optional.<SourcePath>absent(),
-        ImmutableSet.<BuildTarget>of(),
+        Optional.empty(),
+        ImmutableSet.of(),
         NativeLinkableInput.builder()
           .setArgs(getExtensionArgs(params, ruleResolver, pathResolver, cxxPlatform, args))
-          .setFrameworks(args.frameworks.or(ImmutableSortedSet.<FrameworkPath>of()))
-          .setLibraries(args.libraries.or(ImmutableSortedSet.<FrameworkPath>of()))
+          .setFrameworks(args.frameworks)
+          .setLibraries(args.libraries)
           .build());
   }
 
@@ -318,7 +316,7 @@ public class CxxPythonExtensionDescription implements
                           ruleResolver,
                           pythonPlatform.get().getValue(),
                           args))),
-              Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+              Suppliers.ofInstance(ImmutableSortedSet.of())),
           ruleResolver,
           pythonPlatform.get().getValue(),
           platform.get().getValue(),
@@ -358,9 +356,9 @@ public class CxxPythonExtensionDescription implements
         SourcePath output = new BuildTargetSourcePath(extension.getBuildTarget());
         return PythonPackageComponents.of(
             ImmutableMap.of(module, output),
-            ImmutableMap.<Path, SourcePath>of(),
-            ImmutableMap.<Path, SourcePath>of(),
-            ImmutableSet.<SourcePath>of(),
+            ImmutableMap.of(),
+            ImmutableMap.of(),
+            ImmutableSet.of(),
             Optional.of(false));
       }
 
@@ -398,18 +396,18 @@ public class CxxPythonExtensionDescription implements
                             Suppliers.ofInstance(
                                 ImmutableSortedSet.copyOf(
                                     getPlatformDeps(params, ruleResolver, pythonPlatform, args))),
-                            Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+                            Suppliers.ofInstance(ImmutableSortedSet.of())),
                         ruleResolver,
                         pathResolver,
                         cxxPlatform,
                         args))
-                .addAllFrameworks(args.frameworks.or(ImmutableSortedSet.<FrameworkPath>of()))
+                .addAllFrameworks(args.frameworks)
                 .build();
           }
 
           @Override
           public Optional<Path> getNativeLinkTargetOutputPath(CxxPlatform cxxPlatform) {
-            return Optional.absent();
+            return Optional.empty();
           }
 
         };
@@ -439,7 +437,7 @@ public class CxxPythonExtensionDescription implements
     deps.addAll(CxxPlatforms.getParseTimeDeps(cxxPlatforms.getValues()));
 
     for (PythonPlatform pythonPlatform : pythonPlatforms.getValues()) {
-      deps.addAll(pythonPlatform.getCxxLibrary().asSet());
+      deps.addAll(OptionalCompat.asSet(pythonPlatform.getCxxLibrary()));
     }
 
     return deps.build();
@@ -447,7 +445,8 @@ public class CxxPythonExtensionDescription implements
 
   @SuppressFieldNotInitialized
   public static class Arg extends CxxConstructorArg {
-    public Optional<PatternMatchedCollection<ImmutableSortedSet<BuildTarget>>> platformDeps;
+    public PatternMatchedCollection<ImmutableSortedSet<BuildTarget>> platformDeps =
+        PatternMatchedCollection.of();
     public Optional<String> baseModule;
   }
 

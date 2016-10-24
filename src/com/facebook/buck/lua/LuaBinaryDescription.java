@@ -62,12 +62,10 @@ import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreMaps;
+import com.facebook.buck.util.OptionalCompat;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Function;
-import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.base.Suppliers;
@@ -86,6 +84,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -167,8 +166,8 @@ public class LuaBinaryDescription implements
     Optional<BuildTarget> nativeStarterLibrary = luaConfig.getNativeStarterLibrary();
     return ImmutableSet.copyOf(
         nativeStarterLibrary.isPresent() ?
-            nativeStarterLibrary.asSet() :
-            luaConfig.getLuaCxxLibraryTarget().asSet());
+            OptionalCompat.asSet(nativeStarterLibrary) :
+            OptionalCompat.asSet(luaConfig.getLuaCxxLibraryTarget()));
   }
 
   private Starter getStarter(
@@ -183,8 +182,7 @@ public class LuaBinaryDescription implements
       String mainModule,
       Optional<Path> relativeModulesDir,
       Optional<Path> relativePythonModulesDir,
-      Optional<Path> relativeNativeLibsDir)
-      throws NoSuchBuildTargetException {
+      Optional<Path> relativeNativeLibsDir) {
     switch (starterType) {
       case PURE:
         if (relativeNativeLibsDir.isPresent()) {
@@ -227,7 +225,8 @@ public class LuaBinaryDescription implements
   }
 
   private StarterType getStarterType(boolean mayHaveNativeCode) {
-    return luaConfig.getStarterType().or(mayHaveNativeCode ? StarterType.NATIVE : StarterType.PURE);
+    return luaConfig.getStarterType()
+        .orElse(mayHaveNativeCode ? StarterType.NATIVE : StarterType.PURE);
   }
 
   /**
@@ -241,16 +240,15 @@ public class LuaBinaryDescription implements
       Optional<BuildTarget> nativeStarterLibrary,
       String mainModule,
       LuaConfig.PackageStyle packageStyle,
-      boolean mayHaveNativeCode)
-      throws NoSuchBuildTargetException {
+      boolean mayHaveNativeCode) {
 
     Path output = getOutputPath(baseParams.getBuildTarget(), baseParams.getProjectFilesystem());
     StarterType starterType = getStarterType(mayHaveNativeCode);
 
     // The relative paths from the starter to the various components.
-    Optional<Path> relativeModulesDir = Optional.absent();
-    Optional<Path> relativePythonModulesDir = Optional.absent();
-    Optional<Path> relativeNativeLibsDir = Optional.absent();
+    Optional<Path> relativeModulesDir = Optional.empty();
+    Optional<Path> relativePythonModulesDir = Optional.empty();
+    Optional<Path> relativeNativeLibsDir = Optional.empty();
 
     // For in-place binaries, set the relative paths to the symlink trees holding the components.
     if (packageStyle == LuaConfig.PackageStyle.INPLACE) {
@@ -313,7 +311,7 @@ public class LuaBinaryDescription implements
 
     final LuaPackageComponents.Builder builder = LuaPackageComponents.builder();
     final OmnibusRoots.Builder omnibusRoots =
-        OmnibusRoots.builder(cxxPlatform, ImmutableSet.<BuildTarget>of());
+        OmnibusRoots.builder(cxxPlatform, ImmutableSet.of());
 
     final Map<BuildTarget, NativeLinkable> nativeLinkableRoots = new LinkedHashMap<>();
     final Map<BuildTarget, CxxLuaExtension> luaExtensions = new LinkedHashMap<>();
@@ -351,11 +349,11 @@ public class LuaBinaryDescription implements
           builder.putAllPythonModules(
               MoreMaps.transformKeys(
                   components.getModules(),
-                  Functions.toStringFunction()));
+                  Object::toString));
           builder.putAllNativeLibraries(
               MoreMaps.transformKeys(
                   components.getNativeLibraries(),
-                  Functions.toStringFunction()));
+                  Object::toString));
           if (components.hasNativeCode(cxxPlatform)) {
             for (BuildRule dep : rule.getDeps()) {
               if (dep instanceof NativeLinkable) {
@@ -409,7 +407,7 @@ public class LuaBinaryDescription implements
               pathResolver,
               cxxBuckConfig,
               cxxPlatform,
-              ImmutableList.<com.facebook.buck.rules.args.Arg>of(),
+              ImmutableList.of(),
               roots.getIncludedRoots().values(),
               roots.getExcludedRoots().values());
 
@@ -448,7 +446,7 @@ public class LuaBinaryDescription implements
         NativeLinkTargetMode mode = target.getNativeLinkTargetMode(cxxPlatform);
         String soname =
             Preconditions.checkNotNull(
-                mode.getLibraryName().orNull(),
+                mode.getLibraryName().orElse(null),
                 "%s: omnibus library for %s was built without soname",
                 baseParams.getBuildTarget(),
                 root.getKey());
@@ -470,7 +468,7 @@ public class LuaBinaryDescription implements
         nativeLinkableRoots.putAll(
             Maps.uniqueIndex(
                 extension.getNativeLinkTargetDeps(cxxPlatform),
-                HasBuildTarget.TO_TARGET));
+                HasBuildTarget::getBuildTarget));
       }
 
       // Add in native executable deps.
@@ -479,7 +477,7 @@ public class LuaBinaryDescription implements
         nativeLinkableRoots.putAll(
             Maps.uniqueIndex(
                 executableStarter.getNativeStarterDeps(),
-                HasBuildTarget.TO_TARGET));
+                HasBuildTarget::getBuildTarget));
       }
 
       // For regular linking, add all extensions via the package components interface and their
@@ -490,16 +488,16 @@ public class LuaBinaryDescription implements
         builder.putAllPythonModules(
             MoreMaps.transformKeys(
                 components.getModules(),
-                Functions.toStringFunction()));
+                Object::toString));
         builder.putAllNativeLibraries(
             MoreMaps.transformKeys(
                 components.getNativeLibraries(),
-                Functions.toStringFunction()));
+                Object::toString));
         nativeLinkableRoots.putAll(
             Maps.uniqueIndex(
                 entry.getValue().getNativeLinkTarget(pythonPlatform)
                     .getNativeLinkTargetDeps(cxxPlatform),
-                HasBuildTarget.TO_TARGET));
+                HasBuildTarget::getBuildTarget));
       }
 
       // Add shared libraries from all native linkables.
@@ -538,7 +536,7 @@ public class LuaBinaryDescription implements
                 Suppliers.ofInstance(
                     ImmutableSortedSet.copyOf(
                         pathResolver.filterBuildRuleInputs(components.values()))),
-                Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+                Suppliers.ofInstance(ImmutableSortedSet.of())),
             pathResolver,
             root,
             components));
@@ -557,12 +555,7 @@ public class LuaBinaryDescription implements
             Joiner.on("[.\\d]*").join(
                 Iterables.transform(
                     Splitter.on("%s").split(cxxPlatform.getSharedLibraryVersionedExtensionFormat()),
-                    new Function<String, String>() {
-                      @Override
-                      public String apply(String input) {
-                        return input.isEmpty() ? input : Pattern.quote(input);
-                      }
-                    })));
+                    input -> input.isEmpty() ? input : Pattern.quote(input))));
     Map<String, SourcePath> librariesPaths = new HashMap<>();
     for (Map.Entry<String, SourcePath> ent : libraries.entrySet()) {
       String name = ent.getKey();
@@ -591,8 +584,7 @@ public class LuaBinaryDescription implements
       final SourcePathResolver pathResolver,
       CxxPlatform cxxPlatform,
       final SourcePath starter,
-      final LuaPackageComponents components)
-      throws NoSuchBuildTargetException {
+      final LuaPackageComponents components) {
     final List<SourcePath> extraInputs = new ArrayList<>();
 
     final SymlinkTree modulesLinkTree =
@@ -622,7 +614,7 @@ public class LuaBinaryDescription implements
                       MorePaths.toPathFn(
                           params.getProjectFilesystem().getRootPath().getFileSystem())),
                   emptyInit),
-              Functions.toStringFunction());
+              Object::toString);
       final SymlinkTree symlinkTree =
           resolver.addToIndex(
               createSymlinkTree(
@@ -704,8 +696,7 @@ public class LuaBinaryDescription implements
       final SourcePathResolver pathResolver,
       SourcePath starter,
       String mainModule,
-      final LuaPackageComponents components)
-      throws NoSuchBuildTargetException {
+      final LuaPackageComponents components) {
     Path output = getOutputPath(params.getBuildTarget(), params.getProjectFilesystem());
 
     Tool lua = luaConfig.getLua(resolver);
@@ -723,10 +714,10 @@ public class LuaBinaryDescription implements
                             .addAll(lua.getDeps(pathResolver))
                             .addAll(packager.getDeps(pathResolver))
                             .build()),
-                    Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of())),
+                    Suppliers.ofInstance(ImmutableSortedSet.of())),
                 pathResolver,
                 packager,
-                ImmutableList.<String>of(),
+                ImmutableList.of(),
                 output,
                 Optional.of(starter),
                 components,
@@ -747,8 +738,7 @@ public class LuaBinaryDescription implements
       String mainModule,
       SourcePath starter,
       final LuaPackageComponents components,
-      LuaConfig.PackageStyle packageStyle)
-      throws NoSuchBuildTargetException {
+      LuaConfig.PackageStyle packageStyle) {
     switch (packageStyle) {
       case STANDALONE:
         return getStandaloneBinary(
@@ -782,13 +772,13 @@ public class LuaBinaryDescription implements
       A args)
       throws NoSuchBuildTargetException {
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
-    CxxPlatform cxxPlatform = cxxPlatforms.getValue(params.getBuildTarget()).or(defaultCxxPlatform);
+    CxxPlatform cxxPlatform = cxxPlatforms.getValue(params.getBuildTarget()).orElse(
+        defaultCxxPlatform);
     PythonPlatform pythonPlatform =
-        pythonPlatforms.getValue(params.getBuildTarget())
-            .or(pythonPlatforms.getValue(
-                args.pythonPlatform
-                    .transform(Flavor.TO_FLAVOR)
-                    .or(pythonPlatforms.getFlavors().iterator().next())));
+        pythonPlatforms.getValue(params.getBuildTarget()).orElse(
+            pythonPlatforms.getValue(
+                args.pythonPlatform.<Flavor>map(ImmutableFlavor::of).orElse(
+                    pythonPlatforms.getFlavors().iterator().next())));
     LuaBinaryPackageComponents components =
         getPackageComponentsFromDeps(
             params,
@@ -796,9 +786,9 @@ public class LuaBinaryDescription implements
             pathResolver,
             cxxPlatform,
             pythonPlatform,
-            args.nativeStarterLibrary.or(luaConfig.getNativeStarterLibrary()),
+            args.nativeStarterLibrary.map(Optional::of).orElse(luaConfig.getNativeStarterLibrary()),
             args.mainModule,
-            args.packageStyle.or(luaConfig.getPackageStyle()),
+            args.packageStyle.orElse(luaConfig.getPackageStyle()),
             params.getDeclaredDeps().get());
     Tool binary =
         getBinary(
@@ -809,7 +799,7 @@ public class LuaBinaryDescription implements
             args.mainModule,
             components.getStarter(),
             components.getComponents(),
-            args.packageStyle.or(luaConfig.getPackageStyle()));
+            args.packageStyle.orElse(luaConfig.getPackageStyle()));
     return new LuaBinary(
         params.appendExtraDeps(binary.getDeps(pathResolver)),
         pathResolver,
@@ -841,7 +831,7 @@ public class LuaBinaryDescription implements
   @SuppressFieldNotInitialized
   public static class Arg extends AbstractDescriptionArg {
     public String mainModule;
-    public Optional<ImmutableSortedSet<BuildTarget>> deps;
+    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
     public Optional<BuildTarget> nativeStarterLibrary;
     public Optional<String> pythonPlatform;
     public Optional<LuaConfig.PackageStyle> packageStyle;

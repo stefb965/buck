@@ -44,6 +44,7 @@ import com.facebook.buck.event.listener.FileSerializationEventBusListener;
 import com.facebook.buck.event.listener.JavaUtilsLoggingBuildListener;
 import com.facebook.buck.event.listener.LoadBalancerEventsListener;
 import com.facebook.buck.event.listener.LoggingBuildListener;
+import com.facebook.buck.event.listener.MachineReadableLoggerListener;
 import com.facebook.buck.event.listener.ProgressEstimator;
 import com.facebook.buck.event.listener.PublicAnnouncementManager;
 import com.facebook.buck.event.listener.RuleKeyLoggerListener;
@@ -56,11 +57,13 @@ import com.facebook.buck.io.BuckPaths;
 import com.facebook.buck.io.MoreFiles;
 import com.facebook.buck.io.PathOrGlobMatcher;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.ProjectWatch;
 import com.facebook.buck.io.Watchman;
 import com.facebook.buck.io.WatchmanDiagnosticCache;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.log.CommandThreadFactory;
+import com.facebook.buck.log.ConsoleHandlerState;
 import com.facebook.buck.log.GlobalStateManager;
 import com.facebook.buck.log.InvocationInfo;
 import com.facebook.buck.log.LogConfig;
@@ -71,6 +74,7 @@ import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.rules.ActionGraphCache;
 import com.facebook.buck.rules.Cell;
+import com.facebook.buck.rules.CellProvider;
 import com.facebook.buck.rules.ConstructorArgMarshaller;
 import com.facebook.buck.rules.DefaultCellPathResolver;
 import com.facebook.buck.rules.KnownBuildRuleTypes;
@@ -90,6 +94,7 @@ import com.facebook.buck.util.AsyncCloseable;
 import com.facebook.buck.util.BgProcessKiller;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.Console;
+import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.InterruptionFailedException;
 import com.facebook.buck.util.Libc;
@@ -125,9 +130,7 @@ import com.facebook.buck.util.versioncontrol.VersionControlCmdLineInterfaceFacto
 import com.facebook.buck.util.versioncontrol.VersionControlStatsGenerator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Function;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -137,7 +140,6 @@ import com.google.common.reflect.ClassPath;
 import com.google.common.util.concurrent.AbstractScheduledService;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.ServiceManager;
-import com.martiansoftware.nailgun.NGClientListener;
 import com.martiansoftware.nailgun.NGContext;
 import com.martiansoftware.nailgun.NGServer;
 import com.sun.jna.LastErrorException;
@@ -148,6 +150,7 @@ import com.sun.jna.ptr.IntByReference;
 import org.kohsuke.args4j.CmdLineException;
 
 import java.io.Closeable;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintStream;
@@ -167,6 +170,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.TimeZone;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -191,7 +195,7 @@ public final class Main {
   public static final int BUSY_EXIT_CODE = 2;
 
   private static final Optional<String> BUCKD_LAUNCH_TIME_NANOS =
-      Optional.fromNullable(System.getProperty("buck.buckd_launch_time_nanos"));
+      Optional.ofNullable(System.getProperty("buck.buckd_launch_time_nanos"));
   private static final String BUCK_BUILD_ID_ENV_VAR = "BUCK_BUILD_ID";
 
   private static final String BUCKD_COLOR_DEFAULT_ENV_VAR = "BUCKD_COLOR_DEFAULT";
@@ -220,7 +224,7 @@ public final class Main {
   private final Architecture architecture;
 
   private static final Semaphore commandSemaphore = new Semaphore(1);
-  private static volatile Optional<NGContext> commandSemaphoreNgClient = Optional.absent();
+  private static volatile Optional<NGContext> commandSemaphoreNgClient = Optional.empty();
 
   // Ensure we only have one instance of this, so multiple trash cleaning
   // operations are serialized on one queue.
@@ -283,20 +287,30 @@ public final class Main {
 
   private static final HangMonitor.AutoStartInstance HANG_MONITOR =
       new HangMonitor.AutoStartInstance(
-          new Function<String, Void>() {
-            @Nullable
-            @Override
-            public Void apply(String input) {
-              LOG.info(
-                  "No recent activity, dumping thread stacks (`tr , '\\n'` to decode): %s",
-                  input);
-              return null;
-            }
+          (input) -> {
+            LOG.info(
+                "No recent activity, dumping thread stacks (`tr , '\\n'` to decode): %s",
+                input);
           },
           HANG_DETECTOR_TIMEOUT);
 
   private static final NonReentrantSystemExit NON_REENTRANT_SYSTEM_EXIT =
       new NonReentrantSystemExit();
+
+  private static ProjectFilesystem createProjectFilesystem(Path path) {
+    try {
+      // toRealPath() is necessary to resolve symlinks, allowing us to later
+      // check whether files are inside or outside of the project without issue.
+      return new ProjectFilesystem(path.toRealPath().normalize());
+    } catch (IOException e) {
+      throw new HumanReadableException(
+          String.format(
+              ("Failed to resolve project root [%s]." +
+              "Check if it exists and has the right permissions."),
+              path.toAbsolutePath()),
+          e);
+    }
+  }
 
   /**
    * Daemon used to monitor the file system and cache build rules between Main() method
@@ -311,21 +325,20 @@ public final class Main {
     private final FileHashCache buckOutHashCache;
     private final EventBus fileEventBus;
     private final Optional<WebServer> webServer;
-    private final UUID watchmanQueryUUID;
+    private final Optional<UUID> watchmanQueryUUID;
     private final ActionGraphCache actionGraphCache;
     private final BroadcastEventListener broadcastEventListener;
 
     public Daemon(
         Cell cell,
         ObjectMapper objectMapper,
-        Optional<WebServer> webServerToReuse)
-        throws IOException, InterruptedException {
+        Optional<WebServer> webServerToReuse) {
       this.cell = cell;
       this.hashCache = new WatchedFileHashCache(cell.getFilesystem());
-      this.buckOutHashCache =
-          DefaultFileHashCache.createBuckOutFileHashCache(
-              new ProjectFilesystem(cell.getFilesystem().getRootPath()),
-              cell.getFilesystem().getBuckPaths().getBuckOut());
+        this.buckOutHashCache =
+            DefaultFileHashCache.createBuckOutFileHashCache(
+                createProjectFilesystem(cell.getFilesystem().getRootPath()),
+                cell.getFilesystem().getBuckPaths().getBuckOut());
       this.fileEventBus = new EventBus("file-change-events");
 
       this.broadcastEventListener = new BroadcastEventListener();
@@ -349,7 +362,17 @@ public final class Main {
       if (!initWebServer()) {
         LOG.warn("Can't start web server");
       }
-      watchmanQueryUUID = UUID.randomUUID();
+      Optional<WatchmanWatcher.CursorType> watchmanCursorType = cell.getBuckConfig().getEnum(
+          "project",
+          "watchman_cursor",
+          WatchmanWatcher.CursorType.class);
+      if (watchmanCursorType.isPresent() &&
+          watchmanCursorType.get() == WatchmanWatcher.CursorType.CLOCK_ID &&
+          cell.getWatchman().getClockId().isPresent()) {
+        watchmanQueryUUID = Optional.empty();
+      } else {
+        watchmanQueryUUID = Optional.of(UUID.randomUUID());
+      }
       JavaUtilsLoggingBuildListener.ensureLogFileIsWritten(cell.getFilesystem());
     }
 
@@ -366,7 +389,7 @@ public final class Main {
             objectMapper);
         return Optional.of(webServer);
       } else {
-        return Optional.absent();
+        return Optional.empty();
       }
     }
 
@@ -378,13 +401,13 @@ public final class Main {
       // Enable the web httpserver if it is given by command line parameter or specified in
       // .buckconfig. The presence of a nonnegative port number is sufficient.
       Optional<String> serverPort =
-          Optional.fromNullable(System.getProperty("buck.httpserver.port"));
+          Optional.ofNullable(System.getProperty("buck.httpserver.port"));
       if (!serverPort.isPresent()) {
         serverPort = config.getValue("httpserver", "port");
       }
 
       if (!serverPort.isPresent() || serverPort.get().isEmpty()) {
-        return Optional.absent();
+        return Optional.empty();
       }
 
       String rawPort = serverPort.get();
@@ -394,10 +417,10 @@ public final class Main {
         LOG.debug("Starting up web server on port %d.", port);
       } catch (NumberFormatException e) {
         LOG.error("Could not parse port for httpserver: %s.", rawPort);
-        return Optional.absent();
+        return Optional.empty();
       }
 
-      return port >= 0 ? Optional.of(port) : Optional.<Integer>absent();
+      return port >= 0 ? Optional.of(port) : Optional.empty();
     }
 
     public Optional<WebServer> getWebServer() {
@@ -425,27 +448,24 @@ public final class Main {
     }
 
     private void watchClient(final NGContext context) {
-      context.addClientListener(new NGClientListener() {
-        @Override
-        public void clientDisconnected() throws InterruptedException {
-          if (isSessionLeader && commandSemaphoreNgClient.orNull() == context) {
-            LOG.info("killing background processes on client disconnection");
-            // Process no longer wants work done on its behalf.
-            BgProcessKiller.killBgProcesses();
-          }
+      context.addClientListener(() -> {
+        if (isSessionLeader && commandSemaphoreNgClient.orElse(null) == context) {
+          LOG.info("killing background processes on client disconnection");
+          // Process no longer wants work done on its behalf.
+          BgProcessKiller.killBgProcesses();
+        }
 
-          // Synchronize on parser object so that the main command processing thread is not
-          // interrupted mid way through a Parser cache update by the Thread.interrupt() call
-          // triggered by System.exit(). The Parser cache will be reused by subsequent commands
-          // so needs to be left in a consistent state even if the current command is interrupted
-          // due to a client disconnection.
-          synchronized (parser) {
-            LOG.info("Client disconnected.");
-            // Client should no longer be connected, but printing helps detect false disconnections.
-            context.err.println("Client disconnected.");
+        // Synchronize on parser object so that the main command processing thread is not
+        // interrupted mid way through a Parser cache update by the Thread.interrupt() call
+        // triggered by System.exit(). The Parser cache will be reused by subsequent commands
+        // so needs to be left in a consistent state even if the current command is interrupted
+        // due to a client disconnection.
+        synchronized (parser) {
+          LOG.info("Client disconnected.");
+          // Client should no longer be connected, but printing helps detect false disconnections.
+          context.err.println("Client disconnected.");
 
-            throw new InterruptedException("Client disconnected.");
-          }
+          throw new InterruptedException("Client disconnected.");
         }
       });
     }
@@ -494,7 +514,7 @@ public final class Main {
       return fileEventBus;
     }
 
-    public UUID getWatchmanQueryUUID() {
+    public Optional<UUID> getWatchmanQueryUUID() {
       return watchmanQueryUUID;
     }
 
@@ -524,9 +544,9 @@ public final class Main {
   static Daemon getDaemon(
       Cell cell,
       ObjectMapper objectMapper)
-      throws IOException, InterruptedException {
+      throws IOException {
     Path rootPath = cell.getFilesystem().getRootPath();
-    Optional<WebServer> webServer = Optional.absent();
+    Optional<WebServer> webServer = Optional.empty();
     if (daemon == null) {
       LOG.debug("Starting up daemon for project root [%s]", rootPath);
       daemon = new Daemon(cell, objectMapper, webServer);
@@ -563,23 +583,34 @@ public final class Main {
 
   private WatchmanWatcher createWatchmanWatcher(
       Daemon daemon,
-      String watchRoot,
+      ProjectWatch projectWatch,
       EventBus fileChangeEventBus,
       ImmutableSet<PathOrGlobMatcher> ignorePaths,
       Watchman watchman) {
-    return new WatchmanWatcher(
-        watchRoot,
-        fileChangeEventBus,
-        ignorePaths,
-        watchman,
-        daemon.getWatchmanQueryUUID());
+    if (daemon.getWatchmanQueryUUID().isPresent()) {
+      return new WatchmanWatcher(
+          projectWatch,
+          fileChangeEventBus,
+          ignorePaths,
+          watchman,
+          daemon.getWatchmanQueryUUID().get());
+    } else if (watchman.getClockId().isPresent()) {
+      return new WatchmanWatcher(
+          projectWatch,
+          fileChangeEventBus,
+          ignorePaths,
+          watchman,
+          watchman.getClockId().get());
+    } else {
+      throw new HumanReadableException(String.format("Could not create WatchmanWatcher"));
+    }
   }
 
   private static BroadcastEventListener getBroadcastEventListener(
       boolean isDaemon,
       Cell rootCell,
       ObjectMapper objectMapper)
-      throws IOException, InterruptedException {
+      throws IOException {
     if (isDaemon) {
       return getDaemon(rootCell, objectMapper).getBroadcastEventListener();
     }
@@ -784,9 +815,9 @@ public final class Main {
     Optional<String> color;
     if (context.isPresent() && (context.get().getEnv() != null)) {
       String colorString = context.get().getEnv().getProperty(BUCKD_COLOR_DEFAULT_ENV_VAR);
-      color = Optional.fromNullable(colorString);
+      color = Optional.ofNullable(colorString);
     } else {
-      color = Optional.absent();
+      color = Optional.empty();
     }
     final Console console = new Console(
         verbosity,
@@ -850,7 +881,7 @@ public final class Main {
               androidBuckConfig.getBuildToolsVersion(),
               androidBuckConfig.getNdkVersion());
 
-      ProcessExecutor processExecutor = new ProcessExecutor(console);
+      ProcessExecutor processExecutor = new DefaultProcessExecutor(console);
 
       Clock clock;
       if (BUCKD_LAUNCH_TIME_NANOS.isPresent()) {
@@ -886,15 +917,13 @@ public final class Main {
 
         WatchmanDiagnosticCache watchmanDiagnosticCache = new WatchmanDiagnosticCache();
 
-        Cell rootCell = Cell.createRootCell(
+        Cell rootCell = CellProvider.createForLocalBuild(
             filesystem,
-            console,
             watchman,
             buckConfig,
             command.getConfigOverrides(),
             factory,
-            clock,
-            watchmanDiagnosticCache);
+            watchmanDiagnosticCache).getCellByPath(filesystem.getRootPath());
 
         int exitCode;
         ImmutableList<BuckEventListener> eventListeners = ImmutableList.of();
@@ -910,8 +939,8 @@ public final class Main {
         // difference appears to be that filesystem is created with a Config that is used to produce
         // ImmutableSet<PathOrGlobMatcher> and BuckPaths for the ProjectFilesystem, whereas this one
         // uses the defaults.
-        ProjectFilesystem rootCellProjectFilesystem = new ProjectFilesystem(
-            rootCell.getFilesystem().getRootPath());
+        ProjectFilesystem rootCellProjectFilesystem =
+            createProjectFilesystem(rootCell.getFilesystem().getRootPath());
         if (isDaemon) {
           cellHashCache = getFileHashCacheFromDaemon(rootCell);
           buckOutHashCache = getBuckOutFileHashCacheFromDaemon(rootCell);
@@ -946,7 +975,7 @@ public final class Main {
           // rules (e.g. /usr/bin/gcc), and only serves to prevent rehashing the same file
           // multiple times in a single run.
           allCaches.add(
-              DefaultFileHashCache.createDefaultFileHashCache(new ProjectFilesystem(root)));
+              DefaultFileHashCache.createDefaultFileHashCache(createProjectFilesystem(root)));
         }
 
         FileHashCache fileHashCache = new StackedFileHashCache(allCaches.build());
@@ -994,11 +1023,12 @@ public final class Main {
             command.getSubCommandNameForLogging(),
             filesystem.getBuckPaths().getLogDir());
         try (
-            Closeable loggersSetup = GlobalStateManager.singleton().setupLoggers(
-                invocationInfo,
-                console.getStdErr(),
-                stdErr,
-                verbosity);
+            GlobalStateManager.LoggerIsMappedToThreadScope loggerThreadMappingScope =
+                GlobalStateManager.singleton().setupLoggers(
+                    invocationInfo,
+                    console.getStdErr(),
+                    stdErr,
+                    verbosity);
             AbstractConsoleEventBusListener consoleListener =
                 createConsoleEventListener(
                     clock,
@@ -1014,6 +1044,11 @@ public final class Main {
             BroadcastEventListener.BroadcastEventBusClosable broadcastEventBusClosable =
                 broadcastEventListener.addEventBus(buildEventBus);
 
+            // This makes calls to LOG.error(...) post to the EventBus, instead of writing to
+            // stderr.
+            Closeable logErrorToEventBus = loggerThreadMappingScope.setWriter(
+                createWriterForEventBus(buildEventBus));
+
             // NOTE: This will only run during the lifetime of the process and will flush on close.
             CounterRegistry counterRegistry = new CounterRegistryImpl(
                 counterAggregatorExecutor,
@@ -1023,7 +1058,9 @@ public final class Main {
             PerfStatsTracking perfStatsTracking = new PerfStatsTracking(
                 buildEventBus,
                 invocationInfo);
-            ProcessTracker processTracker = new ProcessTracker(buildEventBus, invocationInfo);
+            ProcessTracker processTracker =
+                buckConfig.isProcessTrackerEnabled() ?
+                    new ProcessTracker(buildEventBus, invocationInfo) : null;
         ) {
 
           LOG.debug(invocationInfo.toLogLine(args));
@@ -1070,7 +1107,7 @@ public final class Main {
                 executionEnvironment,
                 buildEventBus,
                 consoleListener,
-                buckConfig.getRepository().or("unknown"),
+                buckConfig.getRepository().orElse("unknown"),
                 new RemoteLogBuckConfig(buckConfig),
                 executors.get(ExecutorPool.CPU));
             announcementManager.getAndPostAnnouncements();
@@ -1100,7 +1137,7 @@ public final class Main {
 
           ImmutableList<String> remainingArgs = args.length > 1
               ? ImmutableList.copyOf(Arrays.copyOfRange(args, 1, args.length))
-              : ImmutableList.<String>of();
+              : ImmutableList.of();
 
           CommandEvent.Started startedEvent = CommandEvent.started(
               args.length > 0 ? args[0] : "",
@@ -1117,7 +1154,7 @@ public final class Main {
               Daemon daemon = getDaemon(rootCell, objectMapper);
               WatchmanWatcher watchmanWatcher = createWatchmanWatcher(
                   daemon,
-                  watchman.getWatchRoot().or(canonicalRootPath.toString()),
+                  watchman.getProjectWatch(),
                   daemon.getFileEventBus(),
                   ImmutableSet.<PathOrGlobMatcher>builder()
                       .addAll(filesystem.getIgnorePaths())
@@ -1164,9 +1201,9 @@ public final class Main {
 
           Optional<ProcessManager> processManager;
           if (platform == Platform.WINDOWS) {
-            processManager = Optional.absent();
+            processManager = Optional.empty();
           } else {
-            processManager = Optional.<ProcessManager>of(new PkillProcessManager(processExecutor));
+            processManager = Optional.of(new PkillProcessManager(processExecutor));
           }
           Supplier<AndroidPlatformTarget> androidPlatformTargetSupplier =
               createAndroidPlatformTargetSupplier(
@@ -1189,27 +1226,29 @@ public final class Main {
           }
 
           exitCode = command.run(
-              new CommandRunnerParams(
-                  console,
-                  stdIn,
-                  rootCell,
-                  androidPlatformTargetSupplier,
-                  artifactCache,
-                  buildEventBus,
-                  parser,
-                  platform,
-                  clientEnvironment,
-                  new BuildStamper(vcsFactory),
-                  rootCell.getBuckConfig().createDefaultJavaPackageFinder(),
-                  objectMapper,
-                  clock,
-                  processManager,
-                  webServer,
-                  buckConfig,
-                  fileHashCache,
-                  executors,
-                  buildEnvironmentDescription,
-                  actionGraphCache));
+              CommandRunnerParams.builder()
+                  .setConsole(console)
+                  .setStdIn(stdIn)
+                  .setCell(rootCell)
+                  .setAndroidPlatformTargetSupplier(androidPlatformTargetSupplier)
+                  .setArtifactCache(artifactCache)
+                  .setBuckEventBus(buildEventBus)
+                  .setParser(parser)
+                  .setPlatform(platform)
+                  .setEnvironment(clientEnvironment)
+                  .setJavaPackageFinder(rootCell.getBuckConfig().createDefaultJavaPackageFinder())
+                  .setObjectMapper(objectMapper)
+                  .setClock(clock)
+                  .setProcessManager(processManager)
+                  .setWebServer(webServer)
+                  .setBuckConfig(buckConfig)
+                  .setFileHashCache(fileHashCache)
+                  .setExecutors(executors)
+                  .setBuildEnvironmentDescription(buildEnvironmentDescription)
+                  .setActionGraphCache(actionGraphCache)
+                  .setKnownBuildRuleTypesFactory(factory)
+                  .setBuildStamper(new BuildStamper(vcsFactory))
+              .build());
           // Wait for HTTP writes to complete.
           closeHttpExecutorService(
               cacheBuckConfig, Optional.of(buildEventBus), httpWriteExecutorService);
@@ -1221,13 +1260,13 @@ public final class Main {
         } catch (Throwable t) {
           LOG.debug(t, "Failing build on exception.");
           closeHttpExecutorService(
-              cacheBuckConfig, Optional.<BuckEventBus>absent(), httpWriteExecutorService);
+              cacheBuckConfig, Optional.empty(), httpWriteExecutorService);
           closeDiskIoExecutorService(diskIoExecutorService);
           flushEventListeners(console, buildId, eventListeners);
           throw t;
         } finally {
           if (commandSemaphoreAcquired) {
-            commandSemaphoreNgClient = Optional.absent();
+            commandSemaphoreNgClient = Optional.empty();
             BgProcessKiller.disarm();
             commandSemaphore.release(); // Allow another command to execute while outputting traces.
             commandSemaphoreAcquired = false;
@@ -1255,7 +1294,7 @@ public final class Main {
       }
     } finally {
       if (commandSemaphoreAcquired) {
-        commandSemaphoreNgClient = Optional.absent();
+        commandSemaphoreNgClient = Optional.empty();
         BgProcessKiller.disarm();
         commandSemaphore.release();
       }
@@ -1265,8 +1304,7 @@ public final class Main {
   private void flushEventListeners(
       Console console,
       BuildId buildId,
-      ImmutableList<BuckEventListener> eventListeners)
-      throws InterruptedException {
+      ImmutableList<BuckEventListener> eventListeners) {
     for (BuckEventListener eventListener : eventListeners) {
       try {
         eventListener.outputTrace(buildId);
@@ -1314,7 +1352,7 @@ public final class Main {
       Path projectRoot,
       ImmutableMap<String, String> clientEnvironment,
       Console console,
-      Clock clock) throws InterruptedException, IOException {
+      Clock clock) throws InterruptedException {
     Watchman watchman;
     if (context.isPresent() || parserConfig.getGlobHandler() == ParserConfig.GlobHandler.WATCHMAN) {
       watchman = Watchman.build(
@@ -1325,11 +1363,10 @@ public final class Main {
           parserConfig.getWatchmanQueryTimeoutMs());
 
       LOG.debug(
-          "Watchman capabilities: %s Watch root: %s Project prefix: %s Glob handler config: %s " +
+          "Watchman capabilities: %s Project watch: %s Glob handler config: %s " +
           "Query timeout ms config: %s",
           watchman.getCapabilities(),
-          watchman.getWatchRoot(),
-          watchman.getProjectPrefix(),
+          watchman.getProjectWatch(),
           parserConfig.getGlobHandler(),
           parserConfig.getWatchmanQueryTimeoutMs());
 
@@ -1453,6 +1490,27 @@ public final class Main {
     };
   }
 
+
+  private static ConsoleHandlerState.Writer createWriterForEventBus(
+      final BuckEventBus buckEventBus) {
+    return new ConsoleHandlerState.Writer() {
+      @Override
+      public void write(String line) throws IOException {
+        buckEventBus.post(ConsoleEvent.severe(line.trim()));
+      }
+
+      @Override
+      public void flush() throws IOException {
+        // Intentional no-op.
+      }
+
+      @Override
+      public void close() throws IOException {
+        // Intentional no-op.
+      }
+    };
+  }
+
   /**
    * @return the client environment, which is either the process environment or the
    * environment sent to the daemon by the Nailgun client. This method should always be used
@@ -1491,14 +1549,12 @@ public final class Main {
     return daemon.getParser();
   }
 
-  private FileHashCache getFileHashCacheFromDaemon(Cell cell)
-      throws IOException, InterruptedException {
+  private FileHashCache getFileHashCacheFromDaemon(Cell cell) throws IOException {
     Daemon daemon = getDaemon(cell, objectMapper);
     return daemon.getFileHashCache();
   }
 
-  private FileHashCache getBuckOutFileHashCacheFromDaemon(Cell cell)
-      throws IOException, InterruptedException {
+  private FileHashCache getBuckOutFileHashCacheFromDaemon(Cell cell) throws IOException {
     Daemon daemon = getDaemon(cell, objectMapper);
     return daemon.getBuckOutHashCache();
   }
@@ -1506,12 +1562,12 @@ public final class Main {
   private Optional<WebServer> getWebServerIfDaemon(
       Optional<NGContext> context,
       Cell cell)
-      throws IOException, InterruptedException {
+      throws IOException {
     if (context.isPresent()) {
       Daemon daemon = getDaemon(cell, objectMapper);
       return daemon.getWebServer();
     }
-    return Optional.absent();
+    return Optional.empty();
   }
 
   private void loadListenersFromBuckConfig(
@@ -1579,7 +1635,7 @@ public final class Main {
       AbstractConsoleEventBusListener consoleEventBusListener,
       KnownBuildRuleTypes knownBuildRuleTypes,
       ImmutableMap<String, String> environment,
-      CounterRegistry counterRegistry) throws InterruptedException {
+      CounterRegistry counterRegistry) {
     ImmutableList.Builder<BuckEventListener> eventListenersBuilder =
         ImmutableList.<BuckEventListener>builder()
             .add(new JavaUtilsLoggingBuildListener())
@@ -1613,6 +1669,19 @@ public final class Main {
           invocationInfo,
           MostExecutors.newSingleThreadExecutor(
               new CommandThreadFactory(getClass().getName()))));
+    }
+
+    if (config.isMachineReadableLoggerEnabled()) {
+      try {
+        eventListenersBuilder.add(
+            new MachineReadableLoggerListener(
+                invocationInfo,
+                projectFilesystem,
+                MostExecutors.newSingleThreadExecutor(
+                    new CommandThreadFactory(getClass().getName()))));
+      } catch (FileNotFoundException e) {
+        LOG.warn("Unable to open stream for machine readable log file.");
+      }
     }
 
     JavaBuckConfig javaBuckConfig = new JavaBuckConfig(config);
@@ -1713,23 +1782,20 @@ public final class Main {
     // (We do this because the default is to just print to stderr and not exit the JVM,
     // which is not safe in a multithreaded environment if the thread held a lock or
     // resource which other threads need.)
-    Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
-      @Override
-      public void uncaughtException(Thread t, Throwable e) {
-        LOG.error(e, "Uncaught exception from thread %s", t);
-        if (context.isPresent()) {
-          // Shut down the Nailgun server and make sure it stops trapping System.exit().
-          //
-          // We pass false for exitVM because otherwise Nailgun exits with code 0.
-          context.get().getNGServer().shutdown(/* exitVM */ false);
-        }
-        NON_REENTRANT_SYSTEM_EXIT.shutdownSoon(FAIL_EXIT_CODE);
+    Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
+      LOG.error(e, "Uncaught exception from thread %s", t);
+      if (context.isPresent()) {
+        // Shut down the Nailgun server and make sure it stops trapping System.exit().
+        //
+        // We pass false for exitVM because otherwise Nailgun exits with code 0.
+        context.get().getNGServer().shutdown(/* exitVM */ false);
       }
+      NON_REENTRANT_SYSTEM_EXIT.shutdownSoon(FAIL_EXIT_CODE);
     });
   }
 
   public static void main(String[] args) {
-    new Main(System.out, System.err, System.in).runMainThenExit(args, Optional.<NGContext>absent());
+    new Main(System.out, System.err, System.in).runMainThenExit(args, Optional.empty());
   }
 
   private static void markFdCloseOnExec(int fd) {
@@ -1783,7 +1849,9 @@ public final class Main {
     IntByReference master = new IntByReference();
     IntByReference slave = new IntByReference();
 
-    openPtyLibrary.openpty(master, slave, Pointer.NULL, Pointer.NULL, Pointer.NULL);
+    if (openPtyLibrary.openpty(master, slave, Pointer.NULL, Pointer.NULL, Pointer.NULL) != 0) {
+      throw new RuntimeException("Failed to open pty");
+    }
 
     // Deliberately leak the file descriptors for the lifetime of this process; NuProcess can
     // sometimes leak file descriptors to children, so make sure these FDs are marked close-on-exec.
@@ -1791,10 +1859,12 @@ public final class Main {
     markFdCloseOnExec(slave.getValue());
 
     // Make the pty our controlling terminal; works because we disconnected above with setsid.
-    Libc.INSTANCE.ioctl(
+    if (Libc.INSTANCE.ioctl(
         slave.getValue(),
         Pointer.createConstant(Libc.Constants.rTIOCSCTTY),
-        0);
+        0) == -1) {
+      throw new RuntimeException("Failed to set pty");
+    }
 
     LOG.info("enabled background process killing for buckd");
     isSessionLeader = true;

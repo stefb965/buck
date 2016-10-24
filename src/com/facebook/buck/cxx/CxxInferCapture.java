@@ -33,7 +33,6 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.util.Escaper;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -41,6 +40,7 @@ import com.google.common.collect.Iterables;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Optional;
 
 /**
  * Generate the CFG for a source file
@@ -134,7 +134,7 @@ public class CxxInferCapture
             new DefaultShellStep(
                 getProjectFilesystem().getRootPath(),
                 frontendCommand,
-                ImmutableMap.<String, String>of()))
+                ImmutableMap.of()))
         .add(new ParseAndWriteBuckCompatibleDepfileStep(getTempDepFilePath(), getDepFilePath()))
         .build();
   }
@@ -173,7 +173,7 @@ public class CxxInferCapture
   }
 
   @Override
-  public Optional<ImmutableSet<SourcePath>> getPossibleInputSourcePaths() throws IOException {
+  public Optional<ImmutableSet<SourcePath>> getPossibleInputSourcePaths() {
     return preprocessorDelegate.getPossibleInputSourcePaths();
   }
 

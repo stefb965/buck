@@ -30,7 +30,6 @@ import com.facebook.buck.rules.SourceWithFlags;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategy;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -44,6 +43,7 @@ import java.lang.reflect.Type;
 import java.lang.reflect.TypeVariable;
 import java.lang.reflect.WildcardType;
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 /**
@@ -60,7 +60,7 @@ public class AbstractTypeCoercerFactory implements TypeCoercerFactory {
   public AbstractTypeCoercerFactory(ObjectMapper mapper, PathTypeCoercer pathTypeCoercer) {
     // Cached instance for any type coercers that utilize Jackson
     jacksonObjectMapper = mapper.copy()
-        .setPropertyNamingStrategy(PropertyNamingStrategy.CAMEL_CASE_TO_LOWER_CASE_WITH_UNDERSCORES)
+        .setPropertyNamingStrategy(PropertyNamingStrategy.SNAKE_CASE)
         .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
 
     TypeCoercer<String> stringTypeCoercer = new IdentityTypeCoercer<>(String.class);
@@ -228,6 +228,9 @@ public class AbstractTypeCoercerFactory implements TypeCoercerFactory {
             typeCoercerForType(getSingletonTypeParameter(parameterizedType)));
       } else if (rawClass.isAssignableFrom(Optional.class)) {
         return new OptionalTypeCoercer<>(
+            typeCoercerForType(getSingletonTypeParameter(parameterizedType)));
+      } else if (rawClass.isAssignableFrom(com.google.common.base.Optional.class)) {
+        return new GuavaOptionalTypeCoercer<>(
             typeCoercerForType(getSingletonTypeParameter(parameterizedType)));
       } else {
         throw new IllegalArgumentException("Unhandled type: " + type);

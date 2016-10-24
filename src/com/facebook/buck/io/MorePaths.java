@@ -19,9 +19,7 @@ package com.facebook.buck.io;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -33,6 +31,7 @@ import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 
 import javax.annotation.Nullable;
 
@@ -44,20 +43,6 @@ public class MorePaths {
 
   /** Utility class: do not instantiate. */
   private MorePaths() {}
-
-  public static final Function<String, Path> TO_PATH = new Function<String, Path>() {
-    @Override
-    public Path apply(String path) {
-      return Paths.get(path);
-    }
-  };
-
-  public static final Function<Path, String> UNIX_PATH = new Function<Path, String>() {
-    @Override
-    public String apply(Path path) {
-      return pathWithUnixSeparators(path);
-    }
-  };
 
   private static final Path EMPTY_PATH = Paths.get("");
 
@@ -182,7 +167,7 @@ public class MorePaths {
   public static ImmutableSortedSet<Path> asPaths(Iterable<String> paths) {
     ImmutableSortedSet.Builder<Path> builder = ImmutableSortedSet.naturalOrder();
     for (String path : paths) {
-      builder.add(TO_PATH.apply(path));
+      builder.add(Paths.get(path));
     }
     return builder.build();
   }
@@ -194,24 +179,18 @@ public class MorePaths {
   public static ImmutableSet<Path> filterForSubpaths(Iterable<Path> paths, final Path root) {
     final Path normalizedRoot = root.toAbsolutePath().normalize();
     return FluentIterable.from(paths)
-        .filter(new Predicate<Path>() {
-          @Override
-          public boolean apply(Path input) {
-            if (input.isAbsolute()) {
-              return input.normalize().startsWith(normalizedRoot);
-            } else {
-              return true;
-            }
+        .filter(input -> {
+          if (input.isAbsolute()) {
+            return input.normalize().startsWith(normalizedRoot);
+          } else {
+            return true;
           }
         })
-        .transform(new Function<Path, Path>() {
-          @Override
-          public Path apply(Path input) {
-            if (input.isAbsolute()) {
-              return relativize(normalizedRoot, input);
-            } else {
-              return input;
-            }
+        .transform(input -> {
+          if (input.isAbsolute()) {
+            return relativize(normalizedRoot, input);
+          } else {
+            return input;
           }
         })
         .toSet();
@@ -272,22 +251,17 @@ public class MorePaths {
 
   public static Optional<Path> stripPrefix(Path p, Path prefix) {
     if (prefix.getNameCount() > p.getNameCount()) {
-      return Optional.absent();
+      return Optional.empty();
     }
     for (int i = 0; i < prefix.getNameCount(); ++i) {
       if (!prefix.getName(i).equals(p.getName(i))) {
-        return Optional.absent();
+        return Optional.empty();
       }
     }
     return Optional.of(p.subpath(prefix.getNameCount(), p.getNameCount()));
   }
 
   public static Function<String, Path> toPathFn(final FileSystem fileSystem) {
-    return new Function<String, Path>() {
-      @Override
-      public Path apply(String input) {
-        return fileSystem.getPath(input);
-      }
-    };
+    return input -> fileSystem.getPath(input);
   }
 }

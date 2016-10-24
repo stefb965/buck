@@ -20,7 +20,6 @@ import com.facebook.buck.model.Pair;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
@@ -41,6 +40,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class Manifest {
 
@@ -193,17 +193,12 @@ public class Manifest {
         return Optional.of(entry.getFirst());
       }
     }
-    return Optional.absent();
+    return Optional.empty();
   }
 
   private static Function<SourcePath, String> sourcePathToManifestHeaderFunction(
       final SourcePathResolver resolver) {
-    return new Function<SourcePath, String>() {
-      @Override
-      public String apply(SourcePath input) {
-        return sourcePathToManifestHeader(input, resolver);
-      }
-    };
+    return input -> sourcePathToManifestHeader(input, resolver);
   }
 
   private static String sourcePathToManifestHeader(

@@ -21,6 +21,7 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.PathOrGlobMatcher;
+import com.facebook.buck.io.ProjectWatch;
 import com.facebook.buck.io.Watchman;
 import com.facebook.buck.io.Watchman.Capability;
 import com.facebook.buck.io.WatchmanClient;
@@ -29,7 +30,6 @@ import com.facebook.buck.io.WatchmanDiagnosticCache;
 import com.facebook.buck.io.WatchmanQuery;
 import com.facebook.buck.log.Logger;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -46,6 +46,7 @@ import java.nio.file.WatchEvent;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -64,6 +65,12 @@ public class WatchmanWatcher {
       NONE,
       POST_OVERFLOW_EVENT,
       ;
+  };
+
+  // The type of cursor used to communicate with Watchman
+  public enum CursorType {
+    NAMED,
+    CLOCK_ID,
   };
 
   private static final Logger LOG = Logger.get(WatchmanWatcher.class);
@@ -89,13 +96,13 @@ public class WatchmanWatcher {
 
   /* Legacy interface to help switch to clockId */
   public WatchmanWatcher(
-      String watchRoot,
+      ProjectWatch projectWatch,
       EventBus fileChangeEventBus,
       ImmutableSet<PathOrGlobMatcher> ignorePaths,
       Watchman watchman,
       UUID queryUUID) {
     this(
-        watchRoot,
+        projectWatch,
         fileChangeEventBus,
         ignorePaths,
         watchman,
@@ -103,7 +110,7 @@ public class WatchmanWatcher {
   }
 
   public WatchmanWatcher(
-      String watchRoot,
+      ProjectWatch projectWatch,
       EventBus fileChangeEventBus,
       ImmutableSet<PathOrGlobMatcher> ignorePaths,
       Watchman watchman,
@@ -114,8 +121,7 @@ public class WatchmanWatcher {
         DEFAULT_OVERFLOW_THRESHOLD,
         DEFAULT_TIMEOUT_MILLIS,
         createQuery(
-            watchRoot,
-            watchman.getProjectPrefix(),
+            projectWatch,
             ignorePaths,
             watchman.getCapabilities()),
         sinceCursor);
@@ -138,21 +144,20 @@ public class WatchmanWatcher {
 
   @VisibleForTesting
   static WatchmanQuery createQuery(
-      String watchRoot,
-      Optional<String> watchPrefix,
+      ProjectWatch projectWatch,
       ImmutableSet<PathOrGlobMatcher> ignorePaths,
       Set<Capability> watchmanCapabilities) {
+    String watchRoot = projectWatch.getWatchRoot();
+    Optional<String> watchPrefix = projectWatch.getProjectPrefix();
 
     // Exclude any expressions added to this list.
-    List<Object> excludeAnyOf = Lists.<Object>newArrayList("anyof");
+    List<Object> excludeAnyOf = Lists.newArrayList("anyof");
 
     // Exclude all directories.
     excludeAnyOf.add(Lists.newArrayList("type", "d"));
 
     Path projectRoot = Paths.get(watchRoot);
-    if (watchPrefix.isPresent()) {
-      projectRoot = projectRoot.resolve(watchPrefix.get());
-    }
+    projectRoot = projectRoot.resolve(watchPrefix.orElse(""));
 
     // Exclude all files under directories in project.ignorePaths.
     //
@@ -208,9 +213,7 @@ public class WatchmanWatcher {
     if (watchPrefix.isPresent()) {
       sinceParams.put("relative_root", watchPrefix.get());
     }
-    return WatchmanQuery.of(
-        watchRoot,
-        sinceParams);
+    return WatchmanQuery.of(watchRoot, sinceParams);
   }
 
   @VisibleForTesting
@@ -240,7 +243,7 @@ public class WatchmanWatcher {
               getWatchmanQuery().toArray());
       if (!queryResponse.isPresent()) {
         LOG.warn(
-            "Could not get response from Watchman for query %s %s within %d ms",
+            "Could not get response from Watchman for query %s within %d ms",
             query,
             timeoutMillis);
         postWatchEvent(
@@ -289,6 +292,12 @@ public class WatchmanWatcher {
             break;
         }
         return;
+      }
+      if (mSinceCursor.startsWith("c:")) {
+        // Update the clockId
+        mSinceCursor = Optional
+            .ofNullable((String) response.get("clock"))
+            .orElse(Watchman.NULL_CLOCK);
       }
 
       List<Map<String, Object>> files = (List<Map<String, Object>>) response.get("files");

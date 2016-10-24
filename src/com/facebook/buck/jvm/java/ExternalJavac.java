@@ -28,15 +28,13 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.Console;
+import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.zip.Unzip;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
-import com.google.common.base.Predicate;
 import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
@@ -49,6 +47,7 @@ import com.google.common.collect.ImmutableSortedSet;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Optional;
 
 public class ExternalJavac implements Javac {
 
@@ -61,33 +60,30 @@ public class ExternalJavac implements Javac {
     this.pathToJavac = pathToJavac;
 
     this.version = Suppliers.memoize(
-        new Supplier<JavacVersion>() {
-          @Override
-          public JavacVersion get() {
-            if (pathToJavac.isRight() && pathToJavac.getRight() instanceof BuildTargetSourcePath) {
-              return DEFAULT_VERSION;
-            }
-            ProcessExecutorParams params = ProcessExecutorParams.builder()
-                .setCommand(
-                    ImmutableList.of(
-                        pathToJavac.isLeft() ?
-                            pathToJavac.getLeft().toString() :
-                            ((PathSourcePath) pathToJavac.getRight()).getRelativePath().toString(),
-                        "-version"))
-                .build();
-            ProcessExecutor.Result result;
-            try {
-              result = createProcessExecutor().launchAndExecute(params);
-            } catch (InterruptedException | IOException e) {
-              throw new RuntimeException(e);
-            }
-            Optional<String> stderr = result.getStderr();
-            String output = stderr.or("").trim();
-            if (Strings.isNullOrEmpty(output)) {
-              return DEFAULT_VERSION;
-            } else {
-              return JavacVersion.of(output);
-            }
+        () -> {
+          if (pathToJavac.isRight() && pathToJavac.getRight() instanceof BuildTargetSourcePath) {
+            return DEFAULT_VERSION;
+          }
+          ProcessExecutorParams params = ProcessExecutorParams.builder()
+              .setCommand(
+                  ImmutableList.of(
+                      pathToJavac.isLeft() ?
+                          pathToJavac.getLeft().toString() :
+                          ((PathSourcePath) pathToJavac.getRight()).getRelativePath().toString(),
+                      "-version"))
+              .build();
+          ProcessExecutor.Result result;
+          try {
+            result = createProcessExecutor().launchAndExecute(params);
+          } catch (InterruptedException | IOException e) {
+            throw new RuntimeException(e);
+          }
+          Optional<String> stderr = result.getStderr();
+          String output = stderr.orElse("").trim();
+          if (Strings.isNullOrEmpty(output)) {
+            return DEFAULT_VERSION;
+          } else {
+            return JavacVersion.of(output);
           }
         });
   }
@@ -101,7 +97,7 @@ public class ExternalJavac implements Javac {
   public ImmutableCollection<SourcePath> getInputs() {
     return pathToJavac.isRight() ?
         ImmutableSortedSet.of(pathToJavac.getRight()) :
-        ImmutableSortedSet.<SourcePath>of();
+        ImmutableSortedSet.of();
   }
 
   @Override
@@ -128,7 +124,7 @@ public class ExternalJavac implements Javac {
 
   @VisibleForTesting
   ProcessExecutor createProcessExecutor() {
-    return new ProcessExecutor(Console.createNullConsole());
+    return new DefaultProcessExecutor(Console.createNullConsole());
   }
 
   @Override
@@ -206,7 +202,7 @@ public class ExternalJavac implements Javac {
     try {
       filesystem.writeLinesToPath(
           FluentIterable.from(expandedSources)
-              .transform(Functions.toStringFunction())
+              .transform(Object::toString)
               .transform(ARGFILES_ESCAPER),
           pathToSrcsList);
       command.add("@" + pathToSrcsList);
@@ -264,12 +260,7 @@ public class ExternalJavac implements Javac {
         sources.addAll(
             FluentIterable.from(zipPaths)
                 .filter(
-                    new Predicate<Path>() {
-                      @Override
-                      public boolean apply(Path input) {
-                        return input.toString().endsWith(".java");
-                      }
-                    }));
+                    input -> input.toString().endsWith(".java")));
       }
     }
     return sources.build();

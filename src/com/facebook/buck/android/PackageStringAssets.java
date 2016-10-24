@@ -25,15 +25,15 @@ import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.RecordFileSha1Step;
-import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
+import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.facebook.buck.zip.ZipCompressionLevel;
 import com.facebook.buck.zip.ZipStep;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.Hashing;
@@ -101,12 +101,8 @@ public class PackageStringAssets extends AbstractBuildRule
     Path pathToDirContainingAssetsDir = pathToBaseDir.resolve("string_assets");
     steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), pathToDirContainingAssetsDir));
     final Path pathToStrings = pathToDirContainingAssetsDir.resolve("assets").resolve("strings");
-    Function<String, Path> assetPathBuilder = new Function<String, Path>() {
-      @Override
-      public Path apply(String locale) {
-        return pathToStrings.resolve(locale + STRING_ASSET_FILE_EXTENSION);
-      }
-    };
+    Function<String, Path> assetPathBuilder =
+        locale -> pathToStrings.resolve(locale + STRING_ASSET_FILE_EXTENSION);
     Path pathToStringAssetsZip = getPathToStringAssetsZip();
     Path pathToAllLocalesStringAssetsZip = getPathToAllLocalesStringAssetsZip();
     steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), pathToStrings));
@@ -118,17 +114,19 @@ public class PackageStringAssets extends AbstractBuildRule
     steps.add(new ZipStep(
             getProjectFilesystem(),
             pathToAllLocalesStringAssetsZip,
-            ImmutableSet.<Path>of(),
+            ImmutableSet.of(),
             false,
         ZipCompressionLevel.MAX_COMPRESSION_LEVEL,
             pathToDirContainingAssetsDir));
     steps.add(new ZipStep(
-            getProjectFilesystem(),
-            pathToStringAssetsZip,
-            FluentIterable.from(locales).transform(assetPathBuilder).toSet(),
-            false,
+        getProjectFilesystem(),
+        pathToStringAssetsZip,
+        locales.stream()
+            .map(assetPathBuilder::apply)
+            .collect(MoreCollectors.toImmutableSet()),
+        false,
         ZipCompressionLevel.MAX_COMPRESSION_LEVEL,
-            pathToDirContainingAssetsDir));
+        pathToDirContainingAssetsDir));
     steps.add(
         new RecordFileSha1Step(
             getProjectFilesystem(),

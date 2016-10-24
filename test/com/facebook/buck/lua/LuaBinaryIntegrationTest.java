@@ -42,6 +42,7 @@ import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.Console;
+import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
@@ -50,13 +51,11 @@ import com.facebook.buck.util.environment.Platform;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Joiner;
-import com.google.common.base.Optional;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
-import org.hamcrest.Matcher;
 import org.hamcrest.Matchers;
 import org.junit.Before;
 import org.junit.Rule;
@@ -68,6 +67,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Optional;
 
 @RunWith(Parameterized.class)
 public class LuaBinaryIntegrationTest {
@@ -126,7 +126,7 @@ public class LuaBinaryIntegrationTest {
             .build())
         .setRedirectInput(ProcessBuilder.Redirect.PIPE)
         .build();
-    ProcessExecutor executor = new ProcessExecutor(Console.createNullConsole());
+    ProcessExecutor executor = new DefaultProcessExecutor(Console.createNullConsole());
     ProcessExecutor.LaunchedProcess launchedProcess = executor.launchProcess(params);
     launchedProcess.getOutputStream().close();
     int exitCode = executor.waitForLaunchedProcess(launchedProcess).getExitCode();
@@ -167,8 +167,8 @@ public class LuaBinaryIntegrationTest {
     Path path = workspace.buildAndReturnOutput("//:simple");
     ProcessExecutor.Result result = workspace.runCommand(path.toString());
     assertThat(
-        result.getStdout().or("") + result.getStderr().or(""),
-        result.getStderr().or("").trim(),
+        result.getStdout().orElse("") + result.getStderr().orElse(""),
+        result.getStderr().orElse("").trim(),
         Matchers.endsWith("hello world"));
   }
 
@@ -200,7 +200,7 @@ public class LuaBinaryIntegrationTest {
         Splitter.on(System.lineSeparator())
             .splitToList(result.getStdout().trim()),
         Matchers.contains(
-            ImmutableList.<Matcher<? super String>>of(
+            ImmutableList.of(
                 Matchers.anyOf(Matchers.equalTo(lua.toString()), Matchers.equalTo("nil")),
                 Matchers.endsWith(arg0.toString()))));
 
@@ -211,7 +211,7 @@ public class LuaBinaryIntegrationTest {
         Splitter.on(System.lineSeparator())
             .splitToList(result.getStdout().trim()),
         Matchers.contains(
-            ImmutableList.<Matcher<? super String>>of(
+            ImmutableList.of(
                 Matchers.anyOf(Matchers.equalTo(lua.toString()), Matchers.equalTo("nil")),
                 Matchers.endsWith(arg0.toString()),
                 Matchers.equalTo("hello"),
@@ -305,11 +305,11 @@ public class LuaBinaryIntegrationTest {
             new ProjectFilesystem(tmp.getRoot()),
             Architecture.detect(),
             Platform.detect(),
-            ImmutableMap.<String, String>of(),
+            ImmutableMap.of(),
             new DefaultCellPathResolver(tmp.getRoot(), rawConfig));
     return new LuaBuckConfig(
         buckConfig,
-        new FakeExecutableFinder(ImmutableList.<Path>of()));
+        new FakeExecutableFinder(ImmutableList.of()));
   }
 
 }

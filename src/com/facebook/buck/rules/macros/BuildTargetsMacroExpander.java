@@ -26,10 +26,11 @@ import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Ordering;
+
+import java.util.Optional;
 
 /**
  * Abstract expander which resolves using a references to another {@link BuildRule}.
@@ -120,12 +121,7 @@ public abstract class BuildTargetsMacroExpander
       throws MacroException {
     return FluentIterable.from(input)
         .transform(
-            new Function<BuildTarget, SourcePath>() {
-              @Override
-              public SourcePath apply(BuildTarget name) {
-                return new BuildTargetSourcePath(name);
-              }
-            })
+            (Function<BuildTarget, SourcePath>) BuildTargetSourcePath::new)
         .toSortedSet(Ordering.natural());
   }
 

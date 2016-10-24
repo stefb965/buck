@@ -23,12 +23,9 @@ import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphAndBuildTargets;
-import com.facebook.buck.rules.TargetGroup;
 import com.facebook.buck.rules.TargetNode;
 import com.google.common.base.Charsets;
-import com.google.common.base.Function;
 import com.google.common.base.Functions;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.collect.FluentIterable;
@@ -48,6 +45,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
@@ -221,7 +219,7 @@ public class VersionedTargetGraphBuilder {
       try {
         // Update the `dep` parameter with the new declared deps.
         if (field.getName().equals("deps")) {
-          field.set(newConstructorArg, Optional.of(declaredDeps));
+          field.set(newConstructorArg, declaredDeps);
         // Clear-out the versioned deps field, as we only use this for generating the resolved
         // graph and we want to avoid the version alias nodes showing up in the new nodes extra
         // deps.
@@ -229,7 +227,7 @@ public class VersionedTargetGraphBuilder {
             field.getName().equals(TargetGraphVersionTransformations.VERSIONED_DEPS_FIELD_NAME)) {
           field.set(
               newConstructorArg,
-              Optional.of(ImmutableSortedMap.<BuildTarget, Optional<Constraint>>of()));
+              ImmutableSortedMap.<BuildTarget, Optional<Constraint>>of());
         // Use all other fields as-is.
         } else {
           field.set(newConstructorArg, field.get(constructorArg));
@@ -306,7 +304,7 @@ public class VersionedTargetGraphBuilder {
     return new TargetGraph(
         graph,
         ImmutableMap.copyOf(index),
-        ImmutableSet.<TargetGroup>of());
+        ImmutableSet.of());
   }
 
   public static TargetGraphAndBuildTargets transform(
@@ -507,12 +505,7 @@ public class VersionedTargetGraphBuilder {
                   .addAll(
                       FluentIterable.from(newInternalDeclaredDeps)
                           .transform(
-                              new Function<BuildTarget, BuildTarget>() {
-                                @Override
-                                public BuildTarget apply(BuildTarget depTarget) {
-                                  return getNewTarget(getNode(depTarget), selectedVersions);
-                                }
-                              }))
+                              depTarget -> getNewTarget(getNode(depTarget), selectedVersions)))
                   .addAll(newExternalDeclaredDeps)
                   .build());
 

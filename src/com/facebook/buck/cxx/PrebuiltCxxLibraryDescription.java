@@ -16,7 +16,6 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
@@ -49,20 +48,20 @@ import com.facebook.buck.rules.macros.LocationMacroExpander;
 import com.facebook.buck.rules.macros.MacroHandler;
 import com.facebook.buck.rules.macros.StringExpander;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.Optionals;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 public class PrebuiltCxxLibraryDescription implements
@@ -135,12 +134,7 @@ public class PrebuiltCxxLibraryDescription implements
   // Platform unlike most macro expanders needs access to the cxx build flavor.
   // Because of that it can't be like normal expanders. So just create a handler here.
   private static MacroHandler getMacroHandler(final Optional<CxxPlatform> cxxPlatform) {
-    String flav = cxxPlatform.transform(new Function<CxxPlatform, String>() {
-      @Override
-      public String apply(CxxPlatform input) {
-        return input.getFlavor().toString();
-      }
-    }).or("");
+    String flav = cxxPlatform.map(input -> input.getFlavor().toString()).orElse("");
     return new MacroHandler(
         ImmutableMap.of(
             "location", new LocationMacroExpander(),
@@ -205,9 +199,9 @@ public class PrebuiltCxxLibraryDescription implements
       Optional<String> soname,
       Optional<String> libName) {
 
-    String unexpanded = soname.or(String.format(
+    String unexpanded = soname.orElse(String.format(
         "lib%s.%s",
-        libName.or(target.getShortName()),
+        libName.orElse(target.getShortName()),
         cxxPlatform.getSharedLibraryExtension()));
     return expandMacros(
         getMacroHandler(Optional.of(cxxPlatform)),
@@ -227,10 +221,10 @@ public class PrebuiltCxxLibraryDescription implements
       final Optional<String> libName,
       String suffix) {
 
-    final String libDirString = libDir.or("lib");
+    final String libDirString = libDir.orElse("lib");
     final String fileNameString = String.format(
         "lib%s%s",
-        libName.or(target.getShortName()),
+        libName.orElse(target.getShortName()),
         suffix);
 
     return getApplicableSourcePath(
@@ -326,13 +320,13 @@ public class PrebuiltCxxLibraryDescription implements
     ImmutableMap.Builder<String, SourcePath> headers = ImmutableMap.builder();
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
     CxxDescriptionEnhancer.putAllHeaders(
-        args.exportedHeaders.get(),
+        args.exportedHeaders,
         headers,
         pathResolver,
         "exported_headers",
         params.getBuildTarget());
     for (SourceList sourceList :
-        args.exportedPlatformHeaders.get().getMatchingValues(cxxPlatform.getFlavor().toString())) {
+        args.exportedPlatformHeaders.getMatchingValues(cxxPlatform.getFlavor().toString())) {
       CxxDescriptionEnhancer.putAllHeaders(
           sourceList,
           headers,
@@ -341,8 +335,7 @@ public class PrebuiltCxxLibraryDescription implements
           params.getBuildTarget());
     }
     return CxxPreprocessables.resolveHeaderMap(
-        args.headerNamespace.transform(MorePaths.TO_PATH)
-            .or(params.getBuildTarget().getBasePath()),
+        args.headerNamespace.map(Paths::get).orElse(params.getBuildTarget().getBasePath()),
         headers.build());
   }
 
@@ -400,18 +393,19 @@ public class PrebuiltCxxLibraryDescription implements
     return CxxLinkableEnhancer.createCxxLinkableBuildRule(
         cxxBuckConfig,
         cxxPlatform,
-        params.appendExtraDeps(
-            getBuildRules(
-                params.getBuildTarget(),
-                params.getCellRoots(),
-                ruleResolver,
-                Optional.presentInstances(ImmutableList.of(args.libDir))))
+        params
             .appendExtraDeps(
                 getBuildRules(
                     params.getBuildTarget(),
                     params.getCellRoots(),
                     ruleResolver,
-                    args.includeDirs.or(ImmutableList.of("include")))),
+                    Optionals.toStream(args.libDir).collect(MoreCollectors.toImmutableList())))
+            .appendExtraDeps(
+                getBuildRules(
+                    params.getBuildTarget(),
+                    params.getCellRoots(),
+                    ruleResolver,
+                    args.includeDirs)),
         ruleResolver,
         pathResolver,
         sharedTarget,
@@ -421,9 +415,9 @@ public class PrebuiltCxxLibraryDescription implements
         Linker.LinkableDepType.SHARED,
         FluentIterable.from(params.getDeps())
             .filter(NativeLinkable.class),
-        Optional.<Linker.CxxRuntimeType>absent(),
-        Optional.<SourcePath>absent(),
-        ImmutableSet.<BuildTarget>of(),
+        Optional.empty(),
+        Optional.empty(),
+        ImmutableSet.of(),
         NativeLinkableInput.builder()
             .addAllArgs(
                 StringArg.from(
@@ -445,7 +439,7 @@ public class PrebuiltCxxLibraryDescription implements
       final BuildRuleParams params,
       final BuildRuleResolver ruleResolver,
       final A args) throws NoSuchBuildTargetException {
-    if (args.includeDirs.get().size() > 0) {
+    if (args.includeDirs.size() > 0) {
       LOG.warn(
           "Build target %s uses `include_dirs` which is deprecated. Use `exported_headers` instead",
           params.getBuildTarget().toString());
@@ -482,72 +476,58 @@ public class PrebuiltCxxLibraryDescription implements
     // get the real build rules via querying the action graph.
     final SourcePathResolver pathResolver = new SourcePathResolver(ruleResolver);
     return new PrebuiltCxxLibrary(
-        params.appendExtraDeps(
-            getBuildRules(
-                params.getBuildTarget(),
-                params.getCellRoots(),
-                ruleResolver,
-                Optional.presentInstances(ImmutableList.of(args.libDir))))
-        .appendExtraDeps(
-            getBuildRules(
-                params.getBuildTarget(),
-                params.getCellRoots(),
-                ruleResolver,
-                args.includeDirs.or(ImmutableList.of("include")))),
+        params
+            .appendExtraDeps(
+                getBuildRules(
+                    params.getBuildTarget(),
+                    params.getCellRoots(),
+                    ruleResolver,
+                    Optionals.toStream(args.libDir).collect(MoreCollectors.toImmutableList())))
+            .appendExtraDeps(
+                getBuildRules(
+                    params.getBuildTarget(),
+                    params.getCellRoots(),
+                    ruleResolver,
+                    args.includeDirs)),
         ruleResolver,
         pathResolver,
-        FluentIterable.from(args.exportedDeps.get())
-            .transform(ruleResolver.getRuleFunction())
+        FluentIterable.from(args.exportedDeps)
+            .transform(ruleResolver::getRule)
             .filter(NativeLinkable.class),
-        args.includeDirs.or(ImmutableList.of("include")),
+        args.includeDirs,
         args.libDir,
         args.libName,
-        new Function<CxxPlatform, ImmutableMultimap<CxxSource.Type, String>>() {
-          @Override
-          public ImmutableMultimap<CxxSource.Type, String> apply(CxxPlatform input) {
-            return CxxFlags.getLanguageFlags(
-                args.exportedPreprocessorFlags,
-                args.exportedPlatformPreprocessorFlags,
-                args.exportedLangPreprocessorFlags,
-                input);
-          }
-        },
-        new Function<CxxPlatform, ImmutableList<String>>() {
-          @Override
-          public ImmutableList<String> apply(CxxPlatform input) {
-            return CxxFlags.getFlags(
-                args.exportedLinkerFlags,
-                args.exportedPlatformLinkerFlags,
-                input);
-          }
-        },
+        input -> CxxFlags.getLanguageFlags(
+            args.exportedPreprocessorFlags,
+            args.exportedPlatformPreprocessorFlags,
+            args.exportedLangPreprocessorFlags,
+            input),
+        input -> CxxFlags.getFlags(
+            args.exportedLinkerFlags,
+            args.exportedPlatformLinkerFlags,
+            input),
         args.soname,
-        args.linkWithoutSoname.or(false),
-        args.frameworks.or(ImmutableSortedSet.<FrameworkPath>of()),
-        args.libraries.or(ImmutableSortedSet.<FrameworkPath>of()),
-        args.forceStatic.or(false),
-        args.headerOnly.or(false),
-        args.linkWhole.or(false),
-        args.provided.or(false),
-        new Function<CxxPlatform, Boolean>() {
-          @Override
-          public Boolean apply(CxxPlatform cxxPlatform) {
-            if (args.exportedHeaders.isPresent() && !args.exportedHeaders.get().isEmpty()) {
+        args.linkWithoutSoname.orElse(false),
+        args.frameworks,
+        args.libraries,
+        args.forceStatic.orElse(false),
+        args.headerOnly.orElse(false),
+        args.linkWhole.orElse(false),
+        args.provided.orElse(false),
+        cxxPlatform -> {
+          if (!args.exportedHeaders.isEmpty()) {
+            return true;
+          }
+          for (SourceList sourceList :
+               args.exportedPlatformHeaders.getMatchingValues(cxxPlatform.getFlavor().toString())) {
+            if (!sourceList.isEmpty()) {
               return true;
             }
-            if (args.exportedPlatformHeaders.isPresent()) {
-              for (SourceList sourceList :
-                   args.exportedPlatformHeaders.get()
-                       .getMatchingValues(cxxPlatform.getFlavor().toString())) {
-                if (!sourceList.isEmpty()) {
-                  return true;
-                }
-              }
-            }
-            return false;
           }
+          return false;
         },
-    args.supportedPlatformsRegex);
+        args.supportedPlatformsRegex,
+        args.canBeAsset.orElse(false));
   }
 
   @Override
@@ -560,10 +540,8 @@ public class PrebuiltCxxLibraryDescription implements
     if (constructorArg.libDir.isPresent()) {
       addDepsFromParam(buildTarget, cellRoots, constructorArg.libDir.get(), targets);
     }
-    if (constructorArg.includeDirs.isPresent()) {
-      for (String include : constructorArg.includeDirs.get()) {
-        addDepsFromParam(buildTarget, cellRoots, include, targets);
-      }
+    for (String include : constructorArg.includeDirs) {
+      addDepsFromParam(buildTarget, cellRoots, include, targets);
     }
     return targets.build();
   }
@@ -574,7 +552,7 @@ public class PrebuiltCxxLibraryDescription implements
       BuildRuleResolver ruleResolver,
       Iterable<String> paramValues) {
     ImmutableList.Builder<BuildRule> builder = ImmutableList.builder();
-    MacroHandler macroHandler = getMacroHandler(Optional.<CxxPlatform>absent());
+    MacroHandler macroHandler = getMacroHandler(Optional.empty());
     for (String p : paramValues) {
       try {
 
@@ -593,7 +571,7 @@ public class PrebuiltCxxLibraryDescription implements
       ImmutableSet.Builder<BuildTarget> targets) {
     try {
       // doesn't matter that the platform expander doesn't do anything.
-      MacroHandler macroHandler = getMacroHandler(Optional.<CxxPlatform>absent());
+      MacroHandler macroHandler = getMacroHandler(Optional.empty());
       // Then get the parse time deps.
       targets.addAll(macroHandler.extractParseTimeDeps(target, cellNames, paramValue));
     } catch (MacroException e) {
@@ -603,29 +581,32 @@ public class PrebuiltCxxLibraryDescription implements
 
   @SuppressFieldNotInitialized
   public static class Arg extends AbstractDescriptionArg {
-    public Optional<ImmutableList<String>> includeDirs;
+    public ImmutableList<String> includeDirs = ImmutableList.of();
     public Optional<String> libName;
     public Optional<String> libDir;
     public Optional<Boolean> headerOnly;
-    public Optional<SourceList> exportedHeaders;
-    public Optional<PatternMatchedCollection<SourceList>> exportedPlatformHeaders;
+    public SourceList exportedHeaders = SourceList.EMPTY;
+    public PatternMatchedCollection<SourceList> exportedPlatformHeaders =
+        PatternMatchedCollection.of();
     public Optional<String> headerNamespace;
     public Optional<Boolean> provided;
     public Optional<Boolean> linkWhole;
     public Optional<Boolean> forceStatic;
-    public Optional<ImmutableList<String>> exportedPreprocessorFlags;
-    public Optional<PatternMatchedCollection<ImmutableList<String>>>
-        exportedPlatformPreprocessorFlags;
-    public Optional<ImmutableMap<CxxSource.Type, ImmutableList<String>>>
-        exportedLangPreprocessorFlags;
-    public Optional<ImmutableList<String>> exportedLinkerFlags;
-    public Optional<PatternMatchedCollection<ImmutableList<String>>> exportedPlatformLinkerFlags;
+    public ImmutableList<String> exportedPreprocessorFlags = ImmutableList.of();
+    public PatternMatchedCollection<ImmutableList<String>>
+        exportedPlatformPreprocessorFlags = PatternMatchedCollection.of();
+    public ImmutableMap<CxxSource.Type, ImmutableList<String>>
+        exportedLangPreprocessorFlags = ImmutableMap.of();
+    public ImmutableList<String> exportedLinkerFlags = ImmutableList.of();
+    public PatternMatchedCollection<ImmutableList<String>> exportedPlatformLinkerFlags =
+        PatternMatchedCollection.of();
     public Optional<String> soname;
     public Optional<Boolean> linkWithoutSoname;
-    public Optional<ImmutableSortedSet<FrameworkPath>> frameworks;
-    public Optional<ImmutableSortedSet<FrameworkPath>> libraries;
-    public Optional<ImmutableSortedSet<BuildTarget>> deps;
-    public Optional<ImmutableSortedSet<BuildTarget>> exportedDeps;
+    public Optional<Boolean> canBeAsset;
+    public ImmutableSortedSet<FrameworkPath> frameworks = ImmutableSortedSet.of();
+    public ImmutableSortedSet<FrameworkPath> libraries = ImmutableSortedSet.of();
+    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
+    public ImmutableSortedSet<BuildTarget> exportedDeps = ImmutableSortedSet.of();
     public Optional<Pattern> supportedPlatformsRegex;
   }
 

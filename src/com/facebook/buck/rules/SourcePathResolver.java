@@ -22,9 +22,9 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.HasOutputName;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.base.Function;
 import com.google.common.base.Functions;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
@@ -34,7 +34,10 @@ import com.google.common.collect.Maps;
 
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Map;
+import java.util.Optional;
+import java.util.stream.StreamSupport;
 
 public class SourcePathResolver {
 
@@ -55,18 +58,11 @@ public class SourcePathResolver {
     return getPathPrivateImpl(sourcePath);
   }
 
-  public Function<SourcePath, Path> deprecatedPathFunction() {
-    return new Function<SourcePath, Path>() {
-      @Override
-      public Path apply(SourcePath input) {
-        return deprecatedGetPath(input);
-      }
-    };
-  }
-
   public ImmutableList<Path> deprecatedAllPaths(Iterable<? extends SourcePath> sourcePaths) {
     // Maintain ordering and duplication if necessary.
-    return FluentIterable.from(sourcePaths).transform(deprecatedPathFunction()).toList();
+    return StreamSupport.stream(sourcePaths.spliterator(), false)
+        .map(this::deprecatedGetPath)
+        .collect(MoreCollectors.toImmutableList());
   }
 
   public <T> ImmutableMap<T, Path> getMappedPaths(Map<T, SourcePath> sourcePathMap) {
@@ -131,18 +127,11 @@ public class SourcePathResolver {
     return ArchiveMemberPath.of(archiveRelativePath, archiveMemberSourcePath.getMemberPath());
   }
 
-  public Function<SourcePath, Path> getAbsolutePathFunction() {
-    return new Function<SourcePath, Path>() {
-      @Override
-      public Path apply(SourcePath input) {
-        return getAbsolutePath(input);
-      }
-    };
-  }
-
-  public ImmutableList<Path> getAllAbsolutePaths(Iterable<? extends SourcePath> sourcePaths) {
+  public ImmutableList<Path> getAllAbsolutePaths(Collection<? extends SourcePath> sourcePaths) {
     // Maintain ordering and duplication if necessary.
-    return FluentIterable.from(sourcePaths).transform(getAbsolutePathFunction()).toList();
+    return sourcePaths.stream()
+        .map(this::getAbsolutePath)
+        .collect(MoreCollectors.toImmutableList());
   }
 
   /**
@@ -161,15 +150,6 @@ public class SourcePathResolver {
         sourcePath);
 
     return toReturn;
-  }
-
-  public Function<SourcePath, Path> getRelativePathFunction() {
-    return new Function<SourcePath, Path>() {
-      @Override
-      public Path apply(SourcePath input) {
-        return getRelativePath(input);
-      }
-    };
   }
 
   /**
@@ -207,7 +187,7 @@ public class SourcePathResolver {
    */
   public Optional<BuildRule> getRule(SourcePath sourcePath) {
     if (!(sourcePath instanceof BuildTargetSourcePath)) {
-      return Optional.absent();
+      return Optional.empty();
     }
     return Optional.of(ruleResolver.getRule(((BuildTargetSourcePath) sourcePath).getTarget()));
   }
@@ -220,7 +200,7 @@ public class SourcePathResolver {
       BuildTarget target,
       String parameter,
       Iterable<SourcePath> sourcePaths) {
-    return getSourcePathNames(target, parameter, sourcePaths, Functions.<SourcePath>identity());
+    return getSourcePathNames(target, parameter, sourcePaths, Functions.identity());
   }
 
   /**
@@ -303,12 +283,7 @@ public class SourcePathResolver {
     return FluentIterable.from(sources)
         .filter(PathSourcePath.class)
         .transform(
-            new Function<PathSourcePath, Path>() {
-              @Override
-              public Path apply(PathSourcePath input) {
-                return input.getRelativePath();
-              }
-            })
+            PathSourcePath::getRelativePath)
         .toList();
   }
 
@@ -321,27 +296,12 @@ public class SourcePathResolver {
     return FluentIterable.from(sources)
         .filter(BuildTargetSourcePath.class)
         .transform(
-            new Function<BuildTargetSourcePath, BuildRule>() {
-              @Override
-              public BuildRule apply(BuildTargetSourcePath input) {
-                return ruleResolver.getRule(input.getTarget());
-              }
-            })
+            input -> ruleResolver.getRule(input.getTarget()))
         .toList();
   }
 
   public ImmutableCollection<BuildRule> filterBuildRuleInputs(SourcePath... sources) {
     return filterBuildRuleInputs(Arrays.asList(sources));
-  }
-
-  public Function<Iterable<? extends SourcePath>, ImmutableCollection<BuildRule>>
-      filterBuildRuleInputsFunction() {
-    return new Function<Iterable<? extends SourcePath>, ImmutableCollection<BuildRule>>() {
-      @Override
-      public ImmutableCollection<BuildRule> apply(Iterable<? extends SourcePath> input) {
-        return filterBuildRuleInputs(input);
-      }
-    };
   }
 
 }

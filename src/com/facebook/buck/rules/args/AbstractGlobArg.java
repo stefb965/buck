@@ -22,8 +22,6 @@ import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
-import com.google.common.base.Functions;
-import com.google.common.base.Predicate;
 import com.google.common.base.Throwables;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
@@ -61,25 +59,20 @@ abstract class AbstractGlobArg extends Arg {
   public void appendToCommandLine(ImmutableCollection.Builder<String> builder) {
     final Set<Path> paths = new TreeSet<>();
     ProjectFilesystem filesystem = getPathResolver().getFilesystem(getRoot());
-    final PathMatcher matcher =
+    PathMatcher matcher =  // NOPMD
         filesystem.getRootPath().getFileSystem().getPathMatcher("glob:" + getPattern());
     try {
       paths.addAll(
           filesystem.getFilesUnderPath(
               getPathResolver().getRelativePath(getRoot()),
-              new Predicate<Path>() {
-                @Override
-                public boolean apply(Path path) {
-                  return matcher.matches(path);
-                }
-              }));
+              matcher::matches));
     } catch (IOException e) {
       throw Throwables.propagate(e);
     }
     builder.addAll(
         FluentIterable.from(paths)
             .transform(filesystem.getAbsolutifier())
-            .transform(Functions.toStringFunction()));
+            .transform(Object::toString));
   }
 
   @Override

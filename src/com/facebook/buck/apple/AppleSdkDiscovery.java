@@ -18,15 +18,12 @@ package com.facebook.buck.apple;
 
 import com.dd.plist.NSArray;
 import com.dd.plist.NSDictionary;
-import com.dd.plist.NSObject;
 import com.dd.plist.NSString;
 import com.dd.plist.PropertyListFormatException;
 import com.dd.plist.PropertyListParser;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.VersionStringComparator;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -47,6 +44,7 @@ import java.nio.file.Path;
 import java.text.ParseException;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.Optional;
 import java.util.Set;
 
 import javax.xml.parsers.ParserConfigurationException;
@@ -62,12 +60,7 @@ public class AppleSdkDiscovery {
   private static final Ordering<AppleSdk> APPLE_SDK_VERSION_ORDERING =
     Ordering
         .from(new VersionStringComparator())
-        .onResultOf(new Function<AppleSdk, String>() {
-            @Override
-            public String apply(AppleSdk appleSdk) {
-                return appleSdk.getVersion();
-            }
-        });
+        .onResultOf(AppleSdk::getVersion);
 
   private static final String DEFAULT_TOOLCHAIN_ID = "com.apple.dt.toolchain.XcodeDefault";
 
@@ -92,7 +85,7 @@ public class AppleSdkDiscovery {
       AppleConfig appleConfig)
       throws IOException {
     Optional<AppleToolchain> defaultToolchain =
-        Optional.fromNullable(xcodeToolchains.get(DEFAULT_TOOLCHAIN_ID));
+        Optional.ofNullable(xcodeToolchains.get(DEFAULT_TOOLCHAIN_ID));
 
     ImmutableMap.Builder<AppleSdk, AppleSdkPaths> appleSdkPathsBuilder = ImmutableMap.builder();
 
@@ -218,16 +211,9 @@ public class AppleSdkDiscovery {
         NSArray settingsToolchains = (NSArray) sdkSettings.objectForKey("Toolchains");
         if (settingsToolchains != null) {
           toolchains = Optional.of(
-              FluentIterable
-                  .from(Arrays.asList(settingsToolchains.getArray()))
-                  .transform(
-                      new Function<NSObject, String>() {
-                        @Override
-                        public String apply(NSObject input) {
-                          return input.toString();
-                        }
-                      })
-                  .toList());
+              Arrays.asList(settingsToolchains.getArray()).stream()
+                  .map(Object::toString)
+                  .collect(MoreCollectors.toImmutableList()));
           }
       }
 

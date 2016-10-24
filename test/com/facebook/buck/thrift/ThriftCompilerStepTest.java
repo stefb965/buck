@@ -23,7 +23,6 @@ import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.MoreIterables;
-import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -43,7 +42,7 @@ public class ThriftCompilerStepTest {
     ExecutionContext context = TestExecutionContext.newInstance();
 
     // Setup some dummy values for inputs to the ThriftCompilerStep
-    ImmutableMap<String, String> compilerEnvironment = ImmutableMap.<String, String>of();
+    ImmutableMap<String, String> compilerEnvironment = ImmutableMap.of();
     ImmutableList<String> compilerPrefix = ImmutableList.of("compiler", "--allow-64-bit");
     Path outputDir = Paths.get("output-dir");
     Path input = Paths.get("test.thrift");
@@ -69,7 +68,7 @@ public class ThriftCompilerStepTest {
         .addAll(
             MoreIterables.zipAndConcat(
                 Iterables.cycle("-I"),
-                Iterables.transform(includes, Functions.toStringFunction())))
+                Iterables.transform(includes, Object::toString)))
         .add("-o", outputDir.toString())
         .add(input.toString())
         .build();

@@ -24,6 +24,7 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.util.Console;
+import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.environment.Platform;
@@ -87,10 +88,10 @@ public class SymlinkFileStepTest {
 
     // Run `ln -s /path/that/does/not/exist dummy` in /tmp.
     ProcessExecutorParams params = ProcessExecutorParams.builder()
-        .setCommand(ImmutableList.<String>of("ln", "-s", "/path/that/does/not/exist", "my_symlink"))
+        .setCommand(ImmutableList.of("ln", "-s", "/path/that/does/not/exist", "my_symlink"))
         .setDirectory(tmpDir.getRoot().toPath())
         .build();
-    ProcessExecutor executor = new ProcessExecutor(Console.createNullConsole());
+    ProcessExecutor executor = new DefaultProcessExecutor(Console.createNullConsole());
     executor.launchAndExecute(params);
 
     // Verify that the symlink points to a non-existent file.

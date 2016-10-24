@@ -18,11 +18,11 @@ package com.facebook.buck.rules.keys;
 
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.SourcePath;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.io.IOException;
+import java.util.Optional;
 
 /**
  * Used to tag a rule that supports dependency-file input-based rule keys.
@@ -39,7 +39,7 @@ public interface SupportsDependencyFileRuleKey extends BuildRule {
    * TODO(jkeljo): This is only optional because I added it for Java and didn't have the time to go
    * back and figure out how to implement it for C++.
    */
-  Optional<ImmutableSet<SourcePath>> getPossibleInputSourcePaths() throws IOException;
+  Optional<ImmutableSet<SourcePath>> getPossibleInputSourcePaths();
 
   ImmutableList<SourcePath> getInputsAfterBuildingLocally() throws IOException;
 

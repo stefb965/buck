@@ -27,15 +27,14 @@ import static org.junit.Assert.fail;
 import static org.junit.Assume.assumeFalse;
 import static org.junit.Assume.assumeTrue;
 
-import com.facebook.buck.android.FakeAndroidDirectoryResolver;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.io.Watchman;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.testutil.TestConsole;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.DelegatingInputStream;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
+import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestContext;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.timing.FakeClock;
@@ -46,12 +45,9 @@ import com.facebook.buck.util.WatchmanWatcher;
 import com.facebook.buck.util.environment.CommandMode;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Charsets;
-import com.google.common.base.Optional;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.martiansoftware.nailgun.NGClientListener;
-import com.martiansoftware.nailgun.NGContext;
 
 import org.junit.After;
 import org.junit.Before;
@@ -63,6 +59,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
@@ -96,12 +93,13 @@ public class DaemonIntegrationTest {
     // In case root_restrict_files is enabled in /etc/watchmanconfig, assume
     // this is one of the entries so it doesn't give up.
     tmp.newFolder(".git");
+    tmp.newFile(".arcconfig");
     Watchman watchman = Watchman.build(
         tmp.getRoot(),
         getWatchmanEnv(),
         new TestConsole(),
         new FakeClock(0),
-        Optional.<Long>absent());
+        Optional.empty());
 
     // We assume watchman has been installed and configured properly on the system, and that setting
     // up the watch is successful.
@@ -159,14 +157,7 @@ public class DaemonIntegrationTest {
         ImmutableMap.copyOf(System.getenv()),
         TestContext.createHeartBeatStream(intervalMillis),
         timeoutMillis)) {
-      final Thread commandThread = Thread.currentThread();
-      context.addClientListener(
-          new NGClientListener() {
-            @Override
-            public void clientDisconnected() throws InterruptedException {
-              commandThread.interrupt();
-            }
-          });
+      context.addClientListener(Thread.currentThread()::interrupt);
       Thread.sleep(1000);
       fail("Should have been interrupted.");
     }
@@ -236,30 +227,27 @@ public class DaemonIntegrationTest {
   }
 
   private Runnable createRunnableCommand(final int expectedExitCode, final String ... args) {
-    return new Runnable() {
-      @Override
-      public void run() {
-        try {
-          Main main = new Main(
-              new CapturingPrintStream(),
-              new CapturingPrintStream(),
-              new ByteArrayInputStream("".getBytes("UTF-8")));
-          int exitCode = main.runMainWithExitCode(
-              new BuildId(),
-              tmp.getRoot(),
-              Optional.<NGContext>of(new TestContext()),
-              ImmutableMap.copyOf(System.getenv()),
-              CommandMode.TEST,
-              WatchmanWatcher.FreshInstanceAction.NONE,
-              args);
-          assertEquals("Unexpected exit code.", expectedExitCode, exitCode);
-        } catch (IOException e) {
-          fail("Should not throw exception.");
-          throw Throwables.propagate(e);
-        } catch (InterruptedException e) {
-          fail("Should not throw exception.");
-          Thread.currentThread().interrupt();
-        }
+    return () -> {
+      try {
+        Main main = new Main(
+            new CapturingPrintStream(),
+            new CapturingPrintStream(),
+            new ByteArrayInputStream("".getBytes("UTF-8")));
+        int exitCode = main.runMainWithExitCode(
+            new BuildId(),
+            tmp.getRoot(),
+            Optional.of(new TestContext()),
+            ImmutableMap.copyOf(System.getenv()),
+            CommandMode.TEST,
+            WatchmanWatcher.FreshInstanceAction.NONE,
+            args);
+        assertEquals("Unexpected exit code.", expectedExitCode, exitCode);
+      } catch (IOException e) {
+        fail("Should not throw exception.");
+        throw Throwables.propagate(e);
+      } catch (InterruptedException e) {
+        fail("Should not throw exception.");
+        Thread.currentThread().interrupt();
       }
     };
   }
@@ -539,18 +527,25 @@ public class DaemonIntegrationTest {
   }
 
   @Test
-  public void whenAndroidDirectoryResolverChangesParserInvalidated()
+  public void whenAndroidNdkVersionChangesParserInvalidated()
       throws IOException, InterruptedException {
     ProjectFilesystem filesystem = new ProjectFilesystem(tmp.getRoot());
 
+    BuckConfig buckConfig1 = FakeBuckConfig.builder()
+        .setSections(ImmutableMap.of(
+            "ndk",
+            ImmutableMap.of("ndk_version", "something")))
+        .build();
+
+    BuckConfig buckConfig2 = FakeBuckConfig.builder()
+        .setSections(ImmutableMap.of(
+            "ndk",
+            ImmutableMap.of("ndk_version", "different")))
+        .build();
+
     Object daemon = Main.getDaemon(
         new TestCellBuilder()
-            .setAndroidDirectoryResolver(
-                new FakeAndroidDirectoryResolver(
-                    Optional.<Path>absent(),
-                    Optional.<Path>absent(),
-                    Optional.<Path>absent(),
-                    Optional.of("something")))
+            .setBuckConfig(buckConfig1)
             .setFilesystem(filesystem)
             .build(),
         ObjectMappers.newDefaultInstance());
@@ -559,12 +554,7 @@ public class DaemonIntegrationTest {
         "Daemon should be replaced when not equal.", daemon,
         Main.getDaemon(
             new TestCellBuilder()
-                .setAndroidDirectoryResolver(
-                    new FakeAndroidDirectoryResolver(
-                        Optional.<Path>absent(),
-                        Optional.<Path>absent(),
-                        Optional.<Path>absent(),
-                        Optional.of("different")))
+                .setBuckConfig(buckConfig2)
                 .setFilesystem(filesystem)
                 .build(),
             ObjectMappers.newDefaultInstance()));

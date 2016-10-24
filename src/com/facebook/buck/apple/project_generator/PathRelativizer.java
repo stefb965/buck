@@ -64,15 +64,6 @@ final class PathRelativizer {
     return result;
   }
 
-  public Function<Path, Path> outputDirToRootRelative() {
-    return new Function<Path, Path>() {
-      @Override
-      public Path apply(Path input) {
-        return outputDirToRootRelative(input);
-      }
-    };
-  }
-
   /**
    * Map a SourcePath to one that's relative to the output directory.
    */

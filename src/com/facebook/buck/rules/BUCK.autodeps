@@ -1,4 +1,3 @@
-#@# GENERATED FILE: DO NOT MODIFY c2a4dfc1503c978ed83ce9b0ce68019946f518f0 #@#
 {
   "action_graph_cache" : {
     "deps" : [
@@ -30,7 +29,9 @@
     "deps" : [
       "//src/com/facebook/buck/io:MorePaths.java",
       "//src/com/facebook/buck/log:api",
-      "//third-party/java/immutables:processor"
+      "//src/com/facebook/buck/util:util",
+      "//third-party/java/immutables:processor",
+      "//third-party/java/stringtemplate:stringtemplate"
     ],
     "exported_deps" : [
       "//src/com/facebook/buck/android:utils",
@@ -49,7 +50,7 @@
       "//src/com/facebook/buck/step:step",
       "//src/com/facebook/buck/timing:timing",
       "//src/com/facebook/buck/util:exceptions",
-      "//src/com/facebook/buck/util:util",
+      "//src/com/facebook/buck/util:packaged_resource",
       "//src/com/facebook/buck/util/cache:cache",
       "//src/com/facebook/buck/util/immutables:immutables",
       "//src/com/facebook/buck/util/sha1:sha1",
@@ -58,8 +59,7 @@
       "//third-party/java/jackson:jackson-annotations",
       "//third-party/java/jackson:jackson-core",
       "//third-party/java/jackson:jackson-databind",
-      "//third-party/java/jsr:jsr305",
-      "//third-party/java/stringtemplate:stringtemplate"
+      "//third-party/java/jsr:jsr305"
     ]
   },
   "caching_build_engine_delegates" : {
@@ -125,11 +125,11 @@
       "//src/com/facebook/buck/rules:build_event",
       "//src/com/facebook/buck/step/fs:fs",
       "//src/com/facebook/buck/util:exceptions",
+      "//src/com/facebook/buck/util:io",
       "//src/com/facebook/buck/util:object_mapper",
       "//src/com/facebook/buck/util:util",
       "//src/com/facebook/buck/zip:unzip",
-      "//third-party/java/immutables:processor",
-      "//third-party/java/stringtemplate:stringtemplate"
+      "//third-party/java/immutables:processor"
     ],
     "exported_deps" : [
       "//src/com/facebook/buck/artifact_cache:artifact_cache",
@@ -173,6 +173,7 @@
     "deps" : [
       "//src/com/facebook/buck/android:rules",
       "//src/com/facebook/buck/android:steps",
+      "//src/com/facebook/buck/apple:platform",
       "//src/com/facebook/buck/apple:rules",
       "//src/com/facebook/buck/config:config",
       "//src/com/facebook/buck/cxx:rules",
@@ -220,7 +221,6 @@
     ],
     "exported_deps" : [
       "//src/com/facebook/buck/android:utils",
-      "//src/com/facebook/buck/apple:platform",
       "//src/com/facebook/buck/cli:config",
       "//src/com/facebook/buck/config:base-config",
       "//src/com/facebook/buck/cxx:platform",
@@ -231,7 +231,6 @@
       "//src/com/facebook/buck/model:model",
       "//src/com/facebook/buck/rules:build_rule",
       "//src/com/facebook/buck/rules:interfaces",
-      "//src/com/facebook/buck/timing:timing",
       "//src/com/facebook/buck/util:io",
       "//third-party/java/guava:guava"
     ]

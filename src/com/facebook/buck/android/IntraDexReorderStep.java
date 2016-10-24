@@ -31,16 +31,15 @@ import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.zip.UnzipStep;
 import com.facebook.buck.zip.ZipCompressionLevel;
 import com.facebook.buck.zip.ZipStep;
-import com.google.common.base.Optional;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -73,9 +72,9 @@ public class IntraDexReorderStep implements Step {
       String inputSubDir,
       String outputSubDir) {
     this.filesystem = filesystem;
-    this.reorderTool = reorderTool.transform(sourcePathResolver.deprecatedPathFunction()).get();
+    this.reorderTool = reorderTool.map(sourcePathResolver::deprecatedGetPath).get();
     this.reorderDataFile =
-        reorderDataFile.transform(sourcePathResolver.deprecatedPathFunction()).get();
+        reorderDataFile.map(sourcePathResolver::deprecatedGetPath).get();
     this.inputPrimaryDexPath = inputPrimaryDexPath;
     this.outputPrimaryDexPath = outputPrimaryDexPath;
     this.secondaryDexMap = secondaryDexMap;
@@ -87,20 +86,19 @@ public class IntraDexReorderStep implements Step {
   @Override
   public StepExecutionResult execute(ExecutionContext context) throws InterruptedException {
     try {
-      DefaultStepRunner stepRunner = new DefaultStepRunner(context);
+      DefaultStepRunner stepRunner = new DefaultStepRunner();
       List<Step> dxSteps = generateReorderCommands();
       for (Step step : dxSteps) {
-        stepRunner.runStepForBuildTarget(step, Optional.of(buildTarget));
+        stepRunner.runStepForBuildTarget(context, step, Optional.of(buildTarget));
       }
-    } catch (StepFailedException | IOException | InterruptedException e) {
+    } catch (StepFailedException | InterruptedException e) {
       context.logError(e, "There was an error in intra dex reorder step.");
       return StepExecutionResult.ERROR;
     }
     return StepExecutionResult.SUCCESS;
   }
 
-  private ImmutableList<Step> generateReorderCommands()
-    throws StepFailedException, IOException, InterruptedException {
+  private ImmutableList<Step> generateReorderCommands() {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
     reorderEntry(inputPrimaryDexPath, true, steps);
     if (secondaryDexMap.isPresent()) {
@@ -112,8 +110,10 @@ public class IntraDexReorderStep implements Step {
     return steps.build();
   }
 
-  private int reorderEntry(Path inputPath, boolean isPrimaryDex, ImmutableList.Builder<Step> steps)
-    throws IOException, InterruptedException {
+  private int reorderEntry(
+      Path inputPath,
+      boolean isPrimaryDex,
+      ImmutableList.Builder<Step> steps) {
 
     if (!isPrimaryDex) {
       String tmpname = "dex-tmp-" + inputPath.getFileName().toString() + "-%s";
@@ -136,7 +136,7 @@ public class IntraDexReorderStep implements Step {
           new ZipStep(
               filesystem,
               outputPath,
-              /* paths */ ImmutableSet.<Path>of(),
+              /* paths */ ImmutableSet.of(),
               /* junkPaths */ false,
               ZipCompressionLevel.MAX_COMPRESSION_LEVEL,
               temp

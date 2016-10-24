@@ -62,15 +62,12 @@ class CommandLineBuildTargetNormalizer {
   private final Function<String, String> normalizer;
 
   CommandLineBuildTargetNormalizer(final BuckConfig buckConfig) {
-    this.normalizer = new Function<String, String>() {
-      @Override
-      public String apply(String arg) {
-        String aliasValue = buckConfig.getBuildTargetForAliasAsString(arg);
-        if (aliasValue != null) {
-          return aliasValue;
-        } else {
-          return normalizeBuildTargetIdentifier(arg);
-        }
+    this.normalizer = arg -> {
+      String aliasValue = buckConfig.getBuildTargetForAliasAsString(arg);
+      if (aliasValue != null) {
+        return aliasValue;
+      } else {
+        return normalizeBuildTargetIdentifier(arg);
       }
     };
   }
@@ -105,7 +102,7 @@ class CommandLineBuildTargetNormalizer {
 
     // Strip out the leading "//" if there is one to make it easier to normalize the
     // remaining target string.  We'll add this back at the end.
-    target = MoreStrings.stripPrefix(target, "//").or(target);
+    target = MoreStrings.stripPrefix(target, "//").orElse(target);
 
     // Add the colon, if necessary.
     int colonIndex = target.indexOf(':');

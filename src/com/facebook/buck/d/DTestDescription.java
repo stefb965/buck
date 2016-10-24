@@ -35,9 +35,10 @@ import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
+
+import java.util.Optional;
 
 public class DTestDescription implements
     Description<DTestDescription.Arg>,
@@ -109,7 +110,7 @@ public class DTestDescription implements
             cxxBuckConfig,
             ImmutableList.of("-unittest"),
             args.srcs,
-            args.linkerFlags.or(ImmutableList.<String>of()),
+            args.linkerFlags,
             DIncludes.builder()
                 .setLinkTree(new BuildTargetSourcePath(sourceTree.getBuildTarget()))
                 .addAllSources(args.srcs.getPaths())
@@ -119,9 +120,9 @@ public class DTestDescription implements
         params.appendExtraDeps(ImmutableList.of(binaryRule)),
         new SourcePathResolver(buildRuleResolver),
         binaryRule,
-        args.contacts.get(),
-        args.labels.get(),
-        args.testRuleTimeoutMs.or(defaultTestRuleTimeoutMs));
+        args.contacts,
+        args.labels,
+        args.testRuleTimeoutMs.map(Optional::of).orElse(defaultTestRuleTimeoutMs));
   }
 
   @Override
@@ -135,10 +136,10 @@ public class DTestDescription implements
   @SuppressFieldNotInitialized
   public static class Arg extends AbstractDescriptionArg {
     public SourceList srcs;
-    public Optional<ImmutableSortedSet<String>> contacts;
-    public Optional<ImmutableSortedSet<Label>> labels;
+    public ImmutableSortedSet<String> contacts = ImmutableSortedSet.of();
+    public ImmutableSortedSet<Label> labels = ImmutableSortedSet.of();
     public Optional<Long> testRuleTimeoutMs;
     public ImmutableSortedSet<BuildTarget> deps;
-    public Optional<ImmutableList<String>> linkerFlags;
+    public ImmutableList<String> linkerFlags = ImmutableList.of();
   }
 }

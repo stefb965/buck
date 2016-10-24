@@ -1,4 +1,3 @@
-#@# GENERATED FILE: DO NOT MODIFY d0de572799ee708fa7a9a0b711fcb2375203ed47 #@#
 {
   "rules" : {
     "deps" : [
@@ -45,6 +44,7 @@
   },
   "unzip" : {
     "deps" : [
+      "//src/com/facebook/buck/util:util",
       "//third-party/java/commons-compress:commons-compress"
     ],
     "exported_deps" : [
